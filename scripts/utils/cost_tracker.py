@@ -28,6 +28,11 @@ class CostTracker:
         self.limit = limit_yuan
         self.warn_ratio = warn_ratio
 
+    @staticmethod
+    def estimate_cost_yuan(tokens_in, tokens_out, model=DEFAULT_MODEL):
+        """按模型单价估算单次调用费用（元）。"""
+        return estimate_cost_yuan(tokens_in, tokens_out, model)
+
     def record(self, run_id, stage, chapter, tokens_in, tokens_out, model=DEFAULT_MODEL):
         """记账并返回预算状态字符串：'ok' | 'warn' | 'pause'。"""
         cost = estimate_cost_yuan(tokens_in, tokens_out, model)
