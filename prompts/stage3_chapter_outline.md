@@ -2,7 +2,7 @@
 stage: 3
 name: stage3_chapter_outline
 model: deepseek-v4-flash
-max_tokens: 4000
+max_tokens: 10000
 temperature: 0.6
 ---
 # 阶段 3 任务：生成逐章大纲（第 {{first}}-{{last}} 章）

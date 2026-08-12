@@ -2,7 +2,7 @@
 stage: 4
 name: stage4_writing
 model: deepseek-v4-flash
-max_tokens: 4000
+max_tokens: 25000
 temperature: 0.8
 ---
 # 阶段 4 任务：写作第 {{n}} 章

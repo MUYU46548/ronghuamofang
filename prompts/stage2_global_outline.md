@@ -2,7 +2,7 @@
 stage: 2
 name: stage2_global_outline
 model: deepseek-v4-flash
-max_tokens: 5000
+max_tokens: 10000
 temperature: 0.6
 ---
 # 阶段 2 任务：生成全书整体大纲
