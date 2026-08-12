@@ -1,0 +1,19 @@
+# =========================================================
+# NovelForge 项目信息（每次运行前可修改）
+# 参考：架构文档 v2 4.2 / 十一
+# =========================================================
+
+book:
+  name: "示例书名（待填写）"        # 书名
+  genre: "奇幻"                    # 类型
+  target_words: 300000            # 全书目标字数
+  style: "待填写风格偏好"           # 风格（如：偏治愈日常、史诗群像）
+  chapters: 10                    # 本次运行章节数（MVP 先 10 章）
+  language: "zh-CN"
+
+vault:
+  readonly: true                  # ROSA 设定库只读（系统永不写入 E:/图书馆/ROSA）
+  vault_links: "materials/vault_links.md"  # 设定库引用索引（阶段1 生成/维护）
+
+run:
+  output_word: true               # 阶段7 是否转 Word（false 则仅输出 merged Markdown）

@@ -1,0 +1,20 @@
+# ===== Python =====
+.venv/
+__pycache__/
+*.pyc
+
+# ===== 运行时数据（不进 Git，由 history/ 快照承担版本职责）=====
+data/
+history/
+
+# ===== 日志与数据库 =====
+logs/*.db
+logs/*.log
+logs/session.log
+
+# ===== 环境变量（含密钥，绝不提交）=====
+.env
+
+# ===== 系统文件 =====
+.DS_Store
+Thumbs.db

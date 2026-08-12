@@ -1,0 +1,32 @@
+# =========================================================
+# NovelForge 全局配置（不含密钥，可提交 Git）
+# 参考：架构文档 v2 第七章
+# =========================================================
+
+model:
+  default: deepseek-v4-flash        # 与当前 Hermes 配置一致
+  writer: deepseek-v4-flash         # 写作模型，可单独升级（如 deepseek-v3 / claude-sonnet）
+  checker: deepseek-v4-flash        # 检查模型（可降级省钱）
+
+budget:
+  limit_yuan: 300                   # 超限自动暂停（也可由 .env 的 BUDGET_LIMIT_YUAN 覆盖）
+  warn_ratio: 0.7                   # 消耗 70% 时提醒
+
+parallelism:
+  writing: 1                        # 阶段4串行（一致性优先）
+  polish: 3                         # 阶段6分卷并行
+  checks_max_concurrent: 2          # 阶段5每批并行路数（delegate 实际上限 3，保守取 2）
+
+chapter:
+  target_words: [2000, 3000]        # 单章目标字数区间
+  summary_every: 5                  # 滚动摘要近期区容量（章）
+  batch_outline: 10                 # 阶段3每批章数
+  quality_threshold: 6              # 自评分下限（P1 启用自动重写）
+
+gates:
+  require_approval: [2]             # P0 强制：阶段2（整体大纲）完成后等人工确认；全自动填 []
+  pause_on_failure: true            # 阶段级失败时暂停等人工
+
+logging:
+  level: info
+  rotate_days: 30
