@@ -10,26 +10,18 @@ from pathlib import Path
 from utils.api_client import HermesClient
 from utils.file_io import read_text, write_text
 from utils.verify_chapter import count_cn_words
+from utils.template_loader import load_template
 
 
 def build_polish_task(proj, checked_dir, refined_dir, chapters):
-    listing = "\n".join(f"- 第{n}章: {checked_dir}/chapter{n}.md" for n in chapters)
-    return f"""# 阶段 6 任务：基础润色
-
-你是文字编辑。请严格按指示执行。
-
-## 输入文件（用 read_file 读取）
-{listing}
-
-## 任务
-对每一章进行基础润色：修正病句、冗余、口语化表述，提升文笔流畅度。
-润色后的全文写入: {Path(refined_dir).resolve()}/NN.md（同名）
-
-## 铁律
-- 只改表达，不改情节、不改人物行为与对话内容
-- 不得新增/删除关键事件；字数变化控制在 ±20% 内
-- 保持原文风格与节奏
-"""
+    checked = Path(checked_dir).resolve()
+    listing = "\n".join(f"- 第{n}章: {checked / f'{n:02d}.md'}" for n in chapters)
+    _, body = load_template("stage6_polish.md", {
+        "listing": listing,
+        "path_refined": Path(refined_dir).resolve(),
+        "path_report": Path("data/outline/polish_report.md").resolve(),
+    })
+    return body
 
 
 def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=None):

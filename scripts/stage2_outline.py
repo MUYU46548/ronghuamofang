@@ -10,6 +10,7 @@ from pathlib import Path
 
 from utils.api_client import HermesClient
 from utils.file_io import read_text, write_text
+from utils.template_loader import load_template
 
 REQUIRED_SECTIONS = ["起", "承", "转", "合"]
 
@@ -30,42 +31,16 @@ def check_global_outline(path):
 
 
 def build_task(cfg, proj):
-    return f"""# 阶段 2 任务：生成全书整体大纲
-
-你是资深长篇小说编辑兼世界观架构师。请严格按以下指示执行。
-
-## 输入文件（用 read_file 读取）
-- 设定集: {Path('data/setting/setting.json').resolve()}
-- 素材清单: {Path('data/setting/materials_manifest.json').resolve()}
-- 项目配置: {Path('config/project.yaml').resolve()}
-
-## 任务
-阅读全部输入，为《{proj.get('book', {}).get('name', '未命名')}》生成全书整体大纲，
-写入文件: {Path('data/outline/global.md').resolve()}
-
-## 输出格式（global.md，必须严格遵循）
-# 《书名》整体大纲
-## 起
-（故事开端：背景、主角登场、核心矛盾引入）
-## 承
-（发展：冲突升级、角色成长、关键转折铺陈）
-## 转
-（高潮：最大危机、决定性冲突）
-## 合
-（收束：矛盾解决、结局、余韵）
-## 关键节点
-- 节点1：章节区间 + 事件概述
-（至少 5 个节点，覆盖全书）
-## 预计章节数
-（一个正整数）
-## 章节规划
-（简述各章节区间的主要功能：铺垫/推进/高潮/收束等）
-
-## 要求
-- 逻辑自洽，无显著漏洞；与设定集硬约束（locked 条目）不冲突
-- 全书目标字数约 {proj.get('book', {}).get('target_words', 300000)} 字
-- 不要写正文，只写大纲
-"""
+    book = proj.get("book", {})
+    _, body = load_template("stage2_global_outline.md", {
+        "book_name": book.get("name", "未命名"),
+        "target_words": book.get("target_words", 300000),
+        "path_setting": Path("data/setting/setting.json").resolve(),
+        "path_manifest": Path("data/setting/materials_manifest.json").resolve(),
+        "path_project": Path("config/project.yaml").resolve(),
+        "path_global_outline": Path("data/outline/global.md").resolve(),
+    })
+    return body
 
 
 def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=None):

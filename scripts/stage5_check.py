@@ -10,34 +10,18 @@ from pathlib import Path
 
 from utils.api_client import HermesClient
 from utils.file_io import read_text, write_text
+from utils.template_loader import load_template
 from utils.verify_chapter import check_chapter
 
 
 def build_check_task(proj, raw_dir, setting_path, checked_dir):
-    return f"""# 阶段 5 任务：全书逻辑检查与修正
-
-你是严谨的小说逻辑审校。请严格按指示执行。
-
-## 输入文件（用 read_file 读取）
-- 全部章节正文: {Path(raw_dir).resolve()}/ 下的 *.md（依次读取全部）
-- 设定集: {Path(setting_path).resolve()}
-
-## 检查项
-1. 角色一致性：行为/性格/关系是否偏离设定
-2. 时间线：事件顺序与时间引用是否冲突
-3. 伏笔回收：大纲埋下的伏笔是否回收/悬空
-4. 世界观冲突：术语误用/设定违背（尤其 locked 条目）
-
-## 输出
-1. 问题报告写入: {Path('data/outline/check_report.md').resolve()}
-   格式：# 逻辑检查报告\n## 问题清单\n- [严重度] 章节X 问题描述（问题类型）
-2. 将每章修正后的全文写入: {Path(checked_dir).resolve()}/NN.md
-   （与原稿同名的修正版；无问题的章节直接复制原稿）
-
-## 要求
-- 只修正问题句，不重写全章；保持情节与文风
-- 修正必须落实到 checked/ 文件，不得只写报告
-"""
+    _, body = load_template("stage5_check.md", {
+        "path_raw": Path(raw_dir).resolve(),
+        "path_setting": Path(setting_path).resolve(),
+        "path_report": Path("data/outline/check_report.md").resolve(),
+        "path_checked": Path(checked_dir).resolve(),
+    })
+    return body
 
 
 def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=None):

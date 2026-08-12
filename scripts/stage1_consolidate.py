@@ -17,6 +17,7 @@ import re
 from pathlib import Path
 
 from utils.file_io import read_text, write_text
+from utils.template_loader import load_template
 
 SUPPORTED_EXTS = {".txt", ".md", ".markdown", ".docx"}
 DEDUP_SIMILARITY = 0.9
@@ -102,31 +103,12 @@ def dedup(manifest, threshold=DEDUP_SIMILARITY):
 
 
 def build_setting_task(proj, manifest_path, normalized_dir):
-    return f"""# 阶段 1 任务：归并生成设定集
-
-你是世界观架构师。请严格按指示执行。
-
-## 输入文件（用 read_file 读取）
-- 素材清单: {Path(manifest_path).resolve()}
-- 归一化素材: {Path(normalized_dir).resolve()}/ 下的 *.md（按清单逐个读取）
-
-## 任务
-阅读全部素材，去重、合并矛盾，提取角色/世界观/情节碎片，生成设定集，
-写入文件: {Path('data/setting/setting.json').resolve()}
-
-## 输出格式（setting.json，JSON 文件）
-{{
-  "characters": [{{"id": "...", "name": "...", "role": "...", "traits": [...], "relations": [...]}}],
-  "world": {{"locations": [], "factions": [], "magic_system": [], "items": []}},
-  "plot_fragments": [{{"id": "f001", "source": "素材名", "summary": "...", "status": "unused"}}],
-  "timeline": [{{"event": "...", "year": null, "locked": false}}],
-  "_meta": {{"version": 1, "generated_from": [...], "vault_readonly": true}}
-}}
-
-## 要求
-- 四个顶层键必须全部存在（characters/world/plot_fragments/timeline）
-- 每条目保留 source 溯源；素材矛盾时取更详细/更新的描述并注明
-"""
+    _, body = load_template("stage1_materials.md", {
+        "path_manifest": Path(manifest_path).resolve(),
+        "path_normalized": Path(normalized_dir).resolve(),
+        "path_setting": Path("data/setting/setting.json").resolve(),
+    })
+    return body
 
 
 def validate_setting(path):

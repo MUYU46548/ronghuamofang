@@ -10,6 +10,7 @@ from pathlib import Path
 
 from utils.api_client import HermesClient
 from utils.file_io import read_text, write_text
+from utils.template_loader import load_template
 
 REQUIRED_FIELDS = ["核心事件", "涉及角色", "功能"]
 
@@ -23,31 +24,15 @@ def check_chapter_outline(path):
 
 def build_batch_task(cfg, proj, chapters, global_outline_path, setting_path):
     listing = "\n".join(f"- 第{n}章 → data/outline/chapters/{n:02d}.md" for n in chapters)
-    return f"""# 阶段 3 任务：生成逐章大纲（第 {chapters[0]}-{chapters[-1]} 章）
-
-你是资深长篇小说编辑。请严格按指示执行。
-
-## 输入文件（用 read_file 读取）
-- 整体大纲: {Path(global_outline_path).resolve()}
-- 设定集: {Path(setting_path).resolve()}
-- 项目配置: {Path('config/project.yaml').resolve()}
-
-## 任务
-为以下章节生成详细大纲，每章写入独立文件：
-{listing}
-
-## 每章大纲格式（outline/chapters/NN.md）
-## 第N章 章节名
-- 核心事件：本章发生的关键事件（2-4 条，含因果）
-- 涉及角色：出场角色及作用（列 id 或名字）
-- 功能：本章在全书中的功能（铺垫/推进/转折/高潮/收束/过渡）
-- 衔接：承接上一章的什么结尾，为下一章埋下什么钩子
-
-## 要求
-- 逐章顺序推进，与前章衔接、为后章铺垫，不得跳跃或冲突
-- 事件必须符合设定集 locked 硬约束
-- 不写正文，只写大纲；每章大纲 300-600 字
-"""
+    _, body = load_template("stage3_chapter_outline.md", {
+        "first": chapters[0],
+        "last": chapters[-1],
+        "listing": listing,
+        "path_global_outline": Path(global_outline_path).resolve(),
+        "path_setting": Path(setting_path).resolve(),
+        "path_project": Path("config/project.yaml").resolve(),
+    })
+    return body
 
 
 def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=None):

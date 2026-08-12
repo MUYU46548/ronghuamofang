@@ -15,6 +15,7 @@ from utils.api_client import HermesClient
 from utils.file_io import read_text, write_text
 from utils.verify_chapter import check_chapter, count_cn_words
 from utils.summary_chain import append_chapter_summary, extract_prev_tail, compress_recent, load_rolling, write_rolling
+from utils.template_loader import load_template
 from utils.progress_manager import ProgressManager
 from utils.cost_tracker import CostTracker
 
@@ -22,42 +23,21 @@ SUMMARY_RE = re.compile(r"<!--\s*summary:\s*(.+?)\s*-->", re.IGNORECASE | re.S)
 
 
 def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, prev_tail):
+    target = cfg.get("chapter", {}).get("target_words", [2000, 3000])
     tail_section = "\n\n".join(prev_tail) if prev_tail else "（无上一章，本章为开篇）"
-    return f"""# 阶段 4 任务：写作第 {n} 章
-
-你是长篇小说写作 Agent，服务于《{proj.get('book', {}).get('name', '未命名')}》。
-
-## 输入文件（用 read_file 读取）
-- 本章大纲: {Path(outline_path).resolve()}
-- 设定集: {Path(setting_path).resolve()}（仅参考涉及本章的角色/地点/势力条目，locked 条目不可违逆）
-- 滚动摘要: {Path(rolling_path).resolve()}
-- 项目配置: {Path('config/project.yaml').resolve()}
-
-## 上一章末尾衔接段（用于语气与节奏衔接）
-{tail_section}
-
-## 写作要求
-1. 字数 {cfg.get('chapter', {}).get('target_words', [2000, 3000])[0]}-{cfg.get('chapter', {}).get('target_words', [2000, 3000])[1]} 字
-2. 严格遵循本章大纲事件推进；可补充细节，但不得新增关键情节
-3. 角色言行符合设定集 traits 与 relations
-4. 结尾自然衔接下一章开头
-
-## 输出
-将正文写入文件: {Path(f'data/chapters/raw/{n:02d}.md').resolve()}
-
-## 输出格式（严格遵循）
-## 第{n}章 章节名
-（正文，段落间空一行）
-
-文件末尾追加两行注释：
-<!-- quality: X/10 -->（X=0-10，依据：与大纲契合度/设定遵循度/文笔流畅度）
-<!-- summary: 本章关键事件与角色状态摘要（约100字） -->
-
-## 硬性禁止
-- 禁止与设定集 locked 条目冲突；禁止修改时间线
-- 禁止使用 Markdown 表格、图片、代码块；确需呈现用文本描述，如 [表格：xxx]
-- 禁止 AI 腔套话；禁止占位符（XXX/TODO/待补充）
-"""
+    _, body = load_template("stage4_writing.md", {
+        "n": n,
+        "book_name": proj.get("book", {}).get("name", "未命名"),
+        "path_outline": Path(outline_path).resolve(),
+        "path_setting": Path(setting_path).resolve(),
+        "path_rolling": Path(rolling_path).resolve(),
+        "path_project": Path("config/project.yaml").resolve(),
+        "prev_tail": tail_section,
+        "min_words": target[0],
+        "max_words": target[1],
+        "path_output": Path(f"data/chapters/raw/{n:02d}.md").resolve(),
+    })
+    return body
 
 
 def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=None):
