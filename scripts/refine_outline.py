@@ -76,7 +76,7 @@ def run_refine(cfg, proj, feedback, client=None, task_dir=None, dry_run=False):
     backup = backup_current(GLOBAL, HISTORY_DIR, version)
     print(f"[refine] 已备份当前大纲 → {backup}（v{version}）")
 
-    client = client or HermesClient()
+    client = client or HermesClient(model=(cfg or {}).get("model", {}).get("default"))
     task_dir = task_dir or "data/state/tasks"
     task = client.write_task(task_dir, "stage2_refine.md",
                              build_task(cfg, proj, feedback, version))

@@ -20,6 +20,9 @@ book:
   #   替换 [书籍标题]/[作者] 占位符、[目录占位符] 插入 TOC 域、正文写入 [请输入文本] 之后。
   #   更换模板 = 替换本字段路径或覆盖 templates/ 下文件，无需改代码。
   word_template: "templates/小说格式模板V1.3.dotx"
+  # 风格参考文本（可选，写作阶段注入）。放 materials/ 下（如 materials/style_sample.md），
+  #   1-2 篇你满意的范文/片段，stage4 写作时模仿其节奏、用词与句式。留空则按模板文风要求。
+  style_reference: ""
 
 vault:
   readonly: true                  # ROSA 设定库只读（系统永不写入 E:/图书馆/ROSA）

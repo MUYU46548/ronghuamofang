@@ -25,7 +25,7 @@ def build_check_task(proj, raw_dir, setting_path, checked_dir):
 
 
 def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=None):
-    client = client or HermesClient()
+    client = client or HermesClient(model=(cfg or {}).get("model", {}).get("checker"))
     task_dir = task_dir or "data/state/tasks"
     raw_dir = Path("data/chapters/raw")
     checked_dir = Path("data/chapters/checked")

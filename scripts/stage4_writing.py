@@ -25,6 +25,12 @@ SUMMARY_RE = re.compile(r"<!--\s*summary:\s*(.+?)\s*-->", re.IGNORECASE | re.S)
 def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, prev_tail):
     target = cfg.get("chapter", {}).get("target_words", [2000, 3000])
     tail_section = "\n\n".join(prev_tail) if prev_tail else "（无上一章，本章为开篇）"
+    style_ref = (proj.get("book", {}).get("style_reference") or "").strip()
+    style_text = ""
+    if style_ref and Path(style_ref).exists():
+        style_text = read_text(style_ref).strip()[:6000]  # 上限 6K 字符，防任务文件膨胀
+    if not style_text:
+        style_text = "（未提供，请严格按下方文风要求写作）"
     _, body = load_template("stage4_writing.md", {
         "n": n,
         "book_name": proj.get("book", {}).get("name", "未命名"),
@@ -33,6 +39,7 @@ def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, p
         "path_rolling": Path(rolling_path).resolve(),
         "path_project": Path("config/project.yaml").resolve(),
         "prev_tail": tail_section,
+        "style_reference": style_text,
         "min_words": target[0],
         "max_words": target[1],
         "path_output": Path(f"data/chapters/raw/{n:02d}.md").resolve(),
@@ -41,7 +48,7 @@ def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, p
 
 
 def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=None):
-    client = client or HermesClient()
+    client = client or HermesClient(model=(cfg or {}).get("model", {}).get("writer"))
     task_dir = task_dir or "data/state/tasks"
     total = int(proj.get("book", {}).get("chapters", 10))
     raw_dir = Path("data/chapters/raw")

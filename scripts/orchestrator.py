@@ -45,7 +45,15 @@ def load_config():
 def run(from_stage=1, only_stage=None, client=None):
     cfg, proj = load_config()
     progress = ProgressManager("data/state/progress.json")
-    progress.data["project"] = proj.get("book", {}).get("name", "")
+    # 多书隔离（P0.7 #10）：progress 记录的书名与 project.yaml 不一致时提示
+    prev_book = progress.data.get("project", "")
+    book_name = proj.get("book", {}).get("name", "")
+    if prev_book and prev_book != book_name:
+        print(f"[orchestrator] 注意：progress 记录的书名「{prev_book}」"
+              f"与 project.yaml「{book_name}」不一致")
+        print("             换书请用: python scripts/switch_book.py --archive "
+              f"(归档「{prev_book}」) / --restore \"书名\"；继续将按 project.yaml 处理")
+    progress.data["project"] = book_name
     db = RunDB("logs/runs.db")
     try:
         budget = cfg.get("budget", {})

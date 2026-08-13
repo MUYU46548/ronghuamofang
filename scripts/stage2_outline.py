@@ -46,7 +46,7 @@ def build_task(cfg, proj):
 
 
 def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=None):
-    client = client or HermesClient()
+    client = client or HermesClient(model=(cfg or {}).get("model", {}).get("default"))
     task_dir = task_dir or "data/state/tasks"
     task = client.write_task(task_dir, "stage2_global_outline.md", build_task(cfg, proj))
 

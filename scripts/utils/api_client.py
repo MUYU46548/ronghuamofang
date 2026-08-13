@@ -66,11 +66,12 @@ def estimate_tokens(task_path):
 
 
 class HermesClient:
-    def __init__(self, hermes_bin="hermes", timeout=900):
+    def __init__(self, hermes_bin="hermes", timeout=900, model=None):
         self.hermes_bin = hermes_bin
         self.timeout = timeout
+        self.model = model  # 阶段模型路由（-m 参数）；None = 用 Hermes 默认
 
-    def run_task(self, task_file, workdir=None):
+    def run_task(self, task_file, workdir=None, model=None):
         """运行一个自包含任务文件。
 
         返回 dict: {exit_code, stdout_tail, tokens, cost_yuan, estimated}
@@ -82,6 +83,9 @@ class HermesClient:
             self.hermes_bin, "chat", "-q",
             f"阅读并严格按 {task_path} 中的指示执行全部步骤。完成后简要汇报：产物路径、校验结果、遇到的问题。",
         ]
+        eff_model = model or self.model
+        if eff_model:
+            cmd += ["-m", eff_model]
         proc = subprocess.run(cmd, capture_output=True, text=True,
                               timeout=self.timeout, cwd=workdir)
         stdout = proc.stdout or ""

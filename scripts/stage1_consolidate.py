@@ -103,6 +103,39 @@ def dedup(manifest, threshold=DEDUP_SIMILARITY):
     return unique, removed
 
 
+def manifest_fingerprint(manifest):
+    """素材清单内容指纹：归一化文件内容的 sha256（与 mtime 无关）。
+
+    用于判断"素材是否有实质变化"——只有内容变化才触发设定集重新归并，
+    修复此前"设定集已存在即复用、新素材永远进不了 setting.json"的问题。
+    """
+    h = hashlib.sha256()
+    for item in sorted(manifest, key=lambda x: x["source"]):
+        try:
+            with open(item["normalized"], "rb") as f:
+                h.update(f.read())
+        except OSError:
+            h.update(b"<missing>")
+    return h.hexdigest()
+
+
+def _write_manifest(manifest, removed, path, fingerprint=None):
+    """写素材清单（带内容指纹）。"""
+    write_text(path, json.dumps(
+        {"count": len(manifest), "removed_count": len(removed),
+         "materials": manifest, "removed": removed,
+         "_fingerprint": fingerprint},
+        ensure_ascii=False, indent=2))
+
+
+def _load_prev_fingerprint(manifest_path):
+    try:
+        prev = json.loads(read_text(manifest_path))
+        return prev.get("_fingerprint")
+    except (json.JSONDecodeError, ValueError, FileNotFoundError):
+        return None
+
+
 def build_setting_task(proj, manifest_path, normalized_dir):
     _, body = load_template("stage1_materials.md", {
         "path_manifest": Path(manifest_path).resolve(),
@@ -127,7 +160,7 @@ def validate_setting(path):
 
 
 def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=None):
-    client = client or HermesClient()
+    client = client or HermesClient(model=(cfg or {}).get("model", {}).get("default"))
     task_dir = task_dir or "data/state/tasks"
     materials_dir = proj.get("materials", {}).get("dir", "materials/raw")
     manifest_path = Path("data/setting/materials_manifest.json")
@@ -146,18 +179,18 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         progress.set_stage(1, "failed", error="materials/raw 无素材且无既有设定集")
         return False, "stage1 失败：materials/raw 为空"
     manifest, removed = dedup(manifest)
-    write_text(manifest_path, json.dumps(
-        {"count": len(manifest), "removed_count": len(removed),
-         "materials": manifest, "removed": removed},
-        ensure_ascii=False, indent=2))
+    sig = manifest_fingerprint(manifest)
+    prev_sig = _load_prev_fingerprint(manifest_path)
+    _write_manifest(manifest, removed, manifest_path, sig)
+    setting_valid = setting_path.exists() and validate_setting(setting_path)[0]
 
-    if setting_path.exists():
-        ok, errors = validate_setting(setting_path)
-        if ok:
-            progress.mark_stage_done(1)
-            print(f"[stage1] 素材归一化 {len(manifest)} 条，设定集已存在，跳过归并")
-            return True, "stage1 完成（复用设定集）"
-        print(f"[stage1] 既有设定集无效（{errors}），重新归并")
+    if setting_valid and sig == prev_sig:
+        # 素材无实质变化 → 复用设定集（此前会无条件复用，新素材进不了 setting.json）
+        progress.mark_stage_done(1)
+        print(f"[stage1] 素材归一化 {len(manifest)} 条（去重 {len(removed)} 条），素材无变化，复用设定集")
+        return True, "stage1 完成（素材无变化，复用设定集）"
+    if setting_valid:
+        print(f"[stage1] 素材有变化（指纹不一致），重新归并设定集")
 
     task = client.write_task(task_dir, "stage1_setting.md",
                              build_setting_task(proj, manifest_path, normalized_dir))
@@ -169,6 +202,15 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     if not ok:
         progress.set_stage(1, "failed", error="; ".join(errors))
         return False, "stage1 设定集校验失败: " + "; ".join(errors)
+
+    # 设定集就绪 → 生成设定库引用索引（materials/vault_links.md）
+    vault_links = proj.get("vault", {}).get("vault_links", "materials/vault_links.md")
+    try:
+        from build_vault_links import build_vault_links
+        total, srcs = build_vault_links(setting_path, vault_links)
+        print(f"[stage1] 设定库引用索引生成: {total} 条目 / {srcs} 素材 → {vault_links}")
+    except Exception as e:
+        print(f"[WARN] vault_links 生成失败（不影响归并结果）: {e}")
 
     progress.mark_stage_done(1)
     print(f"[stage1] 素材归一化 {len(manifest)} 条（去重 {len(removed)} 条），设定集生成完成")
@@ -187,10 +229,7 @@ def main():
     removed = []
     if not args.no_dedup:
         manifest, removed = dedup(manifest)
-    write_text(args.out, json.dumps(
-        {"count": len(manifest), "removed_count": len(removed),
-         "materials": manifest, "removed": removed},
-        ensure_ascii=False, indent=2))
+    _write_manifest(manifest, removed, args.out, manifest_fingerprint(manifest))
     print(f"素材归一化: {len(manifest)} 条保留, {len(removed)} 条去重移除")
     print(f"清单输出: {args.out}")
     return 0 if manifest else 1
