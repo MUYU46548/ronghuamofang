@@ -7,6 +7,9 @@ __pycache__/
 data/
 history/
 
+# ===== 成品输出（Word/Markdown 成品不进 Git）=====
+output/
+
 # ===== 日志与数据库 =====
 logs/*.db
 logs/*.log

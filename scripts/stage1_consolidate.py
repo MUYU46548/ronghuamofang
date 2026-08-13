@@ -16,6 +16,7 @@ import json
 import re
 from pathlib import Path
 
+from utils.api_client import HermesClient
 from utils.file_io import read_text, write_text
 from utils.template_loader import load_template
 
