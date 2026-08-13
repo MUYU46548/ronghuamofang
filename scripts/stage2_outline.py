@@ -32,9 +32,11 @@ def check_global_outline(path):
 
 def build_task(cfg, proj):
     book = proj.get("book", {})
+    user_outline = (book.get("user_outline") or "").strip()
     _, body = load_template("stage2_global_outline.md", {
         "book_name": book.get("name", "未命名"),
         "target_words": book.get("target_words", 300000),
+        "user_outline": user_outline or "（未提供，请基于设定集与素材清单自拟整体大纲）",
         "path_setting": Path("data/setting/setting.json").resolve(),
         "path_manifest": Path("data/setting/materials_manifest.json").resolve(),
         "path_project": Path("config/project.yaml").resolve(),

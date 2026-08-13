@@ -19,8 +19,9 @@ NovelForge 是全自动长篇小说生成系统：用户放置素材 → Hermes 
 4. 退出码语义（orchestrator 返回）：
    - `0` = 全部完成；`1` = 阶段失败暂停；`2` = 预算熔断；`3` = 等待阶段 2 审批
 5. 审批门：exit=3 时，提示用户审阅 `data/outline/global.md`：
+   - 审阅前先跑 `python scripts/outline_review.py` 看体检报告（标出空泛节点/章节规划缺漏），避免草草开工
    - 用户确认 → `python scripts/approve.py --stage 2` → 重新运行 orchestrator（断点续跑）
-   - 用户不满意 → 让用户说明意见，重跑阶段 2（`--stage 2`）或修改后审批
+   - 用户不满意 → 让用户说明意见，跑 `python scripts/refine_outline.py "意见"`（增量修订，自动备份旧版到 `data/outline/history/`）→ 反复至满意 → 再审批
 
 ## 命令速查
 
@@ -31,12 +32,17 @@ NovelForge 是全自动长篇小说生成系统：用户放置素材 → Hermes 
 | 只跑阶段 N | `python scripts/orchestrator.py --stage N` |
 | 审批阶段 N | `python scripts/approve.py --stage N` |
 | 撤销审批 | `python scripts/approve.py --stage N --revoke` |
+| 大纲体检 | `python scripts/outline_review.py`（确定性，标出空泛节点） |
+| 大纲精修（定向修订） | `python scripts/refine_outline.py "意见"`（`--dry-run` 只生成任务不跑子会话） |
 | 素材预扫描 | `python scripts/stage1_consolidate.py` |
 
 ## 关键路径
 
 - 设定集：`data/setting/setting.json`（四顶层键 characters/world/plot_fragments/timeline）
 - 整体大纲：`data/outline/global.md`（审批门对象）
+- 大纲体检报告：`data/outline/review_report.md`（outline_review.py 生成）
+- 大纲修订历史：`data/outline/history/`（每次精修自动备份 global_vN.md，可回退）
+- 用户大纲输入：`config/project.yaml` 的 `book.user_outline`（可选；提供后 stage2/精修优先遵循）
 - 逐章大纲：`data/outline/chapters/NN.md`
 - 章节：`data/chapters/raw`（原稿）/ `checked`（检查后）/ `refined`（润色后）
 - 滚动摘要：`data/summaries/rolling.md`（全书摘要 + 近 5 章）

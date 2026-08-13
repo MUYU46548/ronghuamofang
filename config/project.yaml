@@ -10,6 +10,11 @@ book:
   style: "奇幻日常、白描勾画"           # 风格（如：偏治愈日常、史诗群像）
   chapters: 3                    # 本次运行章节数
   language: "zh-CN"
+  # 用户提供的大纲/梗概/核心构思（可选）。留空则系统基于素材自拟。
+  # 多行写法：user_outline: |
+  #   第一句点明核心设定……
+  #   第二句点明主角弧光……
+  user_outline: ""
 
 vault:
   readonly: true                  # ROSA 设定库只读（系统永不写入 E:/图书馆/ROSA）

@@ -17,6 +17,9 @@ temperature: 0.6
 ## 任务
 为《{{book_name}}》生成全书整体大纲，写入文件: {{path_global_outline}}
 
+## 用户提供的大纲/构思（最高优先级，必须严格遵循）
+{{user_outline}}
+
 ## 输出格式（global.md，必须严格遵循）
 # 《书名》整体大纲
 ## 起
