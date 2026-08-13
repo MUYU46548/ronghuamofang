@@ -21,3 +21,7 @@ logs/session.log
 # ===== 系统文件 =====
 .DS_Store
 Thumbs.db
+
+# ===== 临时与附件（不进 Git）=====
+Temp/
+.hermes/
