@@ -31,6 +31,7 @@ import stage4_writing as s4
 import stage5_check as s5
 import stage6_polish as s6
 import stage7_convert as s7
+import snapshot as snap
 
 STAGES = {1: s1, 2: s2, 3: s3, 4: s4, 5: s5, 6: s6, 7: s7}
 
@@ -76,6 +77,11 @@ def run(from_stage=1, only_stage=None, client=None):
             ok, msg = STAGES[n].run_stage(cfg, proj, progress, db, cost, client=client,
                                           task_dir="data/state/tasks", run_id=run_id)
             print(f"[orchestrator] 阶段{n} 结果: {msg}")
+            if ok:
+                try:
+                    snap.snapshot(f"stage{n}_done")  # 阶段成功 → 快照
+                except Exception as e:
+                    print(f"[orchestrator] 快照失败（不影响流程）: {e}")
             if not ok:
                 if cfg.get("gates", {}).get("pause_on_failure", True):
                     print("[orchestrator] 阶段失败，暂停等待处理（可重跑或人工介入）")

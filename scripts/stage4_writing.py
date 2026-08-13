@@ -72,7 +72,7 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                                                     "data/summaries/rolling.md",
                                                     prev_tail))
         result = client.run_task(task)
-        cost_est = cost.estimate_cost_yuan(result["tokens"] or 20000, result["tokens"] // 3 or 6000) if cost else 0
+        cost_est = cost.estimate_cost_yuan(result["tokens"], result["tokens_out"]) if cost else 0
         if result["exit_code"] != 0:
             progress.mark_chapter_failed(n, "子会话退出码非零", 4)
             if db and run_id:
@@ -122,7 +122,8 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         if db and run_id:
             db.log_chapter(run_id, 4, n, status, quality=check.quality, cost_yuan=cost_est)
         if cost:
-            cost.record(run_id, 4, n, result["tokens"] or 20000, result["tokens"] // 3 or 6000)
+            cost.record(run_id, 4, n, result["tokens"], result["tokens_out"],
+                        estimated=result.get("estimated", False))
         print(f"[stage4] 第{n}章完成 {check.summary()}")
 
     # 收尾

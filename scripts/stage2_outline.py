@@ -51,6 +51,9 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     task = client.write_task(task_dir, "stage2_global_outline.md", build_task(cfg, proj))
 
     result = client.run_task(task)
+    if cost and run_id:
+        cost.record(run_id, 2, 0, result["tokens"], result["tokens_out"],
+                    estimated=result.get("estimated", False))
     if result["exit_code"] != 0:
         progress.set_stage(2, "failed", error="子会话退出码非零")
         return False, "stage2 子会话失败"

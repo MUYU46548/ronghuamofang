@@ -57,6 +57,9 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                                                   "data/outline/global.md",
                                                   "data/setting/setting.json"))
         result = client.run_task(task)
+        if cost and run_id:
+            cost.record(run_id, 3, chapters[0], result["tokens"], result["tokens_out"],
+                        estimated=result.get("estimated", False))
         if result["exit_code"] != 0:
             progress.set_stage(3, "failed", error=f"批 {bi} 子会话失败")
             return False, f"stage3 批 {bi} 失败"

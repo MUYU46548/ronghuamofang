@@ -44,6 +44,9 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     task = client.write_task(task_dir, "stage5_check.md",
                              build_check_task(proj, raw_dir, "data/setting/setting.json", checked_dir))
     result = client.run_task(task)
+    if cost and run_id:
+        cost.record(run_id, 5, 0, result["tokens"], result["tokens_out"],
+                    estimated=result.get("estimated", False))
     if result["exit_code"] != 0:
         progress.set_stage(5, "failed", error="子会话退出码非零")
         return False, "stage5 子会话失败"

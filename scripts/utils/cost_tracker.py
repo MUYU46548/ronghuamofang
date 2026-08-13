@@ -33,10 +33,16 @@ class CostTracker:
         """按模型单价估算单次调用费用（元）。"""
         return estimate_cost_yuan(tokens_in, tokens_out, model)
 
-    def record(self, run_id, stage, chapter, tokens_in, tokens_out, model=DEFAULT_MODEL):
-        """记账并返回预算状态字符串：'ok' | 'warn' | 'pause'。"""
+    def record(self, run_id, stage, chapter, tokens_in, tokens_out, model=DEFAULT_MODEL,
+               estimated=False):
+        """记账并返回预算状态字符串：'ok' | 'warn' | 'pause'。
+
+        estimated=True 表示 token 为估算值（stdout 未解析到真实用量），
+        写入 cost_log.estimated 便于审计。
+        """
         cost = estimate_cost_yuan(tokens_in, tokens_out, model)
-        self.db.log_cost(run_id, stage, chapter, model, tokens_in, tokens_out, cost)
+        self.db.log_cost(run_id, stage, chapter, model, tokens_in, tokens_out, cost,
+                         estimated=estimated)
         return self.status(run_id)[0]
 
     def spent(self, run_id=None, stage=None):

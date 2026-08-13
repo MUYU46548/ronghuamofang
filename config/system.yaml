@@ -22,6 +22,7 @@ chapter:
   summary_every: 5                  # 滚动摘要近期区容量（章）
   batch_outline: 10                 # 阶段3每批章数
   quality_threshold: 6              # 自评分下限（P1 启用自动重写）
+  page_break: true                  # 阶段7 每章新起一页（模板/无模板均生效）
 
 gates:
   require_approval: [2]             # P0 强制：阶段2（整体大纲）完成后等人工确认；全自动填 []

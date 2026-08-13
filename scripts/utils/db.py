@@ -29,7 +29,8 @@ CREATE TABLE IF NOT EXISTS cost_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   run_id INTEGER, stage INTEGER, chapter INTEGER,
   model TEXT, tokens_in INTEGER, tokens_out INTEGER,
-  cost_yuan REAL, called_at TEXT
+  cost_yuan REAL, called_at TEXT,
+  estimated INTEGER DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS summary_log (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -50,6 +51,7 @@ class RunDB:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(str(self.path))
         self.conn.executescript(SCHEMA)
+        self._migrate()
         self.conn.commit()
 
     # ---------- runs ----------
@@ -88,12 +90,20 @@ class RunDB:
         return row[0] if row else None
 
     # ---------- cost_log ----------
-    def log_cost(self, run_id, stage, chapter, model, tokens_in, tokens_out, cost_yuan):
+    def log_cost(self, run_id, stage, chapter, model, tokens_in, tokens_out, cost_yuan,
+                 estimated=0):
         self.conn.execute(
-            "INSERT INTO cost_log (run_id, stage, chapter, model, tokens_in, tokens_out, cost_yuan, called_at) "
-            "VALUES (?,?,?,?,?,?,?,?)",
-            (run_id, stage, chapter, model, tokens_in, tokens_out, cost_yuan, now_iso()))
+            "INSERT INTO cost_log (run_id, stage, chapter, model, tokens_in, tokens_out,"
+            " cost_yuan, called_at, estimated) VALUES (?,?,?,?,?,?,?,?,?)",
+            (run_id, stage, chapter, model, tokens_in, tokens_out, cost_yuan,
+             now_iso(), 1 if estimated else 0))
         self.conn.commit()
+
+    def _migrate(self):
+        """幂等迁移：为旧库 cost_log 补 estimated 列。"""
+        cols = [r[1] for r in self.conn.execute("PRAGMA table_info(cost_log)")]
+        if "estimated" not in cols:
+            self.conn.execute("ALTER TABLE cost_log ADD COLUMN estimated INTEGER DEFAULT 0")
 
     def sum_cost(self, run_id=None, stage=None):
         sql = "SELECT COALESCE(SUM(cost_yuan),0) FROM cost_log WHERE 1=1"
