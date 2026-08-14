@@ -36,6 +36,31 @@ import snapshot as snap
 STAGES = {1: s1, 2: s2, 3: s3, 4: s4, 5: s5, 6: s6, 7: s7}
 
 
+def run_material_review(progress):
+    """stage1 成功后自动生成素材完备度体检报告（失败不阻断，同 vault_links 模式）。
+
+    返回 (thin_names, warn_names)，供 stage2 审批门提醒使用。
+    """
+    try:
+        import material_review as mr
+        char_results, world_items, thin_names, warn_names = \
+            mr.review("data/setting/setting.json", "data/setting/normalized")
+        out = "data/setting/material_review.md"
+        Path(out).parent.mkdir(parents=True, exist_ok=True)
+        from utils.file_io import write_text
+        write_text(out, mr.format_report(char_results, world_items, thin_names, warn_names,
+                                         "data/setting/setting.json", "data/setting/normalized"))
+        if thin_names:
+            print(f"[orchestrator] 素材体检：{len(thin_names)} 个碎片角色"
+                  f"（{'、'.join(thin_names)}），报告 → {out}")
+        else:
+            print(f"[orchestrator] 素材体检：无碎片角色，报告 → {out}")
+        return thin_names, warn_names
+    except Exception as e:
+        print(f"[orchestrator] 素材体检失败（不影响流程）: {e}")
+        return [], []
+
+
 def load_config():
     cfg = yaml.safe_load(read_text("config/system.yaml"))
     proj = yaml.safe_load(read_text("config/project.yaml"))
@@ -75,6 +100,19 @@ def run(from_stage=1, only_stage=None, client=None):
             if n > 2 and progress.stage_status(2) == "done" and not progress.is_approved(2):
                 print("[orchestrator] 阶段2 未获人工确认，暂停。"
                       "请审阅 data/outline/global.md 后在主会话确认（set_approved(2)）")
+                # P1.5：审批前若设定集有碎片角色，提醒先补全（可配开关关闭）
+                if cfg.get("gates", {}).get("setting_refine_reminder", True):
+                    try:
+                        import material_review as mr
+                        _, _, thin_names, _ = mr.review("data/setting/setting.json",
+                                                        "data/setting/normalized")
+                        if thin_names:
+                            print("[orchestrator] 提醒：设定集存在碎片角色"
+                                  f"（{'、'.join(thin_names)}）。"
+                                  "建议先审 data/setting/material_review.md，"
+                                  "并跑 python scripts/setting_refine.py 补全后再审批。")
+                    except Exception as e:
+                        print(f"[orchestrator] 补全提醒检查失败（不影响流程）: {e}")
                 db.finish_run(run_id, "waiting_approval")
                 return 3
             # 断点：已完成阶段跳过
@@ -90,6 +128,9 @@ def run(from_stage=1, only_stage=None, client=None):
                     snap.snapshot(f"stage{n}_done")  # 阶段成功 → 快照
                 except Exception as e:
                     print(f"[orchestrator] 快照失败（不影响流程）: {e}")
+                if n == 1:
+                    # P1.5：stage1 归并完成后自动生成素材体检报告（不阻断）
+                    run_material_review(progress)
             if not ok:
                 if cfg.get("gates", {}).get("pause_on_failure", True):
                     print("[orchestrator] 阶段失败，暂停等待处理（可重跑或人工介入）")
