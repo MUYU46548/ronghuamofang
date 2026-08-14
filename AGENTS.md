@@ -18,10 +18,13 @@ NovelForge 是全自动长篇小说生成系统：用户放置素材 → Hermes 
 3. 监控：轮询 `logs/runs.db` 与 `data/state/progress.json` 向用户汇报进度/成本
 4. 退出码语义（orchestrator 返回）：
    - `0` = 全部完成；`1` = 阶段失败暂停；`2` = 预算熔断；`3` = 等待阶段 2 审批
-5. 审批门：exit=3 时，提示用户审阅 `data/outline/global.md`：
-   - 审阅前先跑 `python scripts/outline_review.py` 看体检报告（标出空泛节点/章节规划缺漏），避免草草开工
-   - 用户确认 → `python scripts/approve.py --stage 2` → 重新运行 orchestrator（断点续跑）
-   - 用户不满意 → 让用户说明意见，跑 `python scripts/refine_outline.py "意见"`（增量修订，自动备份旧版到 `data/outline/history/`）→ 反复至满意 → 再审批
+5. 审批门：exit=3 时，提示用户审阅：
+   - 阶段2 审阅 `data/outline/global.md`：审阅前先跑 `python scripts/outline_review.py` 看体检报告（标出空泛节点/章节规划缺漏），避免草草开工
+   - 阶段6 审阅 `data/chapters/refined/`：润色稿满意再放行
+   - 用户确认 → `python scripts/approve.py --stage N` → 重新运行 orchestrator（断点续跑）
+   - 用户不满意 → 让用户说明意见：
+     - 阶段2：跑 `python scripts/refine_outline.py "意见"`（增量修订，自动备份旧版到 `data/outline/history/`）→ 反复至满意 → 再审批
+     - 其余阶段：跑 `python scripts/reject.py --stage N "原因"`（记录原因+清下游产物+重置状态）→ 重新运行 orchestrator（`--from N` 重跑）
 
 ## 命令速查
 
@@ -32,6 +35,7 @@ NovelForge 是全自动长篇小说生成系统：用户放置素材 → Hermes 
 | 只跑阶段 N | `python scripts/orchestrator.py --stage N` |
 | 审批阶段 N | `python scripts/approve.py --stage N` |
 | 撤销审批 | `python scripts/approve.py --stage N --revoke` |
+| 打回阶段 N | `python scripts/reject.py --stage N "原因"`（记录原因+清理下游产物+重置状态+撤销审批；`--dry-run` 预演） |
 | 大纲体检 | `python scripts/outline_review.py`（确定性，标出空泛节点） |
 | 设定体检（stage1后自动） | `python scripts/material_review.py`（确定性，标出碎片角色/缺失维度，报告 data/setting/material_review.md） |
 | 设定补全（审批前） | `python scripts/setting_refine.py "意见"` 或 `--auto-thin`（仅从素材推断+llm_inferred 标记，备份 data/setting/history/） |
