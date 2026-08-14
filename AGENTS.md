@@ -33,9 +33,13 @@ NovelForge 是全自动长篇小说生成系统：用户放置素材 → Hermes 
 | 审批阶段 N | `python scripts/approve.py --stage N` |
 | 撤销审批 | `python scripts/approve.py --stage N --revoke` |
 | 大纲体检 | `python scripts/outline_review.py`（确定性，标出空泛节点） |
+| 设定体检（stage1后自动） | `python scripts/material_review.py`（确定性，标出碎片角色/缺失维度，报告 data/setting/material_review.md） |
+| 设定补全（审批前） | `python scripts/setting_refine.py "意见"` 或 `--auto-thin`（仅从素材推断+llm_inferred 标记，备份 data/setting/history/） |
 | 大纲精修（定向修订） | `python scripts/refine_outline.py "意见"`（`--dry-run` 只生成任务不跑子会话） |
 | 章节精修（定向修订） | `python scripts/refine_chapter.py 3 "意见"`（备份 data/chapters/history/，±20% 铁律） |
 | 全书摘要（完书后） | `python scripts/book_summary.py`（输出 output/{书名}_全书摘要.md，可粘贴 ROSA） |
+| ROSA 后处理（完书后） | `python scripts/rosa_postprocess.py [--books\|--role-records\|--roles "露汐,小林"] [--dry-run] [--no-llm]`（作品介绍页/出场记录/新角色设定草稿 → Obsidian_AI_Sandbox/10_Inbox/） |
+| 角色出场统计 | `python scripts/appearances.py`（确定性，输出 data/state/appearances.json，rosa_postprocess 自动调用） |
 | 润色后体检 | `python scripts/polish_review.py`（确定性，交付 Word 前跑） |
 | 成本报告 | `python scripts/cost_report.py`（总览）；`--by-chapter`（分章）；`--runs 5` |
 | 多书切换 | `python scripts/switch_book.py --list` / `--archive` / `--restore "书名"`（归档 data/books/，均需 `--yes`） |
@@ -47,6 +51,9 @@ NovelForge 是全自动长篇小说生成系统：用户放置素材 → Hermes 
 - 设定集：`data/setting/setting.json`（四顶层键 characters/world/plot_fragments/timeline）
 - 整体大纲：`data/outline/global.md`（审批门对象）
 - 大纲体检报告：`data/outline/review_report.md`（outline_review.py 生成）
+- 素材体检报告：`data/setting/material_review.md`（material_review.py 生成，stage1 后自动）
+- 设定补全历史：`data/setting/history/`（setting_refine.py 每次补全自动备份 setting_vN.json）
+- 角色出场统计：`data/state/appearances.json`（appearances.py 生成，rosa_postprocess 自动调用）
 - 大纲修订历史：`data/outline/history/`（每次精修自动备份 global_vN.md，可回退）
 - 用户大纲输入：`config/project.yaml` 的 `book.user_outline`（可选；提供后 stage2/精修优先遵循）
 - Word 成品模板：`templates/*.dotx`（config 的 `book.word_template` 指定；.dotx 自动转换；替换 [书籍标题]/[作者]/[目录占位符]/[请输入文本] 占位符；更换模板只改配置或覆盖 templates/）
