@@ -17,7 +17,7 @@ NovelForge 是全自动长篇小说生成系统：用户放置素材 → Hermes 
    - 长任务（数小时），用后台运行 + 完成通知
 3. 监控：轮询 `logs/runs.db` 与 `data/state/progress.json` 向用户汇报进度/成本
 4. 退出码语义（orchestrator 返回）：
-   - `0` = 全部完成；`1` = 阶段失败暂停；`2` = 预算熔断；`3` = 等待阶段 2 审批
+   - `0` = 全部完成；`1` = 阶段失败暂停；`2` = 预算熔断；`3` = 等待审批（阶段2 大纲 / 阶段6 润色）
 5. 审批门：exit=3 时，提示用户审阅：
    - 阶段2 审阅 `data/outline/global.md`：审阅前先跑 `python scripts/outline_review.py` 看体检报告（标出空泛节点/章节规划缺漏），避免草草开工
    - 阶段6 审阅 `data/chapters/refined/`：润色稿满意再放行
@@ -76,7 +76,7 @@ NovelForge 是全自动长篇小说生成系统：用户放置素材 → Hermes 
 
 - **阶段失败（exit=1）**：读 orchestrator 输出定位失败阶段 → 检查原因（校验失败/子会话异常）→ 修 `prompts/` 模板或素材 → 重跑 `--from N`
 - **预算熔断（exit=2）**：查询 `SELECT SUM(cost_yuan) FROM cost_log` → 与用户确认是否调高 `config/system.yaml` 的 `budget.limit_yuan` → 清 `data/state/progress.json` 的 `budget.paused` → 重跑
-- **用户打回**：定位目标阶段 → 清空其下游产物（如 `data/chapters/refined/`、`data/chapters/checked/`）→ `--from N` 重跑
+- **用户打回**：`python scripts/reject.py --stage N "原因"`（记录原因、清理 N 及下游产物、重置状态、撤销审批；history/ 备份保留可回退）→ `--from N` 重跑。打回 2 用精修通道（refine_outline）而非 reject
 - **素材更新**：新增素材后 `--from 1` 重跑（已有章节文件自动跳过，不会重写）
 - **提示词调优**：直接改 `prompts/stageN_*.md`（模板与代码分离，无需改脚本）
 
