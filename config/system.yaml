@@ -25,7 +25,7 @@ chapter:
   page_break: true                  # 阶段7 每章新起一页（模板/无模板均生效）
 
 gates:
-  require_approval: [2]             # P0 强制：阶段2（整体大纲）完成后等人工确认；全自动填 []
+  require_approval: [2, 6]          # 阶段2（整体大纲）+ 阶段6（润色稿）完成后等人工确认；全自动填 []
   pause_on_failure: true            # 阶段级失败时暂停等人工
   setting_refine_reminder: true     # P1.5：stage2 审批前若设定集存在 THIN 碎片角色，提醒先补全（false 关闭提醒）
 

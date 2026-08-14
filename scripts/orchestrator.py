@@ -96,12 +96,33 @@ def run(from_stage=1, only_stage=None, client=None):
                 progress.save()
                 db.finish_run(run_id, "paused")
                 return 2
-            # 阶段 2 审批门
-            if n > 2 and progress.stage_status(2) == "done" and not progress.is_approved(2):
-                print("[orchestrator] 阶段2 未获人工确认，暂停。"
-                      "请审阅 data/outline/global.md 后在主会话确认（set_approved(2)）")
+            # 打回提示：该阶段曾被打回（reject.py），重跑前告知原因
+            st_n = progress.data["stages"].get(str(n), {})
+            if st_n.get("rejected"):
+                print(f"[orchestrator] 阶段{n} 曾被打回"
+                      f"（{st_n.get('rejected_at', '')}）：{st_n['rejected']}，正在重跑")
+            # 审批门：require_approval 中已完成但未人工确认的阶段 → 暂停
+            req = cfg.get("gates", {}).get("require_approval", [2])
+            pending_approvals = [s for s in req
+                                 if n > s and progress.stage_status(s) == "done"
+                                 and not progress.is_approved(s)]
+            if pending_approvals:
+                for s in pending_approvals:
+                    if s == 2:
+                        print("[orchestrator] 阶段2 未获人工确认，暂停。"
+                              "请审阅 data/outline/global.md 后在主会话确认"
+                              "（approve.py --stage 2）")
+                    elif s == 6:
+                        print("[orchestrator] 阶段6（润色）未获人工确认，暂停。"
+                              "请审阅 data/chapters/refined/ 后在主会话确认"
+                              "（approve.py --stage 6）；不满意可用"
+                              "reject.py --stage 6 \"意见\" 打回重跑")
+                    else:
+                        print(f"[orchestrator] 阶段{s} 未获人工确认，暂停。"
+                              f"（approve.py --stage {s}）")
                 # P1.5：审批前若设定集有碎片角色，提醒先补全（可配开关关闭）
-                if cfg.get("gates", {}).get("setting_refine_reminder", True):
+                if 2 in pending_approvals and cfg.get("gates", {}).get(
+                        "setting_refine_reminder", True):
                     try:
                         import material_review as mr
                         _, _, thin_names, _ = mr.review("data/setting/setting.json",
@@ -124,6 +145,10 @@ def run(from_stage=1, only_stage=None, client=None):
                                           task_dir="data/state/tasks", run_id=run_id)
             print(f"[orchestrator] 阶段{n} 结果: {msg}")
             if ok:
+                # 重跑成功 → 清除打回标记
+                st_now = progress.data["stages"].get(str(n), {})
+                if st_now.pop("rejected", None) is not None:
+                    progress.save()
                 try:
                     snap.snapshot(f"stage{n}_done")  # 阶段成功 → 快照
                 except Exception as e:
