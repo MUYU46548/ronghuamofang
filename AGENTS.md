@@ -4,7 +4,7 @@
 
 ## 项目定位
 
-NovelForge 是全自动长篇小说生成系统：用户放置素材 → Hermes 调度流水线 → 交付 Word 成品。
+NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是全自动长篇小说生成系统：用户放置素材 → Hermes 调度流水线 → 交付 Word 成品。
 用户只做两件事：**放置素材** + **说"运行 NovelForge 项目"**。其余由系统自主执行，用户保留审批权。
 
 ## 启用流程（用户说"运行 NovelForge"时）
