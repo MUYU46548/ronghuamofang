@@ -4,9 +4,9 @@
 # =========================================================
 
 model:
-  default: deepseek-v4-flash        # 与当前 Hermes 配置一致
-  writer: deepseek-v4-flash         # 写作模型，可单独升级（如 deepseek-v3 / claude-sonnet）
-  checker: deepseek-v4-flash        # 检查模型（可降级省钱）
+  default: hy3                      # 与当前 Hermes 配置一致（廉价额度）
+  writer: hy3                       # 写作模型（hy3 廉价额度，写作能力差异可接受）
+  checker: hy3                      # 检查模型（hy3 廉价额度）
 
 budget:
   limit_yuan: 300                   # 超限自动暂停（也可由 .env 的 BUDGET_LIMIT_YUAN 覆盖）

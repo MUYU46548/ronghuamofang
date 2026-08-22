@@ -1,7 +1,7 @@
 ---
 stage: 5
 name: stage5_check
-model: deepseek-v4-flash
+model: hy3
 max_tokens: 8000
 temperature: 0.3
 ---

@@ -1,7 +1,7 @@
 ---
 stage: 6
 name: stage6_polish
-model: deepseek-v4-flash
+model: hy3
 max_tokens: 4000
 temperature: 0.4
 ---

@@ -1,7 +1,7 @@
 ---
 stage: 9
 name: book_summary
-model: deepseek-v4-flash
+model: hy3
 max_tokens: 4000
 temperature: 0.4
 ---

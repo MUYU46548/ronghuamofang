@@ -1,7 +1,7 @@
 ---
 stage: 2
 name: stage2_global_outline
-model: deepseek-v4-flash
+model: hy3
 max_tokens: 10000
 temperature: 0.6
 ---

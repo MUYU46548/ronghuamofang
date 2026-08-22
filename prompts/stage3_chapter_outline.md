@@ -1,7 +1,7 @@
 ---
 stage: 3
 name: stage3_chapter_outline
-model: deepseek-v4-flash
+model: hy3
 max_tokens: 10000
 temperature: 0.6
 ---

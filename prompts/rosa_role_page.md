@@ -1,7 +1,7 @@
 ---
 stage: 10
 name: rosa_role_page
-model: deepseek-v4-flash
+model: hy3
 max_tokens: 3000
 temperature: 0.4
 ---

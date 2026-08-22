@@ -7,11 +7,15 @@
 from utils.db import RunDB
 
 # 单位：元 / 百万 token（占位单价，MVP 校准后更新）
+# 单价表（元 / 百万 token）。hy3 真实单价来自 opencode 文档（USD/M，按 ~7.2 折算）：
+#   in $0.14 / out $0.58 / cache_read $0.035 → ≈ ¥1.0 / ¥4.2
+#   cache_read 未在 estimate_cost_yuan 建模，实际因提示词缓存命中更便宜，当前记账偏保守/偏高
 RATES = {
     "deepseek-v4-flash": {"in": 1.0, "out": 4.0},
     "deepseek-v3":       {"in": 2.0, "out": 8.0},
+    "hy3":               {"in": 1.0, "out": 4.2},
 }
-DEFAULT_MODEL = "deepseek-v4-flash"
+DEFAULT_MODEL = "hy3"
 
 
 def estimate_cost_yuan(tokens_in, tokens_out, model=DEFAULT_MODEL):

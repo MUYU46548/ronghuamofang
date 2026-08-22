@@ -1,7 +1,7 @@
 ---
 stage: 1
 name: stage1_materials
-model: deepseek-v4-flash
+model: hy3
 max_tokens: 6000
 temperature: 0.3
 ---
