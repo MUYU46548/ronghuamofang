@@ -1,0 +1,9 @@
+# NovelForge 运行依赖锁（venv: .venv / python 3.11）
+# 生成方式: .venv/Scripts/python.exe -m pip install -r requirements.txt
+# 说明: 仅锁定本项目脚本实际 import 并提供 Word/配置能力的第三方包；
+#       Python 标准库（argparse/json/re/pathlib/sqlite3/subprocess 等）不列。
+
+python-docx==1.2.0      # Word 成品生成（stage7 + 语音设定导出）
+lxml==6.1.2             # python-docx 的底层 XML 依赖（缺失则 docx 无法 import）
+typing_extensions==4.16.0   # python-docx 1.2.0 要求的运行期依赖
+PyYAML==6.0.2           # 全局配置解析（config/*.yaml），orchestrator 与各 stage 均依赖

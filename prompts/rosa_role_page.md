@@ -1,7 +1,7 @@
 ---
 stage: 10
 name: rosa_role_page
-model: hy3
+model: hy3  # 死代码：真源见 config/system.yaml 的 model.*，代码不读取此字段，仅作文档同步参考
 max_tokens: 3000
 temperature: 0.4
 ---

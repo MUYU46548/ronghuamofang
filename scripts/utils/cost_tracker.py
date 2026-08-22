@@ -6,14 +6,19 @@
 """
 from utils.db import RunDB
 
-# 单位：元 / 百万 token（占位单价，MVP 校准后更新）
-# 单价表（元 / 百万 token）。hy3 真实单价来自 opencode 文档（USD/M，按 ~7.2 折算）：
-#   in $0.14 / out $0.58 / cache_read $0.035 → ≈ ¥1.0 / ¥4.2
-#   cache_read 未在 estimate_cost_yuan 建模，实际因提示词缓存命中更便宜，当前记账偏保守/偏高
+# 单位：元 / 百万 token（已按 opencode 真实账单校准，非占位）
+# 单价来源：opencode 文档（USD/M，汇率 ~7.2 折算）：
+#   hy3  in $0.14 / out $0.58 / cache_read $0.035 → ≈ ¥1.0 / ¥4.2
+# 计费口径说明：
+#   - estimate_cost_yuan 仅按 in/out 计价，未建模 cache_read；
+#     实际因提示词缓存命中（system/模板复用）更便宜，当前记账偏保守/偏高，
+#     属安全侧误差（不会漏计导致熔断失效），待接入真实用量 API 后改为精确计费。
+#   - deepseek-v4-flash / deepseek-v3 已于 2026-08-18 弃用（统一切 hy3），
+#     保留条目仅为历史 cost_log 回看兼容；新运行不会再命中。
 RATES = {
-    "deepseek-v4-flash": {"in": 1.0, "out": 4.0},
-    "deepseek-v3":       {"in": 2.0, "out": 8.0},
     "hy3":               {"in": 1.0, "out": 4.2},
+    "deepseek-v4-flash": {"in": 1.0, "out": 4.0},   # 仅历史回看兼容，已弃用
+    "deepseek-v3":       {"in": 2.0, "out": 8.0},   # 仅历史回看兼容，已弃用
 }
 DEFAULT_MODEL = "hy3"
 

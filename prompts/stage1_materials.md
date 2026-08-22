@@ -1,7 +1,7 @@
 ---
 stage: 1
 name: stage1_materials
-model: hy3
+model: hy3  # 死代码：真源见 config/system.yaml 的 model.*，代码不读取此字段，仅作文档同步参考
 max_tokens: 6000
 temperature: 0.3
 ---

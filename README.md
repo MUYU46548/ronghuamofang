@@ -1,8 +1,8 @@
-# 绒花墨坊（NovelForge）— 全自动长篇小说生成系统
+# 绒花墨坊（Ronghua Mofang）— 全自动长篇小说生成系统
 
 > 可进化 AI 小说创作工作站。输入混沌素材，输出结构化长篇小说（Markdown → Word），全程自主执行，用户仅保留审批权。
 >
-> **对外品牌名：绒花墨坊**（`ronghuamofang`）；NovelForge 为内部代号。
+> **对外品牌名：绒花墨坊**（`ronghuamofang`）；NovelForge 为早期内部代号。
 
 ## 核心特性
 

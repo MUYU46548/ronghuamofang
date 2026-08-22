@@ -1,10 +1,17 @@
 # -*- coding: utf-8 -*-
-"""阶段 6：基础润色（P0 基础版，分卷并行留 P1）。
+"""阶段 6：基础润色（P0 → P1 分卷并行）。
 
 仅改表达不改情节；校验润色后字数变化 < 20%（防止重写）。
 输出 chapters/refined/。
+
+P1 改造：尊重 config system.yaml 的 parallelism.polish（并发卷数），
+将待润色章节分卷，每卷独立子会话并发执行，整体时延从 O(N) 降至 O(N/polish)。
+- 断点续跑：refined 已存在的章跳过；
+- 失败语义：任一卷失败 → 阶段失败（已成功的 refined 保留，可断点重跑）；
+- 成本记账：每卷独立记账。
 """
 import argparse
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from utils.api_client import HermesClient
@@ -13,15 +20,46 @@ from utils.verify_chapter import count_cn_words
 from utils.template_loader import load_template
 
 
-def build_polish_task(proj, checked_dir, refined_dir, chapters):
+def build_polish_task(proj, checked_dir, refined_dir, chapters, vol_index=None):
     checked = Path(checked_dir).resolve()
     listing = "\n".join(f"- 第{n}章: {checked / f'{n:02d}.md'}" for n in chapters)
+    report_path = Path("data/outline/polish_report.md").resolve()
+    if vol_index is not None:
+        report_path = Path(f"data/outline/polish_report_vol{vol_index}.md").resolve()
     _, body = load_template("stage6_polish.md", {
         "listing": listing,
         "path_refined": Path(refined_dir).resolve(),
-        "path_report": Path("data/outline/polish_report.md").resolve(),
+        "path_report": report_path,
     })
     return body
+
+
+def _run_one_volume(client, task_dir, vol_index, proj, checked_dir, refined_dir, vol_chapters, run_id, cost):
+    """执行单个润色卷，返回 (ok, msg, vol_chapters)。"""
+    checked = Path(checked_dir).resolve()
+    refined = Path(refined_dir).resolve()
+    content = build_polish_task(proj, checked, refined, vol_chapters, vol_index=vol_index)
+    task_path = client.write_task(task_dir, f"stage6_polish_vol{vol_index}.md", content)
+    result = client.run_task(task_path)
+    if cost and run_id:
+        cost.record(run_id, 6, vol_chapters[0] if vol_chapters else 0, result["tokens"],
+                    result["tokens_out"], estimated=result.get("estimated", False))
+    if result["exit_code"] != 0:
+        return False, f"stage6 卷{vol_index} 子会话失败", vol_chapters
+
+    missing = [f"{n:02d}.md" for n in vol_chapters
+               if not (refined / f"{n:02d}.md").exists()]
+    if missing:
+        return False, f"stage6 卷{vol_index} 缺润色文件: {missing}", vol_chapters
+
+    for n in vol_chapters:
+        src = checked / f"{n:02d}.md"
+        out = refined / f"{n:02d}.md"
+        before = count_cn_words(read_text(src))
+        after = count_cn_words(read_text(out))
+        if before and abs(after - before) / before > 0.2:
+            return False, f"stage6 第{n}章字数变化超20%（疑似重写）", vol_chapters
+    return True, f"stage6 卷{vol_index} 完成（{len(vol_chapters)} 章）", vol_chapters
 
 
 def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=None):
@@ -41,37 +79,39 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         return True, "stage6 跳过（refined 已存在）"
 
     chapters = [int(f.stem) for f in pending]
-    task = client.write_task(task_dir, "stage6_polish.md",
-                             build_polish_task(proj, checked_dir, refined_dir, chapters))
-    result = client.run_task(task)
-    if cost and run_id:
-        cost.record(run_id, 6, chapters[0] if chapters else 0, result["tokens"],
-                    result["tokens_out"], estimated=result.get("estimated", False))
-    if result["exit_code"] != 0:
-        progress.set_stage(6, "failed", error="子会话退出码非零")
-        return False, "stage6 子会话失败"
+    # 分卷：并发数 = parallelism.polish（默认 3）， ceil 均分
+    polish = max(1, int((cfg or {}).get("parallelism", {}).get("polish", 3)))
+    vols = [chapters[i::polish] for i in range(polish) if chapters[i::polish]]
+    vols = [v for v in vols if v]
+    print(f"[stage6] 待润色 {len(chapters)} 章，分 {len(vols)} 卷并发（polish={polish}）")
 
-    for f in pending:
-        out = refined_dir / f.name
-        if not out.exists():
-            progress.set_stage(6, "failed", error=f"缺润色文件: {f.name}")
-            return False, f"stage6 缺润色文件: {f.name}"
-        before = count_cn_words(read_text(f))
-        after = count_cn_words(read_text(out))
-        if before and abs(after - before) / before > 0.2:
-            progress.set_stage(6, "failed", error=f"第{f.stem}章字数变化超20%")
-            return False, f"stage6 第{f.stem}章字数变化超20%（疑似重写）"
+    results = []
+    with ThreadPoolExecutor(max_workers=min(polish, len(vols))) as pool:
+        futures = {
+            pool.submit(_run_one_volume, client, task_dir, idx, proj,
+                        checked_dir, refined_dir, vol, run_id, cost): idx
+            for idx, vol in enumerate(vols)
+        }
+        for fut in as_completed(futures):
+            ok, msg, _ = fut.result()
+            results.append((ok, msg))
+            print(f"[stage6] {msg}")
+
+    failed = [m for ok, m in results if not ok]
+    if failed:
+        progress.set_stage(6, "failed", error="; ".join(failed))
+        return False, f"stage6 失败：{'；'.join(failed)}"
 
     if db and run_id:
-        for f in pending:
-            db.log_chapter(run_id, 6, int(f.stem), "ok")
+        for n in chapters:
+            db.log_chapter(run_id, 6, n, "ok")
     progress.mark_stage_done(6)
-    print(f"[stage6] 基础润色完成（{len(pending)} 章）")
+    print(f"[stage6] 基础润色完成（{len(chapters)} 章，{len(vols)} 卷）")
     return True, "stage6 完成"
 
 
 def main():
-    parser = argparse.ArgumentParser(description="NovelForge 阶段6：基础润色（P0 基础版）")
+    parser = argparse.ArgumentParser(description="NovelForge 阶段6：基础润色（P1 分卷并行）")
     parser.add_argument("--task-dir", default="data/state/tasks")
     args = parser.parse_args()
     import yaml
