@@ -1,34 +1,38 @@
 # =========================================================
 # NovelForge 全局配置（不含密钥，可提交 Git）
-# 参考：架构文档 v2 第七章；P2 引擎无关化（2026-09-09）
+# 参考：架构文档 v2 第七章；P2 引擎无关化 + P2.1 TokenHub（2026-09-09）
 # =========================================================
 
-# 执行引擎：hermes | direct（OpenAI 兼容直连，推荐——Hermes 仅为过渡执行引擎）
+# 执行引擎：direct（OpenAI 兼容直连，当前=腾讯云 TokenHub）| hermes（回退）
 engine: direct
 
 # 服务商登记（type 仅支持 openai-compat；密钥走 .env，绝不写进本文件）
 providers:
-  hunyuan:
+  tokenhub:
     type: openai-compat
-    base_url: https://api.hunyuan.cloud.tencent.com/v1
-    api_key_env: HUNYUAN_API_KEY
+    base_url: https://tokenhub.tencentmaas.com/v1
+    api_key_env: TOKENHUB_API_KEY
     timeout: 600
     retries: 3
-    # 说明：默认并发 5 路；免费包（开通赠 100 万 tokens/1 年有效）耗尽后
-    # 默认不自动转后付费（欠费前会报错，安全）。文档：混元生文计费概述。
+    # 与 Hermes config.yaml 的 tokenhub provider 同源（勿改用文档里的 tencentcloudmaas.com，
+    # key 与域名绑定：tencentmaas.com 才是本 key 的归属端点）
 
 model:
   # 角色路由：writer=阶段4/6（写作），checker=阶段5（检查），default=其余
-  # 模型 ID 与单价必须真实（cost_tracker.RATES；未录入模型按保守默认价告警）
+  # 价格口径（TokenHub 模型价格 2026-09-08，广州，元/百万 tokens）：
+  #   deepseek-v4-flash 1/2（缓存0.2）· glm-5.3-flash 0.8/2.8（限时半价至09-10，目录1.6/5.6）
+  #   glm-5.3 8/28 · deepseek-v4-pro 12/24 · kimi-k3 20/100 · hy3 1/4
   default:
-    provider: hunyuan
-    id: hunyuan-lite          # 免费模型：设定归并/大纲/精修/后处理等
+    provider: tokenhub
+    id: deepseek-v4-flash     # 设定归并/大纲/精修/后处理（强 V4 代模型，最便宜档）
   writer:
-    provider: hunyuan
-    id: hunyuan-a13b          # 写作主力（刊例 in 0.5 / out 2 元每百万，免费包 100 万 tokens 优先扣）
+    provider: tokenhub
+    id: deepseek-v4-flash     # 写作主力（免费包优先扣；质量不够再换下行）
+    # 备选（改 id 即切，一行）：glm-5.3-flash（0.8/2.8，09-10后1.6/5.6）/
+    # glm-5.3（8/28）/ deepseek-v4-pro（12/24）
   checker:
-    provider: hunyuan
-    id: hunyuan-lite          # 检查也可用 a13b，先免费模型跑通再按质量升级
+    provider: tokenhub
+    id: deepseek-v4-flash     # 检查同档；追求更严可换 glm-5.3
 
 budget:
   limit_yuan: 300             # 超限自动暂停（也可由 .env 的 BUDGET_LIMIT_YUAN 覆盖）
@@ -36,7 +40,7 @@ budget:
 
 parallelism:
   writing: 1                  # 阶段4串行（一致性优先）
-  polish: 3                   # 阶段6分卷并行（注意混元默认并发限 5 路）
+  polish: 3                   # 阶段6分卷并行（留意平台并发限流）
   checks_max_concurrent: 2    # 阶段5每批并行路数
 
 chapter:

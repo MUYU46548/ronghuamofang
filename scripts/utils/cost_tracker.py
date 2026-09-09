@@ -20,11 +20,16 @@ from utils.db import RunDB
 #   hunyuan-lite  免费（0）
 # hy3：opencode 实测 USD/M 汇率 ~7.2 折算（in 0.14/out 0.58/cache_read 0.035）
 RATES = {
-    "hunyuan-a13b":       {"in": 0.5, "out": 2.0},   # 官方核实 2026-06
-    "hunyuan-lite":       {"in": 0.0, "out": 0.0},   # 官方免费
-    "hy3":                {"in": 1.0, "out": 4.2},   # opencode 折算
-    # 仅历史 cost_log 回看兼容（2026-08-18 已统一切 hy3，新运行不命中）
-    "deepseek-v4-flash":  {"in": 1.0, "out": 4.0},
+    "hunyuan-a13b":       {"in": 0.5, "out": 2.0},   # 混元官方 2026-06
+    "hunyuan-lite":       {"in": 0.0, "out": 0.0},   # 混元免费
+    # TokenHub 广州（模型价格 2026-09-08，元/百万）
+    "deepseek-v4-flash":  {"in": 1.0, "out": 2.0, "cache_read": 0.2},
+    "deepseek-v4-pro":    {"in": 12.0, "out": 24.0, "cache_read": 1.0},
+    "glm-5.3":            {"in": 8.0, "out": 28.0, "cache_read": 2.0},
+    "glm-5.3-flash":      {"in": 0.8, "out": 2.8, "cache_read": 0.23},  # 限时半价至 09-10，目录 1.6/5.6
+    "kimi-k3":            {"in": 20.0, "out": 100.0, "cache_read": 2.0},
+    "hy3":                {"in": 1.0, "out": 4.0, "cache_read": 0.25},  # TokenHub 目录价（旧 opencode 折算 1.0/4.2 供历史对账）
+    # 仅历史 cost_log 回看兼容
     "deepseek-v3":        {"in": 2.0, "out": 8.0},
 }
 # turbos 等未录入模型 → 回退 default 角色单价（保守），跑批前按控制台账单补录
