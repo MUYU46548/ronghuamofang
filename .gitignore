@@ -25,3 +25,7 @@ Thumbs.db
 # ===== 临时与附件（不进 Git）=====
 Temp/
 .hermes/
+
+# ===== 桌面控制台（Node 依赖与构建产物，本地安装即可） =====
+console/node_modules/
+console/renderer/dist/
