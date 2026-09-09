@@ -44,7 +44,8 @@ HEADING_RE = re.compile("^[#]{1,3}[ ]", re.M)
 OP_RE = re.compile("^[^" + NEWLINE + "]*?=== *(FILE|APPEND|DELETE) *: *(.+?) *===*[ ]*$",
                    re.M | re.IGNORECASE)
 END_RE = re.compile("^[^" + NEWLINE + "]*?=== *END *===*[ ]*$", re.M | re.IGNORECASE)
-DIR_SPEC_RE = re.compile(" 下的[*][.]md|/ 下的[*][.]md")
+DIR_SPEC_RE = re.compile("下的\\s*[*][.]md")
+_NOISE_RE = re.compile("[*（(，,、" + NEWLINE + " ]")
 
 
 def _split_sections(body):
@@ -71,6 +72,7 @@ def extract_input_paths(body):
         content = line[2:]
         if DIR_SPEC_RE.search(content):
             rest = DIR_SPEC_RE.sub("", content)
+            rest = re.split("[（(，,、]", rest)[0]  # 切掉尾随括号说明
             p = rest.split(": ", 1)[-1].strip().rstrip("/" + BS)
             if p and p not in seen and Path(p).is_dir():
                 seen.add(p)
@@ -154,7 +156,7 @@ def parse_ops(text):
         if m.start() < pos:
             continue
         op = m.group(1).upper()
-        path = m.group(2).strip()
+        path = m.group(2).strip().strip('"').strip("'").strip()
         ops.append((op, path, _strip_fence(text[m.end():end_m.start()])))
         pos = end_m.end()
     return ops
@@ -180,6 +182,18 @@ def snap_to_expected(got_path, expected):
     if Path(got_path).name == Path(expected).name:
         return expected
     return None
+
+
+def _dedupe_by_name(paths):
+    """同 basename 去重：保留 data/ 前缀者（裸文件名多为标题/括号噪声）。"""
+    by_name = {}
+    for p in paths:
+        by_name.setdefault(Path(p).name, []).append(p)
+    out = []
+    for ps in by_name.values():
+        data_ones = [x for x in ps if x.replace(BS, "/").startswith("data/")]
+        out.extend(data_ones if data_ones else ps[:1])
+    return sorted(out)
 
 
 def segment_requests(body, expected_writes, expected_appends):
@@ -290,16 +304,22 @@ class OpenAICompatClient:
         raise RuntimeError("[llm_client] 重试耗尽: " + str(last_err))
 
     def _expected_outputs(self, body):
-        """提取期望写入路径：全文扫描路径引用，排除输入段引用。"""
-        input_paths = {p for p, _ in extract_input_paths(body)}
+        """提取期望写入路径：只扫任务正文（排除输入段/内联输入区/缺失警告区）。"""
+        head = body.split("## 内联输入", 1)[0].split("## 输入缺失警告", 1)[0]
+        input_paths = {p for p, _ in extract_input_paths(head)}
         appends, writes = [], []
-        for m in PATH_RE_MJ.finditer(body):
+        for m in PATH_RE_MJ.finditer(head):
             p = m.group(0).strip()
-            ctx = body[max(0, m.start() - 12):m.start()]
+            if _NOISE_RE.search(p):  # 排除「xx/ 下的 *.md」与括号说明里的裸词
+                continue
+            if m.start() > 0 and head[m.start() - 1] in "（(":
+                continue  # 路径在括号内（如 ## 输出格式（setting.json，…））→ 噪声
+            ctx = head[max(0, m.start() - 12):m.start()]
             bucket = appends if "追加到" in ctx else writes
             if p not in bucket and p not in input_paths:
                 bucket.append(p)
-        return sorted(set(writes)), sorted(set(appends))
+        return (_dedupe_by_name(sorted(set(writes))),
+                _dedupe_by_name(sorted(set(appends))))
 
     def _apply_ops(self, text, expected_writes, expected_appends):
         ops = parse_ops(text)
