@@ -19,20 +19,18 @@ providers:
 
 model:
   # 角色路由：writer=阶段4/6（写作），checker=阶段5（检查），default=其余
-  # 价格口径（TokenHub 模型价格 2026-09-08，广州，元/百万 tokens）：
-  #   deepseek-v4-flash 1/2（缓存0.2）· glm-5.3-flash 0.8/2.8（限时半价至09-10，目录1.6/5.6）
-  #   glm-5.3 8/28 · deepseek-v4-pro 12/24 · kimi-k3 20/100 · hy3 1/4
+  # 当前=glm-5（用户指令 2026-09-09：10-09 正式下线，免费包内不用即浪费）
+  # 价格（TokenHub 广州 元/百万）：glm-5 输入 4-6/输出 18-22（按输入长度分档）
+  # 备选（改 id 即切）：deepseek-v4-flash 1/2 · glm-5.3-flash 0.8/2.8 · glm-5.3 8/28
   default:
     provider: tokenhub
-    id: deepseek-v4-flash     # 设定归并/大纲/精修/后处理（强 V4 代模型，最便宜档）
+    id: glm-5
   writer:
     provider: tokenhub
-    id: deepseek-v4-flash     # 写作主力（免费包优先扣；质量不够再换下行）
-    # 备选（改 id 即切，一行）：glm-5.3-flash（0.8/2.8，09-10后1.6/5.6）/
-    # glm-5.3（8/28）/ deepseek-v4-pro（12/24）
+    id: glm-5
   checker:
     provider: tokenhub
-    id: deepseek-v4-flash     # 检查同档；追求更严可换 glm-5.3
+    id: glm-5
 
 budget:
   limit_yuan: 300             # 超限自动暂停（也可由 .env 的 BUDGET_LIMIT_YUAN 覆盖）

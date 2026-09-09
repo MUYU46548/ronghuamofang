@@ -26,6 +26,7 @@ RATES = {
     "deepseek-v4-flash":  {"in": 1.0, "out": 2.0, "cache_read": 0.2},
     "deepseek-v4-pro":    {"in": 12.0, "out": 24.0, "cache_read": 1.0},
     "glm-5.3":            {"in": 8.0, "out": 28.0, "cache_read": 2.0},
+    "glm-5":              {"in": 6.0, "out": 22.0, "cache_read": 1.5},  # 32k+ 档保守计价（0-32k 档 4/18）；2026-10-09 下线
     "glm-5.3-flash":      {"in": 0.8, "out": 2.8, "cache_read": 0.23},  # 限时半价至 09-10，目录 1.6/5.6
     "kimi-k3":            {"in": 20.0, "out": 100.0, "cache_read": 2.0},
     "hy3":                {"in": 1.0, "out": 4.0, "cache_read": 0.25},  # TokenHub 目录价（旧 opencode 折算 1.0/4.2 供历史对账）
