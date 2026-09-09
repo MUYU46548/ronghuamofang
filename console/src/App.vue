@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from "vue";
+import { diffParagraphs } from "./diff.js";
 
 const API = "http://127.0.0.1:8765";
 
@@ -15,7 +16,13 @@ async function api(path, method = "GET", body = null) {
 const tab = ref("pipeline");
 const state = ref(null);
 const models = ref(null);
+const modelOptions = ref([
+  "glm-5", "glm-5.3", "glm-5.3-flash",
+  "deepseek-v4-flash", "deepseek-v4-pro", "kimi-k3",
+]);
 const costs = ref([]);
+const costSummary = ref(null);
+const costView = ref("cost");   // "cost" | "usage"
 const online = ref(false);
 const toast = ref("");
 const lastJob = ref(null);      // { state, result }
@@ -43,8 +50,12 @@ async function refresh() {
 }
 
 async function refreshCosts() {
-  const r = await api("/costs");
-  if (r.status === 200) costs.value = r.data.entries || [];
+  const [list, summary] = await Promise.all([
+    api("/costs"),
+    api("/costs/summary"),
+  ]);
+  if (list.status === 200) costs.value = list.data.entries || [];
+  if (summary.status === 200) costSummary.value = summary.data;
 }
 
 function switchTab(t) {
@@ -91,6 +102,13 @@ async function submitRefine() {
   refresh();
 }
 
+async function switchModel(role, modelId) {
+  const r = await api("/models/switch", "POST", { role, model: modelId });
+  if (r.status === 200) say("已切换 " + role + " → " + modelId + "（下次运行生效）");
+  else say("切换失败: " + (r.data.error || ""));
+  refresh();
+}
+
 const STAGE_NAMES = { 1: "素材→设定集", 2: "整体大纲", 3: "逐章大纲", 4: "逐章写作", 5: "逻辑检查", 6: "润色", 7: "Word 成品" };
 const stageList = computed(() => {
   if (!state.value) return [];
@@ -112,6 +130,7 @@ function statusBadge(s) {
   return { pending: "待办", running: "进行中", done: "完成", failed: "失败", rejected: "已打回" }[s] || s;
 }
 function fmtYuan(v) { return "¥" + Number(v || 0).toFixed(4); }
+function fmtNum(v) { return Number(v || 0).toLocaleString("zh-CN"); }
 function fmtTime(iso) { return (iso || "").replace("T", " "); }
 
 /* ---------- 章节浏览 ---------- */
@@ -143,9 +162,17 @@ async function loadChapters() {
   chaptersLoaded.value = true;
 }
 const viewDoc = ref(null);     // { title, content }
+const diffView = ref(null);     // { title, raw, refined }
+const diffComputed = ref([]);   // [{type, raw, refined}]
 function openDoc(title, content) {
   if (!content) return say("该产物尚未生成");
   viewDoc.value = { title, content };
+}
+function openDiff(title, raw, refined) {
+  if (!raw || !refined) return say("需要原稿和润色稿都已生成");
+  diffView.value = { title, raw, refined };
+  diffComputed.value = diffParagraphs(raw, refined);
+  console.log("[openDiff] diffComputed:", diffComputed.value.length, "items");
 }
 
 const previewText = ref("");
@@ -263,6 +290,7 @@ onUnmounted(() => clearInterval(timer));
         <button class="mini" :class="{ ghost: !c.files.raw }" @click="openDoc('第' + c.n + '章 原稿', c.files.raw)">原稿</button>
         <button class="mini" :class="{ ghost: !c.files.checked }" @click="openDoc('第' + c.n + '章 检查稿', c.files.checked)">检查稿</button>
         <button class="mini" :class="{ ghost: !c.files.refined }" @click="openDoc('第' + c.n + '章 润色稿', c.files.refined)">润色稿</button>
+        <button class="mini" :class="{ ghost: !(c.files.raw && c.files.refined) }" @click="openDiff('第' + c.n + '章 润色对比', c.files.raw, c.files.refined)">对比</button>
       </div>
     </section>
 
@@ -291,13 +319,75 @@ onUnmounted(() => clearInterval(timer));
     <!-- 成本 -->
     <section v-if="tab === 'cost'" class="card">
       <div class="card-head">
-        <h3>成本流水（最近 100 笔）</h3>
+        <h3>成本中心</h3>
+        <div class="view-toggle">
+          <button :class="{ on: costView === 'cost' }" @click="costView = 'cost'">费用</button>
+          <button :class="{ on: costView === 'usage' }" @click="costView = 'usage'">用量</button>
+        </div>
         <button class="mini" @click="refreshCosts">刷新</button>
       </div>
-      <div v-if="state" class="meta" style="margin-bottom: 10px;">
-        累计 {{ fmtYuan(state.cost.spent_yuan) }} / 预算 {{ fmtYuan(state.cost.limit_yuan) }}
-        （估算笔数 {{ state.cost.estimated_entries }}/{{ state.cost.calls }}）
+
+      <div v-if="costSummary" class="cost-cards">
+        <div class="cost-stat">
+          <div class="stat-label">累计费用</div>
+          <div class="stat-val">{{ fmtYuan(costSummary.totals.cost_yuan) }}</div>
+          <div class="stat-sub">预算 {{ fmtYuan(state?.cost.limit_yuan || 0) }}</div>
+        </div>
+        <div class="cost-stat">
+          <div class="stat-label">输入 token</div>
+          <div class="stat-val">{{ fmtNum(costSummary.totals.tokens_in) }}</div>
+          <div class="stat-sub">含 cache_read {{ fmtNum(costSummary.totals.cache_read) }}</div>
+        </div>
+        <div class="cost-stat">
+          <div class="stat-label">输出 token</div>
+          <div class="stat-val">{{ fmtNum(costSummary.totals.tokens_out) }}</div>
+          <div class="stat-sub">{{ costSummary.totals.calls }} 次调用</div>
+        </div>
       </div>
+
+      <!-- 按阶段 -->
+      <div v-if="costSummary && costSummary.by_stage.length" style="margin-top: 14px;">
+        <h4>按阶段</h4>
+        <table class="cost-table">
+          <thead>
+            <tr><th>阶段</th><th>调用</th><th>入</th><th>cache</th><th>出</th><th v-if="costView==='cost'">费用</th><th v-else>估算</th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="s in costSummary.by_stage" :key="s.stage">
+              <td>{{ s.stage }} {{ s.name }}</td>
+              <td>{{ s.calls }}</td>
+              <td>{{ fmtNum(s.tokens_in) }}</td>
+              <td>{{ fmtNum(s.cache_read) }}</td>
+              <td>{{ fmtNum(s.tokens_out) }}</td>
+              <td v-if="costView==='cost'">{{ fmtYuan(s.cost_yuan) }}</td>
+              <td v-else>{{ s.estimated }}/{{ s.calls }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- 按模型 -->
+      <div v-if="costSummary && costSummary.by_model.length" style="margin-top: 14px;">
+        <h4>按模型</h4>
+        <table class="cost-table">
+          <thead>
+            <tr><th>模型</th><th>调用</th><th>入</th><th>cache</th><th>出</th><th v-if="costView==='cost'">费用</th><th v-else>估算</th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="m in costSummary.by_model" :key="m.model">
+              <td>{{ m.model }}</td>
+              <td>{{ m.calls }}</td>
+              <td>{{ fmtNum(m.tokens_in) }}</td>
+              <td>{{ fmtNum(m.cache_read) }}</td>
+              <td>{{ fmtNum(m.tokens_out) }}</td>
+              <td v-if="costView==='cost'">{{ fmtYuan(m.cost_yuan) }}</td>
+              <td v-else>{{ m.estimated }}/{{ m.calls }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h4 style="margin-top: 14px;">流水明细（最近 100 笔）</h4>
       <table v-if="costs.length" class="cost-table">
         <thead>
           <tr><th>时间</th><th>阶段</th><th>模型</th><th>入</th><th>出</th><th>费用</th><th>来源</th></tr>
@@ -324,9 +414,14 @@ onUnmounted(() => clearInterval(timer));
       <div v-for="(m, role) in models.model" :key="role" class="art-row">
         <span class="pill st-done">{{ role }}</span>
         <span class="art-path">{{ m.provider }} / {{ m.id }}</span>
+        <span class="spacer"></span>
+        <select v-model="m.id" @change="switchModel(role, m.id)" class="model-select">
+          <option v-for="opt in modelOptions" :key="opt" :value="opt">{{ opt }}</option>
+        </select>
       </div>
       <div class="meta" style="margin-top: 12px;">
-        改模型/服务商：编辑 config/system.yaml 后重启控制台；密钥在项目 .env（不入 git）。
+        改模型：下拉切换后立即写入 config/system.yaml，下次运行阶段时生效。
+        断点续跑已自动保全已完成阶段成果（已完成的重跑才重写）。
         模型白名单纪律：未经确认不指定付费模型。
       </div>
       <div class="meta">项目目录: {{ state ? state.project_dir : "-" }}</div>
@@ -343,6 +438,45 @@ onUnmounted(() => clearInterval(timer));
         <button class="mini" @click="viewDoc = null; previewPath = ''">关闭</button>
       </div>
       <pre class="preview-body">{{ viewDoc ? viewDoc.content : previewText }}</pre>
+    </div>
+  </div>
+
+  <!-- 润色对比（段落 diff） -->
+  <div v-if="diffView" class="drawer-mask" @click.self="diffView = null">
+    <div class="drawer" style="width: min(1280px, 96vw);">
+      <div class="drawer-head">
+        <b>{{ diffView.title }}</b>
+        <span class="spacer"></span>
+        <button class="mini" @click="diffView = null">关闭</button>
+      </div>
+      <div class="diff-view">
+        <div class="diff-col">
+          <div class="diff-head">原稿</div>
+          <div class="diff-body">
+            <template v-if="diffComputed.length > 0">
+              <div v-for="(p, i) in diffComputed" :key="i" 
+                   :class="['diff-para', p.type === 'del' ? 'para-del' : p.type === 'add' ? 'para-empty' : '']">
+                <span v-if="p.type === 'del' || p.type === 'same'">{{ p.content }}</span>
+                <span v-else class="para-empty-mark">-</span>
+              </div>
+            </template>
+            <div v-else class="diff-para">{{ diffView.raw }}</div>
+          </div>
+        </div>
+        <div class="diff-col">
+          <div class="diff-head">润色稿</div>
+          <div class="diff-body">
+            <template v-if="diffComputed.length > 0">
+              <div v-for="(p, i) in diffComputed" :key="i" 
+                   :class="['diff-para', p.type === 'add' ? 'para-add' : p.type === 'del' ? 'para-empty' : '']">
+                <span v-if="p.type === 'add' || p.type === 'same'">{{ p.content }}</span>
+                <span v-else class="para-empty-mark">-</span>
+              </div>
+            </template>
+            <div v-else class="diff-para">{{ diffView.refined }}</div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 

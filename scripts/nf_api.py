@@ -274,6 +274,48 @@ class Handler(BaseHTTPRequestHandler):
                 finally:
                     db.close()
             self._send(200, {"entries": rows})
+        elif p == "/costs/summary":
+            db_path = Path("logs/runs.db")
+            if not db_path.exists():
+                self._send(200, {"by_stage": [], "by_model": [], "totals": {}})
+                return
+            db = RunDB(db_path)
+            try:
+                STAGE_NAMES = {1: "素材归并", 2: "整体大纲", 3: "逐章大纲", 4: "逐章写作",
+                               5: "逻辑检查", 6: "润色", 7: "Word"}
+                by_stage = []
+                for r in db.conn.execute(
+                        "SELECT stage, COALESCE(SUM(tokens_in),0), COALESCE(SUM(tokens_out),0),"
+                        " COALESCE(SUM(cache_read),0), COALESCE(SUM(cost_yuan),0), COUNT(*),"
+                        " COALESCE(SUM(estimated),0)"
+                        " FROM cost_log GROUP BY stage ORDER BY stage"):
+                    by_stage.append({
+                        "stage": r[0], "name": STAGE_NAMES.get(r[0], str(r[0])),
+                        "tokens_in": r[1], "tokens_out": r[2], "cache_read": r[3],
+                        "cost_yuan": round(r[4], 4), "calls": r[5], "estimated": r[6],
+                    })
+                by_model = []
+                for r in db.conn.execute(
+                        "SELECT model, COALESCE(SUM(tokens_in),0), COALESCE(SUM(tokens_out),0),"
+                        " COALESCE(SUM(cache_read),0), COALESCE(SUM(cost_yuan),0), COUNT(*),"
+                        " COALESCE(SUM(estimated),0)"
+                        " FROM cost_log GROUP BY model ORDER BY COALESCE(SUM(cost_yuan),0) DESC"):
+                    by_model.append({
+                        "model": r[0], "tokens_in": r[1], "tokens_out": r[2], "cache_read": r[3],
+                        "cost_yuan": round(r[4], 4), "calls": r[5], "estimated": r[6],
+                    })
+                tot = db.conn.execute(
+                    "SELECT COALESCE(SUM(tokens_in),0), COALESCE(SUM(tokens_out),0),"
+                    " COALESCE(SUM(cache_read),0), COALESCE(SUM(cost_yuan),0), COUNT(*),"
+                    " COALESCE(SUM(estimated),0)"
+                    " FROM cost_log").fetchone()
+                totals = {
+                    "tokens_in": tot[0], "tokens_out": tot[1], "cache_read": tot[2],
+                    "cost_yuan": round(tot[3], 4), "calls": tot[4], "estimated": tot[5],
+                }
+                self._send(200, {"by_stage": by_stage, "by_model": by_model, "totals": totals})
+            finally:
+                db.close()
         elif p == "/models":
             cfg, _ = load_all()
             self._send(200, {"engine": cfg.get("engine"),
@@ -350,6 +392,20 @@ class Handler(BaseHTTPRequestHandler):
                 label = str(body.get("label") or "")
                 jid, err = start_job("snapshot", act_snapshot(label))
                 self._send(202 if not err else 409, {"error": err} if err else {"job_id": jid})
+            elif p == "/models/switch":
+                role = str(body.get("role") or "")
+                model_id = str(body.get("model") or "")
+                if role not in ("default", "writer", "checker"):
+                    self._send(400, {"error": "role 须为 default/writer/checker"})
+                    return
+                if not model_id:
+                    self._send(400, {"error": "model 必填"})
+                    return
+                cfg, _ = load_all()
+                cfg["model"][role]["id"] = model_id
+                (ROOT / "config" / "system.yaml").write_text(
+                    yaml.dump(cfg, allow_unicode=True, sort_keys=False), encoding="utf-8")
+                self._send(200, {"ok": True, "role": role, "model": model_id})
             else:
                 self._send(404, {"error": "未知路径 " + p})
         except (ValueError, TypeError) as e:

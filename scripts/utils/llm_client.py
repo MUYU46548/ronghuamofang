@@ -372,7 +372,7 @@ class OpenAICompatClient:
         if len(writes) > 1:
             print("[llm_client] 多文件输出任务，拆分 " + str(len(reqs)) + " 个请求")
 
-        all_text, tokens_in, tokens_out, model_used = [], 0, 0, self.model
+        all_text, tokens_in, tokens_out, cache_read, model_used = [], 0, 0, 0, self.model
         for sub_prompt, wr, ap in reqs:
             text, usage, mu = self._post_chat(
                 [{"role": "system", "content": SYSTEM_PROMPT},
@@ -380,14 +380,15 @@ class OpenAICompatClient:
             model_used = mu
             tokens_in += int(usage.get("prompt_tokens") or 0)
             tokens_out += int(usage.get("completion_tokens") or 0)
+            cache_read += int(usage.get("cache_read_tokens") or 0)
             all_text.append(text)
             if os.environ.get("NOVELFORGE_DEBUG"):
                 dump = Path("data/state/llm_raw")
                 dump.mkdir(parents=True, exist_ok=True)
                 name = task_path.stem + "_" + str(len(all_text)) + ".txt"
                 write_text(dump / name,
-                           "--- PROMPT (" + str(len(sub_prompt)) + " chars) ---" + NEWLINE +
-                           sub_prompt[:3000] + NEWLINE + "--- RESPONSE ---" + NEWLINE + text)
+                           "--- PROMPT (" + str(len(sub_prompt)) + " chars) ---\n" +
+                           sub_prompt[:3000] + "\n" + "--- RESPONSE ---\n" + text)
             if not dry_run:
                 self._apply_ops(text, wr, ap)
 
@@ -397,6 +398,7 @@ class OpenAICompatClient:
             "stdout_tail": NEWLINE.join(all_text)[-2000:],
             "tokens": tokens_in,
             "tokens_out": tokens_out,
+            "cache_read": cache_read,
             "cost_yuan": cost_yuan,
             "estimated": False,
             "provider": self.provider,

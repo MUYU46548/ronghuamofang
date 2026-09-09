@@ -26,10 +26,19 @@ def build_polish_task(proj, checked_dir, refined_dir, chapters, vol_index=None):
     report_path = Path("data/outline/polish_report.md").resolve()
     if vol_index is not None:
         report_path = Path(f"data/outline/polish_report_vol{vol_index}.md").resolve()
+    
+    # 加载文风参考
+    style_instruction = ""
+    style_ref = proj.get("book", {}).get("style_reference", "")
+    if style_ref:
+        from utils.style_analyzer import load_style_reference
+        style_instruction = load_style_reference(style_ref)
+    
     _, body = load_template("stage6_polish.md", {
         "listing": listing,
         "path_refined": Path(refined_dir).resolve(),
         "path_report": report_path,
+        "style_instruction": style_instruction,
     })
     return body
 

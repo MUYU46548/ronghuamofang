@@ -89,7 +89,8 @@ class CostTracker:
                                   model=model, provider=provider, role=role)
         self.db.log_cost(run_id, stage, chapter, model, result.get("tokens", 0),
                          result.get("tokens_out", 0), cost,
-                         estimated=1 if result.get("estimated") else 0)
+                         estimated=1 if result.get("estimated") else 0,
+                         cache_read=result.get("cache_read", 0))
         return self.status(run_id)[0]
 
     def record(self, run_id, stage, chapter, tokens_in, tokens_out, model=None,

@@ -1,19 +1,17 @@
 // 绒花墨坊桌面控制台 — Electron 主进程
-// 职责：自动拉起 nf_api（随应用退出回收）；IPC 文件预览（白名单只读）+ 打开产物目录
 const { app, BrowserWindow, ipcMain, shell } = require("electron");
 const { spawn } = require("child_process");
 const path = require("path");
 const fs = require("fs");
 
-const ROOT = path.resolve(__dirname, "..", ".."); // NovelForge 项目根（console/ 的上级）
-const PY = path.join(ROOT, ".venv", "Scripts", "python.exe");
+const ROOT = path.resolve(__dirname, "..", "..");
+const PY = path.join(ROOT, ".venv", "Scripts", "pythonw.exe");
 const API_PORT = 8765;
 const BASE = "http://127.0.0.1:" + API_PORT;
 
 let apiProc = null;
 let mainWindow = null;
 
-// ---------- nf_api 生命周期 ----------
 function startApi() {
   if (!fs.existsSync(PY)) {
     console.error("[console] 未找到 .venv python:", PY);
@@ -53,8 +51,6 @@ async function waitForApi(timeoutMs = 15000) {
   return false;
 }
 
-// ---------- IPC ----------
-// 文件预览白名单：data/**、output/**、logs/*.md|log、config/*.yaml、materials/*.md（只读）
 function pathAllowed(p) {
   const norm = path.resolve(p).replace(/\\/g, "/").toLowerCase();
   const root = ROOT.replace(/\\/g, "/").toLowerCase() + "/";
@@ -86,7 +82,6 @@ ipcMain.handle("open-artifact", async (e, relPath) => {
   return r ? { ok: false, error: r } : { ok: true };
 });
 
-// ---------- 窗口 ----------
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -95,6 +90,7 @@ function createWindow() {
     minHeight: 640,
     title: "绒花墨坊",
     autoHideMenuBar: true,
+    backgroundColor: "#eef0f4",
     webPreferences: {
       preload: path.join(__dirname, "..", "preload", "index.js"),
       contextIsolation: true,
@@ -107,22 +103,10 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname, "..", "renderer", "dist", "index.html"));
   }
+  mainWindow.show();
+  mainWindow.focus();
+  mainWindow.center();
 }
-
-process.on("uncaughtException", (e) => {
-  try {
-    const p = path.join(process.env.LOCALAPPDATA || ROOT, "Temp", "nf_console_crash.log");
-    fs.appendFileSync(p, new Date().toISOString() + " " + (e.stack || String(e)) + "\n");
-  } catch (e2) { /* ignore */ }
-  console.error("[console] uncaught:", e);
-});
-// 主进程就绪前的启动失败（如 package.json 损坏）也落日志，不弹 GUI 框
-process.on("unhandledRejection", (e) => {
-  try {
-    const p = path.join(process.env.LOCALAPPDATA || ROOT, "Temp", "nf_console_crash.log");
-    fs.appendFileSync(p, new Date().toISOString() + " [rejection] " + (e && (e.stack || String(e))) + "\n");
-  } catch (e2) { /* ignore */ }
-});
 
 app.whenReady().then(async () => {
   console.log("[console] app ready, ROOT=", ROOT);

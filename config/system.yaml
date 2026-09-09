@@ -1,12 +1,4 @@
-# =========================================================
-# NovelForge 全局配置（不含密钥，可提交 Git）
-# 参考：架构文档 v2 第七章；P2 引擎无关化 + P2.1 TokenHub（2026-09-09）
-# =========================================================
-
-# 执行引擎：direct（OpenAI 兼容直连，当前=腾讯云 TokenHub）| hermes（回退）
 engine: direct
-
-# 服务商登记（type 仅支持 openai-compat；密钥走 .env，绝不写进本文件）
 providers:
   tokenhub:
     type: openai-compat
@@ -14,14 +6,7 @@ providers:
     api_key_env: TOKENHUB_API_KEY
     timeout: 600
     retries: 3
-    # 与 Hermes config.yaml 的 tokenhub provider 同源（勿改用文档里的 tencentcloudmaas.com，
-    # key 与域名绑定：tencentmaas.com 才是本 key 的归属端点）
-
 model:
-  # 角色路由：writer=阶段4/6（写作），checker=阶段5（检查），default=其余
-  # 当前=glm-5（用户指令 2026-09-09：10-09 正式下线，免费包内不用即浪费）
-  # 价格（TokenHub 广州 元/百万）：glm-5 输入 4-6/输出 18-22（按输入长度分档）
-  # 备选（改 id 即切）：deepseek-v4-flash 1/2 · glm-5.3-flash 0.8/2.8 · glm-5.3 8/28
   default:
     provider: tokenhub
     id: glm-5
@@ -31,28 +16,27 @@ model:
   checker:
     provider: tokenhub
     id: glm-5
-
 budget:
-  limit_yuan: 300             # 超限自动暂停（也可由 .env 的 BUDGET_LIMIT_YUAN 覆盖）
-  warn_ratio: 0.7             # 消耗 70% 时提醒
-
+  limit_yuan: 300
+  warn_ratio: 0.7
 parallelism:
-  writing: 1                  # 阶段4串行（一致性优先）
-  polish: 3                   # 阶段6分卷并行（留意平台并发限流）
-  checks_max_concurrent: 2    # 阶段5每批并行路数
-
+  writing: 1
+  polish: 3
+  checks_max_concurrent: 2
 chapter:
-  target_words: [2000, 3000]  # 单章目标字数区间
-  summary_every: 5            # 滚动摘要近期区容量（章）
-  batch_outline: 10           # 阶段3每批章数
-  quality_threshold: 6        # 自评分下限（P1 启用自动重写）
-  page_break: true            # 阶段7 每章新起一页（模板/无模板均生效）
-
+  target_words:
+  - 2000
+  - 3000
+  summary_every: 5
+  batch_outline: 10
+  quality_threshold: 6
+  page_break: true
 gates:
-  require_approval: [2, 6]    # 阶段2（整体大纲）+ 阶段6（润色稿）完成后等人工确认；全自动填 []
-  pause_on_failure: true      # 阶段级失败时暂停等人工
-  setting_refine_reminder: true  # P1.5：stage2 审批前 THIN 碎片角色提醒
-
+  require_approval:
+  - 2
+  - 6
+  pause_on_failure: true
+  setting_refine_reminder: true
 logging:
   level: info
   rotate_days: 30
