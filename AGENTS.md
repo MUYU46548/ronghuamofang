@@ -86,7 +86,7 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是全自动
 
 - **ROSA 设定库只读**：永不写入 `E:/图书馆/ROSA`；系统仅通过 `materials/` 与项目内 `data/` 工作
 - `data/`、`history/` 不进 Git（由 history/ 快照承担版本职责）；`prompts/`、`config/`、`scripts/` 进 Git
-- **模型凭据**：项目 `.env`（不入 git）承载 LLM API Key（如 `HUNYUAN_API_KEY`）；engine=hermes 时凭据仍由 Hermes 统一管理。切换引擎/模型/服务商只改 `config/system.yaml`（`engine` / `model.*` / `providers`），新 provider 计价须先补 `scripts/utils/cost_tracker.py` 的 `RATES`
+- **模型凭据**：项目 `.env`（不入 git）承载 LLM API Key（`TOKENHUB_API_KEY`，与 Hermes 根 `C:/Users/muyu/AppData/Local/hermes/.env` 同源）；engine=hermes 时凭据由 Hermes 统一管理。切换引擎/模型/服务商只改 `config/system.yaml`（`engine` / `model.*` / `providers`），新 provider 计价须先补 `scripts/utils/cost_tracker.py` 的 `RATES`。**模型白名单纪律：用户免费体验包按模型领取，未经用户确认不得指定/更换付费模型**
 - **直连引擎（engine: direct）语义**：无子会话工具循环——任务文件的输入文件段由 `llm_client.inline_inputs` 全文内联进单请求；多文件输出任务自动按目标文件拆分请求；模型产物经 `===FILE/APPEND/DELETE===` 协议落盘（白名单：`data/**` 与 `logs/runs.db`），期望外路径直接拒绝
 - **子会话（engine: hermes）**：任务文件（data/state/tasks/）必须自包含全部上下文
 - **本地 API（nf_api.py）**：函数级复用 orchestrator/approve/reject/refine，不经过 Hermes 子进程；客户端注入走 `_client_for_env`（默认 make_client 真引擎，`NF_API_ALLOW_FAKE=1`/`--allow-fake` 时注入 FakeClient——**仅限测试**，自测脚本运行会清空 data/ 运行产物）；服务默认只绑 127.0.0.1
