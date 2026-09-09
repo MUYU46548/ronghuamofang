@@ -1,0 +1,21 @@
+{
+  "name": "ronghuamofang-console",
+  "version": "0.1.0",
+  "description": "绒花墨坊桌面控制台（消费本地 nf_api）",
+  "private": true,
+  "main": "main/index.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "start": "electron .",
+    "probe": "electron probe-electron.js"
+  },
+  "dependencies": {
+    "vue": "3.5.40"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "5.2.1",
+    "electron": "28.3.3",
+    "vite": "5.4.21"
+  }
+}

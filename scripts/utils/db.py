@@ -44,34 +44,42 @@ def now_iso():
 
 
 class RunDB:
-    """SQLite 封装：惰性建表，线程内使用（单进程调度）。"""
+    """SQLite 封装：惰性建表；连接跨线程可用（stage6 分卷并发记账），写操作串行化。"""
 
     def __init__(self, db_path):
+        import threading
         self.path = Path(db_path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(str(self.path))
-        self.conn.executescript(SCHEMA)
-        self._migrate()
-        self.conn.commit()
+        self._lock = threading.Lock()
+        # check_same_thread=False：允许 worker 线程写（charge_cost）；写经 _lock 串行
+        self.conn = sqlite3.connect(str(self.path), check_same_thread=False)
+        with self._lock:
+            self.conn.executescript(SCHEMA)
+            self._migrate()
+            self.conn.commit()
+
+    def _write(self, sql, args=()):
+        """线程安全的写入口（execute+commit 串行化）。"""
+        with self._lock:
+            self.conn.execute(sql, args)
+            self.conn.commit()
 
     # ---------- runs ----------
     def start_run(self, plan_json=""):
-        cur = self.conn.execute(
+        self._write(
             "INSERT INTO runs (started_at, plan_json, status) VALUES (?, ?, 'running')",
             (now_iso(), plan_json))
-        self.conn.commit()
-        return cur.lastrowid
+        return self.conn.execute("SELECT last_insert_rowid()").fetchone()[0]
 
     def finish_run(self, run_id, status):
-        self.conn.execute(
+        self._write(
             "UPDATE runs SET finished_at=?, status=? WHERE id=?",
             (now_iso(), status, run_id))
-        self.conn.commit()
 
     # ---------- chapter_log ----------
     def log_chapter(self, run_id, stage, chapter, status, attempts=1, quality=None,
                     tokens_in=0, tokens_out=0, cost_yuan=0.0, error=None, session_id=None):
-        self.conn.execute(
+        self._write(
             """INSERT INTO chapter_log
                (run_id, stage, chapter, status, attempts, quality,
                 tokens_in, tokens_out, cost_yuan, error, session_id)
@@ -81,7 +89,6 @@ class RunDB:
                  quality=excluded.quality, error=excluded.error""",
             (run_id, stage, chapter, status, attempts, quality,
              tokens_in, tokens_out, cost_yuan, error, session_id))
-        self.conn.commit()
 
     def chapter_status(self, run_id, stage, chapter):
         row = self.conn.execute(
@@ -92,12 +99,11 @@ class RunDB:
     # ---------- cost_log ----------
     def log_cost(self, run_id, stage, chapter, model, tokens_in, tokens_out, cost_yuan,
                  estimated=0):
-        self.conn.execute(
+        self._write(
             "INSERT INTO cost_log (run_id, stage, chapter, model, tokens_in, tokens_out,"
             " cost_yuan, called_at, estimated) VALUES (?,?,?,?,?,?,?,?,?)",
             (run_id, stage, chapter, model, tokens_in, tokens_out, cost_yuan,
              now_iso(), 1 if estimated else 0))
-        self.conn.commit()
 
     def _migrate(self):
         """幂等迁移：为旧库 cost_log 补 estimated 列。"""
@@ -118,10 +124,9 @@ class RunDB:
 
     # ---------- summary_log ----------
     def log_summary(self, run_id, rollup_index, path):
-        self.conn.execute(
+        self._write(
             "INSERT INTO summary_log (run_id, rollup_index, path, created_at) VALUES (?,?,?,?)",
             (run_id, rollup_index, path, now_iso()))
-        self.conn.commit()
 
     def close(self):
         self.conn.close()

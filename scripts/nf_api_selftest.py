@@ -69,7 +69,15 @@ def wait_state(cond, timeout=30, desc=""):
 
 
 def main():
-    # 清场：data/ 与 runs.db（保留 books/ 归档）
+    # 护栏：自测会清空 data/ 运行产物，检测到真实书档时拒绝执行（除非 --force）
+    if "--force" not in sys.argv:
+        guard = ROOT / "data" / "setting" / "setting.json"
+        raw_dir = ROOT / "data" / "chapters" / "raw"
+        if guard.exists() or (raw_dir.exists() and any(raw_dir.glob("*.md"))):
+            print("⚠️ 检测到已存在的书档产物（setting.json / 章节）。")
+            print("   本自测会清空 data/ 与 logs/。确认要销毁请加 --force 重跑。")
+            return 2
+    # 清场：data/ 与 logs/（保留 books/ 归档）
     for d in ("data/setting", "data/outline", "data/chapters", "data/summaries",
               "data/state", "data/tmp", "data/test_llm_t8", "logs"):
         p = ROOT / d

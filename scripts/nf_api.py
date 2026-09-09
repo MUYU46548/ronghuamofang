@@ -260,6 +260,20 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, build_state())
             except Exception as e:
                 self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
+        elif p == "/costs":
+            rows = []
+            db_path = Path("logs/runs.db")
+            if db_path.exists():
+                db = RunDB(db_path)
+                try:
+                    cols = ("id", "run_id", "stage", "chapter", "model", "tokens_in",
+                            "tokens_out", "cost_yuan", "called_at", "estimated")
+                    rows = [dict(zip(cols, r)) for r in db.conn.execute(
+                        "SELECT id, run_id, stage, chapter, model, tokens_in, tokens_out,"
+                        " cost_yuan, called_at, estimated FROM cost_log ORDER BY id DESC LIMIT 100")]
+                finally:
+                    db.close()
+            self._send(200, {"entries": rows})
         elif p == "/models":
             cfg, _ = load_all()
             self._send(200, {"engine": cfg.get("engine"),
