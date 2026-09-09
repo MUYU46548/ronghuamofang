@@ -60,11 +60,14 @@ NovelForge/
 ## 架构概览
 
 ```
-用户层（Hermes 对话） → 网关层（Hermes 主会话） → 执行层（orchestrator + 子会话 + 脚本） → 数据层（文件系统 + SQLite）
+用户层（Hermes 对话 / 未来 GUI） → 执行层（orchestrator + LLM 引擎 + 脚本） → 数据层（文件系统 + SQLite）
 ```
 
-- 网关 = 用户对话界面：解析意图、调度 orchestrator、处理审批/异常
-- 执行层 = orchestrator.py（确定性调度）+ hermes chat -q 子会话（LLM 创作）+ stage 脚本（校验/转换/记账）
+- 执行层 = orchestrator.py（确定性调度）+ LLM 引擎（`utils/llm_client.py`，可切换）+ stage 脚本（校验/转换/记账）
+- **LLM 引擎（2026-09-09 起可切换，勿再视为 Hermes 专属）**：
+  - `engine: direct`（默认）：OpenAI 兼容直连（当前腾讯混元：default/checker=hunyuan-lite 免费，writer=hunyuan-a13b 刊例 in 0.5/out 2 元每百万）；输入文件全文内联进单请求，无子会话工具循环；密钥在项目 `.env`（不入 git）
+  - `engine: hermes`：hermes chat 子会话（原模式，保留为回退引擎）
+  - 切换/换模型/换服务商：只改 `config/system.yaml` 的 `engine` / `model.*` / `providers`，代码零改动
 - 通信 = 文件系统约定目录（plan/state/gates/runs.db），无 HTTP/消息队列
 
 ## 测试状态

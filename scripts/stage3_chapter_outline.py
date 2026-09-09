@@ -8,7 +8,7 @@ import argparse
 import re
 from pathlib import Path
 
-from utils.api_client import HermesClient
+from utils.llm_client import make_client
 from utils.file_io import read_text, write_text
 from utils.template_loader import load_template
 
@@ -36,7 +36,7 @@ def build_batch_task(cfg, proj, chapters, global_outline_path, setting_path):
 
 
 def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=None):
-    client = client or HermesClient(model=(cfg or {}).get("model", {}).get("default"))
+    client = client or make_client(cfg, "default")
     task_dir = task_dir or "data/state/tasks"
     total = int(proj.get("book", {}).get("chapters", 10))
     batch = int(cfg.get("chapter", {}).get("batch_outline", 10))
@@ -58,8 +58,7 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                                                   "data/setting/setting.json"))
         result = client.run_task(task)
         if cost and run_id:
-            cost.record(run_id, 3, chapters[0], result["tokens"], result["tokens_out"],
-                        estimated=result.get("estimated", False))
+            cost.charge_cost(run_id, 3, chapters[0], result)
         if result["exit_code"] != 0:
             progress.set_stage(3, "failed", error=f"批 {bi} 子会话失败")
             return False, f"stage3 批 {bi} 失败"

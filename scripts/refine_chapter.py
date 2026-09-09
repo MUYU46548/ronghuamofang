@@ -17,7 +17,7 @@ from pathlib import Path
 
 import yaml
 
-from utils.api_client import HermesClient
+from utils.llm_client import make_client
 from utils.file_io import read_text, write_text
 from utils.template_loader import load_template
 
@@ -64,7 +64,7 @@ def build_task(cfg, proj, chapter, feedback, version, chap_path, outline_path):
 
 def run_refine(cfg, proj, chapter, feedback, client=None, task_dir=None,
                dry_run=False, outline_path="data/outline/chapters"):
-    client = client or HermesClient(model=(cfg or {}).get("model", {}).get("default"))
+    client = client or make_client(cfg, "default")
     chap_path = _pick_chapter_path(chapter)
     if chap_path is None:
         return False, f"第 {chapter} 章不存在（raw/checked/refined 均无）"

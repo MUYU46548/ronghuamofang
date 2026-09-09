@@ -18,7 +18,7 @@ from pathlib import Path
 
 import yaml
 
-from utils.api_client import HermesClient
+from utils.llm_client import make_client
 from utils.file_io import read_text, write_text
 from utils.template_loader import load_template
 
@@ -76,7 +76,7 @@ def run_refine(cfg, proj, feedback, client=None, task_dir=None, dry_run=False):
     backup = backup_current(GLOBAL, HISTORY_DIR, version)
     print(f"[refine] 已备份当前大纲 → {backup}（v{version}）")
 
-    client = client or HermesClient(model=(cfg or {}).get("model", {}).get("default"))
+    client = client or make_client(cfg, "default")
     task_dir = task_dir or "data/state/tasks"
     task = client.write_task(task_dir, "stage2_refine.md",
                              build_task(cfg, proj, feedback, version))

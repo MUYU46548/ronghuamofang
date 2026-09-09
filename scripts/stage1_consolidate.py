@@ -16,7 +16,7 @@ import json
 import re
 from pathlib import Path
 
-from utils.api_client import HermesClient
+from utils.llm_client import make_client
 from utils.file_io import read_text, write_text
 from utils.template_loader import load_template
 
@@ -160,7 +160,7 @@ def validate_setting(path):
 
 
 def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=None):
-    client = client or HermesClient(model=(cfg or {}).get("model", {}).get("default"))
+    client = client or make_client(cfg, "default")
     task_dir = task_dir or "data/state/tasks"
     materials_dir = proj.get("materials", {}).get("dir", "materials/raw")
     manifest_path = Path("data/setting/materials_manifest.json")

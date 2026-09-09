@@ -1,31 +1,61 @@
 # -*- coding: utf-8 -*-
 """Token/费用记账与预算熔断。
 
-单价表为占位估算，P0 MVP 跑批后按实际账单校准（架构文档 v2 1.4）。
-记账主库为 runs.db 的 cost_log 表（db.py），本模块负责计价与预算判定。
+单价表为刊例价（元/百万 token）。记账主库为 runs.db 的 cost_log 表（db.py），
+本模块负责计价与预算判定。
+
+计价口径（P2 引擎无关化，2026-09-09）：
+- 按账单语义计价：直连 provider 的输入不产生 cache_read 溢价的规则不同，
+  统一按 (model_id in 单价 + provider 为 hermes 时走角色计价) 处理；
+- hermes 引擎按模型角色（default/writer/checker）计价（子会话 stdout 无模型名），
+  角色单价取 model.rates 覆盖，缺省回退 DEFAULT_ROLE_RATES[角色] 再回退 default 角色；
+- 直连引擎按真实 model_id 计价（usage 来自 API 返回，无估算）；
+- 未知模型自动回退 default 角色单价并打印告警（保守侧，熔断不会失效）。
 """
 from utils.db import RunDB
 
-# 单位：元 / 百万 token（已按 opencode 真实账单校准，非占位）
-# 单价来源：opencode 文档（USD/M，汇率 ~7.2 折算）：
-#   hy3  in $0.14 / out $0.58 / cache_read $0.035 → ≈ ¥1.0 / ¥4.2
-# 计费口径说明：
-#   - estimate_cost_yuan 仅按 in/out 计价，未建模 cache_read；
-#     实际因提示词缓存命中（system/模板复用）更便宜，当前记账偏保守/偏高，
-#     属安全侧误差（不会漏计导致熔断失效），待接入真实用量 API 后改为精确计费。
-#   - deepseek-v4-flash / deepseek-v3 已于 2026-08-18 弃用（统一切 hy3），
-#     保留条目仅为历史 cost_log 回看兼容；新运行不会再命中。
+# ---- 刊例价（元/百万 token）----
+# 官方核实（腾讯云计费概述 2026-06 版）：
+#   hunyuan-a13b  in 0.5 / out 2.0
+#   hunyuan-lite  免费（0）
+# hy3：opencode 实测 USD/M 汇率 ~7.2 折算（in 0.14/out 0.58/cache_read 0.035）
 RATES = {
-    "hy3":               {"in": 1.0, "out": 4.2},
-    "deepseek-v4-flash": {"in": 1.0, "out": 4.0},   # 仅历史回看兼容，已弃用
-    "deepseek-v3":       {"in": 2.0, "out": 8.0},   # 仅历史回看兼容，已弃用
+    "hunyuan-a13b":       {"in": 0.5, "out": 2.0},   # 官方核实 2026-06
+    "hunyuan-lite":       {"in": 0.0, "out": 0.0},   # 官方免费
+    "hy3":                {"in": 1.0, "out": 4.2},   # opencode 折算
+    # 仅历史 cost_log 回看兼容（2026-08-18 已统一切 hy3，新运行不命中）
+    "deepseek-v4-flash":  {"in": 1.0, "out": 4.0},
+    "deepseek-v3":        {"in": 2.0, "out": 8.0},
 }
-DEFAULT_MODEL = "hy3"
+# turbos 等未录入模型 → 回退 default 角色单价（保守），跑批前按控制台账单补录
+
+# Hermes 引擎按角色计价（hy3 单价；角色→单价）
+DEFAULT_ROLE_RATES = {
+    "default": {"in": 1.0, "out": 4.2},
+    "writer":  {"in": 1.0, "out": 4.2},
+    "checker": {"in": 1.0, "out": 4.2},
+}
+
+DEFAULT_MODEL = "hunyuan-a13b"
+DEFAULT_ROLE = "default"
 
 
-def estimate_cost_yuan(tokens_in, tokens_out, model=DEFAULT_MODEL):
-    """按模型单价估算单次调用费用（元）。未知模型按 default 计价。"""
-    rate = RATES.get(model, RATES[DEFAULT_MODEL])
+def resolve_rate(model=None, provider=None, role=None):
+    """解析计价条目。返回 (rate dict, display_model)。"""
+    if provider == "hermes":
+        rates_map = ((role or {}).get("rates") if isinstance(role, dict) else None)
+        r = rates_map or DEFAULT_ROLE_RATES.get(role) or DEFAULT_ROLE_RATES[DEFAULT_ROLE]
+        return dict(r), "hermes:" + (role or DEFAULT_ROLE)
+    m = model or DEFAULT_MODEL
+    if m in RATES:
+        return dict(RATES[m]), m
+    print("[cost_tracker] WARN 未知模型计价回退默认（跑批前请补录 RATES）: " + m)
+    return dict(DEFAULT_ROLE_RATES[DEFAULT_ROLE]), m
+
+
+def estimate_cost_yuan(tokens_in, tokens_out, model=None, provider=None, role=None):
+    """按计价条目估算单次调用费用（元）。兼容旧签名 estimate_cost(t, t, model)。"""
+    rate, _ = resolve_rate(model, provider, role)
     return round((tokens_in * rate["in"] + tokens_out * rate["out"]) / 1_000_000, 6)
 
 
@@ -38,20 +68,31 @@ class CostTracker:
         self.warn_ratio = warn_ratio
 
     @staticmethod
-    def estimate_cost_yuan(tokens_in, tokens_out, model=DEFAULT_MODEL):
-        """按模型单价估算单次调用费用（元）。"""
-        return estimate_cost_yuan(tokens_in, tokens_out, model)
+    def estimate_cost_yuan(tokens_in, tokens_out, model=None, provider=None, role=None):
+        return estimate_cost_yuan(tokens_in, tokens_out, model, provider, role)
 
-    def record(self, run_id, stage, chapter, tokens_in, tokens_out, model=DEFAULT_MODEL,
-               estimated=False):
-        """记账并返回预算状态字符串：'ok' | 'warn' | 'pause'。
+    def charge_cost(self, run_id, stage, chapter, result):
+        """按 run_task 返回 dict 记账（model/provider/role 取自结果元数据）。
 
-        estimated=True 表示 token 为估算值（stdout 未解析到真实用量），
-        写入 cost_log.estimated 便于审计。
+        返回预算状态字符串：'ok' | 'warn' | 'pause'。
         """
-        cost = estimate_cost_yuan(tokens_in, tokens_out, model)
-        self.db.log_cost(run_id, stage, chapter, model, tokens_in, tokens_out, cost,
-                         estimated=estimated)
+        model = result.get("model") or DEFAULT_MODEL
+        provider = result.get("provider") or "hermes"
+        role = result.get("model_key") or DEFAULT_ROLE
+        cost = estimate_cost_yuan(result.get("tokens", 0), result.get("tokens_out", 0),
+                                  model=model, provider=provider, role=role)
+        self.db.log_cost(run_id, stage, chapter, model, result.get("tokens", 0),
+                         result.get("tokens_out", 0), cost,
+                         estimated=1 if result.get("estimated") else 0)
+        return self.status(run_id)[0]
+
+    def record(self, run_id, stage, chapter, tokens_in, tokens_out, model=None,
+               estimated=False, provider=None, role=None):
+        """兼容旧签名：按 (tokens_in, tokens_out) 记账。"""
+        cost = estimate_cost_yuan(tokens_in, tokens_out, model=model,
+                                  provider=provider, role=role)
+        self.db.log_cost(run_id, stage, chapter, model or DEFAULT_MODEL, tokens_in,
+                         tokens_out, cost, estimated=1 if estimated else 0)
         return self.status(run_id)[0]
 
     def spent(self, run_id=None, stage=None):

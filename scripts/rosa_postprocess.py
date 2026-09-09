@@ -21,7 +21,7 @@ from pathlib import Path
 
 import yaml
 
-from utils.api_client import HermesClient
+from utils.llm_client import make_client
 from utils.file_io import read_text, write_text
 from utils.template_loader import load_template
 
@@ -244,9 +244,8 @@ def run(proj, mode="all", client=None, task_dir="data/state/tasks",
         print(f"[rosa] 输出目录: {sandbox}")
         return True, "dry-run（仅统计与规划）"
 
-    client = client or HermesClient(model=(
-        yaml.safe_load(read_text("config/system.yaml")).get("model", {}) or {}
-    ).get("default"))
+    client = client or make_client(
+        yaml.safe_load(read_text("config/system.yaml")), "default")
     generated = []
 
     # 4) 作品介绍页（LLM 聚合，no_llm 时降级骨架）

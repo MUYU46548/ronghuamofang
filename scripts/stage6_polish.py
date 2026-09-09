@@ -14,7 +14,7 @@ import argparse
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-from utils.api_client import HermesClient
+from utils.llm_client import make_client
 from utils.file_io import read_text, write_text
 from utils.verify_chapter import count_cn_words
 from utils.template_loader import load_template
@@ -42,8 +42,7 @@ def _run_one_volume(client, task_dir, vol_index, proj, checked_dir, refined_dir,
     task_path = client.write_task(task_dir, f"stage6_polish_vol{vol_index}.md", content)
     result = client.run_task(task_path)
     if cost and run_id:
-        cost.record(run_id, 6, vol_chapters[0] if vol_chapters else 0, result["tokens"],
-                    result["tokens_out"], estimated=result.get("estimated", False))
+        cost.charge_cost(run_id, 6, vol_chapters[0] if vol_chapters else 0, result)
     if result["exit_code"] != 0:
         return False, f"stage6 卷{vol_index} 子会话失败", vol_chapters
 
@@ -63,7 +62,7 @@ def _run_one_volume(client, task_dir, vol_index, proj, checked_dir, refined_dir,
 
 
 def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=None):
-    client = client or HermesClient(model=(cfg or {}).get("model", {}).get("writer"))
+    client = client or make_client(cfg, "writer")
     task_dir = task_dir or "data/state/tasks"
     checked_dir = Path("data/chapters/checked")
     refined_dir = Path("data/chapters/refined")

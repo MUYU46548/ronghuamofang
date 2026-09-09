@@ -16,7 +16,7 @@ from pathlib import Path
 
 import yaml
 
-from utils.api_client import HermesClient
+from utils.llm_client import make_client
 from utils.file_io import read_text, write_text
 from utils.template_loader import load_template
 
@@ -56,9 +56,8 @@ def run(proj, out_path, client=None, task_dir="data/state/tasks", dry_run=False)
         return False, "未收集到任何章节摘要（章节文件缺 <!-- summary --> 注释）"
     print(f"[book_summary] 收集 {len(summaries)} 章摘要（第 {summaries[0][0]}-{summaries[-1][0]} 章）")
 
-    client = client or HermesClient(model=(
-        yaml.safe_load(read_text("config/system.yaml")).get("model", {}) or {}
-    ).get("default"))
+    client = client or make_client(
+        yaml.safe_load(read_text("config/system.yaml")), "default")
     task = client.write_task(task_dir, "book_summary.md", build_task(proj, summaries, out_path))
     print(f"[book_summary] 任务文件: {task}")
     if dry_run:

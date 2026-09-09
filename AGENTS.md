@@ -84,6 +84,7 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是全自动
 
 - **ROSA 设定库只读**：永不写入 `E:/图书馆/ROSA`；系统仅通过 `materials/` 与项目内 `data/` 工作
 - `data/`、`history/` 不进 Git（由 history/ 快照承担版本职责）；`prompts/`、`config/`、`scripts/` 进 Git
-- 模型凭据由 Hermes 统一管理（~/.hermes/.env），项目 `.env` 仅承载可选第三方密钥
-- 子会话（hermes chat -q）为全新会话，任务文件（data/state/tasks/）必须自包含全部上下文
+- **模型凭据**：项目 `.env`（不入 git）承载 LLM API Key（如 `HUNYUAN_API_KEY`）；engine=hermes 时凭据仍由 Hermes 统一管理。切换引擎/模型/服务商只改 `config/system.yaml`（`engine` / `model.*` / `providers`），新 provider 计价须先补 `scripts/utils/cost_tracker.py` 的 `RATES`
+- **直连引擎（engine: direct）语义**：无子会话工具循环——任务文件的输入文件段由 `llm_client.inline_inputs` 全文内联进单请求；多文件输出任务自动按目标文件拆分请求；模型产物经 `===FILE/APPEND/DELETE===` 协议落盘（白名单：`data/**` 与 `logs/runs.db`），期望外路径直接拒绝
+- **子会话（engine: hermes）**：任务文件（data/state/tasks/）必须自包含全部上下文
 - 破坏性操作（删除章节产物）前必须先征求用户确认

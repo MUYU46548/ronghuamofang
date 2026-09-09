@@ -11,7 +11,7 @@ import argparse
 import re
 from pathlib import Path
 
-from utils.api_client import HermesClient
+from utils.llm_client import make_client
 from utils.file_io import read_text, write_text
 from utils.verify_chapter import check_chapter, count_cn_words
 from utils.summary_chain import append_chapter_summary, extract_prev_tail, compress_recent, load_rolling, write_rolling
@@ -48,7 +48,7 @@ def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, p
 
 
 def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=None):
-    client = client or HermesClient(model=(cfg or {}).get("model", {}).get("writer"))
+    client = client or make_client(cfg, "writer")
     task_dir = task_dir or "data/state/tasks"
     total = int(proj.get("book", {}).get("chapters", 10))
     raw_dir = Path("data/chapters/raw")
@@ -79,7 +79,11 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                                                     "data/summaries/rolling.md",
                                                     prev_tail))
         result = client.run_task(task)
-        cost_est = cost.estimate_cost_yuan(result["tokens"], result["tokens_out"]) if cost else 0
+        cost_est = (cost.estimate_cost_yuan(result["tokens"], result["tokens_out"],
+                                            model=result.get("model"),
+                                            provider=result.get("provider"),
+                                            role=result.get("model_key"))
+                    if cost else 0)
         if result["exit_code"] != 0:
             progress.mark_chapter_failed(n, "子会话退出码非零", 4)
             if db and run_id:
@@ -129,8 +133,7 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         if db and run_id:
             db.log_chapter(run_id, 4, n, status, quality=check.quality, cost_yuan=cost_est)
         if cost:
-            cost.record(run_id, 4, n, result["tokens"], result["tokens_out"],
-                        estimated=result.get("estimated", False))
+            cost.charge_cost(run_id, 4, n, result)
         print(f"[stage4] 第{n}章完成 {check.summary()}")
 
     # 收尾

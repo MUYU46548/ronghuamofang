@@ -8,7 +8,7 @@ P1 升级：四路并行（角色/时间线/伏笔/世界观）分批 delegate +
 import argparse
 from pathlib import Path
 
-from utils.api_client import HermesClient
+from utils.llm_client import make_client
 from utils.file_io import read_text, write_text
 from utils.template_loader import load_template
 from utils.verify_chapter import check_chapter
@@ -25,7 +25,7 @@ def build_check_task(proj, raw_dir, setting_path, checked_dir):
 
 
 def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=None):
-    client = client or HermesClient(model=(cfg or {}).get("model", {}).get("checker"))
+    client = client or make_client(cfg, "checker")
     task_dir = task_dir or "data/state/tasks"
     raw_dir = Path("data/chapters/raw")
     checked_dir = Path("data/chapters/checked")
@@ -45,8 +45,7 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                              build_check_task(proj, raw_dir, "data/setting/setting.json", checked_dir))
     result = client.run_task(task)
     if cost and run_id:
-        cost.record(run_id, 5, 0, result["tokens"], result["tokens_out"],
-                    estimated=result.get("estimated", False))
+        cost.charge_cost(run_id, 5, 0, result)
     if result["exit_code"] != 0:
         progress.set_stage(5, "failed", error="子会话退出码非零")
         return False, "stage5 子会话失败"

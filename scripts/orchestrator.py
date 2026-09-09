@@ -14,6 +14,7 @@
   python scripts/orchestrator.py --stage 7     # 只跑阶段7
 """
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -82,7 +83,8 @@ def run(from_stage=1, only_stage=None, client=None):
     db = RunDB("logs/runs.db")
     try:
         budget = cfg.get("budget", {})
-        cost = CostTracker(db, limit_yuan=budget.get("limit_yuan", 300),
+        limit_yuan = float(os.environ.get("BUDGET_LIMIT_YUAN") or budget.get("limit_yuan", 300))
+        cost = CostTracker(db, limit_yuan=limit_yuan,
                            warn_ratio=budget.get("warn_ratio", 0.7))
         run_id = db.start_run(plan_json=f"from={from_stage} only={only_stage}")
 
