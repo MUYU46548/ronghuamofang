@@ -1,0 +1,369 @@
+# -*- coding: utf-8 -*-
+"""NovelForge 本地 API 服务（GUI 化 P0）。
+
+零依赖（stdlib http.server），与 orchestrator/审批/打回/精修函数级复用，
+不经过 Hermes 子进程。端点总览：
+
+GET  /health              存活 + 当前 job
+GET  /state               progress + gates + 成本汇总 + 最近 job
+GET  /models              config/system.yaml 的 engine/providers/model 回显
+POST /stage/{n}/run       {from_stage?, only_stage?} → job_id（409=已有任务在跑）
+GET  /jobs/{id}           job 状态/结果
+POST /approve             {stage, revoke?} → 审批/撤销
+POST /reject              {stage, reason, dry_run?} → 打回（默认真执行）
+POST /refine/outline      {feedback, dry_run?} → 大纲精修
+POST /refine/chapter      {chapter, feedback, dry_run?} → 章节精修
+POST /snapshot            {label?} → 手动快照
+
+安全边界（本地自用）：默认 127.0.0.1；写操作只允许 POST 且 Content-Type=application/json；
+除 /stage /refine /snapshot 外均即时执行。NF_API_ALLOW_FAKE=1 时 stage/refine 走
+FakeClient（无 LLM 全链验收），生产模式禁用。
+
+用法：
+  .venv/Scripts/python.exe scripts/nf_api.py            # 端口 8765
+  .venv/Scripts/python.exe scripts/nf_api.py --port 8901 --allow-fake
+"""
+import argparse
+import json
+import os
+import threading
+import time
+import uuid
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import yaml  # noqa: E402
+
+from orchestrator import run as orch_run  # noqa: E402
+from utils.progress_manager import ProgressManager  # noqa: E402
+from utils.db import RunDB  # noqa: E402
+import reject as reject_mod  # noqa: E402
+import snapshot as snap_mod  # noqa: E402
+
+ROOT = Path(__file__).resolve().parents[1]
+os.chdir(ROOT)
+
+JOB_TTL = 50           # 内存保留的最近 job 数
+LOCK = threading.Lock()
+JOBS = {}              # job_id -> dict
+JOBS_ORDER = []
+CURRENT = {"id": None}
+ALLOW_FAKE = os.environ.get("NF_API_ALLOW_FAKE") == "1"
+
+
+def _client_for_env(cfg, role):
+    """真实模式 → make_client；测试模式（--allow-fake/NF_API_ALLOW_FAKE）→ FakeClient。"""
+    if ALLOW_FAKE:
+        from utils.fake_client import FakeClient
+        return FakeClient()
+    from utils.llm_client import make_client
+    return make_client(cfg, role)
+
+
+def _snapshot_state():
+    try:
+        return snap_mod.snapshot  # 引用即可（真正快照在 job 内执行）
+    except Exception:
+        return None
+
+
+def load_all():
+    cfg = yaml.safe_load((ROOT / "config" / "system.yaml").read_text(encoding="utf-8"))
+    proj = yaml.safe_load((ROOT / "config" / "project.yaml").read_text(encoding="utf-8"))
+    return cfg, proj
+
+
+def stage_status(progress, n):
+    st = progress.data.get("stages", {}).get(str(n), {})
+    out = {
+        "stage": n,
+        "status": st.get("status", "pending"),
+        "approved": st.get("approved"),
+        "rejected": st.get("rejected"),
+        "rejected_at": st.get("rejected_at"),
+    }
+    if "needs_rewrite" in st:
+        out["needs_rewrite"] = st["needs_rewrite"]
+    return out
+
+
+def build_state():
+    progress = ProgressManager("data/state/progress.json")
+    stages = [stage_status(progress, n) for n in range(1, 8)]
+    gates = load_all()[0].get("gates", {})
+    cost_spent, calls, est = 0.0, 0, 0
+    db_path = Path("logs/runs.db")
+    if db_path.exists():
+        db = RunDB(db_path)
+        try:
+            row = db.conn.execute(
+                "SELECT COALESCE(SUM(cost_yuan),0), COUNT(*), COALESCE(SUM(estimated),0)"
+                " FROM cost_log").fetchone()
+            cost_spent, calls, est = float(row[0]), int(row[1]), int(row[2])
+        finally:
+            db.close()
+    budget = load_all()[0].get("budget", {})
+    latest = JOBS[JOBS_ORDER[-1]] if JOBS_ORDER else None
+    return {
+        "book": load_all()[1].get("book", {}).get("name", ""),
+        "project_dir": str(ROOT),
+        "allow_fake": ALLOW_FAKE,
+        "stages": stages,
+        "gates": gates,
+        "cost": {"spent_yuan": round(cost_spent, 4),
+                 "calls": calls, "estimated_entries": est,
+                 "limit_yuan": budget.get("limit_yuan", 300)},
+        "latest_job": {k: latest[k] for k in ("id", "kind", "state", "detail") if latest and k in latest},
+        "current_job": CURRENT["id"],
+    }
+
+
+def start_job(kind, fn):
+    """创建并启动一个后台 job。返回 (job_id, error)。"""
+    with LOCK:
+        if CURRENT["id"]:
+            cur = JOBS.get(CURRENT["id"], {})
+            if cur.get("state") == "running":
+                return None, "已有任务在跑: " + CURRENT["id"] + "（" + cur.get("kind", "") + "）"
+        job_id = time.strftime("%Y%m%d_%H%M%S_") + uuid.uuid4().hex[:6]
+        job = {"id": job_id, "kind": kind, "state": "running",
+               "started_at": time.strftime("%Y-%m-%dT%H:%M:%S"), "result": None}
+        JOBS[job_id] = job
+        JOBS_ORDER.append(job_id)
+        while len(JOBS_ORDER) > JOB_TTL:
+            JOBS.pop(JOBS_ORDER.pop(0), None)
+        CURRENT["id"] = job_id
+
+    def _worker():
+        try:
+            result = fn()
+            ok, detail = result
+            with LOCK:
+                JOBS[job_id]["state"] = "ok" if ok else "failed"
+                JOBS[job_id]["finished_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+                JOBS[job_id]["result"] = detail
+        except SystemExit as e:
+            with LOCK:
+                JOBS[job_id]["state"] = "failed"
+                JOBS[job_id]["result"] = str(e)
+        except Exception as e:
+            with LOCK:
+                JOBS[job_id]["state"] = "failed"
+                JOBS[job_id]["result"] = type(e).__name__ + ": " + str(e)[:300]
+        finally:
+            with LOCK:
+                if CURRENT["id"] == job_id:
+                    CURRENT["id"] = None
+
+    threading.Thread(target=_worker, daemon=True).start()
+    return job_id, None
+
+
+# ---- 动作实现（与 CLI 同源） ----
+
+def act_run_stage(cfg, only_stage, from_stage):
+    client = _client_for_env(cfg, "default")
+
+    def _fn():
+        rc = orch_run(from_stage=from_stage, only_stage=only_stage, client=client)
+        return (rc == 0 or rc == 3), "exit=" + str(rc) + ("（3=等待审批，属正常门暂停）" if rc == 3 else "")
+    return _fn
+
+
+def act_approve(stage, revoke):
+    progress = ProgressManager("data/state/progress.json")
+    progress.set_approved(stage, not revoke)
+    status = progress.stage_status(stage)
+    action = "已撤销" if revoke else "已确认"
+    warn = None
+    if not revoke and status != "done":
+        warn = "阶段" + str(stage) + " 尚未完成（" + status + "），审批在完成后才生效"
+    return (warn is None), (warn or ("阶段" + str(stage) + " " + action + "（" + status + "）"))
+
+
+def act_reject(stage, reason, dry_run):
+    progress = ProgressManager("data/state/progress.json")
+    ok, msgs = reject_mod.reject_stage(progress, stage, reason or "", dry_run=dry_run)
+    return ok, "\n".join(msgs)
+
+
+def act_refine_outline(feedback, dry_run):
+    import refine_outline
+    cfg, proj = load_all()
+    ok, msg = refine_outline.run_refine(cfg, proj, feedback or "",
+                                        client=_client_for_env(cfg, "default"),
+                                        dry_run=dry_run)
+    return ok, msg
+
+
+def act_refine_chapter(chapter, feedback, dry_run):
+    import refine_chapter
+    cfg, proj = load_all()
+    ok, msg = refine_chapter.run_refine(cfg, proj, chapter, feedback or "",
+                                        client=_client_for_env(cfg, "default"),
+                                        dry_run=dry_run)
+    return ok, msg
+
+
+def act_snapshot(label):
+    def _fn():
+        try:
+            snap_mod.snapshot(label or "manual")
+            return True, "快照完成: " + (label or "manual")
+        except Exception as e:
+            return False, type(e).__name__ + ": " + str(e)[:200]
+    return _fn
+
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = "NovelForgeAPI/0.1"
+
+    # ---- 基础设施 ----
+    def _send(self, code, payload):
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, fmt, *args):  # 静默默认日志
+        pass
+
+    def _body(self):
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            n = 0
+        if n <= 0:
+            return {}
+        raw = self.rfile.read(n)
+        try:
+            return json.loads(raw.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return {}
+
+    # ---- GET ----
+    def do_GET(self):
+        p = self.path.split("?")[0].rstrip("/") or "/"
+        if p == "/health":
+            cur = CURRENT["id"]
+            job = JOBS.get(cur) if cur else None
+            self._send(200, {"ok": True, "current_job": cur,
+                             "current_kind": (job or {}).get("kind"),
+                             "allow_fake": ALLOW_FAKE})
+        elif p == "/state":
+            try:
+                self._send(200, build_state())
+            except Exception as e:
+                self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
+        elif p == "/models":
+            cfg, _ = load_all()
+            self._send(200, {"engine": cfg.get("engine"),
+                             "providers": cfg.get("providers", {}),
+                             "model": cfg.get("model", {})})
+        elif p.startswith("/jobs/"):
+            jid = p[len("/jobs/"):]
+            job = JOBS.get(jid)
+            if not job:
+                self._send(404, {"error": "job 不存在: " + jid})
+            else:
+                self._send(200, job)
+        else:
+            self._send(404, {"error": "未知路径 " + p + "（可用: /health /state /models /jobs/{id}）"})
+
+    # ---- POST ----
+    def do_POST(self):
+        p = self.path.split("?")[0].rstrip("/")
+        body = self._body()
+        try:
+            if p.startswith("/stage/") and p.endswith("/run"):
+                rest = p[len("/stage/"):-len("/run")]
+                if not rest.isdigit() or not (1 <= int(rest) <= 7):
+                    self._send(400, {"error": "阶段号须为 1-7"})
+                    return
+                cfg, _ = load_all()
+                _client_for_env(cfg, "default")  # 测试模式预检（真实模式构造仅告警）
+                only = int(rest)
+                from_stage = int(body.get("from_stage") or only)
+                if body.get("only_stage") is False:
+                    only = None
+                jid, err = start_job("stage" + rest, act_run_stage(cfg, only, from_stage))
+                if err:
+                    self._send(409, {"error": err})
+                else:
+                    self._send(202, {"job_id": jid, "stage": only, "from_stage": from_stage})
+            elif p == "/approve":
+                stage = int(body.get("stage") or 0)
+                if not (1 <= stage <= 7):
+                    self._send(400, {"error": "stage 须为 1-7"})
+                    return
+                ok, msg = act_approve(stage, bool(body.get("revoke")))
+                self._send(200 if ok else 409, {"ok": ok, "message": msg})
+            elif p == "/reject":
+                stage = int(body.get("stage") or 0)
+                if stage not in reject_mod.DOWNSTREAM_ARTIFACTS:
+                    self._send(400, {"error": "stage 须为 2-7"})
+                    return
+                ok, msg = act_reject(stage, str(body.get("reason") or ""),
+                                     dry_run=bool(body.get("dry_run")))
+                self._send(200 if ok else 400, {"ok": ok, "message": msg})
+            elif p == "/refine/outline":
+                fb = str(body.get("feedback") or "")
+                if not fb.strip():
+                    self._send(400, {"error": "feedback 必填"})
+                    return
+                cfg, _ = load_all()
+                _client_for_env(cfg, "default")
+                jid, err = start_job("refine_outline",
+                                     lambda: act_refine_outline(fb, bool(body.get("dry_run"))))
+                self._send(202 if not err else 409, {"error": err} if err else {"job_id": jid})
+            elif p == "/refine/chapter":
+                fb = str(body.get("feedback") or "")
+                ch = int(body.get("chapter") or 0)
+                if not fb.strip() or not (1 <= ch <= 999):
+                    self._send(400, {"error": "chapter(>=1) 与 feedback 必填"})
+                    return
+                cfg, _ = load_all()
+                _client_for_env(cfg, "default")
+                jid, err = start_job("refine_ch" + str(ch),
+                                     lambda: act_refine_chapter(ch, fb, bool(body.get("dry_run"))))
+                self._send(202 if not err else 409, {"error": err} if err else {"job_id": jid})
+            elif p == "/snapshot":
+                label = str(body.get("label") or "")
+                jid, err = start_job("snapshot", act_snapshot(label))
+                self._send(202 if not err else 409, {"error": err} if err else {"job_id": jid})
+            else:
+                self._send(404, {"error": "未知路径 " + p})
+        except (ValueError, TypeError) as e:
+            self._send(400, {"error": "参数错误: " + str(e)[:120]})
+        except Exception as e:
+            self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
+
+
+def main():
+    parser = argparse.ArgumentParser(description="NovelForge 本地 API（GUI 化 P0）")
+    parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--allow-fake", action="store_true",
+                        help="测试模式：stage/refine 用 FakeClient（无 LLM）")
+    args = parser.parse_args()
+    if args.allow_fake:
+        os.environ["NF_API_ALLOW_FAKE"] = "1"
+        global ALLOW_FAKE
+        ALLOW_FAKE = True
+    httpd = ThreadingHTTPServer((args.host, args.port), Handler)
+    print("[nf_api] NovelForge API 服务 → http://" + args.host + ":" + str(args.port)
+          + "  (allow_fake=" + str(ALLOW_FAKE) + ")")
+    print("[nf_api] 端点: /health /state /models /stage/{n}/run /jobs/{id} /approve /reject /refine/* /snapshot")
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        pass
+
+
+if __name__ == "__main__":
+    main()

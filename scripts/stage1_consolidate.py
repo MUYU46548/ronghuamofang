@@ -195,6 +195,8 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     task = client.write_task(task_dir, "stage1_setting.md",
                              build_setting_task(proj, manifest_path, normalized_dir))
     result = client.run_task(task)
+    if cost and run_id:
+        cost.charge_cost(run_id, 1, 0, result)
     if result["exit_code"] != 0:
         progress.set_stage(1, "failed", error="子会话退出码非零")
         return False, "stage1 归并子会话失败"
