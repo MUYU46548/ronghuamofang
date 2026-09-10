@@ -41,9 +41,9 @@ PATH_RE_MJ = re.compile("(?:[A-Za-z]:" + SEP + ")?[^：（(，,、:" + NEWLINE +
 
 INPUT_SECTION_RE = re.compile("^[#]{1,3}[^" + NEWLINE + "]*输入文件", re.M)
 HEADING_RE = re.compile("^[#]{1,3}[ ]", re.M)
-OP_RE = re.compile("^[^" + NEWLINE + "]*?=== *(FILE|APPEND|DELETE) *: *(.+?) *===*[ ]*$",
+OP_RE = re.compile("^[^\r" + NEWLINE + "]*?=== *(FILE|APPEND|DELETE) *: *(.+?) *===*[ ]*$",
                    re.M | re.IGNORECASE)
-END_RE = re.compile("^[^" + NEWLINE + "]*?=== *END *===*[ ]*$", re.M | re.IGNORECASE)
+END_RE = re.compile("^[^\r" + NEWLINE + "]*?=== *END *===*[ ]*$", re.M | re.IGNORECASE)
 DIR_SPEC_RE = re.compile("下的\\s*[*][.]md")
 _NOISE_RE = re.compile("[*（(，,、" + NEWLINE + " ]")
 
@@ -303,6 +303,66 @@ class OpenAICompatClient:
             time.sleep(2 ** attempt)
         raise RuntimeError("[llm_client] 重试耗尽: " + str(last_err))
 
+    def _post_chat_stream(self, messages, temperature=None, max_tokens=None, on_chunk=None, stop_flag=None):
+        """流式请求：逐 token 产出文本块。on_chunk(text) 每次收到新内容时调用。
+        stop_flag: callable，返回 True 时中止流。"""
+        self._validate_creds()
+        payload = {"model": self.model, "messages": messages, "stream": True}
+        if temperature is not None:
+            payload["temperature"] = temperature
+        if max_tokens:
+            payload["max_tokens"] = max_tokens
+        req = urllib.request.Request(
+            self.base_url + "/chat/completions",
+            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            headers={"Content-Type": "application/json",
+                     "Authorization": "Bearer " + self.api_key},
+            method="POST")
+        last_err = None
+        for attempt in range(1, self.retries + 1):
+            try:
+                with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+                    buf = ""
+                    while True:
+                        if stop_flag and stop_flag():
+                            return "", {}, self.model
+                        raw = resp.read(1024).decode("utf-8", "replace")
+                        if not raw:
+                            break
+                        buf += raw
+                        while NEWLINE + NEWLINE in buf:
+                            line, buf = buf.split(NEWLINE + NEWLINE, 1)
+                            line = line.strip()
+                            if not line.startswith("data:"):
+                                continue
+                            data_str = line[5:].strip()
+                            if data_str == "[DONE]":
+                                return "", {}, self.model
+                            try:
+                                chunk = json.loads(data_str)
+                            except json.JSONDecodeError:
+                                continue
+                            choices = chunk.get("choices") or []
+                            if choices:
+                                delta = choices[0].get("delta") or {}
+                                piece = delta.get("content") or ""
+                                if piece:
+                                    if on_chunk:
+                                        on_chunk(piece)
+                return "", {}, self.model
+            except urllib.error.HTTPError as e:
+                body = e.read().decode("utf-8", "replace")[:500]
+                if e.code in (400, 401, 403, 404):
+                    raise RuntimeError(
+                        "[llm_client] 请求被拒 HTTP " + str(e.code) + ": " + body) from e
+                last_err = "HTTP " + str(e.code) + ": " + body
+            except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as e:
+                last_err = repr(e)
+            print("[llm_client] 流式请求失败（第 " + str(attempt) + "/" +
+                  str(self.retries) + " 次），重试中: " + last_err)
+            time.sleep(2 ** attempt)
+        raise RuntimeError("[llm_client] 流式重试耗尽: " + str(last_err))
+
     def _expected_outputs(self, body):
         """提取期望写入路径：只扫任务正文（排除输入段/内联输入区/缺失警告区）。"""
         head = body.split("## 内联输入", 1)[0].split("## 输入缺失警告", 1)[0]
@@ -408,6 +468,66 @@ class OpenAICompatClient:
             "missing_inputs": missing,
         }
 
+    def run_task_stream(self, task_file, on_piece, stop_flag, workdir=None, model=None, dry_run=False):
+        """流式执行自包含任务文件。on_piece(text) 逐 token 回调。
+        stop_flag: callable，返回 True 时中止流。返回 dict 同 run_task。"""
+        if model and model != self.model:
+            print("[llm_client] WARN run_task_stream(model=" + str(model) + ") 与配置模型 " +
+                  self.model + " 不同，按配置执行")
+        self._validate_creds()
+        task_path = Path(task_file)
+        body = read_text(task_path)
+        new_body, missing = inline_inputs(body)
+        writes, appends = self._expected_outputs(new_body)
+        reqs = segment_requests(new_body, writes, appends)
+        if len(writes) > 1:
+            print("[llm_client] 多文件输出任务（流式），拆分 " + str(len(reqs)) + " 个请求")
+
+        all_text, tokens_in, tokens_out, cache_read, model_used = [], 0, 0, 0, self.model
+        for sub_prompt, wr, ap in reqs:
+            collected = []
+
+            def _on_chunk(piece, _collected=collected):
+                _collected.append(piece)
+                on_piece(piece)
+
+            text, usage, mu = self._post_chat_stream(
+                [{"role": "system", "content": SYSTEM_PROMPT},
+                 {"role": "user", "content": sub_prompt}],
+                on_chunk=_on_chunk, stop_flag=stop_flag)
+            model_used = mu
+            tokens_in += int(usage.get("prompt_tokens") or 0)
+            tokens_out += int(usage.get("completion_tokens") or 0)
+            cache_read += int(usage.get("cache_read_tokens") or 0)
+            full_text = "".join(collected)
+            all_text.append(full_text)
+            if os.environ.get("NOVELFORGE_DEBUG"):
+                dump = Path("data/state/llm_raw")
+                dump.mkdir(parents=True, exist_ok=True)
+                name = task_path.stem + "_stream_" + str(len(all_text)) + ".txt"
+                write_text(dump / name,
+                           "--- PROMPT (" + str(len(sub_prompt)) + " chars) ---\n" +
+                           sub_prompt[:3000] + "\n" + "--- RESPONSE ---\n" + full_text)
+            if not dry_run and stop_flag and not stop_flag():
+                self._apply_ops(full_text, wr, ap)
+
+        cost_yuan = cost_tracker.estimate_cost_yuan(tokens_in, tokens_out, model_used)
+        return {
+            "exit_code": 0,
+            "stdout_tail": NEWLINE.join(all_text)[-2000:],
+            "tokens": tokens_in,
+            "tokens_out": tokens_out,
+            "cache_read": cache_read,
+            "cost_yuan": cost_yuan,
+            "estimated": False,
+            "provider": self.provider,
+            "model": model_used,
+            "model_key": self.model_key,
+            "requests": len(reqs),
+            "missing_inputs": missing,
+            "stopped": bool(stop_flag and stop_flag()),
+        }
+
 
 class HermesClient:
     """Hermes 子会话客户端（原 api_client.HermesClient，保留为引擎之一）。"""
@@ -444,6 +564,14 @@ class HermesClient:
         path = task_dir / name
         write_text(path, content)
         return path
+
+    def run_task_stream(self, task_file, on_piece, stop_flag, workdir=None, model=None):
+        """Hermes 引擎暂不支持真流式：降级为 run_task，结束后一次性回调。"""
+        print("[llm_client] Hermes 引擎不支持流式，降级为整块返回")
+        result = self.run_task(task_file, workdir=workdir, model=model)
+        if result["exit_code"] == 0 and result.get("stdout_tail"):
+            on_piece(result["stdout_tail"])
+        return result
 
 
 # ---------------------------------------------------------------- 工厂

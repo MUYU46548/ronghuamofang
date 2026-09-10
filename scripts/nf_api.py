@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""NovelForge 本地 API 服务（GUI 化 P0）。
+"""NovelForge 本地 API 服务（GUI 化 P0 + 实时流式输出）。
 
 零依赖（stdlib http.server），与 orchestrator/审批/打回/精修函数级复用，
 不经过 Hermes 子进程。端点总览：
@@ -7,13 +7,18 @@
 GET  /health              存活 + 当前 job
 GET  /state               progress + gates + 成本汇总 + 最近 job
 GET  /models              config/system.yaml 的 engine/providers/model 回显
-POST /stage/{n}/run       {from_stage?, only_stage?} → job_id（409=已有任务在跑）
+POST /stage/{n}/run       {from_stage?, only_stage?, stream?} → job_id（409=已有任务在跑）
+GET  /stream/{job_id}     SSE：实时流式输出（token 级）
+POST /stop/{job_id}       中断正在运行的任务
 GET  /jobs/{id}           job 状态/结果
 POST /approve             {stage, revoke?} → 审批/撤销
 POST /reject              {stage, reason, dry_run?} → 打回（默认真执行）
 POST /refine/outline      {feedback, dry_run?} → 大纲精修
 POST /refine/chapter      {chapter, feedback, dry_run?} → 章节精修
 POST /snapshot            {label?} → 手动快照
+POST /costs               GET 成本流水
+GET  /costs/summary       按阶段/模型聚合
+POST /models/switch       {role, model} → 切换模型
 
 安全边界（本地自用）：默认 127.0.0.1；写操作只允许 POST 且 Content-Type=application/json；
 除 /stage /refine /snapshot 外均即时执行。NF_API_ALLOW_FAKE=1 时 stage/refine 走
@@ -26,6 +31,7 @@ FakeClient（无 LLM 全链验收），生产模式禁用。
 import argparse
 import json
 import os
+import queue
 import threading
 import time
 import uuid
@@ -53,6 +59,11 @@ JOBS_ORDER = []
 CURRENT = {"id": None}
 ALLOW_FAKE = os.environ.get("NF_API_ALLOW_FAKE") == "1"
 
+# ---- 流式输出支持 ----
+# job_id -> {"queue": Queue, "stop": Event, "text": []}
+STREAMERS = {}
+STREAMERS_LOCK = threading.Lock()
+
 
 def _client_for_env(cfg, role):
     """真实模式 → make_client；测试模式（--allow-fake/NF_API_ALLOW_FAKE）→ FakeClient。"""
@@ -61,6 +72,59 @@ def _client_for_env(cfg, role):
         return FakeClient()
     from utils.llm_client import make_client
     return make_client(cfg, role)
+
+
+def _wrap_client_for_streaming(client, job_id):
+    """包装客户端：将 run_task 重定向到 run_task_stream，通过队列推送 token。
+    Hermes 引擎不支持真流式，降级为整块返回。"""
+    orig_run_task = client.run_task
+    orig_run_task_stream = getattr(client, "run_task_stream", None)
+
+    streamer = STREAMERS.get(job_id)
+    if not streamer:
+        return client
+
+    q = streamer["queue"]
+    stop = streamer["stop"]
+
+    def wrapped_run_task(*args, **kwargs):
+        def on_piece(piece):
+            try:
+                q.put_nowait({"type": "token", "text": piece})
+            except queue.Full:
+                pass
+
+        if orig_run_task_stream:
+            result = orig_run_task_stream(
+                *args, **kwargs,
+                on_piece=on_piece,
+                stop_flag=stop.is_set
+            )
+        else:
+            # Hermes 降级
+            result = orig_run_task(*args, **kwargs)
+            if result.get("exit_code") == 0 and result.get("stdout_tail"):
+                for ch in result["stdout_tail"]:
+                    try:
+                        q.put_nowait({"type": "token", "text": ch})
+                    except queue.Full:
+                        pass
+
+        status = "stopped" if (stop.is_set() and result.get("stopped")) else ("ok" if result.get("exit_code") == 0 else "error")
+        try:
+            q.put_nowait({
+                "type": "done",
+                "exit_code": result.get("exit_code", -1),
+                "status": status,
+                "model": result.get("model", ""),
+                "cost_yuan": result.get("cost_yuan", 0),
+            })
+        except queue.Full:
+            pass
+        return result
+
+    client.run_task = wrapped_run_task
+    return client
 
 
 def _snapshot_state():
@@ -116,7 +180,7 @@ def build_state():
         "cost": {"spent_yuan": round(cost_spent, 4),
                  "calls": calls, "estimated_entries": est,
                  "limit_yuan": budget.get("limit_yuan", 300)},
-        "latest_job": {k: latest[k] for k in ("id", "kind", "state", "detail") if latest and k in latest},
+        "latest_job": {k: latest[k] for k in ("id", "kind", "state", "result") if latest and k in latest},
         "current_job": CURRENT["id"],
     }
 
@@ -164,8 +228,12 @@ def start_job(kind, fn):
 
 # ---- 动作实现（与 CLI 同源） ----
 
-def act_run_stage(cfg, only_stage, from_stage):
+def act_run_stage(cfg, only_stage, from_stage, stream_job_id=None):
+    """创建阶段运行动作。stream_job_id 不为 None 时启用流式输出。"""
     client = _client_for_env(cfg, "default")
+
+    if stream_job_id:
+        client = _wrap_client_for_streaming(client, stream_job_id)
 
     def _fn():
         rc = orch_run(from_stage=from_stage, only_stage=only_stage, client=client)
@@ -219,7 +287,7 @@ def act_snapshot(label):
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "NovelForgeAPI/0.1"
+    server_version = "NovelForgeAPI/0.2"
 
     # ---- 基础设施 ----
     def _send(self, code, payload):
@@ -246,9 +314,54 @@ class Handler(BaseHTTPRequestHandler):
         except (json.JSONDecodeError, UnicodeDecodeError):
             return {}
 
+    # ---- SSE 流式输出 ----
+    def _stream_sse(self, job_id):
+        """SSE 端点：流式推送 token。"""
+        with STREAMERS_LOCK:
+            streamer = STREAMERS.get(job_id)
+
+        if not streamer:
+            self._send(404, {"error": "stream not found: " + job_id})
+            return
+
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "keep-alive")
+        self.end_headers()
+
+        q = streamer["queue"]
+        try:
+            while True:
+                try:
+                    event = q.get(timeout=25)
+                    data = json.dumps(event, ensure_ascii=False)
+                    self.wfile.write(b"data: " + data.encode("utf-8") + b"\n\n")
+                    self.wfile.flush()
+                    if event.get("type") == "done":
+                        break
+                except queue.Empty:
+                    # 保活注释
+                    self.wfile.write(b": keepalive\n\n")
+                    self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        finally:
+            # 清理 streamer
+            with STREAMERS_LOCK:
+                STREAMERS.pop(job_id, None)
+
     # ---- GET ----
     def do_GET(self):
-        p = self.path.split("?")[0].rstrip("/") or "/"
+        path_parts = self.path.split("?")
+        p = path_parts[0].rstrip("/") or "/"
+
+        # SSE 流式端点
+        if p.startswith("/stream/"):
+            job_id = p[len("/stream/"):]
+            self._stream_sse(job_id)
+            return
+
         if p == "/health":
             cur = CURRENT["id"]
             job = JOBS.get(cur) if cur else None
@@ -329,11 +442,12 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 self._send(200, job)
         else:
-            self._send(404, {"error": "未知路径 " + p + "（可用: /health /state /models /jobs/{id}）"})
+            self._send(404, {"error": "未知路径 " + p + "（可用: /health /state /models /stage/{n}/run /stream/{job_id} /jobs/{id}）"})
 
     # ---- POST ----
     def do_POST(self):
-        p = self.path.split("?")[0].rstrip("/")
+        path_parts = self.path.split("?")
+        p = path_parts[0].rstrip("/")
         body = self._body()
         try:
             if p.startswith("/stage/") and p.endswith("/run"):
@@ -347,11 +461,66 @@ class Handler(BaseHTTPRequestHandler):
                 from_stage = int(body.get("from_stage") or only)
                 if body.get("only_stage") is False:
                     only = None
-                jid, err = start_job("stage" + rest, act_run_stage(cfg, only, from_stage))
-                if err:
-                    self._send(409, {"error": err})
+
+                # 是否启用流式输出
+                want_stream = bool(body.get("stream"))
+
+                if want_stream:
+                    # 先创建 streamer 占位，再启动 job
+                    job_id_preview = time.strftime("%Y%m%d_%H%M%S_") + "pending"
+                    stream_q = queue.Queue(maxsize=10000)
+                    stop_ev = threading.Event()
+                    with STREAMERS_LOCK:
+                        STREAMERS[job_id_preview] = {
+                            "queue": stream_q,
+                            "stop": stop_ev,
+                            "text": [],
+                        }
+
+                    def _fn_stream():
+                        client = _client_for_env(cfg, "default")
+                        # 用真实的 job_id 替换占位
+                        real_job = CURRENT.get("id", job_id_preview)
+                        with STREAMERS_LOCK:
+                            STREAMERS.pop(job_id_preview, None)
+                            STREAMERS[real_job] = {
+                                "queue": stream_q,
+                                "stop": stop_ev,
+                                "text": [],
+                            }
+                        client = _wrap_client_for_streaming(client, real_job)
+                        rc = orch_run(from_stage=from_stage, only_stage=only_stage, client=client)
+                        return (rc == 0 or rc == 3), "exit=" + str(rc) + ("（3=等待审批）" if rc == 3 else "")
+
+                    jid, err = start_job("stage" + rest, _fn_stream)
+                    if err:
+                        with STREAMERS_LOCK:
+                            STREAMERS.pop(job_id_preview, None)
+                        self._send(409, {"error": err})
+                        return
+                    # 将 preview 关联到真实 job
+                    with STREAMERS_LOCK:
+                        if jid not in STREAMERS and job_id_preview in STREAMERS:
+                            STREAMERS[jid] = STREAMERS.pop(job_id_preview)
+                    self._send(202, {"job_id": jid, "stage": only, "from_stage": from_stage, "stream": True})
                 else:
-                    self._send(202, {"job_id": jid, "stage": only, "from_stage": from_stage})
+                    jid, err = start_job("stage" + rest, act_run_stage(cfg, only, from_stage))
+                    if err:
+                        self._send(409, {"error": err})
+                    else:
+                        self._send(202, {"job_id": jid, "stage": only, "from_stage": from_stage})
+            elif p == "/stop":
+                job_id = str(body.get("job_id") or "")
+                if not job_id:
+                    self._send(400, {"error": "job_id 必填"})
+                    return
+                with STREAMERS_LOCK:
+                    streamer = STREAMERS.get(job_id)
+                if streamer:
+                    streamer["stop"].set()
+                    self._send(200, {"ok": True, "message": "已发送停止信号: " + job_id})
+                else:
+                    self._send(404, {"error": "stream not found: " + job_id})
             elif p == "/approve":
                 stage = int(body.get("stage") or 0)
                 if not (1 <= stage <= 7):
@@ -415,7 +584,7 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="NovelForge 本地 API（GUI 化 P0）")
+    parser = argparse.ArgumentParser(description="NovelForge 本地 API（GUI 化 P0 + 流式输出）")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--allow-fake", action="store_true",
@@ -428,7 +597,7 @@ def main():
     httpd = ThreadingHTTPServer((args.host, args.port), Handler)
     print("[nf_api] NovelForge API 服务 → http://" + args.host + ":" + str(args.port)
           + "  (allow_fake=" + str(ALLOW_FAKE) + ")")
-    print("[nf_api] 端点: /health /state /models /stage/{n}/run /jobs/{id} /approve /reject /refine/* /snapshot")
+    print("[nf_api] 端点: /health /state /models /stage/{n}/run /stream/{job_id} /stop /jobs/{id} /approve /reject /refine/* /snapshot /costs")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

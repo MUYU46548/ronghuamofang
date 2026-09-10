@@ -102,6 +102,69 @@ async function submitRefine() {
   refresh();
 }
 
+/* ---------- 实时流式输出 ---------- */
+const streamText = ref("");
+const streamJob = ref(null);
+const streamConnected = ref(false);
+const streamModel = ref("");
+const streamCost = ref(0);
+const streamStatus = ref(""); // "running" | "ok" | "failed" | "stopped"
+const streamOpen = ref(false);
+let streamSource = null;
+
+async function runStageStream(n) {
+  const r = await api("/stage/" + n + "/run", "POST", { stream: true });
+  if (r.status !== 202) {
+    say("提交失败: " + (r.data.error || r.status));
+    return;
+  }
+  // 断开旧流
+  if (streamSource) streamSource.close();
+  streamText.value = "";
+  streamJob.value = r.data.job_id;
+  streamModel.value = "";
+  streamCost.value = 0;
+  streamStatus.value = "running";
+  streamConnected.value = true;
+  streamOpen.value = true;
+
+  const es = new EventSource(API + "/stream/" + r.data.job_id);
+  streamSource = es;
+  es.onmessage = (ev) => {
+    const msg = JSON.parse(ev.data);
+    if (msg.type === "token") {
+      streamText.value += msg.text;
+    } else if (msg.type === "done") {
+      streamStatus.value = msg.status || "ok";
+      streamModel.value = msg.model || "";
+      streamCost.value = msg.cost_yuan || 0;
+      es.close();
+      streamSource = null;
+      streamConnected.value = false;
+      refresh();
+    }
+  };
+  es.onerror = () => {
+    es.close();
+    streamSource = null;
+    streamConnected.value = false;
+    if (streamStatus.value === "running") streamStatus.value = "failed";
+    refresh();
+  };
+}
+
+function stopStream() {
+  if (!streamJob.value) return;
+  api("/stop", "POST", { job_id: streamJob.value });
+  streamStatus.value = "stopped";
+  if (streamSource) {
+    streamSource.close();
+    streamSource = null;
+  }
+  streamConnected.value = false;
+  refresh();
+}
+
 async function switchModel(role, modelId) {
   const r = await api("/models/switch", "POST", { role, model: modelId });
   if (r.status === 200) say("已切换 " + role + " → " + modelId + "（下次运行生效）");
@@ -237,6 +300,25 @@ onUnmounted(() => clearInterval(timer));
     <span class="run-pct">{{ progressPct }}%</span>
   </div>
 
+  <!-- 实时流式输出面板 -->
+  <div v-if="streamOpen" class="stream-panel">
+    <div class="stream-head">
+      <span class="run-dot" v-if="streamConnected"></span>
+      <b>实时输出</b>
+      <span v-if="streamJob" class="stream-job-id">{{ streamJob }}</span>
+      <span class="spacer"></span>
+      <span v-if="streamModel" class="pill st-done">{{ streamModel }}</span>
+      <span v-if="streamCost > 0" class="stream-cost">¥{{ streamCost.toFixed(4) }}</span>
+      <span v-if="streamStatus === 'running'" class="pill st-running">生成中</span>
+      <span v-else-if="streamStatus === 'ok'" class="pill st-done">完成</span>
+      <span v-else-if="streamStatus === 'stopped'" class="pill st-rej">已中断</span>
+      <span v-else class="pill st-rej">{{ streamStatus }}</span>
+      <button v-if="streamConnected" class="mini danger" @click="stopStream">中断</button>
+      <button class="mini" @click="streamOpen = false; stopStream()">关闭</button>
+    </div>
+    <pre class="stream-body">{{ streamText || "等待输出…" }}</pre>
+  </div>
+
   <main class="content">
     <!-- 流水线 -->
     <section v-if="tab === 'pipeline' && state" class="grid-2">
@@ -253,6 +335,7 @@ onUnmounted(() => clearInterval(timer));
           </div>
           <div class="stage-actions">
             <button class="mini" :disabled="isRunning" @click="runStage(s.stage)">运行</button>
+            <button class="mini" :disabled="isRunning" @click="runStageStream(s.stage)" title="实时流式输出，可随时中断">流式运行</button>
             <button v-if="s.status === 'done' && !s.approved" class="mini primary" @click="approve(s.stage)">确认</button>
             <button v-else-if="s.approved" class="mini" @click="approve(s.stage, true)">撤销</button>
             <button v-if="s.stage >= 2" class="mini danger" :disabled="isRunning" @click="openReject(s.stage)">打回</button>

@@ -182,3 +182,44 @@ class FakeClient:
             "model": "fake",
             "requests": 1,
         }
+
+    def run_task_stream(self, task_file, on_piece, stop_flag, workdir=None, model=None):
+        """Fake 流式：模拟逐字符输出。"""
+        import time
+        path = Path(task_file)
+        text = read_text(path)
+        name = path.name
+        if name.startswith("stage1"):
+            written = _write_setting(text)
+        elif name.startswith("stage2"):
+            written = _write_global(text)
+        elif name.startswith("stage3"):
+            written = _write_chapter_outlines(text)
+        elif name.startswith("stage4_ch"):
+            written = _write_chapter(text, name)
+        elif name.startswith("stage5"):
+            written = _copy_raw_to_checked(text)
+        elif name.startswith("stage6"):
+            written = _copy_checked_to_refined(text)
+        else:
+            written = _write_generic(text)
+        # 模拟流式输出
+        msg = "（fake 流式）已写出: " + ", ".join(str(x) for x in written)
+        for ch in msg:
+            if stop_flag and stop_flag():
+                break
+            on_piece(ch)
+            time.sleep(0.02)
+        est_in = max(1000, len(text) * 2 // 5)
+        return {
+            "exit_code": 0,
+            "stdout_tail": msg,
+            "tokens": est_in,
+            "tokens_out": max(500, est_in // 3),
+            "cost_yuan": 0.0,
+            "estimated": True,
+            "provider": "fake",
+            "model": "fake",
+            "requests": 1,
+            "stopped": bool(stop_flag and stop_flag()),
+        }
