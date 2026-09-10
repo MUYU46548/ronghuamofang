@@ -146,6 +146,8 @@ body {
 .stat-sub { font-size: 11px; color: var(--muted); }
 .model-select { border: 1px solid var(--border); border-radius: 8px; padding: 4px 8px; font-size: 12.5px; color: var(--ink); background: #fff; cursor: pointer; }
 .model-select:focus { outline: none; border-color: var(--accent); }
+.text-input { flex: 1; min-width: 120px; border: 1px solid var(--border); border-radius: 8px; padding: 5px 9px; font-size: 12.5px; color: var(--ink); background: #fff; }
+.text-input:focus { outline: none; border-color: var(--accent); }
 
 /* 运行进度条 */
 .progress { height: 6px; border-radius: 4px; background: rgba(155, 143, 196, 0.15); margin-bottom: 12px; overflow: hidden; }
