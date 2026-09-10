@@ -1,5 +1,6 @@
 // 绒花墨坊桌面控制台 — Electron 主进程
 const { app, BrowserWindow, ipcMain, shell } = require("electron");
+app.disableHardwareAcceleration();
 const { spawn } = require("child_process");
 const path = require("path");
 const fs = require("fs");
