@@ -19,16 +19,17 @@ NovelForge 是单书工作区：data/ 只存当前一本书。换书时必须清
 """
 import argparse
 import json
+import os
 import re
 import shutil
 import sys
 from datetime import datetime
 from pathlib import Path
 
-from utils.file_io import read_text, write_text
-
-BOOKS_DIR = Path("data/books")
-DATA_DIR = Path("data")
+# 项目根目录：脚本在 scripts/ 下，项目根是其父目录
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+BOOKS_DIR = PROJECT_ROOT / "data" / "books"
+DATA_DIR = PROJECT_ROOT / "data"
 ITEMS = ["progress.json", "setting", "outline", "chapters", "summaries",
          "merged", "state", "materials_manifest.json"]
 UNSAFE = re.compile(r"[\\/:*?\"<>|]")
@@ -38,17 +39,19 @@ def sanitize(name):
     return UNSAFE.sub("_", (name or "").strip()) or "未命名"
 
 
-def current_book_name(proj_path="config/project.yaml"):
+def current_book_name(proj_path=None):
     """当前工作区数据属于哪本书：progress.json 优先，其次 project.yaml。"""
+    if proj_path is None:
+        proj_path = PROJECT_ROOT / "config" / "project.yaml"
     try:
-        prog = json.loads(read_text(str(DATA_DIR / "progress.json")))
+        prog = json.loads((DATA_DIR / "progress.json").read_text(encoding="utf-8"))
         if prog.get("project"):
             return prog["project"]
     except (json.JSONDecodeError, ValueError, FileNotFoundError):
         pass
     try:
         import yaml
-        proj = yaml.safe_load(read_text(proj_path))
+        proj = yaml.safe_load(Path(proj_path).read_text(encoding="utf-8"))
         return proj.get("book", {}).get("name", "")
     except Exception:
         return ""
@@ -58,8 +61,10 @@ def _list_dir_items(root):
     return [p for p in Path(root).iterdir() if p.name in ITEMS]
 
 
-def has_work(root=DATA_DIR):
+def has_work(root=None):
     """工作区是否有数据。"""
+    if root is None:
+        root = DATA_DIR
     return bool(_list_dir_items(root))
 
 
@@ -78,82 +83,76 @@ def _move_items(src_root, dest_root):
 
 
 def archive(book_name=None, yes=False):
+    """归档当前工作区。返回 (success: bool, message: str)。"""
     if not yes:
-        print("[switch_book] 归档将移动 data/ 下产物到 data/books/，确认请加 --yes")
-        return 1
+        return False, "归档将移动 data/ 下产物到 data/books/，确认请加 --yes"
     name = book_name or current_book_name()
     if not name:
-        print("[switch_book] 无法确定当前书名（progress.json 与 project.yaml 均无）")
-        return 1
+        return False, "无法确定当前书名（progress.json 与 project.yaml 均无）"
     if not has_work():
-        print("[switch_book] 工作区无数据，无需归档")
-        return 0
+        return True, "工作区无数据，无需归档"
     dest = BOOKS_DIR / sanitize(name)
     if dest.exists():
-        print(f"[switch_book] {dest} 已存在同名归档。"
-              "如需覆盖请手动处理，或先用 --restore 恢复")
-        return 1
+        return False, f"{dest} 已存在同名归档。如需覆盖请手动处理，或先用 --restore 恢复"
     moved = _move_items(DATA_DIR, dest)
     meta = {"book": name, "archived_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "items": moved}
-    write_text(str(dest / "_meta.json"), json.dumps(meta, ensure_ascii=False, indent=2))
-    print(f"[switch_book] 已归档「{name}」→ {dest}（{len(moved)} 项）")
-    return 0
+    (dest / "_meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    return True, f"已归档「{name}」→ {dest}（{len(moved)} 项）"
 
 
 def restore(book_name, yes=False):
+    """恢复指定书到工作区。返回 (success: bool, message: str)。"""
     if not yes:
-        print("[switch_book] 恢复将移动 data/books/ 产物到 data/，确认请加 --yes")
-        return 1
+        return False, "恢复将移动 data/books/ 产物到 data/，确认请加 --yes"
     src = BOOKS_DIR / sanitize(book_name)
     if not src.exists():
-        print(f"[switch_book] 未找到归档: {src}（用 --list 查看）")
-        return 1
+        return False, f"未找到归档: {src}（用 --list 查看）"
     # 先自动归档当前工作区（若不同书）
     cur = current_book_name()
     if cur and sanitize(cur) != sanitize(book_name) and has_work():
         print(f"[switch_book] 当前工作区有「{cur}」数据，先自动归档")
-        if archive(cur, yes=True) != 0:
-            return 1
+        ok, msg = archive(cur, yes=True)
+        if not ok:
+            return False, f"自动归档失败: {msg}"
     moved = _move_items(src, DATA_DIR)
-    print(f"[switch_book] 已恢复「{book_name}」→ data/（{len(moved)} 项）")
-    return 0
+    return True, f"已恢复「{book_name}」→ data/（{len(moved)} 项）"
 
 
 def init_empty():
-    """初始化空工作区（保留 data/tmp 缓存）。"""
+    """初始化空工作区（保留 data/tmp 缓存）。返回 (success: bool, message: str)。"""
     if has_work():
-        print("[switch_book] 工作区有数据，请先 --archive")
-        return 1
+        return False, "工作区有数据，请先 --archive"
     for d in ("setting", "outline/chapters", "chapters/raw", "chapters/checked",
               "chapters/refined", "summaries", "merged", "state/tasks"):
         (DATA_DIR / d).mkdir(parents=True, exist_ok=True)
-    print("[switch_book] 空工作区骨架已初始化")
-    return 0
+    return True, "空工作区骨架已初始化"
 
 
 def list_books():
-    print("===== 当前书 =====")
+    """列出已归档书。返回 {"current": str, "archived": [...]}。"""
     cur = current_book_name()
-    print(f"  工作区: {cur or '（未初始化）'}")
-    print("===== 已归档书 =====")
-    if not BOOKS_DIR.exists():
-        print("  （无）")
-        return 0
-    for d in sorted(BOOKS_DIR.iterdir()):
-        if not d.is_dir():
-            continue
-        meta = {}
-        if (d / "_meta.json").exists():
-            try:
-                meta = json.loads(read_text(str(d / "_meta.json")))
-            except (json.JSONDecodeError, ValueError):
-                pass
-        n_items = len([p for p in d.iterdir() if p.name in ITEMS])
-        size = sum(f.stat().st_size for f in d.rglob("*") if f.is_file())
-        print(f"  {d.name}  [{meta.get('book', '?')}]  "
-              f"{n_items} 项 / {size/1024:.0f} KB  {meta.get('archived_at', '')}")
-    return 0
+    archived = []
+    if BOOKS_DIR.exists():
+        for d in sorted(BOOKS_DIR.iterdir()):
+            if not d.is_dir():
+                continue
+            meta = {}
+            if (d / "_meta.json").exists():
+                try:
+                    meta = json.loads((d / "_meta.json").read_text(encoding="utf-8"))
+                except (json.JSONDecodeError, ValueError):
+                    pass
+            n_items = len([p for p in d.iterdir() if p.name in ITEMS])
+            size = sum(f.stat().st_size for f in d.rglob("*") if f.is_file())
+            archived.append({
+                "name": d.name,
+                "display_name": meta.get("book", d.name),
+                "items": n_items,
+                "size_kb": round(size / 1024),
+                "archived_at": meta.get("archived_at", ""),
+            })
+    return {"current": cur or "", "archived": archived}
 
 
 def main():
@@ -167,15 +166,41 @@ def main():
     args = parser.parse_args()
 
     if args.list:
-        return list_books()
+        books = list_books()
+        print("===== 当前书 =====")
+        print(f"  工作区: {books['current'] or '（未初始化）'}")
+        print("===== 已归档书 =====")
+        if not books["archived"]:
+            print("  （无）")
+            return 0
+        for b in books["archived"]:
+            print(f"  {b['name']}  [{b['display_name']}]  "
+                  f"{b['items']} 项 / {b['size_kb']} KB  {b['archived_at']}")
+        return 0
     if args.init:
-        return init_empty()
+        ok, msg = init_empty()
+        print(msg)
+        return 0 if ok else 1
     if args.archive is not None:
         name = None if args.archive == "__auto__" else args.archive
-        return archive(name, yes=args.yes)
+        ok, msg = archive(name, yes=args.yes)
+        print(f"[switch_book] {msg}")
+        return 0 if ok else 1
     if args.restore:
-        return restore(args.restore, yes=args.yes)
-    list_books()
+        ok, msg = restore(args.restore, yes=args.yes)
+        print(f"[switch_book] {msg}")
+        return 0 if ok else 1
+    # 默认列出
+    books = list_books()
+    print("===== 当前书 =====")
+    print(f"  工作区: {books['current'] or '（未初始化）'}")
+    print("===== 已归档书 =====")
+    if not books["archived"]:
+        print("  （无）")
+        return 0
+    for b in books["archived"]:
+        print(f"  {b['name']}  [{b['display_name']}]  "
+              f"{b['items']} 项 / {b['size_kb']} KB  {b['archived_at']}")
     return 0
 
 

@@ -48,6 +48,7 @@ from utils.progress_manager import ProgressManager  # noqa: E402
 from utils.db import RunDB  # noqa: E402
 import reject as reject_mod  # noqa: E402
 import snapshot as snap_mod  # noqa: E402
+import switch_book as sb_mod  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 os.chdir(ROOT)
@@ -441,8 +442,13 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(404, {"error": "job 不存在: " + jid})
             else:
                 self._send(200, job)
+        elif p == "/project/list":
+            try:
+                self._send(200, sb_mod.list_books())
+            except Exception as e:
+                self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
         else:
-            self._send(404, {"error": "未知路径 " + p + "（可用: /health /state /models /stage/{n}/run /stream/{job_id} /jobs/{id}）"})
+            self._send(404, {"error": "未知路径 " + p + "（可用: /health /state /models /project/list /stage/{n}/run /stream/{job_id} /jobs/{id}）"})
 
     # ---- POST ----
     def do_POST(self):
@@ -575,6 +581,23 @@ class Handler(BaseHTTPRequestHandler):
                 (ROOT / "config" / "system.yaml").write_text(
                     yaml.dump(cfg, allow_unicode=True, sort_keys=False), encoding="utf-8")
                 self._send(200, {"ok": True, "role": role, "model": model_id})
+            elif p == "/project/archive":
+                name = str(body.get("name") or "").strip()
+                if not name:
+                    self._send(400, {"error": "name 必填"})
+                    return
+                ok, msg = sb_mod.archive(name, yes=bool(body.get("yes")))
+                self._send(200 if ok else 400, {"ok": ok, "message": msg})
+            elif p == "/project/restore":
+                name = str(body.get("name") or "").strip()
+                if not name:
+                    self._send(400, {"error": "name 必填"})
+                    return
+                ok, msg = sb_mod.restore(name, yes=bool(body.get("yes")))
+                self._send(200 if ok else 400, {"ok": ok, "message": msg})
+            elif p == "/project/init":
+                ok, msg = sb_mod.init_empty()
+                self._send(200 if ok else 400, {"ok": ok, "message": msg})
             else:
                 self._send(404, {"error": "未知路径 " + p})
         except (ValueError, TypeError) as e:

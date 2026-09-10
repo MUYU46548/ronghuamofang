@@ -165,6 +165,41 @@ function stopStream() {
   refresh();
 }
 
+/* ---------- 项目切换 ---------- */
+const projects = ref({ current: "", archived: [] });
+
+async function loadProjects() {
+  const r = await api("/project/list");
+  if (r.status === 200) {
+    projects.value = r.data;
+  }
+}
+
+async function archiveCurrent() {
+  if (!projects.value.current) return;
+  const name = prompt("归档项目名称（留空使用当前书名）：", projects.value.current);
+  if (name === null) return;
+  const r = await api("/project/archive", "POST", { name: name || projects.value.current, yes: true });
+  if (r.status === 200) {
+    say("已归档: " + (name || projects.value.current));
+    loadProjects();
+    refresh();
+  } else {
+    say("归档失败: " + (r.data.message || r.data.error));
+  }
+}
+
+async function restoreProject(name) {
+  const r = await api("/project/restore", "POST", { name, yes: true });
+  if (r.status === 200) {
+    say("已恢复: " + name);
+    loadProjects();
+    refresh();
+  } else {
+    say("恢复失败: " + (r.data.message || r.data.error));
+  }
+}
+
 async function switchModel(role, modelId) {
   const r = await api("/models/switch", "POST", { role, model: modelId });
   if (r.status === 200) say("已切换 " + role + " → " + modelId + "（下次运行生效）");
@@ -286,7 +321,7 @@ onUnmounted(() => clearInterval(timer));
       <button :class="{ active: tab === 'inbox' }" @click="switchTab('inbox')">
         收件箱<span v-if="pendingGates.length" class="badge">{{ pendingGates.length }}</span>
       </button>
-      <button :class="{ active: tab === 'cost' }" @click="switchTab('cost')">成本</button>
+      <button :class="{ active: tab === 'project' }" @click="switchTab('project')">项目</button>
       <button :class="{ active: tab === 'settings' }" @click="switchTab('settings')">设置</button>
     </nav>
     <div class="conn" :class="{ on: online }">{{ online ? "已连接" : "离线" }}</div>
@@ -508,6 +543,35 @@ onUnmounted(() => clearInterval(timer));
         模型白名单纪律：未经确认不指定付费模型。
       </div>
       <div class="meta">项目目录: {{ state ? state.project_dir : "-" }}</div>
+    </section>
+
+    <!-- 项目（书籍切换） -->
+    <section v-if="tab === 'project'" class="card">
+      <div class="card-head">
+        <h3>项目切换</h3>
+        <button class="mini" @click="loadProjects">刷新</button>
+      </div>
+      <div class="meta" style="margin-bottom: 12px;">
+        当前项目：<b>{{ projects.current || "（未初始化）" }}</b>
+      </div>
+      <div v-if="projects.current" class="art-row">
+        <span class="art-label">归档当前项目</span>
+        <span class="spacer"></span>
+        <button class="mini" @click="archiveCurrent">归档</button>
+      </div>
+      <div v-if="projects.archived.length" style="margin-top: 14px;">
+        <h4>已归档项目</h4>
+        <div v-for="b in projects.archived" :key="b.name" class="art-row">
+          <span class="pill st-done">{{ b.display_name }}</span>
+          <span class="art-path">{{ b.items }} 项 / {{ b.size_kb }} KB · {{ b.archived_at }}</span>
+          <span class="spacer"></span>
+          <button class="mini primary" @click="restoreProject(b.name)">恢复</button>
+        </div>
+      </div>
+      <div v-else class="empty">暂无归档项目</div>
+      <div class="meta" style="margin-top: 14px;">
+        <b>新建项目：</b>在 config/project.yaml 中修改 book.name，然后归档当前项目并初始化新工作区。
+      </div>
     </section>
   </main>
 
