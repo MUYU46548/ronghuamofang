@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import { diffParagraphs } from "./diff.js";
+import ReviewConsole from "./ReviewConsole.vue";
 
 const API = "http://127.0.0.1:8765";
 
@@ -16,18 +17,21 @@ async function api(path, method = "GET", body = null) {
 const tab = ref("pipeline");
 const state = ref(null);
 const models = ref(null);
-const modelOptions = ref([
-  "glm-5", "glm-5.3", "glm-5.3-flash",
-  "deepseek-v4-flash", "deepseek-v4-pro", "kimi-k3",
-]);
+const modelOptions = ref([]); // 动态从 /models/available 加载
 const costs = ref([]);
 const costSummary = ref(null);
 const costView = ref("cost");   // "cost" | "usage"
+const providers = ref(null);    // provider status (no keys exposed)
 const online = ref(false);
 const toast = ref("");
 const lastJob = ref(null);      // { state, result }
+const updateStatus = ref("等待检查");
+const updateReady = ref(false);
+const updateProgress = ref(0);
+const checkingUpdate = ref(false);
 let timer = null;
 let toastTimer = null;
+let updaterHandler = null;
 
 function say(msg) {
   toast.value = msg;
@@ -62,6 +66,48 @@ function switchTab(t) {
   tab.value = t;
   if (t === "cost" && costs.value.length === 0) refreshCosts();
   if (t === "project") loadProjects();
+  if (t === "settings") {
+    if (!providers.value) refreshModels();
+    if (!promptFiles.value.length) loadPromptList();
+    if (!styleNotesLoaded.value) loadStyleNotes();
+  }
+}
+
+/* ---------- 用户风格笔记（config/project.yaml → book.style_notes） ---------- */
+const styleNotes = ref("");
+const styleNotesDirty = ref(false);
+const styleNotesLoaded = ref(false);
+
+async function loadStyleNotes() {
+  if (!window.mofangAPI?.styleNotesGet) {
+    say("当前为浏览器预览模式，风格笔记需通过 Electron 启动");
+    return;
+  }
+  const r = await window.mofangAPI.styleNotesGet();
+  if (!r.ok) {
+    say("风格笔记读取失败: " + (r.error || ""));
+    return;
+  }
+  styleNotes.value = r.content || "";
+  styleNotesDirty.value = false;
+  styleNotesLoaded.value = true;
+}
+
+async function saveStyleNotes() {
+  if (!window.mofangAPI?.styleNotesSave) return;
+  if (!window.confirm(
+      "确定保存风格笔记？\n\n"
+      + "· 将写入 config/project.yaml 的 book.style_notes\n"
+      + "· 旧版自动备份到 config/history/\n"
+      + "· 下次运行写作（阶段4）/润色（阶段6）时生效\n"
+      + "· 留空则完全不注入，不影响现有逻辑")) return;
+  const r = await window.mofangAPI.styleNotesSave(styleNotes.value);
+  if (!r.ok) {
+    say("风格笔记保存失败: " + (r.error || ""));
+    return;
+  }
+  styleNotesDirty.value = false;
+  say("风格笔记" + (r.message || "已保存"));
 }
 
 async function loadProjects() {
@@ -210,11 +256,99 @@ function stopStream() {
 const projects = ref({ current: "", archived: [] });
 const archiveName = ref("");
 
+async function refreshModels() {
+  const r = await api("/models/available");
+  if (r.status === 200) {
+    providers.value = r.data.providers;
+    // 从第一个服务商的 available_models 填充下拉选项
+    const firstProv = Object.values(r.data.providers)[0];
+    if (firstProv && firstProv.available_models) {
+      modelOptions.value = firstProv.available_models;
+    }
+    say("已刷新");
+  } else {
+    say("刷新失败");
+  }
+}
+
+async function openEnvFile() {
+  const r = await api("/env/open");
+  if (r.status === 200 && r.data.exists) {
+    const path = r.data.env_path;
+    if (window.mofangAPI && window.mofangAPI.openArtifact) {
+      window.mofangAPI.openArtifact(".env");
+    } else {
+      say("请手动打开: " + path);
+    }
+  } else {
+    say(".env 文件不存在");
+  }
+}
+
 async function switchModel(role, modelId) {
   const r = await api("/models/switch", "POST", { role, model: modelId });
   if (r.status === 200) say("已切换 " + role + " → " + modelId + "（下次运行生效）");
   else say("切换失败: " + (r.data.error || ""));
   refresh();
+}
+
+/* ---------- 提示词模板编辑器（prompts/stage[1-7]_*.md） ---------- */
+const promptFiles = ref([]);       // [{name, stage, size, modified, backups}]
+const promptName = ref("");        // 当前编辑的文件名
+const promptContent = ref("");
+const promptModified = ref("");
+const promptBackups = ref([]);
+const promptDirty = ref(false);
+const promptLoading = ref(false);
+
+async function loadPromptList() {
+  if (!window.mofangAPI?.promptsList) {
+    say("当前为浏览器预览模式，提示词编辑器需通过 Electron 启动");
+    return;
+  }
+  const r = await window.mofangAPI.promptsList();
+  if (!r.ok) {
+    say("模板列表加载失败: " + (r.error || ""));
+    return;
+  }
+  promptFiles.value = r.items || [];
+  if (!promptName.value && promptFiles.value.length) {
+    openPrompt(promptFiles.value[0].name);
+  }
+}
+
+async function openPrompt(name) {
+  if (promptDirty.value &&
+      !window.confirm("当前模板有未保存的修改，切换后修改将丢失。确定继续？")) return;
+  promptName.value = name;
+  promptLoading.value = true;
+  const r = await window.mofangAPI.promptsGet(name);
+  promptLoading.value = false;
+  if (!r.ok) {
+    say("读取失败: " + (r.error || ""));
+    return;
+  }
+  promptContent.value = r.content || "";
+  promptModified.value = r.modified || "";
+  promptBackups.value = r.backups || [];
+  promptDirty.value = false;
+}
+
+async function savePrompt() {
+  if (!promptName.value) return;
+  if (!window.confirm(
+      "确定保存 " + promptName.value + "？\n\n"
+      + "· 旧版会自动备份到 prompts/history/\n"
+      + "· 修改将在下次运行对应阶段时生效\n"
+      + "· 若改坏可到 prompts/history/ 取回旧版")) return;
+  const r = await window.mofangAPI.promptsSave(promptName.value, promptContent.value);
+  if (!r.ok) {
+    say("保存失败: " + (r.error || ""));
+    return;
+  }
+  promptDirty.value = false;
+  say("已保存 " + promptName.value + (r.backup ? "（备份: " + r.backup + "）" : ""));
+  loadPromptList();
 }
 
 const STAGE_NAMES = { 1: "素材→设定集", 2: "整体大纲", 3: "逐章大纲", 4: "逐章写作", 5: "逻辑检查", 6: "润色", 7: "Word 成品" };
@@ -304,9 +438,44 @@ const artifacts = computed(() => [
   { label: "Word 成品", path: "output/" + (state.value?.book || "") + "_完整版.docx" },
 ]);
 
+async function checkForUpdates() {
+  if (!window.mofangAPI?.updaterCheck) {
+    updateStatus.value = "updater 未初始化";
+    return;
+  }
+  checkingUpdate.value = true;
+  updateStatus.value = "正在检查...";
+  const r = await window.mofangAPI.updaterCheck();
+  if (!r.ok) updateStatus.value = "检查失败: " + (r.error || "");
+  checkingUpdate.value = false;
+}
+
+async function quitAndInstall() {
+  if (window.mofangAPI?.updaterQuitAndInstall) {
+    await window.mofangAPI.updaterQuitAndInstall();
+  }
+}
+
 onMounted(() => {
   refresh();
   timer = setInterval(refresh, 2500);
+  // 监听主进程推送的更新事件
+  if (window.mofangAPI?.onUpdater) {
+    updaterHandler = (data) => {
+      if (data.type === "update-available") {
+        updateStatus.value = `发现新版本 ${data.version}`;
+      } else if (data.type === "download-progress") {
+        updateProgress.value = data.percent;
+        updateStatus.value = `下载中 ${data.percent.toFixed(1)}%`;
+      } else if (data.type === "update-downloaded") {
+        updateReady.value = true;
+        updateStatus.value = `新版本已下载，可重启安装`;
+      } else if (data.type === "error") {
+        updateStatus.value = "更新错误: " + data.message;
+      }
+    };
+    window.mofangAPI.onUpdater(updaterHandler);
+  }
 });
 onUnmounted(() => clearInterval(timer));
 </script>
@@ -328,6 +497,7 @@ onUnmounted(() => clearInterval(timer));
     <nav class="tabs">
       <button :class="{ active: tab === 'pipeline' }" @click="switchTab('pipeline')">流水线</button>
       <button :class="{ active: tab === 'chapters' }" @click="switchTab('chapters'); !chaptersLoaded && loadChapters()">章节</button>
+      <button :class="{ active: tab === 'review' }" @click="switchTab('review')">审稿</button>
       <button :class="{ active: tab === 'inbox' }" @click="switchTab('inbox')">
         收件箱<span v-if="pendingGates.length" class="badge">{{ pendingGates.length }}</span>
       </button>
@@ -420,6 +590,11 @@ onUnmounted(() => clearInterval(timer));
         <button class="mini" :class="{ ghost: !c.files.refined }" @click="openDoc('第' + c.n + '章 润色稿', c.files.refined)">润色稿</button>
         <button class="mini" :class="{ ghost: !(c.files.raw && c.files.refined) }" @click="openDiff('第' + c.n + '章 润色对比', c.files.raw, c.files.refined)">对比</button>
       </div>
+    </section>
+
+    <!-- 审稿 -->
+    <section v-if="tab === 'review'">
+      <ReviewConsole />
     </section>
 
     <!-- 收件箱 -->
@@ -537,7 +712,10 @@ onUnmounted(() => clearInterval(timer));
 
     <!-- 设置 -->
     <section v-if="tab === 'settings' && models" class="card">
-      <h3>引擎与模型（config/system.yaml）</h3>
+      <div class="card-head">
+        <h3>引擎与模型（config/system.yaml）</h3>
+        <button class="mini" @click="refreshModels">刷新</button>
+      </div>
       <div class="meta">engine: {{ models.engine }}</div>
       <div v-for="(m, role) in models.model" :key="role" class="art-row">
         <span class="pill st-done">{{ role }}</span>
@@ -549,10 +727,96 @@ onUnmounted(() => clearInterval(timer));
       </div>
       <div class="meta" style="margin-top: 12px;">
         改模型：下拉切换后立即写入 config/system.yaml，下次运行阶段时生效。
-        断点续跑已自动保全已完成阶段成果（已完成的重跑才重写）。
-        模型白名单纪律：未经确认不指定付费模型。
       </div>
-      <div class="meta">项目目录: {{ state ? state.project_dir : "-" }}</div>
+
+      <!-- 服务商与密钥状态 -->
+      <h4 style="margin-top: 16px;">服务商与 API Key</h4>
+      <div v-if="providers" v-for="(p, pid) in providers" :key="pid" class="provider-row">
+        <span class="pill st-done">{{ pid }}</span>
+        <span class="art-path">{{ p.base_url }}</span>
+        <span class="spacer"></span>
+        <span v-if="p.has_key" class="key-status ok">✓ 已配置 ({{ p.key_mask }})</span>
+        <span v-else class="key-status bad">✗ 缺失 ({{ p.api_key_env }})</span>
+      </div>
+      <div class="meta" style="margin-top: 8px;">
+        API Key 通过项目 .env 文件配置，不在此处明文显示。
+      </div>
+      <button class="mini" @click="openEnvFile" style="margin-top: 8px;">打开 .env 文件</button>
+
+      <!-- 用户风格笔记 -->
+      <h4 style="margin-top: 16px;">用户风格笔记（book.style_notes）</h4>
+      <div class="meta" style="margin-bottom: 8px;">
+        手动补充的风格要求，与范文自动分析结论叠加注入写作（阶段4）与润色（阶段6）；
+        冲突时以本节为准。留空则完全不注入。
+      </div>
+      <textarea class="prompt-text" style="min-height: 110px;" v-model="styleNotes"
+                @input="styleNotesDirty = true" spellcheck="false"
+                placeholder="例如：多用短句，少用形容词；对话带点方言味，避免书面腔…"></textarea>
+      <div class="provider-row" style="margin-top: 6px;">
+        <span class="meta">共 {{ styleNotes.length }} 字符（上限 4000）</span>
+        <span v-if="styleNotesDirty" class="pill st-gate">已修改</span>
+        <span class="spacer"></span>
+        <button class="mini" @click="loadStyleNotes">重新读取</button>
+        <button class="mini primary" :disabled="!styleNotesDirty" @click="saveStyleNotes">保存笔记</button>
+      </div>
+
+      <!-- 提示词模板编辑器 -->
+      <h4 style="margin-top: 16px;">提示词模板（prompts/stage[1-7]_*.md）</h4>
+      <div class="meta" style="margin-bottom: 8px;">
+        直接编辑阶段提示词；保存前自动备份旧版到 prompts/history/，下次运行对应阶段生效。
+      </div>
+      <div class="prompt-editor">
+        <div class="prompt-list">
+          <div v-for="p in promptFiles" :key="p.name"
+               class="prompt-item" :class="{ on: p.name === promptName }"
+               :title="p.name + ' · ' + p.modified"
+               @click="openPrompt(p.name)">
+            <span class="pill st-done">S{{ p.stage }}</span>
+            <span class="prompt-name">{{ p.name }}</span>
+            <span class="spacer"></span>
+            <span class="prompt-size">{{ p.size }}B</span>
+          </div>
+          <div v-if="!promptFiles.length" class="empty">未发现模板文件</div>
+        </div>
+        <div class="prompt-main">
+          <div class="prompt-bar">
+            <b>{{ promptName || "未选择模板" }}</b>
+            <span v-if="promptDirty" class="pill st-gate">已修改</span>
+            <span v-if="promptLoading" class="pill st-running">读取中</span>
+            <span v-if="promptModified" class="prompt-size">最后修改 {{ promptModified }}</span>
+            <span class="spacer"></span>
+            <button class="mini" :disabled="!promptName || promptLoading" @click="loadPromptList">刷新列表</button>
+            <button class="mini" :disabled="!promptName || promptLoading" @click="openPrompt(promptName)">放弃修改</button>
+            <button class="mini primary" :disabled="!promptName || !promptDirty" @click="savePrompt">保存</button>
+          </div>
+          <textarea class="prompt-text" v-model="promptContent" @input="promptDirty = true"
+                    :disabled="!promptName" spellcheck="false"
+                    placeholder="从左侧列表选择一个模板文件…"></textarea>
+          <div class="meta">
+            共 {{ promptContent.length }} 字符
+            <template v-if="promptBackups.length">
+              · 最近备份：{{ promptBackups.slice(-3).join("、") }}
+            </template>
+          </div>
+        </div>
+      </div>
+
+      <!-- 自动更新 -->
+      <h4 style="margin-top: 16px;">自动更新</h4>
+      <div class="provider-row">
+        <span class="pill st-done">electron-updater</span>
+        <span class="art-path">{{ updateStatus }}</span>
+        <span class="spacer"></span>
+        <button class="mini" @click="checkForUpdates" :disabled="checkingUpdate">
+          {{ checkingUpdate ? "检查中…" : "检查更新" }}
+        </button>
+        <button v-if="updateReady" class="mini primary" @click="quitAndInstall">重启安装</button>
+      </div>
+      <div v-if="updateProgress > 0 && updateProgress < 100" class="meta" style="margin-top: 4px;">
+        下载进度: {{ updateProgress.toFixed(1) }}%
+      </div>
+
+      <div class="meta" style="margin-top: 12px;">项目目录: {{ state ? state.project_dir : "-" }}</div>
     </section>
 
     <!-- 项目（书籍切换） -->

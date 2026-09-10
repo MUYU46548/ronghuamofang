@@ -52,6 +52,9 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是全自动
 | 项目快照 | `python scripts/snapshot.py "标签"`；查看 `--list`（orchestrator 每阶段成功后自动快照） |
 | 素材预扫描 | `python scripts/stage1_consolidate.py` |
 | 本地 API 服务（GUI 化 P0） | `python scripts/nf_api.py`（默认 127.0.0.1:8765；`--port/--host` 可调；`--allow-fake` 为无 LLM 测试模式） |
+| 提示词模板编辑（GUI） | 控制台「设置」页签 → 提示词模板面板；底层 `GET /prompts/list`、`GET /prompts/get?name=`、`POST /prompts/save`（白名单 `prompts/stage[1-7]_*.md`，禁止 `../`；保存自动备份 `prompts/history/`） |
+| 文风特征自检 | `python Temp/test_style_v2.py`（对范文跑 extract_style_features + build_style_instruction，含空/短文本边界） |
+| 风格偏差自检 | `python Temp/test_style_drift.py`（compute_style_drift 阈值/边界 + stage6 报告追加集成） |
 | API 验收自测 | `python scripts/nf_api_selftest.py`（⚠️ 清空 data/ 与 logs/ 后以 fake 模式起服务跑 21 用例；会销毁当前书档产物，history/ 快照保留） |
 
 ## 关键路径
@@ -62,6 +65,8 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是全自动
 - 素材体检报告：`data/setting/material_review.md`（material_review.py 生成，stage1 后自动）
 - 设定补全历史：`data/setting/history/`（setting_refine.py 每次补全自动备份 setting_vN.json）
 - 角色出场统计：`data/state/appearances.json`（appearances.py 生成，rosa_postprocess 自动调用）
+- 风格偏差报告：追加在 `data/outline/polish_report.md`（分卷为 `polish_report_volN.md`）末尾，
+  stage6 每卷润色后自动写入；配置 `book.style_reference` 才生成，阈值 30%，仅供参考不阻断流程
 - 大纲修订历史：`data/outline/history/`（每次精修自动备份 global_vN.md，可回退）
 - 用户大纲输入：`config/project.yaml` 的 `book.user_outline`（可选；提供后 stage2/精修优先遵循）
 - Word 成品模板：`templates/*.dotx`（config 的 `book.word_template` 指定；.dotx 自动转换；替换 [书籍标题]/[作者]/[目录占位符]/[请输入文本] 占位符；更换模板只改配置或覆盖 templates/）
@@ -70,6 +75,16 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是全自动
 - 章节修订历史：`data/chapters/history/`（refine_chapter.py 每次精修备份 chNN_vM.md）
 - 设定库引用索引：`materials/vault_links.md`（stage1 归并后自动生成，素材→设定条目溯源）
 - 风格参考：`config/project.yaml` 的 `book.style_reference`（可选，写作阶段注入范文）
+  - 配置后 stage4/stage6 额外注入**范文片段（few-shot）**：`style_analyzer.extract_style_samples()`
+    从范文抽取 ≤3 段代表性原文，按空行分段、按"长度适中/含对白/含修辞/节奏有起伏"打分，
+    自动剔除与当前内容字面重叠（3-gram 重叠率 > 0.30）的段落，并标注来源（第 N 段，字符 X-Y）
+  - 未配置 `style_reference` 时不注入任何片段与风格指令，逻辑与旧版一致
+- 用户风格笔记：`config/project.yaml` 的 `book.style_notes`（可选，手动补充的风格要求）
+  - 与自动分析结论叠加注入 stage4/stage6，冲突时以笔记为准；留空则完全不注入
+  - GUI 编辑：控制台「设置」页签「用户风格笔记」→ IPC（`style-notes:get/save`）→
+    nf_api `/config/style_notes` → `utils/project_config.set_style_notes()`
+    （按行定向改写 project.yaml 保留注释，写入前备份 `config/history/`，写后回读校验）
+- 提示词模板备份：`prompts/history/{模板名}_{时间戳}.md`（GUI 保存前自动备份，每模板留最近 50 份）
 - 逐章大纲：`data/outline/chapters/NN.md`
 - 章节：`data/chapters/raw`（原稿）/ `checked`（检查后）/ `refined`（润色后）
 - 滚动摘要：`data/summaries/rolling.md`（全书摘要 + 近 5 章）

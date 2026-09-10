@@ -165,6 +165,26 @@ def run(from_stage=1, only_stage=None, client=None):
                 if n == 1:
                     # P1.5：stage1 归并完成后自动生成素材体检报告（不阻断）
                     run_material_review(progress)
+                if n == 4 and cfg.get("gates", {}).get("review_after_stage4", False):
+                    # P0 审稿→修稿闭环：stage4 完成后自动调用审查
+                    try:
+                        import chapter_review as cr
+                        print("[orchestrator] stage4 完成，启动章节审查...")
+                        ok_rev, msg_rev = cr.run_review(
+                            scope=None,
+                            report_path="data/outline/review_report.json",
+                            dry_run=False,
+                            client=client,
+                        )
+                        print(f"[orchestrator] 审查结果: {msg_rev}")
+                        if ok_rev:
+                            progress.set_review_report("data/outline/review_report.json")
+                            print("[orchestrator] 请审阅 data/outline/review_report.md，"
+                                  "然后运行: python scripts/batch_refine.py")
+                            db.finish_run(run_id, "waiting_review")
+                            return 3  # 复用 waiting_approval 语义（等待用户审阅）
+                    except Exception as e:
+                        print(f"[orchestrator] 审查失败（不影响流程）: {e}")
             if not ok:
                 if cfg.get("gates", {}).get("pause_on_failure", True):
                     print("[orchestrator] 阶段失败，暂停等待处理（可重跑或人工介入）")

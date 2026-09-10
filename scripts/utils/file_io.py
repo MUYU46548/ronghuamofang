@@ -28,6 +28,14 @@ def write_text(path, content, newline="\n"):
     p.write_text(content, encoding="utf-8", newline=newline)
 
 
+def append_text(path, content, newline="\n"):
+    """UTF-8 追加写入（统一 LF 换行）；文件不存在时创建，父目录自动建立。"""
+    p = Path(path)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with p.open("a", encoding="utf-8", newline=newline) as f:
+        f.write(content)
+
+
 def ensure_dir(path):
     """确保目录存在并返回 Path 对象。"""
     p = Path(path)

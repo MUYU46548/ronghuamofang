@@ -1,18 +1,17 @@
 # -*- coding: utf-8 -*-
-# 打回/重跑正规化 CLI（P1 新增：reject 门）。
+# Reject / rerun normalization CLI (P1: reject gate).
 """
-替代"手动清产物 + --from N 重跑"的脆弱流程：
-  1. 记录打回原因与时间（progress.json 的 stages[N].rejected）
-  2. 将阶段 N 及下游状态重置为 pending（断点续跑时不再跳过）
-  3. 按产物映射清理阶段 N 及下游的产物目录（history/ 备份保留，可回退）
+Replace the fragile "manual cleanup + --from N rerun" flow:
+  1. Record rejection reason + timestamp (progress.json stages[N].rejected)
+  2. Reset stage N + downstream status to pending
+  3. Clean stage N + downstream artifact directories (history/ preserved)
 
-安全护栏：
-  - 打回前自动快照（history/{ts}_reject_stage{N}），即使误操作也可恢复
+Safety:
+  - Auto-snapshot before rejection (history/{ts}_reject_stage{N}), recoverable
 
-用法：
-  python scripts/reject.py --stage 6 "润色过度，保留原稿风格"
-  python scripts/reject.py --stage 6 --reason "..." --dry-run   # 只展示将清理的内容
-"""
+Usage:
+  python scripts/reject.py --stage 6 "Over-polished, keep original style"
+  python scripts/reject.py --stage 6 --reason "..." --dry-run
 """
 import argparse
 import shutil
@@ -23,35 +22,27 @@ from pathlib import Path
 from utils.file_io import write_text
 from utils.progress_manager import ProgressManager
 
-# 打回阶段 N 时需清理的产物目录（含该阶段自身产物与下游全部）
-# 注意：history/ 备份目录一律保留（可回退）；data/outline/global.md 与
-#       data/setting/setting.json 是审批/设定对象，打回不删除（靠精修通道迭代）
+# Artifact directories to clean when rejecting stage N (self + downstream)
 DOWNSTREAM_ARTIFACTS = {
-    # 打回 2：逐章大纲 + 章节 + 合并稿 + Word 全部重做
     2: ["data/outline/chapters", "data/chapters/raw", "data/chapters/checked",
         "data/chapters/refined", "data/merged", "output"],
-    # 打回 3：章节 + 合并稿 + Word
     3: ["data/chapters/raw", "data/chapters/checked", "data/chapters/refined",
         "data/merged", "output"],
-    # 打回 4：原稿 + 检查 + 润色 + 合并稿 + Word
     4: ["data/chapters/raw", "data/chapters/checked", "data/chapters/refined",
         "data/merged", "output"],
-    # 打回 5：检查 + 润色 + 合并稿 + Word
     5: ["data/chapters/checked", "data/chapters/refined", "data/merged", "output"],
-    # 打回 6：润色 + 合并稿 + Word（润色审阅门不满意时的标准打回）
     6: ["data/chapters/refined", "data/merged", "output"],
-    # 打回 7：合并稿 + Word（重新出成品）
     7: ["data/merged", "output"],
 }
 
 STAGE_LABEL = {
-    1: "素材/设定集", 2: "整体大纲", 3: "逐章大纲", 4: "写作",
-    5: "检查", 6: "润色", 7: "Word 转换",
+    1: "Materials", 2: "Global Outline", 3: "Chapter Outlines", 4: "Writing",
+    5: "Check", 6: "Polish", 7: "Word",
 }
 
 
 def collect_artifacts(stage):
-    """收集阶段 N 打回时将被清理的产物路径。返回 list[Path]。"""
+    """Collect artifact paths to clean when rejecting stage N."""
     paths = []
     for rel in DOWNSTREAM_ARTIFACTS.get(stage, []):
         p = Path(rel)
@@ -61,40 +52,40 @@ def collect_artifacts(stage):
 
 
 def reject_stage(pm, stage, reason="", dry_run=False):
-    """执行打回。返回 (ok, 信息列表)。"""
+    """Execute rejection. Returns (ok, info_list)."""
     msgs = []
 
     if stage not in DOWNSTREAM_ARTIFACTS:
-        return False, [f"不支持的阶段号: {stage}（支持 2-7）"]
+        return False, [f"Unsupported stage: {stage} (valid: 2-7)"]
 
-    # 安全护栏：打回前自动快照，防止数据丢失
+    # Safety: snapshot before destructive ops
     if not dry_run:
         try:
             from snapshot import snapshot as make_snapshot
             snap = make_snapshot(f"reject_stage{stage}")
-            msgs.append(f"快照已保存: {snap}")
+            msgs.append(f"Snapshot saved: {snap}")
         except Exception as e:
-            msgs.append(f"快照失败（继续执行）: {e}")
+            msgs.append(f"Snapshot failed (continuing): {e}")
 
-    # 记录打回原因（阶段 N 保留 rejected 标记，供 orchestrator 提示；同时撤销审批）
+    # Record rejection reason
     if not dry_run:
         pm.set_stage(stage, "rejected",
-                     rejected=reason or "（未填原因）",
+                     rejected=reason or "(no reason)",
                      rejected_at=datetime.now().strftime("%Y-%m-%dT%H:%M:%S"))
         pm.data["stages"][str(stage)].pop("approved", None)
         pm.save()
 
-    # 清理产物
+    # Clean artifacts
     artifacts = collect_artifacts(stage)
     for p in artifacts:
-        msgs.append(f"清理: {p}")
+        msgs.append(f"Clean: {p}")
         if not dry_run:
             if p.is_dir():
                 shutil.rmtree(p, ignore_errors=True)
             else:
                 p.unlink(missing_ok=True)
 
-    # 重置下游阶段为 pending（approved 清除）；阶段 N 保持 rejected 供提示
+    # Reset downstream stages to pending
     for n in range(stage + 1, 8):
         if not dry_run:
             st = pm.data["stages"][str(n)]
@@ -104,22 +95,22 @@ def reject_stage(pm, stage, reason="", dry_run=False):
             st.pop("finished_at", None)
             st.pop("completed_chapters", None)
             st.pop("failed_chapters", None)
-        msgs.append(f"重置: 阶段{n} → pending")
+        msgs.append(f"Reset: stage {n} -> pending")
     if not dry_run:
         pm.save()
 
-    msgs.append(f"打回完成：阶段{stage}（{STAGE_LABEL.get(stage, '')}）原因：{reason or '（未填原因）'}")
-    msgs.append(f"下一步建议: python scripts/orchestrator.py --from {stage}")
+    msgs.append(f"Rejected stage {stage} ({STAGE_LABEL.get(stage, '')}): {reason or '(no reason)'}")
+    msgs.append(f"Next: python scripts/orchestrator.py --from {stage}")
     return True, msgs
 
 
 def main():
-    parser = argparse.ArgumentParser(description="NovelForge 打回/重跑正规化（reject 门）")
+    parser = argparse.ArgumentParser(description="NovelForge reject/rerun normalization")
     parser.add_argument("--stage", type=int, required=True,
-                        help="打回阶段号（2-7；其下游产物一并清理）")
-    parser.add_argument("--reason", default="", help="打回原因（记录到 progress.json）")
+                        help="Stage to reject (2-7; downstream artifacts cleaned)")
+    parser.add_argument("--reason", default="", help="Rejection reason (recorded in progress.json)")
     parser.add_argument("--dry-run", action="store_true",
-                        help="只展示将清理的内容，不执行")
+                        help="Show what would be cleaned without executing")
     args = parser.parse_args()
 
     pm = ProgressManager("data/state/progress.json")

@@ -21,6 +21,9 @@ temperature: 0.8
 ## 风格参考（用户提供的范文/片段，模仿其节奏、用词与句式；无则按下方文风要求）
 {{style_reference}}
 
+{{style_samples}}
+{{style_notes}}
+
 ## 写作要求
 1. 字数 {{min_words}}-{{max_words}} 字
 2. 严格遵循本章大纲事件推进；可补充细节，但不得新增关键情节

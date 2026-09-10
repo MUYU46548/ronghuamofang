@@ -99,6 +99,39 @@ class ProgressManager:
     def _drop_failed(self, st, chapter):
         st["failed_chapters"] = [f for f in st.get("failed_chapters", []) if f["n"] != chapter]
 
+    # ---------- 审查→精修状态（P0 闭环） ----------
+    def get_review_status(self, chapter, stage=4):
+        """获取章节审查状态：pending / reviewed / revised / skipped。"""
+        st = self.data["stages"][str(stage)]
+        return st.get("review_status", {}).get(str(chapter), "pending")
+
+    def set_review_status(self, chapter, status, stage=4):
+        """设置章节审查状态。status: pending/reviewed/revised/skipped。"""
+        st = self.data["stages"][str(stage)]
+        st.setdefault("review_status", {})
+        st["review_status"][str(chapter)] = status
+        self.save()
+
+    def get_review_report(self, stage=4):
+        """获取审查报告路径（如已生成）。"""
+        st = self.data["stages"][str(stage)]
+        return st.get("review_report")
+
+    def set_review_report(self, report_path, stage=4):
+        """记录审查报告路径。"""
+        st = self.data["stages"][str(stage)]
+        st["review_report"] = report_path
+        self.save()
+
+    def clear_review_status(self, stage=4):
+        """清除全部章节审查状态（重跑审查时调用）。"""
+        st = self.data["stages"][str(stage)]
+        if "review_status" in st:
+            del st["review_status"]
+        if "review_report" in st:
+            del st["review_report"]
+        self.save()
+
     # ---------- 预算 ----------
     def budget(self):
         return self.data["budget"]

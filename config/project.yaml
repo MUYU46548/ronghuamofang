@@ -22,7 +22,16 @@ book:
   word_template: "templates/小说格式模板V1.3.dotx"
   # 风格参考文本（可选，写作阶段注入）。放 materials/ 下（如 materials/style_sample.md），
   #   1-2 篇你满意的范文/片段，stage4 写作时模仿其节奏、用词与句式。留空则按模板文风要求。
+  #   配置了它，系统还会自动从范文中抽取代表性原文片段作为 few-shot 示例（自动避开与
+  #   当前章节内容高度相似的段落，并标注来源位置）。
   style_reference: ""
+  # 用户风格笔记（可选）。手动补充的风格要求，与上方自动分析结论叠加注入 stage4/stage6。
+  #   当两者冲突时以本节为准。留空则完全不注入，不影响现有逻辑。
+  #   多行写法：style_notes: |
+  #     多用短句，少用形容词
+  #     对话要带方言味，避免书面腔
+  #   控制台「设置」页签可直接编辑本字段（经 IPC 写入，保存前自动备份 config/history/）。
+  style_notes: ""
 
 vault:
   readonly: true                  # ROSA 设定库只读（系统永不写入 E:/图书馆/ROSA）

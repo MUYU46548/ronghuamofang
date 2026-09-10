@@ -16,6 +16,7 @@ from utils.file_io import read_text, write_text
 from utils.verify_chapter import check_chapter, count_cn_words
 from utils.summary_chain import append_chapter_summary, extract_prev_tail, compress_recent, load_rolling, write_rolling
 from utils.template_loader import load_template
+from utils.style_analyzer import extract_style_samples, build_style_notes_section
 from utils.progress_manager import ProgressManager
 from utils.cost_tracker import CostTracker
 
@@ -25,26 +26,47 @@ SUMMARY_RE = re.compile(r"<!--\s*summary:\s*(.+?)\s*-->", re.IGNORECASE | re.S)
 def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, prev_tail):
     target = cfg.get("chapter", {}).get("target_words", [2000, 3000])
     tail_section = "\n\n".join(prev_tail) if prev_tail else "（无上一章，本章为开篇）"
-    style_ref = (proj.get("book", {}).get("style_reference") or "").strip()
+    book = proj.get("book", {})
+    style_ref = (book.get("style_reference") or "").strip()
     style_text = ""
     if style_ref and Path(style_ref).exists():
         style_text = read_text(style_ref).strip()[:6000]  # 上限 6K 字符，防任务文件膨胀
     if not style_text:
         style_text = "（未提供，请严格按下方文风要求写作）"
+
+    # 范文原文片段（few-shot）：以"本章大纲 + 上一章末尾衔接段"作为当前内容，
+    # 避开与待写内容高度相似的段落；无范文时返回 ""，模板该节自然为空。
+    style_samples = ""
+    if style_ref:
+        current_text = "\n".join([tail_section, _safe_read(outline_path)])
+        style_samples = extract_style_samples(style_ref, current_text=current_text)
+    # 用户手写的风格笔记（与自动分析叠加，优先级最高）；未配置时为 ""
+    style_notes = build_style_notes_section(book.get("style_notes", ""))
+
     _, body = load_template("stage4_writing.md", {
         "n": n,
-        "book_name": proj.get("book", {}).get("name", "未命名"),
+        "book_name": book.get("name", "未命名"),
         "path_outline": Path(outline_path).resolve(),
         "path_setting": Path(setting_path).resolve(),
         "path_rolling": Path(rolling_path).resolve(),
         "path_project": Path("config/project.yaml").resolve(),
         "prev_tail": tail_section,
         "style_reference": style_text,
+        "style_samples": style_samples,
+        "style_notes": style_notes,
         "min_words": target[0],
         "max_words": target[1],
         "path_output": Path(f"data/chapters/raw/{n:02d}.md").resolve(),
     })
     return body
+
+
+def _safe_read(path, budget=20000):
+    """读取文件正文用于相似度参照；读不到返回空串，不打断任务构建。"""
+    try:
+        return read_text(path)[:budget]
+    except Exception:
+        return ""
 
 
 def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=None):

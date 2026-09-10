@@ -244,3 +244,29 @@ body {
   font-family: Consolas, "Microsoft YaHei", monospace;
   background: #fbfbfd;
 }
+
+/* 提示词模板编辑器 */
+.prompt-editor { display: flex; gap: 12px; margin-top: 4px; align-items: stretch; }
+.prompt-list {
+  width: 250px; flex: none; max-height: 460px; overflow-y: auto;
+  border: 1px solid var(--border); border-radius: 10px; background: #fbfcfe;
+}
+.prompt-item {
+  display: flex; align-items: center; gap: 6px; padding: 7px 10px;
+  font-size: 12.5px; cursor: pointer; border-bottom: 1px solid var(--border);
+}
+.prompt-item:last-child { border-bottom: none; }
+.prompt-item:hover { background: #f2f5fc; }
+.prompt-item.on { background: #eae6f7; }
+.prompt-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.prompt-size { color: var(--muted); font-size: 11.5px; white-space: nowrap; }
+.prompt-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.prompt-bar { display: flex; align-items: center; gap: 8px; }
+.prompt-text {
+  width: 100%; min-height: 400px; resize: vertical; padding: 10px 12px;
+  border: 1px solid var(--border); border-radius: 10px; background: #fff;
+  color: var(--ink); font-size: 12.5px; line-height: 1.75;
+  font-family: Consolas, "Microsoft YaHei", monospace; white-space: pre-wrap;
+}
+.prompt-text:focus { outline: none; border-color: var(--accent); }
+.prompt-text:disabled { background: #f5f6f8; color: var(--muted); }

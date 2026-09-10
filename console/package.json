@@ -2,20 +2,85 @@
   "name": "ronghuamofang-console",
   "version": "0.1.0",
   "description": "绒花墨坊桌面控制台（消费本地 nf_api）",
+  "author": "暮雨 (MUYU46548)",
   "private": true,
   "main": "main/index.js",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "start": "electron .",
-    "probe": "electron probe-electron.js"
+    "probe": "electron probe-electron.js",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder --win --publish never",
+    "release": "node scripts/make-release.js",
+    "release:dry": "node scripts/make-release.js --dry-run"
   },
   "dependencies": {
+    "electron-updater": "^6.8.9",
     "vue": "3.5.40"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "5.2.1",
     "electron": "28.3.3",
+    "electron-builder": "^26.15.3",
+    "ico": "^0.3.3",
+    "jimp": "^1.6.1",
+    "png-to-ico": "^3.0.2",
     "vite": "5.4.21"
+  },
+  "build": {
+    "appId": "com.ronghuamofang.console",
+    "productName": "绒花墨坊",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main/**/*",
+      "preload/**/*",
+      "renderer/dist/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico"
+    },
+    "artifactName": "ronghuamofang-console-setup-${version}.${ext}",
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "绒花墨坊",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "license": "",
+      "language": "2052",
+      "menuCategory": true,
+      "include": "build/installer.nsh"
+    },
+    "portable": {
+      "artifactName": "绒花墨坊-${version}-portable-${arch}.${ext}"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "MUYU46548",
+      "repo": "ronghuamofang",
+      "releaseType": "release",
+      "channel": "latest"
+    }
   }
 }

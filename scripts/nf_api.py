@@ -7,6 +7,9 @@
 GET  /health              存活 + 当前 job
 GET  /state               progress + gates + 成本汇总 + 最近 job
 GET  /models              config/system.yaml 的 engine/providers/model 回显
+GET  /prompts/list        提示词模板列表（prompts/stage[1-7]_*.md）
+GET  /prompts/get         读取模板正文（?name=xxx 或 /prompts/get/xxx）
+POST /prompts/save        {name, content} → 备份旧版到 prompts/history/ 后写入
 POST /stage/{n}/run       {from_stage?, only_stage?, stream?} → job_id（409=已有任务在跑）
 GET  /stream/{job_id}     SSE：实时流式输出（token 级）
 POST /stop/{job_id}       中断正在运行的任务
@@ -32,11 +35,13 @@ import argparse
 import json
 import os
 import queue
+import re
 import threading
 import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs, unquote
 
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -46,6 +51,7 @@ import yaml  # noqa: E402
 from orchestrator import run as orch_run  # noqa: E402
 from utils.progress_manager import ProgressManager  # noqa: E402
 from utils.db import RunDB  # noqa: E402
+from utils.llm_client import _load_env_file  # noqa: E402
 import reject as reject_mod  # noqa: E402
 import snapshot as snap_mod  # noqa: E402
 import switch_book as sb_mod  # noqa: E402
@@ -71,7 +77,7 @@ def _client_for_env(cfg, role):
     if ALLOW_FAKE:
         from utils.fake_client import FakeClient
         return FakeClient()
-    from utils.llm_client import make_client
+    from utils.llm_client import make_client, _load_env_file  # noqa: E402
     return make_client(cfg, role)
 
 
@@ -135,7 +141,136 @@ def _snapshot_state():
         return None
 
 
+# ---- 提示词模板（prompts/）读写 ----
+# 白名单：仅允许 prompts/ 下的一级文件 stage[1-7]_*.md
+PROMPTS_DIR = (ROOT / "prompts").resolve()
+PROMPTS_HISTORY_DIR = PROMPTS_DIR / "history"
+PROMPT_NAME_RE = re.compile(r'^stage[1-7]_.*\.md$')
+PROMPT_MAX_BYTES = 1024 * 1024          # 单文件 1MB 上限
+PROMPT_HISTORY_KEEP = 50                # 每个模板保留的备份份数
+STAGE_LABELS = {1: "素材归并", 2: "整体大纲", 3: "逐章大纲", 4: "逐章写作",
+                5: "逻辑检查", 6: "润色", 7: "Word 成品"}
+
+
+def prompt_name_ok(name):
+    """校验模板文件名是否在白名单内（禁止路径遍历与子目录）。
+
+    返回规范化后的文件名，不合法返回 None。
+    """
+    if not name or not isinstance(name, str):
+        return None
+    n = unquote(name.strip()).replace("\\", "/")
+    if "/" in n or ".." in n or n in (".", ""):
+        return None
+    if not PROMPT_NAME_RE.match(n):
+        return None
+    return n
+
+
+def prompt_path(name):
+    """解析为 prompts/ 下的绝对路径；越界返回 None。"""
+    n = prompt_name_ok(name)
+    if not n:
+        return None
+    p = (PROMPTS_DIR / n).resolve()
+    if p.parent != PROMPTS_DIR or not p.is_file():
+        return None
+    return p
+
+
+def prompt_stage(name):
+    m = re.match(r'^stage([1-7])_', name or "")
+    return int(m.group(1)) if m else 0
+
+
+def list_prompts():
+    PROMPTS_DIR.mkdir(parents=True, exist_ok=True)
+    items = []
+    for p in sorted(PROMPTS_DIR.glob("*.md")):
+        if not PROMPT_NAME_RE.match(p.name):
+            continue
+        try:
+            st = p.stat()
+        except OSError:
+            continue
+        items.append({
+            "name": p.name,
+            "stage": prompt_stage(p.name),
+            "stage_name": STAGE_LABELS.get(prompt_stage(p.name), ""),
+            "size": st.st_size,
+            "modified": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(st.st_mtime)),
+            "backups": len(list_prompt_backups(p.name)),
+        })
+    return items
+
+
+def list_prompt_backups(name):
+    """该模板的历史备份（旧→新）。"""
+    n = prompt_name_ok(name)
+    if not n or not PROMPTS_HISTORY_DIR.is_dir():
+        return []
+    stem = n[:-3]
+    return sorted(PROMPTS_HISTORY_DIR.glob(stem + "_*.md"))
+
+
+def trim_prompt_backups(name):
+    """只保留最近 PROMPT_HISTORY_KEEP 份备份。"""
+    olds = list_prompt_backups(name)
+    for p in olds[:-PROMPT_HISTORY_KEEP]:
+        try:
+            p.unlink()
+        except OSError:
+            pass
+
+
+def save_prompt(name, content):
+    """写入模板：先备份旧版到 prompts/history/。返回 (ok, 信息)。"""
+    n = prompt_name_ok(name)
+    if not n:
+        return False, "文件名不在白名单（须匹配 prompts/stage[1-7]_*.md）"
+    if content is None or not isinstance(content, str):
+        return False, "content 必须为字符串"
+    data = content.encode("utf-8")
+    if len(data) > PROMPT_MAX_BYTES:
+        return False, "内容超过 1MB 上限"
+
+    PROMPTS_DIR.mkdir(parents=True, exist_ok=True)
+    target = (PROMPTS_DIR / n).resolve()
+    if target.parent != PROMPTS_DIR:
+        return False, "路径越界"
+
+    backup = ""
+    eol = "\n"
+    if target.is_file():
+        raw = target.read_bytes()
+        eol = "\r\n" if b"\r\n" in raw else "\n"
+        PROMPTS_HISTORY_DIR.mkdir(parents=True, exist_ok=True)
+        stamp = time.strftime("%Y%m%d_%H%M%S")
+        bak = PROMPTS_HISTORY_DIR / (n[:-3] + "_" + stamp + ".md")
+        suffix = 1
+        while bak.exists():
+            bak = PROMPTS_HISTORY_DIR / (n[:-3] + "_" + stamp + "_" + str(suffix) + ".md")
+            suffix += 1
+        try:
+            bak.write_bytes(target.read_bytes())
+            backup = str(bak.relative_to(ROOT))
+            trim_prompt_backups(n)
+        except OSError as e:
+            return False, "备份失败: " + str(e)
+    # 统一换行后按原文件风格回填（LF/CRLF），避免保存一次就整文件 diff
+    text = content.replace("\r\n", "\n").replace("\r", "\n")
+    if eol == "\r\n":
+        text = text.replace("\n", "\r\n")
+    try:
+        with open(target, "w", encoding="utf-8", newline="") as f:
+            f.write(text)
+    except OSError as e:
+        return False, "写入失败: " + str(e)
+    return True, {"name": n, "size": len(text.encode("utf-8")), "backup": backup}
+
+
 def load_all():
+    _load_env_file()
     cfg = yaml.safe_load((ROOT / "config" / "system.yaml").read_text(encoding="utf-8"))
     proj = yaml.safe_load((ROOT / "config" / "project.yaml").read_text(encoding="utf-8"))
     return cfg, proj
@@ -287,6 +422,40 @@ def act_snapshot(label):
     return _fn
 
 
+# ---- 审稿→修稿闭环（P0 新增） ----
+
+def act_review_run(stream_job_id=None):
+    """执行章节审查。"""
+    import chapter_review
+    cfg, proj = load_all()
+    client = _client_for_env(cfg, "reviewer")
+
+    def _fn():
+        ok, msg = chapter_review.run_review(
+            scope=None,
+            report_path="data/outline/review_report.json",
+            dry_run=False,
+            client=client,
+        )
+        return ok, msg
+    return _fn
+
+
+def act_batch_refine_run(decisions_from_file=True):
+    """执行批量精修。"""
+    import batch_refine
+
+    def _fn():
+        ok, msg = batch_refine.run_batch_refine(
+            report_path="data/outline/review_report.json",
+            decisions_mode="file" if decisions_from_file else "interactive",
+            auto_accept=False,
+            dry_run=False,
+        )
+        return ok, msg
+    return _fn
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "NovelForgeAPI/0.2"
 
@@ -301,6 +470,12 @@ class Handler(BaseHTTPRequestHandler):
 
     def log_message(self, fmt, *args):  # 静默默认日志
         pass
+
+    def _query(self):
+        """解析 URL 查询串（GET /prompts/get?name=xxx）。"""
+        if "?" in self.path:
+            return parse_qs(self.path.split("?", 1)[1])
+        return {}
 
     def _body(self):
         try:
@@ -435,6 +610,37 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, {"engine": cfg.get("engine"),
                              "providers": cfg.get("providers", {}),
                              "model": cfg.get("model", {})})
+        elif p == "/models/available":
+            # Return available models per provider (without exposing API keys)
+            cfg, _ = load_all()
+            providers = cfg.get("providers", {})
+            avail = {}
+            for pid, prov in providers.items():
+                base_url = prov.get("base_url", "")
+                api_key_env = prov.get("api_key_env", "")
+                api_key = os.environ.get(api_key_env, "")
+                avail[pid] = {
+                    "base_url": base_url,
+                    "api_key_env": api_key_env,
+                    "has_key": bool(api_key),
+                    "key_mask": (api_key[:4] + "..." + api_key[-4:]) if len(api_key) > 8 else "",
+                    "available_models": prov.get("available_models", []),
+                }
+            self._send(200, {"providers": avail, "engine": cfg.get("engine")})
+        elif p == "/env/open":
+            # Return path to .env file so user can open it externally
+            env_path = str(ROOT / ".env")
+            self._send(200, {"env_path": env_path, "exists": Path(env_path).exists()})
+        elif p == "/batch_refine/progress":
+            progress_path = Path("data/state/batch_refine_progress.json")
+            if not progress_path.exists():
+                self._send(200, {"status": "idle", "message": "无正在进行的批量精修任务"})
+            else:
+                try:
+                    data = json.loads(progress_path.read_text(encoding="utf-8"))
+                    self._send(200, data)
+                except Exception as e:
+                    self._send(500, {"error": str(e)})
         elif p.startswith("/jobs/"):
             jid = p[len("/jobs/"):]
             job = JOBS.get(jid)
@@ -442,9 +648,66 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(404, {"error": "job 不存在: " + jid})
             else:
                 self._send(200, job)
+        elif p == "/review/report":
+            # 读取审查报告 JSON
+            report_path = Path("data/outline/review_report.json")
+            if not report_path.exists():
+                self._send(404, {"error": "no report yet"})
+            else:
+                try:
+                    data = json.loads(report_path.read_text(encoding="utf-8"))
+                    self._send(200, data)
+                except Exception as e:
+                    self._send(500, {"error": str(e)})
+        elif p == "/review/decisions":
+            # 读取用户决策 JSON
+            dec_path = Path("data/outline/review_report.decisions.json")
+            if not dec_path.exists():
+                self._send(200, {"decisions": []})
+            else:
+                try:
+                    data = json.loads(dec_path.read_text(encoding="utf-8"))
+                    self._send(200, data)
+                except Exception as e:
+                    self._send(500, {"error": str(e)})
         elif p == "/project/list":
             try:
                 self._send(200, sb_mod.list_books())
+            except Exception as e:
+                self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
+        elif p == "/prompts/list":
+            try:
+                items = list_prompts()
+                self._send(200, {"items": items, "count": len(items),
+                                 "dir": "prompts", "history_dir": "prompts/history"})
+            except Exception as e:
+                self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
+        elif p == "/prompts/get" or p.startswith("/prompts/get/"):
+            name = ((self._query().get("name") or [""])[0] if p == "/prompts/get"
+                    else p[len("/prompts/get/"):])
+            path = prompt_path(name)
+            if not path:
+                self._send(404, {"error": "模板不存在或不在白名单: " + str(name)
+                                          + "（须匹配 prompts/stage[1-7]_*.md，禁止子目录与 ../）"})
+                return
+            try:
+                content = path.read_text(encoding="utf-8")
+                st = path.stat()
+                self._send(200, {
+                    "name": path.name,
+                    "content": content,
+                    "size": st.st_size,
+                    "modified": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(st.st_mtime)),
+                    "backups": [b.name for b in list_prompt_backups(path.name)[-8:]],
+                })
+            except Exception as e:
+                self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
+        elif p == "/config/style_notes":
+            # 用户风格笔记（config/project.yaml 的 book.style_notes）
+            try:
+                from utils.project_config import get_style_notes
+                self._send(200, {"ok": True, "content": get_style_notes(),
+                                 "path": "config/project.yaml", "field": "book.style_notes"})
             except Exception as e:
                 self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
         else:
@@ -570,8 +833,8 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/models/switch":
                 role = str(body.get("role") or "")
                 model_id = str(body.get("model") or "")
-                if role not in ("default", "writer", "checker"):
-                    self._send(400, {"error": "role 须为 default/writer/checker"})
+                if role not in ("default", "writer", "checker", "reviewer"):
+                    self._send(400, {"error": "role 须为 default/writer/checker/reviewer"})
                     return
                 if not model_id:
                     self._send(400, {"error": "model 必填"})
@@ -614,6 +877,53 @@ class Handler(BaseHTTPRequestHandler):
                     pass
                 ok, msg = sb_mod.init_empty()
                 self._send(200 if ok else 400, {"ok": ok, "message": msg})
+            # ---- 审稿→修稿闭环 ----
+            elif p == "/review/run":
+                jid, err = start_job("review", act_review_run())
+                self._send(202 if not err else 409, {"error": err} if err else {"job_id": jid})
+            elif p == "/batch_refine/run":
+                from_decisions = bool(body.get("decisions_from_file", True))
+                jid, err = start_job("batch_refine", act_batch_refine_run(from_decisions))
+                self._send(202 if not err else 409, {"error": err} if err else {"job_id": jid})
+            elif p == "/prompts/save":
+                name = str(body.get("name") or "")
+                content = body.get("content")
+                if not prompt_name_ok(name):
+                    self._send(400, {"ok": False, "error":
+                        "文件名不在白名单: " + name + "（须匹配 prompts/stage[1-7]_*.md，禁止 ../）"})
+                    return
+                ok, res = save_prompt(name, content)
+                if ok:
+                    res["ok"] = True
+                    self._send(200, res)
+                else:
+                    self._send(400, {"ok": False, "error": str(res)})
+            elif p == "/config/style_notes":
+                # 保存用户风格笔记：定向改写 project.yaml（保留注释），写入前备份
+                content = body.get("content")
+                if content is None:
+                    self._send(400, {"ok": False, "error": "缺少 content 字段"})
+                    return
+                if not isinstance(content, str):
+                    self._send(400, {"ok": False, "error": "content 必须为字符串"})
+                    return
+                if len(content) > 4000:
+                    self._send(400, {"ok": False, "error": "风格笔记过长（上限 4000 字）"})
+                    return
+                try:
+                    from utils.project_config import set_style_notes
+                    ok, msg = set_style_notes(content)
+                except Exception as e:
+                    self._send(500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]})
+                    return
+                self._send(200 if ok else 400,
+                           {"ok": ok, "message": msg} if ok else {"ok": False, "error": msg})
+            elif p == "/review/decisions" and self.command == "POST":
+                # 保存用户决策（GUI 提交）
+                dec_path = Path("data/outline/review_report.decisions.json")
+                dec_path.parent.mkdir(parents=True, exist_ok=True)
+                dec_path.write_text(json.dumps(body, ensure_ascii=False, indent=2), encoding="utf-8")
+                self._send(200, {"ok": True, "message": "决策已保存: " + str(dec_path)})
             else:
                 self._send(404, {"error": "未知路径 " + p})
         except (ValueError, TypeError) as e:
@@ -636,7 +946,7 @@ def main():
     httpd = ThreadingHTTPServer((args.host, args.port), Handler)
     print("[nf_api] NovelForge API 服务 → http://" + args.host + ":" + str(args.port)
           + "  (allow_fake=" + str(ALLOW_FAKE) + ")")
-    print("[nf_api] 端点: /health /state /models /stage/{n}/run /stream/{job_id} /stop /jobs/{id} /approve /reject /refine/* /snapshot /costs")
+    print("[nf_api] 端点: /health /state /models /stage/{n}/run /stream/{job_id} /stop /jobs/{id} /approve /reject /refine/* /snapshot /costs /prompts/* /config/style_notes")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

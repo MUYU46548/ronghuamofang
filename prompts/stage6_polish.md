@@ -44,3 +44,5 @@ temperature: 0.4
 - 字数变化控制在 ±20% 内
 - 所有标点使用全角中文标点
 {{style_instruction}}
+{{style_samples}}
+{{style_notes}}

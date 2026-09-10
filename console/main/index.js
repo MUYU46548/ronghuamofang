@@ -1,9 +1,76 @@
 // 绒花墨坊桌面控制台 — Electron 主进程
-const { app, BrowserWindow, ipcMain, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, shell, Menu, dialog } = require("electron");
 app.disableHardwareAcceleration();
 const { spawn } = require("child_process");
 const path = require("path");
 const fs = require("fs");
+
+// 自动更新（生产模式 + 非 portable 模式）
+let autoUpdater = null;
+let updateAvailable = false;
+let updateDownloaded = false;
+
+function setupAutoUpdater() {
+  if (process.env.NODE_ENV === "development") return;
+  if (process.windowsStore || process.env.PORTABLE_EXEC_DIR) return;
+  try {
+    const { autoUpdater: au } = require("electron-updater");
+    autoUpdater = au;
+    autoUpdater.autoDownload = true;
+    autoUpdater.autoInstallOnAppQuit = true;
+    autoUpdater.allowDowngrade = false;
+    autoUpdater.logger = console;
+
+    autoUpdater.on("checking-for-update", () => {
+      console.log("[updater] 检查更新...");
+    });
+    autoUpdater.on("update-available", (info) => {
+      console.log("[updater] 发现新版本:", info.version);
+      updateAvailable = true;
+      if (mainWindow) {
+        mainWindow.webContents.send("updater", {
+          type: "update-available",
+          version: info.version,
+          releaseNotes: info.releaseNotes,
+        });
+      }
+    });
+    autoUpdater.on("update-not-available", () => {
+      console.log("[updater] 已是最新版本");
+    });
+    autoUpdater.on("download-progress", (progress) => {
+      console.log(`[updater] 下载进度: ${progress.percent.toFixed(1)}%`);
+      if (mainWindow) {
+        mainWindow.webContents.send("updater", {
+          type: "download-progress",
+          percent: progress.percent,
+          bytesPerSecond: progress.bytesPerSecond,
+        });
+      }
+    });
+    autoUpdater.on("update-downloaded", (info) => {
+      console.log("[updater] 更新已下载，退出时安装");
+      updateDownloaded = true;
+      if (mainWindow) {
+        mainWindow.webContents.send("updater", {
+          type: "update-downloaded",
+          version: info.version,
+        });
+      }
+    });
+    autoUpdater.on("error", (err) => {
+      console.error("[updater] 更新错误:", err.message);
+      if (mainWindow) {
+        mainWindow.webContents.send("updater", {
+          type: "error",
+          message: err.message,
+        });
+      }
+    });
+  } catch (e) {
+    console.error("[updater] 初始化失败:", e.message);
+  }
+}
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const PY = path.join(ROOT, ".venv", "Scripts", "pythonw.exe");
@@ -77,6 +144,7 @@ function pathAllowed(p) {
   if (rel.startsWith("data/") || rel.startsWith("output/")) return true;
   if ((rel.startsWith("logs/") || rel.startsWith("materials/")) && /\.(md|log|json)$/.test(rel)) return true;
   if (rel.startsWith("config/") && /\.(yaml|yml)$/.test(rel)) return true;
+  if (rel === ".env") return true;  // Allow opening .env in external editor
   return false;
 }
 
@@ -99,6 +167,102 @@ ipcMain.handle("open-artifact", async (e, relPath) => {
   const r = await shell.openPath(fs.existsSync(abs) ? abs : path.dirname(abs));
   return r ? { ok: false, error: r } : { ok: true };
 });
+
+// 提示词模板：代理到 nf_api（白名单/备份逻辑以 Python 侧为唯一真源，此处再做一次前置校验）
+const PROMPT_NAME_RE = /^stage[1-7]_.*\.md$/;
+
+function promptNameAllowed(name) {
+  if (typeof name !== "string" || !name) return false;
+  if (name.includes("..") || name.includes("/") || name.includes("\\")) return false;
+  return PROMPT_NAME_RE.test(name);
+}
+
+async function apiJson(path, method = "GET", body = null) {
+  const opt = { method, headers: { "Content-Type": "application/json" } };
+  if (body) opt.body = JSON.stringify(body);
+  const r = await fetch(BASE + path, opt);
+  let data = {};
+  try { data = await r.json(); } catch (e) { /* 非 JSON 响应 */ }
+  return { status: r.status, data };
+}
+
+ipcMain.handle("prompts:list", async () => {
+  try {
+    const r = await apiJson("/prompts/list");
+    if (r.status !== 200) return { ok: false, error: r.data.error || "HTTP " + r.status };
+    return { ok: true, items: r.data.items || [], count: r.data.count || 0 };
+  } catch (err) {
+    return { ok: false, error: "nf_api 不可用: " + String(err && err.message || err) };
+  }
+});
+
+ipcMain.handle("prompts:get", async (e, name) => {
+  if (!promptNameAllowed(name)) return { ok: false, error: "文件名不在白名单: " + String(name) };
+  try {
+    const r = await apiJson("/prompts/get?name=" + encodeURIComponent(name));
+    if (r.status !== 200) return { ok: false, error: r.data.error || "HTTP " + r.status };
+    return { ok: true, ...r.data };
+  } catch (err) {
+    return { ok: false, error: "nf_api 不可用: " + String(err && err.message || err) };
+  }
+});
+
+ipcMain.handle("prompts:save", async (e, name, content) => {
+  if (!promptNameAllowed(name)) return { ok: false, error: "文件名不在白名单: " + String(name) };
+  if (typeof content !== "string") return { ok: false, error: "content 必须为字符串" };
+  try {
+    const r = await apiJson("/prompts/save", "POST", { name, content });
+    if (r.status !== 200) return { ok: false, error: r.data.error || "HTTP " + r.status };
+    return { ok: true, ...r.data };
+  } catch (err) {
+    return { ok: false, error: "nf_api 不可用: " + String(err && err.message || err) };
+  }
+});
+
+// 用户风格笔记：代理到 nf_api（project.yaml 定向改写 + 备份逻辑以 Python 侧为唯一真源）
+ipcMain.handle("style-notes:get", async () => {
+  try {
+    const r = await apiJson("/config/style_notes");
+    if (r.status !== 200) return { ok: false, error: r.data.error || "HTTP " + r.status };
+    return { ok: true, content: r.data.content || "" };
+  } catch (err) {
+    return { ok: false, error: "nf_api 不可用: " + String((err && err.message) || err) };
+  }
+});
+
+ipcMain.handle("style-notes:save", async (e, content) => {
+  if (typeof content !== "string") return { ok: false, error: "content 必须为字符串" };
+  if (content.length > 4000) return { ok: false, error: "风格笔记过长（上限 4000 字）" };
+  try {
+    const r = await apiJson("/config/style_notes", "POST", { content });
+    if (!r.data.ok) return { ok: false, error: r.data.error || r.data.message || "HTTP " + r.status };
+    return { ok: true, message: r.data.message || "已保存" };
+  } catch (err) {
+    return { ok: false, error: "nf_api 不可用: " + String((err && err.message) || err) };
+  }
+});
+
+// 自动更新 IPC
+ipcMain.handle("updater:check", async () => {
+  if (!autoUpdater) return { ok: false, error: "updater 未初始化" };
+  try {
+    const result = await autoUpdater.checkForUpdates();
+    return { ok: true, result };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+ipcMain.handle("updater:quitAndInstall", () => {
+  if (autoUpdater && updateDownloaded) {
+    autoUpdater.quitAndInstall();
+  }
+});
+
+ipcMain.handle("updater:status", () => ({
+  available: updateAvailable,
+  downloaded: updateDownloaded,
+}));
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -128,11 +292,18 @@ function createWindow() {
 
 app.whenReady().then(async () => {
   console.log("[console] app ready, ROOT=", ROOT);
+  setupAutoUpdater();
   startApi();
   const ok = await waitForApi();
   console.log("[console] nf_api 健康检查:", ok ? "通过" : "超时");
   if (!ok) console.error("[console] nf_api 健康检查超时（界面将显示离线状态）");
   createWindow();
+  // 启动后 3 秒检查更新（避免阻塞 UI 初始化）
+  if (autoUpdater) {
+    setTimeout(() => {
+      autoUpdater.checkForUpdates().catch((e) => console.error("[updater] 检查失败:", e.message));
+    }, 3000);
+  }
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
