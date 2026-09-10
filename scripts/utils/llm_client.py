@@ -456,7 +456,8 @@ class OpenAICompatClient:
             if not dry_run:
                 self._apply_ops(text, wr, ap)
 
-        cost_yuan = cost_tracker.estimate_cost_yuan(tokens_in, tokens_out, model_used)
+        cost_yuan = cost_tracker.estimate_cost_yuan(tokens_in, tokens_out, model_used,
+                                                   cache_read=cache_read)
         return {
             "exit_code": 0,
             "stdout_tail": NEWLINE.join(all_text)[-2000:],
@@ -515,7 +516,8 @@ class OpenAICompatClient:
             if not dry_run and stop_flag and not stop_flag():
                 self._apply_ops(full_text, wr, ap)
 
-        cost_yuan = cost_tracker.estimate_cost_yuan(tokens_in, tokens_out, model_used)
+        cost_yuan = cost_tracker.estimate_cost_yuan(tokens_in, tokens_out, model_used,
+                                                   cache_read=cache_read)
         return {
             "exit_code": 0,
             "stdout_tail": NEWLINE.join(all_text)[-2000:],

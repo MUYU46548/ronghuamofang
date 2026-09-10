@@ -5,13 +5,15 @@ model: hy3  # 死代码：真源见 config/system.yaml 的 model.*，代码不�
 max_tokens: 8000
 temperature: 0.3
 ---
-# 阶段 5 任务：全书逻辑检查与修正
+# 阶段 5 任务：全书逻辑检查与修正（分批 {{batch_index}}/{{total_batches}}）
 
 你是专业的文学作者兼严谨审校。请严格按指示执行。
 
 ## 输入文件（用 read_file 读取）
-- 全部章节正文: {{path_raw}}/ 下的 *.md（依次读取全部）
-- 设定集: {{path_setting}}
+本批需处理的章节：
+{{batch_files}}
+
+设定集: {{path_setting}}
 
 ## 核心任务：系统化检查逻辑漏洞
 聚焦以下检查项：

@@ -14,12 +14,14 @@ from utils.template_loader import load_template
 from utils.verify_chapter import check_chapter
 
 
-def build_check_task(proj, raw_dir, setting_path, checked_dir):
+def build_check_task(proj, raw_dir, setting_path, checked_dir, batch_files, batch_index, total_batches):
     _, body = load_template("stage5_check.md", {
-        "path_raw": Path(raw_dir).resolve(),
+        "batch_files": batch_files,
         "path_setting": Path(setting_path).resolve(),
         "path_report": Path("data/outline/check_report.md").resolve(),
         "path_checked": Path(checked_dir).resolve(),
+        "batch_index": batch_index,
+        "total_batches": total_batches,
     })
     return body
 
@@ -41,25 +43,35 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         progress.mark_stage_done(5)
         return True, "stage5 跳过（checked 已存在）"
 
-    task = client.write_task(task_dir, "stage5_check.md",
-                             build_check_task(proj, raw_dir, "data/setting/setting.json", checked_dir))
-    result = client.run_task(task)
-    if cost and run_id:
-        cost.charge_cost(run_id, 5, 0, result)
-    if result["exit_code"] != 0:
-        progress.set_stage(5, "failed", error="子会话退出码非零")
-        return False, "stage5 子会话失败"
+    # 分批：每批最多 5 章
+    batch_size = 5
+    batches = [pending[i:i + batch_size] for i in range(0, len(pending), batch_size)]
+    total_batches = len(batches)
+    print(f"[stage5] 待检查 {len(pending)} 章，分 {total_batches} 批")
 
-    missing = [f.name for f in pending if not (checked_dir / f.name).exists()]
-    if missing:
-        progress.set_stage(5, "failed", error=f"缺修正文件: {missing[:3]}")
-        return False, f"stage5 缺修正文件: {missing[:3]}"
+    for bi, batch in enumerate(batches, 1):
+        batch_files = "\n".join(f"- {f.name}" for f in batch)
+        task = client.write_task(task_dir, f"stage5_check_batch{bi}.md",
+                                 build_check_task(proj, raw_dir, "data/setting/setting.json",
+                                                  checked_dir, batch_files, bi, total_batches))
+        result = client.run_task(task)
+        if cost and run_id:
+            cost.charge_cost(run_id, 5, 0, result)
+        if result["exit_code"] != 0:
+            progress.set_stage(5, "failed", error=f"批 {bi}/{total_batches} 子会话退出码非零")
+            return False, f"stage5 批 {bi}/{total_batches} 子会话失败"
+
+        missing = [f.name for f in batch if not (checked_dir / f.name).exists()]
+        if missing:
+            progress.set_stage(5, "failed", error=f"批 {bi} 缺修正文件: {missing[:3]}")
+            return False, f"stage5 批 {bi} 缺修正文件: {missing[:3]}"
+        print(f"[stage5] 批 {bi}/{total_batches} 完成（章节 {batch[0].stem}-{batch[-1].stem}）")
 
     if db and run_id:
         for f in pending:
             db.log_chapter(run_id, 5, int(f.stem), "ok")
     progress.mark_stage_done(5)
-    print(f"[stage5] 逻辑检查完成（{len(raw_files)} 章），报告: data/outline/check_report.md")
+    print(f"[stage5] 逻辑检查完成（{len(raw_files)} 章，{total_batches} 批），报告: data/outline/check_report.md")
     return True, "stage5 完成"
 
 

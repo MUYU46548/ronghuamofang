@@ -33,9 +33,19 @@ def snapshot(label="manual", keep=KEEP, history_dir="history", dry_run=False):
     """创建快照并清理旧快照。返回快照目录路径。
 
     dry_run=True 时列出将清理的旧快照但不删除。
+
+    安全护栏：history_dir 解析后必须含 "history" 段，防止误删其他目录。
     """
+    # 路径验证：防止 history_dir 被误改为 data/ 等关键目录
+    history_path = Path(history_dir).resolve()
+    if "history" not in history_path.parts and history_path.name != "history":
+        raise ValueError(
+            f"[snapshot] 安全拦截：history_dir={history_path} 不含 'history' 段，"
+            f"防止误删。快照目录必须位于 history/ 下。"
+        )
+
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    dest = Path(history_dir) / f"{ts}_{label}"
+    dest = history_path / f"{ts}_{label}"
     dest.mkdir(parents=True, exist_ok=True)
 
     copied = 0
@@ -56,7 +66,7 @@ def snapshot(label="manual", keep=KEEP, history_dir="history", dry_run=False):
             copied += 1
 
     # 清理旧快照（按时间戳目录名排序）
-    snaps = sorted([p for p in Path(history_dir).iterdir()
+    snaps = sorted([p for p in history_path.iterdir()
                     if p.is_dir() and p.name[:8].isdigit()])
     removed = 0
     to_remove = snaps[:-keep]
@@ -67,6 +77,10 @@ def snapshot(label="manual", keep=KEEP, history_dir="history", dry_run=False):
             print(f"  将删除: {old.name} ({size/1204:.0f} KB)")
     else:
         for old in to_remove:
+            # 二次验证：只删除符合快照命名规范的目录
+            if not old.name[:8].isdigit() or "_" not in old.name:
+                print(f"[snapshot] 跳过非快照目录: {old.name}")
+                continue
             shutil.rmtree(old)
             removed += 1
 
@@ -75,7 +89,11 @@ def snapshot(label="manual", keep=KEEP, history_dir="history", dry_run=False):
 
 
 def list_snapshots(history_dir="history"):
-    h = Path(history_dir)
+    history_path = Path(history_dir).resolve()
+    if "history" not in history_path.parts and history_path.name != "history":
+        print(f"[snapshot] 安全拦截：history_dir={history_path} 不含 'history' 段")
+        return
+    h = history_path
     if not h.exists():
         print("[snapshot] history/ 为空")
         return

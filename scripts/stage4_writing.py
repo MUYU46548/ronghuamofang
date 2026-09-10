@@ -82,7 +82,8 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         cost_est = (cost.estimate_cost_yuan(result["tokens"], result["tokens_out"],
                                             model=result.get("model"),
                                             provider=result.get("provider"),
-                                            role=result.get("model_key"))
+                                            role=result.get("model_key"),
+                                            cache_read=result.get("cache_read", 0))
                     if cost else 0)
         if result["exit_code"] != 0:
             progress.mark_chapter_failed(n, "子会话退出码非零", 4)

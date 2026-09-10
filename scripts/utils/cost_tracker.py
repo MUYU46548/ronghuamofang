@@ -19,6 +19,7 @@ from utils.db import RunDB
 #   hunyuan-a13b  in 0.5 / out 2.0
 #   hunyuan-lite  免费（0）
 # hy3：opencode 实测 USD/M 汇率 ~7.2 折算（in 0.14/out 0.58/cache_read 0.035）
+# 价格向导：python scripts/price_wizard.py 可交互式增删改（不影响运行中的流水线）
 RATES = {
     "hunyuan-a13b":       {"in": 0.5, "out": 2.0},   # 混元官方 2026-06
     "hunyuan-lite":       {"in": 0.0, "out": 0.0},   # 混元免费
@@ -59,10 +60,15 @@ def resolve_rate(model=None, provider=None, role=None):
     return dict(DEFAULT_ROLE_RATES[DEFAULT_ROLE]), m
 
 
-def estimate_cost_yuan(tokens_in, tokens_out, model=None, provider=None, role=None):
-    """按计价条目估算单次调用费用（元）。兼容旧签名 estimate_cost(t, t, model)。"""
+def estimate_cost_yuan(tokens_in, tokens_out, model=None, provider=None, role=None, cache_read=0):
+    """按计价条目估算单次调用费用（元）。
+
+    cache_read: 缓存命中 token 数。RATES 中有 cache_read 字段时按缓存价计入，
+    没有则按 0（保守不计，实际成本比估算低，熔断不会失灵）。
+    """
     rate, _ = resolve_rate(model, provider, role)
-    return round((tokens_in * rate["in"] + tokens_out * rate["out"]) / 1_000_000, 6)
+    cache_rate = rate.get("cache_read", 0)
+    return round((tokens_in * rate["in"] + tokens_out * rate["out"] + cache_read * cache_rate) / 1_000_000, 6)
 
 
 class CostTracker:
@@ -74,8 +80,8 @@ class CostTracker:
         self.warn_ratio = warn_ratio
 
     @staticmethod
-    def estimate_cost_yuan(tokens_in, tokens_out, model=None, provider=None, role=None):
-        return estimate_cost_yuan(tokens_in, tokens_out, model, provider, role)
+    def estimate_cost_yuan(tokens_in, tokens_out, model=None, provider=None, role=None, cache_read=0):
+        return estimate_cost_yuan(tokens_in, tokens_out, model, provider, role, cache_read=cache_read)
 
     def charge_cost(self, run_id, stage, chapter, result):
         """按 run_task 返回 dict 记账（model/provider/role 取自结果元数据）。
@@ -86,7 +92,8 @@ class CostTracker:
         provider = result.get("provider") or "hermes"
         role = result.get("model_key") or DEFAULT_ROLE
         cost = estimate_cost_yuan(result.get("tokens", 0), result.get("tokens_out", 0),
-                                  model=model, provider=provider, role=role)
+                                  model=model, provider=provider, role=role,
+                                  cache_read=result.get("cache_read", 0))
         self.db.log_cost(run_id, stage, chapter, model, result.get("tokens", 0),
                          result.get("tokens_out", 0), cost,
                          estimated=1 if result.get("estimated") else 0,
@@ -94,12 +101,13 @@ class CostTracker:
         return self.status(run_id)[0]
 
     def record(self, run_id, stage, chapter, tokens_in, tokens_out, model=None,
-               estimated=False, provider=None, role=None):
-        """兼容旧签名：按 (tokens_in, tokens_out) 记账。"""
+               estimated=False, provider=None, role=None, cache_read=0):
+        """兼容旧签名：按 (tokens_in, tokens_out, cache_read) 记账。"""
         cost = estimate_cost_yuan(tokens_in, tokens_out, model=model,
-                                  provider=provider, role=role)
+                                  provider=provider, role=role, cache_read=cache_read)
         self.db.log_cost(run_id, stage, chapter, model or DEFAULT_MODEL, tokens_in,
-                         tokens_out, cost, estimated=1 if estimated else 0)
+                         tokens_out, cost, estimated=1 if estimated else 0,
+                         cache_read=cache_read)
         return self.status(run_id)[0]
 
     def spent(self, run_id=None, stage=None):
