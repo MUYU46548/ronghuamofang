@@ -61,6 +61,47 @@ async function refreshCosts() {
 function switchTab(t) {
   tab.value = t;
   if (t === "cost" && costs.value.length === 0) refreshCosts();
+  if (t === "project") loadProjects();
+}
+
+async function loadProjects() {
+  const r = await api("/project/list");
+  if (r.status === 200) {
+    projects.value = r.data;
+    say("项目列表已刷新");
+  } else {
+    say("加载失败: " + (r.data.error || r.status));
+  }
+}
+
+async function archiveCurrent() {
+  if (!projects.value.current) {
+    say("当前无项目可归档");
+    return;
+  }
+  const finalName = archiveName.value.trim() || projects.value.current;
+  if (!window.confirm(`确定归档当前项目为「${finalName}」？\n\n归档后当前工作区数据将移至 data/books/${finalName}/，工作区清空。`)) return;
+  const r = await api("/project/archive", "POST", { name: finalName, yes: true });
+  if (r.status === 200 && r.data.ok) {
+    say("已归档: " + finalName);
+    archiveName.value = "";
+    loadProjects();
+    refresh();
+  } else {
+    say("归档失败: " + (r.data.message || r.data.error || r.status));
+  }
+}
+
+async function restoreProject(name) {
+  if (!window.confirm(`确定恢复项目「${name}」？\n\n当前工作区数据将先自动归档，然后替换为 ${name} 的数据。`)) return;
+  const r = await api("/project/restore", "POST", { name, yes: true });
+  if (r.status === 200 && r.data.ok) {
+    say("已恢复: " + name);
+    loadProjects();
+    refresh();
+  } else {
+    say("恢复失败: " + (r.data.message || r.data.error || r.status));
+  }
 }
 
 async function runStage(n) {
@@ -165,40 +206,9 @@ function stopStream() {
   refresh();
 }
 
-/* ---------- 项目切换 ---------- */
+/* ---------- 其他 ---------- */
 const projects = ref({ current: "", archived: [] });
-
-async function loadProjects() {
-  const r = await api("/project/list");
-  if (r.status === 200) {
-    projects.value = r.data;
-  }
-}
-
-async function archiveCurrent() {
-  if (!projects.value.current) return;
-  const name = prompt("归档项目名称（留空使用当前书名）：", projects.value.current);
-  if (name === null) return;
-  const r = await api("/project/archive", "POST", { name: name || projects.value.current, yes: true });
-  if (r.status === 200) {
-    say("已归档: " + (name || projects.value.current));
-    loadProjects();
-    refresh();
-  } else {
-    say("归档失败: " + (r.data.message || r.data.error));
-  }
-}
-
-async function restoreProject(name) {
-  const r = await api("/project/restore", "POST", { name, yes: true });
-  if (r.status === 200) {
-    say("已恢复: " + name);
-    loadProjects();
-    refresh();
-  } else {
-    say("恢复失败: " + (r.data.message || r.data.error));
-  }
-}
+const archiveName = ref("");
 
 async function switchModel(role, modelId) {
   const r = await api("/models/switch", "POST", { role, model: modelId });
@@ -556,6 +566,7 @@ onUnmounted(() => clearInterval(timer));
       </div>
       <div v-if="projects.current" class="art-row">
         <span class="art-label">归档当前项目</span>
+        <input v-model="archiveName" class="text-input" placeholder="留空使用当前书名" />
         <span class="spacer"></span>
         <button class="mini" @click="archiveCurrent">归档</button>
       </div>

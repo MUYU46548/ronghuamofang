@@ -1,14 +1,18 @@
 # -*- coding: utf-8 -*-
-"""打回/重跑正规化 CLI（P1 新增：reject 门）。
-
+# 打回/重跑正规化 CLI（P1 新增：reject 门）。
+"""
 替代"手动清产物 + --from N 重跑"的脆弱流程：
   1. 记录打回原因与时间（progress.json 的 stages[N].rejected）
   2. 将阶段 N 及下游状态重置为 pending（断点续跑时不再跳过）
   3. 按产物映射清理阶段 N 及下游的产物目录（history/ 备份保留，可回退）
 
+安全护栏：
+  - 打回前自动快照（history/{ts}_reject_stage{N}），即使误操作也可恢复
+
 用法：
   python scripts/reject.py --stage 6 "润色过度，保留原稿风格"
   python scripts/reject.py --stage 6 --reason "..." --dry-run   # 只展示将清理的内容
+"""
 """
 import argparse
 import shutil
@@ -62,6 +66,15 @@ def reject_stage(pm, stage, reason="", dry_run=False):
 
     if stage not in DOWNSTREAM_ARTIFACTS:
         return False, [f"不支持的阶段号: {stage}（支持 2-7）"]
+
+    # 安全护栏：打回前自动快照，防止数据丢失
+    if not dry_run:
+        try:
+            from snapshot import snapshot as make_snapshot
+            snap = make_snapshot(f"reject_stage{stage}")
+            msgs.append(f"快照已保存: {snap}")
+        except Exception as e:
+            msgs.append(f"快照失败（继续执行）: {e}")
 
     # 记录打回原因（阶段 N 保留 rejected 标记，供 orchestrator 提示；同时撤销审批）
     if not dry_run:

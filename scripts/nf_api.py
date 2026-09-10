@@ -583,10 +583,20 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, {"ok": True, "role": role, "model": model_id})
             elif p == "/project/archive":
                 name = str(body.get("name") or "").strip()
+                force = bool(body.get("force"))
                 if not name:
                     self._send(400, {"error": "name 必填"})
                     return
-                ok, msg = sb_mod.archive(name, yes=bool(body.get("yes")))
+                # 护栏：覆盖同名归档前强制快照（防止数据丢失）
+                if force:
+                    try:
+                        sb_mod_will_overwrite = (sb_mod.BOOKS_DIR / sb_mod.sanitize(name)).exists()
+                        if sb_mod_will_overwrite:
+                            from snapshot import snapshot as _snap
+                            _snap(f"archive_overwrite_{name}")
+                    except Exception:
+                        pass
+                ok, msg = sb_mod.archive(name, yes=bool(body.get("yes")), force=force)
                 self._send(200 if ok else 400, {"ok": ok, "message": msg})
             elif p == "/project/restore":
                 name = str(body.get("name") or "").strip()
@@ -596,6 +606,12 @@ class Handler(BaseHTTPRequestHandler):
                 ok, msg = sb_mod.restore(name, yes=bool(body.get("yes")))
                 self._send(200 if ok else 400, {"ok": ok, "message": msg})
             elif p == "/project/init":
+                # 护栏：初始化前强制快照
+                try:
+                    from snapshot import snapshot as _snap
+                    _snap("init_empty")
+                except Exception:
+                    pass
                 ok, msg = sb_mod.init_empty()
                 self._send(200 if ok else 400, {"ok": ok, "message": msg})
             else:

@@ -82,8 +82,11 @@ def _move_items(src_root, dest_root):
     return moved
 
 
-def archive(book_name=None, yes=False):
-    """归档当前工作区。返回 (success: bool, message: str)。"""
+def archive(book_name=None, yes=False, force=False):
+    """归档当前工作区。返回 (success: bool, message: str)。
+
+    force=True 时覆盖同名归档（用于 restore 路径的自动归档）。
+    """
     if not yes:
         return False, "归档将移动 data/ 下产物到 data/books/，确认请加 --yes"
     name = book_name or current_book_name()
@@ -92,8 +95,10 @@ def archive(book_name=None, yes=False):
     if not has_work():
         return True, "工作区无数据，无需归档"
     dest = BOOKS_DIR / sanitize(name)
+    if dest.exists() and not force:
+        return False, f"{dest} 已存在同名归档。如需覆盖请加 --force，或先用 --restore 恢复"
     if dest.exists():
-        return False, f"{dest} 已存在同名归档。如需覆盖请手动处理，或先用 --restore 恢复"
+        shutil.rmtree(dest)
     moved = _move_items(DATA_DIR, dest)
     meta = {"book": name, "archived_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "items": moved}
@@ -112,7 +117,7 @@ def restore(book_name, yes=False):
     cur = current_book_name()
     if cur and sanitize(cur) != sanitize(book_name) and has_work():
         print(f"[switch_book] 当前工作区有「{cur}」数据，先自动归档")
-        ok, msg = archive(cur, yes=True)
+        ok, msg = archive(cur, yes=True, force=True)
         if not ok:
             return False, f"自动归档失败: {msg}"
     moved = _move_items(src, DATA_DIR)
@@ -123,6 +128,13 @@ def init_empty():
     """初始化空工作区（保留 data/tmp 缓存）。返回 (success: bool, message: str)。"""
     if has_work():
         return False, "工作区有数据，请先 --archive"
+    # 自动归档当前工作区（防止误操作丢失）
+    cur = current_book_name()
+    if cur:
+        print(f"[switch_book] 自动归档当前工作区「{cur}」")
+        ok, msg = archive(cur, yes=True, force=True)
+        if not ok:
+            return False, f"自动归档失败: {msg}"
     for d in ("setting", "outline/chapters", "chapters/raw", "chapters/checked",
               "chapters/refined", "summaries", "merged", "state/tasks"):
         (DATA_DIR / d).mkdir(parents=True, exist_ok=True)
@@ -163,6 +175,7 @@ def main():
     parser.add_argument("--restore", default=None, metavar="书名", help="恢复指定书")
     parser.add_argument("--init", action="store_true", help="初始化空工作区")
     parser.add_argument("--yes", action="store_true", help="跳过确认")
+    parser.add_argument("--force", action="store_true", help="归档时覆盖同名归档（restore 自动归档默认启用）")
     args = parser.parse_args()
 
     if args.list:
@@ -183,7 +196,7 @@ def main():
         return 0 if ok else 1
     if args.archive is not None:
         name = None if args.archive == "__auto__" else args.archive
-        ok, msg = archive(name, yes=args.yes)
+        ok, msg = archive(name, yes=args.yes, force=args.force)
         print(f"[switch_book] {msg}")
         return 0 if ok else 1
     if args.restore:

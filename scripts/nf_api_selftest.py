@@ -77,6 +77,13 @@ def main():
             print("⚠️ 检测到已存在的书档产物（setting.json / 章节）。")
             print("   本自测会清空 data/ 与 logs/。确认要销毁请加 --force 重跑。")
             return 2
+
+    # 强制快照：销毁前先备份，防止数据丢失
+    print("== 销毁前自动快照 ==")
+    from snapshot import snapshot as make_snapshot
+    snap_dir = make_snapshot("selftest_wipe")
+    print(f"   快照已保存: {snap_dir}")
+
     # 清场：data/ 与 logs/（保留 books/ 归档）
     for d in ("data/setting", "data/outline", "data/chapters", "data/summaries",
               "data/state", "data/tmp", "data/test_llm_t8", "logs"):
