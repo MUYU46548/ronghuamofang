@@ -60,12 +60,12 @@ NovelForge/
 ## 架构概览
 
 ```
-用户层（Hermes 对话 / 未来 GUI） → 执行层（orchestrator + LLM 引擎 + 脚本） → 数据层（文件系统 + SQLite）
+用户层（控制台 / 未来 GUI） → 执行层（orchestrator + LLM 引擎 + 脚本） → 数据层（文件系统 + SQLite）
 ```
 
 - 执行层 = orchestrator.py（确定性调度）+ LLM 引擎（`utils/llm_client.py`，可切换）+ stage 脚本（校验/转换/记账）
-- **LLM 引擎（2026-09-09 起可切换，勿再视为 Hermes 专属）**：
-  - `engine: direct`（默认）：OpenAI 兼容直连，当前=**腾讯云 TokenHub**（`tokenhub.tencentmaas.com/v1`，与 Hermes config provider 同源；广州地域），三角色默认 `deepseek-v4-flash`（¥1/¥2 每百万；备选 glm-5.3-flash/5.3/v4-pro/kimi-k3 见配置注释）；**免费体验包按模型领取，模型选择须经用户白名单确认**；密钥在项目 `.env`（TOKENHUB_API_KEY，源自 Hermes 根 .env）
+- **LLM 引擎（可切换）**：
+  - `engine: direct`（默认）：OpenAI 兼容直连，当前=**腾讯云 TokenHub**（`tokenhub.tencentmaas.com/v1`，广州地域），三角色默认 `deepseek-v4-flash`（¥1/¥2 每百万；备选 glm-5.3-flash/5.3/v4-pro/kimi-k3 见配置注释）；**免费体验包按模型领取，模型选择须经用户白名单确认**；密钥在项目 `.env`（TOKENHUB_API_KEY）
   - `engine: hermes`：hermes chat 子会话（原模式，保留为回退引擎）
   - 切换/换模型/换服务商：只改 `config/system.yaml` 的 `engine` / `model.*` / `providers`，代码零改动
 - 通信 = 文件系统约定目录（plan/state/gates/runs.db），无 HTTP/消息队列

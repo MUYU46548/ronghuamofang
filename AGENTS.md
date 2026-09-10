@@ -1,11 +1,13 @@
-# NovelForge — Hermes 操作手册（AGENTS.md）
+# NovelForge — 项目操作手册（AGENTS.md）
 
-本文件在 Hermes 于本项目目录工作时自动加载。用户在本项目发起任务时，按本手册执行。
+本文件在 AI 助手于本项目目录工作时自动加载。用户在本项目发起任务时，按本手册执行。
 
 ## 项目定位
 
-NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是全自动长篇小说生成系统：用户放置素材 → Hermes 调度流水线 → 交付 Word 成品。
+NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是全自动长篇小说生成系统：用户放置素材 → 系统调度流水线 → 交付 Word 成品。
 用户只做两件事：**放置素材** + **说"运行 NovelForge 项目"**。其余由系统自主执行，用户保留审批权。
+
+**执行引擎可切换**：`config/system.yaml` 的 `engine` 字段控制。`direct`=OpenAI 兼容直连（当前接 TokenHub，可随时换供应商），`hermes`=Hermes 子会话（备选）。所有调用点经 `make_client(cfg, role)` 取客户端，零调用点硬编码引擎。
 
 ## 启用流程（用户说"运行 NovelForge"时）
 
@@ -86,7 +88,7 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是全自动
 
 - **ROSA 设定库只读**：永不写入 `E:/图书馆/ROSA`；系统仅通过 `materials/` 与项目内 `data/` 工作
 - `data/`、`history/` 不进 Git（由 history/ 快照承担版本职责）；`prompts/`、`config/`、`scripts/` 进 Git
-- **模型凭据**：项目 `.env`（不入 git）承载 LLM API Key（`TOKENHUB_API_KEY`，与 Hermes 根 `C:/Users/muyu/AppData/Local/hermes/.env` 同源）；engine=hermes 时凭据由 Hermes 统一管理。切换引擎/模型/服务商只改 `config/system.yaml`（`engine` / `model.*` / `providers`），新 provider 计价须先补 `scripts/utils/cost_tracker.py` 的 `RATES`。**模型白名单纪律：用户免费体验包按模型领取，未经用户确认不得指定/更换付费模型**
+- **模型凭据**：项目 `.env`（不入 git）承载 LLM API Key（`TOKENHUB_API_KEY`）；engine=hermes 时凭据由 Hermes 统一管理。切换引擎/模型/服务商只改 `config/system.yaml`（`engine` / `model.*` / `providers`），新 provider 计价须先补 `scripts/utils/cost_tracker.py` 的 `RATES`（可用 `scripts/price_wizard.py` 交互式更新）。**模型白名单纪律：用户免费体验包按模型领取，未经用户确认不得指定/更换付费模型**
 - **直连引擎（engine: direct）语义**：无子会话工具循环——任务文件的输入文件段由 `llm_client.inline_inputs` 全文内联进单请求；多文件输出任务自动按目标文件拆分请求；模型产物经 `===FILE/APPEND/DELETE===` 协议落盘（白名单：`data/**` 与 `logs/runs.db`），期望外路径直接拒绝
 - **子会话（engine: hermes）**：任务文件（data/state/tasks/）必须自包含全部上下文
 - **本地 API（nf_api.py）**：函数级复用 orchestrator/approve/reject/refine，不经过 Hermes 子进程；客户端注入走 `_client_for_env`（默认 make_client 真引擎，`NF_API_ALLOW_FAKE=1`/`--allow-fake` 时注入 FakeClient——**仅限测试**，自测脚本运行会清空 data/ 运行产物）；服务默认只绑 127.0.0.1

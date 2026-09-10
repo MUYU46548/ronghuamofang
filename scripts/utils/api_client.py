@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-"""Hermes 子会话调用封装。
+"""子会话执行层封装（外部 CLI 工具调用）。
 
 设计要点（架构文档 v2 2.3/2.4）：
 - 任务说明写入自包含 task 文件（data/state/tasks/），子会话用工具读取并执行，
-  规避 Windows 命令行长度限制，也利用 Hermes 的文件工具能力；
-- 子会话为全新独立会话（hermes chat -q），任务文件必须自包含全部上下文。
+  规避 Windows 命令行长度限制；
+- 子会话为全新独立会话，任务文件必须自包含全部上下文。
 """
 import re
 import subprocess

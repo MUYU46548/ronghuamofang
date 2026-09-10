@@ -1,6 +1,6 @@
 # 设定库引用索引（vault_links）
 
-> 由 `scripts/build_vault_links.py` 生成：2026-09-09 16:26:02
+> 由 `scripts/build_vault_links.py` 生成：2026-09-10 10:30:00
 > 来源：E:\CODE\CangKu\NovelForge\data\setting\setting.json
 
 ## 素材 → 设定条目
