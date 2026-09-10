@@ -143,6 +143,13 @@ def run(from_stage=1, only_stage=None, client=None):
                 print(f"[orchestrator] 阶段{n} 已完成，跳过")
                 continue
             print(f"\n[orchestrator] ==== 开始阶段 {n} ====")
+            # 安全护栏：阶段执行前快照，执行中崩掉可恢复
+            if not only_stage:
+                try:
+                    snap.snapshot(f"before_stage{n}")
+                    print(f"[orchestrator] 阶段{n} 前快照已保存")
+                except Exception as e:
+                    print(f"[orchestrator] 阶段前快照失败（不影响流程）: {e}")
             ok, msg = STAGES[n].run_stage(cfg, proj, progress, db, cost, client=client,
                                           task_dir="data/state/tasks", run_id=run_id)
             print(f"[orchestrator] 阶段{n} 结果: {msg}")

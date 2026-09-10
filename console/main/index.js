@@ -18,19 +18,36 @@ function startApi() {
     console.error("[console] 未找到 .venv python:", PY);
     return;
   }
-  const logPath = path.join(process.env.LOCALAPPDATA || ROOT, "Temp", "nf_api_child.log");
-  const out = fs.openSync(logPath, "a");
-  apiProc = spawn(PY, [path.join(ROOT, "scripts", "nf_api.py"), "--port", String(API_PORT)], {
-    cwd: ROOT,
-    stdio: ["ignore", out, out],
-    windowsHide: true,
+  // 检查端口是否被占用
+  const net = require("net");
+  const tester = net.createServer();
+  tester.once("error", (e) => {
+    if (e.code === "EADDRINUSE") {
+      console.error(`[console] 端口 ${API_PORT} 已被占用。请关闭其他绒花墨坊实例，或修改端口。`);
+      if (mainWindow) mainWindow.webContents.on("did-finish-load", () => {
+        mainWindow.webContents.executeJavaScript(
+          `alert("端口 ${API_PORT} 已被占用。\\n请关闭其他绒花墨坊实例，或修改 console/main/index.js 中的 API_PORT。");`
+        );
+      });
+    }
   });
-  console.log("[console] nf_api 子进程已启动 pid=", apiProc.pid, "日志→", logPath);
-  apiProc.on("error", (e) => console.error("[console] nf_api spawn 失败:", e));
-  apiProc.on("exit", (code) => {
-    console.log("[nf_api] 退出 code=", code);
-    apiProc = null;
+  tester.once("listening", () => {
+    tester.close();
+    const logPath = path.join(process.env.LOCALAPPDATA || ROOT, "Temp", "nf_api_child.log");
+    const out = fs.openSync(logPath, "a");
+    apiProc = spawn(PY, [path.join(ROOT, "scripts", "nf_api.py"), "--port", String(API_PORT)], {
+      cwd: ROOT,
+      stdio: ["ignore", out, out],
+      windowsHide: true,
+    });
+    console.log("[console] nf_api 子进程已启动 pid=", apiProc.pid, "日志→", logPath);
+    apiProc.on("error", (e) => console.error("[console] nf_api spawn 失败:", e));
+    apiProc.on("exit", (code) => {
+      console.log("[nf_api] 退出 code=", code);
+      apiProc = null;
+    });
   });
+  tester.listen(API_PORT);
 }
 
 function stopApi() {

@@ -119,6 +119,15 @@ check("T7 不同名不贴", lc.snap_to_expected("02.md", "01.md") is None)
 # ---- T8 mock run_task 全链（多文件拆分 + append + usage 记账）----
 import shutil
 import json
+
+# 安全护栏：测试前快照（测试会清理 data/test_llm_t2 和 data/test_llm_t8）
+try:
+    from snapshot import snapshot as make_snapshot
+    snap = make_snapshot("llm_client_selftest_wipe")
+    print(f"[llm_client_selftest] 快照已保存: {snap}")
+except Exception as e:
+    print(f"[llm_client_selftest] 快照失败（继续执行）: {e}")
+
 for d in ("data/test_llm_t2", "data/test_llm_t8"):
     if Path(d).exists():
         shutil.rmtree(d)

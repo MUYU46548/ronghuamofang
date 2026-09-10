@@ -29,8 +29,11 @@ SNAPSHOT_ITEMS = [
 KEEP = 10  # 保留最近 N 份，超出删除最旧
 
 
-def snapshot(label="manual", keep=KEEP, history_dir="history"):
-    """创建快照并清理旧快照。返回快照目录路径。"""
+def snapshot(label="manual", keep=KEEP, history_dir="history", dry_run=False):
+    """创建快照并清理旧快照。返回快照目录路径。
+
+    dry_run=True 时列出将清理的旧快照但不删除。
+    """
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     dest = Path(history_dir) / f"{ts}_{label}"
     dest.mkdir(parents=True, exist_ok=True)
@@ -56,9 +59,16 @@ def snapshot(label="manual", keep=KEEP, history_dir="history"):
     snaps = sorted([p for p in Path(history_dir).iterdir()
                     if p.is_dir() and p.name[:8].isdigit()])
     removed = 0
-    for old in snaps[:-keep]:
-        shutil.rmtree(old)
-        removed += 1
+    to_remove = snaps[:-keep]
+    if dry_run:
+        print(f"[snapshot] dry-run: 将清理 {len(to_remove)} 份旧快照（保留 {keep} 份）")
+        for old in to_remove:
+            size = sum(f.stat().st_size for f in old.rglob("*") if f.is_file())
+            print(f"  将删除: {old.name} ({size/1204:.0f} KB)")
+    else:
+        for old in to_remove:
+            shutil.rmtree(old)
+            removed += 1
 
     print(f"[snapshot] {dest}（复制 {copied} 项；清理旧快照 {removed} 份）")
     return dest
@@ -79,13 +89,17 @@ def main():
     parser = argparse.ArgumentParser(description="NovelForge 项目快照")
     parser.add_argument("label", nargs="?", default=None, help="快照标签（如 stage2_done）")
     parser.add_argument("--list", action="store_true", help="列出已有快照")
+    parser.add_argument("--dry-run", action="store_true", help="列出将清理的旧快照但不删除")
     args = parser.parse_args()
 
     if args.list:
         list_snapshots()
         return 0
+    if args.dry_run:
+        snapshot(args.label or "manual", dry_run=True)
+        return 0
     if not args.label:
-        print("用法: python scripts/snapshot.py \"label\" | --list")
+        print("用法: python scripts/snapshot.py \"label\" | --list | --dry-run")
         return 1
     snapshot(args.label)
     return 0

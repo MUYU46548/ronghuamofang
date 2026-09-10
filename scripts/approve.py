@@ -1,6 +1,10 @@
 # -*- coding: utf-8 -*-
 """NovelForge 阶段审批 CLI。
 
+安全护栏：
+  - 审批前自动快照（approve_stage{N}），运行失败可回退
+  - 撤销前自动快照（revoke_stage{N}），可恢复
+
 用法：
   python scripts/approve.py --stage 2          # 确认阶段2（整体大纲）
   python scripts/approve.py --stage 2 --revoke # 撤销确认
@@ -16,6 +20,15 @@ def main():
     parser.add_argument("--stage", type=int, required=True, help="阶段号（当前审批门为 2）")
     parser.add_argument("--revoke", action="store_true", help="撤销审批")
     args = parser.parse_args()
+
+    # 安全护栏：审批/撤销前自动快照
+    try:
+        from snapshot import snapshot as make_snapshot
+        action = "revoke" if args.revoke else "approve"
+        snap = make_snapshot(f"{action}_stage{args.stage}")
+        print(f"[approve] 快照已保存: {snap}")
+    except Exception as e:
+        print(f"[approve] 快照失败（继续执行）: {e}")
 
     pm = ProgressManager("data/state/progress.json")
     pm.set_approved(args.stage, not args.revoke)

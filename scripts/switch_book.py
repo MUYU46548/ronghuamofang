@@ -97,13 +97,28 @@ def archive(book_name=None, yes=False, force=False):
     dest = BOOKS_DIR / sanitize(name)
     if dest.exists() and not force:
         return False, f"{dest} 已存在同名归档。如需覆盖请加 --force，或先用 --restore 恢复"
+    # 原子化归档：若目标已存在，先移为临时名，新归档成功后再删旧归档
+    tmp_dest = None
     if dest.exists():
-        shutil.rmtree(dest)
-    moved = _move_items(DATA_DIR, dest)
-    meta = {"book": name, "archived_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "items": moved}
-    (dest / "_meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
-    return True, f"已归档「{name}」→ {dest}（{len(moved)} 项）"
+        ts_tmp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        tmp_dest = dest.with_name(dest.name + "_old_" + ts_tmp)
+        shutil.move(str(dest), str(tmp_dest))
+
+    try:
+        moved = _move_items(DATA_DIR, dest)
+        meta = {"book": name, "archived_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "items": moved}
+        (dest / "_meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+        # 成功后再删旧归档
+        if tmp_dest and tmp_dest.exists():
+            shutil.rmtree(tmp_dest)
+        return True, f"已归档「{name}」→ {dest}（{len(moved)} 项）"
+    except Exception as e:
+        # 失败：恢复旧归档
+        if tmp_dest and tmp_dest.exists() and dest.exists():
+            shutil.rmtree(dest)
+            shutil.move(str(tmp_dest), str(dest))
+        return False, f"归档失败（已回退）: {e}"
 
 
 def restore(book_name, yes=False):

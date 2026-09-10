@@ -401,6 +401,10 @@ class OpenAICompatClient:
                 matched = path
             p = Path(matched)
             if op == "DELETE":
+                # DELETE 也强制校验白名单：只能删除 data/** 下路径
+                if allowed_paths([path]):
+                    print("[llm_client] 拒绝删除白名单外路径: " + path)
+                    continue
                 if p.exists():
                     p.unlink()
                     print("[llm_client] 已删除 " + str(p))
