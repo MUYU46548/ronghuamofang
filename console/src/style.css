@@ -270,3 +270,216 @@ body {
 }
 .prompt-text:focus { outline: none; border-color: var(--accent); }
 .prompt-text:disabled { background: #f5f6f8; color: var(--muted); }
+
+/* ==========================================================================
+   结构化大纲视图（任务 1/2/3/4）— 仅使用既有 CSS 变量，不引入新颜色
+   ========================================================================== */
+
+/* 布局 */
+.ov-wrap { display: flex; flex-direction: column; }
+.ov-toolbar { padding-bottom: 10px; }
+.ov-issues { margin-top: 8px; display: flex; flex-direction: column; gap: 3px; }
+.ov-issue { font-size: 12px; color: #8f6b33; }
+.ov-body { display: grid; grid-template-columns: minmax(300px, 38%) 1fr; gap: 16px; }
+@media (max-width: 980px) { .ov-body { grid-template-columns: 1fr; } }
+.ov-tree-card, .ov-prop-card { margin-bottom: 16px; }
+.ov-tree-scroll { max-height: 62vh; overflow: auto; }
+.ov-prop-card { min-height: 300px; }
+.ov-field { margin-top: 12px; }
+.ov-field > label {
+  display: block; font-size: 12px; color: var(--muted);
+  font-weight: 600; margin-bottom: 5px;
+}
+.ov-prop-text { min-height: 150px; }
+
+/* 树 */
+.tree { list-style: none; margin: 0; padding: 0; }
+.tree .tree { padding-left: 14px; }
+.tree-item { margin: 1px 0; }
+.tree-row {
+  display: flex; align-items: flex-start; gap: 5px;
+  padding: 3px 6px; border-radius: 8px; cursor: pointer;
+  border: 1px solid transparent; line-height: 1.55;
+}
+.tree-row:hover { background: rgba(155, 143, 196, 0.08); }
+.tree-row.sel { background: #eae6f7; border-color: var(--accent-soft); }
+.tree-row.lv1 { font-weight: 600; }
+.tree-row.dragging { opacity: 0.45; }
+.tree-row.drop-before { box-shadow: 0 -2px 0 0 var(--accent); }
+.tree-row.drop-after { box-shadow: 0 2px 0 0 var(--accent); }
+.tree-caret {
+  width: 13px; flex: none; color: var(--muted); font-size: 10px;
+  display: inline-block; text-align: center; margin-top: 2px; user-select: none;
+}
+.tree-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; margin-top: 6px; }
+.tree-label { flex: 1; min-width: 0; word-break: break-word; }
+.tree-title { font-weight: 500; }
+.tree-tail { color: var(--muted); margin-left: 6px; font-size: 12.5px; }
+.tree-badge {
+  margin-left: 6px; font-size: 11px; border-radius: 6px; padding: 0 5px;
+  background: rgba(107, 113, 128, 0.12); color: var(--muted);
+}
+.tree-edit {
+  flex: 1; min-height: 46px; padding: 4px 6px; font-size: 12.5px; line-height: 1.6;
+  border: 1px solid var(--accent); border-radius: 8px; background: #fff;
+  color: var(--ink); font-family: inherit; resize: vertical;
+}
+.tree-edit:focus { outline: none; }
+
+/* 评分色标：OK 绿 / WARN 黄 / THIN 红 */
+.dot-OK { background: var(--ok); }
+.dot-WARN { background: var(--warn); }
+.dot-THIN { background: var(--bad); }
+
+/* 属性面板评分维度 */
+.ov-flags { display: flex; flex-wrap: wrap; gap: 6px; }
+.ov-flag { font-size: 11.5px; border-radius: 7px; padding: 2px 8px; }
+.ov-flag.on { background: rgba(127, 174, 143, 0.2); color: #4e7d5e; }
+.ov-flag.off { background: rgba(196, 127, 127, 0.16); color: #9e4f4f; }
+.ov-chars { display: flex; flex-wrap: wrap; gap: 6px; }
+.ov-ai { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+/* AI 修订结果 diff */
+.ov-aidiff { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+.ov-aidiff-row { display: flex; gap: 8px; padding: 8px 10px; font-size: 12.5px; line-height: 1.75; }
+.ov-aidiff-row + .ov-aidiff-row { border-top: 1px solid var(--border); }
+.ov-aidiff-tag {
+  flex: none; width: 22px; height: 20px; border-radius: 6px; font-size: 11px;
+  display: grid; place-items: center; color: #fff;
+}
+.ov-aidiff-tag.del { background: var(--bad); }
+.ov-aidiff-tag.add { background: var(--ok); }
+.ov-aidiff-text { flex: 1; word-break: break-word; }
+.cd-add { background: rgba(127, 174, 143, 0.28); border-radius: 3px; }
+.cd-del { background: rgba(196, 127, 127, 0.24); text-decoration: line-through; border-radius: 3px; }
+.cd-arrow { color: var(--muted); }
+
+/* 版本对比 */
+.ov-verinfo { display: flex; align-items: center; gap: 8px; padding: 8px 16px; border-bottom: 1px solid var(--border); }
+.ov-diff-scroll { flex: 1; overflow: auto; padding: 10px 16px; }
+.ov-diff-seg {
+  display: flex; gap: 10px; padding: 7px 10px; margin-bottom: 5px;
+  border-radius: 9px; font-size: 12.5px; line-height: 1.7;
+  border: 1px solid var(--border); background: #fff;
+}
+.ov-diff-seg.seg-add { background: rgba(127, 174, 143, 0.13); }
+.ov-diff-seg.seg-del { background: rgba(196, 127, 127, 0.13); }
+.ov-diff-seg.seg-change { background: rgba(201, 162, 106, 0.15); }
+.ov-diff-title { flex: none; min-width: 74px; font-weight: 600; }
+.ov-diff-seg > span:last-child { word-break: break-word; }
+
+/* 多方案对比 */
+.ov-multi { flex: 1; overflow: auto; display: grid; gap: 12px; padding: 12px 16px;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+.ov-multi-col { border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; background: #fbfbfd; }
+.ov-multi-head { display: flex; align-items: center; gap: 8px; }
+.ov-multi-score { font-size: 12px; color: var(--muted); margin: 4px 0 8px; }
+.ov-multi-act {
+  display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted);
+  padding: 5px 7px; border-radius: 8px; background: rgba(155, 143, 196, 0.09); margin-bottom: 8px;
+}
+.ov-multi-sec { margin-top: 8px; }
+.ov-multi-sec-title { font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 4px; }
+.ov-multi-item {
+  display: flex; align-items: flex-start; gap: 6px; font-size: 12.5px;
+  padding: 3px 4px; border-radius: 7px; cursor: pointer; line-height: 1.6;
+}
+.ov-multi-item:hover { background: rgba(155, 143, 196, 0.08); }
+.ov-multi-item input { margin-top: 3px; flex: none; }
+.ov-multi-item .dot-OK, .ov-multi-item .dot-WARN, .ov-multi-item .dot-THIN {
+  width: 7px; height: 7px; border-radius: 50%; flex: none; margin-top: 7px;
+}
+
+/* 宽抽屉（大纲版本对比 / 多方案）：标题栏内部换行，避免控件被挤出屏幕 */
+.drawer-mask .drawer { min-width: 0; }
+.drawer .drawer-head { flex-wrap: wrap; row-gap: 6px; }
+.drawer .drawer-head .meta { max-width: 100%; }
+.ov-diff-scroll { min-height: 60vh; }
+
+/* 宽抽屉（大纲版本对比 / 多方案）：
+   右对齐的抽屉在窄屏下会把内容推到屏幕外，宽抽屉改为居中显示并允许标题栏换行。 */
+.drawer-wide, .drawer-xwide { margin: auto; }
+.drawer-wide { width: min(1180px, 96vw); }
+.drawer-xwide { width: min(1320px, 97vw); }
+.drawer-wide .drawer-head, .drawer-xwide .drawer-head { flex-wrap: wrap; row-gap: 6px; }
+.drawer-mask:has(> .drawer-wide), .drawer-mask:has(> .drawer-xwide) {
+  justify-content: center; align-items: center;
+}
+
+/* 子标签页 */
+.tabs-sub {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0;
+  margin-bottom: 12px;
+}
+.tabs-sub button {
+  padding: 6px 14px;
+  font-size: 13px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.tabs-sub button.on {
+  background: var(--card);
+  color: var(--foreground);
+  border-color: var(--border);
+  font-weight: 600;
+}
+
+/* Story Bible 条目 */
+.setting-item {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px;
+  margin-bottom: 10px;
+  background: rgba(255, 255, 255, 0.4);
+}
+.setting-item-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.setting-item-head .text-input {
+  flex: 1;
+  font-weight: 600;
+}
+
+/* 章节大纲列表 */
+.outline-chapters-list {
+  max-height: 60vh;
+  overflow-y: auto;
+  border-right: 1px solid var(--border);
+  padding-right: 10px;
+}
+.outline-chapter-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  margin-bottom: 4px;
+}
+.outline-chapter-item:hover {
+  background: rgba(155, 143, 196, 0.08);
+}
+.outline-chapter-item.on {
+  background: rgba(155, 143, 196, 0.15);
+  font-weight: 600;
+}
+.chapter-item-title {
+  flex: 1;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.outline-chapter-detail {
+  padding-left: 10px;
+}

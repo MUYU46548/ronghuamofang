@@ -74,6 +74,80 @@ function switchTab(t) {
     if (!styleNotesLoaded.value) loadStyleNotes();
   }
   if (t === "materials") loadMaterials();
+  if (t === "story") loadSetting();
+  if (t === "outline/chapters") loadOutlineChapters();
+}
+
+/* ---------- 章节大纲（B2） ---------- */
+const outlineChapters = ref([]);
+const outlineChapterContent = ref(null);
+const outlineChapterN = ref(null);
+
+async function loadOutlineChapters() {
+  const r = await api("/outline/chapters/list");
+  if (r.status === 200) outlineChapters.value = r.data.chapters || [];
+}
+
+async function loadOutlineChapter(n) {
+  const r = await api(`/outline/chapters/get?n=${n}`);
+  if (r.status === 200 && r.data.ok) {
+    outlineChapterN.value = r.data.n;
+    outlineChapterContent.value = r.data.content;
+  } else {
+    say("加载失败: " + (r.data.error || r.status));
+  }
+}
+
+/* ---------- Story Bible（B1） ---------- */
+const settingTab = ref("characters"); // characters | world | plot | timeline
+const settingData = ref(null);
+const settingLoaded = ref(false);
+const settingDirty = ref(false);
+
+async function loadSetting() {
+  if (settingLoaded.value) return;
+  const r = await api("/setting/current");
+  if (r.status === 200 && r.data.ok) {
+    settingData.value = r.data.setting;
+    settingLoaded.value = true;
+  } else {
+    say("加载失败: " + (r.data.error || r.status));
+  }
+}
+
+function addSettingItem(key) {
+  if (!settingData.value) return;
+  if (!settingData.value[key]) settingData.value[key] = [];
+  settingData.value[key].push({ name: "新条目", description: "" });
+  settingDirty.value = true;
+}
+
+function removeSettingItem(key, idx) {
+  if (!settingData.value?.[key]) return;
+  if (!window.confirm(`确定删除 ${settingData.value[key][idx]?.name || "该条目"}？`)) return;
+  settingData.value[key].splice(idx, 1);
+  settingDirty.value = true;
+}
+
+async function saveSetting() {
+  if (!settingData.value) return;
+  if (!window.confirm("确定保存 Story Bible？\n\n修改将写入 data/setting/setting.json（自动备份）。")) return;
+  const r = await api("/setting/save", "POST", { setting: settingData.value });
+  if (r.status === 200 && r.data.ok) {
+    settingDirty.value = false;
+    say("已保存");
+  } else {
+    say("保存失败: " + (r.data.error || r.status));
+  }
+}
+
+function settingItems(key) {
+  if (!settingData.value) return [];
+  return settingData.value[key] || [];
+}
+
+function countItems(key) {
+  return settingItems(key).length;
 }
 
 /* ---------- 大纲页签（结构化视图，任务1） ---------- */
@@ -823,7 +897,10 @@ onUnmounted(() => clearInterval(timer));
     <nav class="tabs">
       <button :class="{ active: tab === 'pipeline' }" @click="switchTab('pipeline')">流水线</button>
       <button :class="{ active: tab === 'chapters' }" @click="switchTab('chapters'); !chaptersLoaded && loadChapters()">章节</button>
+      <button :class="{ active: tab === 'materials' }" @click="switchTab('materials'); loadMaterials()">素材</button>
+      <button :class="{ active: tab === 'story' }" @click="switchTab('story'); loadSetting()">设定</button>
       <button :class="{ active: tab === 'outline' }" @click="switchTab('outline')">大纲</button>
+      <button :class="{ active: tab === 'outline/chapters' }" @click="switchTab('outline/chapters'); loadOutlineChapters()">分章</button>
       <button :class="{ active: tab === 'review' }" @click="switchTab('review')">审稿</button>
       <button :class="{ active: tab === 'inbox' }" @click="switchTab('inbox')">
         收件箱<span v-if="pendingGates.length" class="badge">{{ pendingGates.length }}</span>
@@ -941,6 +1018,74 @@ onUnmounted(() => clearInterval(timer));
     <!-- 审稿 -->
     <section v-if="tab === 'review'">
       <ReviewConsole />
+    </section>
+
+    <!-- Story Bible（B1） -->
+    <section v-if="tab === 'story' && settingData" class="card">
+      <div class="card-head">
+        <h3>Story Bible（data/setting/setting.json）</h3>
+        <span v-if="settingDirty" class="pill st-gate">已修改</span>
+        <span class="spacer"></span>
+        <button class="mini" @click="loadSetting">刷新</button>
+        <button class="mini primary" :disabled="!settingDirty" @click="saveSetting">保存</button>
+      </div>
+
+      <div class="tabs-sub">
+        <button :class="{ on: settingTab === 'characters' }" @click="settingTab = 'characters'">
+          角色 ({{ countItems('characters') }})
+        </button>
+        <button :class="{ on: settingTab === 'world' }" @click="settingTab = 'world'">
+          世界观 ({{ countItems('world') }})
+        </button>
+        <button :class="{ on: settingTab === 'plot_fragments' }" @click="settingTab = 'plot_fragments'">
+          情节 ({{ countItems('plot_fragments') }})
+        </button>
+        <button :class="{ on: settingTab === 'timeline' }" @click="settingTab = 'timeline'">
+          时间线 ({{ countItems('timeline') }})
+        </button>
+      </div>
+
+      <div style="margin-top: 12px;">
+        <div class="card-head">
+          <h4>{{ { characters: '角色', world: '世界观', plot_fragments: '情节碎片', timeline: '时间线' }[settingTab] }}</h4>
+          <span class="spacer"></span>
+          <button class="mini" @click="addSettingItem(settingTab)">+ 新增条目</button>
+        </div>
+
+        <div v-if="!settingItems(settingTab).length" class="empty">暂无条目</div>
+        <div v-for="(item, idx) in settingItems(settingTab)" :key="idx" class="setting-item">
+          <div class="setting-item-head">
+            <input v-model="item.name" class="text-input" placeholder="条目名称" @input="settingDirty = true" />
+            <span class="spacer"></span>
+            <button class="mini danger" @click="removeSettingItem(settingTab, idx)">删除</button>
+          </div>
+          <textarea v-model="item.description" rows="2" class="prompt-text" placeholder="描述"
+                    @input="settingDirty = true"></textarea>
+        </div>
+      </div>
+    </section>
+
+    <!-- 章节大纲（B2） -->
+    <section v-if="tab === 'outline/chapters'" class="card">
+      <div class="card-head">
+        <h3>章节大纲（data/outline/chapters/）</h3>
+        <button class="mini" @click="loadOutlineChapters">刷新</button>
+      </div>
+      <div v-if="!outlineChapters.length" class="empty">暂无逐章大纲</div>
+      <div class="grid-2">
+        <div class="outline-chapters-list">
+          <div v-for="c in outlineChapters" :key="c.file"
+               class="outline-chapter-item" :class="{ on: outlineChapterN === parseInt(c.file) }"
+               @click="loadOutlineChapter(parseInt(c.file))">
+            <span class="stage-no lit">{{ c.file.replace('.md', '') }}</span>
+            <span class="chapter-item-title">{{ c.title }}</span>
+          </div>
+        </div>
+        <div class="outline-chapter-detail">
+          <div v-if="!outlineChapterContent" class="empty">点击左侧章节查看详情</div>
+          <pre v-else class="preview-body" style="max-height: 60vh; overflow-y: auto;">{{ outlineChapterContent }}</pre>
+        </div>
+      </div>
     </section>
 
     <!-- 收件箱 -->
