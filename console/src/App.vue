@@ -87,6 +87,52 @@ function openOutlineTab() {
   if (outlineRef.value) outlineRef.value.load(false);
 }
 
+async function openMultiDraftDlg() {
+  const count = parseInt(window.prompt("生成几份方案？（2-5，推荐 3）", "3"), 10);
+  if (isNaN(count) || count < 2 || count > 5) return say("取消");
+  if (!window.confirm(`确定生成 ${count} 份大纲方案？\n\n生成后可在收件箱对比拼合。`)) return;
+  const r = await api("/stage/2/run-multi", "POST", { count });
+  if (r.status === 202) {
+    say(`已提交多方案生成（${count} 份，job ${r.data.job_id}）`);
+    setTimeout(() => openDraftsDlg(count), 100);
+  } else {
+    say("提交失败: " + (r.data.error || r.status));
+  }
+  refresh();
+}
+
+const drafts = ref([]);
+const draftsLoaded = ref(false);
+const draftsDlgOpen = ref(false);
+async function openDraftsDlg(count) {
+  // 轮询 job 直到完成，然后加载 drafts
+  const check = async () => {
+    const s = await api("/state");
+    if (!s.data.current_job) return true;
+    await new Promise(r => setTimeout(r, 2000));
+    return false;
+  };
+  // 简单方式：等 8s 再加载
+  await new Promise(r => setTimeout(r, 8000));
+  const r = await api("/outline/drafts");
+  if (r.status === 200) {
+    drafts.value = r.data.drafts || [];
+    draftsLoaded.value = true;
+    draftsDlgOpen.value = true;
+  } else {
+    say("加载方案失败: " + (r.data.error || r.status));
+  }
+}
+
+async function openRefineDiffDlg() {
+  await loadChapters();
+  diffMode.value = true;
+  switchTab("chapters");
+}
+
+/* ---------- diff 模式（润色逐章对比） ---------- */
+const diffMode = ref(false);
+
 /* ---------- 用户风格笔记（config/project.yaml → book.style_notes） ---------- */
 const styleNotes = ref("");
 const styleNotesDirty = ref(false);
@@ -171,6 +217,72 @@ async function runStage(n) {
   refresh();
 }
 
+async function runPipelineFull() {
+  if (!window.confirm(
+      "确定要全自动运行流水线？\\n\\n系统将从第一个未完成的阶段开始依次运行。\\n遇到审批门（大纲/润色完成时会暂停等待确认。")) return;
+  const r = await api("/stage/1/run", "POST", { from_stage: 1 });
+  if (r.status === 202) say("已提交全流程运行，进度见顶栏");
+  else say("提交失败: " + (r.data.error || r.status));
+  refresh();
+}
+
+async function runPublish() {
+  if (!state.value) return say("状态未加载");
+  const incomplete = state.value.stages.filter(s => s.status !== "done");
+  if (incomplete.length > 0) {
+    const stages = incomplete.map(s => s.stage).join(", ");
+    return say(`阶段 ${stages} 尚未完成，无法生成成品`);
+  }
+  if (!window.confirm("确定要生成最终 Word 全书？\n\n将生成到 output/ 目录。")) return;
+  const r = await api("/stage/7/run", "POST", {});
+  if (r.status === 202) say("已提交生成 Word 成品（job " + r.data.job_id + "）");
+  else say("提交失败: " + (r.data.error || r.status));
+  refresh();
+}
+
+async function runPipelineStreamFull() {
+  if (!window.confirm(
+      "确定要流式全自动运行流水线？\\n\\n系统将从第一个未完成的阶段开始依次运行，实时输出阶段日志。\\n遇到审批门会自动暂停，可随时中断。")) return;
+  const r = await api("/stage/1/run", "POST", { from_stage: 1, stream: true });
+  if (r.status === 202) {
+    say("已提交流式全流程运行");
+    if (streamSource) streamSource.close();
+    streamText.value = "";
+    streamJob.value = r.data.job_id;
+    streamModel.value = "";
+    streamCost.value = 0;
+    streamStatus.value = "running";
+    streamConnected.value = true;
+    streamOpen.value = true;
+    const es = new EventSource(API + "/stream/" + r.data.job_id);
+    streamSource = es;
+    es.onmessage = (ev) => {
+      const msg = JSON.parse(ev.data);
+      if (msg.type === "token") {
+        streamText.value += msg.text;
+      } else if (msg.type === "done") {
+        streamStatus.value = msg.status || "ok";
+        streamModel.value = msg.model || "";
+        streamCost.value = msg.cost_yuan || 0;
+        es.close();
+        streamSource = null;
+        streamConnected.value = false;
+        refresh();
+      }
+    };
+    es.onerror = () => {
+      es.close();
+      streamSource = null;
+      streamConnected.value = false;
+      if (streamStatus.value === "running") streamStatus.value = "failed";
+      refresh();
+    };
+  } else {
+    say("提交失败: " + (r.data.error || r.status));
+  }
+  refresh();
+}
+
 async function approve(stage, revoke = false) {
   const r = await api("/approve", "POST", { stage, revoke });
   say(r.status === 200 ? (revoke ? "已撤销审批（阶段" + stage + "）" : "已确认阶段" + stage)
@@ -212,6 +324,20 @@ const streamCost = ref(0);
 const streamStatus = ref(""); // "running" | "ok" | "failed" | "stopped"
 const streamOpen = ref(false);
 let streamSource = null;
+
+/* ---------- 错误反馈（A4） ---------- */
+const errorLog = ref([]); // [{time, message, detail}]
+const showErrorLog = ref(false);
+
+function logError(message, detail = "") {
+  errorLog.value.unshift({
+    time: new Date().toLocaleTimeString("zh-CN"),
+    message,
+    detail: detail.slice(0, 500),
+  });
+  if (errorLog.value.length > 50) errorLog.value.pop();
+  say(message);
+}
 
 async function runStageStream(n) {
   const r = await api("/stage/" + n + "/run", "POST", { stream: true });
@@ -269,6 +395,49 @@ function stopStream() {
 /* ---------- 其他 ---------- */
 const projects = ref({ current: "", archived: [] });
 const archiveName = ref("");
+
+/* ---------- 初始化向导（C1） ---------- */
+const showInitWizard = ref(false);
+const initWizardStep = ref(1);
+const initBookName = ref("");
+const initBookType = ref("奇幻");
+const initChapters = ref(10);
+const initStyleNotes = ref("");
+
+async function checkInitWizard() {
+  // 首次加载时检查是否需要显示初始化向导
+  const cfg = await api("/config/project");
+  if (cfg.status === 200 && cfg.data.ok) {
+    const book = cfg.data.config?.book || {};
+    if (!book.name || book.name === "示例书名（待填写）" || !book.chapters) {
+      showInitWizard.value = true;
+      initBookName.value = book.name === "示例书名（待填写）" ? "" : (book.name || "");
+      initBookType.value = book.type || "奇幻";
+      initChapters.value = book.chapters || 10;
+      initStyleNotes.value = book.style_notes || "";
+    }
+  }
+}
+
+async function submitInitWizard() {
+  if (!initBookName.value.trim()) return say("请填写书名");
+  if (initChapters.value < 1 || initChapters.value > 999) return say("章节数须在 1-999 之间");
+  if (!window.confirm(
+      `确认初始化项目？\n\n书名：${initBookName.value}\n类型：${initBookType.value}\n章节数：${initChapters.value}\n\n将写入 config/project.yaml。`)) return;
+  const r = await api("/project/init", "POST", {
+    name: initBookName.value,
+    type: initBookType.value,
+    chapters: initChapters.value,
+    style_notes: initStyleNotes.value,
+  });
+  if (r.status === 200 && r.data.ok) {
+    showInitWizard.value = false;
+    say("项目初始化完成");
+    refresh();
+  } else {
+    say("初始化失败: " + (r.data.error || r.data.message || r.status));
+  }
+}
 
 /* ---------- 素材管理 ---------- */
 const materials = ref([]);      // [{name, size, modified, kind, ext, md5}]
@@ -613,7 +782,27 @@ onMounted(() => {
     };
     window.mofangAPI.onUpdater(updaterHandler);
   }
+  // 首次检查是否需要显示初始化向导
+  checkInitWizard();
+  // 检查素材目录是否为空
+  checkMaterialsEmpty();
 });
+
+async function checkMaterialsEmpty() {
+  // 提醒用户放置素材（仅首次）
+  if (!state.value) return;
+  const cfg = await api("/config/project");
+  if (cfg.status !== 200 || !cfg.data.ok) return;
+  const book = cfg.data.config?.book || {};
+  if (book.name && book.name !== "示例书名（待填写）" && !book._materials_checked) {
+    const r = await api("/materials/list");
+    if (r.status === 200 && r.data.count === 0) {
+      say("提示：materials/raw/ 暂无素材，放置素材后可运行流水线");
+      // 标记已提醒，避免重复
+      book._materials_checked = true;
+    }
+  }
+}
 onUnmounted(() => clearInterval(timer));
 </script>
 
@@ -679,6 +868,18 @@ onUnmounted(() => clearInterval(timer));
       <div class="card">
         <h3>七阶段流水线</h3>
         <div class="progress"><div class="progress-in" :style="{ width: progressPct + '%' }"></div></div>
+        <div class="run-all-bar">
+          <button class="mini primary" :disabled="isRunning" @click="runPipelineFull" title="从第一个未完成的阶段开始，依次运行到完成">
+            ▶ 全自动运行
+          </button>
+          <button class="mini" :disabled="isRunning" @click="runPipelineStreamFull" title="全自动运行（流式输出，可随时中断）">
+            ▶ 流式全自动
+          </button>
+          <button class="mini" :disabled="isRunning" @click="runPublish" title="生成最终 Word 全书 + 摘要">
+            📄 生成 Word 成品
+          </button>
+          <span class="meta">从第一个未完成阶段依次跑完，遇审批门自动暂停</span>
+        </div>
         <div v-for="s in stageList" :key="s.stage" class="stage-row">
           <div class="stage-info">
             <span class="stage-no" :class="{ lit: s.status === 'done', run: s.status === 'running' }">{{ s.stage }}</span>
@@ -753,14 +954,27 @@ onUnmounted(() => clearInterval(timer));
           <span class="pill st-done">完成</span>
           <span class="spacer"></span>
           <button class="mini primary" @click="approve(s.stage)">确认放行</button>
+          <button class="mini" v-if="s.stage === 2" @click="openOutlineTab">查看结构化大纲</button>
+          <button class="mini" v-if="s.stage === 2" @click="openMultiDraftDlg">多方案对比</button>
           <button class="mini" v-if="s.stage === 2" @click="refineOpen = true">精修意见</button>
+          <button class="mini" v-if="s.stage === 6" @click="switchTab('chapters'); loadChapters()">章节润色稿</button>
+          <button class="mini" v-if="s.stage === 6" @click="openRefineDiffDlg">逐章对比</button>
           <button class="mini danger" @click="openReject(s.stage)">打回</button>
         </div>
         <div class="gate-files">
-          <button class="mini" v-if="s.stage === 2" @click="openOutlineTab">查看结构化大纲</button>
           <button class="mini" v-if="s.stage === 2" @click="preview('data/outline/global.md')">预览原文</button>
           <button class="mini" v-if="s.stage === 2" @click="preview('data/outline/review_report.md')">体检报告</button>
-          <button class="mini" v-if="s.stage === 6" @click="switchTab('chapters'); loadChapters()">去章节页看润色稿</button>
+          <button class="mini" v-if="s.stage === 6" @click="preview('data/outline/polish_report.md')">润色体检报告</button>
+        </div>
+        <!-- Stage 2: 大纲体检评分 -->
+        <div v-if="s.stage === 2 && outlineSummary" class="gate-score">
+          <span class="score-label">大纲评分:</span>
+          <span class="score-val" :class="outlineSummary.score >= 70 ? 'ok' : outlineSummary.score >= 40 ? 'warn' : 'bad'">
+            {{ outlineSummary.score }}/100
+          </span>
+          <span v-if="outlineSummary.issues?.length" class="score-issues">
+            · {{ outlineSummary.issues.length }} 项待改进
+          </span>
         </div>
       </div>
     </section>
@@ -1156,4 +1370,42 @@ onUnmounted(() => clearInterval(timer));
   </div>
 
   <div v-if="toast" class="toast">{{ toast }}</div>
+
+  <!-- 初始化向导（C1） -->
+  <div v-if="showInitWizard" class="drawer-mask">
+    <div class="dialog" style="width: min(560px, 92vw);">
+      <h3>项目初始化向导</h3>
+      <div class="meta" style="margin-bottom: 12px;">
+        首次使用绒花墨坊，请先配置书籍基本信息。所有设置后续可在「设置」页修改。
+      </div>
+      <div class="art-row" style="margin: 8px 0;">
+        <span class="art-label">书名 *</span>
+        <input v-model="initBookName" class="text-input" placeholder="如：留下你的歌" />
+      </div>
+      <div class="art-row" style="margin: 8px 0;">
+        <span class="art-label">类型</span>
+        <select v-model="initBookType" class="model-select">
+          <option>奇幻</option>
+          <option>科幻</option>
+          <option>都市</option>
+          <option>悬疑</option>
+          <option>历史</option>
+          <option>言情</option>
+          <option>其他</option>
+        </select>
+      </div>
+      <div class="art-row" style="margin: 8px 0;">
+        <span class="art-label">章节数 *</span>
+        <input v-model.number="initChapters" type="number" min="1" max="999" class="text-input" style="width: 100px;" />
+      </div>
+      <div class="art-row" style="margin: 8px 0;">
+        <span class="art-label">风格笔记</span>
+        <textarea v-model="initStyleNotes" rows="3" class="prompt-text" placeholder="可选：补充写作风格要求（可在设置页修改）"></textarea>
+      </div>
+      <div class="dialog-actions">
+        <span class="spacer"></span>
+        <button class="mini primary" @click="submitInitWizard">确认初始化</button>
+      </div>
+    </div>
+  </div>
 </template>

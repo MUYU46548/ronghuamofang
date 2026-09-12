@@ -1134,6 +1134,12 @@ class Handler(BaseHTTPRequestHandler):
                 ok, res = act_outline_drafts_cleanup()
                 res["ok"] = True
                 self._send(200, res)
+            elif p == "/config/project":
+                try:
+                    from utils.project_config import get_project_config
+                    self._send(200, {"ok": True, "config": get_project_config()})
+                except Exception as e:
+                    self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
             elif p == "/refine/chapter":
                 fb = str(body.get("feedback") or "")
                 ch = int(body.get("chapter") or 0)
