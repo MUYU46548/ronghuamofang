@@ -114,9 +114,26 @@ def _level(score):
     return "THIN"
 
 
+def _normalize(text):
+    """Markdown 语法归一化：去掉 **加粗**、*斜体*、#标题、-列表、•列表、__下划线__"""
+    text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)
+    text = re.sub(r"\*(.+?)\*", r"\1", text)
+    text = re.sub(r"__(.+?)__", r"\1", text)
+    text = re.sub(r"^#{1,6}\s*", "", text)
+    text = re.sub(r"^[-*•]\s*", "", text)
+    return text
+
+
 def review(global_path, setting_path=None):
-    """体检 global.md。返回结构化 dict，供 CLI 打印与报告落盘复用。"""
-    text = read_text(global_path)
+    """体检 global.md。返回结构化 dict，供 CLI 打印与报告落盘复用。
+
+    解析器兼容三种输出格式：
+    - 旧 fake 模式：`- 节点N：...`（纯文本）
+    - LLM 加粗格式：`- **节点N：第X章** — ...`（glm-5 等）
+    - LLM 区间格式：`- **第1-2章（功能）**：...`（章节规划）
+    """
+    raw_text = read_text(global_path)
+    text = _normalize(raw_text)
     chars, locs = _load_names(setting_path)
     result = {
         "path": str(Path(global_path).resolve()),
@@ -131,13 +148,18 @@ def review(global_path, setting_path=None):
     node_sec = re.search(r"^##\s*关键节点.*?(?=^##\s|\Z)", text, re.M | re.S)
     node_items = []
     if node_sec:
+        # 兼容三种格式：`- 节点N：...` / `- 节点N — ...` / `- 节点N ...`
         node_items = re.findall(
-            r"^[-*]\s*(节点\d+[^\n]*)", node_sec.group(0), re.M)
+            r"(?:^|\n)\s*[-*]?\s*(节点\s*\d+[^\n]*?)(?=\n\s*[-*]|\n##|\Z)",
+            node_sec.group(0), re.S)
     for item in node_items:
-        title = re.match(r"(节点\d+)", item)
+        item = item.strip()
+        title = re.match(r"(节点\s*\d+)", item)
+        if not title:
+            continue
         score, flags, reasons = _score_entry(item, chars, locs)
         result["nodes"].append({
-            "title": title.group(1) if title else "节点",
+            "title": title.group(1).strip(),
             "score": score, "level": _level(score),
             "flags": flags, "reasons": reasons,
             "chars": len(_clean(item)),
@@ -147,14 +169,18 @@ def review(global_path, setting_path=None):
     plan_sec = re.search(r"^##\s*章节规划.*?(?=^##\s|\Z)", text, re.M | re.S)
     plan_items = []
     if plan_sec:
+        # 兼容：`- 第N章（功能）` / `- 第N-M章（功能）` / `- 第N章：...`
         plan_items = re.findall(
-            r"^[-*]\s*(第\s*[\d一二三四五六七八九十百]+\s*章[^\n]*)",
-            plan_sec.group(0), re.M)
+            r"(?:^|\n)\s*[-*]?\s*(第\s*[\d\-~\s一二三四五六七八九十百]+\s*章[^\n]*?)(?=\n\s*[-*]|\n##|\Z)",
+            plan_sec.group(0), re.S)
     for item in plan_items:
-        title = re.match(r"(第\s*[\d一二三四五六七八九十百]+\s*章)", item)
+        item = item.strip()
+        title = re.match(r"(第\s*[\d\-~\s一二三四五六七八九十百]+\s*章)", item)
+        if not title:
+            continue
         score, flags, reasons = _score_entry(item, chars, locs)
         result["plan"].append({
-            "title": title.group(1) if title else "规划项",
+            "title": title.group(1).strip(),
             "score": score, "level": _level(score),
             "flags": flags, "reasons": reasons,
             "chars": len(_clean(item)),

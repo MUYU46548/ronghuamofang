@@ -41,7 +41,10 @@ def _write_setting(_text):
 
 
 def _write_global(text):
-    p = Path("data/outline/global.md")
+    # 优先遵循任务里的「写入文件: xxx.md」（与 _write_chapter 一致），
+    # 否则退回默认 data/outline/global.md —— 多方案 draft 生成依赖此约定。
+    m = re.search("写入文件:\\s*([^ \\r\\n]+[.]md)", text)
+    p = Path(m.group(1)) if m else Path("data/outline/global.md")
     p.parent.mkdir(parents=True, exist_ok=True)
     write_text(p, (
         "# 测试书 整体大纲\n\n"

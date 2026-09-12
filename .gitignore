@@ -29,3 +29,9 @@ Temp/
 # ===== 桌面控制台（Node 依赖与构建产物，本地安装即可） =====
 console/node_modules/
 console/renderer/dist/
+console/dist/
+console/build/
+console/release/
+*.exe
+*.blockmap
+*.yml
