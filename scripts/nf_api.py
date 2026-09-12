@@ -910,6 +910,24 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, sb_mod.list_books())
             except Exception as e:
                 self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
+        elif p == "/project/status":
+            # 返回项目结构树（用于左侧导航）
+            try:
+                import json
+                project_status = {
+                    "book": load_all()[1].get("book", {}),
+                    "stages": build_state().get("stages", []),
+                    "setting_exists": (ROOT / "data" / "setting" / "setting.json").exists(),
+                    "outline_exists": (ROOT / "data" / "outline" / "global.md").exists(),
+                    "chapters_count": len(list((ROOT / "data" / "outline" / "chapters").glob("*.md"))) if (ROOT / "data" / "outline" / "chapters").exists() else 0,
+                    "drafts_exist": (ROOT / "data" / "chapters" / "raw").exists() and any((ROOT / "data" / "chapters" / "raw").glob("*.md")),
+                    "refined_exist": (ROOT / "data" / "chapters" / "refined").exists() and any((ROOT / "data" / "chapters" / "refined").glob("*.md")),
+                    "word_exists": bool(list((ROOT / "output").glob("*.docx"))),
+                    "materials_count": len(list((ROOT / "materials" / "raw").glob("*"))) if (ROOT / "materials" / "raw").exists() else 0,
+                }
+                self._send(200, project_status)
+            except Exception as e:
+                self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
         elif p == "/prompts/list":
             try:
                 items = list_prompts()
@@ -1403,7 +1421,7 @@ def main():
     httpd = ThreadingHTTPServer((args.host, args.port), Handler)
     print("[nf_api] NovelForge API 服务 → http://" + args.host + ":" + str(args.port)
           + "  (allow_fake=" + str(ALLOW_FAKE) + ")")
-    print("[nf_api] 端点: /health /state /models /stage/{n}/run /stream/{job_id} /stop /jobs/{id} /approve /reject /refine/* /outline/* /snapshot /costs /prompts/* /config/style_notes /materials/*")
+    print("[nf_api] 端点: /health /state /models /stage/{n}/run /stream/{job_id} /stop /jobs/{id} /approve /reject /refine/* /outline/* /snapshot /costs /prompts/* /config/style_notes /materials/* /project/*")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
