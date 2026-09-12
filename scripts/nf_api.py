@@ -979,8 +979,47 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, {"ok": True, "name": name, "content": content})
             except Exception as e:
                 self._send(400, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]})
+        elif p == "/setting/current":
+            try:
+                import json
+                setting_path = ROOT / "data" / "setting" / "setting.json"
+                if setting_path.exists():
+                    self._send(200, {"ok": True, "setting": json.loads(setting_path.read_text(encoding="utf-8"))})
+                else:
+                    self._send(404, {"error": "setting.json 不存在"})
+            except Exception as e:
+                self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
+        elif p == "/outline/chapters/list":
+            try:
+                chapters_dir = ROOT / "data" / "outline" / "chapters"
+                if not chapters_dir.exists():
+                    self._send(200, {"chapters": []})
+                    return
+                chapters = []
+                for f in sorted(chapters_dir.glob("*.md")):
+                    content = f.read_text(encoding="utf-8")
+                    title = content.split("\n")[0].lstrip("#").strip() if content else f.stem
+                    chapters.append({"file": f.name, "n": int(f.stem), "title": title, "size": f.stat().st_size})
+                self._send(200, {"chapters": chapters})
+            except Exception as e:
+                self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
+        elif p == "/outline/chapters/get":
+            try:
+                q = self._query()
+                n = (q.get("n") or [""])[0]
+                if not n.isdigit():
+                    self._send(400, {"error": "n 必须为数字"})
+                    return
+                chapter_path = ROOT / "data" / "outline" / "chapters" / f"{int(n):02d}.md"
+                if not chapter_path.exists():
+                    self._send(404, {"error": f"第 {n} 章大纲不存在"})
+                    return
+                content = chapter_path.read_text(encoding="utf-8")
+                self._send(200, {"ok": True, "n": int(n), "content": content})
+            except Exception as e:
+                self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
         else:
-            self._send(404, {"error": "未知路径 " + p + "（可用: /health /state /models /project/list /stage/{n}/run /stream/{job_id} /jobs/{id} /materials/*）"})
+            self._send(404, {"error": "未知路径 " + p + "（可用: /health /state /models /project/list /stage/{n}/run /stream/{job_id} /jobs/{id} /materials/* /setting/current /outline/chapters/*）"})
 
     # ---- POST ----
     def do_POST(self):
@@ -1158,16 +1197,6 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(200, {"ok": True, "config": get_project_config()})
                 except Exception as e:
                     self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
-            elif p == "/setting/current":
-                try:
-                    import json
-                    setting_path = ROOT / "data" / "setting" / "setting.json"
-                    if setting_path.exists():
-                        self._send(200, {"ok": True, "setting": json.loads(setting_path.read_text(encoding="utf-8"))})
-                    else:
-                        self._send(404, {"error": "setting.json 不存在"})
-                except Exception as e:
-                    self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
             elif p == "/setting/save":
                 try:
                     import json
@@ -1186,35 +1215,6 @@ class Handler(BaseHTTPRequestHandler):
                         backup.write_text(setting_path.read_text(encoding="utf-8"), encoding="utf-8")
                     write_text(str(setting_path), json.dumps(data, ensure_ascii=False, indent=2))
                     self._send(200, {"ok": True})
-                except Exception as e:
-                    self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
-            elif p == "/outline/chapters/list":
-                try:
-                    chapters_dir = ROOT / "data" / "outline" / "chapters"
-                    if not chapters_dir.exists():
-                        self._send(200, {"chapters": []})
-                        return
-                    chapters = []
-                    for f in sorted(chapters_dir.glob("*.md")):
-                        content = f.read_text(encoding="utf-8")
-                        title = content.split("\n")[0].lstrip("#").strip() if content else f.stem
-                        chapters.append({"file": f.name, "title": title, "size": f.stat().st_size})
-                    self._send(200, {"chapters": chapters})
-                except Exception as e:
-                    self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
-            elif p == "/outline/chapters/get":
-                try:
-                    q = self._query()
-                    n = (q.get("n") or [""])[0]
-                    if not n.isdigit():
-                        self._send(400, {"error": "n 必须为数字"})
-                        return
-                    chapter_path = ROOT / "data" / "outline" / "chapters" / f"{n}.md"
-                    if not chapter_path.exists():
-                        self._send(404, {"error": f"第 {n} 章大纲不存在"})
-                        return
-                    content = chapter_path.read_text(encoding="utf-8")
-                    self._send(200, {"ok": True, "n": int(n), "content": content})
                 except Exception as e:
                     self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
             elif p == "/refine/chapter":

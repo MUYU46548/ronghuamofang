@@ -75,7 +75,7 @@ function switchTab(t) {
   }
   if (t === "materials") loadMaterials();
   if (t === "story") loadSetting();
-  if (t === "outline/chapters") loadOutlineChapters();
+  if (t === "outline_chapters") loadOutlineChapters();
 }
 
 /* ---------- 章节大纲（B2） ---------- */
@@ -113,6 +113,22 @@ async function loadSetting() {
   } else {
     say("加载失败: " + (r.data.error || r.status));
   }
+}
+
+const settingEditor = ref({ open: false, key: '', idx: -1, item: null });
+
+function openSettingEditor(key, idx) {
+  const item = settingData.value?.[key]?.[idx];
+  if (!item) return;
+  settingEditor.value = { open: true, key, idx, item: { ...item } };
+}
+
+function closeSettingEditor() {
+  const { key, idx, item } = settingEditor.value;
+  if (key && idx >= 0 && item && settingData.value?.[key]) {
+    settingData.value[key][idx] = { ...item };
+  }
+  settingEditor.value = { open: false, key: '', idx: -1, item: null };
 }
 
 function addSettingItem(key) {
@@ -891,7 +907,7 @@ onUnmounted(() => clearInterval(timer));
       <span class="brand-mark">绒</span>
       <div>
         <div class="brand-name">绒花墨坊</div>
-        <div class="brand-sub">{{ state ? state.book || "（未命名书）" : "连接中…" }}</div>
+        <div class="brand-sub">{{ state ? state.book || "（未命名书）" : "未连接" }}</div>
       </div>
     </div>
     <nav class="tabs">
@@ -900,14 +916,13 @@ onUnmounted(() => clearInterval(timer));
       <button :class="{ active: tab === 'materials' }" @click="switchTab('materials'); loadMaterials()">素材</button>
       <button :class="{ active: tab === 'story' }" @click="switchTab('story'); loadSetting()">设定</button>
       <button :class="{ active: tab === 'outline' }" @click="switchTab('outline')">大纲</button>
-      <button :class="{ active: tab === 'outline/chapters' }" @click="switchTab('outline/chapters'); loadOutlineChapters()">分章</button>
+      <button :class="{ active: tab === 'outline_chapters' }" @click="switchTab('outline_chapters'); loadOutlineChapters()">分章</button>
       <button :class="{ active: tab === 'review' }" @click="switchTab('review')">审稿</button>
       <button :class="{ active: tab === 'inbox' }" @click="switchTab('inbox')">
         收件箱<span v-if="pendingGates.length" class="badge">{{ pendingGates.length }}</span>
       </button>
       <button :class="{ active: tab === 'project' }" @click="switchTab('project')">项目</button>
       <button :class="{ active: tab === 'settings' }" @click="switchTab('settings')">设置</button>
-      <button :class="{ active: tab === 'materials' }" @click="switchTab('materials'); loadMaterials()">素材</button>
     </nav>
     <div class="conn" :class="{ on: online }">{{ online ? "已连接" : "离线" }}</div>
   </header>
@@ -970,7 +985,7 @@ onUnmounted(() => clearInterval(timer));
             <button class="mini" :disabled="isRunning" @click="runStageStream(s.stage)" title="实时流式输出，可随时中断">流式运行</button>
             <button v-if="s.status === 'done' && !s.approved" class="mini primary" @click="approve(s.stage)">确认</button>
             <button v-else-if="s.approved" class="mini" @click="approve(s.stage, true)">撤销</button>
-            <button v-if="s.stage >= 2" class="mini danger" :disabled="isRunning" @click="openReject(s.stage)">打回</button>
+            <button v-if="s.stage >= 2 && s.status !== 'pending'" class="mini danger" :disabled="isRunning" @click="openReject(s.stage)">打回</button>
           </div>
         </div>
       </div>
@@ -1053,20 +1068,37 @@ onUnmounted(() => clearInterval(timer));
         </div>
 
         <div v-if="!settingItems(settingTab).length" class="empty">暂无条目</div>
-        <div v-for="(item, idx) in settingItems(settingTab)" :key="idx" class="setting-item">
-          <div class="setting-item-head">
-            <input v-model="item.name" class="text-input" placeholder="条目名称" @input="settingDirty = true" />
-            <span class="spacer"></span>
-            <button class="mini danger" @click="removeSettingItem(settingTab, idx)">删除</button>
-          </div>
-          <textarea v-model="item.description" rows="2" class="prompt-text" placeholder="描述"
-                    @input="settingDirty = true"></textarea>
+        <div v-for="(item, idx) in settingItems(settingTab)" :key="idx" class="setting-row" @click="openSettingEditor(settingTab, idx)">
+          <div class="setting-row-name">{{ item.name || '未命名' }}</div>
+          <div class="setting-row-summary">{{ item.description?.slice(0, 60) || '（无描述）' }}</div>
+          <span class="spacer"></span>
+          <button class="mini danger" @click.stop="removeSettingItem(settingTab, idx)">删除</button>
         </div>
       </div>
     </section>
 
+    <!-- Story Bible 编辑抽屉 -->
+    <div v-if="settingEditor.open" class="drawer-mask" @click.self="settingEditor.open = false">
+      <div class="drawer" style="width: min(600px, 90vw);">
+        <div class="drawer-head">
+          <b>{{ settingEditor.item?.name || '编辑条目' }}</b>
+          <span class="spacer"></span>
+          <button class="mini" @click="closeSettingEditor()">关闭</button>
+        </div>
+        <div style="padding: 16px;">
+          <label>名称</label>
+          <input v-model="settingEditor.item.name" class="text-input" style="width: 100%; margin-bottom: 12px;" placeholder="条目名称" @input="settingDirty = true" />
+          <label>描述</label>
+          <textarea v-model="settingEditor.item.description" class="prompt-text" style="width: 100%; min-height: 300px;" placeholder="详细描述..." @input="settingDirty = true"></textarea>
+          <div class="meta" style="margin-top: 8px;">
+            {{ (settingEditor.item.description || '').length }} 字符
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- 章节大纲（B2） -->
-    <section v-if="tab === 'outline/chapters'" class="card">
+    <section v-if="tab === 'outline_chapters'" class="card">
       <div class="card-head">
         <h3>章节大纲（data/outline/chapters/）</h3>
         <button class="mini" @click="loadOutlineChapters">刷新</button>
@@ -1075,8 +1107,8 @@ onUnmounted(() => clearInterval(timer));
       <div class="grid-2">
         <div class="outline-chapters-list">
           <div v-for="c in outlineChapters" :key="c.file"
-               class="outline-chapter-item" :class="{ on: outlineChapterN === parseInt(c.file) }"
-               @click="loadOutlineChapter(parseInt(c.file))">
+               class="outline-chapter-item" :class="{ on: outlineChapterN === c.n }"
+               @click="loadOutlineChapter(c.n)">
             <span class="stage-no lit">{{ c.file.replace('.md', '') }}</span>
             <span class="chapter-item-title">{{ c.title }}</span>
           </div>
