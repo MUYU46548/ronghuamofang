@@ -17,7 +17,18 @@ GET  /jobs/{id}           job 状态/结果
 POST /approve             {stage, revoke?} → 审批/撤销
 POST /reject              {stage, reason, dry_run?} → 打回（默认真执行）
 POST /refine/outline      {feedback, dry_run?} → 大纲精修
+POST /refine/outline/node {node_id, feedback, dry_run?} → 逐节点 AI 精修
+POST /refine/outline/undo 撤销上一次节点精修
 POST /refine/chapter      {chapter, feedback, dry_run?} → 章节精修
+POST /stage/2/run-multi   {count} → 阶段2 多方案生成（2-5 份 draft）
+GET  /outline/structure   结构化大纲视图（acts/nodes/plan/评分）
+POST /outline/save        {content} → 保存整份大纲（格式校验+备份）
+POST /outline/restore     {version} → 恢复历史版本
+GET  /outline/history     版本列表（含评分摘要）
+GET  /outline/diff        ?v1=&v2= → 结构化节点级 diff
+GET  /outline/drafts      多方案 draft 列表
+POST /outline/compose     {selections, act_source} → 拼合为最终 global.md
+POST /outline/drafts/cleanup 清理临时 draft
 POST /snapshot            {label?} → 手动快照
 POST /costs               GET 成本流水
 GET  /costs/summary       按阶段/模型聚合
@@ -58,6 +69,10 @@ import switch_book as sb_mod  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 os.chdir(ROOT)
+
+# 大纲路径常量（与 refine_outline.py / utils.outline_panel 保持一致）
+GLOBAL = "data/outline/global.md"
+HISTORY_DIR = "data/outline/history"
 
 JOB_TTL = 50           # 内存保留的最近 job 数
 LOCK = threading.Lock()
@@ -456,14 +471,179 @@ def act_batch_refine_run(decisions_from_file=True):
     return _fn
 
 
+# ---- 大纲结构化面板（任务1/2/3/4） ----
+
+def act_outline_save(content):
+    """保存整份大纲：先校验格式完整性，通过才写盘（写前备份）。"""
+    import stage2_outline as s2
+    import refine_outline as ro
+    from utils.file_io import write_text as _wt, read_text as _rt
+
+    if not isinstance(content, str) or not content.strip():
+        return False, "内容为空"
+    if len(content.encode("utf-8")) > 2 * 1024 * 1024:
+        return False, "内容超过 2MB 上限"
+
+    version = ro.next_version(HISTORY_DIR)
+    backup = ro.backup_current(GLOBAL, HISTORY_DIR, version)
+    _wt(GLOBAL, content)
+    ok, errors = s2.check_global_outline(GLOBAL)
+    if not ok:
+        # 校验失败：回滚到备份（A2 红线：不满足格式即拒绝保存）
+        import shutil as _sh
+        _sh.copy2(backup, GLOBAL)
+        return False, "格式校验失败，已拒绝保存并回滚: " + "; ".join(errors)
+
+    from utils import outline_panel as op
+    return True, {"version": version, "backup": str(backup),
+                  "structure": op.build_structure()}
+
+
+def act_outline_restore(version):
+    """把某历史版本恢复到 global.md（写前备份当前版）。"""
+    import shutil as _sh
+    from utils import outline_panel as op
+    import refine_outline as ro
+
+    src = op.resolve_version(version)
+    if not src:
+        return False, "版本不存在: " + str(version)
+    if not Path(GLOBAL).exists():
+        return False, "当前无 global.md"
+    new_v = ro.next_version(HISTORY_DIR)
+    _sh.copy2(GLOBAL, Path(HISTORY_DIR) / ("global_v%d.md" % new_v))
+    _sh.copy2(src, GLOBAL)
+    return True, {"restored": src.name, "saved_current_as": new_v,
+                  "structure": op.build_structure()}
+
+
+def act_outline_refine_node(node_id, feedback, dry_run=False):
+    """节点级 AI 精修（任务2）。"""
+    from utils import outline_panel as op
+    cfg, proj = load_all()
+    return op.apply_node_refine(cfg, proj, node_id, feedback,
+                                client=_client_for_env(cfg, "default"),
+                                dry_run=dry_run)
+
+
+def act_outline_undo():
+    """撤销上一次节点精修（从 history 最新版本恢复）。"""
+    from utils import outline_panel as op
+    ok, res = op.undo_last_refine()
+    if not ok:
+        return False, res
+    return True, {"undo": res, "structure": op.build_structure()}
+
+
+def act_outline_compose(selections, act_source, cleanup=True):
+    """拼合多方案（任务3）。"""
+    from utils import outline_panel as op
+    ok, res = op.compose_from_drafts(selections, act_source=act_source)
+    if not ok:
+        return False, res
+    if cleanup:
+        op.cleanup_drafts()
+    return True, res
+
+
+def act_outline_drafts_cleanup():
+    from utils import outline_panel as op
+    removed = op.cleanup_drafts()
+    return True, {"removed": removed}
+
+
+def act_stage2_run_multi(count=3, interval=2.0):
+    """阶段2 多方案生成（任务3）：串行生成 N 份 draft，**全程不触碰 global.md**。
+
+    做法：把任务模板里的输出路径 {{path_global_outline}} 逐份指向独立的 draft 文件，
+    因此模型的产物直接落盘到 data/outline/global_draft_N.md，原始 global.md 原封不动。
+    """
+    import stage2_outline as s2
+    import outline_review as ov
+    from utils.file_io import write_text as _wt
+
+    def _fn():
+        cfg, proj = load_all()
+        client = _client_for_env(cfg, "default")
+        drafts = []
+        for i in range(1, count + 1):
+            draft = Path("data/outline/global_draft_%d.md" % i)
+            try:
+                draft.unlink()
+            except OSError:
+                pass
+            # 关键：把输出路径改指到 draft 文件，模型产物不会覆盖 global.md
+            body = s2.build_task(cfg, proj).replace(
+                str(Path(GLOBAL).resolve()), str(draft.resolve()))
+            task = client.write_task("data/state/tasks",
+                                     "stage2_global_outline.md", body)
+            result = client.run_task(task)
+            if result.get("exit_code") != 0:
+                return False, "第 %d 份方案生成失败" % i
+            if not draft.exists():
+                return False, "第 %d 份方案未产出 %s" % (i, draft.name)
+            tmp = draft.read_text(encoding="utf-8")
+            ok, errors = _check_text(tmp)
+            rv = ov.review(str(draft), "data/setting/setting.json")
+            drafts.append({
+                "id": i, "name": draft.name,
+                "summary": rv.get("summary", {}),
+                "issues": rv.get("issues", []),
+                "valid": ok, "errors": errors,
+            })
+            if i < count:
+                time.sleep(interval)          # 串行 + 间隔，避免限流
+        return True, {"drafts": drafts, "count": len(drafts)}
+
+    return _fn
+
+
+def _check_text(text):
+    """对内存文本做结构校验（复用 check_global_outline 的规则）。"""
+    import stage2_outline as s2
+    errors = []
+    for sec in s2.REQUIRED_SECTIONS:
+        if not re.search(rf"^##\s*{sec}", text, re.M):
+            errors.append("缺少章节: ## " + sec)
+    if len(re.findall(r"^##\s*关键节点", text, re.M)) == 0:
+        errors.append("缺少 ## 关键节点")
+    m = re.search(r"^##\s*预计章节数\s*\n\s*(\d+)", text, re.M)
+    if not m or int(m.group(1)) <= 0:
+        errors.append("缺少有效的 ## 预计章节数")
+    return (not errors), errors
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "NovelForgeAPI/0.2"
+
+    # 仅本机来源（Electron file:// 与本地预览端口）；不开放 *，避免暴露给任意网页
+    ALLOW_ORIGIN_RE = re.compile(r"^(https?://(127\.0\.0\.1|localhost)(:\d+)?|file://.*|null)$")
+
+    def _cors(self):
+        """本机来源放行 CORS（GUI 从 file:// 或本地预览端口访问 API 时必需）。"""
+        origin = self.headers.get("Origin") or ""
+        if origin and self.ALLOW_ORIGIN_RE.match(origin):
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
+        elif not origin:
+            self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Max-Age", "600")
+
+    def do_OPTIONS(self):
+        """CORS 预检。"""
+        self.send_response(204)
+        self._cors()
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     # ---- 基础设施 ----
     def _send(self, code, payload):
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        self._cors()
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -504,6 +684,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
         self.send_header("Connection", "keep-alive")
+        self._cors()
         self.end_headers()
 
         q = streamer["queue"]
@@ -641,6 +822,60 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(200, data)
                 except Exception as e:
                     self._send(500, {"error": str(e)})
+        elif p == "/outline/structure":
+            # 结构化大纲视图（任务1）：解析 global.md + 贴 outline_review 评分
+            try:
+                from utils import outline_panel as op
+                q = self._query()
+                only = (q.get("review") or ["1"])[0] not in ("0", "false", "no")
+                self._send(200, op.build_structure(run_review=only))
+            except Exception as e:
+                self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
+        elif p == "/outline/history":
+            # 版本列表（任务4）
+            try:
+                from utils import outline_panel as op
+                self._send(200, {"versions": op.list_versions()})
+            except Exception as e:
+                self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
+        elif p == "/outline/diff":
+            # 结构化节点级 diff（任务4）
+            try:
+                from utils import outline_panel as op
+                q = self._query()
+                v1 = (q.get("v1") or [""])[0]
+                v2 = (q.get("v2") or [""])[0]
+                if not v1:
+                    self._send(400, {"error": "缺少参数 v1（对比基准版本）"})
+                    return
+                f1 = op.resolve_version(v1)
+                f2 = op.resolve_version(v2) or op.resolve_version("0")
+                if not f1 or not f2:
+                    self._send(404, {"error": "版本不存在: v1=" + str(v1) + " v2=" + str(v2)})
+                    return
+                data = op.diff_outlines(f1, f2)
+                data["v1"] = int(v1) if str(v1).isdigit() else 0
+                data["v2"] = int(v2) if str(v2).isdigit() else 0
+                self._send(200, data)
+            except Exception as e:
+                self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
+        elif p == "/outline/drafts":
+            # 多方案 draft 列表（任务3）
+            try:
+                from utils import outline_panel as op
+                drafts = op.list_drafts()
+                df = op.draft_files()
+                # 给每份 draft 附上四节原文（前端拼合时预览用）
+                for d in drafts:
+                    try:
+                        from utils.file_io import read_text as _rt
+                        import utils.outline_struct as _osr
+                        d["acts"] = _osr.parse_global(_rt(op.draft_path(d["id"])))["acts"]
+                    except Exception:
+                        pass
+                self._send(200, {"drafts": drafts, "files": df})
+            except Exception as e:
+                self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
         elif p.startswith("/jobs/"):
             jid = p[len("/jobs/"):]
             job = JOBS.get(jid)
@@ -710,8 +945,24 @@ class Handler(BaseHTTPRequestHandler):
                                  "path": "config/project.yaml", "field": "book.style_notes"})
             except Exception as e:
                 self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
+        elif p == "/materials/list":
+            try:
+                from utils.materials_manager import MaterialsManager
+                mm = MaterialsManager(ROOT / "materials" / "raw")
+                self._send(200, mm.list_materials())
+            except Exception as e:
+                self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
+        elif p.startswith("/materials/read/"):
+            name = unquote(p[len("/materials/read/"):])
+            try:
+                from utils.materials_manager import MaterialsManager
+                mm = MaterialsManager(ROOT / "materials" / "raw")
+                content = mm.read_content(name)
+                self._send(200, {"ok": True, "name": name, "content": content})
+            except Exception as e:
+                self._send(400, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]})
         else:
-            self._send(404, {"error": "未知路径 " + p + "（可用: /health /state /models /project/list /stage/{n}/run /stream/{job_id} /jobs/{id}）"})
+            self._send(404, {"error": "未知路径 " + p + "（可用: /health /state /models /project/list /stage/{n}/run /stream/{job_id} /jobs/{id} /materials/*）"})
 
     # ---- POST ----
     def do_POST(self):
@@ -815,6 +1066,74 @@ class Handler(BaseHTTPRequestHandler):
                 jid, err = start_job("refine_outline",
                                      lambda: act_refine_outline(fb, bool(body.get("dry_run"))))
                 self._send(202 if not err else 409, {"error": err} if err else {"job_id": jid})
+            # ---- 大纲结构化面板（任务1/2/3/4）----
+            elif p == "/outline/save":
+                ok, res = act_outline_save(body.get("content"))
+                if ok:
+                    res["ok"] = True
+                    self._send(200, res)
+                else:
+                    self._send(400, {"ok": False, "error": res})
+            elif p == "/outline/restore":
+                ok, res = act_outline_restore(body.get("version"))
+                if ok:
+                    res["ok"] = True
+                    self._send(200, res)
+                else:
+                    self._send(400, {"ok": False, "error": res})
+            elif p == "/refine/outline/node":
+                node_id = str(body.get("node_id") or body.get("entry_id") or "")
+                fb = str(body.get("feedback") or "")
+                if not node_id:
+                    self._send(400, {"error": "node_id 必填"})
+                    return
+                if not fb.strip():
+                    self._send(400, {"error": "feedback 必填"})
+                    return
+                cfg, _ = load_all()
+                _client_for_env(cfg, "default")
+                dry = bool(body.get("dry_run"))
+                jid, err = start_job("refine_node_" + node_id,
+                                     lambda: act_outline_refine_node(node_id, fb, dry))
+                self._send(202 if not err else 409, {"error": err} if err else {"job_id": jid})
+            elif p == "/refine/outline/undo":
+                ok, res = act_outline_undo()
+                if ok:
+                    res["ok"] = True
+                    self._send(200, res)
+                else:
+                    self._send(400, {"ok": False, "error": res})
+            elif p == "/stage/2/run-multi":
+                count = int(body.get("count") or 3)
+                if not (2 <= count <= 5):
+                    self._send(400, {"error": "count 须为 2-5"})
+                    return
+                cfg, _ = load_all()
+                _client_for_env(cfg, "default")
+                interval = float(body.get("interval") or 2.0)
+                jid, err = start_job("stage2_multi",
+                                     act_stage2_run_multi(count, interval))
+                self._send(202 if not err else 409, {"error": err} if err else {"job_id": jid, "count": count})
+            elif p == "/outline/compose":
+                sels = body.get("selections")
+                if not isinstance(sels, list):
+                    self._send(400, {"error": "selections 须为数组"})
+                    return
+                try:
+                    act_src = int(body.get("act_source") or 1)
+                except (TypeError, ValueError):
+                    act_src = 1
+                ok, res = act_outline_compose(sels, act_src,
+                                              cleanup=bool(body.get("cleanup", True)))
+                if ok:
+                    res["ok"] = True
+                    self._send(200, res)
+                else:
+                    self._send(400, {"ok": False, "error": res})
+            elif p == "/outline/drafts/cleanup":
+                ok, res = act_outline_drafts_cleanup()
+                res["ok"] = True
+                self._send(200, res)
             elif p == "/refine/chapter":
                 fb = str(body.get("feedback") or "")
                 ch = int(body.get("chapter") or 0)
@@ -924,6 +1243,79 @@ class Handler(BaseHTTPRequestHandler):
                 dec_path.parent.mkdir(parents=True, exist_ok=True)
                 dec_path.write_text(json.dumps(body, ensure_ascii=False, indent=2), encoding="utf-8")
                 self._send(200, {"ok": True, "message": "决策已保存: " + str(dec_path)})
+            elif p == "/materials/add":
+                # 添加素材：从外部路径复制到 raw/  (body: {src_path, overwrite?})
+                src_path = str(body.get("src_path") or "").strip()
+                overwrite = bool(body.get("overwrite", False))
+                if not src_path:
+                    self._send(400, {"ok": False, "error": "src_path 必填"})
+                    return
+                try:
+                    from utils.materials_manager import MaterialsManager
+                    mm = MaterialsManager(ROOT / "materials" / "raw")
+                    res = mm.add_from_path(src_path, overwrite=overwrite)
+                    res["ok"] = True
+                    self._send(200, res)
+                except Exception as e:
+                    self._send(400, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]})
+            elif p == "/materials/new":
+                # 新建素材文件  (body: {name, content?})
+                name = str(body.get("name") or "").strip()
+                content = str(body.get("content") or "")
+                if not name:
+                    self._send(400, {"ok": False, "error": "name 必填"})
+                    return
+                try:
+                    from utils.materials_manager import MaterialsManager
+                    mm = MaterialsManager(ROOT / "materials" / "raw")
+                    res = mm.create_new(name, content)
+                    res["ok"] = True
+                    self._send(200, res)
+                except Exception as e:
+                    self._send(400, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]})
+            elif p == "/materials/save":
+                # 保存素材文本内容  (body: {name, content})
+                name = str(body.get("name") or "").strip()
+                content = body.get("content")
+                if not name:
+                    self._send(400, {"ok": False, "error": "name 必填"})
+                    return
+                if content is None or not isinstance(content, str):
+                    self._send(400, {"ok": False, "error": "content 必须为字符串"})
+                    return
+                try:
+                    from utils.materials_manager import MaterialsManager
+                    mm = MaterialsManager(ROOT / "materials" / "raw")
+                    res = mm.save_content(name, content)
+                    res["ok"] = True
+                    self._send(200, res)
+                except Exception as e:
+                    self._send(400, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]})
+            elif p == "/materials/delete":
+                # 删除素材（body: {name}）
+                name = str(body.get("name") or "").strip()
+                if not name:
+                    self._send(400, {"ok": False, "error": "name 必填"})
+                    return
+                try:
+                    from utils.materials_manager import MaterialsManager
+                    mm = MaterialsManager(ROOT / "materials" / "raw")
+                    res = mm.delete(name)
+                    res["ok"] = True
+                    self._send(200, res)
+                except Exception as e:
+                    self._send(400, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]})
+            elif p == "/materials/remerge":
+                # 触发 stage1 重归并（清 fingerprint + 跑 stage1）
+                try:
+                    cfg, _ = load_all()
+                    jid, err = start_job("remerge", act_run_stage(cfg, 1, 1))
+                    if err:
+                        self._send(409, {"error": err})
+                    else:
+                        self._send(202, {"job_id": jid, "message": "已触发素材重归并（阶段1）"})
+                except Exception as e:
+                    self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
             else:
                 self._send(404, {"error": "未知路径 " + p})
         except (ValueError, TypeError) as e:
@@ -946,7 +1338,7 @@ def main():
     httpd = ThreadingHTTPServer((args.host, args.port), Handler)
     print("[nf_api] NovelForge API 服务 → http://" + args.host + ":" + str(args.port)
           + "  (allow_fake=" + str(ALLOW_FAKE) + ")")
-    print("[nf_api] 端点: /health /state /models /stage/{n}/run /stream/{job_id} /stop /jobs/{id} /approve /reject /refine/* /snapshot /costs /prompts/* /config/style_notes")
+    print("[nf_api] 端点: /health /state /models /stage/{n}/run /stream/{job_id} /stop /jobs/{id} /approve /reject /refine/* /outline/* /snapshot /costs /prompts/* /config/style_notes /materials/*")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

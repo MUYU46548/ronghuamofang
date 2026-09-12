@@ -168,6 +168,21 @@ ipcMain.handle("open-artifact", async (e, relPath) => {
   return r ? { ok: false, error: r } : { ok: true };
 });
 
+ipcMain.handle("open-file-dialog", async (e, options = {}) => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: options.title || "选择文件",
+    properties: options.properties || ["openFile"],
+    filters: options.filters || [
+      { name: "素材文件", extensions: ["txt", "md", "markdown", "docx", "doc", "png", "jpg", "jpeg", "gif", "webp"] },
+      { name: "所有文件", extensions: ["*"] },
+    ],
+  });
+  if (result.canceled || !result.filePaths?.length) {
+    return { ok: false, error: "未选择文件" };
+  }
+  return { ok: true, paths: result.filePaths };
+});
+
 // 提示词模板：代理到 nf_api（白名单/备份逻辑以 Python 侧为唯一真源，此处再做一次前置校验）
 const PROMPT_NAME_RE = /^stage[1-7]_.*\.md$/;
 

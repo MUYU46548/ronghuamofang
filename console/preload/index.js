@@ -4,6 +4,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("mofangAPI", {
   readPreview: (relPath) => ipcRenderer.invoke("read-preview", relPath),
   openArtifact: (relPath) => ipcRenderer.invoke("open-artifact", relPath),
+  openFileDialog: (options) => ipcRenderer.invoke("open-file-dialog", options),
   // 提示词模板编辑器（prompts/stage[1-7]_*.md）
   promptsList: () => ipcRenderer.invoke("prompts:list"),
   promptsGet: (name) => ipcRenderer.invoke("prompts:get", name),

@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import { diffParagraphs } from "./diff.js";
 import ReviewConsole from "./ReviewConsole.vue";
+import OutlineView from "./OutlineView.vue";
 
 const API = "http://127.0.0.1:8765";
 
@@ -66,11 +67,24 @@ function switchTab(t) {
   tab.value = t;
   if (t === "cost" && costs.value.length === 0) refreshCosts();
   if (t === "project") loadProjects();
+  if (t === "outline" && outlineRef.value) outlineRef.value.load(false);
   if (t === "settings") {
     if (!providers.value) refreshModels();
     if (!promptFiles.value.length) loadPromptList();
     if (!styleNotesLoaded.value) loadStyleNotes();
   }
+  if (t === "materials") loadMaterials();
+}
+
+/* ---------- 大纲页签（结构化视图，任务1） ---------- */
+const outlineRef = ref(null);
+const outlineSummary = ref(null);
+function onStructureLoaded(s) {
+  outlineSummary.value = s;
+}
+function openOutlineTab() {
+  switchTab("outline");
+  if (outlineRef.value) outlineRef.value.load(false);
 }
 
 /* ---------- 用户风格笔记（config/project.yaml → book.style_notes） ---------- */
@@ -255,6 +269,129 @@ function stopStream() {
 /* ---------- 其他 ---------- */
 const projects = ref({ current: "", archived: [] });
 const archiveName = ref("");
+
+/* ---------- 素材管理 ---------- */
+const materials = ref([]);      // [{name, size, modified, kind, ext, md5}]
+const materialsLoaded = ref(false);
+const materialEdit = ref(null);  // {name, content} 正在编辑的素材
+const materialEditDirty = ref(false);
+const materialDir = ref("");
+const newMaterialName = ref("");
+const newMaterialContent = ref("");
+const newMaterialOpen = ref(false);
+
+async function loadMaterials() {
+  const r = await api("/materials/list");
+  if (r.status === 200) {
+    materials.value = r.data.items || [];
+    materialDir.value = r.data.dir || "";
+    materialsLoaded.value = true;
+  } else {
+    say("加载失败: " + (r.data.error || r.status));
+  }
+}
+
+async function addMaterial() {
+  if (!window.mofangAPI?.openFileDialog) {
+    say("文件选择需通过 Electron 启动");
+    return;
+  }
+  const r = await window.mofangAPI.openFileDialog({
+    title: "添加素材到 materials/raw/",
+    properties: ["openFile", "multiSelections"],
+  });
+  if (!r.ok) return say(r.error || "选择文件失败");
+  for (const path of r.paths || []) {
+    const a = await api("/materials/add", "POST", { src_path: path });
+    if (a.status === 200 && a.data.ok) say("已添加: " + a.data.name);
+    else say("添加失败: " + (a.data.error || a.status));
+  }
+  loadMaterials();
+}
+
+async function createMaterial() {
+  const name = newMaterialName.value.trim();
+  if (!name) return;
+  if (!name.endsWith(".md") && !name.endsWith(".txt")) {
+    say("新建素材须以 .md 或 .txt 结尾");
+    return;
+  }
+  const a = await api("/materials/new", "POST", { name, content: newMaterialContent.value });
+  if (a.status === 200 && a.data.ok) {
+    say("已创建: " + a.data.name);
+    newMaterialName.value = "";
+    newMaterialContent.value = "";
+    newMaterialOpen.value = false;
+    loadMaterials();
+  } else {
+    say("创建失败: " + (a.data.error || a.status));
+  }
+}
+
+async function openMaterialEdit(name) {
+  const r = await api("/materials/read/" + encodeURIComponent(name));
+  if (r.status === 200 && r.data.ok) {
+    materialEdit.value = { name, content: r.data.content };
+    materialEditDirty.value = false;
+  } else {
+    say("读取失败: " + (r.data.error || r.status));
+  }
+}
+
+async function saveMaterialEdit() {
+  if (!materialEdit.value) return;
+  if (!window.confirm(
+      "确定保存「" + materialEdit.value.name + "」？\\n\\n修改立即生效。")) return;
+  const a = await api("/materials/save", "POST", {
+    name: materialEdit.value.name,
+    content: materialEdit.value.content,
+  });
+  if (a.status === 200 && a.data.ok) {
+    say("已保存");
+    materialEditDirty.value = false;
+    loadMaterials(); // refresh sizes
+  } else {
+    say("保存失败: " + (a.data.error || a.status));
+  }
+}
+
+async function deleteMaterial(name) {
+  if (!window.confirm(
+      "确定删除「" + name + "」？\\n\\n仅删除 raw/ 副本，不影响设定集。history/ 快照保留。")) return;
+  const a = await api("/materials/delete", "POST", { name });
+  if (a.status === 200 && a.data.ok) {
+    say("已删除: " + a.data.name);
+    if (materialEdit.value?.name === name) materialEdit.value = null;
+    loadMaterials();
+  } else {
+    say("删除失败: " + (a.data.error || a.status));
+  }
+}
+
+async function triggerReMerge() {
+  if (!window.confirm(
+      "确定触发素材重归并？\\n\\n将重新扫描 materials/raw/，更新 manifest 和设定集（阶段1）。")) return;
+  const a = await api("/materials/remerge", "POST", {});
+  if (a.status === 202) {
+    say("已触发重归并（job " + a.data.job_id + "）");
+  } else {
+    say("触发失败: " + (a.data.error || a.status));
+  }
+}
+
+function materialKindLabel(m) {
+  return { text: "文本", image: "图片", other: "其他" }[m.kind] || m.kind;
+}
+
+function materialIcon(m) {
+  return m.kind === "image" ? "🖼" : m.kind === "other" ? "📦" : "📄";
+}
+
+function fmtBytes(b) {
+  if (b < 1024) return b + " B";
+  if (b < 1024 * 1024) return (b / 1024).toFixed(1) + " KB";
+  return (b / 1024 / 1024).toFixed(2) + " MB";
+}
 
 async function refreshModels() {
   const r = await api("/models/available");
@@ -497,12 +634,14 @@ onUnmounted(() => clearInterval(timer));
     <nav class="tabs">
       <button :class="{ active: tab === 'pipeline' }" @click="switchTab('pipeline')">流水线</button>
       <button :class="{ active: tab === 'chapters' }" @click="switchTab('chapters'); !chaptersLoaded && loadChapters()">章节</button>
+      <button :class="{ active: tab === 'outline' }" @click="switchTab('outline')">大纲</button>
       <button :class="{ active: tab === 'review' }" @click="switchTab('review')">审稿</button>
       <button :class="{ active: tab === 'inbox' }" @click="switchTab('inbox')">
         收件箱<span v-if="pendingGates.length" class="badge">{{ pendingGates.length }}</span>
       </button>
       <button :class="{ active: tab === 'project' }" @click="switchTab('project')">项目</button>
       <button :class="{ active: tab === 'settings' }" @click="switchTab('settings')">设置</button>
+      <button :class="{ active: tab === 'materials' }" @click="switchTab('materials'); loadMaterials()">素材</button>
     </nav>
     <div class="conn" :class="{ on: online }">{{ online ? "已连接" : "离线" }}</div>
   </header>
@@ -592,6 +731,12 @@ onUnmounted(() => clearInterval(timer));
       </div>
     </section>
 
+    <!-- 大纲（结构化视图 / 节点精修 / 版本对比 / 多方案） -->
+    <section v-if="tab === 'outline'">
+      <OutlineView ref="outlineRef" :api="api" :is-busy="isRunning" :book-name="state ? state.book : ''"
+                   @say="say" @structure-loaded="onStructureLoaded" />
+    </section>
+
     <!-- 审稿 -->
     <section v-if="tab === 'review'">
       <ReviewConsole />
@@ -612,7 +757,8 @@ onUnmounted(() => clearInterval(timer));
           <button class="mini danger" @click="openReject(s.stage)">打回</button>
         </div>
         <div class="gate-files">
-          <button class="mini" v-if="s.stage === 2" @click="preview('data/outline/global.md')">预览整体大纲</button>
+          <button class="mini" v-if="s.stage === 2" @click="openOutlineTab">查看结构化大纲</button>
+          <button class="mini" v-if="s.stage === 2" @click="preview('data/outline/global.md')">预览原文</button>
           <button class="mini" v-if="s.stage === 2" @click="preview('data/outline/review_report.md')">体检报告</button>
           <button class="mini" v-if="s.stage === 6" @click="switchTab('chapters'); loadChapters()">去章节页看润色稿</button>
         </div>
@@ -819,6 +965,88 @@ onUnmounted(() => clearInterval(timer));
       <div class="meta" style="margin-top: 12px;">项目目录: {{ state ? state.project_dir : "-" }}</div>
     </section>
 
+    <!-- 素材管理（A1 P0） -->
+    <section v-if="tab === 'materials'" class="card">
+      <div class="card-head">
+        <h3>素材管理（materials/raw/）</h3>
+        <span class="meta">{{ materials.length }} 个素材</span>
+        <span class="spacer"></span>
+        <button class="mini" @click="addMaterial">添加素材</button>
+        <button class="mini" @click="newMaterialOpen = !newMaterialOpen">新建素材</button>
+        <button class="mini primary" @click="triggerReMerge">触发重归并</button>
+        <button class="mini" @click="loadMaterials">刷新</button>
+      </div>
+
+      <div class="meta" style="margin-bottom: 12px;">
+        目录: {{ materialDir }}
+      </div>
+
+      <!-- 新建素材表单 -->
+      <div v-if="newMaterialOpen" style="margin-bottom: 16px; padding: 12px; border: 1px solid var(--border); border-radius: 8px;">
+        <h4>新建素材</h4>
+        <div class="art-row" style="margin: 8px 0;">
+          <span class="art-label">文件名</span>
+          <input v-model="newMaterialName" class="text-input" placeholder="如：新角色_角色卡.md" />
+        </div>
+        <textarea class="prompt-text" style="min-height: 120px;" v-model="newMaterialContent"
+                  spellcheck="false" placeholder="素材正文（Markdown / 纯文本）"></textarea>
+        <div class="provider-row" style="margin-top: 6px;">
+          <span class="meta">须以 .md 或 .txt 结尾</span>
+          <span class="spacer"></span>
+          <button class="mini" @click="newMaterialOpen = false">取消</button>
+          <button class="mini primary" @click="createMaterial">创建</button>
+        </div>
+      </div>
+
+      <!-- 素材列表 -->
+      <div v-if="!materials.length" class="empty">
+        暂无素材 —— 点击"添加素材"从其他地方复制文件到 raw/，或"新建素材"直接创建。
+      </div>
+      <table v-if="materials.length" class="cost-table">
+        <thead>
+          <tr><th>名称</th><th>类型</th><th>大小</th><th>修改时间</th><th>操作</th></tr>
+        </thead>
+        <tbody>
+          <tr v-for="m in materials" :key="m.name">
+            <td><span style="margin-right: 6px;">{{ materialIcon(m) }}</span>{{ m.name }}</td>
+            <td>{{ materialKindLabel(m) }}{{ m.ext }}</td>
+            <td>{{ fmtBytes(m.size) }}</td>
+            <td>{{ m.modified }}</td>
+            <td>
+              <button class="mini" v-if="m.kind === 'text'" @click="openMaterialEdit(m.name)">编辑</button>
+              <button class="mini" @click="openArtifact('materials/raw/' + m.name)">打开</button>
+              <button class="mini danger" @click="deleteMaterial(m.name)">删除</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+  </main>
+
+  <!-- 素材编辑抽屉 -->
+
+  <div v-if="materialEdit" class="drawer-mask" @click.self="materialEdit = null">
+    <div class="drawer" style="width: min(1000px, 92vw);">
+      <div class="drawer-head">
+        <b>{{ materialEdit.name }}</b>
+        <span v-if="materialEditDirty" class="pill st-gate" style="margin-left: 8px;">已修改</span>
+        <span class="spacer"></span>
+        <button class="mini" @click="loadMaterials">刷新列表</button>
+        <button class="mini" @click="materialEdit = null">关闭</button>
+      </div>
+      <textarea class="prompt-text" style="min-height: 60vh; font-family: var(--mono);"
+                v-model="materialEdit.content"
+                @input="materialEditDirty = true"
+                spellcheck="false"></textarea>
+      <div class="provider-row" style="margin-top: 6px;">
+        <span class="meta">{{ materialEdit.content.length }} 字符</span>
+        <span class="spacer"></span>
+        <button class="mini" @click="openMaterialEdit(materialEdit.name)">放弃修改</button>
+        <button class="mini primary" :disabled="!materialEditDirty" @click="saveMaterialEdit">保存</button>
+      </div>
+    </div>
+  </div>
+
     <!-- 项目（书籍切换） -->
     <section v-if="tab === 'project'" class="card">
       <div class="card-head">
@@ -848,7 +1076,6 @@ onUnmounted(() => clearInterval(timer));
         <b>新建项目：</b>在 config/project.yaml 中修改 book.name，然后归档当前项目并初始化新工作区。
       </div>
     </section>
-  </main>
 
   <!-- 文档阅读器 -->
   <div v-if="viewDoc || previewPath" class="drawer-mask" @click.self="viewDoc = null; previewPath = ''">
