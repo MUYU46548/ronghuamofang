@@ -1,5 +1,6 @@
 /* 绒花墨坊控制台 — ROSA 雾灰紫（浅色，硬规矩：仅浅色模式） */
-:root {
+:root,
+:root.theme-purple {
   --bg: #eef0f4;
   --ink: #3c4150;
   --muted: #6b7180;
@@ -13,6 +14,76 @@
   --warn: #c9a26a;
   --bad: #c47f7f;
 }
+:root.theme-dark {
+  --bg: #1a1b2e;
+  --ink: #d8d9e8;
+  --muted: #8a8fa8;
+  --accent: #7c83d4;
+  --accent-soft: #3d4278;
+  --card: #232540;
+  --border: #2e3258;
+  --shadow: 0 8px 32px rgba(0, 0, 0, 0.30);
+  --radius: 14px;
+  --ok: #6bbd8e;
+  --warn: #d4a85c;
+  --bad: #d47c7c;
+}
+:root.theme-pink {
+  --bg: #fdf2f4;
+  --ink: #4a3540;
+  --muted: #8c6b78;
+  --accent: #d48ca0;
+  --accent-soft: #f0c8d4;
+  --card: #ffffff;
+  --border: #f2dde3;
+  --shadow: 0 8px 32px rgba(180, 100, 130, 0.12);
+  --radius: 14px;
+  --ok: #7fae8f;
+  --warn: #c9a26a;
+  --bad: #c47f7f;
+}
+:root.theme-blue {
+  --bg: #eef4fb;
+  --ink: #354052;
+  --muted: #6b7a90;
+  --accent: #7dadde;
+  --accent-soft: #bed6f0;
+  --card: #ffffff;
+  --border: #dde6f2;
+  --shadow: 0 8px 32px rgba(90, 130, 180, 0.12);
+  --radius: 14px;
+  --ok: #7fae8f;
+  --warn: #c9a26a;
+  --bad: #c47f7f;
+}
+:root.theme-green {
+  --bg: #f0f5f1;
+  --ink: #3a4840;
+  --muted: #6e8075;
+  --accent: #8ab89a;
+  --accent-soft: #c8e0d0;
+  --card: #ffffff;
+  --border: #dce8e0;
+  --shadow: 0 8px 32px rgba(100, 150, 120, 0.12);
+  --radius: 14px;
+  --ok: #6ba87e;
+  --warn: #c9a26a;
+  --bad: #c47f7f;
+}
+:root.theme-gray {
+  --bg: #f5f5f7;
+  --ink: #3a3a40;
+  --muted: #707078;
+  --accent: #9a9aa4;
+  --accent-soft: #d4d4da;
+  --card: #ffffff;
+  --border: #e4e4ea;
+  --shadow: 0 8px 32px rgba(100, 100, 120, 0.10);
+  --radius: 14px;
+  --ok: #7fae8f;
+  --warn: #c9a26a;
+  --bad: #c47f7f;
+}
 * { box-sizing: border-box; }
 html, body, #app { height: 100%; }
 body {
@@ -21,6 +92,7 @@ body {
   color: var(--ink);
   font-family: "PingFang SC", "Microsoft YaHei", "Hiragino Sans GB", system-ui, sans-serif;
   font-size: 14px;
+  font-size: var(--app-font-size, 14px);
 }
 
 /* 柔光斑背景 */
@@ -28,6 +100,18 @@ body {
 .blob { position: absolute; border-radius: 50%; filter: blur(70px); opacity: 0.38; }
 .blob-a { width: 420px; height: 420px; background: #cfc6ec; top: -120px; left: -80px; }
 .blob-b { width: 380px; height: 380px; background: #cdd9ee; bottom: -120px; right: -60px; }
+.theme-dark .blob-a { background: #4a4f8a; }
+.theme-dark .blob-b { background: #3a3560; }
+.theme-purple .blob-a { background: #cfc6ec; }
+.theme-purple .blob-b { background: #cdd9ee; }
+.theme-pink .blob-a { background: #f0c8d4; }
+.theme-pink .blob-b { background: #f8dde3; }
+.theme-blue .blob-a { background: #bed6f0; }
+.theme-blue .blob-b { background: #dde6f2; }
+.theme-green .blob-a { background: #c8e0d0; }
+.theme-green .blob-b { background: #dce8e0; }
+.theme-gray .blob-a { background: #d4d4da; }
+.theme-gray .blob-b { background: #e4e4ea; }
 
 /* 顶栏 */
 .topbar {
@@ -38,6 +122,11 @@ body {
   backdrop-filter: blur(14px);
   border-bottom: 1px solid var(--border);
 }
+.theme-dark .card { background: var(--card); }
+.theme-dark .topbar { background: rgba(35, 37, 64, 0.85); }
+.theme-dark .outline-chapter-item:hover { background: rgba(124, 131, 212, 0.12); }
+.theme-dark .outline-chapter-item.on { background: rgba(124, 131, 212, 0.2); }
+.theme-dark .tabs button:hover { background: rgba(124, 131, 212, 0.15); }
 .brand { display: flex; align-items: center; gap: 10px; }
 .brand-mark {
   width: 38px; height: 38px; border-radius: 12px;
@@ -126,6 +215,7 @@ body {
 .mini:hover { border-color: var(--accent); color: var(--accent); }
 .mini.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .mini.primary:hover { background: #8a7db6; }
+.theme-dark .mini.primary:hover { background: #6a70c0; }
 .mini.danger { color: #9e4f4f; }
 .mini.danger:hover { border-color: var(--bad); }
 
@@ -667,3 +757,42 @@ body {
   min-width: 140px;
 }
 .export-meta { flex: 1; }
+
+/* ===== 外观配置 ===== */
+.theme-swatches {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.theme-swatch {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: transform 0.15s, border-color 0.15s;
+}
+.theme-swatch:hover {
+  transform: scale(1.15);
+}
+.theme-swatch.on {
+  border-color: var(--ink);
+  box-shadow: 0 0 0 2px var(--bg), 0 0 0 3px var(--accent);
+}
+.theme-check {
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  text-shadow: 0 0 3px rgba(0,0,0,0.4);
+}
+.font-size-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.font-slider {
+  flex: 1;
+  accent-color: var(--accent);
+}

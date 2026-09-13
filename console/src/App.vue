@@ -86,6 +86,35 @@ function switchTab(t) {
   if (t === "export") refreshExportState();
 }
 
+/* ---------- 外观配置 ---------- */
+const theme = ref(localStorage.getItem("mofang_theme") || "purple");
+const fontSize = ref(parseInt(localStorage.getItem("mofang_font_size") || "14"));
+
+const THEMES = [
+  { id: "purple", name: "雾灰紫", color: "#9b8fc4" },
+  { id: "dark", name: "暗夜紫", color: "#7c83d4" },
+  { id: "pink", name: "樱粉", color: "#d48ca0" },
+  { id: "blue", name: "天蓝", color: "#7dadde" },
+  { id: "green", name: "翠绿", color: "#8ab89a" },
+  { id: "gray", name: "灰白", color: "#9a9aa4" },
+];
+
+function setTheme(t) {
+  theme.value = t;
+  localStorage.setItem("mofang_theme", t);
+  document.documentElement.className = `theme-${t}`;
+}
+
+function setFontSize(px) {
+  fontSize.value = px;
+  localStorage.setItem("mofang_font_size", px.toString());
+  document.documentElement.style.setProperty("--app-font-size", px + "px");
+}
+
+// 初始化外观
+setTheme(theme.value);
+setFontSize(fontSize.value);
+
 /* ---------- 导出（P3 多平台发布） ---------- */
 const exportCfg = ref({ format: "both", volSize: 5, includeFrontmatter: true });
 const exporting = ref(false);
@@ -1463,6 +1492,43 @@ onUnmounted(() => clearInterval(timer));
               · 最近备份：{{ promptBackups.slice(-3).join("、") }}
             </template>
           </div>
+        </div>
+      </div>
+
+      <!-- 外观配置 -->
+      <h4 style="margin-top: 16px;">外观配置</h4>
+      <div class="meta" style="margin-bottom: 8px;">主题与字号即时生效，自动保存。</div>
+
+      <div class="bp-field">
+        <label>主题颜色</label>
+        <div class="theme-swatches">
+          <button
+            v-for="t in THEMES"
+            :key="t.id"
+            class="theme-swatch"
+            :class="{ on: theme === t.id }"
+            :style="{ background: t.color }"
+            :title="t.name"
+            @click="setTheme(t.id)"
+          >
+            <span v-if="theme === t.id" class="theme-check">✓</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="bp-field">
+        <label>字号（{{ fontSize }}px）</label>
+        <div class="font-size-control">
+          <button class="mini" @click="setFontSize(Math.max(10, fontSize - 1))">A-</button>
+          <input
+            type="range"
+            min="10"
+            max="20"
+            :value="fontSize"
+            @input="setFontSize(parseInt($event.target.value))"
+            class="font-slider"
+          />
+          <button class="mini" @click="setFontSize(Math.min(20, fontSize + 1))">A+</button>
         </div>
       </div>
 
