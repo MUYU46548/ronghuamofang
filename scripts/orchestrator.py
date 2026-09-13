@@ -68,8 +68,19 @@ def load_config():
     return cfg, proj
 
 
+def _warn_rewrite_conflict(cfg):
+    """auto_rewrite 与 auto_refine 同时开启会改同一批章节 → 启动时明确告警。"""
+    gates = cfg.get("gates", {}) or {}
+    if gates.get("auto_rewrite") and gates.get("auto_refine"):
+        print("[orchestrator] ⚠️ 告警：gates.auto_rewrite 与 gates.auto_refine 同时开启，"
+              "两者都会改写同一批章节。")
+        print("            以 auto_rewrite 为先；batch_refine 请仅处理审稿报告中的"
+              "非 quality 类问题，避免重复改稿。")
+
+
 def run(from_stage=1, only_stage=None, client=None):
     cfg, proj = load_config()
+    _warn_rewrite_conflict(cfg)
     progress = ProgressManager("data/state/progress.json")
     # 多书隔离（P0.7 #10）：progress 记录的书名与 project.yaml 不一致时提示
     prev_book = progress.data.get("project", "")
@@ -165,6 +176,18 @@ def run(from_stage=1, only_stage=None, client=None):
                 if n == 1:
                     # P1.5：stage1 归并完成后自动生成素材体检报告（不阻断）
                     run_material_review(progress)
+                if n == 4 and (cfg.get("gates", {}) or {}).get("auto_rewrite", False):
+                    # 方向3 质量自评闭环：重写 quality<阈值 的章节
+                    # 必须排在 review_after_stage4 审稿分支之前（F5），
+                    # 使审查看到的已是重写后的章节。失败不阻断流程。
+                    try:
+                        import auto_rewrite as ar
+                        ok_ar, msg_ar, _stats = ar.run_auto_rewrite(
+                            cfg, proj, progress, db=db, cost=cost, run_id=run_id,
+                            client=client, task_dir="data/state/tasks")
+                        print(f"[orchestrator] 自动重写结果: {msg_ar}")
+                    except Exception as e:
+                        print(f"[orchestrator] 自动重写失败（不影响流程）: {e}")
                 if n == 4 and cfg.get("gates", {}).get("review_after_stage4", False):
                     # P0 审稿→修稿闭环：stage4 完成后自动调用审查
                     try:

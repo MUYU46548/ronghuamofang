@@ -39,6 +39,8 @@ POST /scraps/save         {name, content} → 写前备份后保存碎片
 POST /scraps/delete       {name, confirm:true} → 先快照再删除碎片（破坏性操作）
 POST /scraps/promote      {card_name, card_type, points[], open_questions[], sources[]}
                           → 由 Python 落盘成 materials/raw/<名>_<类型>.md（覆盖前备份）
+POST /auto_rewrite/run    {threshold?, max_rounds?, chapters?, dry_run?} → job_id
+                          质量自评闭环：重写 quality<阈值 章节（dry_run 默认 true，防误改稿）
 
 安全边界（本地自用）：默认 127.0.0.1；写操作只允许 POST 且 Content-Type=application/json；
 除 /stage /refine /snapshot 外均即时执行。NF_API_ALLOW_FAKE=1 时 stage/refine 走
@@ -431,6 +433,8 @@ def stage_status(progress, n):
     }
     if "needs_rewrite" in st:
         out["needs_rewrite"] = st["needs_rewrite"]
+    if "auto_rewritten" in st:
+        out["auto_rewritten"] = st["auto_rewritten"]
     return out
 
 
@@ -596,6 +600,36 @@ def act_batch_refine_run(decisions_from_file=True):
             auto_accept=False,
             dry_run=False,
         )
+        return ok, msg
+    return _fn
+
+
+def act_auto_rewrite_run(threshold=None, dry_run=False, max_rounds=None, chapters=None):
+    """执行质量自评闭环：自动重写 quality<阈值 的章节（P2 方向3）。"""
+    import auto_rewrite
+    from utils.cost_tracker import CostTracker
+
+    cfg, proj = load_all()
+    progress = ProgressManager("data/state/progress.json")
+    client = _client_for_env(cfg, "writer")
+
+    def _fn():
+        db, cost, run_id, ok = None, None, None, False
+        if not dry_run:
+            db = RunDB("logs/runs.db")
+            budget = cfg.get("budget", {}) or {}
+            cost = CostTracker(db, limit_yuan=budget.get("limit_yuan", 300),
+                               warn_ratio=budget.get("warn_ratio", 0.7))
+            run_id = db.start_run(plan_json="auto_rewrite_api")
+        try:
+            ok, msg, _ = auto_rewrite.run_auto_rewrite(
+                cfg, proj, progress, db=db, cost=cost, run_id=run_id,
+                threshold=threshold, max_rounds=max_rounds, dry_run=dry_run,
+                client=client, chapters=chapters)
+        finally:
+            if db is not None:
+                db.finish_run(run_id, "done" if ok else "failed")
+                db.close()
         return ok, msg
     return _fn
 
@@ -1187,7 +1221,7 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
         else:
-            self._send(404, {"error": "未知路径 " + p + "（可用: /health /state /models /project/list /stage/{n}/run /stream/{job_id} /jobs/{id} /materials/* /setting/current /outline/chapters/*）"})
+            self._send(404, {"error": "未知路径 " + p + "（可用: /health /state /models /project/list /stage/{n}/run /stream/{job_id} /jobs/{id} /materials/* /scraps/* /setting/current /outline/chapters/* /auto_rewrite/run）"})
 
     # ---- POST ----
     def do_POST(self):
@@ -1454,6 +1488,25 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/batch_refine/run":
                 from_decisions = bool(body.get("decisions_from_file", True))
                 jid, err = start_job("batch_refine", act_batch_refine_run(from_decisions))
+                self._send(202 if not err else 409, {"error": err} if err else {"job_id": jid})
+            elif p == "/auto_rewrite/run":
+                def _int_or_none(v):
+                    try:
+                        return int(v) if v not in (None, "") else None
+                    except (TypeError, ValueError):
+                        return None
+                chapters = body.get("chapters")
+                if isinstance(chapters, str):
+                    chapters = [int(x) for x in chapters.split(",") if x.strip().isdigit()]
+                elif isinstance(chapters, list):
+                    chapters = [int(x) for x in chapters if str(x).isdigit()]
+                else:
+                    chapters = None
+                # 安全默认：未显式传 dry_run=false 时只预演，不改稿
+                dry_run = bool(body.get("dry_run", True))
+                jid, err = start_job("auto_rewrite", act_auto_rewrite_run(
+                    _int_or_none(body.get("threshold")), dry_run,
+                    _int_or_none(body.get("max_rounds")), chapters))
                 self._send(202 if not err else 409, {"error": err} if err else {"job_id": jid})
             elif p == "/prompts/save":
                 name = str(body.get("name") or "")

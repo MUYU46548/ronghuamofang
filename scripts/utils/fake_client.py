@@ -9,6 +9,7 @@
 - stage4 → data/chapters/raw/NN.md（标题+正文达标字数+quality+summary 注释）
 - stage5 → data/chapters/checked/（raw 全量复制）
 - stage6 → data/chapters/refined/（checked 复制，字数不变）
+- batch_refine → 就地改写目标章节（保留字数，quality 置 8/10），供 auto_rewrite 链路测试
 - 其余（book_summary 等）→ 任务文本里「写入」目标写一行占位
 
 仅用于 NF_API_ALLOW_FAKE=1 的测试模式与离线集成测试，不进真实流水线。
@@ -109,6 +110,29 @@ def _write_chapter(text, name):
     return [p]
 
 
+def _refine_chapter(text):
+    """batch_refine / auto_rewrite：按任务里的目标路径就地改写章节。
+
+    fake 语义：保留章节正文与字数（满足 ±20% 铁律），仅把 quality 注释置为 8/10，
+    使「重写 → 复评 → 幂等」链路可端到端验证。
+    """
+    m = re.search("写入[:：]\\s*([^ \\n]+[.]md)", text)
+    if not m:
+        m = re.search("写入文件[:：]\\s*([^ \\n]+[.]md)", text)
+    if not m:
+        return _write_generic(text)
+    p = Path(m.group(1))
+    if not p.exists():
+        return _write_generic(text)
+    body = read_text(p)
+    new_body, n = re.subn(r"<!--\s*quality:\s*[\d.]+(?:\s*/\s*10)?\s*-->",
+                          "<!-- quality: 8/10 -->", body)
+    if n == 0:
+        new_body = body.rstrip() + "\n\n<!-- quality: 8/10 -->\n"
+    write_text(p, new_body)
+    return [p]
+
+
 def _copy_raw_to_checked(_text):
     src, out = [], []
     raw = Path("data/chapters/raw")
@@ -190,6 +214,8 @@ class FakeClient:
             written = _write_chapter_outlines(text)
         elif name.startswith("stage4_ch"):
             written = _write_chapter(text, name)
+        elif name.startswith("batch_refine"):
+            written = _refine_chapter(text)
         elif name.startswith("stage5"):
             written = _copy_raw_to_checked(text)
         elif name.startswith("stage6"):
@@ -225,6 +251,8 @@ class FakeClient:
             written = _write_chapter_outlines(text)
         elif name.startswith("stage4_ch"):
             written = _write_chapter(text, name)
+        elif name.startswith("batch_refine"):
+            written = _refine_chapter(text)
         elif name.startswith("stage5"):
             written = _copy_raw_to_checked(text)
         elif name.startswith("stage6"):
