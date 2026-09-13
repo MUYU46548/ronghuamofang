@@ -372,7 +372,7 @@ def write_report(stats, out_md=REPORT_MD, out_json=REPORT_JSON):
         existing = MD_HEADER
 
     lines = [f"\n## {ts} 自动重写（阈值 {thr}，轮次 {mr}"
-             + ("，dry-run" if stats.get("dry_run") else "") + ")\n"]
+             + ("，dry-run" if stats.get("dry_run") else "") + "）\n"]
     if stats["items"]:
         lines.append("| 章 | 重写前 quality | 重写后 quality | 字数变化 | 备份 | 结果 |")
         lines.append("| --- | --- | --- | --- | --- | --- |")
