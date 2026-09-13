@@ -50,6 +50,9 @@ gates:
   review_after_stage4: true
   review_after_stage5: false
   auto_refine: false
+  # 方向3 质量自评闭环：stage4 后自动重写 quality<threshold 的章节（默认关闭）
+  auto_rewrite: false
+  auto_rewrite_max_rounds: 1
 logging:
   level: info
   rotate_days: 30
