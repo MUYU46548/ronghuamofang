@@ -69,6 +69,7 @@ async function refreshCosts() {
 
 function switchTab(t) {
   tab.value = t;
+  if (t === "inbox") cameFromInbox.value = false;   // 回到收件箱即清掉"来路"标记
   if (t === "cost" && costs.value.length === 0) refreshCosts();
   if (t === "project") loadProjects();
   if (t === "outline" && outlineRef.value) outlineRef.value.load(false);
@@ -171,12 +172,25 @@ function countItems(key) {
 }
 
 /* ---------- 大纲页签（结构化视图，任务1） ---------- */
+/* 从收件箱跳转后要能一步回来：记一个"来路"标记，在内容区顶部显示返回按钮。
+   仅当用户确实是从收件箱点进来的才显示，正常浏览其他页签不会被打扰。 */
+const cameFromInbox = ref(false);
+function gotoFromInbox(t) {
+  cameFromInbox.value = true;
+  switchTab(t);
+}
+function backToInbox() {
+  cameFromInbox.value = false;
+  switchTab("inbox");
+}
+
 const outlineRef = ref(null);
 const outlineSummary = ref(null);
 function onStructureLoaded(s) {
   outlineSummary.value = s;
 }
 function openOutlineTab() {
+  cameFromInbox.value = true;
   switchTab("outline");
   if (outlineRef.value) outlineRef.value.load(false);
 }
@@ -959,6 +973,12 @@ onUnmounted(() => clearInterval(timer));
   </div>
 
   <main class="content">
+    <!-- 从收件箱跳转而来 → 一步返回 -->
+    <div v-if="cameFromInbox && tab !== 'inbox'" class="backbar">
+      <button class="mini" @click="backToInbox">← 返回收件箱</button>
+      <span class="meta">从收件箱跳转而来；审批门（{{ pendingGates.length }} 项待处理）还在等着你</span>
+    </div>
+
     <!-- 流水线 -->
     <section v-if="tab === 'pipeline' && state" class="grid-2">
       <div class="card">
@@ -1138,7 +1158,7 @@ onUnmounted(() => clearInterval(timer));
           <button class="mini" v-if="s.stage === 2" @click="openOutlineTab">查看结构化大纲</button>
           <button class="mini" v-if="s.stage === 2" @click="openMultiDraftDlg">多方案对比</button>
           <button class="mini" v-if="s.stage === 2" @click="refineOpen = true">精修意见</button>
-          <button class="mini" v-if="s.stage === 6" @click="switchTab('chapters'); loadChapters()">章节润色稿</button>
+          <button class="mini" v-if="s.stage === 6" @click="gotoFromInbox('chapters'); loadChapters()">章节润色稿</button>
           <button class="mini" v-if="s.stage === 6" @click="openRefineDiffDlg">逐章对比</button>
           <button class="mini danger" @click="openReject(s.stage)">打回</button>
         </div>

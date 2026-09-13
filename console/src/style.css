@@ -48,15 +48,15 @@ body {
 .brand-sub { font-size: 12px; color: var(--muted); }
 .tabs {
   display: flex;
-  gap: 4px;
+  gap: 6px;
   flex: 1;
   flex-wrap: wrap;
-  max-height: 70px;
+  max-height: 78px;
   overflow-y: auto;
 }
 .tabs button {
   border: none; background: transparent; color: var(--muted);
-  padding: 8px 14px; border-radius: 10px; cursor: pointer; font-size: 14px;
+  padding: 9px 15px; border-radius: 10px; cursor: pointer; font-size: 14px;
 }
 .tabs button:hover { background: rgba(155, 143, 196, 0.12); color: var(--ink); }
 .tabs button.active { background: var(--accent); color: #fff; }
@@ -68,32 +68,34 @@ body {
 .conn.on { color: var(--ok); }
 
 /* 布局 */
-.content { position: relative; z-index: 1; padding: 18px 20px; max-width: 1180px; margin: 0 auto; }
+.content { position: relative; z-index: 1; padding: 20px 24px; max-width: 1320px; margin: 0 auto; }
+.backbar { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
 .grid-2 { display: grid; grid-template-columns: 1.25fr 1fr; gap: 16px; }
 @media (max-width: 980px) { .grid-2 { grid-template-columns: 1fr; } }
 .card {
   background: var(--card); border: 1px solid var(--border);
   border-radius: var(--radius); box-shadow: var(--shadow);
-  padding: 16px 18px; margin-bottom: 16px;
+  padding: 18px 20px; margin-bottom: 16px;
 }
-.card h3 { margin: 0 0 12px; font-size: 15px; }
-.card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.card h3 { margin: 0 0 14px; font-size: 15px; }
+.card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .card-head h3 { margin: 0; flex: 1; }
 
 /* 流水线行 */
 .stage-row {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 9px 0; border-bottom: 1px dashed var(--border);
+  padding: 13px 0; border-bottom: 1px dashed var(--border);
+  gap: 12px; flex-wrap: wrap;
 }
 .stage-row:last-of-type { border-bottom: none; }
-.stage-info { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.stage-info { display: flex; align-items: center; gap: 10px; min-width: 0; flex-wrap: wrap; }
 .stage-no {
-  width: 24px; height: 24px; border-radius: 8px; flex: none;
+  width: 26px; height: 26px; border-radius: 8px; flex: none;
   background: var(--accent-soft); color: #fff; font-weight: 700;
   display: grid; place-items: center; font-size: 13px;
 }
 .stage-name { font-weight: 600; }
-.stage-actions { display: flex; gap: 6px; flex: none; }
+.stage-actions { display: flex; gap: 8px; flex: none; }
 .running-hint {
   margin-top: 10px; font-size: 12px; color: var(--accent);
   background: rgba(155, 143, 196, 0.1); border-radius: 8px; padding: 6px 10px;
@@ -101,8 +103,9 @@ body {
 
 /* 徽标 */
 .pill {
-  font-size: 11px; border-radius: 7px; padding: 2px 8px;
+  font-size: 11px; border-radius: 7px; padding: 3px 9px;
   background: rgba(107, 113, 128, 0.1); color: var(--muted); white-space: nowrap;
+  line-height: 1.5;
 }
 .st-pending { background: rgba(107, 113, 128, 0.12); color: var(--muted); }
 .st-running { background: rgba(155, 143, 196, 0.18); color: #6f5fa8; }
@@ -115,16 +118,27 @@ body {
 /* 按钮 */
 .mini {
   border: 1px solid var(--border); background: #fff; color: var(--ink);
-  border-radius: 9px; padding: 4px 11px; font-size: 12.5px; cursor: pointer;
+  border-radius: 9px; padding: 6px 13px; font-size: 12.5px; line-height: 1.5;
+  cursor: pointer; white-space: nowrap;
 }
+.mini:disabled { opacity: 0.45; cursor: not-allowed; }
+.mini:disabled:hover { border-color: var(--border); color: var(--ink); }
 .mini:hover { border-color: var(--accent); color: var(--accent); }
 .mini.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .mini.primary:hover { background: #8a7db6; }
 .mini.danger { color: #9e4f4f; }
 .mini.danger:hover { border-color: var(--bad); }
 
+/* 全自动运行条 */
+.run-all-bar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 4px 0 14px; margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.run-all-bar .meta { margin-left: auto; }
+
 /* 产物速览 */
-.art-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; }
+.art-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; }
 .art-label { font-weight: 600; flex: none; }
 .art-path { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .spacer { flex: 1; }
@@ -287,11 +301,31 @@ body {
 .ov-toolbar { padding-bottom: 10px; }
 .ov-issues { margin-top: 8px; display: flex; flex-direction: column; gap: 3px; }
 .ov-issue { font-size: 12px; color: #8f6b33; }
-.ov-body { display: grid; grid-template-columns: minmax(300px, 38%) 1fr; gap: 16px; }
-@media (max-width: 980px) { .ov-body { grid-template-columns: 1fr; } }
-.ov-tree-card, .ov-prop-card { margin-bottom: 16px; }
-.ov-tree-scroll { max-height: 62vh; overflow: auto; }
-.ov-prop-card { min-height: 300px; }
+/* 大纲页左树右详情：树宽可拖（--ov-tree-w 由 OutlineView.vue 写入并持久化），
+   默认给到 42% 且不低于 260px，避免长节点文案被迫逐字换行。 */
+.ov-body { display: flex; align-items: flex-start; gap: 0; }
+.ov-tree-card {
+  flex: none; width: var(--ov-tree-w, 42%); min-width: 260px; max-width: 78%;
+  margin-bottom: 16px;
+}
+.ov-prop-card { flex: 1 1 auto; min-width: 0; min-height: 300px; margin-bottom: 16px; }
+.ov-tree-scroll { max-height: 72vh; overflow: auto; }
+.ov-splitter {
+  flex: none; align-self: stretch; width: 16px; cursor: col-resize;
+  display: flex; align-items: center; justify-content: center; touch-action: none;
+}
+.ov-splitter::before {
+  content: ""; width: 2px; height: 48px; border-radius: 2px;
+  background: var(--border); transition: background 0.15s ease;
+}
+.ov-splitter:hover::before, .ov-splitter.dragging::before { background: var(--accent); }
+.ov-body.split-dragging { user-select: none; cursor: col-resize; }
+@media (max-width: 980px) {
+  .ov-body { flex-direction: column; }
+  .ov-tree-card { width: auto; max-width: none; }
+  .ov-splitter { display: none; }
+  .ov-tree-scroll { max-height: 46vh; }
+}
 .ov-field { margin-top: 12px; }
 .ov-field > label {
   display: block; font-size: 12px; color: var(--muted);
@@ -299,14 +333,17 @@ body {
 }
 .ov-prop-text { min-height: 150px; }
 
-/* 树 */
+/* 树（OutlineTree.vue） */
 .tree { list-style: none; margin: 0; padding: 0; }
-.tree .tree { padding-left: 14px; }
-.tree-item { margin: 1px 0; }
+.tree .tree { padding-left: 18px; }
+/* 注意：.tree-item 是 OutlineTree 的节点容器（<li>），**只能**是普通块级流。
+   曾经这里被另一块选择器覆盖成 flex 行，导致嵌套 <ul> 与 .tree-row 并排抢宽度，
+   节点文字被压到只剩一个字宽 → 逐字换行成竖排。勿再覆盖本规则。 */
+.tree-item { display: block; margin: 2px 0; }
 .tree-row {
-  display: flex; align-items: flex-start; gap: 5px;
-  padding: 3px 6px; border-radius: 8px; cursor: pointer;
-  border: 1px solid transparent; line-height: 1.55;
+  display: flex; align-items: flex-start; gap: 6px;
+  padding: 6px 8px; border-radius: 8px; cursor: pointer;
+  border: 1px solid transparent; line-height: 1.65;
 }
 .tree-row:hover { background: rgba(155, 143, 196, 0.08); }
 .tree-row.sel { background: #eae6f7; border-color: var(--accent-soft); }
@@ -315,11 +352,13 @@ body {
 .tree-row.drop-before { box-shadow: 0 -2px 0 0 var(--accent); }
 .tree-row.drop-after { box-shadow: 0 2px 0 0 var(--accent); }
 .tree-caret {
-  width: 13px; flex: none; color: var(--muted); font-size: 10px;
-  display: inline-block; text-align: center; margin-top: 2px; user-select: none;
+  width: 17px; height: 17px; flex: none; color: var(--muted); font-size: 10px;
+  display: grid; place-items: center; margin-top: 2px; user-select: none;
+  border-radius: 5px; transition: background 0.12s ease;
 }
-.tree-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; margin-top: 6px; }
-.tree-label { flex: 1; min-width: 0; word-break: break-word; }
+.tree-caret:hover { background: rgba(155, 143, 196, 0.25); color: var(--ink); }
+.tree-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; margin-top: 7px; }
+.tree-label { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .tree-title { font-weight: 500; }
 .tree-tail { color: var(--muted); margin-left: 6px; font-size: 12.5px; }
 .tree-badge {
@@ -327,11 +366,13 @@ body {
   background: rgba(107, 113, 128, 0.12); color: var(--muted);
 }
 .tree-edit {
-  flex: 1; min-height: 46px; padding: 4px 6px; font-size: 12.5px; line-height: 1.6;
+  flex: 1; min-height: 60px; padding: 6px 8px; font-size: 13px; line-height: 1.65;
   border: 1px solid var(--accent); border-radius: 8px; background: #fff;
   color: var(--ink); font-family: inherit; resize: vertical;
 }
 .tree-edit:focus { outline: none; }
+/* 深层节点的缩进引导线，长文案阅读时更容易定位层级 */
+.tree .tree { border-left: 1px dashed var(--border); padding-left: 14px; }
 
 /* 评分色标：OK 绿 / WARN 黄 / THIN 红 */
 .dot-OK { background: var(--ok); }
@@ -502,60 +543,12 @@ body {
   padding: 16px 20px;
 }
 
-/* 项目结构树 */
-.project-tree {
-  font-size: 13px;
-}
-.tree-group {
-  margin-bottom: 10px;
-}
-.tree-group-title {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
-  margin-bottom: 4px;
-  padding-left: 4px;
-}
-.tree-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 8px;
-  border-radius: 7px;
-  cursor: pointer;
-  margin-bottom: 2px;
-}
-.tree-item:hover {
-  background: rgba(155, 143, 196, 0.1);
-}
-.tree-item.active {
-  background: rgba(155, 143, 196, 0.18);
-  font-weight: 600;
-}
-.tree-item-icon {
-  width: 16px;
-  text-align: center;
-  flex: none;
-}
-.tree-item-label {
-  flex: 1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.tree-item-status {
-  font-size: 10px;
-  font-weight: 600;
-  padding: 1px 5px;
-  border-radius: 4px;
-  flex: none;
-}
-.tree-status-done { background: var(--ok); color: #fff; }
-.tree-status-pending { background: rgba(107, 113, 128, 0.2); color: var(--muted); }
-.tree-status-running { background: var(--accent); color: #fff; }
-.tree-status-empty { background: rgba(155, 143, 196, 0.3); color: #fff; }
+/* 已删除：原「项目结构树」样式块（.project-tree / .tree-group* / .tree-item-* /
+   .tree-status-*）。该功能已移除，这些类全项目无人引用（含动态拼接）。
+   其中那条 `display:flex` 的 .tree-item 是 v0.1 竖排文本故障的元凶：
+   它覆盖了 OutlineTree.vue 的节点容器，把 <li> 变成 flex 行，嵌套 <ul> 与
+   .tree-row 并排抢宽度 → 标签被压到一字宽、逐字换行。
+   树样式统一在文件上方「树（OutlineTree.vue）」一节维护，勿在此处再造 .tree-item。 */
 
 /* AI 助手侧栏 */
 .ai-assistant {

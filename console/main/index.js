@@ -12,6 +12,9 @@ let updateDownloaded = false;
 
 function setupAutoUpdater() {
   if (process.env.NODE_ENV === "development") return;
+  // 未打包（源码直跑 electron .）时自动更新没有意义，且 electron-updater 会打印
+  // "Skip checkForUpdates because application is not packed" 这类干扰日志
+  if (!app.isPackaged) return;
   if (process.windowsStore || process.env.PORTABLE_EXEC_DIR) return;
   try {
     const { autoUpdater: au } = require("electron-updater");
@@ -22,10 +25,10 @@ function setupAutoUpdater() {
     autoUpdater.logger = console;
 
     autoUpdater.on("checking-for-update", () => {
-      console.log("[updater] 检查更新...");
+      console.log("[updater] checking for updates...");
     });
     autoUpdater.on("update-available", (info) => {
-      console.log("[updater] 发现新版本:", info.version);
+      console.log("[updater] update available:", info.version);
       updateAvailable = true;
       if (mainWindow) {
         mainWindow.webContents.send("updater", {
@@ -36,10 +39,10 @@ function setupAutoUpdater() {
       }
     });
     autoUpdater.on("update-not-available", () => {
-      console.log("[updater] 已是最新版本");
+      console.log("[updater] already up to date");
     });
     autoUpdater.on("download-progress", (progress) => {
-      console.log(`[updater] 下载进度: ${progress.percent.toFixed(1)}%`);
+      console.log(`[updater] downloading ${progress.percent.toFixed(1)}%`);
       if (mainWindow) {
         mainWindow.webContents.send("updater", {
           type: "download-progress",
@@ -49,7 +52,7 @@ function setupAutoUpdater() {
       }
     });
     autoUpdater.on("update-downloaded", (info) => {
-      console.log("[updater] 更新已下载，退出时安装");
+      console.log("[updater] update downloaded, installs on quit");
       updateDownloaded = true;
       if (mainWindow) {
         mainWindow.webContents.send("updater", {
@@ -59,7 +62,7 @@ function setupAutoUpdater() {
       }
     });
     autoUpdater.on("error", (err) => {
-      console.error("[updater] 更新错误:", err.message);
+      console.error("[updater] error:", err.message);
       if (mainWindow) {
         mainWindow.webContents.send("updater", {
           type: "error",
@@ -68,7 +71,7 @@ function setupAutoUpdater() {
       }
     });
   } catch (e) {
-    console.error("[updater] 初始化失败:", e.message);
+    console.error("[updater] init failed:", e.message);
   }
 }
 
@@ -82,7 +85,7 @@ let mainWindow = null;
 
 function startApi() {
   if (!fs.existsSync(PY)) {
-    console.error("[console] 未找到 .venv python:", PY);
+    console.error("[console] .venv python not found:", PY);
     return;
   }
   // 检查端口是否被占用
@@ -90,7 +93,7 @@ function startApi() {
   const tester = net.createServer();
   tester.once("error", (e) => {
     if (e.code === "EADDRINUSE") {
-      console.error(`[console] 端口 ${API_PORT} 已被占用。请关闭其他绒花墨坊实例，或修改端口。`);
+      console.error(`[console] port ${API_PORT} is already in use. Close other instances or change API_PORT.`);
       if (mainWindow) mainWindow.webContents.on("did-finish-load", () => {
         mainWindow.webContents.executeJavaScript(
           `alert("端口 ${API_PORT} 已被占用。\\n请关闭其他绒花墨坊实例，或修改 console/main/index.js 中的 API_PORT。");`
@@ -107,10 +110,10 @@ function startApi() {
       stdio: ["ignore", out, out],
       windowsHide: true,
     });
-    console.log("[console] nf_api 子进程已启动 pid=", apiProc.pid, "日志→", logPath);
-    apiProc.on("error", (e) => console.error("[console] nf_api spawn 失败:", e));
+    console.log("[console] nf_api child started pid=", apiProc.pid, "log ->", logPath);
+    apiProc.on("error", (e) => console.error("[console] nf_api spawn failed:", e));
     apiProc.on("exit", (code) => {
-      console.log("[nf_api] 退出 code=", code);
+      console.log("[nf_api] exited code=", code);
       apiProc = null;
     });
   });
@@ -310,13 +313,13 @@ app.whenReady().then(async () => {
   setupAutoUpdater();
   startApi();
   const ok = await waitForApi();
-  console.log("[console] nf_api 健康检查:", ok ? "通过" : "超时");
-  if (!ok) console.error("[console] nf_api 健康检查超时（界面将显示离线状态）");
+  console.log("[console] nf_api health:", ok ? "ok" : "timeout");
+  if (!ok) console.error("[console] nf_api health check timed out (UI will show offline)");
   createWindow();
   // 启动后 3 秒检查更新（避免阻塞 UI 初始化）
   if (autoUpdater) {
     setTimeout(() => {
-      autoUpdater.checkForUpdates().catch((e) => console.error("[updater] 检查失败:", e.message));
+      autoUpdater.checkForUpdates().catch((e) => console.error("[updater] check failed:", e.message));
     }, 3000);
   }
   app.on("activate", () => {

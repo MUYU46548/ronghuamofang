@@ -22,6 +22,7 @@
           { 'drop-after': dropId === node.id && dropPos === 'after' },
         ]"
         :draggable="draggable && !!node.id"
+        :title="rowTitle(node)"
         @click="$emit('select', node)"
         @dblclick.stop="editable && node.id && startEdit(node)"
         @dragstart="onDragStart($event, node)"
@@ -113,9 +114,17 @@ function toggle(node) {
 }
 
 /* ---------- 内联编辑 ---------- */
+/** 悬浮提示：树内 tail 是截断过的摘要，完整原文放 title 属性，鼠标停一下就能看全 */
+function rowTitle(node) {
+  const full = node.fullTail || "";
+  return full ? `${node.title}：${full}` : "";
+}
 function startEdit(node) {
   editId.value = node.id;
-  editText.value = node.text || `${node.title}${node.tail ? "：" + node.tail : ""}`;
+  // 预填必须用**完整**原文（node.text / fullTail）——用截断的 tail 会导致
+  // "双击编辑后直接保存"把用户原文截掉
+  const full = node.fullTail || node.tail || "";
+  editText.value = node.text || `${node.title}${full ? "：" + full : ""}`;
   nextTick(() => {
     const box = Array.isArray(editBox.value) ? editBox.value[0] : editBox.value;
     if (box && box.focus) box.focus();

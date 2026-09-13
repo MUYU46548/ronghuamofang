@@ -39,13 +39,15 @@
       </div>
     </div>
 
-    <div class="ov-body">
+    <div class="ov-body" :class="{ 'split-dragging': splitDragging }"
+         :style="treeW ? { '--ov-tree-w': treeW + 'px' } : {}">
       <!-- ============ 左：树 ============ -->
       <div class="card ov-tree-card">
         <div class="card-head">
           <h3>大纲树</h3>
           <button class="mini" @click="expandAll(true)">全展开</button>
           <button class="mini" @click="expandAll(false)">全折叠</button>
+          <button v-if="treeW" class="mini" @click="resetTreeW" title="恢复默认宽度">复位宽度</button>
         </div>
         <div class="ov-tree-scroll">
           <OutlineTree
@@ -65,6 +67,12 @@
           <div v-else class="empty">暂无大纲内容</div>
         </div>
       </div>
+
+      <!-- 拖动改树宽：双击分隔条复位 -->
+      <div class="ov-splitter" :class="{ dragging: splitDragging }"
+           title="拖动调整大纲树宽度（双击复位）"
+           @pointerdown="startSplitDrag"
+           @dblclick="resetTreeW"></div>
 
       <!-- ============ 右：属性面板 ============ -->
       <div class="card ov-prop-card">
@@ -282,7 +290,57 @@ const issueList = computed(() => {
 });
 const dirty = computed(() => raw.value !== savedRaw.value);
 
+/* ---------- 树宽可拖（长节点文案不再被挤成竖排） ---------- */
+const TREE_W_KEY = "mofang.outline.treeW";
+const treeW = ref(0);            // 0 = 用 CSS 默认（42%）
+const splitDragging = ref(false);
+
+function loadTreeW() {
+  try {
+    const v = Number(localStorage.getItem(TREE_W_KEY) || 0);
+    if (v >= 260) treeW.value = v;
+  } catch (_) { /* 忽略不可用的 localStorage */ }
+}
+
+function startSplitDrag(e) {
+  const body = e.currentTarget.parentElement;         // .ov-body
+  const card = body && body.querySelector(".ov-tree-card");
+  if (!body || !card) return;
+  const bodyW = body.getBoundingClientRect().width;
+  const startX = e.clientX;
+  const startW = card.getBoundingClientRect().width;
+  splitDragging.value = true;
+
+  function onMove(ev) {
+    const w = Math.max(260, Math.min(startW + (ev.clientX - startX), bodyW * 0.78));
+    treeW.value = Math.round(w);
+  }
+  function onUp() {
+    splitDragging.value = false;
+    window.removeEventListener("pointermove", onMove);
+    try { localStorage.setItem(TREE_W_KEY, String(treeW.value)); } catch (_) { /* noop */ }
+  }
+  window.addEventListener("pointermove", onMove);
+  window.addEventListener("pointerup", onUp, { once: true });
+  e.preventDefault();
+}
+
+function resetTreeW() {
+  treeW.value = 0;
+  try { localStorage.removeItem(TREE_W_KEY); } catch (_) { /* noop */ }
+}
+
 /* ---------- 树数据（根=书名 → act → 条目） ---------- */
+/* 树内摘要：act 的正文与节点 tail 都可能是一整段，直接塞进树会撑成几十行
+   （实测有一条 31 行的巨型节点，什么都看不清）。
+   显示用 tail 截断，**完整文本另存 fullTail** —— 内联编辑的预填与悬浮提示都用它，
+   否则"双击编辑再保存"会把用户原文截掉。完整文本始终在右侧属性面板可编辑。 */
+const TREE_TAIL_CHARS = 44;
+function clipTail(s, n = TREE_TAIL_CHARS) {
+  const t = String(s == null ? "" : s).replace(/\s+/g, " ").trim();
+  return t.length > n ? t.slice(0, n) + "…" : t;
+}
+
 const tree = computed(() => {
   if (!structure.value || !structure.value.exists) return [];
   const byAct = { 起: [], 承: [], 转: [], 合: [] };
@@ -301,15 +359,17 @@ const tree = computed(() => {
   const actChildren = (name) => {
     const list = byAct[name] || [];
     const nodeKids = list.filter((x) => x._kind === "node")
-      .map((x) => ({ ...x, title: x.title, tail: x.tail, badge: x.level ? x.level : "", children: [] }));
+      .map((x) => ({ ...x, title: x.title, tail: clipTail(x.tail), fullTail: x.tail || "",
+                     badge: x.level ? x.level : "", children: [] }));
     const planKids = list.filter((x) => x._kind === "plan")
-      .map((x) => ({ ...x, title: x.title, tail: x.tail, children: [] }));
+      .map((x) => ({ ...x, title: x.title, tail: clipTail(x.tail), fullTail: x.tail || "",
+                     children: [] }));
     // 章节规划作为子分组挂在 act 下（三级：act → 规划分组 → 条目）
     const kids = [...nodeKids];
     if (planKids.length) {
       kids.push({
         id: "grp_plan_" + name, title: "章节规划（" + planKids.length + "）", tail: "",
-        children: planKids,
+        fullTail: "", children: planKids,
       });
     }
     return kids;
@@ -317,10 +377,13 @@ const tree = computed(() => {
 
   return [{
     id: "root_book", title: props.bookName || (structure.value.title || "（未命名书）"),
-    tail: "", children: ["起", "承", "转", "合"].map((a) => ({
-      id: "act_" + a, title: "## " + a, tail: (structure.value.acts.find((x) => x.name === a) || {}).text || "",
-      children: actChildren(a),
-    })),
+    tail: "", fullTail: "", children: ["起", "承", "转", "合"].map((a) => {
+      const actText = (structure.value.acts.find((x) => x.name === a) || {}).text || "";
+      return {
+        id: "act_" + a, title: a, tail: clipTail(actText), fullTail: actText,
+        children: actChildren(a),
+      };
+    }),
   }];
 });
 
@@ -656,6 +719,6 @@ function verdictClass(v) {
   return v === "PASS" ? "st-done" : v === "WARN" ? "st-gate" : "st-failed";
 }
 
-onMounted(() => load(false));
+onMounted(() => { loadTreeW(); load(false); });
 defineExpose({ load });
 </script>
