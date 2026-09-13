@@ -33,6 +33,12 @@ POST /snapshot            {label?} → 手动快照
 POST /costs               GET 成本流水
 GET  /costs/summary       按阶段/模型聚合
 POST /models/switch       {role, model} → 切换模型
+GET  /scraps/list         原始碎片：按簇分组 + 时间轴 + 前瞻备忘（确定性，零 LLM）
+GET  /scraps/read         ?name= → 读取单个碎片正文
+POST /scraps/save         {name, content} → 写前备份后保存碎片
+POST /scraps/delete       {name, confirm:true} → 先快照再删除碎片（破坏性操作）
+POST /scraps/promote      {card_name, card_type, points[], open_questions[], sources[]}
+                          → 由 Python 落盘成 materials/raw/<名>_<类型>.md（覆盖前备份）
 
 安全边界（本地自用）：默认 127.0.0.1；写操作只允许 POST 且 Content-Type=application/json；
 除 /stage /refine /snapshot 外均即时执行。NF_API_ALLOW_FAKE=1 时 stage/refine 走
@@ -289,6 +295,129 @@ def load_all():
     cfg = yaml.safe_load((ROOT / "config" / "system.yaml").read_text(encoding="utf-8"))
     proj = yaml.safe_load((ROOT / "config" / "project.yaml").read_text(encoding="utf-8"))
     return cfg, proj
+
+
+# ---------------------------------------------------------------- 原始碎片（GUI）
+
+SCRAPS_DIR_DEFAULT = "materials/original_scraps"
+RAW_DIR = "materials/raw"
+CARD_KINDS = {"角色卡": "角色", "场景卡": "场景", "概念卡": "概念",
+              "组织卡": "组织", "物品卡": "物品"}
+
+
+def scraps_dir_path():
+    """碎片目录（config/project.yaml 的 materials.scraps_dir，默认 materials/original_scraps）。"""
+    try:
+        _, proj = load_all()
+        d = (proj.get("materials") or {}).get("scraps_dir") or SCRAPS_DIR_DEFAULT
+    except Exception:
+        d = SCRAPS_DIR_DEFAULT
+    p = Path(d)
+    return p if p.is_absolute() else (ROOT / p)
+
+
+def _safe_member(name):
+    """校验文件名（禁止路径穿越）。返回 (ok, name or error)。"""
+    n = (name or "").strip()
+    if not n or "/" in n or "\\" in n or ".." in n or n in (".", ".."):
+        return False, "非法文件名: %r" % name
+    return True, n
+
+
+def _backup_copy(target, backup_root):
+    """覆盖写前备份。返回备份相对路径或 None。"""
+    target = Path(target)
+    if not target.exists():
+        return None
+    try:
+        backup_root = Path(backup_root)
+        backup_root.mkdir(parents=True, exist_ok=True)
+        stamp = time.strftime("%Y%m%d_%H%M%S")
+        bak = backup_root / ("%s_%s%s" % (target.stem, stamp, target.suffix))
+        n = 1
+        while bak.exists():
+            bak = backup_root / ("%s_%s_%d%s" % (target.stem, stamp, n, target.suffix))
+            n += 1
+        bak.write_bytes(target.read_bytes())
+        return str(bak.relative_to(ROOT)).replace("\\", "/")
+    except Exception as e:      # noqa: BLE001
+        print("[nf_api] 备份失败: " + str(e))
+        return None
+
+
+def _point_line(p):
+    """把信息点渲染成一行（兼容字符串与结构化 dict）。"""
+    if isinstance(p, str):
+        return p.strip()
+    content = str(p.get("content") or "").strip()
+    tags = []
+    if p.get("ts"):
+        tags.append(str(p["ts"]))
+    if p.get("cluster"):
+        tags.append(str(p["cluster"]))
+    if p.get("confidence") == "low":
+        tags.append("低置信")
+    return content + ("（%s）" % "｜".join(tags) if tags else "")
+
+
+def build_card_markdown(card_name, card_type, points, open_questions=(),
+                        sources=(), book_name=""):
+    """生成素材卡 Markdown（与 materials/raw 既有卡片风格一致）。"""
+    kind = CARD_KINDS.get(card_type, "条目")
+    out = ["# %s：%s" % (kind, card_name), ""]
+    out.append("> 来源：原始碎片提炼（materials/original_scraps/，用户私人碎片，自由命名）")
+    out.append("> 用途：《%s》素材。下列信息点提炼自用户原始碎片；"
+               "【待定区】为作者尚未确定的事，不得当作正典约束引用。"
+               % (book_name or "未命名"))
+    out.append("")
+    out.append("## 信息点")
+    out.append("")
+    body = [_point_line(p) for p in (points or [])]
+    body = [b for b in body if b]
+    out.extend(["- " + b for b in body] or ["- （无）"])
+    out.append("")
+    if open_questions:
+        out.append("## 待定区（来源碎片中尚未确定，禁止当作正典）")
+        out.append("")
+        out.extend(["- " + str(q).strip() for q in open_questions if str(q).strip()])
+        out.append("")
+    out.append("## 来源溯源")
+    out.append("")
+    src = [s for s in (sources or []) if s]
+    if src:
+        out.extend(["- 碎片：%s" % s for s in src])
+    else:
+        out.append("- （未记录来源碎片，建议在 GUI 里勾选后重新提炼）")
+    out.append("")
+    return "\n".join(out)
+
+
+def promote_to_card(card_name, card_type, points, open_questions=(), sources=(),
+                    book_name="", overwrite=True):
+    """把信息点落盘成 materials/raw/<名>_<类型>.md。返回 (rel_path, backup_rel)。
+
+    模型写不了 materials/（llm_client 白名单只有 data/**），所以卡片一律由 Python 写。
+    """
+    ok, err = _safe_member(card_name)
+    if not ok:
+        raise ValueError(err)
+    stem = Path(card_name).stem
+    if card_type not in CARD_KINDS:
+        raise ValueError("未知卡片类型: %r（可选 %s）"
+                         % (card_type, "、".join(CARD_KINDS)))
+    suffix = "_" + card_type
+    if stem.endswith(suffix):
+        stem = stem[:-len(suffix)]
+    display = stem or card_name          # 标题只用名字，类型单独展示
+    file_stem = stem + suffix
+    target = ROOT / RAW_DIR / (file_stem + ".md")
+    if target.exists() and not overwrite:
+        raise FileExistsError("卡片已存在: %s" % file_stem)
+    backup = _backup_copy(target, ROOT / RAW_DIR / "_backup")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(build_card_markdown(display, card_type, points, open_questions,
+                                         sources, book_name), encoding="utf-8")
+    return str(target.relative_to(ROOT)).replace("\\", "/"), backup
 
 
 def stage_status(progress, n):
@@ -979,6 +1108,45 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, {"ok": True, "name": name, "content": content})
             except Exception as e:
                 self._send(400, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]})
+        elif p == "/scraps/list":
+            # 原始碎片列表：按簇分组 + 时间轴 + 前瞻备忘（确定性，零 LLM）
+            try:
+                from utils.scrap_cluster import collect as _scollect
+                sdir = scraps_dir_path()
+                index, warnings = _scollect(str(sdir))
+                stale = True
+                idx = ROOT / "data" / "setting" / "scraps_index.json"
+                if idx.exists():
+                    try:
+                        stale = (json.loads(idx.read_text(encoding="utf-8"))
+                                 .get("content_fingerprint")
+                                 != index["content_fingerprint"])
+                    except Exception:
+                        stale = True
+                rel = str(sdir.relative_to(ROOT)).replace("\\", "/") \
+                    if str(sdir).startswith(str(ROOT)) else str(sdir)
+                self._send(200, {
+                    "ok": True,
+                    "dir": rel,
+                    "count": index["stats"]["scrap_count"],
+                    "stats": index["stats"],
+                    "clusters": index["clusters"],
+                    "timeline": index["timeline"],
+                    "lookaheads": index["lookaheads"],
+                    "warnings": warnings + index["warnings"],
+                    "index_stale": stale,
+                    "index_path": "data/setting/scraps_index.json",
+                })
+            except Exception as e:
+                self._send(500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]})
+        elif p == "/scraps/read":
+            name = (self._query().get("name") or [""])[0]
+            try:
+                from utils.materials_manager import MaterialsManager
+                mm = MaterialsManager(scraps_dir_path())
+                self._send(200, {"ok": True, "name": name, "content": mm.read_content(name)})
+            except Exception as e:
+                self._send(400, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]})
         elif p == "/setting/current":
             try:
                 import json
@@ -1392,6 +1560,18 @@ class Handler(BaseHTTPRequestHandler):
                 # 触发 stage1 重归并（清 fingerprint + 跑 stage1）
                 try:
                     cfg, _ = load_all()
+                    # 真正清掉指纹，否则"素材无变化 → 复用设定集"会让按钮名不副实
+                    try:
+                        import json as _json
+                        from utils.file_io import read_text as _rt, write_text as _wt
+                        mp = ROOT / "data" / "setting" / "materials_manifest.json"
+                        if mp.exists():
+                            _m = _json.loads(_rt(mp))
+                            if _m.get("_fingerprint"):
+                                _m["_fingerprint"] = None
+                                _wt(mp, _json.dumps(_m, ensure_ascii=False, indent=2))
+                    except Exception as _e:
+                        print("[nf_api] 清指纹失败（不影响重归并）: " + str(_e))
                     jid, err = start_job("remerge", act_run_stage(cfg, 1, 1))
                     if err:
                         self._send(409, {"error": err})
@@ -1399,6 +1579,80 @@ class Handler(BaseHTTPRequestHandler):
                         self._send(202, {"job_id": jid, "message": "已触发素材重归并（阶段1）"})
                 except Exception as e:
                     self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
+            elif p == "/scraps/save":
+                # 保存碎片正文（写前自动备份到 materials/original_scraps/_backup/）
+                name = str(body.get("name") or "").strip()
+                content = body.get("content")
+                okn, err = _safe_member(name)
+                if not okn:
+                    self._send(400, {"ok": False, "error": err})
+                    return
+                if not isinstance(content, str):
+                    self._send(400, {"ok": False, "error": "content 必须为字符串"})
+                    return
+                try:
+                    target = scraps_dir_path() / name
+                    if not target.is_file():
+                        self._send(404, {"ok": False, "error": "碎片不存在: " + name})
+                        return
+                    bak = _backup_copy(target, scraps_dir_path() / "_backup")
+                    target.write_text(content, encoding="utf-8")
+                    self._send(200, {"ok": True, "name": name,
+                                     "size": target.stat().st_size, "backup": bak})
+                except Exception as e:
+                    self._send(400, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]})
+            elif p == "/scraps/delete":
+                # 删除碎片：破坏性操作 → 必须 confirm + 先快照
+                name = str(body.get("name") or "").strip()
+                if not body.get("confirm"):
+                    self._send(400, {"ok": False,
+                                     "error": "删除碎片属破坏性操作，需传 confirm=true"})
+                    return
+                okn, err = _safe_member(name)
+                if not okn:
+                    self._send(400, {"ok": False, "error": err})
+                    return
+                try:
+                    target = scraps_dir_path() / name
+                    if not target.is_file():
+                        self._send(404, {"ok": False, "error": "碎片不存在: " + name})
+                        return
+                    snap_label = "before_scrap_delete_" + Path(name).stem[:20]
+                    snap_err = None
+                    try:
+                        snap_mod.snapshot(snap_label)   # 返回快照目录路径
+                    except Exception as e:      # noqa: BLE001
+                        snap_err = str(e)[:200]
+                    bak = _backup_copy(target, scraps_dir_path() / "_backup")
+                    target.unlink()
+                    self._send(200, {"ok": True, "name": name, "backup": bak,
+                                     "snapshot_error": snap_err})
+                except Exception as e:
+                    self._send(400, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]})
+            elif p == "/scraps/promote":
+                # 勾选信息点 → 落盘成 materials/raw/<名>_<类型>.md
+                # 由 Python 写盘（模型写入白名单只有 data/**），覆盖前自动备份
+                card_name = str(body.get("card_name") or "").strip()
+                card_type = str(body.get("card_type") or "").strip()
+                points = body.get("points") or []
+                if not card_name:
+                    self._send(400, {"ok": False, "error": "card_name 必填"})
+                    return
+                if not isinstance(points, list) or not points:
+                    self._send(400, {"ok": False, "error": "points 必须是非空数组"})
+                    return
+                try:
+                    _, proj = load_all()
+                    path, bak = promote_to_card(
+                        card_name, card_type, points,
+                        open_questions=body.get("open_questions") or [],
+                        sources=body.get("sources") or [],
+                        book_name=(proj.get("book") or {}).get("name", ""),
+                        overwrite=body.get("overwrite", True))
+                    self._send(200, {"ok": True, "path": path, "backup": bak,
+                                     "hint": "已写入素材卡；下次跑 stage1 时进入设定集归并"})
+                except Exception as e:
+                    self._send(400, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]})
             else:
                 self._send(404, {"error": "未知路径 " + p})
         except (ValueError, TypeError) as e:

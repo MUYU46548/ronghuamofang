@@ -3,8 +3,12 @@ import { ref, computed, onMounted, onUnmounted } from "vue";
 import { diffParagraphs } from "./diff.js";
 import ReviewConsole from "./ReviewConsole.vue";
 import OutlineView from "./OutlineView.vue";
+import ScrapsPanel from "./ScrapsPanel.vue";
 
 const API = "http://127.0.0.1:8765";
+
+// 素材页签内的子视图：结构化卡片（materials/raw） / 原始碎片（materials/original_scraps）
+const materialSub = ref("cards");
 
 async function api(path, method = "GET", body = null) {
   const opt = { method, headers: { "Content-Type": "application/json" } };
@@ -1368,9 +1372,17 @@ onUnmounted(() => clearInterval(timer));
         <button class="mini" @click="loadMaterials">刷新</button>
       </div>
 
-      <div class="meta" style="margin-bottom: 12px;">
-        目录: {{ materialDir }}
+      <div class="tabs-sub">
+        <button :class="{ on: materialSub === 'cards' }" @click="materialSub = 'cards'">结构化卡片</button>
+        <button :class="{ on: materialSub === 'scraps' }" @click="materialSub = 'scraps'">
+          原始碎片
+        </button>
       </div>
+
+      <div v-if="materialSub === 'cards'">
+        <div class="meta" style="margin-bottom: 12px;">
+          目录: {{ materialDir }}
+        </div>
 
       <!-- 新建素材表单 -->
       <div v-if="newMaterialOpen" style="margin-bottom: 16px; padding: 12px; border: 1px solid var(--border); border-radius: 8px;">
@@ -1411,6 +1423,10 @@ onUnmounted(() => clearInterval(timer));
           </tr>
         </tbody>
       </table>
+      </div>
+
+      <!-- 原始碎片（自由命名 / 私人数据 / 不进 Git）→ 勾选信息点 → 一键生成素材卡 -->
+      <ScrapsPanel v-else />
     </section>
   </main>
 

@@ -4,7 +4,12 @@
 前置：config/project.yaml 书名可任意（fake 不读）；data/ 已清理。
 运行：.venv/Scripts/python.exe scripts/nf_api_selftest.py
 覆盖：health/models/state、stage1→2 全链、审批门（exit=3 语义）、
-      撤销审批、打回 dry-run、refine dry-run、409 并发互斥、404。
+      撤销审批、打回 dry-run、refine dry-run、409 并发互斥、404、
+      碎片只读端点（/scraps/list、/scraps/read：自建临时碎片，跑完即清理）。
+
+注意：碎片**写入类**端点（save/delete/promote）会落盘到 materials/，不在本脚本里跑，
+避免污染用户私人碎片与素材卡；那部分的端到端验收见 Temp/test_scraps_api_http.py
+（它在临时项目根里起服务，真实仓库零触碰）。
 """
 import json
 import os
@@ -169,6 +174,31 @@ def main():
         if code == 202:
             jf = wait_job(rf["job_id"])
             check("refine outline 完成", jf["state"] == "ok", str(jf)[:200])
+
+        # 碎片只读端点（自建临时碎片，跑完即清理；不碰用户已有碎片）
+        scraps_dir = ROOT / "materials" / "original_scraps"
+        scraps_dir.mkdir(parents=True, exist_ok=True)
+        probe = scraps_dir / "__selftest_月神碎片.md"
+        probe.write_text("2024年3月5日\n月神造了月兔，却没给他们同类。\n待定：那道抓痕是谁留的。\n",
+                         encoding="utf-8")
+        try:
+            code, sl = req("GET", "/scraps/list")
+            check("scraps/list 200", code == 200 and sl.get("ok") is True, str(sl)[:160])
+            check("scraps/list 含自建碎片",
+                  any(s["name"] == probe.name
+                      for c in sl.get("clusters", []) for s in c.get("scraps", [])),
+                  str(sl)[:200])
+            check("scraps/list 带出前瞻备忘（供 GUI 提醒作者待定事项）",
+                  sl.get("stats", {}).get("lookahead_count", 0) >= 1, sl.get("stats"))
+            check("scraps/list 时间戳来自文件名",
+                  sl.get("stats", {}).get("ts_from_filename", 0) >= 1, sl.get("stats"))
+            code, sr = req("GET", "/scraps/read?name=" + probe.name)
+            check("scraps/read 200 且正文可读",
+                  code == 200 and "月神造了月兔" in (sr.get("content") or ""), str(sr)[:160])
+            code, st_ = req("GET", "/scraps/read?name=..%2Fconfig%2Fproject.yaml")
+            check("scraps/read 拦截路径穿越", code == 400, (code, str(st_)[:120]))
+        finally:
+            probe.unlink(missing_ok=True)
 
         # 404
         code, e404 = req("GET", "/nope")
