@@ -33,6 +33,17 @@ book:
   #   控制台「设置」页签可直接编辑本字段（经 IPC 写入，保存前自动备份 config/history/）。
   style_notes: ""
 
+materials:
+  # 结构化素材卡目录（管线消费）：stage1 扫描此处并归并成设定集
+  dir: "materials/raw"
+  # 原始创作碎片目录（用户自由命名、私人数据、不进 Git）：
+  #   自由命名、格式随意，只作 stage1 归并的额外输入，永不写进 materials/raw/
+  #   聚类/时间轴/前瞻备忘由 scripts/utils/scrap_cluster.py 确定性生成
+  #   （聚类靠内容共现，不依赖文件名；改碎片会触发设定集重新归并）
+  scraps_dir: "materials/original_scraps"
+  # 是否启用碎片管线：true=自动（碎片为空时自动退化为普通流程）；false=完全忽略碎片
+  use_scraps: true
+
 vault:
   readonly: true                  # ROSA 设定库只读（系统永不写入 E:/图书馆/ROSA）
   vault_links: "materials/vault_links.md"  # 设定库引用索引（阶段1 生成/维护）

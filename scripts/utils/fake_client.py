@@ -2,6 +2,7 @@
 """FakeClient：无 LLM 的全链路假执行器（P0-3 先例复活，P0 API 验收专用）。
 
 按任务文件名推断阶段，写出能通过各阶段确定性校验的产物：
+- stage1_scraps → data/setting/scraps_merge.json（points/conflicts/open_questions）
 - stage1 → data/setting/setting.json（四顶层键 + 至少一个角色）
 - stage2/stage2_refine → data/outline/global.md（起承转合/关键节点/预计章节数）
 - stage3 → data/outline/chapters/NN.md（核心事件/涉及角色/功能）
@@ -12,6 +13,7 @@
 
 仅用于 NF_API_ALLOW_FAKE=1 的测试模式与离线集成测试，不进真实流水线。
 """
+import json
 import re
 from pathlib import Path
 
@@ -26,6 +28,25 @@ def _words_para(min_words):
     need = max(int(min_words), 400)
     body = sentence * (need // len(sentence) + 2)
     return body
+
+
+def _write_scraps_merge(text):
+    """阶段1a：碎片提炼产物（points/conflicts/open_questions）。"""
+    m = re.search("写入文件:\\s*([^ \\r\\n]+[.]json)", text)
+    p = Path(m.group(1)) if m else Path("data/setting/scraps_merge.json")
+    p.parent.mkdir(parents=True, exist_ok=True)
+    write_text(p, json.dumps({
+        "points": [{
+            "id": "p001", "cluster": "fake簇", "cluster_note": "",
+            "ts": None, "ts_source": "mtime",
+            "content": "（fake）碎片提炼出的一个信息点",
+            "suggest_card": "角色卡", "confidence": "low",
+            "source_file": "fake.md",
+        }],
+        "conflicts": [],
+        "open_questions": ["（fake）留待作者确定的事项"],
+    }, ensure_ascii=False, indent=2))
+    return [p]
 
 
 def _write_setting(_text):
@@ -159,7 +180,9 @@ class FakeClient:
         path = Path(task_file)
         text = read_text(path)
         name = path.name
-        if name.startswith("stage1"):
+        if name.startswith("stage1_scraps"):
+            written = _write_scraps_merge(text)
+        elif name.startswith("stage1"):
             written = _write_setting(text)
         elif name.startswith("stage2"):
             written = _write_global(text)
@@ -192,7 +215,9 @@ class FakeClient:
         path = Path(task_file)
         text = read_text(path)
         name = path.name
-        if name.startswith("stage1"):
+        if name.startswith("stage1_scraps"):
+            written = _write_scraps_merge(text)
+        elif name.startswith("stage1"):
             written = _write_setting(text)
         elif name.startswith("stage2"):
             written = _write_global(text)
