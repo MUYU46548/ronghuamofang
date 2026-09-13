@@ -26,6 +26,14 @@ Thumbs.db
 Temp/
 .hermes/
 
+# ===== 用户私人数据（不进 Git，后续由"导入/导出"功能自行管理）=====
+# 原始创作碎片：自由命名、含私人记忆线索，绝不随源码仓库走
+materials/original_scraps/
+# 碎片改写前的自动备份
+materials/original_scraps/_backup/
+# 碎片→卡片落盘时的同名覆盖备份
+materials/raw/_backup/
+
 # ===== 桌面控制台（Node 依赖与构建产物，本地安装即可） =====
 console/node_modules/
 console/renderer/dist/
