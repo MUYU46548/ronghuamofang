@@ -83,6 +83,53 @@ function switchTab(t) {
   if (t === "materials") loadMaterials();
   if (t === "story") loadSetting();
   if (t === "outline_chapters") loadOutlineChapters();
+  if (t === "export") refreshExportState();
+}
+
+/* ---------- 导出（P3 多平台发布） ---------- */
+const exportCfg = ref({ format: "both", volSize: 5, includeFrontmatter: true });
+const exporting = ref(false);
+const exportMsg = ref("");
+const exportHistory = ref([]);
+
+async function runExport() {
+  if (exporting.value) return;
+  if (!window.confirm(`确定导出？\n\n格式: ${exportCfg.value.format}\n每卷 ${exportCfg.value.volSize} 章`)) return;
+  exporting.value = true;
+  exportMsg.value = "";
+  try {
+    const r = await api("/export/markdown", "POST", {
+      per_vol: exportCfg.value.volSize,
+      book_name: null,
+    });
+    if (r.status === 200 && r.data.ok) {
+      exportMsg.value = r.data.message;
+      exportHistory.value.unshift({
+        time: new Date().toLocaleString("zh-CN"),
+        volumes: "",
+        chapters: "",
+        format: exportCfg.value.format,
+        path: r.data.path,
+      });
+      say("导出完成");
+    } else {
+      exportMsg.value = "导出失败: " + (r.data.error || r.data.message);
+    }
+  } catch (e) {
+    exportMsg.value = "导出错误: " + (e.message || e);
+  } finally {
+    exporting.value = false;
+  }
+}
+
+async function refreshExportState() {}
+
+function openExportDir(path) {
+  if (window.mofangAPI?.openArtifact) {
+    window.mofangAPI.openArtifact(path);
+  } else {
+    say("请在 Electron 中使用此功能");
+  }
 }
 
 /* ---------- 章节大纲（B2） ---------- */
@@ -1001,6 +1048,7 @@ onUnmounted(() => clearInterval(timer));
       </button>
       <button :class="{ active: tab === 'project' }" @click="switchTab('project')">项目</button>
       <button :class="{ active: tab === 'settings' }" @click="switchTab('settings')">设置</button>
+      <button :class="{ active: tab === 'export' }" @click="switchTab('export')">导出</button>
     </nav>
     <div class="conn" :class="{ on: online }">{{ online ? "已连接" : "离线" }}</div>
   </header>
@@ -1434,6 +1482,59 @@ onUnmounted(() => clearInterval(timer));
       </div>
 
       <div class="meta" style="margin-top: 12px;">项目目录: {{ state ? state.project_dir : "-" }}</div>
+    </section>
+
+    <!-- 导出面板（P3 多平台发布） -->
+    <section v-if="tab === 'export'" class="card">
+      <div class="card-head">
+        <h3>多平台导出</h3>
+        <span class="meta">Markdown 分卷 + Word 成品</span>
+      </div>
+
+      <div class="export-grid">
+        <!-- 导出配置 -->
+        <div class="export-panel">
+          <h4>导出配置</h4>
+
+          <div class="bp-field">
+            <label>导出格式</label>
+            <select v-model="exportCfg.format" class="bp-select">
+              <option value="both">Markdown + Word（双格式）</option>
+              <option value="md">仅 Markdown</option>
+              <option value="docx">仅 Word</option>
+            </select>
+          </div>
+
+          <div v-if="exportCfg.format !== 'docx'" class="bp-field">
+            <label>每卷章节数（仅 Markdown 分卷）</label>
+            <input v-model.number="exportCfg.volSize" type="number" min="1" max="30" class="bp-input" />
+          </div>
+
+          <div class="bp-field">
+            <label>
+              <input type="checkbox" v-model="exportCfg.includeFrontmatter" />
+              包含 frontmatter 元数据
+            </label>
+          </div>
+
+          <button class="mini primary" :disabled="exporting" @click="runExport">
+            {{ exporting ? '导出中...' : '开始导出' }}
+          </button>
+
+          <div v-if="exportMsg" class="meta" style="margin-top: 8px;">{{ exportMsg }}</div>
+        </div>
+
+        <!-- 最近导出 -->
+        <div class="export-panel">
+          <h4>最近导出</h4>
+          <div v-if="!exportHistory.length" class="bp-empty">暂无导出记录</div>
+          <div v-for="h in exportHistory" :key="h.time" class="export-history-item">
+            <span class="export-time">{{ h.time }}</span>
+            <span class="export-meta">{{ h.volumes }} 卷 / {{ h.chapters }} 章 · {{ h.format }}</span>
+            <button class="mini" @click="openExportDir(h.path)">打开目录</button>
+          </div>
+        </div>
+      </div>
     </section>
 
     <!-- 素材管理（A1 P0） -->

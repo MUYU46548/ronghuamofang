@@ -1282,8 +1282,21 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, {"ok": True, "total_files": idx["total_files"], "terms": len(idx["terms"])})
             except Exception as e:
                 self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
+        elif p == "/export/markdown":
+            # Markdown 分卷导出（P3 多平台发布）
+            try:
+                import stage8_markdown_export as s8
+                per_vol = int(body.get("per_vol") or 5)
+                book_name = body.get("book_name") or None
+                ok, msg, path = s8.export_markdown(
+                    book_name=book_name,
+                    chapters_per_vol=per_vol
+                )
+                self._send(200 if ok else 400, {"ok": ok, "message": msg, "path": path})
+            except Exception as e:
+                self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
         else:
-            self._send(404, {"error": "未知路径 " + p + "（可用: /health /state /models /project/list /stage/{n}/run /stream/{job_id} /jobs/{id} /materials/* /scraps/* /setting/current /outline/chapters/* /kb/search /kb/build /auto_rewrite/run）"})
+            self._send(404, {"error": "未知路径 " + p + "（可用: /health /state /models /project/list /stage/{n}/run /stream/{job_id} /jobs/{id} /materials/* /scraps/* /setting/current /outline/chapters/* /kb/search /kb/build /export/markdown /auto_rewrite/run）"})
 
     # ---- POST ----
     def do_POST(self):

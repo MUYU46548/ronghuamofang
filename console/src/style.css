@@ -636,3 +636,34 @@ body {
 .outline-chapter-detail {
   padding-left: 10px;
 }
+
+/* ===== 导出面板 ===== */
+.export-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.export-panel {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.02);
+}
+.export-panel h4 {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--muted-foreground);
+}
+.export-history-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  font-size: 12px;
+}
+.export-time {
+  color: var(--muted-foreground);
+  min-width: 140px;
+}
+.export-meta { flex: 1; }
