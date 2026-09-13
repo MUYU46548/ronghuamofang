@@ -43,6 +43,7 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是全自动
 | 设定补全（审批前） | `python scripts/setting_refine.py "意见"` 或 `--auto-thin`（仅从素材推断+llm_inferred 标记，备份 data/setting/history/） |
 | 大纲精修（定向修订） | `python scripts/refine_outline.py "意见"`（`--dry-run` 只生成任务不跑子会话） |
 | 章节精修（定向修订） | `python scripts/refine_chapter.py 3 "意见"`（备份 data/chapters/history/，±20% 铁律） |
+| 低分章自动重写（方向3） | `python scripts/auto_rewrite.py [--threshold 6] [--chapters 3,7] [--max-rounds 1] [--dry-run]`（复用 batch_refine 的备份/铁律/提示词；orchestrator 由 `gates.auto_rewrite` 触发，**默认关**） |
 | 全书摘要（完书后） | `python scripts/book_summary.py`（输出 output/{书名}_全书摘要.md，可粘贴 ROSA） |
 | ROSA 后处理（完书后） | `python scripts/rosa_postprocess.py [--books\|--role-records\|--roles "露汐,小林"] [--dry-run] [--no-llm]`（作品介绍页/出场记录/新角色设定草稿 → Obsidian_AI_Sandbox/10_Inbox/） |
 | 角色出场统计 | `python scripts/appearances.py`（确定性，输出 data/state/appearances.json，rosa_postprocess 自动调用） |
@@ -60,6 +61,8 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是全自动
 | 碎片聚类自检 | `python Temp/test_scrap_cluster.py`（自由命名 / 时间戳回退 / 内容聚类 / 否定语境 / 指纹稳定性，44 断言） |
 | stage1 碎片集成自检 | `python Temp/test_stage1_scraps.py`（在**临时工作目录**跑 fake 全链，真实 data/ 零污染；含"改碎片必触发重归并"） |
 | 碎片端点 HTTP 自检 | `python Temp/test_scraps_api_http.py`（临时项目根起 nf_api，覆盖 save/delete/promote 等写入端点与确认门，真实仓库零触碰） |
+| 质量自评闭环自检 | `python Temp/test_auto_rewrite.py`（临时工作目录跑 fake：目标收集/兜底重扫/dry-run/幂等/轮次上限/预算熔断/审稿发现叠加，39 断言） |
+| 自动重写端点 HTTP 自检 | `python Temp/test_auto_rewrite_api_http.py`（临时项目根起 nf_api：`/state` 暴露字段 + `POST /auto_rewrite/run` 默认 dry-run/显式执行/幂等，17 断言） |
 
 ## 关键路径
 
@@ -77,6 +80,13 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是全自动
 - 项目快照：`history/{时间戳}_{标签}/`（每阶段成功后自动生成，保留最近 10 份；data/ 不进 git，快照承担版本职责）
 - 多书归档：`data/books/{书名}/`（switch_book.py 归档/恢复；切换前 orchestrator 会提示书名不一致）
 - 章节修订历史：`data/chapters/history/`（refine_chapter.py 每次精修备份 chNN_vM.md）
+- 自动重写报告：`data/outline/auto_rewrite_report.md`（人可读，每次运行追加）
+  / `data/outline/auto_rewrite_report.json`（机器可读，`latest` + `runs` 最近 50 次）
+- 自动重写状态：`data/state/progress.json` → `stages["4"].auto_rewritten`（`{章号: 已用轮次}`，
+  幂等依据；轮次用尽后保留 `needs_rewrite` 转人工）。开关 `gates.auto_rewrite`（默认 false）
+  / `gates.auto_rewrite_max_rounds`（默认 1）
+- 控制台触发：`POST /auto_rewrite/run {threshold?, max_rounds?, chapters?, dry_run?}`
+  （**dry_run 默认 true**，须显式 `dry_run:false` 才真正改稿；`GET /state` 可只读查看上述状态）
 - 设定库引用索引：`materials/vault_links.md`（stage1 归并后自动生成，素材→设定条目溯源）
 - 原始创作碎片：`materials/original_scraps/`（**用户私人数据，自由命名、不进 Git**；与 `materials/raw/`
   分工：raw=管线消费的结构化卡片，original_scraps=人类乱写的原始碎片，只在 stage1 归并时作为额外输入）
@@ -107,6 +117,11 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是全自动
 - **预算熔断（exit=2）**：查询 `SELECT SUM(cost_yuan) FROM cost_log` → 与用户确认是否调高 `config/system.yaml` 的 `budget.limit_yuan` → 清 `data/state/progress.json` 的 `budget.paused` → 重跑
 - **用户打回**：`python scripts/reject.py --stage N "原因"`（记录原因、清理 N 及下游产物、重置状态、撤销审批；history/ 备份保留可回退）→ `--from N` 重跑。打回 2 用精修通道（refine_outline）而非 reject
 - **素材更新**：新增素材后 `--from 1` 重跑（已有章节文件自动跳过，不会重写）
+- **低分章自动重写（方向3）**：默认关闭。开启：`config/system.yaml` 的 `gates.auto_rewrite: true`
+  → stage4 后自动重写 `quality < chapter.quality_threshold` 的章节（排在审稿分支之前）。
+  手动跑：`python scripts/auto_rewrite.py`（先 `--dry-run` 预演）。批次报告见
+  `data/outline/auto_rewrite_report.md`；重写后仍不达标的章保留 `needs_rewrite` 转人工，
+  用 `batch_refine.py` 处理。**开启前须与用户确认**（会产生 LLM 费用）
 - **提示词调优**：直接改 `prompts/stageN_*.md`（模板与代码分离，无需改脚本）
 
 ## 硬性约束
