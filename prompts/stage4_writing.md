@@ -24,6 +24,9 @@ temperature: 0.8
 {{style_samples}}
 {{style_notes}}
 
+## 知识库上下文（相关正典词条，写作时参考）
+{{kb_context}}
+
 ## 写作要求
 1. 字数 {{min_words}}-{{max_words}} 字
 2. 严格遵循本章大纲事件推进；可补充细节，但不得新增关键情节

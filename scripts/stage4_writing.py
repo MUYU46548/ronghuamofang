@@ -23,25 +23,44 @@ from utils.cost_tracker import CostTracker
 SUMMARY_RE = re.compile(r"<!--\s*summary:\s*(.+?)\s*-->", re.IGNORECASE | re.S)
 
 
+def _safe_read(path, budget=20000):
+    try:
+        return read_text(path)[:budget]
+    except Exception:
+        return ""
+
+
 def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, prev_tail):
     target = cfg.get("chapter", {}).get("target_words", [2000, 3000])
     tail_section = "\n\n".join(prev_tail) if prev_tail else "（无上一章，本章为开篇）"
     book = proj.get("book", {})
-    style_ref = (book.get("style_reference") or "").strip()
-    style_text = ""
-    if style_ref and Path(style_ref).exists():
-        style_text = read_text(style_ref).strip()[:6000]  # 上限 6K 字符，防任务文件膨胀
-    if not style_text:
-        style_text = "（未提供，请严格按下方文风要求写作）"
 
-    # 范文原文片段（few-shot）：以"本章大纲 + 上一章末尾衔接段"作为当前内容，
-    # 避开与待写内容高度相似的段落；无范文时返回 ""，模板该节自然为空。
+    # 风格注入
+    style_ref = (book.get("style_reference") or "").strip()
+    style_text = read_text(style_ref).strip()[:6000] if style_ref and Path(style_ref).exists() else "（未提供，请严格按下方文风要求写作）"
     style_samples = ""
     if style_ref:
         current_text = "\n".join([tail_section, _safe_read(outline_path)])
         style_samples = extract_style_samples(style_ref, current_text=current_text)
-    # 用户手写的风格笔记（与自动分析叠加，优先级最高）；未配置时为 ""
     style_notes = build_style_notes_section(book.get("style_notes", ""))
+
+    # P2.4 知识库上下文注入（纯角色名，避免整段描述干扰检索）
+    kb_context = ""
+    try:
+        from utils import kb_index
+        idx = kb_index.load_index()
+        if idx:
+            outline_text = _safe_read(outline_path, budget=8000)
+            rm = re.search(r"涉及角色[：:]\s*(.+)", outline_text)
+            query = rm.group(1)[:100] if rm else outline_text[:100]
+            results = kb_index.search(query, index=idx, top_k=5, vault_path="E:/图书馆/ROSA")
+            if results:
+                parts = ["### 相关正典词条（写作时参考，locked 条目不可违逆）"]
+                for path, name, snippet, score in results:
+                    parts.append(f"**{name}**（相关度 {score:.1f}）\n{snippet}\n")
+                kb_context = "\n".join(parts)
+    except Exception:
+        pass
 
     _, body = load_template("stage4_writing.md", {
         "n": n,
@@ -54,19 +73,12 @@ def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, p
         "style_reference": style_text,
         "style_samples": style_samples,
         "style_notes": style_notes,
+        "kb_context": kb_context,
         "min_words": target[0],
         "max_words": target[1],
         "path_output": Path(f"data/chapters/raw/{n:02d}.md").resolve(),
     })
     return body
-
-
-def _safe_read(path, budget=20000):
-    """读取文件正文用于相似度参照；读不到返回空串，不打断任务构建。"""
-    try:
-        return read_text(path)[:budget]
-    except Exception:
-        return ""
 
 
 def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=None):
@@ -85,7 +97,6 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     todo = [n for n in range(1, total + 1) if n not in completed or n in failed_ns]
 
     if not todo:
-        print("[stage4] 全部章节已存在，跳过")
         progress.set_stage(4, "done")
         return True, "stage4 跳过（已完成）"
 
@@ -109,15 +120,11 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                     if cost else 0)
         if result["exit_code"] != 0:
             progress.mark_chapter_failed(n, "子会话退出码非零", 4)
-            if db and run_id:
-                db.log_chapter(run_id, 4, n, "failed", error="exit非零")
             print(f"[stage4] 第{n}章子会话失败")
             continue
 
         if not chap_path.exists():
             progress.mark_chapter_failed(n, "章节文件未生成", 4)
-            if db and run_id:
-                db.log_chapter(run_id, 4, n, "failed", error="未生成文件")
             continue
 
         check = check_chapter(chap_path,
@@ -125,9 +132,6 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                               cfg.get("chapter", {}).get("target_words", [2000, 3000])[1])
         if not check.ok:
             progress.mark_chapter_failed(n, "校验失败: " + "; ".join(check.errors), 4)
-            if db and run_id:
-                db.log_chapter(run_id, 4, n, "failed", error="; ".join(check.errors),
-                               quality=check.quality, cost_yuan=cost_est)
             print(f"[stage4] 第{n}章校验失败: {check.errors[:2]}")
             continue
 
@@ -159,7 +163,6 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
             cost.charge_cost(run_id, 4, n, result)
         print(f"[stage4] 第{n}章完成 {check.summary()}")
 
-    # 收尾
     remaining_failed = progress.failed_chapters(4)
     if remaining_failed:
         progress.set_stage(4, "failed", failed_count=len(remaining_failed))

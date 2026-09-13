@@ -1255,8 +1255,35 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, {"ok": True, "n": int(n), "content": content})
             except Exception as e:
                 self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
+        elif p == "/kb/search":
+            # 知识库检索（供写作时注入上下文）
+            try:
+                from utils import kb_index
+                q = self._query()
+                query = (q.get("q") or [""])[0]
+                top = int((q.get("top") or ["5"])[0])
+                chars = int((q.get("chars") or ["300"])[0])
+                idx = kb_index.load_index()
+                if not idx:
+                    self._send(200, {"ok": False, "hint": "索引不存在，请先 POST /kb/build"})
+                    return
+                results = kb_index.search(query, index=idx, top_k=top, vault_path="E:/图书馆/ROSA")
+                items = []
+                for path, name, snippet, score in results:
+                    items.append({"path": path, "name": name, "snippet": snippet[:chars], "score": score})
+                self._send(200, {"ok": True, "query": query, "results": items})
+            except Exception as e:
+                self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
+        elif p == "/kb/build":
+            # 构建知识库索引（后台任务）
+            try:
+                from utils import kb_index
+                idx = kb_index.build_index("E:/图书馆/ROSA", "data/state/kb_index.pkl")
+                self._send(200, {"ok": True, "total_files": idx["total_files"], "terms": len(idx["terms"])})
+            except Exception as e:
+                self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
         else:
-            self._send(404, {"error": "未知路径 " + p + "（可用: /health /state /models /project/list /stage/{n}/run /stream/{job_id} /jobs/{id} /materials/* /scraps/* /setting/current /outline/chapters/* /auto_rewrite/run）"})
+            self._send(404, {"error": "未知路径 " + p + "（可用: /health /state /models /project/list /stage/{n}/run /stream/{job_id} /jobs/{id} /materials/* /scraps/* /setting/current /outline/chapters/* /kb/search /kb/build /auto_rewrite/run）"})
 
     # ---- POST ----
     def do_POST(self):
@@ -1375,6 +1402,36 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(200, res)
                 else:
                     self._send(400, {"ok": False, "error": res})
+
+                # 结构化编辑器保存单章大纲（验证+备份+写盘）
+                try:
+                    n = int(body.get("n") or 0)
+                    content = body.get("content") or ""
+                    if not (1 <= n <= 999):
+                        self._send(400, {"error": "n 须为 1-999"})
+                        return
+                    if not content.strip():
+                        self._send(400, {"error": "内容为空"})
+                        return
+                    if "核心事件" not in content:
+                        self._send(400, {"error": "缺少「核心事件」字段"})
+                        return
+                    if "涉及角色" not in content:
+                        self._send(400, {"error": "缺少「涉及角色」字段"})
+                        return
+                    import shutil
+                    from datetime import datetime
+                    chapters_dir = ROOT / "data" / "outline" / "chapters"
+                    chapters_dir.mkdir(parents=True, exist_ok=True)
+                    path = chapters_dir / f"{n:02d}.md"
+                    if path.exists():
+                        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        bak = chapters_dir / f"{n:02d}_v{ts}.bak"
+                        shutil.copy2(path, bak)
+                    path.write_text(content, encoding="utf-8")
+                    self._send(200, {"ok": True, "n": n, "file": path.name})
+                except Exception as e:
+                    self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
             elif p == "/refine/outline/node":
                 node_id = str(body.get("node_id") or body.get("entry_id") or "")
                 fb = str(body.get("feedback") or "")

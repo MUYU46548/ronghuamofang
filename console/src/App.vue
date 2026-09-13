@@ -5,6 +5,7 @@ import ReviewConsole from "./ReviewConsole.vue";
 import OutlineView from "./OutlineView.vue";
 import ScrapsPanel from "./ScrapsPanel.vue";
 import RoleGraph from "./RoleGraph.vue";
+import ChapterBlueprint from "./ChapterBlueprint.vue";
 
 const API = "http://127.0.0.1:8765";
 
@@ -928,6 +929,7 @@ async function quitAndInstall() {
   }
 }
 
+
 onMounted(() => {
   refresh();
   timer = setInterval(refresh, 2500);
@@ -1193,26 +1195,9 @@ onUnmounted(() => clearInterval(timer));
     </div>
 
     <!-- 章节大纲（B2） -->
+    <!-- 分章大纲（章节蓝图编辑器 P2.2） -->
     <section v-if="tab === 'outline_chapters'" class="card">
-      <div class="card-head">
-        <h3>章节大纲（data/outline/chapters/）</h3>
-        <button class="mini" @click="loadOutlineChapters">刷新</button>
-      </div>
-      <div v-if="!outlineChapters.length" class="empty">暂无逐章大纲</div>
-      <div class="grid-2">
-        <div class="outline-chapters-list">
-          <div v-for="c in outlineChapters" :key="c.file"
-               class="outline-chapter-item" :class="{ on: outlineChapterN === c.n }"
-               @click="loadOutlineChapter(c.n)">
-            <span class="stage-no lit">{{ c.file.replace('.md', '') }}</span>
-            <span class="chapter-item-title">{{ c.title }}</span>
-          </div>
-        </div>
-        <div class="outline-chapter-detail">
-          <div v-if="!outlineChapterContent" class="empty">点击左侧章节查看详情</div>
-          <pre v-else class="preview-body" style="max-height: 60vh; overflow-y: auto;">{{ outlineChapterContent }}</pre>
-        </div>
-      </div>
+      <ChapterBlueprint @toast="say" />
     </section>
 
     <!-- 收件箱 -->
