@@ -634,6 +634,20 @@ def act_auto_rewrite_run(threshold=None, dry_run=False, max_rounds=None, chapter
     return _fn
 
 
+def act_appearances_refresh():
+    """重算角色出场统计（确定性、零 LLM、零成本）并回传。"""
+    import appearances as ap_mod
+
+    def _fn():
+        stats, total, new = ap_mod.count_appearances()
+        if not stats:
+            return False, "未找到角色或章节（先跑 stage3/4）"
+        out = ap_mod.write_appearances(stats, total, new)
+        ap_mod.print_summary(stats, total, new)
+        return True, f"已更新 {out}（{len(stats)} 角色 / {total} 章）"
+    return _fn
+
+
 # ---- 大纲结构化面板（任务1/2/3/4） ----
 
 def act_outline_save(content):
@@ -1191,6 +1205,27 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(404, {"error": "setting.json 不存在"})
             except Exception as e:
                 self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
+        elif p == "/setting/appearances":
+            # 角色出场统计（只读）：供关系图定节点大小/描边
+            try:
+                import json as _json
+                ap = ROOT / "data" / "state" / "appearances.json"
+                if not ap.exists():
+                    self._send(200, {"ok": False,
+                                     "hint": "先跑 python scripts/appearances.py"
+                                             "（或 POST /appearances/refresh）"})
+                    return
+                data = _json.loads(ap.read_text(encoding="utf-8"))
+                alias = {}
+                alias_path = ROOT / "data" / "setting" / "alias.json"
+                if alias_path.exists():
+                    try:
+                        alias = _json.loads(alias_path.read_text(encoding="utf-8"))
+                    except Exception:
+                        alias = {}
+                self._send(200, {"ok": True, "alias": alias, **data})
+            except Exception as e:
+                self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
         elif p == "/outline/chapters/list":
             try:
                 chapters_dir = ROOT / "data" / "outline" / "chapters"
@@ -1507,6 +1542,10 @@ class Handler(BaseHTTPRequestHandler):
                 jid, err = start_job("auto_rewrite", act_auto_rewrite_run(
                     _int_or_none(body.get("threshold")), dry_run,
                     _int_or_none(body.get("max_rounds")), chapters))
+                self._send(202 if not err else 409, {"error": err} if err else {"job_id": jid})
+            elif p == "/appearances/refresh":
+                # 确定性重算，零成本，可放心给按钮
+                jid, err = start_job("appearances", act_appearances_refresh())
                 self._send(202 if not err else 409, {"error": err} if err else {"job_id": jid})
             elif p == "/prompts/save":
                 name = str(body.get("name") or "")

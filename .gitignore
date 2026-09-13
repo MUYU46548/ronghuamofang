@@ -43,3 +43,6 @@ console/release/
 *.exe
 *.blockmap
 *.yml
+
+# ===== AI 助手工作区记忆（不进 Git，跨会话本地持久化）=====
+.workbuddy/

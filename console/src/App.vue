@@ -4,6 +4,7 @@ import { diffParagraphs } from "./diff.js";
 import ReviewConsole from "./ReviewConsole.vue";
 import OutlineView from "./OutlineView.vue";
 import ScrapsPanel from "./ScrapsPanel.vue";
+import RoleGraph from "./RoleGraph.vue";
 
 const API = "http://127.0.0.1:8765";
 
@@ -169,6 +170,63 @@ function settingItems(key) {
 
 function countItems(key) {
   return settingItems(key).length;
+}
+
+/* ---------- 角色关系图（方向2） ---------- */
+// appearances 缺失不阻塞：降级为均一节点大小（RoleGraph 内部处理 null）
+const appearances = ref(null);
+const aliasMap = ref({});
+const graphLoading = ref(false);
+const graphHint = ref("");
+
+async function loadAppearances() {
+  graphLoading.value = true;
+  try {
+    const r = await api("/setting/appearances");
+    if (r.status === 200 && r.data.ok) {
+      appearances.value = r.data;
+      aliasMap.value = r.data.alias || {};
+      graphHint.value = "";
+    } else {
+      appearances.value = null;
+      aliasMap.value = {};
+      graphHint.value = r.data?.hint || ("出场数据加载失败 " + r.status);
+    }
+  } catch (e) {
+    appearances.value = null;
+    graphHint.value = "出场数据加载失败：" + (e.message || e);
+  } finally {
+    graphLoading.value = false;
+  }
+}
+
+async function openSettingTab(k) {
+  settingTab.value = k;
+  if (k === "relation" && !appearances.value) await loadAppearances();
+}
+
+async function refreshAppearances() {
+  const r = await api("/appearances/refresh", "POST", {});
+  if (r.status !== 202 || !r.data.job_id) {
+    say("重算失败: " + (r.data?.error || r.status));
+    return;
+  }
+  const jid = r.data.job_id;
+  say("正在重算出场统计…");
+  for (let i = 0; i < 60; i++) {
+    await new Promise((res) => setTimeout(res, 500));
+    const j = await api("/jobs/" + jid);
+    if (j.status === 200 && (j.data.state === "ok" || j.data.state === "failed")) {
+      if (j.data.state === "ok") {
+        say("出场统计已更新");
+        await loadAppearances();
+      } else {
+        say("重算失败: " + (j.data.result || ""));
+      }
+      return;
+    }
+  }
+  say("重算超时，请稍后手动刷新");
 }
 
 /* ---------- 大纲页签（结构化视图，任务1） ---------- */
@@ -1070,21 +1128,34 @@ onUnmounted(() => clearInterval(timer));
       </div>
 
       <div class="tabs-sub">
-        <button :class="{ on: settingTab === 'characters' }" @click="settingTab = 'characters'">
+        <button :class="{ on: settingTab === 'characters' }" @click="openSettingTab('characters')">
           角色 ({{ countItems('characters') }})
         </button>
-        <button :class="{ on: settingTab === 'world' }" @click="settingTab = 'world'">
+        <button :class="{ on: settingTab === 'world' }" @click="openSettingTab('world')">
           世界观 ({{ countItems('world') }})
         </button>
-        <button :class="{ on: settingTab === 'plot_fragments' }" @click="settingTab = 'plot_fragments'">
+        <button :class="{ on: settingTab === 'plot_fragments' }" @click="openSettingTab('plot_fragments')">
           情节 ({{ countItems('plot_fragments') }})
         </button>
-        <button :class="{ on: settingTab === 'timeline' }" @click="settingTab = 'timeline'">
+        <button :class="{ on: settingTab === 'timeline' }" @click="openSettingTab('timeline')">
           时间线 ({{ countItems('timeline') }})
+        </button>
+        <button :class="{ on: settingTab === 'relation' }" @click="openSettingTab('relation')">
+          关系图
         </button>
       </div>
 
-      <div style="margin-top: 12px;">
+      <div v-if="settingTab === 'relation'" style="margin-top: 12px;">
+        <div v-if="graphHint" class="meta" style="margin-bottom: 8px;">{{ graphHint }}</div>
+        <RoleGraph
+          :setting="settingData"
+          :appearances="appearances"
+          :alias="aliasMap"
+          @refresh="refreshAppearances"
+        />
+      </div>
+
+      <div v-else style="margin-top: 12px;">
         <div class="card-head">
           <h4>{{ { characters: '角色', world: '世界观', plot_fragments: '情节碎片', timeline: '时间线' }[settingTab] }}</h4>
           <span class="spacer"></span>
