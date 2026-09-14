@@ -32,9 +32,28 @@ import stage4_writing as s4
 import stage5_check as s5
 import stage6_polish as s6
 import stage7_convert as s7
+import stage8_markdown_export as s8
 import snapshot as snap
 
-STAGES = {1: s1, 2: s2, 3: s3, 4: s4, 5: s5, 6: s6, 7: s7}
+STAGES = {1: s1, 2: s2, 3: s3, 4: s4, 5: s5, 6: s6, 7: s7, 8: s8}
+
+# stage 5.5 校对（proofread.py）
+def _run_proofread(cfg, progress):
+    """阶段5.5：校对（确定性 + 可选 LLM）。返回 (ok, report_path)"""
+    try:
+        import proofread as pr
+        report_path = "data/outline/proofread_report.json"
+        ok, msg = pr.run_proofread(
+            scope=None,
+            report_path=report_path,
+            use_llm=bool(cfg.get("gates", {}).get("proofread_llm", False)),
+            dry_run=False,
+        )
+        if ok:
+            progress.set_proofread_report(report_path)
+        return ok, msg
+    except Exception as e:
+        return False, str(e)
 
 
 def run_material_review(progress):
@@ -99,7 +118,7 @@ def run(from_stage=1, only_stage=None, client=None):
                            warn_ratio=budget.get("warn_ratio", 0.7))
         run_id = db.start_run(plan_json=f"from={from_stage} only={only_stage}")
 
-        order = [only_stage] if only_stage else range(from_stage, 8)
+        order = [only_stage] if only_stage else range(from_stage, 9)
         for n in order:
             # 预算熔断
             state, spent = cost.status(run_id)
@@ -208,6 +227,16 @@ def run(from_stage=1, only_stage=None, client=None):
                             return 3  # 复用 waiting_approval 语义（等待用户审阅）
                     except Exception as e:
                         print(f"[orchestrator] 审查失败（不影响流程）: {e}")
+                # stage 5.5：校对（润色后、Word 前）
+                if n == 5 and cfg.get("gates", {}).get("proofread_after_polish", False):
+                    try:
+                        print("[orchestrator] stage5 完成，启动校对...")
+                        ok_pr, msg_pr = _run_proofread(cfg, progress)
+                        print(f"[orchestrator] 校对结果: {msg_pr}")
+                        if ok_pr:
+                            print("[orchestrator] 请审阅 data/outline/proofread_report.md")
+                    except Exception as e:
+                        print(f"[orchestrator] 校对失败（不影响流程）: {e}")
             if not ok:
                 if cfg.get("gates", {}).get("pause_on_failure", True):
                     print("[orchestrator] 阶段失败，暂停等待处理（可重跑或人工介入）")

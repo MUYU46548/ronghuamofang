@@ -291,6 +291,15 @@ body {
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
 .run-pct { font-weight: 700; color: var(--accent); }
 
+/* 预算暂停横幅 */
+.budget-banner {
+  display: flex; align-items: center; gap: 12px;
+  margin: 10px 20px 0; padding: 10px 14px;
+  background: rgba(196, 127, 127, 0.15); border: 1px solid var(--bad);
+  border-radius: 10px; font-size: 13px; color: var(--ink);
+}
+.budget-banner .spacer { flex: 1; }
+
 /* 章节行 */
 .chap-row { display: flex; align-items: center; gap: 9px; padding: 9px 0; border-bottom: 1px dashed var(--border); }
 .chap-row:last-of-type { border-bottom: none; }

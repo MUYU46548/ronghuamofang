@@ -123,6 +123,12 @@ class ProgressManager:
         st["review_report"] = report_path
         self.save()
 
+    def set_proofread_report(self, report_path, stage=5):
+        """记录校对报告路径。"""
+        st = self.data["stages"][str(stage)]
+        st["proofread_report"] = report_path
+        self.save()
+
     def clear_review_status(self, stage=4):
         """清除全部章节审查状态（重跑审查时调用）。"""
         st = self.data["stages"][str(stage)]

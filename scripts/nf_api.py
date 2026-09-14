@@ -109,6 +109,10 @@ JOBS_ORDER = []
 CURRENT = {"id": None}
 ALLOW_FAKE = os.environ.get("NF_API_ALLOW_FAKE") == "1"
 
+# ---- 停止标志（非流式 job）----
+STOP_EVENTS = {}  # job_id -> threading.Event（set 表示请求停止）
+STOP_LOCK = threading.Lock()
+
 # ---- 流式输出支持 ----
 # job_id -> {"queue": Queue, "stop": Event, "text": []}
 STREAMERS = {}
@@ -486,6 +490,9 @@ def build_state():
                  "limit_yuan": budget.get("limit_yuan", 300)},
         "latest_job": {k: latest[k] for k in ("id", "kind", "state", "result") if latest and k in latest},
         "current_job": CURRENT["id"],
+        "budget": {
+          "paused": progress.data.get("budget", {}).get("paused", False),
+        },
     }
 
 
@@ -1620,13 +1627,18 @@ class Handler(BaseHTTPRequestHandler):
                 if not job_id:
                     self._send(400, {"error": "job_id 必填"})
                     return
+                # 先尝试流式停止
                 with STREAMERS_LOCK:
                     streamer = STREAMERS.get(job_id)
                 if streamer:
                     streamer["stop"].set()
                     self._send(200, {"ok": True, "message": "已发送停止信号: " + job_id})
-                else:
-                    self._send(404, {"error": "stream not found: " + job_id})
+                    return
+                # 非流式：设置全局停止标志
+                with STOP_LOCK:
+                    STOP_EVENTS[job_id] = threading.Event()
+                    STOP_EVENTS[job_id].set()
+                self._send(200, {"ok": True, "message": "已设置停止标志: " + job_id + "（当前阶段完成后停止）"})
             elif p == "/approve":
                 stage = int(body.get("stage") or 0)
                 if not (1 <= stage <= 7):

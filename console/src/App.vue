@@ -42,6 +42,10 @@ const updaterInitialized = ref(false);
 const updaterDev = ref(true);
 const modelSource = ref("config"); // "config" | "fetched"
 const fetchingModels = ref(false);
+const budgetPaused = ref(false);
+const circuitBreakerShow = ref(false);
+const settingEditOpen = ref(false);
+const settingEditDisclaimer = ref(false);
 let timer = null;
 let toastTimer = null;
 let updaterHandler = null;
@@ -59,7 +63,7 @@ async function refresh() {
       api("/state"), api("/models"),
       state.value && state.value.current_job ? api("/jobs/" + state.value.current_job) : Promise.resolve(null),
     ]);
-    if (s.status === 200) { state.value = s.data; online.value = true; }
+    if (s.status === 200) { state.value = s.data; online.value = true; budgetPaused.value = !!s.data?.budget?.paused; }
     if (m.status === 200) models.value = m.data;
     if (j && j.status === 200) lastJob.value = j.data;
   } catch (e) {
@@ -708,6 +712,17 @@ function stopStream() {
   refresh();
 }
 
+async function stopJob() {
+  const jobId = state.value?.current_job;
+  if (!jobId) return;
+  const r = await api("/stop", "POST", { job_id: jobId });
+  if (r.status === 200) {
+    say("已发送停止请求，当前阶段完成后停止");
+  } else {
+    say(`停止失败: ${r.data?.error || r.status}`);
+  }
+}
+
 /* ---------- 其他 ---------- */
 const projects = ref({ current: "", archived: [] });
 const archiveName = ref("");
@@ -996,6 +1011,66 @@ async function switchModel(role, modelId) {
   refresh();
 }
 
+/* ---------- 熔断恢复 ---------- */
+const restartFromStage = computed(() => {
+  if (!state.value) return 1;
+  const stages = state.value.stages || [];
+  for (const s of stages) {
+    if (s.status !== "done") return s.stage;
+  }
+  return 1;
+});
+
+async function confirmRestart() {
+  circuitBreakerShow.value = false;
+  const stage = restartFromStage.value;
+  if (!window.confirm(`确认从阶段 ${stage} 重新运行？\n\n已完成的章节不会重写。`)) return;
+  const r = await api(`/stage/${stage}/run`, "POST", { from_stage: stage });
+  if (r.status === 202) {
+    say(`已从阶段 ${stage} 重新开始`);
+  } else {
+    say(`启动失败: ${r.data?.error || r.status}`);
+  }
+}
+
+/* ---------- 中途修改设定 ---------- */
+const originalSetting = ref(null);
+
+async function openSettingEdit() {
+  const r = await api("/setting/current");
+  if (r.status === 200) {
+    originalSetting.value = r.data.setting || {};
+    settingEditDisclaimer.value = true;
+  } else {
+    say("加载设定失败");
+  }
+}
+
+function cancelSettingEdit() {
+  settingEditDisclaimer.value = false;
+  originalSetting.value = null;
+}
+
+async function confirmSettingEdit() {
+  settingEditDisclaimer.value = false;
+  settingEditOpen.value = true;
+  const r = await api("/setting/current");
+  if (r.status === 200) {
+    originalSetting.value = r.data.setting || {};
+  }
+}
+
+async function saveSettingEdit() {
+  const r = await api("/setting/save", "POST", { setting: originalSetting.value });
+  if (r.status === 200) {
+    settingEditOpen.value = false;
+    say("设定已保存，将在下一章节生效");
+    originalSetting.value = null;
+  } else {
+    say(`保存失败: ${r.data?.error || r.status}`);
+  }
+}
+
 /* ---------- 提示词模板编辑器（prompts/stage[1-7]_*.md） ---------- */
 const promptFiles = ref([]);       // [{name, stage, size, modified, backups}]
 const promptName = ref("");        // 当前编辑的文件名
@@ -1264,6 +1339,7 @@ onUnmounted(() => {
     <span class="run-dot"></span>
     <span>任务执行中：{{ state.current_job }}（{{ lastJob?.result || "运行中…" }}）</span>
     <span class="spacer"></span>
+    <button class="mini danger" @click="stopJob">停止</button>
     <span class="run-pct">{{ progressPct }}%</span>
   </div>
 
@@ -1287,11 +1363,19 @@ onUnmounted(() => {
   </div>
 
   <main class="content">
+    <!-- 预算暂停横幅 -->
+    <div v-if="state?.budget?.paused" class="budget-banner">
+      <span>⚠️ 预算已超限（已用 {{ fmtYuan(state.cost.spent_yuan) }} / 限额 {{ fmtYuan(state.cost.limit_yuan) }}）</span>
+      <button class="mini primary" @click="circuitBreakerShow = true">恢复运行</button>
+      <button class="mini" @click="switchTab('cost')">查看详情</button>
+    </div>
+
     <!-- 从收件箱跳转而来 → 一步返回 -->
     <div v-if="cameFromInbox && tab !== 'inbox'" class="backbar">
       <button class="mini" @click="backToInbox">← 返回收件箱</button>
       <span class="meta">从收件箱跳转而来；审批门（{{ pendingGates.length }} 项待处理）还在等着你</span>
     </div>
+
 
     <!-- 流水线 -->
     <section v-if="tab === 'pipeline' && state" class="grid-2">
@@ -1309,6 +1393,11 @@ onUnmounted(() => {
             📄 生成 Word 成品
           </button>
           <span class="meta">从第一个未完成阶段依次跑完，遇审批门自动暂停</span>
+        </div>
+        <div class="run-all-bar">
+          <button class="mini" @click="openSettingEdit" title="暂停流水线并编辑设定集（不影响已完成章节）">
+            ✏️ 中途修改设定
+          </button>
         </div>
         <div v-for="s in stageList" :key="s.stage" class="stage-row">
           <div class="stage-info">
@@ -2102,6 +2191,69 @@ onUnmounted(() => {
   </div>
 
   <div v-if="toast" class="toast">{{ toast }}</div>
+
+  <!-- 熔断恢复对话框 -->
+  <div v-if="circuitBreakerShow" class="drawer-mask">
+    <div class="dialog" style="width: min(520px, 92vw);">
+      <h3>⚠️ 预算超限，流水线已暂停</h3>
+      <div class="meta" style="margin-bottom: 10px;">
+        已用 {{ fmtYuan(state.cost.spent_yuan) }} / 限额 {{ fmtYuan(state.cost.limit_yuan) }}
+      </div>
+      <div class="meta" style="margin-bottom: 16px; line-height: 1.6;">
+        将从阶段 {{ restartFromStage }} 继续运行（该阶段之后的内容尚未生成）。<br>
+        <strong>已完成的章节不会被重写</strong>，已完成阶段保持现状。
+      </div>
+      <div class="dialog-actions">
+        <span class="spacer"></span>
+        <button class="mini" @click="circuitBreakerShow = false">取消</button>
+        <button class="mini primary" @click="confirmRestart">确认从阶段 {{ restartFromStage }} 重跑</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 中途修改设定免责声明 -->
+  <div v-if="settingEditDisclaimer" class="drawer-mask">
+    <div class="dialog" style="width: min(520px, 92vw);">
+      <h3>⚠️ 中途修改设定</h3>
+      <div class="meta" style="margin-bottom: 16px; line-height: 1.8;">
+        <p><strong>免责声明：</strong></p>
+        <ul style="padding-left: 20px; margin: 8px 0;">
+          <li>修改设定只会影响<strong>后续章节</strong>的生成</li>
+          <li>已完成的章节不会被重写</li>
+          <li>滚动摘要会在下一章节自动包含新设定</li>
+          <li>大纲不会自动重跑（除非您手动打回）</li>
+        </ul>
+        <p>继续？</p>
+      </div>
+      <div class="dialog-actions">
+        <span class="spacer"></span>
+        <button class="mini" @click="cancelSettingEdit">取消</button>
+        <button class="mini primary" @click="confirmSettingEdit">确认继续</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 设定编辑面板 -->
+  <div v-if="settingEditOpen" class="drawer-mask">
+    <div class="dialog" style="width: min(760px, 94vw); height: min(80vh, 600px); display: flex; flex-direction: column;">
+      <div style="display:flex; align-items:center; margin-bottom:12px;">
+        <h3 style="margin:0;">编辑设定集</h3>
+        <span class="spacer"></span>
+        <span class="meta">修改后将在下一章节生效</span>
+      </div>
+      <textarea
+        :value="JSON.stringify(originalSetting, null, 2)"
+        @input="originalSetting = JSON.parse($event.target.value)"
+        style="flex: 1; font-family: monospace; font-size: 12px; resize: none; border: 1px solid var(--border); border-radius: 8px; padding: 12px;"
+        spellcheck="false"
+      ></textarea>
+      <div class="dialog-actions" style="margin-top: 12px;">
+        <span class="spacer"></span>
+        <button class="mini" @click="settingEditOpen = false">取消</button>
+        <button class="mini primary" @click="saveSettingEdit">保存</button>
+      </div>
+    </div>
+  </div>
 
   <!-- 初始化向导（C1） -->
   <div v-if="showInitWizard" class="drawer-mask">
