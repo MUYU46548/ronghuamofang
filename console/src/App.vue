@@ -66,6 +66,8 @@ async function refresh() {
     if (s.status === 200) { state.value = s.data; online.value = true; budgetPaused.value = !!s.data?.budget?.paused; }
     if (m.status === 200) models.value = m.data;
     if (j && j.status === 200) lastJob.value = j.data;
+    // 成本页可见时同步刷新「当前运行」实时花费（与 state 同频 2.5s）
+    if (tab.value === "cost") await refreshStreamingCost();
   } catch (e) {
     online.value = false;
   }
@@ -83,7 +85,10 @@ async function refreshCosts() {
 function switchTab(t) {
   tab.value = t;
   if (t === "inbox") cameFromInbox.value = false;   // 回到收件箱即清掉"来路"标记
-  if (t === "cost" && costs.value.length === 0) refreshCosts();
+  if (t === "cost") {
+    if (costs.value.length === 0) refreshCosts();
+    refreshStreamingCost();
+  }
   if (t === "project") loadProjects();
   if (t === "outline" && outlineRef.value) outlineRef.value.load(false);
   if (t === "settings") {
@@ -1196,6 +1201,76 @@ function openDiff(title, raw, refined) {
   console.log("[openDiff] diffComputed:", diffComputed.value.length, "items");
 }
 
+/* ---------- 章节历史版本（回退到上一版） ---------- */
+const histOpen = ref(false);
+const histN = ref(null);
+const histLoading = ref(false);
+const histBusy = ref(false);
+const histVersions = ref([]);
+const histCurrent = ref("");
+
+async function openHistory(n) {
+  histN.value = n;
+  histOpen.value = true;
+  histLoading.value = true;
+  histVersions.value = [];
+  const r = await api("/chapters/history?n=" + n);
+  histLoading.value = false;
+  if (r.status === 200 && r.data.ok) {
+    histVersions.value = r.data.versions || [];
+    histCurrent.value = r.data.current || "";
+  } else {
+    say("读取版本历史失败: " + (r.data?.error || r.status));
+  }
+}
+
+async function restoreChapterVersion(v) {
+  if (histBusy.value) return;
+  const n = histN.value;
+  if (!window.confirm(
+      "确定把第 " + n + " 章回退到 v" + v.version + " ？\n\n"
+      + "· 版本：v" + v.version + "（" + v.words + " 字，quality=" + (v.quality || "-") + "，"
+      + v.mtime + "）\n"
+      + "· 当前稿会先另存一版，回退本身也可回退\n"
+      + "· 覆盖目标：" + (histCurrent.value || "（当前章文件）"))) return;
+  histBusy.value = true;
+  const r = await api("/chapters/restore", "POST", { n, version: v.version });
+  histBusy.value = false;
+  if (r.status === 200 && r.data.ok) {
+    histOpen.value = false;
+    say(r.data.message);
+    await loadChapters();
+  } else {
+    say("回退失败: " + (r.data?.message || r.data?.error || r.status));
+  }
+}
+
+/* ---------- 实时花费（成本页「当前运行」） ---------- */
+const streamingCost = ref(null);
+
+async function refreshStreamingCost() {
+  const r = await api("/costs/streaming");
+  if (r.status === 200) streamingCost.value = r.data;
+}
+
+const costBarPct = computed(() => {
+  const p = Number(streamingCost.value?.pct || 0);
+  return Math.max(0, Math.min(100, p));
+});
+const costBarClass = computed(() => {
+  const p = costBarPct.value;
+  if (p >= 90) return "danger";
+  if (p >= (Number(streamingCost.value?.warn_ratio || 0.7) * 100)) return "warn";
+  return "ok";
+});
+
+function fmtDur(s) {
+  s = Math.max(0, Math.floor(Number(s || 0)));
+  if (s < 60) return s + " 秒";
+  if (s < 3600) return Math.floor(s / 60) + " 分 " + (s % 60) + " 秒";
+  return Math.floor(s / 3600) + " 时 " + Math.floor((s % 3600) / 60) + " 分";
+}
+
 const previewText = ref("");
 const previewPath = ref("");
 async function preview(rel) {
@@ -1448,6 +1523,7 @@ onUnmounted(() => {
         <button class="mini" :class="{ ghost: !c.files.checked }" @click="openDoc('第' + c.n + '章 检查稿', c.files.checked)">检查稿</button>
         <button class="mini" :class="{ ghost: !c.files.refined }" @click="openDoc('第' + c.n + '章 润色稿', c.files.refined)">润色稿</button>
         <button class="mini" :class="{ ghost: !(c.files.raw && c.files.refined) }" @click="openDiff('第' + c.n + '章 润色对比', c.files.raw, c.files.refined)">对比</button>
+        <button class="mini" @click="openHistory(c.n)">历史</button>
       </div>
     </section>
 
@@ -1598,6 +1674,47 @@ onUnmounted(() => {
           <button :class="{ on: costView === 'usage' }" @click="costView = 'usage'">用量</button>
         </div>
         <button class="mini" @click="refreshCosts">刷新</button>
+      </div>
+
+      <!-- 当前运行：实时花费 / 已用 token / 预算进度（每 2.5s 随 state 刷新） -->
+      <div v-if="streamingCost" class="run-cost">
+        <div class="run-cost-head">
+          <span class="run-dot" v-if="streamingCost.running"></span>
+          <b>{{ streamingCost.running ? "当前运行" : "最近一次运行" }}</b>
+          <span v-if="streamingCost.kind" class="pill st-running">{{ streamingCost.kind }}</span>
+          <span v-if="streamingCost.run_id" class="meta">
+            run #{{ streamingCost.run_id }} · {{ streamingCost.run_status || "-" }}
+          </span>
+          <span class="spacer"></span>
+          <span class="meta" v-if="streamingCost.running">已运行 {{ fmtDur(streamingCost.elapsed_s) }}</span>
+          <span class="meta" v-else>当前无任务在跑</span>
+        </div>
+        <div class="stat-row" style="margin-top: 8px;">
+          <div class="cost-stat">
+            <div class="stat-label">本次花费</div>
+            <div class="stat-val">{{ fmtYuan(streamingCost.spent_yuan) }}</div>
+            <div class="stat-sub">限额 {{ fmtYuan(streamingCost.limit_yuan) }}</div>
+          </div>
+          <div class="cost-stat">
+            <div class="stat-label">本次 token（入 / 出）</div>
+            <div class="stat-val sm">{{ fmtNum(streamingCost.tokens_in) }} / {{ fmtNum(streamingCost.tokens_out) }}</div>
+            <div class="stat-sub">cache_read {{ fmtNum(streamingCost.cache_read) }}</div>
+          </div>
+          <div class="cost-stat">
+            <div class="stat-label">预算剩余</div>
+            <div class="stat-val">{{ fmtYuan(streamingCost.budget_left) }}</div>
+            <div class="stat-sub">
+              {{ streamingCost.calls }} 次调用<template v-if="streamingCost.estimated_calls">（含估算 {{ streamingCost.estimated_calls }}）</template>
+            </div>
+          </div>
+        </div>
+        <div class="cost-progress">
+          <div class="cost-progress-bar" :class="costBarClass" :style="{ width: costBarPct + '%' }"></div>
+        </div>
+        <div class="meta">
+          已用 {{ costBarPct.toFixed(2) }}% 预算 · 预警线 {{ (Number(streamingCost.warn_ratio || 0.7) * 100).toFixed(0) }}%
+          <span v-if="streamingCost.yield_yuan_per_min"> · 平均 {{ fmtYuan(streamingCost.yield_yuan_per_min) }}/分钟</span>
+        </div>
       </div>
 
       <div v-if="costSummary" class="cost-cards">
@@ -2251,6 +2368,50 @@ onUnmounted(() => {
         <span class="spacer"></span>
         <button class="mini" @click="settingEditOpen = false">取消</button>
         <button class="mini primary" @click="saveSettingEdit">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 章节历史版本（回退） -->
+  <div v-if="histOpen" class="drawer-mask">
+    <div class="dialog" style="width: min(680px, 94vw); max-height: min(80vh, 620px); display: flex; flex-direction: column;">
+      <div style="display:flex; align-items:center; margin-bottom:10px;">
+        <h3 style="margin:0;">第 {{ histN }} 章 · 版本历史</h3>
+        <span class="spacer"></span>
+        <button class="mini" @click="histOpen = false">关闭</button>
+      </div>
+      <div class="meta" style="margin-bottom:10px;">
+        备份目录 data/chapters/history/ch{{ String(histN).padStart(2, "0") }}_vM.md ·
+        当前稿：{{ histCurrent || "（无）" }}
+      </div>
+      <div v-if="histLoading" class="empty">读取中…</div>
+      <div v-else-if="!histVersions.length" class="empty">
+        暂无历史版本 —— 每次用「精修」改稿前会自动备份一版
+      </div>
+      <div v-else style="overflow:auto;">
+        <table class="cost-table">
+          <thead>
+            <tr><th>版本</th><th>字数</th><th>quality</th><th>备份时间</th><th>文件</th><th></th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="v in histVersions" :key="v.version">
+              <td>v{{ v.version }}</td>
+              <td>{{ v.words }}</td>
+              <td>{{ v.quality || "-" }}</td>
+              <td>{{ v.mtime }}</td>
+              <td class="title-cell">{{ v.file }}</td>
+              <td>
+                <button class="mini primary" :disabled="histBusy"
+                        @click="restoreChapterVersion(v)">回退到此版</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="dialog-actions" style="margin-top:12px;">
+        <span class="meta">回退前当前稿会再存一版，不会丢稿</span>
+        <span class="spacer"></span>
+        <button class="mini" @click="openHistory(histN)">刷新</button>
       </div>
     </div>
   </div>

@@ -7,6 +7,9 @@
  *   GET  /book/pacing?source=current&scope=  → 本书章节节奏
  *   POST /book/split {path}                  → 拆书（导入外部文本算节奏）
  *
+ * 章节节奏区：纯 CSS 柱状图（每章字数）+ SVG 移动平均趋势线（默认 5 章窗口），
+ * 二者共用 0-100 百分比坐标系，不引任何图表库。离群章（偏离均值 >40%）标红。
+ *
  * 量化指标全部来自 utils/style_analyzer（确定性、零 LLM），
  * 与 stage4/6 注入写作的真实特征同源，故面板所见即管线所用。
  */
@@ -209,6 +212,36 @@ const pacingBars = computed(() => {
     h: Math.max(2, Math.round((c.word_count / max) * 100)),
     outlier: outNs.has(c.index), dlg: c.dialogue_ratio,
   }));
+});
+
+/**
+ * 移动平均趋势线（默认 5 章窗口；章数不足则窗口 = 章数）。
+ *
+ * 纯 SVG polyline，viewBox 用 0-100 百分比坐标 + preserveAspectRatio="none"，
+ * 因此与柱状图共用同一套坐标：
+ *   x = 第 i 根柱子的中心（按 flex 布局 w=1、gap=0.14 反推）
+ *   y = 100 - 柱高百分比（柱子高度与 MA 值用同一个 max 归一化）
+ */
+const MA_WINDOW = 5;
+const pacingTrend = computed(() => {
+  const list = pacingBars.value;
+  if (list.length < 2) return { has: false, win: 0, points: "", last: null };
+  const max = Math.max(...list.map((b) => b.words || 1), 1);
+  const n = list.length;
+  const win = Math.min(MA_WINDOW, n);
+  const g = 0.14;                            // gap 2px / 典型柱宽 14px
+  const W = n + (n - 1) * g;
+  const cx = (i) => ((i * (1 + g) + 0.5) / W) * 100;
+  const yOf = (v) => 100 - Math.max(2, Math.round(((v || 0) / max) * 100));
+  const ma = list.map((_, i) => {
+    const seg = list.slice(Math.max(0, i - win + 1), i + 1);
+    return seg.reduce((a, b) => a + (b.words || 0), 0) / seg.length;
+  });
+  return {
+    has: true, win, ma,
+    last: Math.round(ma[ma.length - 1]),
+    points: ma.map((v, i) => `${cx(i).toFixed(2)},${yOf(v).toFixed(2)}`).join(" "),
+  };
 });
 
 onMounted(() => {
@@ -421,12 +454,31 @@ onMounted(() => {
       <template v-else>
         <div class="card">
           <h4>字数分布</h4>
-          <div class="bars">
-            <div v-for="b in pacingBars" :key="b.n" class="bar-col"
-                 :title="`${b.title} · ${b.words} 字 · 对话 ${(b.dlg * 100).toFixed(1)}%`">
-              <div class="bar" :class="{ outlier: b.outlier }" :style="{ height: b.h + '%' }"></div>
-              <div class="bar-x">{{ b.n }}</div>
+          <div class="bars-plot">
+            <div class="bars">
+              <div v-for="b in pacingBars" :key="b.n" class="bar-col"
+                   :title="`${b.title} · ${b.words} 字 · 对话 ${(b.dlg * 100).toFixed(1)}%`">
+                <div class="bar" :class="{ outlier: b.outlier }" :style="{ height: b.h + '%' }"></div>
+              </div>
             </div>
+            <!-- 移动平均趋势线：与柱状图共用 0-100 百分比坐标系 -->
+            <svg v-if="pacingTrend.has" class="trend-svg" viewBox="0 0 100 100"
+                 preserveAspectRatio="none" aria-hidden="true">
+              <polyline :points="pacingTrend.points" fill="none" stroke="var(--accent)"
+                        stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"
+                        vector-effect="non-scaling-stroke" opacity="0.9" />
+            </svg>
+            <div class="bars-x">
+              <div v-for="b in pacingBars" :key="'x' + b.n" class="bar-x">{{ b.n }}</div>
+            </div>
+          </div>
+          <div class="legend">
+            <span class="lg"><i class="swatch bar-sw"></i>每章字数</span>
+            <span class="lg"><i class="swatch outlier-sw"></i>离群章（偏离均值 &gt;40%）</span>
+            <span class="lg" v-if="pacingTrend.has">
+              <i class="swatch trend-sw"></i>{{ pacingTrend.win }} 章移动平均趋势线
+              <span v-if="pacingTrend.last" class="meta">（最新 {{ pacingTrend.last }} 字）</span>
+            </span>
           </div>
           <div class="meta" style="margin-top:10px;">
             <span v-if="pacing.summary.outliers?.length" class="bad-val">
@@ -488,11 +540,22 @@ onMounted(() => {
 .drift-summary.bad { background: rgba(201, 162, 106, 0.14); color: #8f6b33; }
 .bad-val { color: var(--bad); }
 .ok-val { color: var(--ok); }
-.bars { display: flex; align-items: flex-end; gap: 3px; height: 140px; padding-top: 8px; overflow-x: auto; }
-.bar-col { flex: 1; min-width: 14px; display: flex; flex-direction: column; align-items: center; height: 100%; justify-content: flex-end; }
+/* 柱状图 + 趋势线共用坐标系：.bars 与 .trend-svg 同高同起点（0-100% 一一对应） */
+.bars-plot { position: relative; padding-bottom: 16px; }
+.bars { display: flex; align-items: flex-end; gap: 2px; height: 132px; }
+.bar-col { flex: 1; min-width: 6px; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; }
 .bar { width: 100%; max-width: 34px; background: var(--accent-soft); border-radius: 4px 4px 0 0; transition: height .3s; }
-.bar.outlier { background: var(--warn); }
-.bar-x { font-size: 10px; color: var(--muted); margin-top: 3px; }
+.bar.outlier { background: var(--bad); }
+.trend-svg { position: absolute; left: 0; right: 0; top: 0; height: 132px; width: 100%; pointer-events: none; }
+.bars-x { position: absolute; left: 0; right: 0; bottom: 0; display: flex; gap: 2px; }
+.bars-x .bar-x { flex: 1; min-width: 6px; text-align: center; font-size: 10px; color: var(--muted); }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 6px; font-size: 12px; color: var(--muted); }
+.legend .lg { display: inline-flex; align-items: center; gap: 5px; }
+.legend .swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.swatch.bar-sw { background: var(--accent-soft); }
+.swatch.outlier-sw { background: var(--bad); }
+.swatch.trend-sw { background: var(--accent); height: 3px; border-radius: 2px; }
+.title-cell { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .note {
   margin-top: 10px;
   padding: 8px 10px;

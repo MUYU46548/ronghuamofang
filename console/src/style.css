@@ -873,3 +873,25 @@ body {
 }
 .bad-val { color: var(--bad); }
 .ok-val { color: var(--ok); }
+
+/* ===== 当前运行：实时花费卡片（成本页） ===== */
+.run-cost {
+  border: 1px solid var(--border); border-radius: 12px;
+  padding: 12px 14px; margin-bottom: 14px;
+  background: rgba(155, 143, 196, 0.06);
+}
+.run-cost-head { display: flex; align-items: center; gap: 9px; font-size: 13px; color: var(--ink); }
+.run-cost .stat-row { display: flex; gap: 12px; flex-wrap: wrap; }
+.run-cost .cost-stat { flex: 1; min-width: 140px; background: var(--bg); }
+.run-cost .stat-val.sm { font-size: 16px; }
+.cost-progress {
+  height: 8px; border-radius: 5px; overflow: hidden; margin: 10px 0 6px;
+  background: rgba(155, 143, 196, 0.15);
+}
+.cost-progress-bar { height: 100%; border-radius: 5px; transition: width 0.6s ease, background 0.4s ease; }
+.cost-progress-bar.ok { background: var(--ok); }
+.cost-progress-bar.warn { background: var(--warn); }
+.cost-progress-bar.danger { background: var(--bad); }
+
+/* 章节历史版本弹窗内的文件名列（全局兜底；StylePanel 另有 scoped 同名规则） */
+.title-cell { max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

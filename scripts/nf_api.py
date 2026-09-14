@@ -12,14 +12,17 @@ GET  /prompts/get         读取模板正文（?name=xxx 或 /prompts/get/xxx）
 POST /prompts/save        {name, content} → 备份旧版到 prompts/history/ 后写入
 POST /stage/{n}/run       {from_stage?, only_stage?, stream?} → job_id（409=已有任务在跑）
 GET  /stream/{job_id}     SSE：实时流式输出（token 级）
-POST /stop/{job_id}       中断正在运行的任务
+POST /stop                {job_id} → 中断：流式置 streamer.stop；非流式置 STOP_EVENTS
+                          （orchestrator 在阶段边界轮询 should_stop()，退出码 4）
 GET  /jobs/{id}           job 状态/结果
 POST /approve             {stage, revoke?} → 审批/撤销
 POST /reject              {stage, reason, dry_run?} → 打回（默认真执行）
 POST /refine/outline      {feedback, dry_run?} → 大纲精修
 POST /refine/outline/node {node_id, feedback, dry_run?} → 逐节点 AI 精修
 POST /refine/outline/undo 撤销上一次节点精修
-POST /refine/chapter      {chapter, feedback, dry_run?} → 章节精修
+POST /refine/chapter      {chapter, feedback, dry_run?} → 章节精修（改稿前自动备份）
+GET  /chapters/history    ?n=3 → 第 3 章的版本列表（data/chapters/history/chNN_vM.md）
+POST /chapters/restore    {n, version} → 回退到历史版本（回退前再存一版当前稿）
 POST /stage/2/run-multi   {count} → 阶段2 多方案生成（2-5 份 draft）
 GET  /outline/structure   结构化大纲视图（acts/nodes/plan/评分）
 POST /outline/save        {content} → 保存整份大纲（格式校验+备份）
@@ -32,6 +35,7 @@ POST /outline/drafts/cleanup 清理临时 draft
 POST /snapshot            {label?} → 手动快照
 POST /costs               GET 成本流水
 GET  /costs/summary       按阶段/模型聚合
+GET  /costs/streaming     当前 run 实时消耗 + 预算进度（GUI 成本页轮询）
 POST /models/switch       {role, model} → 切换模型
 GET  /models/cache        动态拉取的模型缓存（含手动添加的 _manual）
 POST /models/add          {name} → 手动把一个模型名写进缓存（GUI「手动添加」用）
@@ -66,9 +70,11 @@ import json
 import os
 import queue
 import re
+import shutil
 import threading
 import time
 import uuid
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote
@@ -90,6 +96,7 @@ import switch_book as sb_mod  # noqa: E402
 import proofread as proofread_mod  # noqa: E402
 import estimate_tokens as estimate_mod  # noqa: E402
 import book_split as book_split_mod  # noqa: E402
+import refine_chapter as refine_ch_mod  # noqa: E402
 # 模块级导入文件读写（勿在 do_GET/do_POST 内写 `import json` 这类裸导入：
 # 函数内任意位置出现 `import json` 都会把 json 变成该函数的局部名，
 # 导致同一函数内其它分支的 json.xxx 抛 UnboundLocalError —— 2026-09-14 修）
@@ -112,6 +119,34 @@ ALLOW_FAKE = os.environ.get("NF_API_ALLOW_FAKE") == "1"
 # ---- 停止标志（非流式 job）----
 STOP_EVENTS = {}  # job_id -> threading.Event（set 表示请求停止）
 STOP_LOCK = threading.Lock()
+
+
+def should_stop(job_id=None):
+    """检查是否有停止请求。返回 True/False。
+
+    job_id 为 None 时检查「当前在跑的 job」（CURRENT["id"]），
+    这样 orchestrator 无需自己持有 job_id —— 它是被 API 的 worker 线程调用的。
+
+    停止是**协作式**的：orchestrator 在每个阶段开始前轮询此函数，
+    置位后不会再启动新阶段（正在跑的 LLM 子会话无法中途打断）。
+    """
+    if job_id is None:
+        job_id = CURRENT["id"]
+    if not job_id:
+        return False
+    with STOP_LOCK:
+        ev = STOP_EVENTS.get(job_id)
+    return ev is not None and ev.is_set()
+
+
+def clear_stop(job_id=None):
+    """清除停止标志（job 结束时调用，避免 STOP_EVENTS 无界增长）。"""
+    if job_id is None:
+        job_id = CURRENT["id"]
+    if not job_id:
+        return
+    with STOP_LOCK:
+        STOP_EVENTS.pop(job_id, None)
 
 # ---- 流式输出支持 ----
 # job_id -> {"queue": Queue, "stop": Event, "text": []}
@@ -496,6 +531,79 @@ def build_state():
     }
 
 
+def build_streaming_cost():
+    """当前 run 的实时消耗 + 预算进度（GUI 成本页「当前运行」卡片）。
+
+    「当前 run」= runs 表里 status='running' 的最新一条；没有则退化为最近一条 run
+    （跑完后仍能看最后一次 run 的账）。数据全部取自 cost_log 实测记账；
+    estimated_calls 是其中「按字符折算、尚未回填实测」的调用数，单独透出，
+    让前端能标注「含估算」而不是把它混进实测数字里。
+    """
+    cfg, _proj = load_all()
+    budget = cfg.get("budget", {}) or {}
+    limit_yuan = float(os.environ.get("BUDGET_LIMIT_YUAN") or budget.get("limit_yuan", 300))
+    cur_id = CURRENT["id"]
+    cur_job = (JOBS.get(cur_id) or {}) if cur_id else {}
+    out = {
+        "ok": True,
+        "running": bool(cur_id),
+        "job_id": cur_id,
+        "kind": cur_job.get("kind"),
+        "job_started_at": cur_job.get("started_at"),
+        "run_id": None, "run_status": None, "run_started_at": None,
+        "spent_yuan": 0.0, "tokens_in": 0, "tokens_out": 0, "cache_read": 0,
+        "calls": 0, "estimated_calls": 0,
+        "limit_yuan": limit_yuan, "warn_ratio": budget.get("warn_ratio", 0.7),
+        "pct": 0.0, "budget_left": limit_yuan,
+        "elapsed_s": 0, "yield_yuan_per_min": 0.0,
+    }
+
+    db_path = Path("logs/runs.db")
+    if not db_path.exists():
+        return out
+    db = RunDB(db_path)
+    try:
+        # 取**最新一条 run**：有 job 在跑时最新 run 就是当前 run；
+        # 不按 status='running' 过滤 —— 崩溃残留的旧 running 行会盖掉真实结果。
+        row = db.conn.execute(
+            "SELECT id, started_at, status FROM runs ORDER BY id DESC LIMIT 1").fetchone()
+        if row is None:
+            return out
+        run_id, started_at, status = row[0], row[1], row[2]
+        agg = db.conn.execute(
+            "SELECT COALESCE(SUM(tokens_in),0), COALESCE(SUM(tokens_out),0),"
+            " COALESCE(SUM(cache_read),0), COALESCE(SUM(cost_yuan),0), COUNT(*),"
+            " COALESCE(SUM(estimated),0) FROM cost_log WHERE run_id=?",
+            (run_id,)).fetchone()
+        out.update({
+            "run_id": run_id, "run_status": status, "run_started_at": started_at,
+            "tokens_in": int(agg[0]), "tokens_out": int(agg[1]), "cache_read": int(agg[2]),
+            "spent_yuan": round(float(agg[3]), 6),
+            "calls": int(agg[4]), "estimated_calls": int(agg[5]),
+        })
+        # 已耗时只在真有 job 在跑时给：否则「最后一次 run 至今」会算出几十小时的假时长
+        t0 = None
+        if out["running"]:
+            for cand in (out["job_started_at"], started_at):
+                if not cand:
+                    continue
+                try:
+                    dt = datetime.strptime(cand, "%Y-%m-%dT%H:%M:%S")
+                except ValueError:
+                    continue
+                t0 = dt if t0 is None else max(t0, dt)
+        if t0 is not None:
+            out["elapsed_s"] = max(0, int((datetime.now() - t0).total_seconds()))
+    finally:
+        db.close()
+
+    out["budget_left"] = round(limit_yuan - out["spent_yuan"], 6)
+    out["pct"] = round(out["spent_yuan"] / limit_yuan * 100, 2) if limit_yuan > 0 else 0.0
+    if out["elapsed_s"] >= 30:
+        out["yield_yuan_per_min"] = round(out["spent_yuan"] / (out["elapsed_s"] / 60.0), 6)
+    return out
+
+
 def start_job(kind, fn):
     """创建并启动一个后台 job。返回 (job_id, error)。"""
     with LOCK:
@@ -532,6 +640,7 @@ def start_job(kind, fn):
             with LOCK:
                 if CURRENT["id"] == job_id:
                     CURRENT["id"] = None
+            clear_stop(job_id)
 
     threading.Thread(target=_worker, daemon=True).start()
     return job_id, None
@@ -548,7 +657,13 @@ def act_run_stage(cfg, only_stage, from_stage, stream_job_id=None):
 
     def _fn():
         rc = orch_run(from_stage=from_stage, only_stage=only_stage, client=client)
-        return (rc == 0 or rc == 3), "exit=" + str(rc) + ("（3=等待审批，属正常门暂停）" if rc == 3 else "")
+        # 退出码：0=完成 1=阶段失败 2=预算熔断 3=等待审批 4=用户中断
+        # 3 与 4 都不是「失败」：3 是审批门正常暂停，4 是用户主动停止 → 不标红
+        if rc == 4:
+            return True, "用户中断（exit=4）"
+        if rc == 3:
+            return True, "exit=3（等待审批，属正常门暂停）"
+        return (rc == 0), "exit=" + str(rc)
     return _fn
 
 
@@ -1550,12 +1665,41 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:      # noqa: BLE001
                 self._send(500, {"ok": False,
                                  "error": type(e).__name__ + ": " + str(e)[:200]})
+        elif p == "/chapters/history":
+            # 章节历史版本：?n=3 → 第 3 章的备份列表（新 → 旧）
+            try:
+                q = self._query()
+                raw_n = (q.get("n") or q.get("chapter") or [""])[0]
+                if not str(raw_n).strip().isdigit():
+                    self._send(400, {"ok": False, "error": "n 必填且为章节号（如 ?n=3）"})
+                    return
+                n = int(raw_n)
+                versions = refine_ch_mod.list_versions(n)
+                target = refine_ch_mod._pick_chapter_path(n)
+                self._send(200, {
+                    "ok": True, "n": n,
+                    "current": str(target) if target else None,
+                    "history_dir": str(refine_ch_mod.HISTORY_DIR),
+                    "count": len(versions),
+                    "versions": versions,
+                })
+            except Exception as e:      # noqa: BLE001
+                self._send(500, {"ok": False,
+                                 "error": type(e).__name__ + ": " + str(e)[:200]})
+        elif p == "/costs/streaming":
+            # 实时花费：当前 run 的累计消耗 + 预算进度（GUI 成本页轮询）
+            try:
+                self._send(200, build_streaming_cost())
+            except Exception as e:      # noqa: BLE001
+                self._send(500, {"ok": False,
+                                 "error": type(e).__name__ + ": " + str(e)[:200]})
         else:
             self._send(404, {"error": "未知路径 " + p + "（可用: /health /state /models "
                                       "/project/list /stage/{n}/run /stream/{job_id} /jobs/{id} "
                                       "/materials/* /scraps/* /setting/current /outline/chapters/* "
                                       "/kb/search /kb/build /auto_rewrite/run /review/* "
-                                      "/proofread/report /estimate /book/pacing）"})
+                                      "/proofread/report /estimate /book/pacing "
+                                      "/chapters/history /costs/streaming）"})
 
     # ---- POST ----
     def do_POST(self):
@@ -1603,7 +1747,11 @@ class Handler(BaseHTTPRequestHandler):
                             }
                         client = _wrap_client_for_streaming(client, real_job)
                         rc = orch_run(from_stage=from_stage, only_stage=only_stage, client=client)
-                        return (rc == 0 or rc == 3), "exit=" + str(rc) + ("（3=等待审批）" if rc == 3 else "")
+                        if rc == 4:
+                            return True, "用户中断（exit=4）"
+                        if rc == 3:
+                            return True, "exit=3（等待审批）"
+                        return (rc == 0), "exit=" + str(rc)
 
                     jid, err = start_job("stage" + rest, _fn_stream)
                     if err:
@@ -1699,8 +1847,8 @@ class Handler(BaseHTTPRequestHandler):
                     if "涉及角色" not in content:
                         self._send(400, {"error": "缺少「涉及角色」字段"})
                         return
-                    import shutil
-                    from datetime import datetime
+                    # 注：shutil / datetime 均已在模块顶层导入（勿在 do_POST 内再写裸 import，
+                    # 否则该名会成为整个函数的局部名，遮蔽模块级同名对象 —— 本项目踩过此坑）
                     chapters_dir = ROOT / "data" / "outline" / "chapters"
                     chapters_dir.mkdir(parents=True, exist_ok=True)
                     path = chapters_dir / f"{n:02d}.md"
@@ -1799,6 +1947,20 @@ class Handler(BaseHTTPRequestHandler):
                 jid, err = start_job("refine_ch" + str(ch),
                                      lambda: act_refine_chapter(ch, fb, bool(body.get("dry_run"))))
                 self._send(202 if not err else 409, {"error": err} if err else {"job_id": jid})
+            elif p == "/chapters/restore":
+                # 章节回退：body {n, version} → 从 data/chapters/history/ 恢复
+                # 确定性文件操作，同 /outline/restore，同步返回。
+                raw_n = body.get("n", body.get("chapter"))
+                raw_v = body.get("version")
+                if not str(raw_n or "").strip().isdigit():
+                    self._send(400, {"error": "n 必填且为章节号"})
+                    return
+                if not str(raw_v or "").strip().isdigit():
+                    self._send(400, {"error": "version 必填且为版本号"})
+                    return
+                n, ver = int(raw_n), int(raw_v)
+                ok_r, msg_r = refine_ch_mod.restore_version(n, ver)
+                self._send(200 if ok_r else 400, {"ok": ok_r, "message": msg_r})
             elif p == "/snapshot":
                 label = str(body.get("label") or "")
                 jid, err = start_job("snapshot", act_snapshot(label))

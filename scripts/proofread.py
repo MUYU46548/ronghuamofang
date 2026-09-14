@@ -4,12 +4,15 @@
 两级校对：
 1. 确定性校对（零 token，永远开启）
    - 标点规范：引号/书名号配对、省略号统一、破折号统一、句末标点、
-     中英标点混用、连续标点、汉字间空格、不可见字符
-   - 常见错字：高频易混词表 + 的地得启发式 + 再/在 混淆
+     中英标点混用、连续标点、汉字间空格、不可见字符，
+     **明鉴规则**（全角方括号 / 半角括号含中文）
+   - 常见错字：高频易混词表（本库 + **明鉴 119 条词库**，合并后 151 条）
+     + 的地得启发式 + 再/在 混淆
    - 格式一致性：全角数字混用、人名/地名别名混用（依据设定集）、章节标题格式
    - 章节节奏：字数方差、对话/叙述比例、段落长度分布
 2. LLM 语义校对（可选，默认关，`--llm` 开启）
    - 提示词模板 prompts/stage5_proofread.md（提示词与代码分离）
+   - 输出解析走 utils.validator.parse_llm_json（搬运自明鉴，容错去围栏）
 
 报告：
   data/outline/proofread_report.json（机器可读，结构对齐 review_report 便于 GUI 复用）
@@ -34,6 +37,24 @@ sys.path.insert(0, str(SCRIPT_DIR))
 
 from utils.file_io import read_text, write_text          # noqa: E402
 from utils.verify_chapter import count_cn_words          # noqa: E402
+
+# ---- 明鉴（MingJian）规则库：搬运层，见 utils/mingjian_rules.py ----
+# 明鉴的 TYPO_DICT 覆盖率约为本库的两倍，且带 PUNCT_RULES（方括号/半角括号规范）。
+# 导入失败时回退到内置词库，校对功能不因缺一个可选模块而失效。
+try:
+    from utils.mingjian_rules import (                    # noqa: E402
+        TYPO_DICT_MINGJIAN, PUNCT_RULES_MINGJIAN, TYPO_EXCLUDE_MINGJIAN,
+    )
+except ImportError:                                       # 回退到内置
+    TYPO_DICT_MINGJIAN = None
+    PUNCT_RULES_MINGJIAN = None
+    TYPO_EXCLUDE_MINGJIAN = frozenset()
+
+# ---- LLM 输出容错解析（搬运自明鉴 utils/validator.parse_llm_json）----
+try:
+    from utils.validator import parse_llm_json            # noqa: E402
+except ImportError:                                       # 回退到内置实现
+    parse_llm_json = None
 
 DEFAULT_REPORT = "data/outline/proofread_report.json"
 SETTING_PATH = Path("data/setting/setting.json")
@@ -66,6 +87,27 @@ CONFUSABLES = [
 _CONF_SEEN = set()
 CONFUSABLES = [p for p in CONFUSABLES
                if p[0] != p[1] and not (p[0] in _CONF_SEEN or _CONF_SEEN.add(p[0]))]
+
+
+def merge_confusables(local, extra=None, exclude=None):
+    """合并词库：本库在前（项目自调、高精度优先），明鉴补本库没有的错形。
+
+    - 同一错形只保留**首次出现**的映射（本库优先，不会被明鉴覆盖）；
+    - exclude 命中的错形整条丢弃（明鉴里有少量合法异形词，见 TYPO_EXCLUDE_MINGJIAN）。
+    """
+    seen, out = set(), []
+    pairs = list(local) + (sorted((extra or {}).items(), key=lambda kv: kv[0]))
+    for wrong, right in pairs:
+        if not wrong or wrong == right or wrong in seen:
+            continue
+        if exclude and wrong in exclude:
+            continue
+        seen.add(wrong)
+        out.append((wrong, right))
+    return out
+
+
+CONFUSABLES = merge_confusables(CONFUSABLES, TYPO_DICT_MINGJIAN, TYPO_EXCLUDE_MINGJIAN)
 
 # 的地得启发式：动词 + 的 + 补语 → 应为「得」
 _VERB = "跑|说|来|走|做|想|唱|看|听|写|读|打|数|算|记|睡|笑|哭|喊|叫|爬|飞"
@@ -229,6 +271,22 @@ def check_punctuation(text, chapter_no, start_idx=100):
         out.append(_mk(chapter_no, "m%d" % idx, "punct", "info",
                        "有 %d 个段落结尾缺标点（首个：段%d 结尾「…%s」）" % (len(missing), lineno, tail),
                        suggestion="叙述段以「。！」收尾，避免句子悬空"))
+
+    # 9) 明鉴标点规范（全角方括号 / 半角括号含中文）
+    #    与 1-8 同源：确定性、零 token，仅提示不自动改。
+    for name, pattern, desc, _fix in (PUNCT_RULES_MINGJIAN or []):
+        hits = list(re.finditer(pattern, text))
+        if not hits:
+            continue
+        idx += 1
+        m = hits[0]
+        line_no, line = _line_of(text, m.start())
+        out.append(_mk(chapter_no, "mj%d" % idx, "punct",
+                       "warn" if name == "全角方括号" else "info",
+                       "标点规范（%s）：%s，共 %d 处（如「%s」）"
+                       % (name, desc, len(hits), m.group(0)),
+                       "第%d行 %s" % (line_no, line),
+                       "按规范调整标点；确认非刻意用法后再改"))
     return out
 
 
@@ -442,7 +500,18 @@ def run_llm_proofread(chapters_text, dry_run=False, client=None):
 
 
 def _extract_json(text):
-    """从 LLM 输出里提取第一个 JSON 对象/数组（容忍 ```json 围栏）。"""
+    """从 LLM 输出里提取第一个 JSON 对象/数组（容忍 ```json 围栏）。
+
+    实现统一走 utils.validator.parse_llm_json（搬运自明鉴，去围栏 + 首块提取），
+    此处仅保留函数名，避免调用点与其单测大改。模块缺失时回退内置正则实现。
+    """
+    if parse_llm_json is not None:
+        return parse_llm_json(text)
+    return _extract_json_builtin(text)
+
+
+def _extract_json_builtin(text):
+    """内置兜底实现（utils.validator 不可导入时使用）。"""
     if not text:
         return None
     fence = re.search(r"```(?:json)?\s*([\[{].*?[\]}])\s*```", text, re.S)

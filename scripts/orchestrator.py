@@ -12,6 +12,13 @@
   python scripts/orchestrator.py               # 全流程（断点续跑）
   python scripts/orchestrator.py --from 4      # 从阶段4开始
   python scripts/orchestrator.py --stage 7     # 只跑阶段7
+
+退出码：
+  0 = 全部完成
+  1 = 阶段失败（gates.pause_on_failure 时暂停）
+  2 = 预算熔断
+  3 = 等待审批 / 等待审阅
+  4 = 用户中断（GUI「停止」）
 """
 import argparse
 import os
@@ -97,6 +104,23 @@ def _warn_rewrite_conflict(cfg):
               "非 quality 类问题，避免重复改稿。")
 
 
+def _stop_requested():
+    """GUI 是否请求了停止（协作式）。
+
+    延迟导入 nf_api：nf_api 在模块顶层 `from orchestrator import run`，
+    顶层反向 import 会成环。CLI 直接跑 orchestrator 时 nf_api 不可导入，
+    此处静默降级为「未请求停止」，不影响命令行用法。
+    """
+    try:
+        from nf_api import should_stop
+    except Exception:                                       # noqa: BLE001
+        return False
+    try:
+        return bool(should_stop())
+    except Exception:                                       # noqa: BLE001
+        return False
+
+
 def run(from_stage=1, only_stage=None, client=None):
     cfg, proj = load_config()
     _warn_rewrite_conflict(cfg)
@@ -120,6 +144,12 @@ def run(from_stage=1, only_stage=None, client=None):
 
         order = [only_stage] if only_stage else range(from_stage, 9)
         for n in order:
+            # 用户中断（GUI「停止」）：每轮阶段开始前检查，置位则不再启动新阶段。
+            # 已经跑完的阶段照常保留（断点续跑语义不变）。
+            if _stop_requested():
+                print("[orchestrator] 收到停止请求，中断")
+                db.finish_run(run_id, "stopped")
+                return 4  # 退出码 4：用户中断
             # 预算熔断
             state, spent = cost.status(run_id)
             if state == "pause":
