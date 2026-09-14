@@ -6,6 +6,8 @@ import OutlineView from "./OutlineView.vue";
 import ScrapsPanel from "./ScrapsPanel.vue";
 import RoleGraph from "./RoleGraph.vue";
 import ChapterBlueprint from "./ChapterBlueprint.vue";
+import ProofreadPanel from "./ProofreadPanel.vue";
+import StylePanel from "./StylePanel.vue";
 
 const API = "http://127.0.0.1:8765";
 
@@ -36,9 +38,14 @@ const updateStatus = ref("等待检查");
 const updateReady = ref(false);
 const updateProgress = ref(0);
 const checkingUpdate = ref(false);
+const updaterInitialized = ref(false);
+const updaterDev = ref(true);
+const modelSource = ref("config"); // "config" | "fetched"
+const fetchingModels = ref(false);
 let timer = null;
 let toastTimer = null;
 let updaterHandler = null;
+let updaterCleanup = null;
 
 function say(msg) {
   toast.value = msg;
@@ -96,6 +103,7 @@ const THEMES = [
   { id: "pink", name: "樱粉", color: "#d48ca0" },
   { id: "blue", name: "天蓝", color: "#7dadde" },
   { id: "green", name: "翠绿", color: "#8ab89a" },
+  { id: "orange", name: "暖橙", color: "#e09950" },
   { id: "gray", name: "灰白", color: "#9a9aa4" },
 ];
 
@@ -114,6 +122,25 @@ function setFontSize(px) {
 // 初始化外观
 setTheme(theme.value);
 setFontSize(fontSize.value);
+
+/* ---------- 退出确认 ---------- */
+const hasUnfinishedJob = computed(() => {
+  if (!state.value) return false;
+  // 当前有运行中的 job，或存在未完成/待审批的 stage
+  if (state.value.current_job) return true;
+  const stages = state.value.stages || [];
+  return stages.some((s) => s.status === "running" || (s.status === "done" && !s.approved));
+});
+
+function setupExitGuard() {
+  window.addEventListener("beforeunload", (e) => {
+    if (hasUnfinishedJob.value) {
+      e.preventDefault();
+      e.returnValue = "当前有正在运行的流水线或待审批阶段，退出将中止当前任务。确定退出？";
+      return e.returnValue;
+    }
+  });
+}
 
 /* ---------- 导出（P3 多平台发布） ---------- */
 const exportCfg = ref({ format: "both", volSize: 5, includeFrontmatter: true });
@@ -453,7 +480,48 @@ async function restoreProject(name) {
   }
 }
 
+/* ---------- 生成前 token / 费用预估确认 ---------- */
+const estDialog = ref({ open: false, loading: false, data: null, title: "", confirm: null });
+const estSkipSession = ref(false);   // 「本次会话不再提示」
+
+function fmtTok(v) { return Number(v || 0).toLocaleString("zh-CN"); }
+
+/** 打开预估确认框；stage 为 null 表示全流程。 */
+async function confirmRunWithEstimate(title, stage, action) {
+  if (estSkipSession.value) { await action(); return; }
+  estDialog.value = { open: true, loading: true, data: null, title, confirm: action };
+  try {
+    const r = await api("/estimate" + (stage ? ("?stage=" + stage) : ""));
+    if (r.status !== 200) throw new Error(r.data.error || ("HTTP " + r.status));
+    estDialog.value.data = r.data;
+  } catch (e) {
+    estDialog.value.open = false;
+    say("预估失败（仍可运行）：" + (e.message || e));
+    if (window.confirm("预估失败，是否仍要运行？\n\n" + title)) await action();
+    return;
+  } finally {
+    estDialog.value.loading = false;
+  }
+}
+
+async function confirmEstimateRun() {
+  const fn = estDialog.value.confirm;
+  const skip = estSkipSession.value;
+  estDialog.value = { open: false, loading: false, data: null, title: "", confirm: null };
+  if (skip) say("本次会话已关闭运行前预估提示");
+  if (fn) await fn();
+}
+
+function cancelEstimate() {
+  estDialog.value = { open: false, loading: false, data: null, title: "", confirm: null };
+}
+
 async function runStage(n) {
+  await confirmRunWithEstimate("运行阶段 " + n + "（" + (STAGE_NAMES[n] || "") + "）",
+                               n, () => doRunStage(n));
+}
+
+async function doRunStage(n) {
   const r = await api("/stage/" + n + "/run", "POST", {});
   if (r.status === 202) say("已提交 阶段" + n + "（job " + r.data.job_id + "），进度见顶栏");
   else say("提交失败: " + (r.data.error || r.status));
@@ -461,31 +529,22 @@ async function runStage(n) {
 }
 
 async function runPipelineFull() {
-  if (!window.confirm(
-      "确定要全自动运行流水线？\\n\\n系统将从第一个未完成的阶段开始依次运行。\\n遇到审批门（大纲/润色完成时会暂停等待确认。")) return;
+  await confirmRunWithEstimate("全自动运行流水线（从第一个未完成阶段跑到审批门）",
+                               null, doRunPipelineFull);
+}
+
+async function doRunPipelineFull() {
   const r = await api("/stage/1/run", "POST", { from_stage: 1 });
   if (r.status === 202) say("已提交全流程运行，进度见顶栏");
   else say("提交失败: " + (r.data.error || r.status));
   refresh();
 }
 
-async function runPublish() {
-  if (!state.value) return say("状态未加载");
-  const incomplete = state.value.stages.filter(s => s.status !== "done");
-  if (incomplete.length > 0) {
-    const stages = incomplete.map(s => s.stage).join(", ");
-    return say(`阶段 ${stages} 尚未完成，无法生成成品`);
-  }
-  if (!window.confirm("确定要生成最终 Word 全书？\n\n将生成到 output/ 目录。")) return;
-  const r = await api("/stage/7/run", "POST", {});
-  if (r.status === 202) say("已提交生成 Word 成品（job " + r.data.job_id + "）");
-  else say("提交失败: " + (r.data.error || r.status));
-  refresh();
+async function runPipelineStreamFull() {
+  await confirmRunWithEstimate("流式全自动运行流水线", null, doRunPipelineStreamFull);
 }
 
-async function runPipelineStreamFull() {
-  if (!window.confirm(
-      "确定要流式全自动运行流水线？\\n\\n系统将从第一个未完成的阶段开始依次运行，实时输出阶段日志。\\n遇到审批门会自动暂停，可随时中断。")) return;
+async function doRunPipelineStreamFull() {
   const r = await api("/stage/1/run", "POST", { from_stage: 1, stream: true });
   if (r.status === 202) {
     say("已提交流式全流程运行");
@@ -523,6 +582,20 @@ async function runPipelineStreamFull() {
   } else {
     say("提交失败: " + (r.data.error || r.status));
   }
+  refresh();
+}
+
+async function runPublish() {
+  if (!state.value) return say("状态未加载");
+  const incomplete = state.value.stages.filter(s => s.status !== "done");
+  if (incomplete.length > 0) {
+    const stages = incomplete.map(s => s.stage).join(", ");
+    return say(`阶段 ${stages} 尚未完成，无法生成成品`);
+  }
+  if (!window.confirm("确定要生成最终 Word 全书？\n\n将生成到 output/ 目录。")) return;
+  const r = await api("/stage/7/run", "POST", {});
+  if (r.status === 202) say("已提交生成 Word 成品（job " + r.data.job_id + "）");
+  else say("提交失败: " + (r.data.error || r.status));
   refresh();
 }
 
@@ -809,14 +882,96 @@ async function refreshModels() {
   const r = await api("/models/available");
   if (r.status === 200) {
     providers.value = r.data.providers;
-    // 从第一个服务商的 available_models 填充下拉选项
     const firstProv = Object.values(r.data.providers)[0];
     if (firstProv && firstProv.available_models) {
       modelOptions.value = firstProv.available_models;
     }
+    // 构建服务商选项列表
+    providerOptions.value = Object.entries(r.data.providers).map(([pid, p]) => ({
+      id: pid,
+      name: pid + (p.has_key ? " ✓" : " ✗"),
+      has_key: p.has_key,
+    }));
     say("已刷新");
   } else {
     say("刷新失败");
+  }
+}
+
+async function refreshFetchedModels() {
+  fetchingModels.value = true;
+  try {
+    const r = await api("/models/fetched");
+    if (r.status === 200 && r.data.providers) {
+      const tokenhub = r.data.providers?.tokenhub;
+      if (tokenhub?.models?.length) {
+        modelOptions.value = tokenhub.models;
+        modelSource.value = "fetched";
+        say(`已同步 ${tokenhub.count} 个模型`);
+        // 更新服务商选项
+        if (providers.value?.tokenhub) {
+          providerOptions.value = [{
+            id: "tokenhub",
+            name: "tokenhub ✓",
+            has_key: true,
+          }];
+        }
+      } else {
+        const err = tokenhub?.error || "未知错误";
+        say(`同步失败: ${err}（检查 .env 中的 API Key）`);
+      }
+    } else if (r.status === 500) {
+      say(`同步失败: 服务端错误（${r.data?.error || "查看 nf_api 日志"}）`);
+    } else {
+      say(`同步失败 (HTTP ${r.status})`);
+    }
+  } catch (e) {
+    say(`同步失败: ${e.message}（检查 nf_api 是否在线）`);
+  } finally {
+    fetchingModels.value = false;
+  }
+}
+
+async function switchProvider(role, newProvider) {
+  if (!newProvider) return;
+  // 更新 models 中该 role 的 provider
+  const cfg = models.value;
+  if (cfg?.model?.[role]) {
+    cfg.model[role].provider = newProvider;
+  }
+  // 调用后端 API
+  const r = await api("/config/provider", "POST", { role, provider: newProvider });
+  if (r.status === 200) {
+    say(`已切换 ${role} → ${newProvider}`);
+  } else {
+    say(`切换失败: ${r.data?.error || r.status}`);
+  }
+}
+
+const newModelName = ref("");
+const modelSearch = ref("");
+const providerOptions = ref([]);
+
+const filteredModelOptions = computed(() => {
+  const all = modelOptions.value || [];
+  const q = modelSearch.value.trim().toLowerCase();
+  if (!q) return all;
+  return all.filter((m) => m.toLowerCase().includes(q));
+});
+
+async function addManualModel() {
+  const name = newModelName.value.trim();
+  if (!name) return;
+  if (!modelOptions.value.includes(name)) {
+    modelOptions.value = [...modelOptions.value, name];
+  }
+  newModelName.value = "";
+  say(`已手动添加: ${name}`);
+  // 持久化到缓存
+  try {
+    await api("/models/add", "POST", { name });
+  } catch (e) {
+    console.warn("[App] 持久化手动模型失败:", e);
   }
 }
 
@@ -992,6 +1147,12 @@ async function checkForUpdates() {
     updateStatus.value = "updater 未初始化";
     return;
   }
+  // 先检查 updater 状态
+  const status = await window.mofangAPI.updaterStatus();
+  if (status?.dev) {
+    updateStatus.value = "开发模式（仅打包版本支持自动更新）";
+    return;
+  }
   checkingUpdate.value = true;
   updateStatus.value = "正在检查...";
   const r = await window.mofangAPI.updaterCheck();
@@ -1009,6 +1170,16 @@ async function quitAndInstall() {
 onMounted(() => {
   refresh();
   timer = setInterval(refresh, 2500);
+  // 检查 updater 状态
+  if (window.mofangAPI?.updaterStatus) {
+    window.mofangAPI.updaterStatus().then((s) => {
+      updaterDev.value = !!s?.dev;
+      updaterInitialized.value = !!s?.initialized;
+      if (updaterDev.value) updateStatus.value = "开发模式（仅打包版本支持自动更新）";
+    });
+  }
+  // 退出确认
+  setupExitGuard();
   // 监听主进程推送的更新事件
   if (window.mofangAPI?.onUpdater) {
     updaterHandler = (data) => {
@@ -1024,7 +1195,7 @@ onMounted(() => {
         updateStatus.value = "更新错误: " + data.message;
       }
     };
-    window.mofangAPI.onUpdater(updaterHandler);
+    updaterCleanup = window.mofangAPI.onUpdater(updaterHandler);
   }
   // 首次检查是否需要显示初始化向导
   checkInitWizard();
@@ -1047,7 +1218,10 @@ async function checkMaterialsEmpty() {
     }
   }
 }
-onUnmounted(() => clearInterval(timer));
+onUnmounted(() => {
+  clearInterval(timer);
+  if (typeof updaterCleanup === 'function') updaterCleanup();
+});
 </script>
 
 <template>
@@ -1072,6 +1246,9 @@ onUnmounted(() => clearInterval(timer));
       <button :class="{ active: tab === 'outline' }" @click="switchTab('outline')">大纲</button>
       <button :class="{ active: tab === 'outline_chapters' }" @click="switchTab('outline_chapters'); loadOutlineChapters()">分章</button>
       <button :class="{ active: tab === 'review' }" @click="switchTab('review')">审稿</button>
+      <button :class="{ active: tab === 'proofread' }" @click="switchTab('proofread')">校对</button>
+      <button :class="{ active: tab === 'style' }" @click="switchTab('style')">文风</button>
+      <button :class="{ active: tab === 'cost' }" @click="switchTab('cost')">成本</button>
       <button :class="{ active: tab === 'inbox' }" @click="switchTab('inbox')">
         收件箱<span v-if="pendingGates.length" class="badge">{{ pendingGates.length }}</span>
       </button>
@@ -1194,6 +1371,16 @@ onUnmounted(() => clearInterval(timer));
     <!-- 审稿 -->
     <section v-if="tab === 'review'">
       <ReviewConsole />
+    </section>
+
+    <!-- 校对（stage 5.5） -->
+    <section v-if="tab === 'proofread'">
+      <ProofreadPanel @say="say" />
+    </section>
+
+    <!-- 文风分析 + 章节节奏 -->
+    <section v-if="tab === 'style'">
+      <StylePanel @say="say" />
     </section>
 
     <!-- Story Bible（B1） -->
@@ -1408,19 +1595,39 @@ onUnmounted(() => clearInterval(timer));
     <section v-if="tab === 'settings' && models" class="card">
       <div class="card-head">
         <h3>引擎与模型（config/system.yaml）</h3>
-        <button class="mini" @click="refreshModels">刷新</button>
+        <button class="mini" @click="refreshModels" title="从 config/system.yaml 重载">刷新</button>
       </div>
-      <div class="meta">engine: {{ models.engine }}</div>
+      <div class="meta">
+        engine: {{ models.engine }} · 下拉来源：{{ modelSource === 'fetched' ? '服务商动态拉取' : 'config 手写列表' }}
+        <button class="mini" style="margin-left: 8px;" @click="refreshFetchedModels" :disabled="fetchingModels">
+          {{ fetchingModels ? '同步中…' : '↻ 同步服务商模型' }}
+        </button>
+      </div>
       <div v-for="(m, role) in models.model" :key="role" class="art-row">
         <span class="pill st-done">{{ role }}</span>
         <span class="art-path">{{ m.provider }} / {{ m.id }}</span>
         <span class="spacer"></span>
         <select v-model="m.id" @change="switchModel(role, m.id)" class="model-select">
-          <option v-for="opt in modelOptions" :key="opt" :value="opt">{{ opt }}</option>
+          <option v-for="opt in filteredModelOptions" :key="opt" :value="opt">{{ opt }}</option>
         </select>
+        <select v-model="m.provider" @change="switchProvider(role, m.provider)" class="provider-select">
+          <option v-for="p in providerOptions" :key="p.id" :value="p.id">{{ p.name }}</option>
+        </select>
+      </div>
+      <div class="art-row" style="margin-top: 8px;">
+        <span class="pill st-done">搜索模型</span>
+        <input v-model="modelSearch" placeholder="输入关键词过滤..." class="model-input" />
+        <button class="mini" @click="modelSearch = ''" v-if="modelSearch">×</button>
+        <span class="meta" style="margin-left: auto;">{{ filteredModelOptions.length }} / {{ modelOptions.length }}</span>
+      </div>
+      <div class="art-row" style="margin-top: 8px;">
+        <span class="pill st-done">手动添加</span>
+        <input v-model="newModelName" placeholder="输入模型名（如 kimi-k2.5）" class="model-input" />
+        <button class="mini" @click="addManualModel">+ 添加</button>
       </div>
       <div class="meta" style="margin-top: 12px;">
         改模型：下拉切换后立即写入 config/system.yaml，下次运行阶段时生效。
+        <br>architect=设定/世界观 | outliner=大纲 | writer=写作 | checker=检查 | reviewer=审核 | polisher=润色
       </div>
 
       <!-- 服务商与密钥状态 -->
@@ -1538,10 +1745,14 @@ onUnmounted(() => clearInterval(timer));
         <span class="pill st-done">electron-updater</span>
         <span class="art-path">{{ updateStatus }}</span>
         <span class="spacer"></span>
-        <button class="mini" @click="checkForUpdates" :disabled="checkingUpdate">
+        <button class="mini" @click="checkForUpdates" :disabled="checkingUpdate"
+                :title="updaterDev ? '开发模式（仅打包版本支持自动更新）' : '检查更新'">
           {{ checkingUpdate ? "检查中…" : "检查更新" }}
         </button>
         <button v-if="updateReady" class="mini primary" @click="quitAndInstall">重启安装</button>
+      </div>
+      <div v-if="updaterDev" class="meta" style="margin-top: 4px; opacity: 0.7;">
+        开发模式下自动更新已禁用。手动下载：<a href="https://github.com/MUYU46548/ronghuamofang/releases" target="_blank" style="color: var(--accent);">GitHub Releases</a>
       </div>
       <div v-if="updateProgress > 0 && updateProgress < 100" class="meta" style="margin-top: 4px;">
         下载进度: {{ updateProgress.toFixed(1) }}%
@@ -1671,32 +1882,6 @@ onUnmounted(() => clearInterval(timer));
       <!-- 原始碎片（自由命名 / 私人数据 / 不进 Git）→ 勾选信息点 → 一键生成素材卡 -->
       <ScrapsPanel v-else />
     </section>
-  </main>
-
-  <!-- 素材编辑抽屉 -->
-
-  <div v-if="materialEdit" class="drawer-mask" @click.self="materialEdit = null">
-    <div class="drawer" style="width: min(1000px, 92vw);">
-      <div class="drawer-head">
-        <b>{{ materialEdit.name }}</b>
-        <span v-if="materialEditDirty" class="pill st-gate" style="margin-left: 8px;">已修改</span>
-        <span class="spacer"></span>
-        <button class="mini" @click="loadMaterials">刷新列表</button>
-        <button class="mini" @click="materialEdit = null">关闭</button>
-      </div>
-      <textarea class="prompt-text" style="min-height: 60vh; font-family: var(--mono);"
-                v-model="materialEdit.content"
-                @input="materialEditDirty = true"
-                spellcheck="false"></textarea>
-      <div class="provider-row" style="margin-top: 6px;">
-        <span class="meta">{{ materialEdit.content.length }} 字符</span>
-        <span class="spacer"></span>
-        <button class="mini" @click="openMaterialEdit(materialEdit.name)">放弃修改</button>
-        <button class="mini primary" :disabled="!materialEditDirty" @click="saveMaterialEdit">保存</button>
-      </div>
-    </div>
-  </div>
-
     <!-- 项目（书籍切换） -->
     <section v-if="tab === 'project'" class="card">
       <div class="card-head">
@@ -1726,6 +1911,31 @@ onUnmounted(() => clearInterval(timer));
         <b>新建项目：</b>在 config/project.yaml 中修改 book.name，然后归档当前项目并初始化新工作区。
       </div>
     </section>
+  </main>
+
+  <!-- 素材编辑抽屉 -->
+
+  <div v-if="materialEdit" class="drawer-mask" @click.self="materialEdit = null">
+    <div class="drawer" style="width: min(1000px, 92vw);">
+      <div class="drawer-head">
+        <b>{{ materialEdit.name }}</b>
+        <span v-if="materialEditDirty" class="pill st-gate" style="margin-left: 8px;">已修改</span>
+        <span class="spacer"></span>
+        <button class="mini" @click="loadMaterials">刷新列表</button>
+        <button class="mini" @click="materialEdit = null">关闭</button>
+      </div>
+      <textarea class="prompt-text" style="min-height: 60vh; font-family: var(--mono);"
+                v-model="materialEdit.content"
+                @input="materialEditDirty = true"
+                spellcheck="false"></textarea>
+      <div class="provider-row" style="margin-top: 6px;">
+        <span class="meta">{{ materialEdit.content.length }} 字符</span>
+        <span class="spacer"></span>
+        <button class="mini" @click="openMaterialEdit(materialEdit.name)">放弃修改</button>
+        <button class="mini primary" :disabled="!materialEditDirty" @click="saveMaterialEdit">保存</button>
+      </div>
+    </div>
+  </div>
 
   <!-- 文档阅读器 -->
   <div v-if="viewDoc || previewPath" class="drawer-mask" @click.self="viewDoc = null; previewPath = ''">
@@ -1775,6 +1985,92 @@ onUnmounted(() => clearInterval(timer));
             <div v-else class="diff-para">{{ diffView.refined }}</div>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 运行前 token / 费用预估确认 -->
+  <div v-if="estDialog.open" class="drawer-mask">
+    <div class="dialog" style="width: min(760px, 94vw);">
+      <h3>运行前预估</h3>
+      <div class="meta" style="margin-bottom: 10px;">
+        {{ estDialog.title }} —— 以下是本次预计消耗，确认后才真正开跑。
+      </div>
+
+      <div v-if="estDialog.loading" class="empty">正在估算…</div>
+
+      <template v-else-if="estDialog.data">
+        <div class="est-totals">
+          <div class="cost-stat">
+            <div class="stat-label">预计调用</div>
+            <div class="stat-val">{{ estDialog.data.totals.calls }}</div>
+            <div class="stat-sub">次 LLM 请求</div>
+          </div>
+          <div class="cost-stat">
+            <div class="stat-label">输入 token</div>
+            <div class="stat-val">{{ fmtTok(estDialog.data.totals.tokens_in) }}</div>
+            <div class="stat-sub">口径：{{ { history: '历史实测均值', heuristic: '字符折算', mixed: '实测 + 折算' }[estDialog.data.basis_source] || estDialog.data.basis_source }}</div>
+          </div>
+          <div class="cost-stat">
+            <div class="stat-label">输出 token</div>
+            <div class="stat-val">{{ fmtTok(estDialog.data.totals.tokens_out) }}</div>
+            <div class="stat-sub">预计生成量</div>
+          </div>
+          <div class="cost-stat">
+            <div class="stat-label">预计费用</div>
+            <div class="stat-val" :class="{ 'bad-val': estDialog.data.budget.exceeds }">
+              {{ fmtYuan(estDialog.data.totals.cost_yuan) }}
+            </div>
+            <div class="stat-sub" :class="{ 'bad-val': estDialog.data.budget.exceeds }">
+              跑完 {{ fmtYuan(estDialog.data.budget.projected_yuan) }}
+              / 上限 {{ fmtYuan(estDialog.data.budget.limit_yuan) }}
+              （{{ estDialog.data.budget.projected_pct }}%{{ estDialog.data.budget.exceeds ? " ⚠ 超预算" : "" }}）
+            </div>
+          </div>
+        </div>
+
+        <div class="est-bar">
+          <div class="est-bar-in" :style="{ width: Math.min(100, estDialog.data.budget.projected_pct) + '%' }"
+               :class="{ over: estDialog.data.budget.exceeds }"></div>
+        </div>
+
+        <table class="cost-table" style="margin-top: 12px;">
+          <thead>
+            <tr><th>阶段</th><th>调用</th><th>输入</th><th>输出</th><th>费用</th><th>依据</th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="s in estDialog.data.stages" :key="s.stage">
+              <td>{{ s.stage }} {{ s.name }}</td>
+              <td>{{ s.calls }}</td>
+              <td>{{ fmtTok(s.tokens_in) }}</td>
+              <td>{{ fmtTok(s.tokens_out) }}</td>
+              <td>{{ fmtYuan(s.cost_yuan) }}<span v-if="!s.rate_known" title="单价未知"> *</span></td>
+              <td class="est-basis">{{ (s.basis || [])[0] || "-" }}</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div v-if="estDialog.data.unknown_rate_models.length" class="est-warn">
+          ⚠ 以下模型没有刊例价（带 *），费用按 default 角色兜底，偏差可能很大：
+          {{ estDialog.data.unknown_rate_models.join("、") }}。
+          请先运行 <code>python scripts/price_wizard.py</code> 补录后再下单。
+        </div>
+
+        <div class="meta" style="margin-top: 8px;">
+          {{ estDialog.data.disclaimer }}
+        </div>
+
+        <label class="est-skip">
+          <input type="checkbox" v-model="estSkipSession" />
+          本次会话不再提示（仍然可在「成本」页随时查看实际用量）
+        </label>
+      </template>
+
+      <div class="dialog-actions">
+        <button class="mini" @click="cancelEstimate">取消</button>
+        <button class="mini primary" :disabled="estDialog.loading" @click="confirmEstimateRun">
+          确认运行
+        </button>
       </div>
     </div>
   </div>

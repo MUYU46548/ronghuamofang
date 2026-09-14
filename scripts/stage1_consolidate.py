@@ -305,7 +305,7 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     with_scraps: None=按配置（proj.materials.use_scraps，默认 True）；True/False 强制。
     强制 True 但目录为空时自动退化为无碎片流程，不报错。
     """
-    client = client or make_client(cfg, "default")
+    client = client or make_client(cfg, "architect")
     task_dir = task_dir or "data/state/tasks"
     mats_cfg = proj.get("materials", {}) or {}
     materials_dir = mats_cfg.get("dir", "materials/raw")

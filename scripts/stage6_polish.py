@@ -175,7 +175,7 @@ def _run_one_volume(client, task_dir, vol_index, proj, checked_dir, refined_dir,
 
 
 def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=None):
-    client = client or make_client(cfg, "writer")
+    client = client or make_client(cfg, "polisher")
     task_dir = task_dir or "data/state/tasks"
     checked_dir = Path("data/chapters/checked")
     refined_dir = Path("data/chapters/refined")

@@ -12,6 +12,20 @@
   logs/runs.db），防越权写；
 - usage 取 API 真实返回（estimated=False），单价走 cost_tracker.RATES。
 
+思考模型兼容（2026-09-14，TokenHub glm-5.1 破坏性变更）：
+- 部分模型（glm-5.x / kimi 等）默认进 thinking 模式：正文全进 reasoning_content、
+  content 为空，且思考 token 会吃掉 max_tokens 预算 → 流水线所有产物空白。三道防线：
+  1) 主动：模型名命中 config 的 providers.<id>.disable_thinking_models 时，
+     注入「关闭思考」payload 片段，模型直接给 content（名单与片段都不硬编码在代码里）；
+  2) 自适应：未列名单的思考模型，若返回空 content 且 reasoning_content 非空，
+     自动注入关闭思考片段重试一次；仍为空则从 reasoning_content 兜底提取正文并告警；
+  3) 降级：provider 拒绝该参数（HTTP 400/422）时自动换下一个候选片段，
+     候选用完则不再注入（不因参数不兼容而卡死流水线）。
+- 实测（2026-09-14 / TokenHub）：`reasoning_effort=none` 会被拒（400，只接受
+  low/medium/…）；GLM 原生 `thinking={"type":"disabled"}` 有效，正文 100% 落地。
+  故候选片段顺序为 thinking.type=disabled → reasoning_effort=none → enable_thinking=false，
+  换供应商时改 config/system.yaml 即可，无需改代码。
+
 实现注意：本文件源码零反斜杠字面量（BS = chr(92) 动态构造），
 规避工具链 JSON 参数对反斜杠的半化陷阱。改动解析逻辑必须跑 Temp/ mock 集成测试。
 """
@@ -236,6 +250,20 @@ def estimate_tokens(task_path):
     return max(1000, int(size * 0.4)), max(500, int(size * 0.4) // 3)
 
 
+# ---- 思考模型兼容（关闭思考开关，跨平台候选）----
+# 各平台开关名不同：GLM 原生 thinking.type=disabled（TokenHub 实测有效）、
+# 部分平台 reasoning_effort=none / enable_thinking=false。
+# 具体模型名单与候选片段都来自 config（providers.<id>.disable_thinking_models /
+# disable_thinking_payloads），代码里不出现任何模型名。
+THINKING_KEYS = ("reasoning_effort", "thinking", "enable_thinking", "reasoning",
+                 "chat_template_kwargs")
+DEFAULT_DISABLE_THINKING_PAYLOADS = (
+    {"thinking": {"type": "disabled"}},
+    {"reasoning_effort": "none"},
+    {"enable_thinking": False},
+)
+
+
 class OpenAICompatClient:
     """OpenAI 兼容 Chat Completions 直连客户端。
 
@@ -243,7 +271,8 @@ class OpenAICompatClient:
     """
 
     def __init__(self, model, base_url, api_key, timeout=600, retries=3,
-                 provider="openai-compat", model_key=None):
+                 provider="openai-compat", model_key=None, fallback_models=None,
+                 disable_thinking_models=None, disable_thinking_payloads=None):
         self.model = model
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
@@ -251,6 +280,120 @@ class OpenAICompatClient:
         self.retries = retries
         self.provider = provider
         self.model_key = model_key
+        self.fallback_models = fallback_models or []
+        # 配置驱动（config/system.yaml → providers.<id>.disable_thinking_models），
+        # 代码内不硬编码任何模型名。
+        self.disable_thinking_models = [str(x) for x in (disable_thinking_models or []) if x]
+        snippets = []
+        for s in (disable_thinking_payloads or DEFAULT_DISABLE_THINKING_PAYLOADS):
+            if isinstance(s, dict) and s:
+                snippets.append(dict(s))
+        self.disable_thinking_payloads = snippets
+        self._chosen_thinking_snippet = None    # 已被 provider 接受的候选（锁定复用）
+        self._bad_thinking_snippets = []        # 被 provider 拒绝过的候选
+
+    # ---- 思考模式兼容 ----
+
+    def _thinking_disabled(self, model_name):
+        """模型是否命中「禁用思考」名单：精确名 / 双向前缀（glm-5 命中 glm-5.1）。"""
+        m = str(model_name or "").strip().lower()
+        if not m:
+            return False
+        for raw in self.disable_thinking_models:
+            k = str(raw or "").strip().lower()
+            if not k:
+                continue
+            if m == k or m.startswith(k) or (len(m) >= 3 and k.startswith(m)):
+                return True
+        return False
+
+    @staticmethod
+    def _thinking_keys_present(payload):
+        """payload 中已存在的思考相关键（调用方显式设置的，不覆盖）。"""
+        return [k for k in THINKING_KEYS if k in payload]
+
+    def _next_thinking_snippet(self):
+        """取下一个可用的「关闭思考」片段（已锁定优先）。返回 dict 或 None。"""
+        if self._chosen_thinking_snippet is not None:
+            return dict(self._chosen_thinking_snippet)
+        for s in self.disable_thinking_payloads:
+            if s not in self._bad_thinking_snippets:
+                self._chosen_thinking_snippet = dict(s)
+                return dict(s)
+        return None
+
+    def _apply_no_thinking(self, payload, model_name, force=False):
+        """注入「关闭思考」片段。返回注入的片段（dict）或 None。
+
+        force=True 用于「自动探测」场景：模型不在名单里，但实测正在 thinking
+        （content 空 + reasoning_content 非空）或刚被拒需换候选。
+        """
+        if self._thinking_keys_present(payload):
+            return None       # 调用方显式指定了思考相关参数 → 尊重调用方
+        if not force and not self._thinking_disabled(model_name):
+            return None
+        snippet = self._next_thinking_snippet()
+        if not snippet:
+            return None
+        payload.update(snippet)
+        return snippet
+
+    @staticmethod
+    def _thinking_keys_mentioned(body):
+        """错误体里点名了哪些思考相关参数。"""
+        low = (body or "").lower()
+        return [k for k in THINKING_KEYS if k.lower() in low]
+
+    def _reject_thinking_snippet(self, snippet, code, body):
+        """provider 拒绝该「关闭思考」片段 → 拉黑并换下一个候选。返回是否发生了切换。"""
+        if not snippet or code not in (400, 422):
+            return False
+        if snippet in self._bad_thinking_snippets:
+            return False
+        low = (body or "").lower()
+        mentioned = self._thinking_keys_mentioned(body)
+        if mentioned:
+            if not any(k in snippet for k in mentioned):
+                return False      # 报错点的是别的参数 → 不背锅
+        elif not any(w in low for w in ("unsupported", "unknown", "unrecognized",
+                                        "literal_error", "extra_forbidden")):
+            return False
+        self._bad_thinking_snippets.append(dict(snippet))
+        self._chosen_thinking_snippet = None
+        return True
+
+    @staticmethod
+    def _split_answer(msg):
+        """从响应 message 提取 (content, thinking)。兼容 reasoning_content / reasoning 字段。"""
+        if not isinstance(msg, dict):
+            return "", ""
+        text = msg.get("content") or ""
+        thinking = msg.get("reasoning_content") or msg.get("reasoning") or ""
+        if not isinstance(text, str):
+            text = "" if text is None else str(text)
+        if not isinstance(thinking, str):
+            thinking = "" if thinking is None else str(thinking)
+        return text, thinking
+
+    @staticmethod
+    def _salvage_answer(text):
+        """thinking 兜底：尽量只取「正式答复」部分（首个协议块起），去掉思考过程。"""
+        for marker in ("===FILE:", "===APPEND:", "===DELETE:"):
+            idx = text.find(marker)
+            if idx >= 0:
+                return text[idx:]
+        return text
+
+    def _request_json(self, payload):
+        """单次非流式请求，返回解析后的 JSON。"""
+        req = urllib.request.Request(
+            self.base_url + "/chat/completions",
+            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+            headers={"Content-Type": "application/json",
+                     "Authorization": "Bearer " + self.api_key},
+            method="POST")
+        with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+            return json.loads(resp.read().decode("utf-8"))
 
     def _validate_creds(self):
         if not self.base_url:
@@ -268,64 +411,108 @@ class OpenAICompatClient:
 
     def _post_chat(self, messages, temperature=None, max_tokens=None):
         self._validate_creds()
-        payload = {"model": self.model, "messages": messages}
-        if temperature is not None:
-            payload["temperature"] = temperature
-        if max_tokens:
-            payload["max_tokens"] = max_tokens
-        req = urllib.request.Request(
-            self.base_url + "/chat/completions",
-            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-            headers={"Content-Type": "application/json",
-                     "Authorization": "Bearer " + self.api_key},
-            method="POST")
+        models_to_try = [self.model] + list(self.fallback_models)
         last_err = None
-        for attempt in range(1, self.retries + 1):
-            try:
-                with urllib.request.urlopen(req, timeout=self.timeout) as resp:
-                    data = json.loads(resp.read().decode("utf-8"))
-                text = ""
-                choices = data.get("choices") or []
-                if choices:
-                    text = (choices[0].get("message") or {}).get("content") or ""
-                usage = data.get("usage") or {}
-                return text, usage, data.get("model", self.model)
-            except urllib.error.HTTPError as e:
-                body = e.read().decode("utf-8", "replace")[:500]
-                if e.code in (400, 401, 403, 404):
-                    raise RuntimeError(
-                        "[llm_client] 请求被拒 HTTP " + str(e.code) + ": " + body) from e
-                last_err = "HTTP " + str(e.code) + ": " + body
-            except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as e:
-                last_err = repr(e)
-            print("[llm_client] 请求失败（第 " + str(attempt) + "/" +
-                  str(self.retries) + " 次），重试中: " + last_err)
-            time.sleep(2 ** attempt)
-        raise RuntimeError("[llm_client] 重试耗尽: " + str(last_err))
+        for model_name in models_to_try:
+            payload = {"model": model_name, "messages": messages}
+            if temperature is not None:
+                payload["temperature"] = temperature
+            if max_tokens:
+                payload["max_tokens"] = max_tokens
+            injected = self._apply_no_thinking(payload, model_name)
+            if injected is not None:
+                print("[llm_client] " + str(model_name) + " 命中 disable_thinking_models → 注入 "
+                      + json.dumps(injected, ensure_ascii=False) + "（关闭思考，保证正文进 content）")
+            attempt = 0
+            while attempt < self.retries:
+                attempt += 1
+                try:
+                    data = self._request_json(payload)
+                    choices = data.get("choices") or []
+                    text, thinking = self._split_answer(
+                        (choices[0].get("message") if choices else None) or {})
+                    usage = data.get("usage") or {}
+                    if not text.strip() and thinking.strip():
+                        # thinking 模式：正文被塞进 reasoning_content（TokenHub glm-5.x 默认行为）
+                        if injected is None and attempt < self.retries:
+                            injected = self._apply_no_thinking(payload, model_name, force=True)
+                            if injected is not None:
+                                print("[llm_client] WARN " + str(model_name) +
+                                      " content 为空但 reasoning_content 非空（thinking 模式）→ 自动注入 "
+                                      + json.dumps(injected, ensure_ascii=False) + " 后重试")
+                                continue
+                        print("[llm_client] WARN " + str(model_name) +
+                              " 仅返回 reasoning_content，已兜底取用；建议把该模型加入 "
+                              "config/system.yaml 的 providers." + str(self.provider) +
+                              ".disable_thinking_models")
+                        text = self._salvage_answer(thinking)
+                    if model_name != self.model:
+                        print(f"[llm_client] fallback {self.model} → {model_name} 成功")
+                    return text, usage, data.get("model", model_name)
+                except urllib.error.HTTPError as e:
+                    body = e.read().decode("utf-8", "replace")[:500]
+                    if self._reject_thinking_snippet(injected, e.code, body):
+                        for k in injected:
+                            payload.pop(k, None)
+                        last_err = "HTTP " + str(e.code) + ": " + body
+                        injected = self._apply_no_thinking(payload, model_name, force=True)
+                        print("[llm_client] " + str(model_name) + " 拒绝关闭思考参数，改用 "
+                              + (json.dumps(injected, ensure_ascii=False) if injected
+                                 else "不注入（候选已用尽，依赖空 content 兜底）")
+                              + " 重试: " + body[:120])
+                        attempt -= 1          # 参数自适应不计入重试次数（不重复烧预算）
+                        continue
+                    if e.code in (400, 401, 403, 404):
+                        raise RuntimeError(
+                            "[llm_client] 请求被拒 HTTP " + str(e.code) + ": " + body) from e
+                    last_err = "HTTP " + str(e.code) + ": " + body
+                except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as e:
+                    last_err = repr(e)
+                print("[llm_client] 请求失败（第 " + str(attempt) + "/" +
+                      str(self.retries) + " 次），重试中: " + last_err)
+                time.sleep(2 ** attempt)
+            # 当前模型重试耗尽，尝试下一个 fallback
+            if model_name != models_to_try[-1]:
+                print(f"[llm_client] {model_name} 重试耗尽，尝试 fallback: {models_to_try[models_to_try.index(model_name)+1]}")
+        raise RuntimeError("[llm_client] 重试耗尽（含 fallback）: " + str(last_err))
 
     def _post_chat_stream(self, messages, temperature=None, max_tokens=None, on_chunk=None, stop_flag=None):
         """流式请求：逐 token 产出文本块。on_chunk(text) 每次收到新内容时调用。
-        stop_flag: callable，返回 True 时中止流。"""
+        stop_flag: callable，返回 True 时中止流。
+
+        thinking 模式同理：命中名单注入「关闭思考」片段；未命中而只收到
+        reasoning_content 时自动注入后重试，仍为空则把思考内容兜底回调（避免 GUI 空白）。
+        """
         self._validate_creds()
         payload = {"model": self.model, "messages": messages, "stream": True}
         if temperature is not None:
             payload["temperature"] = temperature
         if max_tokens:
             payload["max_tokens"] = max_tokens
-        req = urllib.request.Request(
-            self.base_url + "/chat/completions",
-            data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-            headers={"Content-Type": "application/json",
-                     "Authorization": "Bearer " + self.api_key},
-            method="POST")
+        injected = self._apply_no_thinking(payload, self.model)
+        if injected is not None:
+            print("[llm_client] " + str(self.model) + " 命中 disable_thinking_models → 注入 "
+                  + json.dumps(injected, ensure_ascii=False) + "（关闭思考，流式）")
         last_err = None
-        for attempt in range(1, self.retries + 1):
+        attempt = 0
+        while attempt < self.retries:
+            attempt += 1
+            content_parts, thinking_parts = [], []
+            stopped = False
             try:
+                req = urllib.request.Request(
+                    self.base_url + "/chat/completions",
+                    data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+                    headers={"Content-Type": "application/json",
+                             "Authorization": "Bearer " + self.api_key},
+                    method="POST")
                 with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                     buf = ""
-                    while True:
+                    done = False
+                    while not done:
                         if stop_flag and stop_flag():
-                            return "", {}, self.model
+                            stopped = True
+                            break
                         raw = resp.read(1024).decode("utf-8", "replace")
                         if not raw:
                             break
@@ -337,21 +524,58 @@ class OpenAICompatClient:
                                 continue
                             data_str = line[5:].strip()
                             if data_str == "[DONE]":
-                                return "", {}, self.model
+                                done = True
+                                break
                             try:
                                 chunk = json.loads(data_str)
                             except json.JSONDecodeError:
                                 continue
                             choices = chunk.get("choices") or []
-                            if choices:
-                                delta = choices[0].get("delta") or {}
-                                piece = delta.get("content") or ""
-                                if piece:
-                                    if on_chunk:
-                                        on_chunk(piece)
-                return "", {}, self.model
+                            if not choices:
+                                continue
+                            delta = choices[0].get("delta") or {}
+                            piece = delta.get("content") or ""
+                            if piece:
+                                content_parts.append(piece)
+                                if on_chunk:
+                                    on_chunk(piece)
+                                continue
+                            rpiece = delta.get("reasoning_content") or delta.get("reasoning") or ""
+                            if rpiece:
+                                thinking_parts.append(rpiece)
+                full = "".join(content_parts)
+                if stopped:
+                    return full, {}, self.model
+                if not full.strip() and thinking_parts:
+                    if injected is None and attempt < self.retries:
+                        injected = self._apply_no_thinking(payload, self.model, force=True)
+                        if injected is not None:
+                            print("[llm_client] WARN " + str(self.model) +
+                                  " 流式 content 为空但收到 reasoning_content（thinking 模式）"
+                                  " → 自动注入 " + json.dumps(injected, ensure_ascii=False) + " 后重试")
+                            continue
+                    salvaged = self._salvage_answer("".join(thinking_parts))
+                    print("[llm_client] WARN " + str(self.model) +
+                          " 流式仅返回 reasoning_content，已兜底回调；建议把该模型加入 "
+                          "config/system.yaml 的 providers." + str(self.provider) +
+                          ".disable_thinking_models")
+                    if on_chunk and salvaged:
+                        on_chunk(salvaged)
+                    return salvaged, {}, self.model
+                return full, {}, self.model
             except urllib.error.HTTPError as e:
                 body = e.read().decode("utf-8", "replace")[:500]
+                if self._reject_thinking_snippet(injected, e.code, body):
+                    for k in injected:
+                        payload.pop(k, None)
+                    last_err = "HTTP " + str(e.code) + ": " + body
+                    injected = self._apply_no_thinking(payload, self.model, force=True)
+                    print("[llm_client] " + str(self.model) + " 拒绝关闭思考参数（流式），改用 "
+                          + (json.dumps(injected, ensure_ascii=False) if injected
+                             else "不注入（候选已用尽，依赖空 content 兜底）")
+                          + " 重试: " + body[:120])
+                    attempt -= 1
+                    continue
                 if e.code in (400, 401, 403, 404):
                     raise RuntimeError(
                         "[llm_client] 请求被拒 HTTP " + str(e.code) + ": " + body) from e
@@ -603,7 +827,7 @@ def _load_env_file(path=".env"):
 
 
 def make_client(cfg, model_key="default", verbose=True):
-    """按 config/system.yaml 构建客户端。model_key: default/writer/checker。"""
+    """按 config/system.yaml 构建客户端。model_key: default/architect/outliner/writer/checker/reviewer/polisher。"""
     _load_env_file()
     engine = (cfg or {}).get("engine", "hermes")
     mspec = ((cfg or {}).get("model") or {}).get(model_key) or {}
@@ -635,4 +859,6 @@ def make_client(cfg, model_key="default", verbose=True):
     return OpenAICompatClient(
         model=model_id, base_url=base_url, api_key=api_key,
         timeout=int(prov.get("timeout", 600)), retries=int(prov.get("retries", 3)),
-        provider=provider_id, model_key=model_key)
+        provider=provider_id, model_key=model_key, fallback_models=prov.get("fallback", []),
+        disable_thinking_models=prov.get("disable_thinking_models", []),
+        disable_thinking_payloads=prov.get("disable_thinking_payloads"))

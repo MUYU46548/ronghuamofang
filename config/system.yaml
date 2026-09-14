@@ -7,25 +7,52 @@ providers:
     timeout: 600
     retries: 3
     available_models:
-      - glm-5
-      - glm-5.3
-      - glm-5.3-flash
-      - deepseek-v4-flash
-      - deepseek-v4-pro
-      - kimi-k3
+    - glm-5.1
+    - glm-5-turbo
+    - glm-5
+    - glm-5.3
+    - glm-5.3-flash
+    - deepseek-v4-flash
+    - deepseek-v4-pro
+    - kimi-k3
+    fallback:
+    - glm-5
+    - glm-5-turbo
+    disable_thinking_models:
+    - glm-5.1
+    - glm-5
+    - glm-5-turbo
+    - glm-5.3
+    - glm-5.3-flash
+    - kimi-k2.5
+    - kimi-k3
+    disable_thinking_payloads:
+    - thinking:
+        type: disabled
+    - reasoning_effort: none
+    - enable_thinking: false
 model:
   default:
     provider: tokenhub
-    id: glm-5
+    id: kimi-k2.5
+  architect:
+    provider: tokenhub
+    id: kimi-k2.5
+  outliner:
+    provider: tokenhub
+    id: kimi-k2.5
   writer:
     provider: tokenhub
-    id: glm-5
+    id: kimi-k2.5
   checker:
     provider: tokenhub
-    id: glm-5
+    id: kimi-k2.5
   reviewer:
     provider: tokenhub
-    id: glm-5
+    id: kimi-k2.5
+  polisher:
+    provider: tokenhub
+    id: kimi-k2.5
 budget:
   limit_yuan: 300
   warn_ratio: 0.7
@@ -35,8 +62,8 @@ parallelism:
   checks_max_concurrent: 2
 chapter:
   target_words:
-  - 2000
-  - 3000
+  - 1200
+  - 3500
   summary_every: 5
   batch_outline: 10
   quality_threshold: 6
@@ -50,7 +77,6 @@ gates:
   review_after_stage4: true
   review_after_stage5: false
   auto_refine: false
-  # 方向3 质量自评闭环：stage4 后自动重写 quality<threshold 的章节（默认关闭）
   auto_rewrite: false
   auto_rewrite_max_rounds: 1
 logging:

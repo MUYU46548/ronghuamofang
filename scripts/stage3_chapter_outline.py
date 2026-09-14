@@ -36,7 +36,7 @@ def build_batch_task(cfg, proj, chapters, global_outline_path, setting_path):
 
 
 def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=None):
-    client = client or make_client(cfg, "default")
+    client = client or make_client(cfg, "outliner")
     task_dir = task_dir or "data/state/tasks"
     total = int(proj.get("book", {}).get("chapters", 10))
     batch = int(cfg.get("chapter", {}).get("batch_outline", 10))

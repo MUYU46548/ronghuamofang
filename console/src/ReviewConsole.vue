@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from "vue";
+import { ref, computed, onMounted, onUnmounted } from "vue";
 
 const API = "http://127.0.0.1:8765";
 
@@ -17,6 +17,9 @@ const report = ref(null);
 const loading = ref(false);
 const saving = ref(false);
 const running = ref(false);
+const savedCount = ref(0); // 已落盘到 decisions.json 的决策数（仅展示）
+const revision = ref(0); // 决策改动计数
+const savedRevision = ref(0); // 最近一次成功落盘时的计数
 const batchProgress = ref(null); // { current, total, index, status, message }
 let progressTimer = null;
 const toast = ref("");
@@ -45,6 +48,13 @@ const pendingCount = computed(() => {
   return totalFindings.value - acceptedCount.value - ignoredCount.value;
 });
 const hasDecision = computed(() => acceptedCount.value > 0);
+// 决策有改动未落盘 → 运行批量精修前必须先 POST /review/decisions
+const decisionsDirty = computed(() => revision.value !== savedRevision.value);
+const progressPct = computed(() => {
+  const p = batchProgress.value;
+  if (!p || !p.total) return 0;
+  return Math.min(100, Math.round(((p.index || 0) / p.total) * 100));
+});
 
 // ---------- 方法 ----------
 function toggleChapter(n) {
@@ -60,6 +70,7 @@ function setDecision(chapterNo, findingId, action, feedback = "") {
   } else {
     decisions.value[uniqueKey] = { action: "accept", feedback };
   }
+  revision.value++;
 }
 
 function acceptAll() {
@@ -68,6 +79,7 @@ function acceptAll() {
       decisions.value[`${c.n}_${f.id}`] = { action: "accept", feedback: "" };
     }
   }
+  revision.value++;
   say("已接受全部 " + totalFindings.value + " 条");
 }
 
@@ -77,12 +89,14 @@ function ignoreAll() {
       decisions.value[`${c.n}_${f.id}`] = { action: "ignore", feedback: "" };
     }
   }
+  revision.value++;
   say("已忽略全部");
 }
 
 function resetDecisions() {
   decisions.value = {};
-  say("已重置");
+  revision.value++;
+  say("已重置（记得保存决策）");
 }
 
 async function runReview() {
@@ -91,8 +105,9 @@ async function runReview() {
     const r = await api("/review/run", "POST", { stream: false });
     if (r.status === 202) {
       say("审查任务已提交: " + r.data.job_id);
-      // 轮询 job 状态
       await pollJob(r.data.job_id);
+    } else if (r.status === 409) {
+      say("已有任务在运行: " + (r.data.error || "请稍候"));
     } else {
       say("提交失败: " + (r.data.error || r.status));
     }
@@ -103,20 +118,25 @@ async function runReview() {
   }
 }
 
-async function pollJob(jobId) {
-  while (true) {
+async function pollJob(jobId, tries = 300) {
+  for (let i = 0; i < tries; i++) {
     await new Promise(r => setTimeout(r, 2000));
     const r = await api("/jobs/" + jobId);
+    if (r.status !== 200) {
+      say("任务状态查询失败: " + (r.data.error || r.status));
+      return;
+    }
     if (r.data.state !== "running") {
       if (r.data.state === "ok") {
-        say("审查完成");
+        say("任务完成");
         await loadReport();
       } else {
-        say("审查失败: " + (r.data.result || "未知错误"));
+        say("任务失败: " + (r.data.result || r.data.error || r.data.state || "未知错误"));
       }
       return;
     }
   }
+  say("任务仍在运行（轮询超时，可点「刷新报告」查看）");
 }
 
 async function loadReport() {
@@ -132,12 +152,30 @@ async function loadReport() {
         }
       }
     }
+    // 回填已保存的决策数，避免"已有决策却提示未保存"
+    await loadSavedDecisions();
+    // 本会话基线：刚载入的报告视为"无需保存"，任何后续决策改动都会把 dirty 置为 true
+    revision.value = 0;
+    savedRevision.value = 0;
+  } else if (r.status === 404) {
+    report.value = null;
+    say("暂无审查报告 —— 点击「运行审查」开始分析章节");
   } else {
-    say("无可用审查报告");
+    say("审查报告读取失败: " + (r.data.error || r.status));
   }
 }
 
-async function saveDecisions() {
+async function loadSavedDecisions() {
+  const r = await api("/review/decisions");
+  if (r.status === 200 && Array.isArray(r.data.decisions)) {
+    savedCount.value = r.data.decisions.filter(
+      d => d && (d.action === "accept" || d.action === "ignore")
+    ).length;
+  }
+}
+
+// 保存决策：返回是否成功（runBatchRefine 依赖它做“先保存再精修”）
+async function saveDecisions(silent = false) {
   saving.value = true;
   try {
     const payload = {
@@ -158,26 +196,42 @@ async function saveDecisions() {
     };
     const r = await api("/review/decisions", "POST", payload);
     if (r.status === 200) {
-      say("决策已保存，可运行批量精修");
-    } else {
-      say("保存失败: " + (r.data.error || r.status));
+      savedCount.value = payload.decisions.length;
+      savedRevision.value = revision.value;
+      if (r.data.warning) say(r.data.warning);
+      else if (!silent) say("决策已保存（" + (r.data.count ?? payload.decisions.length) + " 条），可运行批量精修");
+      return true;
     }
+    say("保存失败: " + (r.data.error || r.status));
+    return false;
   } catch (e) {
     say("错误: " + e.message);
+    return false;
   } finally {
     saving.value = false;
   }
 }
 
 async function runBatchRefine() {
+  if (!report.value) { say("暂无审查报告，先运行审查"); return; }
+  if (!hasDecision.value) { say("请先「接受」至少一条审查发现"); return; }
   running.value = true;
   batchProgress.value = null;
   try {
+    // 1) 决策必须先落盘：batch_refine 从 review_report.decisions.json 读取，不读 UI 内存
+    if (decisionsDirty.value) {
+      const ok = await saveDecisions(true);
+      if (!ok) { say("决策保存失败，已中止批量精修"); return; }
+      say("决策已保存，正在启动批量精修…");
+    }
+    // 2) 再启动批量精修（后端会校验报告/决策文件是否存在）
     const r = await api("/batch_refine/run", "POST", { decisions_from_file: true });
     if (r.status === 202) {
       say("批量精修已提交: " + r.data.job_id);
       pollBatchProgress();
       await pollJob(r.data.job_id);
+    } else if (r.status === 409) {
+      say("已有任务在运行: " + (r.data.error || "请稍候"));
     } else {
       say("提交失败: " + (r.data.error || r.status));
     }
@@ -189,14 +243,18 @@ async function runBatchRefine() {
 }
 
 async function pollBatchProgress() {
+  if (progressTimer) clearInterval(progressTimer);
   progressTimer = setInterval(async () => {
     const r = await api("/batch_refine/progress");
-    if (r.status === 200) {
-      batchProgress.value = r.data;
-      if (r.data.status === "done" || r.data.status === "failed" || r.data.status === "idle") {
-        clearInterval(progressTimer);
-        progressTimer = null;
-      }
+    if (r.status !== 200) {
+      clearInterval(progressTimer);
+      progressTimer = null;
+      return;
+    }
+    batchProgress.value = r.data;
+    if (r.data.status === "done" || r.data.status === "failed" || r.data.status === "idle") {
+      clearInterval(progressTimer);
+      progressTimer = null;
     }
   }, 2000);
 }
@@ -220,6 +278,11 @@ function typeLabel(type) {
 
 onMounted(() => {
   loadReport();
+});
+
+onUnmounted(() => {
+  if (progressTimer) { clearInterval(progressTimer); progressTimer = null; }
+  clearTimeout(toastTimer);
 });
 </script>
 
@@ -326,16 +389,16 @@ onMounted(() => {
       <section v-if="batchProgress && batchProgress.status === 'running'" class="card progress-card">
         <div class="progress-info">
           <span class="progress-msg">{{ batchProgress.message }}</span>
-          <span class="progress-pct">{{ Math.round((batchProgress.index / batchProgress.total) * 100) }}%</span>
+          <span class="progress-pct">{{ progressPct }}%</span>
         </div>
         <div class="progress-bar">
-          <div class="progress-fill" :style="{ width: (batchProgress.index / batchProgress.total * 100) + '%' }"></div>
+          <div class="progress-fill" :style="{ width: progressPct + '%' }"></div>
         </div>
       </section>
 
       <!-- 底部操作 -->
       <section class="card bottom-actions">
-        <button class="mini primary" :disabled="saving || !hasDecision" @click="saveDecisions">
+        <button class="mini primary" :disabled="saving || !hasDecision" @click="saveDecisions()">
           {{ saving ? "保存中…" : "保存决策" }}
         </button>
         <button
@@ -345,7 +408,10 @@ onMounted(() => {
         >
           {{ running ? "精修中…" : "运行批量精修" }}
         </button>
-        <span class="hint">决策保存到 review_report.decisions.json</span>
+        <span class="hint">
+          决策保存到 review_report.decisions.json<template v-if="decisionsDirty"> ·
+            <b>有改动未保存，运行精修时会自动先保存</b></template>
+        </span>
       </section>
     </div>
 

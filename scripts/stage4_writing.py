@@ -30,6 +30,34 @@ def _safe_read(path, budget=20000):
         return ""
 
 
+def sync_appearances_after_chapter(chapter_text, chapter_no, total_chapters=None):
+    """章节完成后同步出场记录（确定性，零 LLM）。
+
+    两路都做，任何异常只告警不阻断流水线（出场记录属辅助产物）：
+    1) rosa_integrate.sync_chapter_appearances → setting.json 的 appearances 字段（幂等）
+    2) appearances.refresh_appearances → data/state/appearances.json（全量重算，逐章精确）
+    返回 True 表示 appearances.json 已刷新。
+    """
+    try:
+        from rosa_integrate import sync_chapter_appearances
+        sync_chapter_appearances(chapter_text, chapter_no)
+    except Exception as e:      # noqa: BLE001
+        print("[stage4] [warn] 出场记录同步失败（setting.json，不影响流程）: "
+              + type(e).__name__ + ": " + str(e)[:160])
+    try:
+        from appearances import refresh_appearances
+        path, stats, total, _new = refresh_appearances(chapter_count=total_chapters)
+        if path:
+            print("[stage4] 出场记录已更新: " + str(path)
+                  + "（" + str(len(stats)) + " 个角色 / " + str(total) + " 章）")
+            return True
+        print("[stage4] [warn] 出场记录暂无可统计内容（缺设定集角色或章节），已跳过")
+    except Exception as e:      # noqa: BLE001
+        print("[stage4] [warn] appearances.json 刷新失败（不影响流程）: "
+              + type(e).__name__ + ": " + str(e)[:160])
+    return False
+
+
 def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, prev_tail):
     target = cfg.get("chapter", {}).get("target_words", [2000, 3000])
     tail_section = "\n\n".join(prev_tail) if prev_tail else "（无上一章，本章为开篇）"
@@ -161,6 +189,10 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
             db.log_chapter(run_id, 4, n, status, quality=check.quality, cost_yuan=cost_est)
         if cost:
             cost.charge_cost(run_id, 4, n, result)
+
+        # 出场记录同步（P1.6：章节完成即更新 data/state/appearances.json；
+        # 失败只告警，绝不阻断写作主线）
+        sync_appearances_after_chapter(text, n, total)
         print(f"[stage4] 第{n}章完成 {check.summary()}")
 
     remaining_failed = progress.failed_chapters(4)

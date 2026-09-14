@@ -280,6 +280,8 @@ ipcMain.handle("updater:quitAndInstall", () => {
 ipcMain.handle("updater:status", () => ({
   available: updateAvailable,
   downloaded: updateDownloaded,
+  initialized: autoUpdater !== null,
+  dev: process.env.NODE_ENV === "development" || !app.isPackaged,
 }));
 
 function createWindow() {

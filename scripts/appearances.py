@@ -186,6 +186,19 @@ def write_appearances(stats, total_chapters, new_candidates, out=OUT):
     return out
 
 
+def refresh_appearances(chapter_count=None, out=OUT):
+    """确定性重算并写入 appearances.json（零 LLM、零网络）。
+
+    stage4 每章完成后调用：只看文件系统现状（设定集 + 逐章大纲 + 章节正文），
+    天然幂等 —— 重跑、补跑、乱序跑都不会重复计数。
+    返回 (输出路径 | None, stats, total_chapters, new_candidates)；无角色/无章节时路径为 None。
+    """
+    stats, total, new = count_appearances(chapter_count=chapter_count)
+    if not stats:
+        return None, {}, 0, []
+    return write_appearances(stats, total, new, out), stats, total, new
+
+
 def print_summary(stats, total_chapters, new_candidates):
     print(f"[appearances] 全书 {total_chapters} 章，角色 {len(stats)} 个")
     groups = {"major": [], "minor": [], "background": [], "absent": []}

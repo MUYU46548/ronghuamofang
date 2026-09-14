@@ -6,6 +6,9 @@
 
 当前支持的字段：
   book.style_notes —— 用户手写的风格笔记（stage4/stage6 注入，见 style_analyzer）
+
+另提供整份配置的只读读取：
+  get_project_config() —— 返回 project.yaml 的 dict（GUI 初始化向导 / 项目信息用）
 """
 import re
 import shutil
@@ -169,3 +172,18 @@ def get_style_notes(path=None):
     except Exception:
         return ""
     return ((data.get("book") or {}).get("style_notes") or "").strip()
+
+
+def get_project_config(path=None):
+    """读取整份 config/project.yaml 为 dict（读失败返回 {}）。
+
+    供 GUI 使用：初始化向导判断「书名是否还是占位符」、素材空目录提醒、
+    以及显示当前项目信息。之前 nf_api 引用了不存在的同名函数，
+    导致 GET /config/project 500、POST 同样 500（初始化向导从未生效）。
+    """
+    p = Path(path) if path else PROJECT_YAML
+    try:
+        data = yaml.safe_load(read_text(p))
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}

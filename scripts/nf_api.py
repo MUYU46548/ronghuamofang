@@ -33,6 +33,8 @@ POST /snapshot            {label?} → 手动快照
 POST /costs               GET 成本流水
 GET  /costs/summary       按阶段/模型聚合
 POST /models/switch       {role, model} → 切换模型
+GET  /models/cache        动态拉取的模型缓存（含手动添加的 _manual）
+POST /models/add          {name} → 手动把一个模型名写进缓存（GUI「手动添加」用）
 GET  /scraps/list         原始碎片：按簇分组 + 时间轴 + 前瞻备忘（确定性，零 LLM）
 GET  /scraps/read         ?name= → 读取单个碎片正文
 POST /scraps/save         {name, content} → 写前备份后保存碎片
@@ -41,6 +43,15 @@ POST /scraps/promote      {card_name, card_type, points[], open_questions[], sou
                           → 由 Python 落盘成 materials/raw/<名>_<类型>.md（覆盖前备份）
 POST /auto_rewrite/run    {threshold?, max_rounds?, chapters?, dry_run?} → job_id
                           质量自评闭环：重写 quality<阈值 章节（dry_run 默认 true，防误改稿）
+GET  /estimate            ?stage=4 / ?stages=1,2 / ?no_history=1 → token+费用预估（确定性，零 LLM）
+GET  /proofread/report    校对报告（stage 5.5；schema 与 review_report 对齐，GUI 可复用审稿组件）
+POST /proofread/run       {scope?, llm?, dry_run?, report?} → job_id（确定性+可选 LLM 语义校对）
+POST /style/analyze       {source: reference|path|chapter, path?, n?, scope?, compare?}
+                          → 文风特征；带 compare 时附带逐维度风格偏差
+POST /book/split          {path, emit?} → 拆书/章节节奏（同步返回，落盘 data/state/book_pacing.json）
+GET  /book/pacing         拆书节奏结果（供 GUI 画图）
+POST /models/switch       {role, model} → 切换模型
+POST /export/markdown     {per_vol?, book_name?} → Markdown 分卷导出
 
 安全边界（本地自用）：默认 127.0.0.1；写操作只允许 POST 且 Content-Type=application/json；
 除 /stage /refine /snapshot 外均即时执行。NF_API_ALLOW_FAKE=1 时 stage/refine 走
@@ -74,6 +85,15 @@ from utils.llm_client import _load_env_file  # noqa: E402
 import reject as reject_mod  # noqa: E402
 import snapshot as snap_mod  # noqa: E402
 import switch_book as sb_mod  # noqa: E402
+# 校对 / 预估 / 拆书：模块级导入（绝不在 do_GET/do_POST 内写裸 import，
+# 否则该名会被判定为整个函数的局部名，同函数其它分支一用就 UnboundLocalError）
+import proofread as proofread_mod  # noqa: E402
+import estimate_tokens as estimate_mod  # noqa: E402
+import book_split as book_split_mod  # noqa: E402
+# 模块级导入文件读写（勿在 do_GET/do_POST 内写 `import json` 这类裸导入：
+# 函数内任意位置出现 `import json` 都会把 json 变成该函数的局部名，
+# 导致同一函数内其它分支的 json.xxx 抛 UnboundLocalError —— 2026-09-14 修）
+from utils.file_io import read_text as nf_read_text, write_text as nf_write_text  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 os.chdir(ROOT)
@@ -590,8 +610,12 @@ def act_review_run(stream_job_id=None):
 
 
 def act_batch_refine_run(decisions_from_file=True):
-    """执行批量精修。"""
+    """执行批量精修（决策从 review_report.decisions.json 读取）。"""
     import batch_refine
+    cfg, proj = load_all()
+    # 与 act_review_run 一致：经 _client_for_env，测试模式（--allow-fake）下走 FakeClient，
+    # 否则批量精修会绕过 fake 直连真实 API。
+    client = _client_for_env(cfg, "polisher")
 
     def _fn():
         ok, msg = batch_refine.run_batch_refine(
@@ -599,6 +623,7 @@ def act_batch_refine_run(decisions_from_file=True):
             decisions_mode="file" if decisions_from_file else "interactive",
             auto_accept=False,
             dry_run=False,
+            client=client,
         )
         return ok, msg
     return _fn
@@ -646,6 +671,123 @@ def act_appearances_refresh():
         ap_mod.print_summary(stats, total, new)
         return True, f"已更新 {out}（{len(stats)} 角色 / {total} 章）"
     return _fn
+
+
+# ---- 校对（stage 5.5）与文风分析（P1） ----
+
+def act_proofread_run(scope=None, report_path="data/outline/proofread_report.json",
+                      use_llm=False, dry_run=False):
+    """执行校对。确定性部分零 token；use_llm=True 时追加 LLM 语义校对。"""
+    cfg, _ = load_all()
+    # 与其它 LLM 调用点一致：经 _client_for_env，测试模式（--allow-fake）走 FakeClient
+    client = _client_for_env(cfg, "checker") if (use_llm and not dry_run) else None
+
+    def _fn():
+        return proofread_mod.run_proofread(scope=scope, report_path=report_path,
+                                           use_llm=use_llm, dry_run=dry_run, client=client)
+    return _fn
+
+
+def act_style_analyze(body):
+    """文风分析：对范文 / 任意文本 / 指定章节抽特征，可选与某章算偏差。
+
+    body:
+      source: "reference"（配置的范文）| "path"（任意文件）| "chapter"（data/chapters/*/NN.md）
+      path:   source=path 时的文件路径
+      n:      source=chapter 时的章号
+      scope:  source=chapter 时的目录（raw|checked|refined，默认自动）
+      compare: 可选，{scope, n} → 与该章输出对比求偏差
+    """
+    from utils import style_analyzer as sa
+
+    src = str(body.get("source") or "reference").strip()
+    text = ""
+    label = ""
+    if src == "reference":
+        _, proj = load_all()
+        ref = ((proj.get("book") or {}).get("style_reference") or "").strip()
+        if not ref:
+            return {"ok": False, "configured": False, "soft": True,
+                    "hint": "未配置 book.style_reference（config/project.yaml）；"
+                            "也可用 source=path 直接指定文件"}
+        if not Path(ref).exists():
+            return {"ok": False, "configured": True, "soft": True,
+                    "hint": "范文文件不存在: " + ref}
+        # 注意：style_analyzer.load_style_reference 返回的是**风格指令文本**，
+        # 这里要的是范文原文（用于抽特征/画图），故直接读文件。
+        text = nf_read_text(ref)
+        label = ref
+    elif src == "path":
+        raw = str(body.get("path") or "").strip()
+        if not raw:
+            return {"ok": False, "error": "source=path 时 path 必填"}
+        p = Path(raw)
+        # 安全边界：只读，且限制大小，防误选巨型文件
+        if not p.exists() or not p.is_file():
+            return {"ok": False, "error": "文件不存在: " + raw}
+        if p.stat().st_size > 8 * 1024 * 1024:
+            return {"ok": False, "error": "文件超过 8MB 上限"}
+        text = nf_read_text(p)
+        label = raw
+    elif src == "chapter":
+        try:
+            n = int(body.get("n"))
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "source=chapter 时 n 必须为整数"}
+        scope = str(body.get("scope") or "").strip()
+        cands = ([scope] if scope in ("raw", "checked", "refined")
+                 else ["refined", "checked", "raw"])
+        found = None
+        for sc in cands:
+            cand = Path("data/chapters") / sc / ("%02d.md" % n)
+            if cand.exists():
+                found = cand
+                break
+        if not found:
+            return {"ok": False, "error": "第 %d 章产物不存在（先跑 stage4/5/6）" % n}
+        text = nf_read_text(found)
+        label = str(found)
+    else:
+        return {"ok": False, "error": "source 只能是 reference / path / chapter"}
+
+    feats = sa.extract_style_features(text)
+    payload = {
+        "ok": True,
+        "source": src,
+        "label": label,
+        "chars": len(text),
+        "features": feats,
+        "sufficient": bool(feats),
+        "hint": "" if feats else "文本过短（<100 字符），特征不可靠",
+    }
+    cmp_spec = body.get("compare")
+    if isinstance(cmp_spec, dict):
+        try:
+            cn = int(cmp_spec.get("n"))
+        except (TypeError, ValueError):
+            payload["drift_error"] = "compare.n 必须为整数"
+            return payload
+        cscope = str(cmp_spec.get("scope") or "").strip()
+        cands = ([cscope] if cscope in ("raw", "checked", "refined")
+                 else ["refined", "checked", "raw"])
+        cpath = None
+        for sc in cands:
+            cand = Path("data/chapters") / sc / ("%02d.md" % cn)
+            if cand.exists():
+                cpath = cand
+                break
+        if not cpath:
+            payload["drift_error"] = "对比章节不存在: 第 %d 章" % cn
+            return payload
+        ctext = nf_read_text(cpath)
+        cfeats = sa.extract_style_features(ctext)
+        drift = sa.compute_style_drift(feats, cfeats,
+                                      threshold=float(cmp_spec.get("threshold") or 0.3))
+        payload["drift"] = drift
+        payload["drift_chapter"] = str(cpath)
+        payload["drift_report"] = sa.format_drift_report(
+            drift, title="与《%s》对比（第 %d 章）" % (Path(label).name, cn))
+    return payload
 
 
 # ---- 大纲结构化面板（任务1/2/3/4） ----
@@ -985,6 +1127,69 @@ class Handler(BaseHTTPRequestHandler):
                     "available_models": prov.get("available_models", []),
                 }
             self._send(200, {"providers": avail, "engine": cfg.get("engine")})
+        elif p == "/models/fetched":
+            # 动态拉取 provider /models 端点 + 缓存到 data/state/fetched_models.json
+            import urllib.request as _ur
+            cfg, _ = load_all()
+            providers = cfg.get("providers", {})
+            cache_path = ROOT / "data" / "state" / "fetched_models.json"
+            result = {}
+            for pid, prov in providers.items():
+                base_url = (prov.get("base_url") or "").rstrip("/")
+                api_key_env = prov.get("api_key_env", "")
+                api_key = os.environ.get(api_key_env, "")
+                if not base_url or not api_key:
+                    result[pid] = {"models": [], "error": "missing base_url or api_key"}
+                    continue
+                try:
+                    req = _ur.Request(
+                        base_url + "/models",
+                        headers={"Authorization": "Bearer " + api_key},
+                    )
+                    with _ur.urlopen(req, timeout=30) as resp:
+                        data = json.loads(resp.read().decode("utf-8"))
+                    models = [m.get("id", "") for m in data.get("data", []) if m.get("id")]
+                    result[pid] = {"models": models, "count": len(models)}
+                except Exception as e:
+                    result[pid] = {"models": [], "error": str(e)[:200]}
+            # 缓存落盘（合并所有 provider 的模型 + 保留手动添加的）
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            # 读取旧缓存中手动添加的模型
+            manual_models = set()
+            if cache_path.exists():
+                try:
+                    old = json.loads(cache_path.read_text(encoding="utf-8"))
+                    manual_models = set(old.get("_manual", []))
+                except Exception:
+                    pass
+            # 合并：动态拉取 + 手动添加
+            all_models = set()
+            for info in result.values():
+                all_models.update(info.get("models", []))
+            all_models.update(manual_models)
+            cache_payload = result.copy()
+            cache_payload["_manual"] = sorted(manual_models)
+            cache_path.write_text(json.dumps(cache_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            self._send(200, {"providers": result, "cache": str(cache_path)})
+        elif p == "/models/cache":
+            # 读取缓存的模型列表
+            cache_path = ROOT / "data" / "state" / "fetched_models.json"
+            if not cache_path.exists():
+                self._send(200, {"models": []})
+            else:
+                try:
+                    data = json.loads(cache_path.read_text(encoding="utf-8"))
+                    # 收集所有 provider 的模型 + 手动添加的
+                    all_models = set()
+                    for key, info in data.items():
+                        if key.startswith("_"):
+                            continue
+                        if isinstance(info, dict):
+                            all_models.update(info.get("models", []))
+                    all_models.update(data.get("_manual", []))
+                    self._send(200, {"models": sorted(all_models)})
+                except Exception as e:
+                    self._send(500, {"error": str(e)})
         elif p == "/env/open":
             # Return path to .env file so user can open it externally
             env_path = str(ROOT / ".env")
@@ -1090,7 +1295,6 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/project/status":
             # 返回项目结构树（用于左侧导航）
             try:
-                import json
                 project_status = {
                     "book": load_all()[1].get("book", {}),
                     "stages": build_state().get("stages", []),
@@ -1130,6 +1334,15 @@ class Handler(BaseHTTPRequestHandler):
                     "modified": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(st.st_mtime)),
                     "backups": [b.name for b in list_prompt_backups(path.name)[-8:]],
                 })
+            except Exception as e:
+                self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
+        elif p == "/config/project":
+            # 读取 config/project.yaml（GUI 启动向导 / 素材空目录提醒都靠它）。
+            # 注意：这里以前没有 GET 分支，而 GUI 用的是 GET → 404，导致初始化向导
+            # 与「素材为空」提醒永远不触发。读操作必须挂在 do_GET。
+            try:
+                from utils.project_config import get_project_config
+                self._send(200, {"ok": True, "config": get_project_config()})
             except Exception as e:
                 self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
         elif p == "/config/style_notes":
@@ -1197,7 +1410,6 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(400, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]})
         elif p == "/setting/current":
             try:
-                import json
                 setting_path = ROOT / "data" / "setting" / "setting.json"
                 if setting_path.exists():
                     self._send(200, {"ok": True, "setting": json.loads(setting_path.read_text(encoding="utf-8"))})
@@ -1282,21 +1494,61 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, {"ok": True, "total_files": idx["total_files"], "terms": len(idx["terms"])})
             except Exception as e:
                 self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
-        elif p == "/export/markdown":
-            # Markdown 分卷导出（P3 多平台发布）
+        elif p == "/proofread/report":
+            # 校对报告（stage 5.5）。schema 与 review_report 对齐（含 suggested_action），
+            # 故 GUI 可直接复用审稿界面组件与决策链路。
+            pp = Path("data/outline/proofread_report.json")
+            if not pp.exists():
+                self._send(404, {"error": "暂无校对报告",
+                                 "hint": "先运行校对：POST /proofread/run，"
+                                         "或 python scripts/proofread.py"})
+            else:
+                try:
+                    self._send(200, json.loads(nf_read_text(pp)))
+                except Exception as e:      # noqa: BLE001
+                    self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
+        elif p == "/estimate":
+            # 生成前 token / 费用预估（确定性，零 LLM 调用）。
+            # ?stage=4 只估阶段4；?stages=1,2,3 估指定阶段；?no_history=1 强制字符折算
             try:
-                import stage8_markdown_export as s8
-                per_vol = int(body.get("per_vol") or 5)
-                book_name = body.get("book_name") or None
-                ok, msg, path = s8.export_markdown(
-                    book_name=book_name,
-                    chapters_per_vol=per_vol
-                )
-                self._send(200 if ok else 400, {"ok": ok, "message": msg, "path": path})
-            except Exception as e:
+                q = self._query()
+                stage_raw = (q.get("stage") or [""])[0].strip()
+                stages_raw = (q.get("stages") or [""])[0].strip()
+                stages = None
+                if stage_raw:
+                    stages = [int(stage_raw)]
+                elif stages_raw:
+                    stages = [int(x) for x in stages_raw.split(",") if x.strip().isdigit()]
+                no_hist = (q.get("no_history") or ["0"])[0].lower() in ("1", "true", "yes")
+                self._send(200, estimate_mod.estimate(stages, use_history=not no_hist))
+            except Exception as e:      # noqa: BLE001
                 self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
+        elif p == "/book/pacing":
+            # 章节节奏：?source=current 实时算本书（读 data/chapters/*）；
+            # 缺省读拆书产物 data/state/book_pacing.json
+            try:
+                q = self._query()
+                src = (q.get("source") or [""])[0].strip()
+                if src == "current":
+                    scope = (q.get("scope") or [""])[0].strip() or None
+                    self._send(200, book_split_mod.analyze_project_chapters(scope))
+                    return
+                bp = Path("data/state/book_pacing.json")
+                if not bp.exists():
+                    self._send(404, {"ok": False, "error": "尚无拆书结果",
+                                     "hint": "POST /book/split {path} 导入参考书，"
+                                             "或用 /book/pacing?source=current 看本书节奏"})
+                    return
+                self._send(200, json.loads(nf_read_text(bp)))
+            except Exception as e:      # noqa: BLE001
+                self._send(500, {"ok": False,
+                                 "error": type(e).__name__ + ": " + str(e)[:200]})
         else:
-            self._send(404, {"error": "未知路径 " + p + "（可用: /health /state /models /project/list /stage/{n}/run /stream/{job_id} /jobs/{id} /materials/* /scraps/* /setting/current /outline/chapters/* /kb/search /kb/build /export/markdown /auto_rewrite/run）"})
+            self._send(404, {"error": "未知路径 " + p + "（可用: /health /state /models "
+                                      "/project/list /stage/{n}/run /stream/{job_id} /jobs/{id} "
+                                      "/materials/* /scraps/* /setting/current /outline/chapters/* "
+                                      "/kb/search /kb/build /auto_rewrite/run /review/* "
+                                      "/proofread/report /estimate /book/pacing）"})
 
     # ---- POST ----
     def do_POST(self):
@@ -1415,8 +1667,11 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(200, res)
                 else:
                     self._send(400, {"ok": False, "error": res})
-
-                # 结构化编辑器保存单章大纲（验证+备份+写盘）
+            elif p == "/outline/chapters/save":
+                # 结构化编辑器保存单章大纲（验证+备份+写盘）。
+                # 注意：这一行 elif 曾经丢失，导致本段代码变成 /outline/restore 分支的
+                # 裸尾随代码 —— GUI 的「保存本章大纲」404，而 restore 会二次发送响应
+                # 触发 headers already sent。新增分支务必确认 elif 守卫存在。
                 try:
                     n = int(body.get("n") or 0)
                     content = body.get("content") or ""
@@ -1506,8 +1761,6 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
             elif p == "/setting/save":
                 try:
-                    import json
-                    from utils.file_io import write_text
                     data = body.get("setting")
                     if not data or not isinstance(data, dict):
                         self._send(400, {"error": "setting 必须为对象"})
@@ -1516,11 +1769,10 @@ class Handler(BaseHTTPRequestHandler):
                     if setting_path.exists():
                         backup_dir = ROOT / "data" / "setting" / "history"
                         backup_dir.mkdir(parents=True, exist_ok=True)
-                        import time
                         stamp = time.strftime("%Y%m%d_%H%M%S")
                         backup = backup_dir / f"setting_{stamp}.json"
                         backup.write_text(setting_path.read_text(encoding="utf-8"), encoding="utf-8")
-                    write_text(str(setting_path), json.dumps(data, ensure_ascii=False, indent=2))
+                    nf_write_text(str(setting_path), json.dumps(data, ensure_ascii=False, indent=2))
                     self._send(200, {"ok": True})
                 except Exception as e:
                     self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
@@ -1539,20 +1791,25 @@ class Handler(BaseHTTPRequestHandler):
                 label = str(body.get("label") or "")
                 jid, err = start_job("snapshot", act_snapshot(label))
                 self._send(202 if not err else 409, {"error": err} if err else {"job_id": jid})
-            elif p == "/models/switch":
+            elif p == "/config/provider":
+                # 切换某阶段的 provider
                 role = str(body.get("role") or "")
-                model_id = str(body.get("model") or "")
-                if role not in ("default", "writer", "checker", "reviewer"):
-                    self._send(400, {"error": "role 须为 default/writer/checker/reviewer"})
+                new_provider = str(body.get("provider") or "")
+                if role not in ("default", "architect", "outliner", "writer", "checker", "reviewer", "polisher"):
+                    self._send(400, {"error": "role 须为 default/architect/outliner/writer/checker/reviewer/polisher"})
                     return
-                if not model_id:
-                    self._send(400, {"error": "model 必填"})
+                if not new_provider:
+                    self._send(400, {"error": "provider 必填"})
                     return
                 cfg, _ = load_all()
-                cfg["model"][role]["id"] = model_id
+                # 验证 provider 存在
+                if new_provider not in cfg.get("providers", {}):
+                    self._send(400, {"error": f"provider {new_provider} 不存在于 config/system.yaml"})
+                    return
+                cfg["model"][role]["provider"] = new_provider
                 (ROOT / "config" / "system.yaml").write_text(
                     yaml.dump(cfg, allow_unicode=True, sort_keys=False), encoding="utf-8")
-                self._send(200, {"ok": True, "role": role, "model": model_id})
+                self._send(200, {"ok": True, "role": role, "provider": new_provider})
             elif p == "/project/archive":
                 name = str(body.get("name") or "").strip()
                 force = bool(body.get("force"))
@@ -1592,6 +1849,33 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(202 if not err else 409, {"error": err} if err else {"job_id": jid})
             elif p == "/batch_refine/run":
                 from_decisions = bool(body.get("decisions_from_file", True))
+                if not from_decisions:
+                    # 服务端无 TTY，交互式决策会挂住线程；GUI 一律走 decisions.json
+                    self._send(400, {"error": "API 不支持交互式决策（无 TTY）：请用 "
+                                              "decisions_from_file=true（先在审稿页保存决策）"})
+                    return
+                # 护栏：文件缺失时给出可行动的提示，而不是起一个必然失败的 job
+                report_p = Path("data/outline/review_report.json")
+                dec_p = Path("data/outline/review_report.decisions.json")
+                if not report_p.exists():
+                    self._send(400, {"error": "无审查报告 data/outline/review_report.json"
+                                              "（先运行审查）"})
+                    return
+                if not dec_p.exists():
+                    self._send(400, {"error": "无决策文件 data/outline/review_report.decisions.json"
+                                              "（先在审稿页保存决策）"})
+                    return
+                try:
+                    import batch_refine as br
+                    n_dec = len(br.normalize_decisions(
+                        json.loads(nf_read_text(dec_p)) if dec_p.stat().st_size else {}))
+                except Exception as e:      # noqa: BLE001
+                    n_dec = 0
+                    print("[nf_api] 决策文件解析失败: " + type(e).__name__ + ": " + str(e)[:120])
+                if not n_dec:
+                    self._send(400, {"error": "决策文件无有效条目（action 须为 accept/ignore，"
+                                              "且带 finding_id）；请在审稿页重新保存决策"})
+                    return
                 jid, err = start_job("batch_refine", act_batch_refine_run(from_decisions))
                 self._send(202 if not err else 409, {"error": err} if err else {"job_id": jid})
             elif p == "/auto_rewrite/run":
@@ -1651,11 +1935,26 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200 if ok else 400,
                            {"ok": ok, "message": msg} if ok else {"ok": False, "error": msg})
             elif p == "/review/decisions" and self.command == "POST":
-                # 保存用户决策（GUI 提交）
+                # 保存用户决策（GUI 提交）：统一规范化为 batch_refine 能直接吃下的标准格式
                 dec_path = Path("data/outline/review_report.decisions.json")
-                dec_path.parent.mkdir(parents=True, exist_ok=True)
-                dec_path.write_text(json.dumps(body, ensure_ascii=False, indent=2), encoding="utf-8")
-                self._send(200, {"ok": True, "message": "决策已保存: " + str(dec_path)})
+                try:
+                    import batch_refine as br
+                    decisions = br.normalize_decisions(body)
+                    dec_path.parent.mkdir(parents=True, exist_ok=True)
+                    dec_path.write_text(json.dumps({
+                        "decisions": decisions,
+                        "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                    }, ensure_ascii=False, indent=2), encoding="utf-8")
+                except Exception as e:      # noqa: BLE001
+                    self._send(500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]})
+                    return
+                if decisions:
+                    self._send(200, {"ok": True, "count": len(decisions), "path": str(dec_path),
+                                     "message": "已保存 " + str(len(decisions)) + " 条决策"})
+                else:
+                    self._send(200, {"ok": True, "count": 0, "path": str(dec_path),
+                                     "warning": "未收到有效决策（action 须为 accept/ignore）："
+                                                "批量精修前请至少接受一条审查发现"})
             elif p == "/materials/add":
                 # 添加素材：从外部路径复制到 raw/  (body: {src_path, overwrite?})
                 src_path = str(body.get("src_path") or "").strip()
@@ -1815,6 +2114,115 @@ class Handler(BaseHTTPRequestHandler):
                                      "hint": "已写入素材卡；下次跑 stage1 时进入设定集归并"})
                 except Exception as e:
                     self._send(400, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]})
+            elif p == "/proofread/run":
+                # 校对（stage 5.5，确定性 + 可选 LLM）。默认 dry_run=false（确定性部分零成本）
+                scope = body.get("scope")
+                use_llm = bool(body.get("llm") or body.get("use_llm"))
+                dry_run = bool(body.get("dry_run", False))
+                if scope not in (None, "", "raw", "checked", "refined"):
+                    self._send(400, {"error": "scope 只能是 raw / checked / refined"})
+                    return
+                report_path = str(body.get("report")
+                                  or "data/outline/proofread_report.json")
+                jid, err = start_job("proofread", act_proofread_run(
+                    scope or None, report_path, use_llm, dry_run))
+                self._send(202 if not err else 409,
+                           {"error": err} if err else {"job_id": jid, "message": "校对已提交"})
+            elif p == "/style/analyze":
+                # 文风分析：对范文 / 指定文本 / 指定章节求特征，可选与某章对比求偏差。
+                # 「未配置范文」「范文文件缺失」属正常状态（soft），返回 200 让 GUI 展示引导，
+                # 只有请求本身不合法（source 非法 / 缺 path / 章号不存在）才 400。
+                try:
+                    payload = act_style_analyze(body)
+                    ok = payload.get("ok") or payload.get("soft")
+                    self._send(200 if ok else 400, payload)
+                except Exception as e:      # noqa: BLE001
+                    self._send(500, {"ok": False,
+                                     "error": type(e).__name__ + ": " + str(e)[:200]})
+            elif p == "/book/split":
+                # 拆书 / 章节节奏：确定性，直接同步返回（大文件有上限保护）
+                path = str(body.get("path") or "").strip()
+                if not path:
+                    self._send(400, {"ok": False, "error": "path 必填（待拆分的文本文件路径）"})
+                    return
+                try:
+                    ok, msg, result = book_split_mod.analyze_file(
+                        path, emit=bool(body.get("emit")))
+                    if not ok:
+                        self._send(400, {"ok": False, "error": msg})
+                        return
+                    self._send(200, {"ok": True, "message": msg,
+                                     "path": "data/state/book_pacing.json",
+                                     "result": result})
+                except Exception as e:      # noqa: BLE001
+                    self._send(500, {"ok": False,
+                                     "error": type(e).__name__ + ": " + str(e)[:200]})
+            elif p == "/models/add":
+                # 手动把一个模型名写进缓存（GUI「手动添加」按钮）。
+                # 曾经写在 do_GET 里且用了 body.get —— GET 会 500、POST 会 404。写操作必须走 POST。
+                name = str(body.get("name") or "").strip()
+                if not name:
+                    self._send(400, {"error": "缺少 name 参数"})
+                elif "/" in name or "\\" in name or len(name) > 120:
+                    self._send(400, {"error": "模型名不合法（不得含路径分隔符，长度 ≤120）"})
+                else:
+                    cache_path = ROOT / "data" / "state" / "fetched_models.json"
+                    manual_models, providers_data = set(), {}
+                    if cache_path.exists():
+                        try:
+                            old = json.loads(nf_read_text(cache_path))
+                            manual_models = set(old.get("_manual", []))
+                            providers_data = {k: v for k, v in old.items()
+                                              if not k.startswith("_")}
+                        except Exception:      # noqa: BLE001
+                            manual_models, providers_data = set(), {}
+                    manual_models.add(name)
+                    providers_data["_manual"] = sorted(manual_models)
+                    nf_write_text(cache_path,
+                                  json.dumps(providers_data, ensure_ascii=False, indent=2))
+                    self._send(200, {"ok": True, "added": name,
+                                     "manual_count": len(manual_models)})
+            elif p == "/models/switch":
+                # 切换某角色的模型（写入 config/system.yaml 的 model.<role>.id）
+                role = str(body.get("role") or "").strip()
+                model_id = str(body.get("model") or "").strip()
+                if not role or not model_id:
+                    self._send(400, {"ok": False, "error": "role 与 model 均必填"})
+                    return
+                try:
+                    cfg_path = ROOT / "config" / "system.yaml"
+                    cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
+                    models = cfg.get("model") or {}
+                    if role not in models:
+                        self._send(400, {"ok": False, "error":
+                                         "未知角色: " + role + "（可用: "
+                                         + ", ".join(sorted(models)) + "）"})
+                        return
+                    old = models[role].get("id")
+                    models[role]["id"] = model_id
+                    cfg["model"] = models
+                    from utils.file_io import write_text as _wt
+                    _wt(cfg_path, yaml.safe_dump(cfg, allow_unicode=True, sort_keys=False))
+                    self._send(200, {"ok": True, "role": role, "model": model_id,
+                                     "previous": old,
+                                     "message": "已切换 " + role + " → " + model_id
+                                                + "（下次运行生效）"})
+                except Exception as e:      # noqa: BLE001
+                    self._send(500, {"ok": False,
+                                     "error": type(e).__name__ + ": " + str(e)[:200]})
+            elif p == "/export/markdown":
+                # Markdown 分卷导出（P3 多平台发布）
+                try:
+                    import stage8_markdown_export as s8
+                    per_vol = int(body.get("per_vol") or 5)
+                    book_name = body.get("book_name") or None
+                    ok, msg, path = s8.export_markdown(book_name=book_name,
+                                                      chapters_per_vol=per_vol)
+                    self._send(200 if ok else 400,
+                               {"ok": ok, "message": msg, "path": path})
+                except Exception as e:      # noqa: BLE001
+                    self._send(500, {"ok": False,
+                                     "error": type(e).__name__ + ": " + str(e)[:200]})
             else:
                 self._send(404, {"error": "未知路径 " + p})
         except (ValueError, TypeError) as e:

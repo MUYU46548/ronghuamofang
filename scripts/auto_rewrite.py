@@ -207,7 +207,7 @@ def run_auto_rewrite(cfg, proj, progress, db=None, cost=None, run_id=None,
     if max_rounds is None:
         max_rounds = int(gates.get("auto_rewrite_max_rounds", 1) or 1)
     task_dir = task_dir or "data/state/tasks"
-    client = client or make_client(cfg, "writer")
+    client = client or make_client(cfg, "polisher")
 
     targets = collect_targets(progress, threshold=threshold, only=chapters)
     st4 = progress.data.setdefault("stages", {}).setdefault("4", {})

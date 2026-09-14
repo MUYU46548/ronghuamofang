@@ -17,6 +17,7 @@ import shutil
 import subprocess
 import sys
 import time
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -178,7 +179,9 @@ def main():
         # 碎片只读端点（自建临时碎片，跑完即清理；不碰用户已有碎片）
         scraps_dir = ROOT / "materials" / "original_scraps"
         scraps_dir.mkdir(parents=True, exist_ok=True)
-        probe = scraps_dir / "__selftest_月神碎片.md"
+        # 注意：碎片收集会跳过 "_" 开头的路径段（_backup/ 等），探针名不能以下划线开头；
+        # 文件名带日期才能验证 ts_source=filename 分支。
+        probe = scraps_dir / "selftest_probe_2024-03-05_月神碎片.md"
         probe.write_text("2024年3月5日\n月神造了月兔，却没给他们同类。\n待定：那道抓痕是谁留的。\n",
                          encoding="utf-8")
         try:
@@ -192,7 +195,7 @@ def main():
                   sl.get("stats", {}).get("lookahead_count", 0) >= 1, sl.get("stats"))
             check("scraps/list 时间戳来自文件名",
                   sl.get("stats", {}).get("ts_from_filename", 0) >= 1, sl.get("stats"))
-            code, sr = req("GET", "/scraps/read?name=" + probe.name)
+            code, sr = req("GET", "/scraps/read?name=" + urllib.parse.quote(probe.name))
             check("scraps/read 200 且正文可读",
                   code == 200 and "月神造了月兔" in (sr.get("content") or ""), str(sr)[:160])
             code, st_ = req("GET", "/scraps/read?name=..%2Fconfig%2Fproject.yaml")

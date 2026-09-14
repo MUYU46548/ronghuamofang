@@ -16,5 +16,9 @@ contextBridge.exposeInMainWorld("mofangAPI", {
   updaterCheck: () => ipcRenderer.invoke("updater:check"),
   updaterStatus: () => ipcRenderer.invoke("updater:status"),
   updaterQuitAndInstall: () => ipcRenderer.invoke("updater:quitAndInstall"),
-  onUpdater: (callback) => ipcRenderer.on("updater", (e, data) => callback(data)),
+  onUpdater: (callback) => {
+    const handler = (e, data) => callback(data);
+    ipcRenderer.on("updater", handler);
+    return () => ipcRenderer.removeListener("updater", handler);
+  },
 });

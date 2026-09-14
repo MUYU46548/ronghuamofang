@@ -10,6 +10,8 @@
 - stage5 → data/chapters/checked/（raw 全量复制）
 - stage6 → data/chapters/refined/（checked 复制，字数不变）
 - batch_refine → 就地改写目标章节（保留字数，quality 置 8/10），供 auto_rewrite 链路测试
+- chapter_review → data/outline/review_report.json（偶数章各 1 条发现）+ 回放 FILE 协议块
+- stage5_proofread → 回放裸 JSON 到 stdout（每章 1 条 warn；proofread.py 从 stdout 解析）
 - 其余（book_summary 等）→ 任务文本里「写入」目标写一行占位
 
 仅用于 NF_API_ALLOW_FAKE=1 的测试模式与离线集成测试，不进真实流水线。
@@ -21,6 +23,7 @@ from pathlib import Path
 from utils.file_io import read_text, write_text
 
 NUM = "[0-9]+"
+NUM2 = "[0-9]{2}"   # 任务文件名里的两位章号（stage4_ch01.md）
 
 
 def _words_para(min_words):
@@ -99,7 +102,7 @@ def _write_chapter(text, name):
     mm = re.search("字数 (" + NUM + ")-(" + NUM + ") 字", text)
     min_w = int(mm.group(1)) if mm else 300
     chap = ""
-    nm = re.search("第(" + NUM + ") 章", name) or re.search("ch(" + NUM + "{2})", name)
+    nm = re.search("第(" + NUM + ") 章", name) or re.search("ch(" + NUM2 + ")", name)
     chap = nm.group(1) if nm else "00"
     p = out_path
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -131,6 +134,69 @@ def _refine_chapter(text):
         new_body = body.rstrip() + "\n\n<!-- quality: 8/10 -->\n"
     write_text(p, new_body)
     return [p]
+
+
+def _write_review_report(text):
+    """chapter_review：产出可被 chapter_review.py 解析的审查报告 JSON。
+
+    fake 语义：偶数章各 1 条 warn 发现、奇数章无问题（覆盖"有问题/无问题"两条 GUI 分支），
+    报告路径优先取任务里的「写入: xxx.json」，否则回退 data/outline/review_report.json。
+    返回 (落盘路径列表, 供 stdout_tail 回放的 FILE 协议文本)——chapter_review 从
+    stdout 解析 JSON，故必须回放协议块，只落盘不返回会导致解析失败。
+    """
+    m = re.search("写入[:：]\\s*([^\\r\\n]+?[.]json)", text)
+    p = Path(m.group(1).strip()) if m else Path("data/outline/review_report.json")
+    chapters = []
+    for d in ("data/chapters/refined", "data/chapters/checked", "data/chapters/raw"):
+        dd = Path(d)
+        if not dd.is_dir():
+            continue
+        for f in sorted(dd.glob("*.md")):
+            try:
+                n = int(f.stem)
+            except ValueError:
+                continue
+            if any(c["n"] == n for c in chapters):
+                continue
+            findings = []
+            if n % 2 == 0:
+                findings = [{
+                    "id": "f001",
+                    "type": "outline_gap",
+                    "severity": "warn",
+                    "detail": "（fake）第 %d 章疑似遗漏本章大纲的关键事件" % n,
+                    "suggested_action": "补写关键事件，保持与大纲一致",
+                }]
+            chapters.append({"n": n, "findings": findings})
+        if chapters:
+            break
+    chapters.sort(key=lambda c: c["n"])
+    payload = json.dumps({"chapters": chapters, "note": "（fake）测试用审查报告"},
+                         ensure_ascii=False, indent=2)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    write_text(p, payload)
+    return [p], "===FILE: " + str(p) + "===" + chr(10) + payload + chr(10) + "===END==="
+
+
+def _write_proofread_findings(text):
+    """stage5_proofread：产出可被 proofread.py 解析的 LLM 校对 JSON。
+
+    fake 语义：从任务里数出出现的章号，每章给 1 条 warn（覆盖"有发现"分支），
+    并回放裸 JSON 到 stdout（proofread 从 stdout 解析，不读文件）。
+    """
+    nos = sorted({int(x) for x in re.findall(r"### 第\s*(\d+)\s*章", text)})
+    if not nos:
+        nos = [1]
+    findings = [{
+        "chapter": n,
+        "type": "fact",
+        "severity": "warn",
+        "detail": "（fake）第 %d 章存在与设定集不符的称谓用法" % n,
+        "location": "（fake）原文片段",
+        "suggestion": "（fake）统一为该角色的正式名",
+    } for n in nos]
+    payload = json.dumps({"findings": findings}, ensure_ascii=False, indent=2)
+    return [], payload
 
 
 def _copy_raw_to_checked(_text):
@@ -204,6 +270,7 @@ class FakeClient:
         path = Path(task_file)
         text = read_text(path)
         name = path.name
+        stdout_override = None
         if name.startswith("stage1_scraps"):
             written = _write_scraps_merge(text)
         elif name.startswith("stage1"):
@@ -214,8 +281,12 @@ class FakeClient:
             written = _write_chapter_outlines(text)
         elif name.startswith("stage4_ch"):
             written = _write_chapter(text, name)
+        elif name.startswith("chapter_review"):
+            written, stdout_override = _write_review_report(text)
         elif name.startswith("batch_refine"):
             written = _refine_chapter(text)
+        elif name.startswith("stage5_proofread"):
+            written, stdout_override = _write_proofread_findings(text)
         elif name.startswith("stage5"):
             written = _copy_raw_to_checked(text)
         elif name.startswith("stage6"):
@@ -225,7 +296,7 @@ class FakeClient:
         est_in = max(1000, len(text) * 2 // 5)
         return {
             "exit_code": 0,
-            "stdout_tail": "（fake）已写出: " + ", ".join(str(x) for x in written),
+            "stdout_tail": stdout_override or ("（fake）已写出: " + ", ".join(str(x) for x in written)),
             "tokens": est_in,
             "tokens_out": max(500, est_in // 3),
             "cost_yuan": 0.0,
@@ -251,8 +322,12 @@ class FakeClient:
             written = _write_chapter_outlines(text)
         elif name.startswith("stage4_ch"):
             written = _write_chapter(text, name)
+        elif name.startswith("chapter_review"):
+            written, _ = _write_review_report(text)
         elif name.startswith("batch_refine"):
             written = _refine_chapter(text)
+        elif name.startswith("stage5_proofread"):
+            written, _ = _write_proofread_findings(text)
         elif name.startswith("stage5"):
             written = _copy_raw_to_checked(text)
         elif name.startswith("stage6"):

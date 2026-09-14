@@ -41,8 +41,11 @@ def load_report(report_path):
     try:
         data = json.loads(read_text(report_path))
         return data
-    except (FileNotFoundError, json.JSONDecodeError) as e:
-        print(f"[batch_refine] 报告加载失败: {e}")
+    except FileNotFoundError:
+        print(f"[batch_refine] 审查报告不存在: {report_path}（先运行章节审查生成）")
+        return None
+    except (json.JSONDecodeError, UnicodeDecodeError) as e:
+        print(f"[batch_refine] 审查报告解析失败: {e}")
         return None
 
 
@@ -82,7 +85,7 @@ def build_refine_task(cfg, proj, chapter, feedback, version, chap_path, outline_
 def run_single_refine(cfg, proj, chapter, feedback, client=None, task_dir=None, dry_run=False):
     """执行单章精修，返回 (ok, msg, backup_path)。"""
     task_dir = task_dir or "data/state/tasks"
-    client = client or make_client(cfg, "writer")
+    client = client or make_client(cfg, "polisher")
 
     chap_path = pick_chapter_path(chapter)
     if chap_path is None:
@@ -178,32 +181,70 @@ def interactive_decisions(report_data):
     return decisions
 
 
-def load_decisions_file(path):
-    """从文件加载用户决策。支持两种格式：
-    1. { "decisions": [{"finding_id", "chapter", "action", "feedback"}] }
-    2. { "finding_id": {"action", "feedback"} }  （GUI 直传格式）
+def normalize_decisions(data):
+    """把任意形态的决策 JSON 规范化成 [{finding_id, chapter, action, feedback}]。
+
+    兼容三种写法（GUI / CLI / 手写都可能出现）：
+    1. {"decisions": [ {finding_id, chapter, action, feedback}, ... ]}   ← 本工具与 GUI 的标准格式
+    2. [ {finding_id, chapter, action, feedback}, ... ]                 ← 裸数组
+    3. {"<finding_id>": {"action", "feedback", "chapter"}}              ← 键值直传
+    另外兼容 finding_id 写成 id、action 大小写不一致。无法识别的条目直接丢弃。
     """
+    if isinstance(data, dict) and "decisions" in data:
+        items = data["decisions"]
+    elif isinstance(data, list):
+        items = data
+    elif isinstance(data, dict):
+        items = []
+        for k, v in data.items():
+            if isinstance(v, dict):
+                item = dict(v)
+                item.setdefault("finding_id", k)
+                items.append(item)
+    else:
+        items = []
+    if isinstance(items, dict):                      # {"decisions": {fid: {...}}}
+        items = []
+        for k, v in (data["decisions"] or {}).items():
+            if isinstance(v, dict):
+                item = dict(v)
+                item.setdefault("finding_id", k)
+                items.append(item)
+
+    decisions = []
+    for d in items or []:
+        if not isinstance(d, dict):
+            continue
+        fid = d.get("finding_id") or d.get("id")
+        action = str(d.get("action") or "").strip().lower()
+        if not fid or action not in ("accept", "ignore"):
+            continue
+        ch = d.get("chapter")
+        try:
+            ch = int(ch) if ch not in (None, "") else None
+        except (TypeError, ValueError):
+            ch = None
+        decisions.append({"finding_id": str(fid), "chapter": ch, "action": action,
+                          "feedback": str(d.get("feedback") or "")})
+    return decisions
+
+
+def load_decisions_file(path):
+    """从文件加载用户决策，返回规范化后的决策列表（见 normalize_decisions）。"""
     try:
         data = json.loads(read_text(path))
-        # 格式 1：数组
-        if "decisions" in data:
-            return data["decisions"]
-        # 格式 2：对象（GUI 直传）
-        decisions = []
-        for fid, d in data.items():
-            if fid == "decisions":
-                continue
-            if isinstance(d, dict) and "action" in d:
-                decisions.append({
-                    "finding_id": fid,
-                    "chapter": d.get("chapter"),
-                    "action": d["action"],
-                    "feedback": d.get("feedback", ""),
-                })
-        return decisions
-    except (FileNotFoundError, json.JSONDecodeError) as e:
-        print(f"[batch_refine] 决策文件加载失败: {e}")
+    except FileNotFoundError:
+        print(f"[batch_refine] 决策文件不存在: {path}"
+              "（先在审稿页保存决策，或 CLI 用 --interactive 生成）")
         return []
+    except (json.JSONDecodeError, UnicodeDecodeError) as e:
+        print(f"[batch_refine] 决策文件解析失败: {e}")
+        return []
+    decisions = normalize_decisions(data)
+    if not decisions:
+        print(f"[batch_refine] 决策文件无有效条目: {path}"
+              "（action 须为 accept/ignore，且带 finding_id）")
+    return decisions
 
 
 def build_chapter_feedback(chapter_n, findings, decisions):
@@ -258,8 +299,9 @@ def run_batch_refine(report_path, decisions_mode, auto_accept, dry_run, client=N
         decisions_path = Path(report_path).with_suffix(".decisions.json")
         decisions = load_decisions_file(decisions_path)
         if not decisions:
-            return False, "无可用决策（先用 --interactive 生成或手动创建 .decisions.json）"
-        print(f"[batch_refine] 从文件加载 {len(decisions)} 条决策")
+            return False, ("无可用决策（在审稿页保存决策，或 CLI 用 --interactive 生成；"
+                           "期望文件: " + str(decisions_path) + "）")
+        print(f"[batch_refine] 从文件加载 {len(decisions)} 条决策: {decisions_path}")
     else:
         return False, f"未知决策模式: {decisions_mode}"
 

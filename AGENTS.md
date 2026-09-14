@@ -9,6 +9,10 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是全自动
 
 **执行引擎可切换**：`config/system.yaml` 的 `engine` 字段控制。`direct`=OpenAI 兼容直连（当前接 TokenHub，可随时换供应商），`hermes`=Hermes 子会话（备选）。所有调用点经 `make_client(cfg, role)` 取客户端，零调用点硬编码引擎。
 
+**思考模式兼容（2026-09-14 起）**：glm-5.x / kimi 等模型默认进 thinking 模式时，正文会全进 `reasoning_content`、`content` 为空（且思考 token 吃掉 `max_tokens` 预算）→ 流水线产出空白。
+防线有三：① `providers.<id>.disable_thinking_models` 名单内模型自动注入「关闭思考」片段（候选顺序见 `disable_thinking_payloads`，TokenHub 实测首选 `thinking: {type: disabled}`；`reasoning_effort: none` 会被该平台拒收）；② 未列名单的思考模型由客户端自动探测并注入后重试；③ 全部失败才从 `reasoning_content` 兜底提取。
+**换供应商只改 `config/system.yaml` 的这两个键，不要改代码、不要在 `llm_client.py` 里硬编码模型名。**
+
 ## 启用流程（用户说"运行 NovelForge"时）
 
 1. 前置检查：
@@ -44,10 +48,15 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是全自动
 | 大纲精修（定向修订） | `python scripts/refine_outline.py "意见"`（`--dry-run` 只生成任务不跑子会话） |
 | 章节精修（定向修订） | `python scripts/refine_chapter.py 3 "意见"`（备份 data/chapters/history/，±20% 铁律） |
 | 低分章自动重写（方向3） | `python scripts/auto_rewrite.py [--threshold 6] [--chapters 3,7] [--max-rounds 1] [--dry-run]`（复用 batch_refine 的备份/铁律/提示词；orchestrator 由 `gates.auto_rewrite` 触发，**默认关**） |
+| 章节审查（审稿闭环 Phase 1） | `python scripts/chapter_review.py [--scope raw\|checked\|refined] [--report data/outline/review_report.json] [--dry-run]`（产出 review_report.json/.md；GUI「审稿」页签等价于 `POST /review/run`） |
+| 批量精修（审稿闭环 Phase 2） | `python scripts/batch_refine.py --report data/outline/review_report.json [--decisions file\|interactive] [--auto] [--dry-run]`；`--decisions file` 读同目录 `review_report.decisions.json`（格式 `{"decisions":[{finding_id,chapter,action,feedback}]}`，action=accept/ignore；GUI 保存的即此格式） |
 | 全书摘要（完书后） | `python scripts/book_summary.py`（输出 output/{书名}_全书摘要.md，可粘贴 ROSA） |
 | ROSA 后处理（完书后） | `python scripts/rosa_postprocess.py [--books\|--role-records\|--roles "露汐,小林"] [--dry-run] [--no-llm]`（作品介绍页/出场记录/新角色设定草稿 → Obsidian_AI_Sandbox/10_Inbox/） |
 | 角色出场统计 | `python scripts/appearances.py`（确定性，输出 data/state/appearances.json，rosa_postprocess 自动调用） |
 | 润色后体检 | `python scripts/polish_review.py`（确定性，交付 Word 前跑） |
+| 校对（stage 5.5，交付 Word 前） | `python scripts/proofread.py [--scope refined] [--llm] [--dry-run]`（确定性：标点/错字/格式/章节节奏，**零 token**；`--llm` 追加语义校对。报告 data/outline/proofread_report.json + .md） |
+| 生成前 token/费用预估 | `python scripts/estimate_tokens.py [--stage 4] [--json] [--no-history] [--verbose]`（历史实测均值优先，无历史则字符折算；GUI 运行前确认框走 `GET /estimate`） |
+| 拆书 / 章节节奏 | `python scripts/book_split.py --input <文本文件> [--emit] [--json] [--list-patterns]`（切章模式自动识别 → data/state/book_pacing.json；`--emit` 另导出切分正文到 data/state/book_split/。**输入文件只读**） |
 | 成本报告 | `python scripts/cost_report.py`（总览）；`--by-chapter`（分章）；`--runs 5` |
 | 多书切换 | `python scripts/switch_book.py --list` / `--archive` / `--restore "书名"`（归档 data/books/，均需 `--yes`） |
 | 项目快照 | `python scripts/snapshot.py "标签"`；查看 `--list`（orchestrator 每阶段成功后自动快照） |
@@ -63,6 +72,13 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是全自动
 | 碎片端点 HTTP 自检 | `python Temp/test_scraps_api_http.py`（临时项目根起 nf_api，覆盖 save/delete/promote 等写入端点与确认门，真实仓库零触碰） |
 | 质量自评闭环自检 | `python Temp/test_auto_rewrite.py`（临时工作目录跑 fake：目标收集/兜底重扫/dry-run/幂等/轮次上限/预算熔断/审稿发现叠加，39 断言） |
 | 自动重写端点 HTTP 自检 | `python Temp/test_auto_rewrite_api_http.py`（临时项目根起 nf_api：`/state` 暴露字段 + `POST /auto_rewrite/run` 默认 dry-run/显式执行/幂等，17 断言） |
+| 思考模型兼容自检 | `python Temp/test_thinking_compat.py`（离线单测 28 断言 + 真实 TokenHub 探针：确认「不关思考 content 空 / 关闭思考 content 非空 / reasoning_effort 被拒」；`--offline` 跳过真实调用） |
+| 审稿闭环端点 HTTP 自检 | `python Temp/test_review_api_http.py`（临时项目根起 nf_api：报告缺失 → 400 可行动提示、审查 job、决策保存与回读、批量精修真读到决策、键值格式兼容、交互式被拒，25 断言） |
+| stage4 出场同步自检 | `python Temp/test_stage4_appearances.py`（临时工作目录跑 fake stage4：appearances.json 自动生成、幂等不翻倍、异常注入不阻断，22 断言） |
+| 校对自检 | `python Temp/test_proofread.py`（临时项目根：四类确定性检查命中 + 误报防护 + 节奏离群 + 报告双落盘 + LLM 分支走 FakeClient，46 断言） |
+| 新端点 HTTP 自检 | `python Temp/test_new_endpoints_api_http.py`（临时项目根起 nf_api：/estimate 四种取参口径、proofread 报告缺失可行动 + 运行后落盘、style/analyze 四种 source、book/pacing 与 book/split、/models/add 与 /models/switch、/export/markdown、/outline/chapters/save，65 断言） |
+| GUI↔API 契约核对 | `python Temp/test_gui_api_contract.py`（静态：Vue 里每个 `api("…")` 都能在 nf_api 找到**同方法**分支；do_GET/do_POST 名遮蔽 AST 检查；死分支与丢失 elif 守卫回归；每个主题都要有 CSS 变量块，27 断言） |
+| 真机截图 + 控制台报错检查 | `node Temp/cdp_shots_new_tabs.js <http://127.0.0.1:8090> <出图目录>`（CDP 驱动 headless Chrome，逐页签截图 + 抓 console error/warning + 抓非 2xx 响应 URL。先起 nf_api:8765 与构建产物的静态服务；Node 22 自带 WebSocket，无需额外依赖） |
 
 ## 关键路径
 
@@ -71,7 +87,7 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是全自动
 - 大纲体检报告：`data/outline/review_report.md`（outline_review.py 生成）
 - 素材体检报告：`data/setting/material_review.md`（material_review.py 生成，stage1 后自动）
 - 设定补全历史：`data/setting/history/`（setting_refine.py 每次补全自动备份 setting_vN.json）
-- 角色出场统计：`data/state/appearances.json`（appearances.py 生成，rosa_postprocess 自动调用）
+- 角色出场统计：`data/state/appearances.json`（appearances.py / `refresh_appearances()` 生成，**stage4 每章通过校验后自动刷新**，rosa_postprocess 自动调用；同章重复同步不重复计数）
 - 风格偏差报告：追加在 `data/outline/polish_report.md`（分卷为 `polish_report_volN.md`）末尾，
   stage6 每卷润色后自动写入；配置 `book.style_reference` 才生成，阈值 30%，仅供参考不阻断流程
 - 大纲修订历史：`data/outline/history/`（每次精修自动备份 global_vN.md，可回退）
@@ -80,6 +96,13 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是全自动
 - 项目快照：`history/{时间戳}_{标签}/`（每阶段成功后自动生成，保留最近 10 份；data/ 不进 git，快照承担版本职责）
 - 多书归档：`data/books/{书名}/`（switch_book.py 归档/恢复；切换前 orchestrator 会提示书名不一致）
 - 章节修订历史：`data/chapters/history/`（refine_chapter.py 每次精修备份 chNN_vM.md）
+- 校对报告：`data/outline/proofread_report.json` + `.md`（proofread.py / `POST /proofread/run` 产出；
+  **schema 与 review_report 对齐**：finding 带 `id/type/severity/detail/suggested_action`，
+  故审稿 UI 与 batch_refine 决策链路可直接复用。`rhythm` 字段含逐章节奏与离群判定）
+- 拆书节奏：`data/state/book_pacing.json`（book_split.py 产出；`GET /book/pacing` 读它，
+  `GET /book/pacing?source=current` 则实时算本书、不落盘）
+- 拆书切分正文：`data/state/book_split/<书名>/NN_标题.md`（仅 `--emit` / `{"emit":true}` 时生成）
+- 生成前预估：`GET /estimate`（无落盘；GUI 运行前确认框用它，**dry-run 性质，不产生副作用**）
 - 自动重写报告：`data/outline/auto_rewrite_report.md`（人可读，每次运行追加）
   / `data/outline/auto_rewrite_report.json`（机器可读，`latest` + `runs` 最近 50 次）
 - 自动重写状态：`data/state/progress.json` → `stages["4"].auto_rewritten`（`{章号: 已用轮次}`，

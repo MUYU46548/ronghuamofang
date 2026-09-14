@@ -21,11 +21,16 @@ def read_text(path, fallback_encodings=ENCODINGS):
     raise last_err
 
 
-def write_text(path, content, newline="\n"):
-    """UTF-8 写入；统一 LF 换行（Git 端由 core.autocrlf 决定落盘形态）。"""
+def write_text(path, content, newline="\n", atomic=True):
+    """UTF-8 写入；统一 LF 换行。atomic=True 时先写 .tmp 再 rename，防断电半写。"""
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(content, encoding="utf-8", newline=newline)
+    if atomic:
+        tmp = p.with_suffix(p.suffix + ".tmp")
+        tmp.write_text(content, encoding="utf-8", newline=newline)
+        tmp.replace(p)
+    else:
+        p.write_text(content, encoding="utf-8", newline=newline)
 
 
 def append_text(path, content, newline="\n"):
