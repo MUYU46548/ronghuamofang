@@ -69,7 +69,8 @@ chapter:
   target_words:
   - 1200
   - 3500
-  summary_every: 5
+  summary_every: 15
+  summary_window: 15
   batch_outline: 10
   quality_threshold: 6
   page_break: true

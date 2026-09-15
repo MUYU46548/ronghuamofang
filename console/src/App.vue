@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from "vue";
+import { ref, computed, watch, onMounted, onUnmounted } from "vue";
 import { diffParagraphs } from "./diff.js";
 import ReviewConsole from "./ReviewConsole.vue";
 import OutlineView from "./OutlineView.vue";
@@ -8,8 +8,11 @@ import RoleGraph from "./RoleGraph.vue";
 import ChapterBlueprint from "./ChapterBlueprint.vue";
 import ProofreadPanel from "./ProofreadPanel.vue";
 import StylePanel from "./StylePanel.vue";
+import CommandPalette from "./CommandPalette.vue";
 
-const API = "http://127.0.0.1:8765";
+// 后端地址：默认本机 8765。自动化 UI 验收脚本可用 window.__NF_API_BASE__ 把它指向
+// 临时端口（避免干扰用户正在运行的控制台实例）。
+const API = (window.__NF_API_BASE__ || "http://127.0.0.1:8765").replace(/\/+$/, "");
 
 // 素材页签内的子视图：结构化卡片（materials/raw） / 原始碎片（materials/original_scraps）
 const materialSub = ref("cards");
@@ -63,7 +66,10 @@ async function refresh() {
       api("/state"), api("/models"),
       state.value && state.value.current_job ? api("/jobs/" + state.value.current_job) : Promise.resolve(null),
     ]);
-    if (s.status === 200) { state.value = s.data; online.value = true; budgetPaused.value = !!s.data?.budget?.paused; }
+    if (s.status === 200) {
+      state.value = s.data; online.value = true; budgetPaused.value = !!s.data?.budget?.paused;
+      noteJobTransition(s.data);
+    }
     if (m.status === 200) models.value = m.data;
     if (j && j.status === 200) lastJob.value = j.data;
     // 成本页可见时同步刷新「当前运行」实时花费（与 state 同频 2.5s）
@@ -97,6 +103,7 @@ function switchTab(t) {
     if (!styleNotesLoaded.value) loadStyleNotes();
   }
   if (t === "materials") loadMaterials();
+  if (t === "chapters" && !chaptersLoaded.value) loadChapters();
   if (t === "story") loadSetting();
   if (t === "outline_chapters") loadOutlineChapters();
   if (t === "export") refreshExportState();
@@ -239,12 +246,24 @@ const settingEditor = ref({ open: false, key: '', idx: -1, item: null });
 function openSettingEditor(key, idx) {
   const item = settingData.value?.[key]?.[idx];
   if (!item) return;
-  settingEditor.value = { open: true, key, idx, item: { ...item } };
+  const copy = { ...item };
+  // 初始化标签输入框（数组 → 逗号分隔字符串）
+  if (key === 'characters' || key === 'world') {
+    const tags = copy.tags;
+    copy._tagsInput = Array.isArray(tags) ? tags.join(',') : (tags || '');
+  }
+  settingEditor.value = { open: true, key, idx, item: copy };
 }
 
 function closeSettingEditor() {
   const { key, idx, item } = settingEditor.value;
   if (key && idx >= 0 && item && settingData.value?.[key]) {
+    // 保存前将 _tagsInput 转回数组
+    if (key === 'characters' || key === 'world') {
+      const tagsStr = (item._tagsInput || '').trim();
+      item.tags = tagsStr ? tagsStr.split(',').map(t => t.trim()).filter(Boolean) : [];
+      delete item._tagsInput;
+    }
     settingData.value[key][idx] = { ...item };
   }
   settingEditor.value = { open: false, key: '', idx: -1, item: null };
@@ -252,8 +271,21 @@ function closeSettingEditor() {
 
 function addSettingItem(key) {
   if (!settingData.value) return;
+  if (key === 'concepts') {
+    if (!settingData.value.world) settingData.value.world = { concepts: [], all: [], locations: [], factions: [] };
+    if (!settingData.value.world.concepts) settingData.value.world.concepts = [];
+    settingData.value.world.concepts.push({ name: "新概念", type: "", tags: [], snippet: "", _tagsInput: "" });
+    settingDirty.value = true;
+    return;
+  }
   if (!settingData.value[key]) settingData.value[key] = [];
-  settingData.value[key].push({ name: "新条目", description: "" });
+  if (key === 'characters') {
+    settingData.value[key].push({ name: "新角色", type: "", tags: [], snippet: "", locked: false, _tagsInput: "" });
+  } else if (key === 'world') {
+    settingData.value[key].push({ name: "新条目", type: "", tags: [], snippet: "", _tagsInput: "" });
+  } else {
+    settingData.value[key].push({ name: "新条目", description: "" });
+  }
   settingDirty.value = true;
 }
 
@@ -278,6 +310,12 @@ async function saveSetting() {
 
 function settingItems(key) {
   if (!settingData.value) return [];
+  if (key === 'concepts') {
+    return settingData.value.world?.concepts || [];
+  }
+  if (key === 'world') {
+    return settingData.value.world?.all || [];
+  }
   return settingData.value[key] || [];
 }
 
@@ -648,7 +686,34 @@ const streamModel = ref("");
 const streamCost = ref(0);
 const streamStatus = ref(""); // "running" | "ok" | "failed" | "stopped"
 const streamOpen = ref(false);
+const streamPromptOverride = ref("");
 let streamSource = null;
+
+async function pauseStream() {
+  if (!streamJob.value) return;
+  const r = await api("/stream/pause", "POST", { job_id: streamJob.value });
+  if (r.status === 200 && r.data.ok) {
+    streamStatus.value = "paused";
+    say("已暂停输出，可修改提示词后点恢复");
+  } else {
+    say("暂停失败: " + (r.data?.error || r.status));
+  }
+}
+
+async function resumeStream() {
+  if (!streamJob.value) return;
+  const r = await api("/stream/resume", "POST", { job_id: streamJob.value });
+  if (r.status === 200 && r.data.ok) {
+    streamStatus.value = "running";
+    if (streamPromptOverride.value.trim()) {
+      say("已恢复，新提示词将在后续输出中生效");
+    } else {
+      say("已恢复输出");
+    }
+  } else {
+    say("恢复失败: " + (r.data?.error || r.status));
+  }
+}
 
 /* ---------- 错误反馈（A4） ---------- */
 const errorLog = ref([]); // [{time, message, detail}]
@@ -1159,6 +1224,366 @@ function fmtYuan(v) { return "¥" + Number(v || 0).toFixed(4); }
 function fmtNum(v) { return Number(v || 0).toLocaleString("zh-CN"); }
 function fmtTime(iso) { return (iso || "").replace("T", " "); }
 
+/* ============================================================
+   UX 增强（2026-09-15）
+   ① 一键工作流：选阶段 → 估成本 → 一键跑 → 跑完自动提示下一步
+   ② 键盘快捷键 + 命令面板（Ctrl+K）
+   ③ 失败/卡住阶段的错误恢复一级入口（重试 / 跳过 / 回退 / 日志）
+   ============================================================ */
+
+/* ---------- ① 一键工作流 ---------- */
+// 页签注册表：数字键直接跳页签（13 个页签就是这套「工作阶段」导航）
+const TAB_ORDER = [
+  { t: "pipeline", name: "流水线", key: "1" },
+  { t: "chapters", name: "章节", key: "2" },
+  { t: "materials", name: "素材", key: "3" },
+  { t: "story", name: "设定", key: "4" },
+  { t: "outline", name: "大纲", key: "5" },
+  { t: "outline_chapters", name: "分章", key: "6" },
+  { t: "review", name: "审稿", key: "7" },
+  { t: "proofread", name: "校对", key: "8" },
+  { t: "style", name: "文风", key: "9" },
+  { t: "inbox", name: "收件箱", key: "0" },
+  { t: "cost", name: "成本", key: "" },
+  { t: "project", name: "项目", key: "" },
+  { t: "settings", name: "设置", key: "" },
+  { t: "export", name: "导出", key: "" },
+];
+
+const quickStage = ref(null);      // 快速运行面板选中的阶段
+const quickEstLoading = ref(false);
+const quickEstData = ref(null);
+const quickEstError = ref("");
+
+// 下一步（单数）：卡片上的主按钮 / Space 键
+const nextAction = computed(() => {
+  if (!state.value) return null;
+  const stages = state.value.stages || [];
+  const gate = stages.find((s) => s.status === "done" && !s.approved);
+  if (gate) {
+    return { kind: "approve", stage: gate.stage,
+             label: "确认阶段 " + gate.stage + "·" + (STAGE_NAMES[gate.stage] || ""),
+             hint: "审批门：审阅产物后放行" };
+  }
+  const pend = stages.find((s) => s.status !== "done");
+  if (pend) {
+    return { kind: "run", stage: pend.stage,
+             label: "运行阶段 " + pend.stage + "·" + (STAGE_NAMES[pend.stage] || ""),
+             hint: pend.status === "failed" ? "上次运行失败，可重试" : "从断点续跑" };
+  }
+  if (stages.length && stages.every((s) => s.status === "done")) {
+    return { kind: "publish", label: "生成 Word 成品", hint: "七阶段已完成" };
+  }
+  return null;
+});
+
+// 候选下一步（复数）：跑完弹出的面板 + 命令面板用
+const nextActions = computed(() => {
+  const acts = [];
+  if (!state.value) return acts;
+  const stages = state.value.stages || [];
+  const gate = stages.find((s) => s.status === "done" && !s.approved);
+  const pend = stages.find((s) => s.status !== "done");
+  if (gate) {
+    acts.push({ id: "approve:" + gate.stage, kind: "approve", stage: gate.stage,
+                label: "确认阶段 " + gate.stage + "·" + (STAGE_NAMES[gate.stage] || "") + "（放行）",
+                desc: "审批门 —— 可先去收件箱预览产物" });
+  }
+  if (pend) {
+    acts.push({ id: "run:" + pend.stage, kind: "run", stage: pend.stage,
+                label: "运行阶段 " + pend.stage + "·" + (STAGE_NAMES[pend.stage] || ""),
+                desc: "从该阶段续跑（先出费用预估）" });
+  }
+  if (stages[3] && stages[3].status === "done") {
+    acts.push({ id: "tab:review", kind: "tab", tab: "review",
+                label: "去审稿（章节审查 → 批量精修）",
+                desc: "逐条接受/忽略 AI 发现，再一键精修" });
+  }
+  if (stages[5] && (stages[5].status === "done" || stages[5].status === "running")) {
+    acts.push({ id: "tab:proofread", kind: "tab", tab: "proofread",
+                label: "去校对（标点/错字/章节节奏）",
+                desc: "零 token 确定性体检，交付 Word 前必跑" });
+  }
+  if (stages.length && stages.every((s) => s.status === "done")) {
+    acts.push({ id: "publish", kind: "publish",
+                label: "生成 Word 成品", desc: "输出 output/{书名}_完整版.docx" });
+  }
+  acts.push({ id: "tab:chapters", kind: "tab", tab: "chapters",
+              label: "浏览章节产物", desc: "raw / checked / refined 逐章对比" });
+  return acts;
+});
+
+watch(quickStage, (n) => { if (n) loadQuickEstimate(); });
+
+async function loadQuickEstimate() {
+  const n = quickStage.value;
+  quickEstData.value = null;
+  quickEstError.value = "";
+  if (!n) return;
+  quickEstLoading.value = true;
+  const r = await api("/estimate?stage=" + n);
+  quickEstLoading.value = false;
+  if (r.status === 200) quickEstData.value = r.data;
+  else quickEstError.value = r.data?.error || ("HTTP " + r.status);
+}
+
+async function execNextAction(a) {
+  if (!a) return say("没有可执行的下一步");
+  if (a.kind === "run") return runStage(a.stage);
+  if (a.kind === "approve") return approve(a.stage);
+  if (a.kind === "publish") return runPublish();
+  if (a.kind === "tab") return switchTab(a.tab);
+  return say("未知的下一步类型: " + a.kind);
+}
+
+async function runNextAction() {
+  await execNextAction(nextAction.value);
+}
+
+async function runQuickStage() {
+  const n = quickStage.value;
+  if (!n) return say("请先选择要运行的阶段");
+  await runStage(n);
+}
+
+// 跑完自动提示下一步（②"完成后自动跳转"）：检测 job 从「有」到「无」的跳变
+const nextPopup = ref(false);
+const nextPopupDismissed = ref(localStorage.getItem("mofang_flow_popup") === "0");
+let wasRunning = false;
+let lastFinishedKind = "";
+
+function noteJobTransition(snap) {
+  const nowRunning = !!snap?.current_job;
+  if (wasRunning && !nowRunning) {
+    lastFinishedKind = (lastJob.value?.kind || snap?.last_job?.kind || "") + "";
+    // 跑完自动把「快速运行」的选择器推进到下一个未完成阶段
+    const a = nextAction.value;
+    if (a && a.kind === "run") quickStage.value = a.stage;
+    if (!nextPopupDismissed.value) nextPopup.value = true;
+  }
+  wasRunning = nowRunning;
+}
+
+// 状态首次加载后，把快速运行面板对齐到「下一个未完成阶段」
+watch(state, () => {
+  if (quickStage.value === null && nextAction.value?.kind === "run") {
+    quickStage.value = nextAction.value.stage;
+  }
+});
+
+function dismissNextPopupForever() {
+  nextPopupDismissed.value = true;
+  localStorage.setItem("mofang_flow_popup", "0");
+  nextPopup.value = false;
+  say("已关闭自动弹出（可用命令面板重新开启）");
+}
+
+function reenableNextPopup() {
+  nextPopupDismissed.value = false;
+  localStorage.setItem("mofang_flow_popup", "1");
+  say("已开启「跑完自动提示下一步」");
+}
+
+/* ---------- ① 手动快照 ---------- */
+async function doSnapshot() {
+  const r = await api("/snapshot", "POST", { label: "手动快照" });
+  if (r.status === 202 && r.data.job_id) say("快照任务已提交（job " + r.data.job_id + "）");
+  else say("快照失败: " + (r.data?.error || r.status));
+  refresh();
+}
+
+/* ---------- ③ 错误恢复一级入口 ---------- */
+// 跳过阶段：不用 window.confirm（Electron 原生对话框不可靠），走应用内确认框 + 勾选护栏
+const skipDlg = ref({ open: false, stage: null, reason: "", agreed: false, busy: false, warn: "" });
+function openSkipDlg(stage) {
+  skipDlg.value = { open: true, stage, reason: "", agreed: false, busy: false, warn: "" };
+}
+async function submitSkipStage() {
+  const d = skipDlg.value;
+  if (!d.agreed) return say("请先勾选确认项");
+  d.busy = true;
+  const r = await api("/stage/skip", "POST",
+                      { stage: d.stage, confirm: true, reason: d.reason || "GUI 人工跳过" });
+  d.busy = false;
+  if (r.status === 200 && r.data.ok) {
+    say(r.data.message);
+    if (r.data.missing?.length) d.warn = "缺失产物：" + r.data.missing.join("、");
+    skipDlg.value = { open: false, stage: null, reason: "", agreed: false, busy: false, warn: "" };
+    refresh();
+  } else {
+    say("跳过失败: " + (r.data?.error || r.data?.message || r.status));
+  }
+}
+
+async function retryStage(stage) {
+  say("重试阶段 " + stage + " ……");
+  await runStage(stage);
+}
+
+// 运行日志（失败排障）：读 nf_api/orchestrator 的标准输出尾部
+const logDlg = ref({ open: false, loading: false, lines: [], path: "", hint: "", total: 0 });
+async function openRunLog() {
+  logDlg.value = { open: true, loading: true, lines: [], path: "", hint: "", total: 0 };
+  const r = await api("/logs/tail?lines=400");
+  if (r.status !== 200) {
+    logDlg.value = { open: true, loading: false, lines: [], path: "",
+                     hint: "读取日志失败: " + (r.data?.error || r.status), total: 0 };
+    return;
+  }
+  logDlg.value = {
+    open: true, loading: false,
+    lines: r.data.lines || [], path: r.data.path || "",
+    hint: r.data.hint || "", total: r.data.total_lines || 0,
+  };
+}
+
+/* ---------- ② 键盘快捷键 + 命令面板 ---------- */
+const paletteOpen = ref(false);
+const helpOpen = ref(false);
+
+const SHORTCUTS = [
+  { k: "Ctrl + K", d: "命令面板（搜索一切操作）" },
+  { k: "Space", d: "执行下一步 / 停止当前任务" },
+  { k: "R", d: "刷新状态与成本" },
+  { k: "1 – 9, 0", d: "切换页签（流水线/章节/素材/设定/大纲/分章/审稿/校对/文风/收件箱）" },
+  { k: "?", d: "显示本快捷键表" },
+  { k: "Esc", d: "关闭当前弹层" },
+  { k: "↑ ↓ Enter", d: "命令面板内选择与执行" },
+];
+
+function isTypingTarget(el) {
+  if (!el) return false;
+  const tag = (el.tagName || "").toLowerCase();
+  return tag === "input" || tag === "textarea" || tag === "select" || el.isContentEditable;
+}
+
+function onGlobalKey(e) {
+  const k = e.key;
+  // Ctrl/Cmd+K：输入框内也要能用
+  if ((e.ctrlKey || e.metaKey) && (k === "k" || k === "K")) {
+    e.preventDefault();
+    paletteOpen.value = !paletteOpen.value;
+    return;
+  }
+  if (k === "Escape") {
+    if (paletteOpen.value) { paletteOpen.value = false; return; }
+    if (helpOpen.value) { helpOpen.value = false; return; }
+    return;
+  }
+  // 弹层打开时不吃其它按键（交给弹层自己处理）
+  if (paletteOpen.value || helpOpen.value) return;
+  if (isTypingTarget(e.target) || e.ctrlKey || e.metaKey || e.altKey) return;
+  if (k === "?") { e.preventDefault(); helpOpen.value = true; return; }
+  const tag = (e.target?.tagName || "").toLowerCase();
+  const onControl = tag === "button" || tag === "a";
+  if (k === " " || k === "Spacebar") {
+    if (onControl) return;         // 焦点在按钮上时让按钮自己响应
+    e.preventDefault();
+    if (isRunning.value) stopJob(); else runNextAction();
+    return;
+  }
+  if (k === "r" || k === "R") { e.preventDefault(); refresh(); say("已刷新状态"); return; }
+  const hit = TAB_ORDER.find((t) => t.key && t.key === k);
+  if (hit) { e.preventDefault(); switchTab(hit.t); say("→ " + hit.name + "（" + hit.key + "）"); }
+}
+
+const commands = computed(() => {
+  const cs = [];
+  const a = nextAction.value;
+  if (a) {
+    cs.push({ id: "next", group: "工作流", label: "执行下一步 · " + a.label,
+              desc: a.hint, hint: "Space", keywords: "next 下一步" });
+  }
+  cs.push({ id: "flow.all", group: "工作流", label: "全自动运行（跑到审批门）",
+            desc: "从第一个未完成阶段依次跑完，带运行前费用预估", keywords: "auto all 全自动" });
+  cs.push({ id: "flow.stream", group: "工作流", label: "流式全自动运行",
+            desc: "实时逐 token 输出，可暂停/中断", keywords: "stream 流式" });
+  cs.push({ id: "publish", group: "工作流", label: "生成 Word 成品",
+            desc: "output/{书名}_完整版.docx", keywords: "word docx 导出 成品" });
+  cs.push({ id: "snapshot", group: "工作流", label: "手动快照",
+            desc: "history/ 留存一份当前状态，可回退", keywords: "snapshot 备份" });
+
+  for (let n = 1; n <= 7; n++) {
+    cs.push({ id: "stage.run:" + n, group: "运行阶段",
+              label: "运行阶段 " + n + " · " + (STAGE_NAMES[n] || ""),
+              desc: (state.value?.stages?.[n - 1]?.status === "done" ? "该阶段已完成，重跑会覆盖产物" : "带运行前费用预估"),
+              keywords: "stage 阶段 " + n });
+  }
+  for (let n = 1; n <= 7; n++) {
+    cs.push({ id: "stage.stream:" + n, group: "运行阶段",
+              label: "流式运行阶段 " + n + " · " + (STAGE_NAMES[n] || ""),
+              desc: "实时输出，可暂停改提示词", keywords: "stage stream 流式 " + n });
+  }
+  if (state.value) {
+    for (const s of state.value.stages || []) {
+      if (s.status === "done" && !s.approved) {
+        cs.push({ id: "approve:" + s.stage, group: "审批", label: "确认放行阶段 " + s.stage,
+                  desc: "审批门", keywords: "approve 审批 " + s.stage });
+      }
+      if (s.status === "failed" || s.status === "rejected") {
+        cs.push({ id: "stage.run:" + s.stage, group: "错误恢复",
+                  label: "重试阶段 " + s.stage + " · " + (STAGE_NAMES[s.stage] || ""),
+                  desc: s.status === "failed" ? "上次失败" : "已被打回", keywords: "retry 重试 " + s.stage });
+        cs.push({ id: "skip:" + s.stage, group: "错误恢复",
+                  label: "跳过阶段 " + s.stage + "（标记完成继续跑）",
+                  desc: "不生成产物，仅放行后续阶段", keywords: "skip 跳过 " + s.stage });
+        cs.push({ id: "reject:" + s.stage, group: "错误恢复",
+                  label: "回退 / 打回阶段 " + s.stage,
+                  desc: "清理该阶段及下游产物（history/ 可回退）", keywords: "reject 打回 回退 " + s.stage });
+      }
+    }
+  }
+  for (const t of TAB_ORDER) {
+    cs.push({ id: "tab:" + t.t, group: "跳转页签",
+              label: "切换到 " + t.name + " 页签", hint: t.key || "",
+              keywords: "tab go 页签 " + t.name });
+  }
+  cs.push({ id: "logs", group: "诊断", label: "查看运行日志", desc: "orchestrator / nf_api 输出尾部", keywords: "log 日志 报错" });
+  cs.push({ id: "refresh", group: "诊断", label: "刷新状态", hint: "R", keywords: "refresh 刷新" });
+  cs.push({ id: "help", group: "诊断", label: "快捷键说明", hint: "?", keywords: "help 快捷键" });
+  cs.push({ id: nextPopupDismissed.value ? "popup.on" : "popup.off", group: "诊断",
+            label: nextPopupDismissed.value ? "开启「跑完自动提示下一步」" : "关闭「跑完自动提示下一步」",
+            keywords: "popup 提示 自动" });
+  for (const th of THEMES) {
+    cs.push({ id: "theme:" + th.id, group: "外观", label: "切换到主题：" + th.name,
+              keywords: "theme 主题 " + th.name });
+  }
+  for (const a2 of artifacts.value) {
+    cs.push({ id: "open:" + a2.path, group: "打开产物", label: "打开 " + a2.label,
+              desc: a2.path, keywords: "open 打开 " + a2.label });
+  }
+  return cs;
+});
+
+async function runCommand(id) {
+  paletteOpen.value = false;
+  if (!id) return;
+  if (id === "next") return runNextAction();
+  if (id === "flow.all") return runPipelineFull();
+  if (id === "flow.stream") return runPipelineStreamFull();
+  if (id === "publish") return runPublish();
+  if (id === "snapshot") return doSnapshot();
+  if (id === "refresh") { await refresh(); return say("已刷新状态"); }
+  if (id === "logs") return openRunLog();
+  if (id === "help") { helpOpen.value = true; return; }
+  if (id === "popup.on") return reenableNextPopup();
+  if (id === "popup.off") return dismissNextPopupForever();
+  if (id.startsWith("stage.run:")) return runStage(Number(id.split(":")[1]));
+  if (id.startsWith("stage.stream:")) return runStageStream(Number(id.split(":")[1]));
+  if (id.startsWith("approve:")) return approve(Number(id.split(":")[1]));
+  if (id.startsWith("skip:")) return openSkipDlg(Number(id.split(":")[1]));
+  if (id.startsWith("reject:")) return openReject(Number(id.split(":")[1]));
+  if (id.startsWith("theme:")) return setTheme(id.slice(6));
+  if (id.startsWith("open:")) return openArtifact(id.slice(5));
+  if (id.startsWith("tab:")) {
+    const t = id.slice(4);
+    switchTab(t);
+    const hit = TAB_ORDER.find((x) => x.t === t);
+    return say(hit ? ("→ " + hit.name) : "已切换");
+  }
+  say("未知命令: " + id);
+}
+
 /* ---------- 章节浏览 ---------- */
 const chapters = ref([]);      // [{n, files: {raw, checked, refined}}]
 const chaptersLoaded = ref(false);
@@ -1330,6 +1755,8 @@ onMounted(() => {
   }
   // 退出确认
   setupExitGuard();
+  // 键盘快捷键（UX-2）：Space/R/数字/?/Ctrl+K
+  window.addEventListener("keydown", onGlobalKey);
   // 监听主进程推送的更新事件
   if (window.mofangAPI?.onUpdater) {
     updaterHandler = (data) => {
@@ -1370,6 +1797,7 @@ async function checkMaterialsEmpty() {
 }
 onUnmounted(() => {
   clearInterval(timer);
+  window.removeEventListener("keydown", onGlobalKey);
   if (typeof updaterCleanup === 'function') updaterCleanup();
 });
 </script>
@@ -1428,11 +1856,19 @@ onUnmounted(() => {
       <span v-if="streamModel" class="pill st-done">{{ streamModel }}</span>
       <span v-if="streamCost > 0" class="stream-cost">¥{{ streamCost.toFixed(4) }}</span>
       <span v-if="streamStatus === 'running'" class="pill st-running">生成中</span>
+      <span v-else-if="streamStatus === 'paused'" class="pill" style="background: var(--warn)">⏸ 已暂停</span>
       <span v-else-if="streamStatus === 'ok'" class="pill st-done">完成</span>
       <span v-else-if="streamStatus === 'stopped'" class="pill st-rej">已中断</span>
       <span v-else class="pill st-rej">{{ streamStatus }}</span>
+      <button v-if="streamStatus === 'running'" class="mini" @click="pauseStream" title="暂停输出">⏸ 暂停</button>
+      <button v-if="streamStatus === 'paused'" class="mini primary" @click="resumeStream" title="恢复输出">▶ 恢复</button>
       <button v-if="streamConnected" class="mini danger" @click="stopStream">中断</button>
       <button class="mini" @click="streamOpen = false; stopStream()">关闭</button>
+    </div>
+    <!-- 暂停时显示修改提示词输入框 -->
+    <div v-if="streamStatus === 'paused'" style="padding: 12px; border-top: 1px solid var(--border);">
+      <label style="display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px;">修改提示词（可选，恢复后注入）</label>
+      <textarea v-model="streamPromptOverride" class="prompt-text" style="width: 100%; min-height: 80px;" placeholder="输入修改后的提示词（追加到任务末尾）..."></textarea>
     </div>
     <pre class="stream-body">{{ streamText || "等待输出…" }}</pre>
   </div>
@@ -1452,35 +1888,84 @@ onUnmounted(() => {
     </div>
 
 
+    <!-- 一键工作流（UX-1）：唯一的运行入口 —— 步骤条 + 下一步 + 选阶段预估 + 全自动 -->
+    <section v-if="tab === 'pipeline' && state" class="card flow-strip">
+      <div class="card-head">
+        <h3>一键工作流</h3>
+        <span v-if="isRunning" class="pill st-running">运行中</span>
+        <span class="spacer"></span>
+        <button class="mini" @click="paletteOpen = true" title="Ctrl+K 搜索所有操作">⌘K 命令面板</button>
+        <button class="mini" @click="helpOpen = true" title="快捷键说明">? 快捷键</button>
+      </div>
+
+      <div class="flow-steps">
+        <template v-for="(s, i) in stageList" :key="s.stage">
+          <button class="flow-step"
+                  :class="{ done: s.status === 'done', cur: nextAction && nextAction.stage === s.stage, bad: s.status === 'failed' || s.status === 'rejected', skip: s.skipped }"
+                  :title="(s.rejected ? '打回原因：' + s.rejected : STAGE_NAMES[s.stage]) + '（点击可设为快速运行目标）'"
+                  @click="quickStage = s.stage">
+            <span class="fs-no">{{ s.status === 'done' ? '✓' : s.stage }}</span>
+            <span class="fs-name">{{ STAGE_NAMES[s.stage] }}</span>
+          </button>
+          <span v-if="i < stageList.length - 1" class="fs-arrow">›</span>
+        </template>
+      </div>
+
+      <div class="flow-next">
+        <span class="meta">下一步</span>
+        <b>{{ nextAction ? nextAction.label : '（七阶段已完成，可生成成品或导出）' }}</b>
+        <span class="meta">{{ nextAction ? nextAction.hint : '' }}</span>
+        <span class="spacer"></span>
+        <button class="mini primary" :disabled="isRunning || !nextAction" @click="runNextAction">
+          ⏎ 执行下一步
+        </button>
+        <button class="mini" :disabled="isRunning" @click="runPipelineFull" title="从第一个未完成阶段跑到审批门">全自动</button>
+        <button class="mini" :disabled="isRunning" @click="runPipelineStreamFull" title="全自动 + 实时流式输出（可暂停/中断）">流式全自动</button>
+        <button class="mini" :disabled="isRunning" @click="runPublish" title="生成最终 Word 全书">📄 Word 成品</button>
+        <button class="mini" @click="openSettingEdit" title="暂停流水线并编辑设定集（不影响已完成章节）">✏️ 中途改设定</button>
+      </div>
+
+      <div class="flow-quick">
+        <span class="meta">快速运行</span>
+        <select v-model="quickStage" class="model-select">
+          <option :value="null">选择阶段…</option>
+          <option v-for="s in stageList" :key="s.stage" :value="s.stage">
+            {{ s.stage }} · {{ STAGE_NAMES[s.stage] }}（{{ statusBadge(s.status) }}）
+          </option>
+        </select>
+        <span class="flow-est" :class="{ warn: quickEstData?.budget?.exceeds }">
+          <template v-if="!quickStage">—</template>
+          <template v-else-if="quickEstLoading">预估中…</template>
+          <template v-else-if="quickEstData">
+            预计 {{ fmtTok(quickEstData.totals.tokens_in) }} in / {{ fmtTok(quickEstData.totals.tokens_out) }} out
+            · {{ fmtYuan(quickEstData.totals.cost_yuan) }}
+            <span v-if="quickEstData.budget?.exceeds">⚠ 跑完将超预算</span>
+          </template>
+          <template v-else-if="quickEstError">预估不可用（仍可运行）：{{ quickEstError }}</template>
+          <template v-else>—</template>
+        </span>
+        <button class="mini" :disabled="isRunning || !quickStage" @click="loadQuickEstimate">重估</button>
+        <button class="mini primary" :disabled="isRunning || !quickStage" @click="runQuickStage">▶ 运行所选阶段</button>
+      </div>
+    </section>
+
     <!-- 流水线 -->
     <section v-if="tab === 'pipeline' && state" class="grid-2">
       <div class="card">
         <h3>七阶段流水线</h3>
         <div class="progress"><div class="progress-in" :style="{ width: progressPct + '%' }"></div></div>
-        <div class="run-all-bar">
-          <button class="mini primary" :disabled="isRunning" @click="runPipelineFull" title="从第一个未完成的阶段开始，依次运行到完成">
-            ▶ 全自动运行
-          </button>
-          <button class="mini" :disabled="isRunning" @click="runPipelineStreamFull" title="全自动运行（流式输出，可随时中断）">
-            ▶ 流式全自动
-          </button>
-          <button class="mini" :disabled="isRunning" @click="runPublish" title="生成最终 Word 全书 + 摘要">
-            📄 生成 Word 成品
-          </button>
-          <span class="meta">从第一个未完成阶段依次跑完，遇审批门自动暂停</span>
-        </div>
-        <div class="run-all-bar">
-          <button class="mini" @click="openSettingEdit" title="暂停流水线并编辑设定集（不影响已完成章节）">
-            ✏️ 中途修改设定
-          </button>
-        </div>
         <div v-for="s in stageList" :key="s.stage" class="stage-row">
           <div class="stage-info">
             <span class="stage-no" :class="{ lit: s.status === 'done', run: s.status === 'running' }">{{ s.stage }}</span>
             <span class="stage-name">{{ s.name }}</span>
             <span class="pill" :class="'st-' + s.status">{{ statusBadge(s.status) }}</span>
             <span v-if="s.status === 'done' && !s.approved" class="pill st-gate">待审批</span>
+            <span v-if="s.skipped" class="pill st-skip" title="人工跳过，未生成产物">已跳过</span>
             <span v-if="s.rejected" class="pill st-rej" :title="s.rejected">打回: {{ s.rejected.slice(0, 12) }}</span>
+            <span v-if="s.needs_rewrite && s.needs_rewrite.length" class="pill st-rej"
+                  :title="'未达质量线的章节：' + s.needs_rewrite.join('、')">
+              待重写 {{ s.needs_rewrite.length }} 章
+            </span>
           </div>
           <div class="stage-actions">
             <button class="mini" :disabled="isRunning" @click="runStage(s.stage)">运行</button>
@@ -1488,6 +1973,24 @@ onUnmounted(() => {
             <button v-if="s.status === 'done' && !s.approved" class="mini primary" @click="approve(s.stage)">确认</button>
             <button v-else-if="s.approved" class="mini" @click="approve(s.stage, true)">撤销</button>
             <button v-if="s.stage >= 2 && s.status !== 'pending'" class="mini danger" :disabled="isRunning" @click="openReject(s.stage)">打回</button>
+          </div>
+          <!-- 错误恢复一级入口（UX-3）：失败/被打回/跳过的恢复动作直接摆在卡片上 -->
+          <div v-if="s.status === 'failed' || s.status === 'rejected' || s.skipped || (s.needs_rewrite && s.needs_rewrite.length)"
+               class="stage-recovery">
+            <span v-if="s.status === 'failed'" class="rec-msg">
+              ⚠ 阶段 {{ s.stage }} 执行失败<span v-if="lastJob?.result">（最近一次：{{ lastJob.result }}）</span>
+            </span>
+            <span v-else-if="s.status === 'rejected'" class="rec-msg">↩ 已被打回：{{ s.rejected }}</span>
+            <span v-if="s.skipped" class="rec-msg">⏭ 已人工跳过，未生成产物</span>
+            <span v-if="s.needs_rewrite && s.needs_rewrite.length" class="rec-msg">
+              ✍ 第 {{ s.needs_rewrite.join('、') }} 章未达质量线
+            </span>
+            <span class="spacer"></span>
+            <button class="mini primary" :disabled="isRunning" @click="retryStage(s.stage)">重试</button>
+            <button class="mini" :disabled="isRunning" @click="openSkipDlg(s.stage)">跳过此阶段</button>
+            <button v-if="s.stage >= 2" class="mini" :disabled="isRunning" @click="openReject(s.stage)">回退（清下游）</button>
+            <button class="mini" @click="openRunLog">查看日志</button>
+            <button v-if="s.needs_rewrite && s.needs_rewrite.length" class="mini" @click="switchTab('review')">去批量精修</button>
           </div>
         </div>
       </div>
@@ -1565,8 +2068,8 @@ onUnmounted(() => {
         <button :class="{ on: settingTab === 'world' }" @click="openSettingTab('world')">
           世界观 ({{ countItems('world') }})
         </button>
-        <button :class="{ on: settingTab === 'plot_fragments' }" @click="openSettingTab('plot_fragments')">
-          情节 ({{ countItems('plot_fragments') }})
+        <button :class="{ on: settingTab === 'concepts' }" @click="openSettingTab('concepts')">
+          概念 ({{ countItems('concepts') }})
         </button>
         <button :class="{ on: settingTab === 'timeline' }" @click="openSettingTab('timeline')">
           时间线 ({{ countItems('timeline') }})
@@ -1603,21 +2106,46 @@ onUnmounted(() => {
       </div>
     </section>
 
-    <!-- Story Bible 编辑抽屉 -->
     <div v-if="settingEditor.open" class="drawer-mask" @click.self="settingEditor.open = false">
-      <div class="drawer" style="width: min(600px, 90vw);">
+      <div class="drawer" style="width: min(640px, 90vw);">
         <div class="drawer-head">
           <b>{{ settingEditor.item?.name || '编辑条目' }}</b>
           <span class="spacer"></span>
           <button class="mini" @click="closeSettingEditor()">关闭</button>
         </div>
-        <div style="padding: 16px;">
-          <label>名称</label>
+        <div style="padding: 16px; max-height: 70vh; overflow-y: auto;">
+          <label>名称 *</label>
           <input v-model="settingEditor.item.name" class="text-input" style="width: 100%; margin-bottom: 12px;" placeholder="条目名称" @input="settingDirty = true" />
-          <label>描述</label>
-          <textarea v-model="settingEditor.item.description" class="prompt-text" style="width: 100%; min-height: 300px;" placeholder="详细描述..." @input="settingDirty = true"></textarea>
+
+          <template v-if="settingEditor.key === 'characters'">
+            <label>类型</label>
+            <input v-model="settingEditor.item.type" class="text-input" style="width: 100%; margin-bottom: 12px;" placeholder="如：主角 / 反派 / 配角" @input="settingDirty = true" />
+            <label>标签（逗号分隔）</label>
+            <input v-model="settingEditor.item._tagsInput" class="text-input" style="width: 100%; margin-bottom: 12px;" placeholder="如：人类,火属性,主角方" @input="settingDirty = true" />
+            <label style="display: flex; gap: 6px; align-items: center; margin-bottom: 12px;">
+              <input type="checkbox" v-model="settingEditor.item.locked" @change="settingDirty = true" />
+              <span>locked（不可违逆）</span>
+            </label>
+            <label>简介</label>
+            <textarea v-model="settingEditor.item.snippet" class="prompt-text" style="width: 100%; min-height: 150px;" placeholder="角色简介..." @input="settingDirty = true"></textarea>
+          </template>
+
+          <template v-else-if="settingEditor.key === 'world'">
+            <label>类型</label>
+            <input v-model="settingEditor.item.type" class="text-input" style="width: 100%; margin-bottom: 12px;" placeholder="如：地点 / 势力 / 概念 / 物品" @input="settingDirty = true" />
+            <label>标签（逗号分隔）</label>
+            <input v-model="settingEditor.item._tagsInput" class="text-input" style="width: 100%; margin-bottom: 12px;" placeholder="如：人类,科技,都市" @input="settingDirty = true" />
+            <label>简介</label>
+            <textarea v-model="settingEditor.item.snippet" class="prompt-text" style="width: 100%; min-height: 150px;" placeholder="世界观条目简介..." @input="settingDirty = true"></textarea>
+          </template>
+
+          <template v-else>
+            <label>描述</label>
+            <textarea v-model="settingEditor.item.description" class="prompt-text" style="width: 100%; min-height: 200px;" placeholder="详细描述..." @input="settingDirty = true"></textarea>
+          </template>
+
           <div class="meta" style="margin-top: 8px;">
-            {{ (settingEditor.item.description || '').length }} 字符
+            {{ ((settingEditor.item.description || settingEditor.item.snippet || '')).length }} 字符
           </div>
         </div>
       </div>
@@ -2308,6 +2836,102 @@ onUnmounted(() => {
   </div>
 
   <div v-if="toast" class="toast">{{ toast }}</div>
+
+  <!-- ② 命令面板 -->
+  <CommandPalette :open="paletteOpen" :commands="commands"
+                  @close="paletteOpen = false" @pick="runCommand" />
+
+  <!-- ② 快捷键说明 -->
+  <div v-if="helpOpen" class="drawer-mask" @click.self="helpOpen = false">
+    <div class="dialog" style="width: min(520px, 92vw);">
+      <h3>键盘快捷键</h3>
+      <table class="cost-table" style="margin-top: 8px;">
+        <tbody>
+          <tr v-for="s in SHORTCUTS" :key="s.k">
+            <td style="width: 130px;"><kbd>{{ s.k }}</kbd></td>
+            <td>{{ s.d }}</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="meta" style="margin-top: 10px;">
+        数字键只在输入框外生效；快捷键与命令面板（Ctrl+K）是同一套操作的两条路径。
+      </div>
+      <div class="dialog-actions">
+        <button class="mini" @click="!nextPopupDismissed ? dismissNextPopupForever() : reenableNextPopup()">
+          {{ nextPopupDismissed ? '开启「跑完自动提示下一步」' : '关闭「跑完自动提示下一步」' }}
+        </button>
+        <span class="spacer"></span>
+        <button class="mini primary" @click="helpOpen = false">知道了</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ① 跑完自动提示下一步 -->
+  <div v-if="nextPopup" class="next-popup">
+    <div class="np-head">
+      <b>任务结束{{ lastFinishedKind ? '（' + lastFinishedKind + '）' : '' }}</b>
+      <span v-if="lastJob?.result" class="pill st-done">{{ lastJob.result }}</span>
+      <span class="spacer"></span>
+      <button class="mini" @click="nextPopup = false" title="稍后再说">✕</button>
+    </div>
+    <div class="np-body">
+      <div v-for="a in nextActions" :key="a.id" class="np-row">
+        <div class="np-text">
+          <div class="np-label">{{ a.label }}</div>
+          <div class="meta">{{ a.desc }}</div>
+        </div>
+        <button class="mini" :class="{ primary: a.kind === 'run' || a.kind === 'publish' }"
+                @click="nextPopup = false; execNextAction(a)">执行</button>
+      </div>
+    </div>
+    <div class="np-foot">
+      <button class="mini" @click="dismissNextPopupForever">不再自动弹出</button>
+      <span class="spacer"></span>
+      <button class="mini" @click="nextPopup = false">稍后</button>
+    </div>
+  </div>
+
+  <!-- ③ 跳过阶段确认（比 window.confirm 更明确：勾选护栏 + 事后回报缺失产物） -->
+  <div v-if="skipDlg.open" class="drawer-mask" @click.self="skipDlg.open = false">
+    <div class="dialog" style="width: min(560px, 92vw);">
+      <h3>跳过阶段 {{ skipDlg.stage }} · {{ STAGE_NAMES[skipDlg.stage] }}</h3>
+      <div class="meta" style="line-height: 1.8; margin-bottom: 10px;">
+        跳过只会把该阶段标记为「已完成 + 已审批」，<b>不会生成任何产物</b>：<br>
+        · 该阶段应有的产物若缺失，后续阶段可能直接失败<br>
+        · progress.json 里会记下 skipped 标记，之后仍可用「打回」回到原状态
+      </div>
+      <label style="display: flex; gap: 8px; align-items: flex-start; margin-bottom: 10px;">
+        <input type="checkbox" v-model="skipDlg.agreed" />
+        <span>我确认跳过该阶段，并接受后续阶段可能因产物缺失而失败</span>
+      </label>
+      <label class="meta">跳过原因（记录到 progress.json，可留空）</label>
+      <textarea v-model="skipDlg.reason" rows="2" placeholder="例如：素材不足，先放行后续阶段"></textarea>
+      <div v-if="skipDlg.warn" class="meta" style="color: var(--bad); margin-top: 8px;">{{ skipDlg.warn }}</div>
+      <div class="dialog-actions">
+        <button class="mini" @click="skipDlg.open = false">取消</button>
+        <button class="mini danger" :disabled="!skipDlg.agreed || skipDlg.busy" @click="submitSkipStage">
+          {{ skipDlg.busy ? '处理中…' : '确认跳过' }}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ③ 运行日志（失败排障） -->
+  <div v-if="logDlg.open" class="drawer-mask" @click.self="logDlg.open = false">
+    <div class="dialog" style="width: min(900px, 94vw); max-height: min(84vh, 700px); display: flex; flex-direction: column;">
+      <div style="display:flex; align-items:center; margin-bottom:10px; gap:8px;">
+        <h3 style="margin:0;">运行日志</h3>
+        <span class="meta">{{ logDlg.path }}</span>
+        <span v-if="logDlg.total" class="meta">（共 {{ logDlg.total }} 行，显示末尾 {{ logDlg.lines.length }} 行）</span>
+        <span class="spacer"></span>
+        <button class="mini" @click="openRunLog">刷新</button>
+        <button class="mini" @click="logDlg.open = false">关闭</button>
+      </div>
+      <div v-if="logDlg.loading" class="empty">读取中…</div>
+      <div v-else-if="!logDlg.lines.length" class="empty">{{ logDlg.hint || '（日志为空）' }}</div>
+      <pre v-else class="log-body">{{ logDlg.lines.join('\n') }}</pre>
+    </div>
+  </div>
 
   <!-- 熔断恢复对话框 -->
   <div v-if="circuitBreakerShow" class="drawer-mask">

@@ -49,14 +49,20 @@ def write_rolling(path, data):
     write_text(path, "\n".join(parts).rstrip() + "\n")
 
 
-def append_chapter_summary(path, chapter_no, summary, max_recent=5):
-    """追加一章摘要；返回是否需要压缩（近期区超出容量，最旧一章待并入全书摘要）。"""
+def append_chapter_summary(path, chapter_no, summary, max_recent=15):
+    """追加一章摘要；超出窗口时自动压缩最早章为一句概要并入全书摘要。"""
     data = load_rolling(path)
     data["chapters"][chapter_no] = summary.strip()
-    write_rolling(path, data)
     need_compress = len(data["chapters"]) > max_recent
-    oldest = min(data["chapters"]) if need_compress else None
-    return {"need_compress": need_compress, "oldest_chapter": oldest}
+    compressed = None
+    if need_compress:
+        oldest = min(data["chapters"])
+        old_summary = data["chapters"].pop(oldest)
+        one_liner = f"第{oldest}章: {old_summary[:60]}…" if len(old_summary) > 60 else f"第{oldest}章: {old_summary}"
+        data["global_summary"] = f"{data.get('global_summary', '')} {one_liner}".strip()[:500]
+        compressed = oldest
+    write_rolling(path, data)
+    return {"need_compress": need_compress, "oldest_chapter": compressed}
 
 
 def compress_recent(data, chapter_no, chapter_summary, global_summary):

@@ -17,6 +17,9 @@ POST /stop                {job_id} → 中断：流式置 streamer.stop；非流
 GET  /jobs/{id}           job 状态/结果
 POST /approve             {stage, revoke?} → 审批/撤销
 POST /reject              {stage, reason, dry_run?} → 打回（默认真执行）
+POST /stage/skip          {stage, confirm:true, reason?} → 人工跳过该阶段（标记 done+已审批，
+                          不改动产物；缺失产物在 message 中回报）
+GET  /logs/tail           ?lines=200 → nf_api + orchestrator 标准输出尾部（失败排障用）
 POST /refine/outline      {feedback, dry_run?} → 大纲精修
 POST /refine/outline/node {node_id, feedback, dry_run?} → 逐节点 AI 精修
 POST /refine/outline/undo 撤销上一次节点精修
@@ -97,6 +100,7 @@ import proofread as proofread_mod  # noqa: E402
 import estimate_tokens as estimate_mod  # noqa: E402
 import book_split as book_split_mod  # noqa: E402
 import refine_chapter as refine_ch_mod  # noqa: E402
+from utils.verify_chapter import is_chapter_complete  # noqa: E402
 # 模块级导入文件读写（勿在 do_GET/do_POST 内写 `import json` 这类裸导入：
 # 函数内任意位置出现 `import json` 都会把 json 变成该函数的局部名，
 # 导致同一函数内其它分支的 json.xxx 抛 UnboundLocalError —— 2026-09-14 修）
@@ -165,7 +169,8 @@ def _client_for_env(cfg, role):
 
 def _wrap_client_for_streaming(client, job_id):
     """包装客户端：将 run_task 重定向到 run_task_stream，通过队列推送 token。
-    Hermes 引擎不支持真流式，降级为整块返回。"""
+    Hermes 引擎不支持真流式，降级为整块返回。
+    支持 pause/resume：通过 streamer["pause"] 事件控制。"""
     orig_run_task = client.run_task
     orig_run_task_stream = getattr(client, "run_task_stream", None)
 
@@ -178,6 +183,14 @@ def _wrap_client_for_streaming(client, job_id):
 
     def wrapped_run_task(*args, **kwargs):
         def on_piece(piece):
+            # 检查暂停
+            pause = streamer.get("pause")
+            if pause and pause.is_set():
+                # 等待恢复或停止
+                while pause.is_set() and not stop.is_set():
+                    time.sleep(0.2)
+                if stop.is_set():
+                    return
             try:
                 q.put_nowait({"type": "token", "text": piece})
             except queue.Full:
@@ -194,10 +207,7 @@ def _wrap_client_for_streaming(client, job_id):
             result = orig_run_task(*args, **kwargs)
             if result.get("exit_code") == 0 and result.get("stdout_tail"):
                 for ch in result["stdout_tail"]:
-                    try:
-                        q.put_nowait({"type": "token", "text": ch})
-                    except queue.Full:
-                        pass
+                    on_piece(ch)
 
         status = "stopped" if (stop.is_set() and result.get("stopped")) else ("ok" if result.get("exit_code") == 0 else "error")
         try:
@@ -490,6 +500,8 @@ def stage_status(progress, n):
         "rejected": st.get("rejected"),
         "rejected_at": st.get("rejected_at"),
     }
+    if "skipped" in st:
+        out["skipped"] = st["skipped"]
     if "needs_rewrite" in st:
         out["needs_rewrite"] = st["needs_rewrite"]
     if "auto_rewritten" in st:
@@ -665,6 +677,49 @@ def act_run_stage(cfg, only_stage, from_stage, stream_job_id=None):
             return True, "exit=3（等待审批，属正常门暂停）"
         return (rc == 0), "exit=" + str(rc)
     return _fn
+
+
+# 各阶段「应该有」的产物（/stage/skip 回报缺失项用；目录只判是否为空）
+STAGE_ARTIFACTS = {
+    1: ["data/setting/setting.json"],
+    2: ["data/outline/global.md"],
+    3: ["data/outline/chapters"],
+    4: ["data/chapters/raw"],
+    5: ["data/chapters/checked"],
+    6: ["data/chapters/refined"],
+    7: ["output"],
+}
+
+
+def missing_artifacts(stage):
+    """返回该阶段缺失/为空的产物路径列表（确定性，不读内容）。"""
+    missing = []
+    for rel in STAGE_ARTIFACTS.get(stage, []):
+        p = ROOT / rel
+        if not p.exists():
+            missing.append(rel)
+        elif p.is_dir() and not any(p.glob("*")):
+            missing.append(rel + "（空目录）")
+    return missing
+
+
+def act_skip_stage(stage, reason=""):
+    """人工跳过阶段：只改 progress.json 状态（done + 已审批），不动任何产物文件。
+
+    存在的意义：某阶段因素材/上游问题反复失败时，用户需要能手工放行后续阶段继续跑，
+    而不是只能反复重试或整条管线卡死。跳过后仍可用 /reject 打回回到原状态。
+    """
+    progress = ProgressManager("data/state/progress.json")
+    progress.set_stage(stage, "done",
+                       skipped=True,
+                       skipped_at=datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+                       skip_reason=reason or "")
+    progress.set_approved(stage, True)
+    missing = missing_artifacts(stage)
+    msg = "阶段" + str(stage) + " 已标记完成（人工跳过，未生成产物）"
+    if missing:
+        msg += "；该阶段产物缺失：" + "、".join(missing) + " —— 下游阶段可能因此失败"
+    return True, msg
 
 
 def act_approve(stage, revoke):
@@ -1686,6 +1741,59 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:      # noqa: BLE001
                 self._send(500, {"ok": False,
                                  "error": type(e).__name__ + ": " + str(e)[:200]})
+        elif p == "/chapters/verify":
+            # 断点续跑检查：返回每章完成状态（文件是否真正完成，而非仅存在）
+            try:
+                cfg, proj = load_all()
+                target_words = cfg.get("chapter", {}).get("target_words", [2000, 3000])
+                total = int(proj.get("book", {}).get("chapters", 10))
+                raw_dir = Path("data/chapters/raw")
+                chapters = []
+                for n in range(1, total + 1):
+                    path = raw_dir / f"{n:02d}.md"
+                    ok_complete = is_chapter_complete(path, *target_words)
+                    chapters.append({"n": n, "path": str(path), "complete": ok_complete})
+                self._send(200, {
+                    "ok": True,
+                    "total": total,
+                    "completed_count": sum(1 for c in chapters if c["complete"]),
+                    "chapters": chapters,
+                })
+            except Exception as e:
+                self._send(500, {"ok": False,
+                                 "error": type(e).__name__ + ": " + str(e)[:200]})
+        elif p == "/logs/tail":
+            # 运行日志尾部：Electron 主进程把 nf_api 的 stdout/stderr 追加到
+            # %LOCALAPPDATA%/Temp/nf_api_child.log，orchestrator 的 print 也在里面。
+            # 阶段失败时 GUI 的「查看日志」读它排障（纯只读，不落盘）。
+            try:
+                lines = int((self._query().get("lines") or ["200"])[0])
+            except ValueError:
+                lines = 200
+            lines = max(1, min(2000, lines))
+            cands = []
+            localapp = os.environ.get("LOCALAPPDATA")
+            if localapp:
+                cands.append(Path(localapp) / "Temp" / "nf_api_child.log")
+            cands.append(Path(os.environ.get("TEMP", ".")) / "nf_api_child.log")
+            cands.append(ROOT / "logs" / "nf_api.log")
+            log_path = next((c for c in cands if c.exists()), cands[0])
+            if not log_path.exists():
+                self._send(200, {"ok": True, "exists": False, "path": str(log_path),
+                                 "lines": [],
+                                 "hint": "未找到运行日志。通过控制台启动（Electron）时日志写入 "
+                                         "%LOCALAPPDATA%/Temp/nf_api_child.log；手动起 nf_api 时输出在终端。"})
+                return
+            try:
+                # 日志混编码（GBK 控制台输出 + UTF-8 混合）→ 容错解码，绝不抛异常打断响应
+                text = log_path.read_bytes().decode("utf-8", errors="replace")
+            except OSError as e:
+                self._send(200, {"ok": True, "exists": False, "path": str(log_path), "lines": [],
+                                 "hint": "读取日志失败: " + str(e)[:200]})
+                return
+            all_lines = text.splitlines()
+            self._send(200, {"ok": True, "exists": True, "path": str(log_path),
+                             "total_lines": len(all_lines), "lines": all_lines[-lines:]})
         elif p == "/costs/streaming":
             # 实时花费：当前 run 的累计消耗 + 预算进度（GUI 成本页轮询）
             try:
@@ -1699,7 +1807,8 @@ class Handler(BaseHTTPRequestHandler):
                                       "/materials/* /scraps/* /setting/current /outline/chapters/* "
                                       "/kb/search /kb/build /auto_rewrite/run /review/* "
                                       "/proofread/report /estimate /book/pacing "
-                                      "/chapters/history /costs/streaming）"})
+                                      "/chapters/history /costs/streaming "
+                                      "/logs/tail /stage/skip）"})
 
     # ---- POST ----
     def do_POST(self):
@@ -1787,6 +1896,32 @@ class Handler(BaseHTTPRequestHandler):
                     STOP_EVENTS[job_id] = threading.Event()
                     STOP_EVENTS[job_id].set()
                 self._send(200, {"ok": True, "message": "已设置停止标志: " + job_id + "（当前阶段完成后停止）"})
+            elif p == "/stream/pause":
+                job_id = str(body.get("job_id") or "")
+                if not job_id:
+                    self._send(400, {"error": "job_id 必填"})
+                    return
+                with STREAMERS_LOCK:
+                    streamer = STREAMERS.get(job_id)
+                if streamer:
+                    if "pause" not in streamer:
+                        streamer["pause"] = threading.Event()
+                    streamer["pause"].set()
+                    self._send(200, {"ok": True, "message": "已暂停流式输出: " + job_id})
+                else:
+                    self._send(404, {"error": "stream not found: " + job_id})
+            elif p == "/stream/resume":
+                job_id = str(body.get("job_id") or "")
+                if not job_id:
+                    self._send(400, {"error": "job_id 必填"})
+                    return
+                with STREAMERS_LOCK:
+                    streamer = STREAMERS.get(job_id)
+                if streamer and "pause" in streamer:
+                    streamer["pause"].clear()
+                    self._send(200, {"ok": True, "message": "已恢复流式输出: " + job_id})
+                else:
+                    self._send(404, {"error": "stream not found: " + job_id})
             elif p == "/approve":
                 stage = int(body.get("stage") or 0)
                 if not (1 <= stage <= 7):
@@ -1802,6 +1937,19 @@ class Handler(BaseHTTPRequestHandler):
                 ok, msg = act_reject(stage, str(body.get("reason") or ""),
                                      dry_run=bool(body.get("dry_run")))
                 self._send(200 if ok else 400, {"ok": ok, "message": msg})
+            elif p == "/stage/skip":
+                # 人工跳过阶段（GUI 错误恢复一级入口用）。必须显式 confirm:true，
+                # 避免误点把整条管线放行。
+                stage = int(body.get("stage") or 0)
+                if not (1 <= stage <= 7):
+                    self._send(400, {"error": "stage 须为 1-7"})
+                    return
+                if not body.get("confirm"):
+                    self._send(400, {"error": "缺少 confirm:true（跳过阶段会标记为已完成，需显式确认）"})
+                    return
+                ok, msg = act_skip_stage(stage, str(body.get("reason") or ""))
+                self._send(200 if ok else 400, {"ok": ok, "message": msg,
+                                                "missing": missing_artifacts(stage)})
             elif p == "/refine/outline":
                 fb = str(body.get("feedback") or "")
                 if not fb.strip():
@@ -2108,6 +2256,26 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 self._send(200 if ok else 400,
                            {"ok": ok, "message": msg} if ok else {"ok": False, "error": msg})
+            elif p == "/review/comment":
+                # 给指定 finding 添加评论（GUI 审稿面板用；原先误挂在 do_GET 里，
+                # do_GET 没有 body → 必然 500，2026-09-15 移到 do_POST）
+                try:
+                    import chapter_review as cr
+                    chapter_no = int(body.get("chapter"))
+                    finding_id = str(body.get("finding_id", "")).strip()
+                    comment = str(body.get("comment", "")).strip()
+                    user = str(body.get("user", "暮雨")).strip() or "暮雨"
+                    if not finding_id or not comment:
+                        self._send(400, {"ok": False, "error": "finding_id 和 comment 必填"})
+                        return
+                    ok = cr.add_comment_to_finding("data/outline/review_report.json",
+                                                   chapter_no, finding_id, comment, user)
+                    if ok:
+                        self._send(200, {"ok": True, "message": "评论已添加"})
+                    else:
+                        self._send(404, {"ok": False, "error": "未找到指定的 finding"})
+                except Exception as e:
+                    self._send(500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]})
             elif p == "/review/decisions" and self.command == "POST":
                 # 保存用户决策（GUI 提交）：统一规范化为 batch_refine 能直接吃下的标准格式
                 dec_path = Path("data/outline/review_report.decisions.json")
@@ -2419,7 +2587,7 @@ def main():
     httpd = ThreadingHTTPServer((args.host, args.port), Handler)
     print("[nf_api] NovelForge API 服务 → http://" + args.host + ":" + str(args.port)
           + "  (allow_fake=" + str(ALLOW_FAKE) + ")")
-    print("[nf_api] 端点: /health /state /models /stage/{n}/run /stream/{job_id} /stop /jobs/{id} /approve /reject /refine/* /outline/* /snapshot /costs /prompts/* /config/style_notes /materials/* /project/*")
+    print("[nf_api] 端点: /health /state /models /stage/{n}/run /stage/skip /logs/tail /stream/{job_id} /stop /jobs/{id} /approve /reject /refine/* /outline/* /snapshot /costs /prompts/* /config/style_notes /materials/* /project/*")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

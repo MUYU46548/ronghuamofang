@@ -45,6 +45,38 @@ def count_cn_words(text):
     return len(stripped)
 
 
+def is_chapter_complete(path, target_min=1200, target_max=3500):
+    """检查章节是否真正完成（非空、无截断、字数达标、无占位符、标题格式正确）。
+
+    与 check_chapter() 互补：check_chapter 返回详细报告，
+    is_chapter_complete 只做布尔判定，供断点续跑筛选使用。
+    """
+    p = Path(path)
+    if not p.exists():
+        return False
+    try:
+        text = read_text(path).strip()
+    except Exception:
+        return False
+    if not text:
+        return False
+    # 检查截断标记
+    if text.endswith("...") or text.endswith("……"):
+        return False
+    # 检查字数
+    words = count_cn_words(text)
+    if words < target_min or words > target_max:
+        return False
+    # 检查占位符
+    for ph in PLACEHOLDERS:
+        if ph in text:
+            return False
+    # 检查标题格式
+    if not TITLE_RE.search(text):
+        return False
+    return True
+
+
 def check_chapter(path, min_words=2000, max_words=3000):
     """校验单章文件，返回 ChapterCheck。"""
     text = read_text(path)

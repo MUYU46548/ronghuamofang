@@ -13,7 +13,7 @@ from pathlib import Path
 
 from utils.llm_client import make_client
 from utils.file_io import read_text, write_text
-from utils.verify_chapter import check_chapter, count_cn_words
+from utils.verify_chapter import check_chapter, count_cn_words, is_chapter_complete
 from utils.summary_chain import append_chapter_summary, extract_prev_tail, compress_recent, load_rolling, write_rolling
 from utils.template_loader import load_template
 from utils.style_analyzer import extract_style_samples, build_style_notes_section
@@ -58,6 +58,56 @@ def sync_appearances_after_chapter(chapter_text, chapter_no, total_chapters=None
     return False
 
 
+def _extract_character_cards_for_chapter(setting_path, outline_path, budget=3000):
+    """从 setting.json 提取当前章节涉及的角色卡片段。
+
+    匹配逻辑：从大纲中提取「涉及角色」字段，从 setting.json 的 characters
+    中找出对应角色，返回格式化的角色卡文本（供任务文件注入）。
+    setting.json 角色 schema: name, path, tags, type, locked, relations, snippet, source
+    """
+    try:
+        setting_text = read_text(setting_path)
+        import json
+        setting = json.loads(setting_text)
+        characters = setting.get("characters", [])
+        if not characters:
+            return ""
+
+        # 从大纲提取涉及角色
+        outline_text = _safe_read(outline_path, budget=8000)
+        rm = re.search(r"涉及角色[：:]\s*(.+)", outline_text)
+        if not rm:
+            return ""
+        involved = [c.strip() for c in re.split(r"[,，、/；;]", rm.group(1)) if c.strip()]
+
+        cards_parts = ["### 本章涉及角色卡（写作时严格遵循，locked 条目不可违逆）"]
+        for name in involved:
+            for char in characters:
+                if isinstance(char, dict) and char.get("name") == name:
+                    parts = [f"**{char['name']}**"]
+                    if char.get("type"):
+                        parts.append(f"类型：{char['type']}")
+                    if char.get("tags"):
+                        tags = char["tags"] if isinstance(char["tags"], list) else [char["tags"]]
+                        parts.append(f"标签：{'、'.join(str(t) for t in tags)}")
+                    if char.get("relations"):
+                        rels = char["relations"]
+                        if isinstance(rels, list) and rels:
+                            parts.append(f"关系：{'、'.join(str(r) for r in rels)}")
+                        elif isinstance(rels, str) and rels:
+                            parts.append(f"关系：{rels}")
+                    if char.get("snippet"):
+                        snippet = char["snippet"][:200].replace('\n', ' ')
+                        parts.append(f"简介：{snippet}…")
+                    if char.get("locked"):
+                        parts.append("⚠ locked 条目，绝对不可违逆")
+                    cards_parts.append("\n".join(parts))
+                    break
+        return "\n\n".join(cards_parts) if len(cards_parts) > 1 else ""
+    except Exception:
+        return ""
+
+
 def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, prev_tail):
     target = cfg.get("chapter", {}).get("target_words", [2000, 3000])
     tail_section = "\n\n".join(prev_tail) if prev_tail else "（无上一章，本章为开篇）"
@@ -90,6 +140,9 @@ def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, p
     except Exception:
         pass
 
+    # 角色卡锁定：从 setting.json 提取当前章节涉及的角色
+    character_cards = _extract_character_cards_for_chapter(setting_path, outline_path)
+
     _, body = load_template("stage4_writing.md", {
         "n": n,
         "book_name": book.get("name", "未命名"),
@@ -102,6 +155,7 @@ def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, p
         "style_samples": style_samples,
         "style_notes": style_notes,
         "kb_context": kb_context,
+        "character_cards": character_cards,
         "min_words": target[0],
         "max_words": target[1],
         "path_output": Path(f"data/chapters/raw/{n:02d}.md").resolve(),
@@ -120,9 +174,15 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     max_recent = int(cfg.get("chapter", {}).get("summary_every", 5))
 
     completed = progress.completed_chapters(4)
+    # 断点续跑：只保留文件真正完成的章节（防止半成品被跳过）
+    verified = [n for n in completed if is_chapter_complete(raw_dir / f"{n:02d}.md", *cfg.get("chapter", {}).get("target_words", [2000, 3000]))]
+    skipped = set(completed) - set(verified)
+    if skipped:
+        print(f"[stage4] 半成品章节重跑（文件存在但校验未通过）: {sorted(skipped)}")
+
     failed = progress.failed_chapters(4)
     failed_ns = {f["n"] for f in failed}
-    todo = [n for n in range(1, total + 1) if n not in completed or n in failed_ns]
+    todo = [n for n in range(1, total + 1) if n not in verified or n in failed_ns or n in skipped]
 
     if not todo:
         progress.set_stage(4, "done")
@@ -168,13 +228,6 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         sm = SUMMARY_RE.search(text)
         summary = sm.group(1).strip() if sm else f"（第{n}章，未附摘要）"
         res = append_chapter_summary(rolling_path, n, summary, max_recent=max_recent)
-        if res["need_compress"]:
-            data = load_rolling(rolling_path)
-            oldest = res["oldest_chapter"]
-            merged = f"{data.get('global_summary', '')} 第{oldest}章: {data['chapters'].get(oldest, '')}"
-            data = compress_recent(data, oldest, "", merged[:500])
-            write_rolling(rolling_path, data)
-            print(f"[stage4] 滚动摘要已压缩（第{oldest}章并入全书摘要）")
 
         # quality 标记（P0 只标记不重写）
         needs_rewrite = check.quality is not None and check.quality < quality_threshold

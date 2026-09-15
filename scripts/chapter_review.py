@@ -43,9 +43,31 @@ STYLE_PATTERNS = [
     (re.compile(r"(?<![一-鿿])你(?![一-鿿])"), "第二人称\"你\""),
     (re.compile(r"像[^，。]+像[^，。]+"), "比喻连缀"),
     (re.compile(r"仿佛[^，。]+仿佛[^，。]+"), "比喻连缀（仿佛）"),
-    (re.compile(r"她?他?心想：?[\"\"']"), "直白心理剖析"),
+    (re.compile(r"她?他?心想：?[\"\"]"), "直白心理剖析"),
     (re.compile(r"---"), "分隔线（疑似排版残留）"),
 ]
+
+
+def add_comment_to_finding(report_path, chapter_no, finding_id, comment, user="暮雨"):
+    """给指定 finding 添加评论。返回 True 表示成功。"""
+    try:
+        data = json.loads(read_text(report_path))
+    except Exception:
+        return False
+    for chap in data.get("chapters", []):
+        if chap.get("n") == chapter_no:
+            for f in chap.get("findings", []):
+                if f.get("id") == finding_id:
+                    if "comments" not in f:
+                        f["comments"] = []
+                    f["comments"].append({
+                        "user": user,
+                        "time": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+                        "text": comment,
+                    })
+                    write_text(report_path, json.dumps(data, ensure_ascii=False, indent=2))
+                    return True
+    return False
 
 
 def pick_scope_dir(scope):

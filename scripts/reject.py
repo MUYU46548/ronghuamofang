@@ -72,7 +72,12 @@ def reject_stage(pm, stage, reason="", dry_run=False):
         pm.set_stage(stage, "rejected",
                      rejected=reason or "(no reason)",
                      rejected_at=datetime.now().strftime("%Y-%m-%dT%H:%M:%S"))
-        pm.data["stages"][str(stage)].pop("approved", None)
+        st = pm.data["stages"][str(stage)]
+        st.pop("approved", None)
+        # 人工跳过（/stage/skip）留下的标记必须一起清掉，否则 GUI 会同时显示
+        # 「已跳过」和「已打回」两个矛盾徽标
+        for k in ("skipped", "skipped_at", "skip_reason"):
+            st.pop(k, None)
         pm.save()
 
     # Clean artifacts
@@ -95,6 +100,8 @@ def reject_stage(pm, stage, reason="", dry_run=False):
             st.pop("finished_at", None)
             st.pop("completed_chapters", None)
             st.pop("failed_chapters", None)
+            for k in ("skipped", "skipped_at", "skip_reason"):
+                st.pop(k, None)
         msgs.append(f"Reset: stage {n} -> pending")
     if not dry_run:
         pm.save()

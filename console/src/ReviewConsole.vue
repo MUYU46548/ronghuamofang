@@ -25,12 +25,41 @@ let progressTimer = null;
 const toast = ref("");
 const decisions = ref({}); // { "chapter_finding_id": { action, feedback } }
 const expandedChapters = ref(new Set());
+const commenting = ref({}); // { "chapter_finding_id": true }
+const commentText = ref({}); // { "chapter_finding_id": "text" }
 
 let toastTimer = null;
 function say(msg) {
   toast.value = msg;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => (toast.value = ""), 4500);
+}
+
+function toggleComment(chapterNo, findingId) {
+  const key = `${chapterNo}_${findingId}`;
+  commenting.value[key] = !commenting.value[key];
+  if (commenting.value[key]) {
+    commentText.value[key] = "";
+  }
+}
+
+async function submitComment(chapterNo, findingId) {
+  const key = `${chapterNo}_${findingId}`;
+  const text = (commentText.value[key] || "").trim();
+  if (!text) return;
+  const r = await api("/review/comment", "POST", {
+    chapter: chapterNo,
+    finding_id: findingId,
+    comment: text,
+  });
+  if (r.status === 200 && r.data.ok) {
+    say("评论已添加");
+    commenting.value[key] = false;
+    commentText.value[key] = "";
+    await loadReport();
+  } else {
+    say("评论失败: " + (r.data.error || r.status));
+  }
 }
 
 // ---------- 计算属性 ----------
@@ -374,12 +403,34 @@ onUnmounted(() => {
                 :class="{ danger: decisions[`${c.n}_${f.id}`]?.action === 'ignore' }"
                 @click="setDecision(c.n, f.id, 'ignore')"
               >忽略</button>
+              <button
+                class="mini"
+                @click="toggleComment(c.n, f.id)"
+              >💬</button>
               <input
                 v-if="decisions[`${c.n}_${f.id}`]?.action === 'accept'"
                 v-model="decisions[`${c.n}_${f.id}`].feedback"
                 class="feedback-input"
                 placeholder="补充意见（可选）"
               />
+            </div>
+            <!-- 评论列表 + 输入框 -->
+            <div v-if="f.comments?.length || commenting[`${c.n}_${f.id}`]" class="comment-section">
+              <div v-for="(cm, ci) in (f.comments || [])" :key="ci" class="comment-item">
+                <span class="comment-user">{{ cm.user }}</span>
+                <span class="comment-time">{{ cm.time }}</span>
+                <div class="comment-text">{{ cm.text }}</div>
+              </div>
+              <div v-if="commenting[`${c.n}_${f.id}`]" class="comment-input-row">
+                <input
+                  v-model="commentText[`${c.n}_${f.id}`]"
+                  class="comment-input"
+                  placeholder="添加评论..."
+                  @keyup.enter="submitComment(c.n, f.id)"
+                />
+                <button class="mini primary" @click="submitComment(c.n, f.id)">发送</button>
+                <button class="mini" @click="commenting[`${c.n}_${f.id}`] = false">取消</button>
+              </div>
             </div>
           </div>
         </div>
@@ -677,5 +728,55 @@ onUnmounted(() => {
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+.comment-section {
+  margin-top: 12px;
+  padding: 8px 12px;
+  background: var(--bg);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.comment-item {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.comment-item:last-child {
+  border-bottom: none;
+}
+
+.comment-user {
+  font-weight: 600;
+  color: var(--accent);
+  margin-right: 8px;
+}
+.comment-time {
+  color: var(--muted);
+  font-size: 11px;
+}
+.comment-text {
+  margin-top: 4px;
+  color: var(--ink);
+}
+
+.comment-input-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.comment-input {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+  background: var(--card);
+  color: var(--ink);
+}
+.comment-input:focus {
+  outline: none;
+  border-color: var(--accent);
 }
 </style>

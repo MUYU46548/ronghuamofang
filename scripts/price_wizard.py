@@ -7,6 +7,7 @@
 用法：
   .venv/Scripts/python.exe scripts/price_wizard.py
 """
+import ast
 import re
 import sys
 from pathlib import Path
@@ -32,7 +33,7 @@ def write_source(text):
 
 
 def parse_rates(source):
-    """从源码中解析 RATES dict（简单 eval，仅内部使用）。"""
+    """从源码中解析 RATES dict（使用 ast.literal_eval，仅内部使用）。"""
     start = source.find(RATES_START)
     if start < 0:
         return None
@@ -51,19 +52,19 @@ def parse_rates(source):
     # 去掉 "RATES = " 前缀，只留 dict 字面量
     dict_start = block.index("{")
     dict_block = block[dict_start:]
-    # 去掉注释行和行内注释（eval 不处理注释）
+    # 去掉注释行和行内注释（ast.literal_eval 不处理注释）
     lines = []
     for line in dict_block.splitlines():
         if "#" in line:
             line = line[:line.index("#")]
         lines.append(line)
     clean = "\n".join(lines).strip()
-    # 安全 eval：只允许 dict 字面量
+    # 安全解析：只允许 dict 字面量（禁止函数调用/属性访问）
     try:
-        rates = eval(clean, {"__builtins__": {}}, {})
+        rates = ast.literal_eval(clean)
         if isinstance(rates, dict):
             return rates
-    except Exception:
+    except (ValueError, SyntaxError):
         pass
     return None
 
