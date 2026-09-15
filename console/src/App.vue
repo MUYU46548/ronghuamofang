@@ -9,6 +9,8 @@ import ChapterBlueprint from "./ChapterBlueprint.vue";
 import ProofreadPanel from "./ProofreadPanel.vue";
 import StylePanel from "./StylePanel.vue";
 import CommandPalette from "./CommandPalette.vue";
+import AboutDialog from "./AboutDialog.vue";
+import NewProjectWizard from "./NewProjectWizard.vue";
 
 // 后端地址：默认本机 8765。自动化 UI 验收脚本可用 window.__NF_API_BASE__ 把它指向
 // 临时端口（避免干扰用户正在运行的控制台实例）。
@@ -487,11 +489,11 @@ async function saveStyleNotes() {
   say("风格笔记" + (r.message || "已保存"));
 }
 
-async function loadProjects() {
+async function loadProjects(quiet = false) {
   const r = await api("/project/list");
   if (r.status === 200) {
     projects.value = r.data;
-    say("项目列表已刷新");
+    if (!quiet) say("项目列表已刷新");
   } else {
     say("加载失败: " + (r.data.error || r.status));
   }
@@ -1441,6 +1443,38 @@ async function openRunLog() {
 const paletteOpen = ref(false);
 const helpOpen = ref(false);
 
+/* ---------- 关于 / 新建项目（发布级入口） ---------- */
+const aboutOpen = ref(false);
+const newProjectOpen = ref(false);
+
+function openAbout() { aboutOpen.value = true; }
+
+/** 点左上角书名 → 项目页签（顺手把项目列表刷出来） */
+function gotoProjectTab() {
+  switchTab("project");
+  say("→ 项目（新建 / 归档 / 恢复）");
+}
+
+function openNewProject() {
+  newProjectOpen.value = true;
+}
+
+async function onProjectCreated(msg) {
+  newProjectOpen.value = false;
+  await refresh();
+  await loadProjects(true);          // 静默刷新，别把创建成功的 toast 顶掉
+  say("新项目已创建：" + msg);
+  switchTab("pipeline");
+}
+
+/** 工作区全新（没有任何产物）+ 无素材 → 冷启动引导 */
+const isColdStart = computed(() => {
+  if (!state.value) return false;
+  const stages = state.value.stages || [];
+  const allPending = stages.length > 0 && stages.every((s) => s.status === "pending");
+  return allPending && !state.value.has_work;
+});
+
 const SHORTCUTS = [
   { k: "Ctrl + K", d: "命令面板（搜索一切操作）" },
   { k: "Space", d: "执行下一步 / 停止当前任务" },
@@ -1500,6 +1534,8 @@ const commands = computed(() => {
             desc: "实时逐 token 输出，可暂停/中断", keywords: "stream 流式" });
   cs.push({ id: "publish", group: "工作流", label: "生成 Word 成品",
             desc: "output/{书名}_完整版.docx", keywords: "word docx 导出 成品" });
+  cs.push({ id: "newproject", group: "工作流", label: "新建项目（一键创建）",
+            desc: "归档当前项目 → 建空工作区 → 写 project.yaml", keywords: "new project 新建 项目 向导" });
   cs.push({ id: "snapshot", group: "工作流", label: "手动快照",
             desc: "history/ 留存一份当前状态，可回退", keywords: "snapshot 备份" });
 
@@ -1539,6 +1575,7 @@ const commands = computed(() => {
               keywords: "tab go 页签 " + t.name });
   }
   cs.push({ id: "logs", group: "诊断", label: "查看运行日志", desc: "orchestrator / nf_api 输出尾部", keywords: "log 日志 报错" });
+  cs.push({ id: "about", group: "诊断", label: "关于绒花墨坊", desc: "版本 / 运行环境 / 数据位置 / 许可证", keywords: "about 关于 版本 许可" });
   cs.push({ id: "refresh", group: "诊断", label: "刷新状态", hint: "R", keywords: "refresh 刷新" });
   cs.push({ id: "help", group: "诊断", label: "快捷键说明", hint: "?", keywords: "help 快捷键" });
   cs.push({ id: nextPopupDismissed.value ? "popup.on" : "popup.off", group: "诊断",
@@ -1559,6 +1596,8 @@ async function runCommand(id) {
   paletteOpen.value = false;
   if (!id) return;
   if (id === "next") return runNextAction();
+  if (id === "newproject") return openNewProject();
+  if (id === "about") return openAbout();
   if (id === "flow.all") return runPipelineFull();
   if (id === "flow.stream") return runPipelineStreamFull();
   if (id === "publish") return runPublish();
@@ -1810,11 +1849,15 @@ onUnmounted(() => {
 
   <header class="topbar">
     <div class="brand">
-      <span class="brand-mark">绒</span>
-      <div>
-        <div class="brand-name">绒花墨坊</div>
-        <div class="brand-sub">{{ state ? state.book || "（未命名书）" : "未连接" }}</div>
-      </div>
+      <!-- LOGO + 应用名 → 关于（版本/环境/数据位置/许可）；书名 → 项目页签 -->
+      <button class="brand-btn" @click="openAbout" title="关于绒花墨坊：版本 / 运行环境 / 数据位置 / 开源许可">
+        <span class="brand-mark">绒</span>
+        <span class="brand-name">绒花墨坊</span>
+      </button>
+      <button class="brand-sub-btn" @click="gotoProjectTab"
+              title="当前项目 —— 点击进入项目管理（新建 / 归档 / 恢复）">
+        {{ state ? state.book || "（未命名书）" : "未连接" }}
+      </button>
     </div>
     <nav class="tabs">
       <button :class="{ active: tab === 'pipeline' }" @click="switchTab('pipeline')">流水线</button>
@@ -1887,6 +1930,45 @@ onUnmounted(() => {
       <span class="meta">从收件箱跳转而来；审批门（{{ pendingGates.length }} 项待处理）还在等着你</span>
     </div>
 
+
+    <!-- 冷启动引导：工作区全新（无产物）时给出三步上手路径 -->
+    <div v-if="tab === 'pipeline' && state && isColdStart" class="coldstart">
+      <div class="cs-title">从这个开始（四步跑通第一本书）</div>
+      <div class="cs-steps">
+        <div class="cs-step">
+          <span class="cs-no">1</span>
+          <div>
+            <b>放素材</b>
+            <div class="meta">materials/raw/ 放设定卡；随手写的碎片丢 materials/original_scraps/</div>
+          </div>
+          <button class="mini" @click="switchTab('materials')">去素材</button>
+        </div>
+        <div class="cs-step">
+          <span class="cs-no">2</span>
+          <div>
+            <b>建项目</b>
+            <div class="meta">书名 / 类型 / 章数一键创建（自动归档旧项目）</div>
+          </div>
+          <button class="mini primary" @click="openNewProject">新建项目</button>
+        </div>
+        <div class="cs-step">
+          <span class="cs-no">3</span>
+          <div>
+            <b>跑流水线</b>
+            <div class="meta">下面「一键工作流 → 执行下一步」；审批门在「收件箱」</div>
+          </div>
+          <button class="mini" @click="paletteOpen = true">Ctrl+K 命令面板</button>
+        </div>
+        <div class="cs-step">
+          <span class="cs-no">4</span>
+          <div>
+            <b>验收交付</b>
+            <div class="meta">审稿逐条决策 → 校对体检 → 导出 Word 成品</div>
+          </div>
+          <button class="mini" @click="openAbout">看完整说明</button>
+        </div>
+      </div>
+    </div>
 
     <!-- 一键工作流（UX-1）：唯一的运行入口 —— 步骤条 + 下一步 + 选阶段预估 + 全自动 -->
     <section v-if="tab === 'pipeline' && state" class="card flow-strip">
@@ -2619,11 +2701,17 @@ onUnmounted(() => {
     <!-- 项目（书籍切换） -->
     <section v-if="tab === 'project'" class="card">
       <div class="card-head">
-        <h3>项目切换</h3>
+        <h3>项目管理</h3>
         <button class="mini" @click="loadProjects">刷新</button>
+        <span class="spacer"></span>
+        <button class="mini primary" @click="openNewProject" title="一键新建：归档当前 → 建空工作区 → 写 project.yaml">
+          ＋ 新建项目
+        </button>
       </div>
       <div class="meta" style="margin-bottom: 12px;">
         当前项目：<b>{{ projects.current || "（未初始化）" }}</b>
+        <span v-if="state?.has_work" class="pill st-gate">工作区有数据</span>
+        <span v-else class="pill">工作区为空</span>
       </div>
       <div v-if="projects.current" class="art-row">
         <span class="art-label">归档当前项目</span>
@@ -2641,8 +2729,10 @@ onUnmounted(() => {
         </div>
       </div>
       <div v-else class="empty">暂无归档项目</div>
-      <div class="meta" style="margin-top: 14px;">
-        <b>新建项目：</b>在 config/project.yaml 中修改 book.name，然后归档当前项目并初始化新工作区。
+      <div class="meta" style="margin-top: 14px; line-height: 1.9;">
+        <b>新建项目</b>：点右上角「＋ 新建项目」，填书名/类型/章数即可 ——
+        系统会自动快照、归档当前项目、建好空工作区并写好 <code>config/project.yaml</code>。<br>
+        也可以手工改 <code>config/project.yaml</code> 的 <code>book.name</code>（高级用法，不推荐）。
       </div>
     </section>
   </main>
@@ -2840,6 +2930,19 @@ onUnmounted(() => {
   <!-- ② 命令面板 -->
   <CommandPalette :open="paletteOpen" :commands="commands"
                   @close="paletteOpen = false" @pick="runCommand" />
+
+  <!-- 关于（左上皮牌点击打开）：版本 / 环境 / 数据位置 / 快速上手 / 许可 -->
+  <AboutDialog :open="aboutOpen" :api="api" :book="state ? state.book : ''"
+               @close="aboutOpen = false"
+               @goto="(t) => { aboutOpen = false; switchTab(t); }" />
+
+  <!-- 新建项目向导（项目页签 / 命令面板入口） -->
+  <NewProjectWizard :open="newProjectOpen" :api="api"
+                    :current="projects.current || (state ? state.book : '')"
+                    :has-work="!!state?.has_work"
+                    :defaults="{ chapters: 12 }"
+                    @close="newProjectOpen = false"
+                    @created="onProjectCreated" />
 
   <!-- ② 快捷键说明 -->
   <div v-if="helpOpen" class="drawer-mask" @click.self="helpOpen = false">

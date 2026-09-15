@@ -59,6 +59,11 @@ POST /book/split          {path, emit?} → 拆书/章节节奏（同步返回�
 GET  /book/pacing         拆书节奏结果（供 GUI 画图）
 POST /models/switch       {role, model} → 切换模型
 POST /export/markdown     {per_vol?, book_name?} → Markdown 分卷导出
+POST /project/init        首次向导：初始化空工作区 + 写 project.yaml 基本信息（书名/类型/章数）
+POST /project/create      {name, genre?, chapters?, style_notes?, archive_current?}
+                          一键新建项目：归档当前 → 初始化空工作区 → 写 project.yaml
+GET  /about               版本 / 运行环境 / 路径（GUI「关于」弹窗数据）
+GET  /config/style_notes  book.style_notes 读取（GUI 设置页签）
 
 安全边界（本地自用）：默认 127.0.0.1；写操作只允许 POST 且 Content-Type=application/json；
 除 /stage /refine /snapshot 外均即时执行。NF_API_ALLOW_FAKE=1 时 stage/refine 走
@@ -91,6 +96,10 @@ from orchestrator import run as orch_run  # noqa: E402
 from utils.progress_manager import ProgressManager  # noqa: E402
 from utils.db import RunDB  # noqa: E402
 from utils.llm_client import _load_env_file  # noqa: E402
+# project.yaml 定向读写（模块级导入：do_GET/do_POST 多个分支共用，禁止在函数内裸 import）
+from utils.project_config import get_project_config as pc_get_config  # noqa: E402
+from utils.project_config import set_book_fields as pc_set_book  # noqa: E402
+from utils.project_config import get_style_notes as pc_get_style_notes  # noqa: E402
 import reject as reject_mod  # noqa: E402
 import snapshot as snap_mod  # noqa: E402
 import switch_book as sb_mod  # noqa: E402
@@ -526,10 +535,16 @@ def build_state():
             db.close()
     budget = load_all()[0].get("budget", {})
     latest = JOBS[JOBS_ORDER[-1]] if JOBS_ORDER else None
+    try:
+        archived = [p.name for p in (ROOT / "data" / "books").iterdir() if p.is_dir()]
+    except (FileNotFoundError, OSError):
+        archived = []
     return {
         "book": load_all()[1].get("book", {}).get("name", ""),
         "project_dir": str(ROOT),
         "allow_fake": ALLOW_FAKE,
+        "has_work": sb_mod.has_work(),          # 新建项目向导用：工作区是否有数据
+        "archived": archived,                   # 已归档书列表（新建项目向导展示用）
         "stages": stages,
         "gates": gates,
         "cost": {"spent_yuan": round(cost_spent, 4),
@@ -720,6 +735,79 @@ def act_skip_stage(stage, reason=""):
     if missing:
         msg += "；该阶段产物缺失：" + "、".join(missing) + " —— 下游阶段可能因此失败"
     return True, msg
+
+
+def act_project_create(name, genre=None, chapters=None, style_notes=None,
+                       author=None, archive_current=True, force=False):
+    """新建项目：归档当前工作区 → 初始化空工作区 → 写入 project.yaml 基本信息。
+
+    这是「一键新建项目」的完整语义（此前必须手工改 project.yaml + 手动归档）。
+    护栏：
+      · 书名必填、章节数 1-999，非法值直接退回，不落地任何改动
+      · 当前工作区有内容且 archive_current=False 时**拒绝执行**（绝不静默清空书稿）
+      · 动手前先 snapshot，归档沿用 switch_book.archive（先移后删，失败可回滚）
+    返回 (ok, message)。
+    """
+    name = (name or "").strip()
+    if not name:
+        return False, "书名不能为空"
+    if any(ch in name for ch in ("/", "\\", ":", "*", "?", '"', "<", ">", "|")):
+        return False, "书名不能包含 \\ / : * ? \" < > | 这些字符"
+    try:
+        n_ch = int(chapters) if chapters not in (None, "") else None
+    except (TypeError, ValueError):
+        return False, "章节数必须是整数"
+    if n_ch is not None and not (1 <= n_ch <= 999):
+        return False, "章节数须在 1-999 之间"
+
+    cur = None
+    try:
+        cur = sb_mod.current_book_name()
+    except Exception:
+        cur = None
+    has_work = False
+    try:
+        has_work = sb_mod.has_work()
+    except Exception:
+        has_work = False
+
+    archived = None
+    notes = []
+    if has_work:
+        if not archive_current and not force:
+            return False, ("当前工作区还有「%s」的数据。新建项目会清空工作区，"
+                           "请先勾选「归档当前项目」，或用「项目」页签手动归档。"
+                           % (cur or "未命名"))
+        # 破坏性操作前先快照（与 /project/init 同口径），失败只记一笔不阻断
+        try:
+            snap_mod.snapshot("project_create")
+            notes.append("已快照 current")
+        except Exception as e:
+            notes.append("快照失败（不阻断）: " + str(e)[:60])
+        target = cur or name
+        ok, msg = sb_mod.archive(target, yes=True, force=True)
+        if not ok:
+            return False, "归档当前项目失败，已中止（未做任何改动）: " + str(msg)
+        archived = target
+        notes.append("已归档「%s」" % target)
+
+    ok, msg = sb_mod.init_empty()
+    if not ok:
+        return False, "初始化空工作区失败: " + str(msg)
+    notes.append(msg)
+
+    ok2, msg2 = pc_set_book({
+        "name": name,
+        "genre": genre if (genre or "").strip() else None,
+        "chapters": n_ch,
+        "style_notes": style_notes if (style_notes or "").strip() else None,
+        "author": author if (author or "").strip() else None,
+    })
+    if not ok2:
+        return False, ("工作区已就绪，但写入 config/project.yaml 失败: " + str(msg2)
+                       + "（可手工填写后重试）")
+    notes.append(msg2)
+    return True, "；".join(notes)
 
 
 def act_approve(stage, revoke):
@@ -1525,11 +1613,10 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/config/style_notes":
             # 用户风格笔记（config/project.yaml 的 book.style_notes）
             try:
-                from utils.project_config import get_style_notes
-                self._send(200, {"ok": True, "content": get_style_notes(),
+                self._send(200, {"ok": True, "content": pc_get_style_notes(),
                                  "path": "config/project.yaml", "field": "book.style_notes"})
             except Exception as e:
-                self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
+                self._send(500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]})
         elif p == "/materials/list":
             try:
                 from utils.materials_manager import MaterialsManager
@@ -1794,6 +1881,38 @@ class Handler(BaseHTTPRequestHandler):
             all_lines = text.splitlines()
             self._send(200, {"ok": True, "exists": True, "path": str(log_path),
                              "total_lines": len(all_lines), "lines": all_lines[-lines:]})
+        elif p == "/about":
+            # 关于页数据：版本、运行环境、路径（GUI 左上角点 LOGO 时打开）
+            try:
+                ver = "dev"
+                pkg = ROOT / "console" / "package.json"
+                if pkg.exists():
+                    try:
+                        ver = json.loads(pkg.read_text(encoding="utf-8")).get("version", "dev")
+                    except Exception:
+                        ver = "dev"
+                cfg = {}
+                try:
+                    cfg = pc_get_config() or {}
+                except Exception:
+                    cfg = {}
+                self._send(200, {
+                    "ok": True,
+                    "app": "绒花墨坊",
+                    "internal_name": "NovelForge",
+                    "version": ver,
+                    "python": sys.version.split()[0],
+                    "platform": sys.platform,
+                    "project_root": str(ROOT),
+                    "data_dir": str(ROOT / "data"),
+                    "books_dir": str(ROOT / "data" / "books"),
+                    "output_dir": str(ROOT / "output"),
+                    "config": (cfg.get("book") or {}),
+                    "repo": "https://github.com/MUYU46548/ronghuamofang",
+                    "endpoints": ["/health", "/state", "/about"],
+                })
+            except Exception as e:
+                self._send(500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]})
         elif p == "/costs/streaming":
             # 实时花费：当前 run 的累计消耗 + 预算进度（GUI 成本页轮询）
             try:
@@ -1808,7 +1927,7 @@ class Handler(BaseHTTPRequestHandler):
                                       "/kb/search /kb/build /auto_rewrite/run /review/* "
                                       "/proofread/report /estimate /book/pacing "
                                       "/chapters/history /costs/streaming "
-                                      "/logs/tail /stage/skip）"})
+                                      "/logs/tail /stage/skip /about /project/create）"})
 
     # ---- POST ----
     def do_POST(self):
@@ -2063,8 +2182,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, res)
             elif p == "/config/project":
                 try:
-                    from utils.project_config import get_project_config
-                    self._send(200, {"ok": True, "config": get_project_config()})
+                    self._send(200, {"ok": True, "config": pc_get_config()})
                 except Exception as e:
                     self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
             elif p == "/setting/save":
@@ -2156,15 +2274,38 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 ok, msg = sb_mod.restore(name, yes=bool(body.get("yes")))
                 self._send(200 if ok else 400, {"ok": ok, "message": msg})
+            elif p == "/project/create":
+                # 一键新建项目：归档当前 → 初始化空工作区 → 写 project.yaml
+                # 护栏：写前快照（与 /project/init 一致），失败不落地
+                ok, msg = act_project_create(
+                    body.get("name"), body.get("genre") or body.get("type"),
+                    body.get("chapters"), body.get("style_notes"),
+                    body.get("author"),
+                    archive_current=bool(body.get("archive_current", True)),
+                    force=bool(body.get("force")),
+                )
+                self._send(200 if ok else 400, {"ok": ok, "message": msg}
+                           if ok else {"ok": False, "error": msg})
             elif p == "/project/init":
-                # 护栏：初始化前强制快照
+                # 首次启动向导用的初始化：现在也真正写入 project.yaml 的书名/类型/章数
+                # （此前只 init_empty，向导填的信息被静默丢弃 → 用户以为存了其实没存）
                 try:
                     from snapshot import snapshot as _snap
                     _snap("init_empty")
                 except Exception:
                     pass
-                ok, msg = sb_mod.init_empty()
-                self._send(200 if ok else 400, {"ok": ok, "message": msg})
+                if str(body.get("name") or "").strip():
+                    ok, msg = act_project_create(
+                        body.get("name"), body.get("genre") or body.get("type"),
+                        body.get("chapters"), body.get("style_notes"),
+                        body.get("author"),
+                        archive_current=bool(body.get("archive_current", True)),
+                        force=True,
+                    )
+                else:
+                    ok, msg = sb_mod.init_empty()
+                self._send(200 if ok else 400, {"ok": ok, "message": msg}
+                           if ok else {"ok": False, "error": msg})
             # ---- 审稿→修稿闭环 ----
             elif p == "/review/run":
                 jid, err = start_job("review", act_review_run())
@@ -2587,7 +2728,7 @@ def main():
     httpd = ThreadingHTTPServer((args.host, args.port), Handler)
     print("[nf_api] NovelForge API 服务 → http://" + args.host + ":" + str(args.port)
           + "  (allow_fake=" + str(ALLOW_FAKE) + ")")
-    print("[nf_api] 端点: /health /state /models /stage/{n}/run /stage/skip /logs/tail /stream/{job_id} /stop /jobs/{id} /approve /reject /refine/* /outline/* /snapshot /costs /prompts/* /config/style_notes /materials/* /project/*")
+    print("[nf_api] 端点: /health /state /about /models /stage/{n}/run /stage/skip /logs/tail /stream/{job_id} /stop /jobs/{id} /approve /reject /refine/* /outline/* /snapshot /costs /prompts/* /config/style_notes /materials/* /project/*")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

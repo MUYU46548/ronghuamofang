@@ -46,3 +46,11 @@ console/release/
 
 # ===== AI 助手工作区记忆（不进 Git，跨会话本地持久化）=====
 .workbuddy/
+
+# ===== 开发日志（不进 Git，纯开发草稿）=====
+开发日志.md
+
+# ===== 开发期临时产物（截图/草稿，不进 Git；正式文档截图放 docs/）=====
+/*.png
+/*.jpg
+.agent_context/

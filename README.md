@@ -1,86 +1,161 @@
-# 绒花墨坊（Ronghua Mofang）— 全自动长篇小说生成系统
+# 绒花墨坊（Ronghua Mofang）
 
-> 可进化 AI 小说创作工作站。输入混沌素材，输出结构化长篇小说（Markdown → Word），全程自主执行，用户仅保留审批权。
->
-> **对外品牌名：绒花墨坊**（`ronghuamofang`）；NovelForge 为早期内部代号。
+> 全自动长篇小说生成系统 —— 输入混沌素材，输出结构化长篇小说（Markdown → Word）。
+> 七阶段流水线自主执行，你只保留审批权：随时暂停、打回、重跑，成本逐笔记账并可熔断。
 
-## 核心特性
+**对外品牌名：绒花墨坊**（`ronghuamofang`）；`NovelForge` 为早期内部代号（仓库名沿用）。
 
-- **七阶段工作流**：素材梳理 → 整体大纲 → 逐章大纲 → 逐章写作 → 逻辑检查 → 基础润色 → Markdown 转 Word
-- **目标驱动自主执行**：启动后自我调度直至完成；用户可随时暂停、打回、重跑
-- **一致性机制**：设定集唯一事实源 + 滚动摘要链（rolling.md）+ 四路逻辑检查（P1）
-- **断点续跑**：每章立即落盘 + progress.json + SQLite，中断后自动续跑不重复消耗
-- **审批门**：阶段 2（整体大纲）完成后强制暂停等人工确认，其余默认全自动
-- **成本透明**：cost_log 逐次记账 + 预算上限熔断（超限自动暂停）
-- **模板与代码分离**：提示词存于 `prompts/`，可热更新，无需改代码
+![流水线主界面](docs/screenshots/pipeline.png)
+
+![关于页面](docs/screenshots/about.png)
+
+## 特性
+
+- **七阶段流水线**：素材归并 → 整体大纲 → 逐章大纲 → 逐章写作 → 逻辑检查 → 润色 → Word 成品
+- **一键工作流**：步骤条 + 「执行下一步」（`Space`）+ 选阶段费用预估，跑到审批门自动暂停
+- **审稿闭环**：章节审查出报告 → 逐条接受/忽略 → 批量精修（改稿前自动备份，字数 ±20% 铁律）
+- **校对与文风**：确定性校对（标点/错字/节奏，零 token）+ 文风特征分析与偏差报告
+- **断点续跑**：每章落盘 + `progress.json` + SQLite 记账，中断/熔断后从断点继续，不重复花钱
+- **成本透明**：逐次调用记账、按阶段/模型聚合、超预算自动熔断
+- **模板与代码分离**：提示词在 `prompts/`、Word 版式在 `templates/`，改文件即可，无需改代码
+- **本地优先**：素材、大纲、章节、成品全部留在本机；除你自己的模型 API 外不向外发送数据
+
+## 安装与启动
+
+### 方式一：安装包（Windows，推荐）
+
+1. 到 [Releases](https://github.com/MYU46548/ronghuamofang/releases) 下载
+   `ronghuamofang-console-setup-x.y.z.exe`（安装版）或 `绒花墨坊-x.y.z-portable-x64.exe`（便携版）
+2. 安装并启动「绒花墨坊」
+3. 首次启动按向导填书名/类型/章数，然后在「设置」页配置模型 API Key
+
+> 便携版不参与自动更新；安装版启动后会自动检查更新。
+
+### 方式二：源码运行（开发/自定义）
+
+前置：Windows 10/11、Python 3.11、Node.js 20+。
+
+```bash
+git clone https://github.com/MYU46548/ronghuamofang.git
+cd ronghuamofang
+python -m venv .venv
+.venv/Scripts/python.exe -m pip install -r requirements.txt
+copy .env.example .env        # 填入 TOKENHUB_API_KEY（或你自己的 OpenAI 兼容服务）
+cd console && npm install && npm run build && cd ..
+```
+
+启动桌面控制台：
+
+```bash
+console\启动控制台.bat        # 等价于 console/node_modules/electron/dist/electron.exe . --disable-gpu
+```
+
+也可以只用命令行跑管线（见下方「常用命令」）。
+
+## 首次使用（四步）
+
+1. **放素材** —— `materials/raw/` 放设定卡（`.md`）；随手写的碎片丢 `materials/original_scraps/`（自由命名、不进 Git）
+2. **建项目** —— 「项目」页签 →「＋ 新建项目」（书名/类型/章数一键创建，自动快照并归档旧项目）
+3. **跑流水线** —— 「流水线」页签 →「一键工作流 → 执行下一步」；审批门出现在「收件箱」
+4. **验收交付** —— 「审稿」逐条决策 →「校对」体检 →「导出」出 Word 成品
+
+### 控制台快捷键
+
+| 按键 | 作用 |
+|------|------|
+| `Ctrl + K` | 命令面板（搜索所有操作：运行阶段 / 切页签 / 审稿 / 导出 / 主题） |
+| `Space` | 执行下一步 / 停止当前任务 |
+| `R` | 刷新状态与成本 |
+| `1`–`9`、`0` | 切换页签（流水线/章节/素材/设定/大纲/分章/审稿/校对/文风/收件箱） |
+| `?` | 快捷键说明 |
+| `Esc` | 关闭当前弹层 |
+
+点左上角 **LOGO** 打开「关于」（版本 / 运行环境 / 数据位置 / 快速上手 / 许可）；
+点左侧 **书名** 直达「项目」页签。
+
+## 常用命令
+
+| 操作 | 命令（项目根，用 `.venv` 的 python） |
+|------|--------------------------------------|
+| 全流程启动（断点续跑） | `python scripts/orchestrator.py` |
+| 从阶段 N 重跑 | `python scripts/orchestrator.py --from N` |
+| 只跑阶段 N | `python scripts/orchestrator.py --stage N` |
+| 审批 / 撤销审批 | `python scripts/approve.py --stage 2 [--revoke]` |
+| 打回阶段（清下游+重置） | `python scripts/reject.py --stage N "原因"` |
+| 大纲精修（定向修订） | `python scripts/refine_outline.py "意见"` |
+| 章节精修 | `python scripts/refine_chapter.py 3 "意见"` |
+| 章节审查 / 批量精修 | `python scripts/chapter_review.py` / `python scripts/batch_refine.py --report data/outline/review_report.json` |
+| 校对（确定性，零 token） | `python scripts/proofread.py --scope refined` |
+| 生成前费用预估 | `python scripts/estimate_tokens.py [--stage 4]` |
+| 成本报告 | `python scripts/cost_report.py [--by-chapter]` |
+| 多书切换 | `python scripts/switch_book.py --list` / `--archive` / `--restore "书名"` |
+| 项目快照 | `python scripts/snapshot.py "标签"` |
+| 本地 API 服务 | `python scripts/nf_api.py`（默认 127.0.0.1:8765） |
+| 桌面控制台 | `console\启动控制台.bat` |
+
+完整命令表（含全部自检脚本）见 `AGENTS.md`。
 
 ## 目录结构
 
 ```
 NovelForge/
-├── config/            # system.yaml（模型/预算/并发）+ project.yaml（书名/类型/章数）
-├── materials/raw/     # 用户放置素材（.txt/.md/.docx）
-├── prompts/           # 7 阶段提示词模板 + reference/（实战咒语存档）
-├── data/              # 运行时数据：setting/outline/chapters/summaries/merged/state
-├── history/           # 版本快照（完整运行自动备份）
-├── logs/              # runs.db（SQLite 运行/章节/成本记录）
-├── output/            # 最终交付 *.docx
-└── scripts/           # orchestrator.py 主调度 + stage1-7 执行器 + utils/
+├── console/          # Electron 桌面控制台（main / preload / src + Vite 构建产物）
+├── scripts/          # orchestrator.py 主调度 + stage1-7 + nf_api.py + utils/
+├── prompts/          # 七阶段提示词模板（可热改）+ reference/ 实战咒语
+├── templates/        # Word 版式模板（.dotx / .docx）
+├── config/           # system.yaml（模型/预算）+ project.yaml（书名/类型/章数）
+├── materials/        # raw/ 结构化素材卡；original_scraps/ 私人碎片（不进 Git）
+├── data/             # 运行时数据：setting/outline/chapters/summaries/state（不进 Git）
+├── history/          # 版本快照（每阶段成功后自动生成，不进 Git）
+├── logs/             # runs.db（运行/章节/成本 SQLite）
+├── output/           # 最终交付 *.docx（不进 Git）
+├── docs/             # 文档与截图
+└── Temp/             # 开发期自检脚本与截图（不进 Git）
 ```
 
-## 快速开始
+## 数据与隐私
 
-1. **填配置**：编辑 `config/project.yaml`（书名、类型、目标字数、章节数）
-2. **放素材**：原始素材放入 `materials/raw/`（支持 .txt/.md/.docx；PDF 需手动转文本）
-3. **启动**：`python scripts/orchestrator.py`
+- 所有创作数据在本机：`data/`（运行产物）、`history/`（快照）、`output/`（成品）
+- 模型 API Key 只存 `config/../.env`（`.gitignore` 已屏蔽），控制台内**从不显示明文**，只给掩码
+- ROSA 世界观库（`E:/图书馆/ROSA`）在配置中固定为**只读**，系统永不写入
+- 除调用你自己配置的模型 API 外，程序不发起任何外部网络请求
 
-启动后自动执行；阶段 2 完成后暂停等待审批，流程见下。
+## 常见问题
 
-## 常用命令
+**Q：控制台显示「离线」？**
+`nf_api` 子进程没起来。看 `%LOCALAPPDATA%\Temp\nf_api_child.log`，或在控制台内
+命令面板 → 「查看运行日志」。
 
-| 操作 | 命令 |
-|------|------|
-| 全流程启动（断点续跑） | `python scripts/orchestrator.py` |
-| 从阶段 N 开始 | `python scripts/orchestrator.py --from N` |
-| 只跑阶段 N | `python scripts/orchestrator.py --stage N` |
-| 阶段审批（如确认大纲） | `python scripts/approve.py --stage 2` |
-| 撤销审批 | `python scripts/approve.py --stage 2 --revoke` |
-| 素材预扫描（仅归一化+去重） | `python scripts/stage1_consolidate.py` |
-| 单章校验 | `python scripts/utils/verify_chapter.py <章文件或目录>` |
-| 成本查询 | SQLite: `SELECT stage, SUM(cost_yuan) FROM cost_log GROUP BY stage;` |
+**Q：文档里的模型名/单价不对？**
+只改 `config/system.yaml`（`engine` / `model.*` / `providers`），代码零改动；
+新增服务商先在 `scripts/utils/cost_tracker.py` 的 `RATES` 补价（可用 `scripts/price_wizard.py` 交互式更新）。
 
-## 审批与打回
+**Q：想换一本书继续写？**
+「项目」页签 →「＋ 新建项目」（自动归档当前书），或「恢复」已归档项目。
 
-- **审批门**：阶段 2（整体大纲）完成后 orchestrator 暂停（exit=3）。审阅 `data/outline/global.md` 后：
-  - 满意 → `python scripts/approve.py --stage 2` → 重新运行 orchestrator 继续
-  - 不满意 → 编辑/重跑阶段 2，或直接修改 global.md 后审批
-- **打回重跑**：`python scripts/orchestrator.py --from N` 从指定阶段重跑（下游产物需先清空，可用 `--from` 配合手动清理 `data/chapters/`）
-- **素材更新**：新增素材后 `--from 1` 重跑（设定集重新归并；已有章节文件不会被覆盖）
+**Q：改稿怕丢？**
+每次精修前自动备份到 `data/chapters/history/`，可在「章节 → 历史」一键回退；
+运行前也会自动快照到 `history/`。
 
-## 架构概览
+## 开发
 
-```
-用户层（控制台 / 未来 GUI） → 执行层（orchestrator + LLM 引擎 + 脚本） → 数据层（文件系统 + SQLite）
+```bash
+cd console && npm run build      # 改前端后必须构建（生产模式加载 renderer/dist）
+cd console && npm run dist       # 本地打包（不发布）
 ```
 
-- 执行层 = orchestrator.py（确定性调度）+ LLM 引擎（`utils/llm_client.py`，可切换）+ stage 脚本（校验/转换/记账）
-- **LLM 引擎（可切换）**：
-  - `engine: direct`（默认）：OpenAI 兼容直连，当前=**腾讯云 TokenHub**（`tokenhub.tencentmaas.com/v1`，广州地域），三角色默认 `deepseek-v4-flash`（¥1/¥2 每百万；备选 glm-5.3-flash/5.3/v4-pro/kimi-k3 见配置注释）；**免费体验包按模型领取，模型选择须经用户白名单确认**；密钥在项目 `.env`（TOKENHUB_API_KEY）
-  - `engine: hermes`：hermes chat 子会话（原模式，保留为回退引擎）
-  - 切换/换模型/换服务商：只改 `config/system.yaml` 的 `engine` / `model.*` / `providers`，代码零改动
-- 通信 = 文件系统约定目录（plan/state/gates/runs.db），无 HTTP/消息队列
+改动后请跑对应自检（都在 `Temp/`，不进 Git）：
 
-## 测试状态
+| 自检 | 命令 | 覆盖 |
+|------|------|------|
+| GUI↔API 契约 | `python Temp/test_gui_api_contract.py` | 前端每个 `api()` 都有同方法后端分支 |
+| 真机视觉验收 | `python Temp/e2e_ux_verify.py` | Playwright 点击/按键 + 截图 + console 报错 |
+| 项目向导/关于端点 | `python Temp/test_project_wizard_api_http.py` | 新建项目、风格笔记、`/about` |
+| UX 端点 | `python Temp/test_ux_flow_api_http.py` | `/stage/skip`、`/logs/tail` |
 
-| 层级 | 结果 |
-|------|------|
-| P0-1 配置验证 | 39 PASS（YAML/结构/gitignore 行为） |
-| P0-2 utils 验证 | 27 PASS（编码/进度/成本/校验/摘要链） |
-| P0-3 全链路 FakeClient | 23 PASS + 15 PASS 冒烟（审批门/断点/降级/记账） |
-| P0-4 模板化回归 | 17 PASS + 12 PASS 复核（模板加载/任务文本/3 章迷你链路） |
+开发约定、踩坑与阶段语义见 `AGENTS.md`；历次变更见 `开发日志.md`。
 
-真实 LLM 阶梯测试：待执行（阶段 1 → 2 → 3+4 三章 → 全量）。
+## 许可
 
-## 版本记录
-
-- v0.1.0（P0 骨架完成）：目录/配置/utils/执行器/模板/审批 CLI；未跑真实 LLM 任务
+本体以 [MIT](LICENSE) 发布，© 2026 暮雨（MUYU46548）。
+第三方组件许可见 [THIRD-PARTY.md](THIRD-PARTY.md)。

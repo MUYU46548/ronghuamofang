@@ -12,6 +12,9 @@ contextBridge.exposeInMainWorld("mofangAPI", {
   // 用户风格笔记（config/project.yaml 的 book.style_notes）
   styleNotesGet: () => ipcRenderer.invoke("style-notes:get"),
   styleNotesSave: (content) => ipcRenderer.invoke("style-notes:save", content),
+  // 关于弹窗：外链与应用环境
+  openExternal: (url) => ipcRenderer.invoke("open-external", url),
+  appAbout: () => ipcRenderer.invoke("app:about"),
   // 自动更新
   updaterCheck: () => ipcRenderer.invoke("updater:check"),
   updaterStatus: () => ipcRenderer.invoke("updater:status"),

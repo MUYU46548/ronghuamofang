@@ -144,6 +144,8 @@ function pathAllowed(p) {
   const root = ROOT.replace(/\\/g, "/").toLowerCase() + "/";
   if (!norm.startsWith(root)) return false;
   const rel = norm.slice(root.length);
+  // 允许直接打开这几个白名单目录本身（关于弹窗的「打开目录」按钮）
+  if (["data", "output", "logs", "materials", "config"].includes(rel)) return true;
   if (rel.startsWith("data/") || rel.startsWith("output/")) return true;
   if ((rel.startsWith("logs/") || rel.startsWith("materials/")) && /\.(md|log|json)$/.test(rel)) return true;
   if (rel.startsWith("config/") && /\.(yaml|yml)$/.test(rel)) return true;
@@ -185,6 +187,32 @@ ipcMain.handle("open-file-dialog", async (e, options = {}) => {
   }
   return { ok: true, paths: result.filePaths };
 });
+
+// 打开外部链接（关于页的 GitHub/许可等）。只放行 http(s)，其它协议一律拒绝
+ipcMain.handle("open-external", async (e, url) => {
+  try {
+    const u = new URL(String(url || ""));
+    if (u.protocol !== "http:" && u.protocol !== "https:") {
+      return { ok: false, error: "只允许打开 http/https 链接" };
+    }
+    await shell.openExternal(u.toString());
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: String((err && err.message) || err) };
+  }
+});
+
+// 应用与运行环境概览（关于弹窗的 Electron 侧信息）
+ipcMain.handle("app:about", async () => ({
+  version: app.getVersion(),
+  electron: process.versions.electron,
+  chrome: process.versions.chrome,
+  node: process.versions.node,
+  packaged: app.isPackaged,
+  userDataDir: app.getPath("userData"),
+  projectRoot: ROOT,
+  apiPort: API_PORT,
+}));
 
 // 提示词模板：代理到 nf_api（白名单/备份逻辑以 Python 侧为唯一真源，此处再做一次前置校验）
 const PROMPT_NAME_RE = /^stage[1-7]_.*\.md$/;
@@ -305,6 +333,18 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname, "..", "renderer", "dist", "index.html"));
   }
+  // 外链一律交给系统浏览器；窗口内导航只允许本地页面（file:// 与 dev server）
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:/i.test(url)) shell.openExternal(url);
+    return { action: "deny" };
+  });
+  mainWindow.webContents.on("will-navigate", (e, url) => {
+    const okLocal = url.startsWith("file://") || url.startsWith("http://localhost:5180");
+    if (!okLocal) {
+      e.preventDefault();
+      if (/^https?:/i.test(url)) shell.openExternal(url);
+    }
+  });
   mainWindow.show();
   mainWindow.focus();
   mainWindow.center();

@@ -79,7 +79,8 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是全自动
 | 新端点 HTTP 自检 | `python Temp/test_new_endpoints_api_http.py`（临时项目根起 nf_api：/estimate 四种取参口径、proofread 报告缺失可行动 + 运行后落盘、style/analyze 四种 source、book/pacing 与 book/split、/models/add 与 /models/switch、/export/markdown、/outline/chapters/save，65 断言） |
 | GUI↔API 契约核对 | `python Temp/test_gui_api_contract.py`（静态：Vue 里每个 `api("…")` 都能在 nf_api 找到**同方法**分支；do_GET/do_POST 名遮蔽 AST 检查；死分支与丢失 elif 守卫回归；每个主题都要有 CSS 变量块，27 断言） |
 | UX 端点 HTTP 自检 | `python Temp/test_ux_flow_api_http.py`（临时项目根起 nf_api：`/logs/tail` 无文件/混编码/lines 边界、`/stage/skip` 的 confirm 与 stage 护栏、跳过落盘与 `/state` 回读、跳过→打回清标记、`/review/comment` 回归，26 断言） |
-| UX 真机视觉验收 | `python Temp/e2e_ux_verify.py`（Playwright 打开构建产物：一键工作流条、错误恢复条、跳过确认框、命令面板 Ctrl+K、快捷键 Space/R/数字/?、暗色主题对比度，34 断言 + 截图 `Temp/gui_verify/ux/`。需先起 8091 静态服务 + `Temp/mock_nf_api_state.py --port 8798`（假后端）+ `scripts/nf_api.py --port 8799 --allow-fake`） |
+| UX 真机视觉验收 | `python Temp/e2e_ux_verify.py`（Playwright 打开构建产物：一键工作流条、错误恢复条、跳过确认框、命令面板 Ctrl+K、快捷键 Space/R/数字/?、暗色主题对比度、**关于弹窗 / 项目页签 / 新建项目向导三步 / 冷启动引导**，64 断言 + 截图 `Temp/gui_verify/ux/`。需先起 8091 静态服务 + `Temp/mock_nf_api_state.py --port 8798` + `--port 8797 --cold`（冷启动状态）+ `scripts/nf_api.py --port 8799 --allow-fake`） |
+| 项目向导/关于端点自检 | `python Temp/test_project_wizard_api_http.py`（临时项目根起 nf_api：`/config/style_notes` 回归 ImportError、单行↔多行反复改写不写坏 YAML、`/project/create` 参数护栏与「有数据不归档则拒绝」、归档+重建+写 project.yaml 全链路、`/project/init` 真写盘、`/about` 字段，44 断言） |
 | 真机截图 + 控制台报错检查 | `node Temp/cdp_shots_new_tabs.js <http://127.0.0.1:8090> <出图目录>`（CDP 驱动 headless Chrome，逐页签截图 + 抓 console error/warning + 抓非 2xx 响应 URL。先起 nf_api:8765 与构建产物的静态服务；Node 22 自带 WebSocket，无需额外依赖） |
 
 ## 关键路径
@@ -165,4 +166,10 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是全自动
   硬编码色值在暗色主题下会看不清；④ 新增/改前端后必须跑 `Temp/e2e_ux_verify.py` 做真机视觉验收
   （用户明确要求：不许只跑冒烟测试就交付）；⑤ 前端 API 基址可用 `window.__NF_API_BASE__` 覆盖，
   便于在不干扰用户 8765 实例的前提下验收
+- **新建项目只有一个入口**：「项目」页签 →「＋ 新建项目」（`POST /project/create`：快照 → 归档当前 →
+  建空工作区 → 写 project.yaml）。手工改 `config/project.yaml` 只算高级用法，不要写进引导文案；
+  首启向导（`POST /project/init`）走同一实现，**必须真写盘**（历史上的静默丢弃已修）
+- **project.yaml 只用定向改写**：一律经 `utils/project_config.set_book_fields()`（按行替换 + 备份 +
+  写后回读校验），**不要整份 dump**，否则注释与排版全丢。多行值用块标量 `|-`（用 `|` 会多带一个换行，
+  导致回读不一致）
 - 破坏性操作前必须先 `snapshot.py` + 征求用户确认（删除章节产物、删除原始碎片、覆盖写已存在的素材卡）
