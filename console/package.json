@@ -1,6 +1,6 @@
 {
   "name": "ronghuamofang-console",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "绒花墨坊桌面控制台（消费本地 nf_api）",
   "author": "暮雨 (MUYU46548)",
   "private": true,
@@ -8,10 +8,11 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "prepare": "node scripts/prepare-runtime.js",
     "start": "electron .",
     "probe": "electron probe-electron.js",
-    "pack": "electron-builder --dir",
-    "dist": "electron-builder --win --publish never",
+    "pack": "node scripts/assert-runtime.js && electron-builder --dir",
+    "dist": "node scripts/assert-runtime.js && electron-builder --win --publish never",
     "release": "node scripts/make-release.js",
     "release:dry": "node scripts/make-release.js --dry-run"
   },
@@ -45,6 +46,13 @@
       "preload/**/*",
       "renderer/dist/**/*",
       "package.json"
+    ],
+    "extraResources": [
+      {"from": "runtime", "to": "runtime"},
+      {"from": "../scripts", "to": "payload/scripts"},
+      {"from": "../prompts", "to": "payload/prompts"},
+      {"from": "../config", "to": "payload/config"},
+      {"from": "../templates", "to": "payload/templates"}
     ],
     "win": {
       "target": [

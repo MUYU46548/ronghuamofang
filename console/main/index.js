@@ -75,9 +75,39 @@ function setupAutoUpdater() {
   }
 }
 
-const ROOT = path.resolve(__dirname, "..", "..");
-const PY = path.join(ROOT, ".venv", "Scripts", "pythonw.exe");
+// 双轨路径：打包态 vs 源码态
+const isPackaged = app.isPackaged;
+const ROOT = isPackaged
+  ? path.join(process.resourcesPath, "payload")
+  : path.resolve(__dirname, "..", "..");
+const PY = isPackaged
+  ? path.join(process.resourcesPath, "runtime", "python", "python.exe")
+  : path.join(ROOT, ".venv", "Scripts", "pythonw.exe");
 const API_PORT = 8765;
+
+// 用户数据目录（可写）：%APPDATA%\绒花墨坊\workspace\ 或便携版同目录
+function getWorkspaceDir() {
+  if (process.env.PORTABLE_EXEC_DIR) {
+    return path.join(path.dirname(app.getPath("exe")), "workspace");
+  }
+  return path.join(app.getPath("appData"), "绒花墨坊", "workspace");
+}
+
+// 首启：种子 payload 进 workspace（仅当 workspace 为空时）
+function seedWorkspace() {
+  const ws = getWorkspaceDir();
+  if (fs.existsSync(path.join(ws, ".seeded"))) return;
+  const seedDirs = ["scripts", "prompts", "config", "templates"];
+  const payloadRoot = path.join(process.resourcesPath, "payload");
+  for (const d of seedDirs) {
+    const src = path.join(payloadRoot, d);
+    const dst = path.join(ws, d);
+    if (fs.existsSync(src) && !fs.existsSync(dst)) {
+      fs.cpSync(src, dst, { recursive: true });
+    }
+  }
+  fs.writeFileSync(path.join(ws, ".seeded"), "1");
+}
 const BASE = "http://127.0.0.1:" + API_PORT;
 
 let apiProc = null;
@@ -103,12 +133,15 @@ function startApi() {
   });
   tester.once("listening", () => {
     tester.close();
+    const ws = getWorkspaceDir();
+    fs.mkdirSync(ws, { recursive: true });
     const logPath = path.join(process.env.LOCALAPPDATA || ROOT, "Temp", "nf_api_child.log");
     const out = fs.openSync(logPath, "a");
-    apiProc = spawn(PY, [path.join(ROOT, "scripts", "nf_api.py"), "--port", String(API_PORT)], {
-      cwd: ROOT,
+    apiProc = spawn(PY, [path.join(ROOT, "scripts", "nf_api.py"), "--port", String(API_PORT), "--root", ws], {
+      cwd: ws,
       stdio: ["ignore", out, out],
       windowsHide: true,
+      env: { ...process.env, NF_ROOT: ws },
     });
     console.log("[console] nf_api child started pid=", apiProc.pid, "log ->", logPath);
     apiProc.on("error", (e) => console.error("[console] nf_api spawn failed:", e));
@@ -142,7 +175,8 @@ async function waitForApi(timeoutMs = 15000) {
 function pathAllowed(p) {
   const norm = path.resolve(p).replace(/\\/g, "/").toLowerCase();
   const root = ROOT.replace(/\\/g, "/").toLowerCase() + "/";
-  if (!norm.startsWith(root)) return false;
+  const ws = getWorkspaceDir().replace(/\\/g, "/").toLowerCase() + "/";
+  if (!norm.startsWith(root) && !norm.startsWith(ws)) return false;
   const rel = norm.slice(root.length);
   // 允许直接打开这几个白名单目录本身（关于弹窗的「打开目录」按钮）
   if (["data", "output", "logs", "materials", "config"].includes(rel)) return true;
@@ -351,7 +385,8 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
-  console.log("[console] app ready, ROOT=", ROOT);
+  if (isPackaged) seedWorkspace();
+  console.log("[console] app ready, ROOT=", ROOT, "workspace=", getWorkspaceDir());
   setupAutoUpdater();
   startApi();
   const ok = await waitForApi();

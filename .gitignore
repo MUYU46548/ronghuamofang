@@ -40,6 +40,7 @@ console/renderer/dist/
 console/dist/
 console/build/
 console/release/
+console/runtime/
 *.exe
 *.blockmap
 *.yml

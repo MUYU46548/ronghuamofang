@@ -115,8 +115,8 @@ from utils.verify_chapter import is_chapter_complete  # noqa: E402
 # 导致同一函数内其它分支的 json.xxx 抛 UnboundLocalError —— 2026-09-14 修）
 from utils.file_io import read_text as nf_read_text, write_text as nf_write_text  # noqa: E402
 
-ROOT = Path(__file__).resolve().parents[1]
-os.chdir(ROOT)
+ROOT = Path(os.environ.get("NF_ROOT") or Path(__file__).resolve().parents[1])
+# 不再 chdir：安装态时代码目录不可写；所有路径走绝对路径拼接
 
 # 大纲路径常量（与 refine_outline.py / utils.outline_panel 保持一致）
 GLOBAL = "data/outline/global.md"
@@ -2718,9 +2718,15 @@ def main():
     parser = argparse.ArgumentParser(description="NovelForge 本地 API（GUI 化 P0 + 流式输出）")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--root", default=os.environ.get("NF_ROOT"),
+                        help="数据根目录（覆盖 NF_ROOT）")
     parser.add_argument("--allow-fake", action="store_true",
                         help="测试模式：stage/refine 用 FakeClient（无 LLM）")
     args = parser.parse_args()
+    if args.root:
+        os.environ["NF_ROOT"] = str(args.root)
+        global ROOT
+        ROOT = Path(args.root)
     if args.allow_fake:
         os.environ["NF_API_ALLOW_FAKE"] = "1"
         global ALLOW_FAKE
