@@ -2,6 +2,7 @@
 .venv/
 __pycache__/
 *.pyc
+*.pyo
 
 # ===== 运行时数据（不进 Git，由 history/ 快照承担版本职责）=====
 data/

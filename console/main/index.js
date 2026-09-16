@@ -85,20 +85,18 @@ const PY = isPackaged
   : path.join(ROOT, ".venv", "Scripts", "pythonw.exe");
 const API_PORT = 8765;
 
-// 用户数据目录（可写）：%APPDATA%\绒花墨坊\workspace\ 或便携版同目录
+// 用户数据目录（可写）：统一放 %APPDATA%\绒花墨坊\workspace
+// 便携版不再放 temp 目录（每次解压路径不同 + 旧进程锁目录 = 端口冲突）
 function getWorkspaceDir() {
-  if (process.env.PORTABLE_EXEC_DIR) {
-    return path.join(path.dirname(app.getPath("exe")), "workspace");
-  }
   return path.join(app.getPath("appData"), "绒花墨坊", "workspace");
 }
 
-// 首启：种子 payload 进 workspace（仅当 workspace 为空时）
+// 首启：种子 payload 进 workspace + 建 data/ 目录结构
 function seedWorkspace() {
   const ws = getWorkspaceDir();
   if (fs.existsSync(path.join(ws, ".seeded"))) return;
-  const seedDirs = ["scripts", "prompts", "config", "templates"];
   const payloadRoot = path.join(process.resourcesPath, "payload");
+  const seedDirs = ["scripts", "prompts", "config", "templates"];
   for (const d of seedDirs) {
     const src = path.join(payloadRoot, d);
     const dst = path.join(ws, d);
@@ -106,6 +104,10 @@ function seedWorkspace() {
       fs.cpSync(src, dst, { recursive: true });
     }
   }
+  // 预建 data/ 目录结构
+  ["data/state", "data/outline/chapters", "data/setting", "data/chapters/raw", "data/chapters/checked", "data/chapters/refined", "data/books"].forEach(d => {
+    fs.mkdirSync(path.join(ws, d), { recursive: true });
+  });
   fs.writeFileSync(path.join(ws, ".seeded"), "1");
 }
 const BASE = "http://127.0.0.1:" + API_PORT;
@@ -115,33 +117,47 @@ let mainWindow = null;
 
 function startApi() {
   if (!fs.existsSync(PY)) {
-    console.error("[console] .venv python not found:", PY);
+    console.error("[console] python not found:", PY);
     return;
   }
-  // 检查端口是否被占用
   const net = require("net");
   const tester = net.createServer();
   tester.once("error", (e) => {
     if (e.code === "EADDRINUSE") {
-      console.error(`[console] port ${API_PORT} is already in use. Close other instances or change API_PORT.`);
-      if (mainWindow) mainWindow.webContents.on("did-finish-load", () => {
-        mainWindow.webContents.executeJavaScript(
-          `alert("端口 ${API_PORT} 已被占用。\\n请关闭其他绒花墨坊实例，或修改 console/main/index.js 中的 API_PORT。");`
-        );
-      });
+      console.warn(`[console] port ${API_PORT} in use, killing old process...`);
+      // Kill whatever is using our port, then retry
+      try {
+        require("child_process").execSync(`netstat -ano | findstr :${API_PORT} | findstr LISTENING`, { stdio: "pipe" })
+          .toString().split("\n").forEach(line => {
+            const pid = line.trim().split(/\s+/).pop();
+            if (pid && /^\d+$/.test(pid)) {
+              console.log(`[console] killing PID ${pid}`);
+              try { process.kill(parseInt(pid)); } catch (e) {}
+            }
+          });
+      } catch (e) {}
+      setTimeout(() => {
+        tester.close();
+        startApi();
+      }, 1000);
+      return;
     }
+    console.error("[console] port probe error:", e);
   });
   tester.once("listening", () => {
     tester.close();
     const ws = getWorkspaceDir();
     fs.mkdirSync(ws, { recursive: true });
+    const apiScript = path.join(ws, "scripts", "nf_api.py");
     const logPath = path.join(process.env.LOCALAPPDATA || ROOT, "Temp", "nf_api_child.log");
     const out = fs.openSync(logPath, "a");
-    apiProc = spawn(PY, [path.join(ROOT, "scripts", "nf_api.py"), "--port", String(API_PORT), "--root", ws], {
+    const cmd = PY;
+    const args = [apiScript, "--port", String(API_PORT), "--root", ws];
+    console.log("[console] spawn nf_api:", cmd, args.join(" "));
+    apiProc = spawn(cmd, args, {
       cwd: ws,
       stdio: ["ignore", out, out],
       windowsHide: true,
-      env: { ...process.env, NF_ROOT: ws },
     });
     console.log("[console] nf_api child started pid=", apiProc.pid, "log ->", logPath);
     apiProc.on("error", (e) => console.error("[console] nf_api spawn failed:", e));
@@ -385,8 +401,19 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
-  if (isPackaged) seedWorkspace();
-  console.log("[console] app ready, ROOT=", ROOT, "workspace=", getWorkspaceDir());
+  if (isPackaged) {
+    seedWorkspace();
+  }
+  const ws = getWorkspaceDir();
+  const seedMarker = path.join(ws, ".seeded");
+  const configOk = fs.existsSync(path.join(ws, "config", "system.yaml"));
+  console.log("[console] app ready, ROOT=", ROOT, "workspace=", ws, "seeded=", fs.existsSync(seedMarker), "configOk=", configOk);
+  if (!configOk) {
+    console.error("[console] FATAL: workspace missing config/system.yaml after seedWorkspace()");
+    dialog.showErrorBox("启动失败", "工作区配置文件缺失，请尝试删除 %APPDATA%\\绒花墨坊\\workspace 后重新启动。");
+    app.quit();
+    return;
+  }
   setupAutoUpdater();
   startApi();
   const ok = await waitForApi();

@@ -49,7 +49,7 @@
     ],
     "extraResources": [
       {"from": "runtime", "to": "runtime"},
-      {"from": "../scripts", "to": "payload/scripts"},
+      {"from": "../scripts", "to": "payload/scripts", "filter": ["!**/__pycache__/**", "!**/*.pyc"]},
       {"from": "../prompts", "to": "payload/prompts"},
       {"from": "../config", "to": "payload/config"},
       {"from": "../templates", "to": "payload/templates"}

@@ -115,7 +115,17 @@ from utils.verify_chapter import is_chapter_complete  # noqa: E402
 # 导致同一函数内其它分支的 json.xxx 抛 UnboundLocalError —— 2026-09-14 修）
 from utils.file_io import read_text as nf_read_text, write_text as nf_write_text  # noqa: E402
 
-ROOT = Path(os.environ.get("NF_ROOT") or Path(__file__).resolve().parents[1])
+
+def _resolve_root():
+    """解析 ROOT：优先 NF_ROOT 环境变量 → 打包态自动检测 → 源码树。"""
+    env_root = os.environ.get("NF_ROOT")
+    if env_root:
+        return Path(env_root)
+    computed = Path(__file__).resolve().parents[1]
+    return computed
+
+ROOT = _resolve_root()
+
 # 不再 chdir：安装态时代码目录不可写；所有路径走绝对路径拼接
 
 # 大纲路径常量（与 refine_outline.py / utils.outline_panel 保持一致）
@@ -372,9 +382,20 @@ def save_prompt(name, content):
 
 def load_all():
     _load_env_file()
-    cfg = yaml.safe_load((ROOT / "config" / "system.yaml").read_text(encoding="utf-8"))
-    proj = yaml.safe_load((ROOT / "config" / "project.yaml").read_text(encoding="utf-8"))
-    return cfg, proj
+    sys_yaml = ROOT / "config" / "system.yaml"
+    proj_yaml = ROOT / "config" / "project.yaml"
+    # Retry up to 3 times with delay (handles race with seedWorkspace on slow disks)
+    for attempt in range(3):
+        try:
+            cfg = yaml.safe_load(sys_yaml.read_text(encoding="utf-8"))
+            proj = yaml.safe_load(proj_yaml.read_text(encoding="utf-8"))
+            return cfg, proj
+        except FileNotFoundError:
+            if attempt < 2:
+                import time
+                time.sleep(0.2)
+            else:
+                raise
 
 
 # ---------------------------------------------------------------- 原始碎片（GUI）
