@@ -565,6 +565,7 @@ def build_state():
         "project_dir": str(ROOT),
         "allow_fake": ALLOW_FAKE,
         "has_work": sb_mod.has_work(),          # 新建项目向导用：工作区是否有数据
+        "has_progress": (ROOT / "data" / "state" / "progress.json").exists(),  # 冷启动引导用：是否跑过流水线
         "archived": archived,                   # 已归档书列表（新建项目向导展示用）
         "stages": stages,
         "gates": gates,
@@ -1849,6 +1850,22 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:      # noqa: BLE001
                 self._send(500, {"ok": False,
                                  "error": type(e).__name__ + ": " + str(e)[:200]})
+        elif p == "/chapters/quality":
+            # 章节质量概览：返回每章的 quality 评分（来自 auto_rewrite.parse_quality）
+            try:
+                import auto_rewrite as ar_mod
+                cfg, proj = load_all()
+                total = int(proj.get("book", {}).get("chapters", 10))
+                raw_dir = Path("data/chapters/raw")
+                chapters = []
+                for n in range(1, total + 1):
+                    path = raw_dir / f"{n:02d}.md"
+                    q = ar_mod.parse_quality(path)
+                    chapters.append({"n": n, "path": str(path), "quality": q})
+                self._send(200, {"ok": True, "total": total, "chapters": chapters})
+            except Exception as e:      # noqa: BLE001
+                self._send(500, {"ok": False,
+                                 "error": type(e).__name__ + ": " + str(e)[:200]})
         elif p == "/chapters/verify":
             # 断点续跑检查：返回每章完成状态（文件是否真正完成，而非仅存在）
             try:
@@ -1947,7 +1964,7 @@ class Handler(BaseHTTPRequestHandler):
                                       "/materials/* /scraps/* /setting/current /outline/chapters/* "
                                       "/kb/search /kb/build /auto_rewrite/run /review/* "
                                       "/proofread/report /estimate /book/pacing "
-                                      "/chapters/history /costs/streaming "
+                                      "/chapters/history /chapters/quality /costs/streaming "
                                       "/logs/tail /stage/skip /about /project/create）"})
 
     # ---- POST ----

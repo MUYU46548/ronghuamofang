@@ -7,6 +7,7 @@ providers:
     timeout: 600
     retries: 3
     available_models:
+    - qwen3.5-flash
     - glm-5.1
     - glm-5-turbo
     - glm-5
@@ -16,6 +17,7 @@ providers:
     - deepseek-v4-pro
     - kimi-k3
     fallback:
+    - qwen3.5-flash
     - glm-5
     - glm-5-turbo
     disable_thinking_models:
@@ -26,6 +28,7 @@ providers:
     - glm-5.3-flash
     - kimi-k2.5
     - kimi-k3
+    - qwen3.5-flash
     disable_thinking_payloads:
     - thinking:
         type: disabled
@@ -34,25 +37,25 @@ providers:
 model:
   default:
     provider: tokenhub
-    id: kimi-k2.5
+    id: qwen3.5-flash
   architect:
     provider: tokenhub
-    id: kimi-k2.5
+    id: qwen3.5-flash
   outliner:
     provider: tokenhub
-    id: kimi-k2.5
+    id: qwen3.5-flash
   writer:
     provider: tokenhub
-    id: kimi-k2.5
+    id: qwen3.5-flash
   checker:
     provider: tokenhub
-    id: kimi-k2.5
+    id: qwen3.5-flash
   reviewer:
     provider: tokenhub
-    id: kimi-k2.5
+    id: qwen3.5-flash
   polisher:
     provider: tokenhub
-    id: kimi-k2.5
+    id: qwen3.5-flash
 budget:
   limit_yuan: 300
   warn_ratio: 0.7

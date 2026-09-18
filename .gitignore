@@ -8,6 +8,10 @@ __pycache__/
 data/
 history/
 
+# ===== 用户放入的素材卡（不进 Git；materials/raw/README.md 除外，那是引导文档）=====
+materials/raw/*.md
+!materials/raw/README.md
+
 # ===== 成品输出（Word/Markdown 成品不进 Git）=====
 output/
 
@@ -39,7 +43,9 @@ materials/raw/_backup/
 console/node_modules/
 console/renderer/dist/
 console/dist/
-console/build/
+# 注意：console/build/ 内是打包必需的**源资产**（icon.ico/icon.png/icon-512.png/
+# icon-1024.png/favicon.png + NSIS 脚本 installer.nsh），不可忽略——否则 fresh clone
+# 执行 npm run dist 会因缺图标而失败。构建产物请放 console/release/。
 console/release/
 console/runtime/
 *.exe

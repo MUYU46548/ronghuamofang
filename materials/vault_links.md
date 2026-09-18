@@ -1,166 +1,496 @@
 # 设定库引用索引（vault_links）
 
-> 由 `scripts/build_vault_links.py` 生成：2026-09-11 22:23:29
+> 由 `scripts/build_vault_links.py` 生成：2026-09-17 19:07:26
 > 来源：E:\CODE\CangKu\NovelForge\data\setting\setting.json
 
 ## 素材 → 设定条目
 
-### 休止符_物品卡
-- `plot_fragments`: f004 风灵利用灵素隐蔽跟踪时意外发现塔罗斯的中断向量表偏移量及'无法处理指向自身的递归
-- `plot_fragments`: f005 休止符原型在无人星域试验中失控，引发恒星过早衰亡。为中断试验防止计划泄密，14名
-- `plot_fragments`: f006 后期初云加入研发，休止符最终完成。风灵指定使用方法：由一名成员亲手持钉将休止符按
-
-### 幽灵飞船_场景卡
-- `plot_fragments`: f007 一艘失控并被病毒侵入控制的运输飞船脱离编队朝已知文明区域驶来。圣卫军曾计划出动军
-- `timeline`: 幽灵飞船失控事件
-
-### 暮雨_旋转矩阵秘闻录
-- `plot_fragments`: f008 暮雨在沙都第七区无名居深夜食堂失去最后一份烤鱼（被三个佣兵抢走），安静地吃了一碗
-- `plot_fragments`: f009 约一个月后第七区封锁三天，荣安堂鉴书亲自出手端掉沙都地下跨国走私团伙。战场有灰白
-- `timeline`: 暮雨沙都深夜食堂烤鱼事件及后续走私团伙覆灭
-
-### 月兔密室_场景卡
-- `plot_fragments`: f020 暮雨曾尝试进入月兔密室以人偶躯体向核心装置补能，但因血脉权限限制受阻：非月兔即使
-
-### 月神_角色卡
-- `plot_fragments`: f001 月神在异星创造第一版实验体，赋予一切唯独未赋予同类。第一版在孤独中离去，临别时指
-- `plot_fragments`: f002 月神禅位给夏婉芸后，切下自己的左耳（第一版印记），彻底斩断与过去的联系，悄然离去
-- `plot_fragments`: f003 融光仪式设立后三千余年间，每一场仪式结束后月神都会感到被抽离。他的神智日渐残缺，
-- `plot_fragments`: f024 月神书房中没有来自月球以外的任何个人物品，全部是月兔文明产品。他在月兔文明书架之
-- `timeline`: 月神创造第三版月兔，设立月面大结界、全雌化体系、科技锁死、太空海禁
-- `timeline`: 月神在异星创造第一版实验体（失败，第一版在孤独中离去）
-- `timeline`: 月神禅位给夏婉芸后悄然离去，留下空白玉简和漆匣
-- `timeline`: 月神自行切下左耳（第一版印记）
-- `timeline`: 月神设立融光仪式（驻月鉴），开始从自身寿元切寿给月兔
-- `timeline`: 月神降临月球，开始独自生活
-
-### 术战部队_组织卡
-- `timeline`: 术战部队开始筹备（获风灵秘密准许）
-
-### 梦琴_旋转矩阵秘闻录
-- `plot_fragments`: f010 梦琴拒绝御花园施工队移栽蔷薇，理由是'植株们已适应现有环境，强行移栽会导致情绪波
-- `plot_fragments`: f011 梦琴与御花园总管达成协议：蔷薇可移栽但须经'植株本人同意'。她真的在每株蔷薇前蹲
-
-### 歌唯_角色卡
-- `timeline`: 歌唯入境
-- `timeline`: 歌唯在风神城安家
-
-### 正弦司_组织卡
-- `timeline`: 《绒花帝国魔法许可证管理法》正式发布生效，正弦司建制
-- `timeline`: 正弦司建制后魔法监管逐渐完善，与三法司、自委会形成裁定-执行-申诉分权结构
-
-### 牧人天堂_组织卡
-- `plot_fragments`: f019 净蚀者文明探索到牧人天堂存在并警告不要在其星系附近定居。牧人天堂调查得知对方曾吞
-- `plot_fragments`: f025 牧人天堂的意识上传并非完美复制而是高保真度模拟，每次传输导致记忆数据微量丢失（灵
-- `timeline`: 机械开拓者在大云共和国兴起，主张机械飞升
-- `timeline`: 机械开拓者被大云共和国驱逐，飞往未知星系
-- `timeline`: 牧人天堂与净蚀者文明第一次接触，暮雨等人与牧人天堂产生第一次接触
-- `timeline`: 牧人天堂建立，首都联结城
-
-### 白莲_角色卡
-- `plot_fragments`: f021 暮雨为安抚白莲将林中府邸（根据梦中建筑还原）赏赐给她，后建咖啡馆兼图书馆。分配女
-- `timeline`: 白莲至迟现身幻境
-
-### 罗霄_旋转矩阵秘闻录
-- `plot_fragments`: f012 罗霄每晚坐在冰蓝色灯前用羽毛笔在羊皮纸上写回忆录，有时一晚上只写一行字。他在写三
-- `plot_fragments`: f013 罗霄说过：'因为我忘记了一次，就不想再忘记第二次。'他曾经忘记过一些重要的人，连
-
-### 菲洛柯·洛林_角色卡
-- `plot_fragments`: f022 主角团曾冒死营救菲洛柯，却因操作被其误解为'窃取感知'，形成深刻心理创伤。这场误
-- `timeline`: 菲洛柯·洛林抵达幻境（稍晚于白莲）
-
-### 露汐_旋转矩阵秘闻录
-- `plot_fragments`: f014 幻境心理医院接收一位从废墟救出的绒花族少女急诊病人，昏迷中用苍老声音对露汐说'你
-- `plot_fragments`: f015 露汐每月第一天独自前往边境观测站面对混沌虚空。某月她翻开病历本对着那个名字轻声说
-
-### 青岚_旋转矩阵秘闻录
-- `plot_fragments`: f016 风神府厨房投毒案：青岚通过豆浆表面泡沫持续时间变化（0.5秒破而非正常0.3秒）
-- `plot_fragments`: f017 青岚与初云的咖啡机外交：初云借咖啡机被拒，次日送来亲手做的点心，以'一杯咖啡一块
-- `plot_fragments`: f018 青岚通过侍女小翠步伐频率变化0.7秒预判其三天后会扭伤脚踝。当时小翠并未扭到，三
-
-### 魔法使自律委员会_组织卡
-- `plot_fragments`: f023 白莲建会宣言：'魔法不是罪，但也不是特权。它是责任，是我们引以为傲的才能。我们自
-- `timeline`: 《绒花帝国魔法管制法》正式颁布生效，自委会权限收缩为自律范畴
-- `timeline`: 白莲主导建立魔法使自律委员会
-- `timeline`: 魔法使自律委员会正式纳入帝国官方管制框架
-
-### （未溯源）
-
-- `characters`: 月神
-- `characters`: 菲洛柯·洛林
-- `characters`: 白莲
-- `characters`: 歌唯
-- `characters`: 暮雨
-- `characters`: 风灵
+### rosa
+- `characters`: 48计划
+- `characters`: 710计划
+- `characters`: AX-B-16型隐形空天战机
+- `characters`: ROSA计划
+- `characters`: _地理系统_说明
+- `characters`: _工具_说明
+- `characters`: _怪物_说明
+- `characters`: _物品装备_说明
+- `characters`: _生物_说明
+- `characters`: _生物_说明
+- `characters`: _种族_说明
+- `characters`: _粘土世界_说明
+- `characters`: 七彩炫糖
+- `characters`: 七曜魔晶
+- `characters`: 万宁祭坛
+- `characters`: 世界盒子
+- `characters`: 世界观
+- `characters`: 丰穰司
+- `characters`: 丰竹镇
+- `characters`: 乐园星
+- `characters`: 乐园星系
+- `characters`: 乾坤袋
+- `characters`: 于真
+- `characters`: 于真
+- `characters`: 五剑临时保管设施
+- `characters`: 人偶工厂
+- `characters`: 人工智能监管厅
+- `characters`: 人工智能监管厅办事大厅
+- `characters`: 人工智能监管厅听证厅
+- `characters`: 人类
+- `characters`: 仙人
+- `characters`: 仙灵
+- `characters`: 伊杰梅斯
+- `characters`: 伊杰梅斯
+- `characters`: 伏夜提加
+- `characters`: 休止符
+- `characters`: 伤痕
+- `characters`: 余白
+- `characters`: 佩火
+- `characters`: 佩火
+- `characters`: 侵蚀
+- `characters`: 便携式储物胶囊
+- `characters`: 便携式环境适应装置
+- `characters`: 元祖日化厂
+- `characters`: 元祖日化厂事件
+- `characters`: 先锋派
+- `characters`: 光尺
+- `characters`: 克索斯星
+- `characters`: 八元顶
+- `characters`: 八方流转归蕴之台
+- `characters`: 关于幻境AI的一些想法
+- `characters`: 兽人
+- `characters`: 军事体系总纲
+- `characters`: 军事科技
+- `characters`: 军事科技层级
+- `characters`: 军事装备总览
+- `characters`: 军衔体系
+- `characters`: 军队编制
+- `characters`: 冰封星球
+- `characters`: 净土星域
+- `characters`: 净源司
+- `characters`: 净蚀者
+- `characters`: 净蚀者文明
+- `characters`: 凤凰
+- `characters`: 凤凰
+- `characters`: 凤凰之羽
+- `characters`: 凤凰同盟
+- `characters`: 凤凰同盟临时据点
+- `characters`: 凭槛
+- `characters`: 凯洛兰·瓦卢瓦
+- `characters`: 凯洛兰·瓦卢瓦
+- `characters`: 刘锋炎
+- `characters`: 刘锋炎
 - `characters`: 初云
-- `characters`: 夏婉芸
-- `characters`: 梦琴
-- `characters`: 罗霄
-- `characters`: 露汐
-- `characters`: 青岚
+- `characters`: 初云
+- `characters`: 千落
+- `characters`: 千落
+- `characters`: 卡莉的工作室
+- `characters`: 卢托夫斯克
+- `characters`: 双剑封印处
+- `characters`: 叙尔莱特
+- `characters`: 叙尔莱特
+- `characters`: 叙昂
+- `characters`: 叙昂
+- `characters`: 叶绫
+- `characters`: 叶绫
+- `characters`: 合成台
+- `characters`: 启蒙联合会
+- `characters`: 品茶文化
+- `characters`: 哈伦·苏尔登·兰开斯特
+- `characters`: 哈伦·苏尔登·兰开斯特
+- `characters`: 哈伦的住所
+- `characters`: 商规监
+- `characters`: 四七琴
+- `characters`: 四面体智能武器
+- `characters`: 回声星云
+- `characters`: 圣卫军
+- `characters`: 圣卫军兵棋模拟系统
+- `characters`: 圣始大陆文明
 - `characters`: 塔罗斯
-- `characters`: 互联中枢
+- `characters`: 塔罗斯
+- `characters`: 墓园
+- `characters`: 墨羽
+- `characters`: 墨羽
+- `characters`: 复仇之战
+- `characters`: 复仇战甲
+- `characters`: 复仇神殿
+- `characters`: 夏婉芸
+- `characters`: 夏婉芸
+- `characters`: 多多美
+- `characters`: 多多美
+- `characters`: 大云共和国
+- `characters`: 大玥帝国
+- `characters`: 天厨鼎
+- `characters`: 天灾
+- `characters`: 太空战
+- `characters`: 太空监狱
+- `characters`: 女仆咖啡厅
+- `characters`: 妍希
+- `characters`: 妍希
+- `characters`: 妖兽
+- `characters`: 妖精
+- `characters`: 安森
+- `characters`: 安森
+- `characters`: 安济会
+- `characters`: 审判堂
+- `characters`: 寂灭之剑
+- `characters`: 密室钥匙
+- `characters`: 小寂
+- `characters`: 小寂
+- `characters`: 小月
+- `characters`: 小月
+- `characters`: 小狼
+- `characters`: 小狼
+- `characters`: 小虎
+- `characters`: 小虎
+- `characters`: 小雨
+- `characters`: 小雨
+- `characters`: 尼特加
+- `characters`: 尼特加
+- `characters`: 尼特加的花园
+- `characters`: 岩光试炼
+- `characters`: 岩拓
+- `characters`: 岩拓
+- `characters`: 希尔人
+- `characters`: 帝印
+- `characters`: 帝国宴会礼仪
+- `characters`: 年表画廊
+- `characters`: 幻境
+- `characters`: 幻境中的性别与婚恋观念
+- `characters`: 幻境临时政府
+- `characters`: 幻境净土化改造
+- `characters`: 幻境可乐
+- `characters`: 幻境心理医院
+- `characters`: 幻境文明
+- `characters`: 幽灵飞船
+- `characters`: 庆云岛
+- `characters`: 异常收容所
+- `characters`: 弄影
+- `characters`: 归终之间
+- `characters`: 征夫饼
+- `characters`: 微景
+- `characters`: 微景
+- `characters`: 德斯特文明
+- `characters`: 思息屏障
+- `characters`: 恒续棘轮
+- `characters`: 惯性抑制场
+- `characters`: 意识之湖
+- `characters`: 战争形态与战术
+- `characters`: 戴里克
+- `characters`: 戴里克
+- `characters`: 扎尔诺夫
+- `characters`: 护学府
+- `characters`: 数字遗存档案保管与展示空间
+- `characters`: 斫竹之役
+- `characters`: 无人战机
+- `characters`: 日内瓦停止机构
+- `characters`: 旧作
+- `characters`: 旧宇宙广播中心
+- `characters`: 时间钟楼（建筑）
+- `characters`: 明镜军
+- `characters`: 星之廷
+- `characters`: 星堡
+- `characters`: 星星饼
+- `characters`: 星球清理装置
+- `characters`: 星绮君宫
+- `characters`: 星辉项圈
+- `characters`: 星雪
+- `characters`: 星雪
+- `characters`: 普达拉塔
+- `characters`: 智能体学校
+- `characters`: 智能体学校（组织）
+- `characters`: 智能体庇护所
+- `characters`: 暗塔
+- `characters`: 暗塔
+- `characters`: 暗影异变
+- `characters`: 暮雨
+- `characters`: 暮雨
+- `characters`: 暮雨（神格）
+- `characters`: 暮雨（神格）
+- `characters`: 月兔
+- `characters`: 月兔之城
+- `characters`: 月兔之城（城邦）
+- `characters`: 月兔密室
+- `characters`: 月兔文化
+- `characters`: 月兔文明
+- `characters`: 月宫
+- `characters`: 月球
+- `characters`: 月相
+- `characters`: 月神
+- `characters`: 月神
+- `characters`: 有求必应厅
+- `characters`: 有求必应厅（组织）
+- `characters`: 望凤山
+- `characters`: 木棉江
+- `characters`: 末日灾变
+- `characters`: 术战部队
+- `characters`: 朱槿营地
+- `characters`: 朱槿营地咖啡厅
+- `characters`: 机器人
+- `characters`: 机械之火
+- `characters`: 松岚星域
+- `characters`: 林中府邸
+- `characters`: 林涛
+- `characters`: 林涛
+- `characters`: 林雯雅
+- `characters`: 林雯雅
+- `characters`: 柯源
+- `characters`: 柯源
+- `characters`: 柳如欣
+- `characters`: 柳如欣
+- `characters`: 柳月
+- `characters`: 柳月
+- `characters`: 柳月道具店
+- `characters`: 柴旺超市
+- `characters`: 梓坂城
+- `characters`: 梦梦
+- `characters`: 梦梦
+- `characters`: 梦琴
+- `characters`: 梦琴
+- `characters`: 梳金院
+- `characters`: 槿月宁
+- `characters`: 槿月宁
+- `characters`: 槿月宴
+- `characters`: 槿月宴
+- `characters`: 歌唯
+- `characters`: 歌唯
+- `characters`: 正弦司
+- `characters`: 武器灵
+- `characters`: 武装力量构成
+- `characters`: 残漏
+- `characters`: 池鸿威
+- `characters`: 池鸿威
+- `characters`: 沙都印象
+- `characters`: 沙都文明
+- `characters`: 法务司草稿
+- `characters`: 法术分类体系
+- `characters`: 泽代
+- `characters`: 泽代
+- `characters`: 泽代五剑远征
+- `characters`: 泽代神殿
+- `characters`: 泽虚殿
+- `characters`: 洛斯耶马
+- `characters`: 洛斯耶马底亚
+- `characters`: 洛斯耶马文明
+- `characters`: 洛马斯
+- `characters`: 洛马斯
+- `characters`: 津廊Ⅵd
+- `characters`: 济世彩铃
+- `characters`: 海底墓场
+- `characters`: 涅利亚仓鼠
+- `characters`: 深潜飞碟
+- `characters`: 清算
+- `characters`: 溟渊之枪
+- `characters`: 灵素导弹
+- `characters`: 灵能限制器
+- `characters`: 烘焙与甜品文化
+- `characters`: 爱丽娜·罗娜尼雅·丽之本
+- `characters`: 爱丽娜·罗娜尼雅·丽之本
 - `characters`: 爱菲莉丝
-- `world.locations`: 月球/月面
-- `world.locations`: 月宫/夏宫
-- `world.locations`: 月兔之城
-- `world.locations`: 月兔密室
-- `world.locations`: 幻境世界
-- `world.locations`: 绒花帝国
-- `world.locations`: 绒花宫
-- `world.locations`: 风神城
-- `world.locations`: 风神府
-- `world.locations`: 沙都第七区
-- `world.locations`: 无名居
-- `world.locations`: 女仆咖啡厅
-- `world.locations`: 林中府邸
-- `world.locations`: 废弃矿业小行星
-- `world.locations`: 边境星系
-- `world.locations`: 牧人天堂/联结城
-- `world.locations`: 大云共和国
-- `world.locations`: 伏夜提加
-- `world.locations`: 归终之间
-- `world.locations`: 星绮君宫
-- `world.locations`: 幻境心理医院
-- `world.locations`: 幻境边境观测站
-- `world.locations`: 紫枢院
-- `world.factions`: 牧人天堂
-- `world.factions`: 魔法使自律委员会
-- `world.factions`: 正弦司
-- `world.factions`: 术战部队
-- `world.factions`: 荣安堂
-- `world.factions`: 三法司
-- `world.factions`: 圣卫军
-- `world.factions`: 明镜军
-- `world.factions`: 紫枢院
-- `world.factions`: 绒花科学院
-- `world.factions`: 皇家魔法学院
-- `world.factions`: 净蚀者文明
-- `world.factions`: 大云共和国
-- `world.magic_system`: 侵蚀-清算-天灾框架
-- `world.magic_system`: 魔法许可证等级制度
-- `world.magic_system`: 菲洛柯三项奠基工作
-- `world.magic_system`: 言灵咒术
-- `world.magic_system`: 沉默术式（三级）
-- `world.magic_system`: 融光仪式/驻月鉴
-- `world.magic_system`: 月面大结界
-- `world.magic_system`: 神代科技
-- `world.magic_system`: 意识上传/机械飞升
-- `world.magic_system`: 侵蚀类型
-- `world.magic_system`: 信号源机制
-- `world.items`: 休止符
-- `world.items`: 玉简
-- `world.items`: 漆匣
-- `world.items`: 灵素
-- `world.items`: 世界盒子
-- `world.items`: 神之脑
-- `world.items`: 蓝焰草茶
-- `world.items`: 规则锚定带
+- `characters`: 爱菲莉丝
+- `characters`: 牧人天堂
+- `characters`: 物质枪
+- `characters`: 特拉图雅中学地下防空洞
+- `characters`: 狐岳关
+- `characters`: 狐狐食堂
+- `characters`: 玄荆
+- `characters`: 王巧如
+- `characters`: 王巧如
+- `characters`: 玥族文化
+- `characters`: 生命之树
+- `characters`: 生命之树供奉处
+- `characters`: 生命序列院
+- `characters`: 电波屏蔽基站
+- `characters`: 疗养院
+- `characters`: 白梨
+- `characters`: 白梨
+- `characters`: 白芝原
+- `characters`: 白芝原
+- `characters`: 白莲
+- `characters`: 白莲
+- `characters`: 百花教廷
+- `characters`: 皇家魔法学院章程
+- `characters`: 皇家魔法学院（组织）
+- `characters`: 皇家魔法学院（风神城校区）
+- `characters`: 真理之杖
+- `characters`: 眠洁剑封印地
+- `characters`: 知尘星域
+- `characters`: 砚临星域
+- `characters`: 碎片角色列表
+- `characters`: 碎片角色列表
+- `characters`: 神明
+- `characters`: 祭礼司
+- `characters`: 突触震动
+- `characters`: 竞技大会
+- `characters`: 笑猫
+- `characters`: 符拉特斯克
+- `characters`: 符梦
+- `characters`: 符梦
+- `characters`: 第一临时庇护星球
+- `characters`: 第一次泽虚殿之战
+- `characters`: 第二审讯室
+- `characters`: 第二次泽虚殿之战
+- `characters`: 算经堂
+- `characters`: 米勒察呼台
+- `characters`: 米尔
+- `characters`: 米尔
+- `characters`: 米尔事件
+- `characters`: 米尔庇护所
+- `characters`: 素羽
+- `characters`: 素羽
+- `characters`: 索露娅
+- `characters`: 索露娅
+- `characters`: 紫枢院
+- `characters`: 红毛丹
+- `characters`: 纷花号
+- `characters`: 绒兽世界文明
+- `characters`: 绒花人
+- `characters`: 绒花图书馆
+- `characters`: 绒花图书馆（组织）
+- `characters`: 绒花宫
+- `characters`: 绒花宫地下室
+- `characters`: 绒花宫（组织）
+- `characters`: 绒花帝国
+- `characters`: 绒花帝国娱乐休闲
+- `characters`: 绒花帝国官职体系
+- `characters`: 绒花帝国授时中心
+- `characters`: 绒花帝国的历法
+- `characters`: 绒花帝国的节日
+- `characters`: 绒花帝国魔法管制法
+- `characters`: 绒花帝国魔法管制草案（2024）
+- `characters`: 绒花帝国魔法许可证管理法
+- `characters`: 绒花文学部
+- `characters`: 绒花文明
+- `characters`: 绒花烧烤文化
+- `characters`: 绒花科学院
+- `characters`: 绒花系统
+- `characters`: 绒花音乐会
+- `characters`: 绢诺星域
+- `characters`: 绫焚剑封印地
+- `characters`: 绯茵
+- `characters`: 绯茵
+- `characters`: 维拉米亚
+- `characters`: 维拉米亚工厂
+- `characters`: 维达班诺共和国
+- `characters`: 罗霄
+- `characters`: 罗霄
+- `characters`: 美西佳烘焙
+- `characters`: 羽落之战
+- `characters`: 联合防御协定
+- `characters`: 胡雅维嘉
+- `characters`: 自主智能体权益与共生法案
+- `characters`: 自主智能体权益与共生法案草案（2025）
+- `characters`: 至日剑封印地
+- `characters`: 舒维娅
+- `characters`: 舒维娅
+- `characters`: 芦苇
+- `characters`: 芦苇
+- `characters`: 芦苇之死
+- `characters`: 花之骑士
+- `characters`: 花瑜剑
+- `characters`: 苏叙白
+- `characters`: 苏叙白
+- `characters`: 苏禾
+- `characters`: 苏禾
+- `characters`: 苓福
+- `characters`: 苓福
+- `characters`: 若空之境
+- `characters`: 茗曦广场
+- `characters`: 茶叶统计
+- `characters`: 荣安堂
+- `characters`: 荣安堂（组织）
+- `characters`: 莉亚
+- `characters`: 莉亚
+- `characters`: 莉莉
+- `characters`: 莉莉
+- `characters`: 莱姆哈顿
+- `characters`: 菲洛柯·洛林
+- `characters`: 菲洛柯·洛林
+- `characters`: 萨拉达斯
+- `characters`: 葵弥
+- `characters`: 葵弥
+- `characters`: 蓝箭台
+- `characters`: 蓝箭台之盟
+- `characters`: 薇薇安
+- `characters`: 薇薇安
+- `characters`: 褪墨星域
+- `characters`: 视域开拓空间站
+- `characters`: 觉醒智能体共生与发展协议
+- `characters`: 言灵
+- `characters`: 记忆图书馆
+- `characters`: 谐律者文明
+- `characters`: 豆霖
+- `characters`: 豆霖
+- `characters`: 贤希洛斯叶利斯
+- `characters`: 贤希洛斯叶利斯
+- `characters`: 赤阳异变
+- `characters`: 跃迁鱼雷
+- `characters`: 辉煌大楼
+- `characters`: 辛炎罗斯·米古
+- `characters`: 辛炎罗斯·米古
+- `characters`: 边境临时居住站
+- `characters`: 边境传送门
+- `characters`: 边境星域
+- `characters`: 边境星系
+- `characters`: 逐光短刃
+- `characters`: 通天之塔
+- `characters`: 避雨器
+- `characters`: 郑安
+- `characters`: 郑安
+- `characters`: 钟永明
+- `characters`: 钟永明
+- `characters`: 银月饼
+- `characters`: 锋炎（自然罗盘）
+- `characters`: 锋炎（自然罗盘）
+- `characters`: 镇封泽代
+- `characters`: 镇江堡
+- `characters`: 长岩
+- `characters`: 阿冰
+- `characters`: 阿冰
+- `characters`: 阿希德米亚
+- `characters`: 陆衡
+- `characters`: 陆衡
+- `characters`: 陈彩燕
+- `characters`: 陈彩燕
+- `characters`: 隐匿装置
+- `characters`: 雨神宫
+- `characters`: 雪兰星域
+- `characters`: 雾纱
+- `characters`: 露汐
+- `characters`: 露汐
+- `characters`: 露汐的家
+- `characters`: 青岚
+- `characters`: 青岚
+- `characters`: 青鸢线
+- `characters`: 静默山谷
+- `characters`: 韩总督
+- `characters`: 韩总督
+- `characters`: 风云线
+- `characters`: 风灵
+- `characters`: 风灵
+- `characters`: 风神城
+- `characters`: 风神城狩猎
+- `characters`: 风神大社
+- `characters`: 风神府
+- `characters`: 食脑兽
+- `characters`: 首期魔法许可证注册与评估特别条例
+- `characters`: 魏耀辰
+- `characters`: 魏耀辰
+- `characters`: 魏老头
+- `characters`: 魏老头
+- `characters`: 魔导器原理
+- `characters`: 魔法使
+- `characters`: 魔法使自律委员会
+- `characters`: 魔法许可证等级制度
+- `characters`: 黎薇
+- `characters`: 黎薇
+- `characters`: 黑暗吞噬者
+- `characters`: 齐羽
+- `characters`: 齐羽
 
 ## 统计
 
-- 设定条目总数: 117
-- 溯源素材数: 16
-- 未溯源条目: 70
+- 设定条目总数: 480
+- 溯源素材数: 1
+- 未溯源条目: 0
 
 > 未溯源条目建议在下次归并时补充 source 字段。

@@ -92,10 +92,13 @@ function getWorkspaceDir() {
 }
 
 // 首启：种子 payload 进 workspace + 建 data/ 目录结构
+// 打包态：从 process.resourcesPath/payload 复制；源码态：从项目根目录 ROOT 复制
 function seedWorkspace() {
   const ws = getWorkspaceDir();
   if (fs.existsSync(path.join(ws, ".seeded"))) return;
-  const payloadRoot = path.join(process.resourcesPath, "payload");
+  const payloadRoot = isPackaged
+    ? path.join(process.resourcesPath, "payload")
+    : ROOT;
   const seedDirs = ["scripts", "prompts", "config", "templates"];
   for (const d of seedDirs) {
     const src = path.join(payloadRoot, d);
@@ -369,6 +372,8 @@ function createWindow() {
     minWidth: 980,
     minHeight: 640,
     title: "绒花墨坊",
+    // Windows 用多尺寸 ICO（系统按 DPI 自动选帧，避免高分屏模糊）；其余平台用 256px PNG
+    icon: path.join(__dirname, "..", "build", process.platform === "win32" ? "icon.ico" : "icon.png"),
     autoHideMenuBar: true,
     backgroundColor: "#eef0f4",
     webPreferences: {
@@ -401,9 +406,7 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
-  if (isPackaged) {
-    seedWorkspace();
-  }
+  seedWorkspace();
   const ws = getWorkspaceDir();
   const seedMarker = path.join(ws, ".seeded");
   const configOk = fs.existsSync(path.join(ws, "config", "system.yaml"));
