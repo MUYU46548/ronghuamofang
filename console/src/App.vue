@@ -11,6 +11,16 @@ import StylePanel from "./StylePanel.vue";
 import CommandPalette from "./CommandPalette.vue";
 import AboutDialog from "./AboutDialog.vue";
 import NewProjectWizard from "./NewProjectWizard.vue";
+import QualityTrend from "./QualityTrend.vue";
+
+// 审批门通知偏好
+const GATE_NOTIFY_KEY = "mofang_gate_notify";
+function gateNotifyEnabled() {
+  return localStorage.getItem(GATE_NOTIFY_KEY) === "1";
+}
+function setGateNotify(on) {
+  localStorage.setItem(GATE_NOTIFY_KEY, on ? "1" : "0");
+}
 
 // 后端地址：默认本机 8765。自动化 UI 验收脚本可用 window.__NF_API_BASE__ 把它指向
 // 临时端口（避免干扰用户正在运行的控制台实例）。
@@ -1214,10 +1224,35 @@ const pendingGates = computed(() => {
 const isRunning = computed(() => !!state.value?.current_job);
 const progressPct = computed(() => {
   if (!state.value) return 0;
-  const order = ["pending", "failed", "rejected", "running", "done"];
   const doneCount = state.value.stages.filter((s) => s.status === "done").length;
   return Math.round((doneCount / 7) * 100);
 });
+const allDone = computed(() => {
+  if (!state.value) return false;
+  const stages = state.value.stages || [];
+  return stages.length > 0 && stages.every((s) => s.status === "done");
+});
+const currentStageText = computed(() => {
+  if (!state.value) return "—";
+  const stages = state.value.stages || [];
+  const running = stages.find((s) => s.status === "running");
+  if (running) return "阶段 " + running.stage + "·" + (STAGE_NAMES[running.stage] || "") + "（运行中）";
+  const pending = stages.find((s) => s.status === "pending");
+  if (pending) return "阶段 " + pending.stage + "·" + (STAGE_NAMES[pending.stage] || "") + "（待运行）";
+  const failed = stages.find((s) => s.status === "failed" || s.status === "rejected");
+  if (failed) return "阶段 " + failed.stage + "·" + (STAGE_NAMES[failed.stage] || "") + "（需处理）";
+  if (stages.every((s) => s.status === "done")) return "全部完成";
+  return "—";
+});
+const doneStages = computed(() => {
+  if (!state.value) return 0;
+  return state.value.stages.filter((s) => s.status === "done").length;
+});
+const totalStages = computed(() => {
+  if (!state.value) return 7;
+  return state.value.stages.length || 7;
+});
+const progressPercent = computed(() => progressPct.value);
 
 function statusBadge(s) {
   return { pending: "待办", running: "进行中", done: "完成", failed: "失败", rejected: "已打回" }[s] || s;
@@ -1351,11 +1386,61 @@ async function runQuickStage() {
 // 跑完自动提示下一步（②"完成后自动跳转"）：检测 job 从「有」到「无」的跳变
 const nextPopup = ref(false);
 const nextPopupDismissed = ref(localStorage.getItem("mofang_flow_popup") === "0");
+const gateJustHit = ref(false); // 刚刚撞门（从非审批门状态跳到审批门）
 let wasRunning = false;
+let hadGate = false;
+const gateArtifacts = ref({}); // {stage: [{path, lines}]}
+
+// 加载审批门的产物概况（行数/是否为空）
+async function loadGateArtifacts() {
+  for (const g of pendingGates.value) {
+    const paths = g.stage === 2
+      ? ["data/outline/global.md", "data/outline/review_report.md"]
+      : ["data/outline/polish_report.md"];
+    const info = [];
+    for (const p of paths) {
+      const r = await window.mofangAPI.readPreview(p);
+      if (r.ok) info.push({ path: p, lines: r.content.split("\n").length });
+      else info.push({ path: p, lines: 0 });
+    }
+    gateArtifacts.value[g.stage] = info;
+  }
+}
+
+watch(pendingGates, loadGateArtifacts, { immediate: true });
+
+// 撞门通知：当审批门出现时弹系统通知
+function notifyGate(stage) {
+  if (!gateNotify.value) return;
+  const label = STAGE_NAMES[stage] || "未知阶段";
+  try {
+    if ("Notification" in window && Notification.permission === "granted") {
+      new Notification("绒花墨坊 — 阶段 " + stage + " 可审批", {
+        body: label + " 已完成，点击进入收件箱审阅放行。",
+        tag: "gate-" + stage,
+      });
+    }
+  } catch (e) { /* ignore */ }
+}
+async function requestNotifyPermission() {
+  if ("Notification" in window && Notification.permission === "default") {
+    await Notification.requestPermission();
+  }
+}
+
 let lastFinishedKind = "";
 
 function noteJobTransition(snap) {
   const nowRunning = !!snap?.current_job;
+  // 撞门检测：上一拍没有审批门，这一拍出现了 → 通知+自动跳转
+  const stages = snap?.stages || [];
+  const newGate = stages.find((s) => s.status === "done" && !s.approved);
+  if (!hadGate && newGate) {
+    notifyGate(newGate.stage);
+    gateJustHit.value = true;
+    if (gateNotify.value) switchTab("inbox");
+  }
+  hadGate = !!newGate;
   if (wasRunning && !nowRunning) {
     lastFinishedKind = (lastJob.value?.kind || snap?.last_job?.kind || "") + "";
     // 跑完自动把「快速运行」的选择器推进到下一个未完成阶段
@@ -1366,10 +1451,19 @@ function noteJobTransition(snap) {
   wasRunning = nowRunning;
 }
 
+const stage4Done = computed(() => state.value?.stages?.[3]?.status === "done");
+
 // 状态首次加载后，把快速运行面板对齐到「下一个未完成阶段」
 watch(state, () => {
   if (quickStage.value === null && nextAction.value?.kind === "run") {
     quickStage.value = nextAction.value.stage;
+  }
+});
+
+// stage 4 完成后自动拉取章节质量数据（QualityTrend 首次加载触发）
+watch(stage4Done, (done) => {
+  if (done && Object.keys(chapterQuality.value).length === 0) {
+    loadChapterQuality();
   }
 });
 
@@ -1467,12 +1561,50 @@ async function onProjectCreated(msg) {
   switchTab("pipeline");
 }
 
-/** 工作区全新（没有任何产物）+ 无素材 → 冷启动引导 */
+/** 工作区全新（没有跑过流水线）→ 冷启动引导 */
 const isColdStart = computed(() => {
   if (!state.value) return false;
   const stages = state.value.stages || [];
   const allPending = stages.length > 0 && stages.every((s) => s.status === "pending");
-  return allPending && !state.value.has_work;
+  return allPending && !state.value.has_progress;
+});
+
+/* ---------- 首启引导状态检测 ---------- */
+const coldStartStatus = ref({
+  materials: { count: 0, checked: false },
+  apiKey: { has_key: false, checked: false },
+  bookName: { name: "", checked: false },
+});
+
+async function checkColdStartStatus() {
+  if (!isColdStart.value) return;
+  // 素材数
+  try {
+    const m = await api("/materials/list");
+    if (m.status === 200) {
+      coldStartStatus.value.materials = { count: m.data.count || 0, checked: true };
+    }
+  } catch (e) { /* ignore */ }
+  // API Key
+  try {
+    const p = await api("/models/available");
+    if (p.status === 200) {
+      const tokenhub = p.data.providers?.tokenhub;
+      coldStartStatus.value.apiKey = { has_key: !!tokenhub?.has_key, checked: true };
+    }
+  } catch (e) { /* ignore */ }
+  // 书名
+  try {
+    const c = await api("/config/project");
+    if (c.status === 200 && c.data.ok) {
+      coldStartStatus.value.bookName = { name: c.data.config?.book?.name || "", checked: true };
+    }
+  } catch (e) { /* ignore */ }
+}
+
+const coldStartReady = computed(() => {
+  const s = coldStartStatus.value;
+  return s.materials.count > 0 && s.apiKey.has_key && s.bookName.name && s.bookName.name !== "示例书名（待填写）";
 });
 
 const SHORTCUTS = [
@@ -1626,6 +1758,9 @@ async function runCommand(id) {
 /* ---------- 章节浏览 ---------- */
 const chapters = ref([]);      // [{n, files: {raw, checked, refined}}]
 const chaptersLoaded = ref(false);
+const chapterQuality = ref({});  // {1: 7.5, 2: null, ...}
+const chapterThreshold = ref(6);
+const gateNotify = ref(gateNotifyEnabled());
 async function loadChapters() {
   // 章数从 config/project.yaml 读（白名单允许 config/*.yaml）
   let total = 3;
@@ -1633,6 +1768,9 @@ async function loadChapters() {
   if (cfg.ok) {
     const m = cfg.content.match(/^\s*chapters:\s*(\d+)/m);
     if (m) total = parseInt(m[1], 10);
+    // 读取质量阈值
+    const tm = cfg.content.match(/quality_threshold:\s*([\d.]+)/);
+    if (tm) chapterThreshold.value = parseFloat(tm[1]);
   }
   const list = [];
   for (let n = 1; n <= total; n++) {
@@ -1650,6 +1788,26 @@ async function loadChapters() {
   }
   chapters.value = list;
   chaptersLoaded.value = true;
+  // 加载质量评分
+  loadChapterQuality();
+}
+async function loadChapterQuality() {
+  try {
+    const r = await api("/chapters/quality");
+    if (r.status === 200 && r.data.ok) {
+      const q = {};
+      for (const c of r.data.chapters) {
+        q[c.n] = c.quality;
+      }
+      chapterQuality.value = q;
+    }
+  } catch (e) { /* ignore */ }
+}
+function qualityClass(score) {
+  if (score == null) return "st-pending";
+  if (score >= 7) return "st-done";
+  if (score >= 4) return "st-warn";
+  return "st-failed";
 }
 const viewDoc = ref(null);     // { title, content }
 const diffView = ref(null);     // { title, raw, refined }
@@ -1817,6 +1975,8 @@ onMounted(() => {
   checkInitWizard();
   // 检查素材目录是否为空
   checkMaterialsEmpty();
+  // 首启引导状态检测（监听 isColdStart 变化，state 加载完成后自动触发）
+  watch(isColdStart, (v) => { if (v) checkColdStartStatus(); });
 });
 
 async function checkMaterialsEmpty() {
@@ -1941,6 +2101,8 @@ onUnmounted(() => {
             <b>放素材</b>
             <div class="meta">materials/raw/ 放设定卡；随手写的碎片丢 materials/original_scraps/</div>
           </div>
+          <span v-if="coldStartStatus.materials.checked && coldStartStatus.materials.count > 0" class="pill st-done">✓ {{ coldStartStatus.materials.count }} 张卡</span>
+          <span v-else-if="coldStartStatus.materials.checked" class="pill st-warn">暂无素材</span>
           <button class="mini" @click="switchTab('materials')">去素材</button>
         </div>
         <div class="cs-step">
@@ -1949,6 +2111,8 @@ onUnmounted(() => {
             <b>建项目</b>
             <div class="meta">书名 / 类型 / 章数一键创建（自动归档旧项目）</div>
           </div>
+          <span v-if="coldStartStatus.bookName.checked && coldStartStatus.bookName.name && coldStartStatus.bookName.name !== '示例书名（待填写）'" class="pill st-done">✓ {{ coldStartStatus.bookName.name }}</span>
+          <span v-else-if="coldStartStatus.bookName.checked" class="pill st-warn">未命名</span>
           <button class="mini primary" @click="openNewProject">新建项目</button>
         </div>
         <div class="cs-step">
@@ -1957,6 +2121,8 @@ onUnmounted(() => {
             <b>跑流水线</b>
             <div class="meta">下面「一键工作流 → 执行下一步」；审批门在「收件箱」</div>
           </div>
+          <span v-if="coldStartStatus.apiKey.checked && coldStartStatus.apiKey.has_key" class="pill st-done">✓ API 已配置</span>
+          <span v-else-if="coldStartStatus.apiKey.checked" class="pill st-warn">API 未配置</span>
           <button class="mini" @click="paletteOpen = true">Ctrl+K 命令面板</button>
         </div>
         <div class="cs-step">
@@ -1968,7 +2134,49 @@ onUnmounted(() => {
           <button class="mini" @click="openAbout">看完整说明</button>
         </div>
       </div>
+      <!-- 状态全绿时显示「开始运行」按钮 -->
+      <div v-if="coldStartReady" class="cs-ready">
+        <span class="meta">三项准备就绪：素材 {{ coldStartStatus.materials.count }} 张 · API 已配置 · 项目「{{ coldStartStatus.bookName.name }}」</span>
+        <button class="mini primary" @click="runNextAction">开始运行流水线</button>
+      </div>
+      <!-- 状态未全绿时显示提示 -->
+      <div v-else class="cs-warn">
+        <span class="meta">请先完成上方步骤（素材、项目、API Key）后再运行流水线。</span>
+      </div>
     </div>
+
+    <!-- 流水线状态卡片：当前状态 + 下一步 + 实时进度 -->
+    <section v-if="tab === 'pipeline' && state" class="card pipeline-status">
+      <div class="card-head">
+        <h3>当前状态</h3>
+        <span v-if="isRunning" class="pill st-running">运行中</span>
+        <span v-else-if="pendingGates.length" class="pill st-gate">待审批 {{ pendingGates.length }}</span>
+        <span v-else-if="allDone" class="pill st-done">全部完成</span>
+        <span v-else class="pill st-pending">准备就绪</span>
+      </div>
+      <div class="ps-grid">
+        <div class="ps-item">
+          <span class="ps-label">当前阶段</span>
+          <span class="ps-value">{{ currentStageText }}</span>
+        </div>
+        <div class="ps-item">
+          <span class="ps-label">下一步</span>
+          <span class="ps-value">{{ nextAction ? nextAction.label : '（已完成）' }}</span>
+        </div>
+        <div class="ps-item">
+          <span class="ps-label">预计费用</span>
+          <span class="ps-value">{{ nextAction ? nextAction.hint : '—' }}</span>
+        </div>
+        <div class="ps-item">
+          <span class="ps-label">累计花费</span>
+          <span class="ps-value">¥{{ state.cost.spent_yuan.toFixed(2) }} / ¥{{ state.cost.limit_yuan }}</span>
+        </div>
+      </div>
+      <div v-if="isRunning" class="ps-progress">
+        <div class="ps-progress-bar" :style="{ width: progressPercent + '%' }"></div>
+        <span class="ps-progress-text">{{ progressPercent }}% 完成（{{ doneStages }}/{{ totalStages }} 阶段）</span>
+      </div>
+    </section>
 
     <!-- 一键工作流（UX-1）：唯一的运行入口 —— 步骤条 + 下一步 + 选阶段预估 + 全自动 -->
     <section v-if="tab === 'pipeline' && state" class="card flow-strip">
@@ -2098,11 +2306,20 @@ onUnmounted(() => {
       <div class="card-head">
         <h3>章节产物（raw → checked → refined）</h3>
         <button class="mini" @click="loadChapters">重新探测</button>
+        <button class="mini" @click="loadChapterQuality" title="刷新质量评分">质量</button>
       </div>
+      <!-- P2: 质量趋势图 -->
+      <QualityTrend :chapters="Object.keys(chapterQuality).map(n => ({n: +n, quality: chapterQuality[n]}))"
+                    :threshold="chapterThreshold" class="qt-wrap"
+                    @gotoReview="switchTab('review')" @gotoRefine="switchTab('review')" />
       <div v-if="!chaptersLoaded" class="empty">点击"重新探测"加载章节产物</div>
       <div v-for="c in chapters" :key="c.n" class="chap-row">
         <span class="stage-no lit">{{ c.n }}</span>
         <span class="chap-name">第 {{ c.n }} 章</span>
+        <span v-if="chapterQuality[c.n] != null" class="pill" :class="qualityClass(chapterQuality[c.n])">
+          {{ chapterQuality[c.n] }}/10
+        </span>
+        <span v-else-if="c.files.raw" class="pill st-pending">未评分</span>
         <span class="spacer"></span>
         <button class="mini" :class="{ ghost: !c.files.raw }" @click="openDoc('第' + c.n + '章 原稿', c.files.raw)">原稿</button>
         <button class="mini" :class="{ ghost: !c.files.checked }" @click="openDoc('第' + c.n + '章 检查稿', c.files.checked)">检查稿</button>
@@ -2241,7 +2458,12 @@ onUnmounted(() => {
 
     <!-- 收件箱 -->
     <section v-if="tab === 'inbox' && state" class="card">
-      <h3>审批收件箱</h3>
+      <div class="card-head">
+        <h3>审批收件箱</h3>
+        <span v-if="gateJustHit" class="pill st-gate">刚到达</span>
+        <button class="mini" @click="requestNotifyPermission" title="允许浏览器发送审批门通知">🔔 通知权限</button>
+        <span class="meta">{{ gateNotify ? '已开启' : '已关闭' }}（点击切换）</span>
+      </div>
       <div v-if="!pendingGates.length" class="empty">暂无待审项 —— 审批门阶段（2 大纲 / 6 润色）完成并等待确认时会出现在这里</div>
       <div v-for="s in pendingGates" :key="s.stage" class="gate-card">
         <div class="gate-head">
@@ -2261,6 +2483,13 @@ onUnmounted(() => {
           <button class="mini" v-if="s.stage === 2" @click="preview('data/outline/global.md')">预览原文</button>
           <button class="mini" v-if="s.stage === 2" @click="preview('data/outline/review_report.md')">体检报告</button>
           <button class="mini" v-if="s.stage === 6" @click="preview('data/outline/polish_report.md')">润色体检报告</button>
+        </div>
+        <!-- 产物摘要 -->
+        <div v-if="gateArtifacts[s.stage]" class="gate-artifacts">
+          <span class="meta">产物概况：</span>
+          <span v-for="a in gateArtifacts[s.stage]" :key="a.path" class="gate-artifact-pill">
+            {{ a.path.split('/').slice(-1)[0] }} ({{ a.lines }} 行)
+          </span>
         </div>
         <!-- Stage 2: 大纲体检评分 -->
         <div v-if="s.stage === 2 && outlineSummary" class="gate-score">
@@ -2459,6 +2688,18 @@ onUnmounted(() => {
         API Key 通过项目 .env 文件配置，不在此处明文显示。
       </div>
       <button class="mini" @click="openEnvFile" style="margin-top: 8px;">打开 .env 文件</button>
+
+      <!-- P1: 审批门通知 -->
+      <h4 style="margin-top: 16px;">审批门通知</h4>
+      <div class="gate-notify-row">
+        <div>
+          <div class="label">浏览器通知 + 自动跳转收件箱</div>
+          <div class="meta">审批门到达（阶段 2/6 完成未确认）时，自动切到收件箱页签并弹浏览器通知（需授权）。可关闭。</div>
+        </div>
+        <button class="mini" :class="{ primary: gateNotify }" @click="gateNotify = !gateNotify; setGateNotify(gateNotify)">
+          {{ gateNotify ? '已开启' : '已关闭' }}
+        </button>
+      </div>
 
       <!-- 用户风格笔记 -->
       <h4 style="margin-top: 16px;">用户风格笔记（book.style_notes）</h4>
