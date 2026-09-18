@@ -10,7 +10,7 @@
 ROSA 库本体只读——所有产物写入沙盒，人工审阅后自行发布。
 
 用法：
-  python scripts/rosa_postprocess.py [--books|--roles|--all] [--dry-run] [--no-llm]
+  python scripts/obsidian_postprocess.py [--books|--roles|--all] [--dry-run] [--no-llm]
 """
 import argparse
 import json
@@ -204,11 +204,20 @@ def run(proj, mode="all", client=None, task_dir="data/state/tasks",
     sandbox = Path(rosa["sandbox_dir"])
     sandbox.mkdir(parents=True, exist_ok=True)
 
+    # 路径遍历防护：校验所有写入路径在沙盒内
+    from obsidian_bridge import _validate_sandbox_path
+    book = proj.get("book", {})
+    book_name = book.get("name", "未命名")
+    # 校验 book_name 不包含路径遍历字符
+    ok, err = _validate_sandbox_path(f"{book_name}_作品介绍页_草稿.md")
+    if not ok:
+        return False, f"书名包含非法字符: {err}"
+
     # 1) 出场统计（确定性）
     stats, total_chapters, new_candidates = app.count_appearances()
     if not stats:
         return False, "未找到角色或章节（先跑 stage3/4）"
-    print(f"[rosa] 出场统计：{len(stats)} 角色 / {total_chapters} 章")
+    print(f"[obsidian] 出场统计：{len(stats)} 角色 / {total_chapters} 章")
 
     # 1.5) 精确选择（--roles）：只处理指定角色
     if only_roles:
@@ -227,8 +236,8 @@ def run(proj, mode="all", client=None, task_dir="data/state/tasks",
                   if st.get("in_setting") and has_rosa_entry(n, rosa_dirs)]
     need_page = [n for n, st in stats.items()
                  if st.get("level") != "absent" and not st.get("in_setting")]
-    print(f"[rosa] 已有词条角色：{len(with_entry)} 个（出出场记录）")
-    print(f"[rosa] 无词条新角色：{len(need_page)} 个（出设定草稿）")
+    print(f"[obsidian] 已有词条角色：{len(with_entry)} 个（出出场记录）")
+    print(f"[obsidian] 无词条新角色：{len(need_page)} 个（出设定草稿）")
 
     plans = []
     if mode in ("books", "all"):

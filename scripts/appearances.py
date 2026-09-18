@@ -10,7 +10,7 @@
 - 次要角色（minor）：首次出场 ≤ 75% 全书章数 或 出现章数 ≥2
 - 背景与提及（background）：出现但未达次要标准
 - 未出现（absent）：设定集/大纲有角色但正文零提及（警告项，防"写了忘了用"）
-- 新角色候选（candidate_new）：逐章大纲提到但设定集无（rosa_postprocess 据此生成设定草稿）
+- 新角色候选（candidate_new）：逐章大纲提到但设定集无（obsidian_postprocess 据此生成设定草稿）
 
 用法：
   python scripts/appearances.py                       # 统计并写 appearances.json

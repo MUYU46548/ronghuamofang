@@ -34,12 +34,12 @@ def sync_appearances_after_chapter(chapter_text, chapter_no, total_chapters=None
     """章节完成后同步出场记录（确定性，零 LLM）。
 
     两路都做，任何异常只告警不阻断流水线（出场记录属辅助产物）：
-    1) rosa_integrate.sync_chapter_appearances → setting.json 的 appearances 字段（幂等）
+    1) obsidian_integrate.sync_chapter_appearances → setting.json 的 appearances 字段（幂等）
     2) appearances.refresh_appearances → data/state/appearances.json（全量重算，逐章精确）
     返回 True 表示 appearances.json 已刷新。
     """
     try:
-        from rosa_integrate import sync_chapter_appearances
+        from obsidian_integrate import sync_chapter_appearances
         sync_chapter_appearances(chapter_text, chapter_no)
     except Exception as e:      # noqa: BLE001
         print("[stage4] [warn] 出场记录同步失败（setting.json，不影响流程）: "

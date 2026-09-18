@@ -350,7 +350,7 @@ const levelLegend = [
 
     <div v-if="candidates.length" class="meta rg-cand">
       出场统计发现的新角色候选（大纲有、设定集无）：{{ candidates.join("、") }}
-      —— 建议跑 <code>python scripts/rosa_postprocess.py --role-records</code> 生成设定草稿。
+      —— 建议跑 <code>python scripts/obsidian_postprocess.py --role-records</code> 生成设定草稿。
     </div>
 
     <div class="rg-body">

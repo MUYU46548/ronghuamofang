@@ -119,7 +119,7 @@ NovelForge/
 
 - 所有创作数据在本机：`data/`（运行产物）、`history/`（快照）、`output/`（成品）
 - 模型 API Key 只存 `config/../.env`（`.gitignore` 已屏蔽），控制台内**从不显示明文**，只给掩码
-- 支持 Obsidian 设定库只读引用（`rosa_postprocess.py` 生成 markdown 文件，可手动导入 Obsidian）
+- 支持 Obsidian 设定库只读引用（`obsidian_postprocess.py` 生成 markdown 文件，可手动导入 Obsidian）
 - 除模型 API 和自动更新（GitHub Releases）外，程序不发起任何外部网络请求
 
 ## 常见问题

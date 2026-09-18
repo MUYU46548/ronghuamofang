@@ -9,7 +9,7 @@
 - ROSA 库本体只读——所有产物写入项目内 data/ 目录，人工审阅后自行发布
 - frontmatter 是唯一事实源；文件名 stem 仅作 fallback
 - locked 条目不可违逆（写作时必须遵循）
-- 新角色自动标记为 candidate，供 rosa_postprocess 生成设定草稿
+- 新角色自动标记为 candidate，供 obsidian_postprocess 生成设定草稿
 
 本模块是 obsidian_bridge 的兼容层，保持现有 API 不变。
 """
@@ -277,6 +277,12 @@ def build_setting_from_rosa(vault_path=None, output_path=None):
     }
     
     if output_path:
+        # 校验输出路径在项目内 data/ 目录下（防止路径遍历）
+        out = Path(output_path)
+        if out.is_absolute():
+            # 绝对路径只允许在 data/ 下
+            if not str(out).replace("\\", "/").startswith("data/"):
+                return False, f"输出路径必须在 data/ 目录下: {output_path}"
         write_text(output_path, json.dumps(setting, ensure_ascii=False, indent=2))
     
     return setting
@@ -301,6 +307,12 @@ def sync_chapter_appearances(chapter_text, chapter_no, setting_path="data/settin
     逐章精确计数以 data/state/appearances.json（appearances.refresh_appearances 全量重算）为准。
     返回 {character_name: {chapter, first_appearance, mentions}} 字典。
     """
+    # 路径遍历防护：只允许写 data/ 下的文件
+    sp = Path(setting_path)
+    if sp.is_absolute():
+        sp_str = str(sp).replace("\\", "/")
+        if not sp_str.startswith("data/"):
+            return {}, f"setting_path 必须在 data/ 目录下: {setting_path}"
     setting = json.loads(read_text(setting_path)) if Path(setting_path).exists() else {}
     characters = setting.get("characters", [])
     

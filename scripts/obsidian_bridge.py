@@ -25,8 +25,50 @@ from utils.file_io import read_text, write_text
 # ROSA vault 路径（只读）
 ROSA_VAULT = Path("E:/图书馆/ROSA")
 
-# 沙盒目录（唯一可写位置）
-SANDBOX_DIR = ROSA_VAULT / "Obsidian_AI_Sandbox" / "10_Inbox"
+# 沙盒目录（唯一可写位置）— 从 config/system.yaml 读取，支持自定义
+def _load_sandbox_dir():
+    """从 config/system.yaml 加载沙盒目录，默认 E:/图书馆/ROSA/Obsidian_AI_Sandbox/10_Inbox。"""
+    try:
+        import yaml
+        cfg = yaml.safe_load(read_text("config/system.yaml")) or {}
+        obsidian_cfg = cfg.get("obsidian", {})
+        sandbox = obsidian_cfg.get("sandbox_dir", "E:/图书馆/ROSA/Obsidian_AI_Sandbox/10_Inbox")
+        return Path(sandbox)
+    except Exception:
+        return ROSA_VAULT / "Obsidian_AI_Sandbox" / "10_Inbox"
+
+SANDBOX_DIR = _load_sandbox_dir()
+
+# 路径遍历防护（默认开）
+PATH_TRAVERSAL_GUARD = True
+
+
+def _validate_sandbox_path(filename, subdir=""):
+    """校验最终路径在沙盒内，防止路径遍历。
+
+    返回 (ok, error_message)。
+    """
+    if PATH_TRAVERSAL_GUARD:
+        # 拒绝绝对路径
+        if filename.startswith("/") or filename.startswith("\\") or (len(filename) > 1 and filename[1] == ":"):
+            return False, f"拒绝绝对路径: {filename}"
+
+        # 构建最终路径
+        sandbox = SANDBOX_DIR
+        if subdir:
+            sandbox = sandbox / subdir
+        out = sandbox / filename
+
+        # 解析后检查是否在沙盒内
+        try:
+            out_resolved = out.resolve()
+            sandbox_resolved = sandbox.resolve()
+            if not out_resolved.is_relative_to(sandbox_resolved):
+                return False, f"路径遍历风险: {filename} 不在沙盒内"
+        except Exception as e:
+            return False, f"路径解析失败: {e}"
+
+    return True, ""
 
 # 跳过目录（非正典内容）
 SKIP_DIRS = {'.obsidian', '.git', '.hermes', '.agent_context', '.sitian', '99 模板'}
@@ -450,6 +492,10 @@ def write_sandbox(filename, content, subdir=""):
     Returns:
         (ok, message)
     """
+    ok, err = _validate_sandbox_path(filename, subdir)
+    if not ok:
+        return False, err
+
     sandbox = SANDBOX_DIR
     if subdir:
         sandbox = sandbox / subdir
@@ -473,6 +519,10 @@ def push_to_sandbox(source_path, subdir=""):
     source = Path(source_path)
     if not source.exists():
         return False, f"源文件不存在: {source}"
+
+    ok, err = _validate_sandbox_path(source.name, subdir)
+    if not ok:
+        return False, err
 
     sandbox = SANDBOX_DIR
     if subdir:

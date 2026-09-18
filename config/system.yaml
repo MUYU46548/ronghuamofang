@@ -95,6 +95,12 @@ gates:
   auto_retry_delay_seconds: 3      # 重试前等待（秒），给 LLM 限流/超时恢复时间
   auto_retry_backoff: 2            # 退避系数：3s → 6s → 12s …
   stage8_export: true  # 阶段8：Markdown 分卷导出
+obsidian:
+  # Obsidian 联动沙盒目录（唯一可写位置，ROSA 库本体只读）
+  # 支持绝对路径或相对路径（相对于项目根目录）
+  sandbox_dir: "E:/图书馆/ROSA/Obsidian_AI_Sandbox/10_Inbox"
+  # 是否启用路径遍历防护（默认开）
+  path_traversal_guard: true
 logging:
   level: info
   rotate_days: 30

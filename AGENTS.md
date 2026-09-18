@@ -51,8 +51,8 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 | 章节审查（审稿闭环 Phase 1） | `python scripts/chapter_review.py [--scope raw\|checked\|refined] [--report data/outline/review_report.json] [--dry-run]`（产出 review_report.json/.md；GUI「审稿」页签等价于 `POST /review/run`） |
 | 批量精修（审稿闭环 Phase 2） | `python scripts/batch_refine.py --report data/outline/review_report.json [--decisions file\|interactive] [--auto] [--dry-run]`；`--decisions file` 读同目录 `review_report.decisions.json`（格式 `{"decisions":[{finding_id,chapter,action,feedback}]}`，action=accept/ignore；GUI 保存的即此格式） |
 | 全书摘要（完书后） | `python scripts/book_summary.py`（输出 output/{书名}_全书摘要.md，可粘贴 ROSA） |
-| ROSA 后处理（完书后） | `python scripts/rosa_postprocess.py [--books\|--role-records\|--roles "露汐,小林"] [--dry-run] [--no-llm]`（作品介绍页/出场记录/新角色设定草稿 → Obsidian_AI_Sandbox/10_Inbox/） |
-| 角色出场统计 | `python scripts/appearances.py`（确定性，输出 data/state/appearances.json，rosa_postprocess 自动调用） |
+| Obsidian 后处理（完书后） | `python scripts/obsidian_postprocess.py [--books\|--role-records\|--roles "露汐,小林"] [--dry-run] [--no-llm]`（作品介绍页/出场记录/新角色设定草稿 → Obsidian_AI_Sandbox/10_Inbox/） |
+| 角色出场统计 | `python scripts/appearances.py`（确定性，输出 data/state/appearances.json，obsidian_postprocess 自动调用） |
 | 润色后体检 | `python scripts/polish_review.py`（确定性，交付 Word 前跑） |
 | 校对（stage 5.5，交付 Word 前） | `python scripts/proofread.py [--scope refined] [--llm] [--dry-run]`（确定性：标点/错字/格式/章节节奏，**零 token**；`--llm` 追加语义校对。报告 data/outline/proofread_report.json + .md） |
 | 生成前 token/费用预估 | `python scripts/estimate_tokens.py [--stage 4] [--json] [--no-history] [--verbose]`（历史实测均值优先，无历史则字符折算；GUI 运行前确认框走 `GET /estimate`） |
@@ -90,7 +90,7 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 - 大纲体检报告：`data/outline/review_report.md`（outline_review.py 生成）
 - 素材体检报告：`data/setting/material_review.md`（material_review.py 生成，stage1 后自动）
 - 设定补全历史：`data/setting/history/`（setting_refine.py 每次补全自动备份 setting_vN.json）
-- 角色出场统计：`data/state/appearances.json`（appearances.py / `refresh_appearances()` 生成，**stage4 每章通过校验后自动刷新**，rosa_postprocess 自动调用；同章重复同步不重复计数）
+- 角色出场统计：`data/state/appearances.json`（appearances.py / `refresh_appearances()` 生成，**stage4 每章通过校验后自动刷新**，obsidian_postprocess 自动调用；同章重复同步不重复计数）
 - 风格偏差报告：追加在 `data/outline/polish_report.md`（分卷为 `polish_report_volN.md`）末尾，
   stage6 每卷润色后自动写入；配置 `book.style_reference` 才生成，阈值 30%，仅供参考不阻断流程
 - 大纲修订历史：`data/outline/history/`（每次精修自动备份 global_vN.md，可回退）
