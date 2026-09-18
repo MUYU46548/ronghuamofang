@@ -122,21 +122,17 @@ def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, p
         style_samples = extract_style_samples(style_ref, current_text=current_text)
     style_notes = build_style_notes_section(book.get("style_notes", ""))
 
-    # P2.4 知识库上下文注入（纯角色名，避免整段描述干扰检索）
+    # P2.4 知识库上下文注入（使用 obsidian_bridge，只读 + 沙盒写入）
     kb_context = ""
     try:
-        from utils import kb_index
-        idx = kb_index.load_index()
-        if idx:
-            outline_text = _safe_read(outline_path, budget=8000)
-            rm = re.search(r"涉及角色[：:]\s*(.+)", outline_text)
-            query = rm.group(1)[:100] if rm else outline_text[:100]
-            results = kb_index.search(query, index=idx, top_k=5, vault_path="E:/图书馆/ROSA")
-            if results:
-                parts = ["### 相关正典词条（写作时参考，locked 条目不可违逆）"]
-                for path, name, snippet, score in results:
-                    parts.append(f"**{name}**（相关度 {score:.1f}）\n{snippet}\n")
-                kb_context = "\n".join(parts)
+        from obsidian_bridge import scan_vault, inject_context
+        vault_data = scan_vault()
+        outline_text = _safe_read(outline_path, budget=8000)
+        rm = re.search(r"涉及角色[：:]\s*(.+)", outline_text)
+        query = rm.group(1)[:100] if rm else outline_text[:100]
+        kb_context = inject_context(query, vault_data=vault_data, top_k=5)
+        if kb_context:
+            kb_context = "### 相关正典词条（写作时参考，locked 条目不可违逆）\n\n" + kb_context
     except Exception:
         pass
 

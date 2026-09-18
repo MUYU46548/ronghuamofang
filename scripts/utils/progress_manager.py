@@ -68,6 +68,10 @@ class ProgressManager:
     def is_approved(self, stage):
         return bool(self.data["stages"][str(stage)].get("approved", False))
 
+    def get_stage_retry_count(self, stage):
+        """获取阶段已自动重试次数（用于 GUI 状态提示）"""
+        return int(self.data["stages"][str(stage)].get("retry_count", 0))
+
     # ---------- 章节状态（阶段 4 断点） ----------
     def completed_chapters(self, stage=4):
         return list(self.data["stages"][str(stage)].get("completed_chapters", []))

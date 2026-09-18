@@ -90,6 +90,10 @@ gates:
   auto_refine: false
   auto_rewrite: false
   auto_rewrite_max_rounds: 1
+  auto_retry: true                # 阶段失败后自动重试（默认开）
+  auto_retry_max_rounds: 2        # 最大自动重试轮次（不含首次）
+  auto_retry_delay_seconds: 3      # 重试前等待（秒），给 LLM 限流/超时恢复时间
+  auto_retry_backoff: 2            # 退避系数：3s → 6s → 12s …
   stage8_export: true  # 阶段8：Markdown 分卷导出
 logging:
   level: info

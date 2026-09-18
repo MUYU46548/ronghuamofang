@@ -268,10 +268,45 @@ def run(from_stage=1, only_stage=None, client=None):
                     except Exception as e:
                         print(f"[orchestrator] 校对失败（不影响流程）: {e}")
             if not ok:
-                if cfg.get("gates", {}).get("pause_on_failure", True):
-                    print("[orchestrator] 阶段失败，暂停等待处理（可重跑或人工介入）")
-                    db.finish_run(run_id, "failed")
-                    return 1
+                # 自动重试（默认开）：阶段失败后自动重试，减少人工干预
+                gates = cfg.get("gates", {}) or {}
+                auto_retry = gates.get("auto_retry", True)
+                max_retry = int(gates.get("auto_retry_max_rounds", 2))
+                retry_delay = float(gates.get("auto_retry_delay_seconds", 3))
+                retry_backoff = float(gates.get("auto_retry_backoff", 2))
+                retry_count = 0
+                while auto_retry and retry_count < max_retry:
+                    retry_count += 1
+                    # 记录重试次数到 progress.json（GUI 可显示"自动重试中"）
+                    progress.set_stage(n, "retrying", retry_count=retry_count,
+                                       retry_started_at=datetime.now().strftime("%Y-%m-%dT%H:%M:%S"))
+                    delay = retry_delay * (retry_backoff ** (retry_count - 1))
+                    print(f"[orchestrator] 阶段{n} 失败，第{retry_count}次自动重试（等待 {delay:.0f}s）...")
+                    import time
+                    time.sleep(delay)
+                    # 重试前检查停止请求
+                    if _stop_requested():
+                        print("[orchestrator] 重试前收到停止请求，中断")
+                        db.finish_run(run_id, "stopped")
+                        return 4
+                    # 重试前检查预算熔断
+                    state, spent = cost.status(run_id)
+                    if state == "pause":
+                        print(f"[orchestrator] 重试前预算超限（已用 {spent:.2f} 元），熔断暂停")
+                        progress.data["budget"]["paused"] = True
+                        progress.save()
+                        db.finish_run(run_id, "paused")
+                        return 2
+                    # 执行重试
+                    ok, msg = STAGES[n].run_stage(cfg, proj, progress, db, cost, client=client, run_id=run_id)
+                    print(f"[orchestrator] 阶段{n} 重试结果: {msg}")
+                    if ok:
+                        break
+                if not ok:
+                    if cfg.get("gates", {}).get("pause_on_failure", True):
+                        print(f"[orchestrator] 阶段失败（已重试 {retry_count} 次），暂停等待处理（可重跑或人工介入）")
+                        db.finish_run(run_id, "failed")
+                        return 1
             state, spent = cost.status(run_id)
             print(f"[orchestrator] 当前成本: {spent:.4f} 元（状态 {state}）")
 

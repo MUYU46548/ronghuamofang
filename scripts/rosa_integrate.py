@@ -10,6 +10,8 @@
 - frontmatter 是唯一事实源；文件名 stem 仅作 fallback
 - locked 条目不可违逆（写作时必须遵循）
 - 新角色自动标记为 candidate，供 rosa_postprocess 生成设定草稿
+
+本模块是 obsidian_bridge 的兼容层，保持现有 API 不变。
 """
 
 import re
@@ -33,6 +35,9 @@ TYPE_KEYS = ["type", "kind", "category"]
 DESC_KEYS = ["description", "summary", "desc", "简介", "描述"]
 LOCKED_KEYS = ["locked", "lock", "immutable"]
 RELATION_KEYS = ["relations", "relationships", "relation"]
+
+# 委托给 obsidian_bridge（只读 + 沙盒写入）
+from obsidian_bridge import scan_vault, inject_context, check_consistency, write_sandbox, push_to_sandbox
 
 
 def _parse_frontmatter(text):

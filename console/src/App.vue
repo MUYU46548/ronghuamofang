@@ -1255,7 +1255,7 @@ const totalStages = computed(() => {
 const progressPercent = computed(() => progressPct.value);
 
 function statusBadge(s) {
-  return { pending: "待办", running: "进行中", done: "完成", failed: "失败", rejected: "已打回" }[s] || s;
+  return { pending: "待办", running: "进行中", done: "完成", failed: "失败", rejected: "已打回", retrying: "自动重试中" }[s] || s;
 }
 function fmtYuan(v) { return "¥" + Number(v || 0).toFixed(4); }
 function fmtNum(v) { return Number(v || 0).toLocaleString("zh-CN"); }

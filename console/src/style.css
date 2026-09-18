@@ -217,6 +217,7 @@ body {
 .st-running { background: rgba(155, 143, 196, 0.18); color: #6f5fa8; }
 .st-done { background: rgba(127, 174, 143, 0.18); color: #4e7d5e; }
 .st-failed { background: rgba(196, 127, 127, 0.2); color: #9e4f4f; }
+.st-retrying { background: rgba(107, 113, 128, 0.16); color: #5b5f72; }
 .st-rejected { background: rgba(201, 162, 106, 0.2); color: #8f6b33; }
 .st-gate { background: rgba(201, 162, 106, 0.22); color: #8f6b33; font-weight: 600; }
 .st-rej { background: rgba(201, 162, 106, 0.16); color: #8f6b33; }
