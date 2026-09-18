@@ -3,7 +3,7 @@
 
 收集各章 refined/checked/raw 的 <!-- summary --> 注释 → 子会话聚合为
 全书摘要（600-900 字：世界观/主线/角色弧光/结局），输出到 output/。
-用户后期填充 ROSA 设定库时可直接粘贴。
+用户后期填充 Obsidian 设定库时可直接粘贴。
 
 用法：
   python scripts/book_summary.py                    # 输出 output/{书名}_全书摘要.md

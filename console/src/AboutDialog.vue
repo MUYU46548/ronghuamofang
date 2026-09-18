@@ -127,7 +127,7 @@ const STEPS = [
           </div>
           <div class="meta">
             · 数据全在本机：快照在 history/，章节备份在 data/chapters/history/；除调用你自己配置的模型 API 外不向外发送数据<br>
-            · API Key 只存项目 `.env`（不进版本库，界面内从不显示明文）；ROSA 设定库固定只读
+            · API Key 只存项目 `.env`（不进版本库，界面内从不显示明文）；Obsidian 设定库固定只读
           </div>
 
           <h4 class="about-h">许可与链接</h4>

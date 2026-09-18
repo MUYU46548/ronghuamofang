@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
-"""完书后 ROSA 后处理 CLI（P1.6）。
+"""完书后 Obsidian 后处理 CLI（P1.6）。
 
 一键生成三件草稿到沙盒（E:/图书馆/ROSA/Obsidian_AI_Sandbox/10_Inbox/）：
-1. 作品介绍页草稿（按 ROSA 官方书籍模板结构）
-2. 已有 ROSA 词条角色的"官作出场记录"待粘贴段落
+1. 作品介绍页草稿（按 Obsidian 官方书籍模板结构）
+2. 已有 Obsidian 词条角色的"官作出场记录"待粘贴段落
 3. 无词条新角色的角色设定页草稿（按官方角色模板结构，源稀薄处"待补充"）
 
 出场统计为确定性（scripts/appearances.py），LLM 仅做文本聚合（简介/事迹/剧情）。
-ROSA 库本体只读——所有产物写入沙盒，人工审阅后自行发布。
+Obsidian 库本体只读——所有产物写入沙盒，人工审阅后自行发布。
 
 用法：
   python scripts/obsidian_postprocess.py [--books|--roles|--all] [--dry-run] [--no-llm]
@@ -34,25 +34,25 @@ SUMMARY_RE = re.compile(r"<!--\s*summary:\s*(.+?)\s*-->", re.IGNORECASE | re.S)
 TOC_RE = re.compile(r"^#+\s*(第\s*[\d一二三四五六七八九十百]+\s*章.*)$", re.MULTILINE)
 
 
-def load_rosa_config():
+def load_obsidian_template_config():
     try:
-        cfg = yaml.safe_load(read_text("config/templates_rosa.yaml")) or {}
+        cfg = yaml.safe_load(read_text("config/obsidian_templates.yaml")) or {}
     except Exception:
         cfg = {}
-    rosa = cfg.get("rosa", {})
+    obsidian = cfg.get("obsidian_templates", {})
     defaults = {
         "sandbox_dir": "E:/图书馆/ROSA/Obsidian_AI_Sandbox/10_Inbox",
         "book_template": "E:/图书馆/ROSA/99 模板/官方书籍模板.md",
         "role_template": "E:/图书馆/ROSA/99 模板/官方角色介绍模板.md",
-        "role_dirs": [
+        "character_dirs": [
             "E:/图书馆/ROSA/03 设定/01 人物/01 旧作人物",
             "E:/图书馆/ROSA/03 设定/01 人物/02 新作人物",
             "E:/图书馆/ROSA/03 设定/01 人物/03 次要人物",
         ],
     }
     for k, v in defaults.items():
-        rosa.setdefault(k, v)
-    return rosa
+        obsidian.setdefault(k, v)
+    return obsidian
 
 
 def load_setting():
@@ -106,9 +106,9 @@ def extract_toc():
     return "\n".join(lines) if lines else "（待补充）"
 
 
-def has_rosa_entry(role_name, rosa_dirs):
-    """判定角色是否已有 ROSA 词条（按文件名 stem 匹配）。"""
-    for d in rosa_dirs:
+def has_obsidian_entry(role_name, character_dirs):
+    """判定角色是否已有 Obsidian 词条（按文件名 stem 匹配）。"""
+    for d in character_dirs:
         p = Path(d) / f"{role_name}.md"
         if p.exists():
             return True
@@ -156,7 +156,7 @@ def build_book_page_task(proj, stats, summaries, toc, book_summary_text):
     hints = role_hints(stats, summaries)
     book = proj.get("book", {})
     today = datetime.now().strftime("%Y-%m-%d")
-    _, body = load_template("rosa_book_page.md", {
+    _, body = load_template("obsidian_book_page.md", {
         "book_name": book.get("name", "未命名"),
         "book_summary": book_summary_text or "（无全书摘要，请基于各章摘要概括）",
         "chapter_summaries": "\n".join(f"- 第{n}章: {s}" for n, s in sorted(summaries.items())),
@@ -171,7 +171,7 @@ def build_book_page_task(proj, stats, summaries, toc, book_summary_text):
     return body
 
 
-def build_role_task(proj, role_name, st, summaries, has_entry, rosa_cfg):
+def build_role_task(proj, role_name, st, summaries, has_entry, obsidian_cfg):
     """生成角色记录/设定页 LLM 任务。"""
     book = proj.get("book", {})
     today = datetime.now().strftime("%Y-%m-%d")
@@ -181,13 +181,13 @@ def build_role_task(proj, role_name, st, summaries, has_entry, rosa_cfg):
     for n in chs:
         ctx[n] = summaries.get(n, "")
     ctx_lines = "\n".join(f"- 第{n}章: {s}" for n, s in sorted(ctx.items()) if s)
-    _, body = load_template("rosa_role_page.md", {
+    _, body = load_template("obsidian_role_page.md", {
         "book_name": book.get("name", "未命名"),
         "role_name": role_name,
         "setting_entry": setting_entry(role_name),
         "appearance": json.dumps(st, ensure_ascii=False)[:800],
         "chapter_summaries": ctx_lines or "（无）",
-        "has_rosa_entry": "true" if has_entry else "false",
+        "has_obsidian_entry": "true" if has_entry else "false",
         "level": st.get("level", ""),
         "year": str(datetime.now().year),
         "first": st.get("first"),
@@ -200,8 +200,8 @@ def build_role_task(proj, role_name, st, summaries, has_entry, rosa_cfg):
 
 def run(proj, mode="all", client=None, task_dir="data/state/tasks",
         dry_run=False, no_llm=False, only_roles=None):
-    rosa = load_rosa_config()
-    sandbox = Path(rosa["sandbox_dir"])
+    obsidian = load_obsidian_template_config()
+    sandbox = Path(obsidian["sandbox_dir"])
     sandbox.mkdir(parents=True, exist_ok=True)
 
     # 路径遍历防护：校验所有写入路径在沙盒内
@@ -222,7 +222,7 @@ def run(proj, mode="all", client=None, task_dir="data/state/tasks",
     # 1.5) 精确选择（--roles）：只处理指定角色
     if only_roles:
         stats = {n: st for n, st in stats.items() if n in only_roles}
-        print(f"[rosa] --roles 过滤后：{len(stats)} 角色（{('、'.join(stats))}）")
+        print(f"[obsidian] --roles 过滤后：{len(stats)} 角色（{('、'.join(stats))}）")
 
     # 2) 各章摘要（确定性）
     summaries = collect_chapter_summaries()
@@ -230,10 +230,10 @@ def run(proj, mode="all", client=None, task_dir="data/state/tasks",
     book = proj.get("book", {})
     book_name = book.get("name", "未命名")
 
-    # 3) 已有 ROSA 词条判定
-    rosa_dirs = rosa.get("role_dirs", [])
+    # 3) 已有 Obsidian 词条判定
+    character_dirs = obsidian.get("character_dirs", [])
     with_entry = [n for n, st in stats.items()
-                  if st.get("in_setting") and has_rosa_entry(n, rosa_dirs)]
+                  if st.get("in_setting") and has_obsidian_entry(n, character_dirs)]
     need_page = [n for n, st in stats.items()
                  if st.get("level") != "absent" and not st.get("in_setting")]
     print(f"[obsidian] 已有词条角色：{len(with_entry)} 个（出出场记录）")
@@ -248,9 +248,9 @@ def run(proj, mode="all", client=None, task_dir="data/state/tasks",
             plans.append(f"新角色设定页（{len(need_page)} 个：{'、'.join(need_page)}）")
 
     if dry_run:
-        print("[rosa] --dry-run：只统计与规划，不生成任务/不调 LLM")
-        print("[rosa] 计划:", "、".join(plans))
-        print(f"[rosa] 输出目录: {sandbox}")
+        print("[obsidian] --dry-run：只统计与规划，不生成任务/不调 LLM")
+        print("[obsidian] 计划:", "、".join(plans))
+        print(f"[obsidian] 输出目录: {sandbox}")
         return True, "dry-run（仅统计与规划）"
 
     client = client or make_client(
@@ -266,22 +266,22 @@ def run(proj, mode="all", client=None, task_dir="data/state/tasks",
                         f"## 目录\n\n{toc}\n")
             write_text(out, skeleton)
             generated.append(str(out))
-            print(f"[rosa] 作品介绍页骨架（no-llm）→ {out}")
+            print(f"[obsidian] 作品介绍页骨架（no-llm）→ {out}")
         else:
             book_summary_text = ""
             bs = Path(f"output/{book_name}_全书摘要.md")
             if bs.exists():
                 book_summary_text = read_text(bs)[:3000]
             task = client.write_task(
-                task_dir, "rosa_book_page.md",
+                task_dir, "obsidian_book_page.md",
                 build_book_page_task(proj, stats, summaries, toc, book_summary_text)
                 .replace("{OUT}", str(out)))
             result = client.run_task(task)
             if result["exit_code"] != 0:
-                print(f"[rosa] 作品介绍页子会话失败（跳过）")
+                print(f"[obsidian] 作品介绍页子会话失败（跳过）")
             elif out.exists():
                 generated.append(str(out))
-                print(f"[rosa] 作品介绍页 → {out}")
+                print(f"[obsidian] 作品介绍页 → {out}")
 
     # 5) 角色出场记录 + 新角色设定页
     if mode in ("roles", "all"):
@@ -301,10 +301,10 @@ def run(proj, mode="all", client=None, task_dir="data/state/tasks",
                 out = sandbox / f"{book_name}_角色出场记录_草稿.md"
                 header = (f"# 《{book_name}》角色出场记录草稿（--no-llm 骨架）\n\n"
                           f"> 由 NovelForge 自动生成（{datetime.now().strftime('%Y-%m-%d')}）。\n"
-                          f"> 请将各角色段落粘贴到 ROSA 对应词条的「官作出场记录」节，并润色事迹。\n\n")
+                          f"> 请将各角色段落粘贴到 vault 对应词条的「官作出场记录」节，并润色事迹。\n\n")
                 write_text(out, header + "\n".join(rec_lines))
                 generated.append(str(out))
-                print(f"[rosa] 角色出场记录骨架（no-llm）→ {out}")
+                print(f"[obsidian] 角色出场记录骨架（no-llm）→ {out}")
             for name in need_page:
                 st = stats[name]
                 out = sandbox / f"{name}_设定_草稿.md"
@@ -321,15 +321,15 @@ def run(proj, mode="all", client=None, task_dir="data/state/tasks",
                             f"（第{st['first']}章起，共{st['chapters']}章出场）\n")
                 write_text(out, skeleton)
                 generated.append(str(out))
-                print(f"[rosa] 新角色设定骨架（no-llm）→ {out}")
+                print(f"[obsidian] 新角色设定骨架（no-llm）→ {out}")
         else:
             # 已有词条：出场记录段落（合并到一个文件）
             rec_lines = []
             for name in with_entry:
                 st = stats[name]
                 task = client.write_task(
-                    task_dir, "rosa_role_page.md",
-                    build_role_task(proj, name, st, summaries, True, rosa)
+                    task_dir, "obsidian_role_page.md",
+                    build_role_task(proj, name, st, summaries, True, obsidian)
                     .replace("{OUT}", str(sandbox / f"_role_tmp_{name}.md")))
                 result = client.run_task(task)
                 tmp = sandbox / f"_role_tmp_{name}.md"
@@ -345,34 +345,34 @@ def run(proj, mode="all", client=None, task_dir="data/state/tasks",
                 out = sandbox / f"{book_name}_角色出场记录_草稿.md"
                 header = (f"# 《{book_name}》角色出场记录草稿\n\n"
                           f"> 由 NovelForge 自动生成（{datetime.now().strftime('%Y-%m-%d')}）。\n"
-                          f"> 请将各角色段落粘贴到 ROSA 对应词条的「官作出场记录」节。\n\n")
+                          f"> 请将各角色段落粘贴到 vault 对应词条的「官作出场记录」节。\n\n")
                 write_text(out, header + "\n".join(rec_lines))
                 generated.append(str(out))
-                print(f"[rosa] 角色出场记录 → {out}")
+                print(f"[obsidian] 角色出场记录 → {out}")
             elif with_entry:
-                print("[rosa] 出场记录生成失败或为空")
+                print("[obsidian] 出场记录生成失败或为空")
 
             # 无词条新角色：设定页草稿（每个角色一个文件）
             for name in need_page:
                 st = stats[name]
                 out = sandbox / f"{name}_设定_草稿.md"
                 task = client.write_task(
-                    task_dir, "rosa_role_page.md",
-                    build_role_task(proj, name, st, summaries, False, rosa)
+                    task_dir, "obsidian_role_page.md",
+                    build_role_task(proj, name, st, summaries, False, obsidian)
                     .replace("{OUT}", str(out)))
                 result = client.run_task(task)
                 if result["exit_code"] == 0 and out.exists():
                     generated.append(str(out))
-                    print(f"[rosa] 新角色设定草稿 → {out}")
+                    print(f"[obsidian] 新角色设定草稿 → {out}")
 
-    print(f"[rosa] 完成。生成 {len(generated)} 个文件：")
+    print(f"[obsidian] 完成。生成 {len(generated)} 个文件：")
     for g in generated:
         print(f"  {g}")
     return True, f"完成（生成 {len(generated)} 个文件）"
 
 
 def main():
-    parser = argparse.ArgumentParser(description="NovelForge ROSA 后处理（完书后）")
+    parser = argparse.ArgumentParser(description="NovelForge Obsidian 后处理（完书后）")
     parser.add_argument("--books", action="store_true", help="只生成作品介绍页")
     parser.add_argument("--role-records", dest="role_records", action="store_true",
                         help="只生成角色记录/新角色设定")
@@ -398,7 +398,7 @@ def main():
     proj = yaml.safe_load(read_text("config/project.yaml"))
     ok, msg = run(proj, mode=mode, dry_run=args.dry_run, no_llm=args.no_llm,
                   only_roles=only_roles)
-    print(f"[rosa] {msg}")
+    print(f"[obsidian] {msg}")
     return 0 if ok else 1
 
 

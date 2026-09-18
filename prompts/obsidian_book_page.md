@@ -1,11 +1,11 @@
 ---
 stage: 10
-name: rosa_book_page
+name: obsidian_book_page
 model: hy3  # 死代码：真源见 config/system.yaml 的 model.*，代码不读取此字段，仅作文档同步参考
 max_tokens: 3000
 temperature: 0.4
 ---
-# ROSA 作品介绍页生成任务（完书后）
+# Obsidian 作品介绍页生成任务（完书后）
 
 你是世界观资料管理员。基于《{{book_name}}》的素材与章节信息，生成一份
 **作品介绍页草稿**（写入 {{path_output}}），供作者审阅后发布到设定库。

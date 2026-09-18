@@ -1765,7 +1765,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not idx:
                     self._send(200, {"ok": False, "hint": "索引不存在，请先 POST /kb/build"})
                     return
-                results = kb_index.search(query, index=idx, top_k=top, vault_path="E:/图书馆/ROSA")
+                results = kb_index.search(query, index=idx, top_k=top, vault_path=str(get_vault_path()))
                 items = []
                 for path, name, snippet, score in results:
                     items.append({"path": path, "name": name, "snippet": snippet[:chars], "score": score})
@@ -1775,8 +1775,8 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/kb/build":
             # 构建知识库索引（后台任务）
             try:
-                from utils import kb_index
-                idx = kb_index.build_index("E:/图书馆/ROSA", "data/state/kb_index.pkl")
+                vault_path = str(get_vault_path())
+                idx = kb_index.build_index(vault_path, "data/state/kb_index.pkl")
                 self._send(200, {"ok": True, "total_files": idx["total_files"], "terms": len(idx["terms"])})
             except Exception as e:
                 self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""ROSA 知识库索引与检索（倒排索引 + 关键词精确匹配）。
+"""知识库索引与检索（倒排索引 + 关键词精确匹配）。
 
 设计取舍：
 - 对结构化词条（每篇独立 markdown + frontmatter），精确关键词匹配 >> 语义向量
@@ -63,10 +63,10 @@ def extract_terms(text):
 
 
 def build_index(vault_path, out_path=None, progress=None):
-    """构建 ROSA 知识库倒排索引。
+    """构建知识库倒排索引。
 
-    Args:
-        vault_path: ROSA vault 根目录
+        Args:
+            vault_path: vault 根目录
         out_path: 索引输出路径（默认 data/state/kb_index.pkl）
         progress: 可选进度回调 (current, total, filename)
 
@@ -181,7 +181,7 @@ def search(query, index=None, top_k=5, vault_path=None):
         query: 查询文本
         index: 已加载的索引（None 自动加载）
         top_k: 返回数量
-        vault_path: ROSA vault 路径（用于读取 snippet）
+        vault_path: vault 路径（用于读取 snippet）
 
     Returns:
         [(entry_path, name, snippet, match_tags), ...]
@@ -243,7 +243,7 @@ def search(query, index=None, top_k=5, vault_path=None):
 
 def get_snippet(entry_path, vault_path=None, max_chars=500):
     """读取指定词条的摘要。"""
-    vault = Path(vault_path) if vault_path else Path("E:/图书馆/ROSA")
+    vault = Path(vault_path) if vault_path else Path("E:/图书馆/ROSA")  # fallback default
     full = vault / entry_path
     if not full.exists():
         return ""
@@ -274,8 +274,8 @@ def search_to_context(query, index=None, top_k=5, max_chars=500, vault_path=None
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="ROSA 知识库索引工具")
-    parser.add_argument("--vault", default="E:/图书馆/ROSA", help="ROSA vault 路径")
+    parser = argparse.ArgumentParser(description="知识库索引工具")
+    parser.add_argument("--vault", default="E:/图书馆/ROSA", help="vault 路径")
     parser.add_argument("--out", default="data/state/kb_index.pkl", help="索引输出路径")
     sub = parser.add_subparsers(dest="cmd")
 

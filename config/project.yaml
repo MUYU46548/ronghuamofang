@@ -45,7 +45,7 @@ materials:
   use_scraps: true
 
 vault:
-  readonly: true                  # ROSA 设定库只读（系统永不写入 E:/图书馆/ROSA）
+  readonly: true                  # Obsidian 设定库只读（系统永不写入 vault）
   vault_links: "materials/vault_links.md"  # 设定库引用索引（阶段1 生成/维护）
 
 run:

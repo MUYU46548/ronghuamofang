@@ -2,16 +2,21 @@
 """Obsidian 知识库联动桥（只读 + 沙盒写入）。
 
 设计原则：
-- ROSA vault 本体只读——所有产物写入沙盒（Obsidian_AI_Sandbox/10_Inbox/）
+- Vault 本体只读——所有产物写入沙盒（默认 Obsidian_AI_Sandbox/10_Inbox/）
 - frontmatter 是唯一事实源；文件名 stem 仅作 fallback
 - locked 条目不可违逆（写作时必须遵循）
-- 新角色自动标记为 candidate，供 rosa_postprocess 生成设定草稿
+- 新角色自动标记为 candidate，供 obsidian_postprocess 生成设定草稿
 
 功能：
-1. scan_vault() — 扫描 ROSA vault，建立结构化索引
+1. scan_vault() — 扫描 Obsidian vault，建立结构化索引
 2. inject_context() — 为写作阶段注入相关词条
 3. check_consistency() — 检查写作产物是否偏离正典
 4. write_sandbox() — 写入沙盒（只读原稿，只写沙盒）
+
+配置（config/system.yaml 的 obsidian 节点）：
+- sandbox_dir: 沙盒目录（唯一可写位置）
+- vault_path: vault 路径（默认 E:/图书馆/ROSA）
+- path_traversal_guard: 路径遍历防护（默认开）
 """
 
 import re
@@ -22,53 +27,58 @@ from collections import defaultdict
 
 from utils.file_io import read_text, write_text
 
-# ROSA vault 路径（只读）
-ROSA_VAULT = Path("E:/图书馆/ROSA")
+# 默认配置（被 config/system.yaml 的 obsidian 节点覆盖）
+DEFAULT_VAULT_PATH = "E:/图书馆/ROSA"
+DEFAULT_SANDBOX_DIR = "E:/图书馆/ROSA/Obsidian_AI_Sandbox/10_Inbox"
 
-# 沙盒目录（唯一可写位置）— 从 config/system.yaml 读取，支持自定义
-def _load_sandbox_dir():
-    """从 config/system.yaml 加载沙盒目录，默认 E:/图书馆/ROSA/Obsidian_AI_Sandbox/10_Inbox。"""
+
+def _load_obsidian_config():
+    """从 config/system.yaml 加载 Obsidian 配置。"""
     try:
         import yaml
         cfg = yaml.safe_load(read_text("config/system.yaml")) or {}
-        obsidian_cfg = cfg.get("obsidian", {})
-        sandbox = obsidian_cfg.get("sandbox_dir", "E:/图书馆/ROSA/Obsidian_AI_Sandbox/10_Inbox")
-        return Path(sandbox)
+        return cfg.get("obsidian", {})
     except Exception:
-        return ROSA_VAULT / "Obsidian_AI_Sandbox" / "10_Inbox"
-
-SANDBOX_DIR = _load_sandbox_dir()
-
-# 路径遍历防护（默认开）
-PATH_TRAVERSAL_GUARD = True
+        return {}
 
 
-def _validate_sandbox_path(filename, subdir=""):
-    """校验最终路径在沙盒内，防止路径遍历。
+def get_vault_path():
+    """获取 vault 路径（默认或配置）。"""
+    cfg = _load_obsidian_config()
+    return Path(cfg.get("vault_path", DEFAULT_VAULT_PATH))
 
-    返回 (ok, error_message)。
-    """
-    if PATH_TRAVERSAL_GUARD:
-        # 拒绝绝对路径
-        if filename.startswith("/") or filename.startswith("\\") or (len(filename) > 1 and filename[1] == ":"):
-            return False, f"拒绝绝对路径: {filename}"
 
-        # 构建最终路径
-        sandbox = SANDBOX_DIR
-        if subdir:
-            sandbox = sandbox / subdir
-        out = sandbox / filename
+def get_sandbox_dir():
+    """获取沙盒目录（默认或配置）。"""
+    cfg = _load_obsidian_config()
+    return Path(cfg.get("sandbox_dir", DEFAULT_SANDBOX_DIR))
 
-        # 解析后检查是否在沙盒内
-        try:
-            out_resolved = out.resolve()
-            sandbox_resolved = sandbox.resolve()
-            if not out_resolved.is_relative_to(sandbox_resolved):
-                return False, f"路径遍历风险: {filename} 不在沙盒内"
-        except Exception as e:
-            return False, f"路径解析失败: {e}"
 
-    return True, ""
+# 延迟初始化（避免导入时读取配置文件）
+_vault_path = None
+_sandbox_dir = None
+
+
+def _get_vault_path():
+    global _vault_path
+    if _vault_path is None:
+        _vault_path = get_vault_path()
+    return _vault_path
+
+
+def _get_sandbox_dir():
+    global _sandbox_dir
+    if _sandbox_dir is None:
+        _sandbox_dir = get_sandbox_dir()
+    return _sandbox_dir
+
+
+def _reload_config():
+    """重新加载配置（测试/配置变更时调用）。"""
+    global _vault_path, _sandbox_dir
+    _vault_path = get_vault_path()
+    _sandbox_dir = get_sandbox_dir()
+
 
 # 跳过目录（非正典内容）
 SKIP_DIRS = {'.obsidian', '.git', '.hermes', '.agent_context', '.sitian', '99 模板'}
@@ -148,7 +158,7 @@ def extract_terms(text):
 
 
 def scan_vault(vault_path=None):
-    """扫描 ROSA vault，建立结构化索引。
+    """扫描 Obsidian vault，建立结构化索引。
 
     返回 {
         "characters": [{name, path, tags, type, locked, relations, snippet}],
@@ -157,7 +167,7 @@ def scan_vault(vault_path=None):
         "meta": {vault_path, built_at, character_count, world_count}
     }
     """
-    vault = Path(vault_path) if vault_path else ROSA_VAULT
+    vault = Path(vault_path) if vault_path else _get_vault_path()
     characters = []
     world_entries = []
     timeline_entries = []
@@ -231,7 +241,7 @@ def scan_vault(vault_path=None):
                 "locked": locked,
                 "relations": relations[:20],
                 "snippet": desc[:300],
-                "source": "rosa",
+                "source": "vault",
             })
 
     # 世界观目录
@@ -284,7 +294,7 @@ def scan_vault(vault_path=None):
                 "tags": tags[:10],
                 "type": type_,
                 "snippet": snippet,
-                "source": "rosa",
+                "source": "vault",
             })
 
     # 时间线目录
@@ -323,7 +333,7 @@ def scan_vault(vault_path=None):
                 "path": rel_path,
                 "tags": tags[:10],
                 "snippet": snippet,
-                "source": "rosa",
+                "source": "vault",
             })
 
     return {
@@ -354,7 +364,6 @@ def inject_context(query, vault_data=None, top_k=5, max_chars=500):
 
     # 计分：IDF 加权 + 条目名精确匹配加分
     scores = {}  # path -> score
-    total_entries = len(vault_data["characters"]) + len(vault_data["world"])
     for term in query_terms:
         for char in vault_data["characters"]:
             name_term = normalize_term(char.get("name", ""))
@@ -416,16 +425,6 @@ def check_consistency(text, vault_data=None):
     warnings = []
     locked_violations = []
 
-    # 检查 locked 条目是否被修改
-    for char in vault_data["characters"]:
-        if not char.get("locked"):
-            continue
-        name = char.get("name", "")
-        if name and name in text:
-            # 检查是否被修改（简单规则：locked 条目的名称不应出现在否定语境中）
-            # 更复杂的检查需要语义分析，这里只做简单匹配
-            pass
-
     # 检查新角色是否与已有角色重名
     existing_names = {c["name"] for c in vault_data["characters"]}
     existing_aliases = set()
@@ -435,7 +434,6 @@ def check_consistency(text, vault_data=None):
                 existing_aliases.add(alias)
 
     # 提取文本中的候选角色名（2-4 字中文词，出现 >=2 次）
-    # 改进：只标记看起来像角色名的词（非通用名词/动词/形容词）
     from collections import Counter
     candidates = re.findall(r'[一-鿿]{2,4}', text)
     counter = Counter(candidates)
@@ -465,13 +463,10 @@ def check_consistency(text, vault_data=None):
         # 检查是否是常见非角色名词
         if name in common_words:
             continue
-        # 检查是否包含明显的非角色词缀
-        if any(w in name for w in ["的", "了", "是", "在", "和", "就", "不", "人", "都", "一", "上", "也", "到", "说", "要", "去", "你", "会", "着", "没", "看", "好", "自", "己", "这", "他", "她", "它", "们", "那", "些", "什", "么", "怎", "吗", "吧", "呢", "啊", "嗯", "哈", "呀", "嘛", "被", "把", "让", "给", "从", "对", "与", "等", "最", "更", "太", "非", "常", "已", "经", "可", "能", "应", "该", "必", "须", "需", "进", "行", "通", "过", "使", "用", "作", "为", "属", "于", "由", "因", "所", "但", "是", "如", "果", "则", "而", "且", "或", "却", "并", "以", "及", "中", "后", "前", "内", "外", "下", "时", "地", "得", "里", "间", "方", "面", "部", "分", "类", "型", "法", "系", "统", "功", "信", "息", "内", "容", "结", "构", "式", "过", "程", "结", "果", "作", "用", "目", "的", "意", "义", "影", "响", "问", "题", "情", "况", "工", "作", "学", "习", "研", "究", "发", "展", "应", "用", "技", "术", "设", "计", "实", "现", "支", "持", "提", "供", "包", "含", "具", "有", "采", "用", "基", "于", "结", "合", "利", "用", "建", "立", "创", "完", "成", "形", "成", "产", "生", "发", "生", "存", "在", "包", "括", "涉", "及", "相", "关", "主", "要", "重", "要", "基", "本", "一", "定", "通", "常", "一", "般", "往", "往", "容", "易", "难", "以", "不", "同", "相", "同", "相", "似", "类", "似", "对", "应", "相", "应"]):
-            continue
         warnings.append({
             "type": "new_character",
             "entry_name": name,
-            "detail": f"文本中出现 {count} 次，但 ROSA 中无此角色",
+            "detail": f"文本中出现 {count} 次，但 vault 中无此角色",
         })
 
     return {
@@ -479,6 +474,37 @@ def check_consistency(text, vault_data=None):
         "warnings": warnings,
         "locked_violations": locked_violations,
     }
+
+
+def _validate_sandbox_path(filename, subdir=""):
+    """校验最终路径在沙盒内，防止路径遍历。
+
+    返回 (ok, error_message)。
+    """
+    cfg = _load_obsidian_config()
+    path_traversal_guard = cfg.get("path_traversal_guard", True)
+
+    if path_traversal_guard:
+        # 拒绝绝对路径
+        if filename.startswith("/") or filename.startswith("\\") or (len(filename) > 1 and filename[1] == ":"):
+            return False, f"拒绝绝对路径: {filename}"
+
+        # 构建最终路径
+        sandbox = _get_sandbox_dir()
+        if subdir:
+            sandbox = sandbox / subdir
+        out = sandbox / filename
+
+        # 解析后检查是否在沙盒内
+        try:
+            out_resolved = out.resolve()
+            sandbox_resolved = sandbox.resolve()
+            if not out_resolved.is_relative_to(sandbox_resolved):
+                return False, f"路径遍历风险: {filename} 不在沙盒内"
+        except Exception as e:
+            return False, f"路径解析失败: {e}"
+
+    return True, ""
 
 
 def write_sandbox(filename, content, subdir=""):
@@ -496,7 +522,7 @@ def write_sandbox(filename, content, subdir=""):
     if not ok:
         return False, err
 
-    sandbox = SANDBOX_DIR
+    sandbox = _get_sandbox_dir()
     if subdir:
         sandbox = sandbox / subdir
     sandbox.mkdir(parents=True, exist_ok=True)
@@ -524,7 +550,7 @@ def push_to_sandbox(source_path, subdir=""):
     if not ok:
         return False, err
 
-    sandbox = SANDBOX_DIR
+    sandbox = _get_sandbox_dir()
     if subdir:
         sandbox = sandbox / subdir
     sandbox.mkdir(parents=True, exist_ok=True)
@@ -537,7 +563,7 @@ def push_to_sandbox(source_path, subdir=""):
 
 def list_sandbox(subdir=""):
     """列出沙盒内容。"""
-    sandbox = SANDBOX_DIR
+    sandbox = _get_sandbox_dir()
     if subdir:
         sandbox = sandbox / subdir
     if not sandbox.exists():
@@ -555,7 +581,7 @@ def export_sandbox(output_dir, subdir=""):
     Returns:
         (ok, message)
     """
-    sandbox = SANDBOX_DIR
+    sandbox = _get_sandbox_dir()
     if subdir:
         sandbox = sandbox / subdir
     if not sandbox.exists():
@@ -580,8 +606,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Obsidian 知识库联动桥")
     sub = parser.add_subparsers(dest="cmd")
 
-    p_scan = sub.add_parser("scan", help="扫描 ROSA vault")
-    p_scan.add_argument("--vault", default=str(ROSA_VAULT), help="ROSA vault 路径")
+    p_scan = sub.add_parser("scan", help="扫描 Obsidian vault")
+    p_scan.add_argument("--vault", default=None, help="vault 路径（覆盖配置）")
     p_scan.add_argument("--output", default="data/state/obsidian_index.json", help="输出路径")
 
     p_inject = sub.add_parser("inject", help="注入上下文")
@@ -597,6 +623,8 @@ if __name__ == "__main__":
 
     p_list = sub.add_parser("list", help="列出沙盒内容")
     p_list.add_argument("--subdir", default="", help="子目录")
+
+    p_config = sub.add_parser("config", help="显示当前配置")
 
     args = parser.parse_args()
 
@@ -631,6 +659,10 @@ if __name__ == "__main__":
         files = list_sandbox(args.subdir)
         for f in files:
             print(f"  {f}")
+
+    elif args.cmd == "config":
+        print(f"vault_path: {_get_vault_path()}")
+        print(f"sandbox_dir: {_get_sandbox_dir()}")
 
     else:
         parser.print_help()

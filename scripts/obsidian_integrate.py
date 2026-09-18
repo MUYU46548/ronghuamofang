@@ -1,43 +1,9 @@
 # -*- coding: utf-8 -*-
-"""ROSA 知识库深度整合：自动导入角色/世界观 + 写作后同步出场记录。
+"""Vault 知识库整合：自动导入角色/世界观 + 写作后同步出场记录。
 
-竞品（AI-Novel、InkOS、NovelForge 开源版）都没有与 Obsidian 知识库的原生整合。
-这是 NovelForge 的核心护城河：ROSA 正典设定实时同步，写作时自动引用，
-章节完成后自动更新出场记录。
-
-设计原则：
-- ROSA 库本体只读——所有产物写入项目内 data/ 目录，人工审阅后自行发布
-- frontmatter 是唯一事实源；文件名 stem 仅作 fallback
-- locked 条目不可违逆（写作时必须遵循）
-- 新角色自动标记为 candidate，供 obsidian_postprocess 生成设定草稿
-
-本模块是 obsidian_bridge 的兼容层，保持现有 API 不变。
+与 obsidian_bridge 协同工作，本模块提供额外的同步/检测功能。
 """
 
-import re
-import json
-from pathlib import Path
-from datetime import datetime
-from collections import defaultdict
-
-from utils.file_io import read_text, write_text
-
-# ROSA vault 路径（只读）
-ROSA_VAULT = Path("E:/图书馆/ROSA")
-
-# 跳过目录（非正典内容）
-SKIP_DIRS = {'.obsidian', '.git', '.hermes', '.agent_context', '.sitian', '99 模板'}
-
-# frontmatter 键
-NAME_KEYS = ["name", "title", "id"]
-TAG_KEYS = ["tags", "tag", "aliases", "alias", "category", "categories"]
-TYPE_KEYS = ["type", "kind", "category"]
-DESC_KEYS = ["description", "summary", "desc", "简介", "描述"]
-LOCKED_KEYS = ["locked", "lock", "immutable"]
-RELATION_KEYS = ["relations", "relationships", "relation"]
-
-# 委托给 obsidian_bridge（只读 + 沙盒写入）
-from obsidian_bridge import scan_vault, inject_context, check_consistency, write_sandbox, push_to_sandbox
 
 
 def _parse_frontmatter(text):
@@ -70,9 +36,9 @@ def _safe_list(v):
     return []
 
 
-def scan_rosa_characters(vault_path=None):
-    """扫描 ROSA 中的角色词条，返回 [{name, path, tags, type, locked, relations, snippet}]。"""
-    vault = Path(vault_path) if vault_path else ROSA_VAULT
+def scan_vault_characters(vault_path=None):
+    """扫描 vault 中的角色词条，返回 [{name, path, tags, type, locked, relations, snippet}]。"""
+    vault = Path(vault_path) if vault_path else _get_vault_path()
     characters = []
     
     # 角色通常在 03 设定/01 人物/ 下
@@ -163,15 +129,15 @@ def scan_rosa_characters(vault_path=None):
                 "locked": locked,
                 "relations": relations[:20],
                 "snippet": desc[:300],
-                "source": "rosa",
+                "source": "vault",
             })
     
     return characters
 
 
-def scan_rosa_worldbuilding(vault_path=None):
-    """扫描 ROSA 中的世界观词条（地点/势力/概念），返回 [{name, path, tags, type, snippet}]。"""
-    vault = Path(vault_path) if vault_path else ROSA_VAULT
+def scan_vault_worldbuilding(vault_path=None):
+    """扫描 vault 中的世界观词条（地点/势力/概念），返回 [{name, path, tags, type, snippet}]。"""
+    vault = Path(vault_path) if vault_path else _get_vault_path()
     entries = []
     
     world_dirs = [
@@ -231,14 +197,14 @@ def scan_rosa_worldbuilding(vault_path=None):
                 "tags": tags[:10],
                 "type": type_,
                 "snippet": snippet,
-                "source": "rosa",
+                "source": "vault",
             })
     
     return entries
 
 
-def build_setting_from_rosa(vault_path=None, output_path=None):
-    """从 ROSA 知识库构建设定集（data/setting/setting.json）。
+def build_setting_from_vault(vault_path=None, output_path=None):
+    """从 vault 构建设定集（data/setting/setting.json）。
     
     返回 setting 字典，结构：
     {
@@ -246,11 +212,11 @@ def build_setting_from_rosa(vault_path=None, output_path=None):
       "world": [...],
       "plot_fragments": [...],
       "timeline": [...],
-      "meta": {"source": "rosa", "built_at": "...", "vault_path": "..."}
+      "meta": {"source": "vault", "built_at": "...", "vault_path": "..."}
     }
     """
-    characters = scan_rosa_characters(vault_path)
-    world_entries = scan_rosa_worldbuilding(vault_path)
+    characters = scan_vault_characters(vault_path)
+    world_entries = scan_vault_worldbuilding(vault_path)
     
     # 分类 world 条目
     locations = [e for e in world_entries if "地点" in e.get("type", "") or "场景" in e.get("type", "")]
@@ -268,9 +234,9 @@ def build_setting_from_rosa(vault_path=None, output_path=None):
         "plot_fragments": [],
         "timeline": [],
         "meta": {
-            "source": "rosa",
+            "source": "vault",
             "built_at": datetime.now().isoformat(),
-            "vault_path": str(vault_path or ROSA_VAULT),
+            "vault_path": str(vault_path or _get_vault_path()),
             "character_count": len(characters),
             "world_count": len(world_entries),
         }
@@ -398,11 +364,11 @@ def detect_new_characters(chapter_text, setting_path="data/setting/setting.json"
 if __name__ == "__main__":
     import argparse
     
-    parser = argparse.ArgumentParser(description="ROSA 知识库深度整合")
+    parser = argparse.ArgumentParser(description="Vault 知识库深度整合")
     sub = parser.add_subparsers(dest="cmd")
     
-    p_scan = sub.add_parser("scan", help="扫描 ROSA 知识库")
-    p_scan.add_argument("--vault", default=str(ROSA_VAULT), help="ROSA vault 路径")
+    p_scan = sub.add_parser("scan", help="扫描 vault 知识库")
+    p_scan.add_argument("--vault", default=str(_get_vault_path()), help="vault 路径")
     p_scan.add_argument("--output", default="data/setting/setting.json", help="输出路径")
     
     p_sync = sub.add_parser("sync", help="同步章节出场记录")
@@ -416,7 +382,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     if args.cmd == "scan":
-        setting = build_setting_from_rosa(args.vault, args.output)
+        setting = build_setting_from_vault(args.vault, args.output)
         print(f"扫描完成：{setting['meta']['character_count']} 角色 + {setting['meta']['world_count']} 世界观词条")
         print(f"输出：{args.output}")
     

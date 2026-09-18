@@ -1,11 +1,11 @@
 ---
 stage: 10
-name: rosa_role_page
+name: obsidian_role_page
 model: hy3  # 死代码：真源见 config/system.yaml 的 model.*，代码不读取此字段，仅作文档同步参考
 max_tokens: 3000
 temperature: 0.4
 ---
-# ROSA 角色记录/设定页生成任务（完书后）
+# Obsidian 角色记录/设定页生成任务（完书后）
 
 你是世界观资料管理员。基于《{{book_name}}》的素材、设定集与章节信息，
 为指定角色生成**官作出场记录**段落，以及（若该角色在设定库无词条）
@@ -17,12 +17,12 @@ temperature: 0.4
 - 该角色在设定集中的条目（若有）：{{setting_entry}}
 - 该角色出场章节统计：{{appearance}}
 - 相关章节摘要（出场章 + 前后各1章）：{{chapter_summaries}}
-- 是否已有 ROSA 词条（有→只出出场记录；无→加出设定页草稿）：{{has_rosa_entry}}
+- 是否已有 vault 词条（有→只出出场记录；无→加出设定页草稿）：{{has_obsidian_entry}}
 - 出场分级：{{level}}
 
 ## 输出文件格式（严格遵循）
 
-### 1. 官作出场记录段落（总是输出，供粘贴到 ROSA 角色词条的"官作出场记录"节）
+### 1. 官作出场记录段落（总是输出，供粘贴到 vault 角色词条的"官作出场记录"节）
 
 ```markdown
 ## 官作出场记录
@@ -31,7 +31,7 @@ temperature: 0.4
     - `[[{{book_name}}]]`：{{one_or_two_sentence_summary}}（第{{first}}章起，共{{chapters}}章出场）
 ```
 
-### 2. 角色设定页草稿（仅当 has_rosa_entry=false 时输出）
+### 2. 角色设定页草稿（仅当 has_obsidian_entry=false 时输出）
 
 ```markdown
 ---
