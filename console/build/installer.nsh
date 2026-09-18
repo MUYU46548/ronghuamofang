@@ -1,8 +1,7 @@
 !macro customInstall
-  # 安装完成后询问是否立即运行
-  MessageBox MB_YESNO "安装完成！是否立即运行绒花墨坊？" /SD IDNO IDNO noRun
-    Exec "$INSTDIR\绒花墨坊.exe"
-  noRun:
+  # 不弹任何额外对话框。
+  # 安装向导完成页自带"启动绒花墨坊"勾选框（MUI_FINISHPAGE_RUN），
+  # 这里不再重复询问，避免被当成流氓软件。
 !macroend
 
 !macro customUnInstall

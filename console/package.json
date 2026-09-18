@@ -73,6 +73,7 @@
     },
     "artifactName": "ronghuamofang-console-setup-${version}.${ext}",
     "nsis": {
+      "defaultInstallDirectory": "$PROGRAMFILES\\RongHuaMoFang",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
