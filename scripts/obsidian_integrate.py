@@ -3,7 +3,18 @@
 
 与 obsidian_bridge 协同工作，本模块提供额外的同步/检测功能。
 """
+import re
+import json
+from pathlib import Path
+from datetime import datetime
+from collections import Counter
 
+from utils.file_io import read_text, write_text
+from obsidian_bridge import (
+    scan_vault, inject_context, check_consistency, write_sandbox, push_to_sandbox,
+    _get_vault_path, SKIP_DIRS,
+    NAME_KEYS, TAG_KEYS, TYPE_KEYS, DESC_KEYS, LOCKED_KEYS, RELATION_KEYS,
+)
 
 
 def _parse_frontmatter(text):
