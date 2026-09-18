@@ -1966,7 +1966,13 @@ onMounted(() => {
         updateReady.value = true;
         updateStatus.value = `新版本已下载，可重启安装`;
       } else if (data.type === "error") {
-        updateStatus.value = "更新错误: " + data.message;
+        // 404 = 暂无发布，不显示冗长错误信息
+        const msg = data.message || "";
+        if (msg.includes("404") || msg.includes("no published")) {
+          updateStatus.value = "暂无更新（当前已是最新版本）";
+        } else {
+          updateStatus.value = "更新检查失败";
+        }
       }
     };
     updaterCleanup = window.mofangAPI.onUpdater(updaterHandler);

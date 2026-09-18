@@ -62,11 +62,16 @@ function setupAutoUpdater() {
       }
     });
     autoUpdater.on("error", (err) => {
-      console.error("[updater] error:", err.message);
+      const msg = err.message || "";
+      if (msg.includes("404") || msg.includes("no published versions")) {
+        console.log("[updater] no update available (no GitHub release found)");
+      } else {
+        console.error("[updater] error:", msg.slice(0, 120));
+      }
       if (mainWindow) {
         mainWindow.webContents.send("updater", {
           type: "error",
-          message: err.message,
+          message: msg,
         });
       }
     });
