@@ -61,12 +61,6 @@
           "arch": [
             "x64"
           ]
-        },
-        {
-          "target": "portable",
-          "arch": [
-            "x64"
-          ]
         }
       ],
       "icon": "build/icon.ico"
@@ -84,9 +78,6 @@
       "language": "2052",
       "menuCategory": true,
       "include": "build/installer.nsh"
-    },
-    "portable": {
-      "artifactName": "绒花墨坊-${version}-portable-${arch}.${ext}"
     },
     "publish": {
       "provider": "github",

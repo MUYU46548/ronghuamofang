@@ -142,7 +142,6 @@ async function main() {
     `ronghuamofang-console-setup-${version}.exe`,
     `ronghuamofang-console-setup-${version}.exe.blockmap`,
     'latest.yml',
-    `绒花墨坊-${version}-portable-x64.exe`,
   ];
   const existing = artifacts.filter(f => fs.existsSync(path.join(DIST_DIR, f)));
   log(`产物: ${existing.join(', ')}`);
