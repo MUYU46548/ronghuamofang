@@ -203,10 +203,28 @@ def case_missing_setting():
 
 
 if __name__ == "__main__":
-    # 让 fake 正文里出现设定集角色名，才能验证"出场"被真实统计到
+    # 让 fake 正文里出现设定集角色名，才能验证"出场"被真实统计到。
+    #
+    # ⚠️ 不要用 `sentence * N` 造正文（本文件 2026-09-20 前的写法）——
+    # 那是**退化正文**（复读 + 无换行），会被 verify_chapter 的退化检测
+    # 拦下，stage4 判章失败、appearances.json 根本不生成，用例整片假红。
+    # 正确做法：复用 fake_client 的静态句库，只把「主语」替换成角色名，
+    # 既保留健康段落结构，又让出场统计有对象可数。
     _orig_para = fc._words_para
-    fc._words_para = lambda min_words: ("露汐推门进来，把伞放在门边，看了一眼窗外的雨。"
-                                        * (max(int(min_words), 400) // 25 + 3))
+    _ROLES = ("露汐", "凤凰", "塔罗斯")
+
+    def _para_with_roles(min_words):
+        body = _orig_para(min_words)
+        out, idx = [], 0
+        for para in body.split("\n\n"):
+            # 每隔一段把句首主语换成设定集角色名
+            if idx % 2 == 0 and para:
+                para = _ROLES[(idx // 2) % len(_ROLES)] + para[1:]
+            out.append(para)
+            idx += 1
+        return "\n\n".join(out)
+
+    fc._words_para = _para_with_roles
     print("=" * 70)
     print("stage4 → 出场记录自动同步 自检（fake，临时工作目录）")
     print("=" * 70)

@@ -260,8 +260,18 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                               cfg.get("chapter", {}).get("target_words", [2000, 3000])[0],
                               cfg.get("chapter", {}).get("target_words", [2000, 3000])[1])
         if not check.ok:
-            progress.mark_chapter_failed(n, "校验失败: " + "; ".join(check.errors), 4)
-            print(f"[stage4] 第{n}章校验失败: {check.errors[:2]}")
+            # 退化（正文够长但内容是垃圾）单独标注：这类失败与「字数不足」
+            # 的处置不同 —— 重试往往没用，多半是模型/提示词层面出了问题。
+            if check.degenerate:
+                detail = "正文退化: " + "; ".join(check.degenerate)
+                progress.mark_chapter_failed(n, detail, 4)
+                print(f"[stage4] 第{n}章正文退化（字数 {check.word_count} 达标但内容无效）:")
+                for d in check.degenerate:
+                    print(f"          - {d}")
+                print(f"          指标: {check.degen_metrics}")
+            else:
+                progress.mark_chapter_failed(n, "校验失败: " + "; ".join(check.errors), 4)
+                print(f"[stage4] 第{n}章校验失败: {check.errors[:2]}")
             continue
 
         # 摘要提取 + 滚动维护
