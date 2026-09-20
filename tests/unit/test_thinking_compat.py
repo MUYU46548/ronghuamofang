@@ -27,13 +27,23 @@ import yaml  # noqa: E402
 from utils import llm_client  # noqa: E402
 from utils.llm_client import OpenAICompatClient, make_client  # noqa: E402
 
-PASS, FAIL = [], []
+PASS, FAIL, SKIP = [], [], []
 
 
 def check(name, cond, detail=""):
     (PASS if cond else FAIL).append(name)
     print("  [%s] %s%s" % ("PASS" if cond else "FAIL", name,
                            ("  → " + str(detail)[:240]) if detail else ""))
+
+
+def check_skip(name, reason=""):
+    """跳过（**不是失败**）：断言无从执行，例如缺少密钥/外部服务。
+
+    区分 SKIP 与 FAIL 很重要：把「未执行」报成「失败」会让真正的回归信号被淹没，
+    也会诱导人用错误手段（比如提交密钥）去消灭红色。
+    """
+    SKIP.append(name)
+    print("  [SKIP] %s%s" % (name, ("  → " + str(reason)[:240]) if reason else ""))
 
 
 CFG = yaml.safe_load((ROOT / "config" / "system.yaml").read_text(encoding="utf-8"))
@@ -290,7 +300,17 @@ def case_live():
     print("  key=%s base=%s model=%s" % ((key[:3] + "***" + key[-4:]) if len(key) > 8 else "(缺)",
                                          base, model))
     if not key:
-        check("真实探针需要 API Key（.env）", False, "未找到 " + str(PROV.get("api_key_env")))
+        # ⚠️ 这里必须是 **SKIP**，不能是 FAIL。
+        #
+        # 密钥不入版本控制是**正确行为**（红线：API Key 绝不进 git）。
+        # 但曾经这里判 FAIL，导致两个坏后果：
+        #   ① 干净检出 / CI 上必然红 —— 红的是「没配密钥」而非代码缺陷，
+        #      真正的回归信号被淹没；
+        #   ② 更糟：它**激励错误行为** —— 让人为了变绿而把 .env 提交进去。
+        # 探针的价值在于「有密钥时验证真实行为」，无密钥时它本就无从验证，
+        # 那不是失败，是未执行。
+        check_skip("真实探针（需 TOKENHUB_API_KEY，未配置则跳过）",
+                   f"未找到 {PROV.get('api_key_env')}（密钥不入库，属预期）")
         return
 
     def probe(extra):
@@ -376,7 +396,10 @@ if __name__ == "__main__":
             print("  [ERROR] case_live → %s" % e)
             traceback.print_exc()
     print("\n" + "=" * 70)
-    print("合计: %d 通过 / %d 失败" % (len(PASS), len(FAIL)))
+    print("合计: %d 通过 / %d 失败%s" % (len(PASS), len(FAIL),
+          ("  / %d 跳过" % len(SKIP)) if SKIP else ""))
+    if SKIP:
+        print("跳过项（未执行，非失败）: " + "、".join(SKIP))
     if FAIL:
         print("失败项: " + "、".join(FAIL))
     print("=" * 70)
