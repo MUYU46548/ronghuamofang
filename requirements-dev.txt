@@ -1,0 +1,11 @@
+# NovelForge 开发依赖（运行期不需要，仅质量门禁 / 自检用）
+# 安装：.venv/Scripts/python.exe -m pip install -r requirements-dev.txt
+#
+# 与 requirements.txt 分离是刻意的：本文件只提供静态检查能力，
+# **不进入打包 payload**（保持运行时依赖最小）。
+#
+# 为什么是 pyflakes 而不是只靠 py_compile —— 见 CHANGELOG「本轮 4 个活缺陷
+# 全部由它命中」：`datetime` 未导入、`only_stage` 未定义、`get_vault_path`
+# 未导入，这些**语法完全合法**，py_compile 一个都拦不住。
+
+pyflakes==3.4.0         # 未定义名 / 未使用导入 / 名称遮蔽（scripts/quality_gate.py 的引擎）

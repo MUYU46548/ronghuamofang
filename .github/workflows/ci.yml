@@ -1,0 +1,62 @@
+name: ci
+
+# NovelForge 最小质量门禁（2026-09-19 引入）
+#
+# 背景：本项目此前**从未有过 CI**，且 `.gitignore` 的 `*.yml` 全局规则会静默
+# 吞掉 workflow 文件（已加 `!.github/workflows/*.yml` 白名单修复）。
+# 本工作流只做两件投入产出比最高的事：
+#   1) pyflakes —— 纯静态「未定义名」检测。本轮审查发现的 3 个活缺陷里，
+#      `datetime` 未导入、`only_stage` 未定义两个都由它一击命中（`py_compile` 拦不住）。
+#   2) 单元测试 —— tests/unit 下零外部服务的确定性用例。
+# HTTP 契约与 E2E 用例需要起本地服务，留待本地跑（见 AGENTS.md）。
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  static-and-unit:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dev deps (pyflakes)
+        run: python -m pip install --upgrade pip pyflakes
+
+      # 门禁 1：未定义名 / 未使用导入 / 名字遮蔽 —— 零容忍「undefined name」
+      - name: Gate 1 - pyflakes (undefined names must be zero)
+        run: |
+          python -m pyflakes scripts/
+          echo "--- 检查 undefined name 是否为零 ---"
+          if python -m pyflakes scripts/ | grep -q "undefined name"; then
+            echo "::error::检出未定义名（F821）——这会直接导致运行时 NameError"
+            python -m pyflakes scripts/ | grep "undefined name"
+            exit 1
+          fi
+
+      # 门禁 2：语法检查（快速失败，先于测试）
+      - name: Gate 2 - syntax compile
+        run: python -m compileall -q scripts/
+
+      # 门禁 3：单元测试（零外部依赖、零网络）
+      # 这些脚本是独立可执行断言脚本（非 unittest 类），逐个跑并检查退出码。
+      - name: Gate 3 - unit tests
+        env:
+          PYTHONPATH: scripts
+        run: |
+          set -e
+          for f in tests/unit/test_*.py; do
+            echo "=== $f ==="
+            python "$f"
+          done
