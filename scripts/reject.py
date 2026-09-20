@@ -91,7 +91,10 @@ def reject_stage(pm, stage, reason="", dry_run=False):
                 p.unlink(missing_ok=True)
 
     # Reset downstream stages to pending
-    for n in range(stage + 1, 8):
+    # 上界 9（不含）与 orchestrator 的 `range(from_stage, 9)` 对齐 ——
+    # 阶段 8（Markdown 分卷导出）此前被漏掉，打回后残留 done 状态，
+    # 断点逻辑会让它误判"已完成"而跳过。见 progress_manager.STAGE_KEYS 的 S9 注释。
+    for n in range(stage + 1, 9):
         if not dry_run:
             st = pm.data["stages"][str(n)]
             st["status"] = "pending"

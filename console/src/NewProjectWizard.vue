@@ -93,7 +93,7 @@ async function submit() {
       <!-- 步骤 1：基本信息 -->
       <template v-if="step === 1">
         <label class="wiz-label">书名 *</label>
-        <input v-model="form.name" class="text-input" style="width:100%;" placeholder="如：留下你的歌"
+        <input v-model="form.name" class="text-input" style="width:100%;" placeholder="如：示例书名"
                @input="touched.name = true" @blur="touched.name = true" @keyup.enter="next" />
         <div v-if="touched.name && nameErr" class="wiz-err">{{ nameErr }}</div>
 

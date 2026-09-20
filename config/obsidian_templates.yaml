@@ -5,12 +5,12 @@
 
 obsidian_templates:
   # 输出沙盒目录（Obsidian 只读红线：只写这里，不写库本体）
-  sandbox_dir: "E:/图书馆/ROSA/Obsidian_AI_Sandbox/10_Inbox"
+  # 留空则回落到 data/state/obsidian_sandbox/（项目内，开箱可用）
+  sandbox_dir: ""
   # 官方模板（仅用于读取结构参考；实际草稿由提示词模板按此结构生成）
-  book_template: "E:/图书馆/ROSA/99 模板/官方书籍模板.md"
-  role_template: "E:/图书馆/ROSA/99 模板/官方角色介绍模板.md"
+  # 留空则跳过模板参考
+  book_template: ""
+  role_template: ""
   # Obsidian 角色词条目录（用于判定"已有词条"→只出出场记录；无词条→出设定草稿）
-  character_dirs:
-    - "E:/图书馆/ROSA/03 设定/01 人物/01 旧作人物"
-    - "E:/图书馆/ROSA/03 设定/01 人物/02 新作人物"
-    - "E:/图书馆/ROSA/03 设定/01 人物/03 次要人物"
+  # 留空则全部角色都出设定草稿
+  character_dirs: []

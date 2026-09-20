@@ -9,8 +9,8 @@
 """
 
 
-import json
 import math
+import os
 import pickle
 import re
 from pathlib import Path
@@ -216,7 +216,7 @@ def search(query, index=None, top_k=5, vault_path=None):
     ranked = sorted(scores.items(), key=lambda x: -x[1])[:top_k]
 
     results = []
-    vault = Path(vault_path) if vault_path else Path(index.get("vault_path", "E:/图书馆/ROSA"))
+    vault = Path(vault_path) if vault_path else Path(index.get("vault_path", "") or ".")
 
     for path, score in ranked:
         # 跳过索引页/报告页（导航性质，非正典内容）
@@ -242,8 +242,10 @@ def search(query, index=None, top_k=5, vault_path=None):
 
 
 def get_snippet(entry_path, vault_path=None, max_chars=500):
-    """读取指定词条的摘要。"""
-    vault = Path(vault_path) if vault_path else Path("E:/图书馆/ROSA")  # fallback default
+    """读取指定词条的摘要。vault_path 为空时不做路径拼接（返回空串）。"""
+    vault = Path(vault_path) if vault_path else None
+    if vault is None:
+        return ""
     full = vault / entry_path
     if not full.exists():
         return ""
@@ -275,7 +277,8 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="知识库索引工具")
-    parser.add_argument("--vault", default="E:/图书馆/ROSA", help="vault 路径")
+    parser.add_argument("--vault", default=os.environ.get("NF_VAULT_PATH") or "",
+                        help="vault 路径（留空则读取 config/system.yaml 的 obsidian.vault_path）")
     parser.add_argument("--out", default="data/state/kb_index.pkl", help="索引输出路径")
     sub = parser.add_subparsers(dest="cmd")
 

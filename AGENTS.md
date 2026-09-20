@@ -43,7 +43,7 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 | 撤销审批 | `python scripts/approve.py --stage N --revoke` |
 | 打回阶段 N | `python scripts/reject.py --stage N "原因"`（记录原因+清理下游产物+重置状态+撤销审批；`--dry-run` 预演） |
 | 大纲体检 | `python scripts/outline_review.py`（确定性，标出空泛节点） |
-| 设定体检（stage1后自动） | `python scripts/material_review.py`（确定性，标出碎片角色/缺失维度，报告 data/setting/material_review.md） |
+| 设定体检（stage1后自动） | `python scripts/material_review.py`（确定性，**类型感知**：先按 `utils/setting_schema.is_character` 分开人物/非人物，再对人物标碎片/缺失维度，报告 data/setting/material_review.md） |
 | 设定补全（审批前） | `python scripts/setting_refine.py "意见"` 或 `--auto-thin`（仅从素材推断+llm_inferred 标记，备份 data/setting/history/） |
 | 大纲精修（定向修订） | `python scripts/refine_outline.py "意见"`（`--dry-run` 只生成任务不跑子会话） |
 | 章节精修（定向修订） | `python scripts/refine_chapter.py 3 "意见"`（备份 data/chapters/history/，±20% 铁律） |
@@ -60,28 +60,92 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 | 成本报告 | `python scripts/cost_report.py`（总览）；`--by-chapter`（分章）；`--runs 5` |
 | 多书切换 | `python scripts/switch_book.py --list` / `--archive` / `--restore "书名"`（归档 data/books/，均需 `--yes`） |
 | 项目快照 | `python scripts/snapshot.py "标签"`；查看 `--list`（orchestrator 每阶段成功后自动快照） |
+| 快照恢复 | `python scripts/snapshot.py --restore <ID>`（**默认 dry-run 预览**，加 `--yes` 执行；恢复前自动打 `pre_restore` 折返点；`--delete-extra` 才删快照外文件） |
 | 素材预扫描 | `python scripts/stage1_consolidate.py` |
 | 原始碎片聚类预览 | `python scripts/utils/scrap_cluster.py`（自由命名碎片 → 内容聚类 + 时间序 + 前瞻备忘；`--json` 机器可读、`--dir` 换目录） |
 | 本地 API 服务（GUI 化 P0） | `python scripts/nf_api.py`（默认 127.0.0.1:8765；`--port/--host` 可调；`--allow-fake` 为无 LLM 测试模式） |
 | 提示词模板编辑（GUI） | 控制台「设置」页签 → 提示词模板面板；底层 `GET /prompts/list`、`GET /prompts/get?name=`、`POST /prompts/save`（白名单 `prompts/stage[1-7]_*.md`，禁止 `../`；保存自动备份 `prompts/history/`） |
-| 文风特征自检 | `python Temp/test_style_v2.py`（对范文跑 extract_style_features + build_style_instruction，含空/短文本边界） |
-| 风格偏差自检 | `python Temp/test_style_drift.py`（compute_style_drift 阈值/边界 + stage6 报告追加集成） |
+| 文风特征自检 | `python tests/unit/test_style_v2.py`（对范文跑 extract_style_features + build_style_instruction，含空/短文本边界） |
+| 风格偏差自检 | `python tests/unit/test_style_drift.py`（compute_style_drift 阈值/边界 + stage6 报告追加集成） |
 | API 验收自测 | `python scripts/nf_api_selftest.py`（⚠️ 清空 data/ 与 logs/ 后以 fake 模式起服务跑全链用例；会销毁当前书档产物，history/ 快照保留。碎片写入类端点不在其中——见下） |
-| 碎片聚类自检 | `python Temp/test_scrap_cluster.py`（自由命名 / 时间戳回退 / 内容聚类 / 否定语境 / 指纹稳定性，44 断言） |
-| stage1 碎片集成自检 | `python Temp/test_stage1_scraps.py`（在**临时工作目录**跑 fake 全链，真实 data/ 零污染；含"改碎片必触发重归并"） |
-| 碎片端点 HTTP 自检 | `python Temp/test_scraps_api_http.py`（临时项目根起 nf_api，覆盖 save/delete/promote 等写入端点与确认门，真实仓库零触碰） |
-| 质量自评闭环自检 | `python Temp/test_auto_rewrite.py`（临时工作目录跑 fake：目标收集/兜底重扫/dry-run/幂等/轮次上限/预算熔断/审稿发现叠加，39 断言） |
-| 自动重写端点 HTTP 自检 | `python Temp/test_auto_rewrite_api_http.py`（临时项目根起 nf_api：`/state` 暴露字段 + `POST /auto_rewrite/run` 默认 dry-run/显式执行/幂等，17 断言） |
-| 思考模型兼容自检 | `python Temp/test_thinking_compat.py`（离线单测 28 断言 + 真实 TokenHub 探针：确认「不关思考 content 空 / 关闭思考 content 非空 / reasoning_effort 被拒」；`--offline` 跳过真实调用） |
-| 审稿闭环端点 HTTP 自检 | `python Temp/test_review_api_http.py`（临时项目根起 nf_api：报告缺失 → 400 可行动提示、审查 job、决策保存与回读、批量精修真读到决策、键值格式兼容、交互式被拒，25 断言） |
-| stage4 出场同步自检 | `python Temp/test_stage4_appearances.py`（临时工作目录跑 fake stage4：appearances.json 自动生成、幂等不翻倍、异常注入不阻断，22 断言） |
-| 校对自检 | `python Temp/test_proofread.py`（临时项目根：四类确定性检查命中 + 误报防护 + 节奏离群 + 报告双落盘 + LLM 分支走 FakeClient，46 断言） |
-| 新端点 HTTP 自检 | `python Temp/test_new_endpoints_api_http.py`（临时项目根起 nf_api：/estimate 四种取参口径、proofread 报告缺失可行动 + 运行后落盘、style/analyze 四种 source、book/pacing 与 book/split、/models/add 与 /models/switch、/export/markdown、/outline/chapters/save，65 断言） |
-| GUI↔API 契约核对 | `python Temp/test_gui_api_contract.py`（静态：Vue 里每个 `api("…")` 都能在 nf_api 找到**同方法**分支；do_GET/do_POST 名遮蔽 AST 检查；死分支与丢失 elif 守卫回归；每个主题都要有 CSS 变量块，27 断言） |
-| UX 端点 HTTP 自检 | `python Temp/test_ux_flow_api_http.py`（临时项目根起 nf_api：`/logs/tail` 无文件/混编码/lines 边界、`/stage/skip` 的 confirm 与 stage 护栏、跳过落盘与 `/state` 回读、跳过→打回清标记、`/review/comment` 回归，26 断言） |
-| UX 真机视觉验收 | `python Temp/e2e_ux_verify.py`（Playwright 打开构建产物：一键工作流条、错误恢复条、跳过确认框、命令面板 Ctrl+K、快捷键 Space/R/数字/?、暗色主题对比度、**关于弹窗 / 项目页签 / 新建项目向导三步 / 冷启动引导**，64 断言 + 截图 `Temp/gui_verify/ux/`。需先起 8091 静态服务 + `Temp/mock_nf_api_state.py --port 8798` + `--port 8797 --cold`（冷启动状态）+ `scripts/nf_api.py --port 8799 --allow-fake`） |
-| 项目向导/关于端点自检 | `python Temp/test_project_wizard_api_http.py`（临时项目根起 nf_api：`/config/style_notes` 回归 ImportError、单行↔多行反复改写不写坏 YAML、`/project/create` 参数护栏与「有数据不归档则拒绝」、归档+重建+写 project.yaml 全链路、`/project/init` 真写盘、`/about` 字段，44 断言） |
-| 真机截图 + 控制台报错检查 | `node Temp/cdp_shots_new_tabs.js <http://127.0.0.1:8090> <出图目录>`（CDP 驱动 headless Chrome，逐页签截图 + 抓 console error/warning + 抓非 2xx 响应 URL。先起 nf_api:8765 与构建产物的静态服务；Node 22 自带 WebSocket，无需额外依赖） |
+| 碎片聚类自检 | `python tests/unit/test_scrap_cluster.py`（自由命名 / 时间戳回退 / 内容聚类 / 否定语境 / 指纹稳定性，44 断言） |
+| stage1 碎片集成自检 | `python tests/unit/test_stage1_scraps.py`（在**临时工作目录**跑 fake 全链，真实 data/ 零污染；含"改碎片必触发重归并"） |
+| 碎片端点 HTTP 自检 | `python tests/http/test_scraps_api_http.py`（临时项目根起 nf_api，覆盖 save/delete/promote 等写入端点与确认门，真实仓库零触碰） |
+| 质量自评闭环自检 | `python tests/unit/test_auto_rewrite.py`（临时工作目录跑 fake：目标收集/兜底重扫/dry-run/幂等/轮次上限/预算熔断/审稿发现叠加，43 断言） |
+| 自动重写端点 HTTP 自检 | `python tests/http/test_auto_rewrite_api_http.py`（临时项目根起 nf_api：`/state` 暴露字段 + `POST /auto_rewrite/run` 默认 dry-run/显式执行/幂等，17 断言） |
+| 思考模型兼容自检 | `python tests/unit/test_thinking_compat.py`（离线单测 + 真实 TokenHub 探针：确认「不关思考 content 空 / 关闭思考 content 非空 / reasoning_effort 被拒」；`--offline` 跳过真实调用。34 断言） |
+| 日志轮转自检 | `python tests/unit/test_run_log.py`（临时 LOCALAPPDATA 沙箱：超期归档/清理白名单/级别过滤/配置解包顺序/dry-run/坏配置不抛/年龄下限不为负，38 断言） |
+| 快照恢复自检 | `python tests/unit/test_snapshot_restore.py`（临时 CWD：dry-run 零改动、真实恢复、pre_restore 折返点、extras 递归检测、范围限定、路径护栏，30 断言） |
+| 域模块拆分护栏 | `python tests/unit/test_api_domains.py`（域模块契约 + 薄转发形态 + 依赖方向 + **`__main__` 别名守卫** + 无相对路径 IO，25 断言） |
+| 审稿闭环端点 HTTP 自检 | `python tests/http/test_review_api_http.py`（临时项目根起 nf_api：报告缺失 → 400 可行动提示、审查 job、决策保存与回读、批量精修真读到决策、键值格式兼容、交互式被拒，25 断言） |
+| stage4 出场同步自检 | `python tests/unit/test_stage4_appearances.py`（临时工作目录跑 fake stage4：appearances.json 自动生成、幂等不翻倍、异常注入不阻断，22 断言） |
+| 校对自检 | `python tests/unit/test_proofread.py`（临时项目根：四类确定性检查命中 + 误报防护 + 节奏离群 + 报告双落盘 + LLM 分支走 FakeClient，46 断言） |
+| 新端点 HTTP 自检 | `python tests/http/test_new_endpoints_api_http.py`（临时项目根起 nf_api：/estimate 四种取参口径、proofread 报告缺失可行动 + 运行后落盘、style/analyze 四种 source、book/pacing 与 book/split、/models/add 与 /models/switch、/export/markdown、/outline/chapters/save，65 断言） |
+| GUI↔API 契约核对 | `python tests/e2e/test_gui_api_contract.py`（**AST 解析**：Vue 里每个 `api("…")` 都能在 nf_api 找到**同方法**分支；do_GET/do_POST 名遮蔽 AST 检查；死分支、丢失 elif 守卫（结构判据）、分支链长度回归；每个主题都要有 CSS 变量块，35 断言） |
+| **失败路径回归（F1~F8 + S9/S10）** | `python tests/unit/test_failure_paths.py`（**主动把系统打坏**：重试计数/异常不外泄/预算熔断/用户停止/stage4 逐章失败隔离/静态门禁/seedWorkspace 升级/审批打回清下游/阶段键集对齐/末阶段熔断，69 断言。用 `utils/failing_client.py` 造可控失败，真实 data/ 零污染） |
+| UX 端点 HTTP 自检 | `python tests/http/test_ux_flow_api_http.py`（临时项目根起 nf_api：`/logs/tail` 无文件/混编码/lines 边界、`/stage/skip` 的 confirm 与 stage 护栏、跳过落盘与 `/state` 回读、跳过→打回清标记、`/review/comment` 回归，26 断言） |
+| UX 真机视觉验收 | `python tests/e2e/e2e_ux_verify.py`（Playwright 打开构建产物：一键工作流条、错误恢复条、跳过确认框、命令面板 Ctrl+K、快捷键 Space/R/数字/?、暗色主题对比度、**关于弹窗 / 项目页签 / 新建项目向导三步 / 冷启动引导**，64 断言 + 截图 `Temp/gui_verify/ux/`。需先起 8091 静态服务 + `tests/e2e/mock_nf_api_state.py --port 8798` + `--port 8797 --cold`（冷启动状态）+ `scripts/nf_api.py --port 8799 --allow-fake`） |
+| 项目向导/关于端点自检 | `python tests/http/test_project_wizard_api_http.py`（临时项目根起 nf_api：`/config/style_notes` 回归 ImportError、单行↔多行反复改写不写坏 YAML、`/project/create` 参数护栏与「有数据不归档则拒绝」、归档+重建+写 project.yaml 全链路、`/project/init` 真写盘、`/about` 字段，44 断言） |
+| 真机截图 + 控制台报错检查 | `node tests/e2e/cdp_shots_new_tabs.js <http://127.0.0.1:8090> <出图目录>`（CDP 驱动 headless Chrome，逐页签截图 + 抓 console error/warning + 抓非 2xx 响应 URL。先起 nf_api:8765 与构建产物的静态服务；Node 22 自带 WebSocket，无需额外依赖） |
+| **质量门禁（提交前必跑）** | `python scripts/quality_gate.py`（**未定义名零容忍**：`undefined name` 一律阻塞，退出码 1；其余历史告警只计数不阻塞。`--changed` 只查 git 变更文件，`--list-warn` 打印完整告警） |
+| kb / 模型端点契约自检 | `python tests/http/test_kb_and_models_api_http.py`（vault 未配置 → /kb/* 给可行动 400；白名单两级校验与 strict=false 逃生门，27 断言） |
+| 重试路径回归自检 | `python tests/unit/test_orchestrator_retry.py`（S1 回归：阶段失败不得抛异常、runs 不得留 running 脏行、finish_run_if_running 幂等，13 断言） |
+| 流式跑阶段回归自检 | `python tests/unit/test_stream_stage.py`（S2 回归：流式/非流式共用退出码翻译、无平行分支，18 断言） |
+| 配置泄露 / 白名单回路自检 | `python tests/unit/test_config_and_models.py`（S3/S8 回归：无本机绝对路径泄露、白名单两级校验接通，29 断言） |
+| 设定集 schema 归一自检 | `python tests/unit/test_setting_schema.py`（两种 schema 都能读全 + 大纲解析 + 别名/id 匹配 + **实体类型判定** + 去重 + **真实 ROSA 快照回归**，70 断言） |
+
+## 架构：API 层的域模块拆分（P2）
+
+`scripts/nf_api.py` 原本是 2,872 行的 God Object（91 个端点全挤在
+`do_GET`/`do_POST` 两条 elif 链里）。现已拆为 **2374 行的分发器 + 8 个域模块**，
+端点实现住在 `scripts/nf_api_domains/`。
+
+**改 API 时请遵守三条纪律**（全部由 `tests/unit/test_api_domains.py` 守护）：
+
+1. **谁发响应只能有一个答案** —— 域模块的 `handle_*(h, ...)` 只
+   `return (status, payload)`，**绝不**调用 `h._send()` / `h._stream_sse()`。
+   `nf_api.py` 的分支体统一写 `self._send(*_dom(dom_x.handle_y(self)))`。
+2. **反向依赖走属性访问** —— 域模块要取 `nf_api` 的模块级名字时写
+   `import nf_api as api` 然后 `api.ROOT`、`api.JOBS`；**禁止**
+   `from nf_api import ROOT` —— 后者把 `ROOT` 拷成**死值**，
+   让 `--root` 参数与测试的临时项目根全部失效。
+3. **分发器留在 `nf_api.py`** —— `do_GET`/`do_POST` 的 elif 链是契约测试的
+   路由表锚点，不能搬走；只搬分支体。
+
+**加新端点**：实现写进对应的域模块并加 `ROUTES` 条目，`nf_api.py` 里只加一行转发。
+某类端点超过 3 个就另开一个域模块，不要堆回 elif 链。
+
+### ⚠️ 路径 IO 必须经 `ROOT`，不得用相对路径
+
+API 层**禁止**写 `Path("data/...")` 这类相对路径 —— 它隐式依赖进程 CWD，
+而同族端点用 `ROOT / ...`，两种语义并存会在 `--root` 场景下**静默读错项目**：
+
+```
+cwd = 书本A（有 review_report.json）    --root 书本B（没有）
+→ GET /review/report 返回 200，内容是书本A 的数据   ← 不报错，给错数据
+```
+
+生产（Electron）恰好没暴露它，因为主进程 `spawn(..., {cwd: ws})` 且同时
+传 `--root ws`，两者相等。但 `--root` 参数的存在本身说明设计允许它们不同。
+
+统一写 `ROOT / "data" / "outline" / "x.json"`（域模块里写
+`api.ROOT / ...`）。由 `tests/unit/test_api_domains.py` 第 7 节守护。
+
+### ⚠️ `__main__` 别名守卫（勿删）
+
+`nf_api.py` 导入区有一段：
+
+```python
+if __name__ == "__main__":
+    sys.modules.setdefault("nf_api", sys.modules["__main__"])
+```
+
+**这不是可选优化。** 以 `python scripts/nf_api.py` 启动时本文件模块名是
+`__main__`；域模块里的 `import nf_api as api` 会**再加载一份**，于是进程内有两个
+`nf_api`，`JOBS` / `CURRENT` / `ROOT` 各自独立。后果是**静默**的：
+从磁盘读的端点（`/state`、`/costs/…`）一切正常，只有依赖进程内状态的
+`/jobs/{id}` 恒 404 → 前端轮询后台任务全部超时。更阴的是纯单测**全绿**
+（只有一份模块），缺陷只在真机 HTTP 下暴露。删掉它 → 域护栏 4 条 FAIL。
 
 ## 关键路径
 
@@ -97,6 +161,8 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 - 用户大纲输入：`config/project.yaml` 的 `book.user_outline`（可选；提供后 stage2/精修优先遵循）
 - Word 成品模板：`templates/*.dotx`（config 的 `book.word_template` 指定；.dotx 自动转换；替换 [书籍标题]/[作者]/[目录占位符]/[请输入文本] 占位符；更换模板只改配置或覆盖 templates/）
 - 项目快照：`history/{时间戳}_{标签}/`（每阶段成功后自动生成，保留最近 10 份；data/ 不进 git，快照承担版本职责）
+  - **恢复**：`python scripts/snapshot.py --restore <ID> --yes`。默认 dry-run；
+    恢复前自动存 `pre_restore` 快照作折返点；快照外的文件默认保留。
 - 多书归档：`data/books/{书名}/`（switch_book.py 归档/恢复；切换前 orchestrator 会提示书名不一致）
 - 章节修订历史：`data/chapters/history/`（refine_chapter.py 每次精修备份 chNN_vM.md）
 - 校对报告：`data/outline/proofread_report.json` + `.md`（proofread.py / `POST /proofread/run` 产出；
@@ -163,7 +229,7 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 - **GUI 交互纪律**：① 运行入口唯一（流水线页签顶部的「一键工作流」条，旧的 `.run-all-bar` 已删——
   新增运行按钮一律并入该条，不让两套入口并存）；② 破坏性操作走应用内确认框 + 勾选护栏，不用
   `window.confirm`（Electron 原生对话框不可靠）；③ 新 CSS 一律用主题变量（`--ok/--bad/--warn/--accent`），
-  硬编码色值在暗色主题下会看不清；④ 新增/改前端后必须跑 `Temp/e2e_ux_verify.py` 做真机视觉验收
+  硬编码色值在暗色主题下会看不清；④ 新增/改前端后必须跑 `tests/e2e/e2e_ux_verify.py` 做真机视觉验收
   （用户明确要求：不许只跑冒烟测试就交付）；⑤ 前端 API 基址可用 `window.__NF_API_BASE__` 覆盖，
   便于在不干扰用户 8765 实例的前提下验收
 - **新建项目只有一个入口**：「项目」页签 →「＋ 新建项目」（`POST /project/create`：快照 → 归档当前 →

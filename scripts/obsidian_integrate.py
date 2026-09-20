@@ -47,9 +47,19 @@ def _safe_list(v):
     return []
 
 
+def _resolve_vault(vault_path=None):
+    """解析 vault 路径；未配置时给出可行动错误（而非 TypeError）。"""
+    v = Path(vault_path) if vault_path else _get_vault_path()
+    if v is None:
+        raise ValueError(
+            "未配置 Obsidian vault 路径：请在 config/system.yaml 的 "
+            "obsidian.vault_path 填写，或用 --vault 显式指定。")
+    return v
+
+
 def scan_vault_characters(vault_path=None):
     """扫描 vault 中的角色词条，返回 [{name, path, tags, type, locked, relations, snippet}]。"""
-    vault = Path(vault_path) if vault_path else _get_vault_path()
+    vault = _resolve_vault(vault_path)
     characters = []
     
     # 角色通常在 03 设定/01 人物/ 下
@@ -148,7 +158,7 @@ def scan_vault_characters(vault_path=None):
 
 def scan_vault_worldbuilding(vault_path=None):
     """扫描 vault 中的世界观词条（地点/势力/概念），返回 [{name, path, tags, type, snippet}]。"""
-    vault = Path(vault_path) if vault_path else _get_vault_path()
+    vault = _resolve_vault(vault_path)
     entries = []
     
     world_dirs = [
@@ -379,7 +389,10 @@ if __name__ == "__main__":
     sub = parser.add_subparsers(dest="cmd")
     
     p_scan = sub.add_parser("scan", help="扫描 vault 知识库")
-    p_scan.add_argument("--vault", default=str(_get_vault_path()), help="vault 路径")
+    _vp = _get_vault_path()
+    p_scan.add_argument("--vault",
+                        default=str(_vp) if _vp is not None else "",
+                        help="vault 路径（留空则读 config/system.yaml）")
     p_scan.add_argument("--output", default="data/setting/setting.json", help="输出路径")
     
     p_sync = sub.add_parser("sync", help="同步章节出场记录")

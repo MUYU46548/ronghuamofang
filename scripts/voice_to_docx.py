@@ -1,26 +1,33 @@
 # -*- coding: utf-8 -*-
 """将《心音辑录（星河篇）》角色语音设定 md 转 Word 正式作品。
 
-读取 ROSA 语音设定目录 -> 解析核心设定/语音记录 -> 按角色分章生成 docx。
+读取语音设定目录（--src 指定，默认 materials/voice/）-> 解析核心设定/语音记录
+-> 按角色分章生成 docx。
 - 核心设定：表格呈现
 - 语音记录：保留原始触发场景分类（按 md 中的子标题分隔），无子标题则单列
 - 独立版式设计（不使用小说通用模板）：全局中文字体 = 微软雅黑，
   显式写入 w:eastAsia，确保中文混排与 PDF 导出可读性。
 不依赖 NovelForge 小说流水线，专用于既有语音集导出。
+
+用法：
+  python scripts/voice_to_docx.py [--src 目录] [--out 文件.docx] [--single]
+  # 路径也可用环境变量 NF_VOICE_SRC / NF_VOICE_OUT 指定
 """
-import sys
+import os
 import re
+import argparse
 from pathlib import Path
 
 from docx import Document
-from docx.shared import Pt, RGBColor
+from docx.shared import Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
-SRC_DIR = Path(r"E:/图书馆/ROSA/Obsidian_AI_Sandbox/99_Archive/语音设定")
-OUT_DEFAULT = Path(r"E:/AI/Hermes_Workspace/output/心音辑录_角色语音设定集.docx")
-OUT_SAMPLE = Path(r"E:/AI/Hermes_Workspace/output/心音辑录_角色语音设定集_样例.docx")
+# 路径不再写死本机绝对路径：改用「参数 > 环境变量 > 项目内默认」
+DEFAULT_SRC_DIR = "materials/voice"
+DEFAULT_OUT = "output/角色语音设定集.docx"
+DEFAULT_OUT_SINGLE = "output/角色语音设定集_样例.docx"
 
 # 独立版式字体策略（正式出版感 + 无版权风险）：
 #   中文(eastAsia)：霞鹜文楷 LXGW WenKai —— SIL OFL 开源，典雅书香，可商用/嵌入 PDF
@@ -201,18 +208,32 @@ def build_docx(files, out_path):
 
 
 def main():
-    args = sys.argv[1:]
-    if args and args[0] == "--single":
-        files = sorted(SRC_DIR.glob("*_语音设定.md"))[:1]
-        out = OUT_SAMPLE
-    else:
-        files = sorted(SRC_DIR.glob("*_语音设定.md"))
-        out = OUT_DEFAULT
-    if not files:
-        print("未找到语音设定文件")
+    parser = argparse.ArgumentParser(description="角色语音设定 md → Word")
+    parser.add_argument("--src", default=os.environ.get("NF_VOICE_SRC") or DEFAULT_SRC_DIR,
+                        help="语音设定 md 所在目录（默认 materials/voice/）")
+    parser.add_argument("--out", default=os.environ.get("NF_VOICE_OUT") or "",
+                        help="输出 docx 路径（默认 output/角色语音设定集[_样例].docx）")
+    parser.add_argument("--single", action="store_true",
+                        help="只导出第一份（样例模式）")
+    args = parser.parse_args()
+
+    src_dir = Path(args.src)
+    if not src_dir.is_dir():
+        print(f"语音设定目录不存在: {src_dir}（用 --src 指定）")
         return 2
+    if args.single:
+        files = sorted(src_dir.glob("*_语音设定.md"))[:1]
+        out = Path(args.out or DEFAULT_OUT_SINGLE)
+    else:
+        files = sorted(src_dir.glob("*_语音设定.md"))
+        out = Path(args.out or DEFAULT_OUT)
+    if not files:
+        print(f"未在 {src_dir} 找到 *_语音设定.md 文件")
+        return 2
+    out.parent.mkdir(parents=True, exist_ok=True)
     p = build_docx(files, out)
     print(f"OK: {p}  (角色数={len(files)})")
+    return 0
 
 
 if __name__ == "__main__":

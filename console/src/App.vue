@@ -1076,8 +1076,11 @@ async function openEnvFile() {
   const r = await api("/env/open");
   if (r.status === 200 && r.data.exists) {
     const path = r.data.env_path;
-    if (window.mofangAPI && window.mofangAPI.openArtifact) {
-      window.mofangAPI.openArtifact(".env");
+    // .env 含明文密钥：**不再交给外部编辑器打开**（2026-09-19 审查 S7）。
+    // 只展示路径 + 提供「在文件夹中显示」，由用户在受控环境内自行编辑。
+    if (window.mofangAPI && window.mofangAPI.revealInFolder) {
+      window.mofangAPI.revealInFolder(".env");
+      say("已在文件夹中定位 .env —— 请用你自己的编辑器打开并填入 Key（界面不显示明文）");
     } else {
       say("请手动打开: " + path);
     }
@@ -3399,7 +3402,7 @@ onUnmounted(() => {
       </div>
       <div class="art-row" style="margin: 8px 0;">
         <span class="art-label">书名 *</span>
-        <input v-model="initBookName" class="text-input" placeholder="如：留下你的歌" />
+        <input v-model="initBookName" class="text-input" placeholder="如：示例书名" />
       </div>
       <div class="art-row" style="margin: 8px 0;">
         <span class="art-label">类型</span>

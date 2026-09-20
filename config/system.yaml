@@ -96,11 +96,13 @@ gates:
   auto_retry_backoff: 2            # 退避系数：3s → 6s → 12s …
   stage8_export: true  # 阶段8：Markdown 分卷导出
 obsidian:
-  # vault path (read-only)
-  vault_path: "E:/图书馆/ROSA"
+  # vault path（只读）：用户自己的 Obsidian 知识库根目录
+  # 留空则不启用 Obsidian 联动；首次使用请在 GUI「设置」页填写本地路径
+  # （本地私有路径不应进 Git——请在本地覆盖，切勿提交自己的真实路径）
+  vault_path: ""
   # Obsidian 联动沙盒目录（唯一可写位置，vault 本体只读）
   # 支持绝对路径或相对路径（相对于项目根目录）
-  sandbox_dir: "E:/图书馆/ROSA/Obsidian_AI_Sandbox/10_Inbox"
+  sandbox_dir: ""
   # 是否启用路径遍历防护（默认开）
   path_traversal_guard: true
 logging:

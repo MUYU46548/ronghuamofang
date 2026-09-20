@@ -14,8 +14,8 @@
 4. write_sandbox() — 写入沙盒（只读原稿，只写沙盒）
 
 配置（config/system.yaml 的 obsidian 节点）：
-- sandbox_dir: 沙盒目录（唯一可写位置）
-- vault_path: vault 路径（默认 E:/图书馆/ROSA）
+- sandbox_dir: 沙盒目录（唯一可写位置）；留空 → 回落项目内 data/state/obsidian_sandbox/
+- vault_path: vault 路径（用户本地知识库；留空 = 未启用联动）
 - path_traversal_guard: 路径遍历防护（默认开）
 """
 
@@ -28,8 +28,10 @@ from collections import defaultdict
 from utils.file_io import read_text, write_text
 
 # 默认配置（被 config/system.yaml 的 obsidian 节点覆盖）
-DEFAULT_VAULT_PATH = "E:/图书馆/ROSA"
-DEFAULT_SANDBOX_DIR = "E:/图书馆/ROSA/Obsidian_AI_Sandbox/10_Inbox"
+# 刻意**不设**任何用户本机绝对路径：vault 未配置时视为「未启用联动」，
+# 沙盒未配置时回落到项目内目录，保证开箱即用且不泄露任何私人路径。
+DEFAULT_VAULT_PATH = ""
+DEFAULT_SANDBOX_DIR = "data/state/obsidian_sandbox"
 
 
 def _load_obsidian_config():
@@ -43,15 +45,33 @@ def _load_obsidian_config():
 
 
 def get_vault_path():
-    """获取 vault 路径（默认或配置）。"""
+    """获取 vault 路径（未配置时为 None）。
+
+    未配置（空）时返回 None —— 调用方应视为「未启用 Obsidian 联动」，
+    而不是回落到某个写死的本机路径（那会让其他用户开箱即失败）。
+
+    注意：**不要**返回 `Path("")` —— 它 str() 后是 `"."`（当前目录），
+    会让「是否已配置」的判断永远为真，从而把未启用误判为已启用。
+    """
     cfg = _load_obsidian_config()
-    return Path(cfg.get("vault_path", DEFAULT_VAULT_PATH))
+    raw = (cfg.get("vault_path") or DEFAULT_VAULT_PATH or "").strip()
+    return Path(raw) if raw else None
 
 
 def get_sandbox_dir():
-    """获取沙盒目录（默认或配置）。"""
+    """获取沙盒目录（唯一可写位置）。
+
+    未配置时回落项目内 data/state/obsidian_sandbox/ —— 开箱即用，
+    有配置则用配置（支持绝对路径或相对项目根的路径）。
+    """
     cfg = _load_obsidian_config()
-    return Path(cfg.get("sandbox_dir", DEFAULT_SANDBOX_DIR))
+    raw = (cfg.get("sandbox_dir") or DEFAULT_SANDBOX_DIR or "").strip()
+    return Path(raw) if raw else Path(DEFAULT_SANDBOX_DIR)
+
+
+def is_vault_configured():
+    """vault 是否已配置（联动功能的总开关）。"""
+    return get_vault_path() is not None
 
 
 # 延迟初始化（避免导入时读取配置文件）
@@ -168,6 +188,11 @@ def scan_vault(vault_path=None):
     }
     """
     vault = Path(vault_path) if vault_path else _get_vault_path()
+    if vault is None:
+        raise ValueError(
+            "未配置 Obsidian vault 路径：请在 config/system.yaml 的 "
+            "obsidian.vault_path 填写你的知识库目录（vault 本体只读；"
+            "不用 Obsidian 联动可忽略本功能）。")
     characters = []
     world_entries = []
     timeline_entries = []

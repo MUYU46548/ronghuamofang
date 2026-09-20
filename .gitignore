@@ -28,6 +28,8 @@ logs/session.log
 Thumbs.db
 
 # ===== 临时与附件（不进 Git）=====
+# 注意：tests/ 是**正式测试资产**，必须进 Git（2026-09-19 审查 B2 修复）。
+# Temp/ 只剩截图/图标实验等一次性产物 —— 测试脚本已迁往 tests/。
 Temp/
 .hermes/
 
@@ -51,6 +53,10 @@ console/runtime/
 *.exe
 *.blockmap
 *.yml
+# 例外：GitHub workflow 必须能被跟踪（否则第 53 行的 *.yml 会静默吞掉 CI 配置，
+# 推不上仓库且不报错——2026-09-19 审查发现）
+!.github/workflows/*.yml
+!**/.github/workflows/*.yml
 
 # ===== AI 助手工作区记忆（不进 Git，跨会话本地持久化）=====
 .workbuddy/

@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """完书后 Obsidian 后处理 CLI（P1.6）。
 
-一键生成三件草稿到沙盒（E:/图书馆/ROSA/Obsidian_AI_Sandbox/10_Inbox/）：
+一键生成三件草稿到沙盒（默认 data/state/obsidian_sandbox/，可在
+config/obsidian_templates.yaml 配置为你的 Obsidian 库内目录）：
 1. 作品介绍页草稿（按 Obsidian 官方书籍模板结构）
 2. 已有 Obsidian 词条角色的"官作出场记录"待粘贴段落
 3. 无词条新角色的角色设定页草稿（按官方角色模板结构，源稀薄处"待补充"）
@@ -41,14 +42,11 @@ def load_obsidian_template_config():
         cfg = {}
     obsidian = cfg.get("obsidian_templates", {})
     defaults = {
-        "sandbox_dir": "E:/图书馆/ROSA/Obsidian_AI_Sandbox/10_Inbox",
-        "book_template": "E:/图书馆/ROSA/99 模板/官方书籍模板.md",
-        "role_template": "E:/图书馆/ROSA/99 模板/官方角色介绍模板.md",
-        "character_dirs": [
-            "E:/图书馆/ROSA/03 设定/01 人物/01 旧作人物",
-            "E:/图书馆/ROSA/03 设定/01 人物/02 新作人物",
-            "E:/图书馆/ROSA/03 设定/01 人物/03 次要人物",
-        ],
+        # 默认沙盒在项目内（开箱可用）；刻意不留任何用户本机绝对路径
+        "sandbox_dir": "data/state/obsidian_sandbox",
+        "book_template": "",
+        "role_template": "",
+        "character_dirs": [],
     }
     for k, v in defaults.items():
         obsidian.setdefault(k, v)

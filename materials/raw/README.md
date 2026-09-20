@@ -20,7 +20,7 @@ name: 露汐
 ## 快速上手
 
 1. 到 [Examples](../examples/) 查看完整示例工程（含一本书的全套素材、设定、大纲）
-2. 复制 `examples/leaving-your-song/materials/` 到你自己的 `materials/raw/` 试跑流水线
+2. 复制 `examples/sample-book/materials/` 到你自己的 `materials/raw/` 试跑流水线
 3. 想从零开始？直接新建 `.md` 文件，填上 frontmatter 即可
 
 ## 导入/导出

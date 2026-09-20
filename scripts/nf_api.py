@@ -90,6 +90,21 @@ from urllib.parse import parse_qs, unquote
 import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+# ---- 把 __main__ 别名为规范模块名 `nf_api` ----
+# 为什么必须有这段：以 `python scripts/nf_api.py` 启动时，本文件的模块名是
+# `__main__`；而 nf_api_domains/* 里的 `import nf_api as api` 会**再加载一份**，
+# 于是进程里同时存在两个 nf_api：__main__（真正在处理请求的那个）与 nf_api
+# （域模块看到的那个）。两边各有独立的 JOBS / CURRENT / ROOT 等模块级可变状态。
+#
+# 后果是**静默的**：从磁盘读文件的端点（/state、/costs/…）看起来一切正常，
+# 只有依赖进程内状态的端点会坏 —— 例如 /jobs/{id} 永远 404（JOBS 是空字典），
+# 前端轮询后台任务全部超时。这类 bug 只会在真机跑 HTTP 时暴露，
+# 纯函数单测（直接 import nf_api）反而全绿，所以必须在源头掐掉。
+#
+# 惯用做法：把规范模块名指向自己，让后续 `import nf_api` 命中同一个模块对象。
+if __name__ == "__main__":
+    sys.modules.setdefault("nf_api", sys.modules["__main__"])
+
 import yaml  # noqa: E402
 
 from orchestrator import run as orch_run  # noqa: E402
@@ -110,10 +125,61 @@ import estimate_tokens as estimate_mod  # noqa: E402
 import book_split as book_split_mod  # noqa: E402
 import refine_chapter as refine_ch_mod  # noqa: E402
 from utils.verify_chapter import is_chapter_complete  # noqa: E402
+# 模型准入登记处（白名单纪律的唯一实现点，2026-09-19 审查 S8 修复）
+from utils import model_registry  # noqa: E402
 # 模块级导入文件读写（勿在 do_GET/do_POST 内写 `import json` 这类裸导入：
 # 函数内任意位置出现 `import json` 都会把 json 变成该函数的局部名，
 # 导致同一函数内其它分支的 json.xxx 抛 UnboundLocalError —— 2026-09-14 修）
 from utils.file_io import read_text as nf_read_text, write_text as nf_write_text  # noqa: E402
+
+# ---- 域模块（P2 拆分）：实现从 nf_api.py 搬到 nf_api_domains/ ----
+# 薄转发范式：do_GET/do_POST 的分支体只做 `self._send(*_dom(fn(self)))`，
+# 业务实现住在域模块里。域模块通过 `import nf_api as api` 反向取模块级名
+# （**不能** `from nf_api import ROOT` —— 那会把 ROOT 拷成死值，
+#  导致 `--root` 与测试的临时项目根失效）。
+#
+# `_dom()` 是容错包装：域模块导入失败（老 workspace 未被 seedWorkspace 刷到
+# 新包时）绝不能整站 500 —— 退化为可行动 500 而不是崩在 import 期。
+try:
+    from nf_api_domains import materials as dom_materials  # noqa: E402
+    from nf_api_domains import misc as dom_misc            # noqa: E402
+    from nf_api_domains import models as dom_models        # noqa: E402
+    from nf_api_domains import outline as dom_outline      # noqa: E402
+    from nf_api_domains import post_misc as dom_post_misc  # noqa: E402
+    from nf_api_domains import project as dom_project      # noqa: E402
+    from nf_api_domains import runtime as dom_runtime      # noqa: E402
+except Exception as _dom_err:                            # noqa: BLE001
+    dom_materials = None
+    dom_misc = None
+    dom_models = None
+    dom_outline = None
+    dom_post_misc = None
+    dom_project = None
+    dom_runtime = None
+    print("[nf_api] 域模块加载失败（端点将返回可行动错误）: " + str(_dom_err))
+
+
+def _dom(result):
+    """把域模块返回的 (status, payload) 展开给 `self._send(*...)`。
+
+    额外支持 STREAM_RESPONSES 哨兵：域模块自行接管响应（如 SSE），
+    nf_api 不再调用 _send。
+    """
+    from nf_api_domains.contract import STREAM_RESPONSES
+    status, payload = result
+    if payload is STREAM_RESPONSES:
+        return (status, {})          # 占位；实际响应已由域模块写完
+    return status, payload
+
+
+def norm_path(h):
+    """把请求路径归一化为 **分发用的 p**：去 query、去尾部 `/`、空则 `/`。
+
+    这个函数是「p 是怎么来的」的**唯一定义**：`do_GET` / `do_POST` 开头调它，
+    域模块要解析子路径时也调它（域模块里另写一份 `split("?")[0].rstrip("/")`
+    会静默漂移——日后归一化规则一改，就只有域模块里的那份是旧的）。
+    """
+    return h.path.split("?")[0].rstrip("/") or "/"
 
 
 def _resolve_root():
@@ -182,8 +248,32 @@ def _client_for_env(cfg, role):
     if ALLOW_FAKE:
         from utils.fake_client import FakeClient
         return FakeClient()
-    from utils.llm_client import make_client, _load_env_file  # noqa: E402
+    from utils.llm_client import make_client
     return make_client(cfg, role)
+
+
+# ---- Obsidian vault 联动（kb 端点共用） ----
+
+def _kb_vault_path():
+    """读取配置的 vault 路径。未配置时为 None（调用方须先过 _vault_ready）。
+
+    延迟导入 obsidian_bridge：它读 config/system.yaml，而 nf_api 的 import 期
+    ROOT 可能尚未按 --root 重设（测试用临时项目根），延迟到调用时才解析。
+    """
+    from obsidian_bridge import get_vault_path, is_vault_configured
+    return get_vault_path() if is_vault_configured() else None
+
+
+def _vault_ready(handler):
+    """vault 未配置时回 400 可行动提示并返回 False（调用方直接 return）。"""
+    from obsidian_bridge import is_vault_configured
+    if is_vault_configured():
+        return True
+    handler._send(400, {"ok": False, "error":
+                        "未配置 Obsidian vault 路径（config/system.yaml 的 "
+                        "obsidian.vault_path）。该功能需指向你自己的 Obsidian 知识库目录；"
+                        "不使用知识库联动可忽略此端点。"})
+    return False
 
 
 def _wrap_client_for_streaming(client, job_id):
@@ -544,7 +634,7 @@ def build_state():
     stages = [stage_status(progress, n) for n in range(1, 8)]
     gates = load_all()[0].get("gates", {})
     cost_spent, calls, est = 0.0, 0, 0
-    db_path = Path("logs/runs.db")
+    db_path = ROOT / "logs" / "runs.db"
     if db_path.exists():
         db = RunDB(db_path)
         try:
@@ -607,7 +697,7 @@ def build_streaming_cost():
         "elapsed_s": 0, "yield_yuan_per_min": 0.0,
     }
 
-    db_path = Path("logs/runs.db")
+    db_path = ROOT / "logs" / "runs.db"
     if not db_path.exists():
         return out
     db = RunDB(db_path)
@@ -697,22 +787,52 @@ def start_job(kind, fn):
 
 # ---- 动作实现（与 CLI 同源） ----
 
-def act_run_stage(cfg, only_stage, from_stage, stream_job_id=None):
-    """创建阶段运行动作。stream_job_id 不为 None 时启用流式输出。"""
+def _rc_to_result(rc):
+    """把 orchestrator 退出码翻译成 job 结果元组 (ok, detail)。
+
+    退出码语义（orchestrator 模块 docstring）：
+      0=完成 1=阶段失败 2=预算熔断 3=等待审批/审阅 4=用户中断
+    3 与 4 都不是「失败」：3 是审批门正常暂停，4 是用户主动停止 → 不标红。
+    """
+    if rc == 4:
+        return True, "用户中断（exit=4）"
+    if rc == 3:
+        return True, "exit=3（等待审批，属正常门暂停）"
+    return (rc == 0), "exit=" + str(rc)
+
+
+def act_run_stage(cfg, only_stage, from_stage):
+    """创建阶段运行动作（非流式路径）。"""
     client = _client_for_env(cfg, "default")
 
-    if stream_job_id:
-        client = _wrap_client_for_streaming(client, stream_job_id)
-
     def _fn():
-        rc = orch_run(from_stage=from_stage, only_stage=only_stage, client=client)
-        # 退出码：0=完成 1=阶段失败 2=预算熔断 3=等待审批 4=用户中断
-        # 3 与 4 都不是「失败」：3 是审批门正常暂停，4 是用户主动停止 → 不标红
-        if rc == 4:
-            return True, "用户中断（exit=4）"
-        if rc == 3:
-            return True, "exit=3（等待审批，属正常门暂停）"
-        return (rc == 0), "exit=" + str(rc)
+        return _rc_to_result(orch_run(from_stage=from_stage,
+                                      only_stage=only_stage, client=client))
+    return _fn
+
+
+def act_run_stage_streamed(cfg, only_stage, from_stage, preview_job_id,
+                           stream_q, stop_ev):
+    """创建阶段运行动作（流式路径）。
+
+    与 act_run_stage 共用 _rc_to_result，**唯一差异**是套一层流式客户端包装。
+    两条路径的退出码翻译逻辑不再各写一份 —— 这是 2026-09-19 修复 only_stage
+    未定义缺陷（S2）时消除的结构性温床：平行分支必然「改一处漏一处」。
+    """
+    def _fn():
+        client = _client_for_env(cfg, "default")
+        # 用真实的 job_id 替换占位
+        real_job = CURRENT.get("id", preview_job_id)
+        with STREAMERS_LOCK:
+            STREAMERS.pop(preview_job_id, None)
+            STREAMERS[real_job] = {
+                "queue": stream_q,
+                "stop": stop_ev,
+                "text": [],
+            }
+        client = _wrap_client_for_streaming(client, real_job)
+        return _rc_to_result(orch_run(from_stage=from_stage,
+                                      only_stage=only_stage, client=client))
     return _fn
 
 
@@ -793,7 +913,6 @@ def act_project_create(name, genre=None, chapters=None, style_notes=None,
     except Exception:
         has_work = False
 
-    archived = None
     notes = []
     if has_work:
         if not archive_current and not force:
@@ -810,7 +929,6 @@ def act_project_create(name, genre=None, chapters=None, style_notes=None,
         ok, msg = sb_mod.archive(target, yes=True, force=True)
         if not ok:
             return False, "归档当前项目失败，已中止（未做任何改动）: " + str(msg)
-        archived = target
         notes.append("已归档「%s」" % target)
 
     ok, msg = sb_mod.init_empty()
@@ -1026,7 +1144,7 @@ def act_style_analyze(body):
                  else ["refined", "checked", "raw"])
         found = None
         for sc in cands:
-            cand = Path("data/chapters") / sc / ("%02d.md" % n)
+            cand = ROOT / "data" / "chapters" / sc / ("%02d.md" % n)
             if cand.exists():
                 found = cand
                 break
@@ -1059,7 +1177,7 @@ def act_style_analyze(body):
                  else ["refined", "checked", "raw"])
         cpath = None
         for sc in cands:
-            cand = Path("data/chapters") / sc / ("%02d.md" % cn)
+            cand = ROOT / "data" / "chapters" / sc / ("%02d.md" % cn)
             if cand.exists():
                 cpath = cand
                 break
@@ -1083,7 +1201,7 @@ def act_outline_save(content):
     """保存整份大纲：先校验格式完整性，通过才写盘（写前备份）。"""
     import stage2_outline as s2
     import refine_outline as ro
-    from utils.file_io import write_text as _wt, read_text as _rt
+    from utils.file_io import write_text as _wt
 
     if not isinstance(content, str) or not content.strip():
         return False, "内容为空"
@@ -1166,14 +1284,13 @@ def act_stage2_run_multi(count=3, interval=2.0):
     """
     import stage2_outline as s2
     import outline_review as ov
-    from utils.file_io import write_text as _wt
 
     def _fn():
         cfg, proj = load_all()
         client = _client_for_env(cfg, "default")
         drafts = []
         for i in range(1, count + 1):
-            draft = Path("data/outline/global_draft_%d.md" % i)
+            draft = ROOT / "data" / "outline" / ("global_draft_%d.md" % i)
             try:
                 draft.unlink()
             except OSError:
@@ -1316,8 +1433,7 @@ class Handler(BaseHTTPRequestHandler):
 
     # ---- GET ----
     def do_GET(self):
-        path_parts = self.path.split("?")
-        p = path_parts[0].rstrip("/") or "/"
+        p = norm_path(self)
 
         # SSE 流式端点
         if p.startswith("/stream/"):
@@ -1325,20 +1441,15 @@ class Handler(BaseHTTPRequestHandler):
             self._stream_sse(job_id)
             return
 
-        if p == "/health":
-            cur = CURRENT["id"]
-            job = JOBS.get(cur) if cur else None
-            self._send(200, {"ok": True, "current_job": cur,
-                             "current_kind": (job or {}).get("kind"),
-                             "allow_fake": ALLOW_FAKE})
+        elif p == "/health":
+            # 实现已迁至 nf_api_domains.project（P2 拆分）；此处只做转发。
+            self._send(*_dom(dom_project.handle_health(self)))
         elif p == "/state":
-            try:
-                self._send(200, build_state())
-            except Exception as e:
-                self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
+            # 实现已迁至 nf_api_domains.project（P2 拆分）；此处只做转发。
+            self._send(*_dom(dom_project.handle_state(self)))
         elif p == "/costs":
             rows = []
-            db_path = Path("logs/runs.db")
+            db_path = ROOT / "logs" / "runs.db"
             if db_path.exists():
                 db = RunDB(db_path)
                 try:
@@ -1351,412 +1462,98 @@ class Handler(BaseHTTPRequestHandler):
                     db.close()
             self._send(200, {"entries": rows})
         elif p == "/costs/summary":
-            db_path = Path("logs/runs.db")
-            if not db_path.exists():
-                self._send(200, {"by_stage": [], "by_model": [], "totals": {}})
-                return
-            db = RunDB(db_path)
-            try:
-                STAGE_NAMES = {1: "素材归并", 2: "整体大纲", 3: "逐章大纲", 4: "逐章写作",
-                               5: "逻辑检查", 6: "润色", 7: "Word"}
-                by_stage = []
-                for r in db.conn.execute(
-                        "SELECT stage, COALESCE(SUM(tokens_in),0), COALESCE(SUM(tokens_out),0),"
-                        " COALESCE(SUM(cache_read),0), COALESCE(SUM(cost_yuan),0), COUNT(*),"
-                        " COALESCE(SUM(estimated),0)"
-                        " FROM cost_log GROUP BY stage ORDER BY stage"):
-                    by_stage.append({
-                        "stage": r[0], "name": STAGE_NAMES.get(r[0], str(r[0])),
-                        "tokens_in": r[1], "tokens_out": r[2], "cache_read": r[3],
-                        "cost_yuan": round(r[4], 4), "calls": r[5], "estimated": r[6],
-                    })
-                by_model = []
-                for r in db.conn.execute(
-                        "SELECT model, COALESCE(SUM(tokens_in),0), COALESCE(SUM(tokens_out),0),"
-                        " COALESCE(SUM(cache_read),0), COALESCE(SUM(cost_yuan),0), COUNT(*),"
-                        " COALESCE(SUM(estimated),0)"
-                        " FROM cost_log GROUP BY model ORDER BY COALESCE(SUM(cost_yuan),0) DESC"):
-                    by_model.append({
-                        "model": r[0], "tokens_in": r[1], "tokens_out": r[2], "cache_read": r[3],
-                        "cost_yuan": round(r[4], 4), "calls": r[5], "estimated": r[6],
-                    })
-                tot = db.conn.execute(
-                    "SELECT COALESCE(SUM(tokens_in),0), COALESCE(SUM(tokens_out),0),"
-                    " COALESCE(SUM(cache_read),0), COALESCE(SUM(cost_yuan),0), COUNT(*),"
-                    " COALESCE(SUM(estimated),0)"
-                    " FROM cost_log").fetchone()
-                totals = {
-                    "tokens_in": tot[0], "tokens_out": tot[1], "cache_read": tot[2],
-                    "cost_yuan": round(tot[3], 4), "calls": tot[4], "estimated": tot[5],
-                }
-                self._send(200, {"by_stage": by_stage, "by_model": by_model, "totals": totals})
-            finally:
-                db.close()
+            # 实现已迁至 nf_api_domains.misc（P2 拆分）；此处只做转发。
+            self._send(*_dom(dom_misc.handle_costs_summary(self)))
         elif p == "/models":
-            cfg, _ = load_all()
-            self._send(200, {"engine": cfg.get("engine"),
-                             "providers": cfg.get("providers", {}),
-                             "model": cfg.get("model", {})})
+            # 实现已迁至 nf_api_domains.models（P2 拆分）；此处只做转发。
+            self._send(*_dom(dom_models.handle_models(self)))
         elif p == "/models/available":
-            # Return available models per provider (without exposing API keys)
-            cfg, _ = load_all()
-            providers = cfg.get("providers", {})
-            avail = {}
-            for pid, prov in providers.items():
-                base_url = prov.get("base_url", "")
-                api_key_env = prov.get("api_key_env", "")
-                api_key = os.environ.get(api_key_env, "")
-                avail[pid] = {
-                    "base_url": base_url,
-                    "api_key_env": api_key_env,
-                    "has_key": bool(api_key),
-                    "key_mask": (api_key[:4] + "..." + api_key[-4:]) if len(api_key) > 8 else "",
-                    "available_models": prov.get("available_models", []),
-                }
-            self._send(200, {"providers": avail, "engine": cfg.get("engine")})
+            # 实现已迁至 nf_api_domains.models（P2 拆分）；此处只做转发。
+            self._send(*_dom(dom_models.handle_models_available(self)))
         elif p == "/models/fetched":
-            # 动态拉取 provider /models 端点 + 缓存到 data/state/fetched_models.json
-            import urllib.request as _ur
-            cfg, _ = load_all()
-            providers = cfg.get("providers", {})
-            cache_path = ROOT / "data" / "state" / "fetched_models.json"
-            result = {}
-            for pid, prov in providers.items():
-                base_url = (prov.get("base_url") or "").rstrip("/")
-                api_key_env = prov.get("api_key_env", "")
-                api_key = os.environ.get(api_key_env, "")
-                if not base_url or not api_key:
-                    result[pid] = {"models": [], "error": "missing base_url or api_key"}
-                    continue
-                try:
-                    req = _ur.Request(
-                        base_url + "/models",
-                        headers={"Authorization": "Bearer " + api_key},
-                    )
-                    with _ur.urlopen(req, timeout=30) as resp:
-                        data = json.loads(resp.read().decode("utf-8"))
-                    models = [m.get("id", "") for m in data.get("data", []) if m.get("id")]
-                    result[pid] = {"models": models, "count": len(models)}
-                except Exception as e:
-                    result[pid] = {"models": [], "error": str(e)[:200]}
-            # 缓存落盘（合并所有 provider 的模型 + 保留手动添加的）
-            cache_path.parent.mkdir(parents=True, exist_ok=True)
-            # 读取旧缓存中手动添加的模型
-            manual_models = set()
-            if cache_path.exists():
-                try:
-                    old = json.loads(cache_path.read_text(encoding="utf-8"))
-                    manual_models = set(old.get("_manual", []))
-                except Exception:
-                    pass
-            # 合并：动态拉取 + 手动添加
-            all_models = set()
-            for info in result.values():
-                all_models.update(info.get("models", []))
-            all_models.update(manual_models)
-            cache_payload = result.copy()
-            cache_payload["_manual"] = sorted(manual_models)
-            cache_path.write_text(json.dumps(cache_payload, ensure_ascii=False, indent=2), encoding="utf-8")
-            self._send(200, {"providers": result, "cache": str(cache_path)})
+            # 实现已迁至 nf_api_domains.models（P2 拆分）；此处只做转发。
+            self._send(*_dom(dom_models.handle_models_fetched(self)))
         elif p == "/models/cache":
-            # 读取缓存的模型列表
-            cache_path = ROOT / "data" / "state" / "fetched_models.json"
-            if not cache_path.exists():
-                self._send(200, {"models": []})
-            else:
-                try:
-                    data = json.loads(cache_path.read_text(encoding="utf-8"))
-                    # 收集所有 provider 的模型 + 手动添加的
-                    all_models = set()
-                    for key, info in data.items():
-                        if key.startswith("_"):
-                            continue
-                        if isinstance(info, dict):
-                            all_models.update(info.get("models", []))
-                    all_models.update(data.get("_manual", []))
-                    self._send(200, {"models": sorted(all_models)})
-                except Exception as e:
-                    self._send(500, {"error": str(e)})
+            # 实现已迁至 nf_api_domains.models（P2 拆分）；此处只做转发。
+            self._send(*_dom(dom_models.handle_models_cache(self)))
         elif p == "/env/open":
-            # Return path to .env file so user can open it externally
-            env_path = str(ROOT / ".env")
-            self._send(200, {"env_path": env_path, "exists": Path(env_path).exists()})
+            # 实现已迁至 nf_api_domains.misc（P2 拆分）；此处只做转发。
+            self._send(*_dom(dom_misc.handle_env_open(self)))
         elif p == "/batch_refine/progress":
-            progress_path = Path("data/state/batch_refine_progress.json")
-            if not progress_path.exists():
-                self._send(200, {"status": "idle", "message": "无正在进行的批量精修任务"})
-            else:
-                try:
-                    data = json.loads(progress_path.read_text(encoding="utf-8"))
-                    self._send(200, data)
-                except Exception as e:
-                    self._send(500, {"error": str(e)})
-        elif p == "/outline/structure":
-            # 结构化大纲视图（任务1）：解析 global.md + 贴 outline_review 评分
-            try:
-                from utils import outline_panel as op
-                q = self._query()
-                only = (q.get("review") or ["1"])[0] not in ("0", "false", "no")
-                self._send(200, op.build_structure(run_review=only))
-            except Exception as e:
-                self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
-        elif p == "/outline/history":
-            # 版本列表（任务4）
-            try:
-                from utils import outline_panel as op
-                self._send(200, {"versions": op.list_versions()})
-            except Exception as e:
-                self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
-        elif p == "/outline/diff":
-            # 结构化节点级 diff（任务4）
-            try:
-                from utils import outline_panel as op
-                q = self._query()
-                v1 = (q.get("v1") or [""])[0]
-                v2 = (q.get("v2") or [""])[0]
-                if not v1:
-                    self._send(400, {"error": "缺少参数 v1（对比基准版本）"})
-                    return
-                f1 = op.resolve_version(v1)
-                f2 = op.resolve_version(v2) or op.resolve_version("0")
-                if not f1 or not f2:
-                    self._send(404, {"error": "版本不存在: v1=" + str(v1) + " v2=" + str(v2)})
-                    return
-                data = op.diff_outlines(f1, f2)
-                data["v1"] = int(v1) if str(v1).isdigit() else 0
-                data["v2"] = int(v2) if str(v2).isdigit() else 0
-                self._send(200, data)
-            except Exception as e:
-                self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
+            # 实现已迁至 nf_api_domains.misc（P2 拆分）；此处只做转发。
+            self._send(*_dom(dom_misc.handle_batch_refine_progress(self)))
         elif p == "/outline/drafts":
-            # 多方案 draft 列表（任务3）
-            try:
-                from utils import outline_panel as op
-                drafts = op.list_drafts()
-                df = op.draft_files()
-                # 给每份 draft 附上四节原文（前端拼合时预览用）
-                for d in drafts:
-                    try:
-                        from utils.file_io import read_text as _rt
-                        import utils.outline_struct as _osr
-                        d["acts"] = _osr.parse_global(_rt(op.draft_path(d["id"])))["acts"]
-                    except Exception:
-                        pass
-                self._send(200, {"drafts": drafts, "files": df})
-            except Exception as e:
-                self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
-        elif p.startswith("/jobs/"):
-            jid = p[len("/jobs/"):]
-            job = JOBS.get(jid)
-            if not job:
-                self._send(404, {"error": "job 不存在: " + jid})
-            else:
-                self._send(200, job)
-        elif p == "/review/report":
-            # 读取审查报告 JSON
-            report_path = Path("data/outline/review_report.json")
-            if not report_path.exists():
-                self._send(404, {"error": "no report yet"})
-            else:
-                try:
-                    data = json.loads(report_path.read_text(encoding="utf-8"))
-                    self._send(200, data)
-                except Exception as e:
-                    self._send(500, {"error": str(e)})
+            # 实现已迁至 nf_api_domains.outline（P2 拆分）；此处只做转发。
+            self._send(*_dom(dom_outline.handle_outline_drafts(self)))
+        elif p == "/outline/diff":
+            # 实现已迁至 nf_api_domains.outline（P2 拆分）；此处只做转发。
+            self._send(*_dom(dom_outline.handle_outline_diff(self)))
+        elif p == "/outline/history":
+            # 实现已迁至 nf_api_domains.outline（P2 拆分）；此处只做转发。
+            self._send(*_dom(dom_outline.handle_outline_history(self)))
+        elif p == "/outline/structure":
+            # 实现已迁至 nf_api_domains.outline（P2 拆分）；此处只做转发。
+            self._send(*_dom(dom_outline.handle_outline_structure(self)))
         elif p == "/review/decisions":
-            # 读取用户决策 JSON
-            dec_path = Path("data/outline/review_report.decisions.json")
-            if not dec_path.exists():
-                self._send(200, {"decisions": []})
-            else:
-                try:
-                    data = json.loads(dec_path.read_text(encoding="utf-8"))
-                    self._send(200, data)
-                except Exception as e:
-                    self._send(500, {"error": str(e)})
-        elif p == "/project/list":
-            try:
-                self._send(200, sb_mod.list_books())
-            except Exception as e:
-                self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
+            # 实现已迁至 nf_api_domains.runtime（P2 拆分）；此处只做转发。
+            self._send(*_dom(dom_runtime.handle_review_decisions(self)))
+        elif p == "/review/report":
+            # 实现已迁至 nf_api_domains.runtime（P2 拆分）；此处只做转发。
+            self._send(*_dom(dom_runtime.handle_review_report(self)))
+        elif p.startswith("/jobs/"):
+            # 实现已迁至 nf_api_domains.runtime（P2 拆分）；此处只做转发。
+            self._send(*_dom(dom_runtime.handle_jobs(self)))
         elif p == "/project/status":
-            # 返回项目结构树（用于左侧导航）
-            try:
-                project_status = {
-                    "book": load_all()[1].get("book", {}),
-                    "stages": build_state().get("stages", []),
-                    "setting_exists": (ROOT / "data" / "setting" / "setting.json").exists(),
-                    "outline_exists": (ROOT / "data" / "outline" / "global.md").exists(),
-                    "chapters_count": len(list((ROOT / "data" / "outline" / "chapters").glob("*.md"))) if (ROOT / "data" / "outline" / "chapters").exists() else 0,
-                    "drafts_exist": (ROOT / "data" / "chapters" / "raw").exists() and any((ROOT / "data" / "chapters" / "raw").glob("*.md")),
-                    "refined_exist": (ROOT / "data" / "chapters" / "refined").exists() and any((ROOT / "data" / "chapters" / "refined").glob("*.md")),
-                    "word_exists": bool(list((ROOT / "output").glob("*.docx"))),
-                    "materials_count": len(list((ROOT / "materials" / "raw").glob("*"))) if (ROOT / "materials" / "raw").exists() else 0,
-                }
-                self._send(200, project_status)
-            except Exception as e:
-                self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
-        elif p == "/prompts/list":
-            try:
-                items = list_prompts()
-                self._send(200, {"items": items, "count": len(items),
-                                 "dir": "prompts", "history_dir": "prompts/history"})
-            except Exception as e:
-                self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
+            # 实现已迁至 nf_api_domains.project（P2 拆分）；此处只做转发。
+            self._send(*_dom(dom_project.handle_project_status(self)))
+        elif p == "/project/list":
+            # 实现已迁至 nf_api_domains.project（P2 拆分）；此处只做转发。
+            self._send(*_dom(dom_project.handle_project_list(self)))
         elif p == "/prompts/get" or p.startswith("/prompts/get/"):
-            name = ((self._query().get("name") or [""])[0] if p == "/prompts/get"
-                    else p[len("/prompts/get/"):])
-            path = prompt_path(name)
-            if not path:
-                self._send(404, {"error": "模板不存在或不在白名单: " + str(name)
-                                          + "（须匹配 prompts/stage[1-7]_*.md，禁止子目录与 ../）"})
-                return
-            try:
-                content = path.read_text(encoding="utf-8")
-                st = path.stat()
-                self._send(200, {
-                    "name": path.name,
-                    "content": content,
-                    "size": st.st_size,
-                    "modified": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(st.st_mtime)),
-                    "backups": [b.name for b in list_prompt_backups(path.name)[-8:]],
-                })
-            except Exception as e:
-                self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
+            # 实现已迁至 nf_api_domains.runtime（P2 拆分）；此处只做转发。
+            self._send(*_dom(dom_runtime.handle_prompts_get(self)))
+        elif p == "/prompts/list":
+            # 实现已迁至 nf_api_domains.runtime（P2 拆分）；此处只做转发。
+            self._send(*_dom(dom_runtime.handle_prompts_list(self)))
         elif p == "/config/project":
-            # 读取 config/project.yaml（GUI 启动向导 / 素材空目录提醒都靠它）。
-            # 注意：这里以前没有 GET 分支，而 GUI 用的是 GET → 404，导致初始化向导
-            # 与「素材为空」提醒永远不触发。读操作必须挂在 do_GET。
-            try:
-                from utils.project_config import get_project_config
-                self._send(200, {"ok": True, "config": get_project_config()})
-            except Exception as e:
-                self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
+            # 实现已迁至 nf_api_domains.project（P2 拆分）；此处只做转发。
+            self._send(*_dom(dom_project.handle_config_project(self)))
         elif p == "/config/style_notes":
-            # 用户风格笔记（config/project.yaml 的 book.style_notes）
-            try:
-                self._send(200, {"ok": True, "content": pc_get_style_notes(),
-                                 "path": "config/project.yaml", "field": "book.style_notes"})
-            except Exception as e:
-                self._send(500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]})
+            # 实现已迁至 nf_api_domains.project（P2 拆分）；此处只做转发。
+            self._send(*_dom(dom_project.handle_config_style_notes(self)))
         elif p == "/materials/list":
-            try:
-                from utils.materials_manager import MaterialsManager
-                mm = MaterialsManager(ROOT / "materials" / "raw")
-                self._send(200, mm.list_materials())
-            except Exception as e:
-                self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
+            # 实现已迁至 nf_api_domains.materials（P2 拆分）；此处只做转发。
+            self._send(*_dom(dom_materials.handle_materials_list(self)))
         elif p.startswith("/materials/read/"):
-            name = unquote(p[len("/materials/read/"):])
-            try:
-                from utils.materials_manager import MaterialsManager
-                mm = MaterialsManager(ROOT / "materials" / "raw")
-                content = mm.read_content(name)
-                self._send(200, {"ok": True, "name": name, "content": content})
-            except Exception as e:
-                self._send(400, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]})
+            # 实现已迁至 nf_api_domains.materials（P2 拆分）；此处只做转发。
+            self._send(*_dom(dom_materials.handle_materials_read(
+                self, unquote(p[len("/materials/read/"):]))))
         elif p == "/scraps/list":
-            # 原始碎片列表：按簇分组 + 时间轴 + 前瞻备忘（确定性，零 LLM）
-            try:
-                from utils.scrap_cluster import collect as _scollect
-                sdir = scraps_dir_path()
-                index, warnings = _scollect(str(sdir))
-                stale = True
-                idx = ROOT / "data" / "setting" / "scraps_index.json"
-                if idx.exists():
-                    try:
-                        stale = (json.loads(idx.read_text(encoding="utf-8"))
-                                 .get("content_fingerprint")
-                                 != index["content_fingerprint"])
-                    except Exception:
-                        stale = True
-                rel = str(sdir.relative_to(ROOT)).replace("\\", "/") \
-                    if str(sdir).startswith(str(ROOT)) else str(sdir)
-                self._send(200, {
-                    "ok": True,
-                    "dir": rel,
-                    "count": index["stats"]["scrap_count"],
-                    "stats": index["stats"],
-                    "clusters": index["clusters"],
-                    "timeline": index["timeline"],
-                    "lookaheads": index["lookaheads"],
-                    "warnings": warnings + index["warnings"],
-                    "index_stale": stale,
-                    "index_path": "data/setting/scraps_index.json",
-                })
-            except Exception as e:
-                self._send(500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]})
+            # 实现已迁至 nf_api_domains.materials（P2 拆分）；此处只做转发。
+            self._send(*_dom(dom_materials.handle_scraps_list(self)))
         elif p == "/scraps/read":
-            name = (self._query().get("name") or [""])[0]
-            try:
-                from utils.materials_manager import MaterialsManager
-                mm = MaterialsManager(scraps_dir_path())
-                self._send(200, {"ok": True, "name": name, "content": mm.read_content(name)})
-            except Exception as e:
-                self._send(400, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]})
+            # 实现已迁至 nf_api_domains.materials（P2 拆分）；此处只做转发。
+            self._send(*_dom(dom_materials.handle_scraps_read(self)))
         elif p == "/setting/current":
-            try:
-                setting_path = ROOT / "data" / "setting" / "setting.json"
-                if setting_path.exists():
-                    self._send(200, {"ok": True, "setting": json.loads(setting_path.read_text(encoding="utf-8"))})
-                else:
-                    self._send(404, {"error": "setting.json 不存在"})
-            except Exception as e:
-                self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
+            # 实现已迁至 nf_api_domains.materials（P2 拆分）；此处只做转发。
+            self._send(*_dom(dom_materials.handle_setting_current(self)))
         elif p == "/setting/appearances":
-            # 角色出场统计（只读）：供关系图定节点大小/描边
-            try:
-                import json as _json
-                ap = ROOT / "data" / "state" / "appearances.json"
-                if not ap.exists():
-                    self._send(200, {"ok": False,
-                                     "hint": "先跑 python scripts/appearances.py"
-                                             "（或 POST /appearances/refresh）"})
-                    return
-                data = _json.loads(ap.read_text(encoding="utf-8"))
-                alias = {}
-                alias_path = ROOT / "data" / "setting" / "alias.json"
-                if alias_path.exists():
-                    try:
-                        alias = _json.loads(alias_path.read_text(encoding="utf-8"))
-                    except Exception:
-                        alias = {}
-                self._send(200, {"ok": True, "alias": alias, **data})
-            except Exception as e:
-                self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
+            # 实现已迁至 nf_api_domains.materials（P2 拆分）；此处只做转发。
+            self._send(*_dom(dom_materials.handle_setting_appearances(self)))
         elif p == "/outline/chapters/list":
-            try:
-                chapters_dir = ROOT / "data" / "outline" / "chapters"
-                if not chapters_dir.exists():
-                    self._send(200, {"chapters": []})
-                    return
-                chapters = []
-                for f in sorted(chapters_dir.glob("*.md")):
-                    content = f.read_text(encoding="utf-8")
-                    title = content.split("\n")[0].lstrip("#").strip() if content else f.stem
-                    chapters.append({"file": f.name, "n": int(f.stem), "title": title, "size": f.stat().st_size})
-                self._send(200, {"chapters": chapters})
-            except Exception as e:
-                self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
+            # 实现已迁至 nf_api_domains.outline（P2 拆分）；此处只做转发。
+            self._send(*_dom(dom_outline.handle_chapters_list(self)))
         elif p == "/outline/chapters/get":
-            try:
-                q = self._query()
-                n = (q.get("n") or [""])[0]
-                if not n.isdigit():
-                    self._send(400, {"error": "n 必须为数字"})
-                    return
-                chapter_path = ROOT / "data" / "outline" / "chapters" / f"{int(n):02d}.md"
-                if not chapter_path.exists():
-                    self._send(404, {"error": f"第 {n} 章大纲不存在"})
-                    return
-                content = chapter_path.read_text(encoding="utf-8")
-                self._send(200, {"ok": True, "n": int(n), "content": content})
-            except Exception as e:
-                self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
+            # 实现已迁至 nf_api_domains.outline（P2 拆分）；此处只做转发。
+            self._send(*_dom(dom_outline.handle_chapters_get(self)))
         elif p == "/kb/search":
             # 知识库检索（供写作时注入上下文）
+            # 2026-09-19 修复：原先直接引用 `get_vault_path()`，但该名字**从未导入**
+            # → 该端点一旦被调用必抛 NameError（`pyflakes` 首次接入即报出）。
             try:
                 from utils import kb_index
+                if not _vault_ready(self):
+                    return
                 q = self._query()
                 query = (q.get("q") or [""])[0]
                 top = int((q.get("top") or ["5"])[0])
@@ -1765,7 +1562,8 @@ class Handler(BaseHTTPRequestHandler):
                 if not idx:
                     self._send(200, {"ok": False, "hint": "索引不存在，请先 POST /kb/build"})
                     return
-                results = kb_index.search(query, index=idx, top_k=top, vault_path=str(get_vault_path()))
+                _vault = str(_kb_vault_path())
+                results = kb_index.search(query, index=idx, top_k=top, vault_path=_vault)
                 items = []
                 for path, name, snippet, score in results:
                     items.append({"path": path, "name": name, "snippet": snippet[:chars], "score": score})
@@ -1775,189 +1573,41 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/kb/build":
             # 构建知识库索引（后台任务）
             try:
-                vault_path = str(get_vault_path())
+                from utils import kb_index
+                if not _vault_ready(self):
+                    return
+                vault_path = str(_kb_vault_path())
                 idx = kb_index.build_index(vault_path, "data/state/kb_index.pkl")
                 self._send(200, {"ok": True, "total_files": idx["total_files"], "terms": len(idx["terms"])})
             except Exception as e:
                 self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
         elif p == "/proofread/report":
-            # 校对报告（stage 5.5）。schema 与 review_report 对齐（含 suggested_action），
-            # 故 GUI 可直接复用审稿界面组件与决策链路。
-            pp = Path("data/outline/proofread_report.json")
-            if not pp.exists():
-                self._send(404, {"error": "暂无校对报告",
-                                 "hint": "先运行校对：POST /proofread/run，"
-                                         "或 python scripts/proofread.py"})
-            else:
-                try:
-                    self._send(200, json.loads(nf_read_text(pp)))
-                except Exception as e:      # noqa: BLE001
-                    self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
+            # 实现已迁至 nf_api_domains.runtime（P2 拆分）；此处只做转发。
+            self._send(*_dom(dom_runtime.handle_proofread_report(self)))
         elif p == "/estimate":
-            # 生成前 token / 费用预估（确定性，零 LLM 调用）。
-            # ?stage=4 只估阶段4；?stages=1,2,3 估指定阶段；?no_history=1 强制字符折算
-            try:
-                q = self._query()
-                stage_raw = (q.get("stage") or [""])[0].strip()
-                stages_raw = (q.get("stages") or [""])[0].strip()
-                stages = None
-                if stage_raw:
-                    stages = [int(stage_raw)]
-                elif stages_raw:
-                    stages = [int(x) for x in stages_raw.split(",") if x.strip().isdigit()]
-                no_hist = (q.get("no_history") or ["0"])[0].lower() in ("1", "true", "yes")
-                self._send(200, estimate_mod.estimate(stages, use_history=not no_hist))
-            except Exception as e:      # noqa: BLE001
-                self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
+            # 实现已迁至 nf_api_domains.runtime（P2 拆分）；此处只做转发。
+            self._send(*_dom(dom_runtime.handle_estimate(self)))
         elif p == "/book/pacing":
-            # 章节节奏：?source=current 实时算本书（读 data/chapters/*）；
-            # 缺省读拆书产物 data/state/book_pacing.json
-            try:
-                q = self._query()
-                src = (q.get("source") or [""])[0].strip()
-                if src == "current":
-                    scope = (q.get("scope") or [""])[0].strip() or None
-                    self._send(200, book_split_mod.analyze_project_chapters(scope))
-                    return
-                bp = Path("data/state/book_pacing.json")
-                if not bp.exists():
-                    self._send(404, {"ok": False, "error": "尚无拆书结果",
-                                     "hint": "POST /book/split {path} 导入参考书，"
-                                             "或用 /book/pacing?source=current 看本书节奏"})
-                    return
-                self._send(200, json.loads(nf_read_text(bp)))
-            except Exception as e:      # noqa: BLE001
-                self._send(500, {"ok": False,
-                                 "error": type(e).__name__ + ": " + str(e)[:200]})
+            # 实现已迁至 nf_api_domains.runtime（P2 拆分）；此处只做转发。
+            self._send(*_dom(dom_runtime.handle_book_pacing(self)))
         elif p == "/chapters/history":
-            # 章节历史版本：?n=3 → 第 3 章的备份列表（新 → 旧）
-            try:
-                q = self._query()
-                raw_n = (q.get("n") or q.get("chapter") or [""])[0]
-                if not str(raw_n).strip().isdigit():
-                    self._send(400, {"ok": False, "error": "n 必填且为章节号（如 ?n=3）"})
-                    return
-                n = int(raw_n)
-                versions = refine_ch_mod.list_versions(n)
-                target = refine_ch_mod._pick_chapter_path(n)
-                self._send(200, {
-                    "ok": True, "n": n,
-                    "current": str(target) if target else None,
-                    "history_dir": str(refine_ch_mod.HISTORY_DIR),
-                    "count": len(versions),
-                    "versions": versions,
-                })
-            except Exception as e:      # noqa: BLE001
-                self._send(500, {"ok": False,
-                                 "error": type(e).__name__ + ": " + str(e)[:200]})
+            # 实现已迁至 nf_api_domains.runtime（P2 拆分）；此处只做转发。
+            self._send(*_dom(dom_runtime.handle_chapters_history(self)))
         elif p == "/chapters/quality":
-            # 章节质量概览：返回每章的 quality 评分（来自 auto_rewrite.parse_quality）
-            try:
-                import auto_rewrite as ar_mod
-                cfg, proj = load_all()
-                total = int(proj.get("book", {}).get("chapters", 10))
-                raw_dir = Path("data/chapters/raw")
-                chapters = []
-                for n in range(1, total + 1):
-                    path = raw_dir / f"{n:02d}.md"
-                    q = ar_mod.parse_quality(path)
-                    chapters.append({"n": n, "path": str(path), "quality": q})
-                self._send(200, {"ok": True, "total": total, "chapters": chapters})
-            except Exception as e:      # noqa: BLE001
-                self._send(500, {"ok": False,
-                                 "error": type(e).__name__ + ": " + str(e)[:200]})
+            # 实现已迁至 nf_api_domains.misc（P2 拆分）；此处只做转发。
+            self._send(*_dom(dom_misc.handle_chapters_quality(self)))
         elif p == "/chapters/verify":
-            # 断点续跑检查：返回每章完成状态（文件是否真正完成，而非仅存在）
-            try:
-                cfg, proj = load_all()
-                target_words = cfg.get("chapter", {}).get("target_words", [2000, 3000])
-                total = int(proj.get("book", {}).get("chapters", 10))
-                raw_dir = Path("data/chapters/raw")
-                chapters = []
-                for n in range(1, total + 1):
-                    path = raw_dir / f"{n:02d}.md"
-                    ok_complete = is_chapter_complete(path, *target_words)
-                    chapters.append({"n": n, "path": str(path), "complete": ok_complete})
-                self._send(200, {
-                    "ok": True,
-                    "total": total,
-                    "completed_count": sum(1 for c in chapters if c["complete"]),
-                    "chapters": chapters,
-                })
-            except Exception as e:
-                self._send(500, {"ok": False,
-                                 "error": type(e).__name__ + ": " + str(e)[:200]})
+            # 实现已迁至 nf_api_domains.misc（P2 拆分）；此处只做转发。
+            self._send(*_dom(dom_misc.handle_chapters_verify(self)))
         elif p == "/logs/tail":
-            # 运行日志尾部：Electron 主进程把 nf_api 的 stdout/stderr 追加到
-            # %LOCALAPPDATA%/Temp/nf_api_child.log，orchestrator 的 print 也在里面。
-            # 阶段失败时 GUI 的「查看日志」读它排障（纯只读，不落盘）。
-            try:
-                lines = int((self._query().get("lines") or ["200"])[0])
-            except ValueError:
-                lines = 200
-            lines = max(1, min(2000, lines))
-            cands = []
-            localapp = os.environ.get("LOCALAPPDATA")
-            if localapp:
-                cands.append(Path(localapp) / "Temp" / "nf_api_child.log")
-            cands.append(Path(os.environ.get("TEMP", ".")) / "nf_api_child.log")
-            cands.append(ROOT / "logs" / "nf_api.log")
-            log_path = next((c for c in cands if c.exists()), cands[0])
-            if not log_path.exists():
-                self._send(200, {"ok": True, "exists": False, "path": str(log_path),
-                                 "lines": [],
-                                 "hint": "未找到运行日志。通过控制台启动（Electron）时日志写入 "
-                                         "%LOCALAPPDATA%/Temp/nf_api_child.log；手动起 nf_api 时输出在终端。"})
-                return
-            try:
-                # 日志混编码（GBK 控制台输出 + UTF-8 混合）→ 容错解码，绝不抛异常打断响应
-                text = log_path.read_bytes().decode("utf-8", errors="replace")
-            except OSError as e:
-                self._send(200, {"ok": True, "exists": False, "path": str(log_path), "lines": [],
-                                 "hint": "读取日志失败: " + str(e)[:200]})
-                return
-            all_lines = text.splitlines()
-            self._send(200, {"ok": True, "exists": True, "path": str(log_path),
-                             "total_lines": len(all_lines), "lines": all_lines[-lines:]})
+            # 实现已迁至 nf_api_domains.misc（P2 拆分）；此处只做转发。
+            self._send(*_dom(dom_misc.handle_logs_tail(self)))
         elif p == "/about":
-            # 关于页数据：版本、运行环境、路径（GUI 左上角点 LOGO 时打开）
-            try:
-                ver = "dev"
-                pkg = ROOT / "console" / "package.json"
-                if pkg.exists():
-                    try:
-                        ver = json.loads(pkg.read_text(encoding="utf-8")).get("version", "dev")
-                    except Exception:
-                        ver = "dev"
-                cfg = {}
-                try:
-                    cfg = pc_get_config() or {}
-                except Exception:
-                    cfg = {}
-                self._send(200, {
-                    "ok": True,
-                    "app": "绒花墨坊",
-                    "internal_name": "NovelForge",
-                    "version": ver,
-                    "python": sys.version.split()[0],
-                    "platform": sys.platform,
-                    "project_root": str(ROOT),
-                    "data_dir": str(ROOT / "data"),
-                    "books_dir": str(ROOT / "data" / "books"),
-                    "output_dir": str(ROOT / "output"),
-                    "config": (cfg.get("book") or {}),
-                    "repo": "https://github.com/MUYU46548/ronghuamofang",
-                    "endpoints": ["/health", "/state", "/about"],
-                })
-            except Exception as e:
-                self._send(500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]})
+            # 实现已迁至 nf_api_domains.misc（P2 拆分）；此处只做转发。
+            self._send(*_dom(dom_misc.handle_about(self)))
         elif p == "/costs/streaming":
-            # 实时花费：当前 run 的累计消耗 + 预算进度（GUI 成本页轮询）
-            try:
-                self._send(200, build_streaming_cost())
-            except Exception as e:      # noqa: BLE001
-                self._send(500, {"ok": False,
-                                 "error": type(e).__name__ + ": " + str(e)[:200]})
+            # 实现已迁至 nf_api_domains.misc（P2 拆分）；此处只做转发。
+            self._send(*_dom(dom_misc.handle_costs_streaming(self)))
         else:
             self._send(404, {"error": "未知路径 " + p + "（可用: /health /state /models "
                                       "/project/list /stage/{n}/run /stream/{job_id} /jobs/{id} "
@@ -1969,8 +1619,7 @@ class Handler(BaseHTTPRequestHandler):
 
     # ---- POST ----
     def do_POST(self):
-        path_parts = self.path.split("?")
-        p = path_parts[0].rstrip("/")
+        p = norm_path(self)
         body = self._body()
         try:
             if p.startswith("/stage/") and p.endswith("/run"):
@@ -2000,26 +1649,10 @@ class Handler(BaseHTTPRequestHandler):
                             "text": [],
                         }
 
-                    def _fn_stream():
-                        client = _client_for_env(cfg, "default")
-                        # 用真实的 job_id 替换占位
-                        real_job = CURRENT.get("id", job_id_preview)
-                        with STREAMERS_LOCK:
-                            STREAMERS.pop(job_id_preview, None)
-                            STREAMERS[real_job] = {
-                                "queue": stream_q,
-                                "stop": stop_ev,
-                                "text": [],
-                            }
-                        client = _wrap_client_for_streaming(client, real_job)
-                        rc = orch_run(from_stage=from_stage, only_stage=only_stage, client=client)
-                        if rc == 4:
-                            return True, "用户中断（exit=4）"
-                        if rc == 3:
-                            return True, "exit=3（等待审批）"
-                        return (rc == 0), "exit=" + str(rc)
-
-                    jid, err = start_job("stage" + rest, _fn_stream)
+                    jid, err = start_job(
+                        "stage" + rest,
+                        act_run_stage_streamed(cfg, only, from_stage,
+                                              job_id_preview, stream_q, stop_ev))
                     if err:
                         with STREAMERS_LOCK:
                             STREAMERS.pop(job_id_preview, None)
@@ -2029,13 +1662,16 @@ class Handler(BaseHTTPRequestHandler):
                     with STREAMERS_LOCK:
                         if jid not in STREAMERS and job_id_preview in STREAMERS:
                             STREAMERS[jid] = STREAMERS.pop(job_id_preview)
-                    self._send(202, {"job_id": jid, "stage": only, "from_stage": from_stage, "stream": True})
+                    self._send(202, {"job_id": jid, "stage": only,
+                                     "from_stage": from_stage, "stream": True})
                 else:
-                    jid, err = start_job("stage" + rest, act_run_stage(cfg, only, from_stage))
+                    jid, err = start_job("stage" + rest,
+                                         act_run_stage(cfg, only, from_stage))
                     if err:
                         self._send(409, {"error": err})
                     else:
-                        self._send(202, {"job_id": jid, "stage": only, "from_stage": from_stage})
+                        self._send(202, {"job_id": jid, "stage": only,
+                                         "from_stage": from_stage})
             elif p == "/stop":
                 job_id = str(body.get("job_id") or "")
                 if not job_id:
@@ -2356,8 +1992,8 @@ class Handler(BaseHTTPRequestHandler):
                                               "decisions_from_file=true（先在审稿页保存决策）"})
                     return
                 # 护栏：文件缺失时给出可行动的提示，而不是起一个必然失败的 job
-                report_p = Path("data/outline/review_report.json")
-                dec_p = Path("data/outline/review_report.decisions.json")
+                report_p = ROOT / "data" / "outline" / "review_report.json"
+                dec_p = ROOT / "data" / "outline" / "review_report.decisions.json"
                 if not report_p.exists():
                     self._send(400, {"error": "无审查报告 data/outline/review_report.json"
                                               "（先运行审查）"})
@@ -2457,7 +2093,7 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]})
             elif p == "/review/decisions" and self.command == "POST":
                 # 保存用户决策（GUI 提交）：统一规范化为 batch_refine 能直接吃下的标准格式
-                dec_path = Path("data/outline/review_report.decisions.json")
+                dec_path = ROOT / "data" / "outline" / "review_report.decisions.json"
                 try:
                     import batch_refine as br
                     decisions = br.normalize_decisions(body)
@@ -2679,71 +2315,14 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(500, {"ok": False,
                                      "error": type(e).__name__ + ": " + str(e)[:200]})
             elif p == "/models/add":
-                # 手动把一个模型名写进缓存（GUI「手动添加」按钮）。
-                # 曾经写在 do_GET 里且用了 body.get —— GET 会 500、POST 会 404。写操作必须走 POST。
-                name = str(body.get("name") or "").strip()
-                if not name:
-                    self._send(400, {"error": "缺少 name 参数"})
-                elif "/" in name or "\\" in name or len(name) > 120:
-                    self._send(400, {"error": "模型名不合法（不得含路径分隔符，长度 ≤120）"})
-                else:
-                    cache_path = ROOT / "data" / "state" / "fetched_models.json"
-                    manual_models, providers_data = set(), {}
-                    if cache_path.exists():
-                        try:
-                            old = json.loads(nf_read_text(cache_path))
-                            manual_models = set(old.get("_manual", []))
-                            providers_data = {k: v for k, v in old.items()
-                                              if not k.startswith("_")}
-                        except Exception:      # noqa: BLE001
-                            manual_models, providers_data = set(), {}
-                    manual_models.add(name)
-                    providers_data["_manual"] = sorted(manual_models)
-                    nf_write_text(cache_path,
-                                  json.dumps(providers_data, ensure_ascii=False, indent=2))
-                    self._send(200, {"ok": True, "added": name,
-                                     "manual_count": len(manual_models)})
+                # 实现已迁至 nf_api_domains.models（P2 拆分）；此处只做转发。
+                self._send(*_dom(dom_models.handle_models_add(self, body)))
             elif p == "/models/switch":
-                # 切换某角色的模型（写入 config/system.yaml 的 model.<role>.id）
-                role = str(body.get("role") or "").strip()
-                model_id = str(body.get("model") or "").strip()
-                if not role or not model_id:
-                    self._send(400, {"ok": False, "error": "role 与 model 均必填"})
-                    return
-                try:
-                    cfg_path = ROOT / "config" / "system.yaml"
-                    cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
-                    models = cfg.get("model") or {}
-                    if role not in models:
-                        self._send(400, {"ok": False, "error":
-                                         "未知角色: " + role + "（可用: "
-                                         + ", ".join(sorted(models)) + "）"})
-                        return
-                    old = models[role].get("id")
-                    models[role]["id"] = model_id
-                    cfg["model"] = models
-                    from utils.file_io import write_text as _wt
-                    _wt(cfg_path, yaml.safe_dump(cfg, allow_unicode=True, sort_keys=False))
-                    self._send(200, {"ok": True, "role": role, "model": model_id,
-                                     "previous": old,
-                                     "message": "已切换 " + role + " → " + model_id
-                                                + "（下次运行生效）"})
-                except Exception as e:      # noqa: BLE001
-                    self._send(500, {"ok": False,
-                                     "error": type(e).__name__ + ": " + str(e)[:200]})
+                # 实现已迁至 nf_api_domains.models（P2 拆分）；此处只做转发。
+                self._send(*_dom(dom_models.handle_models_switch(self, body)))
             elif p == "/export/markdown":
-                # Markdown 分卷导出（P3 多平台发布）
-                try:
-                    import stage8_markdown_export as s8
-                    per_vol = int(body.get("per_vol") or 5)
-                    book_name = body.get("book_name") or None
-                    ok, msg, path = s8.export_markdown(book_name=book_name,
-                                                      chapters_per_vol=per_vol)
-                    self._send(200 if ok else 400,
-                               {"ok": ok, "message": msg, "path": path})
-                except Exception as e:      # noqa: BLE001
-                    self._send(500, {"ok": False,
-                                     "error": type(e).__name__ + ": " + str(e)[:200]})
+                # 实现已迁至 nf_api_domains.post_misc（P2 拆分）；此处只做转发。
+                self._send(*_dom(dom_post_misc.handle_export_markdown(self, body)))
             else:
                 self._send(404, {"error": "未知路径 " + p})
         except (ValueError, TypeError) as e:
@@ -2769,6 +2348,18 @@ def main():
         os.environ["NF_API_ALLOW_FAKE"] = "1"
         global ALLOW_FAKE
         ALLOW_FAKE = True
+    # 日志轮转（config.system.yaml → logging.rotate_days，此前是死配置）。
+    # 必须在服务启动前跑：Electron 以 append 模式无界追加 nf_api 的 stdout，
+    # 长跑会把日志撑到几百 MB。轮转失败绝不阻断启动（run_log 内部已兜底）。
+    try:
+        from utils.run_log import rotate_if_needed, load_logging_cfg
+        # 复用 load_all()：它已带 seedWorkspace 竞态重试，比裸读更稳
+        _cfg, _ = load_all()
+        _lvl, _days = load_logging_cfg(_cfg)
+        _rr = rotate_if_needed(_cfg)
+        print(f"[nf_api] 日志: level={_lvl} rotate_days={_days} → {_rr['reason']}")
+    except Exception as _e:                                 # noqa: BLE001
+        print(f"[nf_api] 日志轮转检查跳过（不影响服务）: {_e}")
     httpd = ThreadingHTTPServer((args.host, args.port), Handler)
     print("[nf_api] NovelForge API 服务 → http://" + args.host + ":" + str(args.port)
           + "  (allow_fake=" + str(ALLOW_FAKE) + ")")

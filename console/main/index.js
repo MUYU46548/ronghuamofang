@@ -96,27 +96,92 @@ function getWorkspaceDir() {
   return path.join(app.getPath("appData"), "绒花墨坊", "workspace");
 }
 
-// 首启：种子 payload 进 workspace + 建 data/ 目录结构
+// 种子版本号。**改动 payload 内容（scripts/ 或 prompts/）时必须 +1**，
+// 否则老用户永远拿不到新代码 —— 见下方 seedWorkspace() 的升级刷新逻辑。
+//
+// 历史：本轮（2026-09-19）之前 seedWorkspace() 在 .seeded 存在时直接 return，
+// 于是「只在首次安装时播种」变成了「永远不再更新」。桌面端用户升级 App 后
+// workspace 里跑的还是旧版 orchestrator/stage*/prompts，而 config/ 下的
+// system.yaml 又是新的 → 新配置撞旧代码，各种诡异失败且无法从 UI 诊断。
+const SEED_VERSION = 2;
+
+// 只播种/刷新**代码与提示词**目录。
+// 刻意不含 data/：那是用户产物（章节、设定、大纲），任何情况下都不能被覆盖。
+// config/ 也不在列表里 —— 它承载用户填的书名/路径/模型选择，
+// 缺文件时才补，绝不做覆盖式刷新。
+const SEED_CODE_DIRS = ["scripts", "prompts", "templates"];
+const SEED_CONFIG_DIR = "config";
+
+// 首启/升级：种子 payload 进 workspace + 建 data/ 目录结构
 // 打包态：从 process.resourcesPath/payload 复制；源码态：从项目根目录 ROOT 复制
+//
+// 三种情形：
+//   ① 全新安装（无 .seeded）      → 全量播种
+//   ② 老版本升级（.seed-version 落后）→ 刷新代码目录（force 覆盖），保留 data/
+//   ③ 已是最新版本                → 只补缺失目录（幂等，不改任何已有文件）
 function seedWorkspace() {
   const ws = getWorkspaceDir();
-  if (fs.existsSync(path.join(ws, ".seeded"))) return;
   const payloadRoot = isPackaged
     ? path.join(process.resourcesPath, "payload")
     : ROOT;
-  const seedDirs = ["scripts", "prompts", "config", "templates"];
-  for (const d of seedDirs) {
+
+  const seededMarker = path.join(ws, ".seeded");
+  const versionMarker = path.join(ws, ".seed-version");
+  let seededVersion = 0;
+  try {
+    seededVersion = parseInt(fs.readFileSync(versionMarker, "utf8").trim(), 10) || 0;
+  } catch (e) { /* 文件不存在 = 版本 0 */ }
+
+  const firstRun = !fs.existsSync(seededMarker);
+  const stale = seededVersion < SEED_VERSION;
+
+  if (!firstRun && !stale) return;   // 情形 ③：无事可做
+
+  for (const d of SEED_CODE_DIRS) {
     const src = path.join(payloadRoot, d);
     const dst = path.join(ws, d);
-    if (fs.existsSync(src) && !fs.existsSync(dst)) {
+    if (!fs.existsSync(src)) continue;
+    if (firstRun || !fs.existsSync(dst)) {
       fs.cpSync(src, dst, { recursive: true });
+    } else {
+      // 升级刷新：force 覆盖代码与提示词。
+      // 用户若改过 prompts/ 会被覆盖 —— 这是刻意取舍：
+      // 提示词属于随版本发布的资产，与旧版不兼容的提示词比"丢失自定义"危害更大。
+      fs.cpSync(src, dst, { recursive: true, force: true });
+      console.log(`[console] seedWorkspace: 已刷新 ${d}（种子 v${seededVersion} → v${SEED_VERSION}）`);
     }
   }
-  // 预建 data/ 目录结构
+
+  // config：只在**缺失**时补，绝不覆盖（承载用户的书名/路径/模型选择）
+  const cfgSrc = path.join(payloadRoot, SEED_CONFIG_DIR);
+  const cfgDst = path.join(ws, SEED_CONFIG_DIR);
+  if (fs.existsSync(cfgSrc)) {
+    if (!fs.existsSync(cfgDst)) {
+      fs.cpSync(cfgSrc, cfgDst, { recursive: true });
+    } else {
+      // 逐文件补缺：新版本新增的配置项（如新增 provider）能到位，
+      // 用户已填的不动。.env 等同理（它不在 payload 里，天然安全）。
+      for (const f of fs.readdirSync(cfgSrc)) {
+        const s = path.join(cfgSrc, f);
+        const t = path.join(cfgDst, f);
+        if (fs.statSync(s).isFile() && !fs.existsSync(t)) {
+          fs.copyFileSync(s, t);
+          console.log(`[console] seedWorkspace: 补充配置 ${f}`);
+        }
+      }
+    }
+  }
+
+  // 预建 data/ 目录结构（幂等，已有内容不受影响）
   ["data/state", "data/outline/chapters", "data/setting", "data/chapters/raw", "data/chapters/checked", "data/chapters/refined", "data/books"].forEach(d => {
     fs.mkdirSync(path.join(ws, d), { recursive: true });
   });
-  fs.writeFileSync(path.join(ws, ".seeded"), "1");
+
+  fs.writeFileSync(seededMarker, "1");
+  fs.writeFileSync(versionMarker, String(SEED_VERSION));
+  if (stale && !firstRun) {
+    console.log(`[console] seedWorkspace: 工作区已升级到种子 v${SEED_VERSION}（用户 data/ 未受影响）`);
+  }
 }
 const BASE = "http://127.0.0.1:" + API_PORT;
 
@@ -207,7 +272,9 @@ function pathAllowed(p) {
   if (rel.startsWith("data/") || rel.startsWith("output/")) return true;
   if ((rel.startsWith("logs/") || rel.startsWith("materials/")) && /\.(md|log|json)$/.test(rel)) return true;
   if (rel.startsWith("config/") && /\.(yaml|yml)$/.test(rel)) return true;
-  if (rel === ".env") return true;  // Allow opening .env in external editor
+  // 注意：.env 含明文密钥，**刻意不放入外部打开白名单** —— 不再允许用外部编辑器
+  // 直接打开（2026-09-19 审查 S7）。如需编辑密钥，请用 GUI 设置页的专用入口，
+  // 或由用户自行在文件管理器中打开。
   return false;
 }
 
@@ -229,6 +296,23 @@ ipcMain.handle("open-artifact", async (e, relPath) => {
   if (!pathAllowed(abs)) return { ok: false, error: "路径不在白名单" };
   const r = await shell.openPath(fs.existsSync(abs) ? abs : path.dirname(abs));
   return r ? { ok: false, error: r } : { ok: true };
+});
+
+// 在文件管理器中定位文件（**不打开**内容）——给 .env 这类敏感文件用：
+// 用户需要自己编辑，但不该由程序代为「用外部编辑器打开明文密钥」。
+ipcMain.handle("reveal-in-folder", async (e, relPath) => {
+  try {
+    const abs = path.resolve(ROOT, relPath);
+    // 仅允许项目根内的路径（比 pathAllowed 更严：不开放 workspace 下的任意文件）
+    const root = ROOT.replace(/\\/g, "/").toLowerCase() + "/";
+    const norm = abs.replace(/\\/g, "/").toLowerCase();
+    if (!norm.startsWith(root)) return { ok: false, error: "路径越界" };
+    if (!fs.existsSync(abs)) return { ok: false, error: "文件不存在: " + relPath };
+    shell.showItemInFolder(abs);
+    return { ok: true, path: abs };
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
 });
 
 ipcMain.handle("open-file-dialog", async (e, options = {}) => {

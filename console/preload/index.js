@@ -4,6 +4,8 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("mofangAPI", {
   readPreview: (relPath) => ipcRenderer.invoke("read-preview", relPath),
   openArtifact: (relPath) => ipcRenderer.invoke("open-artifact", relPath),
+  // 在文件夹中定位（不打开内容）——用于 .env 等含密钥的敏感文件
+  revealInFolder: (relPath) => ipcRenderer.invoke("reveal-in-folder", relPath),
   openFileDialog: (options) => ipcRenderer.invoke("open-file-dialog", options),
   // 提示词模板编辑器（prompts/stage[1-7]_*.md）
   promptsList: () => ipcRenderer.invoke("prompts:list"),

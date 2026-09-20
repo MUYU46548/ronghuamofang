@@ -23,6 +23,7 @@
 import argparse
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import yaml
@@ -135,6 +136,19 @@ def run(from_stage=1, only_stage=None, client=None):
               f"(归档「{prev_book}」) / --restore \"书名\"；继续将按 project.yaml 处理")
     progress.data["project"] = book_name
     db = RunDB("logs/runs.db")
+    run_id = None
+    finished = False   # 正常路径已显式收尾置 True；兜底据此判断是否需补偿
+
+    def _finalize(status, code):
+        """收尾：写 runs 状态 + 标记已完成，返回退出码（幂等）。"""
+        nonlocal finished
+        try:
+            db.finish_run(run_id, status)
+        except Exception as e:                              # noqa: BLE001
+            print(f"[orchestrator] 警告：写 runs 状态失败（{e}），交由 finally 兜底")
+        finished = True
+        return code
+
     try:
         budget = cfg.get("budget", {})
         limit_yuan = float(os.environ.get("BUDGET_LIMIT_YUAN") or budget.get("limit_yuan", 300))
@@ -148,16 +162,14 @@ def run(from_stage=1, only_stage=None, client=None):
             # 已经跑完的阶段照常保留（断点续跑语义不变）。
             if _stop_requested():
                 print("[orchestrator] 收到停止请求，中断")
-                db.finish_run(run_id, "stopped")
-                return 4  # 退出码 4：用户中断
+                return _finalize("stopped", 4)  # 退出码 4：用户中断
             # 预算熔断
             state, spent = cost.status(run_id)
             if state == "pause":
                 print(f"[orchestrator] 预算超限（已用 {spent:.2f} 元），熔断暂停")
                 progress.data["budget"]["paused"] = True
                 progress.save()
-                db.finish_run(run_id, "paused")
-                return 2
+                return _finalize("paused", 2)
             # 打回提示：该阶段曾被打回（reject.py），重跑前告知原因
             st_n = progress.data["stages"].get(str(n), {})
             if st_n.get("rejected"):
@@ -196,8 +208,7 @@ def run(from_stage=1, only_stage=None, client=None):
                                   "并跑 python scripts/setting_refine.py 补全后再审批。")
                     except Exception as e:
                         print(f"[orchestrator] 补全提醒检查失败（不影响流程）: {e}")
-                db.finish_run(run_id, "waiting_approval")
-                return 3
+                return _finalize("waiting_approval", 3)
             # 断点：已完成阶段跳过
             if progress.stage_status(n) == "done" and not only_stage:
                 print(f"[orchestrator] 阶段{n} 已完成，跳过")
@@ -268,52 +279,77 @@ def run(from_stage=1, only_stage=None, client=None):
                     except Exception as e:
                         print(f"[orchestrator] 校对失败（不影响流程）: {e}")
             if not ok:
-                # 自动重试（默认开）：阶段失败后自动重试，减少人工干预
-                gates = cfg.get("gates", {}) or {}
-                auto_retry = gates.get("auto_retry", True)
-                max_retry = int(gates.get("auto_retry_max_rounds", 2))
-                retry_delay = float(gates.get("auto_retry_delay_seconds", 3))
-                retry_backoff = float(gates.get("auto_retry_backoff", 2))
-                retry_count = 0
-                while auto_retry and retry_count < max_retry:
-                    retry_count += 1
-                    # 记录重试次数到 progress.json（GUI 可显示"自动重试中"）
-                    progress.set_stage(n, "retrying", retry_count=retry_count,
-                                       retry_started_at=datetime.now().strftime("%Y-%m-%dT%H:%M:%S"))
-                    delay = retry_delay * (retry_backoff ** (retry_count - 1))
-                    print(f"[orchestrator] 阶段{n} 失败，第{retry_count}次自动重试（等待 {delay:.0f}s）...")
-                    import time
-                    time.sleep(delay)
-                    # 重试前检查停止请求
-                    if _stop_requested():
-                        print("[orchestrator] 重试前收到停止请求，中断")
-                        db.finish_run(run_id, "stopped")
-                        return 4
-                    # 重试前检查预算熔断
-                    state, spent = cost.status(run_id)
-                    if state == "pause":
-                        print(f"[orchestrator] 重试前预算超限（已用 {spent:.2f} 元），熔断暂停")
-                        progress.data["budget"]["paused"] = True
-                        progress.save()
-                        db.finish_run(run_id, "paused")
-                        return 2
-                    # 执行重试
-                    ok, msg = STAGES[n].run_stage(cfg, proj, progress, db, cost, client=client, run_id=run_id)
-                    print(f"[orchestrator] 阶段{n} 重试结果: {msg}")
-                    if ok:
-                        break
+                # 自动重试（默认开）：阶段失败后自动重试，减少人工干预。
+                # 整段包 try/except：重试是**失败兜底机制**，它自己绝不能成为最脆的一环。
+                # 任何异常（含历史存量缺陷）都必须收敛为「退出码 1 + runs 已收尾」，
+                # 而不是穿透 run() 把 runs 留在 status='running' 脏状态。
+                try:
+                    gates = cfg.get("gates", {}) or {}
+                    auto_retry = gates.get("auto_retry", True)
+                    max_retry = int(gates.get("auto_retry_max_rounds", 2))
+                    retry_delay = float(gates.get("auto_retry_delay_seconds", 3))
+                    retry_backoff = float(gates.get("auto_retry_backoff", 2))
+                    retry_count = 0
+                    while auto_retry and retry_count < max_retry:
+                        retry_count += 1
+                        # 记录重试次数到 progress.json（GUI 可显示"自动重试中"）
+                        progress.set_stage(n, "retrying", retry_count=retry_count,
+                                           retry_started_at=datetime.now().strftime("%Y-%m-%dT%H:%M:%S"))
+                        delay = retry_delay * (retry_backoff ** (retry_count - 1))
+                        print(f"[orchestrator] 阶段{n} 失败，第{retry_count}次自动重试（等待 {delay:.0f}s）...")
+                        import time
+                        time.sleep(delay)
+                        # 重试前检查停止请求
+                        if _stop_requested():
+                            print("[orchestrator] 重试前收到停止请求，中断")
+                            return _finalize("stopped", 4)
+                        # 重试前检查预算熔断
+                        state, spent = cost.status(run_id)
+                        if state == "pause":
+                            print(f"[orchestrator] 重试前预算超限（已用 {spent:.2f} 元），熔断暂停")
+                            progress.data["budget"]["paused"] = True
+                            progress.save()
+                            return _finalize("paused", 2)
+                        # 执行重试
+                        ok, msg = STAGES[n].run_stage(cfg, proj, progress, db, cost, client=client, run_id=run_id)
+                        print(f"[orchestrator] 阶段{n} 重试结果: {msg}")
+                        if ok:
+                            break
+                except Exception as e:                      # noqa: BLE001
+                    print(f"[orchestrator] 自动重试过程异常（已兜底，不中断收尾）: "
+                          f"{type(e).__name__}: {e}")
+                    ok = False
                 if not ok:
                     if cfg.get("gates", {}).get("pause_on_failure", True):
                         print(f"[orchestrator] 阶段失败（已重试 {retry_count} 次），暂停等待处理（可重跑或人工介入）")
-                        db.finish_run(run_id, "failed")
-                        return 1
+                        return _finalize("failed", 1)
+            # 阶段末尾的预算检查（S10 修复）。
+            #
+            # 此处原先只 `print` 一个状态就往下走 —— 计算了 `state` 却从不据此停机，
+            # 是死代码。后果：熔断**只在下一阶段启动前**生效，而最后一个阶段
+            # （阶段8 Markdown 导出）跑完后 `state == "pause"` 会被直接吞掉，
+            # 最终 `_finalize("done", 0)` 宣告"全部完成"，GUI 显示成功。
+            # 实际已超预算，属**静默失败**。现在与阶段起始处的熔断保持同一语义。
             state, spent = cost.status(run_id)
+            if state == "pause":
+                print(f"[orchestrator] 预算超限（已用 {spent:.2f} 元），熔断暂停")
+                progress.data["budget"]["paused"] = True
+                progress.save()
+                return _finalize("paused", 2)
             print(f"[orchestrator] 当前成本: {spent:.4f} 元（状态 {state}）")
 
-        db.finish_run(run_id, "done")
         print("\n[orchestrator] 全部阶段完成 ✅")
-        return 0
+        return _finalize("done", 0)
     finally:
+        # 兜底幂等补偿：正常路径已 _finalize 过 → 此处的 UPDATE 命中 0 行、无副作用；
+        # 异常穿透路径（含未来新增的崩溃点）→ 把残留的 status='running' 脏行收敛为 'crashed'。
+        # 读侧（nf_api /costs/streaming）不再需要靠「绕过 running 过滤」来容错。
+        if not finished and run_id is not None:
+            try:
+                if db.finish_run_if_running(run_id, "crashed"):
+                    print(f"[orchestrator] 检测到异常退出，已将 run {run_id} 标记为 crashed")
+            except Exception as e:                          # noqa: BLE001
+                print(f"[orchestrator] 警告：崩溃兜底收尾失败: {e}")
         db.close()
 
 

@@ -77,6 +77,22 @@ class RunDB:
             "UPDATE runs SET finished_at=?, status=? WHERE id=?",
             (now_iso(), status, run_id))
 
+    def finish_run_if_running(self, run_id, status="crashed"):
+        """幂等补偿：仅当该 run 仍是 'running' 时才收尾。
+
+        用于编排层 finally 兜底——正常路径已 finish 过的不受影响（幂等），
+        异常/崩溃路径留下的 status='running' 脏行由这里清零。
+        返回是否实际更新（True = 确有脏行被收敛）。
+        """
+        if run_id is None:
+            return False
+        with self._lock:
+            cur = self.conn.execute(
+                "UPDATE runs SET finished_at=?, status=? WHERE id=? AND status='running'",
+                (now_iso(), status, run_id))
+            self.conn.commit()
+        return cur.rowcount > 0
+
     # ---------- chapter_log ----------
     def log_chapter(self, run_id, stage, chapter, status, attempts=1, quality=None,
                     tokens_in=0, tokens_out=0, cost_yuan=0.0, error=None, session_id=None):
