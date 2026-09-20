@@ -8,6 +8,7 @@
 → 提取 summary 注释 append 到 rolling.md → 更新 progress/db/cost。
 """
 import argparse
+import json
 import re
 from pathlib import Path
 
@@ -19,6 +20,9 @@ from utils.template_loader import load_template
 from utils.style_analyzer import extract_style_samples, build_style_notes_section
 from utils.progress_manager import ProgressManager
 from utils.cost_tracker import CostTracker
+from utils.setting_schema import (
+    base_name, build_character_card, normalize_character,
+)
 
 SUMMARY_RE = re.compile(r"<!--\s*summary:\s*(.+?)\s*-->", re.IGNORECASE | re.S)
 
@@ -58,54 +62,95 @@ def sync_appearances_after_chapter(chapter_text, chapter_no, total_chapters=None
     return False
 
 
+def _involved_names(outline_text):
+    """从逐章大纲的「涉及角色」行解析角色名列表。
+
+    大纲里该项可能是 `露汐、暮雨`，也可能是 `luxi 露汐（写病历）、小林（夜班护士）`。
+    后者若整串拿去匹配 setting 的 name 永远匹配不上 → 角色卡恒为空。
+    这里把「id 名（描述）」拆成候选名并剥掉括号描述。
+    """
+    rm = re.search(r"涉及角色[：:]\s*(.+)", outline_text)
+    if not rm:
+        return []
+    names = []
+    for chunk in re.split(r"[,，、/；;]", rm.group(1)):
+        s = chunk.strip()
+        if not s:
+            continue
+        # `luxi 露汐（写病历）` → 先取描述括号内的内容当别名候选，再剥括号
+        for inside in re.findall(r"[（(]([^）)]*)[）)]", s):
+            inside = inside.strip()
+            if inside:
+                names.append(inside)
+        bare = re.sub(r"[（(].*?[)）]", "", s).strip()
+        # `luxi 露汐` → 拆出 ASCII id 与中文名
+        for tok in bare.split():
+            tok = tok.strip()
+            if tok:
+                names.append(tok)
+    out, seen = [], set()
+    for n in names:
+        if n and n not in seen:
+            seen.add(n)
+            out.append(n)
+    return out
+
+
 def _extract_character_cards_for_chapter(setting_path, outline_path, budget=3000):
     """从 setting.json 提取当前章节涉及的角色卡片段。
 
-    匹配逻辑：从大纲中提取「涉及角色」字段，从 setting.json 的 characters
-    中找出对应角色，返回格式化的角色卡文本（供任务文件注入）。
-    setting.json 角色 schema: name, path, tags, type, locked, relations, snippet, source
+    匹配逻辑：从大纲解析「涉及角色」，与 setting.json 的 characters 逐个匹配，
+    返回格式化的角色卡文本（供任务文件注入）。
+
+    **schema 兼容**：setting.json 有**两个生产者**，字段集不同 ——
+    stage1（真实流水线）产出 `role/traits/relations`，vault 联动产出
+    `type/tags/snippet/locked`。本函数此前只认后者，导致真实流水线下
+    「身份」与「性格」全丢。现统一走 `utils.setting_schema.normalize_character`，
+    两套都能读全（详见该模块 docstring 的字段对照表）。
     """
     try:
-        setting_text = read_text(setting_path)
-        import json
-        setting = json.loads(setting_text)
-        characters = setting.get("characters", [])
-        if not characters:
+        setting = json.loads(read_text(setting_path))
+        raw_characters = setting.get("characters", [])
+        if not raw_characters:
             return ""
 
-        # 从大纲提取涉及角色
-        outline_text = _safe_read(outline_path, budget=8000)
-        rm = re.search(r"涉及角色[：:]\s*(.+)", outline_text)
-        if not rm:
+        involved = _involved_names(_safe_read(outline_path, budget=8000))
+        if not involved:
             return ""
-        involved = [c.strip() for c in re.split(r"[,，、/；;]", rm.group(1)) if c.strip()]
 
-        cards_parts = ["### 本章涉及角色卡（写作时严格遵循，locked 条目不可违逆）"]
-        for name in involved:
-            for char in characters:
-                if isinstance(char, dict) and char.get("name") == name:
-                    parts = [f"**{char['name']}**"]
-                    if char.get("type"):
-                        parts.append(f"类型：{char['type']}")
-                    if char.get("tags"):
-                        tags = char["tags"] if isinstance(char["tags"], list) else [char["tags"]]
-                        parts.append(f"标签：{'、'.join(str(t) for t in tags)}")
-                    if char.get("relations"):
-                        rels = char["relations"]
-                        if isinstance(rels, list) and rels:
-                            parts.append(f"关系：{'、'.join(str(r) for r in rels)}")
-                        elif isinstance(rels, str) and rels:
-                            parts.append(f"关系：{rels}")
-                    if char.get("snippet"):
-                        snippet = char["snippet"][:200].replace('\n', ' ')
-                        parts.append(f"简介：{snippet}…")
-                    if char.get("locked"):
-                        parts.append("⚠ locked 条目，绝对不可违逆")
-                    cards_parts.append("\n".join(parts))
-                    break
-        return "\n\n".join(cards_parts) if len(cards_parts) > 1 else ""
+        cards = []
+        for char in raw_characters:
+            nc = normalize_character(char)
+            if not nc:
+                continue
+            # 精确名 / id / 别名根名 三种匹配都认
+            if not _name_matches(nc, involved):
+                continue
+            cards.append(build_character_card(nc))
+
+        if not cards:
+            return ""
+        return ("### 本章涉及角色卡（写作时严格遵循，禁止违背性格/关系/禁止行为）\n\n"
+                + "\n\n".join(cards))
     except Exception:
         return ""
+
+
+def _name_matches(nc, involved):
+    """角色是否落在大纲「涉及角色」名单里（容忍别名与括号描述）。"""
+    names = {nc["name"], nc.get("id", "")}
+    base = base_name(nc["name"])
+    if base:
+        names.add(base)
+    for inv in involved:
+        if not inv:
+            continue
+        if inv in names or base_name(inv) == base and base:
+            return True
+        # 描述性括注：`露汐（写病历）` 已在上层拆出，这里再容忍一次包含关系
+        if len(inv) >= 2 and (inv in nc["name"] or nc["name"] in inv):
+            return True
+    return False
 
 
 def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, prev_tail):
