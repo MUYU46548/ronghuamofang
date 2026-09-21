@@ -444,15 +444,18 @@ def print_trend(series):
         print("[outline_review] 无版本记录（先跑 stage2 或 refine_outline）")
         return
     print("[outline_review] 迭代趋势（每行 = 一个版本；key = 问题数 + 碎片数，越小越好）")
+    # 列名刻意叫「单版体检」而不是「判定」：它是**该版本自身**的 PASS/WARN/FAIL
+    # （「有碎片即 FAIL」），与底部**跨版本**的收敛判定（done/stalled/...）不是一回事，
+    # 混用同一个词会让人误读成「整个迭代失败」。
     print(f"  {'版本':<14}{'条目':>5}{'OK':>4}{'WARN':>5}{'THIN':>5}"
-          f"{'问题':>5}{'平均分':>7}{'判定':>7}")
+          f"{'问题':>5}{'平均分':>7}{'单版体检':>9}")
     for e in series:
         print(f"  {e['label']:<14}{e['total']:>5}{e['ok']:>4}{e['warn']:>5}"
-              f"{e['thin']:>5}{e['issues']:>5}{e['avg_score']:>7.2f}{e['verdict']:>7}")
+              f"{e['thin']:>5}{e['issues']:>5}{e['avg_score']:>7.2f}{e['verdict']:>9}")
     status, note = convergence_verdict(series)
     tag = {"done": "✅ 已收敛", "stalled": "⚠ 停滞", "improving": "↘ 改善中",
            "mixed": "⚡ 波动", "insufficient": "· 样本不足"}.get(status, status)
-    print(f"  → {tag}：{note}")
+    print(f"  → 收敛判定【{tag}】：{note}")
 
 
 def render_markdown(result):
