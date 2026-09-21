@@ -111,6 +111,55 @@ def handle_outline_trend(h):
         return 500, {"error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+def handle_outline_advise(h):
+    """开工方向建议（确定性，零 token）。
+
+    与 `/outline/trend` 的分工：trend 说「**有没有进展**」，
+    advise 说「**接下来能做什么**」—— 返回按严重度排序的候选方案，
+    每个方案含依据、目标条目（带可执行的 `next_step`）、调用次数与取舍。
+
+    参数 `window`（默认 3）：收敛判定看最近几轮。
+    """
+    try:
+        import outline_advisor as oa
+        q = h._query()
+        try:
+            window = max(2, min(int((q.get("window") or ["3"])[0]), 20))
+        except (TypeError, ValueError):
+            window = 3
+        adv = oa.advise(window=window)
+        if adv.get("error"):
+            return 400, adv
+        return 200, adv
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_sandbox_queue(h):
+    """沙盒审核队列（确定性，零 token）。
+
+    返回 {sandbox_dir, items, stats, orphans}。`items` 默认只含待审；
+    `?all=1` 返回全部状态。孤儿（沙盒里有、状态库未登记）单独列出 ——
+    否则它们会成为审核盲区。
+    """
+    try:
+        from utils import sandbox_review as srv
+        from obsidian_bridge import get_sandbox_dir
+        q = h._query()
+        want_all = (q.get("all") or ["0"])[0] not in ("0", "", "false", "False")
+        status = None if want_all else srv.PENDING
+        sandbox = get_sandbox_dir()
+        return 200, {
+            "sandbox_dir": str(sandbox),
+            "items": srv.list_items(status),
+            "stats": srv.stats(),
+            "orphans": srv.orphans(sandbox),
+            "filter": "all" if want_all else "pending",
+        }
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 def handle_outline_drafts(h):
     """多方案 draft 列表 + 每份的四节原文（供前端拼合预览）。"""
     try:

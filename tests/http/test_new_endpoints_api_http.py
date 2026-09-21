@@ -463,6 +463,41 @@ def main():
         check("?window 非法值 → 回落默认 3（不 500）",
               code == 200 and d3.get("window") == 3, (code, d3.get("window")))
 
+        print("\n=== 5.6 GET /outline/advise（开工方向建议）===")
+        code, d = req("GET", "/outline/advise")
+        check("→ 200 且含 options/recommended/verdict/metrics",
+              code == 200 and "options" in d and "recommended" in d
+              and "verdict" in d and "metrics" in d, (code, list(d)[:8]))
+        ids = [o["id"] for o in d.get("options", [])]
+        check("方案池含 start_writing（用户可坚持开工）", "start_writing" in ids, ids)
+        check("推荐项在方案池内", d.get("recommended") in ids, d.get("recommended"))
+        check("推荐项排在首位（按严重度排序）",
+              ids and ids[0] == d.get("recommended"), ids)
+        check("每个方案都带 why 与 tradeoff（不是干巴巴的标题）",
+              all(o.get("why") and o.get("tradeoff") for o in d.get("options", [])),
+              [(o.get("id"), bool(o.get("why")), bool(o.get("tradeoff")))
+               for o in d.get("options", [])])
+        check("停机点：建议不自动执行（metrics 反映当前体检）",
+              isinstance(d.get("metrics"), dict) and "thin" in d["metrics"],
+              d.get("metrics"))
+        code, d2 = req("GET", "/outline/advise?window=2")
+        check("?window 被接受", code == 200 and "options" in d2, code)
+
+        print("\n=== 5.7 GET /sandbox/queue（沙盒审核队列）===")
+        code, d = req("GET", "/sandbox/queue")
+        check("→ 200 且含 items/stats/orphans/sandbox_dir",
+              code == 200 and "items" in d and "stats" in d
+              and "orphans" in d and "sandbox_dir" in d, (code, list(d)[:8]))
+        check("默认只看待审（filter=pending）", d.get("filter") == "pending",
+              d.get("filter"))
+        check("stats 含三种状态计数",
+              all(k in (d.get("stats") or {}) for k in ("pending", "approved", "rejected")),
+              d.get("stats"))
+        check("工程无产物时 items 为空（不报错）", d.get("items") == [], d.get("items"))
+        code, d2 = req("GET", "/sandbox/queue?all=1")
+        check("?all=1 → filter=all", code == 200 and d2.get("filter") == "all",
+              (code, d2.get("filter")))
+
         print("\n=== 6. 未知路径未被破坏 ===")
         code, _d = req("GET", "/nope")
         check("未知路径仍 404", code == 404)

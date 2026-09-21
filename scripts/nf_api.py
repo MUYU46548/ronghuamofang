@@ -1523,6 +1523,13 @@ class Handler(BaseHTTPRequestHandler):
             # 迭代趋势 + 上一版对比 + 收敛判断（确定性，零 token）。
             # 与 /outline/diff 互补：diff 是「哪几行变了」，trend 是「每轮有没有实质进展」。
             self._send(*_dom(dom_outline.handle_outline_trend(self)))
+        elif p == "/outline/advise":
+            # 开工方向建议：候选方案 + 依据 + 可执行 next_step（确定性，零 token）。
+            # trend 说「有没有进展」，advise 说「接下来能做什么」。
+            self._send(*_dom(dom_outline.handle_outline_advise(self)))
+        elif p == "/sandbox/queue":
+            # 沙盒产物审核队列（待审/已通过/已驳回 + 孤儿检测）。
+            self._send(*_dom(dom_outline.handle_sandbox_queue(self)))
         elif p == "/review/decisions":
             # 实现已迁至 nf_api_domains.runtime（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_runtime.handle_review_decisions(self)))
