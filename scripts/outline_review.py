@@ -239,6 +239,222 @@ def review(global_path, setting_path=None):
     return result
 
 
+# ---------------------------------------------------------------- 迭代收敛视图
+#
+# 2026-09-21 新增：回答「还要不要再迭代一轮」。
+#
+# 背景：`refine_outline` 每轮会把**修改前**的状态备份到
+# `history/global_v{N}.md`（N 从 1 递增），所以：
+#   - `history/global_v{N}.md` = 第 N 轮精修**之前**的大纲
+#   - `global.md`             = 最后一轮精修**之后**的大纲
+# 于是「与上一版对比」= 当前 `global.md` vs 编号最大的 `global_v{N}.md`。
+#
+# 全部确定性、零 token —— 只是把已有的 `review()` 跑在不同文件上。
+
+def _fingerprint(result, label="", path=""):
+    """从一个 `review()` 结果抽出可比较的指标。
+
+    比较的**主键**是 `(issues, thin)` —— 二者都是「越小越好」：
+    `issues` 是硬性结构问题（已会让精修回报失败），`thin` 是信息密度不足的条目数。
+    次键是 `avg_score`（条目平均分，越高越好），只在主键持平时用于细分方向。
+    """
+    s = result["summary"]
+    scores = [e["score"] for e in result["nodes"] + result["plan"]]
+    issues = len(result["issues"])
+    thin = s["thin"]
+    return {
+        "label": label,
+        "path": path,
+        "total": s["total"], "ok": s["ok"], "warn": s["warn"], "thin": thin,
+        "issues": issues,
+        "key": issues + thin,          # 主键：越小越好
+        "avg_score": round(sum(scores) / len(scores), 2) if scores else 0.0,
+        "nodes": len(result["nodes"]), "plan": len(result["plan"]),
+        "expected": result.get("expected_chapters"),
+        "verdict": s["verdict"],
+    }
+
+
+def latest_backup(history_dir="data/outline/history"):
+    """返回编号最大的 `global_v{N}.md`（= 最近一轮精修**之前**的状态）。
+
+    返回 `(version, Path)`；目录不存在或无备份时返回 `None`。
+    """
+    hist = Path(history_dir)
+    best = None
+    if hist.is_dir():
+        for p in hist.glob("global_v*.md"):
+            m = re.match(r"global_v(\d+)\.md$", p.name)
+            if m:
+                n = int(m.group(1))
+                if best is None or n > best[0]:
+                    best = (n, p)
+    return best
+
+
+def _entry_map(result):
+    """{title: score} —— 用于逐条目对比。"""
+    out = {}
+    for e in result["nodes"] + result["plan"]:
+        out[e["title"]] = e["score"]
+    return out
+
+
+def compare_with_previous(global_path, setting_path=None,
+                          history_dir="data/outline/history"):
+    """当前大纲 vs 最近一次备份。返回对比 dict；无备份时返回 None。
+
+    返回 {
+        from_version, prev, cur,        # prev/cur 是 _fingerprint
+        deltas: {...},                  # cur - prev（对 key/issues/thin/avg_score）
+        entries: {improved, regressed, added, removed},   # 逐条目差分
+        verdict: "improved"|"stalled"|"regressed",
+        advice: str,
+    }
+    """
+    lb = latest_backup(history_dir)
+    if lb is None:
+        return None
+    ver, prev_path = lb
+    if not prev_path.exists() or not Path(global_path).exists():
+        return None
+
+    # 各体检一次（review 会读盘 + 正则扫描，重复调用是浪费）
+    prev_rev = review(prev_path, setting_path)
+    cur_rev = review(global_path, setting_path)
+    prev = _fingerprint(prev_rev, label=f"v{ver}（本轮改前）", path=str(prev_path))
+    cur = _fingerprint(cur_rev, label="当前", path=str(global_path))
+
+    pm, cm = _entry_map(prev_rev), _entry_map(cur_rev)
+    improved = sorted(t for t, v in cm.items() if t in pm and v > pm[t])
+    regressed = sorted(t for t, v in cm.items() if t in pm and v < pm[t])
+    added = sorted(t for t in cm if t not in pm)
+    removed = sorted(t for t in pm if t not in cm)
+
+    deltas = {k: cur[k] - prev[k] for k in ("key", "issues", "thin", "total", "avg_score")}
+
+    if cur["key"] < prev["key"]:
+        verdict, advice = "improved", "本轮有实质改善（问题/碎片条目减少），可继续按同一方向迭代。"
+    elif cur["key"] == prev["key"]:
+        if cur["avg_score"] > prev["avg_score"]:
+            verdict = "stalled"
+            advice = ("本轮问题数未变、仅平均分略升 —— 收益已明显递减。"
+                      "建议换角度提意见（如调整母题/角色动机）、补素材，或直接开工。")
+        else:
+            verdict = "stalled"
+            advice = ("本轮**无实质改善**。同方向继续迭代大概率只是重写措辞，"
+                      "建议换角度提意见、补素材，或直接开工。")
+    else:
+        verdict = "regressed"
+        advice = (f"本轮**反而变差**（问题数上升）。"
+                  f"建议回退：GUI「大纲」页签的「版本恢复」→ v{ver}，"
+                  f"或 `python scripts/outline_panel.py --restore {ver}`。")
+
+    return {"from_version": ver, "prev": prev, "cur": cur, "deltas": deltas,
+            "entries": {"improved": improved, "regressed": regressed,
+                        "added": added, "removed": removed},
+            "verdict": verdict, "advice": advice}
+
+
+def print_compare(cmp):
+    """打印版本对比摘要。"""
+    if not cmp:
+        return
+    d = cmp["deltas"]
+
+    def _sgn(v):
+        return f"{v:+d}" if isinstance(v, int) else f"{v:+.2f}"
+
+    print(f"[outline_review] 与上一版对比（v{cmp['from_version']} → 当前）："
+          f"问题 {cmp['prev']['issues']}→{cmp['cur']['issues']}（{_sgn(d['issues'])}）"
+          f"，碎片 {cmp['prev']['thin']}→{cmp['cur']['thin']}（{_sgn(d['thin'])}）"
+          f"，平均分 {cmp['prev']['avg_score']}→{cmp['cur']['avg_score']}"
+          f"（{_sgn(d['avg_score'])}）")
+    ent = cmp["entries"]
+    if ent["improved"]:
+        print(f"  改善 {len(ent['improved'])} 条：{'、'.join(ent['improved'][:6])}"
+              f"{'…' if len(ent['improved']) > 6 else ''}")
+    if ent["regressed"]:
+        print(f"  退化 {len(ent['regressed'])} 条：{'、'.join(ent['regressed'][:6])}"
+              f"{'…' if len(ent['regressed']) > 6 else ''}")
+    if ent["added"]:
+        print(f"  新增 {len(ent['added'])} 条：{'、'.join(ent['added'][:6])}"
+              f"{'…' if len(ent['added']) > 6 else ''}")
+    if ent["removed"]:
+        print(f"  删除 {len(ent['removed'])} 条：{'、'.join(ent['removed'][:6])}"
+              f"{'…' if len(ent['removed']) > 6 else ''}")
+    print(f"  → {cmp['advice']}")
+
+
+def review_series(global_path, setting_path=None,
+                  history_dir="data/outline/history"):
+    """按版本顺序体检全部历史（v1..vN）+ 当前，返回指标列表。
+
+    这是「迭代 50 轮」视角：一眼看出每轮是否有进展。
+    """
+    series = []
+    hist = Path(history_dir)
+    if hist.is_dir():
+        vers = []
+        for p in hist.glob("global_v*.md"):
+            m = re.match(r"global_v(\d+)\.md$", p.name)
+            if m:
+                vers.append((int(m.group(1)), p))
+        for n, p in sorted(vers):
+            series.append(_fingerprint(review(p, setting_path),
+                                       label=f"v{n}（第{n}轮前）", path=str(p)))
+    if global_path and Path(global_path).exists():
+        series.append(_fingerprint(review(global_path, setting_path),
+                                   label="当前", path=str(global_path)))
+    return series
+
+
+def convergence_verdict(series, window=3):
+    """从指标序列判断是否已收敛。返回 (状态, 说明)。
+
+    判据（确定性，看**最近 window 轮**）：
+      - 最新一轮 `key == 0`                → `done`    已达标，可开工
+      - 最近 window 轮 `key` 全部相同       → `stalled` 停滞，收益递减
+      - 最近 window 轮 `key` 严格递减       → `improving` 仍在改善
+      - 其余（有升有降）                    → `mixed`   波动，需人工判断
+      - 序列不足 2 条                       → `insufficient` 样本不足
+    """
+    if len(series) < 2:
+        return "insufficient", "历史版本不足（至少需要 2 个版本才能判断趋势）。"
+    tail = series[-window:] if len(series) >= window else series
+    keys = [e["key"] for e in tail]
+    last = series[-1]
+
+    if last["key"] == 0:
+        return "done", (f"最新版无结构性问题、无碎片条目（{last['total']} 条全部达标）"
+                        f"—— 可以开工。")
+    if len(set(keys)) == 1:
+        return "stalled", (f"最近 {len(tail)} 轮的问题数**完全没变**（均为 {keys[-1]}）"
+                           f"—— 收益已递减。建议换角度提意见、补素材，或直接开工。")
+    if all(keys[i] > keys[i + 1] for i in range(len(keys) - 1)):
+        return "improving", (f"最近 {len(tail)} 轮问题数持续下降（{'→'.join(map(str, keys))}）"
+                             f"—— 仍在改善，可继续迭代。")
+    return "mixed", (f"最近 {len(tail)} 轮问题数有升有降（{'→'.join(map(str, keys))}）"
+                     f"—— 建议回看具体是哪几条在反复，换策略而非继续微调。")
+
+
+def print_trend(series):
+    """打印迭代趋势表。"""
+    if not series:
+        print("[outline_review] 无版本记录（先跑 stage2 或 refine_outline）")
+        return
+    print("[outline_review] 迭代趋势（每行 = 一个版本；key = 问题数 + 碎片数，越小越好）")
+    print(f"  {'版本':<14}{'条目':>5}{'OK':>4}{'WARN':>5}{'THIN':>5}"
+          f"{'问题':>5}{'平均分':>7}{'判定':>7}")
+    for e in series:
+        print(f"  {e['label']:<14}{e['total']:>5}{e['ok']:>4}{e['warn']:>5}"
+              f"{e['thin']:>5}{e['issues']:>5}{e['avg_score']:>7.2f}{e['verdict']:>7}")
+    status, note = convergence_verdict(series)
+    tag = {"done": "✅ 已收敛", "stalled": "⚠ 停滞", "improving": "↘ 改善中",
+           "mixed": "⚡ 波动", "insufficient": "· 样本不足"}.get(status, status)
+    print(f"  → {tag}：{note}")
+
+
 def render_markdown(result):
     """渲染详细报告（写盘用）。"""
     lines = [
@@ -303,7 +519,13 @@ def main():
     parser.add_argument("--outline", default="data/outline/global.md")
     parser.add_argument("--setting", default="data/setting/setting.json")
     parser.add_argument("--report", default="data/outline/review_report.md")
+    parser.add_argument("--history", default="data/outline/history",
+                        help="版本备份目录（用于对比与趋势）")
     parser.add_argument("--quiet", action="store_true", help="仅打印结论，不写报告")
+    parser.add_argument("--trend", action="store_true",
+                        help="打印全部版本的迭代趋势 + 收敛判断（回答「还要不要再来一轮」）")
+    parser.add_argument("--no-compare", action="store_true",
+                        help="跳过与上一版的对比")
     args = parser.parse_args()
 
     if not Path(args.outline).exists():
@@ -311,6 +533,19 @@ def main():
         return 1
     result = review(args.outline, args.setting)
     print_summary(result)
+
+    # 迭代收敛视图（确定性，零 token）
+    if args.trend:
+        print()
+        print_trend(review_series(args.outline, args.setting,
+                                 history_dir=args.history))
+    elif not args.no_compare:
+        cmp = compare_with_previous(args.outline, args.setting,
+                                    history_dir=args.history)
+        if cmp:
+            print()
+            print_compare(cmp)
+
     if not args.quiet:
         write_text(args.report, render_markdown(result))
         print(f"[outline_review] 详细报告: {args.report}")
