@@ -49,7 +49,7 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 | 扫描设定库（只读） | `python scripts/obsidian_bridge.py scan [--vault 路径]`（只扫不写，落 `data/state/obsidian_index.json`）；`config` 查看当前 vault/沙盒配置 |
 | 正典一致性检查 | `python scripts/obsidian_bridge.py check <文件>`（⚠️ **仅「疑似新角色」一项已实现**，`conflicts`/`locked_violations` **未实现**，输出会显式标注；空结果 ≠ 无问题） |
 | 沙盒查看/推送 | `python scripts/obsidian_bridge.py list` / `push <文件> [--subdir X]`（vault 只读，产物只写沙盒；默认 `data/state/obsidian_sandbox/`，可在 `config/system.yaml` 的 `obsidian.sandbox_dir` 改为你的库内目录） |
-| **沙盒审核队列** | `python scripts/sandbox_review.py --queue`（待审）· `--list`（全部+状态）· `--approve <路径>` · `--reject <路径> --note "原因"` · `--orphans`（未登记文件）· `--json`。**改过的文件会自动重置为待审**（内容 sha256 比对）；状态存 `data/state/sandbox_manifest.json`，不写进产物 frontmatter（避免带进 vault） |
+| **沙盒审核队列** | `python scripts/sandbox_review.py --queue`（待审）· `--list`（全部+状态）· `--approve <路径>` · `--reject <路径> --note "原因"` · `--orphans`（未登记文件）· `--json`。**改过的文件会自动重置为待审**（内容 sha256 比对）；状态存 `data/state/sandbox_manifest.json`，不写进产物 frontmatter（避免带进 vault）。**GUI 等价物：「审核」页签**（`GET /sandbox/queue` + `GET /sandbox/file` 预览 + `POST /sandbox/review`） |
 | **大纲迭代 → 沙盒审核包** | `python scripts/outline_export.py [--dry-run] [--trend-window 5]`（导出 3 份待审产物：对比稿 / 当前大纲全文 / 迭代趋势。**只写沙盒，绝不改 global.md**） |
 | **开工方向建议** | `python scripts/outline_advisor.py [--window 3] [--json]`（确定性零 token：按严重度给出候选方案 + 依据 + 目标条目 + **可执行 next_step** + 调用次数与取舍。推荐规则：结构问题 > 退化 > 有 THIN > 停滞 > 开工） |
 | 设定补全（审批前） | `python scripts/setting_refine.py "意见"`（仅从素材推断+llm_inferred 标记，备份 data/setting/history/） |
@@ -88,13 +88,13 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 | 域模块拆分护栏 | `python tests/unit/test_api_domains.py`（域模块契约 + 薄转发形态 + 依赖方向 + **`__main__` 别名守卫** + 无相对路径 IO，25 断言） |
 | **设定自动补全闭环自检** | `python tests/unit/test_setting_refine_auto.py`（在**临时项目根**跑 fake，零真实调用：达标即停**零 LLM 调用**短路 / 一轮达标即停 / 无进展即停 / 轮次上限 / 默认关 / dry-run / 缺设定集可行动报错 / CLI>gates 优先级 / **定向 feedback 真的写进了 LLM 任务文件**（端到端）/ **orchestrator 钩子签名可绑定**（AST + `inspect.signature().bind()`，防被 `except` 吞掉的静默降级），66 断言） |
 | **大纲迭代闭环自检** | `python tests/unit/test_outline_iteration.py`（临时项目根，零 LLM：版本对比三分支（改善/停滞/退化）+ 逐条目差分 / 趋势序列与收敛五分支出对 / `--trend` CLI / **精修成本真的写进 cost_log**（stage=2 + chapter=版本号）+ 未记账时明确标注 / `cost_report --by-outline` 初版与迭代分离，52 断言，含 6 组反向验证） |
-| **沙盒审核 + 回写 + 开工建议自检** | `python tests/unit/test_sandbox_review_and_advisor.py`（临时项目根，零 LLM：登记/通过/驳回/未登记报错 · **改过的文件必须重新审核**（sha256）· 孤儿检测 · `write_sandbox` 自动登记 · 审核队列 CLI · 导出审核包（3 份待审 + **global.md 未被改动**）· 重复导出保留审核状态 · 建议方案池与优先级 · entry_id 可执行 · 零 token 保证，74 断言，含 8 组反向验证） |
+| **沙盒审核 + 回写 + 开工建议自检** | `python tests/unit/test_sandbox_review_and_advisor.py`（临时项目根，零 LLM：登记/通过/驳回/未登记报错 · **改过的文件必须重新审核**（sha256）· 孤儿检测 · `write_sandbox` 自动登记 · 审核队列 CLI · 导出审核包（3 份待审 + **global.md 未被改动**）· 重复导出保留审核状态 · 建议方案池与优先级 · entry_id 可执行 · 零 token 保证，78 断言，含 8 组反向验证） |
 | **obsidian 联动 + 大纲精修完整性** | `python tests/unit/test_obsidian_integrity.py`（临时项目根，零 LLM：扫描无跨类目污染/无重复 / 导入前自动备份 / 返回类型一致 / KB 注入不静默 / `check_consistency` 诚实化 + 召回修复 / **大纲精修不在体检 FAIL 时假成功**，42 断言，含 7 组反向验证） |
 | **正文退化检测自检** | `python tests/unit/test_verify_degenerate.py`（审计行动项 10：6 种退化形态（复读填充/思考残片/元话语拒答/无段落换行/标点灌水/模板骨架）各**判据隔离**样本 + 真实章节零误报 + 阈值边界 + `is_chapter_complete` 集成 + **7 条反向验证**（删判据→必须变绿），59 断言） |
 | 审稿闭环端点 HTTP 自检 | `python tests/http/test_review_api_http.py`（临时项目根起 nf_api：报告缺失 → 400 可行动提示、审查 job、决策保存与回读、批量精修真读到决策、键值格式兼容、交互式被拒，25 断言） |
 | stage4 出场同步自检 | `python tests/unit/test_stage4_appearances.py`（临时工作目录跑 fake stage4：appearances.json 自动生成、幂等不翻倍、异常注入不阻断，22 断言） |
 | 校对自检 | `python tests/unit/test_proofread.py`（临时项目根：四类确定性检查命中 + 误报防护 + 节奏离群 + 报告双落盘 + LLM 分支走 FakeClient，46 断言） |
-| 新端点 HTTP 自检 | `python tests/http/test_new_endpoints_api_http.py`（临时项目根起 nf_api：/estimate 四种取参口径、proofread 报告缺失可行动 + 运行后落盘、style/analyze 四种 source、book/pacing 与 book/split、/models/add 与 /models/switch、/export/markdown、/outline/chapters/save、**/outline/trend**、**/outline/advise**、**/sandbox/queue**（趋势 + 建议 + 审核队列，含 window 容错），88 断言） |
+| 新端点 HTTP 自检 | `python tests/http/test_new_endpoints_api_http.py`（临时项目根起 nf_api：/estimate 四种取参口径、proofread 报告缺失可行动 + 运行后落盘、style/analyze 四种 source、book/pacing 与 book/split、/models/add 与 /models/switch、/export/markdown、/outline/chapters/save、**/outline/trend**、**/outline/advise**、**/outline/trend**、**/outline/advise**、**/sandbox/queue**、**/sandbox/file**（只读预览 + 路径遍历/绝对路径双拒）、**POST /sandbox/review**（通过/驳回/退回 · 驳回必带 note · 只动状态库不动文件），110 断言） |
 | GUI↔API 契约核对 | `python tests/e2e/test_gui_api_contract.py`（**AST 解析**：Vue 里每个 `api("…")` 都能在 nf_api 找到**同方法**分支；do_GET/do_POST 名遮蔽 AST 检查；死分支、丢失 elif 守卫（结构判据）、分支链长度回归；每个主题都要有 CSS 变量块，35 断言） |
 | **失败路径回归（F1~F8 + S9/S10）** | `python tests/unit/test_failure_paths.py`（**主动把系统打坏**：重试计数/异常不外泄/预算熔断/用户停止/stage4 逐章失败隔离/静态门禁/seedWorkspace 升级/审批打回清下游/阶段键集对齐/末阶段熔断，69 断言。用 `utils/failing_client.py` 造可控失败，真实 data/ 零污染） |
 | UX 端点 HTTP 自检 | `python tests/http/test_ux_flow_api_http.py`（临时项目根起 nf_api：`/logs/tail` 无文件/混编码/lines 边界、`/stage/skip` 的 confirm 与 stage 护栏、跳过落盘与 `/state` 回读、跳过→打回清标记、`/review/comment` 回归，26 断言） |
@@ -249,8 +249,19 @@ OpenAI 兼容直连，模型**无工具调用、无自主多轮循环、无记�
 |---|---|---|
 | 大纲多轮迭代 | ✅ 每轮备份 `global_vN.md` 可回溯；体检零 token；**✅ 收敛判断**（`--trend`：done/improving/stalled/mixed + 建议）；**✅ 迭代成本进账本**（`stage=2` + `chapter=版本号`，`cost_report --by-outline` 逐轮可见） | — |
 | 调设定库 | ⚠️ 能导入能注入 | ❌ 整体替换非合并 ❌ 无增量同步 ❌ 大纲阶段不注入 vault 词条（只给 `setting.json` 路径）。**注：冲突消解靠机器规则解决不了（哪个设定更对是创作决策）—— 若要合并，需要「把冲突摊出来让用户当场决断」的交互，而非自动规则** |
-| 反向写沙盒等审核 | ✅ **审核状态机**（`pending/approved/rejected` + 独立状态库 + 审核队列 CLI + 孤儿检测）；✅ **大纲迭代阶段可回写**（`outline_export.py` 导出审核包，只写沙盒不改产物） | ❌ GUI 侧尚无审核界面（端点已备：`GET /sandbox/queue`）；完书后通道未接审核状态机 |
-| 迭代后给开工方向 | ✅ **`outline_advisor.py`**按严重度给候选方案（结构问题 > 退化 > 有 THIN > 停滞 > 开工），每个方案含依据 + 目标条目 + **可执行 next_step** + 调用次数 + 取舍 | ❌ 只给方案不自动执行（刻意）；GUI 侧无界面（端点已备：`GET /outline/advise`） |
+| 反向写沙盒等审核 | ✅ **审核状态机**（`pending/approved/rejected` + 独立状态库 + 审核队列 CLI + 孤儿检测）；✅ **大纲迭代阶段可回写**（`outline_export.py` 导出审核包，只写沙盒不改产物）；✅ **GUI「审核」页签**（队列 / 预览 / 通过 / 驳回 / 退回，徽标提示待审数） | ❌ 完书后通道未接审核状态机；❌ 无「一键粘贴进 vault」——**刻意不做**（见下） |
+| 迭代后给开工方向 | ✅ **`outline_advisor.py`**按严重度给候选方案（结构问题 > 退化 > 有 THIN > 停滞 > 开工），每个方案含依据 + 目标条目 + **可执行 next_step** + 调用次数 + 取舍；✅ **GUI 大纲页签「趋势 / 建议」抽屉**（趋势表 + 候选方案 + 逐条「AI 精修此条」一键提交） | ❌ 只给方案不自动执行（刻意：`start_writing` 是用户的决定，不是系统的）；❌ 结构性问题（如四节缺失）无自动改法，如实说「需手工处理」 |
+
+**回写设定库的硬边界（2026-09-21 用户确认）**：任何回写设定库（Obsidian vault
+或后续新增支持的其它设定库）的动作，**一律只写沙盒目录产出草稿样本，
+永不直接覆盖 vault / 正典内容**。决策权始终在用户手里 —— 系统负责「把候选摊出来
++ 标清来源与状态」，用户负责「选哪个、什么时候入库」。基于此：
+
+- 沙盒是**唯一可写位置**；vault 本体只读（`obsidian_bridge` 的写入函数全部落沙盒）。
+- 审核状态（`pending/approved/rejected`）存在独立的 `data/state/sandbox_manifest.json`，
+  **不写进产物 frontmatter** —— 否则用户粘贴时会把内部状态一起带进 vault 词条。
+- 内容变了（sha256 比对）自动重置为 `pending`：**绝不让旧审核为新内容背书**。
+- 系统**不提供**「通过后自动写入 vault」的通道。也不应新增 —— 那等于绕过用户决策。
 
 **收敛判断的口径**（确定性，不是 LLM 判断）：主键 `issues + thin`（越小越好），
 看最近 `window`（默认 3）轮 —— 最新为 0 = `done`（可开工）；持续下降 = `improving`；
