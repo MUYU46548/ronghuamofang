@@ -236,6 +236,22 @@ def run(from_stage=1, only_stage=None, client=None):
                 if n == 1:
                     # P1.5：stage1 归并完成后自动生成素材体检报告（不阻断）
                     run_material_review(progress)
+                    # P1.5-3：auto-thin 闭环（**默认关**）。
+                    # 会自动改设定集，故必须用户显式开启；
+                    # 失败不阻断 —— stage2 审批门仍有提醒兜底。
+                    if (cfg.get("gates", {}) or {}).get("setting_refine_auto", False):
+                        try:
+                            import setting_refine as srfy
+                            max_rounds = int((cfg.get("gates", {}) or {}).get(
+                                "setting_refine_max_rounds",
+                                srfy.DEFAULT_MAX_ROUNDS))
+                            ok_sr, msg_sr, _st = srfy.run_auto_thin(
+                                cfg, proj, client=client,
+                                task_dir="data/state/tasks",
+                                max_rounds=max_rounds)
+                            print(f"[orchestrator] 设定补全(auto-thin) 结果: {msg_sr}")
+                        except Exception as e:
+                            print(f"[orchestrator] 设定补全(auto-thin) 失败（不影响流程）: {e}")
                 if n == 4 and (cfg.get("gates", {}) or {}).get("auto_rewrite", False):
                     # 方向3 质量自评闭环：重写 quality<阈值 的章节
                     # 必须排在 review_after_stage4 审稿分支之前（F5），

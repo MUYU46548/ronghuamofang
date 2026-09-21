@@ -83,6 +83,8 @@ gates:
   - 6
   pause_on_failure: true
   setting_refine_reminder: true
+  setting_refine_auto: false     # stage1 后自动跑 setting_refine --auto-thin 闭环（默认关）
+  setting_refine_max_rounds: 1   # 闭环轮次上限（1=只跑一轮；建议不超过 2）
   review_after_stage4: true
   review_after_stage5: false
   proofread_after_polish: false  # stage 5.5：润色后校对（默认关）

@@ -44,7 +44,8 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 | 打回阶段 N | `python scripts/reject.py --stage N "原因"`（记录原因+清理下游产物+重置状态+撤销审批；`--dry-run` 预演） |
 | 大纲体检 | `python scripts/outline_review.py`（确定性，标出空泛节点） |
 | 设定体检（stage1后自动） | `python scripts/material_review.py`（确定性，**类型感知**：先按 `utils/setting_schema.is_character` 分开人物/非人物，再对人物标碎片/缺失维度，报告 data/setting/material_review.md） |
-| 设定补全（审批前） | `python scripts/setting_refine.py "意见"` 或 `--auto-thin`（仅从素材推断+llm_inferred 标记，备份 data/setting/history/） |
+| 设定补全（审批前） | `python scripts/setting_refine.py "意见"`（仅从素材推断+llm_inferred 标记，备份 data/setting/history/） |
+| 设定自动补全（闭环） | `python scripts/setting_refine.py --auto-thin [--max-rounds N] [--dry-run]`（按体检 THIN 清单**定向**补全：点名角色+缺失维度；**达标即停/无进展即停/轮次上限**；每轮独立备份；orchestrator 由 `gates.setting_refine_auto` 触发，**默认关**，上限取 `gates.setting_refine_max_rounds`） |
 | 大纲精修（定向修订） | `python scripts/refine_outline.py "意见"`（`--dry-run` 只生成任务不跑子会话） |
 | 章节精修（定向修订） | `python scripts/refine_chapter.py 3 "意见"`（备份 data/chapters/history/，±20% 铁律） |
 | 低分章自动重写（方向3） | `python scripts/auto_rewrite.py [--threshold 6] [--chapters 3,7] [--max-rounds 1] [--dry-run]`（复用 batch_refine 的备份/铁律/提示词；orchestrator 由 `gates.auto_rewrite` 触发，**默认关**） |
@@ -77,6 +78,7 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 | 日志轮转自检 | `python tests/unit/test_run_log.py`（临时 LOCALAPPDATA 沙箱：超期归档/清理白名单/级别过滤/配置解包顺序/dry-run/坏配置不抛/年龄下限不为负，38 断言） |
 | 快照恢复自检 | `python tests/unit/test_snapshot_restore.py`（临时 CWD：dry-run 零改动、真实恢复、pre_restore 折返点、extras 递归检测、范围限定、路径护栏，30 断言） |
 | 域模块拆分护栏 | `python tests/unit/test_api_domains.py`（域模块契约 + 薄转发形态 + 依赖方向 + **`__main__` 别名守卫** + 无相对路径 IO，25 断言） |
+| **设定自动补全闭环自检** | `python tests/unit/test_setting_refine_auto.py`（在**临时项目根**跑 fake，零真实调用：达标即停**零 LLM 调用**短路 / 一轮达标即停 / 无进展即停 / 轮次上限 / 默认关 / dry-run / 缺设定集可行动报错 / CLI>gates 优先级 / **定向 feedback 真的写进了 LLM 任务文件**（端到端）/ **orchestrator 钩子签名可绑定**（AST + `inspect.signature().bind()`，防被 `except` 吞掉的静默降级），66 断言） |
 | **正文退化检测自检** | `python tests/unit/test_verify_degenerate.py`（审计行动项 10：6 种退化形态（复读填充/思考残片/元话语拒答/无段落换行/标点灌水/模板骨架）各**判据隔离**样本 + 真实章节零误报 + 阈值边界 + `is_chapter_complete` 集成 + **7 条反向验证**（删判据→必须变绿），59 断言） |
 | 审稿闭环端点 HTTP 自检 | `python tests/http/test_review_api_http.py`（临时项目根起 nf_api：报告缺失 → 400 可行动提示、审查 job、决策保存与回读、批量精修真读到决策、键值格式兼容、交互式被拒，25 断言） |
 | stage4 出场同步自检 | `python tests/unit/test_stage4_appearances.py`（临时工作目录跑 fake stage4：appearances.json 自动生成、幂等不翻倍、异常注入不阻断，22 断言） |
@@ -215,6 +217,15 @@ if __name__ == "__main__":
   手动跑：`python scripts/auto_rewrite.py`（先 `--dry-run` 预演）。批次报告见
   `data/outline/auto_rewrite_report.md`；重写后仍不达标的章保留 `needs_rewrite` 转人工，
   用 `batch_refine.py` 处理。**开启前须与用户确认**（会产生 LLM 费用）
+- **设定自动补全（auto-thin 闭环）**：默认关闭。开启：`config/system.yaml` 的
+  `gates.setting_refine_auto: true` → stage1 归并+体检后自动跑一轮定向补全
+  （点名 THIN 角色 + 各自缺失维度 → 子会话补全 → 复评）。
+  三条止损：**达标即停**（THIN=0 零调用短路）/ **无进展即停**（THIN 未降）/
+  **轮次上限**（`gates.setting_refine_max_rounds`，默认 1，建议 ≤2）。
+  手动跑：`python scripts/setting_refine.py --auto-thin --dry-run` 先预演。
+  ⚠️ 钩子在 orchestrator 里被 `try/except` 包裹（失败不阻断流程）—— 若它失效
+  只会打印「失败（不影响流程）」，故 `test_setting_refine_auto.py` 用
+  `inspect.signature().bind()` 守签名，防止静默降级
 - **提示词调优**：直接改 `prompts/stageN_*.md`（模板与代码分离，无需改脚本）
 
 ## 硬性约束
