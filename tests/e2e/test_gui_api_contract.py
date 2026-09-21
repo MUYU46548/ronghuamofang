@@ -249,7 +249,11 @@ def main():
                        ("POST", "/proofread/run"), ("POST", "/style/analyze"),
                        ("GET", "/book/pacing"), ("POST", "/book/split"),
                        ("POST", "/stage/skip"), ("GET", "/logs/tail"),
-                       ("GET", "/costs/streaming"), ("GET", "/about")):
+                       ("GET", "/costs/streaming"), ("GET", "/about"),
+                       # 2026-09-21：大纲迭代闭环 + 沙盒审核队列（GUI 页签依赖）
+                       ("GET", "/outline/trend"), ("GET", "/outline/advise"),
+                       ("GET", "/sandbox/queue"), ("GET", "/sandbox/file"),
+                       ("POST", "/sandbox/review")):
         check("%s %s" % (method, ep), ep in routes[method][0])
 
     print("\n=== 4. do_GET / do_POST 内的裸 import 是否遮蔽模块级名 ===")

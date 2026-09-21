@@ -118,6 +118,37 @@ def test_handlers_only_return():
           not offenders, offenders)
 
 
+def test_handlers_no_double_body_read():
+    """handler 不得再调 h._body()（请求体是一次性流，二次读会**挂死**）。
+
+    2026-09-21 实测事故：`/sandbox/review` 的 handler 里写了 `body = h._body()`，
+    而 `do_POST` 开头已经读过一次。HTTP 表现是「请求永远不返回、服务端日志
+    一片空白」—— 不是 500，不是 400，就是静默挂起，极难定位。
+    正确写法是签名收参：`handle_xxx(h, body)`，由 do_POST 传入已读的 dict。
+    """
+    print("\n[3b] handler 不得二次读请求体（会挂死在 rfile.read）")
+    offenders = []
+    for f in sorted(DOM_DIR.glob("*.py")):
+        if f.name == "contract.py":
+            continue
+        tree = ast.parse(f.read_text(encoding="utf-8"))
+        for fn in [n for n in ast.walk(tree)
+                   if isinstance(n, ast.FunctionDef) and n.name.startswith("handle_")]:
+            for call in [n for n in ast.walk(fn) if isinstance(n, ast.Call)]:
+                func = call.func
+                if isinstance(func, ast.Attribute) and func.attr == "_body":
+                    offenders.append("%s:%d %s() 内调 %s" % (
+                        f.name, call.lineno, fn.name, func.attr))
+    check("handle_* 内无 h._body() 调用（请求体由 do_POST 传入）",
+          not offenders, offenders)
+    # 反向：确认 do_POST 里确实是「先读一次、再把 body 传下去」
+    src = API_PY.read_text(encoding="utf-8")
+    check("do_POST 开头只读一次请求体", src.count("body = self._body()") == 1,
+          src.count("body = self._body()"))
+    check("新增的域模块已把 body 作为参数传入",
+          "handle_sandbox_review(self, body)" in src)
+
+
 # --------------------------------------------------------------- 4. 薄转发形态
 
 def test_thin_forwarding():
@@ -342,6 +373,7 @@ def main():
     test_package()
     test_dependency_direction()
     test_handlers_only_return()
+    test_handlers_no_double_body_read()
     test_thin_forwarding()
     test_seed_covers_domain_dir()
     test_main_alias_guard()

@@ -14,6 +14,8 @@ nf_api（--allow-fake），所有读写都落在临时目录。
   POST /models/switch     写回 config/system.yaml；未知角色 → 400
   POST /export/markdown   不再是 404（GET 版曾因 do_GET 内引用未定义变量而 500）
   AST 静态检查：do_GET / do_POST 内不得有本地名遮蔽模块级名（防 UnboundLocalError）
+  POST /sandbox/review    通过/驳回/退回；驳回必带 note；路径遍历与绝对路径被拒；
+                          只动状态库不动沙盒文件（含「二次读 body 会挂死」的回归锚点）
 
 用法：python tests/test_new_endpoints_api_http.py
 """
@@ -497,6 +499,102 @@ def main():
         code, d2 = req("GET", "/sandbox/queue?all=1")
         check("?all=1 → filter=all", code == 200 and d2.get("filter") == "all",
               (code, d2.get("filter")))
+
+        print("\n=== 5.8 POST /sandbox/review（审核动作：GUI 队列页签的写侧）===")
+        # 往沙盒写两份产物（走真实入口，于是自动登记为待审）
+        sb = tmp / "data" / "state" / "obsidian_sandbox"
+        sb.mkdir(parents=True, exist_ok=True)
+        (sb / "词条A.md").write_text("# 词条A\n\n内容\n", encoding="utf-8")
+        (sb / "词条B.md").write_text("# 词条B\n\n内容\n", encoding="utf-8")
+        _reg = ("import sys; sys.path.insert(0, 'scripts');"
+                "from obsidian_bridge import write_sandbox;"
+                "print(write_sandbox('词条A.md', '# 词条A\\n\\n内容\\n', kind='entry'));"
+                "print(write_sandbox('词条B.md', '# 词条B\\n\\n内容\\n', kind='entry'))")
+        r = subprocess.run([str(PY), "-c", _reg], cwd=str(tmp),
+                           capture_output=True, text=True, encoding="utf-8")
+        code, d = req("GET", "/sandbox/queue")
+        check("登记后队列里有 2 份待审", len(d.get("items") or []) == 2,
+              (r.stdout or "")[-200:] + str(d.get("items")))
+        check("无孤儿（两份都自动登记了）", d.get("orphans") == [], d.get("orphans"))
+
+        code, d = req("POST", "/sandbox/review",
+                      {"path": "词条A.md", "action": "approve"})
+        check("approve → 200 且状态变已通过",
+              code == 200 and d.get("ok") and d.get("status") == "approved",
+              (code, str(d)[:200]))
+        check("回带更新后的 item（GUI 可就地刷新，不用补 GET）",
+              (d.get("item") or {}).get("path") == "词条A.md"
+              and d["item"].get("reviewed_at"), str(d.get("item"))[:200])
+        check("回带 stats（计数随动作更新）",
+              (d.get("stats") or {}).get("approved") == 1
+              and (d.get("stats") or {}).get("pending") == 1, d.get("stats"))
+        check("只写状态库，不碰沙盒文件（内容仍在、未被删改）",
+              (sb / "词条A.md").read_text(encoding="utf-8") == "# 词条A\n\n内容\n")
+
+        code, d = req("GET", "/sandbox/queue")
+        check("通过后默认队列只剩 1 份待审（A 已移出）",
+              [i["path"] for i in d.get("items", [])] == ["词条B.md"],
+              [i["path"] for i in d.get("items", [])])
+        code, d = req("GET", "/sandbox/queue?all=1")
+        check("?all=1 仍能看到 A（状态可见、不丢）",
+              any(i["path"] == "词条A.md" and i["status"] == "approved"
+                  for i in d.get("items", [])), d.get("items"))
+
+        code, d = req("POST", "/sandbox/review",
+                      {"path": "词条B.md", "action": "reject", "note": "第二节与设定冲突"})
+        check("reject + note → 200 且备注被记下",
+              code == 200 and d.get("status") == "rejected"
+              and (d.get("item") or {}).get("note") == "第二节与设定冲突",
+              (code, str(d.get("item"))[:200]))
+        code, d = req("POST", "/sandbox/review",
+                      {"path": "词条B.md", "action": "reject"})
+        check("驳回不带 note → 400（没有原因的驳回等于没审）",
+              code == 400 and "note" in str(d.get("error")), (code, str(d)[:160]))
+
+        code, d = req("POST", "/sandbox/review",
+                      {"path": "词条A.md", "action": "reset"})
+        check("reset → 退回待审（审错了可无损撤回）",
+              code == 200 and d.get("status") == "pending", (code, str(d)[:160]))
+        code, d = req("GET", "/sandbox/queue")
+        check("退回后重新出现在待审队列（B 仍是已驳回，不该混进来）",
+              [i["path"] for i in d.get("items", [])] == ["词条A.md"],
+              [i["path"] for i in d.get("items", [])])
+
+        code, d = req("POST", "/sandbox/review",
+                      {"path": "不存在的.md", "action": "approve"})
+        check("未登记路径 → 404 + 可行动提示（不是 500）",
+              code == 404 and "未登记" in str(d.get("error")), (code, str(d)[:160]))
+
+        code, d = req("POST", "/sandbox/review",
+                      {"path": "../../data/outline/global.md", "action": "approve"})
+        check("路径遍历（..）被拒 → 400", code == 400 and ".." in str(d.get("error")),
+              (code, str(d)[:160]))
+        code, d = req("POST", "/sandbox/review",
+                      {"path": "C:/tmp/x.md", "action": "approve"})
+        check("绝对路径被拒 → 400", code == 400, (code, str(d)[:160]))
+        code, d = req("POST", "/sandbox/review",
+                      {"path": "词条A.md", "action": "delete"})
+        check("非法动作 → 400 且列出可选动作",
+              code == 400 and "approve" in str(d.get("error")), (code, str(d)[:160]))
+        code, d = req("POST", "/sandbox/review", {"action": "approve"})
+        check("缺 path → 400", code == 400, (code, str(d)[:160]))
+
+        print("\n=== 5.9 GET /sandbox/file（审核前必须看得见真实内容）===")
+        from urllib.parse import quote as _q
+        code, d = req("GET", "/sandbox/file?path=" + _q("词条A.md"))
+        check("→ 200 且回带正文与字数",
+              code == 200 and d.get("ok") and "内容" in (d.get("content") or "")
+              and d.get("chars"), (code, str(d)[:160]))
+        code, d = req("GET", "/sandbox/file?path=" + _q("没这个.md"))
+        check("沙盒里没有 → 404 + 指明路径（不是 500）",
+              code == 404 and "没这个.md" in str(d.get("error")), (code, str(d)[:160]))
+        code, d = req("GET", "/sandbox/file?path=" + _q("../../data/outline/global.md"))
+        check("路径遍历被拒 → 400（读侧与写侧同套校验）",
+              code == 400 and ".." in str(d.get("error")), (code, str(d)[:160]))
+        code, d = req("GET", "/sandbox/file?path=" + _q("/etc/passwd"))
+        check("绝对路径被拒 → 400", code == 400, (code, str(d)[:160]))
+        code, d = req("GET", "/sandbox/file")
+        check("缺 path → 400", code == 400, (code, str(d)[:160]))
 
         print("\n=== 6. 未知路径未被破坏 ===")
         code, _d = req("GET", "/nope")

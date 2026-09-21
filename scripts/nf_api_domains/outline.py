@@ -220,6 +220,10 @@ def handle_chapters_get(h):
 
 
 # 本模块负责的端点（供自检与文档）
+#
+# 注：`/sandbox/review`（写侧）不在本模块 —— 它住在 `nf_api_domains/sandbox.py`。
+# 审核队列的**读**侧（`/sandbox/queue`）留在这里，是因为它与大纲域共用同一批
+# 前端页签状态；读写分居两文件是有意的：写侧的路径校验与红线注释更集中。
 ROUTES = (
     ("GET", "/outline/structure", handle_outline_structure),
     ("GET", "/outline/history", handle_outline_history),
@@ -227,4 +231,7 @@ ROUTES = (
     ("GET", "/outline/drafts", handle_outline_drafts),
     ("GET", "/outline/chapters/list", handle_chapters_list),
     ("GET", "/outline/chapters/get", handle_chapters_get),
+    ("GET", "/outline/trend", handle_outline_trend),
+    ("GET", "/outline/advise", handle_outline_advise),
+    ("GET", "/sandbox/queue", handle_sandbox_queue),
 )
