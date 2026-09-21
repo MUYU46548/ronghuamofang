@@ -44,6 +44,10 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 | 打回阶段 N | `python scripts/reject.py --stage N "原因"`（记录原因+清理下游产物+重置状态+撤销审批；`--dry-run` 预演） |
 | 大纲体检 | `python scripts/outline_review.py`（确定性，标出空泛节点） |
 | 设定体检（stage1后自动） | `python scripts/material_review.py`（确定性，**类型感知**：先按 `utils/setting_schema.is_character` 分开人物/非人物，再对人物标碎片/缺失维度，报告 data/setting/material_review.md） |
+| 从设定库导入设定 | `python scripts/obsidian_integrate.py scan [--vault 路径] [--output data/setting/setting.json]`（⚠️ **整体替换**语义：vault 内容覆盖现有设定集，`plot_fragments`/`timeline` 会清空；**覆盖前自动备份**到 `data/setting/history/setting_vN.json`。目录约定见 `obsidian_bridge.scan_vault` docstring） |
+| 扫描设定库（只读） | `python scripts/obsidian_bridge.py scan [--vault 路径]`（只扫不写，落 `data/state/obsidian_index.json`）；`config` 查看当前 vault/沙盒配置 |
+| 正典一致性检查 | `python scripts/obsidian_bridge.py check <文件>`（⚠️ **仅「疑似新角色」一项已实现**，`conflicts`/`locked_violations` **未实现**，输出会显式标注；空结果 ≠ 无问题） |
+| 沙盒查看/推送 | `python scripts/obsidian_bridge.py list` / `push <文件> [--subdir X]`（vault 只读，产物只写沙盒；默认 `data/state/obsidian_sandbox/`，可在 `config/system.yaml` 的 `obsidian.sandbox_dir` 改为你的库内目录） |
 | 设定补全（审批前） | `python scripts/setting_refine.py "意见"`（仅从素材推断+llm_inferred 标记，备份 data/setting/history/） |
 | 设定自动补全（闭环） | `python scripts/setting_refine.py --auto-thin [--max-rounds N] [--dry-run]`（按体检 THIN 清单**定向**补全：点名角色+缺失维度；**达标即停/无进展即停/轮次上限**；每轮独立备份；orchestrator 由 `gates.setting_refine_auto` 触发，**默认关**，上限取 `gates.setting_refine_max_rounds`） |
 | 大纲精修（定向修订） | `python scripts/refine_outline.py "意见"`（`--dry-run` 只生成任务不跑子会话） |
@@ -79,6 +83,7 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 | 快照恢复自检 | `python tests/unit/test_snapshot_restore.py`（临时 CWD：dry-run 零改动、真实恢复、pre_restore 折返点、extras 递归检测、范围限定、路径护栏，30 断言） |
 | 域模块拆分护栏 | `python tests/unit/test_api_domains.py`（域模块契约 + 薄转发形态 + 依赖方向 + **`__main__` 别名守卫** + 无相对路径 IO，25 断言） |
 | **设定自动补全闭环自检** | `python tests/unit/test_setting_refine_auto.py`（在**临时项目根**跑 fake，零真实调用：达标即停**零 LLM 调用**短路 / 一轮达标即停 / 无进展即停 / 轮次上限 / 默认关 / dry-run / 缺设定集可行动报错 / CLI>gates 优先级 / **定向 feedback 真的写进了 LLM 任务文件**（端到端）/ **orchestrator 钩子签名可绑定**（AST + `inspect.signature().bind()`，防被 `except` 吞掉的静默降级），66 断言） |
+| **obsidian 联动 + 大纲精修完整性** | `python tests/unit/test_obsidian_integrity.py`（临时项目根，零 LLM：扫描无跨类目污染/无重复 / 导入前自动备份 / 返回类型一致 / KB 注入不静默 / `check_consistency` 诚实化 + 召回修复 / **大纲精修不在体检 FAIL 时假成功**，42 断言，含 7 组反向验证） |
 | **正文退化检测自检** | `python tests/unit/test_verify_degenerate.py`（审计行动项 10：6 种退化形态（复读填充/思考残片/元话语拒答/无段落换行/标点灌水/模板骨架）各**判据隔离**样本 + 真实章节零误报 + 阈值边界 + `is_chapter_complete` 集成 + **7 条反向验证**（删判据→必须变绿），59 断言） |
 | 审稿闭环端点 HTTP 自检 | `python tests/http/test_review_api_http.py`（临时项目根起 nf_api：报告缺失 → 400 可行动提示、审查 job、决策保存与回读、批量精修真读到决策、键值格式兼容、交互式被拒，25 断言） |
 | stage4 出场同步自检 | `python tests/unit/test_stage4_appearances.py`（临时工作目录跑 fake stage4：appearances.json 自动生成、幂等不翻倍、异常注入不阻断，22 断言） |
@@ -227,6 +232,23 @@ if __name__ == "__main__":
   只会打印「失败（不影响流程）」，故 `test_setting_refine_auto.py` 用
   `inspect.signature().bind()` 守签名，防止静默降级
 - **提示词调优**：直接改 `prompts/stageN_*.md`（模板与代码分离，无需改脚本）
+
+## 能力边界（2026-09-21 实证，勿重复夸大）
+
+**本系统是「确定性流水线 + 单轮 LLM 调用」，没有 agent 层。** `engine: direct` 是
+OpenAI 兼容直连，模型**无工具调用、无自主多轮循环、无记忆**。「多轮迭代」全部靠
+外层（用户或外部 agent）驱动。以下是逐项实证的能力边界：
+
+| 能力 | 现状 | 缺口 |
+|---|---|---|
+| 大纲多轮迭代 | ✅ `refine_outline.py` 每轮备份 `global_vN.md`，历史完整可回溯；`outline_review.py` 确定性体检（零 token） | ❌ **无收敛判断**（不告诉你"再迭代收益递减"）<br>❌ **无版本对比/趋势**（v3 vs v12 得手工 diff）<br>❌ **迭代成本不进账本**（`run_refine` 丢弃 `result["cost_yuan"]`，`cost_report.py` 无大纲维度） |
+| 调用设定库统一设定 | ⚠️ 能导入（`obsidian_integrate.py scan`），能注入（`stage4` 经 `scan_vault`+`inject_context`） | ❌ 导入是**整体替换**不是合并 —— 会覆盖 stage1 素材设定（现已自动备份，语义未变）<br>❌ **无增量同步**（vault 改了要重跑整轮导入）<br>❌ **大纲阶段不注入 vault 词条**（只把 `setting.json` 路径给子会话，靠 `inline_inputs` 内联） |
+| 反向写入沙盒等审核 | ⚠️ 有沙盒写入（`write_sandbox`/`push_to_sandbox`，带路径遍历防护） | ❌ 只有**完书后**通道（`obsidian_postprocess.py` 生成作品介绍页/出场记录/新角色草稿）<br>❌ **大纲/写作阶段无法回写**<br>❌ **无审核状态机**（无「待审/通过/驳回」标记，就是几个 .md 躺在沙盒里）<br>❌ `character_dirs` 默认空 → 判「已有词条」恒为否 |
+| 迭代后给开工方向 | ❌ **完全没有** | 现有产出只有 `outline_review` 的 verdict + THIN 清单，无「按体检生成 N 个可选开工方案」这类能力 |
+
+**结论**：绒花墨坊负责「手」（确定性地读写文件、调 LLM、算成本、留备份、做体检），
+**「脑」需要外层 agent**（读体检 → 判断收敛 → 给方向 → 调 refine → 审沙盒产物）。
+两者是互补而非替代关系。
 
 ## 硬性约束
 
