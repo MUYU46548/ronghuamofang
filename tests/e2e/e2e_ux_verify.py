@@ -12,6 +12,11 @@ Temp/gui_verify/ux/，同时收集 console error 与非 2xx 请求。
     Space→预估确认框、数字键切页签、日志面板。
 
 用法：python tests/e2e_ux_verify.py
+
+⚠️ 真机验收，**不是**离线自动化用例：需先 `pip install playwright` 并
+`playwright install chromium`，还要起静态服务（8091）+ mock/真后端。
+缺依赖时**干净跳过**（打印 SKIP + 0 退出），不抛 ModuleNotFoundError ——
+按项目纪律，**缺依赖/缺外部服务 = 未执行 ≠ 失败**（见 MEMORY.md）。
 """
 import io
 import json
@@ -20,7 +25,14 @@ import sys
 from pathlib import Path
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
-from playwright.sync_api import sync_playwright  # noqa: E402
+
+try:
+    from playwright.sync_api import sync_playwright  # noqa: E402
+except ImportError:
+    print("[SKIP] 未安装 playwright —— 本脚本是真机视觉验收，不是离线用例。")
+    print("       启用：python -m pip install playwright && playwright install chromium")
+    print("       另需起静态服务 127.0.0.1:8091 与后端 8798/8799（详见本文件 docstring）。")
+    sys.exit(0)
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "Temp" / "gui_verify" / "ux"

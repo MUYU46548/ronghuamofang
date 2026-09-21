@@ -34,7 +34,16 @@ p.write_text("## 第1章\n\nTODO", encoding="utf-8")
 ok(not is_chapter_complete(p, 100, 3000), "占位符判定未完成")
 p.write_text("## 第1章\n\n" + "a"*50, encoding="utf-8")
 ok(not is_chapter_complete(p, 100, 3000), "字数不足判定未完成")
-p.write_text("## 第1章 测试\n\n" + "内容"*150, encoding="utf-8")
+
+# ⚠️ 「正常章节」夹具必须产出**合法产物**（本项目血泪纪律，见 MEMORY.md）。
+# 这里曾是 `"内容" * 150` —— 单段 + 同一词复读 150 次，正是正文退化判据
+# 要拒的形态（段落结构 + 复读 12-gram）。它靠「旧判据不看内容」一直放行，
+# 加严判据后立刻变红。**不要为了变绿去放宽判据**，要修夹具。
+# 合法正文取自 `utils.fake_client._BODY_CORPUS`（94 句逐句独立撰写、
+# 句间不共享 12 字片段），每 2 句成段 → 段落数达标且零复读。
+from utils.fake_client import _BODY_CORPUS          # noqa: E402
+_paras = ["".join(_BODY_CORPUS[i:i + 2]) for i in range(0, 30, 2)]
+p.write_text("## 第1章 测试\n\n" + "\n\n".join(_paras), encoding="utf-8")
 ok(is_chapter_complete(p, 100, 3000), "正常章节判定完成")
 
 # === 任务 6: eval 后门 ===

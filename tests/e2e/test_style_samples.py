@@ -12,12 +12,30 @@
 import os
 import sys
 import io
+import atexit
 import tempfile
+from pathlib import Path          # 第 18 行用了 Path 却没导入 → 整个文件 NameError 从未跑通
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 ROOT = str(Path(__file__).resolve().parents[2])
 sys.path.insert(0, os.path.join(ROOT, "scripts"))
 os.chdir(ROOT)
+
+# 临时文件清理。⚠️ 本文件曾在仓库根用 `mkstemp(dir=ROOT)` 造范文却不清理 ——
+# 那时它因缺失 `Path` 导入从未跑通，所以污染没暴露；一旦修好就每次留一个
+# `tmpXXXX.md` 在仓库根。测试**不得污染工作区**，这里统一 atexit 回收。
+_TMPFILES = []
+
+
+def _cleanup_tmp():
+    for f in _TMPFILES:
+        try:
+            os.unlink(f)
+        except OSError:
+            pass
+
+
+atexit.register(_cleanup_tmp)
 
 from utils.style_analyzer import (  # noqa: E402
     extract_style_samples, select_style_samples, build_style_notes_section,
@@ -53,11 +71,13 @@ check("不存在的文件 -> ''", extract_style_samples("materials/__nope__.md")
 
 fd, empty_path = tempfile.mkstemp(suffix=".md")
 os.close(fd)
+_TMPFILES.append(empty_path)
 check("空文件 -> ''", extract_style_samples(empty_path) == "")
 
 # ---------------------------------------------------------------- B2
 print("\n=== B2 正常范文 -> 含来源标注的小节 ===")
 fd, fw_path = tempfile.mkstemp(suffix=".md", dir=ROOT)
+_TMPFILES.append(fw_path)
 with os.fdopen(fd, "w", encoding="utf-8") as f:
     f.write(FANWEN)
 rel = os.path.relpath(fw_path, ROOT).replace("\\", "/")

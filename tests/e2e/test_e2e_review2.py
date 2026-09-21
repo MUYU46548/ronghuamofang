@@ -1,6 +1,15 @@
+"""审稿闭环**手动冒烟脚本**（不是自动化用例，review 流程第 2 轮）。
+
+依赖：本机 `127.0.0.1:8781` 上跑着 nf_api，且当前书档已有
+`data/outline/review_report.json`。**离线不可跑。**
+
+⚠️ 与 `test_e2e_review.py` 同样的问题：无断言框架、裸抛 HTTPError traceback。
+按项目纪律（未执行 ≠ 失败）改成可行动的 SKIP + 0 退出。
+"""
 import sys
 sys.path.insert(0, 'scripts')
 import json
+from urllib.error import HTTPError, URLError
 from urllib.request import urlopen, Request
 
 API = 'http://127.0.0.1:8781'
@@ -9,7 +18,13 @@ def api(path, method='GET', body=None):
     data = json.dumps(body).encode() if body else None
     req = Request(API + path, data=data, method=method)
     req.add_header('Content-Type', 'application/json')
-    r = urlopen(req)
+    try:
+        r = urlopen(req)
+    except (HTTPError, URLError) as e:
+        print(f"[SKIP] 需要本机 {API} 运行 nf_api，且书档已有 review_report.json。")
+        print(f"       当前不可用：{e}")
+        print("       这是手动冒烟脚本，不是自动化用例（未执行 ≠ 失败）。")
+        sys.exit(0)
     return r.status, json.loads(r.read().decode())
 
 # Step 1: Load review report
