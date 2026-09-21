@@ -624,16 +624,22 @@ def _validate_sandbox_path(filename, subdir=""):
     return True, ""
 
 
-def write_sandbox(filename, content, subdir=""):
-    """写入沙盒（只读原稿，只写沙盒）。
+def write_sandbox(filename, content, subdir="", kind="", source=""):
+    """写入沙盒（只读原稿，只写沙盒），并登记为**待审**产物。
 
     Args:
         filename: 文件名
         content: 文件内容
         subdir: 子目录（如 "角色"、"世界观"）
+        kind: 产物类型（如 "outline_proposal"），供审核队列分类
+        source: 产物来源（如 "outline_refine v3"），供审核时判断上下文
 
     Returns:
         (ok, message)
+
+    ⚠️ 2026-09-21：写入后自动在 `data/state/sandbox_manifest.json` 登记为
+    `pending`（待审）。此前沙盒只是「往目录丢文件」，用户无法区分新稿与已确认稿，
+    也没有「驳回」这个动作。
     """
     ok, err = _validate_sandbox_path(filename, subdir)
     if not ok:
@@ -646,24 +652,35 @@ def write_sandbox(filename, content, subdir=""):
 
     out = sandbox / filename
     write_text(out, content)
+
+    # 登记审核状态（登记失败不影响写入 —— 但要说明，否则成审核盲区）
+    try:
+        from utils import sandbox_review as srv
+        rel = str(out.relative_to(sandbox)).replace("\\", "/")
+        entry, changed = srv.register(rel, sandbox, kind=kind, source=source)
+        tag = "待审" if changed else "内容未变，保留原审核状态"
+        print(f"[sandbox] 已登记审核状态: {rel}（{tag}）")
+    except Exception as e:                         # noqa: BLE001
+        print(f"[sandbox] ⚠ 审核状态登记失败（该产物会在审核队列里缺失）: {e}")
     return True, f"已写入沙盒: {out}"
 
 
-def push_to_sandbox(source_path, subdir=""):
-    """推送产物到沙盒（只读原稿，只写沙盒）。
+def push_to_sandbox(source_path, subdir="", kind="", source=""):
+    """推送产物到沙盒（只读原稿，只写沙盒），并登记为**待审**。
 
     Args:
         source_path: 源文件路径
         subdir: 子目录
+        kind / source: 供审核队列分类（见 `write_sandbox`）
 
     Returns:
         (ok, message)
     """
-    source = Path(source_path)
-    if not source.exists():
-        return False, f"源文件不存在: {source}"
+    src = Path(source_path)
+    if not src.exists():
+        return False, f"源文件不存在: {src}"
 
-    ok, err = _validate_sandbox_path(source.name, subdir)
+    ok, err = _validate_sandbox_path(src.name, subdir)
     if not ok:
         return False, err
 
@@ -672,9 +689,17 @@ def push_to_sandbox(source_path, subdir=""):
         sandbox = sandbox / subdir
     sandbox.mkdir(parents=True, exist_ok=True)
 
-    out = sandbox / source.name
-    content = read_text(source)
+    out = sandbox / src.name
+    content = read_text(src)
     write_text(out, content)
+
+    try:
+        from utils import sandbox_review as srv
+        rel = str(out.relative_to(sandbox)).replace("\\", "/")
+        entry, changed = srv.register(rel, sandbox, kind=kind, source=source)
+        print(f"[sandbox] 已登记审核状态: {rel}（{'待审' if changed else '内容未变，保留原状态'}）")
+    except Exception as e:                         # noqa: BLE001
+        print(f"[sandbox] ⚠ 审核状态登记失败（该产物会在审核队列里缺失）: {e}")
     return True, f"已推送到沙盒: {out}"
 
 
