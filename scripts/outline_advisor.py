@@ -34,6 +34,7 @@
 """
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -56,10 +57,42 @@ DIM_HINT = {
     "无场景锚点": ("补一个具体地点（已登记的或新地点）", "地点设定"),
     "无具体事件动词": ("把概述改成「谁 对 谁 做了什么」", "—"),
     "无冲突/张力词": ("点明这一章的阻力/代价是什么", "—"),
+    # 2026-09-21 补：此前没有这条，导致「只被判篇幅过短」的条目拿不到任何提示，
+    # 只能落到兜底文案「按体检缺失维度补全信息」——太笼统、不可执行。
+    "篇幅过短": ("把概述写具体：加时间/地点/关键动作，至少 60 字", "—"),
 }
 
 # 素材缺口的聚合归类（用于 stalled 时的「补素材」建议）
 MATERIAL_DIM = "素材覆盖"
+
+# 结构性问题 → 可执行改法。逐条 pattern 匹配，匹配不到就原样呈现（不编造改法）。
+_ISSUE_FIX = (
+    (re.compile(r"关键节点\s*(\d+)\s*条\s*<\s*预计章节数\s*(\d+)"),
+     lambda m: (f"补齐 {int(m.group(2)) - int(m.group(1))} 个节点的驱动事件"
+                f"（或把预计章节数下调为 {m.group(1)}）")),
+    (re.compile(r"章节规划\s*(\d+)\s*条\s*≠\s*预计章节数\s*(\d+)"),
+     lambda m: (f"把章节规划调整到 {m.group(2)} 条"
+                f"（或把预计章节数改为 {m.group(1)}）")),
+    (re.compile(r"缺少有效的\s*##\s*预计章节数"),
+     lambda m: "补一行 `## 预计章节数` 加一个正整数"),
+)
+
+
+def _issue_action(issue):
+    """把一条结构性问题变成「问题 + 可执行改法」。
+
+    ⚠️ 2026-09-21：首版把 issue 原文同时塞进 `target` 和 `suggested_feedback`，
+    输出成「问题：问题」的重复行。现 `target` 是精简问题，`feedback` 是**改法**。
+    """
+    for rx, fix in _ISSUE_FIX:
+        m = rx.search(issue)
+        if m:
+            return {"target": issue.split("：", 1)[0][:48], "dims": [], "hints": [],
+                    "suggested_feedback": fix(m),
+                    "next_step": "整篇精修（refine_outline）"}
+    return {"target": issue[:48], "dims": [], "hints": [],
+            "suggested_feedback": "（该问题无自动改法，请在 GUI 大纲页签手动处理）",
+            "next_step": "手动编辑或整篇精修（refine_outline）"}
 
 
 def _entry_actions(nodes, plan, struct=None):
@@ -153,9 +186,7 @@ def advise(global_path=GLOBAL, setting_path=SETTING, history_dir=HISTORY_DIR,
             "title": f"先修结构：{len(issues)} 项结构性问题",
             "why": "这些问题会让大纲无法自洽（例如章节规划条数 ≠ 预计章节数），"
                    "带着它们开工必然在写作阶段返工。",
-            "actions": [{"target": i, "dims": [], "hints": [],
-                         "suggested_feedback": i, "next_step": "整篇精修（refine_outline）"}
-                        for i in issues],
+            "actions": [_issue_action(i) for i in issues],
             "llm_calls": 1,
             "tradeoff": "整篇精修会重写全文，代价高但能一次修掉全部结构问题。",
         })
@@ -336,7 +367,8 @@ def format_text(adv):
         lines.append(f"      {o['why']}")
         for a in o["actions"][:6]:
             if a.get("target"):
-                lines.append(f"      · {a['target']}：{a.get('suggested_feedback') or ''}")
+                fb = a.get("suggested_feedback") or ""
+                lines.append(f"      · {a['target']}" + (f"：{fb}" if fb else ""))
         if len(o["actions"]) > 6:
             lines.append(f"      · …（其余 {len(o['actions']) - 6} 条同上）")
         lines.append(f"      取舍：{o['tradeoff']}")

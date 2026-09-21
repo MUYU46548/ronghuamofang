@@ -547,9 +547,11 @@ BAD = read_text("_bad.md"); THIN = read_text("_thin.md"); GOOD = read_text("_goo
 write_text("data/outline/history/global_v1.md", BAD)
 write_text("data/outline/global.md", BAD)
 a1 = oa.advise()
+fs = next(o for o in a1["options"] if o["id"] == "fix_structure")
 out["structure"] = {"ids": [o["id"] for o in a1["options"]],
                     "recommended": a1["recommended"],
-                    "metrics": a1["metrics"]}
+                    "metrics": a1["metrics"],
+                    "fix_actions": fs["actions"]}
 
 # 2) 空泛条目 → densify 带逐条目动作
 write_text("data/outline/history/global_v1.md", THIN)
@@ -598,6 +600,19 @@ _ticket(**out)
           s["recommended"] == "fix_structure", f"→ {s['recommended']}")
     check("C1 结构性问题数被算进 metrics", s["metrics"]["issues"] == 2,
           f"→ {s['metrics']}")
+
+    # 结构性问题必须给出**改法**，而不是把问题原文当建议重复一遍
+    fix_acts = s["fix_actions"]
+    print(f"  fix_actions={[(a['target'][:22], a['suggested_feedback'][:34]) for a in fix_acts]}")
+    check("C1 结构性问题带可执行改法", all(a["suggested_feedback"] for a in fix_acts),
+          f"→ {fix_acts}")
+    dup = [a for a in fix_acts if a["suggested_feedback"].strip() == a["target"].strip()]
+    check("C1 **改法不与问题原文重复**（旧行为输出「问题：问题」）", not dup,
+          f"→ 重复的 {[a['target'][:20] for a in dup]}")
+    check("C1 「章节规划条数≠预计」被翻译成具体改法（含目标条数）",
+          any("调整到" in a["suggested_feedback"]
+              or "改为" in a["suggested_feedback"] for a in fix_acts),
+          f"→ {[a['suggested_feedback'] for a in fix_acts]}")
 
     d = p["densify"]
     check("C1 有空泛条目 → 产出 densify", "densify" in d["ids"], f"→ {d['ids']}")
@@ -675,7 +690,8 @@ _ticket(ids=[o["id"] for o in a["options"]], verdict=a["verdict"],
         has_change=ca is not None,
         change_why=(ca or {}).get("why", ""),
         change_next=((ca or {}).get("actions") or [{}])[0].get("next_step", ""),
-        dens_dims=(dens or {}).get("actions", [{}])[0].get("dims", []))
+        dens_dims=(dens or {}).get("actions", [{}])[0].get("dims", []),
+        dens_fb=(dens or {}).get("actions", [{}])[0].get("suggested_feedback", ""))
 '''
     (root / "_t.md").write_text(covered, encoding="utf-8")
     p, out, err = run_py(root, code)
@@ -697,6 +713,9 @@ _ticket(ids=[o["id"] for o in a["options"]], verdict=a["verdict"],
           f"→ {p['change_next'][:90]}")
     check("C2 densify 动作里带出缺失维度（供判断是精修还是补素材）",
           bool(p["dens_dims"]), f"→ {p['dens_dims']}")
+    check("C2 只判「篇幅过短」的条目也拿得到可执行提示（不落兜底空话）",
+          "写具体" in p["dens_fb"] or "60 字" in p["dens_fb"],
+          f"→ {p['dens_fb']}")
     shutil.rmtree(root, ignore_errors=True)
 
 

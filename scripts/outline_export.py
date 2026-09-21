@@ -145,7 +145,10 @@ def export(global_path=GLOBAL, setting_path=SETTING, history_dir=HISTORY_DIR,
     ver_tag = ""
     lb = ov.latest_backup(history_dir)
     if lb is not None:
-        ver_tag = f"_v{lb[0]}_到_{len(series) - 1}"
+        # 命名要点：lb[0] 是「最近一轮精修**之前**」的版本号，
+        # 当前 global.md 是该轮的结果 —— 写 "v3_到_3" 语义不明，
+        # 明确成 "v3到当前"。
+        ver_tag = f"_v{lb[0]}到当前"
     plans = [
         (f"大纲_对比{ver_tag}.md", _cmp_markdown(cmp, cur_label), "本轮改了什么"),
         ("大纲_当前_待审.md", _current_markdown(cur_label, review), "候选版全文 + 体检"),
