@@ -35,6 +35,12 @@ GET  /outline/diff        ?v1=&v2= → 结构化节点级 diff
 GET  /outline/drafts      多方案 draft 列表
 POST /outline/compose     {selections, act_source} → 拼合为最终 global.md
 POST /outline/drafts/cleanup 清理临时 draft
+GET  /outline/trend        迭代趋势：每轮指标序列 + 与上一版对比 + 收敛判定（确定性，零 token）
+GET  /outline/advise       开工方向建议：按严重度排序的候选方案 + 可执行 next_step（确定性，零 token）
+GET  /sandbox/queue        沙盒审核队列：待审条目 + 状态统计 + 孤儿文件（确定性，零 token）
+GET  /sandbox/file         ?path=<相对路径> → 只读预览沙盒产物正文（审核前必须看得见内容）
+POST /sandbox/review       {path, action: approve|reject|reset, note?} → 变更沙盒审核状态
+                           （只改状态库，不写不删沙盒文件，绝不碰 vault）
 POST /snapshot            {label?} → 手动快照
 POST /costs               GET 成本流水
 GET  /costs/summary       按阶段/模型聚合
@@ -148,6 +154,7 @@ try:
     from nf_api_domains import post_misc as dom_post_misc  # noqa: E402
     from nf_api_domains import project as dom_project      # noqa: E402
     from nf_api_domains import runtime as dom_runtime      # noqa: E402
+    from nf_api_domains import sandbox as dom_sandbox      # noqa: E402
 except Exception as _dom_err:                            # noqa: BLE001
     dom_materials = None
     dom_misc = None
@@ -156,6 +163,7 @@ except Exception as _dom_err:                            # noqa: BLE001
     dom_post_misc = None
     dom_project = None
     dom_runtime = None
+    dom_sandbox = None
     print("[nf_api] 域模块加载失败（端点将返回可行动错误）: " + str(_dom_err))
 
 
@@ -1530,6 +1538,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/sandbox/queue":
             # 沙盒产物审核队列（待审/已通过/已驳回 + 孤儿检测）。
             self._send(*_dom(dom_outline.handle_sandbox_queue(self)))
+        elif p == "/sandbox/file":
+            # 沙盒产物只读预览（审核「通过」前必须能看清真实内容，否则是盲签）。
+            self._send(*_dom(dom_sandbox.handle_sandbox_file(self)))
         elif p == "/review/decisions":
             # 实现已迁至 nf_api_domains.runtime（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_runtime.handle_review_decisions(self)))
@@ -1890,6 +1901,12 @@ class Handler(BaseHTTPRequestHandler):
                 ok, res = act_outline_drafts_cleanup()
                 res["ok"] = True
                 self._send(200, res)
+            elif p == "/sandbox/review":
+                # 沙盒审核动作（通过/驳回/退回）。实现已迁至 nf_api_domains.sandbox。
+                # 语义红线：只改 data/state/sandbox_manifest.json 的状态，
+                # 不写不删沙盒文件、绝不碰 vault —— 决策权始终在用户手里。
+                # 必须把已读的 body 传进去：请求体是一次性流，handler 再读会挂死。
+                self._send(*_dom(dom_sandbox.handle_sandbox_review(self, body)))
             elif p == "/config/project":
                 try:
                     self._send(200, {"ok": True, "config": pc_get_config()})
