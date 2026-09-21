@@ -72,6 +72,28 @@ def _load_names(setting_path):
     return chars, locs
 
 
+def _item_re(after):
+    """构造「条目 + 终止前瞻」的正则片段。
+
+    ⚠️ 2026-09-21 修 bug：终止前瞻原为 `(?=\\n\\s*[-*]|\\n##|\\Z)`，
+    **恒定漏掉每节的最后一个条目** —— 因为最后一条后面是「空行 + 下一节标题」
+    （`\\n\\n## `）或「换行 + 文件尾」，而 `\\n##` 要求紧邻换行后就是 `##`
+    （`\\n\\n##` 不匹配）、`\\Z` 要求当前位置已在串尾（当前位置在 `\\n` 之前，也不匹配）。
+
+    实测：写 5 个关键节点 / 5 条章节规划，解析结果**都是 4**。
+
+    危害不小：`review()` 拿这个条数去做一致性检查
+    （「章节规划 N 条 ≠ 预计章节数 M」），于是**每次体检都误报一项 issue**，
+    用户被引导去"精修"一份其实完全正确的大纲。旧行为下这只是多打印一行；
+    但一旦把 issue 当作失败信号（见 `refine_outline` 的假成功修复），
+    它就会变成**假失败**。
+
+    修法：把前瞻放宽为 `(?=\\n\\s*[-*]|\\n\\s*##|\\s*\\Z)` ——
+    `\\s*` 吃掉空行/尾部换行（`\\s` 含换行），三个分支都能正确命中。
+    """
+    return rf"(?:^|\n)\s*[-*]?\s*({after}[^\n]*?)(?=\n\s*[-*]|\n\s*##|\s*\Z)"
+
+
 def _score_entry(text, chars, locs):
     """对单条节点/规划打分。返回 (score, flags, reasons)。
 
@@ -149,9 +171,9 @@ def review(global_path, setting_path=None):
     node_items = []
     if node_sec:
         # 兼容三种格式：`- 节点N：...` / `- 节点N — ...` / `- 节点N ...`
-        node_items = re.findall(
-            r"(?:^|\n)\s*[-*]?\s*(节点\s*\d+[^\n]*?)(?=\n\s*[-*]|\n##|\Z)",
-            node_sec.group(0), re.S)
+        # （前瞻已修「漏掉末条」的 bug，见 `_item_re` 的 docstring）
+        node_items = re.findall(_item_re(r"节点\s*\d+"),
+                                node_sec.group(0), re.S)
     for item in node_items:
         item = item.strip()
         title = re.match(r"(节点\s*\d+)", item)
@@ -171,7 +193,7 @@ def review(global_path, setting_path=None):
     if plan_sec:
         # 兼容：`- 第N章（功能）` / `- 第N-M章（功能）` / `- 第N章：...`
         plan_items = re.findall(
-            r"(?:^|\n)\s*[-*]?\s*(第\s*[\d\-~\s一二三四五六七八九十百]+\s*章[^\n]*?)(?=\n\s*[-*]|\n##|\Z)",
+            _item_re(r"第\s*[\d\-~\s一二三四五六七八九十百]+\s*章"),
             plan_sec.group(0), re.S)
     for item in plan_items:
         item = item.strip()
