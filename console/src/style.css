@@ -598,6 +598,102 @@ body {
 /* 宽抽屉（大纲版本对比 / 多方案）：
    右对齐的抽屉在窄屏下会把内容推到屏幕外，宽抽屉改为居中显示并允许标题栏换行。 */
 .drawer-wide, .drawer-xwide { margin: auto; }
+
+/* ---------- 迭代趋势 / 开工建议（大纲页签「趋势 / 建议」抽屉） ----------
+   设计意图：把「还要不要再来一轮」和「接下来做什么」放在一屏里。
+   结论（verdict）置顶加底色，趋势表在中间，候选方案在下面按严重度排。 */
+.ov-hotdot {
+  display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--warn); margin-left: 5px; vertical-align: middle;
+}
+
+.ov-adv-verdict {
+  padding: 10px 14px; border-radius: 10px; margin: 0 16px 10px;
+  border: 1px solid var(--border); background: #fbfbfd;
+  border-left-width: 3px;
+}
+.ov-adv-verdict.v-done { border-left-color: var(--ok); background: rgba(127, 174, 143, 0.10); }
+.ov-adv-verdict.v-stalled { border-left-color: var(--warn); background: rgba(201, 162, 106, 0.12); }
+.ov-adv-verdict.v-mixed { border-left-color: var(--bad); background: rgba(196, 127, 127, 0.10); }
+.ov-adv-verdict.v-improving { border-left-color: var(--accent); background: rgba(155, 143, 196, 0.10); }
+.ov-adv-vhead { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.ov-adv-note { font-size: 13px; line-height: 1.65; }
+
+.ov-adv-sec { padding: 0 16px 12px; }
+.ov-adv-sec-title { font-size: 12.5px; font-weight: 600; color: var(--muted); margin: 4px 0 7px; }
+
+.ov-trend {
+  width: 100%; border-collapse: collapse; font-size: 12.5px;
+  border: 1px solid var(--border); border-radius: 9px; overflow: hidden;
+}
+.ov-trend th, .ov-trend td { padding: 5px 9px; text-align: left; border-bottom: 1px solid var(--border); }
+.ov-trend th { background: #f6f6fa; font-weight: 600; color: var(--muted); }
+.ov-trend tr:last-child td { border-bottom: none; }
+.ov-trend tbody tr:hover { background: rgba(155, 143, 196, 0.06); }
+
+.ov-opt {
+  border: 1px solid var(--border); border-radius: 10px;
+  padding: 9px 11px; margin-bottom: 8px; background: #fff;
+}
+.ov-opt.rec { border-color: var(--accent); background: rgba(155, 143, 196, 0.07); }
+.ov-opt-head { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.ov-opt-title { font-weight: 600; font-size: 13px; }
+.ov-opt-why { font-size: 12.5px; line-height: 1.65; margin-top: 4px; }
+.ov-opt-tradeoff {
+  font-size: 12px; color: var(--muted); margin-top: 5px;
+  padding-top: 5px; border-top: 1px dashed var(--border);
+}
+.ov-opt-actions { margin-top: 7px; display: flex; flex-direction: column; gap: 5px; }
+.ov-opt-act {
+  display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+  font-size: 12.5px; padding: 4px 7px; border-radius: 7px;
+  background: rgba(155, 143, 196, 0.07);
+}
+.ov-opt-tag {
+  flex: none; font-size: 11px; padding: 1px 6px; border-radius: 5px;
+  background: var(--accent-soft); color: #fff;
+}
+.ov-opt-tag.plan { background: var(--ok); }
+.ov-opt-target { flex: 1; min-width: 90px; word-break: break-word; }
+
+.ov-adv-foot {
+  padding: 9px 16px 14px; font-size: 12px; color: var(--muted);
+  border-top: 1px solid var(--border); line-height: 1.65;
+}
+
+/* ---------- 审核队列（「审核」页签） ---------- */
+.sb-wrap { display: flex; flex-direction: column; gap: 12px; }
+.sb-toolbar .sb-dir { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.sb-dir code { background: #f4f4f8; padding: 1px 6px; border-radius: 4px; word-break: break-all; }
+.sb-filter { margin-left: auto; display: flex; align-items: center; gap: 5px; font-size: 12px; cursor: pointer; }
+.sb-stats { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+
+.sb-orphans { border-left: 3px solid var(--warn); }
+.sb-orphan-list { list-style: none; padding: 0; margin: 6px 0; }
+.sb-orphan-list li { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
+.sb-orphan-list code { word-break: break-all; }
+
+.sb-list { display: flex; flex-direction: column; gap: 8px; }
+.sb-item {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 9px 11px; border-radius: 9px;
+  border: 1px solid var(--border); border-left-width: 3px; background: #fff;
+}
+.sb-item.sb-pending { border-left-color: var(--warn); }
+.sb-item.sb-approved { border-left-color: var(--ok); }
+.sb-item.sb-rejected { border-left-color: var(--bad); opacity: 0.85; }
+.sb-item-main { flex: 1; min-width: 0; }
+.sb-item-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sb-path { word-break: break-all; font-weight: 600; }
+.sb-item-meta { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 3px; }
+.sb-note { margin-top: 4px; font-size: 12px; color: var(--warn); }
+.sb-item-actions { display: flex; gap: 5px; flex-shrink: 0; flex-wrap: wrap; }
+
+.sb-preview {
+  max-height: 62vh; overflow: auto; white-space: pre-wrap; word-break: break-word;
+  background: #f7f7fb; padding: 11px; border-radius: 8px;
+  font-size: 12.5px; line-height: 1.7; margin: 0;
+}
 .drawer-wide { width: min(1180px, 96vw); }
 .drawer-xwide { width: min(1320px, 97vw); }
 .drawer-wide .drawer-head, .drawer-xwide .drawer-head { flex-wrap: wrap; row-gap: 6px; }

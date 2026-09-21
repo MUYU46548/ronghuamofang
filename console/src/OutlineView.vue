@@ -25,6 +25,10 @@
         </button>
         <button class="mini" @click="openVersionDiff">版本对比</button>
         <button class="mini" @click="openMulti">多方案</button>
+        <button class="mini" :class="{ primary: adviseHot }" @click="openAdvise"
+                title="还差什么、接下来先做哪一步（确定性分析，不花 token）">
+          趋势 / 建议<span v-if="adviseHot" class="ov-hotdot"></span>
+        </button>
       </div>
       <div class="meta" style="margin-top: 6px;">
         <template v-if="structure && structure.exists">
@@ -245,6 +249,130 @@
             </div>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- ============ 趋势 / 建议（本轮新增） ============
+         回答两个问题：
+           「还要不要再迭代一轮？」→ 迭代趋势（每轮指标序列 + 收敛判定）
+           「接下来先做哪一步？」  → 开工方向建议（按严重度排序的候选方案）
+         两者都是**确定性分析、零 token**，所以可以随手点，不必心疼成本。
+         建议项若带 next_step，可一键执行（提交节点精修任务）。 -->
+    <div v-if="advOpen" class="drawer-mask" @click.self="advOpen = false">
+      <div class="drawer drawer-wide">
+        <div class="drawer-head">
+          <b>迭代趋势 / 开工建议</b>
+          <span class="spacer"></span>
+          <button class="mini" :disabled="advLoading" @click="loadAdvise(true)">
+            {{ advLoading ? "分析中…" : "重新分析" }}
+          </button>
+          <button class="mini" @click="advOpen = false">关闭</button>
+        </div>
+
+        <div v-if="advLoading && !advise" class="empty">分析中…</div>
+        <template v-else-if="advise">
+          <!-- 收敛判定 -->
+          <div class="ov-adv-verdict" :class="'v-' + (advise.verdict || '')">
+            <div class="ov-adv-vhead">
+              <span class="pill" :class="verdictPill(advise.verdict)">{{ verdictLabel(advise.verdict) }}</span>
+              <span class="ov-adv-note">{{ advise.note }}</span>
+            </div>
+            <div class="meta" v-if="advise.metrics">
+              关键节点 {{ advise.metrics.total || 0 }} 条
+              · OK {{ advise.metrics.ok || 0 }} / WARN {{ advise.metrics.warn || 0 }} / THIN {{ advise.metrics.thin || 0 }}
+              · 结构问题 {{ advise.metrics.issues || 0 }}
+              · 平均分 {{ advise.metrics.avg_score }}
+              <template v-if="advise.metrics.expected_chapters">
+                · 预计 {{ advise.metrics.expected_chapters }} 章
+              </template>
+            </div>
+          </div>
+
+          <!-- 趋势表 -->
+          <div v-if="trend && trend.series && trend.series.length" class="ov-adv-sec">
+            <div class="ov-adv-sec-title">
+              迭代趋势
+              <span class="meta">（最近 {{ trend.window }} 轮；key = 问题数 + 碎片数，越小越好）</span>
+            </div>
+            <table class="ov-trend">
+              <thead>
+                <tr>
+                  <th>版本</th><th>单版体检</th><th>问题</th><th>碎片</th>
+                  <th>平均分</th><th>key</th><th>变化</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(s, i) in trend.series" :key="i">
+                  <td>{{ s.label || ("v" + s.version) }}</td>
+                  <td>
+                    <span class="pill" :class="verdictPill(s.verdict)">{{ s.verdict || "—" }}</span>
+                  </td>
+                  <td>{{ s.issues }}</td>
+                  <td>{{ s.thin }}</td>
+                  <td>{{ s.avg_score }}</td>
+                  <td><b>{{ s.key }}</b></td>
+                  <td>
+                    <span v-if="i === 0" class="meta">基准</span>
+                    <span v-else-if="s.key < trend.series[i - 1].key" class="cd-add">↓ 改善</span>
+                    <span v-else-if="s.key > trend.series[i - 1].key" class="cd-del">↑ 退化</span>
+                    <span v-else class="meta">持平</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <div v-if="trend.compare" class="meta" style="margin-top: 6px;">
+              与上一版比：{{ compareLabel(trend.compare.verdict) }}
+              <template v-if="trend.compare.deltas">
+                （问题 {{ sign(trend.compare.deltas.issues) }} ·
+                 碎片 {{ sign(trend.compare.deltas.thin) }} ·
+                 平均分 {{ sign(trend.compare.deltas.avg_score) }}）
+              </template>
+            </div>
+            <div v-else class="meta" style="margin-top: 6px;">
+              无历史备份可对比 —— 只显示当前版本；迭代一轮后这里会出现逐版对比。
+            </div>
+          </div>
+
+          <!-- 候选方案 -->
+          <div class="ov-adv-sec">
+            <div class="ov-adv-sec-title">
+              接下来可以做什么
+              <span class="meta">（按严重度排序；推荐项加粗）</span>
+            </div>
+            <div v-for="o in advise.options" :key="o.id" class="ov-opt"
+                 :class="{ rec: o.id === advise.recommended }" :data-opt-id="o.id">
+              <div class="ov-opt-head">
+                <span class="ov-opt-title">{{ o.title }}</span>
+                <span v-if="o.id === advise.recommended" class="pill st-done">推荐</span>
+                <span class="spacer"></span>
+                <span class="meta" v-if="o.llm_calls !== undefined && o.llm_calls !== null">
+                  {{ o.llm_calls }} 次模型调用
+                </span>
+              </div>
+              <div class="ov-opt-why">{{ o.why }}</div>
+              <div v-if="o.actions && o.actions.length" class="ov-opt-actions">
+                <div v-for="(a, i) in o.actions" :key="i" class="ov-opt-act">
+                  <span class="ov-opt-tag" :class="a.kind || 'manual'">{{ actKindLabel(a.kind) }}</span>
+                  <span class="ov-opt-target">{{ a.target }}</span>
+                  <button v-if="a.entry_id" class="mini primary"
+                          :disabled="advBusy === a.entry_id"
+                          @click="runNextStep(a, o)"
+                          :title="'提交节点精修（feedback 由体检缺失维度自动生成）：' + (a.suggested_feedback || '')">
+                    {{ advBusy === a.entry_id ? "提交中…" : "AI 精修此条" }}
+                  </button>
+                  <span v-else class="meta">无法定位条目 id，请手工处理</span>
+                </div>
+              </div>
+              <div v-if="o.tradeoff" class="ov-opt-tradeoff">取舍：{{ o.tradeoff }}</div>
+            </div>
+          </div>
+
+          <div class="ov-adv-foot">
+            以上结论由确定性分析产出（不调用模型）。<b>决定权在你</b> ——
+            一键执行只提交节点精修任务，会先备份到 history/ 且可撤销。
+          </div>
+        </template>
+        <div v-else class="empty">无分析结果</div>
       </div>
     </div>
 
@@ -690,6 +818,115 @@ async function discardDrafts() {
 }
 function closeMulti() {
   multiOpen.value = false;
+}
+
+/* ---------- 迭代趋势 / 开工建议（本轮新增） ----------
+   两个端点都是确定性分析、零 token：
+     GET /outline/trend   每轮指标序列 + 收敛判定 + 与上一版对比
+     GET /outline/advise  按严重度排序的候选方案（含逐条可执行动作）
+   合并到一个抽屉里，因为用户的心智是同一个问题：「我接下来干嘛」。 */
+const advOpen = ref(false);
+const advLoading = ref(false);
+const advise = ref(null);
+const trend = ref(null);
+const advBusy = ref("");
+
+/** 顶部按钮是否高亮：有结构性硬问题或有碎片条目时提示「这里有事要做」。 */
+const adviseHot = computed(() => {
+  const s = structure.value && structure.value.summary;
+  if (!s) return false;
+  return (s.thin || 0) > 0 || (issueList.value.length > 0);
+});
+
+async function openAdvise() {
+  advOpen.value = true;
+  if (!advise.value) await loadAdvise(false);
+}
+async function loadAdvise(showMsg = false) {
+  advLoading.value = true;
+  // 两个端点独立 try：趋势挂了不该让建议也看不见（反之亦然）
+  const [rt, ra] = await Promise.all([
+    props.api("/outline/trend"),
+    props.api("/outline/advise"),
+  ]);
+  advLoading.value = false;
+  trend.value = rt.status === 200 ? rt.data : null;
+  if (ra.status === 200) {
+    advise.value = ra.data;
+  } else {
+    advise.value = null;
+    say("分析失败: " + ((ra.data && ra.data.error) || ra.status));
+    return;
+  }
+  if (showMsg) say("已重新分析");
+}
+
+const VERDICT_LABEL = {
+  done: "可开工", stalled: "停滞", improving: "改善中",
+  mixed: "波动", insufficient: "样本不足",
+};
+function verdictLabel(v) { return VERDICT_LABEL[v] || v || "—"; }
+function verdictPill(v) {
+  return v === "done" || v === "PASS" ? "st-done"
+    : v === "stalled" || v === "mixed" || v === "WARN" ? "st-gate"
+    : v === "improving" ? "st-done" : "st-failed";
+}
+function compareLabel(v) {
+  return { improved: "有改善", regressed: "退化了", same: "无变化",
+           mixed: "有升有降", none: "无可比数据" }[v] || v || "—";
+}
+function sign(n) {
+  const v = Number(n || 0);
+  return v > 0 ? "+" + v : String(v);
+}
+const ACT_KIND_LABEL = { node: "关键节点", plan: "章节规划", manual: "手工" };
+function actKindLabel(k) { return ACT_KIND_LABEL[k] || k || "手动"; }
+
+/**
+ * 一键执行建议项 —— 提交节点精修任务。
+ *
+ * 为什么用 `entry_id` + `suggested_feedback` 而不是解析 `next_step` 字符串：
+ * 后端 `outline_advisor` 的 `next_step` 是**给人看的命令描述**
+ * （如 `POST /refine/outline/node {"node_id":"node1",...}`），
+ * 解析它等于把「展示格式」当接口用 —— 后端改一次措辞前端就崩。
+ * 结构化字段（entry_id / suggested_feedback）才是稳定契约。
+ *
+ * `next_step` 为「无法定位条目 id」时 `entry_id` 为 null，按钮不显示，
+ * 这里也就不会被调到 —— 宁可不给按钮，也不给一个点了报错的按钮。
+ */
+async function runNextStep(action) {
+  const eid = action.entry_id;
+  if (!eid) return;
+  const fb = action.suggested_feedback
+    || "按体检缺失维度补全信息（加具体事件、冲突或场景）";
+  if (!window.confirm("对「" + (action.target || eid) + "」提交 AI 精修？\n\n"
+      + "修订意见：" + fb + "\n\n"
+      + "· 只改这一条，不动其他内容\n"
+      + "· 修订前自动备份到 data/outline/history/\n"
+      + "· 可用右侧「撤销上次修订」回滚")) return;
+  advBusy.value = eid;
+  const r = await props.api("/refine/outline/node", "POST",
+                            { node_id: eid, feedback: fb });
+  if (r.status !== 202) {
+    advBusy.value = "";
+    say("提交失败: " + ((r.data && r.data.error) || r.status));
+    return;
+  }
+  const jid = r.data.job_id;
+  const poll = setInterval(async () => {
+    const j = await props.api("/jobs/" + jid);
+    if (j.status !== 200 || j.data.state === "running") return;
+    clearInterval(poll);
+    advBusy.value = "";
+    if (j.data.state === "ok") {
+      aiResult.value = (j.data.result && typeof j.data.result === "object") ? j.data.result : aiResult.value;
+      await load(false);
+      await loadAdvise(false);   // 修订完立刻重算：指标应该变化，让用户看到结果
+      say("已修订「" + eid + "」（v" + (j.data.result && j.data.result.version) + "）");
+    } else {
+      say("修订失败: " + (j.data.result || "未知错误"));
+    }
+  }, 1500);
 }
 
 /* ---------- 渲染工具 ---------- */

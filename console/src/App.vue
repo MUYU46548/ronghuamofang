@@ -2,6 +2,7 @@
 import { ref, computed, watch, onMounted, onUnmounted } from "vue";
 import { diffParagraphs } from "./diff.js";
 import ReviewConsole from "./ReviewConsole.vue";
+import SandboxQueue from "./SandboxQueue.vue";
 import OutlineView from "./OutlineView.vue";
 import ScrapsPanel from "./ScrapsPanel.vue";
 import RoleGraph from "./RoleGraph.vue";
@@ -109,6 +110,11 @@ function switchTab(t) {
   }
   if (t === "project") loadProjects();
   if (t === "outline" && outlineRef.value) outlineRef.value.load(false);
+  if (t === "sandbox") {
+    // 每次进来自查一次：产物可能在别处刚写完（徽标可能已过时）
+    refreshSandboxBadge();
+    if (sandboxRef.value) sandboxRef.value.load(false);
+  }
   if (t === "settings") {
     if (!providers.value) refreshModels();
     if (!promptFiles.value.length) loadPromptList();
@@ -410,6 +416,33 @@ const outlineSummary = ref(null);
 function onStructureLoaded(s) {
   outlineSummary.value = s;
 }
+
+/* ---------- 沙盒审核队列（「审核」页签） ----------
+   徽标数 = 待审份数。刻意**独立于页签是否打开**去轮询（节流 60s）：
+   沙盒产物是后台产物写入时自动登记的，用户在别的页签干活时也可能新增，
+   徽标不刷新就成了「有活等你但你看不见」。
+   只在首页加载时拉一次 + 每次切到该页签刷新，避免无谓请求。 */
+const sandboxRef = ref(null);
+const sandboxPending = ref(0);
+async function loadSandboxQueue() {
+  if (sandboxRef.value) { sandboxRef.value.load(false); return; }
+  await refreshSandboxBadge();
+}
+/** 审核动作后组件广播 stats → 顶部徽标即时同步（不用再打一次接口）。 */
+function onSandboxStats(st) {
+  sandboxPending.value = (st && st.pending) || 0;
+}
+
+async function refreshSandboxBadge() {
+  const r = await api("/sandbox/queue");
+  if (r.status !== 200) return;
+  sandboxPending.value = (r.data.stats && r.data.stats.pending) || 0;
+}
+function openSandboxTab() {
+  switchTab("sandbox");
+  if (sandboxRef.value) sandboxRef.value.load(false);
+}
+
 function openOutlineTab() {
   cameFromInbox.value = true;
   switchTab("outline");
@@ -1281,6 +1314,7 @@ const TAB_ORDER = [
   { t: "outline", name: "大纲", key: "5" },
   { t: "outline_chapters", name: "分章", key: "6" },
   { t: "review", name: "审稿", key: "7" },
+  { t: "sandbox", name: "审核", key: "" },
   { t: "proofread", name: "校对", key: "8" },
   { t: "style", name: "文风", key: "9" },
   { t: "inbox", name: "收件箱", key: "0" },
@@ -1945,6 +1979,8 @@ async function quitAndInstall() {
 onMounted(() => {
   refresh();
   timer = setInterval(refresh, 2500);
+  // 首屏拉一次待审数：沙盒产物是后台写入时自动登记的，不主动刷就看不见徽标
+  refreshSandboxBadge();
   // 检查 updater 状态
   if (window.mofangAPI?.updaterStatus) {
     window.mofangAPI.updaterStatus().then((s) => {
@@ -2036,6 +2072,9 @@ onUnmounted(() => {
       <button :class="{ active: tab === 'outline' }" @click="switchTab('outline')">大纲</button>
       <button :class="{ active: tab === 'outline_chapters' }" @click="switchTab('outline_chapters'); loadOutlineChapters()">分章</button>
       <button :class="{ active: tab === 'review' }" @click="switchTab('review')">审稿</button>
+      <button :class="{ active: tab === 'sandbox' }" @click="switchTab('sandbox'); loadSandboxQueue()">
+        审核<span v-if="sandboxPending" class="badge">{{ sandboxPending }}</span>
+      </button>
       <button :class="{ active: tab === 'proofread' }" @click="switchTab('proofread')">校对</button>
       <button :class="{ active: tab === 'style' }" @click="switchTab('style')">文风</button>
       <button :class="{ active: tab === 'cost' }" @click="switchTab('cost')">成本</button>
@@ -2347,6 +2386,12 @@ onUnmounted(() => {
     <!-- 审稿 -->
     <section v-if="tab === 'review'">
       <ReviewConsole />
+    </section>
+
+    <!-- 审核（沙盒产物审核队列：通过/驳回只改状态，不写文件、不碰 vault） -->
+    <section v-if="tab === 'sandbox'">
+      <SandboxQueue ref="sandboxRef" :api="api"
+                    @say="say" @stats="onSandboxStats" />
     </section>
 
     <!-- 校对（stage 5.5） -->
