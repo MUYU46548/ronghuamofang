@@ -107,6 +107,57 @@ BOOK_TEXT = "".join(
     for i in range(1, 8)
 )
 
+# /outline/trend 的对比夹具。key = 问题数 + 碎片数（越小越好）：
+#   BAD  0 节点 + 0 规划，预计章节数 1 → issues=2 → key=2
+#   GOOD 1 节点 + 1 规划（够长且含事件/冲突/场景词）→ thin=0, issues=0 → key=0
+OUTLINE_BAD = """# 《测试书》整体大纲
+
+## 起
+开端。
+
+## 承
+发展。
+
+## 转
+高潮。
+
+## 合
+结局。
+
+## 关键节点
+（无）
+
+## 预计章节数
+1
+
+## 章节规划
+（无）
+"""
+
+OUTLINE_GOOD = """# 《测试书》整体大纲
+
+## 起
+露汐在沙都医院发现匿名信，决定追查。
+
+## 承
+与罗霄对峙，冲突升级。
+
+## 转
+调查触及高层，她被停职。
+
+## 合
+真相揭开，她选择留下。
+
+## 关键节点
+- 节点1：第1章 露汐在沙都的医院里发现那封匿名信，与罗霄在回廊发生对峙，冲突迅速升级，她决定追查真相并封锁消息。
+
+## 预计章节数
+1
+
+## 章节规划
+- 第1章（铺垫）：露汐在沙都医院发现匿名信，与罗霄对峙后冲突升级，她决定追查并封锁消息，交代学院与沙都的关系。
+"""
+
 
 def build_project():
     tmp = Path(tempfile.mkdtemp(prefix="nf_newapi_"))
@@ -131,6 +182,13 @@ def build_project():
     (tmp / "style_sample.md").write_text(STYLE_SAMPLE, encoding="utf-8")
     (tmp / "book.txt").write_text(BOOK_TEXT, encoding="utf-8")
     (tmp / "short.txt").write_text("太短了。", encoding="utf-8")
+    # 供 /outline/trend：一个「改前（差）」的历史版本 + 一个「改后（好）」的当前版本。
+    # 两者 key（问题数+碎片数）分别为 2 与 0，于是 trend 应判 improved、
+    # 并给出 has_backup=true。放在这里是为了让端点有真实可对比的数据。
+    (tmp / "data" / "outline" / "history").mkdir(parents=True, exist_ok=True)
+    (tmp / "data" / "outline" / "history" / "global_v1.md").write_text(
+        OUTLINE_BAD, encoding="utf-8")
+    (tmp / "data" / "outline" / "global.md").write_text(OUTLINE_GOOD, encoding="utf-8")
     return tmp
 
 
@@ -372,6 +430,38 @@ def main():
         check("GET /models/cache 仍可用（读缓存，含手动项）",
               code == 200 and "my-custom-model" in json.dumps(d, ensure_ascii=False),
               (code, str(d)[:160]))
+
+        print("\n=== 5.5 GET /outline/trend（迭代收敛视图）===")
+        code, d = req("GET", "/outline/trend")
+        check("→ 200 且含 series/status/note/compare",
+              code == 200 and "series" in d and "status" in d and "note" in d
+              and "compare" in d, (code, list(d)[:8]))
+        check("series 按版本序（v1 在前、当前在末）",
+              [e["label"] for e in d.get("series", [])] == ["v1（第1轮前）", "当前"],
+              [e.get("label") for e in d.get("series", [])])
+        check("series 带可比较的 key（问题数+碎片数）",
+              [e["key"] for e in d.get("series", [])] == [2, 0],
+              [e.get("key") for e in d.get("series", [])])
+        check("has_backup 为真（有历史版本可对比）", d.get("has_backup") is True)
+        check("status 反映最新版已达标（key=0 → done）",
+              d.get("status") == "done", d.get("status"))
+        check("note 是可读结论（含「开工」提示）", "开工" in str(d.get("note")),
+              str(d.get("note"))[:80])
+        cmp_ = d.get("compare") or {}
+        check("compare.verdict 为 improved（问题 2 → 0）",
+              cmp_.get("verdict") == "improved", cmp_.get("verdict"))
+        check("compare.deltas 含 issues=-2",
+              (cmp_.get("deltas") or {}).get("issues") == -2,
+              cmp_.get("deltas"))
+        check("compare.entries 记录了新增条目",
+              bool((cmp_.get("entries") or {}).get("added")),
+              cmp_.get("entries"))
+        code, d2 = req("GET", "/outline/trend?window=2")
+        check("?window=2 → window 生效", code == 200 and d2.get("window") == 2,
+              (code, d2.get("window")))
+        code, d3 = req("GET", "/outline/trend?window=abc")
+        check("?window 非法值 → 回落默认 3（不 500）",
+              code == 200 and d3.get("window") == 3, (code, d3.get("window")))
 
         print("\n=== 6. 未知路径未被破坏 ===")
         code, _d = req("GET", "/nope")

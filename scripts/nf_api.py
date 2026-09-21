@@ -969,10 +969,35 @@ def act_reject(stage, reason, dry_run):
 
 def act_refine_outline(feedback, dry_run):
     import refine_outline
+    from utils.db import RunDB
+    from utils.cost_tracker import CostTracker
     cfg, proj = load_all()
-    ok, msg = refine_outline.run_refine(cfg, proj, feedback or "",
-                                        client=_client_for_env(cfg, "default"),
-                                        dry_run=dry_run)
+    # 成本记账（与 `act_auto_rewrite_run` 同范式）：不记账的话从控制台迭代
+    # 也查不到花了多少钱 —— 那正是「迭代成本」这一维度缺失的原因。
+    # 记账初始化失败不阻断精修（记一条日志即可，不能因为记账把活停了）。
+    db, cost, run_id = None, None, None
+    if not dry_run:
+        try:
+            budget = cfg.get("budget", {}) or {}
+            db = RunDB("logs/runs.db")
+            cost = CostTracker(db, limit_yuan=budget.get("limit_yuan", 300),
+                               warn_ratio=budget.get("warn_ratio", 0.7))
+            run_id = db.start_run(plan_json="outline_refine_api")
+        except Exception as e:                              # noqa: BLE001
+            print(f"[api] ⚠ 大纲精修记账初始化失败（本轮费用不进账本）: {e}")
+            db, cost, run_id = None, None, None
+    ok = False
+    try:
+        ok, msg = refine_outline.run_refine(cfg, proj, feedback or "",
+                                            client=_client_for_env(cfg, "default"),
+                                            dry_run=dry_run,
+                                            db=db, cost=cost, run_id=run_id)
+    finally:
+        if db is not None and run_id is not None:
+            try:
+                db.finish_run(run_id, "done" if ok else "failed")
+            except Exception as e:                          # noqa: BLE001
+                print(f"[api] ⚠ 大纲精修运行记录收尾失败: {e}")
     return ok, msg
 
 
@@ -1494,6 +1519,10 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/outline/structure":
             # 实现已迁至 nf_api_domains.outline（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_outline.handle_outline_structure(self)))
+        elif p == "/outline/trend":
+            # 迭代趋势 + 上一版对比 + 收敛判断（确定性，零 token）。
+            # 与 /outline/diff 互补：diff 是「哪几行变了」，trend 是「每轮有没有实质进展」。
+            self._send(*_dom(dom_outline.handle_outline_trend(self)))
         elif p == "/review/decisions":
             # 实现已迁至 nf_api_domains.runtime（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_runtime.handle_review_decisions(self)))

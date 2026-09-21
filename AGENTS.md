@@ -42,7 +42,8 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 | 审批阶段 N | `python scripts/approve.py --stage N` |
 | 撤销审批 | `python scripts/approve.py --stage N --revoke` |
 | 打回阶段 N | `python scripts/reject.py --stage N "原因"`（记录原因+清理下游产物+重置状态+撤销审批；`--dry-run` 预演） |
-| 大纲体检 | `python scripts/outline_review.py`（确定性，标出空泛节点） |
+| 大纲体检 | `python scripts/outline_review.py`（确定性，标出空泛节点；默认附**与上一版对比**，`--no-compare` 关闭） |
+| 大纲迭代趋势 | `python scripts/outline_review.py --trend [--history 目录]`（确定性零 token：逐版本指标表 + **收敛判断** done/improving/stalled/mixed/insufficient，回答「还要不要再迭代一轮」） |
 | 设定体检（stage1后自动） | `python scripts/material_review.py`（确定性，**类型感知**：先按 `utils/setting_schema.is_character` 分开人物/非人物，再对人物标碎片/缺失维度，报告 data/setting/material_review.md） |
 | 从设定库导入设定 | `python scripts/obsidian_integrate.py scan [--vault 路径] [--output data/setting/setting.json]`（⚠️ **整体替换**语义：vault 内容覆盖现有设定集，`plot_fragments`/`timeline` 会清空；**覆盖前自动备份**到 `data/setting/history/setting_vN.json`。目录约定见 `obsidian_bridge.scan_vault` docstring） |
 | 扫描设定库（只读） | `python scripts/obsidian_bridge.py scan [--vault 路径]`（只扫不写，落 `data/state/obsidian_index.json`）；`config` 查看当前 vault/沙盒配置 |
@@ -62,7 +63,7 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 | 校对（stage 5.5，交付 Word 前） | `python scripts/proofread.py [--scope refined] [--llm] [--dry-run]`（确定性：标点/错字/格式/章节节奏，**零 token**；`--llm` 追加语义校对。报告 data/outline/proofread_report.json + .md） |
 | 生成前 token/费用预估 | `python scripts/estimate_tokens.py [--stage 4] [--json] [--no-history] [--verbose]`（历史实测均值优先，无历史则字符折算；GUI 运行前确认框走 `GET /estimate`） |
 | 拆书 / 章节节奏 | `python scripts/book_split.py --input <文本文件> [--emit] [--json] [--list-patterns]`（切章模式自动识别 → data/state/book_pacing.json；`--emit` 另导出切分正文到 data/state/book_split/。**输入文件只读**） |
-| 成本报告 | `python scripts/cost_report.py`（总览）；`--by-chapter`（分章）；`--runs 5` |
+| 成本报告 | `python scripts/cost_report.py`（总览，含**阶段2 初版 vs 迭代**细分）；`--by-chapter`（分章）；`--by-outline`（**大纲逐轮费用**：v0 初版 + 每轮迭代 + 累计 + 平均）；`--runs 5` |
 | 多书切换 | `python scripts/switch_book.py --list` / `--archive` / `--restore "书名"`（归档 data/books/，均需 `--yes`） |
 | 项目快照 | `python scripts/snapshot.py "标签"`；查看 `--list`（orchestrator 每阶段成功后自动快照） |
 | 快照恢复 | `python scripts/snapshot.py --restore <ID>`（**默认 dry-run 预览**，加 `--yes` 执行；恢复前自动打 `pre_restore` 折返点；`--delete-extra` 才删快照外文件） |
@@ -83,12 +84,13 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 | 快照恢复自检 | `python tests/unit/test_snapshot_restore.py`（临时 CWD：dry-run 零改动、真实恢复、pre_restore 折返点、extras 递归检测、范围限定、路径护栏，30 断言） |
 | 域模块拆分护栏 | `python tests/unit/test_api_domains.py`（域模块契约 + 薄转发形态 + 依赖方向 + **`__main__` 别名守卫** + 无相对路径 IO，25 断言） |
 | **设定自动补全闭环自检** | `python tests/unit/test_setting_refine_auto.py`（在**临时项目根**跑 fake，零真实调用：达标即停**零 LLM 调用**短路 / 一轮达标即停 / 无进展即停 / 轮次上限 / 默认关 / dry-run / 缺设定集可行动报错 / CLI>gates 优先级 / **定向 feedback 真的写进了 LLM 任务文件**（端到端）/ **orchestrator 钩子签名可绑定**（AST + `inspect.signature().bind()`，防被 `except` 吞掉的静默降级），66 断言） |
+| **大纲迭代闭环自检** | `python tests/unit/test_outline_iteration.py`（临时项目根，零 LLM：版本对比三分支（改善/停滞/退化）+ 逐条目差分 / 趋势序列与收敛五分支出对 / `--trend` CLI / **精修成本真的写进 cost_log**（stage=2 + chapter=版本号）+ 未记账时明确标注 / `cost_report --by-outline` 初版与迭代分离，52 断言，含 6 组反向验证） |
 | **obsidian 联动 + 大纲精修完整性** | `python tests/unit/test_obsidian_integrity.py`（临时项目根，零 LLM：扫描无跨类目污染/无重复 / 导入前自动备份 / 返回类型一致 / KB 注入不静默 / `check_consistency` 诚实化 + 召回修复 / **大纲精修不在体检 FAIL 时假成功**，42 断言，含 7 组反向验证） |
 | **正文退化检测自检** | `python tests/unit/test_verify_degenerate.py`（审计行动项 10：6 种退化形态（复读填充/思考残片/元话语拒答/无段落换行/标点灌水/模板骨架）各**判据隔离**样本 + 真实章节零误报 + 阈值边界 + `is_chapter_complete` 集成 + **7 条反向验证**（删判据→必须变绿），59 断言） |
 | 审稿闭环端点 HTTP 自检 | `python tests/http/test_review_api_http.py`（临时项目根起 nf_api：报告缺失 → 400 可行动提示、审查 job、决策保存与回读、批量精修真读到决策、键值格式兼容、交互式被拒，25 断言） |
 | stage4 出场同步自检 | `python tests/unit/test_stage4_appearances.py`（临时工作目录跑 fake stage4：appearances.json 自动生成、幂等不翻倍、异常注入不阻断，22 断言） |
 | 校对自检 | `python tests/unit/test_proofread.py`（临时项目根：四类确定性检查命中 + 误报防护 + 节奏离群 + 报告双落盘 + LLM 分支走 FakeClient，46 断言） |
-| 新端点 HTTP 自检 | `python tests/http/test_new_endpoints_api_http.py`（临时项目根起 nf_api：/estimate 四种取参口径、proofread 报告缺失可行动 + 运行后落盘、style/analyze 四种 source、book/pacing 与 book/split、/models/add 与 /models/switch、/export/markdown、/outline/chapters/save，65 断言） |
+| 新端点 HTTP 自检 | `python tests/http/test_new_endpoints_api_http.py`（临时项目根起 nf_api：/estimate 四种取参口径、proofread 报告缺失可行动 + 运行后落盘、style/analyze 四种 source、book/pacing 与 book/split、/models/add 与 /models/switch、/export/markdown、/outline/chapters/save、**/outline/trend**（迭代趋势 + 收敛判断 + window 容错），76 断言） |
 | GUI↔API 契约核对 | `python tests/e2e/test_gui_api_contract.py`（**AST 解析**：Vue 里每个 `api("…")` 都能在 nf_api 找到**同方法**分支；do_GET/do_POST 名遮蔽 AST 检查；死分支、丢失 elif 守卫（结构判据）、分支链长度回归；每个主题都要有 CSS 变量块，35 断言） |
 | **失败路径回归（F1~F8 + S9/S10）** | `python tests/unit/test_failure_paths.py`（**主动把系统打坏**：重试计数/异常不外泄/预算熔断/用户停止/stage4 逐章失败隔离/静态门禁/seedWorkspace 升级/审批打回清下游/阶段键集对齐/末阶段熔断，69 断言。用 `utils/failing_client.py` 造可控失败，真实 data/ 零污染） |
 | UX 端点 HTTP 自检 | `python tests/http/test_ux_flow_api_http.py`（临时项目根起 nf_api：`/logs/tail` 无文件/混编码/lines 边界、`/stage/skip` 的 confirm 与 stage 护栏、跳过落盘与 `/state` 回读、跳过→打回清标记、`/review/comment` 回归，26 断言） |
@@ -241,10 +243,14 @@ OpenAI 兼容直连，模型**无工具调用、无自主多轮循环、无记�
 
 | 能力 | 现状 | 缺口 |
 |---|---|---|
-| 大纲多轮迭代 | ✅ `refine_outline.py` 每轮备份 `global_vN.md`，历史完整可回溯；`outline_review.py` 确定性体检（零 token） | ❌ **无收敛判断**（不告诉你"再迭代收益递减"）<br>❌ **无版本对比/趋势**（v3 vs v12 得手工 diff）<br>❌ **迭代成本不进账本**（`run_refine` 丢弃 `result["cost_yuan"]`，`cost_report.py` 无大纲维度） |
-| 调用设定库统一设定 | ⚠️ 能导入（`obsidian_integrate.py scan`），能注入（`stage4` 经 `scan_vault`+`inject_context`） | ❌ 导入是**整体替换**不是合并 —— 会覆盖 stage1 素材设定（现已自动备份，语义未变）<br>❌ **无增量同步**（vault 改了要重跑整轮导入）<br>❌ **大纲阶段不注入 vault 词条**（只把 `setting.json` 路径给子会话，靠 `inline_inputs` 内联） |
-| 反向写入沙盒等审核 | ⚠️ 有沙盒写入（`write_sandbox`/`push_to_sandbox`，带路径遍历防护） | ❌ 只有**完书后**通道（`obsidian_postprocess.py` 生成作品介绍页/出场记录/新角色草稿）<br>❌ **大纲/写作阶段无法回写**<br>❌ **无审核状态机**（无「待审/通过/驳回」标记，就是几个 .md 躺在沙盒里）<br>❌ `character_dirs` 默认空 → 判「已有词条」恒为否 |
-| 迭代后给开工方向 | ❌ **完全没有** | 现有产出只有 `outline_review` 的 verdict + THIN 清单，无「按体检生成 N 个可选开工方案」这类能力 |
+| 大纲多轮迭代 | ✅ 每轮备份 `global_vN.md` 可回溯；体检确定性零 token；**✅ 收敛判断**（`--trend`：done/improving/stalled/mixed + 建议）；**✅ 迭代成本进账本**（`stage=2` + `chapter=版本号`，`cost_report --by-outline` 逐轮可见） | ❌ 无「按体检结果生成 N 个可选开工方案」（目前只给结论与建议，不给方案） |
+| 调设定库 | ⚠️ 能导入能注入 | ❌ 整体替换非合并 ❌ 无增量同步 ❌ 大纲阶段不注入 vault 词条（只给 `setting.json` 路径） |
+| 反向写沙盒 | ⚠️ `write_sandbox` 带遍历防护 | ❌ 只有**完书后**通道 ❌ 无审核状态机 ❌ `character_dirs` 默认空 |
+| 迭代后给开工方向 | ⚠️ **部分**：`--trend` 给「可以开工 / 建议换策略 / 建议回退 + 理由」 | ❌ 不给具体可选方案（属下一步）。判断力仍在人/外层 agent |
+
+**收敛判断的口径**（确定性，不是 LLM 判断）：主键 `issues + thin`（越小越好），
+看最近 `window`（默认 3）轮 —— 最新为 0 = `done`（可开工）；持续下降 = `improving`；
+完全不变 = `stalled`（收益递减，建议换角度/补素材/开工）；有升有降 = `mixed`（建议回看哪几条在反复）。
 
 **结论**：绒花墨坊负责「手」（确定性地读写文件、调 LLM、算成本、留备份、做体检），
 **「脑」需要外层 agent**（读体检 → 判断收敛 → 给方向 → 调 refine → 审沙盒产物）。

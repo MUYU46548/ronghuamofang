@@ -69,6 +69,48 @@ def handle_outline_diff(h):
         return 500, {"error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+def handle_outline_trend(h):
+    """迭代趋势 + 与上一版对比 + 收敛判断（确定性，零 token）。
+
+    回答「还要不要再迭代一轮」—— 这是 `/outline/diff`（节点级文本差异）
+    之外的**质量指标视角**：diff 告诉你哪几行变了，趋势告诉你**每轮有没有
+    实质进展**（问题数 / 碎片数 / 平均分的变化），并给出结论：
+
+      done         最新版已达标（问题=0 且碎片=0）→ 可以开工
+      improving    最近几轮持续改善 → 可继续
+      stalled      最近几轮完全没变 → 收益递减，建议换策略或开工
+      mixed        有升有降 → 建议回看是哪几条在反复
+      insufficient 版本不足 2 个 → 无法判断趋势
+
+    参数 `window`（默认 3）：看最近几轮。
+    """
+    try:
+        import outline_review as ov
+        q = h._query()
+        raw_window = (q.get("window") or ["3"])[0]
+        try:
+            window = max(2, min(int(raw_window), 20))
+        except (TypeError, ValueError):
+            window = 3
+
+        setting = "data/setting/setting.json"
+        series = ov.review_series("data/outline/global.md", setting)
+        status, note = ov.convergence_verdict(series, window=window)
+        cmp = ov.compare_with_previous("data/outline/global.md", setting)
+        return 200, {
+            "series": series,
+            "window": window,
+            "status": status,
+            "note": note,
+            "compare": cmp,          # None = 无历史备份（不假装已对比）
+            "has_backup": ov.latest_backup() is not None,
+        }
+    except FileNotFoundError as e:
+        return 400, {"error": "大纲不存在（先跑 stage2）: " + str(e)[:120]}
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 def handle_outline_drafts(h):
     """多方案 draft 列表 + 每份的四节原文（供前端拼合预览）。"""
     try:
