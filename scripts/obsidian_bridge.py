@@ -197,15 +197,29 @@ def scan_vault(vault_path=None):
     world_entries = []
     timeline_entries = []
 
-    # 角色目录
+    # 角色目录。⚠️ 2026-09-21 修复**跨类目污染与重复**：
+    # 原写法把**父目录** `03 设定` 也放进列表并配 `rglob`，于是它递归扫到了
+    # `02 地点` / `04 概念`，把「沙都」「绒花帝国魔法管制法」这类条目当成角色，
+    # 且 `01 人物` 下的条目被扫两遍（各重复一次）。实测 4 个文件的 vault
+    # 扫出 6 个"角色"：['罗霄','露汐','罗霄','露汐','沙都','绒花帝国魔法管制法']。
+    # 这正是归档数据「480 条 characters 里只有 84 条真人物」的生产者侧根因。
+    #
+    # 现在**只认 `01 人物`**（rglob，它有子类目）。这与 `utils.setting_schema.path_kind`
+    # 的判据一致：`03 设定\01 人物\<子类目>\<名>.md` 才是人物，
+    # `03 设定\<其他类目>\...` 不是。
+    #
+    # 刻意**不把父目录 `03 设定` 放进角色列表**：直接躺在 `03 设定\` 下的松散文件
+    # （总纲/说明/索引页）绝大多数不是人物，归入 world 更合理（见下）。
+    # 早先版本把父目录同时放进 char/world 两处，靠"角色优先"的排除规则决出归属，
+    # 会把「散装说明」这类条目判成角色。
     char_dirs = [
-        vault / "03 设定" / "01 人物",
-        vault / "03 设定",
+        (vault / "03 设定" / "01 人物", True),
     ]
-    for char_dir in char_dirs:
+    for char_dir, recursive in char_dirs:
         if not char_dir.exists():
             continue
-        for md_file in char_dir.rglob("*.md"):
+        for md_file in (char_dir.rglob("*.md") if recursive
+                        else char_dir.glob("*.md")):
             if any(part in SKIP_DIRS for part in md_file.relative_to(vault).parts):
                 continue
             if "索引" in md_file.name or "模板" in md_file.name:
@@ -269,17 +283,18 @@ def scan_vault(vault_path=None):
                 "source": "vault",
             })
 
-    # 世界观目录
+    # 世界观目录。同样：类目 rglob，父目录仅 glob（见上面的污染说明）。
     world_dirs = [
-        vault / "03 设定" / "02 地点",
-        vault / "03 设定" / "03 势力",
-        vault / "03 设定" / "04 概念",
-        vault / "03 设定",
+        (vault / "03 设定" / "02 地点", True),
+        (vault / "03 设定" / "03 势力", True),
+        (vault / "03 设定" / "04 概念", True),
+        (vault / "03 设定", False),        # 兜底：仅直接子文件
     ]
-    for world_dir in world_dirs:
+    for world_dir, recursive in world_dirs:
         if not world_dir.exists():
             continue
-        for md_file in world_dir.rglob("*.md"):
+        for md_file in (world_dir.rglob("*.md") if recursive
+                        else world_dir.glob("*.md")):
             if any(part in SKIP_DIRS for part in md_file.relative_to(vault).parts):
                 continue
             if "索引" in md_file.name or "模板" in md_file.name:
@@ -361,6 +376,39 @@ def scan_vault(vault_path=None):
                 "source": "vault",
             })
 
+    # 去重 + 跨类目排除。
+    # 去重键用 `path` 而非 `name`：同名异实体是合法的
+    # （真实数据里「月兔」是种族、「月兔之城」是地点）。
+    # 排除是为了防「同一个文件既算角色又算世界观」——父目录 glob 与类目 rglob
+    # 理论上不相交，但配置变更/符号链接下可能重叠，这里显式兜住。
+    _seen = set()
+    _uniq_chars = []
+    for c in characters:
+        if c["path"] in _seen:
+            continue
+        _seen.add(c["path"])
+        _uniq_chars.append(c)
+    characters = _uniq_chars
+    _char_paths = {c["path"] for c in characters}
+
+    _seen = set()
+    _uniq_world = []
+    for w in world_entries:
+        if w["path"] in _seen or w["path"] in _char_paths:
+            continue
+        _seen.add(w["path"])
+        _uniq_world.append(w)
+    world_entries = _uniq_world
+
+    _seen = set()
+    _uniq_tl = []
+    for t in timeline_entries:
+        if t["path"] in _seen:
+            continue
+        _seen.add(t["path"])
+        _uniq_tl.append(t)
+    timeline_entries = _uniq_tl
+
     return {
         "characters": characters,
         "world": world_entries,
@@ -438,10 +486,36 @@ def check_consistency(text, vault_data=None):
     """检查写作产物是否偏离正典。
 
     返回 {
-        "conflicts": [{type, entry_name, detail, suggestion}],
-        "warnings": [{type, entry_name, detail}],
-        "locked_violations": [{entry_name, detail}]
+        "conflicts": [...],            # ⚠ 恒为空，见下
+        "warnings": [...],             # 疑似新角色（启发式，召回有限）
+        "locked_violations": [...],    # ⚠ 恒为空，见下
+        "implemented": [...],          # 本次**真正执行**的检查项
+        "unimplemented": [...],        # **未实现**的检查项（空结果 ≠ 无问题）
+        "caveat": str,                 # 使用前必读的说明
     }
+
+    ## ⚠️ 2026-09-21 诚实化（此前是「假安心」）
+
+    本函数此前**恒返回全零**，而调用方/CLI 会打印「冲突：0 个 / 警告：0 个 /
+    locked 违例：0 个」—— 看起来像「一致性检查通过」，实际是**什么都没查**。
+    这正是本项目最忌讳的假成功：一个永远说"没问题"的检查器比没有检查器更危险，
+    因为它制造虚假信心。
+
+    实测（2026-09-21）：输入「露汐与暮雨在沙都对峙，暮雨质问封锁法令。」
+    （其中「暮雨」是 vault 中不存在的角色、且提到了 locked 的「露汐」），
+    三个计数**全是 0**。
+
+    两个具体原因：
+    1. `conflicts` / `locked_violations` 是**硬编码的空列表**，代码里从未 append。
+       「locked 不可违逆」目前只是**提示级**约束（`build_character_card` 会在
+       角色卡里写一行「⚠ locked 条目，绝对不可违逆」），**没有任何验证器**。
+       要做成检查级需要语义判断（正典事实 vs 本章事实），属设计决策，未实现。
+    2. `warnings` 用 `re.findall(r'[一-鿿]{2,4}', text)` —— 对连续汉字串做**贪心
+       切片**，切出的 4 字块与人名边界完全对不上。「露汐与暮雨在沙都对峙」被切成
+       「露汐与暮」/「雨在沙都」/「对峙」，**「暮雨」根本不会作为一个候选出现**。
+       中文未登录人名识别需要分词器（jieba 之类），本项目未引入该依赖。
+
+    因此现在**显式声明**实现范围，让调用方无法把空结果误读为"通过"。
     """
     if vault_data is None:
         vault_data = scan_vault()
@@ -450,7 +524,6 @@ def check_consistency(text, vault_data=None):
     warnings = []
     locked_violations = []
 
-    # 检查新角色是否与已有角色重名
     existing_names = {c["name"] for c in vault_data["characters"]}
     existing_aliases = set()
     for c in vault_data["characters"]:
@@ -458,46 +531,65 @@ def check_consistency(text, vault_data=None):
             if alias:
                 existing_aliases.add(alias)
 
-    # 提取文本中的候选角色名（2-4 字中文词，出现 >=2 次）
     from collections import Counter
-    candidates = re.findall(r'[一-鿿]{2,4}', text)
+    # 改用**滑动窗口**（每个位置取 2/3/4 字）收集候选，替代原来的贪心切片。
+    # 这能显著提高召回（「暮雨」在「露汐与暮雨在」里能被窗口覆盖到），
+    # 但代价是候选里混入大量跨词边界的噪声 —— 靠下面的 known-name 剔除 +
+    # 停用词 + 频次阈值压制。**这不是分词，召回与精确率都是启发式的。**
+    cn_runs = re.findall(r'[一-鿿]+', text)
+    candidates = []
+    for run in cn_runs:
+        for n in (2, 3, 4):
+            for i in range(len(run) - n + 1):
+                candidates.append(run[i:i + n])
     counter = Counter(candidates)
 
-    # 常见非角色名词/动词/形容词（需要过滤的通用词）
+    # 与已知角色名/别名有重叠的候选一律剔除（避免把「露汐与」「汐与暮」当成新角色）
+    known = {n for n in (existing_names | existing_aliases) if n}
+
+    def _overlaps_known(cand):
+        return any(k and (k in cand or cand in k) for k in known)
+
+    # 常见非角色词（原表保留；跨词边界的噪声主要靠频次阈值过滤）
     common_words = {
         "角色", "设定", "世界观", "剧情", "情节", "故事", "小说", "章节",
         "大纲", "素材", "写作", "创作", "作者", "读者", "作品", "文本",
         "描述", "介绍", "说明", "注释", "参考", "引用", "来源", "出处",
         "推测", "猜测", "假设", "可能", "应该", "必须", "需要", "可以",
-        "不行", "不能", "不会", "不要", "不是", "没有", "无法", "无法",
-        "解释", "说明", "描述", "表达", "表示", "显示", "展示", "呈现",
-        "静谧", "之神", "创造", "结界", "程度", "能力", "力量", "能量",
-        "仪式", "魔法", "法术", "术式", "技能", "技巧", "技术", "方法",
-        "白色", "长发", "离去", "月前", "看护", "幻神", "月面", "大结",
-        "融光", "无归", "推测", "区域", "不行", "不解释",
+        "不行", "不能", "不会", "不要", "不是", "没有", "无法",
+        "解释", "表达", "表示", "显示", "展示", "呈现",
+        "之际", "之时", "之间", "之后", "之前", "的话", "一个", "什么",
+        "怎么", "这个", "那个", "他们", "她们", "自己", "已经", "而是",
+        "但是", "可是", "然而", "不过", "虽然", "尽管", "因为", "所以",
+        "如果", "那么", "而且", "并且", "或者", "还是", "要么", "既然",
+        "于是", "突然", "忽然", "然后", "接着", "随后", "最后", "终于",
+        "开始", "结束", "发现", "质问", "对峙", "封锁", "法令",
     }
 
-    for name, count in counter.most_common(30):
-        if count < 2:
+    for name, count in counter.most_common(60):
+        if count < 3:                      # 滑动窗口噪声大 → 阈值比原来(2)更严
             continue
-        if name in existing_names or name in existing_aliases:
+        if name in known or name in STOP_WORDS or name in common_words:
             continue
-        # 检查是否是停用词
-        if name in STOP_WORDS:
-            continue
-        # 检查是否是常见非角色名词
-        if name in common_words:
+        if _overlaps_known(name):
             continue
         warnings.append({
-            "type": "new_character",
+            "type": "new_character_suspect",
             "entry_name": name,
-            "detail": f"文本中出现 {count} 次，但 vault 中无此角色",
+            "detail": (f"文本中出现 {count} 次，但 vault 中无匹配角色名"
+                       f"（启发式候选，可能是跨词边界噪声，需人工确认）"),
         })
 
     return {
         "conflicts": conflicts,
         "warnings": warnings,
         "locked_violations": locked_violations,
+        "implemented": ["new_character_suspect（疑似新角色，启发式）"],
+        "unimplemented": ["conflicts（正典事实冲突）",
+                          "locked_violations（locked 条目违逆）"],
+        "caveat": ("空结果**不代表**写作产物与正典一致：conflicts 与 "
+                   "locked_violations 尚未实现，warnings 仅为启发式候选。"
+                   "locked 约束目前只在提示词层生效（写入角色卡），没有验证器。"),
     }
 
 
@@ -666,15 +758,22 @@ if __name__ == "__main__":
     elif args.cmd == "check":
         text = read_text(args.file)
         result = check_consistency(text)
-        print(f"冲突：{len(result['conflicts'])} 个")
-        for c in result["conflicts"]:
-            print(f"  [{c['type']}] {c['entry_name']}: {c['detail']}")
-        print(f"警告：{len(result['warnings'])} 个")
-        for w in result["warnings"]:
+        # ⚠️ 输出必须让「什么没查」比「查了什么」更醒目 ——
+        # 否则「0 个」会被读成「通过」，而实际是未实现。
+        print("已实现的检查：")
+        for c in result.get("implemented", []):
+            print(f"  ✓ {c}")
+        print("未实现的检查（空结果 ≠ 无问题）：")
+        for u in result.get("unimplemented", []):
+            print(f"  ✗ {u}")
+        print("")
+        print(f"疑似新角色候选：{len(result['warnings'])} 个（启发式，需人工确认）")
+        for w in result["warnings"][:20]:
             print(f"  [{w['type']}] {w['entry_name']}: {w['detail']}")
-        print(f"locked 违例：{len(result['locked_violations'])} 个")
-        for v in result["locked_violations"]:
-            print(f"  {v['entry_name']}: {v['detail']}")
+        print(f"正典事实冲突：{len(result['conflicts'])} 个（**该检查未实现**）")
+        print(f"locked 违例：{len(result['locked_violations'])} 个（**该检查未实现**）")
+        print("")
+        print(f"注意：{result.get('caveat', '')}")
 
     elif args.cmd == "push":
         ok, msg = push_to_sandbox(args.file, args.subdir)

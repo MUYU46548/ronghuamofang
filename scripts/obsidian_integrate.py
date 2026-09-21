@@ -2,49 +2,27 @@
 """Vault 知识库整合：自动导入角色/世界观 + 写作后同步出场记录。
 
 与 obsidian_bridge 协同工作，本模块提供额外的同步/检测功能。
+
+## ⚠️ 2026-09-21 去重
+
+本模块的 `scan_vault_characters` / `scan_vault_worldbuilding` 此前是
+`obsidian_bridge.scan_vault` 的**逐行复制品**（各约 95 行，含同样的
+frontmatter 解析、同样的目录遍历）。已改为**委托**，单一事实源在 bridge。
+顺带删掉了随之成为死代码的 `_parse_frontmatter` / `_safe_list` 及未使用导入。
+
+复制实现的代价在这里体现得很典型：同一个「父目录 rglob 导致跨类目污染」
+缺陷必须修两遍，而实际上当时只修了 bridge 一处。
 """
 import re
 import json
+import shutil
+import sys
 from pathlib import Path
 from datetime import datetime
 from collections import Counter
 
 from utils.file_io import read_text, write_text
-from obsidian_bridge import (
-    scan_vault, inject_context, check_consistency, write_sandbox, push_to_sandbox,
-    _get_vault_path, SKIP_DIRS,
-    NAME_KEYS, TAG_KEYS, TYPE_KEYS, DESC_KEYS, LOCKED_KEYS, RELATION_KEYS,
-)
-
-
-def _parse_frontmatter(text):
-    """解析 YAML frontmatter，返回 (dict, body_start_offset)。"""
-    m = re.match(r'^---\s*\n(.*?)\n---', text, re.S)
-    if not m:
-        return {}, 0
-    fm_text = m.group(1)
-    fm = {}
-    for line in fm_text.splitlines():
-        line = line.strip()
-        if not line or line.startswith('#'):
-            continue
-        kv = re.match(r'^(\w+)[：:]\s*(.+)', line)
-        if kv:
-            key = kv.group(1).strip()
-            val = kv.group(2).strip().strip('"').strip("'")
-            # 解析列表
-
-            fm[key] = val
-    return fm, m.end()
-
-
-def _safe_list(v):
-    """确保值为列表。"""
-    if isinstance(v, list):
-        return v
-    if isinstance(v, str):
-        return [v]
-    return []
+from obsidian_bridge import scan_vault, _get_vault_path
 
 
 def _resolve_vault(vault_path=None):
@@ -58,192 +36,96 @@ def _resolve_vault(vault_path=None):
 
 
 def scan_vault_characters(vault_path=None):
-    """扫描 vault 中的角色词条，返回 [{name, path, tags, type, locked, relations, snippet}]。"""
-    vault = _resolve_vault(vault_path)
-    characters = []
-    
-    # 角色通常在 03 设定/01 人物/ 下
-    char_dirs = [
-        vault / "03 设定" / "01 人物",
-        vault / "03 设定",
-    ]
-    
-    for char_dir in char_dirs:
-        if not char_dir.exists():
-            continue
-        for md_file in char_dir.rglob("*.md"):
-            # 跳过非正典目录
-            if any(part in SKIP_DIRS for part in md_file.relative_to(vault).parts):
-                continue
-            # 跳过索引页/模板
-            if "索引" in md_file.name or "模板" in md_file.name:
-                continue
-            
-            try:
-                text = md_file.read_text(encoding='utf-8', errors='ignore')
-            except Exception:
-                continue
-            
-            fm, body_start = _parse_frontmatter(text)
-            body = text[body_start:]
-            
-            # 提取名称
-            name = ""
-            for k in NAME_KEYS:
-                v = fm.get(k)
-                if v:
-                    name = v if isinstance(v, str) else str(v[0])
-                    break
-            if not name:
-                name = md_file.stem
-            
-            # 提取标签
-            tags = []
-            for k in TAG_KEYS:
-                v = fm.get(k)
-                if v:
-                    tags = _safe_list(v)
-                    break
-            
-            # 提取类型
-            type_ = ""
-            for k in TYPE_KEYS:
-                v = fm.get(k)
-                if v:
-                    type_ = v if isinstance(v, str) else str(v[0])
-                    break
-            
-            # 是否 locked
-            locked = False
-            for k in LOCKED_KEYS:
-                v = fm.get(k)
-                if v and str(v).lower() in ('true', 'yes', '1', '是'):
-                    locked = True
-                    break
-            
-            # 提取关系
-            relations = []
-            for k in RELATION_KEYS:
-                v = fm.get(k)
-                if v:
-                    relations = _safe_list(v)
-                    break
-            
-            # 提取描述摘要
-            desc = ""
-            for k in DESC_KEYS:
-                v = fm.get(k)
-                if v:
-                    desc = v if isinstance(v, str) else str(v[0])
-                    break
-            if not desc:
-                # 用正文前 200 字
-                plain = re.sub(r'[#*`\[\]]', '', body).strip()
-                desc = plain[:200].replace('\n', ' ').strip()
-            
-            rel_path = str(md_file.relative_to(vault))
-            characters.append({
-                "name": name,
-                "path": rel_path,
-                "tags": tags[:10],
-                "type": type_,
-                "locked": locked,
-                "relations": relations[:20],
-                "snippet": desc[:300],
-                "source": "vault",
-            })
-    
-    return characters
+    """扫描 vault 中的角色词条。
+
+    ⚠️ 2026-09-21 改为**委托** `obsidian_bridge.scan_vault`。
+
+    本函数与 `scan_vault_worldbuilding` 此前是 `scan_vault` 的**逐行复制品**
+    （各约 95 行），且带着同一个缺陷：目录列表里混进**父目录** `03 设定` 并配
+    `rglob`，导致跨类目污染（地点/概念被当成角色）与重复（每条扫两遍）。
+    实测 4 个文件的 vault 扫出 6 个"角色"。
+
+    重复实现意味着**同一个 bug 要修两遍**（而且很容易只修一处）。
+    现统一委托，单一事实源在 `obsidian_bridge.scan_vault`。
+
+    返回 [{name, path, tags, type, locked, relations, snippet, source}]。
+    """
+    return scan_vault(vault_path)["characters"]
 
 
 def scan_vault_worldbuilding(vault_path=None):
-    """扫描 vault 中的世界观词条（地点/势力/概念），返回 [{name, path, tags, type, snippet}]。"""
-    vault = _resolve_vault(vault_path)
-    entries = []
-    
-    world_dirs = [
-        vault / "03 设定" / "02 地点",
-        vault / "03 设定" / "03 势力",
-        vault / "03 设定" / "04 概念",
-        vault / "03 设定",
-    ]
-    
-    for world_dir in world_dirs:
-        if not world_dir.exists():
-            continue
-        for md_file in world_dir.rglob("*.md"):
-            if any(part in SKIP_DIRS for part in md_file.relative_to(vault).parts):
-                continue
-            if "索引" in md_file.name or "模板" in md_file.name:
-                continue
-            
-            try:
-                text = md_file.read_text(encoding='utf-8', errors='ignore')
-            except Exception:
-                continue
-            
-            fm, body_start = _parse_frontmatter(text)
-            body = text[body_start:]
-            
-            name = ""
-            for k in NAME_KEYS:
-                v = fm.get(k)
-                if v:
-                    name = v if isinstance(v, str) else str(v[0])
-                    break
-            if not name:
-                name = md_file.stem
-            
-            tags = []
-            for k in TAG_KEYS:
-                v = fm.get(k)
-                if v:
-                    tags = _safe_list(v)
-                    break
-            
-            type_ = ""
-            for k in TYPE_KEYS:
-                v = fm.get(k)
-                if v:
-                    type_ = v if isinstance(v, str) else str(v[0])
-                    break
-            
-            plain = re.sub(r'[#*`\[\]]', '', body).strip()
-            snippet = plain[:300].replace('\n', ' ').strip()
-            
-            rel_path = str(md_file.relative_to(vault))
-            entries.append({
-                "name": name,
-                "path": rel_path,
-                "tags": tags[:10],
-                "type": type_,
-                "snippet": snippet,
-                "source": "vault",
-            })
-    
-    return entries
+    """扫描 vault 中的世界观词条（地点/势力/概念）。
+
+    同样改为委托 `obsidian_bridge.scan_vault`（见上）。
+    返回 [{name, path, tags, type, snippet, source}]。
+    """
+    return scan_vault(vault_path)["world"]
+
+def _backup_setting_if_exists(setting_path):
+    """覆盖前把现有 setting.json 备份到 data/setting/history/setting_v{N}.json。
+
+    命名沿用 `setting_refine.py` 的既有约定（`setting_v{N}.json` 递增），
+    这样两处产出的备份在同一个序列里，不会互相覆盖。
+
+    ⚠️ 为什么必须备份：`build_setting_from_vault` 是**整体替换**语义 ——
+    它用 vault 扫描结果构造全新的 characters 列表，`plot_fragments` /
+    `timeline` 直接置空。实测（2026-09-21）跑一次 scan 就会把 stage1 从素材
+    归并出来的角色、剧情碎片、时间线**全部丢掉且不可恢复**。
+    本项目纪律：破坏性操作前必须备份。这里补上。
+
+    返回备份路径，或 None（原文件不存在 / 备份失败）。
+    """
+    src = Path(setting_path)
+    if not src.exists():
+        return None
+    hist = Path("data/setting/history")
+    hist.mkdir(parents=True, exist_ok=True)
+    nums = []
+    for p in hist.glob("setting_v*.json"):
+        m = re.match(r"setting_v(\d+)\.json$", p.name)
+        if m:
+            nums.append(int(m.group(1)))
+    dest = hist / f"setting_v{(max(nums) + 1) if nums else 1}.json"
+    try:
+        shutil.copy2(src, dest)
+        return dest
+    except OSError:
+        return None
 
 
 def build_setting_from_vault(vault_path=None, output_path=None):
     """从 vault 构建设定集（data/setting/setting.json）。
-    
-    返回 setting 字典，结构：
-    {
-      "characters": [...],
-      "world": [...],
-      "plot_fragments": [...],
-      "timeline": [...],
-      "meta": {"source": "vault", "built_at": "...", "vault_path": "..."}
-    }
+
+    ⚠️ **语义是「整体替换」，不是「合并」/「统一」**：本函数用 vault 扫描
+    结果构造**全新**的 characters 列表，并把 `plot_fragments` / `timeline`
+    置为空列表。因此它**不会**保留 stage1 从素材归并的内容。
+
+    写盘前会**自动备份**现有 setting.json 到
+    `data/setting/history/setting_v{N}.json`（若存在），并打印被替换的条目数，
+    避免静默数据丢失。
+
+    Args:
+        vault_path: vault 根目录；None 时读 config/system.yaml 的 obsidian.vault_path
+        output_path: 输出路径（必须在 data/ 下）；None 时不写盘，只返回 dict
+
+    Returns:
+        setting dict（结构见下方）
+
+    Raises:
+        ValueError: output_path 越出 data/ 边界，或 vault 未配置。
+
+    ⚠️ 2026-09-21 修复：此前失败分支 `return False, msg`（二元组），成功分支
+    返回 dict —— 调用方 `setting['meta']` 在失败时抛 TypeError。现统一为
+    抛 ValueError（与 `_resolve_vault` 同风格），成功只返回 dict。
     """
     characters = scan_vault_characters(vault_path)
     world_entries = scan_vault_worldbuilding(vault_path)
-    
+
     # 分类 world 条目
     locations = [e for e in world_entries if "地点" in e.get("type", "") or "场景" in e.get("type", "")]
     factions = [e for e in world_entries if "势力" in e.get("type", "") or "组织" in e.get("type", "")]
     concepts = [e for e in world_entries if "概念" in e.get("type", "") or e not in locations and e not in factions]
-    
+
     setting = {
         "characters": characters,
         "world": {
@@ -262,16 +144,37 @@ def build_setting_from_vault(vault_path=None, output_path=None):
             "world_count": len(world_entries),
         }
     }
-    
+
     if output_path:
         # 校验输出路径在项目内 data/ 目录下（防止路径遍历）
         out = Path(output_path)
         if out.is_absolute():
             # 绝对路径只允许在 data/ 下
             if not str(out).replace("\\", "/").startswith("data/"):
-                return False, f"输出路径必须在 data/ 目录下: {output_path}"
+                raise ValueError(f"输出路径必须在 data/ 目录下: {output_path}")
+
+        # 覆盖前备份 + 明确告知将被替换的内容（防静默数据丢失）
+        old_chars = []
+        if Path(output_path).exists():
+            try:
+                old = json.loads(read_text(output_path))
+                old_chars = [c.get("name") for c in old.get("characters", [])
+                             if isinstance(c, dict) and c.get("name")]
+            except Exception:                      # noqa: BLE001
+                old_chars = []
+            backup = _backup_setting_if_exists(output_path)
+            if backup:
+                msg = f"[obsidian_integrate] 已备份原设定集 → {backup}"
+                if old_chars:
+                    msg += (f"（原 {len(old_chars)} 个角色将被**整体替换**："
+                            f"{'、'.join(old_chars[:10])}"
+                            f"{'…' if len(old_chars) > 10 else ''}）")
+                print(msg)
+            else:
+                print("[obsidian_integrate] ⚠ 原设定集备份失败，仍继续覆盖（请自行确认）")
+
         write_text(output_path, json.dumps(setting, ensure_ascii=False, indent=2))
-    
+
     return setting
 
 
@@ -367,7 +270,6 @@ def detect_new_characters(chapter_text, setting_path="data/setting/setting.json"
             existing_names.add(alias)
     
     candidates = extract_character_names_from_text(chapter_text)
-    from collections import Counter
     counter = Counter(candidates)
     
     new_chars = []
@@ -406,9 +308,19 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     if args.cmd == "scan":
-        setting = build_setting_from_vault(args.vault, args.output)
-        print(f"扫描完成：{setting['meta']['character_count']} 角色 + {setting['meta']['world_count']} 世界观词条")
+        try:
+            setting = build_setting_from_vault(args.vault, args.output)
+        except ValueError as e:
+            # build_setting_from_vault 现统一抛 ValueError（vault 未配置 / 路径越界）
+            print(f"[obsidian_integrate] 失败: {e}")
+            print("[obsidian_integrate] 提示：vault 目录结构与扫描范围见 "
+                  "obsidian_bridge.scan_vault 的 docstring。")
+            sys.exit(1)
+        print(f"扫描完成：{setting['meta']['character_count']} 角色 + "
+              f"{setting['meta']['world_count']} 世界观词条")
         print(f"输出：{args.output}")
+        print("[obsidian_integrate] ⚠ 注意：本命令是**整体替换**语义 —— "
+              "vault 内容会覆盖现有设定集，原文件已备份到 data/setting/history/。")
     
     elif args.cmd == "sync":
         text = read_text(args.chapter_file)

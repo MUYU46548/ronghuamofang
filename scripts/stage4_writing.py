@@ -26,6 +26,18 @@ from utils.setting_schema import (
 
 SUMMARY_RE = re.compile(r"<!--\s*summary:\s*(.+?)\s*-->", re.IGNORECASE | re.S)
 
+# 知识库注入的「一次性提示」开关。
+# `build_chapter_task` 每章调一次，逐章打印同一条提示会淹没日志；
+# 但**完全不提示**又是静默失败（用户以为 KB 生效了）。折中：每进程提示一次。
+_KB_NOTICE = {"shown": False}
+
+
+def _kb_notice_once(msg):
+    """同一条 KB 提示每进程只打印一次。"""
+    if not _KB_NOTICE["shown"]:
+        print(msg)
+        _KB_NOTICE["shown"] = True
+
 
 def _safe_read(path, budget=20000):
     try:
@@ -168,18 +180,38 @@ def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, p
     style_notes = build_style_notes_section(book.get("style_notes", ""))
 
     # P2.4 知识库上下文注入（使用 obsidian_bridge，只读 + 沙盒写入）
+    #
+    # ⚠️ 2026-09-21 修复**静默降级**：此前是裸 `except Exception: pass` ——
+    # vault 未配置时 `scan_vault()` 抛 ValueError 被直接吞掉，用户配了路径但
+    # 目录结构不符 / 路径写错时同样无声无息，KB 注入恒为空而**没有任何提示**。
+    # 用户读到的是"正常写作"，实际正典上下文从未生效。
+    #
+    # 现按项目纪律区分三态（未启用 / 未命中 / 失败），每种都有明确输出：
+    #   - 未配置 vault   → **未启用**（不是失败），提示一次
+    #   - 已配置但未命中 → 提示一次（可能是章节涉及角色名与词条名对不上）
+    #   - 抛异常         → **失败**，必须打印，不能吞
     kb_context = ""
     try:
-        from obsidian_bridge import scan_vault, inject_context
-        vault_data = scan_vault()
-        outline_text = _safe_read(outline_path, budget=8000)
-        rm = re.search(r"涉及角色[：:]\s*(.+)", outline_text)
-        query = rm.group(1)[:100] if rm else outline_text[:100]
-        kb_context = inject_context(query, vault_data=vault_data, top_k=5)
-        if kb_context:
-            kb_context = "### 相关正典词条（写作时参考，locked 条目不可违逆）\n\n" + kb_context
-    except Exception:
-        pass
+        from obsidian_bridge import scan_vault, inject_context, is_vault_configured
+        if not is_vault_configured():
+            _kb_notice_once(
+                "[stage4] 提示：未配置 obsidian.vault_path，本次写作**未启用**知识库"
+                "词条注入（属未启用，非失败）。配置后可在 GUI「设置」页填写本地路径。")
+        else:
+            vault_data = scan_vault()
+            outline_text = _safe_read(outline_path, budget=8000)
+            rm = re.search(r"涉及角色[：:]\s*(.+)", outline_text)
+            query = rm.group(1)[:100] if rm else outline_text[:100]
+            kb_context = inject_context(query, vault_data=vault_data, top_k=5)
+            if kb_context:
+                kb_context = "### 相关正典词条（写作时参考，locked 条目不可违逆）\n\n" + kb_context
+            else:
+                _kb_notice_once(
+                    "[stage4] 提示：vault 已配置但未匹配到相关词条 —— 未注入 KB 上下文"
+                    "（可能是章节「涉及角色」行缺失，或词条名与角色名不一致）。")
+    except Exception as e:                       # noqa: BLE001
+        print(f"[stage4] ⚠ 知识库注入失败（本章将无 KB 正典上下文）: "
+              f"{type(e).__name__}: {e}")
 
     # 角色卡锁定：从 setting.json 提取当前章节涉及的角色
     character_cards = _extract_character_cards_for_chapter(setting_path, outline_path)
