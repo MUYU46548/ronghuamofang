@@ -1,6 +1,6 @@
 {
   "name": "ronghuamofang-console",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "绒花墨坊桌面控制台（消费本地 nf_api）",
   "author": "暮雨 (MUYU46548)",
   "private": true,
@@ -48,11 +48,30 @@
       "package.json"
     ],
     "extraResources": [
-      {"from": "runtime", "to": "runtime"},
-      {"from": "../scripts", "to": "payload/scripts", "filter": ["!**/__pycache__/**", "!**/*.pyc"]},
-      {"from": "../prompts", "to": "payload/prompts"},
-      {"from": "../config", "to": "payload/config"},
-      {"from": "../templates", "to": "payload/templates"}
+      {
+        "from": "runtime",
+        "to": "runtime"
+      },
+      {
+        "from": "../scripts",
+        "to": "payload/scripts",
+        "filter": [
+          "!**/__pycache__/**",
+          "!**/*.pyc"
+        ]
+      },
+      {
+        "from": "../prompts",
+        "to": "payload/prompts"
+      },
+      {
+        "from": "../config",
+        "to": "payload/config"
+      },
+      {
+        "from": "../templates",
+        "to": "payload/templates"
+      }
     ],
     "win": {
       "target": [
