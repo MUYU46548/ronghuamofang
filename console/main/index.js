@@ -65,14 +65,21 @@ function setupAutoUpdater() {
       const msg = err.message || "";
       if (msg.includes("404") || msg.includes("no published versions")) {
         console.log("[updater] no update available (no GitHub release found)");
+        // 404 = 暂无发布，不把完整 HTTP 响应体发给前端（避免用户看到巨大错误）
+        if (mainWindow) {
+          mainWindow.webContents.send("updater", {
+            type: "no-update",
+            message: "暂无更新（当前已是最新版本）",
+          });
+        }
       } else {
         console.error("[updater] error:", msg.slice(0, 120));
-      }
-      if (mainWindow) {
-        mainWindow.webContents.send("updater", {
-          type: "error",
-          message: msg,
-        });
+        if (mainWindow) {
+          mainWindow.webContents.send("updater", {
+            type: "error",
+            message: msg.slice(0, 200),
+          });
+        }
       }
     });
   } catch (e) {
@@ -437,7 +444,11 @@ ipcMain.handle("updater:check", async () => {
     const result = await autoUpdater.checkForUpdates();
     return { ok: true, result };
   } catch (e) {
-    return { ok: false, error: e.message };
+    const msg = e.message || "";
+    if (msg.includes("404") || msg.includes("no published versions")) {
+      return { ok: false, error: "暂无更新（当前已是最新版本）" };
+    }
+    return { ok: false, error: msg.slice(0, 200) };
   }
 });
 

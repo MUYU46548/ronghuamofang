@@ -95,6 +95,65 @@ def handle_config_style_notes(h):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+def handle_config_agent_mode(h):
+    """读取当前 Agent 模式开关（config/system.yaml 的 gates.agent_mode）。"""
+    try:
+        cfg = api.load_all()[0]
+        return 200, {"ok": True, "agent_mode": bool(cfg.get("gates", {}).get("agent_mode", False)),
+                     "path": "config/system.yaml", "field": "gates.agent_mode"}
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_config_agent_mode_set(h):
+    """设置 Agent 模式开关（config/system.yaml 的 gates.agent_mode）。
+
+    安全守卫：Agent 模式只能从 GUI 手动开启，外部 Agent 不得调用此端点。
+    检测方式：请求必须携带 X-Mofang-Source: gui 头（由 Electron preload 注入）。
+    """
+    try:
+        body = h._body()
+        enable = bool(body.get("agent_mode", False))
+
+        # 安全守卫：仅 GUI 可以切换 Agent 模式
+        # Electron preload 在发请求时注入 X-Mofang-Source: gui
+        request_source = h.headers.get("X-Mofang-Source", "").strip().lower()
+        if request_source != "gui":
+            return 403, {"ok": False,
+                         "error": "Agent 模式仅允许在 GUI 中手动切换（缺少 X-Mofang-Source: gui 头）"}
+
+        # 定向改写 system.yaml 的 gates.agent_mode 字段
+        sys_yaml = api.ROOT / "config" / "system.yaml"
+        if not sys_yaml.exists():
+            return 400, {"ok": False, "error": "config/system.yaml 不存在"}
+        # 备份
+        backup_dir = api.ROOT / "config" / "history"
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        import shutil
+        from datetime import datetime
+        shutil.copy2(sys_yaml, backup_dir / f"system_{datetime.now().strftime('%Y%m%d_%H%M%S')}.yaml")
+        # 读取并替换
+        content = sys_yaml.read_text(encoding="utf-8")
+        # 匹配 gates.agent_mode: false/true
+        import re
+        pattern = r"(gates:\s*(?:\r?\n(?:[ \t]*#[^\r\n]*\r?\n)*[ \t]*[^\r\n]*\r?\n)*?[ \t]*agent_mode:\s*)(false|true)"
+        match = re.search(pattern, content, re.MULTILINE)
+        if match:
+            new_content = content[:match.end(1)] + ("true" if enable else "false") + content[match.end(2):]
+        else:
+            # 没找到 → 在 gates: 块后追加
+            gates_match = re.search(r"^gates:\s*$", content, re.MULTILINE)
+            if gates_match:
+                insert_pos = gates_match.end()
+                new_content = content[:insert_pos] + f"\n  agent_mode: {'true' if enable else 'false'}  # 外部 Agent 模式（默认关）" + content[insert_pos:]
+            else:
+                return 400, {"ok": False, "error": "未找到 gates: 块"}
+        sys_yaml.write_text(new_content, encoding="utf-8")
+        return 200, {"ok": True, "agent_mode": enable, "message": f"Agent 模式已{'开启' if enable else '关闭'}"}
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 # 本模块负责的端点（供自检与文档）
 ROUTES = (
     ("GET", "/health", handle_health),
@@ -103,4 +162,6 @@ ROUTES = (
     ("GET", "/project/status", handle_project_status),
     ("GET", "/config/project", handle_config_project),
     ("GET", "/config/style_notes", handle_config_style_notes),
+    ("GET", "/config/agent_mode", handle_config_agent_mode),
+    ("POST", "/config/agent_mode", handle_config_agent_mode_set),
 )

@@ -31,7 +31,7 @@ const API = (window.__NF_API_BASE__ || "http://127.0.0.1:8765").replace(/\/+$/, 
 const materialSub = ref("cards");
 
 async function api(path, method = "GET", body = null) {
-  const opt = { method, headers: { "Content-Type": "application/json" } };
+  const opt = { method, headers: { "Content-Type": "application/json", "X-Mofang-Source": "gui" } };
   if (body) opt.body = JSON.stringify(body);
   const r = await fetch(API + path, opt);
   let data = {};
@@ -81,6 +81,7 @@ async function refresh() {
     ]);
     if (s.status === 200) {
       state.value = s.data; online.value = true; budgetPaused.value = !!s.data?.budget?.paused;
+      agentMode.value = !!s.data?.agent_mode;  // 同步 Agent 模式开关状态
       noteJobTransition(s.data);
     }
     if (m.status === 200) models.value = m.data;
@@ -90,6 +91,18 @@ async function refresh() {
   } catch (e) {
     online.value = false;
   }
+}
+
+async function globalRefresh() {
+  // 全局刷新：同时刷新所有页签数据
+  await Promise.all([
+    refresh(),
+    refreshCosts(),
+    refreshModels(),
+    refreshSandboxBadge(),
+    refreshAppearances(),
+  ]);
+  say('已全局刷新');
 }
 
 async function refreshCosts() {
@@ -1437,10 +1450,26 @@ async function loadGateArtifacts() {
     const info = [];
     for (const p of paths) {
       const r = await window.mofangAPI.readPreview(p);
-      if (r.ok) info.push({ path: p, lines: r.content.split("\n").length });
-      else info.push({ path: p, lines: 0 });
+      if (r.ok) {
+        // 检查最近一条审计日志，判断产物是否由 Agent 生成
+        const agentGenerated = await checkAgentOrigin(p);
+        info.push({ path: p, lines: r.content.split("\n").length, agent: agentGenerated });
+      }
+      else info.push({ path: p, lines: 0, agent: false });
     }
     gateArtifacts.value[g.stage] = info;
+  }
+}
+
+// 检查产物是否由 Agent 生成（读取审计日志）
+async function checkAgentOrigin(artifactPath) {
+  try {
+    const r = await api("/state");
+    if (r.status !== 200) return false;
+    // 如果 agent_mode=true，则标记为 Agent 生成
+    return !!r.data?.agent_mode;
+  } catch (e) {
+    return false;
   }
 }
 
@@ -1798,6 +1827,27 @@ const chaptersLoaded = ref(false);
 const chapterQuality = ref({});  // {1: 7.5, 2: null, ...}
 const chapterThreshold = ref(6);
 const gateNotify = ref(gateNotifyEnabled());
+const agentMode = ref(false);
+async function toggleAgentMode() {
+  const newState = !agentMode.value;
+  // 二次确认：开启 Agent 模式前明确提示
+  if (newState) {
+    if (!window.confirm('确认开启 Agent 模式？\n\n开启后，外部 Agent（如 Hermes）将能通过 HTTP API 调用绒花墨坊进行大纲草拟、设定起草等操作。\n\n注意：审批/打回/归档/恢复/项目创建等操作仍只允许在 GUI 内手动执行。')) {
+      return;
+    }
+  } else {
+    if (!window.confirm('确认关闭 Agent 模式？\n\n外部 Agent 将无法再通过 API 调用绒花墨坊。')) {
+      return;
+    }
+  }
+  const r = await api('/config/agent_mode', 'POST', { agent_mode: newState });
+  if (r.status === 200 && r.data.ok) {
+    agentMode.value = newState;
+    say(r.data.message || (newState ? 'Agent 模式已开启' : 'Agent 模式已关闭'));
+  } else {
+    say('切换失败: ' + (r.data.error || r.status));
+  }
+}
 async function loadChapters() {
   // 章数从 config/project.yaml 读（白名单允许 config/*.yaml）
   let total = 3;
@@ -2004,14 +2054,11 @@ onMounted(() => {
       } else if (data.type === "update-downloaded") {
         updateReady.value = true;
         updateStatus.value = `新版本已下载，可重启安装`;
+      } else if (data.type === "no-update") {
+        // 404 = 暂无发布，主进程已过滤掉冗长的 HTTP 响应体
+        updateStatus.value = data.message || "暂无更新（当前已是最新版本）";
       } else if (data.type === "error") {
-        // 404 = 暂无发布，不显示冗长错误信息
-        const msg = data.message || "";
-        if (msg.includes("404") || msg.includes("no published")) {
-          updateStatus.value = "暂无更新（当前已是最新版本）";
-        } else {
-          updateStatus.value = "更新检查失败";
-        }
+        updateStatus.value = "更新检查失败";
       }
     };
     updaterCleanup = window.mofangAPI.onUpdater(updaterHandler);
@@ -2086,6 +2133,8 @@ onUnmounted(() => {
       <button :class="{ active: tab === 'export' }" @click="switchTab('export')">导出</button>
     </nav>
     <div class="conn" :class="{ on: online }">{{ online ? "已连接" : "离线" }}</div>
+    <button class="mini global-refresh-btn" @click="globalRefresh" title="全局刷新（所有页签数据）">↻</button>
+    <div v-if="agentMode" class="agent-mode-badge" title="Agent 模式已开启 —— 外部 Agent 可通过 HTTP API 调用">⚡ Agent</div>
   </header>
 
   <!-- 运行进度条（全局） -->
@@ -2543,6 +2592,7 @@ onUnmounted(() => {
           <span class="meta">产物概况：</span>
           <span v-for="a in gateArtifacts[s.stage]" :key="a.path" class="gate-artifact-pill">
             {{ a.path.split('/').slice(-1)[0] }} ({{ a.lines }} 行)
+            <span v-if="a.agent" class="agent-tag" title="此产物由外部 Agent 生成">⚡Agent</span>
           </span>
         </div>
         <!-- Stage 2: 大纲体检评分 -->
@@ -2752,6 +2802,18 @@ onUnmounted(() => {
         </div>
         <button class="mini" :class="{ primary: gateNotify }" @click="gateNotify = !gateNotify; setGateNotify(gateNotify)">
           {{ gateNotify ? '已开启' : '已关闭' }}
+        </button>
+      </div>
+
+      <!-- P1: Agent 模式开关 -->
+      <h4 style="margin-top: 16px;">Agent 模式（外部 Agent 控制）</h4>
+      <div class="gate-notify-row">
+        <div>
+          <div class="label">允许外部 Agent 通过 HTTP API 调用</div>
+          <div class="meta">开启后，Hermes 等外部 Agent 可调用绒花墨坊 API 进行大纲草拟、设定起草等操作。<br>⚠️ 禁止性操作（审批/打回/归档/恢复/项目创建）仍只允许在 GUI 内手动执行。<br>Agent 生成的大纲/产物自动进入待审批状态，需在桌面端确认。</div>
+        </div>
+        <button class="mini" :class="{ primary: agentMode }" @click="toggleAgentMode">
+          {{ agentMode ? '已开启' : '已关闭' }}
         </button>
       </div>
 

@@ -853,6 +853,19 @@ def make_client(cfg, model_key="default", verbose=True):
     if not api_key:
         print("[client] WARN 未设 " + str(prov.get("api_key_env", "?")) +
               "（项目 .env，不入 git）；客户端构造成功，实际调用时才会报错")
+
+    # 模型白名单校验（strict=False：只报警不拦，但记录日志）
+    # 这是防御性成本框架的一部分：用户免费体验包按模型领取，未经确认不得指定/更换付费模型
+    try:
+        from utils import model_registry
+        root = Path(__file__).resolve().parents[2]
+        chk = model_registry.check_model(model_id, cfg, root, strict=False)
+        if not chk["ok"] and verbose:
+            print("[client] WARN 模型白名单校验: " + chk["reason"])
+    except Exception as e:
+        if verbose:
+            print("[client] WARN 模型白名单校验跳过: " + str(e)[:100])
+
     if verbose:
         print("[client] 引擎=direct provider=" + provider_id + " 模型=" + model_id +
               " 角色=" + model_key)

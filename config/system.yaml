@@ -78,6 +78,7 @@ chapter:
   quality_threshold: 6
   page_break: true
 gates:
+  agent_mode: true  # 外部 Agent 模式（默认关）
   require_approval:
   - 2
   - 6
@@ -97,6 +98,8 @@ gates:
   auto_retry_delay_seconds: 3      # 重试前等待（秒），给 LLM 限流/超时恢复时间
   auto_retry_backoff: 2            # 退避系数：3s → 6s → 12s …
   stage8_export: true  # 阶段8：Markdown 分卷导出
+  agent_mode: false                # 外部 Agent 模式（默认关）：开启后 HTTP API 开放给外部 Agent 调用，
+                                   # 但禁止性操作（审批/打回/归档/恢复/项目创建）仍只允许 GUI 内手动执行
 obsidian:
   # vault path（只读）：用户自己的 Obsidian 知识库根目录
   # 留空则不启用 Obsidian 联动；首次使用请在 GUI「设置」页填写本地路径

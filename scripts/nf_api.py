@@ -124,6 +124,8 @@ from utils.project_config import get_style_notes as pc_get_style_notes  # noqa: 
 import reject as reject_mod  # noqa: E402
 import snapshot as snap_mod  # noqa: E402
 import switch_book as sb_mod  # noqa: E402
+# 审计日志（Agent 调用记录）
+from utils.file_io import append_text as nf_append_text  # noqa: E402
 # 校对 / 预估 / 拆书：模块级导入（绝不在 do_GET/do_POST 内写裸 import，
 # 否则该名会被判定为整个函数的局部名，同函数其它分支一用就 UnboundLocalError）
 import proofread as proofread_mod  # noqa: E402
@@ -153,6 +155,7 @@ try:
     from nf_api_domains import outline as dom_outline      # noqa: E402
     from nf_api_domains import post_misc as dom_post_misc  # noqa: E402
     from nf_api_domains import project as dom_project      # noqa: E402
+    from nf_api_domains import refine as dom_refine        # noqa: E402
     from nf_api_domains import runtime as dom_runtime      # noqa: E402
     from nf_api_domains import sandbox as dom_sandbox      # noqa: E402
 except Exception as _dom_err:                            # noqa: BLE001
@@ -164,6 +167,7 @@ except Exception as _dom_err:                            # noqa: BLE001
     dom_project = None
     dom_runtime = None
     dom_sandbox = None
+    dom_refine = None
     print("[nf_api] 域模块加载失败（端点将返回可行动错误）: " + str(_dom_err))
 
 
@@ -205,6 +209,22 @@ ROOT = _resolve_root()
 # 大纲路径常量（与 refine_outline.py / utils.outline_panel 保持一致）
 GLOBAL = "data/outline/global.md"
 HISTORY_DIR = "data/outline/history"
+
+# ---- Agent 审计日志 ----
+AUDIT_LOG_PATH = "data/state/agent_audit.jsonl"
+
+def _log_audit(path, method="POST", status=200, source="gui", detail=""):
+    """记录 API 调用审计日志（Agent 调用时 source=agent）"""
+    try:
+        import json as _json
+        ts = time.strftime("%Y-%m-%dT%H:%M:%S")
+        entry = json.dumps({
+            "ts": ts, "method": method, "path": path,
+            "status": status, "source": source, "detail": str(detail)[:120]
+        }, ensure_ascii=False)
+        nf_append_text(str(Path(ROOT) / AUDIT_LOG_PATH), entry + "\n")
+    except Exception:
+        pass
 
 JOB_TTL = 50           # 内存保留的最近 job 数
 LOCK = threading.Lock()
@@ -1568,6 +1588,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/config/style_notes":
             # 实现已迁至 nf_api_domains.project（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_project.handle_config_style_notes(self)))
+        elif p == "/config/agent_mode":
+            # Agent 模式开关读取（config/system.yaml 的 gates.agent_mode）。
+            self._send(*_dom(dom_project.handle_config_agent_mode(self)))
         elif p == "/materials/list":
             # 实现已迁至 nf_api_domains.materials（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_materials.handle_materials_list(self)))
@@ -1668,6 +1691,28 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         p = norm_path(self)
         body = self._body()
+
+        # Agent 模式安全守卫：禁止外部 Agent 调用敏感操作
+        # 仅当 agent_mode=true 且请求路径在禁止列表中时生效
+        # GUI 请求（带 X-Mofang-Source: gui 头）不受限制
+        request_source = self.headers.get("X-Mofang-Source", "").strip().lower()
+        if request_source != "gui":
+            cfg_check, _ = load_all()
+            if bool(cfg_check.get("gates", {}).get("agent_mode", False)):
+                # Agent 模式下禁止的 POST 操作
+                _FORBIDDEN_POST = {
+                    "/approve", "/reject",
+                    "/project/create", "/project/archive", "/project/restore", "/project/init",
+                    "/config/agent_mode",  # Agent 不得自行切换模式
+                }
+                if p in _FORBIDDEN_POST:
+                    _log_audit(p, "POST", 403, source="agent", detail="blocked")
+                    self._send(403, {"ok": False,
+                                     "error": "Agent 模式下禁止此操作（仅 GUI 可执行）"})
+                    return
+                # 非禁止操作也记录审计日志
+                _log_audit(p, "POST", 0, source="agent", detail="allowed")
+
         try:
             if p.startswith("/stage/") and p.endswith("/run"):
                 rest = p[len("/stage/"):-len("/run")]
@@ -1791,15 +1836,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200 if ok else 400, {"ok": ok, "message": msg,
                                                 "missing": missing_artifacts(stage)})
             elif p == "/refine/outline":
-                fb = str(body.get("feedback") or "")
-                if not fb.strip():
-                    self._send(400, {"error": "feedback 必填"})
-                    return
-                cfg, _ = load_all()
-                _client_for_env(cfg, "default")
-                jid, err = start_job("refine_outline",
-                                     lambda: act_refine_outline(fb, bool(body.get("dry_run"))))
-                self._send(202 if not err else 409, {"error": err} if err else {"job_id": jid})
+                # 实现已迁至 nf_api_domains.refine（P2 拆分）；此处只做转发。
+                self._send(*_dom(dom_refine.handle_refine_outline(self, body)))
             # ---- 大纲结构化面板（任务1/2/3/4）----
             elif p == "/outline/save":
                 ok, res = act_outline_save(body.get("content"))
@@ -1849,27 +1887,11 @@ class Handler(BaseHTTPRequestHandler):
                 except Exception as e:
                     self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
             elif p == "/refine/outline/node":
-                node_id = str(body.get("node_id") or body.get("entry_id") or "")
-                fb = str(body.get("feedback") or "")
-                if not node_id:
-                    self._send(400, {"error": "node_id 必填"})
-                    return
-                if not fb.strip():
-                    self._send(400, {"error": "feedback 必填"})
-                    return
-                cfg, _ = load_all()
-                _client_for_env(cfg, "default")
-                dry = bool(body.get("dry_run"))
-                jid, err = start_job("refine_node_" + node_id,
-                                     lambda: act_outline_refine_node(node_id, fb, dry))
-                self._send(202 if not err else 409, {"error": err} if err else {"job_id": jid})
+                # 实现已迁至 nf_api_domains.refine（P2 拆分）；此处只做转发。
+                self._send(*_dom(dom_refine.handle_refine_outline_node(self, body)))
             elif p == "/refine/outline/undo":
-                ok, res = act_outline_undo()
-                if ok:
-                    res["ok"] = True
-                    self._send(200, res)
-                else:
-                    self._send(400, {"ok": False, "error": res})
+                # 实现已迁至 nf_api_domains.refine（P2 拆分）；此处只做转发。
+                self._send(*_dom(dom_refine.handle_refine_outline_undo(self)))
             elif p == "/stage/2/run-multi":
                 count = int(body.get("count") or 3)
                 if not (2 <= count <= 5):
@@ -1930,16 +1952,8 @@ class Handler(BaseHTTPRequestHandler):
                 except Exception as e:
                     self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
             elif p == "/refine/chapter":
-                fb = str(body.get("feedback") or "")
-                ch = int(body.get("chapter") or 0)
-                if not fb.strip() or not (1 <= ch <= 999):
-                    self._send(400, {"error": "chapter(>=1) 与 feedback 必填"})
-                    return
-                cfg, _ = load_all()
-                _client_for_env(cfg, "default")
-                jid, err = start_job("refine_ch" + str(ch),
-                                     lambda: act_refine_chapter(ch, fb, bool(body.get("dry_run"))))
-                self._send(202 if not err else 409, {"error": err} if err else {"job_id": jid})
+                # 实现已迁至 nf_api_domains.refine（P2 拆分）；此处只做转发。
+                self._send(*_dom(dom_refine.handle_refine_chapter(self, body)))
             elif p == "/chapters/restore":
                 # 章节回退：body {n, version} → 从 data/chapters/history/ 恢复
                 # 确定性文件操作，同 /outline/restore，同步返回。
@@ -1958,6 +1972,9 @@ class Handler(BaseHTTPRequestHandler):
                 label = str(body.get("label") or "")
                 jid, err = start_job("snapshot", act_snapshot(label))
                 self._send(202 if not err else 409, {"error": err} if err else {"job_id": jid})
+            elif p == "/config/agent_mode":
+                # Agent 模式开关设置（仅 GUI 手动切换，Agent 不得调用）。
+                self._send(*_dom(dom_project.handle_config_agent_mode_set(self, body)))
             elif p == "/config/provider":
                 # 切换某阶段的 provider
                 role = str(body.get("role") or "")

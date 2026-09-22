@@ -129,6 +129,75 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 **加新端点**：实现写进对应的域模块并加 `ROUTES` 条目，`nf_api.py` 里只加一行转发。
 某类端点超过 3 个就另开一个域模块，不要堆回 elif 链。
 
+**当前域模块清单**：
+
+| 模块 | 职责 | 端点数 |
+|------|------|--------|
+| `project.py` | 健康/状态/项目列表/配置读取/Agent 模式 | 8 |
+| `runtime.py` | 后台任务/审查/校对/模板/预估/节奏（只读） | 7 |
+| `models.py` | 模型列表/切换/添加/白名单校验 | 6 |
+| `outline.py` | 大纲结构/历史/差分/drafts/趋势/建议/沙盒队列 | 10 |
+| `materials.py` | 素材/碎片读写 | 5 |
+| `misc.py` | 章节质量/验证/日志/关于/成本/批量进度 | 6 |
+| `post_misc.py` | Markdown 导出 | 1 |
+| `sandbox.py` | 沙盒审核/文件预览 | 2 |
+| `refine.py` | 大纲精修/节点精修/撤销/章节精修 | 4 |
+
+### Agent 模式（外部 Agent 控制，P1 新增）
+
+绒花墨坊支持双模式运行：
+
+- **标准模式（默认）**：GUI 内手动操作，HTTP API 仅本地 GUI 消费
+- **Agent 模式**：外部 Agent（如 Hermes）可通过 HTTP API 调用绒花墨坊进行大纲草拟、设定起草等操作
+
+**开关**：`config/system.yaml` 的 `gates.agent_mode`（默认 `false`）
+
+**端点**：
+- `GET /config/agent_mode` —— 读取当前开关状态
+- `POST /config/agent_mode` —— 设置开关（仅 GUI 手动切换，Agent 不得调用此端点开启）
+
+**安全边界**：
+- Agent 模式下，以下操作**仍只允许 GUI 内手动执行**（API 返回 403）：
+  - `/approve`（审批）、`/reject`（打回）
+  - `/project/create`、`/project/archive`、`/project/restore`
+  - `/project/init`
+  - `/config/agent_mode`（Agent 不得自行切换模式）
+- Agent 生成的大纲/产物自动进入待审批状态（exit=3），需在桌面端确认
+- 双保险机制：Agent 被告知需在桌面端审批 + 桌面端自动检测审批门并弹窗提示
+- 审计日志：所有 Agent 调用记录到 `data/state/agent_audit.jsonl`
+
+**前端配合**：
+- 「设置」页新增「Agent 模式」toggle（二次确认）
+- 顶部连接状态旁显示 `⚡ Agent` 徽标（橙色脉冲动画）
+- 全局刷新按钮（↻）一键刷新所有页签数据
+- 审批门产物摘要显示 `agent: true/false` 标记
+
+### Agent 可调用端点清单
+
+**✅ 可调用**（查询类）：
+- `GET /state`、`/health`、`/about`
+- `GET /models`、`/models/available`、`/models/cache`、`/models/fetched`
+- `GET /config/project`、`/config/style_notes`、`/config/agent_mode`
+- `GET /outline/structure`、`/outline/trend`、`/outline/advise`、`/outline/history`、`/outline/diff`
+- `GET /sandbox/queue`、`/sandbox/file`
+- `GET /review/report`、`/review/decisions`
+- `GET /chapters/quality`、`/chapters/history`
+- `GET /costs`、`/costs/summary`、`/costs/streaming`
+- `GET /estimate`
+- `GET /prompts/list`、`/prompts/get`
+
+**✅ 可调用**（写入沙盒/草稿类，产物自动进入待审）：
+- `POST /outline/save`、`POST /outline/chapters/save`
+- `POST /refine/outline`、`POST /refine/chapter`
+- `POST /stage/{n}/run`（生成大纲/章节）
+- `POST /auto_rewrite/run`
+- `POST /sandbox/review`（驳回/退回，但需在 GUI 中确认）
+
+**🚫 禁止调用**（返回 403）：
+- `POST /approve`、`/reject`
+- `POST /project/create`、`/project/archive`、`/project/restore`、`/project/init`
+- `POST /config/agent_mode`（Agent 不得自行切换模式）
+
 ### ⚠️ 路径 IO 必须经 `ROOT`，不得用相对路径
 
 API 层**禁止**写 `Path("data/...")` 这类相对路径 —— 它隐式依赖进程 CWD，
