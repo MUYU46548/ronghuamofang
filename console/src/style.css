@@ -98,6 +98,50 @@
   --warn: #c9a26a;
   --bad: #c47f7f;
 }
+
+/* ========== ABC 三套暗色主题 ========== */
+:root.theme-night-blue {
+  --bg: #0f1420;
+  --ink: #d0d8e8;
+  --muted: #7a8a9f;
+  --accent: #5a8fd4;
+  --accent-soft: #1e3a5f;
+  --card: #161d2e;
+  --border: #1e2a3d;
+  --shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+  --radius: 14px;
+  --ok: #5cb88e;
+  --warn: #d4a85c;
+  --bad: #d47c7c;
+}
+:root.theme-night-green {
+  --bg: #0f1a14;
+  --ink: #d0e8d8;
+  --muted: #7a9f8a;
+  --accent: #5cb88a;
+  --accent-soft: #1e3d2e;
+  --card: #162019;
+  --border: #1e2d22;
+  --shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+  --radius: 14px;
+  --ok: #5cb88e;
+  --warn: #d4a85c;
+  --bad: #d47c7c;
+}
+:root.theme-night-warm {
+  --bg: #1a1a1e;
+  --ink: #d8d4d0;
+  --muted: #8f8a85;
+  --accent: #b8a08a;
+  --accent-soft: #3d3530;
+  --card: #201f1e;
+  --border: #2d2b2a;
+  --shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+  --radius: 14px;
+  --ok: #6bbd8e;
+  --warn: #d4a85c;
+  --bad: #d47c7c;
+}
 * { box-sizing: border-box; }
 html, body, #app { height: 100%; }
 body {
@@ -128,6 +172,12 @@ body {
 .theme-gray .blob-b { background: #e4e4ea; }
 .theme-orange .blob-a { background: #f7dcbc; }
 .theme-orange .blob-b { background: #f5e6d3; }
+.theme-night-blue .blob-a { background: #1e3a5f; }
+.theme-night-blue .blob-b { background: #162030; }
+.theme-night-green .blob-a { background: #1e3d2e; }
+.theme-night-green .blob-b { background: #162019; }
+.theme-night-warm .blob-a { background: #3d3530; }
+.theme-night-warm .blob-b { background: #2d2b2a; }
 
 /* 顶栏 */
 .topbar {
@@ -1185,6 +1235,21 @@ kbd {
   padding: 4px 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .about-links { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* ---- 定价编辑器 ---- */
+.rate-input {
+  width: 100%;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--ink);
+  font-size: 12px;
+}
+.rate-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
 
 /* ---- 品牌可点击（LOGO → 关于；书名 → 项目页签） ---- */
 .brand-btn {

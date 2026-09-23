@@ -97,9 +97,18 @@ const PY = isPackaged
   : path.join(ROOT, ".venv", "Scripts", "pythonw.exe");
 const API_PORT = 8765;
 
-// 用户数据目录（可写）：统一放 %APPDATA%\绒花墨坊\workspace
-// 便携版不再放 temp 目录（每次解压路径不同 + 旧进程锁目录 = 端口冲突）
+// 工作区目录（可写）—— **按态分流**：
+//   打包态 → %APPDATA%\绒花墨坊\workspace
+//            用户可写、与安装目录解耦，升级不丢数据；便携版不放 temp
+//            （每次解压路径不同 + 旧进程锁目录 = 端口冲突）
+//   源码态 → 项目根 ROOT
+//            **开发即用项目数据**：data/ materials/ config/ .env 全部直读，
+//            改了 scripts/ 立即生效。
+//            此前源码态也走 appdata，后果是「改项目代码零生效 + 界面看到的是
+//            一个空壳工作区（书名待填写 / 暂无素材 / API 未配置）」，开发时
+//            完全无法自测，且不报任何错（2026-09-23 排查）。
 function getWorkspaceDir() {
+  if (!isPackaged) return ROOT;
   return path.join(app.getPath("appData"), "绒花墨坊", "workspace");
 }
 
@@ -110,7 +119,12 @@ function getWorkspaceDir() {
 // 于是「只在首次安装时播种」变成了「永远不再更新」。桌面端用户升级 App 后
 // workspace 里跑的还是旧版 orchestrator/stage*/prompts，而 config/ 下的
 // system.yaml 又是新的 → 新配置撞旧代码，各种诡异失败且无法从 UI 诊断。
-const SEED_VERSION = 2;
+//
+// v3（2026-09-23）：payload 内 scripts/ 有实质变更 —— nf_api_domains/misc.py
+//   新增 costs/rates 端点、nf_api_domains/project.py 修 Agent 模式签名、
+//   utils/cost_tracker.py 增自定义定价读写。按上面的规则 +1，
+//   否则已装 0.3.0 的用户升级后 ws 里跑的仍是旧后端。
+const SEED_VERSION = 3;
 
 // 只播种/刷新**代码与提示词**目录。
 // 刻意不含 data/：那是用户产物（章节、设定、大纲），任何情况下都不能被覆盖。
@@ -128,9 +142,17 @@ const SEED_CONFIG_DIR = "config";
 //   ③ 已是最新版本                → 只补缺失目录（幂等，不改任何已有文件）
 function seedWorkspace() {
   const ws = getWorkspaceDir();
-  const payloadRoot = isPackaged
-    ? path.join(process.resourcesPath, "payload")
-    : ROOT;
+
+  // 源码态：工作区 == 项目根，代码/提示词/模板本来就在那儿，无需播种。
+  // 必须在此短路 —— 否则下面 payloadRoot 也等于 ROOT，cpSync(ROOT/x, ROOT/x)
+  // 会「自己复制自己」，Node 直接抛 ERR_FS_CP_EINVAL。
+  if (!isPackaged) {
+    console.log("[console] seedWorkspace: 源码态跳过播种（workspace = 项目根）");
+    return;
+  }
+
+  // 打包态专用（源码态已在上面短路返回）
+  const payloadRoot = path.join(process.resourcesPath, "payload");
 
   const seededMarker = path.join(ws, ".seeded");
   const versionMarker = path.join(ws, ".seed-version");
@@ -229,7 +251,13 @@ function startApi() {
     const ws = getWorkspaceDir();
     fs.mkdirSync(ws, { recursive: true });
     const apiScript = path.join(ws, "scripts", "nf_api.py");
-    const logPath = path.join(process.env.LOCALAPPDATA || ROOT, "Temp", "nf_api_child.log");
+    // 日志跟着工作区走：打包态 → %LOCALAPPDATA%\Temp，源码态 → 项目根\Temp
+    // （源码态若还写 LOCALAPPDATA，排查时根本找不到这份日志）
+    const logDir = isPackaged
+      ? path.join(process.env.LOCALAPPDATA || ROOT, "Temp")
+      : path.join(ROOT, "Temp");
+    fs.mkdirSync(logDir, { recursive: true });
+    const logPath = path.join(logDir, "nf_api_child.log");
     const out = fs.openSync(logPath, "a");
     const cmd = PY;
     const args = [apiScript, "--port", String(API_PORT), "--root", ws];
@@ -299,6 +327,14 @@ ipcMain.handle("read-preview", async (e, relPath) => {
 });
 
 ipcMain.handle("open-artifact", async (e, relPath) => {
+  const abs = path.resolve(ROOT, relPath);
+  if (!pathAllowed(abs)) return { ok: false, error: "路径不在白名单" };
+  const r = await shell.openPath(fs.existsSync(abs) ? abs : path.dirname(abs));
+  return r ? { ok: false, error: r } : { ok: true };
+});
+
+// 直接用系统默认程序打开文件（用户显式点击「打开」时调用）
+ipcMain.handle("open-file", async (e, relPath) => {
   const abs = path.resolve(ROOT, relPath);
   if (!pathAllowed(abs)) return { ok: false, error: "路径不在白名单" };
   const r = await shell.openPath(fs.existsSync(abs) ? abs : path.dirname(abs));
@@ -503,6 +539,7 @@ function createWindow() {
   mainWindow.show();
   mainWindow.focus();
   mainWindow.center();
+  mainWindow.maximize();
 }
 
 app.whenReady().then(async () => {

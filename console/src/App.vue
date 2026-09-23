@@ -45,7 +45,9 @@ const models = ref(null);
 const modelOptions = ref([]); // 动态从 /models/available 加载
 const costs = ref([]);
 const costSummary = ref(null);
-const costView = ref("cost");   // "cost" | "usage"
+const costView = ref("cost");   // "cost" | "usage" | "rates"
+const rates = ref({});           // 定价表（合并视图）
+const newRateName = ref("");     // 新增模型名称输入
 const providers = ref(null);    // provider status (no keys exposed)
 const online = ref(false);
 const toast = ref("");
@@ -114,6 +116,46 @@ async function refreshCosts() {
   if (summary.status === 200) costSummary.value = summary.data;
 }
 
+/* ---------- 定价编辑器 ---------- */
+async function loadRates() {
+  const r = await api("/costs/rates");
+  if (r.status === 200 && r.data.rates) {
+    rates.value = r.data.rates;
+  }
+}
+
+async function saveRates() {
+  // 构造要保存的自定义定价（仅包含有 in/out 的条目）
+  const toSave = {};
+  for (const [name, rate] of Object.entries(rates.value)) {
+    if (rate.in != null && rate.out != null && name) {
+      toSave[name] = {
+        in: Number(rate.in) || 0,
+        out: Number(rate.out) || 0,
+        cache_read: Number(rate.cache_read) || 0,
+      };
+    }
+  }
+  const r = await api("/costs/rates", "POST", { rates: toSave });
+  if (r.status === 200) {
+    say("定价已保存（" + r.data.saved + " 条）");
+    loadRates();
+  } else {
+    say("保存失败: " + (r.data.error || r.status));
+  }
+}
+
+function addRate() {
+  const name = newRateName.value.trim();
+  if (!name) return;
+  rates.value[name] = { name, in: 1.0, out: 4.0, cache_read: 0, source: "custom" };
+  newRateName.value = "";
+}
+
+function removeRate(name) {
+  delete rates.value[name];
+}
+
 function switchTab(t) {
   tab.value = t;
   if (t === "inbox") cameFromInbox.value = false;   // 回到收件箱即清掉"来路"标记
@@ -147,6 +189,9 @@ const fontSize = ref(parseInt(localStorage.getItem("mofang_font_size") || "14"))
 const THEMES = [
   { id: "purple", name: "雾灰紫", color: "#9b8fc4" },
   { id: "dark", name: "暗夜紫", color: "#7c83d4" },
+  { id: "night-blue", name: "暗夜蓝", color: "#5a8fd4" },
+  { id: "night-green", name: "暗夜绿", color: "#5cb88a" },
+  { id: "night-warm", name: "暗夜暖", color: "#b8a08a" },
   { id: "pink", name: "樱粉", color: "#d48ca0" },
   { id: "blue", name: "天蓝", color: "#7dadde" },
   { id: "green", name: "翠绿", color: "#8ab89a" },
@@ -1121,17 +1166,26 @@ async function addManualModel() {
 async function openEnvFile() {
   const r = await api("/env/open");
   if (r.status === 200 && r.data.exists) {
-    const path = r.data.env_path;
-    // .env 含明文密钥：**不再交给外部编辑器打开**（2026-09-19 审查 S7）。
-    // 只展示路径 + 提供「在文件夹中显示」，由用户在受控环境内自行编辑。
-    if (window.mofangAPI && window.mofangAPI.revealInFolder) {
-      window.mofangAPI.revealInFolder(".env");
-      say("已在文件夹中定位 .env —— 请用你自己的编辑器打开并填入 Key（界面不显示明文）");
+    // 主按钮：直接用系统默认编辑器打开（用户显式点击，风险自担）
+    if (window.mofangAPI && window.mofangAPI.openFile) {
+      const result = await window.mofangAPI.openFile(".env");
+      if (result.ok) {
+        say("已用系统默认编辑器打开 .env —— 填入 Key 后保存即可");
+      } else {
+        say("打开失败: " + (result.error || "未知错误"));
+ }
     } else {
-      say("请手动打开: " + path);
+      say("请在 Electron 中使用此功能");
     }
   } else {
     say(".env 文件不存在");
+  }
+}
+
+function revealEnvInFolder() {
+  if (window.mofangAPI && window.mofangAPI.revealInFolder) {
+    window.mofangAPI.revealInFolder(".env");
+    say("已在文件夹中定位 .env");
   }
 }
 
@@ -2615,6 +2669,7 @@ onUnmounted(() => {
         <div class="view-toggle">
           <button :class="{ on: costView === 'cost' }" @click="costView = 'cost'">费用</button>
           <button :class="{ on: costView === 'usage' }" @click="costView = 'usage'">用量</button>
+          <button :class="{ on: costView === 'rates' }" @click="costView = 'rates'; loadRates()">定价</button>
         </div>
         <button class="mini" @click="refreshCosts">刷新</button>
       </div>
@@ -2738,6 +2793,35 @@ onUnmounted(() => {
         </tbody>
       </table>
       <div v-else class="empty">暂无记账</div>
+
+      <!-- 定价编辑器 -->
+      <div v-if="costView === 'rates'" style="margin-top: 16px;">
+        <h4>模型定价表（元/百万 token）</h4>
+        <div class="meta" style="margin-bottom: 8px;">
+          自定义定价覆盖源码刊例价。留空则使用默认值。保存后立即生效。
+        </div>
+        <table class="cost-table">
+          <thead>
+            <tr><th>模型</th><th>输入</th><th>输出</th><th>缓存</th><th>来源</th><th>操作</th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="(rate, name) in rates" :key="name">
+              <td><input v-model="rate.name" class="rate-input" /></td>
+              <td><input v-model.number="rate.in" class="rate-input" type="number" step="0.01" /></td>
+              <td><input v-model.number="rate.out" class="rate-input" type="number" step="0.01" /></td>
+              <td><input v-model.number="rate.cache_read" class="rate-input" type="number" step="0.01" /></td>
+              <td><span class="pill" :class="rate.source === 'custom' ? 'st-running' : 'st-done'">{{ rate.source === 'custom' ? '自定义' : '默认' }}</span></td>
+              <td><button class="mini" @click="removeRate(name)">删除</button></td>
+            </tr>
+          </tbody>
+        </table>
+        <div style="display: flex; gap: 8px; margin-top: 8px; align-items: center;">
+          <input v-model="newRateName" placeholder="模型名称（如 deepseek-v4-pro）" class="rate-input" style="max-width: 240px;" />
+          <button class="mini" @click="addRate">+ 添加</button>
+          <button class="mini primary" @click="saveRates">保存定价</button>
+          <button class="mini" @click="loadRates">重置</button>
+        </div>
+      </div>
     </section>
 
     <!-- 设置 -->
@@ -2791,7 +2875,11 @@ onUnmounted(() => {
       <div class="meta" style="margin-top: 8px;">
         API Key 通过项目 .env 文件配置，不在此处明文显示。
       </div>
-      <button class="mini" @click="openEnvFile" style="margin-top: 8px;">打开 .env 文件</button>
+      <div style="display: flex; gap: 8px; margin-top: 8px; align-items: center;">
+        <button class="mini primary" @click="openEnvFile">打开 .env 填入 Key</button>
+        <button class="mini" @click="revealEnvInFolder" title="在文件管理器中定位 .env（不打开内容）">在文件夹中显示</button>
+      </div>
+      <div class="meta" style="margin-top: 4px;">.env 含明文 API Key，编辑器插件/AI 工具可能读取。</div>
 
       <!-- P1: 审批门通知 -->
       <h4 style="margin-top: 16px;">审批门通知</h4>
