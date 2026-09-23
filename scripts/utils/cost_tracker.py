@@ -12,6 +12,9 @@
 - 直连引擎按真实 model_id 计价（usage 来自 API 返回，无估算）；
 - 未知模型自动回退 default 角色单价并打印告警（保守侧，熔断不会失效）。
 """
+import json
+from pathlib import Path
+
 from utils.db import RunDB
 
 # ---- 刊例价（元/百万 token）----
@@ -38,6 +41,39 @@ RATES = {
 }
 # turbos 等未录入模型 → 回退 default 角色单价（保守），跑批前按控制台账单补录
 
+# GUI 定价编辑器存储路径（与 RATES 合并生效，不修改源码）
+CUSTOM_RATES_PATH = Path(__file__).resolve().parent.parent / "data" / "state" / "cost_rates.json"
+
+
+def load_custom_rates():
+    """加载 GUI 定价编辑器保存的自定义单价（data/state/cost_rates.json）。"""
+    if not CUSTOM_RATES_PATH.exists():
+        return {}
+    try:
+        data = json.loads(CUSTOM_RATES_PATH.read_text(encoding="utf-8"))
+        return data.get("rates", {}) if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def save_custom_rates(rates):
+    """保存自定义单价到 data/state/cost_rates.json（GUI 定价编辑器用）。"""
+    CUSTOM_RATES_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CUSTOM_RATES_PATH.write_text(
+        json.dumps({"rates": rates}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def get_merged_rates():
+    """返回 RATES + 自定义覆盖的合并视图（标注来源）。"""
+    merged = dict(RATES)
+    custom = load_custom_rates()
+    for name, rate in custom.items():
+        merged[name] = rate
+    return merged
+
+
 # Hermes 引擎按角色计价（hy3 单价；角色→单价）
 DEFAULT_ROLE_RATES = {
     "default": {"in": 1.0, "out": 4.2},
@@ -50,14 +86,18 @@ DEFAULT_ROLE = "default"
 
 
 def resolve_rate(model=None, provider=None, role=None):
-    """解析计价条目。返回 (rate dict, display_model)。"""
+    """解析计价条目。返回 (rate dict, display_model)。
+
+    合并优先级：自定义定价（GUI 编辑器）> RATES（源码刊例价）> 默认角色单价。
+    """
     if provider == "hermes":
         rates_map = ((role or {}).get("rates") if isinstance(role, dict) else None)
         r = rates_map or DEFAULT_ROLE_RATES.get(role) or DEFAULT_ROLE_RATES[DEFAULT_ROLE]
         return dict(r), "hermes:" + (role or DEFAULT_ROLE)
     m = model or DEFAULT_MODEL
-    if m in RATES:
-        return dict(RATES[m]), m
+    merged = get_merged_rates()
+    if m in merged:
+        return dict(merged[m]), m
     print("[cost_tracker] WARN 未知模型计价回退默认（跑批前请补录 RATES）: " + m)
     return dict(DEFAULT_ROLE_RATES[DEFAULT_ROLE]), m
 

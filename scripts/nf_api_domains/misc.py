@@ -238,10 +238,61 @@ def handle_costs_streaming(h):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+def handle_costs_rates(h):
+    """读取合并后的定价表（RATES + 自定义覆盖）。"""
+    import nf_api as api
+
+    try:
+        from utils.cost_tracker import get_merged_rates, RATES, load_custom_rates
+        merged = get_merged_rates()
+        # 标注来源：custom = GUI 编辑器覆盖，default = 源码刊例价
+        custom_names = set(load_custom_rates().keys())
+        result = {}
+        for name, rate in merged.items():
+            result[name] = dict(rate)
+            result[name]["source"] = "custom" if name in custom_names else "default"
+        return 200, {"ok": True, "rates": result,
+                     "built_in": list(RATES.keys()),
+                     "custom": list(custom_names)}
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_costs_rates_save(h, body):
+    """保存定价表（GUI 定价编辑器写入）。"""
+    import nf_api as api
+
+    try:
+        from utils.cost_tracker import save_custom_rates
+        rates = body.get("rates", {})
+        if not isinstance(rates, dict):
+            return 400, {"ok": False, "error": "rates 必须为对象"}
+        # 校验每条格式
+        cleaned = {}
+        for name, rate in rates.items():
+            if not isinstance(rate, dict):
+                continue
+            entry = {}
+            for key in ("in", "out", "cache_read"):
+                if key in rate:
+                    try:
+                        entry[key] = float(rate[key])
+                    except (ValueError, TypeError):
+                        pass
+            if "in" in entry and "out" in entry:
+                cleaned[str(name)] = entry
+        save_custom_rates(cleaned)
+        return 200, {"ok": True, "saved": len(cleaned)}
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 # 本模块负责的端点（供自检与文档；实际分发在 nf_api.do_GET 的 elif 链里）
 ROUTES = (
     ("GET", "/costs/summary", handle_costs_summary),
     ("GET", "/costs/streaming", handle_costs_streaming),
+    ("GET", "/costs/rates", handle_costs_rates),
+    ("POST", "/costs/rates", handle_costs_rates_save),
     ("GET", "/env/open", handle_env_open),
     ("GET", "/batch_refine/progress", handle_batch_refine_progress),
     ("GET", "/chapters/quality", handle_chapters_quality),
