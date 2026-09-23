@@ -105,14 +105,13 @@ def handle_config_agent_mode(h):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
-def handle_config_agent_mode_set(h):
+def handle_config_agent_mode_set(h, body):
     """设置 Agent 模式开关（config/system.yaml 的 gates.agent_mode）。
 
     安全守卫：Agent 模式只能从 GUI 手动开启，外部 Agent 不得调用此端点。
     检测方式：请求必须携带 X-Mofang-Source: gui 头（由 Electron preload 注入）。
     """
     try:
-        body = h._body()
         enable = bool(body.get("agent_mode", False))
 
         # 安全守卫：仅 GUI 可以切换 Agent 模式
