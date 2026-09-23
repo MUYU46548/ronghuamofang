@@ -36,6 +36,7 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 
 | 目的 | 命令（workdir=项目根，用 .venv python） |
 |------|------|
+| **Agent 只读入口（全景/自检）** | `python scripts/nfctl.py status`（一屏：书名/阶段/进度/成本/待审批/产物）· `check`（环境自检，含 **YAML 重复键检测**）· `api <GET路径>`（只读转发 nf_api，省手写 curl）。**只读、零 token**；写操作走下方各脚本 |
 | 全流程启动 | `python scripts/orchestrator.py` |
 | 从阶段 N 重跑 | `python scripts/orchestrator.py --from N` |
 | 只跑阶段 N | `python scripts/orchestrator.py --stage N` |
@@ -107,6 +108,25 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 | 流式跑阶段回归自检 | `python tests/unit/test_stream_stage.py`（S2 回归：流式/非流式共用退出码翻译、无平行分支，18 断言） |
 | 配置泄露 / 白名单回路自检 | `python tests/unit/test_config_and_models.py`（S3/S8 回归：无本机绝对路径泄露、白名单两级校验接通，29 断言） |
 | 设定集 schema 归一自检 | `python tests/unit/test_setting_schema.py`（两种 schema 都能读全 + 大纲解析 + 别名/id 匹配 + **实体类型判定** + 去重 + **真实 ROSA 快照回归**，70 断言） |
+
+## 外部 Agent 接入（Hermes skill + nfctl）
+
+外部 Agent（Hermes / WorkBuddy）接本项目走**两条通道，没有 MCP 层**：
+
+1. **CLI（默认）**：项目脚本，不需要起服务。先跑 `python scripts/nfctl.py status`（全景）
+   + `check`（自检），再按上表取具体命令。
+2. **HTTP**（`nf_api` on `127.0.0.1:8765`）：只在需要「正在跑的那个任务」的状态、
+   流式 token、SSE 时才用。只读转发用 `nfctl.py api <GET路径>`。
+
+**专属接线卡**：Hermes 技能库 `worldbuilding/ronghuamofang/`
+（实机路径 `%LOCALAPPDATA%\hermes\skills\worldbuilding\ronghuamofang\`）
+— `SKILL.md`（入口 / 自检 / 边界 / 处方 / 能力边界）、
+`references/api.md`（97 个端点与请求体形状）。
+与 `ai-novel-pipeline`、`novelforge-gui` 同分类同级；**技能库在 AppData、不进 Git，改动前先留副本**。
+
+**Agent 模式守卫**：`gates.agent_mode = true` 时，非 GUI 来源（无 `X-Mofang-Source: gui`）
+调用 `/approve`、`/reject`、`/project/create|archive|restore|init`、`/config/agent_mode`
+返回 **403**。含义是：**外部 Agent 可读、可跑流水线，但不能代替用户审批** —— 这是设计，不是 bug。
 
 ## 架构：API 层的域模块拆分（P2）
 
