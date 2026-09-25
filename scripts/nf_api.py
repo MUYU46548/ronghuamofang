@@ -2439,11 +2439,28 @@ def main():
     httpd = ThreadingHTTPServer((args.host, args.port), Handler)
     print("[nf_api] NovelForge API 服务 → http://" + args.host + ":" + str(args.port)
           + "  (allow_fake=" + str(ALLOW_FAKE) + ")")
+    # ---- MCP Server (P3: MCP agent layer) ----
+    mcp_started = False
+    try:
+        from nf_mcp import MCPServer as _MCPServer
+        mcp_port = int(os.environ.get("NF_MCP_PORT", "8766"))
+        mcp_srv = _MCPServer(host=args.host, port=mcp_port,
+                              http_host=args.host, http_port=args.port)
+        mcp_srv.start()
+        mcp_started = True
+        print(f"[nf_api] MCP 服务 → tcp://{args.host}:{mcp_port}")
+    except Exception as _e:                                 # noqa: BLE001
+        print(f"[nf_api] MCP 服务启动跳过（不影响 HTTP）: {_e}")
+    # ---- 端点列表 ----
     print("[nf_api] 端点: /health /state /about /models /stage/{n}/run /stage/skip /logs/tail /stream/{job_id} /stop /jobs/{id} /approve /reject /refine/* /outline/* /snapshot /costs /prompts/* /config/style_notes /materials/* /project/*")
+    if mcp_started:
+        print(f"[nf_api] MCP 工具: {', '.join(t['name'] for t in __import__('nf_mcp').MCP_TOOLS)}")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
         pass
+    if mcp_started:
+        mcp_srv.stop()
 
 
 if __name__ == "__main__":
