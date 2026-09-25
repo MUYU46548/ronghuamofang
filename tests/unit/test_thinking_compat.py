@@ -126,7 +126,7 @@ def case_offline_flow():
 
     c = fake_client("glm-5.1")
     c._request_json = stub_ok
-    text, usage, model = c._post_chat([{"role": "user", "content": "hi"}])
+    text, usage, model, _ = c._post_chat([{"role": "user", "content": "hi"}])
     check("名单模型首个请求就带 thinking.type=disabled",
           len(seen) == 1 and seen[0].get("thinking") == {"type": "disabled"}, seen)
     check("返回正文非空", bool(text.strip()) and "正文" in text, text[:60])
@@ -146,7 +146,7 @@ def case_offline_flow():
     c2 = OpenAICompatClient(model="unknown-thinker-x", base_url="http://x/v1", api_key="k",
                             retries=3, disable_thinking_models=[])
     c2._request_json = stub_adaptive
-    text2, _, _ = c2._post_chat([{"role": "user", "content": "hi"}])
+    text2, _, _, _ = c2._post_chat([{"role": "user", "content": "hi"}])
     check("未列名单的思考模型：先不带参数 → 空 content → 自动注入关闭思考后重试",
           len(seen2) == 2 and not OpenAICompatClient._thinking_keys_present(seen2[0])
           and seen2[1].get("thinking") == {"type": "disabled"}, seen2)
@@ -161,11 +161,29 @@ def case_offline_flow():
     c3 = OpenAICompatClient(model="unknown-thinker-x", base_url="http://x/v1", api_key="k",
                             retries=1, disable_thinking_models=[])
     c3._request_json = stub_salvage
-    text3, _, _ = c3._post_chat([{"role": "user", "content": "hi"}])
+    text3, _, _, _ = c3._post_chat([{"role": "user", "content": "hi"}])
     check("始终空 content → 从 reasoning_content 兜底提取（不再是空白）",
           "兜底" in text3 and "琢磨一下" not in text3, text3[:80])
     check("_salvage_answer 只取协议块之后",
           OpenAICompatClient._salvage_answer("思考A\n===FILE: p===\nX\n===END===").startswith("===FILE:"))
+
+    # 生产真实形态（2026-09-23 补）：写作是**纯正文**，reasoning_content 里没有协议块。
+    # 原实现此时返回整段思考 → 思考被当正文写进小说（实测 minimax-m2.7 复现）。
+    # 上面那条 fixture 恰好带 ===FILE: 标记，所以旧断言永远通过 —— 典型的
+    # 「测了生产中不走的路」。这两条钉住无标记时必须**丢弃**。
+    def stub_pure_thinking(payload):
+        return {"choices": [{"message": {"content": "",
+                                         "reasoning_content": 'The user says "第 2 次"，我先理解一下…'}}],
+                "usage": {}, "model": payload["model"]}
+
+    c4 = OpenAICompatClient(model="unknown-thinker-y", base_url="http://x/v1", api_key="k",
+                            retries=1, disable_thinking_models=[])
+    c4._request_json = stub_pure_thinking
+    text4, _, _, _ = c4._post_chat([{"role": "user", "content": "hi"}])
+    check("生产形态（无协议块）→ 思考被丢弃，正文为空（不会写进小说）",
+          text4 == "", repr(text4[:80]))
+    check("_salvage_answer 无协议标记 → 返回空（不返回整段思考）",
+          OpenAICompatClient._salvage_answer('The user says "x"…纯思考残片') == "")
 
 
 def case_param_rejected():
@@ -180,7 +198,7 @@ def case_param_rejected():
 
     c = fake_client("glm-5.1")
     c._request_json = stub_reject_thinking
-    text, _, _ = c._post_chat([{"role": "user", "content": "hi"}])
+    text, _, _, _ = c._post_chat([{"role": "user", "content": "hi"}])
     check("被拒 → 自动换下一个候选（thinking → reasoning_effort=none）并成功",
           text == "ok" and "thinking" in seen[0] and seen[1].get("reasoning_effort") == "none",
           [sorted(s.keys()) for s in seen])
@@ -197,7 +215,7 @@ def case_param_rejected():
 
     c2 = fake_client("glm-5.1")
     c2._request_json = stub_reject_all
-    text2, _, _ = c2._post_chat([{"role": "user", "content": "hi"}])
+    text2, _, _, _ = c2._post_chat([{"role": "user", "content": "hi"}])
     check("候选全部被拒 → 不再注入仍能拿到正文（降级不卡死）",
           text2 == "plain-ok" and not OpenAICompatClient._thinking_keys_present(seen2[-1]),
           [sorted(s.keys()) for s in seen2])
@@ -248,7 +266,7 @@ def case_stream():
     try:
         c = fake_client("glm-5.1")
         got = []
-        text, _, _ = c._post_chat_stream([{"role": "user", "content": "hi"}], on_chunk=got.append)
+        text, _, _, _ = c._post_chat_stream([{"role": "user", "content": "hi"}], on_chunk=got.append)
     finally:
         urllib.request.urlopen = orig
     check("流式：注入 thinking.type=disabled",
@@ -263,7 +281,7 @@ def case_stream():
         c2 = OpenAICompatClient(model="unknown-thinker-x", base_url="http://x/v1", api_key="k",
                                 retries=3, disable_thinking_models=[])
         got2 = []
-        text2, _, _ = c2._post_chat_stream([{"role": "user", "content": "hi"}], on_chunk=got2.append)
+        text2, _, _, _ = c2._post_chat_stream([{"role": "user", "content": "hi"}], on_chunk=got2.append)
     finally:
         urllib.request.urlopen = orig
     check("流式：空 content → 自动注入关闭思考后重试（第二次带参数）",
@@ -366,7 +384,7 @@ def case_live():
     check("make_client 已载入名单与候选片段",
           client.disable_thinking_models == MODELS and client.disable_thinking_payloads == SNIPPETS,
           (client.disable_thinking_models, client.disable_thinking_payloads))
-    text, usage, used = client._post_chat(
+    text, usage, used, _ = client._post_chat(
         [{"role": "user", "content": "请写一段 60 字左右的雨夜场景描写，直接给正文。"}],
         max_tokens=600)
     check("流水线调用点拿到非空 content（本次修复的最终目的）",
@@ -374,12 +392,98 @@ def case_live():
     check("用量回传正常（成本可统计）", isinstance(usage.get("prompt_tokens"), int), usage)
 
 
+def case_cache_field_parse():
+    """缓存命中字段解析（2026-09-23 修，防回归锚）。
+
+    修前的 bug：只读 `usage["cache_read_tokens"]` —— 该键在 OpenAI / DeepSeek /
+    Anthropic **任何一家都不存在**，于是命中数恒为 0。而上面那条「用量回传正常」
+    只断言了 prompt_tokens 是 int，所以这个错误长期零告警：**测试全绿、生产静默失效**。
+    这些断言把各家的真实字段形态钉住，谁再改回旧键就立刻红。
+    """
+    print("\n[D] 缓存命中字段解析（含生产实测形态）")
+    f = llm_client.extract_cache_read_tokens
+
+    check("OpenAI / TokenHub：prompt_tokens_details.cached_tokens",
+          f({"prompt_tokens": 885, "prompt_tokens_details": {"cached_tokens": 512}}) == 512,
+          "本机 2026-09-23 实测返回形态")
+    check("DeepSeek 官方：prompt_cache_hit_tokens",
+          f({"prompt_tokens": 100, "prompt_cache_hit_tokens": 80}) == 80)
+    check("Anthropic：cache_read_input_tokens",
+          f({"prompt_tokens": 100, "cache_read_input_tokens": 60}) == 60)
+    check("兼容网关：顶层 cache_read_tokens",
+          f({"cache_read_tokens": 42}) == 42)
+    check("无缓存字段 → 0（未命中，不是错误）",
+          f({"prompt_tokens": 10}) == 0)
+    check("cached_tokens=0 → 0（零值不能被当成缺失）",
+          f({"prompt_tokens_details": {"cached_tokens": 0}}) == 0)
+    check("异常输入不抛（None / str / list）",
+          f(None) == 0 and f("x") == 0 and f([]) == 0)
+    check("优先级：prompt_tokens_details 胜过同名顶层键",
+          f({"prompt_tokens_details": {"cached_tokens": 7}, "cached_tokens": 99}) == 7)
+
+
+def case_truncation():
+    """截断契约（finish_reason=length）—— 2026-09-23 新增。
+
+    背景：思考模型会把输出预算耗在 reasoning 上，正文被截断后**静默落盘** = 半截章节
+    被当成品。实测 max_tokens=4000 时思考 10521 字、正文仅 466 字即被截断。
+    现在：截断 → 不落盘 + 非零退出码（项目统一以 exit_code != 0 判失败）。
+    """
+    print("\n=== E. 截断契约（finish_reason=length）===")
+    import os
+    import tempfile
+
+    tmp = Path(tempfile.mkdtemp(prefix="nf_trunc_"))
+
+    def make_task(name, out_name):
+        task = tmp / name
+        task.write_text("## 输出\n写入: " + str(tmp / out_name) + "\n", encoding="utf-8")
+        return task, tmp / out_name
+
+    class TruncLC(OpenAICompatClient):
+        def _post_chat(self, messages, temperature=None, max_tokens=None):
+            return "\u534a\u622a\u6b63\u6587", {"prompt_tokens": 100, "completion_tokens": 4000}, "m", "length"
+
+    class OkLC(OpenAICompatClient):
+        out_path = None
+
+        def _post_chat(self, messages, temperature=None, max_tokens=None):
+            # 正常路径的文本必须带协议块，否则 _apply_ops 不知道写到哪（会 WARN 跳过）
+            return ("===FILE: " + str(OkLC.out_path) + "===\n\u5b8c\u6574\u6b63\u6587\n===END===",
+                    {"prompt_tokens": 100, "completion_tokens": 50}, "m", "stop")
+
+    old_cwd = os.getcwd()
+    os.chdir(tmp)          # 让 _save_truncated 落在临时目录，真实 data/ 零污染
+    try:
+        task1, out1 = make_task("t1.md", "ch1.md")
+        res1 = TruncLC(model="m", base_url="http://x/v1", api_key="k").run_task(task1)
+        saved = list(Path("data/state/truncated").glob("*.txt"))
+
+        task2, out2 = make_task("t2.md", "ch2.md")
+        OkLC.out_path = out2
+        res2 = OkLC(model="m", base_url="http://x/v1", api_key="k").run_task(task2)
+    finally:
+        os.chdir(old_cwd)
+
+    check("截断 → exit_code=2（上层据此判失败）", res1.get("exit_code") == 2, res1.get("exit_code"))
+    check("截断 → truncated=True", res1.get("truncated") is True)
+    check("截断 → **不落盘**（半截正文不冒充成品）", not out1.exists(), str(out1))
+    check("截断 → error 给出可执行解释",
+          "max_tokens" in (res1.get("error") or ""), (res1.get("error") or "")[:90])
+    check("截断 → 残缺文本被隔离存放（不是直接丢，可诊断）", len(saved) >= 1, [p.name for p in saved])
+
+    check("对照：finish_reason=stop → 正常落盘且 exit_code=0（没有误伤）",
+          res2.get("exit_code") == 0 and out2.exists(), str(res2.get("exit_code")))
+    check("对照：正常路径 finish_reasons 也带回（可观测）",
+          res2.get("finish_reasons") == ["stop"], res2.get("finish_reasons"))
+
+
 if __name__ == "__main__":
     print("=" * 70)
     print("思考模型兼容自检（任务1）")
     print("=" * 70)
     for fn in (case_matching, case_payload_injection, case_offline_flow,
-               case_param_rejected, case_stream):
+               case_param_rejected, case_stream, case_cache_field_parse, case_truncation):
         try:
             fn()
         except Exception as e:      # noqa: BLE001

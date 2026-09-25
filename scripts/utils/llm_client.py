@@ -377,12 +377,20 @@ class OpenAICompatClient:
 
     @staticmethod
     def _salvage_answer(text):
-        """thinking 兜底：尽量只取「正式答复」部分（首个协议块起），去掉思考过程。"""
+        """thinking 兜底：**只取「正式协议块」部分，其余一律丢弃**。
+
+    为什么不能在无标记时返回全文：思考过程与正文混在同一个 `reasoning_content` 里，
+    文本层面**无法可靠切分**（实测 minimax-m2.7 返回 `The user says "第 2 次…` 这种纯思考残片）。
+    原实现找不到标记就返回**整段**思考 → 思考被当正文写进小说（2026-09-23 实测复现）。
+
+    现改为：**找不到协议标记 → 返回空**。宁可让上层判失败，也不把思考当正文。
+    写作阶段是纯正文（无 `===FILE:` 之类协议块），因此**永远不会**吃到思考内容。
+    """
         for marker in ("===FILE:", "===APPEND:", "===DELETE:"):
             idx = text.find(marker)
             if idx >= 0:
                 return text[idx:]
-        return text
+        return ""
 
     def _request_json(self, payload):
         """单次非流式请求，返回解析后的 JSON。"""
@@ -408,6 +416,22 @@ class OpenAICompatClient:
         path = task_dir / name
         write_text(path, content)
         return path
+
+    def _save_truncated(self, task_path, texts):
+        """把被 max_tokens 截断的输出**隔离存放**（诊断用，不作为正式产物）。
+
+        为什么隔离而不是直接丢：截断的正文里往往有可用的开头，人需要能看见
+        "究竟写到哪里断的"；但它**绝不能**冒充成品进入 data/chapters/。
+        """
+        try:
+            dump = Path("data/state/truncated")
+            dump.mkdir(parents=True, exist_ok=True)
+            name = Path(task_path).stem + "_" + time.strftime("%Y%m%d_%H%M%S") + ".txt"
+            path = dump / name
+            write_text(path, NEWLINE.join(texts))
+            print("[llm_client] 被截断的输出已隔离存放（非正式产物）: " + str(path))
+        except Exception as e:                        # noqa: BLE001
+            print("[llm_client] WARN 截断输出隔离存放失败: " + repr(e))
 
     def _post_chat(self, messages, temperature=None, max_tokens=None):
         self._validate_creds()
@@ -441,14 +465,30 @@ class OpenAICompatClient:
                                       " content 为空但 reasoning_content 非空（thinking 模式）→ 自动注入 "
                                       + json.dumps(injected, ensure_ascii=False) + " 后重试")
                                 continue
-                        print("[llm_client] WARN " + str(model_name) +
-                              " 仅返回 reasoning_content，已兜底取用；建议把该模型加入 "
-                              "config/system.yaml 的 providers." + str(self.provider) +
-                              ".disable_thinking_models")
-                        text = self._salvage_answer(thinking)
+                        salvaged = self._salvage_answer(thinking)
+                        if salvaged:
+                            print("[llm_client] WARN " + str(model_name) +
+                                  " content 为空，已从 reasoning_content 的协议块兜底提取；"
+                                  "建议把该模型加入 config/system.yaml 的 providers." +
+                                  str(self.provider) + ".disable_thinking_models")
+                        else:
+                            print("[llm_client] WARN " + str(model_name) +
+                                  " content 为空，且 reasoning_content 里没有协议块 → "
+                                  "**思考内容已丢弃**（不会写进产物）；请把该模型加入 "
+                                  "config/system.yaml 的 providers." + str(self.provider) +
+                                  ".disable_thinking_models，或换模型")
+                        text = salvaged
                     if model_name != self.model:
                         print(f"[llm_client] fallback {self.model} → {model_name} 成功")
-                    return text, usage, data.get("model", model_name)
+                    finish = (choices[0].get("finish_reason") if choices else None) or ""
+                    if finish == "length":
+                        _det = usage.get("completion_tokens_details") or {}
+                        print("[llm_client] WARN " + str(model_name) +
+                              " 输出被 max_tokens 截断（finish_reason=length）：completion_tokens=" +
+                              str(usage.get("completion_tokens")) + "，其中思考 token=" +
+                              str(_det.get("reasoning_tokens")) +
+                              " → **正文不完整**；调用方必须判失败，不得当成品落盘")
+                    return text, usage, data.get("model", model_name), finish
                 except urllib.error.HTTPError as e:
                     body = e.read().decode("utf-8", "replace")[:500]
                     if self._reject_thinking_snippet(injected, e.code, body):
@@ -499,6 +539,7 @@ class OpenAICompatClient:
             attempt += 1
             content_parts, thinking_parts = [], []
             stopped = False
+            finish_reason = ""
             try:
                 req = urllib.request.Request(
                     self.base_url + "/chat/completions",
@@ -533,6 +574,7 @@ class OpenAICompatClient:
                             choices = chunk.get("choices") or []
                             if not choices:
                                 continue
+                            finish_reason = choices[0].get("finish_reason") or finish_reason
                             delta = choices[0].get("delta") or {}
                             piece = delta.get("content") or ""
                             if piece:
@@ -545,7 +587,7 @@ class OpenAICompatClient:
                                 thinking_parts.append(rpiece)
                 full = "".join(content_parts)
                 if stopped:
-                    return full, {}, self.model
+                    return full, {}, self.model, finish_reason
                 if not full.strip() and thinking_parts:
                     if injected is None and attempt < self.retries:
                         injected = self._apply_no_thinking(payload, self.model, force=True)
@@ -555,14 +597,25 @@ class OpenAICompatClient:
                                   " → 自动注入 " + json.dumps(injected, ensure_ascii=False) + " 后重试")
                             continue
                     salvaged = self._salvage_answer("".join(thinking_parts))
-                    print("[llm_client] WARN " + str(self.model) +
-                          " 流式仅返回 reasoning_content，已兜底回调；建议把该模型加入 "
-                          "config/system.yaml 的 providers." + str(self.provider) +
-                          ".disable_thinking_models")
+                    if salvaged:
+                        print("[llm_client] WARN " + str(self.model) +
+                              " 流式 content 为空，已从 reasoning_content 的协议块兜底回调；"
+                              "建议把该模型加入 config/system.yaml 的 providers." +
+                              str(self.provider) + ".disable_thinking_models")
+                    else:
+                        print("[llm_client] WARN " + str(self.model) +
+                              " 流式 content 为空，且 reasoning_content 里没有协议块 → "
+                              "**思考内容已丢弃**（不回调、不进产物）；请把该模型加入 "
+                              "config/system.yaml 的 providers." + str(self.provider) +
+                              ".disable_thinking_models，或换模型")
                     if on_chunk and salvaged:
                         on_chunk(salvaged)
-                    return salvaged, {}, self.model
-                return full, {}, self.model
+                    return salvaged, {}, self.model, finish_reason
+                if finish_reason == "length":
+                    print("[llm_client] WARN " + str(self.model) +
+                          " 流式输出被 max_tokens 截断（finish_reason=length）→ **正文不完整**；"
+                          "调用方必须判失败，不得当成品落盘")
+                return full, {}, self.model, finish_reason
             except urllib.error.HTTPError as e:
                 body = e.read().decode("utf-8", "replace")[:500]
                 if self._reject_thinking_snippet(injected, e.code, body):
@@ -661,15 +714,17 @@ class OpenAICompatClient:
             print("[llm_client] 多文件输出任务，拆分 " + str(len(reqs)) + " 个请求")
 
         all_text, tokens_in, tokens_out, cache_read, model_used = [], 0, 0, 0, self.model
+        finishes = []
         for sub_prompt, wr, ap in reqs:
-            text, usage, mu = self._post_chat(
+            text, usage, mu, finish = self._post_chat(
                 [{"role": "system", "content": SYSTEM_PROMPT},
                  {"role": "user", "content": sub_prompt}])
             model_used = mu
             tokens_in += int(usage.get("prompt_tokens") or 0)
             tokens_out += int(usage.get("completion_tokens") or 0)
-            cache_read += int(usage.get("cache_read_tokens") or 0)
+            cache_read += extract_cache_read_tokens(usage)
             all_text.append(text)
+            finishes.append(finish)
             if os.environ.get("NOVELFORGE_DEBUG"):
                 dump = Path("data/state/llm_raw")
                 dump.mkdir(parents=True, exist_ok=True)
@@ -677,11 +732,40 @@ class OpenAICompatClient:
                 write_text(dump / name,
                            "--- PROMPT (" + str(len(sub_prompt)) + " chars) ---\n" +
                            sub_prompt[:3000] + "\n" + "--- RESPONSE ---\n" + text)
-            if not dry_run:
+            # finish_reason=length → 输出被 max_tokens 截断，**本次产出不完整**：
+            # 不落盘（避免半截正文被当成品），由下面统一判失败 + 隔离存放。
+            if not dry_run and finish != "length":
                 self._apply_ops(text, wr, ap)
 
         cost_yuan = cost_tracker.estimate_cost_yuan(tokens_in, tokens_out, model_used,
                                                    cache_read=cache_read)
+        truncated = [i + 1 for i, f in enumerate(finishes) if f == "length"]
+        if truncated:
+            # 输出被 max_tokens 截断 → **正文不完整**。绝不落盘当成品：
+            # 正式产物已在上面的循环里跳过，这里只把残缺文本隔离存放供诊断，
+            # 并返回非零退出码（本项目统一以 exit_code != 0 判失败）。
+            if not dry_run:
+                self._save_truncated(task_path, all_text)
+            return {
+                "exit_code": 2,
+                "error": ("输出被 max_tokens 截断（finish_reason=length，第 " +
+                          ",".join(str(i) for i in truncated) + " 个子请求）→ 正文不完整，"
+                          "已丢弃、未落盘。解决：提高该阶段 max_tokens，"
+                          "或换用不会把输出预算耗在思考上的模型。"),
+                "stdout_tail": NEWLINE.join(all_text)[-2000:],
+                "tokens": tokens_in,
+                "tokens_out": tokens_out,
+                "cache_read": cache_read,
+                "cost_yuan": cost_yuan,
+                "estimated": False,
+                "provider": self.provider,
+                "model": model_used,
+                "model_key": self.model_key,
+                "requests": len(reqs),
+                "missing_inputs": missing,
+                "truncated": True,
+                "finish_reasons": finishes,
+            }
         return {
             "exit_code": 0,
             "stdout_tail": NEWLINE.join(all_text)[-2000:],
@@ -695,6 +779,7 @@ class OpenAICompatClient:
             "model_key": self.model_key,
             "requests": len(reqs),
             "missing_inputs": missing,
+            "finish_reasons": finishes,
         }
 
     def run_task_stream(self, task_file, on_piece, stop_flag, workdir=None, model=None, dry_run=False):
@@ -713,6 +798,7 @@ class OpenAICompatClient:
             print("[llm_client] 多文件输出任务（流式），拆分 " + str(len(reqs)) + " 个请求")
 
         all_text, tokens_in, tokens_out, cache_read, model_used = [], 0, 0, 0, self.model
+        finishes = []
         for sub_prompt, wr, ap in reqs:
             collected = []
 
@@ -720,14 +806,14 @@ class OpenAICompatClient:
                 _collected.append(piece)
                 on_piece(piece)
 
-            text, usage, mu = self._post_chat_stream(
+            text, usage, mu, finish = self._post_chat_stream(
                 [{"role": "system", "content": SYSTEM_PROMPT},
                  {"role": "user", "content": sub_prompt}],
                 on_chunk=_on_chunk, stop_flag=stop_flag)
             model_used = mu
             tokens_in += int(usage.get("prompt_tokens") or 0)
             tokens_out += int(usage.get("completion_tokens") or 0)
-            cache_read += int(usage.get("cache_read_tokens") or 0)
+            cache_read += extract_cache_read_tokens(usage)
             full_text = "".join(collected)
             all_text.append(full_text)
             if os.environ.get("NOVELFORGE_DEBUG"):
@@ -737,11 +823,42 @@ class OpenAICompatClient:
                 write_text(dump / name,
                            "--- PROMPT (" + str(len(sub_prompt)) + " chars) ---\n" +
                            sub_prompt[:3000] + "\n" + "--- RESPONSE ---\n" + full_text)
-            if not dry_run and stop_flag and not stop_flag():
+            finishes.append(finish)
+            # finish_reason=length → 输出被截断，本次产出不完整 → 不落盘
+            # （与 run_task 同策略：宁可失败，也不让半截正文冒充成品）
+            if not dry_run and stop_flag and not stop_flag() and finish != "length":
                 self._apply_ops(full_text, wr, ap)
 
         cost_yuan = cost_tracker.estimate_cost_yuan(tokens_in, tokens_out, model_used,
                                                    cache_read=cache_read)
+        _stopped = bool(stop_flag and stop_flag())
+        truncated = [i + 1 for i, f in enumerate(finishes) if f == "length"]
+        if truncated and not _stopped:
+            # 输出被截断 → 正文不完整，绝不落盘当成品（与 run_task 同策略）。
+            # 注意：用户主动 stop 不算截断失败（stopped 优先）。
+            if not dry_run:
+                self._save_truncated(task_path, all_text)
+            return {
+                "exit_code": 2,
+                "error": ("流式输出被 max_tokens 截断（finish_reason=length，第 " +
+                          ",".join(str(i) for i in truncated) + " 个子请求）→ 正文不完整，"
+                          "已丢弃、未落盘。解决：提高该阶段 max_tokens，"
+                          "或换用不会把输出预算耗在思考上的模型。"),
+                "stdout_tail": NEWLINE.join(all_text)[-2000:],
+                "tokens": tokens_in,
+                "tokens_out": tokens_out,
+                "cache_read": cache_read,
+                "cost_yuan": cost_yuan,
+                "estimated": False,
+                "provider": self.provider,
+                "model": model_used,
+                "model_key": self.model_key,
+                "requests": len(reqs),
+                "missing_inputs": missing,
+                "stopped": _stopped,
+                "truncated": True,
+                "finish_reasons": finishes,
+            }
         return {
             "exit_code": 0,
             "stdout_tail": NEWLINE.join(all_text)[-2000:],
@@ -755,7 +872,8 @@ class OpenAICompatClient:
             "model_key": self.model_key,
             "requests": len(reqs),
             "missing_inputs": missing,
-            "stopped": bool(stop_flag and stop_flag()),
+            "stopped": _stopped,
+            "finish_reasons": finishes,
         }
 
 
@@ -805,6 +923,39 @@ class HermesClient:
 
 
 # ---------------------------------------------------------------- 工厂
+
+def extract_cache_read_tokens(usage):
+    """从 usage 里取「缓存命中的输入 token 数」，兼容多家字段命名。
+
+    **2026-09-23 实测（TokenHub，免费额度）**：返回的是 OpenAI 风格
+    `usage.prompt_tokens_details.cached_tokens`；而此处原先读的是
+    `usage.cache_read_tokens` —— 该键在 OpenAI / DeepSeek / Anthropic
+    **任何一家都不存在**，于是命中数恒为 0：缓存优化永远"看不到效果"
+    （静默失效，正是本项目最忌讳的那类失败）。
+
+    实测证据（同一长前缀、连发 3 次，cached_tokens）：
+      qwen3.5-flash 0 / 0 / 0（**该模型在 TokenHub 上完全不缓存**）
+      deepseek-v4-flash 0 / 2048 / 2048
+      glm-5.1 1789 / 1902 / 1902
+
+    按优先级兼容各家：
+      1. OpenAI / TokenHub : `prompt_tokens_details.cached_tokens`
+      2. DeepSeek 官方      : `prompt_cache_hit_tokens`
+      3. Anthropic          : `cache_read_input_tokens`
+      4. 个别网关           : 顶层 `cache_read_tokens` / `cached_tokens`
+    """
+    if not isinstance(usage, dict):
+        return 0
+    details = usage.get("prompt_tokens_details")
+    if isinstance(details, dict) and details.get("cached_tokens") is not None:
+        return int(details.get("cached_tokens") or 0)
+    for key in ("prompt_cache_hit_tokens", "cache_read_input_tokens",
+                "cache_read_tokens", "cached_tokens"):
+        value = usage.get(key)
+        if value is not None:
+            return int(value or 0)
+    return 0
+
 
 def _load_env_file(path=".env"):
     """极简 .env 加载：仅设置尚未在环境中的键（不覆盖真实环境变量）。"""

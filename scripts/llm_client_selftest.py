@@ -144,7 +144,9 @@ fake_responses = iter([
 
 class MockLC(lc.OpenAICompatClient):
     def _post_chat(self, messages, temperature=None, max_tokens=None):
-        return next(fake_responses), {"prompt_tokens": 100, "completion_tokens": 50}, "mock-model"
+        # 返回 4 元组（2026-09-23 起第 4 位是 finish_reason）
+        return (next(fake_responses), {"prompt_tokens": 100, "completion_tokens": 50},
+                "mock-model", "stop")
 
 
 task = Path("data/test_llm_t8/mock_task.md")

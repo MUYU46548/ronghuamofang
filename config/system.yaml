@@ -8,6 +8,7 @@ providers:
     retries: 3
     available_models:
     - qwen3.5-flash
+    - minimax-m2.7
     - glm-5.1
     - glm-5-turbo
     - glm-5
@@ -17,10 +18,14 @@ providers:
     - deepseek-v4-pro
     - kimi-k3
     fallback:
-    - qwen3.5-flash
+    - minimax-m2.7
     - glm-5
     - glm-5-turbo
     disable_thinking_models:
+    - minimax-m2.7   # 2026-09-23 实测：默认进思考（reasoning 388 字 / 正文 54 字，输出 token 翻 3 倍）
+                     # 注入 payload[0] `thinking:{type:disabled}` 有效（总输出 129→58）；
+                     # ⚠️ 但 payload[1] `reasoning_effort:none` 对本模型**有害**（reasoning 1107、
+                     # 正文为空、撞满 max_tokens）→ 候选顺序不能把它提到前面
     - glm-5.1
     - glm-5
     - glm-5-turbo
@@ -37,25 +42,25 @@ providers:
 model:
   default:
     provider: tokenhub
-    id: qwen3.5-flash
+    id: minimax-m2.7
   architect:
     provider: tokenhub
-    id: qwen3.5-flash
+    id: minimax-m2.7
   outliner:
     provider: tokenhub
-    id: qwen3.5-flash
+    id: minimax-m2.7
   writer:
     provider: tokenhub
-    id: qwen3.5-flash
+    id: minimax-m2.7
   checker:
     provider: tokenhub
-    id: qwen3.5-flash
+    id: minimax-m2.7
   reviewer:
     provider: tokenhub
-    id: qwen3.5-flash
+    id: minimax-m2.7
   polisher:
     provider: tokenhub
-    id: qwen3.5-flash
+    id: minimax-m2.7
 budget:
   limit_yuan: 300
   warn_ratio: 0.7

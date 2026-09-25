@@ -10,7 +10,18 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 **执行引擎可切换**：`config/system.yaml` 的 `engine` 字段控制。`direct`=OpenAI 兼容直连（当前接 TokenHub，可随时换供应商），`hermes`=Hermes 子会话（备选）。所有调用点经 `make_client(cfg, role)` 取客户端，零调用点硬编码引擎。
 
 **思考模式兼容（2026-09-14 起）**：glm-5.x / kimi 等模型默认进 thinking 模式时，正文会全进 `reasoning_content`、`content` 为空（且思考 token 吃掉 `max_tokens` 预算）→ 流水线产出空白。
-防线有三：① `providers.<id>.disable_thinking_models` 名单内模型自动注入「关闭思考」片段（候选顺序见 `disable_thinking_payloads`，TokenHub 实测首选 `thinking: {type: disabled}`；`reasoning_effort: none` 会被该平台拒收）；② 未列名单的思考模型由客户端自动探测并注入后重试；③ 全部失败才从 `reasoning_content` 兜底提取。
+防线有三：① `providers.<id>.disable_thinking_models` 名单内模型自动注入「关闭思考」片段（候选顺序见 `disable_thinking_payloads`，TokenHub 实测首选 `thinking: {type: disabled}`；`reasoning_effort: none` 会被该平台拒收）；② 未列名单的思考模型由客户端自动探测并注入后重试；③ 兜底**只取协议块**（`===FILE:` / `===APPEND:` / `===DELETE:`）：reasoning_content 里找不到
+协议块就**直接丢弃**、返回空让上层判失败 —— **绝不把思考当正文写进产物**
+（2026-09-23 修：原实现无标记时返回整段思考，写作阶段实测把思考残片写进了小说正文）。
+
+**产出契约（2026-09-23 定）**：`_post_chat` / `_post_chat_stream` 返回 **4 元组**
+`(text, usage, model, finish_reason)`。`finish_reason == "length"` 表示**输出被 max_tokens 截断、
+正文不完整** —— 此时**不落盘**、返回 `exit_code: 2`、残缺文本隔离存 `data/state/truncated/`。
+调用方无需改动（本项目统一以 `exit_code != 0` 判失败）。
+**为什么必须这样**：思考模型会把输出预算耗在 reasoning 上（实测 `max_tokens=4000` 时
+思考 10521 字、正文仅 466 字即被截断），旧代码不读 `finish_reason` → **半截章节会被静默当成品**。
+注意 `completion_tokens_details.reasoning_tokens` **不可靠**（同样场景分别报 64 与 0），
+思考成本只能从 `completion_tokens` 总额侧面反映。
 **换供应商只改 `config/system.yaml` 的这两个键，不要改代码、不要在 `llm_client.py` 里硬编码模型名。**
 
 ## 启用流程（用户说"运行 NovelForge"时）
@@ -127,6 +138,24 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 **Agent 模式守卫**：`gates.agent_mode = true` 时，非 GUI 来源（无 `X-Mofang-Source: gui`）
 调用 `/approve`、`/reject`、`/project/create|archive|restore|init`、`/config/agent_mode`
 返回 **403**。含义是：**外部 Agent 可读、可跑流水线，但不能代替用户审批** —— 这是设计，不是 bug。
+
+## 提示词前缀纪律（2026-09-23 定，改 `prompts/stage*.md` 前必读）
+
+模型的**前缀缓存**按「请求开头逐字相同」命中，而写作阶段的输入量远大于输出量，
+所以**提示词里内容的先后顺序直接决定成本**。
+
+**约束**：`prompts/stage4_writing.md` 的 body 中，`---` 分隔线**之前**的内容必须逐章逐字不变；
+凡含 `{{n}}`（章节号）或每次都会变的内容（前文衔接 / 风格样本 / 角色卡），一律排在分隔线之后。
+
+**依据（实测）**：原模板正文第 1 行就是 `# 阶段 4 任务：写作第 {{n}} 章`，分叉点落在第 15 个字符，
+其后 55 行的写作要求/文风要求/硬性禁止**全部落在缓存分叉点之后**，前缀命中率上限只有 1.2%；
+按本条重排后为 **77.6%**，真请求实测 deepseek-v4-flash 命中 57.9%。
+
+**说明文字写 frontmatter，不要写进 body** —— frontmatter 不进任务文本（`load_template` 只取 body），
+写进 body 会变成逐章变化的内容，反而破坏前缀（这个坑已踩过一次）。
+
+**另注**：`qwen3.5-flash` 在 TokenHub 上**完全不缓存**（同前缀连发 3 次 cached 恒为 0），
+而当前 7 个角色（含 writer）全用它 —— 即上述优化要变现需换到支持缓存的模型（见 `cost_tracker.RATES` 的 cache_read）。
 
 ## 架构：API 层的域模块拆分（P2）
 
