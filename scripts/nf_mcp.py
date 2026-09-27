@@ -187,6 +187,60 @@ MCP_TOOLS = [
         "_http": ("POST", "/refine/chapter", None),
     },
     {
+        "name": "nf_refine_paragraph",
+        "description": "段落级定点重生成（只改写指定段落，不动其他部分）",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "chapter": {
+                    "type": "integer",
+                    "description": "章节号（如 3 表示第 3 章）",
+                },
+                "paragraph_index": {
+                    "type": "integer",
+                    "description": "段落号（0-indexed，按空行切分后的顺序）",
+                },
+                "feedback": {
+                    "type": "string",
+                    "description": '修改意见（如"把这段内心独白改成白描风格"）',
+                },
+                "dry_run": {
+                    "type": "boolean",
+                    "description": "只生成任务不实际执行（默认 false）",
+                },
+            },
+            "required": ["chapter", "paragraph_index", "feedback"],
+        },
+        "_http": ("POST", "/refine/paragraph", None),
+    },
+    {
+        "name": "nf_paragraph_restore",
+        "description": "回退段落到历史版本（从 para_history 恢复）",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "chapter": {"type": "integer", "description": "章节号"},
+                "paragraph_index": {"type": "integer", "description": "段落号（0-indexed）"},
+                "history_id": {"type": "integer", "description": "历史版本 ID"},
+            },
+            "required": ["chapter", "paragraph_index", "history_id"],
+        },
+        "_http": ("POST", "/chapters/paragraph/restore", None),
+    },
+    {
+        "name": "nf_get_paragraph_history",
+        "description": "获取段落改写历史列表",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "n": {"type": "integer", "description": "章节号"},
+                "p": {"type": "integer", "description": "段落号（0-indexed）"},
+            },
+            "required": ["n", "p"],
+        },
+        "_http": ("GET", "/chapters/paragraph/history", None),
+    },
+    {
         "name": "nf_run_auto_rewrite",
         "description": "自动重写低分章节（quality < threshold 的章节）",
         "inputSchema": {

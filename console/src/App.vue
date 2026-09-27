@@ -3,6 +3,7 @@ import { ref, computed, watch, onMounted, onUnmounted } from "vue";
 import { diffParagraphs } from "./diff.js";
 import ReviewConsole from "./ReviewConsole.vue";
 import SandboxQueue from "./SandboxQueue.vue";
+import ParagraphRefinePanel from "./ParagraphRefinePanel.vue";
 import OutlineView from "./OutlineView.vue";
 import ScrapsPanel from "./ScrapsPanel.vue";
 import RoleGraph from "./RoleGraph.vue";
@@ -154,6 +155,11 @@ function addRate() {
 
 function removeRate(name) {
   delete rates.value[name];
+}
+
+function switchToRefine(chapterNo) {
+  pendingRefineChapter.value = chapterNo;
+  switchTab('refine');
 }
 
 function switchTab(t) {
@@ -1878,6 +1884,7 @@ async function runCommand(id) {
 /* ---------- 章节浏览 ---------- */
 const chapters = ref([]);      // [{n, files: {raw, checked, refined}}]
 const chaptersLoaded = ref(false);
+const pendingRefineChapter = ref(null);
 const chapterQuality = ref({});  // {1: 7.5, 2: null, ...}
 const chapterThreshold = ref(6);
 const gateNotify = ref(gateNotifyEnabled());
@@ -2173,6 +2180,7 @@ onUnmounted(() => {
       <button :class="{ active: tab === 'outline' }" @click="switchTab('outline')">大纲</button>
       <button :class="{ active: tab === 'outline_chapters' }" @click="switchTab('outline_chapters'); loadOutlineChapters()">分章</button>
       <button :class="{ active: tab === 'review' }" @click="switchTab('review')">审稿</button>
+      <button :class="{ active: tab === 'refine' }" @click="switchTab('refine')">精修</button>
       <button :class="{ active: tab === 'sandbox' }" @click="switchTab('sandbox'); loadSandboxQueue()">
         审核<span v-if="sandboxPending" class="badge">{{ sandboxPending }}</span>
       </button>
@@ -2488,7 +2496,12 @@ onUnmounted(() => {
 
     <!-- 审稿 -->
     <section v-if="tab === 'review'">
-      <ReviewConsole />
+      <ReviewConsole @goto-refine="switchToRefine" />
+    </section>
+
+    <!-- 精修（段落级定点重写） -->
+    <section v-if="tab === 'refine'">
+      <ParagraphRefinePanel />
     </section>
 
     <!-- 审核（沙盒产物审核队列：通过/驳回只改状态，不写文件、不碰 vault） -->

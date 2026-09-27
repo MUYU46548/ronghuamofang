@@ -3,6 +3,8 @@ import { ref, computed, onMounted, onUnmounted } from "vue";
 
 const API = "http://127.0.0.1:8765";
 
+const emit = defineEmits(['goto-refine']);
+
 async function api(path, method = "GET", body = null) {
   const opt = { method, headers: { "Content-Type": "application/json" } };
   if (body) opt.body = JSON.stringify(body);
@@ -41,6 +43,10 @@ function toggleComment(chapterNo, findingId) {
   if (commenting.value[key]) {
     commentText.value[key] = "";
   }
+}
+
+function goToRefine(chapterNo) {
+  emit('goto-refine', chapterNo);
 }
 
 async function submitComment(chapterNo, findingId) {
@@ -407,6 +413,11 @@ onUnmounted(() => {
                 class="mini"
                 @click="toggleComment(c.n, f.id)"
               >💬</button>
+              <button
+                class="mini"
+                @click="goToRefine(c.n)"
+                title="打开段落级精修"
+              >✏️ 精修</button>
               <input
                 v-if="decisions[`${c.n}_${f.id}`]?.action === 'accept'"
                 v-model="decisions[`${c.n}_${f.id}`].feedback"

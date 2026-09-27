@@ -1038,6 +1038,23 @@ def act_refine_chapter(chapter, feedback, dry_run):
     return ok, msg
 
 
+def act_refine_paragraph(chapter, paragraph_index, feedback, dry_run):
+    import refine_paragraph
+    cfg, proj = load_all()
+    ok, msg, backup, version = refine_paragraph.run_paragraph_refine(
+        cfg, proj, chapter, paragraph_index, feedback or "",
+        client=_client_for_env(cfg, "polisher"),
+        dry_run=dry_run)
+    return ok, msg
+
+
+def act_paragraph_restore(chapter, paragraph_index, history_id):
+    """回退段落到历史版本"""
+    import refine_paragraph
+    ok, msg = refine_paragraph.restore_paragraph_version(chapter, paragraph_index, history_id)
+    return ok, msg
+
+
 def act_snapshot(label):
     def _fn():
         try:
@@ -1663,6 +1680,18 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/chapters/history":
             # 实现已迁至 nf_api_domains.runtime（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_runtime.handle_chapters_history(self)))
+        elif p == "/chapters/paragraphs":
+            # 段落级读取（P0 精修轴）
+            self._send(*_dom(dom_refine.handle_chapters_paragraphs(self)))
+        elif p == "/chapters/paragraph/history":
+            # 段落改写历史
+            self._send(*_dom(dom_refine.handle_paragraph_history(self)))
+        elif p == "/chapters/paragraph/diff":
+            # 段落 diff 对比
+            self._send(*_dom(dom_refine.handle_paragraph_diff(self)))
+        elif p == "/style/drift":
+            # 风格偏差检测（GET：基于历史记录对比）
+            self._send(*_dom(dom_refine.handle_style_drift(self)))
         elif p == "/chapters/quality":
             # 实现已迁至 nf_api_domains.misc（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_misc.handle_chapters_quality(self)))
@@ -1958,8 +1987,13 @@ class Handler(BaseHTTPRequestHandler):
                 except Exception as e:
                     self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
             elif p == "/refine/chapter":
-                # 实现已迁至 nf_api_domains.refine（P2 拆分）；此处只做转发。
                 self._send(*_dom(dom_refine.handle_refine_chapter(self, body)))
+            elif p == "/refine/paragraph":
+                self._send(*_dom(dom_refine.handle_refine_paragraph(self, body)))
+            elif p == "/chapters/paragraph/restore":
+                self._send(*_dom(dom_refine.handle_paragraph_restore(self, body)))
+            elif p == "/style/drift":
+                self._send(*_dom(dom_refine.handle_style_drift_post(self, body)))
             elif p == "/chapters/restore":
                 # 章节回退：body {n, version} → 从 data/chapters/history/ 恢复
                 # 确定性文件操作，同 /outline/restore，同步返回。
