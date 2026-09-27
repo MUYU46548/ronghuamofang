@@ -104,6 +104,7 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 | **大纲迭代闭环自检** | `python tests/unit/test_outline_iteration.py`（临时项目根，零 LLM：版本对比三分支（改善/停滞/退化）+ 逐条目差分 / 趋势序列与收敛五分支出对 / `--trend` CLI / **精修成本真的写进 cost_log**（stage=2 + chapter=版本号）+ 未记账时明确标注 / `cost_report --by-outline` 初版与迭代分离，52 断言，含 6 组反向验证） |
 | **沙盒审核 + 回写 + 开工建议自检** | `python tests/unit/test_sandbox_review_and_advisor.py`（临时项目根，零 LLM：登记/通过/驳回/未登记报错 · **改过的文件必须重新审核**（sha256）· 孤儿检测 · `write_sandbox` 自动登记 · 审核队列 CLI · 导出审核包（3 份待审 + **global.md 未被改动**）· 重复导出保留审核状态 · 建议方案池与优先级 · entry_id 可执行 · 零 token 保证，78 断言，含 8 组反向验证） |
 | **obsidian 联动 + 大纲精修完整性** | `python tests/unit/test_obsidian_integrity.py`（临时项目根，零 LLM：扫描无跨类目污染/无重复 / 导入前自动备份 / 返回类型一致 / KB 注入不静默 / `check_consistency` 诚实化 + 召回修复 / **大纲精修不在体检 FAIL 时假成功**，42 断言，含 7 组反向验证） |
+| **段落级精修轴** | `python tests/unit/test_paragraph_refine.py`（零 LLM：char_diff/summarize_diff/风格特征/split_paragraphs/历史/回退，24 断言） |
 | **正文退化检测自检** | `python tests/unit/test_verify_degenerate.py`（审计行动项 10：6 种退化形态（复读填充/思考残片/元话语拒答/无段落换行/标点灌水/模板骨架）各**判据隔离**样本 + 真实章节零误报 + 阈值边界 + `is_chapter_complete` 集成 + **7 条反向验证**（删判据→必须变绿），59 断言） |
 | 审稿闭环端点 HTTP 自检 | `python tests/http/test_review_api_http.py`（临时项目根起 nf_api：报告缺失 → 400 可行动提示、审查 job、决策保存与回读、批量精修真读到决策、键值格式兼容、交互式被拒，25 断言） |
 | stage4 出场同步自检 | `python tests/unit/test_stage4_appearances.py`（临时工作目录跑 fake stage4：appearances.json 自动生成、幂等不翻倍、异常注入不阻断，22 断言） |
