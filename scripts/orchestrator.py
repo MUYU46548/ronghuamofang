@@ -122,9 +122,16 @@ def _stop_requested():
         return False
 
 
-def run(from_stage=1, only_stage=None, client=None):
+def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False):
     cfg, proj = load_config()
     _warn_rewrite_conflict(cfg)
+    if verbose:
+        os.environ["NOVELFORGE_DEBUG"] = "1"
+        print("[orchestrator] verbose：将把每次 LLM 请求/响应原文落盘 data/state/llm_raw/")
+        print(f"[orchestrator] verbose：engine={cfg.get('engine')} 预算={cfg.get('budget', {}).get('limit_yuan')}"
+              f" 审批门={cfg.get('gates', {}).get('require_approval', [2])}")
+        for k, v in (cfg.get("model") or {}).items():
+            print(f"[orchestrator] verbose：model.{k} = {v.get('provider', '?')}/{v.get('id', '?')}")
     progress = ProgressManager("data/state/progress.json")
     # 多书隔离（P0.7 #10）：progress 记录的书名与 project.yaml 不一致时提示
     prev_book = progress.data.get("project", "")
@@ -154,6 +161,31 @@ def run(from_stage=1, only_stage=None, client=None):
         limit_yuan = float(os.environ.get("BUDGET_LIMIT_YUAN") or budget.get("limit_yuan", 300))
         cost = CostTracker(db, limit_yuan=limit_yuan,
                            warn_ratio=budget.get("warn_ratio", 0.7))
+
+        if dry_run:
+            # 预演模式：只打印执行计划，不调 LLM、不写产物、不建 runs 记录。
+            # 判定逻辑与实跑完全一致（断点/审批门/预算），保证「预演=实跑会走到的路径」。
+            print("[orchestrator] === dry-run 预演开始 ===")
+            planned = []
+            for n in ([only_stage] if only_stage else range(from_stage, 9)):
+                if progress.stage_status(n) == "done" and not only_stage:
+                    print(f"[dry-run] 阶段{n} 已完成，将跳过")
+                    continue
+                req = cfg.get("gates", {}).get("require_approval", [2])
+                pending = [s for s in req
+                           if n > s and progress.stage_status(s) == "done"
+                           and not progress.is_approved(s)]
+                if pending:
+                    print(f"[dry-run] 阶段{n} 前会停在审批门：{pending}（需先 approve.py --stage "
+                          f"{' '.join(map(str, pending))}）")
+                    break
+                planned.append(n)
+                print(f"[dry-run] 阶段{n} 将执行")
+            print(f"[dry-run] 计划执行 {len(planned)} 个阶段：{planned or '（无，全部跳过或被审批门拦住）'}")
+            print("[dry-run] 预计费用请用 estimate_tokens.py 查看（按历史均值/字符折算）")
+            print("[orchestrator] === dry-run 预演结束（未产生任何实际调用/写入）===")
+            return 0
+
         run_id = db.start_run(plan_json=f"from={from_stage} only={only_stage}")
 
         order = [only_stage] if only_stage else range(from_stage, 9)
@@ -373,8 +405,14 @@ def main():
     parser = argparse.ArgumentParser(description="NovelForge 主调度器")
     parser.add_argument("--from", dest="from_stage", type=int, default=1, help="起始阶段")
     parser.add_argument("--stage", type=int, default=None, help="只运行指定阶段")
+    parser.add_argument("--verbose", action="store_true", help="输出详细调试信息（LLM 请求/响应摘要、阶段内部状态）")
+    parser.add_argument("--dry-run", action="store_true", help="预演模式：跳过所有 LLM 调用和文件写入，只打印将执行的操作")
     args = parser.parse_args()
-    sys.exit(run(args.from_stage, args.stage))
+    if args.verbose:
+        print("[orchestrator] verbose 模式已开启")
+    if args.dry_run:
+        print("[orchestrator] dry-run 模式已开启（跳过 LLM 调用和文件写入）")
+    sys.exit(run(args.from_stage, args.stage, verbose=args.verbose, dry_run=args.dry_run))
 
 
 if __name__ == "__main__":

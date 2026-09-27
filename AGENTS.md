@@ -47,10 +47,12 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 
 | 目的 | 命令（workdir=项目根，用 .venv python） |
 |------|------|
-| **Agent 只读入口（全景/自检）** | `python scripts/nfctl.py status`（一屏：书名/阶段/进度/成本/待审批/产物）· `check`（环境自检，含 **YAML 重复键检测**）· `api <GET路径>`（只读转发 nf_api，省手写 curl）。**只读、零 token**；写操作走下方各脚本 |
+| **Agent 只读入口（全景/自检）** | `python scripts/nfctl.py status`（一屏：书名/阶段/进度/成本/待审批/产物）· `check`（环境自检，含 **YAML 重复键检测**）· `doctor`（**数据一致性自检**：runs 脏行/产物完整性/孤儿文件/成本负数）· `test`（**统一测试运行器**：跑 tests/unit + tests/http 全部自定义测试，`--pattern` 选单个）· `api <GET路径>`（只读转发 nf_api，省手写 curl）· `serve`（启动零依赖调试看板 127.0.0.1:8766）。**只读、零 token**；写操作走下方各脚本 |
 | 全流程启动 | `python scripts/orchestrator.py` |
 | 从阶段 N 重跑 | `python scripts/orchestrator.py --from N` |
 | 只跑阶段 N | `python scripts/orchestrator.py --stage N` |
+| **详细调试模式** | `python scripts/orchestrator.py --verbose`（打印配置全景 + LLM 请求/响应原文落盘 `data/state/llm_raw/`） |
+| **执行计划预演** | `python scripts/orchestrator.py --dry-run`（零 token 预演：打印将执行哪些阶段/会在哪个审批门停下，不调 LLM、不写文件、不建 runs 记录；判定逻辑与实跑一致） |
 | 审批阶段 N | `python scripts/approve.py --stage N` |
 | 撤销审批 | `python scripts/approve.py --stage N --revoke` |
 | 打回阶段 N | `python scripts/reject.py --stage N "原因"`（记录原因+清理下游产物+重置状态+撤销审批；`--dry-run` 预演） |

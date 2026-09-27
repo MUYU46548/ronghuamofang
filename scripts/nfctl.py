@@ -16,6 +16,8 @@
 
     python scripts/nfctl.py status [--json]         # 一屏全景：项目/阶段/进度/成本/素材/产物
     python scripts/nfctl.py check  [--json]         # 环境自检：密钥/配置/端口/gates/重复键
+    python scripts/nfctl.py doctor [--json]         # 数据一致性自检：产物完整性/孤儿文件/数据库
+    python scripts/nfctl.py serve  [--port 8766]    # 启动本地调试看板（零依赖）
     python scripts/nfctl.py api <GET路径> [--json]  # 只读转发到 nf_api（服务需在跑）
 
 退出码：0 = 成功；1 = 参数或读取错误；2 = 后端不可用（仅 api 子命令）。
@@ -424,6 +426,390 @@ def render_check(c: dict) -> str:
     return "\n".join(lines)
 
 
+# ---------------------------------------------------------------- doctor
+def collect_doctor(root: Path) -> dict:
+    """数据一致性自检：产物完整性、章节文件一致性、成本记录完整性。
+
+    与 check 的区别：check 查「能不能跑」（环境），doctor 查「数据对不对」（产物）。
+    """
+    res = {"root": str(root), "items": [], "blocking": [], "warnings": []}
+
+    def add(name, ok, detail, blocking=False, warning=False):
+        res["items"].append({"name": name, "ok": bool(ok), "detail": detail})
+        if not ok:
+            (res["blocking"] if blocking else res["warnings"]).append(name)
+
+    # 章节文件一致性
+    chapters_dir = root / "data" / "chapters"
+    raw_dir = chapters_dir / "raw"
+    checked_dir = chapters_dir / "checked"
+    refined_dir = chapters_dir / "refined"
+
+    raw_files = sorted([f.name for f in raw_dir.glob("*.md")]) if raw_dir.is_dir() else []
+    checked_files = sorted([f.name for f in checked_dir.glob("*.md")]) if checked_dir.is_dir() else []
+    refined_files = sorted([f.name for f in refined_dir.glob("*.md")]) if refined_dir.is_dir() else []
+
+    # 阶段4 完成 → raw 应有文件
+    progress_file = root / "data" / "state" / "progress.json"
+    stage4_done = False
+    stage5_done = False
+    stage6_done = False
+    if progress_file.exists():
+        try:
+            prog = json.loads(progress_file.read_text(encoding="utf-8"))
+            stages = prog.get("stages") or {}
+            stage4_done = (stages.get("4") or {}).get("status") == "done"
+            stage5_done = (stages.get("5") or {}).get("status") == "done"
+            stage6_done = (stages.get("6") or {}).get("status") == "done"
+        except Exception:
+            pass
+
+    if stage4_done:
+        add("raw 章节文件", len(raw_files) > 0,
+            "%d 个文件" % len(raw_files) if raw_files else "阶段4已完成但 raw/ 为空",
+            blocking=not raw_files)
+    if stage5_done:
+        add("checked 章节文件", len(checked_files) >= len(raw_files),
+            "raw %d / checked %d" % (len(raw_files), len(checked_files)),
+            blocking=len(checked_files) < len(raw_files))
+    if stage6_done:
+        add("refined 章节文件", len(refined_files) >= len(raw_files),
+            "raw %d / refined %d" % (len(raw_files), len(refined_files)),
+            blocking=len(refined_files) < len(raw_files))
+
+    # 孤儿文件：在 raw/checked/refined 里但不在另一个里
+    raw_set = set(raw_files)
+    checked_set = set(checked_files)
+    refined_set = set(refined_files)
+    orphans_raw = raw_set - checked_set
+    orphans_checked = checked_set - raw_set
+    if stage5_done and (orphans_raw or orphans_checked):
+        add("raw/checked 一致性", False,
+            "仅在 raw: %s；仅在 checked: %s" % (
+                ", ".join(sorted(orphans_raw)[:3]) or "无",
+                ", ".join(sorted(orphans_checked)[:3]) or "无"),
+            warning=True)
+
+    # 大纲文件
+    outline = root / "data" / "outline" / "global.md"
+    add("全局大纲", outline.exists(),
+        "%d 字" % len(outline.read_text(encoding="utf-8", errors="replace")) if outline.exists() else "不存在",
+        blocking=not outline.exists())
+
+    outline_chapters_dir = root / "data" / "outline" / "chapters"
+    outline_chapters = sorted([f.name for f in outline_chapters_dir.glob("*.md")]) if outline_chapters_dir.is_dir() else []
+    add("逐章大纲", len(outline_chapters) > 0,
+        "%d 个文件" % len(outline_chapters) if outline_chapters else "不存在（阶段3 未跑）")
+
+    # 成本记录一致性
+    db_path = root / "logs" / "runs.db"
+    if db_path.exists():
+        try:
+            import sqlite3
+            conn = sqlite3.connect(db_path)
+            # runs 表：不应有 status='running' 的脏行
+            dirty_runs = conn.execute(
+                "SELECT id, started_at, finished_at FROM runs WHERE status='running'"
+            ).fetchall()
+            add("runs 脏行", len(dirty_runs) == 0,
+                "%d 条 running 脏行（应始终为 0）" % len(dirty_runs),
+                blocking=len(dirty_runs) > 0)
+            # cost_log 表：不应有负数 cost
+            neg_cost = conn.execute(
+                "SELECT COUNT(*) FROM cost_log WHERE cost_yuan < 0"
+            ).fetchone()[0]
+            add("cost_log 负数", neg_cost == 0,
+                "%d 条负数记录" % neg_cost,
+                blocking=neg_cost > 0)
+            # chapter_log 表：不应有 error 非空但 status='ok' 的矛盾行
+            bad_ch = conn.execute(
+                "SELECT COUNT(*) FROM chapter_log WHERE status='ok' AND error IS NOT NULL AND error != ''"
+            ).fetchone()[0]
+            add("chapter_log 矛盾行", bad_ch == 0,
+                "%d 条 status=ok 但 error 非空" % bad_ch,
+                warning=True)
+            conn.close()
+        except Exception as e:
+            add("数据库检查", False, "%s: %s" % (type(e).__name__, e), warning=True)
+
+    # 孤儿文件检测：data/ 下不该存在的文件
+    allowed_patterns = {
+        "data/chapters": ["*.md"],
+        "data/outline": ["*.md", "*.json"],
+        "data/setting": ["*.json", "*.md"],
+        "data/state": ["*.json", "*.jsonl", "*.log"],
+        "data/summaries": ["*.md"],
+    }
+    orphans = []
+    for subdir, patterns in allowed_patterns.items():
+        d = root / subdir
+        if not d.is_dir():
+            continue
+        for f in d.iterdir():
+            if f.is_file() and not any(f.match(p) for p in patterns):
+                orphans.append(str(f.relative_to(root)))
+    add("孤儿文件", len(orphans) == 0,
+        "%d 个不在预期模式的文件" % len(orphans) if orphans else "无",
+        warning=True)
+    if orphans:
+        res["orphan_files"] = orphans[:10]
+
+    return res
+
+
+def render_doctor(d: dict) -> str:
+    lines = ["数据一致性自检 · %s" % d["root"], ""]
+    for it in d["items"]:
+        lines.append("  %s %s: %s" % ("[ok]" if it["ok"] else "[!!]", it["name"], it["detail"]))
+    lines.append("")
+    lines.append("阻塞项: %s" % (", ".join(d["blocking"]) if d["blocking"] else "无"))
+    lines.append("提醒项: %s" % (", ".join(d["warnings"]) if d["warnings"] else "无"))
+    if d["blocking"]:
+        lines.append("→ 数据有问题，先修再跑。")
+    else:
+        lines.append("→ 数据一致性 OK。")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------- serve
+def start_serve(root: Path, port: int = 8766):
+    """启动本地调试看板（零依赖，类似方寸的 tegula serve）。
+
+    提供：
+    - GET /          → HTML 调试面板
+    - GET /api/status → JSON 全景
+    - GET /api/check  → JSON 环境自检
+    - GET /api/doctor → JSON 数据一致性自检
+    - GET /api/logs   → 最近 N 行日志
+    """
+    import http.server
+    import threading
+
+    class DebugHandler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, fmt, *args):
+            pass  # 静默
+
+        def _send_json(self, data, status=200):
+            body = json.dumps(data, ensure_ascii=False, indent=2).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def _send_html(self, html, status=200):
+            body = html.encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_GET(self):
+            if self.path == "/" or self.path == "/index.html":
+                self._send_html(self._render_dashboard())
+            elif self.path == "/api/status":
+                self._send_json(collect_status(root))
+            elif self.path == "/api/check":
+                self._send_json(collect_check(root))
+            elif self.path == "/api/doctor":
+                self._send_json(collect_doctor(root))
+            elif self.path == "/api/logs":
+                self._send_json(self._get_logs())
+            else:
+                self._send_json({"error": "not found"}, 404)
+
+        def _get_logs(self):
+            log_file = root / "logs" / "nf_api_child.log"
+            if not log_file.exists():
+                return {"lines": [], "total": 0}
+            try:
+                lines = log_file.read_text(encoding="utf-8", errors="replace").splitlines()
+                return {"lines": lines[-100:], "total": len(lines)}
+            except Exception as e:
+                return {"error": str(e)}
+
+        def _render_dashboard(self):
+            s = collect_status(root)
+            c = collect_check(root)
+            d = collect_doctor(root)
+
+            def badge(ok):
+                return '<span style="color:green">OK</span>' if ok else '<span style="color:red">FAIL</span>'
+
+            html = """<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>绒花墨坊调试面板</title>
+<style>
+body{font-family:system-ui,sans-serif;max-width:900px;margin:20px auto;padding:0 16px;background:#1a1a2e;color:#eee}
+h1{color:#e94560}h2{color:#0f3460;margin-top:24px}
+table{width:100%;border-collapse:collapse;margin:8px 0}
+td,th{padding:6px 8px;border:1px solid #333;text-align:left}
+th{background:#16213e}tr:nth-child(even){background:#0f3460}
+.ok{color:green}.bad{color:red}.warn{color:orange}
+a{color:#e94560}
+</style></head><body>
+<h1>绒花墨坊调试面板</h1>
+<p>项目根: %(root)s</p>
+
+<h2>环境自检</h2>
+<table><tr><th>项</th><th>状态</th><th>详情</th></tr>
+%(check_rows)s</table>
+
+<h2>数据一致性</h2>
+<table><tr><th>项</th><th>状态</th><th>详情</th></tr>
+%(doctor_rows)s</table>
+
+<h2>状态概览</h2>
+<table>
+<tr><th>书名</th><td>%(name)s</td></tr>
+<tr><th>当前阶段</th><td>%(stage)s · %(stage_name)s</td></tr>
+<tr><th>花费</th><td>¥%(spent)s / ¥%(limit)s（%(ratio)s%%）</td></tr>
+<tr><th>章节</th><td>完成 %(chapters_done)s 章，失败 %(chapters_failed)s 章</td></tr>
+<tr><th>产物</th><td>大纲 %(outline_chars)s 字 · raw %(raw)s / checked %(checked)s / refined %(refined)s</td></tr>
+</table>
+
+<h2>最近日志</h2>
+<pre id="logs" style="background:#0f3460;padding:8px;max-height:300px;overflow:auto;font-size:12px">%(logs)s</pre>
+<p><a href="/api/status">JSON Status</a> · <a href="/api/check">JSON Check</a> · <a href="/api/doctor">JSON Doctor</a></p>
+</body></html>""" % {
+                "root": s["root"],
+                "check_rows": "".join(
+                    '<tr><td>%s</td><td>%s</td><td>%s</td></tr>' % (
+                        it["name"], badge(it["ok"]), it["detail"]
+                    ) for it in c["items"]
+                ),
+                "doctor_rows": "".join(
+                    '<tr><td>%s</td><td>%s</td><td>%s</td></tr>' % (
+                        it["name"], badge(it["ok"]), it["detail"]
+                    ) for it in d["items"]
+                ),
+                "name": s["project"].get("name") or "(未命名)",
+                "stage": s["stage"].get("current", "?"),
+                "stage_name": s["stage"].get("name", "?"),
+                "spent": s.get("cost", {}).get("spent_yuan", 0),
+                "limit": s.get("cost", {}).get("limit_yuan", 0),
+                "ratio": (s.get("cost", {}).get("ratio") or 0) * 100,
+                "chapters_done": s.get("progress", {}).get("chapters_done", 0),
+                "chapters_failed": s.get("progress", {}).get("chapters_failed", 0),
+                "outline_chars": s.get("artifacts", {}).get("outline_chars", 0),
+                "raw": s.get("artifacts", {}).get("chapters", {}).get("raw", 0),
+                "checked": s.get("artifacts", {}).get("chapters", {}).get("checked", 0),
+                "refined": s.get("artifacts", {}).get("chapters", {}).get("refined", 0),
+                "logs": "\n".join(self._get_logs().get("lines", [])),
+            }
+            return html
+
+    server = http.server.HTTPServer(("127.0.0.1", port), DebugHandler)
+    print("绒花墨坊调试面板: http://127.0.0.1:%d" % port)
+    print("  /           → HTML 调试面板")
+    print("  /api/status → JSON 全景")
+    print("  /api/check  → JSON 环境自检")
+    print("  /api/doctor → JSON 数据一致性自检")
+    print("  /api/logs   → 最近 100 行日志")
+    print("Ctrl+C 停止")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\n已停止")
+        server.server_close()
+
+
+# ---------------------------------------------------------------- test
+# 退出码不可靠的测试（main() 不返回非零 / 靠打印文本报告结果）：
+# 运行器解析 stdout 里的 FAIL 标记兜底。
+NO_EXITCODE_TESTS = {"test_thinking_compat.py"}
+# 默认会发起真实 LLM 调用的测试：统一强制 --offline，防测试运行器烧 token。
+FORCE_OFFLINE_TESTS = {"test_thinking_compat.py"}
+
+
+def run_tests(root: Path, pattern: str = "test_*.py", verbose: bool = False) -> dict:
+    """统一测试运行器：发现并运行 tests/ 下所有自定义测试脚本。
+
+    本项目测试是自定义运行器（main() + PASS/FAIL 计数），不是 pytest。
+    返回 {"total": N, "passed": N, "failed": N, "errors": [...]}。
+    """
+    import subprocess
+
+    tests_dir = root / "tests"
+    if not tests_dir.is_dir():
+        return {"total": 0, "passed": 0, "failed": 0, "errors": ["tests/ 目录不存在"]}
+
+    # 收集所有 test_*.py 文件（排除 e2e/ —— 那些需要 Playwright + 特殊环境）
+    test_files = sorted(tests_dir.glob(f"unit/{pattern}")) + sorted(tests_dir.glob(f"http/{pattern}"))
+    if not test_files:
+        return {"total": 0, "passed": 0, "failed": 0, "errors": ["未找到测试文件"]}
+
+    python_exe = root / ".venv" / "Scripts" / "python.exe"
+    if not python_exe.exists():
+        python_exe = Path(sys.executable)  # 回退到当前解释器
+
+    results = {"total": 0, "passed": 0, "failed": 0, "errors": [], "details": []}
+
+    for tf in test_files:
+        rel = tf.relative_to(root)
+        results["total"] += 1
+        cmd = [str(python_exe), str(tf)]
+        if tf.name in FORCE_OFFLINE_TESTS:
+            cmd.append("--offline")            # 强制离线：绝不真实调 LLM
+        try:
+            proc = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=1200,
+                cwd=str(root),
+            )
+            # 自定义运行器：exit 0 = 全 PASS，非 0 = 有 FAIL
+            passed = proc.returncode == 0
+            # 退出码不可靠的测试：解析 stdout 的失败标记兜底
+            if passed and tf.name in NO_EXITCODE_TESTS:
+                fail_markers = [l for l in proc.stdout.splitlines()
+                                if l.strip().startswith("失败项") and "失败项: " in l
+                                and l.split("失败项: ", 1)[1].strip()]
+                passed = not fail_markers
+            if passed:
+                results["passed"] += 1
+                if verbose:
+                    results["details"].append({"file": str(rel), "status": "PASS", "output": proc.stdout[-500:]})
+            else:
+                results["failed"] += 1
+                # 提取 FAIL 行
+                fail_lines = [l for l in proc.stdout.splitlines() if "FAIL" in l or "ERROR" in l]
+                results["errors"].append({
+                    "file": str(rel),
+                    "exit_code": proc.returncode,
+                    "failures": fail_lines[:10],
+                    "stderr": proc.stderr[-300:] if proc.stderr else "",
+                })
+        except subprocess.TimeoutExpired:
+            results["failed"] += 1
+            results["errors"].append({"file": str(rel), "error": "超时（120s）"})
+        except Exception as e:
+            results["failed"] += 1
+            results["errors"].append({"file": str(rel), "error": str(e)})
+
+    return results
+
+
+def render_test_results(d: dict) -> str:
+    lines = ["统一测试运行器", ""]
+    lines.append("  总计: %d  通过: %d  失败: %d" % (d["total"], d["passed"], d["failed"]))
+    if d["errors"]:
+        lines.append("")
+        lines.append("失败详情:")
+        for err in d["errors"]:
+            lines.append("  — %s" % err.get("file", "?"))
+            if "error" in err:
+                lines.append("    错误: %s" % err["error"])
+            if "failures" in err:
+                for f in err["failures"][:5]:
+                    lines.append("    %s" % f)
+    if d["failed"] == 0 and d["total"] > 0:
+        lines.append("")
+        lines.append("→ 全部通过。")
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------- main
 def main(argv=None):
     try:
@@ -446,6 +832,12 @@ def main(argv=None):
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("status", parents=[common], help="一屏全景（离线，不需要 nf_api）")
     sub.add_parser("check", parents=[common], help="环境自检（含 YAML 重复键）")
+    sub.add_parser("doctor", parents=[common], help="数据一致性自检（产物完整性/孤儿文件/数据库）")
+    p_serve = sub.add_parser("serve", parents=[common], help="启动本地调试看板（零依赖）")
+    p_serve.add_argument("--port", type=int, default=8766, help="端口（默认 8766）")
+    p_test = sub.add_parser("test", parents=[common], help="统一测试运行器（跑 tests/ 下所有自定义测试）")
+    p_test.add_argument("--pattern", default="test_*.py", help="测试文件匹配模式（默认 test_*.py）")
+    p_test.add_argument("--verbose", action="store_true", help="显示每个测试的详细输出")
     p_api = sub.add_parser("api", parents=[common], help="只读转发 GET 到 nf_api")
     p_api.add_argument("path", help="如 /state、/health、/outline/trend、/costs/summary")
     p_api.add_argument("--port", type=int, default=API_PORT)
@@ -462,6 +854,20 @@ def main(argv=None):
     if args.cmd == "check":
         data = collect_check(root)
         print(json.dumps(data, ensure_ascii=False, indent=2) if as_json else render_check(data))
+        return 0
+
+    if args.cmd == "doctor":
+        data = collect_doctor(root)
+        print(json.dumps(data, ensure_ascii=False, indent=2) if as_json else render_doctor(data))
+        return 0
+
+    if args.cmd == "test":
+        data = run_tests(root, pattern=args.pattern, verbose=args.verbose)
+        print(json.dumps(data, ensure_ascii=False, indent=2) if as_json else render_test_results(data))
+        return 0 if data["failed"] == 0 else 1
+
+    if args.cmd == "serve":
+        start_serve(root, port=args.port)
         return 0
 
     if args.cmd == "api":
