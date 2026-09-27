@@ -577,14 +577,16 @@ def case_f7():
 
     probe = Path(tempfile.mkdtemp(prefix="nf_seed_"))
     try:
-        # payload：新版代码 + 新版提示词 + config
-        (probe / "scripts").mkdir(parents=True, exist_ok=True)
-        (probe / "scripts" / "orchestrator.py").write_text("# NEW-CODE\n", encoding="utf-8")
-        (probe / "prompts").mkdir(exist_ok=True)
-        (probe / "prompts" / "stage4.md").write_text("NEW-PROMPT\n", encoding="utf-8")
-        (probe / "config").mkdir(exist_ok=True)
-        (probe / "config" / "system.yaml").write_text("engine: new\n", encoding="utf-8")
-        (probe / "config" / "new_feature.yaml").write_text("added: true\n",
+        # payload：打包态的 process.resourcesPath/payload（seedWorkspace 从此读）
+        # 所以 NEW 文件必须放在 probe/payload/ 下
+        payload = probe / "payload"
+        (payload / "scripts").mkdir(parents=True, exist_ok=True)
+        (payload / "scripts" / "orchestrator.py").write_text("# NEW-CODE\n", encoding="utf-8")
+        (payload / "prompts").mkdir(parents=True, exist_ok=True)
+        (payload / "prompts" / "stage4.md").write_text("NEW-PROMPT\n", encoding="utf-8")
+        (payload / "config").mkdir(parents=True, exist_ok=True)
+        (payload / "config" / "system.yaml").write_text("engine: new\n", encoding="utf-8")
+        (payload / "config" / "new_feature.yaml").write_text("added: true\n",
                                                           encoding="utf-8")
 
         ws = probe / "workspace"
@@ -606,10 +608,10 @@ def case_f7():
             "const path = require('path');\n"
             f"const ROOT = {json.dumps(str(probe)).replace(chr(92), '/')};\n"
             f"const WORKSPACE = {json.dumps(str(ws)).replace(chr(92), '/')};\n"
-            "const isPackaged = false;\n"
+            "const isPackaged = true;\n"
             "const app = { getPath: () => WORKSPACE };\n"
             "process.resourcesPath = ROOT;\n"
-            "function getWorkspaceDir() { return WORKSPACE; }\n"
+            "function getWorkspaceDir() { return WORKSPACE };\n"
             + re.search(r"const SEED_VERSION = \d+;", src).group(0) + "\n"
             + re.search(r"const SEED_CODE_DIRS = \[[^\]]*\];", src).group(0) + "\n"
             + re.search(r"const SEED_CONFIG_DIR = \"[^\"]*\";", src).group(0) + "\n"
@@ -652,7 +654,10 @@ def case_f7():
         check(payload["userChapter"] == "用户章节",
               "F7 升级刷新绝不动用户 data/（不丢稿）",
               f"实际={payload['userChapter']!r}")
-        check(payload["seedVersion"] == "2",
+        # 从源码抽取的 SEED_VERSION 常量，测试不硬编码（否则每次 +1 都要改测试）
+        seed_ver_match = re.search(r"const SEED_VERSION = (\d+);", src)
+        current_seed_ver = seed_ver_match.group(1) if seed_ver_match else "3"
+        check(payload["seedVersion"] == current_seed_ver,
               "F7 版本标记被写为当前种子版本（下次启动不再重复刷新）",
               f"实际={payload['seedVersion']!r}")
 

@@ -40,6 +40,29 @@ BASE = "http://127.0.0.1:%d" % PORT
 PASS, FAIL = [], []
 
 
+def _force_agent_mode_off(system_yaml: Path):
+    """把临时根的 gates.agent_mode 改为 false（按行定向替换，保留注释）。
+
+    真实仓库的 system.yaml 若开了 agent_mode，HTTP 测试的裸请求（无
+    X-Mofang-Source: gui header）会被 Agent 守卫 403，测试意图（护栏 400）
+    根本轮不到执行。测试环境必须是标准模式。
+    """
+    p = Path(system_yaml)
+    if not p.exists():
+        return
+    lines = p.read_text(encoding="utf-8").splitlines()
+    out, replaced = [], False
+    for ln in lines:
+        if ln.strip().startswith("agent_mode:"):
+            indent = ln[:len(ln) - len(ln.lstrip())]
+            out.append(indent + "agent_mode: false   # 测试环境强制标准模式")
+            replaced = True
+        else:
+            out.append(ln)
+    if replaced:
+        p.write_text("\n".join(out) + "\n", encoding="utf-8")
+
+
 def check(name, cond, detail=""):
     (PASS if cond else FAIL).append(name)
     print("  [%s] %s%s" % ("PASS" if cond else "FAIL", name,
@@ -69,6 +92,7 @@ def build_project():
                     ignore=shutil.ignore_patterns("history"))
     shutil.copytree(ROOT / "prompts", tmp / "prompts",
                     ignore=shutil.ignore_patterns("history", "reference"))
+    _force_agent_mode_off(tmp / "config" / "system.yaml")
     (tmp / "data" / "state").mkdir(parents=True)
     # progress.json：阶段 1-3 已完成并审批，4 失败（错误恢复入口的典型现场）
     (tmp / "data" / "state" / "progress.json").write_text(json.dumps({

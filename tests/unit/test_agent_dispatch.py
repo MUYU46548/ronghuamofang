@@ -227,7 +227,7 @@ def main():
         tools = r.get("result", {}).get("tools", []) if r else []
         names = [t["name"] for t in tools]
         # 15 个 HTTP 工具 + 2 个 LOCAL 工具 = 17（Phase 5 加了 nf_get_stream_status）
-        check("tools/list 含 17 个工具（含 2 个新工具）", len(tools) == 17, names)
+        check("tools/list 含 20 个工具（含段落精修 3 件套）", len(tools) == 20, names)
         check("新工具在清单里",
               "nf_dispatch_task" in names and "nf_get_agent_run" in names)
         check("tools/list 不泄露 _local/_http 内部字段",
