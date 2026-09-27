@@ -457,13 +457,19 @@ class OpenAICompatClient:
                         (choices[0].get("message") if choices else None) or {})
                     usage = data.get("usage") or {}
                     if not text.strip() and thinking.strip():
-                        # thinking 模式：正文被塞进 reasoning_content（TokenHub glm-5.x 默认行为）
-                        if injected is None and attempt < self.retries:
+                        # thinking 模式：正文被塞进 reasoning_content（TokenHub glm-5.x / minimax 默认行为）
+                        # 即使配置注入了关闭思考的 payload，模型仍可能进思考 → 标记当前候选无效，换下一个重试
+                        if attempt < self.retries:
+                            if injected is not None and injected not in self._bad_thinking_snippets:
+                                self._bad_thinking_snippets.append(dict(injected))
+                                self._chosen_thinking_snippet = None
+                                for k in injected:
+                                    payload.pop(k, None)
                             injected = self._apply_no_thinking(payload, model_name, force=True)
                             if injected is not None:
                                 print("[llm_client] WARN " + str(model_name) +
-                                      " content 为空但 reasoning_content 非空（thinking 模式）→ 自动注入 "
-                                      + json.dumps(injected, ensure_ascii=False) + " 后重试")
+                                      " 关闭思考 payload 仍无效 → 换下一个候选 " +
+                                      json.dumps(injected, ensure_ascii=False) + " 后重试")
                                 continue
                         salvaged = self._salvage_answer(thinking)
                         if salvaged:
@@ -478,6 +484,12 @@ class OpenAICompatClient:
                                   "config/system.yaml 的 providers." + str(self.provider) +
                                   ".disable_thinking_models，或换模型")
                         text = salvaged
+                    # 纯空响应（无正文、无思考）→ 重试
+                    if not text.strip() and attempt < self.retries:
+                        print("[llm_client] WARN " + str(model_name) +
+                              " 返回纯空响应（无正文、无思考），重试中...")
+                        time.sleep(2 ** attempt)
+                        continue
                     if model_name != self.model:
                         print(f"[llm_client] fallback {self.model} → {model_name} 成功")
                     finish = (choices[0].get("finish_reason") if choices else None) or ""
@@ -589,12 +601,18 @@ class OpenAICompatClient:
                 if stopped:
                     return full, {}, self.model, finish_reason
                 if not full.strip() and thinking_parts:
-                    if injected is None and attempt < self.retries:
+                    # 即使配置注入了关闭思考的 payload，模型仍可能进思考 → 标记当前候选无效，换下一个重试
+                    if attempt < self.retries:
+                        if injected is not None and injected not in self._bad_thinking_snippets:
+                            self._bad_thinking_snippets.append(dict(injected))
+                            self._chosen_thinking_snippet = None
+                            for k in injected:
+                                payload.pop(k, None)
                         injected = self._apply_no_thinking(payload, self.model, force=True)
                         if injected is not None:
                             print("[llm_client] WARN " + str(self.model) +
-                                  " 流式 content 为空但收到 reasoning_content（thinking 模式）"
-                                  " → 自动注入 " + json.dumps(injected, ensure_ascii=False) + " 后重试")
+                                  " 流式关闭思考 payload 仍无效 → 换下一个候选 " +
+                                  json.dumps(injected, ensure_ascii=False) + " 后重试")
                             continue
                     salvaged = self._salvage_answer("".join(thinking_parts))
                     if salvaged:
@@ -661,16 +679,44 @@ class OpenAICompatClient:
     def _apply_ops(self, text, expected_writes, expected_appends):
         ops = parse_ops(text)
         if not ops:
+            # 模型有时忽略协议块、直接输出正文（写作阶段常见故障）。
+            # 当只有一个期望输出路径、且该路径在 data/chapters/ 下时，
+            # 将整个文本视为正文写入。对其他路径（如大纲/设定集）不启用，
+            # 避免把垃圾写入正式产物（靠重试机制修复更可靠）。
+            if not text.strip():
+                print("[llm_client] WARN 模型输出为空")
+                return
+            # 文本含 === 标记但不是有效协议块（parse_ops 没匹配到）→
+            # 这是格式错误的协议块或正文里巧合含有 ===。
+            # 只有看起来像正文（含标题/段落）且不含 thinking 残片时才走 fallback。
+            if (len(expected_writes) == 1
+                    and "data" + os.sep + "chapters" in str(expected_writes[0])
+                    and len(text.strip()) > 100):
+                target = expected_writes[0]
+                if not allowed_paths([target]):
+                    print("[llm_client] [fallback] 模型输出不含有效协议块，将全文写入: " + target)
+                    Path(target).parent.mkdir(parents=True, exist_ok=True)
+                    write_text(Path(target), text.rstrip() + NEWLINE)
+                    return
             print("[llm_client] WARN 模型输出不含任何 FILE/APPEND 块")
             return
         for op, path, content in ops:
             matched = None
             pool = expected_writes + expected_appends
+            path_name = Path(path).name
+            # 第一轮：精确贴齐
             for exp in pool:
                 snapped = snap_to_expected(path, exp)
                 if snapped:
                     matched = snapped
                     break
+            # 第二轮：basename 贴齐（模型有时输出 data/chapters/03.md 而非 data/chapters/checked/03.md）
+            if matched is None:
+                for exp in pool:
+                    if Path(exp).name == path_name:
+                        print(f"[llm_client] snap_to_expected: 贴齐 {path} → {exp}")
+                        matched = exp
+                        break
             if matched is None and op != "DELETE":
                 if allowed_paths([path]):
                     print("[llm_client] 拒绝写入白名单外路径: " + path)
