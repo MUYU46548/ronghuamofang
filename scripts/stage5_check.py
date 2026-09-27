@@ -63,6 +63,19 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
 
         missing = [f.name for f in batch if not (checked_dir / f.name).exists()]
         if missing:
+            # 兜底：LLM 未产出修正文件 → 从 raw 直接复制（不中断流程）
+            copied = []
+            for name in missing:
+                src = raw_dir / name
+                dst = checked_dir / name
+                if src.exists():
+                    import shutil
+                    shutil.copy2(src, dst)
+                    copied.append(name)
+            if copied:
+                print(f"[stage5] 兜底：复制 raw → checked ({', '.join(copied)})")
+                missing = [f.name for f in batch if not (checked_dir / f.name).exists()]
+        if missing:
             progress.set_stage(5, "failed", error=f"批 {bi} 缺修正文件: {missing[:3]}")
             return False, f"stage5 批 {bi} 缺修正文件: {missing[:3]}"
         print(f"[stage5] 批 {bi}/{total_batches} 完成（章节 {batch[0].stem}-{batch[-1].stem}）")

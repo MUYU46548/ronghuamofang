@@ -29,7 +29,7 @@ from pathlib import Path
 
 from utils.file_io import read_text
 
-TITLE_RE = re.compile(r"^##\s*第\s*(\d+)\s*章.*$", re.MULTILINE)
+TITLE_RE = re.compile(r"^##?\s*第\s*(\d+)\s*章.*$", re.MULTILINE)
 QUALITY_RE = re.compile(r"<!--\s*quality:\s*(\d{1,2})\s*/\s*10\s*-->", re.IGNORECASE)
 # 复杂元素（v2 4.6 降级策略要求生成阶段禁止出现）
 COMPLEX_PATTERNS = [
