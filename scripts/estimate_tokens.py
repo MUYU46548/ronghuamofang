@@ -385,9 +385,37 @@ def main():
     ap.add_argument("--json", action="store_true", help="输出 JSON")
     ap.add_argument("--no-history", action="store_true", help="忽略历史实测，强制字符折算")
     ap.add_argument("--verbose", action="store_true", help="逐阶段打印估算依据")
+    ap.add_argument("--iterations", type=int, default=1, help="迭代轮次（多轮成本预估）")
     args = ap.parse_args()
     stages = [args.stage] if args.stage else None
     result = estimate(stages, use_history=not args.no_history)
+    if args.iterations > 1:
+        # 多轮迭代成本预估
+        single_cost = result["totals"]["cost_yuan"]
+        single_calls = result["totals"]["calls"]
+        limit = result["budget"]["limit_yuan"]
+        spent = result["budget"]["spent_yuan"]
+        print("\n" + "=" * 66)
+        print("多轮迭代成本预估（%d 轮）" % args.iterations)
+        print("=" * 66)
+        print("%-8s %-12s %-12s %-12s %-12s" % ("轮次", "本轮成本", "累计成本", "剩余预算", "止损建议"))
+        print("-" * 66)
+        cumulative = spent
+        for i in range(1, args.iterations + 1):
+            cumulative += single_cost
+            remaining = limit - cumulative
+            advice = ""
+            if remaining < 0:
+                advice = "⚠ 超预算，建议停止"
+            elif remaining < limit * 0.1:
+                advice = "⚠ 预算即将耗尽"
+            elif i >= 5 and single_cost > limit * 0.05:
+                advice = "建议评估收益递减"
+            print("%-8d ¥%-11.4f ¥%-11.4f ¥%-11.4f %s" % (i, single_cost, cumulative, remaining, advice))
+        print("-" * 66)
+        print("单轮成本 ¥%.4f × %d 轮 = ¥%.4f（已花 ¥%.4f）" % (single_cost, args.iterations, single_cost * args.iterations, spent))
+        if spent + single_cost * args.iterations > limit:
+            print("⚠ 累计成本将超预算，建议减少轮次或调整模型")
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2))
     else:
