@@ -1355,3 +1355,6 @@ kbd {
 .next-action-bar .na-label { font-weight: 600; font-size: 13px; }
 .next-action-bar .na-hint { color: var(--muted-foreground); font-size: 12px; }
 .next-action-bar .spacer { flex: 1; }
+
+/* 运行进度条 */
+.runbar .run-cost { color: var(--warn); font-size: 12px; }

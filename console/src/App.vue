@@ -1341,8 +1341,37 @@ const pendingGates = computed(() => {
 const isRunning = computed(() => !!state.value?.current_job);
 const progressPct = computed(() => {
   if (!state.value) return 0;
-  const doneCount = state.value.stages.filter((s) => s.status === "done").length;
-  return Math.round((doneCount / 7) * 100);
+  const stages = state.value.stages || [];
+  if (!stages.length) return 0;
+  // 阶段内进度：当前运行阶段按章节数细分
+  let total = 0;
+  let done = 0;
+  for (const s of stages) {
+    if (s.status === "done") {
+      total += 1;
+      done += 1;
+    } else if (s.status === "running") {
+      total += 1;
+      // 阶段内进度：当前阶段完成的章节数 / 总章节数
+      const chapters = s.chapters_done || 0;
+      const totalChapters = s.total_chapters || 1;
+      done += Math.min(chapters / Math.max(totalChapters, 1), 0.99);
+    } else {
+      total += 1;
+    }
+  }
+  return total > 0 ? Math.round((done / total) * 100) : 0;
+});
+
+// 预计剩余成本（基于已完成阶段的平均成本）
+const estimatedRemainingCost = computed(() => {
+  if (!state.value || !costSummary.value) return null;
+  const stages = state.value.stages || [];
+  const doneStages = stages.filter(s => s.status === "done");
+  if (!doneStages.length) return null;
+  const avgCostPerStage = costSummary.value.total_yuan / doneStages.length;
+  const remaining = stages.filter(s => s.status !== "done").length;
+  return (avgCostPerStage * remaining).toFixed(2);
 });
 const allDone = computed(() => {
   if (!state.value) return false;
@@ -2239,6 +2268,7 @@ onUnmounted(() => {
   <div v-if="isRunning" class="runbar">
     <span class="run-dot"></span>
     <span>任务执行中：{{ state.current_job }}（{{ lastJob?.result || "运行中…" }}）</span>
+    <span v-if="estimatedRemainingCost" class="run-cost">预计剩余 ¥{{ estimatedRemainingCost }}</span>
     <span class="spacer"></span>
     <button class="mini danger" @click="stopJob">停止</button>
     <span class="run-pct">{{ progressPct }}%</span>
