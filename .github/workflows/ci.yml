@@ -51,6 +51,7 @@ jobs:
 
       # 门禁 3：单元测试（零外部依赖、零网络）
       # 这些脚本是独立可执行断言脚本（非 unittest 类），逐个跑并检查退出码。
+      # test_thinking_compat.py 默认跑真实 LLM 探针（case_live），CI 无 .env → 强制 --offline
       - name: Gate 3 - unit tests
         env:
           PYTHONPATH: scripts
@@ -58,5 +59,9 @@ jobs:
           set -e
           for f in tests/unit/test_*.py; do
             echo "=== $f ==="
-            python "$f"
+            if [ "$(basename "$f")" = "test_thinking_compat.py" ]; then
+              python "$f" --offline
+            else
+              python "$f"
+            fi
           done
