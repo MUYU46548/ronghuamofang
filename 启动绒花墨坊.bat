@@ -1,7 +1,7 @@
 @echo off
 chcp 65001 >nul 2>&1
 title 绒花墨坊
-cd /d "E:\CODE\CangKu\NovelForge\console"
+cd /d "%~dp0console"
 
 if not exist "node_modules\electron\dist\electron.exe" (
     echo [ronghua] Electron 未找到，请先运行: npm install

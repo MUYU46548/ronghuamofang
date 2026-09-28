@@ -26,7 +26,7 @@
 
 ### 方式一：安装包（Windows，推荐）
 
-1. 到 [Releases](https://github.com/MYU46548/ronghuamofang/releases) 下载
+1. 到 [Releases](https://github.com/MUYU46548/ronghuamofang/releases) 下载
    `ronghuamofang-console-setup-x.y.z.exe`（安装版）或 `绒花墨坊-x.y.z-portable-x64.exe`（便携版）
 2. 安装并启动「绒花墨坊」
 3. 首次启动按向导填书名/类型/章数，然后在「设置」页配置模型 API Key
@@ -38,7 +38,7 @@
 前置：Windows 10/11、Python 3.11、Node.js 20+。
 
 ```bash
-git clone https://github.com/MYU46548/ronghuamofang.git
+git clone https://github.com/MUYU46548/ronghuamofang.git
 cd ronghuamofang
 python -m venv .venv
 .venv/Scripts/python.exe -m pip install -r requirements.txt
@@ -146,7 +146,9 @@ cd console && npm run build      # 改前端后必须构建（生产模式加载
 cd console && npm run dist       # 本地打包（不发布）
 ```
 
-改动后请跑对应自检（都在 `Temp/`，不进 Git）：
+跑自检前先装开发依赖：`.venv/Scripts/python.exe -m pip install -r requirements-dev.txt`
+
+改动后请跑对应自检（都在 `tests/`，不进 Git）：
 
 | 自检 | 命令 | 覆盖 |
 |------|------|------|
@@ -155,7 +157,7 @@ cd console && npm run dist       # 本地打包（不发布）
 | 项目向导/关于端点 | `python Temp/test_project_wizard_api_http.py` | 新建项目、风格笔记、`/about` |
 | UX 端点 | `python Temp/test_ux_flow_api_http.py` | `/stage/skip`、`/logs/tail` |
 
-开发约定、踩坑与阶段语义见 `AGENTS.md`；历次变更见 `开发日志.md`。
+开发约定、踩坑与阶段语义见 `AGENTS.md`；历次变更见 `CHANGELOG.md`。
 
 ## 许可
 

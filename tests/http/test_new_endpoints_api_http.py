@@ -34,7 +34,7 @@ from pathlib import Path
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
 ROOT = Path(__file__).resolve().parents[2]
-PY = ROOT / ".venv" / "Scripts" / "python.exe"
+PY = sys.executable
 PORT = 8931
 BASE = "http://127.0.0.1:%d" % PORT
 

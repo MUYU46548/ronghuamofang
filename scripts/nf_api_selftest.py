@@ -22,7 +22,7 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-PY = ROOT / ".venv" / "Scripts" / "python.exe"
+PY = sys.executable
 PORT = 8901
 BASE = "http://127.0.0.1:" + str(PORT)
 

@@ -22,6 +22,37 @@ BACKUP_DIR = ROOT / "config" / "history"
 _BOOK_RE = re.compile(r"^book\s*:")
 
 
+class _UniqueKeyLoader(yaml.SafeLoader):
+    """YAML loader that rejects duplicate keys (PyYAML silently takes the last value).
+
+    2026-09-28: project.yaml had `user_outline` twice — real outline on line 14,
+    empty template value on line 19. PyYAML's safe_load silently returned '',
+    causing the outline to be silently dropped. This loader raises on duplicates.
+    """
+
+
+def _construct_mapping(loader, node, deep=False):
+    loader.flatten_mapping(node)
+    mapping = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        if key in mapping:
+            raise ValueError(f"Duplicate key '{key}' in YAML (line {key_node.start_mark.line + 1})")
+        mapping[key] = loader.construct_object(value_node, deep=deep)
+    return mapping
+
+
+_UniqueKeyLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _construct_mapping
+)
+
+
+def load_project_yaml(path=None):
+    """Load project.yaml with duplicate-key detection."""
+    p = path or PROJECT_YAML
+    return yaml.load(read_text(p), Loader=_UniqueKeyLoader)
+
+
 def _indent_of(line):
     return len(line) - len(line.lstrip())
 
@@ -71,7 +102,12 @@ def set_style_notes(notes):
 
 
 def get_project_config():
-    return yaml.safe_load(read_text(PROJECT_YAML))
+    """读取 project.yaml（带重复键检测）。
+
+    2026-09-28: 原用 yaml.safe_load 静默取后值，导致 user_outline 重复键时
+    真实大纲被空值覆盖。改用 _UniqueKeyLoader 显式拒绝重复键。
+    """
+    return load_project_yaml()
 
 
 def get_style_notes():

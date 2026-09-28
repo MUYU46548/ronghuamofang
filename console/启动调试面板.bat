@@ -1,7 +1,7 @@
 @echo off
 chcp 65001 >nul 2>&1
 title 绒花墨坊调试面板
-cd /d "E:\CODE\CangKu\NovelForge"
+cd /d "%~dp0.."
 
 if not exist ".venv\Scripts\python.exe" (
     echo [ronghua-debug] Python 未找到，请先运行: python -m venv .venv
