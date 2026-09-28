@@ -22,6 +22,7 @@ logs/session.log
 
 # ===== 环境变量（含密钥，绝不提交）=====
 .env
+config/system.local.yaml
 
 # ===== 系统文件 =====
 .DS_Store

@@ -89,8 +89,25 @@ def run_material_review(progress):
         return [], []
 
 
+def _deep_merge(base, override):
+    """深度合并两个 dict，override 优先。"""
+    result = dict(base)
+    for k, v in override.items():
+        if k in result and isinstance(result[k], dict) and isinstance(v, dict):
+            result[k] = _deep_merge(result[k], v)
+        else:
+            result[k] = v
+    return result
+
+
 def load_config():
     cfg = yaml.safe_load(read_text("config/system.yaml"))
+    # 本地覆盖（不进 Git）：模型选择、API Key 路径、本地沙盒目录等个人配置
+    local_path = "config/system.local.yaml"
+    if os.path.exists(local_path):
+        local = yaml.safe_load(read_text(local_path))
+        if local:
+            cfg = _deep_merge(cfg, local)
     proj = yaml.safe_load(read_text("config/project.yaml"))
     return cfg, proj
 
