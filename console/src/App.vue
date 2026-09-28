@@ -3184,7 +3184,28 @@ onUnmounted(() => {
 
       <!-- 素材列表 -->
       <div v-if="!materials.length" class="empty">
-        暂无素材 —— 点击"添加素材"从其他地方复制文件到 raw/，或"新建素材"直接创建。
+        <div style="margin-bottom: 12px;">暂无素材 —— 点击"添加素材"从其他地方复制文件到 raw/，或"新建素材"直接创建。</div>
+        <div style="background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 12px;">
+          <div style="font-weight: 600; margin-bottom: 8px;">示例素材卡格式</div>
+          <pre style="margin: 0; font-size: 12px; line-height: 1.6; color: var(--muted-foreground); overflow-x: auto;"># 角色：角色名
+
+> 来源：你的设定库路径
+
+## 基本信息
+
+- 正式名称：xxx
+- 种族：xxx
+- 性别：xxx
+
+## 外貌与生活
+
+- 外貌描述...
+
+## 人际关系
+
+- 角色A：关系说明</pre>
+        </div>
+        <div class="meta">快速体验：复制 examples/sample-book/materials/* 到 materials/raw/</div>
       </div>
       <table v-if="materials.length" class="cost-table">
         <thead>
