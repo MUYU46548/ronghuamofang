@@ -754,6 +754,12 @@ class OpenAICompatClient:
         task_path = Path(task_file)
         body = read_text(task_path)
         new_body, missing = inline_inputs(body)
+        if missing:
+            raise FileNotFoundError(
+                "任务引用的输入文件缺失（" + str(len(missing)) + " 个）：\n" +
+                "\n".join("  - " + m for m in missing[:5]) +
+                "\n请检查任务文件路径或重新生成上游产物。"
+            )
         writes, appends = self._expected_outputs(new_body)
         reqs = segment_requests(new_body, writes, appends)
         if len(writes) > 1:
@@ -838,6 +844,12 @@ class OpenAICompatClient:
         task_path = Path(task_file)
         body = read_text(task_path)
         new_body, missing = inline_inputs(body)
+        if missing:
+            raise FileNotFoundError(
+                "任务引用的输入文件缺失（" + str(len(missing)) + " 个）：\n" +
+                "\n".join("  - " + m for m in missing[:5]) +
+                "\n请检查任务文件路径或重新生成上游产物。"
+            )
         writes, appends = self._expected_outputs(new_body)
         reqs = segment_requests(new_body, writes, appends)
         if len(writes) > 1:
