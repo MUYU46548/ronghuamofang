@@ -125,6 +125,18 @@ async function refreshAgentRuns() {
   if (r.status === 200) agentRuns.value = r.data.runs || [];
 }
 
+const remedyResult = ref(null);
+const remedyOpen = ref(false);
+async function runRemedy() {
+  const r = await api("/remedy");
+  if (r.status === 200) {
+    remedyResult.value = r.data;
+    remedyOpen.value = true;
+  } else {
+    say("补救检测失败: " + (r.data?.error || r.status));
+  }
+}
+
 /* ---------- 定价编辑器 ---------- */
 async function loadRates() {
   const r = await api("/costs/rates");
@@ -2252,6 +2264,7 @@ onUnmounted(() => {
     </nav>
     <div class="conn" :class="{ on: online }">{{ online ? "已连接" : "离线" }}</div>
     <button class="mini global-refresh-btn" @click="globalRefresh" title="全局刷新（所有页签数据）">↻</button>
+    <button class="mini" @click="runRemedy" title="一键补救：检测问题并给出修复建议">🩹 补救</button>
     <div v-if="agentMode" class="agent-mode-badge" title="Agent 模式已开启 —— 外部 Agent 可通过 HTTP API 调用">⚡ Agent</div>
   </header>
 
@@ -2262,6 +2275,31 @@ onUnmounted(() => {
     <span class="na-hint">{{ nextAction.hint }}</span>
     <span class="spacer"></span>
     <button class="mini primary" @click.stop="runNextAction">执行</button>
+  </div>
+
+  <!-- 一键补救结果弹窗 -->
+  <div v-if="remedyOpen" class="drawer-mask" @click.self="remedyOpen = false">
+    <div class="dialog" style="width: min(560px, 94vw);">
+      <h3 style="margin:0 0 10px;">🩹 一键补救建议</h3>
+      <div v-if="remedyResult && remedyResult.issues && remedyResult.issues.length === 0" class="meta">
+        ✓ 未检测到问题，书档状态良好。
+      </div>
+      <div v-else>
+        <div v-for="(r, i) in (remedyResult?.remedies || [])" :key="i"
+             style="padding: 8px 0; border-bottom: 1px solid var(--border);">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span :class="['pill', r.blocking ? 'st-failed' : 'st-warn']">{{ r.blocking ? '阻塞' : '提醒' }}</span>
+            <b style="font-size:13px;">{{ r.issue }}</b>
+          </div>
+          <div class="meta" style="margin-top:4px;">{{ r.action }}</div>
+          <code style="font-size:11px; color: var(--accent);">{{ r.command }}</code>
+        </div>
+      </div>
+      <div class="dialog-actions">
+        <span class="spacer"></span>
+        <button class="mini" @click="remedyOpen = false">关闭</button>
+      </div>
+    </div>
   </div>
 
   <!-- 运行进度条（全局） -->

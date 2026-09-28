@@ -298,6 +298,40 @@ def handle_agent_runs(h):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+def handle_remedy(h):
+    """一键补救建议：检测当前书档问题并给出修复建议。"""
+    import nf_api as api
+    try:
+        import nfctl
+        root = api.ROOT
+        doctor = nfctl.collect_doctor(root)
+        issues = []
+        for item in doctor.get("items", []):
+            if not item.get("ok"):
+                issues.append({
+                    "name": item.get("name", ""),
+                    "detail": item.get("detail", ""),
+                    "blocking": item.get("name", "") in doctor.get("blocking", []),
+                })
+        # 生成修复建议
+        remedies = []
+        for issue in issues:
+            name = issue["name"]
+            if "章节文件" in name:
+                remedies.append({"issue": name, "action": "重新运行对应阶段", "command": "python scripts/orchestrator.py --from N"})
+            elif "大纲" in name:
+                remedies.append({"issue": name, "action": "重新运行大纲阶段", "command": "python scripts/orchestrator.py --from 2"})
+            elif "成本" in name or "runs" in name:
+                remedies.append({"issue": name, "action": "检查数据库一致性", "command": "python scripts/nfctl.py doctor"})
+            elif "孤儿" in name:
+                remedies.append({"issue": name, "action": "清理或恢复文件", "command": "python scripts/nfctl.py doctor"})
+            else:
+                remedies.append({"issue": name, "action": "查看详情", "command": "python scripts/nfctl.py doctor"})
+        return 200, {"ok": True, "issues": issues, "remedies": remedies}
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 # 本模块负责的端点（供自检与文档；实际分发在 nf_api.do_GET 的 elif 链里）
 ROUTES = (
     ("GET", "/costs/summary", handle_costs_summary),
@@ -311,4 +345,5 @@ ROUTES = (
     ("GET", "/logs/tail", handle_logs_tail),
     ("GET", "/about", handle_about),
     ("GET", "/agent/runs", handle_agent_runs),
+    ("GET", "/remedy", handle_remedy),
 )
