@@ -532,6 +532,13 @@ def collect_doctor(root: Path) -> dict:
         except Exception as e:
             add("数据库检查", False, "%s: %s" % (type(e).__name__, e), warning=True)
 
+    # hermes 在不在 PATH（Agent 模式派发依赖）
+    import shutil
+    hermes_path = shutil.which("hermes")
+    add("hermes in PATH", hermes_path is not None,
+        hermes_path if hermes_path else "未找到（Agent 模式派发将失败）",
+        warning=hermes_path is None)
+
     # 孤儿文件检测：data/ 下不该存在的文件
     allowed_patterns = {
         "data/chapters": ["*.md"],

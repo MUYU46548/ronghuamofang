@@ -125,12 +125,16 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 
 ## 外部 Agent 接入（Hermes skill + nfctl）
 
-外部 Agent（Hermes / WorkBuddy）接本项目走**两条通道，没有 MCP 层**：
+外部 Agent（Hermes / WorkBuddy）接本项目走**三条通道**：
 
 1. **CLI（默认）**：项目脚本，不需要起服务。先跑 `python scripts/nfctl.py status`（全景）
    + `check`（自检），再按上表取具体命令。
 2. **HTTP**（`nf_api` on `127.0.0.1:8765`）：只在需要「正在跑的那个任务」的状态、
    流式 token、SSE 时才用。只读转发用 `nfctl.py api <GET路径>`。
+3. **MCP**（`nf_mcp.py` on `127.0.0.1:8766`）：MCP-native agent（Claude Code / Cursor /
+   Cline / Continue）通过 TCP 连接发现和调用绒花墨坊工具。`tools/list` 返回 20 个白名单
+   工具（18 个 HTTP loopback + 2 个 LOCAL 直调），`tools/call` 通过 HTTP loopback 复用
+   现有域模块。审批类/项目类/模式切换端点**永不**暴露给 MCP。
 
 **专属接线卡**：Hermes 技能库 `worldbuilding/ronghuamofang/`
 （实机路径 `%LOCALAPPDATA%\hermes\skills\worldbuilding\ronghuamofang\`）

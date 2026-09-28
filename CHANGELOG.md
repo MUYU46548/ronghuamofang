@@ -428,4 +428,39 @@ pyflakes 门禁            BLOCK=0 ✅
   跑一次成本高。本轮改动仅涉及 API 层后端逻辑，未触碰前端，
   故未运行。**建议后续把它固定进「发版前必跑」清单**。
 
+---
+
+## 第五轮：产出契约加固 + thinking 兼容 + 仓库实证修复（2026-09-25 ~ 09-28）
+
+### 🔴 产出契约加固（2026-09-25）
+
+- **`_post_chat` / `_post_chat_stream` 返回 4 元组** `(text, usage, model, finish_reason)`。
+  `finish_reason == "length"` 表示输出被 max_tokens 截断、正文不完整 —— 此时**不落盘**、
+  返回 `exit_code: 2`、残缺文本隔离存 `data/state/truncated/`。
+- **背景**：思考模型（glm-5.x / kimi）默认进 thinking 模式时，正文全进 `reasoning_content`、
+  `content` 为空（且思考 token 吃掉 `max_tokens` 预算）→ 流水线产出空白。
+- **防线**：① `disable_thinking_models` 名单内模型自动注入「关闭思考」片段；
+  ② 未列名单的思考模型由客户端自动探测并注入后重试；
+  ③ 兜底**只取协议块**（`===FILE:` / `===APPEND:` / `===DELETE:`）：reasoning_content 里找不到
+  协议块就**直接丢弃**、返回空让上层判失败。
+
+### 🔴 thinking 兼容加固（2026-09-27）
+
+- `minimax-m2.7` 已知怪癖：①JSON 产物偶发非法转义符 ②关闭思考 payload 非 100% 生效
+  （~10% 概率仍进 thinking）③标题格式偶用单#而非双##。
+- 三重防线已加固（标题容错+换候选重试+raw fallback）。
+
+### 🔴 仓库实证审查修复（2026-09-28）
+
+依据外部在线 agent 对 GitHub 仓库的审计报告（`绒花墨坊-仓库实证审查报告-20260928.md`），
+修复 P0 七件小修：
+
+- **README**：`MYU46548`→`MUYU46548`（2 处）、`开发日志.md`→`CHANGELOG.md`、
+  `Temp/`→`tests/`、补 requirements-dev 说明
+- **三个 .bat 启动脚本**：硬编码 `E:\CODE\CangKu\NovelForge` → `%~dp0`
+- **`nf_api_selftest.py` + 8 个 HTTP 测试**：硬编码 `.venv/Scripts/python.exe` → `sys.executable`
+- **`config/project.yaml`**：删除重复 `user_outline` 键（保留真实大纲 128 字符）
+- **`project_config.py`**：新增 `_UniqueKeyLoader` 重复键守卫（PyYAML 默认静默取后值）
+- **AGENTS.md**：MCP 旧口径更正（"没有 MCP 层" → "三条通道"含 MCP）
+
 

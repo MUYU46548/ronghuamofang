@@ -152,10 +152,10 @@ cd console && npm run dist       # 本地打包（不发布）
 
 | 自检 | 命令 | 覆盖 |
 |------|------|------|
-| GUI↔API 契约 | `python Temp/test_gui_api_contract.py` | 前端每个 `api()` 都有同方法后端分支 |
-| 真机视觉验收 | `python Temp/e2e_ux_verify.py` | Playwright 点击/按键 + 截图 + console 报错 |
-| 项目向导/关于端点 | `python Temp/test_project_wizard_api_http.py` | 新建项目、风格笔记、`/about` |
-| UX 端点 | `python Temp/test_ux_flow_api_http.py` | `/stage/skip`、`/logs/tail` |
+| GUI↔API 契约 | `python tests/e2e/test_gui_api_contract.py` | 前端每个 `api()` 都有同方法后端分支 |
+| 真机视觉验收 | `python tests/e2e/e2e_ux_verify.py` | Playwright 点击/按键 + 截图 + console 报错 |
+| 项目向导/关于端点 | `python tests/http/test_project_wizard_api_http.py` | 新建项目、风格笔记、`/about` |
+| UX 端点 | `python tests/http/test_ux_flow_api_http.py` | `/stage/skip`、`/logs/tail` |
 
 开发约定、踩坑与阶段语义见 `AGENTS.md`；历次变更见 `CHANGELOG.md`。
 

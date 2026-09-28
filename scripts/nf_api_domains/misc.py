@@ -287,6 +287,17 @@ def handle_costs_rates_save(h, body):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+def handle_agent_runs(h):
+    """Agent 派发状态（只读）：列出最近派发任务的状态。"""
+    import nf_api as api
+    try:
+        import nf_agent_dispatch as disp
+        runs = disp.list_agent_runs(50)
+        return 200, {"ok": True, "runs": runs}
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 # 本模块负责的端点（供自检与文档；实际分发在 nf_api.do_GET 的 elif 链里）
 ROUTES = (
     ("GET", "/costs/summary", handle_costs_summary),
@@ -299,4 +310,5 @@ ROUTES = (
     ("GET", "/chapters/verify", handle_chapters_verify),
     ("GET", "/logs/tail", handle_logs_tail),
     ("GET", "/about", handle_about),
+    ("GET", "/agent/runs", handle_agent_runs),
 )

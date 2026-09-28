@@ -104,6 +104,7 @@ async function globalRefresh() {
     refreshModels(),
     refreshSandboxBadge(),
     refreshAppearances(),
+    refreshAgentRuns(),
   ]);
   say('已全局刷新');
 }
@@ -115,6 +116,13 @@ async function refreshCosts() {
   ]);
   if (list.status === 200) costs.value = list.data.entries || [];
   if (summary.status === 200) costSummary.value = summary.data;
+}
+
+const agentRuns = ref([]);
+async function refreshAgentRuns() {
+  if (!agentMode.value) { agentRuns.value = []; return; }
+  const r = await api("/agent/runs");
+  if (r.status === 200) agentRuns.value = r.data.runs || [];
 }
 
 /* ---------- 定价编辑器 ---------- */
@@ -2916,6 +2924,24 @@ onUnmounted(() => {
         <button class="mini" :class="{ primary: agentMode }" @click="toggleAgentMode">
           {{ agentMode ? '已开启' : '已关闭' }}
         </button>
+      </div>
+
+      <!-- Agent 派发状态（P1-9: GUI 观测面） -->
+      <div v-if="agentMode" style="margin-top: 8px;">
+        <div class="label">最近派发任务</div>
+        <div v-if="agentRuns.length === 0" class="meta">暂无派发记录</div>
+        <div v-else>
+          <div v-for="run in agentRuns.slice(0, 5)" :key="run.run_id"
+               style="display: flex; align-items: center; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--border);">
+            <span :class="['pill', run.status === 'done' ? 'st-ok' : run.status === 'error' ? 'st-failed' : 'st-running']">
+              {{ run.status }}
+            </span>
+            <span class="meta" style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+              {{ run.title || run.run_id }}
+            </span>
+            <span class="meta">{{ run.created_at?.slice(11, 19) || '' }}</span>
+          </div>
+        </div>
       </div>
 
       <!-- 用户风格笔记 -->

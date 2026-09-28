@@ -1704,6 +1704,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/about":
             # 实现已迁至 nf_api_domains.misc（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_misc.handle_about(self)))
+        elif p == "/agent/runs":
+            # 实现已迁至 nf_api_domains.misc（P2 拆分）；此处只做转发。
+            self._send(*_dom(dom_misc.handle_agent_runs(self)))
         elif p == "/costs/streaming":
             # 实现已迁至 nf_api_domains.misc（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_misc.handle_costs_streaming(self)))
@@ -2486,7 +2489,7 @@ def main():
     except Exception as _e:                                 # noqa: BLE001
         print(f"[nf_api] MCP 服务启动跳过（不影响 HTTP）: {_e}")
     # ---- 端点列表 ----
-    print("[nf_api] 端点: /health /state /about /models /stage/{n}/run /stage/skip /logs/tail /stream/{job_id} /stop /jobs/{id} /approve /reject /refine/* /outline/* /snapshot /costs /prompts/* /config/style_notes /materials/* /project/*")
+    print("[nf_api] 端点: /health /state /about /agent/runs /models /stage/{n}/run /stage/skip /logs/tail /stream/{job_id} /stop /jobs/{id} /approve /reject /refine/* /outline/* /snapshot /costs /prompts/* /config/style_notes /materials/* /project/*")
     if mcp_started:
         print(f"[nf_api] MCP 工具: {', '.join(t['name'] for t in __import__('nf_mcp').MCP_TOOLS)}")
     try:
