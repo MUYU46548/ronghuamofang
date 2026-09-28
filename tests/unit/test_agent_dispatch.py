@@ -42,10 +42,19 @@ def build_tmp_root():
 
 
 def make_stub_hermes(tmp):
-    """生成秒退的 stub hermes（模拟子会话成功结束）。返回命令字符串。"""
-    stub = tmp / "stub_hermes.bat"
-    stub.write_text("@echo off\r\necho stub-hermes-ok\r\nexit /b 0\r\n",
-                    encoding="ascii")
+    """生成秒退的 stub hermes（模拟子会话成功结束）。返回命令字符串。
+
+    Windows 用 .bat，Linux/macOS 用 .sh（CI 是 ubuntu-latest）。
+    """
+    if sys.platform == "win32":
+        stub = tmp / "stub_hermes.bat"
+        stub.write_text("@echo off\r\necho stub-hermes-ok\r\nexit /b 0\r\n",
+                        encoding="utf-8")
+    else:
+        stub = tmp / "stub_hermes.sh"
+        stub.write_text("#!/bin/sh\necho stub-hermes-ok\nexit 0\n",
+                        encoding="utf-8")
+        stub.chmod(0o755)
     return str(stub).replace("\\", "/")
 
 
