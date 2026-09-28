@@ -1703,6 +1703,18 @@ const isColdStart = computed(() => {
   return allPending && !state.value.has_progress;
 });
 
+// 引导显示控制：冷启动时自动显示，用户可关闭；非冷启动时可通过按钮重看
+const showGuide = ref(false);
+const GUIDE_KEY = "mofang_guide_dismissed";
+function dismissGuide() {
+  showGuide.value = false;
+  localStorage.setItem(GUIDE_KEY, "1");
+}
+function reopenGuide() {
+  showGuide.value = true;
+  localStorage.removeItem(GUIDE_KEY);
+}
+
 /* ---------- 首启引导状态检测 ---------- */
 const coldStartStatus = ref({
   materials: { count: 0, checked: false },
@@ -2137,7 +2149,14 @@ onMounted(() => {
   // 检查素材目录是否为空
   checkMaterialsEmpty();
   // 首启引导状态检测（监听 isColdStart 变化，state 加载完成后自动触发）
-  watch(isColdStart, (v) => { if (v) checkColdStartStatus(); });
+  watch(isColdStart, (v) => {
+    if (v) {
+      showGuide.value = !localStorage.getItem(GUIDE_KEY);
+      checkColdStartStatus();
+    } else {
+      showGuide.value = false;
+    }
+  });
 });
 
 async function checkMaterialsEmpty() {
@@ -2259,8 +2278,11 @@ onUnmounted(() => {
 
 
     <!-- 冷启动引导：工作区全新（无产物）时给出三步上手路径 -->
-    <div v-if="tab === 'pipeline' && state && isColdStart" class="coldstart">
-      <div class="cs-title">从这个开始（四步跑通第一本书）</div>
+    <div v-if="tab === 'pipeline' && state && showGuide" class="coldstart">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <div class="cs-title">从这个开始（四步跑通第一本书）</div>
+        <button class="mini" @click="dismissGuide" title="关闭引导">✕</button>
+      </div>
       <div class="cs-steps">
         <div class="cs-step">
           <span class="cs-no">1</span>
@@ -2310,6 +2332,11 @@ onUnmounted(() => {
       <div v-else class="cs-warn">
         <span class="meta">请先完成上方步骤（素材、项目、API Key）后再运行流水线。</span>
       </div>
+    </div>
+
+    <!-- 重看引导按钮（非冷启动或引导已关闭时显示） -->
+    <div v-if="tab === 'pipeline' && state && !showGuide" style="margin-bottom: 8px;">
+      <button class="mini" @click="reopenGuide" title="重新查看上手引导">📖 重看引导</button>
     </div>
 
     <!-- 流水线状态卡片：当前状态 + 下一步 + 实时进度 -->

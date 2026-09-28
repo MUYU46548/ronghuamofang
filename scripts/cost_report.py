@@ -16,7 +16,6 @@ import sqlite3
 import sys
 from pathlib import Path
 
-from utils.file_io import read_text
 
 DB = Path("logs/runs.db")
 

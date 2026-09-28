@@ -9,7 +9,7 @@ import re
 from pathlib import Path
 
 from utils.llm_client import make_client
-from utils.file_io import read_text, write_text
+from utils.file_io import read_text
 from utils.template_loader import load_template
 
 REQUIRED_SECTIONS = ["起", "承", "转", "合"]

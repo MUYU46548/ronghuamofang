@@ -8,7 +8,6 @@
   .venv/Scripts/python.exe scripts/price_wizard.py
 """
 import ast
-import re
 import sys
 from pathlib import Path
 

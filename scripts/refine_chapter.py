@@ -25,7 +25,7 @@ from pathlib import Path
 import yaml
 
 from utils.llm_client import make_client
-from utils.file_io import read_text, write_text
+from utils.file_io import read_text
 from utils.template_loader import load_template
 
 HISTORY_DIR = Path("data/chapters/history")

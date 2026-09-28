@@ -11,7 +11,6 @@ from pathlib import Path
 from utils.llm_client import make_client
 from utils.file_io import read_text, write_text
 from utils.template_loader import load_template
-from utils.verify_chapter import check_chapter
 
 
 def build_check_task(proj, raw_dir, setting_path, checked_dir, batch_files, batch_index, total_batches):

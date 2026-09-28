@@ -23,7 +23,6 @@ import re
 import json
 from pathlib import Path
 from datetime import datetime
-from collections import defaultdict
 
 from utils.file_io import read_text, write_text
 

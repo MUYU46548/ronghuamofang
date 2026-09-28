@@ -5,7 +5,6 @@
 → 校验每章含 核心事件/涉及角色/功能 → progress stage3 done。
 """
 import argparse
-import re
 from pathlib import Path
 
 from utils.llm_client import make_client

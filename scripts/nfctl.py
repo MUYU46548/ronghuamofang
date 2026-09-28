@@ -590,8 +590,7 @@ def start_serve(root: Path, port: int = 8766):
     - GET /api/logs   → 最近 N 行日志
     """
     import http.server
-    import threading
-
+    
     class DebugHandler(http.server.BaseHTTPRequestHandler):
         def log_message(self, fmt, *args):
             pass  # 静默

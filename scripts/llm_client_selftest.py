@@ -118,7 +118,6 @@ check("T7 不同名不贴", lc.snap_to_expected("02.md", "01.md") is None)
 
 # ---- T8 mock run_task 全链（多文件拆分 + append + usage 记账）----
 import shutil
-import json
 
 # 安全护栏：测试前快照（测试会清理 data/test_llm_t2 和 data/test_llm_t8）
 try:

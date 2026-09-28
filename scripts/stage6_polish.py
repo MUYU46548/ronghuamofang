@@ -18,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from utils.llm_client import make_client
-from utils.file_io import read_text, write_text, append_text
+from utils.file_io import read_text, append_text
 from utils.verify_chapter import count_cn_words
 from utils.template_loader import load_template
 from utils.style_analyzer import (

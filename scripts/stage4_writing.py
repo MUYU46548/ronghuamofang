@@ -19,7 +19,6 @@ from utils.summary_chain import append_chapter_summary, extract_prev_tail, compr
 from utils.template_loader import load_template
 from utils.style_analyzer import extract_style_samples, build_style_notes_section
 from utils.progress_manager import ProgressManager
-from utils.cost_tracker import CostTracker
 from utils.setting_schema import (
     base_name, build_character_card, normalize_character,
 )
