@@ -2226,6 +2226,15 @@ onUnmounted(() => {
     <div v-if="agentMode" class="agent-mode-badge" title="Agent 模式已开启 —— 外部 Agent 可通过 HTTP API 调用">⚡ Agent</div>
   </header>
 
+  <!-- 全局"下一步"提示条 -->
+  <div v-if="nextAction && !isRunning" class="next-action-bar" @click="runNextAction">
+    <span class="na-icon">▶</span>
+    <span class="na-label">{{ nextAction.label }}</span>
+    <span class="na-hint">{{ nextAction.hint }}</span>
+    <span class="spacer"></span>
+    <button class="mini primary" @click.stop="runNextAction">执行</button>
+  </div>
+
   <!-- 运行进度条（全局） -->
   <div v-if="isRunning" class="runbar">
     <span class="run-dot"></span>

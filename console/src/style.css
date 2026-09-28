@@ -1338,3 +1338,20 @@ kbd {
   border-bottom: 1px dashed var(--border);
 }
 .gate-notify-row .label { font-weight: 600; font-size: 13px; }
+
+/* 全局"下一步"提示条 */
+.next-action-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  background: var(--accent-soft);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.next-action-bar:hover { background: var(--accent-soft-hover); }
+.next-action-bar .na-icon { color: var(--accent); font-size: 14px; }
+.next-action-bar .na-label { font-weight: 600; font-size: 13px; }
+.next-action-bar .na-hint { color: var(--muted-foreground); font-size: 12px; }
+.next-action-bar .spacer { flex: 1; }
