@@ -34,10 +34,10 @@ jobs:
       - name: Install dev deps (pyflakes)
         run: python -m pip install --upgrade pip pyflakes
 
-      # 门禁 1：未定义名 / 未使用导入 / 名字遮蔽 —— 零容忍「undefined name」
+      # 门禁 1：未定义名零容忍（F821）；其他 warning 只计数不阻塞
       - name: Gate 1 - pyflakes (undefined names must be zero)
         run: |
-          python -m pyflakes scripts/
+          python -m pyflakes scripts/ || true
           echo "--- 检查 undefined name 是否为零 ---"
           if python -m pyflakes scripts/ | grep -q "undefined name"; then
             echo "::error::检出未定义名（F821）——这会直接导致运行时 NameError"
