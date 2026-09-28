@@ -100,6 +100,19 @@ def _deep_merge(base, override):
     return result
 
 
+def get_data_root():
+    """数据根目录：支持 NOVELFORGE_DATA_DIR 环境变量把 data/ 移到项目外。
+
+    默认返回项目内 data/；设置环境变量后指向外部目录（用户数据与源码分离）。
+    """
+    env = os.environ.get("NOVELFORGE_DATA_DIR", "").strip()
+    if env:
+        p = Path(env)
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+    return Path("data")
+
+
 def load_config():
     cfg = yaml.safe_load(read_text("config/system.yaml"))
     # 本地覆盖（不进 Git）：模型选择、API Key 路径、本地沙盒目录等个人配置
