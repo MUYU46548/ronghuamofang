@@ -632,6 +632,30 @@ class MCPServer:
         self._running = True
         self._thread = threading.Thread(target=self._serve, daemon=True)
         self._thread.start()
+        # 服务发现：广播 MCP 地址，让外部 Agent 自动发现
+        self._start_discovery()
+
+    def _start_discovery(self):
+        """UDP 广播 MCP 服务地址，外部 Agent 监听后即可自动连接。
+
+        广播内容：{"service":"novelforge-mcp","host":"127.0.0.1","port":8766}
+        广播端口：8767（UDP，一次性广播 3 次）
+        """
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+            msg = json.dumps({
+                "service": "novelforge-mcp",
+                "host": self.host,
+                "port": self.port,
+                "http_port": self.http_port,
+            }).encode("utf-8")
+            for _ in range(3):
+                sock.sendto(msg, ("<broadcast>", 8767))
+            sock.close()
+            print(f"[nf_mcp] 服务发现广播已发送 → udp://<broadcast>:8767")
+        except Exception as e:
+            print(f"[nf_mcp] 服务发现广播失败（不影响 MCP 服务）: {e}")
 
     def stop(self):
         self._running = False
