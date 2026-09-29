@@ -1421,7 +1421,15 @@ class Handler(BaseHTTPRequestHandler):
         elif not origin:
             self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        # 2026-09-29：Allow-Headers 必须包含前端**每次都发**的 `X-Mofang-Source`
+        # （App.vue 的 api() 固定带它，用于审计与 Agent 模式判定）。
+        # 少写它的后果是**预检必然失败**：非简单请求头会触发 OPTIONS 预检，
+        # 预检响应没列出该头 → 浏览器直接拦掉真实请求，前端只看到 "Failed to fetch"。
+        # 真机视觉验收（tests/e2e/e2e_ux_verify.py）首次跑通时就卡在这里：
+        # 页面加载 200、JS/CSS 都到位，但 /state 等全部 CORS 被拒 → 组件渲染为 0 个。
+        # 安全性不受影响：Allow-Origin 仍只放行本机来源（见上方 ALLOW_ORIGIN_RE），
+        # 外部站点拿不到 Access-Control-Allow-Origin，加不加这个头都读不到响应。
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Mofang-Source")
         self.send_header("Access-Control-Max-Age", "600")
 
     def do_OPTIONS(self):

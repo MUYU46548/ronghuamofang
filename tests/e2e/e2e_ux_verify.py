@@ -6,7 +6,7 @@
 Temp/gui_verify/ux/，同时收集 console error 与非 2xx 请求。
 
 两个后端：
-  - 假后端（Temp/mock_nf_api_state.py，8798）：确定性喂「阶段3 失败 + 阶段4 已跳过 + 待重写章节」，
+  - 假后端（tests/e2e/mock_nf_api_state.py，8798）：确定性喂「阶段3 失败 + 阶段4 已跳过 + 待重写章节」，
     验证错误恢复一级入口、跳过徽标、待重写徽标、跳过确认框。
   - 真后端（scripts/nf_api.py --port 8799）：真数据（1-4 已完成），验证工作流条、命令面板、
     Space→预估确认框、数字键切页签、日志面板。
@@ -50,10 +50,48 @@ def check(name, cond, detail=""):
     print("  [%s] %s%s" % ("PASS" if cond else "FAIL", name,
                            ("  → " + str(detail)[:200]) if detail else ""))
 
+# ---- preload 垫片（纯浏览器跑 Electron 前端所必需）----
+# 前端在 Electron 里通过 preload 拿到 window.mofangAPI（console/preload/index.js，
+# contextBridge 暴露）。本验收用 headless Chromium，没有 preload →
+# window.mofangAPI 为 undefined，App.vue 的 4 处
+# `window.mofangAPI.readPreview(...)` 直接抛
+# "Cannot read properties of undefined (reading 'readPreview')"，
+# 页面只剩骨架（2026-09-29 实测：整个验收卡死在第二条断言）。
+#
+# 垫片按 preload 的**同名同形**契约补齐，让前端走它的正常错误分支。
+#
+# ⚠️ 已知覆盖缺口（有意为之，不是遗漏）：
+#   readPreview 走的是 Electron IPC（主进程读工作区文件，带白名单），
+#   浏览器侧**没有等价通道**。所以这里返回 {ok:false} —— 好处是零侵入、零 console 噪音；
+#   代价是「文件预览」这条路径在浏览器验收里**不被覆盖**（它只在真机 Electron 下生效）。
+#   若要真正覆盖，需要给浏览器加一层文件桥（例如带 CORS 头的只读静态服务），
+#   那属于验收基建的独立议题，别顺手塞进本脚本。
+PRELOAD_SHIM_JS = """
+window.mofangAPI = window.mofangAPI || {
+  readPreview: async () => ({ ok: false, error: "e2e harness: 无文件桥（readPreview 是 Electron 独有 IPC）" }),
+  openArtifact: async () => ({ ok: true }),
+  openFile: async () => ({ ok: true }),
+  revealInFolder: async () => ({ ok: true }),
+  openFileDialog: async () => ({ ok: false, canceled: true }),
+  promptsList: async () => ({ ok: true, items: [] }),
+  promptsGet: async () => ({ ok: true, content: "" }),
+  promptsSave: async () => ({ ok: true }),
+  styleNotesGet: async () => ({ ok: true, content: "" }),
+  styleNotesSave: async () => ({ ok: true }),
+  openExternal: async () => ({ ok: true }),
+  appAbout: async () => ({ ok: true }),
+  updaterCheck: async () => ({ ok: true }),
+  updaterStatus: async () => ({ ok: true }),
+  updaterQuitAndInstall: async () => ({ ok: true }),
+  onUpdater: () => () => {},
+};
+"""
+
 
 def new_page(browser, api_base, tag):
     ctx = browser.new_context(viewport={"width": 1440, "height": 940})
     ctx.add_init_script("window.__NF_API_BASE__ = %s;" % json.dumps(api_base))
+    ctx.add_init_script(PRELOAD_SHIM_JS)
     page = ctx.new_page()
     errs, bad = [], []
     page.on("console", lambda m: errs.append(m.type + ": " + m.text[:200])
@@ -229,8 +267,13 @@ def test_real(browser):
         about = page.locator(".about-dlg")
         check("真后端关于弹窗打开", about.count() == 1)
         atxt = about.inner_text() if about.count() else ""
+        # 版本号必须**取自 console/package.json**（真实口径），且不得是 dev/mock 占位。
+        # 原实现硬编码 "v0.1.0" —— 判据本身是错的：① 版本一升就必然红（2026-09-29
+        # 已是 0.3.2）；② "v0.1.0" 还能匹到 mock 的 "0.1.0-mock"，等于没测出「非 dev」。
+        _pkg_ver = json.loads((ROOT / "console" / "package.json").read_text(encoding="utf-8"))["version"]
         check("版本号取自 console/package.json（非 dev）",
-              "v0.1.0" in atxt and "读取版本信息失败" not in atxt, atxt[:70].replace("\n", " | "))
+              ("v" + _pkg_ver) in atxt and "读取版本信息失败" not in atxt
+              and "mock" not in atxt, atxt[:70].replace("\n", " | "))
         check("显示真实项目根路径", "NovelForge" in atxt and "E:\\CODE" in atxt, None)
         check("含快速上手 / 数据位置 / 许可区块",
               about.locator(".about-steps li").count() == 4 and about.locator(".ap-row").count() == 3
@@ -252,6 +295,7 @@ def test_dark(browser):
     ctx = browser.new_context(viewport={"width": 1440, "height": 940})
     ctx.add_init_script("window.__NF_API_BASE__ = %s;" % json.dumps(MOCK_API))
     ctx.add_init_script("localStorage.setItem('mofang_theme','dark');")
+    ctx.add_init_script(PRELOAD_SHIM_JS)
     page = ctx.new_page()
     errs = []
     page.on("console", lambda m: errs.append(m.type + ": " + m.text[:200])
