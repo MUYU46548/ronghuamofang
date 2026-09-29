@@ -39,6 +39,9 @@ from pathlib import Path
 
 from utils.file_io import read_text, write_text
 from utils import cost_tracker
+# 解析层容错（件2）：`<think>` 内嵌剥离 + 从思考里捞可解析的 JSON 文档。
+# 同包内复用，避免「同一判据写两遍、只修一处」（见 TESTS.md 的复制实现教训）。
+from utils.validator import strip_think, extract_json
 
 BS = chr(92)          # 反斜杠字符（源码零字面量纪律）
 NEWLINE = chr(10)     # 换行字符
@@ -211,15 +214,22 @@ def _dedupe_by_name(paths):
 
 
 def segment_requests(body, expected_writes, expected_appends):
-    """多文件输出任务 → 拆为逐请求指令。返回 [(sub_prompt, writes, appends)]。"""
+    """多文件输出任务 → 拆为逐请求指令。返回 [(sub_prompt, writes, appends)]。
+
+    **指令必须放在 body 之后**（2026-09-29 随行件3）。原先把「仅处理第 i/N 个输出」
+    的指令**头插**在 user 消息最前，于是 N 个子请求虽然共享 95%+ 的正文与内联输入，
+    却在**首字符**就分叉 → 前缀缓存全部失效（每次都是全新前缀）。
+    挪到内联输入之后，N 个子请求共享同一段前缀，只有尾部差异 →
+    前缀缓存可命中（实测 deepseek-v4-flash 重排后 57.9%，重排前上限 1.2%）。
+    """
     if len(expected_writes) <= 1:
         return [(body, list(expected_writes), list(expected_appends))]
     reqs = []
     for i, w in enumerate(expected_writes, 1):
         head = ("【本次调用仅处理第 " + str(i) + "/" + str(len(expected_writes)) +
                 " 个输出文件：" + w + "。其余文件由其他调用处理，严禁输出其他文件的"
-                "内容块。报告类输出只记录与本文件相关的内容。】" + NEWLINE * 2)
-        reqs.append((head + body, [w], list(expected_appends)))
+                "内容块。报告类输出只记录与本文件相关的内容。】")
+        reqs.append((body.rstrip() + NEWLINE * 2 + head, [w], list(expected_appends)))
     return reqs
 
 
@@ -377,19 +387,29 @@ class OpenAICompatClient:
 
     @staticmethod
     def _salvage_answer(text):
-        """thinking 兜底：**只取「正式协议块」部分，其余一律丢弃**。
+        """thinking 兜底：**只取「正式协议块」或「可解析的 JSON 文档」，其余一律丢弃**。
 
     为什么不能在无标记时返回全文：思考过程与正文混在同一个 `reasoning_content` 里，
     文本层面**无法可靠切分**（实测 minimax-m2.7 返回 `The user says "第 2 次…` 这种纯思考残片）。
     原实现找不到标记就返回**整段**思考 → 思考被当正文写进小说（2026-09-23 实测复现）。
 
-    现改为：**找不到协议标记 → 返回空**。宁可让上层判失败，也不把思考当正文。
-    写作阶段是纯正文（无 `===FILE:` 之类协议块），因此**永远不会**吃到思考内容。
+    现改为：找不到协议标记 → **默认返回空**。宁可让上层判失败，也不把思考当正文。
+
+    2026-09-29（件2）增补：若剥离 `<think>` 后文本里有一个**真能 json.loads 通过**的
+    JSON 文档，则把它捞回来 —— 审稿/校对的 JSON 结果常整段落进 reasoning_content，
+    而协议块兜底管不到（审稿 JSON 断裂事故的根因）。该分支要求「真的能解析」，
+    所以**纯散文的思考永远命不中**：写作阶段（无协议块、非 JSON）行为与修复前一致。
     """
         for marker in ("===FILE:", "===APPEND:", "===DELETE:"):
             idx = text.find(marker)
             if idx >= 0:
                 return text[idx:]
+        stripped = strip_think(text)
+        value, offset = extract_json(stripped)
+        if value is not None and offset >= 0:
+            print("[llm_client] WARN content 为空，已从 reasoning_content 捞回 JSON 结果"
+                  "（审稿/校对类结构化任务）")
+            return stripped[offset:]
         return ""
 
     def _request_json(self, payload):
@@ -455,6 +475,9 @@ class OpenAICompatClient:
                     choices = data.get("choices") or []
                     text, thinking = self._split_answer(
                         (choices[0].get("message") if choices else None) or {})
+                    # 件2：R1 系网关会把思考直接内嵌在 content 的 <think> 块里，
+                    # 不剥离就会随正文落进产物 → 解析层统一先剥一道。
+                    text = strip_think(text)
                     usage = data.get("usage") or {}
                     if not text.strip() and thinking.strip():
                         # thinking 模式：正文被塞进 reasoning_content（TokenHub glm-5.x / minimax 默认行为）
@@ -597,7 +620,7 @@ class OpenAICompatClient:
                             rpiece = delta.get("reasoning_content") or delta.get("reasoning") or ""
                             if rpiece:
                                 thinking_parts.append(rpiece)
-                full = "".join(content_parts)
+                full = strip_think("".join(content_parts))   # 件2：剥内嵌 <think> 块
                 if stopped:
                     return full, {}, self.model, finish_reason
                 if not full.strip() and thinking_parts:

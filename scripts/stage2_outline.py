@@ -14,6 +14,9 @@ from utils.template_loader import load_template
 
 REQUIRED_SECTIONS = ["起", "承", "转", "合"]
 
+# 件3：产出侧空泛（THIN）条目上限。绿标准为「大纲 THIN ≤1/11」，故容差取 1。
+THIN_TOLERANCE = 1
+
 
 def check_global_outline(path):
     """校验 global.md：起承转合四节 + 关键节点 + 预计章节数。返回 (ok, errors)。"""
@@ -27,6 +30,37 @@ def check_global_outline(path):
     m = re.search(r"^##\s*预计章节数\s*\n\s*(\d+)", text, re.M)
     if not m or int(m.group(1)) <= 0:
         errors.append("缺少有效的 ## 预计章节数")
+    return (not errors, errors)
+
+
+def check_outline_anchors(path, setting_path="data/setting/setting.json"):
+    """产出侧锚点校验（件3）：THIN 条目数超上限即判不合格。返回 (ok, errors)。
+
+    与 `prompts/stage2_global_outline.md` 里的「每节点锚点数下限」硬约束配套：
+    提示词负责**引导**，这里负责**拦**。
+
+    判据**复用** `outline_review.review`（确定性、零 token），不在此重造打分逻辑——
+    否则「提示词要求的锚点」与「校验器认的锚点」会各写一套、迟早分叉。
+
+    只用于**流水线产出**（run_stage）。结构校验 `check_global_outline` 保持纯净：
+    GUI 的「保存大纲 / 精修大纲」也走它，不应因空泛而被拦（那是审阅环节的事）。
+    """
+    errors = []
+    try:
+        import outline_review as orv
+        res = orv.review(str(path), setting_path) or {}
+        summary = res.get("summary", {}) or {}
+        thin = int(summary.get("thin", 0))
+        total = int(summary.get("total", 0))
+        if thin > THIN_TOLERANCE:
+            entries = (res.get("nodes", []) or []) + (res.get("plan", []) or [])
+            names = [e.get("title", "?") for e in entries if e.get("level") == "THIN"]
+            errors.append(
+                f"空泛（THIN）条目 {thin}/{total} 条，超过上限 {THIN_TOLERANCE}"
+                + ("；例：" + "、".join(names[:3]) if names else "")
+                + "。请在关键节点/章节规划里补足具体事件、场景地点与角色行动后重跑")
+    except Exception as e:                                      # noqa: BLE001
+        print(f"[stage2] 锚点校验跳过（不影响结构校验）: {type(e).__name__}: {e}")
     return (not errors, errors)
 
 
@@ -61,6 +95,12 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     if not ok:
         progress.set_stage(2, "failed", error="结构校验失败: " + "; ".join(errors))
         return False, "stage2 大纲校验失败: " + "; ".join(errors)
+
+    # 件3：产出侧锚点校验（THIN 治理）——结构过关不等于信息密度过关。
+    ok_a, errors_a = check_outline_anchors("data/outline/global.md")
+    if not ok_a:
+        progress.set_stage(2, "failed", error="锚点校验失败: " + "; ".join(errors_a))
+        return False, "stage2 大纲锚点校验失败: " + "; ".join(errors_a)
 
     progress.mark_stage_done(2)          # done 但未 approved（审批门）
     progress.set_approved(2, False)
