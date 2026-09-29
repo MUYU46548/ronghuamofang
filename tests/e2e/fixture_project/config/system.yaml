@@ -1,0 +1,37 @@
+# e2e 夹具项目 · 系统配置（最小可用集，避免继承主项目的本地覆盖）
+#
+# 注意：`config/system.local.yaml` 是**主项目**的本地覆盖（不在本目录里），
+# 但如果 load_all() 用 CWD 相对路径去找它，就可能把主项目的模型选择带进来。
+# 夹具不依赖模型选择（本段只读 /state、/estimate、/about、/logs/tail），
+# 所以这里只保证「能加载、有 gates」，不需要真实可用模型。
+engine: direct
+providers:
+  tokenhub:
+    type: openai-compat
+    base_url: https://example.invalid/v1
+    api_key_env: TOKENHUB_API_KEY
+    timeout: 60
+    retries: 1
+    available_models:
+    - kimi-k2.6
+    fallback:
+    - kimi-k2.6
+model:
+  default:
+    provider: tokenhub
+    id: kimi-k2.6
+budget:
+  limit_yuan: 300
+  warn_ratio: 0.7
+gates:
+  require_approval:
+  - 2
+  - 6
+  pause_on_failure: true
+chapter:
+  target_words:
+  - 2000
+  - 5500
+logging:
+  level: info
+  rotate_days: 30

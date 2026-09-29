@@ -1,0 +1,25 @@
+# e2e 夹具项目 · 书档信息（与 tests/e2e/fixture_project/README.md 配套）
+book:
+  name: "e2e 夹具书"
+  genre: "测试"
+  target_words: 6000
+  chapters: 3
+  language: "zh-CN"
+  author: "e2e"
+  style: "夹具"
+  user_outline: ""
+  word_template: ""
+  style_reference: ""
+  style_notes: ""
+
+materials:
+  dir: "materials/raw"
+  scraps_dir: "materials/original_scraps"
+  use_scraps: false
+
+vault:
+  readonly: true
+  vault_links: "materials/vault_links.md"
+
+run:
+  output_word: true
