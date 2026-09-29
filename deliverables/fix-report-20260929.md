@@ -97,9 +97,14 @@ do_POST 的**全部顶层语句**，把 Try **之前**的「Agent 模式安全�
 | 5 | 见下 | `nfctl.py` 成本显示修复（**2026-09-28 既有改动**，非本轮） |
 | 6 | 见下 | 打包 v0.3.2：`SEED_VERSION` 3→4 + version 0.3.1→0.3.2（**含 console/package.json 里 2026-09-28 的 dev 脚本改动**，同文件无法拆分 hunk） |
 
-**未提交（待你定）**：
-- `materials/vault_links.md` —— stage1 生成的**数据产物**（168 行 diff），提交它等于把生成物入库，建议不提交；
-- `config/project.yaml.bak` —— 备份文件，建议删除或加进 `.gitignore`。
+**第三批（同日）：** `21d908d` 忽略 `*.bak` · `207122c` CORS 放行 `X-Mofang-Source` + e2e 可复现 ·
+`<见 git log>` 前端端口收敛（`console/src/apiBase.js`）+ 打包 v0.3.2（SEED_VERSION 5）。
+
+**未提交（待你定）**：仅 `materials/vault_links.md`（stage1 生成的**数据产物**，168 行 diff）
+——按你的指示**不提交**。
+`config/project.yaml.bak` 已由新增的 `*.bak` 规则忽略（不再出现在 `git status`）；
+它当前没有任何代码会生成（手改残留），是否删除由你定。
+
 
 ---
 
@@ -139,4 +144,53 @@ bump 前置则两个条件同时满足，且已用产物核验（见下）。
 
 **同类风险提示**：`available_models` / `disable_thinking_models` / `fallback` 三个列表
 都在这份本地文件里被整体覆盖，改 `system.yaml` 时**必须同时检查它**。
+
+---
+
+## 9. 第三批：把「发版前必跑」的视觉验收从跑不起来修到可复现
+
+**起点**：`tests/e2e/e2e_ux_verify.py`（64 断言）本机**根本跑不起来** —— 首条断言即崩，
+0 通过。逐层挖出 4 个独立缺陷：
+
+| # | 缺陷 | 性质 | 修法 | 证据 |
+|---|---|---|---|---|
+| 1 | `nf_api._cors` 的 `Access-Control-Allow-Headers` 只有 `Content-Type`，而前端 api() **每次都发 `X-Mofang-Source`** → 预检必失败、所有请求被拦 | **产品** | 补该头；Allow-Origin 仍只放行本机来源，安全不受影响 | 修前页面只有骨架；修后 `/state` 等全部 200 |
+| 2 | 假后端只存在于 `Temp/mock_nf_api_state.py`，`Temp/` 被 .gitignore 忽略，而 AGENTS.md 早把路径写成 `tests/e2e/` | **验收基建** | 迁入 `tests/e2e/mock_nf_api_state.py` 并补齐 CORS 头 + `/costs/rates`、`/sandbox/queue` | 干净克隆现在可复现 |
+| 3 | 前端靠 Electron preload 提供 `window.mofangAPI`，纯浏览器下未定义 → App.vue 4 处 `readPreview(...)` 抛 TypeError | **验收基建** | 加 preload 垫片（按 `console/preload/index.js` 同名同形）；`readPreview` 是 Electron 独有 IPC，垫片返回 `ok:false` 并**显式标注为已知覆盖缺口** | 修前 5 次 TypeError，修后 0 |
+| 4 | **6 个面板各自硬编码 `http://127.0.0.1:8765`**（Style/Scraps/Review/Proofread/ParagraphRefine/ChapterBlueprint），绕过 `__NF_API_BASE__` | **产品** | 收敛到新模块 `console/src/apiBase.js`，7 处统一 import（判据从 7 份变 1 份） | 修前 console 成片 `ERR_CONNECTION_REFUSED`（且错误不带 URL）；修后「无」 |
+| 5 | 「版本号取自 console/package.json（非 dev）」断言**硬编码 `v0.1.0`** —— 版本一升必红，且能误匹 mock 的 `0.1.0-mock` | **断言本身写错** | 改为实时读 `console/package.json` 的 version 且排除 mock | 修后通过 |
+
+**结果**：`0 通过（崩）` → **60 通过 / 4 失败**。
+
+**剩余 4 条（同一根因，属验收基建，不是产品缺陷）**：
+`真数据：下一步 = 运行阶段 5` · `快速运行选择器自动对齐到阶段 5` · `预估成本已拉到` ·
+`Space 打开运行前预估确认框`。
+真后端那段跑的是**本机真实项目**，默认前提是「阶段 1-4 已完成 → 下一步 = 阶段5」；
+而本书前三阶段早已跑完（1-7 全 done，阶段6 待审批），应用的「下一步」自然不是 5。
+→ 二选一（需你定）：**① 给验收一套 hermetic 夹具项目**（`nf_api --root <fixture>`，状态固定为 1-4 done）；
+**② 把期望值改为从 `/state` 推导**（不写死阶段号）。
+
+---
+
+## 10. 备份文件的定位（回答「不是应该和用户数据一起走统一导入导出吗」）
+
+**结论：应该，但那套「统一导入导出」目前并不存在。** 现状：
+
+- `.gitignore` 里有一条**预告性质**的注释「用户私人数据（不进 Git，**后续由"导入/导出"功能自行管理**）」——
+  「后续」至今没落地：全库没有任何「用户数据导出/导入」端点或脚本。
+- 现有的**项目归档/恢复**（`scripts/switch_book.py --archive/--restore`）只搬 `data/` 下的
+  8 项（progress/setting/outline/chapters/summaries/merged/state/materials_manifest），
+  归档到 `data/books/{书名}/`。**`config/`（含 config/history 备份、书名/风格/模板路径）
+  与 `materials/`（素材卡、碎片）都不在归档范围内** —— 所以备份确实没跟着用户数据走。
+- 另一条相关线是 `NOVELFORGE_DATA_DIR`（`orchestrator.get_data_root()`，13 行）—— 只是把
+  `data/` 挪到项目外的**环境变量钩子**，且只有 orchestrator 在读，未接到备份/归档上。
+- 好消息：备份**目录**其实已被忽略（`.gitignore` 的 `history/` 规则覆盖
+  `config/history`、`data/chapters/history`、`data/outline/history`）；本次补的 `*.bak`
+  只针对散落的单文件备份。`config/project.yaml.bak` 目前**没有任何代码会生成它**
+  （全库 grep 无写入点），是手改残留。
+
+**建议（需你点头，涉及搬用户数据）**：把 `config/`（至少 `history/` 与 `project.yaml`）与
+`materials/` 纳入归档范围，或新建真正的「导出/导入」包（zip 用户数据 + 版本号 + 校验）。
+这两条都会改变既有行为，我不擅自动手。
+
 

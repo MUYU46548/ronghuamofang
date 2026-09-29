@@ -96,6 +96,11 @@ def new_page(browser, api_base, tag):
     errs, bad = [], []
     page.on("console", lambda m: errs.append(m.type + ": " + m.text[:200])
             if m.type in ("error", "warning") else None)
+    # 失败请求**带上 URL**一起收：否则 console 里只剩
+    # "Failed to load resource: net::ERR_CONNECTION_REFUSED"，看不出是哪个端口被拒
+    # （2026-09-29 排查这条时正是卡在这里，只能另写探针脚本）。
+    page.on("requestfailed", lambda r: errs.append(
+        "requestfailed: %s | %s" % (r.url, r.failure)))
     page.on("response", lambda r: bad.append("%s %s" % (r.status, r.url))
             if r.status >= 400 and "/favicon" not in r.url else None)
     page.goto(SITE, wait_until="domcontentloaded")
