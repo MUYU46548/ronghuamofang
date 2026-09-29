@@ -19,9 +19,10 @@ providers:
     - kimi-k2.6
     - kimi-k3
     fallback:
+    # ⚠️ fallback 链里不得放**已下线/即将下线**的模型：`_post_chat` 对 400/401/403/404
+    # 直接 raise，死模型一跳就会吃掉链上后续所有兜底（2026-10-09 glm-5 下线 → 已摘除）。
     - kimi-k2.6
     - minimax-m2.7
-    - glm-5
     - glm-5-turbo
     disable_thinking_models:
     - minimax-m2.7   # 2026-09-23 实测：默认进思考（reasoning 388 字 / 正文 54 字，输出 token 翻 3 倍）
@@ -106,6 +107,9 @@ gates:
   auto_retry_max_rounds: 2        # 最大自动重试轮次（不含首次）
   auto_retry_delay_seconds: 3      # 重试前等待（秒），给 LLM 限流/超时恢复时间
   auto_retry_backoff: 2            # 退避系数：3s → 6s → 12s …
+  quality_gate: true               # 件4：全流程收尾强制跑 quality_checklist，非零退出即红阻断
+                                   # （防「门禁失守还盖绿灯」：产物存在 ≠ 产物合格）。
+                                   # 仅在**全流程**收尾生效；单阶段 --stage N 重跑不拦。
   stage8_export: true  # 阶段8：Markdown 分卷导出
 obsidian:
   # vault path（只读）：用户自己的 Obsidian 知识库根目录

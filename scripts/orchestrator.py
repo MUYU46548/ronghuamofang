@@ -23,6 +23,7 @@
 import argparse
 import os
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -375,7 +376,6 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
                                            retry_started_at=datetime.now().strftime("%Y-%m-%dT%H:%M:%S"))
                         delay = retry_delay * (retry_backoff ** (retry_count - 1))
                         print(f"[orchestrator] 阶段{n} 失败，第{retry_count}次自动重试（等待 {delay:.0f}s）...")
-                        import time
                         time.sleep(delay)
                         # 重试前检查停止请求
                         if _stop_requested():
@@ -415,6 +415,31 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
                 progress.save()
                 return _finalize("paused", 2)
             print(f"[orchestrator] 当前成本: {spent:.4f} 元（状态 {state}）")
+
+        # 件4：质量验收闸门（gates.quality_gate，默认开）。
+        #
+        # 为什么必须在宣告「全部完成」**之前**跑：
+        # 本项目最忌讳的失败是「门禁失守还盖绿灯」—— 明鉴悲剧（五十万字债）就是
+        # 完成通知发出后才发现整批章节是垃圾。章节产物存在 ≠ 章节产物合格。
+        # 这里复用 quality_checklist.py（确定性、零 token），非零退出即红阻断。
+        #
+        # 只在**全流程**收尾跑（only_stage 为空）：单阶段重跑（--stage N）时
+        # 全书未必齐备，拿整书清单去拦单阶段是误伤。
+        if only_stage is None and cfg.get("gates", {}).get("quality_gate", True):
+            try:
+                import subprocess
+                print("\n[orchestrator] 质量验收闸门：运行 scripts/quality_checklist.py ...")
+                rc = subprocess.call([sys.executable, "scripts/quality_checklist.py"])
+                if rc != 0:
+                    print(f"[orchestrator] 🔴 质量验收未通过（退出码 {rc}）→ **阻断完成状态**；"
+                          "请按上面的问题清单修复后重跑（可用 --stage N 定点重跑）")
+                    return _finalize("failed", 1)
+                print("[orchestrator] 🟢 质量验收通过")
+            except Exception as e:                              # noqa: BLE001
+                # 闸门自身坏掉（脚本缺失/环境异常）→ 大声告警但放行：
+                # 已完成的书不该因一次工具故障被判不合格（失败要可解释，不能靠误伤）。
+                print(f"[orchestrator] ⚠️ 质量验收闸门执行异常，已放行（请人工核对）: "
+                      f"{type(e).__name__}: {e}")
 
         print("\n[orchestrator] 全部阶段完成 ✅")
         return _finalize("done", 0)
