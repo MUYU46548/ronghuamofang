@@ -124,7 +124,15 @@ function getWorkspaceDir() {
 //   新增 costs/rates 端点、nf_api_domains/project.py 修 Agent 模式签名、
 //   utils/cost_tracker.py 增自定义定价读写。按上面的规则 +1，
 //   否则已装 0.3.0 的用户升级后 ws 里跑的仍是旧后端。
-const SEED_VERSION = 3;
+//
+// v4（2026-09-29，①执行单 v2.2）：payload 内 scripts/ + prompts/ 再次实质变更 ——
+//   utils/validator.py 解析层容错、utils/llm_client.py 的 reasoning-JSON 捞回与
+//   segment 指令移尾、stage2 锚点闸门、orchestrator 质量闸门、nf_mcp 补两把钥匙 +
+//   分层指引、stage5 输入构造修复。**必须在 electron-builder 之前 bump**：
+//   SEED_VERSION 会被编进 main/index.js（→ app.asar），而 payload 是 electron-builder
+//   的 extraResources 在 dist 时从活的 ../scripts、../prompts 现拷的。
+//   顺序反了（先 dist 再 bump）→ 装出来的包 SEED_VERSION 还是旧值，用户永远不会刷新。
+const SEED_VERSION = 4;
 
 // 只播种/刷新**代码与提示词**目录。
 // 刻意不含 data/：那是用户产物（章节、设定、大纲），任何情况下都不能被覆盖。

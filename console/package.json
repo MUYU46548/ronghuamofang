@@ -1,13 +1,15 @@
 {
   "name": "ronghuamofang-console",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "绒花墨坊桌面控制台（消费本地 nf_api）",
   "author": "暮雨 (MUYU46548)",
   "private": true,
   "main": "main/index.js",
   "scripts": {
     "dev": "vite",
-    "dev:watch": "cmd /c \"启动开发模式.bat\"",
+    "dev:watch": "concurrently -k \"vite --config vite.config.js\" \"wait-on tcp:5180 && cross-env NODE_ENV=development electron .\"",
+    "dev:debug": "concurrently -k \"vite --config vite.config.js\" \"wait-on tcp:5180 && cross-env NODE_ENV=development OPEN_DEVTOOLS=1 electron .\"",
+    "dev:serve": "vite --config vite.config.js --port 5180",
     "build": "vite build",
     "prepare": "node scripts/prepare-runtime.js",
     "start": "electron .",
@@ -28,12 +30,15 @@
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "5.2.1",
+    "concurrently": "^10.0.5",
+    "cross-env": "^10.1.0",
     "electron": "28.3.3",
     "electron-builder": "^26.15.3",
     "ico": "^0.3.3",
     "jimp": "^1.6.1",
     "png-to-ico": "^3.0.2",
-    "vite": "5.4.21"
+    "vite": "5.4.21",
+    "wait-on": "^9.1.0"
   },
   "build": {
     "appId": "com.ronghuamofang.console",
