@@ -219,7 +219,15 @@ def collect_status(root: Path) -> dict:
         }
         budget = pm.budget()
         limit = budget.get("limit_yuan") or 0
-        spent = budget.get("spent_yuan") or 0.0
+        # cost_tracker 记账在 DB，progress.json 的 budget 只是 orchestrator 运行时快照旧值
+        # 此处读 DB（source of truth），避免显示 ¥0.0 的 bug
+        try:
+            from utils.db import RunDB
+            db = RunDB(str(root / "logs" / "runs.db"))
+            spent = db.sum_cost() or 0.0
+            db.close()
+        except Exception:
+            spent = budget.get("spent_yuan") or 0.0
         out["cost"] = {
             "spent_yuan": round(float(spent), 4),
             "limit_yuan": limit,
