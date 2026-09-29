@@ -140,7 +140,10 @@ function getWorkspaceDir() {
 //   `--root` 解析加 resolve()、`/about` 版本改「ROOT 优先 → 代码仓库兜底」、
 //   `progress_manager` 损坏时不再静默降级（告警 + 留原件）。
 //   仍遵守同一条顺序纪律：**先 bump 再 electron-builder**。
-const SEED_VERSION = 6;
+// v7（2026-09-29 同日，第四批）：定价批量导入上线 —— payload 新增
+//   `POST /costs/rates/import`（后端 utils/cost_tracker 的解析/合并三层 + 域 handler），
+//   renderer 侧定价面板加「批量导入」粘贴框。**先 bump 再 electron-builder**。
+const SEED_VERSION = 7;
 
 // 只播种/刷新**代码与提示词**目录。
 // 刻意不含 data/：那是用户产物（章节、设定、大纲），任何情况下都不能被覆盖。
