@@ -47,6 +47,10 @@ const costSummary = ref(null);
 const costView = ref("cost");   // "cost" | "usage" | "rates"
 const rates = ref({});           // 定价表（合并视图）
 const newRateName = ref("");     // 新增模型名称输入
+const importOpen = ref(false);   // 定价批量导入面板展开
+const importText = ref("");      // 粘贴的定价原文
+const importReport = ref(null);  // 解析预览结果（含 plan/errors/warnings）
+const importBusy = ref(false);
 const providers = ref(null);    // provider status (no keys exposed)
 const online = ref(false);
 const toast = ref("");
@@ -173,6 +177,45 @@ function addRate() {
 
 function removeRate(name) {
   delete rates.value[name];
+}
+
+/* ---------- 定价批量导入（两段式：预览 → 确认） ---------- */
+function actionLabel(a) {
+  return { new: "新增", override: "覆盖源码价", update: "更新自定义" }[a] || a;
+}
+function fmtRate(r) {
+  if (!r) return "—";
+  const f = (x) => (x == null ? "—" : x);
+  return "in " + f(r.in) + " / out " + f(r.out) + " / cache " + f(r.cache_read);
+}
+function toggleImport() {
+  importOpen.value = !importOpen.value;
+  if (importOpen.value) importReport.value = null;
+}
+async function previewImport() {
+  const t = (importText.value || "").trim();
+  if (!t) { say("请先粘贴定价内容"); return; }
+  importBusy.value = true;
+  const r = await api("/costs/rates/import", "POST", { text: t, confirm: false });
+  importBusy.value = false;
+  importReport.value = r.data || null;
+  if (r.status !== 200) say("解析失败: " + ((r.data && r.data.error) || r.status));
+}
+async function confirmImport() {
+  const rep = importReport.value;
+  if (!rep || !rep.ok) { say("请先解析预览，且确认无解析错误"); return; }
+  const t = (importText.value || "").trim();
+  importBusy.value = true;
+  const r = await api("/costs/rates/import", "POST", { text: t, confirm: true });
+  importBusy.value = false;
+  importReport.value = r.data || null;
+  if (r.status === 200) {
+    say("已导入 " + r.data.saved + " 条定价（自定义共 " + r.data.custom_total + " 条）");
+    importText.value = "";
+    loadRates();
+  } else {
+    say("导入失败: " + ((r.data && r.data.error) || r.status));
+  }
 }
 
 function switchToRefine(chapterNo) {
@@ -2943,6 +2986,57 @@ onUnmounted(() => {
           <button class="mini" @click="addRate">+ 添加</button>
           <button class="mini primary" @click="saveRates">保存定价</button>
           <button class="mini" @click="loadRates">重置</button>
+          <button class="mini" @click="toggleImport">📋 批量导入</button>
+        </div>
+
+        <!-- 批量导入：粘贴整张价格表 → 解析预览 → 确认（只覆盖同名条目） -->
+        <div v-if="importOpen" class="rate-import">
+          <div class="meta" style="margin-bottom: 6px;">
+            粘贴整张价格表：每行「模型 输入价 输出价 [缓存价]」（分隔符任意），
+            也支持 JSON 或直接从 <code>RATES</code> 复制的字面量。
+            <b>先解析预览，确认无误再导入</b> —— 只覆盖同名条目，不会删除其他定价。
+          </div>
+          <textarea v-model="importText" class="rate-import-box" rows="6"
+                    placeholder="kimi-k2.6  1.0  4.2  0.2&#10;deepseek-v4-pro  12  24  1"></textarea>
+          <div style="display: flex; gap: 8px; margin-top: 6px; align-items: center;">
+            <button class="mini" @click="previewImport" :disabled="importBusy">解析预览</button>
+            <button class="mini primary" @click="confirmImport"
+                    :disabled="importBusy || !importReport || !importReport.ok">确认导入</button>
+            <span class="meta" v-if="importReport">
+              格式 {{ importReport.format }} · 解析出 {{ importReport.count }} 条
+            </span>
+          </div>
+
+          <div v-if="importReport">
+            <div v-if="importReport.errors && importReport.errors.length" class="rate-import-err">
+              <b>无法解析（{{ importReport.errors.length }} 项）——修正后才能导入：</b>
+              <div v-for="(e, i) in importReport.errors" :key="'ie' + i">· {{ e }}</div>
+            </div>
+            <div v-if="importReport.warnings && importReport.warnings.length" class="rate-import-warn">
+              <b>注意（{{ importReport.warnings.length }} 项）：</b>
+              <div v-for="(w, i) in importReport.warnings" :key="'iw' + i">· {{ w }}</div>
+            </div>
+            <table class="cost-table" v-if="importReport.plan && importReport.plan.length">
+              <thead>
+                <tr><th>模型</th><th>动作</th><th>现有</th><th>导入后</th></tr>
+              </thead>
+              <tbody>
+                <tr v-for="row in importReport.plan" :key="'ir' + row.model">
+                  <td>{{ row.model }}</td>
+                  <td>
+                    <span class="pill" :class="row.action === 'new' ? 'st-done' : 'st-running'">
+                      {{ actionLabel(row.action) }}
+                    </span>
+                  </td>
+                  <td class="meta">{{ fmtRate(row.from) }}</td>
+                  <td>{{ fmtRate(row.to) }}</td>
+                </tr>
+              </tbody>
+            </table>
+            <div v-if="importReport.applied" class="meta" style="margin-top: 6px;">
+              ✅ 已导入 {{ importReport.saved }} 条<span v-if="importReport.backup">（原文件已备份到 {{ importReport.backup }}）</span>
+            </div>
+          </div>
         </div>
       </div>
     </section>

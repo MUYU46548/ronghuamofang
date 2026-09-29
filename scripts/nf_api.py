@@ -1819,6 +1819,9 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/costs/rates":
                 # 定价表保存（GUI 定价编辑器写入）。
                 self._send(*_dom(dom_misc.handle_costs_rates_save(self, body)))
+            elif p == "/costs/rates/import":
+                # 定价批量导入：confirm=false 预览 / true 落盘（GUI 粘贴框）。
+                self._send(*_dom(dom_misc.handle_costs_rates_import(self, body)))
             elif p == "/stop":
                 job_id = str(body.get("job_id") or "")
                 if not job_id:

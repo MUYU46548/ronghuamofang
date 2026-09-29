@@ -207,6 +207,53 @@ def test_mock(browser):
         check("数字键 1 → 流水线页签", "流水线" in page.locator(".tabs button.active").first.inner_text())
         shot(page, "A8_back_to_pipeline")
 
+        print("  --- 定价批量导入（预览 → 确认 两段式）---")
+        page.locator(".tabs button:has-text('成本')").click()
+        page.wait_for_timeout(600)
+        page.locator("button:has-text('定价')").first.click()
+        page.wait_for_timeout(500)
+        check("定价面板展开前没有导入区", page.locator(".rate-import").count() == 0)
+        page.locator("button:has-text('批量导入')").first.click()
+        page.wait_for_timeout(300)
+        check("点「批量导入」展开粘贴框", page.locator(".rate-import-box").count() == 1)
+        shot(page, "A9_rate_import_open")
+
+        page.fill(".rate-import-box", "kimi-k2.6  1.0  4.2  0.2\nglm-5.3 8 28 2\n")
+        page.locator("button:has-text('解析预览')").click()
+        page.wait_for_timeout(600)
+        rows = page.locator(".rate-import .cost-table tbody tr")
+        check("预览表列出解析出的条目", rows.count() == 2, rows.count())
+        preview = page.locator(".rate-import .cost-table").inner_text()
+        check("预览表含模型名与新值",
+              "kimi-k2.6" in preview and "4.2" in preview, preview.replace("\n", " | ")[:80])
+        check("动作列标出「新增」", "新增" in preview, preview.replace("\n", " | ")[:80])
+        check("预览不是写入（未出现「已导入」）",
+              page.locator(".rate-import:has-text('✅ 已导入')").count() == 0)
+        check("解析无错误时「确认导入」可用",
+              not page.locator(".rate-import button:has-text('确认导入')").is_disabled())
+
+        page.fill(".rate-import-box", "kimi-k2.6 1.0\n")
+        page.locator("button:has-text('解析预览')").click()
+        page.wait_for_timeout(600)
+        check("坏输入 → 明显报错块（不是静默通过）",
+              page.locator(".rate-import-err").count() == 1
+              and "只解析出 1 个数值" in page.locator(".rate-import-err").inner_text(),
+              page.locator(".rate-import-err").inner_text()[:70])
+        check("有解析错误时「确认导入」被禁用",
+              page.locator(".rate-import button:has-text('确认导入')").is_disabled())
+        shot(page, "A10_rate_import_error")
+
+        page.fill(".rate-import-box", "kimi-k2.6  1.0  4.2  0.2\n")
+        page.locator("button:has-text('解析预览')").click()
+        page.wait_for_timeout(600)
+        page.locator(".rate-import button:has-text('确认导入')").click()
+        page.wait_for_timeout(800)
+        body_txt = page.locator(".rate-import").inner_text()
+        check("确认后报告「已导入 N 条」", "已导入 1 条" in body_txt, body_txt.replace("\n", " | ")[:90])
+        shot(page, "A11_rate_import_done")
+        page.locator(".tabs button:has-text('流水线')").click()
+        page.wait_for_timeout(500)
+
         errs_real = [e for e in errs if "404" not in e]
         print("  console error/warning: %s" % (errs_real or "无"))
         check("无前端 console 报错（假后端下）", not errs_real, errs_real[:3])

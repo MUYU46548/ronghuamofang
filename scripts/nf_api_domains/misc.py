@@ -297,6 +297,32 @@ def handle_costs_rates_save(h, body):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+def handle_costs_rates_import(h, body):
+    """定价批量导入：confirm=false 只解析预览（**不落盘**），true 才写入自定义定价。
+
+    两段式是刻意的：粘贴内容来自账单页/文档，格式不可控，先让用户看清
+    「哪些是新增、哪些覆盖源码价、缓存价取了多少」再决定写不写。
+    有解析错误时**拒绝落盘**（返回 400）—— 宁可让用户改完再来，也不静默丢条目。
+    """
+    try:
+        from utils.cost_tracker import plan_rates_import, upsert_custom_rates
+
+        text = str(body.get("text") or "")
+        confirm = bool(body.get("confirm"))
+        report = plan_rates_import(text)
+        if not confirm:
+            return 200, dict(report, applied=False, saved=0)
+        if not report["ok"]:
+            return 400, dict(report, applied=False, saved=0,
+                             error="存在无法解析的行，未做任何写入；请修正后重试")
+        to_save = {p["model"]: p["to"] for p in report["plan"]}
+        total, backup = upsert_custom_rates(to_save)
+        return 200, dict(report, applied=True, saved=len(to_save),
+                         custom_total=total, backup=backup)
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 def handle_agent_runs(h):
     """Agent 派发状态（只读）：列出最近派发任务的状态。"""
     import nf_api as api
@@ -348,6 +374,7 @@ ROUTES = (
     ("GET", "/costs/streaming", handle_costs_streaming),
     ("GET", "/costs/rates", handle_costs_rates),
     ("POST", "/costs/rates", handle_costs_rates_save),
+    ("POST", "/costs/rates/import", handle_costs_rates_import),
     ("GET", "/env/open", handle_env_open),
     ("GET", "/batch_refine/progress", handle_batch_refine_progress),
     ("GET", "/chapters/quality", handle_chapters_quality),

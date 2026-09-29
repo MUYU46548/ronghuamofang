@@ -12,7 +12,11 @@
 """
 import argparse
 import json
+import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 
 STATE = {
     "book": "验收用书",
@@ -164,6 +168,22 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"ok": True,
                                     "message": "已快照 current；已归档「验收用书」；空工作区骨架已初始化；"
                                                "已更新 name、genre、chapters"})
+        if p == "/costs/rates/import":
+            # 定价批量导入：**复用真实解析器**（解析是纯函数、零状态），
+            # mock 只负责补一个确定性的落盘语义，避免在这里复制一份解析判据。
+            from utils.cost_tracker import parse_rates_text
+            text = str(body.get("text") or "")
+            confirm = bool(body.get("confirm"))
+            parsed, errors, warnings, fmt = parse_rates_text(text)
+            plan = [{"model": n, "action": "new", "from": None, "to": d}
+                    for n, d in parsed.items()]
+            rep = {"ok": not errors, "format": fmt, "count": len(plan), "plan": plan,
+                   "errors": errors, "warnings": warnings, "custom_total": 0,
+                   "applied": bool(confirm and not errors),
+                   "saved": len(plan) if confirm and not errors else 0}
+            if confirm and errors:
+                return self._send(400, dict(rep, error="mock：有解析错误，拒绝写入"))
+            return self._send(200, rep)
         return self._send(200, {"ok": True, "message": "mock", "job_id": "mockjob1"})
 
 
