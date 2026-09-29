@@ -42,16 +42,36 @@ class ProgressManager:
 
     def _load(self):
         if self.path.exists():
+            raw = read_text(self.path)
             try:
-                data = json.loads(read_text(self.path))
-            except (json.JSONDecodeError, ValueError):
+                data = json.loads(raw)
+            except (json.JSONDecodeError, ValueError) as e:
+                # ⚠️ 这里**绝不能静默降级**（2026-09-29 实测踩到）：
+                # JSON 解析失败 → data={} → 界面显示「全部阶段未开始」，
+                # 而**下一次 save() 会用默认值把用户原有的阶段状态整体覆盖掉** —— 真丢数据。
+                # 处置：① 大声告警（带路径与原因）② 先把原件另存一份再降级。
                 data = {}
+                self._quarantine(raw, e)
         else:
             data = {}
         base = deepcopy(DEFAULT_PROGRESS)
         base.update({k: v for k, v in data.items() if k in base})
         base["stages"] = {k: data.get("stages", {}).get(k, _new_stage()) for k in STAGE_KEYS}
         return base
+
+    def _quarantine(self, raw, err):
+        """把无法解析的 progress.json 原件另存一份，供人工排查/恢复。"""
+        try:
+            stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            bak = self.path.with_name(self.path.name + ".corrupt-" + stamp)
+            bak.parent.mkdir(parents=True, exist_ok=True)
+            write_text(bak, raw)
+            print("[progress] WARN %s 解析失败（%s）→ 已降级为空状态；"
+                  "原件已备份到 %s（**请勿直接忽略**，否则下次保存会覆盖原状态）"
+                  % (self.path, err, bak))
+        except Exception as e:                                  # noqa: BLE001
+            print("[progress] WARN %s 解析失败（%s），且原件备份失败：%s"
+                  % (self.path, err, e))
 
     def save(self):
         self.data["last_modified"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")

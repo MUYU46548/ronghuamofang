@@ -198,7 +198,9 @@ def _resolve_root():
     """解析 ROOT：优先 NF_ROOT 环境变量 → 打包态自动检测 → 源码树。"""
     env_root = os.environ.get("NF_ROOT")
     if env_root:
-        return Path(env_root)
+        # 必须 resolve()：NF_ROOT / --root 常给相对路径，不解析的话
+        # ROOT 会随 CWD 漂移（/about 也会把相对路径当"项目根"暴露给界面）。
+        return Path(env_root).resolve()
     computed = Path(__file__).resolve().parents[1]
     return computed
 
@@ -658,7 +660,11 @@ def stage_status(progress, n):
 
 
 def build_state():
-    progress = ProgressManager("data/state/progress.json")
+    # 2026-09-29：这里原写死相对路径 "data/state/progress.json" —— 依赖进程 CWD。
+    # `--root` 场景（自动化验收 / 多书隔离）下 CWD 仍是发起进程的目录，
+    # 于是 /state 会**静默读到另一个项目的 progress.json**：返回 200、内容却是别人的，
+    # 不报错、很难发现（这正是「一律经 ROOT」那条纪律要防的事）。
+    progress = ProgressManager(ROOT / "data" / "state" / "progress.json")
     stages = [stage_status(progress, n) for n in range(1, 8)]
     gates = load_all()[0].get("gates", {})
     cost_spent, calls, est = 0.0, 0, 0
@@ -2467,7 +2473,9 @@ def main():
     if args.root:
         os.environ["NF_ROOT"] = str(args.root)
         global ROOT
-        ROOT = Path(args.root)
+        # resolve()：相对 --root 会让 ROOT 随 CWD 漂移，且 /about 会把相对路径
+        # 当成"项目根"展示（2026-09-29 实测：显示 tests\e2e\fixture_project）。
+        ROOT = Path(args.root).resolve()
     if args.allow_fake:
         os.environ["NF_API_ALLOW_FAKE"] = "1"
         global ALLOW_FAKE

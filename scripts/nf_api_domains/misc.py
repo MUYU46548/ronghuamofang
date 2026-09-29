@@ -197,13 +197,23 @@ def handle_about(h):
     import nf_api as api
 
     try:
+        # 版本属于**应用**，不属于当前打开的书档。
+        # 只按 ROOT 找的后果（2026-09-29 实测）：`--root` 指向别的项目（如验收夹具）时
+        # 那边没有 console/package.json → 关于弹窗显示 "vdev"。
+        # 因此「ROOT 优先 → 代码所在仓库兜底」两处找。
+        # （打包态 Electron 走主进程的 app.getVersion()，本字段只在浏览器上下文里兜底。）
+        from pathlib import Path as _Path
         ver = "dev"
-        pkg = api.ROOT / "console" / "package.json"
-        if pkg.exists():
+        for pkg in (api.ROOT / "console" / "package.json",
+                    _Path(__file__).resolve().parents[2] / "console" / "package.json"):
+            if not pkg.exists():
+                continue
             try:
                 ver = api.json.loads(pkg.read_text(encoding="utf-8")).get("version", "dev")
             except Exception:                               # noqa: BLE001
                 ver = "dev"
+            if ver != "dev":
+                break
         cfg = {}
         try:
             cfg = api.pc_get_config() or {}
