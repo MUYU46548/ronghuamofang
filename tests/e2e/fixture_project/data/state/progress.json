@@ -1,0 +1,16 @@
+{
+  "project": "e2e 夹具书",
+  "version": 3,
+  "current_stage": 5,
+  "stages": {
+    "1": { "status": "done", "approved": true },
+    "2": { "status": "done", "approved": true },
+    "3": { "status": "done", "approved": true },
+    "4": { "status": "done", "approved": true },
+    "5": { "status": "pending" },
+    "6": { "status": "pending" },
+    "7": { "status": "pending" }
+  },
+  "last_modified": "2026-09-29T00:00:00",
+  "budget": { "limit_yuan": 300, "spent_yuan": 0.0, "paused": false }
+}

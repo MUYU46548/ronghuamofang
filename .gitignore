@@ -8,6 +8,12 @@ __pycache__/
 data/
 history/
 
+# 例外：e2e **夹具项目**里的 data/ 是**固定测试状态**，必须入库 ——
+# 否则视觉验收（tests/e2e/e2e_ux_verify.py 的「真后端」段）在干净克隆上不可复现，
+# 而它正是「发版前必跑」的闸门。上面那条 `data/` 是无斜杠前缀的目录规则，会连坐到这里。
+!tests/e2e/fixture_project/data/
+!tests/e2e/fixture_project/data/**
+
 # ===== 用户放入的素材卡（不进 Git；materials/raw/README.md 除外，那是引导文档）=====
 materials/raw/*.md
 !materials/raw/README.md
