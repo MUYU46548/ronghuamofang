@@ -49,7 +49,11 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     print(f"[stage5] 待检查 {len(pending)} 章，分 {total_batches} 批")
 
     for bi, batch in enumerate(batches, 1):
-        batch_files = "\n".join(f"- {f.name}" for f in batch)
+        # 件7（2026-09-29）：原先只写**裸文件名**（`- 01.md`），llm_client 的
+        # `inline_inputs` 按 CWD 找不到 → 判 missing → **章节从未进入 prompt**，
+        # 模型收到缺失警告后如实报告，于是 stage5 产出空壳（冒烟实测输入仅 2,048 token，
+        # 真内联应 1 万+）。这里必须给**可解析的路径**（绝对值）。
+        batch_files = "\n".join(f"- {f.resolve()}" for f in batch)
         task = client.write_task(task_dir, f"stage5_check_batch{bi}.md",
                                  build_check_task(proj, raw_dir, "data/setting/setting.json",
                                                   checked_dir, batch_files, bi, total_batches))

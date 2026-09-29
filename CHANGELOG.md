@@ -7,6 +7,72 @@ CHANGELOG」）。本文件从工程审查修复起正式启用。
 
 ---
 
+## [Unreleased] — 2026-09-29 ①开工执行单 v2.2 落地（六件 + 随行件）
+
+依据 `shared/quickfix-plan-20260928.md`（执行单 v2.2）与
+`shared/report-20260929/汇总报告-20260929.md`（09-29 晨三方对账）。统一背景：
+本轮修的都是「**门禁失守还盖绿灯**」类缺陷 —— 产物存在 ≠ 产物合格，
+报错存在 ≠ 报错说清了哪一层坏了。
+
+### 🔴 件2 解析层容错（`utils/validator.py`、`utils/llm_client.py`）
+- **剥离 `<think>` 内嵌思考块**：R1 系网关会把思考直接内嵌进 `content`，全库原先
+  grep 零剥离 → 思考残片会随正文落进产物。解析层与 answer 层各剥一道。
+- **断裂 JSON 兜底**：`max_tokens` 截断或模型中途收尾时，用括号配对扫描补全未闭合的
+  `}`/`]`（并去尾部悬空 `,`/`:`）—— 09-28 冒烟的「审稿 JSON 断裂」为实测事故。
+- **从 reasoning_content 捞回 JSON**：`_salvage_answer` 原先只认 `===FILE:` 协议块，
+  审稿/校对的结构化结果整段落进 `reasoning_content` 时捞不回（审稿断裂根因）。
+  新增分支要求「**真能 json.loads 通过**」，故纯散文思考仍被丢弃 ——
+  2026-09-23「思考残片进小说正文」的修复不被破坏。
+- **失败不抛裸异常，并回报原文偏移**（`LAST_ERROR` + 一行 WARN）。
+
+### 🟠 件3 outliner 锚点数硬约束（`prompts/stage2_global_outline.md`、`stage2_outline.py`）
+- 提示词写入「每节点锚点数下限」硬约束（≥1 场景地点 + ≥1 具体角色行动 + ≥1 具体事件 + ≥30 字）。
+- 新增产出侧校验器 `check_outline_anchors`：THIN 条目 > 1 即判不合格打回。
+  判据**复用** `outline_review`（不另写一套打分）；结构校验 `check_global_outline`
+  保持纯净（GUI 保存/精修共用它，不应因空泛被拦）。
+
+### 🟠 件4 质量验收闸门化（`orchestrator.py`、`config/system.yaml`）
+- 全流程收尾**强制**跑 `quality_checklist.py`，非零退出即 🔴 阻断完成状态（exit 1）。
+  新增 `gates.quality_gate`（默认 true）。仅在**全流程**收尾生效；
+  `--stage N` 单阶段重跑不拦（避免拿整书清单误伤单阶段）。
+- 闸门自身异常时**大声告警但放行**（已完成的书不该因一次工具故障被判不合格）。
+
+### 🟠 件5 MCP 白名单补两把钥匙（`nf_mcp.py`、`snapshot.py`）
+- 新增 `nf_get_remedy`（HTTP `GET /remedy`，接数据一致性/孤儿文件诊断）。
+- 新增 `nf_restore_snapshot`（本进程内复用 `snapshot.restore_snapshot`）：
+  两段式（**默认只预览**，`confirm=true` 才执行），并保留「恢复前自动打
+  `pre_restore` 快照」的折返守卫 —— 回滚是破坏性操作，判据只允许有一份实现。
+- 新增 `snapshot.snapshot_ids()` 公共只读助手，供 CLI 与 MCP 共用（消除重复判据）。
+
+### 🟠 件6 服务未启动指引分层（`nf_mcp.py`、`README.md`）
+- 8765 不可达时返回**带层号**的干净报错（8766 = MCP 传输层 / 8765 = 服务本体）
+  + 可执行启动命令；企业代理/沙箱把「连不上」表现成网关 5xx 时同一份文案。
+- 修正 `nf_mcp.py` 文件头**虚标**：原文称「compatible with any MCP client that
+  supports TCP/HTTP transport」，实为 TCP 换行分帧**非标**传输，标准客户端需 stdio 垫片。
+
+### 🟠 件7 stage5 输入构造修复（`stage5_check.py`、`prompts/stage5_check.md`）
+- 批次列表由**裸文件名**改为**绝对路径**（`f.resolve()`）：原先按 CWD 找不到 →
+  章节从未进入 prompt → stage5 产出空壳（冒烟实测输入仅 2,048 token，真内联应 1 万+）。
+- 模板设定集行补 `- ` 前缀：解析器只认列表行，该行原先从未被内联。
+- 连带翻案：stage5/6「空壳」不是模型能力问题，**kimi-k2.6 换型决策悬置**至修复后复跑。
+
+### 🟡 随行件
+- **随行1** `orchestrator.py` 的裸 `import time` 上移模块头（行为零 diff）。
+- **随行2** `cost_tracker.RATES` 补 `kimi-k2.6`（当前 7 角色主力，原先走回退默认价 +
+  WARN，账单绝对值不可信；**数值为占位，拿到 TokenHub 刊例价后需更新**）；
+  `system.yaml` fallback 摘除 `glm-5`（2026-10-09 下线 —— `_post_chat` 对 400/404
+  直接 raise，死模型一跳会吃掉链上后续所有兜底）。
+- **随行3** `segment_requests` 的「仅处理第 i/N 个」指令**移尾**（原先头插在 user 消息
+  最前，N 个子请求共享 95%+ 内容却在首字符分叉 → 前缀缓存全灭）。
+- **随行5** `tests/e2e/e2e_ux_verify.py`（64 断言真机视觉验收）列入 **v0.3.2 发版前必跑**。
+
+### 🧪 新增自检
+`tests/unit/test_json_salvage.py`（件2）· `test_outline_anchor_gate.py`（件3）·
+`test_quality_gate.py`（件4）· `test_mcp_remedy_snapshot.py`（件5/6）·
+`test_stage5_inputs.py`（件7，含反证：复刻修复前构造必须复现故障）。
+
+---
+
 ## [Unreleased] — 2026-09-19 工程审查修复
 
 依据 `deliverables/engineering-assurance/comprehensive-audit-novelforge-2026-09-19.md`

@@ -13,7 +13,7 @@ temperature: 0.3
 本批需处理的章节：
 {{batch_files}}
 
-设定集: {{path_setting}}
+- 设定集: {{path_setting}}
 
 ## 核心任务：系统化检查逻辑漏洞
 聚焦以下检查项：
