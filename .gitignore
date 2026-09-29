@@ -42,6 +42,14 @@ materials/original_scraps/_backup/
 # 碎片→卡片落盘时的同名覆盖备份
 materials/raw/_backup/
 
+# ===== 备份文件（一律是**用户数据**，不进 Git）=====
+# 覆盖：config/project.yaml.bak 这类手改残留、章节/成品备份的 *.bak。
+# 备份目录 history/ 已由上面第 8 行的 `history/` 规则覆盖（config/history、
+# data/chapters/history、data/outline/history 均含名为 history 的段）。
+# 2026-09-29：此前 projects.yaml.bak 类是「未跟踪但可见」→ 每次 git status 都出现，
+# 容易被顺手提交。
+*.bak
+
 # ===== 桌面控制台（Node 依赖与构建产物，本地安装即可） =====
 console/node_modules/
 console/renderer/dist/
