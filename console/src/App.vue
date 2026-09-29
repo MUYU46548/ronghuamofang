@@ -24,9 +24,7 @@ function setGateNotify(on) {
   localStorage.setItem(GATE_NOTIFY_KEY, on ? "1" : "0");
 }
 
-// 后端地址：默认本机 8765。自动化 UI 验收脚本可用 window.__NF_API_BASE__ 把它指向
-// 临时端口（避免干扰用户正在运行的控制台实例）。
-const API = (window.__NF_API_BASE__ || "http://127.0.0.1:8765").replace(/\/+$/, "");
+import { API } from "./apiBase.js";
 
 // 素材页签内的子视图：结构化卡片（materials/raw） / 原始碎片（materials/original_scraps）
 const materialSub = ref("cards");

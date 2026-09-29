@@ -153,7 +153,7 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue';
 
-const API = 'http://127.0.0.1:8765';
+import { API } from "./apiBase.js";
 const FUNC_CHOICES = ['铺垫', '推进', '转折', '高潮', '收束', 'transition'];
 
 // ---- 状态 ----

@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from "vue";
 
-const API = "http://127.0.0.1:8765";
+import { API } from "./apiBase.js";
 
 const emit = defineEmits(['goto-refine']);
 

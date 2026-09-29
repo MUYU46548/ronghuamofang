@@ -132,7 +132,11 @@ function getWorkspaceDir() {
 //   SEED_VERSION 会被编进 main/index.js（→ app.asar），而 payload 是 electron-builder
 //   的 extraResources 在 dist 时从活的 ../scripts、../prompts 现拷的。
 //   顺序反了（先 dist 再 bump）→ 装出来的包 SEED_VERSION 还是旧值，用户永远不会刷新。
-const SEED_VERSION = 4;
+// v5（2026-09-29 同日，第二批）：payload 再次变更 —— scripts/nf_api.py 的 CORS
+//   预检放行 `X-Mofang-Source`（前端每次都发这个头，原先 Allow-Headers 只列了
+//   Content-Type → 非 Electron 的浏览器上下文里所有请求被拦）。
+//   仍遵守同一条顺序纪律：**先 bump 再 electron-builder**。
+const SEED_VERSION = 5;
 
 // 只播种/刷新**代码与提示词**目录。
 // 刻意不含 data/：那是用户产物（章节、设定、大纲），任何情况下都不能被覆盖。
