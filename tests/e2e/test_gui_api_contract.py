@@ -321,9 +321,15 @@ def main():
     #   分支链从第一个 p 判定出发，沿 orelse 能一直走到最后一个分支；
     # 一旦某个 `elif p == "..."` 被误写成独立 `if`（历史上那次事故的形态），
     # 它就是 Try 体的**第二条顶层语句**，链在此断裂，链长骤降 —— 必须报警。
+    #
+    # 2026-09-29 修正判据范围：原实现把 do_POST 的**所有顶层语句**都收进来，
+    # 于是 Try 体**之前**的「Agent 模式安全守卫」(`if request_source != "gui":`)
+    # 被算成第二条 if → 误报（该守卫不属于 p 分支链，且它在 Try 之外）。
+    # 按本段自述的意图（「Try 体的顶层语句」）收窄到 Try 体。
     post_stmts = []
     for stmt in methods["do_POST"].body:
-        post_stmts.extend(stmt.body if isinstance(stmt, ast.Try) else [stmt])
+        if isinstance(stmt, ast.Try):
+            post_stmts.extend(stmt.body)
     chains = sum(1 for s in post_stmts if isinstance(s, ast.If))
     check("do_POST 的 p 分支恰好构成一条 if/elif 链（未被裸 if 打断）",
           chains == 1, "Try 体内顶层 if 语句数 = %d（应为 1）" % chains)

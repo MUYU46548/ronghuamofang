@@ -5,7 +5,8 @@
 在**临时项目根**（NF_ROOT）下运行，真实仓库 data/ 零污染。
 
 覆盖：
-  1. tools/list 含 2 个 LOCAL 工具（nf_dispatch_task / nf_get_agent_run）
+  1. tools/list 含 LOCAL 工具（nf_dispatch_task / nf_get_agent_run；
+     2026-09-29 件5 起还有 nf_restore_snapshot）
   2. nf_dispatch_task → running →（stub 退出）→ done + result_summary
   3. nf_get_agent_run(不存在) → ok=False + isError
   4. nf_get_agent_run(不传 run_id) → 最近列表

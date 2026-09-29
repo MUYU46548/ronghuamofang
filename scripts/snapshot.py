@@ -276,17 +276,34 @@ def restore_snapshot(snap_id, history_dir="history", yes=False, delete_extra=Fal
     return True, msgs
 
 
+def snapshot_ids(history_dir="history"):
+    """列出全部快照 ID（目录名），按名称（= 时间戳）排序。**只读、不打印**。
+
+    供 CLI（list_snapshots）与 MCP 工具（nf_restore_snapshot 的预览）共用 ——
+    「哪些目录算快照」这一判据只写一处，避免两处各判一次各错一次
+    （见 TESTS.md 的「复制实现」教训）。history_dir 非法（不含 history 段）时返回空列表。
+    """
+    try:
+        root = _history_root(history_dir)
+    except ValueError:
+        return []
+    if not root.is_dir():
+        return []
+    return [p.name for p in sorted(root.iterdir())
+            if p.is_dir() and p.name[:8].isdigit()]
+
+
 def list_snapshots(history_dir="history"):
     history_path = Path(history_dir).resolve()
     if "history" not in history_path.parts and history_path.name != "history":
         print(f"[snapshot] 安全拦截：history_dir={history_path} 不含 'history' 段")
         return
-    h = history_path
-    if not h.exists():
+    ids = snapshot_ids(history_dir)
+    if not ids:
         print("[snapshot] history/ 为空")
         return
-    snaps = sorted([p for p in h.iterdir() if p.is_dir() and p.name[:8].isdigit()])
-    for p in snaps:
+    for name in ids:
+        p = history_path / name
         size = sum(f.stat().st_size for f in p.rglob("*") if f.is_file())
         print(f"  {p.name}  ({size/1024:.0f} KB)")
 

@@ -82,10 +82,12 @@ def main():
         sock.sendall(b'{"jsonrpc":"2.0","id":2,"method":"tools/list"}\n')
         r = read_response(sock)
         tools = r.get("result", {}).get("tools", []) if r else []
-        # tools/list：17 个 HTTP 工具 + nf_dispatch_task + nf_get_agent_run = 20
-        # （Phase 4 加 2 个 LOCAL 工具，Phase 5 加 nf_get_stream_status，
-        #   段落精修轴加 nf_refine_paragraph / nf_paragraph_restore / nf_get_paragraph_history）
-        checks.append((f"tools/list: {len(tools)} tools", len(tools) == 20))
+        # tools/list：19 个 HTTP 工具 + 3 个 LOCAL 工具（dispatch / get_agent_run /
+        # restore_snapshot）= 22。
+        # （Phase 4 加 2 个 LOCAL；Phase 5 加 nf_get_stream_status；
+        #   段落精修轴加 nf_refine_paragraph / nf_paragraph_restore / nf_get_paragraph_history；
+        #   2026-09-29 件5 加 nf_get_remedy(HTTP) + nf_restore_snapshot(LOCAL)）
+        checks.append((f"tools/list: {len(tools)} tools", len(tools) == 22))
 
         # 3. nf_get_state (真实 HTTP 调用)
         sock.sendall(json.dumps({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"nf_get_state","arguments":{}}}).encode() + b"\n")

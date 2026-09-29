@@ -1,13 +1,26 @@
 # -*- coding: utf-8 -*-
 """MCP (Model Context Protocol) server for NovelForge.
 
-Runs a JSON-RPC 2.0 server on TCP port 8766 that exposes a curated set of
-NovelForge operations as MCP tools. External MCP agents (Claude Code, Cursor,
-Cline, etc.) can connect to ``127.0.0.1:8766`` to discover and call these tools.
+在 **TCP 8766** 上跑一个 JSON-RPC 2.0 服务，把一组精选的 NovelForge 操作暴露成
+MCP 工具（允许清单见 ``MCP_TOOLS``）。业务逻辑一律不在本层实现：它只是薄适配器，
+把 ``tools/call`` 映射到 8765（nf_api）的 HTTP 端点转发。
 
-Transport: TCP with newline-delimited JSON-RPC 2.0 frames (one request/response
-per line). This avoids the pywin32 dependency that named pipes would require,
-while remaining compatible with any MCP client that supports TCP/HTTP transport.
+**传输真相（2026-09-29 修正虚标）**：这里是「TCP + 换行分帧的裸 JSON-RPC」，
+**不是** MCP 标准的 stdio / Streamable HTTP 传输 —— 标准 MCP 客户端
+（Claude Code / Cline / Hermes 等）**无法直连 8766**，中间必须有 stdio 垫片，
+把 stdio 上的标准 MCP 帧与 8766 的 TCP 换行帧互转。
+原注释写「compatible with any MCP client that supports TCP/HTTP transport」属**虚标**，
+已改正 —— 「文档比实现好听」正是本项目最忌讳的那类静默失真。
+
+**两层要分清（件6）**：
+  · 8766 = 本文件的 MCP 传输层（MCP 客户端 / 垫片连这里）
+  · 8765 = 服务本体 nf_api（本文件再往下转发到这里）
+两层任一不可用，报错文案都会**标注层号**，别拿 A 层的错去修 B 层的服务。
+
+**启动指引**：服务本体与 MCP 层通常由控制台一起拉起。
+需要单独跑本层时用 ``python scripts/nf_mcp.py``（``NF_MCP_PORT`` 可换端口），
+但它只是代理 —— 8765 没起时任何 ``tools/call`` 都会返回**带层号与启动命令**的干净报错
+（而不是裸栈或挂死）。
 
 Architecture::
 
@@ -343,6 +356,13 @@ MCP_TOOLS = [
         "_http": ("GET", "/estimate", None),
     },
     {
+        "name": "nf_get_remedy",
+        "description": "一键补救诊断（只读）：体检当前书档的一致性/产物完整性/"
+                       "孤儿文件，并给出可执行的修复建议（含命令）",
+        "inputSchema": {"type": "object", "properties": {}},
+        "_http": ("GET", "/remedy", None),
+    },
+    {
         "name": "nf_dispatch_task",
         "description": "派发 sub-agent 任务：生成任务书并拉起 Hermes 子会话（异步）。"
                        "返回 run_id + brief_path，用 nf_get_agent_run 查状态",
@@ -393,6 +413,30 @@ MCP_TOOLS = [
         },
         "_local": "run",       # 直接函数调用（Phase 4：不经 HTTP loopback，不改 nf_api）
     },
+    {
+        "name": "nf_restore_snapshot",
+        "description": "从项目快照回退（件5）。默认**只预览**将覆盖/补齐哪些产物；"
+                       "传 confirm=true 才真正执行，且恢复前系统会先自动打一份 "
+                       "pre_restore 快照（恢复错了还能折返）。不传 snapshot_id 时列出可用快照。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "snapshot_id": {
+                    "type": "string",
+                    "description": "快照 ID（history/ 下的目录名，如 20260928_180000_stage2_done；支持唯一前缀）",
+                },
+                "confirm": {
+                    "type": "boolean",
+                    "description": "true=真正执行恢复；false/缺省=只预览（默认）",
+                },
+                "delete_extra": {
+                    "type": "boolean",
+                    "description": "是否同时删除「快照里没有」的额外文件（默认 false=保留，防不可逆误删）",
+                },
+            },
+        },
+        "_local": "snapshot_restore",   # 直接函数调用（复用 snapshot.py，不经 HTTP loopback）
+    },
 ]
 
 
@@ -405,6 +449,51 @@ def _rpc_error(code, message, data=None):
     if data is not None:
         err["data"] = data
     return {"jsonrpc": "2.0", "error": err}
+
+
+def _local_snapshot_restore(args):
+    """本进程内实现的快照回退（件5）。
+
+    **复用 `snapshot.py` 的 `restore_snapshot`**（自带三道守卫：默认 dry-run 预览 /
+    恢复前自动打 `pre_restore` 快照 / 路径限定在 SNAPSHOT_ITEMS），**不另造回滚逻辑** ——
+    回滚是破坏性操作，判据只允许有一份实现。
+    """
+    import snapshot as snap
+    args = args or {}
+    sid = str(args.get("snapshot_id") or "").strip()
+    ids = snap.snapshot_ids()
+    if not sid:
+        return {"ok": True, "snapshots": ids,
+                "hint": "未指定 snapshot_id → 仅列出 history/ 下可用快照。"
+                        "选定后传 snapshot_id（仍是预览），确认执行再传 confirm=true。"}
+    if not any(i == sid or i.startswith(sid) for i in ids):
+        return {"ok": False, "error": "未找到快照 '" + sid + "'", "snapshots": ids,
+                "hint": "snapshot_id 取上面的目录名；支持唯一前缀。"}
+    confirm = bool(args.get("confirm"))
+    ok, msgs = snap.restore_snapshot(sid, yes=confirm,
+                                     delete_extra=bool(args.get("delete_extra")))
+    return {"ok": ok, "confirmed": confirm, "messages": msgs,
+            "hint": ("已执行恢复（含恢复前 pre_restore 快照）" if confirm
+                     else "以上为预览，未做任何修改；确认无误后再次调用并传 confirm=true")}
+
+
+def _service_unreachable_text(reason):
+    """8765 服务本体不可达时的**统一分层文案**（件6）。
+
+    两个入口共用同一份文案，避免「同一句话写两遍、只改一处」：
+      · `urllib.error.URLError`（直连被拒/超时）
+      · `HTTPError 502/503/504`（企业代理或沙箱把「连不上」表现成网关 5xx）
+    """
+    return json.dumps({
+        "ok": False,
+        "layer": "8766 MCP 传输层",
+        "error": "无法连接 8765 服务本体（nf_api）: " + str(reason),
+        "hint": ("MCP 传输层（8766）已就绪，缺的是**服务本体（8765）**。"
+                 "请在项目根启动：python scripts/nf_api.py"
+                 "（或用控制台「调试启动.bat」/ 直接开绒花墨坊控制台）；"
+                 "确认 http://127.0.0.1:8765/health 可访问后重试。"
+                 "注意：8766 的报错不代表 8765 有问题，两层要分开看。"),
+    }, ensure_ascii=False, indent=2)
 
 
 def handle_rpc(method, params, http_host, http_port):
@@ -450,21 +539,24 @@ def handle_rpc(method, params, http_host, http_port):
         # 这里只兜「模块本身挂了」的极端情况，同样转为 isError 而非崩协议。
         if "_local" in tool:
             try:
-                import nf_agent_dispatch as disp
-                if tool["_local"] == "dispatch":
-                    payload = disp.dispatch_to_hermes(
-                        args.get("title"), args.get("context"),
-                        model=args.get("model"),
-                        max_turns=args.get("max_turns"),
-                        timeout_s=args.get("timeout_s"),
-                        source="mcp")
+                if tool["_local"] == "snapshot_restore":
+                    payload = _local_snapshot_restore(args)
                 else:
-                    rid = args.get("run_id")
-                    if rid:
-                        payload = disp.get_agent_run(rid)
+                    import nf_agent_dispatch as disp
+                    if tool["_local"] == "dispatch":
+                        payload = disp.dispatch_to_hermes(
+                            args.get("title"), args.get("context"),
+                            model=args.get("model"),
+                            max_turns=args.get("max_turns"),
+                            timeout_s=args.get("timeout_s"),
+                            source="mcp")
                     else:
-                        payload = {"ok": True,
-                                   "runs": disp.list_agent_runs(args.get("limit"))}
+                        rid = args.get("run_id")
+                        if rid:
+                            payload = disp.get_agent_run(rid)
+                        else:
+                            payload = {"ok": True,
+                                       "runs": disp.list_agent_runs(args.get("limit"))}
                 text = json.dumps(payload, ensure_ascii=False, indent=2)
                 return {
                     "jsonrpc": "2.0",
@@ -547,11 +639,45 @@ def handle_rpc(method, params, http_host, http_port):
 
         except urllib.error.HTTPError as e:
             body = e.read().decode("utf-8", "replace")
+            # 件6：企业代理 / 沙箱会把「连不上 8765」表现成网关 5xx ——
+            # 这与 URLError 是同一件事（服务本体不可达），给同一份分层指引。
+            low = body.lower()
+            if e.code in (502, 503, 504) or "connect failed" in low or "connection refused" in low:
+                text = _service_unreachable_text("HTTP " + str(e.code) + ": " + body[:200])
+                return {
+                    "jsonrpc": "2.0",
+                    "result": {
+                        "content": [{"type": "text", "text": text}],
+                        "isError": True,
+                    },
+                }
             try:
                 err_payload = json.loads(body)
             except Exception:
                 err_payload = {"error": f"HTTP {e.code}: {body[:500]}"}
             text = json.dumps(err_payload, ensure_ascii=False, indent=2)
+            return {
+                "jsonrpc": "2.0",
+                "result": {
+                    "content": [{"type": "text", "text": text}],
+                    "isError": True,
+                },
+            }
+        except urllib.error.URLError as e:
+            # 件6：8765 服务本体不可达（未启动/未监听/被占）→ 干净报错，**明确分层**。
+            # 原先落到最后的 `except Exception` → 返回裸 URLError 文本，
+            # 用户看到 8766 的错却去翻 8765 的服务，方向全错。
+            reason = getattr(e, "reason", e)
+            text = json.dumps({
+                "ok": False,
+                "layer": "8766 MCP 传输层",
+                "error": "无法连接 8765 服务本体（nf_api）: " + str(reason),
+                "hint": ("MCP 传输层（8766）已就绪，缺的是**服务本体（8765）**。"
+                         "请在项目根启动：python scripts/nf_api.py"
+                         "（或用控制台「调试启动.bat」/ 直接开绒花墨坊控制台）；"
+                         "确认 http://127.0.0.1:8765/health 可访问后重试。"
+                         "注意：8766 的报错不代表 8765 有问题，两层要分开看。"),
+            }, ensure_ascii=False, indent=2)
             return {
                 "jsonrpc": "2.0",
                 "result": {
@@ -675,6 +801,9 @@ class MCPServer:
             print(f"[nf_mcp] MCP server listening on tcp://{self.host}:{self.port}")
         except Exception as e:
             print(f"[nf_mcp] FAILED to bind {self.host}:{self.port}: {e}")
+            print("[nf_mcp] ↑ 这是【**8766 MCP 传输层**】启动失败（多半端口被占）。"
+                  "服务本体是 8765（nf_api），两层互不影响。"
+                  "排查：netstat -ano | findstr 8766，或设 NF_MCP_PORT 换端口。")
             return
 
         while self._running:
