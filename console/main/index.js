@@ -136,7 +136,11 @@ function getWorkspaceDir() {
 //   预检放行 `X-Mofang-Source`（前端每次都发这个头，原先 Allow-Headers 只列了
 //   Content-Type → 非 Electron 的浏览器上下文里所有请求被拦）。
 //   仍遵守同一条顺序纪律：**先 bump 再 electron-builder**。
-const SEED_VERSION = 5;
+// v6（2026-09-29 同日，第三批）：payload 再变 —— `/state` 的 progress.json 改经 ROOT 解析、
+//   `--root` 解析加 resolve()、`/about` 版本改「ROOT 优先 → 代码仓库兜底」、
+//   `progress_manager` 损坏时不再静默降级（告警 + 留原件）。
+//   仍遵守同一条顺序纪律：**先 bump 再 electron-builder**。
+const SEED_VERSION = 6;
 
 // 只播种/刷新**代码与提示词**目录。
 // 刻意不含 data/：那是用户产物（章节、设定、大纲），任何情况下都不能被覆盖。
