@@ -13,7 +13,8 @@
 
 | 批次 | 内容 | 验证 |
 |---|---|---|
-| 第六批 | **MCP stdio 垫片**补位（执行单 ⑤前置步0）——标准 MCP 客户端终于接得上 8766 | `test_mcp_stdio_bridge` 15/15（含 2 处反向验证打红）；`nfctl test` 45/45 |
+| 第七批 | **发版保障**：`nfctl release-check` 一条命令跑完五项检查（含**产物核验**，首跑即抓到"改了代码没重打包"）；`nf_mcp_handshake_check.py` 真机握手自检；`docs/mcp-connect.md` 接入指南；`requirements-dev.txt` 补登 playwright/mcp | `release-check` **exit 0 全绿**；握手自检 7/7 |
+| 第六批 | **MCP stdio 垫片**补位（执行单 ⑤前置步0/1）——标准 MCP 客户端终于接得上 8766 | `test_mcp_stdio_bridge` 15/15（含 2 处反向验证打红）；**真机握手 7/7**（官方 SDK） |
 | 第五批 | `--root` 路径纪律：12 处相对数据路径改经 ROOT + `_set_root()` 派生常量 + **可执行护栏** | `test_root_path_discipline` 9/9（含两处反向验证打红）；`nfctl test` 44/44；e2e 74/0 |
 | 第四批 | 定价批量导入（粘贴 → 预览 → 确认），认表格 / JSON / RATES 字面量 | `test_rates_import` 53/53；e2e 新增 10 条断言 |
 
@@ -388,8 +389,65 @@ CLI 侧 `scripts/price_wizard.py` 仍是逐个模型问答式（写的是**源�
 ### 14.4 未做（需真机）
 
 **⑤前置步1「stdio 垫片真机验证」**：需要 Hermes（或任一标准 MCP 客户端）
-实机 spawn 垫片、完成标准握手并列出 ~22 个 `nf_*` 工具 —— 这步**必须在装了 Hermes 的机器上跑**，
-本机没有 Hermes 客户端，我不能替它握手。垫子侧的准备已就绪：
-把 `scripts/nf_mcp_stdio_bridge.py` 填进 `mcpServers` 即可（配置示例在文件头）。
+实机 spawn 垫片、完成标准握手并列出 ~22 个 `nf_*` 工具 —— **2026-09-30 已用官方 MCP SDK
+完成等价验证（7/7，见 §15.1）**；剩下的只是「Hermes 本体加载我们这条配置」这一步，
+需要你本机操作（步骤同样在 §15.1）。
+
+---
+
+## 15. 保障事项盘点 + spawn 验证的可操作方式（2026-09-30）
+
+### 15.1 spawn 验证：三级，从便宜到彻底
+
+**关键发现：Hermes 就装在这台机器上**（`%LOCALAPPDATA%\hermes\bin\hermes.exe`），
+且它的 `config.yaml` 里 `mcp_servers:` 段**已经有 stdio 型条目**（`cua-driver` 用
+`command` + `args` + `enabled`）—— 也就是说它的 spawn 通道本来就是通的，
+我们要做的只是「加一条配置」。
+
+| 级别 | 怎么做 | 证明什么 | 实测结果 |
+|---|---|---|---|
+| ① 离线自检 | `python tests/unit/test_mcp_stdio_bridge.py` | 垫片自身行为（透传/通知/错误/重连/stdout 纯净） | **15/15** |
+| ② 真机握手 | `python scripts/nf_mcp_handshake_check.py` | **标准协议栈 × 真服务**：起真 `nf_api`(18765) + 真 `nf_mcp`(18766)，用**官方 MCP SDK** 的 `ClientSession` 走完 `initialize` → `tools/list` → `tools/call` | **7/7**（`novelforge-mcp 0.1.0` · 协议 `2024-11-05` · **22 个工具** · `tools/call` 返回真实书档） |
+| ③ 客户端实测（**最终判据**） | 在 `%LOCALAPPDATA%\hermes\config.yaml` 的 `mcp_servers:` 下加一条（见下），备份该文件，让 Hermes 重新加载，然后问它「列出 novelforge 的工具」 | 目标客户端真的能 spawn 并调用 | **需你操作**（我不动你的 Hermes 配置） |
+
+③ 的配置片段（`<项目根>` 换成实际路径；Hermes 同段已有 stdio 条目可对照）：
+
+```yaml
+  novelforge:
+    command: <项目根>\.venv\Scripts\python.exe
+    args:
+      - <项目根>\scripts\nf_mcp_stdio_bridge.py
+    enabled: true
+```
+
+⚠️ 改前先备份 `config.yaml`；改完需让 Hermes 重新加载配置。完整步骤、
+其余客户端（Claude Code / Cline / Cursor）的 `mcpServers` JSON 写法、
+以及**排错对照表**（哪种报错该去修哪一层）见 `docs/mcp-connect.md`。
+
+> 另有一条更省事的握手验证：MCP 官方 SDK 自带 CLI 客户端 ——
+> `python -m mcp.client <项目根>/.venv/Scripts/python.exe <项目根>/scripts/nf_mcp_stdio_bridge.py`
+> （需装 `mcp` 包；Hermes 的 venv 里就有）。
+
+### 15.2 本轮**修掉**的保障缺口
+
+| 缺口 | 风险 | 处置 |
+|---|---|---|
+| `playwright` / `mcp` 未登记进 `requirements-dev.txt` | 干净克隆上「发版闸门」与「握手自检」会**静默跳过** —— 跳过看起来像通过 | 已补登，并注明「不装 = 闸门静默跳过，不是通过」 |
+| 「发版前必跑」只是文档里的一句话 | 靠人记 → **已经漏跑过一次**（e2e 长期潜伏红色到 09-29 才发现） | 新增 `nfctl release-check`（五项一条命令）；首跑即抓到真问题 |
+| 打包产物可能落后于工作区 | 「打了包但包里是旧代码」→ 用户装了也不生效 | release-check 里的**产物核验**：payload 关键脚本 sha256 必须与工作区一致 |
+| MCP 接入没有操作文档 | 用户拿到垫片也不知道怎么接 | 新增 `docs/mcp-connect.md`（三步接入 + 三级验证 + 排错表） |
+
+### 15.3 仍需**你一句话**的保障事项
+
+| # | 事项 | 现状 / 风险 | 我的建议 |
+|---|---|---|---|
+| 1 | **22 个提交只在本地**（`main` ahead of `origin/main` 22） | 一天半的工作、含今天全部改动**只存在于这台机器**；磁盘坏 = 全丢。远程仓库早已存在、且此前 push 过 | 允许我 `git push`（公开仓库，已在库的内容不变；新提交已做密钥/本机路径扫描）。**push 是对外动作，等你点头** |
+| 2 | **无 CI**（`.github/workflows` 不存在） | 回归全靠手动；e2e 那次长期红就是例证 | 可加一个只跑 `nfctl test` 的 workflow（不跑 e2e —— 它要 playwright + 端口，CI 上不稳定）。需要 push 才能生效 |
+| 3 | **备份范围不含 `config/`、`materials/`** | `switch_book --archive` 只搬 `data/` 8 项 → 换书丢配置与素材卡 | 把两者纳入归档，或做真正的导出/导入包（§10）。**涉及搬用户数据，等你点头** |
+| 4 | `Temp/` 有 120 项 15MB 一次性脚本残留 | 已 gitignore，不影响仓库；只是越积越多 | 可加一条「可随时清空」说明；我不擅自删（里面有你的截图） |
+| 5 | `check_consistency.locked_violations` 未实现 | 「locked 不可违逆」目前**只在提示词层**，没有确定性检查 | 可做「locked 条目在产物缺失/被改名」的确定性检查（不做语义冲突判定 —— 机器判不准，会变噪音） |
+
+**已确认无问题**：`.env` 已被 `.gitignore` 忽略且未入库；`requirements.txt`（运行期）版本已精确锁定；
+日志有轮转（`logging.rotate_days`）；`data/state/truncated` 当前为空（截断隔离没堆积）。
 
 

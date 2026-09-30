@@ -40,6 +40,19 @@ CHANGELOG」）。本文件从工程审查修复起正式启用。
 - 护栏 `tests/unit/test_root_path_discipline.py`：AST 判据（禁「相对数据路径裸当函数实参」，
   只查调用实参故常量表不误报）+ `global ROOT` 只许在 `_set_root` + 功能反证（读到夹具书名）。
 
+### 🛡️ 发版保障：把「写在文档里的纪律」变成一条命令
+- **`nfctl release-check`**：质量门 → 全量测试 → MCP 真机握手 → e2e 视觉验收 → 打包产物核验，
+  一条命令跑完；任一 FAIL → exit 1，**SKIP 不算失败**（缺依赖 / 缺外部服务 = 未执行）。
+  - e2e 那步**自起 4 个服务、结束时只杀自己起的 PID**；端口被占则 SKIP
+    （不抢端口、更不按进程名杀别人的东西）。
+  - **产物核验**的判据是「payload 里 4 个关键脚本的 sha256 必须与工作区一致」——
+    专抓「改了代码却没重打包」。**首次运行就抓到一例真问题**（垫片文件头改过、包没重打）。
+- **`scripts/nf_mcp_handshake_check.py`**：真 `nf_api` + 真 `nf_mcp` + **官方 MCP SDK** 全链路
+  握手自检（自起 18765/18766，不碰用户端口；缺 `mcp` SDK 则干净跳过）。
+- **`requirements-dev.txt`** 补登 `playwright` 与 `mcp`：此前它们只装在某台机器的 `.venv` 里，
+  干净克隆上这两个闸门会**静默跳过** —— 那等于闸门不存在。
+- **`docs/mcp-connect.md`**：MCP 接入三步 + 三级验证方法 + 排错对照表（哪一层坏了、去修谁）。
+
 ### 📌 文档与实测对齐
 - `AGENTS.md` MCP 章节：工具数 **20 → 22**（件5 加了 `nf_get_remedy` / `nf_restore_snapshot`
   后一直没同步），并补上「标准客户端须经 stdio 垫片」与三层分层口径。
