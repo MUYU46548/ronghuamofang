@@ -129,12 +129,15 @@ NovelForge/
 命令面板 → 「查看运行日志」。
 
 **Q：外部 Agent（MCP）连不上 / 报「8766」的错？**
-两层要分清：**8766 = MCP 传输层**，**8765 = 服务本体（nf_api）**。
-若报「无法连接 8765 服务本体」，缺的是**服务本体**：在项目根跑
+两层要分清：**8766 = MCP 传输层**，**8765 = 服务本体（nf_api）**。若报「无法连接 8765 服务本体」，缺的是**服务本体**：在项目根跑
 `python scripts/nf_api.py`（或直接打开控制台），确认 `http://127.0.0.1:8765/health`
 可访问后重试 —— 8766 的报错不代表 8765 有问题，别拿 A 层的错去修 B 层的服务。
 另：8766 是「TCP + 换行分帧」的**非标** JSON-RPC，标准 MCP 客户端
-（Claude Code / Cline / Hermes）**不能直连**，中间需要 stdio 垫片桥接。
+（Claude Code / Cline / Hermes）**不能直连** —— 仓库里已提供 stdio 垫片
+`scripts/nf_mcp_stdio_bridge.py`，把 `mcpServers` 的 `command` 指向项目 venv 的 python、
+`args` 指向它即可。**完整接入步骤、三级验证方法与排错对照表见
+[`docs/mcp-connect.md`](docs/mcp-connect.md)**；一条命令自检：
+`python scripts/nf_mcp_handshake_check.py`（真 nf_api + 真 nf_mcp + 官方 MCP SDK 全链路握手）。
 
 **Q：文档里的模型名/单价不对？**
 只改 `config/system.yaml`（`engine` / `model.*` / `providers`），代码零改动；

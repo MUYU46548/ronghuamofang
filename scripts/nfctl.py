@@ -28,6 +28,7 @@ import argparse
 import json
 import socket
 import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -825,6 +826,203 @@ def render_test_results(d: dict) -> str:
 
 
 # ---------------------------------------------------------------- main
+# ---------------------------------------------------------------------------
+# release-check：把「发版前必跑」的那串检查变成一条命令
+#
+# 为什么需要：这些检查此前散在 CHANGELOG / AGENTS / 验收报告里，全靠人记着跑 ——
+# 而 e2e 视觉验收已经因此**长期潜伏红色**（2026-09-29 才发现它本机 0 通过）。
+# 「写在文档里的纪律」等于没有纪律，写成一条命令才算数。
+# ---------------------------------------------------------------------------
+
+E2E_PORTS = {"静态 8091": 8091, "假后端 8798": 8798, "冷启动 8797": 8797, "真后端 8799": 8799}
+# payload 里「用户可见入口」清单：任一与工作区不一致 → 包是旧的（改了代码没重打包）。
+PAYLOAD_MUST_MATCH = ["scripts/nf_api.py", "scripts/nf_mcp.py",
+                      "scripts/nf_mcp_stdio_bridge.py", "scripts/nf_mcp_handshake_check.py",
+                      "scripts/nfctl.py", "scripts/utils/cost_tracker.py"]
+
+
+def _port_busy(port):
+    import socket
+    s = socket.socket()
+    s.settimeout(0.6)
+    try:
+        s.connect(("127.0.0.1", port))
+        return True
+    except OSError:
+        return False
+    finally:
+        try:
+            s.close()
+        except OSError:
+            pass
+
+
+def _run_step(name, cmd, root, timeout=1800):
+    """跑一个子步骤。文件不存在 → SKIP（未执行 ≠ 失败）。"""
+    import subprocess
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, cwd=str(root),
+                           timeout=timeout, encoding="utf-8", errors="replace")
+    except subprocess.TimeoutExpired:
+        return {"name": name, "status": "FAIL", "tail": "超时（%ds）" % timeout}
+    except FileNotFoundError as e:
+        return {"name": name, "status": "SKIP", "tail": "缺可执行文件: %s" % e}
+    tail = (p.stdout or "")[-600:].strip()
+    return {"name": name, "status": "PASS" if p.returncode == 0 else "FAIL",
+            "exit": p.returncode, "tail": tail}
+
+
+def _e2e_step(root, python_exe):
+    """起 4 个服务跑视觉验收，结束**只杀自己起的 PID**。"""
+    import subprocess
+
+    if not (root / "console" / "renderer" / "dist").is_dir():
+        return {"name": "e2e 视觉验收", "status": "SKIP",
+                "tail": "console/renderer/dist 不存在（先 npm run build）"}
+    try:
+        import importlib.util
+        if importlib.util.find_spec("playwright") is None:
+            return {"name": "e2e 视觉验收", "status": "SKIP",
+                    "tail": "未装 playwright（pip install -r requirements-dev.txt，"
+                            "再 playwright install chromium）"}
+    except Exception:                                       # noqa: BLE001
+        pass
+    busy = [k for k, v in E2E_PORTS.items() if _port_busy(v)]
+    if busy:
+        return {"name": "e2e 视觉验收", "status": "SKIP",
+                "tail": "端口被占 %s（可能你正开着控制台）—— 不抢端口、也不杀别人的进程" % busy}
+
+    logs = root / "Temp"
+    logs.mkdir(exist_ok=True)
+    procs = []
+
+    def spawn(args, logname):
+        fh = open(logs / logname, "wb")
+        procs.append((subprocess.Popen(args, stdout=fh, stderr=subprocess.STDOUT,
+                                       cwd=str(root)), fh))
+
+    spawn([str(python_exe), "-m", "http.server", "8091",
+           "--directory", "console/renderer/dist"], "nfctl_e2e_static.log")
+    spawn([str(python_exe), str(root / "tests" / "e2e" / "mock_nf_api_state.py"),
+           "--port", "8798"], "nfctl_e2e_mock.log")
+    spawn([str(python_exe), str(root / "tests" / "e2e" / "mock_nf_api_state.py"),
+           "--port", "8797", "--cold"], "nfctl_e2e_mock_cold.log")
+    spawn([str(python_exe), str(root / "scripts" / "nf_api.py"), "--port", "8799",
+           "--allow-fake", "--root", str(root / "tests" / "e2e" / "fixture_project")],
+          "nfctl_e2e_real.log")
+    try:
+        deadline = time.time() + 30
+        while time.time() < deadline:
+            if all(_port_busy(v) for v in E2E_PORTS.values()):
+                break
+            time.sleep(0.5)
+        else:
+            down = [k for k, v in E2E_PORTS.items() if not _port_busy(v)]
+            return {"name": "e2e 视觉验收", "status": "FAIL", "tail": "服务未就绪: %s" % down}
+        return _run_step("e2e 视觉验收",
+                         [str(python_exe), str(root / "tests" / "e2e" / "e2e_ux_verify.py")],
+                         root, timeout=900)
+    finally:
+        for proc, fh in procs:
+            try:
+                proc.terminate()
+                proc.wait(timeout=8)
+            except Exception:                               # noqa: BLE001
+                try:
+                    proc.kill()
+                except Exception:                           # noqa: BLE001
+                    pass
+            try:
+                fh.close()
+            except OSError:
+                pass
+
+
+def _dist_step(root):
+    """核对「装出来的包」是否仍与工作区一致 —— 抓「改了代码但没重打包」。"""
+    import hashlib
+
+    dist = root / "console" / "dist"
+    latest = dist / "latest.yml"
+    payload_root = dist / "win-unpacked" / "resources" / "payload"
+    if not latest.exists() or not payload_root.is_dir():
+        return {"name": "打包产物核验", "status": "SKIP", "tail": "console/dist 下无产物（尚未打包）"}
+
+    ver = ""
+    for line in latest.read_text(encoding="utf-8", errors="replace").splitlines():
+        if line.startswith("version:"):
+            ver = line.split(":", 1)[1].strip()
+            break
+
+    stale = []
+    for rel in PAYLOAD_MUST_MATCH:
+        src = root / rel
+        dst = payload_root / rel
+        if not src.exists():
+            continue
+        if not dst.exists():
+            stale.append(rel + "（payload 内缺失）")
+            continue
+        h = lambda p: hashlib.sha256(p.read_bytes()).hexdigest()      # noqa: E731
+        if h(src) != h(dst):
+            stale.append(rel)
+    if stale:
+        return {"name": "打包产物核验", "status": "FAIL",
+                "tail": "payload 落后于工作区: %s —— 需 bump SEED_VERSION 后重打包（先 bump 再 dist）"
+                        % "、".join(stale)}
+    return {"name": "打包产物核验", "status": "PASS",
+            "tail": "version=%s，payload 与工作区一致（%d 个关键文件已比对）"
+                    % (ver, len(PAYLOAD_MUST_MATCH))}
+
+
+def release_check(root: Path, skip_e2e: bool = False) -> dict:
+    """发版前必跑清单，一条命令跑完。返回 {"ok": bool, "steps": [...]}。
+
+    判据：任一 FAIL → ok=False（exit 1）；SKIP **不算失败**（缺依赖/缺外部服务 = 未执行）。
+    """
+    python_exe = root / ".venv" / "Scripts" / "python.exe"
+    if not python_exe.exists():
+        python_exe = Path(sys.executable)
+
+    steps = [_run_step("质量门（pyflakes BLOCK 必须 0）",
+                       [str(python_exe), str(root / "scripts" / "quality_gate.py")], root, 300)]
+
+    t = run_tests(root)
+    steps.append({
+        "name": "全量测试（tests/unit + tests/http）",
+        "status": "PASS" if (t["total"] and t["failed"] == 0) else "FAIL",
+        "tail": "总计 %d · 通过 %d · 失败 %d" % (t["total"], t["passed"], t["failed"]),
+    })
+
+    steps.append(_run_step("MCP 真机握手（官方 SDK → 垫片 → 8766 → 8765）",
+                           [str(python_exe), str(root / "scripts" / "nf_mcp_handshake_check.py")],
+                           root, 300))
+
+    if skip_e2e:
+        steps.append({"name": "e2e 视觉验收", "status": "SKIP", "tail": "--skip-e2e 指定跳过"})
+    else:
+        steps.append(_e2e_step(root, python_exe))
+
+    steps.append(_dist_step(root))
+    return {"ok": all(s["status"] != "FAIL" for s in steps), "steps": steps}
+
+
+def render_release_check(data) -> str:
+    lines = ["绒花墨坊 · 发版前检查", "=" * 62]
+    for s in data["steps"]:
+        mark = {"PASS": "✅", "FAIL": "❌", "SKIP": "⏭️"}.get(s["status"], "?")
+        lines.append("%s %-42s %s" % (mark, s["name"], s["tail"] or ""))
+    lines.append("=" * 62)
+    bad = [s["name"] for s in data["steps"] if s["status"] == "FAIL"]
+    skipped = [s["name"] for s in data["steps"] if s["status"] == "SKIP"]
+    if bad:
+        lines.append("❌ 未通过：%s" % "、".join(bad))
+    else:
+        lines.append("✅ 通过" + ("（跳过 %s —— 未执行 ≠ 失败，但发版前请确认这是有意的）"
+                                % "、".join(skipped) if skipped else ""))
+    return "\n".join(lines)
+
+
 def main(argv=None):
     try:
         sys.stdout.reconfigure(encoding="utf-8")
@@ -855,6 +1053,10 @@ def main(argv=None):
     p_api = sub.add_parser("api", parents=[common], help="只读转发 GET 到 nf_api")
     p_api.add_argument("path", help="如 /state、/health、/outline/trend、/costs/summary")
     p_api.add_argument("--port", type=int, default=API_PORT)
+    p_rel = sub.add_parser("release-check", parents=[common],
+                           help="发版前必跑：质量门 + 全量测试 + MCP 真机握手 + e2e 视觉验收 + 产物核验")
+    p_rel.add_argument("--skip-e2e", action="store_true",
+                       help="跳过视觉验收（它需要 playwright + 4 个空闲端口）")
 
     args = ap.parse_args(argv)
     root = Path(args.root).resolve() if getattr(args, "root", None) else DEFAULT_ROOT
@@ -884,6 +1086,11 @@ def main(argv=None):
         start_serve(root, port=args.port)
         return 0
 
+    if args.cmd == "release-check":
+        data = release_check(root, skip_e2e=args.skip_e2e)
+        print(json.dumps(data, ensure_ascii=False, indent=2) if as_json
+              else render_release_check(data))
+        return 0 if data["ok"] else 1
     if args.cmd == "api":
         if not args.path.startswith("/"):
             print("路径需以 / 开头，例如 /state", file=sys.stderr)

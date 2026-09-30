@@ -47,7 +47,7 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 
 | 目的 | 命令（workdir=项目根，用 .venv python） |
 |------|------|
-| **Agent 只读入口（全景/自检）** | `python scripts/nfctl.py status`（一屏：书名/阶段/进度/成本/待审批/产物）· `check`（环境自检，含 **YAML 重复键检测**）· `doctor`（**数据一致性自检**：runs 脏行/产物完整性/孤儿文件/成本负数）· `test`（**统一测试运行器**：跑 tests/unit + tests/http 全部自定义测试，`--pattern` 选单个）· `api <GET路径>`（只读转发 nf_api，省手写 curl）· `serve`（启动零依赖调试看板 127.0.0.1:8766）。**只读、零 token**；写操作走下方各脚本 |
+| **Agent 只读入口（全景/自检）** | `python scripts/nfctl.py status`（一屏：书名/阶段/进度/成本/待审批/产物）· `check`（环境自检，含 **YAML 重复键检测**）· `doctor`（**数据一致性自检**：runs 脏行/产物完整性/孤儿文件/成本负数）· `test`（**统一测试运行器**：跑 tests/unit + tests/http 全部自定义测试，`--pattern` 选单个）· **`release-check`（发版前必跑：质量门 + 全量测试 + MCP 真机握手 + e2e 视觉验收 + 打包产物核验，一条命令；`--skip-e2e` 可跳）** · `api <GET路径>`（只读转发 nf_api，省手写 curl）· `serve`（启动零依赖调试看板 127.0.0.1:8766）。**只读、零 token**；写操作走下方各脚本 |
 | 全流程启动 | `python scripts/orchestrator.py` |
 | 从阶段 N 重跑 | `python scripts/orchestrator.py --from N` |
 | 只跑阶段 N | `python scripts/orchestrator.py --stage N` |
@@ -139,6 +139,8 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
    `scripts/nf_mcp_stdio_bridge.py`（stdio ↔ 8766 双向透传；`mcpServers` 配置示例见该文件头）。
    三层报错都带层号，别拿一层的错去修另一层的服务：
    **stdio 垫片 → 8766（nf_mcp 传输层）→ 8765（nf_api 服务本体）**。
+   接入步骤 / 三级验证 / 排错对照表 → `docs/mcp-connect.md`；
+   一条命令自检 → `python scripts/nf_mcp_handshake_check.py`（自起 18765/18766，不碰你在用的端口）。
 
 **专属接线卡**：Hermes 技能库 `worldbuilding/ronghuamofang/`
 （实机路径 `%LOCALAPPDATA%\hermes\skills\worldbuilding\ronghuamofang\`）

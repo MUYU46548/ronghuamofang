@@ -9,3 +9,10 @@
 # 未导入，这些**语法完全合法**，py_compile 一个都拦不住。
 
 pyflakes==3.4.0         # 未定义名 / 未使用导入 / 名称遮蔽（scripts/quality_gate.py 的引擎）
+
+# ---- 两个「闸门」的依赖（不装 = 闸门静默跳过，不是通过）----
+# 写在这里的理由：2026-09-30 之前它们只装在某台机器的 .venv 里、没有登记，
+# 于是干净克隆上 `nfctl.py release-check` 的两步会直接 SKIP —— 闸门形同虚设。
+
+playwright==1.63.*      # e2e 视觉验收（tests/e2e/e2e_ux_verify.py）；还需 `playwright install chromium`
+mcp==2.2.0              # MCP 真机握手自检（scripts/nf_mcp_handshake_check.py）用的**官方** SDK
