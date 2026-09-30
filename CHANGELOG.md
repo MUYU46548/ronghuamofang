@@ -7,6 +7,49 @@ CHANGELOG」）。本文件从工程审查修复起正式启用。
 
 ---
 
+## [Unreleased] — 2026-09-30 MCP stdio 垫片补位 · 定价批量导入 · `--root` 路径纪律清完
+
+### 🔴 MCP stdio 垫片（`scripts/nf_mcp_stdio_bridge.py`，执行单 ⑤前置步0）
+- **问题**：`nf_mcp.py` 跑的是「TCP + 换行分帧的裸 JSON-RPC」，**不是**标准 MCP 传输 ——
+  标准客户端（Hermes / Claude Code / Cline）只会在本地 spawn 进程、用 stdio 说话，
+  **直连不上 8766**。此前仓库里只有一句「中间必须有 stdio 垫片」，垫片本身不存在。
+- **交付**：stdio ↔ 8766 双向透传。逐行搬运之外，真正的价值在「搬不动时怎么说话」：
+  8766 连不上时返回 **-32002 + 层号 + 可执行启动指引**（沿用原交付物已实测的错误码约定），
+  `id` 保真，客户端能把它当该请求的正常响应处理。
+- **关键纪律**：stdout 只走协议（日志一律 stderr）；惰性连接（8766 后起也能用）；
+  不解析不改写 payload；分帧缓冲留在实例上（一次 `recv` 常带回多行，就地拆行会发**半行错误帧**）。
+- **反向验证**：破坏「拒连错误码」与「连接目标端口」两处 → 自检分别打红。
+  过程中还揪出一段**假绿**代码（「发送失败后立即重连再试一次」——socket 半开时 `sendall`
+  往往成功，该分支几乎不触发，改坏它自检照样全绿）→ **删掉**，不留自以为是的安全网。
+
+### 🟢 定价批量导入（`POST /costs/rates/import`）
+- 定价面板此前只能**逐行手工编辑**，缺"整表粘贴"。现支持三种写法自动识别：
+  JSON / **Python 字面量（RATES 块整段复制）** / 表格行（分隔符任意，吃货币符·千分位·
+  `元 / 百万 tokens` 尾巴·注释·表头·`免费`）。
+- **两段式**：`confirm=false` 只预览（零写入）/ `true` 才落盘；有解析错误**一律拒绝写入**（400）。
+- **合并语义 upsert**：只覆盖同名条目，不删其他；缺 `cache_read` **沿用现有值 + 告警**
+  （静默置 0 等于把缓存命中当不花钱 → 账单偏乐观）。落盘前自动留 `.bak`。
+- **跳过任何一行都留痕**：识别不了进 warnings、语义错误进 errors，均带行号。
+
+### 🟠 `--root` 路径纪律清完 + 可执行护栏
+- 12 处相对数据路径改经 `ROOT`（`ProgressManager` ×4、`RunDB` ×2、审稿/校对报告路径、
+  `write_task`、`kb_index`、`add_comment_to_finding`、域模块 `outline.py`）。
+- 新增 **`_set_root()`**：改 `ROOT` 的唯一入口，同时刷新 `GLOBAL`/`HISTORY_DIR` ——
+  这类**模块级派生常量在 import 时固化**，只 `global ROOT` 会让它们继续指旧项目
+  （"拼了、但拼的是旧 ROOT"，比裸相对路径更阴）。
+- 护栏 `tests/unit/test_root_path_discipline.py`：AST 判据（禁「相对数据路径裸当函数实参」，
+  只查调用实参故常量表不误报）+ `global ROOT` 只许在 `_set_root` + 功能反证（读到夹具书名）。
+
+### 📌 文档与实测对齐
+- `AGENTS.md` MCP 章节：工具数 **20 → 22**（件5 加了 `nf_get_remedy` / `nf_restore_snapshot`
+  后一直没同步），并补上「标准客户端须经 stdio 垫片」与三层分层口径。
+- `nf_mcp.py` 文件头：点明垫片路径与用法。
+- 两处新增自检：`test_rates_import`（53 断言）、`test_mcp_stdio_bridge`（15 断言）、
+  `test_root_path_discipline`（9 断言）。
+
+---
+
+
 ## [Unreleased] — 2026-09-29 ①开工执行单 v2.2 落地（六件 + 随行件）
 
 依据 `shared/quickfix-plan-20260928.md`（执行单 v2.2）与
