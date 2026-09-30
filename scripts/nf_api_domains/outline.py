@@ -93,10 +93,13 @@ def handle_outline_trend(h):
         except (TypeError, ValueError):
             window = 3
 
-        setting = "data/setting/setting.json"
-        series = ov.review_series("data/outline/global.md", setting)
+        # 必须经 ROOT 拼绝对路径：`--root`（切书档 / 自动化验收）下进程 CWD
+        # 未必是数据根，裸相对路径会让体检**读另一个项目的大纲与设定集**。
+        setting = str(api.ROOT / "data" / "setting" / "setting.json")
+        global_md = str(api.ROOT / "data" / "outline" / "global.md")
+        series = ov.review_series(global_md, setting)
         status, note = ov.convergence_verdict(series, window=window)
-        cmp = ov.compare_with_previous("data/outline/global.md", setting)
+        cmp = ov.compare_with_previous(global_md, setting)
         return 200, {
             "series": series,
             "window": window,

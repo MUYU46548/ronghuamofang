@@ -204,13 +204,25 @@ def _resolve_root():
     computed = Path(__file__).resolve().parents[1]
     return computed
 
-ROOT = _resolve_root()
+def _set_root(path):
+    """改写数据根，并**同步刷新所有派生路径常量**。
 
-# 不再 chdir：安装态时代码目录不可写；所有路径走绝对路径拼接
+    为什么必须走函数、不能直接 `global ROOT; ROOT = ...`：
+    `GLOBAL` / `HISTORY_DIR` 在模块加载期就固化了，只改 ROOT 会让它们继续
+    指向旧项目 —— 这正是「`--root` 下静默读写另一个项目」的第二次登场
+    （第一次是 `build_state()` 里写死相对的 `data/state/progress.json`）。
+    **以后新增导出路径常量，必须在这里一并刷新**，否则又是一个静默错项目。
+    """
+    global ROOT, GLOBAL, HISTORY_DIR
+    ROOT = Path(path).resolve()                 # 相对路径必须 resolve，否则 ROOT 随 CWD 漂移
+    GLOBAL = str(ROOT / "data" / "outline" / "global.md")
+    HISTORY_DIR = str(ROOT / "data" / "outline" / "history")
 
-# 大纲路径常量（与 refine_outline.py / utils.outline_panel 保持一致）
-GLOBAL = "data/outline/global.md"
-HISTORY_DIR = "data/outline/history"
+
+_set_root(_resolve_root())
+
+# 不再 chdir：安装态时代码目录不可写；所有路径走绝对路径拼接。
+# ⚠️ 下面这些是 ROOT 的派生值（由 _set_root 统一赋值），不要在别处直接改 ROOT。
 
 # ---- Agent 审计日志 ----
 AUDIT_LOG_PATH = "data/state/agent_audit.jsonl"
@@ -900,7 +912,7 @@ def act_skip_stage(stage, reason=""):
     存在的意义：某阶段因素材/上游问题反复失败时，用户需要能手工放行后续阶段继续跑，
     而不是只能反复重试或整条管线卡死。跳过后仍可用 /reject 打回回到原状态。
     """
-    progress = ProgressManager("data/state/progress.json")
+    progress = ProgressManager(ROOT / "data" / "state" / "progress.json")
     progress.set_stage(stage, "done",
                        skipped=True,
                        skipped_at=datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
@@ -985,7 +997,7 @@ def act_project_create(name, genre=None, chapters=None, style_notes=None,
 
 
 def act_approve(stage, revoke):
-    progress = ProgressManager("data/state/progress.json")
+    progress = ProgressManager(ROOT / "data" / "state" / "progress.json")
     progress.set_approved(stage, not revoke)
     status = progress.stage_status(stage)
     action = "已撤销" if revoke else "已确认"
@@ -996,7 +1008,7 @@ def act_approve(stage, revoke):
 
 
 def act_reject(stage, reason, dry_run):
-    progress = ProgressManager("data/state/progress.json")
+    progress = ProgressManager(ROOT / "data" / "state" / "progress.json")
     ok, msgs = reject_mod.reject_stage(progress, stage, reason or "", dry_run=dry_run)
     return ok, "\n".join(msgs)
 
@@ -1013,7 +1025,7 @@ def act_refine_outline(feedback, dry_run):
     if not dry_run:
         try:
             budget = cfg.get("budget", {}) or {}
-            db = RunDB("logs/runs.db")
+            db = RunDB(ROOT / "logs" / "runs.db")
             cost = CostTracker(db, limit_yuan=budget.get("limit_yuan", 300),
                                warn_ratio=budget.get("warn_ratio", 0.7))
             run_id = db.start_run(plan_json="outline_refine_api")
@@ -1082,7 +1094,7 @@ def act_review_run(stream_job_id=None):
     def _fn():
         ok, msg = chapter_review.run_review(
             scope=None,
-            report_path="data/outline/review_report.json",
+            report_path=str(ROOT / "data" / "outline" / "review_report.json"),
             dry_run=False,
             client=client,
         )
@@ -1100,7 +1112,7 @@ def act_batch_refine_run(decisions_from_file=True):
 
     def _fn():
         ok, msg = batch_refine.run_batch_refine(
-            report_path="data/outline/review_report.json",
+            report_path=str(ROOT / "data" / "outline" / "review_report.json"),
             decisions_mode="file" if decisions_from_file else "interactive",
             auto_accept=False,
             dry_run=False,
@@ -1116,13 +1128,13 @@ def act_auto_rewrite_run(threshold=None, dry_run=False, max_rounds=None, chapter
     from utils.cost_tracker import CostTracker
 
     cfg, proj = load_all()
-    progress = ProgressManager("data/state/progress.json")
+    progress = ProgressManager(ROOT / "data" / "state" / "progress.json")
     client = _client_for_env(cfg, "writer")
 
     def _fn():
         db, cost, run_id, ok = None, None, None, False
         if not dry_run:
-            db = RunDB("logs/runs.db")
+            db = RunDB(ROOT / "logs" / "runs.db")
             budget = cfg.get("budget", {}) or {}
             cost = CostTracker(db, limit_yuan=budget.get("limit_yuan", 300),
                                warn_ratio=budget.get("warn_ratio", 0.7))
@@ -1156,9 +1168,15 @@ def act_appearances_refresh():
 
 # ---- 校对（stage 5.5）与文风分析（P1） ----
 
-def act_proofread_run(scope=None, report_path="data/outline/proofread_report.json",
+def act_proofread_run(scope=None, report_path=None,
                       use_llm=False, dry_run=False):
-    """执行校对。确定性部分零 token；use_llm=True 时追加 LLM 语义校对。"""
+    """执行校对。确定性部分零 token；use_llm=True 时追加 LLM 语义校对。
+
+    `report_path=None` 表示用数据根下的默认报告路径 —— 默认值**不能**写成
+    `ROOT / ...` 这种模块级表达式：那时 ROOT 还没被 `--root` 覆盖（默认参数
+    在 def 时求值），会把报告写进另一个项目。
+    """
+    report_path = str(report_path or (ROOT / "data" / "outline" / "proofread_report.json"))
     cfg, _ = load_all()
     # 与其它 LLM 调用点一致：经 _client_for_env，测试模式（--allow-fake）走 FakeClient
     client = _client_for_env(cfg, "checker") if (use_llm and not dry_run) else None
@@ -1374,7 +1392,7 @@ def act_stage2_run_multi(count=3, interval=2.0):
             # 关键：把输出路径改指到 draft 文件，模型产物不会覆盖 global.md
             body = s2.build_task(cfg, proj).replace(
                 str(Path(GLOBAL).resolve()), str(draft.resolve()))
-            task = client.write_task("data/state/tasks",
+            task = client.write_task(str(ROOT / "data" / "state" / "tasks"),
                                      "stage2_global_outline.md", body)
             result = client.run_task(task)
             if result.get("exit_code") != 0:
@@ -1383,7 +1401,7 @@ def act_stage2_run_multi(count=3, interval=2.0):
                 return False, "第 %d 份方案未产出 %s" % (i, draft.name)
             tmp = draft.read_text(encoding="utf-8")
             ok, errors = _check_text(tmp)
-            rv = ov.review(str(draft), "data/setting/setting.json")
+            rv = ov.review(str(draft), str(ROOT / "data" / "setting" / "setting.json"))
             drafts.append({
                 "id": i, "name": draft.name,
                 "summary": rv.get("summary", {}),
@@ -1678,7 +1696,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not _vault_ready(self):
                     return
                 vault_path = str(_kb_vault_path())
-                idx = kb_index.build_index(vault_path, "data/state/kb_index.pkl")
+                idx = kb_index.build_index(vault_path, str(ROOT / "data" / "state" / "kb_index.pkl"))
                 self._send(200, {"ok": True, "total_files": idx["total_files"], "terms": len(idx["terms"])})
             except Exception as e:
                 self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
@@ -2216,8 +2234,9 @@ class Handler(BaseHTTPRequestHandler):
                     if not finding_id or not comment:
                         self._send(400, {"ok": False, "error": "finding_id 和 comment 必填"})
                         return
-                    ok = cr.add_comment_to_finding("data/outline/review_report.json",
-                                                   chapter_no, finding_id, comment, user)
+                    ok = cr.add_comment_to_finding(
+                        str(ROOT / "data" / "outline" / "review_report.json"),
+                        chapter_no, finding_id, comment, user)
                     if ok:
                         self._send(200, {"ok": True, "message": "评论已添加"})
                     else:
@@ -2413,7 +2432,7 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(400, {"error": "scope 只能是 raw / checked / refined"})
                     return
                 report_path = str(body.get("report")
-                                  or "data/outline/proofread_report.json")
+                                  or (ROOT / "data" / "outline" / "proofread_report.json"))
                 jid, err = start_job("proofread", act_proofread_run(
                     scope or None, report_path, use_llm, dry_run))
                 self._send(202 if not err else 409,
@@ -2475,10 +2494,9 @@ def main():
     args = parser.parse_args()
     if args.root:
         os.environ["NF_ROOT"] = str(args.root)
-        global ROOT
-        # resolve()：相对 --root 会让 ROOT 随 CWD 漂移，且 /about 会把相对路径
-        # 当成"项目根"展示（2026-09-29 实测：显示 tests\e2e\fixture_project）。
-        ROOT = Path(args.root).resolve()
+        # 走 _set_root：它同时刷新 GLOBAL / HISTORY_DIR 等派生常量，
+        # 只 `global ROOT` 会留下指向旧项目的路径（详见 _set_root docstring）。
+        _set_root(args.root)
     if args.allow_fake:
         os.environ["NF_API_ALLOW_FAKE"] = "1"
         global ALLOW_FAKE
