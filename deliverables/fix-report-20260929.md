@@ -441,11 +441,12 @@ CLI 侧 `scripts/price_wizard.py` 仍是逐个模型问答式（写的是**源�
 
 | # | 事项 | 现状 / 风险 | 我的建议 |
 |---|---|---|---|
-| 1 | **22 个提交只在本地**（`main` ahead of `origin/main` 22） | 一天半的工作、含今天全部改动**只存在于这台机器**；磁盘坏 = 全丢。远程仓库早已存在、且此前 push 过 | 允许我 `git push`（公开仓库，已在库的内容不变；新提交已做密钥/本机路径扫描）。**push 是对外动作，等你点头** |
-| 2 | **无 CI**（`.github/workflows` 不存在） | 回归全靠手动；e2e 那次长期红就是例证 | 可加一个只跑 `nfctl test` 的 workflow（不跑 e2e —— 它要 playwright + 端口，CI 上不稳定）。需要 push 才能生效 |
+| 1 | ~~25 个提交只在本地~~ **✅ 已 push** | 此前一天半的工作只存在这台机器上（磁盘坏 = 全丢） | 已完成：`origin/main` = `46d6bb2`。**push 前体检**：这 25 个提交不含 `.env` / `data/` / `materials/`（唯一的 `data/` 是 e2e 夹具的假状态文件） |
+| 2 | **无 CI**（`.github/workflows` 不存在） | 回归全靠手动；e2e 那次长期红就是例证 | 可加一个只跑 `nfctl test` 的 workflow（不跑 e2e —— 它要 playwright + 端口，CI 上不稳定）。push 通道已通，加了就能生效 |
 | 3 | **备份范围不含 `config/`、`materials/`** | `switch_book --archive` 只搬 `data/` 8 项 → 换书丢配置与素材卡 | 把两者纳入归档，或做真正的导出/导入包（§10）。**涉及搬用户数据，等你点头** |
 | 4 | `Temp/` 有 120 项 15MB 一次性脚本残留 | 已 gitignore，不影响仓库；只是越积越多 | 可加一条「可随时清空」说明；我不擅自删（里面有你的截图） |
 | 5 | `check_consistency.locked_violations` 未实现 | 「locked 不可违逆」目前**只在提示词层**，没有确定性检查 | 可做「locked 条目在产物缺失/被改名」的确定性检查（不做语义冲突判定 —— 机器判不准，会变噪音） |
+| 6 | `kimi-k2.6` 的真实刊例价未落 | 源码 `RATES` 里是**占位价** → 账单绝对值不可信 | 现在有两条路：面板「成本→定价→**批量导入**」粘贴落库（不动源码），或把三个数给我改 `RATES`（对所有环境生效） |
 
 **已确认无问题**：`.env` 已被 `.gitignore` 忽略且未入库；`requirements.txt`（运行期）版本已精确锁定；
 日志有轮转（`logging.rotate_days`）；`data/state/truncated` 当前为空（截断隔离没堆积）。
