@@ -146,7 +146,9 @@ function getWorkspaceDir() {
 // v8（2026-09-30，第五批）：`--root` 路径纪律存量清理 —— payload 里
 //   nf_api.py 的 12 处相对数据路径改经 ROOT（含 `GLOBAL`/`HISTORY_DIR` 由 _set_root 派生）、
 //   nf_api_domains/outline.py 的体检路径。**先 bump 再 electron-builder**。
-const SEED_VERSION = 8;
+// v9（2026-09-30，第六批）：payload 新增 `scripts/nf_mcp_stdio_bridge.py`（MCP stdio 垫片，
+//   执行单 ⑤前置步0），并在 nf_mcp.py 文件头补上垫片指引。**先 bump 再 electron-builder**。
+const SEED_VERSION = 9;
 
 // 只播种/刷新**代码与提示词**目录。
 // 刻意不含 data/：那是用户产物（章节、设定、大纲），任何情况下都不能被覆盖。
