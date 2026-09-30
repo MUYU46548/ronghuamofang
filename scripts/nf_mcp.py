@@ -12,6 +12,10 @@ MCP 工具（允许清单见 ``MCP_TOOLS``）。业务逻辑一律不在本层�
 原注释写「compatible with any MCP client that supports TCP/HTTP transport」属**虚标**，
 已改正 —— 「文档比实现好听」正是本项目最忌讳的那类静默失真。
 
+**垫片已就位**：`scripts/nf_mcp_stdio_bridge.py`（stdio ↔ 8766，逐行透传；
+`mcpServers` 配置示例与三层分层口径见该文件头）。它连不上 8766 时返回
+**-32002 + 启动指引**，与本文件 8765 不可达时的分层文案配套。
+
 **两层要分清（件6）**：
   · 8766 = 本文件的 MCP 传输层（MCP 客户端 / 垫片连这里）
   · 8765 = 服务本体 nf_api（本文件再往下转发到这里）
