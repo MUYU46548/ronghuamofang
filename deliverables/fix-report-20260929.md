@@ -5,6 +5,16 @@
 **状态**：7/9 件已落地并通过自检；2 件因**缺实物**无法执行（见 §3）
 **提交**：已分批提交 5 个 commit（044e3a7 / b6df4ef / c1a35b4 / 9769620 / 见 §6）
 **打包**：已产出 `console/dist/ronghuamofang-console-setup-0.3.2.exe`（`--publish never`，未上传 GitHub）
+**追加批次（2026-09-30）**：定价批量导入上线（§13）· `--root` 路径纪律存量**清完并加护栏**（§12）
+
+---
+
+## 0. 追加批次速览（2026-09-30）
+
+| 批次 | 内容 | 验证 |
+|---|---|---|
+| 第五批 | `--root` 路径纪律：12 处相对数据路径改经 ROOT + `_set_root()` 派生常量 + **可执行护栏** | `test_root_path_discipline` 9/9（含两处反向验证打红）；`nfctl test` 44/44；e2e 74/0 |
+| 第四批 | 定价批量导入（粘贴 → 预览 → 确认），认表格 / JSON / RATES 字面量 | `test_rates_import` 53/53；e2e 新增 10 条断言 |
 
 ---
 
@@ -160,15 +170,46 @@ bump 前置则两个条件同时满足，且已用产物核验（见下）。
 | 4 | **6 个面板各自硬编码 `http://127.0.0.1:8765`**（Style/Scraps/Review/Proofread/ParagraphRefine/ChapterBlueprint），绕过 `__NF_API_BASE__` | **产品** | 收敛到新模块 `console/src/apiBase.js`，7 处统一 import（判据从 7 份变 1 份） | 修前 console 成片 `ERR_CONNECTION_REFUSED`（且错误不带 URL）；修后「无」 |
 | 5 | 「版本号取自 console/package.json（非 dev）」断言**硬编码 `v0.1.0`** —— 版本一升必红，且能误匹 mock 的 `0.1.0-mock` | **断言本身写错** | 改为实时读 `console/package.json` 的 version 且排除 mock | 修后通过 |
 
-**结果**：`0 通过（崩）` → **60 通过 / 4 失败**。
+**结果**：`0 通过（崩）` → 60/4 → 62/2 → **64 通过 / 0 失败（exit 0）**。
 
-**剩余 4 条（同一根因，属验收基建，不是产品缺陷）**：
-`真数据：下一步 = 运行阶段 5` · `快速运行选择器自动对齐到阶段 5` · `预估成本已拉到` ·
-`Space 打开运行前预估确认框`。
-真后端那段跑的是**本机真实项目**，默认前提是「阶段 1-4 已完成 → 下一步 = 阶段5」；
-而本书前三阶段早已跑完（1-7 全 done，阶段6 待审批），应用的「下一步」自然不是 5。
-→ 二选一（需你定）：**① 给验收一套 hermetic 夹具项目**（`nf_api --root <fixture>`，状态固定为 1-4 done）；
-**② 把期望值改为从 `/state` 推导**（不写死阶段号）。
+**那 4 条怎么收的（第四批）**：给「真后端」段补了**夹具项目** `tests/e2e/fixture_project/`
+（状态固定「1-4 done 且 approved；5-7 pending」→ 下一步必为阶段 5），
+真后端按 `--root tests/e2e/fixture_project` 起。**没有改期望值去迁就本机数据**。
+
+做夹具的过程又逼出 3 个真缺陷（都属「静默给错东西」）：
+
+| # | 缺陷 | 后果 | 修法 |
+|---|---|---|---|
+| 6 | **`/about` 的版本落在 ROOT 上**（`ROOT/console/package.json`） | `--root` 指向别的项目时那边没有该文件 → 关于弹窗显示 **`vdev`** | 改为「ROOT 优先 → **代码所在仓库**兜底」（版本属于应用，不属于当前书档） |
+| 7 | **`--root` 未 `resolve()`**（`main()` 与 `NF_ROOT` 两处） | 相对 `--root` 让 ROOT 随 CWD 漂移；`/about` 把相对路径当「项目根」展示（实测 `tests\e2e\fixture_project`） | 两处补 `resolve()` |
+| 8 | **`ProgressManager._load()` 静默降级** | progress.json 解析失败 → 界面显示「全部阶段未开始」，**下一次 save() 用默认值整体覆盖用户状态**（真丢数据） | 大声告警（带路径+原因）+ 先把原件另存 `progress.json.corrupt-<ts>` 再降级。自检 `tests/unit/test_progress_corrupt.py`（11 断言） |
+
+**还踩到一个 gitignore 陷阱**：`.gitignore` 的 `data/` 是**无前缀**目录规则，会连坐
+`tests/e2e/fixture_project/data/` → 夹具的状态文件**没进版本控制**（提交后核对文件清单才发现）。
+已加两条例外放行。**再次印证「改了 .gitignore ≠ 入了库」，必须 `git status` 见到**。
+
+---
+
+## 11. （历史清单）`--root` 路径纪律待批 —— **已由 §12 清完**
+
+「API 层一律经 `ROOT`、禁止相对路径」这条纪律**尚未清完**。本次只修了 `/state`
+（夹具与真实数据的关键分歧点），其余登记在此，**不盲扫**（部分是把路径当字符串传给别的模块、
+或用于展示/比较，机械替换会改语义）：
+
+**`scripts/nf_api.py`**：`GLOBAL`(L210) · `HISTORY_DIR`(L211) · `AUDIT_LOG_PATH`(L214) ·
+`STAGE_OUTPUTS`(L869-874) · `ProgressManager("data/state/progress.json")` ×4（L897/982/993/1113）·
+`review_report.json` ×2（L1079/1097）· `proofread_report.json`(L1153) ·
+`write_task("data/state/tasks", …)`(L1371) · `ov.review(…, "data/setting/setting.json")`(L1380) ·
+`kb_index.build_index(…, "data/state/kb_index.pkl")`(L1675)
+
+**域模块**：`materials.py:79`（scraps_index）· `outline.py:96-99`（setting/global）·
+`refine.py:129/191/231`（章节目录链）
+
+**建议**：单独一批做，且**按「是 Path 还是字符串」分类**处理 ——
+字符串常量（如 `STAGE_OUTPUTS` 的键值、展示用路径）改 Path 可能影响比较与显示；
+判定标准是「`--root` 指向别的项目时，这个端点的返回是否还是本项目的数据」，
+可以照 `/state` 的办法写一条**隔离性自检**（同端口起两个 root，比对返回）来逐条验收。
+
 
 ---
 
@@ -192,5 +233,93 @@ bump 前置则两个条件同时满足，且已用产物核验（见下）。
 **建议（需你点头，涉及搬用户数据）**：把 `config/`（至少 `history/` 与 `project.yaml`）与
 `materials/` 纳入归档范围，或新建真正的「导出/导入」包（zip 用户数据 + 版本号 + 校验）。
 这两条都会改变既有行为，我不擅自动手。
+
+
+---
+
+## 12. `--root` 路径纪律：存量已清 + 可执行护栏（2026-09-30）
+
+§11 列的是待批清单，本次**全部清完**，并把纪律变成**可执行护栏**，不再依赖"下次记得"。
+
+### 12.1 修了什么
+
+| 位置 | 原形态 | 现形态 | 原先的后果 |
+|---|---|---|---|
+| `GLOBAL` / `HISTORY_DIR` | 模块级 `"data/outline/global.md"` | 由 `_set_root()` 派生 | import 时固化 → 改了 ROOT 它们仍指旧项目 |
+| `main()` 的 `--root` 处理 | `global ROOT; ROOT = …` | `_set_root(args.root)` | 同上（派生常量不刷新） |
+| `ProgressManager(...)` ×4 | 裸相对 | `ROOT / "data/state/progress.json"` | `/stage/skip`、`/approve`、`/reject` 读错项目的进度 |
+| `chapter_review.run_review(report_path=…)` | 裸相对 | `ROOT / …` | 审稿报告写进 CWD 那个项目 |
+| `batch_refine.run_batch_refine(report_path=…)` | 裸相对 | `ROOT / …` | 同上 |
+| `act_proofread_run(report_path=默认参数)` | **默认参数**里的相对路径 | 默认 `None`，函数内解析 | 默认参数在 `def` 时求值 → `--root` 对它**永远无效** |
+| `/proofread/run` 的 `body.get("report") or "data/…"` | 裸相对 | `ROOT / …` | 同上 |
+| `client.write_task("data/state/tasks", …)` | 裸相对 | `ROOT / …` | 大纲迭代任务写进 CWD |
+| `ov.review(…, "data/setting/setting.json")` | 裸相对 | `ROOT / …` | 大纲评审读错项目的设定集 |
+| `kb_index.build_index(…, "data/state/kb_index.pkl")` | 裸相对 | `ROOT / …` | 知识库索引落错地方 |
+| `cr.add_comment_to_finding("data/outline/review_report.json", …)` | 裸相对 | `ROOT / …` | 审稿评论写进 CWD |
+| `RunDB("logs/runs.db")` ×2 | 裸相对 | `ROOT / …` | 迭代记账写进 CWD 的 runs.db |
+| `nf_api_domains/outline.py`（迭代趋势端点） | `"data/setting/setting.json"` / `"data/outline/global.md"` | `api.ROOT / …` | 体检读另一个项目的大纲与设定集 |
+
+### 12.2 刻意**不改**的（附理由）
+
+- `AUDIT_LOG_PATH`、`SCRAPS_DIR_DEFAULT`、`RAW_DIR`、`STAGE_ARTIFACTS`、
+  `materials.py:79` 的 `index_path`、`project.py` / `nf_api.py` 返回体里的
+  `"path": "config/project.yaml"` —— 要么是**模块级常量**（在 `Path(ROOT) / X` 处拼接，
+  如 `missing_artifacts`、`_log_audit`、`scraps_dir_path`），要么是**展示字符串**
+  （告诉用户"去改哪个文件"），都不参与文件读写。
+- `_resolve_root()` 里的 `Path(__file__).resolve().parents[1]`：**代码根**语义，不是数据根。
+
+### 12.3 护栏（新增 `tests/unit/test_root_path_discipline.py`，9 断言）
+
+- **A 静态**：相对数据路径字面量**不得裸当函数实参** —— 该行必须出现 `ROOT`，或显式
+  `# noqa: root: <理由>`。用 AST 判据（只查 Call 的实参），不是 grep，所以
+  `STAGE_ARTIFACTS` 这类常量表不会被误报。
+- **B 静态**：`global ROOT` 只允许出现在 `_set_root()` 内。
+- **C 功能反证**：`_set_root(夹具)` 后 `GLOBAL`/`HISTORY_DIR` 必须跟着走、`build_state()`
+  必须读到**夹具书名**；复原后必须读回主项目 —— 证明前一条不是"碰巧读到夹具"。
+- **D**：`noqa: root` 必须带理由，防止当万能挡箭牌。
+
+**反向验证（证明断言有效，不是"本来就好"）**：把 A/B 两处回退成历史形态后，护栏分别打红并
+报出 `nf_api.py:679  ProgressManager("data/state/progress.json")` 与
+`nf_api.py:1000  act_approve()`；还原后重新全绿。
+
+**回归**：`nfctl test` **44 文件 / 44 通过**；e2e 视觉验收 **74 通过 / 0 失败**。
+
+---
+
+## 13. 定价批量导入（2026-09-30，暮雨点名要的功能）
+
+### 13.1 做了什么
+
+定价面板（09-23 上线）此前**只能逐行手工编辑**，缺的正是"整表粘贴"。本次补上，
+走**两段式**（预览 → 确认）：
+
+- **解析**（`utils/cost_tracker.parse_rates_text`，纯函数）自动识别三种写法：
+  ① JSON（dict-of-dict / list-of-dict / 数组值 / 中文键 / 顶层单条）；
+  ② **Python 字面量** —— 直接把 `cost_tracker.py` 里的 RATES 块整段复制即可；
+  ③ 表格行「模型 输入价 输出价 [缓存价]」，分隔符任意（空白/制表/逗号/竖线/顿号），
+  吃货币符、千分位、`元 / 百万 tokens` 这类单位尾巴、注释行、表头行、`免费`。
+- **合并策略**（`plan_rates_import`）：**upsert** —— 只覆盖同名条目，绝不删其他；
+  缺 `cache_read` 时**沿用该模型现有缓存价并告警**（静默置 0 会把缓存命中当成不花钱、
+  账单偏乐观），现有条目也没有才置 0。
+- **落盘**（`upsert_custom_rates`）：写 `data/state/cost_rates.json`，落盘前把原文件另存
+  `cost_rates.json.bak`。
+- **端点** `POST /costs/rates/import`：`confirm=false` 只解析预览（零写入）/
+  `true` 才落盘；**存在解析错误一律拒绝写入**（400，附全部错误）。
+- **界面**：定价面板加「📋 批量导入」粘贴框 + 预览表（模型 / 动作 / 现有 → 导入后）
+  + 错误块 + 警告块；有解析错误时「确认导入」置灰。
+
+**纪律**：跳过任何一行都必须留痕 —— 识别不了的进 warnings、语义错误进 errors，都带行号。
+
+### 13.2 验收
+
+- `tests/unit/test_rates_import.py`：**53 断言**。除正向解析外带反证：预览期文件**逐字未变**、
+  有解析错误时 `confirm=true` 仍拒绝写入且文件不变、upsert 不删其他条目、备份内容逐字等于导入前原文。
+- e2e 新增 **10 条**（开面板 → 预览 → 报错块 → 确认落库）；`tests/e2e/mock_nf_api_state.py`
+  的对应端点**复用真实解析器**，不在 mock 里再写一份判据。
+
+### 13.3 遗留
+
+CLI 侧 `scripts/price_wizard.py` 仍是逐个模型问答式（写的是**源码 RATES**，与 GUI 写自定义
+定价是两条不同路径）。若也想让它吃批量粘贴，直接复用 `parse_rates_text` 即可 —— 未做，等你发话。
 
 
