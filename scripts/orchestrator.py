@@ -219,6 +219,90 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
 
         run_id = db.start_run(plan_json=f"from={from_stage} only={only_stage}")
 
+        def _post_stage(n):
+            """阶段成功后的后置动作（快照 / 素材体检 / 自动重写 / 审稿门 / 校对）。
+
+            返回退出码（需要停下等人工时）或 None。
+
+            ## 为什么抽成函数（2026-10-01）
+
+            原先这整块写在「首次就成功」的 `if ok:` 分支里，于是
+            **「首次失败 → 自动重试成功」**的路径会**整块跳过**它 —— 最严重的是
+            `review_after_stage4`：本应在 stage4 跑完后停下等人工审稿，被跳过后
+            流水线直接冲进 stage5/6，用户根本没机会看那几十章的审查结果。
+            而 `auto_retry` 默认开，首次失败是常见路径，不是边角情况。
+            """
+            # 重跑成功 → 清除打回标记
+            st_now = progress.data["stages"].get(str(n), {})
+            if st_now.pop("rejected", None) is not None:
+                progress.save()
+            try:
+                snap.snapshot(f"stage{n}_done")  # 阶段成功 → 快照
+            except Exception as e:
+                print(f"[orchestrator] 快照失败（不影响流程）: {e}")
+            if n == 1:
+                # P1.5：stage1 归并完成后自动生成素材体检报告（不阻断）
+                run_material_review(progress)
+                # P1.5-3：auto-thin 闭环（**默认关**）。
+                # 会自动改设定集，故必须用户显式开启；
+                # 失败不阻断 —— stage2 审批门仍有提醒兜底。
+                if (cfg.get("gates", {}) or {}).get("setting_refine_auto", False):
+                    try:
+                        import setting_refine as srfy
+                        max_rounds = int((cfg.get("gates", {}) or {}).get(
+                            "setting_refine_max_rounds",
+                            srfy.DEFAULT_MAX_ROUNDS))
+                        ok_sr, msg_sr, _st = srfy.run_auto_thin(
+                            cfg, proj, client=client,
+                            task_dir="data/state/tasks",
+                            max_rounds=max_rounds)
+                        print(f"[orchestrator] 设定补全(auto-thin) 结果: {msg_sr}")
+                    except Exception as e:
+                        print(f"[orchestrator] 设定补全(auto-thin) 失败（不影响流程）: {e}")
+            if n == 4 and (cfg.get("gates", {}) or {}).get("auto_rewrite", False):
+                # 方向3 质量自评闭环：重写 quality<阈值 的章节
+                # 必须排在 review_after_stage4 审稿分支之前（F5），
+                # 使审查看到的已是重写后的章节。失败不阻断流程。
+                try:
+                    import auto_rewrite as ar
+                    ok_ar, msg_ar, _stats = ar.run_auto_rewrite(
+                        cfg, proj, progress, db=db, cost=cost, run_id=run_id,
+                        client=client, task_dir="data/state/tasks")
+                    print(f"[orchestrator] 自动重写结果: {msg_ar}")
+                except Exception as e:
+                    print(f"[orchestrator] 自动重写失败（不影响流程）: {e}")
+            if n == 4 and cfg.get("gates", {}).get("review_after_stage4", False):
+                # P0 审稿→修稿闭环：stage4 完成后自动调用审查
+                try:
+                    import chapter_review as cr
+                    print("[orchestrator] stage4 完成，启动章节审查...")
+                    ok_rev, msg_rev = cr.run_review(
+                        scope=None,
+                        report_path="data/outline/review_report.json",
+                        dry_run=False,
+                        client=client,
+                    )
+                    print(f"[orchestrator] 审查结果: {msg_rev}")
+                    if ok_rev:
+                        progress.set_review_report("data/outline/review_report.json")
+                        print("[orchestrator] 请审阅 data/outline/review_report.md，"
+                              "然后运行: python scripts/batch_refine.py")
+                        db.finish_run(run_id, "waiting_review")
+                        return 3  # 复用 waiting_approval 语义（等待用户审阅）
+                except Exception as e:
+                    print(f"[orchestrator] 审查失败（不影响流程）: {e}")
+            # stage 5.5：校对（润色后、Word 前）
+            if n == 5 and cfg.get("gates", {}).get("proofread_after_polish", False):
+                try:
+                    print("[orchestrator] stage5 完成，启动校对...")
+                    ok_pr, msg_pr = _run_proofread(cfg, progress)
+                    print(f"[orchestrator] 校对结果: {msg_pr}")
+                    if ok_pr:
+                        print("[orchestrator] 请审阅 data/outline/proofread_report.md")
+                except Exception as e:
+                    print(f"[orchestrator] 校对失败（不影响流程）: {e}")
+            return None
+
         order = [only_stage] if only_stage else range(from_stage, 9)
         for n in order:
             # 用户中断（GUI「停止」）：每轮阶段开始前检查，置位则不再启动新阶段。
@@ -288,75 +372,13 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
                                           task_dir="data/state/tasks", run_id=run_id)
             print(f"[orchestrator] 阶段{n} 结果: {msg}")
             if ok:
-                # 重跑成功 → 清除打回标记
-                st_now = progress.data["stages"].get(str(n), {})
-                if st_now.pop("rejected", None) is not None:
-                    progress.save()
-                try:
-                    snap.snapshot(f"stage{n}_done")  # 阶段成功 → 快照
-                except Exception as e:
-                    print(f"[orchestrator] 快照失败（不影响流程）: {e}")
-                if n == 1:
-                    # P1.5：stage1 归并完成后自动生成素材体检报告（不阻断）
-                    run_material_review(progress)
-                    # P1.5-3：auto-thin 闭环（**默认关**）。
-                    # 会自动改设定集，故必须用户显式开启；
-                    # 失败不阻断 —— stage2 审批门仍有提醒兜底。
-                    if (cfg.get("gates", {}) or {}).get("setting_refine_auto", False):
-                        try:
-                            import setting_refine as srfy
-                            max_rounds = int((cfg.get("gates", {}) or {}).get(
-                                "setting_refine_max_rounds",
-                                srfy.DEFAULT_MAX_ROUNDS))
-                            ok_sr, msg_sr, _st = srfy.run_auto_thin(
-                                cfg, proj, client=client,
-                                task_dir="data/state/tasks",
-                                max_rounds=max_rounds)
-                            print(f"[orchestrator] 设定补全(auto-thin) 结果: {msg_sr}")
-                        except Exception as e:
-                            print(f"[orchestrator] 设定补全(auto-thin) 失败（不影响流程）: {e}")
-                if n == 4 and (cfg.get("gates", {}) or {}).get("auto_rewrite", False):
-                    # 方向3 质量自评闭环：重写 quality<阈值 的章节
-                    # 必须排在 review_after_stage4 审稿分支之前（F5），
-                    # 使审查看到的已是重写后的章节。失败不阻断流程。
-                    try:
-                        import auto_rewrite as ar
-                        ok_ar, msg_ar, _stats = ar.run_auto_rewrite(
-                            cfg, proj, progress, db=db, cost=cost, run_id=run_id,
-                            client=client, task_dir="data/state/tasks")
-                        print(f"[orchestrator] 自动重写结果: {msg_ar}")
-                    except Exception as e:
-                        print(f"[orchestrator] 自动重写失败（不影响流程）: {e}")
-                if n == 4 and cfg.get("gates", {}).get("review_after_stage4", False):
-                    # P0 审稿→修稿闭环：stage4 完成后自动调用审查
-                    try:
-                        import chapter_review as cr
-                        print("[orchestrator] stage4 完成，启动章节审查...")
-                        ok_rev, msg_rev = cr.run_review(
-                            scope=None,
-                            report_path="data/outline/review_report.json",
-                            dry_run=False,
-                            client=client,
-                        )
-                        print(f"[orchestrator] 审查结果: {msg_rev}")
-                        if ok_rev:
-                            progress.set_review_report("data/outline/review_report.json")
-                            print("[orchestrator] 请审阅 data/outline/review_report.md，"
-                                  "然后运行: python scripts/batch_refine.py")
-                            db.finish_run(run_id, "waiting_review")
-                            return 3  # 复用 waiting_approval 语义（等待用户审阅）
-                    except Exception as e:
-                        print(f"[orchestrator] 审查失败（不影响流程）: {e}")
-                # stage 5.5：校对（润色后、Word 前）
-                if n == 5 and cfg.get("gates", {}).get("proofread_after_polish", False):
-                    try:
-                        print("[orchestrator] stage5 完成，启动校对...")
-                        ok_pr, msg_pr = _run_proofread(cfg, progress)
-                        print(f"[orchestrator] 校对结果: {msg_pr}")
-                        if ok_pr:
-                            print("[orchestrator] 请审阅 data/outline/proofread_report.md")
-                    except Exception as e:
-                        print(f"[orchestrator] 校对失败（不影响流程）: {e}")
+                # 后置钩子统一走 _post_stage（快照 / 素材体检 / 自动重写 / 审稿门 / 校对）。
+                # 抽成函数的理由见其 docstring：原先写在这一分支里，导致
+                # 「首次失败 → 自动重试成功」的路径整块跳过 —— 包括本该停下来
+                # 等人工审稿的 review_after_stage4。
+                _code = _post_stage(n)
+                if _code is not None:
+                    return _finalize("waiting_review", _code)
             if not ok:
                 # 自动重试（默认开）：阶段失败后自动重试，减少人工干预。
                 # 整段包 try/except：重试是**失败兜底机制**，它自己绝不能成为最脆的一环。
@@ -401,6 +423,13 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
                     if cfg.get("gates", {}).get("pause_on_failure", True):
                         print(f"[orchestrator] 阶段失败（已重试 {retry_count} 次），暂停等待处理（可重跑或人工介入）")
                         return _finalize("failed", 1)
+                else:
+                    # 重试成功 → 后置钩子**必须照跑**（审稿门 / 校对 / 自动重写都在里面）。
+                    # 漏了这一步，"重试成功的阶段"就偷偷降级成"只跑了 run_stage"。
+                    print(f"[orchestrator] 阶段{n} 重试后成功，补跑后置动作")
+                    _code = _post_stage(n)
+                    if _code is not None:
+                        return _finalize("waiting_review", _code)
             # 阶段末尾的预算检查（S10 修复）。
             #
             # 此处原先只 `print` 一个状态就往下走 —— 计算了 `state` 却从不据此停机，

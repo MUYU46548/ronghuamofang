@@ -52,6 +52,14 @@ class ProgressManager:
                 # 处置：① 大声告警（带路径与原因）② 先把原件另存一份再降级。
                 data = {}
                 self._quarantine(raw, e)
+            else:
+                # 「语法合法但结构不对」是同一风险的另一半盲区：`[]` / `"..."` / `123`
+                # 都能 json.loads 成功，随后 `data.items()` 直接 AttributeError
+                # 穿透出去，把整条流水线打挂。与语法错误同样处置：
+                # 告警 + 隔离原件 + 降级到默认值。
+                if not isinstance(data, dict):
+                    self._quarantine(raw, TypeError("顶层不是对象: " + type(data).__name__))
+                    data = {}
         else:
             data = {}
         base = deepcopy(DEFAULT_PROGRESS)

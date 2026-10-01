@@ -270,10 +270,17 @@ def restore_snapshot(snap_id, history_dir="history", yes=False, delete_extra=Fal
             except Exception as e:                          # noqa: BLE001
                 msgs.append(f"删除失败 {rel}: {e}")
 
-    msgs.append(f"✅ 恢复完成（{restored}/{len(to_restore)} 项）")
+    # ⚠️ 只要有一项没恢复成功就**不能报成功**：否则 MCP/GUI 显示"已恢复"，
+    # 磁盘上却是新旧混杂，用户不会再补救 —— 典型的"丢了文件却报成功"。
+    all_ok = (restored == len(to_restore))
+    if all_ok:
+        msgs.append(f"✅ 恢复完成（{restored}/{len(to_restore)} 项）")
+    else:
+        msgs.append(f"🔴 恢复**未完成**（{restored}/{len(to_restore)} 项成功，"
+                    f"{len(to_restore) - restored} 项失败 —— 见上方 ✗）")
     msgs.append("提示：如状态不符预期，可再恢复恢复前快照 —— "
                 f"python scripts/snapshot.py --restore {safety.name} --yes")
-    return True, msgs
+    return all_ok, msgs
 
 
 def snapshot_ids(history_dir="history"):

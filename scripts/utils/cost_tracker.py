@@ -469,7 +469,17 @@ def estimate_cost_yuan(tokens_in, tokens_out, model=None, provider=None, role=No
     """
     rate, _ = resolve_rate(model, provider, role)
     cache_rate = rate.get("cache_read", 0)
-    return round((tokens_in * rate["in"] + tokens_out * rate["out"] + cache_read * cache_rate) / 1_000_000, 6)
+    # ⚠️ 缓存命中的 token **已经在 tokens_in 里**了（OpenAI / TokenHub / DeepSeek /
+    # Anthropic 口径一致：`prompt_tokens_details.cached_tokens` 是 `prompt_tokens`
+    # 的**子集**）。所以必须先把它从全价部分扣掉，否则命中部分被计两次
+    # （全价 + 缓存价）。
+    # 危害不是"数字难看"：实测 deepseek-v4-flash 缓存占比可达 ~95%，
+    # 输入成本被高估近一倍 → `CostTracker.status()` 按 sum_cost 判定 →
+    # **预算熔断提前触发**（本该跑完的书被拦腰截断）。
+    n_cache = max(0, int(cache_read or 0))
+    billable_in = max(0, int(tokens_in or 0) - n_cache)
+    return round((billable_in * rate["in"] + tokens_out * rate["out"]
+                  + n_cache * cache_rate) / 1_000_000, 6)
 
 
 class CostTracker:

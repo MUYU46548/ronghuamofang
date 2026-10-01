@@ -24,10 +24,18 @@ from utils.progress_manager import ProgressManager
 # Artifact directories to clean when rejecting stage N (self + downstream)
 DOWNSTREAM_ARTIFACTS = {
     2: ["data/outline/chapters", "data/chapters/raw", "data/chapters/checked",
-        "data/chapters/refined", "data/merged", "output"],
-    3: ["data/chapters/raw", "data/chapters/checked", "data/chapters/refined",
-        "data/merged", "output"],
-    4: ["data/chapters/raw", "data/chapters/checked", "data/chapters/refined",
+        "data/chapters/refined", "data/summaries", "data/merged", "output"],
+    # ⚠️ stage3 **自己的产物**是 data/outline/chapters —— 原先漏了它，导致
+    # "打回 stage3"是个**空操作**：目录里的旧逐章大纲一个没删，而 stage3 的断点
+    # 判据那时只看 exists() → 重跑直接判"全部已存在"并 mark_stage_done。
+    # 用户以为重做了，实际喂给 stage4 的还是那批被打回的大纲。
+    3: ["data/outline/chapters",
+        "data/chapters/raw", "data/chapters/checked", "data/chapters/refined",
+        "data/summaries", "data/merged", "output"],
+    # 4 也要清 summaries：rolling.md 按章累积，不清的话重跑会把新旧摘要叠在一起
+    # （旧章的情节描述留在 global_summary 里，写作时被当上下文注入 → 带偏新章）。
+    4: ["data/summaries",
+        "data/chapters/raw", "data/chapters/checked", "data/chapters/refined",
         "data/merged", "output"],
     5: ["data/chapters/checked", "data/chapters/refined", "data/merged", "output"],
     6: ["data/chapters/refined", "data/merged", "output"],

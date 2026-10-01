@@ -255,8 +255,13 @@ def is_chapter_complete(path, target_min=1200, target_max=3500):
         return False
     if not text:
         return False
-    # 检查截断标记
-    if text.endswith("...") or text.endswith("……"):
+    # 检查截断标记：只认真正"话没说完"的停顿符。
+    # ⚠️ 2026-10-01 修正：原先把行尾的 `...` / `……` 也当截断 —— 而省略号是中文小说
+    # 对话与留白的**合法结尾**。误判的代价不是"多跑一次"，而是**反复重写**：
+    # 断点续跑每轮都把它当半成品重跑，模型若保持同样的结尾就永远完不成，钱一直烧。
+    # 真正的截断由产出契约判定（`finish_reason == "length"` → exit_code 2），
+    # 这里的标点判据只是廉价兜底 —— 宁可漏判，不可误伤。
+    if text.endswith(("，", "、", "：", "；", "（", "【", "“", "‘", "《")):
         return False
     # 检查字数
     words = count_cn_words(text)

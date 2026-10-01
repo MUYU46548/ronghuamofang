@@ -40,24 +40,31 @@ TEMPLATE_CACHE = Path("data/tmp/template_cache")
 
 
 def merge_book(refined_dir, checked_dir, raw_dir, out_path, book_title="未命名"):
-    """按优先级合并章节为 book.md：refined > checked > raw。"""
-    sources = [refined_dir, checked_dir, raw_dir]
-    chosen = None
-    for d in sources:
-        files = sorted(Path(d).glob("*.md"))
-        if files:
-            chosen = (d, files)
-            break
-    if not chosen:
+    """按优先级合并章节为 book.md：refined > checked > raw，**逐章**取最优版本。
+
+    ⚠️ 2026-10-01 修正：原先「命中第一个非空目录就定死」。于是
+    `data/chapters/refined/` 里只要残留**一个**文件（例如上一轮 stage6 只完成了一部分），
+    就只合并那一章，checked/raw 里其它章**全被忽略** —— 而成品就此定稿；
+    更糟的是 stage7 会 `mark_stage_done`，断点续跑再也不会补它。
+    现在逐章按优先级取（refined 优先，缺的降级到 checked/raw），
+    合并章数由调用方校验（见 run_stage）。
+    """
+    files = {}
+    for d in (refined_dir, checked_dir, raw_dir):
+        p = Path(d)
+        if not p.exists():
+            continue
+        for f in sorted(p.glob("*.md")):
+            files.setdefault(f.name, f)          # 先到先得 = 优先级高的赢
+    if not files:
         raise FileNotFoundError("无可用章节（refined/checked/raw 均为空）")
-    dirname, files = chosen
     parts = [f"# {book_title}", ""]
-    for f in files:
-        parts.append(read_text(f).strip())
+    for name in sorted(files):
+        parts.append(read_text(files[name]).strip())
         parts.append("")
     text = COMMENT_RE.sub("", "\n".join(parts))  # 去除质量/摘要注释
     write_text(out_path, text.strip() + "\n")
-    print(f"[stage7] 合并 {len(files)} 章（来源: {dirname}）→ {out_path}")
+    print(f"[stage7] 合并 {len(files)} 章 → {out_path}")
     return len(files)
 
 
@@ -301,6 +308,14 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     if not book_docx.exists() or book_docx.stat().st_size == 0:
         progress.set_stage(7, "failed", error="docx 未生成或为空")
         return False, "stage7 docx 生成失败"
+
+    # 章数校验（2026-10-01）：只判 docx 非空不够 —— **缺章的书也是"非空 docx"**。
+    # 而 stage7 一旦 mark_done，断点续跑就再也不会补它：状态显示完成，成品是残卷。
+    expect = int(((proj or {}).get("book") or {}).get("chapters", 0) or 0)
+    if expect and n < expect:
+        progress.set_stage(7, "failed", error=f"合并 {n} 章 < 计划 {expect} 章")
+        return False, (f"stage7 失败：只合并到 {n} 章，计划 {expect} 章 —— "
+                       "部分章节可能尚未生成，或不在 refined/checked/raw 里")
 
     progress.mark_stage_done(7)
     print(f"[stage7] 完成：{n} 章 → {book_docx}")

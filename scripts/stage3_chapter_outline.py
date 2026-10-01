@@ -42,12 +42,28 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     out_dir = Path("data/outline/chapters")
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # 断点：已存在的大纲文件跳过
-    pending = [n for n in range(1, total + 1) if not (out_dir / f"{n:02d}.md").exists()]
+    def _outline_ok(p):
+        """断点判据：大纲存在**且通过字段校验**（核心事件/涉及角色/功能）。
+
+        ⚠️ 只判 `exists()` 不够：`reject.py --stage 3` 现在会清空本目录，但若目录里
+        残留了半成品/占位大纲，会被无条件信任并喂给 stage4（写作阶段照着烂大纲写）。
+        直接复用 `check_chapter_outline` —— 判据只有一份。
+        """
+        if not p.exists():
+            return False
+        try:
+            ok, _errs = check_chapter_outline(p)
+            return bool(ok)
+        except Exception:                                     # noqa: BLE001
+            return False
+
+    # 断点：已存在且**合格**的大纲文件跳过
+    pending = [n for n in range(1, total + 1)
+               if not _outline_ok(out_dir / f"{n:02d}.md")]
     if not pending:
         progress.mark_stage_done(3)
-        print("[stage3] 全部章节大纲已存在，跳过")
-        return True, "stage3 跳过（已存在）"
+        print("[stage3] 全部章节大纲已存在且合格，跳过")
+        return True, "stage3 跳过（已存在且合格）"
 
     batches = [pending[i:i + batch] for i in range(0, len(pending), batch)]
     for bi, chapters in enumerate(batches, 1):

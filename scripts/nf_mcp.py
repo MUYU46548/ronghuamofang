@@ -106,20 +106,25 @@ MCP_TOOLS = [
     },
     {
         "name": "nf_run_stage",
-        "description": "运行流水线的指定阶段（1-8）。返回 job_id，后续可查询 job 状态",
+        # ⚠️ 只能是 1-7：后端 `/stage/{n}/run` 显式校验 `1 <= n <= 7`，
+        # 传 8 必被 400 拒绝。阶段 8（Markdown 分卷导出）的入口是
+        # `POST /export/markdown`（工具 `nf_export_markdown`），不走 run_stage。
+        # 契约写错会把 Agent 引到必然失败的调用上。
+        "description": "运行流水线的指定阶段（1-7）。返回 job_id，后续可查询 job 状态。"
+                       "阶段 8（Markdown 分卷导出）请用 nf_export_markdown",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "stage": {
                     "type": "integer",
                     "minimum": 1,
-                    "maximum": 8,
-                    "description": "阶段号（1=素材归并, 2=整体大纲, 3=逐章大纲, 4=写作, 5=检查, 6=润色, 7=Word, 8=Markdown导出）",
+                    "maximum": 7,
+                    "description": "阶段号（1=素材归并, 2=整体大纲, 3=逐章大纲, 4=写作, 5=检查, 6=润色, 7=Word）",
                 },
                 "from_stage": {
                     "type": "integer",
                     "minimum": 1,
-                    "maximum": 8,
+                    "maximum": 7,
                     "description": "从哪阶段开始（默认=stage）",
                 },
                 "stream": {
