@@ -47,7 +47,7 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 
 | 目的 | 命令（workdir=项目根，用 .venv python） |
 |------|------|
-| **Agent 只读入口（全景/自检）** | `python scripts/nfctl.py status`（一屏：书名/阶段/进度/成本/待审批/产物）· `check`（环境自检，含 **YAML 重复键检测**）· `doctor`（**数据一致性自检**：runs 脏行/产物完整性/孤儿文件/成本负数）· `test`（**统一测试运行器**：跑 tests/unit + tests/http 全部自定义测试，`--pattern` 选单个）· **`release-check`（发版前必跑：质量门 + 全量测试 + MCP 真机握手 + e2e 视觉验收 + 打包产物核验，一条命令；`--skip-e2e` 可跳）** · `api <GET路径>`（只读转发 nf_api，省手写 curl）· **`model-check [provider] [--live]`（换模型 / 换供应商前必跑**：配置完整性、Key 脱敏回显、各角色模型是否在该 provider 的 `available_models` 内、fallback 是否跨供应商（跨了必 404）、白名单覆盖面；`--live` 才发一次最小请求，默认零 token）· `serve`（启动零依赖调试看板 127.0.0.1:8766）。**只读、零 token**；写操作走下方各脚本 |
+| **Agent 只读入口（全景/自检）** | `python scripts/nfctl.py status`（一屏：书名/阶段/进度/成本/待审批/产物）· `check`（环境自检，含 **YAML 重复键检测** + **提示词模板体检**：必需清单从代码里 `load_template()` 的**调用点**反推，缺文件/空文件/调用名漏 `.md` 都算阻塞）· `doctor`（**数据一致性自检**：runs 脏行/产物完整性/孤儿文件/成本负数）· `test`（**统一测试运行器**：跑 tests/unit + tests/http 全部自定义测试，`--pattern` 选单个）· **`release-check`（发版前必跑：质量门 + 全量测试 + MCP 真机握手 + e2e 视觉验收 + 打包产物核验，一条命令；`--skip-e2e` 可跳）** · `api <GET路径>`（只读转发 nf_api，省手写 curl）· **`model-check [provider] [--live]`（换模型 / 换供应商前必跑**：配置完整性、Key 脱敏回显、各角色模型是否在该 provider 的 `available_models` 内、fallback 是否跨供应商（跨了必 404）、白名单覆盖面；`--live` 才发一次最小请求，默认零 token）· `serve`（启动零依赖调试看板 127.0.0.1:8766）。**只读、零 token**；写操作走下方各脚本 |
 | 全流程启动 | `python scripts/orchestrator.py` |
 | 从阶段 N 重跑 | `python scripts/orchestrator.py --from N` |
 | 只跑阶段 N | `python scripts/orchestrator.py --stage N` |
@@ -108,6 +108,8 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 | **locked 违例检查自检** | `python tests/unit/test_locked_violations.py`（零 LLM：`missing`/`lock_lost`/`renamed` 三判据各自**正反例** + `locked: "true"` 字符串不误报 + 别名形态不算改名 + **未生效时必须回报 `checked=false`**（不许把没查伪装成通过），14 断言） |
 | **多书归档范围自检** | `python tests/unit/test_switch_book_scope.py`（**临时项目根真实归档/恢复**：`config/` 与 `materials/` 随书走 · 应用级配置留在工作区 · `project.yaml` 重置为骨架 · **老格式归档恢复不得删掉工作区配置**（逐项合并而非整体替换），21 断言） |
 | **模型/供应商切换通道自检** | `python scripts/nfctl.py model-check [provider]`（离线：base_url/key 完整性（**Key 只输出前 3 后 4**）、各角色模型是否在该 provider 清单内、fallback 是否跨供应商、白名单覆盖面；`--live` 才发最小请求） |
+| **stage4 长跑止损自检** | `python tests/unit/test_stage4_stoploss.py`（纯 fake：连续失败 3 章即停（**只跑 3 章不是 10 章**）· 阈值 0 = 关闭 · **章间预算熔断**真的在阶段内生效 · 反证：正常路径不受影响，__16 断言__） |
+| **locked 违例 · 归档范围 · 提示词体检** | 见上表三行（`test_locked_violations` / `test_switch_book_scope` / `nfctl check`） |
 | **段落级精修轴** | `python tests/unit/test_paragraph_refine.py`（零 LLM：char_diff/summarize_diff/风格特征/split_paragraphs/历史/回退，24 断言） |
 | **正文退化检测自检** | `python tests/unit/test_verify_degenerate.py`（审计行动项 10：6 种退化形态（复读填充/思考残片/元话语拒答/无段落换行/标点灌水/模板骨架）各**判据隔离**样本 + 真实章节零误报 + 阈值边界 + `is_chapter_complete` 集成 + **7 条反向验证**（删判据→必须变绿），59 断言） |
 | 审稿闭环端点 HTTP 自检 | `python tests/http/test_review_api_http.py`（临时项目根起 nf_api：报告缺失 → 400 可行动提示、审查 job、决策保存与回读、批量精修真读到决策、键值格式兼容、交互式被拒，25 断言） |
@@ -326,6 +328,11 @@ if __name__ == "__main__":
 - 自动重写状态：`data/state/progress.json` → `stages["4"].auto_rewritten`（`{章号: 已用轮次}`，
   幂等依据；轮次用尽后保留 `needs_rewrite` 转人工）。开关 `gates.auto_rewrite`（默认 false）
   / `gates.auto_rewrite_max_rounds`（默认 1）
+- **长跑保护**（2026-10-01）：`gates.stage4_max_consecutive_failures`（默认 3，0=关）——
+  stage4 **连续** N 章失败即判定系统性问题（模型挂了/提示词改坏/输入构造错）并**提前停止**，
+  避免"坏掉了还一路跑完 100 章"在 `data/chapters/raw/` 铺满废稿；已完成的章节不受影响。
+  另：stage4/5/6 现在**在阶段内部**也查预算熔断（此前只在阶段之间查 —— 而一章就能烧掉几元，
+  限额对"一次跑几十章"这种最该保护的情形恰好失效）
 - 控制台触发：`POST /auto_rewrite/run {threshold?, max_rounds?, chapters?, dry_run?}`
   （**dry_run 默认 true**，须显式 `dry_run:false` 才真正改稿；`GET /state` 可只读查看上述状态）
 - 设定库引用索引：`materials/vault_links.md`（stage1 归并后自动生成，素材→设定条目溯源）
