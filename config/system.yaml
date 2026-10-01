@@ -43,6 +43,29 @@ providers:
         type: disabled
     - reasoning_effort: none
     - enable_thinking: false
+  # 美团 LongCat（龙猫）—— 2026-10-01 预置。OpenAI 兼容协议，与上面同一套客户端，
+  # 代码零改动（换供应商只改本文件）。
+  # ⚠️ 拿到 Key 后**必须实测**两处（官方文档自相矛盾）：
+  #   ① base_url：文档给的端点是 .../openai/v1/chat/completions，SDK 示例却写
+  #      base_url=.../openai。本项目的客户端按 `base_url + "/chat/completions"` 拼接，
+  #      故先填带 /v1 的完整形态；**若报 404 就删掉结尾的 /v1**。
+  #   ② /models 拉取：GUI「↻ 同步服务商模型」会请求 `base_url + "/models"`，
+  #      龙猫若不支持该端点会返回错误 —— 属**可忽略**（另两处入口不受影响）。
+  # 自检：python scripts/nfctl.py model-check longcat
+  longcat:
+    type: openai-compat
+    base_url: https://api.longcat.chat/openai/v1
+    api_key_env: LONGCAT_API_KEY
+    timeout: 600
+    retries: 5
+    available_models:
+    - LongCat-2.0            # 1M 上下文 / 最大输出 128K（官方规格）
+    - LongCat-2.5-Preview
+    fallback: []             # ⚠️ 刻意留空：跨供应商的模型名不能放进同一个 base_url 下
+                             # （本项目 fallback 链复用当前 provider 的端点与 Key，
+                             #   放 tokenhub 的模型名进来 → 404 → 直接 raise，吃掉整条链）
+    # disable_thinking_models 暂不预设：LongCat-2.x 是否默认进思考模式**未实测**。
+    # 若实测正文为空/进 reasoning_content，把模型名加进来即可（无需改代码）。
 model:
   default:
     provider: tokenhub

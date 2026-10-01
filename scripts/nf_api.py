@@ -2074,7 +2074,19 @@ class Handler(BaseHTTPRequestHandler):
                 cfg["model"][role]["provider"] = new_provider
                 (ROOT / "config" / "system.yaml").write_text(
                     yaml.dump(cfg, allow_unicode=True, sort_keys=False), encoding="utf-8")
-                self._send(200, {"ok": True, "role": role, "provider": new_provider})
+                # 换了供应商、模型名未必跟着换 —— 模型名跨供应商**不通用**，
+                # 而本项目对 400/404 是 raise、**不走 fallback**（见 llm_client._post_chat），
+                # 留着旧模型名等于该角色直接哑火。这里**不阻断**（available_models 未必全），
+                # 只回报 warning 由 GUI 提示。
+                cur_model = str((cfg["model"].get(role) or {}).get("id") or "")
+                avail = ((cfg.get("providers", {}) or {}).get(new_provider) or {}).get(
+                    "available_models") or []
+                warning = ""
+                if cur_model and avail and cur_model not in avail:
+                    warning = ("模型「" + cur_model + "」不在 " + new_provider +
+                               " 的 available_models 内，运行时会 404 —— 请同时改选模型")
+                self._send(200, {"ok": True, "role": role, "provider": new_provider,
+                                 "model": cur_model, "warning": warning})
             elif p == "/project/archive":
                 name = str(body.get("name") or "").strip()
                 force = bool(body.get("force"))

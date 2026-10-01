@@ -153,7 +153,17 @@ function getWorkspaceDir() {
 // v11（2026-09-30，同批收尾）：payload 新增 `scripts/nf_mcp_handshake_check.py`
 //   （MCP 真机握手自检，用户可自己验证接入）、`scripts/nfctl.py` 的 `release-check` 子命令。
 //   **先 bump 再 electron-builder**。
-const SEED_VERSION = 11;
+// v12（2026-10-01，第八批）：payload 多处变更 ——
+//   · `utils/setting_schema.py` 新增 `is_locked` 公开入口（locked 判据单点复用）；
+//   · `obsidian_bridge.py` 新增 `check_locked_violations`（locked 结构性违例：缺失/
+//     丢锁定/改名）+ `locked` 子命令，`check_consistency` 把它从「未实现」移入「已实现」；
+//   · `switch_book.py` 归档范围纳入 `config/` 与 `materials/`（换书不再丢配置与素材卡），
+//     并保证归档后工作区仍有 `system.yaml` 与 `project.yaml` 骨架；
+//   · `nf_api.py` 的 `/config/provider` 在切供应商后回报模型不匹配的 warning；
+//   · `nfctl.py` 新增 `model-check` 子命令（换模型前的通道自检）；
+//   · `cost_tracker.py` 补 LongCat 定价占位、`config/system.yaml` 预置 `longcat` provider。
+//   **先 bump 再 electron-builder**。
+const SEED_VERSION = 12;
 
 // 只播种/刷新**代码与提示词**目录。
 // 刻意不含 data/：那是用户产物（章节、设定、大纲），任何情况下都不能被覆盖。
@@ -217,8 +227,13 @@ function seedWorkspace() {
     if (!fs.existsSync(cfgDst)) {
       fs.cpSync(cfgSrc, cfgDst, { recursive: true });
     } else {
-      // 逐文件补缺：新版本新增的配置项（如新增 provider）能到位，
-      // 用户已填的不动。.env 等同理（它不在 payload 里，天然安全）。
+      // 逐文件补缺：**只在整个文件缺失时**才从 payload 复制。
+      // ⚠️ 这只做到「文件粒度」，**不会**把新版本新增的 provider 并进用户已有的
+      // system.yaml —— 键级合并得改写用户配置，而 yaml 序列化会丢掉全部注释、
+      // 也可能覆盖用户的模型选择，风险大于收益，所以刻意不做。
+      // 升级后要用新 provider，请手动把 payload 里 config/system.yaml 的对应段落
+      // 贴进工作区那份；`python scripts/nfctl.py model-check <provider>` 可确认是否已到位。
+      // .env 天然安全（它不在 payload 里）。
       for (const f of fs.readdirSync(cfgSrc)) {
         const s = path.join(cfgSrc, f);
         const t = path.join(cfgDst, f);

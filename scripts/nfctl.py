@@ -19,6 +19,8 @@
     python scripts/nfctl.py doctor [--json]         # 数据一致性自检：产物完整性/孤儿文件/数据库
     python scripts/nfctl.py serve  [--port 8766]    # 启动本地调试看板（零依赖）
     python scripts/nfctl.py api <GET路径> [--json]  # 只读转发到 nf_api（服务需在跑）
+    python scripts/nfctl.py model-check [provider] [--live]
+                                     # 换模型/换供应商前的通道自检（离线；--live 才发请求）
 
 退出码：0 = 成功；1 = 参数或读取错误；2 = 后端不可用（仅 api 子命令）。
 """
@@ -26,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import socket
 import sys
 import time
@@ -1023,6 +1026,206 @@ def render_release_check(data) -> str:
     return "\n".join(lines)
 
 
+# ---------------------------------------------------------------- 模型/供应商切换通道自检
+def _load_env_light(root: Path) -> None:
+    """把项目 `.env` 读进 os.environ（**不覆盖**已存在的同名变量）。
+
+    只读、无副作用。刻意不 import llm_client（那会拉进 validator 等一整条链）。
+    """
+    p = root / ".env"
+    if not p.exists():
+        return
+    try:
+        raw = p.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        k, v = k.strip(), v.strip().strip('"').strip("'")
+        if k and k not in os.environ:
+            os.environ[k] = v
+
+
+def _mask_key(value: str) -> str:
+    """脱敏：前 3 后 4。长度不足 8 一律不显示（防「前后拼出全串」）。"""
+    return (value[:3] + "..." + value[-4:]) if len(value) >= 8 else ("(已设置)" if value else "")
+
+
+def _live_probe(base_url: str, key: str, model: str) -> tuple:
+    """发一次最小 chat 请求验证端点。返回 (ok, detail)。"""
+    payload = {"model": model,
+               "messages": [{"role": "user", "content": "ping"}],
+               "max_tokens": 8}
+    req = urllib.request.Request(
+        base_url.rstrip("/") + "/chat/completions",
+        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        headers={"Content-Type": "application/json",
+                 "Authorization": "Bearer " + key},
+        method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        return True, "HTTP 200（回显 model=" + str(data.get("model", "?")) + "）"
+    except urllib.error.HTTPError as e:
+        return False, "HTTP %s: %s" % (e.code, e.read().decode("utf-8", "replace")[:200])
+    except Exception as e:                                    # noqa: BLE001
+        return False, repr(e)
+
+
+def collect_model_check(root: Path, provider: str = None, live: bool = False) -> dict:
+    """检查「换模型 / 换供应商」这条通道是否真的通（离线；`--live` 才发请求）。
+
+    ## 为什么值得单独做一条命令
+
+    换模型失败的代价不是"报个错"，而是**该角色静默哑火**：模型名跨供应商不通用，
+    而本项目对 400/404 是 `raise`、**不走 fallback**（见 `llm_client._post_chat`），
+    于是"切了 provider 却留着旧模型名"会让这个角色彻底不出活。
+
+    本命令把这条链上所有会挡人的点一次列清：
+      ① 配置完整性（base_url / api_key_env）
+      ② Key 是否就位（**只输出脱敏值**，前 3 后 4）
+      ③ 各角色的 provider/id 与 `available_models` 是否自洽
+      ④ fallback 链是否**跨供应商**（本项目 fallback 复用当前 provider 的端点与 Key，跨了必 404）
+      ⑤ 模型白名单是否覆盖各角色当前模型（GUI `/models/switch` 默认 strict 校验）
+      ⑥ `--live`：实测一次最小请求（默认**不发**，保持零 token）
+    """
+    _load_env_light(root)
+    cfg = _read_yaml(root / "config" / "system.yaml", {}) or {}
+    providers = cfg.get("providers") or {}
+    models_cfg = cfg.get("model") or {}
+
+    issues, warnings, entries = [], [], []
+    targets = [provider] if provider else list(providers)
+    if provider and provider not in providers:
+        return {"ok": False, "providers": [],
+                "issues": ["provider「%s」不存在（config/system.yaml 里只有：%s）"
+                           % (provider, "、".join(providers) or "无")],
+                "warnings": []}
+
+    for pid in targets:
+        prov = providers.get(pid)
+        if not isinstance(prov, dict):
+            issues.append("provider「%s」配置不是字典，已跳过" % pid)
+            continue
+        base_url = str(prov.get("base_url") or "")
+        key_env = str(prov.get("api_key_env") or "")
+        key_val = os.environ.get(key_env, "") if key_env else ""
+        avail = [str(x) for x in (prov.get("available_models") or [])]
+        fb = [str(x) for x in (prov.get("fallback") or [])]
+
+        entry = {"provider": pid, "base_url": base_url, "api_key_env": key_env,
+                 "key_present": bool(key_val), "key_mask": _mask_key(key_val),
+                 "available_models": avail, "fallback": fb, "roles": [], "live": []}
+
+        if not base_url:
+            issues.append("%s：缺 base_url（客户端无法构造请求）" % pid)
+        if not key_env:
+            issues.append("%s：缺 api_key_env（不知道该读哪个环境变量）" % pid)
+        elif not key_val:
+            issues.append("%s：`%s` 未配置 —— 在项目 .env 里补上（.env 不进 git）" % (pid, key_env))
+        if not avail:
+            warnings.append("%s：available_models 为空 → 该 provider 的模型下拉会是空的，"
+                            "且所有模型名都过不了白名单校验" % pid)
+
+        # ③ 角色 ↔ 供应商自洽
+        for role, spec in models_cfg.items():
+            if not isinstance(spec, dict) or str(spec.get("provider") or "") != pid:
+                continue
+            mid = str(spec.get("id") or "")
+            ok = (mid in avail) if avail else None
+            entry["roles"].append({"role": role, "model": mid, "in_available": ok})
+            if ok is False:
+                issues.append("%s/%s：模型「%s」不在 available_models 内 → 调用时会 404"
+                              "（本项目 404 是 raise，不走 fallback）" % (pid, role, mid))
+
+        # ④ fallback 跨供应商
+        for fm in fb:
+            if avail and fm not in avail:
+                issues.append("%s：fallback 里的「%s」不在本 provider 的 available_models 内。"
+                              "fallback 复用**当前 provider** 的端点与 Key，"
+                              "放别家模型名 = 一跳就 404 并吃掉整条链" % (pid, fm))
+
+        # ⑥ 实测
+        if live and base_url and key_val:
+            seen = set()
+            for r in entry["roles"]:
+                mid = r["model"]
+                if not mid or mid in seen:
+                    continue
+                seen.add(mid)
+                ok, detail = _live_probe(base_url, key_val, mid)
+                entry["live"].append({"model": mid, "ok": ok, "detail": detail})
+                if not ok:
+                    issues.append("%s/%s：实测失败 —— %s%s" % (
+                        pid, mid, detail,
+                        "（若为 404，试把 base_url 结尾的 /v1 去掉或加上）" if "404" in detail else ""))
+
+        entries.append(entry)
+
+    # ⑤ 白名单覆盖面
+    try:
+        from utils import model_registry
+        allowed, _src = model_registry.load_registered_models(cfg, root)
+        missing = []
+        for role, spec in models_cfg.items():
+            if not isinstance(spec, dict):
+                continue
+            mid = str(spec.get("id") or "")
+            if mid and mid not in allowed:
+                missing.append("%s→%s" % (role, mid))
+        if missing:
+            issues.append("模型白名单未覆盖：" + "、".join(missing) +
+                          "（GUI 切换默认 strict 校验会 400；请在「模型」页手动添加，"
+                          "或写进该 provider 的 available_models）")
+        whitelist = {"size": len(allowed), "missing": missing}
+    except Exception as e:                                    # noqa: BLE001
+        whitelist = {"size": 0, "missing": []}
+        warnings.append("白名单校验跳过：" + str(e)[:120])
+
+    return {"ok": not issues, "providers": entries, "issues": issues,
+            "warnings": warnings, "whitelist": whitelist, "live": bool(live)}
+
+
+def render_model_check(data: dict) -> str:
+    lines = ["===== 模型 / 供应商切换通道自检 ====="]
+    for e in data.get("providers", []):
+        lines.append("")
+        lines.append("[%s]" % e["provider"])
+        lines.append("  base_url     : %s" % (e["base_url"] or "(缺失)"))
+        lines.append("  api_key_env  : %s" % (e["api_key_env"] or "(缺失)"))
+        lines.append("  key          : %s" % (e["key_mask"] or "未配置"))
+        lines.append("  可用模型(%d)  : %s" % (len(e["available_models"]),
+                                            "、".join(e["available_models"]) or "（空）"))
+        if e["fallback"]:
+            lines.append("  fallback     : %s" % "、".join(e["fallback"]))
+        for r in e["roles"]:
+            mark = {True: "✓", False: "✗ 不在清单内", None: "? 清单为空"}[r["in_available"]]
+            lines.append("    %-10s → %-22s %s" % (r["role"], r["model"], mark))
+        for lv in e.get("live", []):
+            lines.append("    live %-20s %s" % (lv["model"], lv["detail"]))
+    if data.get("whitelist"):
+        wl = data["whitelist"]
+        lines.append("")
+        lines.append("白名单登记模型数：%d" % wl.get("size", 0))
+    lines.append("")
+    if data.get("issues"):
+        lines.append("发现问题（%d）：" % len(data["issues"]))
+        for i in data["issues"]:
+            lines.append("  ✗ " + i)
+    else:
+        lines.append("没有发现问题。")
+    for w in data.get("warnings", []):
+        lines.append("  ⚠ " + w)
+    if not data.get("live"):
+        lines.append("")
+        lines.append("（未实测网络请求 —— 加 --live 会对每个在用模型发一次最小调用，"
+                     "默认保持零 token）")
+    return "\n".join(lines)
+
+
 def main(argv=None):
     try:
         sys.stdout.reconfigure(encoding="utf-8")
@@ -1053,6 +1256,12 @@ def main(argv=None):
     p_api = sub.add_parser("api", parents=[common], help="只读转发 GET 到 nf_api")
     p_api.add_argument("path", help="如 /state、/health、/outline/trend、/costs/summary")
     p_api.add_argument("--port", type=int, default=API_PORT)
+    p_mc = sub.add_parser("model-check", parents=[common],
+                          help="模型/供应商切换通道自检（换模型前跑，防切完哑火）")
+    p_mc.add_argument("provider", nargs="?", default=None,
+                      help="只检查某个 provider（省略则检查全部）")
+    p_mc.add_argument("--live", action="store_true",
+                      help="额外对每个在用模型发一次最小请求（默认不发，零 token）")
     p_rel = sub.add_parser("release-check", parents=[common],
                            help="发版前必跑：质量门 + 全量测试 + MCP 真机握手 + e2e 视觉验收 + 产物核验")
     p_rel.add_argument("--skip-e2e", action="store_true",
@@ -1081,6 +1290,12 @@ def main(argv=None):
         data = run_tests(root, pattern=args.pattern, verbose=args.verbose)
         print(json.dumps(data, ensure_ascii=False, indent=2) if as_json else render_test_results(data))
         return 0 if data["failed"] == 0 else 1
+
+    if args.cmd == "model-check":
+        data = collect_model_check(root, provider=args.provider, live=args.live)
+        print(json.dumps(data, ensure_ascii=False, indent=2) if as_json
+              else render_model_check(data))
+        return 0 if data["ok"] else 1
 
     if args.cmd == "serve":
         start_serve(root, port=args.port)

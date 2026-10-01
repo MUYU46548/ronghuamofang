@@ -41,7 +41,12 @@ async function api(path, method = "GET", body = null) {
 const tab = ref("pipeline");
 const state = ref(null);
 const models = ref(null);
-const modelOptions = ref([]); // 动态从 /models/available 加载
+const modelOptions = ref([]); // 动态从 /models/available 加载（**全量**，供搜索框计数）
+// 模型下拉**按角色所在的 provider 过滤**。此前只取 providers 里的「第一个」的
+// available_models，于是**新增一个供应商后，它的模型根本不进下拉** ——
+// 换模型时表现为「明明加了 provider 却选不到模型」（2026-10-01 修）。
+const modelsByProvider = ref({});   // {providerId: [模型名]}
+const manualModels = ref([]);       // 手动添加的模型（全局可见，任何 provider 的下拉都列出）
 const costs = ref([]);
 const costSummary = ref(null);
 const costView = ref("cost");   // "cost" | "usage" | "rates"
@@ -1137,10 +1142,14 @@ async function refreshModels() {
   const r = await api("/models/available");
   if (r.status === 200) {
     providers.value = r.data.providers;
-    const firstProv = Object.values(r.data.providers)[0];
-    if (firstProv && firstProv.available_models) {
-      modelOptions.value = firstProv.available_models;
+    // 逐 provider 收模型列表（不再「只取第一个 provider」—— 那是换供应商后
+    // 下拉里看不到新模型的根因）
+    const byProv = {};
+    for (const [pid, p] of Object.entries(r.data.providers || {})) {
+      byProv[pid] = Array.isArray(p.available_models) ? p.available_models.slice() : [];
     }
+    modelsByProvider.value = byProv;
+    modelOptions.value = Object.values(byProv).flat();
     // 构建服务商选项列表
     providerOptions.value = Object.entries(r.data.providers).map(([pid, p]) => ({
       id: pid,
@@ -1158,22 +1167,28 @@ async function refreshFetchedModels() {
   try {
     const r = await api("/models/fetched");
     if (r.status === 200 && r.data.providers) {
-      const tokenhub = r.data.providers?.tokenhub;
-      if (tokenhub?.models?.length) {
-        modelOptions.value = tokenhub.models;
-        modelSource.value = "fetched";
-        say(`已同步 ${tokenhub.count} 个模型`);
-        // 更新服务商选项
-        if (providers.value?.tokenhub) {
-          providerOptions.value = [{
-            id: "tokenhub",
-            name: "tokenhub ✓",
-            has_key: true,
-          }];
+      // 逐 provider 汇总。⚠️ 旧实现**硬编码 tokenhub**，并且顺手把 providerOptions
+      // 重置成「只剩 tokenhub 一项」—— 切到别的供应商后下拉里就再也选不回来了。
+      // 现在：谁成功就更新谁，**绝不重建 providerOptions**（那只该由 refreshModels 负责）。
+      const merged = { ...modelsByProvider.value };
+      const parts = [];
+      let okCount = 0;
+      for (const [pid, info] of Object.entries(r.data.providers)) {
+        if (info && Array.isArray(info.models) && info.models.length) {
+          merged[pid] = info.models.slice();
+          parts.push(`${pid} ${info.count ?? info.models.length} 个`);
+          okCount += 1;
+        } else if (info && info.error) {
+          parts.push(`${pid} ✗ ${String(info.error).slice(0, 48)}`);
         }
+      }
+      if (okCount) {
+        modelsByProvider.value = merged;
+        modelOptions.value = Object.values(merged).flat();
+        modelSource.value = "fetched";
+        say(`同步完成：${parts.join(" / ")}`);
       } else {
-        const err = tokenhub?.error || "未知错误";
-        say(`同步失败: ${err}（检查 .env 中的 API Key）`);
+        say(`同步失败：${parts.join(" / ") || "无可用供应商"}（检查 .env 中的 API Key）`);
       }
     } else if (r.status === 500) {
       say(`同步失败: 服务端错误（${r.data?.error || "查看 nf_api 日志"}）`);
@@ -1197,7 +1212,17 @@ async function switchProvider(role, newProvider) {
   // 调用后端 API
   const r = await api("/config/provider", "POST", { role, provider: newProvider });
   if (r.status === 200) {
-    say(`已切换 ${role} → ${newProvider}`);
+    // 换了供应商、模型名未必跟着换。若当前模型不在新供应商的清单里，
+    // 运行时会对该模型名直接 404 —— 而本项目对 400/404 是 **raise、不走 fallback**
+    // （见 llm_client._post_chat），等于整个角色哑火。所以这里必须提醒。
+    const curModel = cfg?.model?.[role]?.id || "";
+    const avail = modelsByProvider.value[newProvider] || [];
+    let msg = `已切换 ${role} → ${newProvider}`;
+    if (curModel && avail.length && !avail.includes(curModel)) {
+      msg += `，但模型「${curModel}」不在其清单内 —— 请同时把模型改为 ${avail.slice(0, 3).join(" / ")} 之一`;
+    }
+    if (r.data?.warning) msg += `；${r.data.warning}`;
+    say(msg);
   } else {
     say(`切换失败: ${r.data?.error || r.status}`);
   }
@@ -1214,11 +1239,27 @@ const filteredModelOptions = computed(() => {
   return all.filter((m) => m.toLowerCase().includes(q));
 });
 
+// 某角色所在供应商的模型清单（含手动添加项与当前值）。
+// 当前值必须始终在列表里：否则下拉会显示为空白，看起来像「模型配置丢了」。
+function providerModelOptions(pid, current) {
+  const base = (modelsByProvider.value[pid] || []).concat(manualModels.value);
+  const all = Array.from(new Set(base.filter(Boolean)));
+  if (current && !all.includes(current)) all.unshift(current);
+  const q = modelSearch.value.trim().toLowerCase();
+  return q ? all.filter((m) => m.toLowerCase().includes(q)) : all;
+}
+
 async function addManualModel() {
   const name = newModelName.value.trim();
   if (!name) return;
   if (!modelOptions.value.includes(name)) {
     modelOptions.value = [...modelOptions.value, name];
+  }
+  // 手动添加 = 用户显式准入（后端 /models/add 会写 fetched_models.json 的 _manual，
+  // 该模型随即通过白名单校验）。这里同步进 manualModels，让**每个**供应商的
+  // 下拉都能看到它。
+  if (!manualModels.value.includes(name)) {
+    manualModels.value = [...manualModels.value, name];
   }
   newModelName.value = "";
   say(`已手动添加: ${name}`);
@@ -1258,8 +1299,15 @@ function revealEnvInFolder() {
 
 async function switchModel(role, modelId) {
   const r = await api("/models/switch", "POST", { role, model: modelId });
-  if (r.status === 200) say("已切换 " + role + " → " + modelId + "（下次运行生效）");
-  else say("切换失败: " + (r.data.error || ""));
+  if (r.status === 200) {
+    say("已切换 " + role + " → " + modelId + "（下次运行生效）");
+  } else {
+    // 白名单拒绝时后端会带 suggestions；只显示 "切换失败" 会让人不知道下一步做什么。
+    const d = r.data || {};
+    const sug = Array.isArray(d.suggestions) && d.suggestions.length
+      ? "；相近候选：" + d.suggestions.join("、") : "";
+    say("切换失败: " + (d.error || r.status) + sug);
+  }
   refresh();
 }
 
@@ -3057,8 +3105,8 @@ onUnmounted(() => {
         <span class="pill st-done">{{ role }}</span>
         <span class="art-path">{{ m.provider }} / {{ m.id }}</span>
         <span class="spacer"></span>
-        <select v-model="m.id" @change="switchModel(role, m.id)" class="model-select">
-          <option v-for="opt in filteredModelOptions" :key="opt" :value="opt">{{ opt }}</option>
+        <select :value="m.id" @change="switchModel(role, $event.target.value)" class="model-select">
+          <option v-for="opt in providerModelOptions(m.provider, m.id)" :key="opt" :value="opt">{{ opt }}</option>
         </select>
         <select v-model="m.provider" @change="switchProvider(role, m.provider)" class="provider-select">
           <option v-for="p in providerOptions" :key="p.id" :value="p.id">{{ p.name }}</option>
@@ -3068,7 +3116,7 @@ onUnmounted(() => {
         <span class="pill st-done">搜索模型</span>
         <input v-model="modelSearch" placeholder="输入关键词过滤..." class="model-input" />
         <button class="mini" @click="modelSearch = ''" v-if="modelSearch">×</button>
-        <span class="meta" style="margin-left: auto;">{{ filteredModelOptions.length }} / {{ modelOptions.length }}</span>
+        <span class="meta" style="margin-left: auto;">全部 {{ modelOptions.length }} 个（下拉按该角色的供应商过滤）</span>
       </div>
       <div class="art-row" style="margin-top: 8px;">
         <span class="pill st-done">手动添加</span>
@@ -3078,6 +3126,8 @@ onUnmounted(() => {
       <div class="meta" style="margin-top: 12px;">
         改模型：下拉切换后立即写入 config/system.yaml，下次运行阶段时生效。
         <br>architect=设定/世界观 | outliner=大纲 | writer=写作 | checker=检查 | reviewer=审核 | polisher=润色
+        <br>⚠️ **换供应商后请顺手确认模型**：模型名不通用（换了 provider 却留着旧模型名 → 运行时直接 404）。
+        下拉里的候选项来自该供应商的 <code>available_models</code>；清单里没有的模型可先「手动添加」。
       </div>
 
       <!-- 服务商与密钥状态 -->
