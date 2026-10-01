@@ -12,9 +12,18 @@ NovelForge 是单书工作区：data/ 只存当前一本书。换书时必须清
   python scripts/switch_book.py --restore "书名"           # 恢复指定书（自动先归档当前）
   python scripts/switch_book.py --init                    # 初始化空工作区（保留 data/tmp 缓存）
 
+归档范围（2026-10-01 起）：
+- `data/` 下 8 项产物（progress/setting/outline/chapters/summaries/merged/state/素材清单）
+- **外加 `config/` 与 `materials/`** —— 此前不归档，于是「换书 = 丢配置与素材卡」
+  （书名/类型/章节数在 `config/project.yaml`，素材与素材卡在 `materials/`）。
+- `config/system.yaml` / `system.local.yaml` 是**应用级**配置（引擎/模型/预算/vault 路径），
+  归档时会一并存进书档（便于回溯当时的配置），但**立刻复制一份回工作区** ——
+  否则归档一完成工作区就缺 `config/system.yaml`，界面起不来。
+
 设计约束：
 - 归档用 shutil.move（先复制目标就绪再移），失败时工作区保持原样
 - data/tmp/（模板缓存）不归档，跨书复用
+- 恢复是**逐项合并**而非整体替换：书档里没有的文件不会删掉工作区现有那份
 - 破坏性动作前打印清单，需 --yes 确认
 """
 import argparse
@@ -32,6 +41,17 @@ BOOKS_DIR = PROJECT_ROOT / "data" / "books"
 DATA_DIR = PROJECT_ROOT / "data"
 ITEMS = ["progress.json", "setting", "outline", "chapters", "summaries",
          "merged", "state", "materials_manifest.json"]
+
+# 书档级内容（在项目根下，不在 data/ 里）：换书就该跟着走。
+# 2026-10-01 之前只归档 data/ 的 8 项 → **换书会丢配置与素材卡**
+# （`config/project.yaml` 里的书名/类型/章节数，`materials/` 里的素材与素材卡）。
+ROOT_ITEMS = ["config", "materials"]
+
+# 应用级配置：描述"这台机器怎么跑"（引擎/模型/预算/vault 路径），本质**不随书变**。
+# 归档时仍存进书档（便于回溯"当时用的哪套配置"），但会立刻复制一份回工作区 ——
+# 不复制的话，归档动作一完成工作区就缺 config/system.yaml，界面直接起不来。
+APP_LEVEL_KEEP = ("system.yaml", "system.local.yaml")
+
 UNSAFE = re.compile(r"[\\/:*?\"<>|]")
 
 
@@ -82,17 +102,101 @@ def _move_items(src_root, dest_root):
     return moved
 
 
+def _has_root_items():
+    """config/ 或 materials/ 里是否有「随书走」的内容。
+
+    只补了应用级配置（归档后复制回来的 system.yaml / system.local.yaml）不算 ——
+    否则一次归档之后就会永远认为"工作区还有数据"。
+    """
+    for item in ROOT_ITEMS:
+        d = PROJECT_ROOT / item
+        if not d.is_dir():
+            continue
+        for child in d.iterdir():
+            if item == "config" and child.name in APP_LEVEL_KEEP:
+                continue
+            return True
+    return False
+
+
+def _archive_root_items(dest):
+    """把 config/ 与 materials/ 归入书档。返回 (moved, kept)。
+
+    kept = 复制回工作区的应用级配置文件名（见 APP_LEVEL_KEEP 的说明）。
+    """
+    moved, kept = [], []
+    for item in ROOT_ITEMS:
+        src = PROJECT_ROOT / item
+        if not src.exists():
+            continue
+        d = dest / item
+        if d.exists():
+            shutil.rmtree(str(d)) if d.is_dir() else d.unlink()
+        shutil.move(str(src), str(d))
+        moved.append(item)
+    # ⚠️ 保证工作区 `config/` 目录始终存在，且有一份**可被改写的** `project.yaml`：
+    # 「新建项目」走的是**定向改写**（`set_book_fields` 读原文件再改），文件不在
+    # 就直接 FileNotFoundError（实测：归档过的空工作区上 POST /project/create → 500）。
+    (PROJECT_ROOT / "config").mkdir(parents=True, exist_ok=True)
+    for name in APP_LEVEL_KEEP:
+        back = dest / "config" / name
+        if not back.exists():
+            continue
+        shutil.copy2(str(back), str(PROJECT_ROOT / "config" / name))
+        kept.append(name)
+    back_proj = dest / "config" / "project.yaml"
+    if back_proj.exists():
+        shutil.copy2(str(back_proj), str(PROJECT_ROOT / "config" / "project.yaml"))
+        try:
+            from utils import project_config as pcfg
+            # 结构留、**书内容字段清空**；技术参数（word_template / target_words /
+            # language / style_reference）不动 —— 那些描述"怎么写"，不是"写哪本"。
+            pcfg.set_book_fields({"name": "示例书名（待填写）", "genre": "",
+                                  "chapters": 3, "author": "", "user_outline": "",
+                                  "style_notes": "", "style": ""})
+            kept.append("project.yaml（骨架：book 值已清空）")
+        except Exception as e:                            # noqa: BLE001
+            kept.append("project.yaml（骨架清空失败，保留原值：" + str(e)[:40] + "）")
+    return moved, kept
+
+
+def _restore_root_items(src):
+    """把书档里的 config/ 与 materials/ 并回工作区（**逐项合并**，不是整体替换）。
+
+    合并而非替换是刻意的：书档里没有的文件（例如老归档根本没有 system.yaml）
+    不该把工作区现有的那份删掉 —— 那会让工作区失去可运行的前提。
+    """
+    moved = []
+    for item in ROOT_ITEMS:
+        d = src / item
+        if not d.exists():
+            continue
+        tgt = PROJECT_ROOT / item
+        tgt.mkdir(parents=True, exist_ok=True)
+        for child in d.iterdir():
+            final = tgt / child.name
+            if final.exists():
+                shutil.rmtree(str(final)) if final.is_dir() else final.unlink()
+            shutil.move(str(child), str(final))
+        try:
+            d.rmdir()
+        except OSError:
+            pass
+        moved.append(item)
+    return moved
+
+
 def archive(book_name=None, yes=False, force=False):
     """归档当前工作区。返回 (success: bool, message: str)。
 
     force=True 时覆盖同名归档（用于 restore 路径的自动归档）。
     """
     if not yes:
-        return False, "归档将移动 data/ 下产物到 data/books/，确认请加 --yes"
+        return False, "归档将移动 data/ 下产物与 config/、materials/ 到 data/books/，确认请加 --yes"
     name = book_name or current_book_name()
     if not name:
         return False, "无法确定当前书名（progress.json 与 project.yaml 均无）"
-    if not has_work():
+    if not has_work() and not _has_root_items():
         return True, "工作区无数据，无需归档"
     dest = BOOKS_DIR / sanitize(name)
     if dest.exists() and not force:
@@ -105,38 +209,52 @@ def archive(book_name=None, yes=False, force=False):
         shutil.move(str(dest), str(tmp_dest))
 
     try:
+        # 先搬「书档级」的 config/ 与 materials/，再搬 data/ 产物。
+        # 顺序有意为之：root 项挪动失败时 data/ 还没动，回退面最小。
+        root_moved, kept = _archive_root_items(dest)
         moved = _move_items(DATA_DIR, dest)
         meta = {"book": name, "archived_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                "items": moved}
+                "items": moved, "root_items": root_moved,
+                "kept_in_workspace": kept, "format": 2}
         (dest / "_meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
         # 成功后再删旧归档
         if tmp_dest and tmp_dest.exists():
             shutil.rmtree(tmp_dest)
-        return True, f"已归档「{name}」→ {dest}（{len(moved)} 项）"
+        extra = ("，含 " + "、".join(root_moved)) if root_moved else ""
+        keep_note = ("；应用级配置已复制回工作区（" + "、".join(kept) + "）") if kept else ""
+        return True, f"已归档「{name}」→ {dest}（{len(moved)} 项{extra}）{keep_note}"
     except Exception as e:
-        # 失败：恢复旧归档
+        # 失败：先把已挪进书档的 config/ materials/ 并回工作区，再恢复旧归档
+        try:
+            _restore_root_items(dest)
+        except Exception:                                 # noqa: BLE001
+            pass
         if tmp_dest and tmp_dest.exists() and dest.exists():
             shutil.rmtree(dest)
             shutil.move(str(tmp_dest), str(dest))
-        return False, f"归档失败（已回退）: {e}"
+        return False, f"归档失败（已尽力回退）: {e}"
 
 
 def restore(book_name, yes=False):
     """恢复指定书到工作区。返回 (success: bool, message: str)。"""
     if not yes:
-        return False, "恢复将移动 data/books/ 产物到 data/，确认请加 --yes"
+        return False, "恢复将移动 data/books/ 产物到 data/（含 config/、materials/），确认请加 --yes"
     src = BOOKS_DIR / sanitize(book_name)
     if not src.exists():
         return False, f"未找到归档: {src}（用 --list 查看）"
     # 先自动归档当前工作区（若不同书）
     cur = current_book_name()
-    if cur and sanitize(cur) != sanitize(book_name) and has_work():
+    # 判据含 _has_root_items()：只靠 data/ 判断的话，「data 空但 config/materials
+    # 有内容」的工作区会被直接覆盖掉，且没有任何归档留底。
+    if cur and sanitize(cur) != sanitize(book_name) and (has_work() or _has_root_items()):
         print(f"[switch_book] 当前工作区有「{cur}」数据，先自动归档")
         ok, msg = archive(cur, yes=True, force=True)
         if not ok:
             return False, f"自动归档失败: {msg}"
     moved = _move_items(src, DATA_DIR)
-    return True, f"已恢复「{book_name}」→ data/（{len(moved)} 项）"
+    root_moved = _restore_root_items(src)
+    extra = ("，含 " + "、".join(root_moved)) if root_moved else ""
+    return True, f"已恢复「{book_name}」→ data/（{len(moved)} 项{extra}）"
 
 
 def init_empty():
@@ -153,6 +271,8 @@ def init_empty():
     for d in ("setting", "outline/chapters", "chapters/raw", "chapters/checked",
               "chapters/refined", "summaries", "merged", "state/tasks"):
         (DATA_DIR / d).mkdir(parents=True, exist_ok=True)
+    # config/ 同理要保证存在（新建书要写 project.yaml；system.yaml 由归档/模板提供）
+    (PROJECT_ROOT / "config").mkdir(parents=True, exist_ok=True)
     return True, "空工作区骨架已初始化"
 
 
@@ -170,7 +290,7 @@ def list_books():
                     meta = json.loads((d / "_meta.json").read_text(encoding="utf-8"))
                 except (json.JSONDecodeError, ValueError):
                     pass
-            n_items = len([p for p in d.iterdir() if p.name in ITEMS])
+            n_items = len([p for p in d.iterdir() if p.name in (ITEMS + ROOT_ITEMS)])
             size = sum(f.stat().st_size for f in d.rglob("*") if f.is_file())
             archived.append({
                 "name": d.name,
