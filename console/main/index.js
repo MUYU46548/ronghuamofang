@@ -169,8 +169,10 @@ function getWorkspaceDir() {
 //   · `stage4_writing.py`：连续失败止损 + 章间预算熔断（`stage5_check` / `stage6_polish` 同步）；
 //   · `nfctl.py` 的 `check` 增加提示词模板体检（清单从 `load_template()` 调用点反推）；
 //   · 新增 `POST /env/set`（GUI 内写 API Key）与 `POST /prompts/restore`（模板回滚）。
-//   **先 bump 再 electron-builder**。
-const SEED_VERSION = 13;
+// v14（2026-10-01，第十批）：payload 再变 —— 断点续跑的产物有效性判据
+//   （`utils/verify_chapter.is_usable_output`：stage5 的 checked、stage6 的 refined
+//   不再"文件存在就跳过"，空壳/残稿会被识别并重跑）。**先 bump 再 electron-builder**。
+const SEED_VERSION = 14;
 
 // 只播种/刷新**代码与提示词**目录。
 // 刻意不含 data/：那是用户产物（章节、设定、大纲），任何情况下都不能被覆盖。

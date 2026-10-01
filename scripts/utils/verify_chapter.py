@@ -276,6 +276,37 @@ def is_chapter_complete(path, target_min=1200, target_max=3500):
     return True
 
 
+def is_usable_output(src_path, out_path, min_ratio=0.3):
+    """断点续跑判据：`out_path` 存在**且内容是像样的产物**（不是空壳/残稿）。
+
+    ## 为什么不能只判 exists()（2026-10-01）
+
+    本项目吃过这个亏：`stage5` 曾因输入构造错误产出空壳（章节根本没进 prompt，
+    模型如实报告"输入缺失"），文件存在但内容为空/极短；`stage6` 的润色同理
+    （LLM 没返回协议块 → 产物空）。只判 `exists()` 的续跑逻辑会把它们**永久跳过**
+    —— 重跑也救不回来，成品里静默留着那几章的残稿。
+
+    判据刻意**宽松**（≥ 原稿字数的 `min_ratio` 即算可用）：这里只拦"明显是空壳"，
+    内容好不好交给退化检测与质量分。误判方向不对称 —— 把可用产物当空壳只是白跑
+    一章（有成本），把空壳当可用则垃圾进成品（不可逆），所以阈值取得保守。
+
+    **判据只有这一份**：stage5 的 `checked`、stage6 的 `refined` 都调它，
+    避免"同一判据写两遍、只修一处"。
+    """
+    out = Path(out_path)
+    if not out.exists():
+        return False
+    try:
+        n_out = count_cn_words(read_text(out))
+        src = Path(src_path)
+        n_src = count_cn_words(read_text(src)) if src.exists() else 0
+    except Exception:                                        # noqa: BLE001
+        return False
+    if n_out <= 0:
+        return False
+    return not (n_src > 0 and n_out < n_src * min_ratio)
+
+
 def check_chapter(path, min_words=2000, max_words=3000):
     """校验单章文件，返回 ChapterCheck。"""
     text = read_text(path)

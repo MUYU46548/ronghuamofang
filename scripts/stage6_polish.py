@@ -19,7 +19,7 @@ from pathlib import Path
 
 from utils.llm_client import make_client
 from utils.file_io import read_text, append_text
-from utils.verify_chapter import count_cn_words
+from utils.verify_chapter import count_cn_words, is_usable_output
 from utils.template_loader import load_template
 from utils.style_analyzer import (
     build_style_notes_section,
@@ -190,10 +190,20 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     if not files:
         progress.set_stage(6, "failed", error="无 checked 章节")
         return False, "stage6 失败：无 checked 章节"
-    pending = [f for f in files if not (refined_dir / f.name).exists()]
+    # 断点：refined 已存在**且内容有效**才跳过。只判 exists() 会让一次失败的润色
+    # （LLM 没回协议块 → 产物空/极短）永久占位：重跑被跳过，成品里就留着那几章残稿。
+    # 判据与 stage5 共用 utils.verify_chapter.is_usable_output（只有一份实现）。
+    pending = [f for f in files
+               if not is_usable_output(checked_dir / f.name, refined_dir / f.name)]
+    stale = [f.name for f in files
+             if (refined_dir / f.name).exists()
+             and not is_usable_output(checked_dir / f.name, refined_dir / f.name)]
+    if stale:
+        print(f"[stage6] {len(stale)} 章 refined 文件是空壳/残稿，将重跑: {stale[:8]}"
+              + ("…" if len(stale) > 8 else ""))
     if not pending:
         progress.mark_stage_done(6)
-        return True, "stage6 跳过（refined 已存在）"
+        return True, "stage6 跳过（refined 已存在且内容有效）"
 
     chapters = [int(f.stem) for f in pending]
     # 分卷：并发数 = parallelism.polish（默认 3）， ceil 均分

@@ -58,8 +58,14 @@ CHANGELOG」）。本文件从工程审查修复起正式启用。
 - **阶段内预算熔断**（stage4/5/6）：orchestrator 只在**阶段之间**查预算，而 stage4 一章就能
   烧掉几元 —— 300 元限额对"一次跑 100 章"这种最该保护的情形**恰好失效**。现在章/卷/批之间
   也查，超限即停并把 `budget.paused` 写入 progress。
-- 新增 `tests/unit/test_stage4_stoploss.py`（16 断言）：判据是**行为级**的 ——
-  看"到底跑了几章"，而不是看日志里有没有打印。
+- **续跑判据不再只看 `exists()`**（stage5 的 `checked`、stage6 的 `refined`）：
+  空壳/残稿会被 `exists()` 判成"已完成"→ **永久跳过、重跑也救不回来**，再被下游
+  当合格稿处理。2026-09-29 件7 的空壳事故正是这样一路穿过去的（stage5 那一次还
+  多穿了一层：`missing` 兜底也判 `exists()`，空壳连"从 raw 复制"都触发不了）。
+  现在共用 `utils.verify_chapter.is_usable_output`（**判据只有一份**）。
+- 新增 `tests/unit/test_stage4_stoploss.py`（16 断言）与
+  `tests/unit/test_resume_output_judgement.py`（13 断言）：判据是**行为级**的 ——
+  前者看"到底跑了几章"，后者还断言**调用点真的用了新判据**（防"修好了又漂回去"）。
 
 ### 🔴 三处真 bug（由本轮新增的检查现场抓到）
 - **`proofread.py` 的 `load_template("stage5_proofread")` 漏了 `.md`** → 文件永远找不到
