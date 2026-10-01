@@ -435,11 +435,24 @@ def analyze_rhythm(metrics):
 
 def build_llm_prompt(chapters_text, setting_text):
     """构造 LLM 校对任务（提示词主体来自 prompts/stage5_proofread.md）。"""
+    variables = {"SETTING": setting_text[:4000], "CHAPTERS": chapters_text[:24000]}
+    tmpl = ""
     try:
         from utils.template_loader import load_template
-        tmpl = load_template("stage5_proofread")
-    except Exception:                                   # noqa: BLE001
-        tmpl = ""
+        # 走 load_template 的 variables 参数填充（而不是自己 replace）——
+        # 这样"填充后是否还有残留占位符"的自检才看得到真相。
+        _, tmpl = load_template("stage5_proofread.md", variables)
+        # ⚠️ 2026-10-01 修正两处，它们叠在一起构成了**静默降级**：
+        #   ① 原名写的是 "stage5_proofread"（**漏了 .md**）→ load_template 找不到
+        #      文件 → 抛异常 → 被下面的 except 吞掉 → 永远走内置兜底。
+        #      结果是：用户在 GUI 里编辑 prompts/stage5_proofread.md **完全不生效**，
+        #      而且界面上没有任何提示。
+        #   ② load_template 返回的是 (meta, body) **元组**，原来直接赋给 tmpl ——
+        #      即便文件存在，后面 "".join(parts) 也会因拿到 tuple 而 TypeError。
+        # 现在：名字修正 + 解包；加载失败仍然兜底，但**要说出来**（不再静默）。
+    except Exception as e:                              # noqa: BLE001
+        print("[proofread] WARN 无法加载 prompts/stage5_proofread.md（" + str(e)[:100]
+              + "）—— 本次改用内置兜底提示词，你在 GUI 里对该模板的改动不会生效")
     if not tmpl:
         tmpl = (
             "你是资深中文校对。请找出下列章节中的**语义级**问题：错别字、"
@@ -447,11 +460,13 @@ def build_llm_prompt(chapters_text, setting_text):
             "只输出 JSON，不要解释：\n"
             '{"findings":[{"chapter":1,"type":"typo|fact|name|grammar|punct",'
             '"severity":"error|warn|info","detail":"问题描述","location":"原文片段",'
-            '"suggestion":"修改建议"}]}\n')
-    parts = [tmpl, "\n\n===== 设定集（人名/地名权威来源）=====\n", setting_text[:4000], "\n"]
-    parts.append("\n===== 待校对章节 =====\n")
-    parts.append(chapters_text[:24000])
-    return "".join(parts)
+            '"suggestion":"修改建议"}]}\n'
+            "\n## 设定集（人名/地名/术语权威来源）\n\n{{SETTING}}\n"
+            "\n## 待校对章节\n\n{{CHAPTERS}}\n")
+    # 兜底提示词同样带占位符 → 外面统一填。（模板路径已被 load_template 填过，
+    # 这里再 replace 一次是幂等的：没有占位符就原样返回。）
+    return (tmpl.replace("{{SETTING}}", variables["SETTING"])
+                .replace("{{CHAPTERS}}", variables["CHAPTERS"]))
 
 
 def run_llm_proofread(chapters_text, dry_run=False, client=None):

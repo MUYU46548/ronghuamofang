@@ -122,6 +122,49 @@ def handle_prompts_get(h):
         return 500, {"error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+def handle_prompts_restore(h, body):
+    """把一个历史备份恢复成当前模板：`{name, backup}`。
+
+    ## 为什么必须走端点、不能让用户拿文件管理器覆盖
+
+    `save_prompt` 每次写入都会把**当前版本**再备份一次。用户手工覆盖的话，
+    那份"改坏的版本"**不会进备份链** —— 出问题后连对照物都没有，也就无从判断
+    到底改动了什么。本端点复用 `save_prompt`，备份链保持连续：
+    回滚动作本身也留痕（旧版仍可在 history/ 里找到）。
+
+    参数 `backup` 必须是**该模板自己的**备份文件名（从 `/prompts/get` 的
+    `backups` 字段拿），防止借这个端点读任意文件。
+    """
+    import nf_api as api
+
+    name = api.prompt_name_ok(str(body.get("name") or "").strip())
+    if not name:
+        return 400, {"ok": False,
+                     "error": "模板名不在白名单（须匹配 prompts/stage[1-7]_*.md）"}
+    backup = str(body.get("backup") or "").strip()
+    if not backup:
+        return 400, {"ok": False, "error": "backup 必填（见 /prompts/get 的 backups 字段）"}
+
+    allowed = {b.name for b in api.list_prompt_backups(name)}
+    if backup not in allowed:
+        return 400, {"ok": False,
+                     "error": "备份不存在或不属于该模板: " + backup,
+                     "available": sorted(allowed)[-8:]}
+    bak_path = api.PROMPTS_HISTORY_DIR / backup
+    try:
+        content = api.nf_read_text(bak_path)
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": "读取备份失败: " + str(e)[:120]}
+
+    ok, msg = api.save_prompt(name, content)
+    if not ok:
+        return 400, {"ok": False, "error": msg}
+    return 200, {"ok": True, "name": name, "restored_from": backup,
+                 "message": "已回滚 " + name + " ← " + backup
+                            + "（回滚前的版本也已存入 prompts/history/，可再回退）",
+                 "detail": msg}
+
+
 def handle_proofread_report(h):
     """校对报告（stage 5.5）。
 
@@ -214,6 +257,7 @@ ROUTES = (
     ("GET", "/review/decisions", handle_review_decisions),
     ("GET", "/prompts/list", handle_prompts_list),
     ("GET", "/prompts/get", handle_prompts_get),
+    ("POST", "/prompts/restore", handle_prompts_restore),
     ("GET", "/proofread/report", handle_proofread_report),
     ("GET", "/estimate", handle_estimate),
     ("GET", "/book/pacing", handle_book_pacing),

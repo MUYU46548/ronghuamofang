@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import socket
 import sys
 import time
@@ -355,6 +356,106 @@ def render_status(s: dict) -> str:
 
 
 # ---------------------------------------------------------------- check
+# load_template("xxx") 的调用点（用于反推"必需模板清单"）
+_PROMPT_CALL_RE = re.compile(r"""load_template\(\s*["']([^"']+)["']""")
+
+
+def _required_prompts(root: Path) -> tuple:
+    """从 scripts/ 里 `load_template("x")` 的**调用点**反推必需模板清单。
+
+    刻意扫代码而不是维护一份手写清单 —— 手写清单会在新增模板时漂移，
+    而漂移的清单比没有清单更糟（本项目吃过"清单与实现不同步"的亏）。
+
+    返回 `(必需清单, 可疑调用)`：
+    - 必需清单 = 以 `.md` 结尾的调用（正常形态）；
+    - 可疑调用 = **不带 `.md` 后缀**的 —— 那必然是 bug：`load_template` 拼的是
+      `prompts/<原样名字>`，缺后缀就找不到文件。实测抓到过一例
+      （`proofread.py` 写 `stage5_proofread`，导致用户在 GUI 里改的校对提示词
+      **从未生效**，还被 except 吞成了静默降级）。
+
+    跳过本文件自身：里面只有文档字符串里的示例（`"x"` / `"xxx"`），不该自扫。
+    """
+    names, suspect = set(), set()
+    for py in (root / "scripts").rglob("*.py"):
+        if "__pycache__" in py.parts or py.name == "nfctl.py":
+            continue
+        try:
+            src = py.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for n in _PROMPT_CALL_RE.findall(src):
+            (names if n.endswith(".md") else suspect).add(n)
+    return names, suspect
+
+
+def _check_prompts(root: Path) -> dict:
+    """提示词模板体检。
+
+    ## 为什么环境自检要管提示词
+
+    模板可在 GUI 里随手改，而**改坏不会报错** —— 阶段照跑，只是产出变成废稿。
+    能确定性判准的是"缺文件 / 空文件 / frontmatter 坏"这三种；
+    改坏语义（写得前后矛盾、删掉关键约束）机器判不了，只能靠产物侧的
+    退化检测（`verify_chapter`）兜。
+    """
+    try:
+        import yaml as _yaml
+        from utils.template_loader import FRONTMATTER_RE
+    except Exception as e:                                    # noqa: BLE001
+        return {"ok": False, "required": 0, "detail": "无法加载校验器: " + str(e)[:80]}
+
+    pdir = root / "prompts"
+    req_set, suspect = _required_prompts(root)
+    req = sorted(req_set)
+    if not req:
+        return {"ok": False, "required": 0,
+                "detail": "脚本里没扫到任何 load_template() 调用 —— 清单推导失败，检查 scripts/ 是否完整"}
+
+    missing, empty, badfm = [], [], []
+    for n in req:
+        p = pdir / n
+        if not p.exists():
+            missing.append(n)
+            continue
+        try:
+            text = p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            missing.append(n + "(不可读)")
+            continue
+        if not text.strip():
+            empty.append(n)
+            continue
+        m = FRONTMATTER_RE.match(text)
+        if m:
+            try:
+                _yaml.safe_load(m.group(1))
+            except Exception:                                 # noqa: BLE001
+                badfm.append(n)
+
+    hist = pdir / "history"
+    n_bak = len(list(hist.glob("*.md"))) if hist.is_dir() else 0
+
+    problems = []
+    if missing:
+        problems.append("缺失 %d 个: %s" % (len(missing), "、".join(missing[:4])))
+    if empty:
+        problems.append("内容为空 %d 个: %s" % (len(empty), "、".join(empty[:4])))
+    if badfm:
+        problems.append("frontmatter 解析失败 %d 个: %s（会退回默认 meta，不致命但请检查）"
+                        % (len(badfm), "、".join(badfm[:4])))
+    if suspect:
+        problems.append("**调用名缺 .md 后缀** %d 处: %s（load_template 会找不到文件，"
+                        "该处会静默走兜底/报错 —— 修脚本里的调用名）"
+                        % (len(suspect), "、".join(sorted(suspect)[:4])))
+    ok = not (missing or empty or suspect)
+    detail = ("%d 个必需模板全部就位 · prompts/history 备份 %d 份" % (len(req), n_bak)
+              if ok else "；".join(problems)
+              + "　恢复：GUI「提示词」页签选历史版本回滚，或 git checkout -- prompts/")
+    return {"ok": ok, "required": len(req), "missing": missing, "empty": empty,
+            "bad_frontmatter": badfm, "suspect_calls": sorted(suspect),
+            "backups": n_bak, "detail": detail}
+
+
 def collect_check(root: Path) -> dict:
     """环境自检：能不能跑、缺什么、有没有静默陷阱。"""
     res = {"root": str(root), "items": [], "blocking": [], "warnings": []}
@@ -387,6 +488,11 @@ def collect_check(root: Path) -> dict:
     book = proj.get("book") or {}
     name = book.get("name")
     add("书名已填写", name not in (None, "", "（待填写）"), "name=%r" % name, warning=True)
+
+    # 提示词模板：可在 GUI 里随手改，而**改坏不会报错**（阶段照跑、产出变废稿）。
+    # 缺文件/空文件按阻塞处理 —— 那必然产出不可用的结果，不如开跑前就拦。
+    pr = _check_prompts(root)
+    add("提示词模板完整", pr["ok"], pr["detail"], blocking=not pr["ok"])
 
     # API Key（只看有无）
     key_state, wanted = _env_key_state(root)

@@ -476,6 +476,10 @@ def save_prompt(name, content):
     data = content.encode("utf-8")
     if len(data) > PROMPT_MAX_BYTES:
         return False, "内容超过 1MB 上限"
+    # 空模板 = 该阶段收到空提示词 → 直接跑出废稿。宁可这里拒绝。
+    # （刻意不做"语义校验"：提示词是用户的地盘，判断写得对不对不是代码的事。）
+    if not content.strip():
+        return False, "内容为空 —— 保存后该阶段会收到空提示词，产出无法使用"
 
     PROMPTS_DIR.mkdir(parents=True, exist_ok=True)
     target = (PROMPTS_DIR / n).resolve()
@@ -2056,6 +2060,10 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/config/agent_mode":
                 # Agent 模式开关设置（仅 GUI 手动切换，Agent 不得调用）。
                 self._send(*_dom(dom_project.handle_config_agent_mode_set(self, body)))
+            elif p == "/env/set":
+                # 把 API Key 写进 .env（GUI 内置入口，替代「用外部编辑器打开 .env」）。
+                # 键名白名单/值校验/备份都在域模块里（判据只有一份）。
+                self._send(*_dom(dom_misc.handle_env_set(self, body)))
             elif p == "/config/provider":
                 # 切换某阶段的 provider
                 role = str(body.get("role") or "")
@@ -2214,6 +2222,9 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(200, res)
                 else:
                     self._send(400, {"ok": False, "error": str(res)})
+            elif p == "/prompts/restore":
+                # 从 prompts/history/ 回滚模板（复用 save_prompt，备份链保持连续）
+                self._send(*_dom(dom_runtime.handle_prompts_restore(self, body)))
             elif p == "/config/style_notes":
                 # 保存用户风格笔记：定向改写 project.yaml（保留注释），写入前备份
                 content = body.get("content")
