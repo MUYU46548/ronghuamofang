@@ -144,7 +144,12 @@ def _run_one_volume(client, task_dir, vol_index, proj, checked_dir, refined_dir,
     task_path = client.write_task(task_dir, f"stage6_polish_vol{vol_index}.md", content)
     result = client.run_task(task_path)
     if cost and run_id:
-        cost.charge_cost(run_id, 6, vol_chapters[0] if vol_chapters else 0, result)
+        # 卷间熔断（2026-10-01）：同 stage5 —— 阶段内不查预算的话，
+        # 限额对"一轮润完几十万字"这种最需要保护的情形恰好失效。
+        state = cost.charge_cost(run_id, 6, vol_chapters[0] if vol_chapters else 0, result)
+        if state == "pause":
+            return False, (f"stage6 预算熔断（已用 {cost.spent(run_id):.2f} 元）"
+                           "—— 停止润色；已完成的卷保留"), vol_chapters
     if result["exit_code"] != 0:
         return False, f"stage6 卷{vol_index} 子会话失败", vol_chapters
 

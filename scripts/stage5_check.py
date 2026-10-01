@@ -59,7 +59,15 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                                                   checked_dir, batch_files, bi, total_batches))
         result = client.run_task(task)
         if cost and run_id:
-            cost.charge_cost(run_id, 5, 0, result)
+            # 批间熔断（2026-10-01）：orchestrator 只在**阶段之间**查预算，
+            # 分批阶段内部不查的话，一轮 20 批可以一路烧过限额。
+            state = cost.charge_cost(run_id, 5, 0, result)
+            if state == "pause":
+                spent_now = cost.spent(run_id)
+                progress.set_stage(5, "failed",
+                                   error=f"预算熔断（已用 {spent_now:.2f} 元）")
+                return False, (f"stage5 预算熔断（已用 {spent_now:.2f} 元）—— 停止检查；"
+                               "已完成的批次保留，调整预算后重跑可续上")
         if result["exit_code"] != 0:
             progress.set_stage(5, "failed", error=f"批 {bi}/{total_batches} 子会话退出码非零")
             return False, f"stage5 批 {bi}/{total_batches} 子会话失败"

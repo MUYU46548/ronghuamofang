@@ -126,6 +126,10 @@ gates:
   auto_refine: false
   auto_rewrite: false
   auto_rewrite_max_rounds: 1
+  # 长跑保护（2026-10-01）：stage4 逐章写作中**连续 N 章失败**即判定为系统性故障
+  # （模型不可用 / 提示词被改坏 / 输入构造出错）并**提前停止**，避免"坏掉了还一路
+  # 跑完 100 章"在盘上留下满盘废稿。0 = 关闭本保护。
+  stage4_max_consecutive_failures: 3
   auto_retry: true                # 阶段失败后自动重试（默认开）
   auto_retry_max_rounds: 2        # 最大自动重试轮次（不含首次）
   auto_retry_delay_seconds: 3      # 重试前等待（秒），给 LLM 限流/超时恢复时间

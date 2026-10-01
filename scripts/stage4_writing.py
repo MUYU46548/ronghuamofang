@@ -261,6 +261,36 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         return True, "stage4 跳过（已完成）"
 
     progress.set_stage(4, "running")
+    low, high = cfg.get("chapter", {}).get("target_words", [2000, 3000])[:2]
+    # 连续失败止损阈值（0 = 关闭）。见 _fail 的说明。
+    max_consec_fail = int(cfg.get("gates", {}).get("stage4_max_consecutive_failures", 3))
+    consec_fail = 0
+    aborted = ""
+    done_this_round = 0
+
+    def _fail(n, reason, extra=()):
+        """记一次章节失败；连续失败达上限 → 返回 True（要求提前止损）。
+
+        ## 为什么要止损（2026-10-01 新增）
+
+        单章失败继续跑是合理的（偶发）。但**连续**失败几乎必然是系统性问题
+        —— 模型不可用、提示词被改坏、输入构造出错。继续跑下去只会把废稿铺满
+        `data/chapters/raw/`：100 章跑完只在最后报一句"有 100 章失败"，
+        而这些半成品/废稿已经在盘上了。已完成的章节不受影响，修好后重跑
+        会经断点续跑跳过它们。
+        """
+        nonlocal consec_fail
+        progress.mark_chapter_failed(n, reason, 4)
+        consec_fail += 1
+        for line in extra:
+            print(line)
+        if max_consec_fail > 0 and consec_fail >= max_consec_fail:
+            print(f"[stage4] ⚠ 连续 {consec_fail} 章失败 —— 判为系统性问题"
+                  "（模型 / 提示词 / 输入），提前停止本阶段")
+            print("[stage4]    已完成的章节不受影响；修好后重跑会从断点继续")
+            return True
+        return False
+
     for n in todo:
         chap_path = raw_dir / f"{n:02d}.md"
         prev_path = raw_dir / f"{n - 1:02d}.md"
@@ -279,31 +309,39 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                                             cache_read=result.get("cache_read", 0))
                     if cost else 0)
         if result["exit_code"] != 0:
-            progress.mark_chapter_failed(n, "子会话退出码非零", 4)
-            print(f"[stage4] 第{n}章子会话失败")
+            if _fail(n, "子会话退出码非零", [f"[stage4] 第{n}章子会话失败"]):
+                aborted = "consecutive_failures"
+                break
             continue
 
         if not chap_path.exists():
-            progress.mark_chapter_failed(n, "章节文件未生成", 4)
+            if _fail(n, "章节文件未生成", [f"[stage4] 第{n}章未生成章节文件"]):
+                aborted = "consecutive_failures"
+                break
             continue
 
-        check = check_chapter(chap_path,
-                              cfg.get("chapter", {}).get("target_words", [2000, 3000])[0],
-                              cfg.get("chapter", {}).get("target_words", [2000, 3000])[1])
+        check = check_chapter(chap_path, low, high)
         if not check.ok:
             # 退化（正文够长但内容是垃圾）单独标注：这类失败与「字数不足」
             # 的处置不同 —— 重试往往没用，多半是模型/提示词层面出了问题。
             if check.degenerate:
                 detail = "正文退化: " + "; ".join(check.degenerate)
-                progress.mark_chapter_failed(n, detail, 4)
-                print(f"[stage4] 第{n}章正文退化（字数 {check.word_count} 达标但内容无效）:")
-                for d in check.degenerate:
-                    print(f"          - {d}")
-                print(f"          指标: {check.degen_metrics}")
+                extra = [f"[stage4] 第{n}章正文退化（字数 {check.word_count} 达标但内容无效）:"]
+                extra += [f"          - {d}" for d in check.degenerate]
+                extra.append(f"          指标: {check.degen_metrics}")
+                hit = _fail(n, detail, extra)
             else:
-                progress.mark_chapter_failed(n, "校验失败: " + "; ".join(check.errors), 4)
-                print(f"[stage4] 第{n}章校验失败: {check.errors[:2]}")
+                hit = _fail(n, "校验失败: " + "; ".join(check.errors),
+                            [f"[stage4] 第{n}章校验失败: {check.errors[:2]}"])
+            if hit:
+                aborted = "consecutive_failures"
+                break
             continue
+
+        # 本章成功 → 连败计数清零（"连续"才说明系统性问题）；本轮完成数同步 +1，
+        # 这样熔断/止损消息里的"本轮完成 N 章"才是准的
+        consec_fail = 0
+        done_this_round += 1
 
         # 摘要提取 + 滚动维护
         text = read_text(chap_path)
@@ -323,12 +361,35 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         if db and run_id:
             db.log_chapter(run_id, 4, n, status, quality=check.quality, cost_yuan=cost_est)
         if cost:
-            cost.charge_cost(run_id, 4, n, result)
+            # ⚠️ 章与章之间必须查熔断：orchestrator 只在**阶段之间**检查预算，
+            # 而 stage4 一章就能烧掉几元 —— 不在这里拦，300 元限额对
+            # "一次跑 100 章"这种最需要保护的场景恰好**完全失效**。
+            state = cost.charge_cost(run_id, 4, n, result)
+            if state == "pause":
+                print(f"[stage4] 💰 预算熔断（已用 {cost.spent(run_id):.2f} 元 ≥ 限额）"
+                      "—— 停止本阶段")
+                progress.data.setdefault("budget", {})["paused"] = True
+                progress.save()
+                aborted = "budget"
+                break
 
         # 出场记录同步（P1.6：章节完成即更新 data/state/appearances.json；
         # 失败只告警，绝不阻断写作主线）
         sync_appearances_after_chapter(text, n, total)
         print(f"[stage4] 第{n}章完成 {check.summary()}")
+
+    if aborted:
+        remaining_failed = progress.failed_chapters(4)
+        progress.set_stage(4, "failed", failed_count=len(remaining_failed))
+        if aborted == "budget":
+            return False, ("stage4 因**预算熔断**停止（本轮完成 %d 章，累计失败 %d 章）。"
+                           "调整 budget.limit_yuan 或缩小范围后重跑；"
+                           "断点续跑不会重写已完成章节"
+                           % (done_this_round, len(remaining_failed)))
+        return False, ("stage4 **提前止损**（连续 %s 章失败，本轮完成 %d 章）—— "
+                       "先排查模型 / 提示词 / 输入，再重跑；"
+                       "断点续跑不会重写已完成章节"
+                       % (max_consec_fail, done_this_round))
 
     remaining_failed = progress.failed_chapters(4)
     if remaining_failed:
