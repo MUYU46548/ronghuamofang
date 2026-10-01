@@ -9,6 +9,53 @@ CHANGELOG」）。本文件从工程审查修复起正式启用。
 
 ## [0.4.0] — 2026-10-01 locked 违例落地 · 多书归档范围修正 · 模型切换通道自检 · CI
 
+### 🔴 GUI 实测反馈三修（2026-10-01，装上安装包实测后）
+
+**① 设置页「在文件夹中显示」点了没反应 → 用户卡在「根本无法配置 Key」**
+2026-09-19 审查 S7 只砍了「用外部编辑器打开 `.env`」的出口，但 `reveal-in-folder` 把路径
+解析成 `path.resolve(ROOT, ".env")` —— 打包态 `ROOT` 是**安装目录里的 payload**
+（随包只读，且 extraResources 里没有 `data/`、没有 `.env`），而 `.env` 与全部用户数据都在
+workspace（`%APPDATA%\绒花墨坊\workspace`）。于是恒返回「文件不存在」；
+前端**又不检查返回值**、照样提示「已在文件夹中定位」→ 用户看到的就是「点了没反应」。
+- 同源第二处 bug：`pathAllowed` 按 `ROOT` 前缀 `slice` 算相对路径，workspace 来的路径
+  会切出一段垃圾 → **所有**指向用户数据的请求都被判「不在白名单」——关于弹窗的「打开」
+  按钮、产物速览同样打不开。
+- 修：新增 `resolveExisting()`（**workspace 优先 → 代码根兜底**），四个文件类 IPC
+  （`read-preview` / `open-artifact` / `open-file` / `reveal-in-folder`）统一走它；
+  `pathAllowed` 按两个根各自计算相对路径；前端检查返回值，失败时给出 `.env` 真实路径。
+- 设置页文案改成明确指引：**配置 Key 直接点「填入 Key」**（后端写盘、立即生效、不回显），
+  不必手动找文件 —— `.env` 仍刻意不提供「一键用外部编辑器打开」。
+
+**② 暗色主题下输入框 / 卡片文字看不清**
+`style.css` 里输入框、卡片、侧栏、流式输出写死 `background:#fff`（以及 `#fbfbfd` /
+`#f6f6fa` / `#eae6f7` 等近白），而文字是 `var(--ink)` —— 暗色主题下 `--ink` 是**浅色**，
+于是「浅底浅字」。更隐蔽的是暗色覆盖**只写了 `.theme-dark` 一套**，三套
+`night-*`（暗夜蓝 / 绿 / 暖）完全裸奔，连顶栏都是 `rgba(255,255,255,.72)`。
+- 修：引入 `--field / --field-inset / --field-dim / --field-hover / --field-on /
+  --field-head / --field-code / --topbar` 与 `--ink-{ok,bad,warn,mute,accent}`，
+  10 套主题全部补值；新增 `.is-dark` 公共覆盖（`setTheme()` 自动挂类，新增暗色主题
+  只需进 `DARK_THEMES`）；顺手补上**从未定义过**却已被 12 处引用的 `--muted-foreground`。
+- **测试也补了漏检**：`test_gui_api_contract` 的主题正则写的是 `[a-z]+`，
+  匹配不到带连字符的 `night-blue` / `night-green` / `night-warm` →
+  这三套主题**从未被这条检查覆盖**，裸奔也没人发现。现改为 `[a-z-]+` 并断言"解析到全部 10 套"。
+- 新增 `tests/unit/test_ui_theme_and_paths.py`（67 断言）：除静态判据外，用
+  **WCAG 对比度真实计算**断言「每套主题 控件底 × 正文色 ≥ 4.5」，
+  并用 node 跑**真实函数体**做「payload + workspace」双根路径反证。
+
+**③ 「检查更新」像是没了 / 点了没反应**
+两个独立问题叠在一起：
+- **`updater:check` 把 `checkForUpdates()` 的返回对象直接过 IPC** —— 里面含
+  `cancellationToken`（EventEmitter 实例）等**不可结构化克隆**的字段 → invoke 直接 reject。
+  前端当时没有 `try/catch` → `checkingUpdate` 永远停在 `true`、按钮保持 disabled →
+  表现就是「点了没反应 / 功能没了」。现在主进程只回传可序列化字段
+  （当前版本 / 目标版本 / 日期），前端 `try/finally` 兜底。
+- **「关于」弹窗里只有「下载新版本」外链**，没有检查更新入口 → 用户以为功能被砍。
+  现在两处都有；「下载新版本」也改为常驻（便携版 / 开发模式下自动更新本就不可用，
+  手动通道不该藏在条件下），并按状态说明原因。
+- ⚠️ **要让「检查更新」真有用，必须把安装包上传到 GitHub Release**（`latest.yml` 是
+  electron-updater 的唯一数据源）。仓库 release 尚未上传时，检查结果会是
+  「暂无更新（当前已是最新版本）」—— 这是**如实**的，不是坏了。
+
 ### 🔴 多书归档范围修正（`switch_book.py`）—— 换书不再丢配置与素材卡
 - **问题**：`--archive` 只搬 `data/` 下 8 项，`config/` 与 `materials/` **完全不归档** ——
   「归档成功」的代价是丢掉 `project.yaml`（书名/类型/章节数）与全部素材卡，下次才发现。

@@ -353,9 +353,15 @@ def main():
     app = APP_VUE.read_text(encoding="utf-8")
     css = STYLE_CSS.read_text(encoding="utf-8")
     # 只从 THEMES 常量里取，避免误匹配 providerOptions 里 { id: "tokenhub", name: ... }
+    # ⚠️ id 字符集必须含 `-`：三套 night-* 主题的 id 是 night-blue / night-green /
+    #    night-warm。旧写法 `[a-z]+` 匹配不到它们 → 这三套主题**从未被本检查覆盖**，
+    #    于是它们缺控件变量、裸奔着白底浅字也没人发现（2026-10-01 实测反馈）。
     block = re.search(r"const THEMES\s*=\s*\[(.*?)\];", app, re.S)
-    theme_ids = re.findall(r'\{\s*id:\s*"([a-z]+)",\s*name:', block.group(1)) if block else []
+    theme_ids = re.findall(r'\{\s*id:\s*"([a-z-]+)",\s*name:', block.group(1)) if block else []
     check("解析到 THEMES 主题列表", len(theme_ids) >= 5, theme_ids)
+    check("THEMES 覆盖全部 10 套主题（含 3 套 night-*）", len(theme_ids) >= 10, theme_ids)
+    check("night-* 已被纳入检查（防正则再次漏检）",
+          any(t.startswith("night-") for t in theme_ids), theme_ids)
     for tid in sorted(set(theme_ids)):
         check("style.css 定义了 :root.theme-%s" % tid,
               (":root.theme-%s" % tid) in css)
