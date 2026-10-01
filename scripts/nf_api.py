@@ -1544,6 +1544,27 @@ class Handler(BaseHTTPRequestHandler):
 
     # ---- GET ----
     def do_GET(self):
+        """GET 入口：整条分发链包一层兜底。
+
+        ⚠️ 任何 handler 抛的异常若直接冒泡出本方法，socketserver 会**直接断连** ——
+        客户端既拿不到 400 也拿不到 500，只表现为"请求挂起 / 连接被重置"，
+        极难排查（POST 侧一直有 try 兜底，GET 侧此前漏了）。
+
+        实测触发点：`GET /chapters/paragraphs?n=abc` —— 域模块里的 `int(qs[...])`
+        写在 try 之外，非法参数直接抛 ValueError。修这一处只是治标，包兜底才治本：
+        以后任何 handler 的意外异常都会变成一条可读的 500 响应 + 服务端日志。
+        """
+        try:
+            self._do_GET_raw()
+        except Exception as e:                              # noqa: BLE001
+            msg = f"{type(e).__name__}: {e}"
+            print(("[nf_api] do_GET 未捕获异常（已兜底为 500）: " + msg)[:300])
+            try:
+                self._send(500, {"error": msg[:200]})
+            except Exception:                               # noqa: BLE001
+                pass
+
+    def _do_GET_raw(self):
         p = norm_path(self)
 
         # SSE 流式端点

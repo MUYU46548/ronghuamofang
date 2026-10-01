@@ -156,15 +156,26 @@ def test_thin_forwarding():
     print("\n[4] 薄转发形态（do_GET 分支体只做转发）")
     src = API_PY.read_text(encoding="utf-8")
     tree = ast.parse(src)
+    # 锚点是 **GET 分发链所在的函数**。2026-10-01 起 `do_GET` 只是一层兜底包装
+    # （handler 抛的异常若冒泡出去，socketserver 会直接断连 —— 客户端既拿不到 400
+    # 也拿不到 500，只表现为"请求挂起"），真正的 elif 链搬到了 `_do_GET_raw`。
+    # 契约要守的是"链还在、还在薄转发"，所以锚点跟着链走，并额外要求 do_GET 有兜底。
     get_node = None
+    do_get_node = None
     for n in ast.walk(tree):
         if isinstance(n, ast.ClassDef) and n.name == "Handler":
             for s in n.body:
                 if isinstance(s, ast.FunctionDef) and s.name == "do_GET":
+                    do_get_node = s
+                if isinstance(s, ast.FunctionDef) and s.name == "_do_GET_raw":
                     get_node = s
-    check("do_GET 仍定义在 nf_api.Handler（契约测试锚点）", get_node is not None)
+    check("GET 分发链仍定义在 nf_api.Handler（契约测试锚点）", get_node is not None)
     if get_node is None:
         return
+    check("do_GET 只做兜底包装（handler 异常不得冒泡断连 → 请求挂起）",
+          do_get_node is not None
+          and any(isinstance(s, ast.Try) for s in do_get_node.body),
+          "do_GET 里没有 try 兜底")
 
     # 收集 `self._send(*_dom(dom_xxx.handle_yyy(self)))` 形式的转发端点。
     # 注意：必须只遍历**顶层 elif 链**，不能用 ast.walk(get_node) —— 后者会递归

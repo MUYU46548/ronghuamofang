@@ -186,10 +186,9 @@ def handle_paragraph_diff(h):
             diff_ops = pd.char_diff(r1.get("original", ""), r2.get("rewritten", ""))
         else:
             # 当前段落 vs 最新历史版本
-            from pathlib import Path
             chap_path = None
             for d in ("data/chapters/refined", "data/chapters/checked", "data/chapters/raw"):
-                p = Path(d) / f"{ch:02d}.md"
+                p = api.ROOT / d / f"{ch:02d}.md"   # 经 ROOT（--root 下 CWD 未必跟着换）
                 if p.exists():
                     chap_path = p
                     break
@@ -226,10 +225,11 @@ def handle_style_drift(h):
         if ch < 1 or pi < 0:
             return 400, {"error": "n(>=1)、p(>=0) 必填"}
         import refine_paragraph
-        from pathlib import Path
         chap_path = None
+        # ⚠️ 必须经 api.ROOT：`--root <书B>` 时进程 CWD 未必跟着换，
+        # 裸相对路径会让这里读到**另一个项目**的章节（不报错、内容却是别人的）。
         for d in ("data/chapters/refined", "data/chapters/checked", "data/chapters/raw"):
-            p = Path(d) / f"{ch:02d}.md"
+            p = api.ROOT / d / f"{ch:02d}.md"
             if p.exists():
                 chap_path = p
                 break

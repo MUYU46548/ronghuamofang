@@ -133,6 +133,13 @@ CHANGELOG」）。本文件从工程审查修复起正式启用。
 - **MCP `nf_run_stage` 声明支持阶段 8**，而后端 `/stage/{n}/run` 只收 1-7 →
   Agent 照契约调用必然撞 400。改为 1-7 并注明阶段 8 走 `nf_export_markdown`。
 - **stage3 断点判据只看 `exists()`** → 复用 `check_chapter_outline`（判据只有一份）。
+- **`do_GET` 无兜底 → handler 异常让请求「挂起」**：`_dom()` 只展开结果、不捕获异常，
+  而 GET 分发链没有 try（POST 侧一直有）→ 任何 handler 抛的异常都会冒泡出 `do_GET`，
+  socketserver **直接断连**：客户端既拿不到 400 也拿不到 500，只表现为"请求挂起 /
+  连接被重置"，排查时看不到任何信息。实测触发点 `GET /chapters/paragraphs?n=abc`。
+  现在 `do_GET` 是一层兜底包装（真链搬到 `_do_GET_raw`）—— 实测该请求从"挂起"变成 500。
+- **`nf_api_domains/refine.py` 两处裸相对路径**：`--root <书B>` 时进程 CWD 未必跟着换，
+  裸相对路径会**静默读到另一个项目**的章节做对比。改经 `api.ROOT`。
 
 新增 `tests/unit/test_audit_fixes_20261001.py`（22 断言）：数值类（计价口径、截断
 判据）用真实断言；结构性（reject 清理范围 / build_state 字段 / MCP schema /

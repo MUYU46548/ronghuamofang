@@ -183,7 +183,10 @@ function getWorkspaceDir() {
 //   · `snapshot.py` 恢复以"全部成功"为成功条件；
 //   · `utils/progress_manager.py` 容忍"合法 JSON 但顶层不是对象"；
 //   · `nf_api.py` 的 `build_state` 补顶层 `agent_mode`；
-//   · `nf_mcp.py` 的 `nf_run_stage` 阶段上限改 7（与后端一致）。
+//   · `nf_mcp.py` 的 `nf_run_stage` 阶段上限改 7（与后端一致）；
+//   · `nf_api.py` 的 GET 分发链加兜底（`do_GET` → `_do_GET_raw`）—— 任何 handler
+//     抛异常此前会让请求**直接挂起**（socketserver 断连，无 400 无 500）；
+//   · `nf_api_domains/refine.py` 两处裸相对路径改经 `api.ROOT`。
 //   **先 bump 再 electron-builder**。
 const SEED_VERSION = 15;
 
