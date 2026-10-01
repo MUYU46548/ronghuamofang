@@ -122,6 +122,17 @@ def _truthy_locked(entry):
     return False
 
 
+def is_locked(entry):
+    """公开入口：条目是否为 `locked` 硬约束。
+
+    与 `_truthy_locked` **同一实现** —— 判据只有一份。供
+    `obsidian_bridge.check_locked_violations` 等检查器复用，
+    避免「locked 语义」散成多份后各自漂移（本项目已吃过
+    「同一判据写两遍、只修一处」的亏）。
+    """
+    return _truthy_locked(entry)
+
+
 # vault 路径的一级/二级目录名（ROSA 目录规范）
 _VAULT_ROOT = "03 设定"
 _VAULT_CHARACTER_DIR = "01 人物"

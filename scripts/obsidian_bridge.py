@@ -25,6 +25,8 @@ from pathlib import Path
 from datetime import datetime
 
 from utils.file_io import read_text, write_text
+# locked 语义与别名根名的**唯一实现**在 setting_schema（不在本文件重写一份）。
+from utils.setting_schema import base_name, is_locked
 
 # 默认配置（被 config/system.yaml 的 obsidian 节点覆盖）
 # 刻意**不设**任何用户本机绝对路径：vault 未配置时视为「未启用联动」，
@@ -481,13 +483,145 @@ def inject_context(query, vault_data=None, top_k=5, max_chars=500):
     return "\n".join(parts)
 
 
+# ---------------------------------------------------------------- locked 违例（2026-10-01）
+
+def _iter_setting_entries(setting):
+    """设定集 → [(来源区块, 条目)]。只取顶层「list of dict」区块。
+
+    刻意**不递归**：设定集是 `{"characters": [...], "world": [...],
+    "timeline": [...]}` 这样的结构，locked 条目就躺在这些列表里。
+    递归下去只会把角色条目内部的 relations 当作独立条目。
+    """
+    out = []
+    if not isinstance(setting, dict):
+        return out
+    for key, val in setting.items():
+        if not isinstance(val, list):
+            continue
+        for it in val:
+            if isinstance(it, dict):
+                out.append((str(key), it))
+    return out
+
+
+def _norm_path(p):
+    """路径归一（只用于「是不是同一条目」的判定，不用于写盘）。"""
+    return str(p or "").replace("/", "\\").strip().strip("\\").lower()
+
+
+def check_locked_violations(vault_data=None, setting_path=None):
+    """确定性检查：vault 里 `locked=true` 的条目是否在最终设定集中被删除 / 丢锁定 / 改名。
+
+    ## 诚实边界：只能做「结构性违逆」
+
+    「locked 不可违逆」的**完整**语义是"不许与它冲突"（语义级）——机器判不了
+    "本章事实是否与 locked 设定矛盾"，硬做只会产出噪音。但违逆有几种
+    **结构性**表现是确定可判的，本函数只做这几种：
+
+    | type | 判据 | 真实危害 |
+    |---|---|---|
+    | `missing` | locked 条目在设定集里**找不到**（依次按 vault path / name / 别名根名匹配） | stage1 归并把硬约束条目弄丢 |
+    | `lock_lost` | 条目还在，但 `locked` 标志**不为真** | 角色卡不再打印「⚠ 不可违逆」→ **静默降级** |
+    | `renamed` | 设定集里同 vault path 的条目**换了名字** | 改名绕过硬约束 |
+
+    ## ⚠️ 空结果 ≠ 通过
+
+    两种情况本检查**不生效**，此时明确回报 `checked=False` + `reason`：
+    ① vault 里一个 `locked=true` 都没有；② 最终设定集尚未生成。
+    这是刻意的 —— 一个永远说"没问题"的检查器比没有检查器更危险
+    （本模块此前就吃过这个亏：`locked_violations` 曾经恒为空列表）。
+
+    返回 dict：{violations, locked_total, matched, checked, reason, setting_path}
+    """
+    result = {"violations": [], "locked_total": 0, "matched": 0,
+              "checked": False, "reason": "", "setting_path": ""}
+
+    if vault_data is None:
+        vault_data = scan_vault()
+
+    locked = [c for c in (vault_data or {}).get("characters", []) if c.get("locked")]
+    result["locked_total"] = len(locked)
+    if not locked:
+        result["reason"] = ("vault 中没有任何 locked=true 条目 → 本检查未生效"
+                            "（空结果 ≠ 无违例）")
+        return result
+
+    path = Path(setting_path) if setting_path else Path("data/setting/setting.json")
+    result["setting_path"] = str(path)
+    if not path.exists():
+        result["reason"] = ("最终设定集不存在（" + str(path) + "）→ 无从比较"
+                            "（空结果 ≠ 无违例）")
+        return result
+    try:
+        setting = json.loads(read_text(path))
+    except Exception as e:                                    # noqa: BLE001
+        result["reason"] = "设定集解析失败：" + repr(e)
+        return result
+
+    entries = _iter_setting_entries(setting)
+    for lc in locked:
+        lname = str(lc.get("name") or "").strip()
+        lpath = str(lc.get("path") or "").strip()
+        lroot = base_name(lname)
+
+        # 匹配优先级：path（最稳，但只有 vault 路径写出的条目才有）→ name → 别名根名
+        hit = None
+        if lpath:
+            for where, e in entries:
+                if _norm_path(e.get("path")) == _norm_path(lpath):
+                    hit = (where, e, "path")
+                    break
+        if hit is None and lname:
+            for where, e in entries:
+                if str(e.get("name") or "").strip() == lname:
+                    hit = (where, e, "name")
+                    break
+        if hit is None and lroot:
+            for where, e in entries:
+                if base_name(str(e.get("name") or "")) == lroot:
+                    hit = (where, e, "alias")
+                    break
+
+        if hit is None:
+            result["violations"].append({
+                "type": "missing", "name": lname, "path": lpath,
+                "detail": ("locked 条目「" + (lname or lpath) + "」在最终设定集中"
+                           "找不到 —— 硬约束已丢失"),
+            })
+            continue
+
+        where, entry, how = hit
+        result["matched"] += 1
+        ename = str(entry.get("name") or "").strip()
+
+        if (how == "path" and lname and ename
+                and ename != lname and base_name(ename) != base_name(lname)):
+            result["violations"].append({
+                "type": "renamed", "name": lname, "to": ename, "where": where,
+                "detail": ("locked 条目「" + lname + "」被改名为「" + ename +
+                           "」（同一 vault 路径，名字被换）"),
+            })
+            continue
+
+        if not is_locked(entry):
+            result["violations"].append({
+                "type": "lock_lost", "name": lname, "where": where,
+                "detail": ("设定集条目「" + (ename or lname) + "」的 locked 标志丢失"
+                           " —— 写作注入时不再提示「不可违逆」"),
+            })
+
+    result["checked"] = True
+    return result
+
+
 def check_consistency(text, vault_data=None):
     """检查写作产物是否偏离正典。
 
     返回 {
         "conflicts": [...],            # ⚠ 恒为空，见下
         "warnings": [...],             # 疑似新角色（启发式，召回有限）
-        "locked_violations": [...],    # ⚠ 恒为空，见下
+        "locked_violations": [...],    # ✅ 已实现（仅结构性违逆，见 check_locked_violations）
+        "locked_report": {...},        # locked 检查的元信息（是否生效 / 为何未生效）
         "implemented": [...],          # 本次**真正执行**的检查项
         "unimplemented": [...],        # **未实现**的检查项（空结果 ≠ 无问题）
         "caveat": str,                 # 使用前必读的说明
@@ -515,13 +649,32 @@ def check_consistency(text, vault_data=None):
        中文未登录人名识别需要分词器（jieba 之类），本项目未引入该依赖。
 
     因此现在**显式声明**实现范围，让调用方无法把空结果误读为"通过"。
+
+    ## ✅ 2026-10-01：`locked_violations` 落地（只做结构性判据）
+
+    `locked` 检查接上了，但**只覆盖结构性违逆**：条目在最终设定集中
+    缺失 / 丢了 locked 标记 / 被改名（判据见 `check_locked_violations`）。
+    语义级冲突（"本章事实是否与 locked 设定矛盾"）**依旧不碰** ——
+    机器判不准，硬做只会把噪音塞进报告。
+
+    元信息放在返回值的 `locked_report` 里：`checked=False` 表示本次检查
+    **没有生效**（vault 无 locked 条目，或设定集尚未生成）。调用方必须
+    据此区分「查过且没问题」与「根本没查」。
     """
     if vault_data is None:
         vault_data = scan_vault()
 
     conflicts = []
     warnings = []
-    locked_violations = []
+    # locked 检查（确定性）。⚠️ 不吞异常：拿不到结论时必须显式说明「没查」，
+    # 而不是静默返回空列表 —— 后者正是本函数此前被诟病的那种假安心。
+    try:
+        locked_report = check_locked_violations(vault_data=vault_data)
+    except Exception as e:                                    # noqa: BLE001
+        locked_report = {"violations": [], "locked_total": 0, "matched": 0,
+                         "checked": False, "reason": "locked 检查异常：" + repr(e),
+                         "setting_path": ""}
+    locked_violations = locked_report["violations"]
 
     existing_names = {c["name"] for c in vault_data["characters"]}
     existing_aliases = set()
@@ -579,16 +732,22 @@ def check_consistency(text, vault_data=None):
                        f"（启发式候选，可能是跨词边界噪声，需人工确认）"),
         })
 
+    caveat = ("空结果**不代表**写作产物与正典一致：conflicts 尚未实现；"
+              "locked_violations 只覆盖结构性违逆（缺失 / 丢锁定 / 改名），"
+              "不覆盖语义冲突；warnings 仅为启发式候选。")
+    if not locked_report.get("checked"):
+        caveat += (" ⚠️ 本次 locked 检查**未生效**：" +
+                   str(locked_report.get("reason") or "原因未知") +
+                   " —— 此时的空结果更不能当成「通过」。")
     return {
         "conflicts": conflicts,
         "warnings": warnings,
         "locked_violations": locked_violations,
-        "implemented": ["new_character_suspect（疑似新角色，启发式）"],
-        "unimplemented": ["conflicts（正典事实冲突）",
-                          "locked_violations（locked 条目违逆）"],
-        "caveat": ("空结果**不代表**写作产物与正典一致：conflicts 与 "
-                   "locked_violations 尚未实现，warnings 仅为启发式候选。"
-                   "locked 约束目前只在提示词层生效（写入角色卡），没有验证器。"),
+        "locked_report": locked_report,
+        "implemented": ["new_character_suspect（疑似新角色，启发式）",
+                        "locked_violations（locked 条目 缺失/丢锁定/改名，确定性）"],
+        "unimplemented": ["conflicts（正典事实冲突 —— 需语义判断，机器判不准）"],
+        "caveat": caveat,
     }
 
 
@@ -758,6 +917,11 @@ if __name__ == "__main__":
     p_check = sub.add_parser("check", help="检查一致性")
     p_check.add_argument("file", help="待检查文件")
 
+    p_locked = sub.add_parser(
+        "locked", help="检查 locked 条目是否被违逆（确定性，零 token）")
+    p_locked.add_argument("--setting", default=None,
+                          help="设定集路径（默认 data/setting/setting.json）")
+
     p_push = sub.add_parser("push", help="推送到沙盒")
     p_push.add_argument("file", help="源文件路径")
     p_push.add_argument("--subdir", default="", help="子目录")
@@ -795,9 +959,40 @@ if __name__ == "__main__":
         for w in result["warnings"][:20]:
             print(f"  [{w['type']}] {w['entry_name']}: {w['detail']}")
         print(f"正典事实冲突：{len(result['conflicts'])} 个（**该检查未实现**）")
-        print(f"locked 违例：{len(result['locked_violations'])} 个（**该检查未实现**）")
+        lr = result.get("locked_report") or {}
+        if lr.get("checked"):
+            print(f"locked 违例：{len(result['locked_violations'])} 个"
+                  f"（vault 内 locked 条目 {lr.get('locked_total', 0)} 个，"
+                  f"匹配到 {lr.get('matched', 0)} 个）")
+            for v in result["locked_violations"]:
+                print(f"  [{v['type']}] {v['detail']}")
+        else:
+            print(f"locked 违例：**本次未生效** —— {lr.get('reason', '原因未知')}")
         print("")
         print(f"注意：{result.get('caveat', '')}")
+
+    elif args.cmd == "locked":
+        try:
+            rep = check_locked_violations(setting_path=args.setting)
+        except Exception as e:                                # noqa: BLE001
+            print(f"无法执行 locked 检查：{e}")
+            print("（vault 未配置时不启用联动；请在 config/system.yaml 的 "
+                  "obsidian.vault_path 填你的知识库目录）")
+            raise SystemExit(1)
+        print("===== locked 条目检查（确定性）=====")
+        print(f"vault 内 locked 条目：{rep['locked_total']} 个")
+        print(f"设定集：{rep['setting_path']}")
+        if not rep["checked"]:
+            print(f"⚠️ 本次检查**未生效**：{rep['reason']}")
+            raise SystemExit(1)
+        print(f"匹配到：{rep['matched']} 个 / 违例：{len(rep['violations'])} 个")
+        for v in rep["violations"]:
+            print(f"  [{v['type']}] {v['detail']}")
+        if not rep["violations"]:
+            print("  （无结构性违例）")
+            print("  注意：语义级冲突（正文是否与 locked 设定矛盾）**不在本检查范围**，"
+                  "机器判不准。")
+        raise SystemExit(1 if rep["violations"] else 0)
 
     elif args.cmd == "push":
         ok, msg = push_to_sandbox(args.file, args.subdir)

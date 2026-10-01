@@ -12,7 +12,7 @@
 | F2 | `build_setting_from_vault` 整体替换**且不备份** | 实测把 stage1 从素材归并的角色/剧情碎片/时间线**全部删掉且不可恢复** |
 | F3 | 同函数失败返回 `(False, msg)`、成功返回 dict | 调用方 `setting['meta']` 在失败路径抛 TypeError |
 | F4 | `stage4` KB 注入裸 `except Exception: pass` | vault 未配置/配错时注入恒为空，**无任何提示** |
-| F5 | `check_consistency` 恒返回全零 | 打印「违例 0 个」像是"检查通过"，实际 `conflicts`/`locked_violations` 硬编码空列表 |
+| F5 | `check_consistency` 恒返回全零 | 打印「违例 0 个」像是"检查通过"，实际 `conflicts`/`locked_violations` 硬编码空列表（`locked_violations` **2026-10-01 已落地**：只判结构性违逆，语义冲突仍不碰；`conflicts` 仍未实现） |
 | F6 | `refine_outline` 体检 FAIL 仍报「精修完成」 | 子会话产出 0 节点的废稿，用户看到的是成功 |
 
 ## 隔离策略
@@ -351,7 +351,8 @@ _ticket(keys=sorted(cc.keys()),
         unimplemented=cc.get("unimplemented"),
         caveat=cc.get("caveat", ""),
         warn_names=[w["entry_name"] for w in cc["warnings"]],
-        conflicts=cc["conflicts"], locked=cc["locked_violations"])
+        conflicts=cc["conflicts"], locked=cc["locked_violations"],
+        locked_checked=(cc.get("locked_report") or {}).get("checked"))
 '''
     p, out, err = run_py(root, code, {"V": str(v)})
     if p is None:
@@ -362,9 +363,12 @@ _ticket(keys=sorted(cc.keys()),
     check("F5 返回值显式声明已实现的检查",
           isinstance(p["implemented"], list) and p["implemented"],
           f"→ {p['implemented']}")
+    check("F5 **locked_violations 已实现**（2026-10-01：从 unimplemented 移入 implemented）",
+          any("locked" in i for i in p["implemented"])
+          and not any("locked" in u for u in p["unimplemented"]),
+          f"→ implemented={p['implemented']} unimplemented={p['unimplemented']}")
     check("F5 返回值显式声明**未实现**的检查",
           isinstance(p["unimplemented"], list)
-          and any("locked" in u for u in p["unimplemented"])
           and any("conflict" in u for u in p["unimplemented"]),
           f"→ {p['unimplemented']}")
     check("F5 带 caveat 说明（空结果 ≠ 无问题）",
@@ -375,8 +379,10 @@ _ticket(keys=sorted(cc.keys()),
           not any(n in ("露汐", "罗霄") for n in p["warn_names"]),
           f"→ 误报 {p['warn_names']}")
     check("F5 已知地点未被误报", "沙都" not in p["warn_names"], f"→ {p['warn_names']}")
-    check("F5 conflicts/locked_violations 仍为空（诚实标注未实现，不伪造结果）",
-          p["conflicts"] == [] and p["locked"] == [])
+    check("F5 conflicts 仍为空（诚实标注未实现）", p["conflicts"] == [])
+    check("F5 设定集不存在 → locked 检查回报「未生效」，不伪造「通过」",
+          p["locked"] == [] and p["locked_checked"] is False,
+          f"→ locked={p['locked']} checked={p['locked_checked']}")
     shutil.rmtree(root, ignore_errors=True)
 
 
