@@ -1271,26 +1271,48 @@ async function addManualModel() {
   }
 }
 
-async function openEnvFile() {
-  const r = await api("/env/open");
-  if (r.status === 200 && r.data.exists) {
-    // 主按钮：直接用系统默认编辑器打开（用户显式点击，风险自担）
-    if (window.mofangAPI && window.mofangAPI.openFile) {
-      const result = await window.mofangAPI.openFile(".env");
-      if (result.ok) {
-        say("已用系统默认编辑器打开 .env —— 填入 Key 后保存即可");
-      } else {
-        say("打开失败: " + (result.error || "未知错误"));
- }
-    } else {
-      say("请在 Electron 中使用此功能");
-    }
+// ---------- API Key 写入（GUI 内置；不再借助外部编辑器）----------
+// 为什么不是「打开 .env」：主进程按 2026-09-19 审查 S7 把 .env 排除在外部打开
+// 白名单外（程序不该代为用外部编辑器打开明文密钥），但当时只砍了出口、没给入口 ——
+// 界面留着那个按钮，点下去必然「路径不在白名单」，用户卡在"怎么填 Key"。
+// 现在改由后端写盘（键名白名单 + 值校验 + 写前备份），前端只传键与值。
+const envEditing = ref("");   // 正在编辑哪个 provider 的 Key（空 = 都不在编辑）
+const envValue = ref("");     // 新 Key 明文（仅存在于内存，不回显已存值）
+
+function startEnvEdit(pid) {
+  envEditing.value = pid;
+  envValue.value = "";
+}
+
+function cancelEnvEdit() {
+  envEditing.value = "";
+  envValue.value = "";
+}
+
+async function saveEnvKey(pid, clear = false) {
+  const p = (providers.value || {})[pid] || {};
+  const keyName = p.api_key_env || "";
+  if (!keyName) {
+    say(`服务商 ${pid} 未配置 api_key_env，无法写入`);
+    return;
+  }
+  if (!clear && !envValue.value.trim()) {
+    say("请先粘贴 API Key");
+    return;
+  }
+  const r = await api("/env/set", "POST", { key: keyName, value: clear ? "" : envValue.value.trim() });
+  if (r.status === 200) {
+    say(clear ? `已清空 ${keyName}` : `已写入 ${keyName}（${r.data.mask || "已设置"}），立即生效`);
+    cancelEnvEdit();
+    await refreshModels();
   } else {
-    say(".env 文件不存在");
+    say("写入失败: " + (r.data?.error || r.status));
   }
 }
 
-function revealEnvInFolder() {
+async function revealEnvInFolder() {
+  // 先确保 .env 存在（缺失时后端会按当前 providers 生成模板）
+  await api("/env/open");
   if (window.mofangAPI && window.mofangAPI.revealInFolder) {
     window.mofangAPI.revealInFolder(".env");
     say("已在文件夹中定位 .env");
@@ -1377,6 +1399,7 @@ const promptName = ref("");        // 当前编辑的文件名
 const promptContent = ref("");
 const promptModified = ref("");
 const promptBackups = ref([]);
+const promptBackupSel = ref("");   // 选中的历史备份（待回滚）
 const promptDirty = ref(false);
 const promptLoading = ref(false);
 
@@ -1410,7 +1433,28 @@ async function openPrompt(name) {
   promptContent.value = r.content || "";
   promptModified.value = r.modified || "";
   promptBackups.value = r.backups || [];
+  promptBackupSel.value = "";
   promptDirty.value = false;
+}
+
+// 从 prompts/history/ 回滚。走 HTTP 端点而不是本地覆盖文件 ——
+// 回滚动作本身也要留痕（旧版仍进备份链），否则出问题时连对照物都没有。
+async function restorePrompt(backup) {
+  if (!promptName.value || !backup) return;
+  if (!window.confirm(
+      "用备份回滚 " + promptName.value + "？\n\n"
+      + "· 备份文件：" + backup + "\n"
+      + "· 当前版本会先存入 prompts/history/（所以回滚本身也可撤销）\n"
+      + "· 回滚后编辑器会重新载入")) return;
+  const r = await api("/prompts/restore", "POST",
+                      { name: promptName.value, backup });
+  if (r.status === 200) {
+    say(r.data?.message || "已回滚");
+    await openPrompt(promptName.value);
+    loadPromptList();
+  } else {
+    say("回滚失败: " + (r.data?.error || r.status));
+  }
 }
 
 async function savePrompt() {
@@ -2505,6 +2549,21 @@ onUnmounted(() => {
       <button class="mini" @click="reopenGuide" title="重新查看上手引导">📖 重看引导</button>
     </div>
 
+    <!-- Agent 模式开关（从「设置」提到首页）：高频 + 影响权限语义，
+         藏在设置页里等于没有 —— 用户会忘了自己到底开着还是关着。 -->
+    <div v-if="tab === 'pipeline'" class="agent-bar" :class="{ on: agentMode }">
+      <span class="agent-bar-dot"></span>
+      <span class="agent-bar-label">Agent 模式</span>
+      <span class="agent-bar-desc">
+        <template v-if="agentMode">已开启 —— 外部 Agent（Hermes 等）可通过 HTTP API 调用本机；审批 / 打回 / 归档 / 建项目仍只在桌面端手动执行</template>
+        <template v-else>已关闭 —— 外部 Agent 无法调用本机 API</template>
+      </span>
+      <span class="spacer"></span>
+      <button class="mini" :class="{ primary: agentMode }" @click="toggleAgentMode">
+        {{ agentMode ? '关闭' : '开启' }}
+      </button>
+    </div>
+
     <!-- 流水线状态卡片：当前状态 + 下一步 + 实时进度 -->
     <section v-if="tab === 'pipeline' && state" class="card pipeline-status">
       <div class="card-head">
@@ -3138,15 +3197,27 @@ onUnmounted(() => {
         <span class="spacer"></span>
         <span v-if="p.has_key" class="key-status ok">✓ 已配置 ({{ p.key_mask }})</span>
         <span v-else class="key-status bad">✗ 缺失 ({{ p.api_key_env }})</span>
+        <button class="mini" v-if="!p.has_key" @click="startEnvEdit(pid)">填入 Key</button>
+        <template v-else>
+          <button class="mini" @click="startEnvEdit(pid)">替换</button>
+          <button class="mini" @click="saveEnvKey(pid, true)" title="删除 .env 里这一行">清除</button>
+        </template>
+      </div>
+      <div v-if="envEditing" class="art-row" style="margin-top: 8px;">
+        <span class="pill st-done">写入 {{ (providers && providers[envEditing] && providers[envEditing].api_key_env) || '' }}</span>
+        <input type="password" v-model="envValue" placeholder="粘贴 API Key（不回显已存值）"
+               class="model-input" style="max-width: 320px;"
+               @keyup.enter="saveEnvKey(envEditing)" />
+        <button class="mini primary" @click="saveEnvKey(envEditing)">保存</button>
+        <button class="mini" @click="cancelEnvEdit">取消</button>
       </div>
       <div class="meta" style="margin-top: 8px;">
-        API Key 通过项目 .env 文件配置，不在此处明文显示。
+        Key 写入项目 <code>.env</code>（不进 git），保存后**立即生效、无需重启**；已存值只显示前后各几位。
       </div>
       <div style="display: flex; gap: 8px; margin-top: 8px; align-items: center;">
-        <button class="mini primary" @click="openEnvFile">打开 .env 填入 Key</button>
         <button class="mini" @click="revealEnvInFolder" title="在文件管理器中定位 .env（不打开内容）">在文件夹中显示</button>
       </div>
-      <div class="meta" style="margin-top: 4px;">.env 含明文 API Key，编辑器插件/AI 工具可能读取。</div>
+      <div class="meta" style="margin-top: 4px;">.env 含明文 API Key —— 刻意不支持「用外部编辑器一键打开」（编辑器插件/AI 工具可能读取）。</div>
 
       <!-- P1: 审批门通知 -->
       <h4 style="margin-top: 16px;">审批门通知</h4>
@@ -3239,11 +3310,18 @@ onUnmounted(() => {
           <textarea class="prompt-text" v-model="promptContent" @input="promptDirty = true"
                     :disabled="!promptName" spellcheck="false"
                     placeholder="从左侧列表选择一个模板文件…"></textarea>
-          <div class="meta">
-            共 {{ promptContent.length }} 字符
+          <div class="meta" style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+            <span>共 {{ promptContent.length }} 字符</span>
             <template v-if="promptBackups.length">
-              · 最近备份：{{ promptBackups.slice(-3).join("、") }}
+              <span>· 历史备份 {{ promptBackups.length }} 份（最多留 50 份）</span>
+              <select v-model="promptBackupSel" class="model-select" style="max-width: 260px;">
+                <option value="">选择要回滚的版本…</option>
+                <option v-for="b in promptBackups.slice().reverse()" :key="b" :value="b">{{ b }}</option>
+              </select>
+              <button class="mini" :disabled="!promptBackupSel"
+                      @click="restorePrompt(promptBackupSel)">回滚到此版本</button>
             </template>
+            <span v-else>· 暂无历史备份（首次保存后才会有）</span>
           </div>
         </div>
       </div>

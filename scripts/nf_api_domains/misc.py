@@ -83,8 +83,108 @@ def handle_env_open(h):
 
     env_path = api.ROOT / ".env"
     if not env_path.exists():
-        env_path.write_text("TOKENHUB_API_KEY=\n", encoding="utf-8")
+        # 模板**按当前 providers 动态生成**：硬编码 TOKENHUB_API_KEY 会在新增
+        # provider（如龙猫）后过期 —— 用户打开 .env 却找不到该填哪个键名。
+        cfg, _ = api.load_all()
+        names = sorted({str(p.get("api_key_env") or "")
+                        for p in (cfg.get("providers") or {}).values()
+                        if isinstance(p, dict) and p.get("api_key_env")})
+        body = "".join(n + "=\n" for n in names)
+        env_path.write_text(body or "TOKENHUB_API_KEY=\n", encoding="utf-8")
     return 200, {"env_path": str(env_path), "exists": True}
+
+
+def handle_env_set(h, body):
+    """把某个 API Key 写进 `.env`（GUI 内置入口）。
+
+    ## 为什么需要它
+
+    2026-09-19 审查 S7 决定「程序不该代为用**外部编辑器**打开明文密钥」，于是
+    `open-file` 把 `.env` 排除在白名单外。但那个决定**只砍掉了出口、没给入口** ——
+    GUI 上仍留着「打开 .env 填入 Key」按钮，点了必然报「路径不在白名单」，
+    用户卡在"我该怎么填 Key"这一步（实测反馈就是这条）。
+
+    本端点补上正确入口：写盘由后端完成，前端不接触文件路径。
+
+    ## 约束（防误写，不是防恶意 —— 本机单人应用）
+
+    · **键名白名单**：只接受 config/system.yaml 里各 provider 的 `api_key_env`；
+      不能借这个端点往 .env 里塞任意环境变量。
+    · 值：非空则须为不含空白/引号的单行（≤512）；**不回显、不落日志**，
+      响应里只给前 3 后 4 的掩码。
+    · 传空串 = **删除该行**（显式清空，不是写成 `KEY=`）。
+    · 写前把原文件备份为 `.env.bak`（固定名，始终是"上一次"）。
+    · 写后同步刷新**当前进程**的 os.environ —— 否则 has_key / 拉取模型列表
+      这些即时读取的路径仍看旧值，用户会以为没生效。
+    """
+    import nf_api as api
+
+    key = str(body.get("key") or "").strip()
+    raw = body.get("value")
+    if raw is None:
+        return 400, {"ok": False, "error": "value 必填（空串表示清空该键）"}
+    value = str(raw).strip()
+
+    cfg, _ = api.load_all()
+    allowed = sorted({str(p.get("api_key_env") or "")
+                      for p in (cfg.get("providers") or {}).values()
+                      if isinstance(p, dict) and p.get("api_key_env")})
+    allowed = [a for a in allowed if a]
+    if key not in allowed:
+        return 400, {"ok": False,
+                     "error": "键名不在白名单（只允许各 provider 的 api_key_env："
+                              + ("、".join(allowed) if allowed else "（当前配置里一个都没有）") + "）"}
+    if value and (len(value) > 512 or any(c in value for c in " \t\r\n\"'")):
+        return 400, {"ok": False,
+                     "error": "值不合法（须为不含空白与引号的单行，长度 ≤512）"}
+
+    env_path = api.ROOT / ".env"
+    lines = []
+    backup = ""
+    if env_path.exists():
+        try:
+            lines = api.nf_read_text(env_path).splitlines()
+        except Exception as e:                              # noqa: BLE001
+            return 500, {"ok": False, "error": "读取 .env 失败: " + str(e)[:120]}
+        try:
+            bak = env_path.with_name(".env.bak")
+            bak.write_bytes(env_path.read_bytes())
+            backup = ".env.bak"
+        except OSError:
+            backup = ""
+
+    out, replaced = [], False
+    for ln in lines:
+        s = ln.strip()
+        if s and not s.startswith("#") and "=" in s:
+            k = s.split("=", 1)[0].strip()
+            if k == key:
+                replaced = True
+                if value:
+                    out.append(key + "=" + value)
+                continue                       # 空值 → 整行删掉（不是留 KEY=）
+        out.append(ln)
+    if value and not replaced:
+        if out and out[-1].strip():
+            out.append("")
+        out.append(key + "=" + value)
+
+    try:
+        api.nf_write_text(env_path, "\n".join(out).rstrip("\n") + "\n")
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": "写入 .env 失败: " + str(e)[:120]}
+
+    # 让当前进程立刻看到新值（否则 /models/fetched 等仍读旧环境）
+    if value:
+        api.os.environ[key] = value
+    else:
+        api.os.environ.pop(key, None)
+
+    return 200, {"ok": True, "key": key, "cleared": not value,
+                 "has_key": bool(value), "backup": backup,
+                 "mask": (value[:3] + "..." + value[-4:]) if len(value) >= 8
+                         else ("(已设置，过短不显示)" if value else ""),
+                 "note": "已写入 .env（该文件不进 git）。立即生效，无需重启。"}
 
 
 def handle_batch_refine_progress(h):
@@ -376,6 +476,7 @@ ROUTES = (
     ("POST", "/costs/rates", handle_costs_rates_save),
     ("POST", "/costs/rates/import", handle_costs_rates_import),
     ("GET", "/env/open", handle_env_open),
+    ("POST", "/env/set", handle_env_set),
     ("GET", "/batch_refine/progress", handle_batch_refine_progress),
     ("GET", "/chapters/quality", handle_chapters_quality),
     ("GET", "/chapters/verify", handle_chapters_verify),
