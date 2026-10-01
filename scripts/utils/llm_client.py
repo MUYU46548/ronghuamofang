@@ -959,33 +959,199 @@ class OpenAICompatClient:
 
 
 class HermesClient:
-    """Hermes 子会话客户端（原 api_client.HermesClient，保留为引擎之一）。"""
+    """Hermes 子会话客户端（原 api_client.HermesClient，保留为引擎之一）。
 
-    def __init__(self, hermes_bin="hermes", timeout=900, model=None):
+    2026-10-01 改用 `--format stream-json` 协议（排雷 P0-1）：
+    - stdout 为 JSONL：init 事件（model）+ text 事件（增量文本）+ 收尾 result 事件
+      {text, tokens:{input,output,cache_read,...}, exit_code, duration_ms}。
+    - result.text = 干净的最终消息（无 ANSI/工具流水）→ 作为 stdout_tail 直接给
+      chapter_review / proofread / outline_panel 解析 JSON。旧实现给的是工具流水
+      尾部，JSON 窗口被噪声挤占 → 审稿门解析失败还会静默跳过（fail-open）。
+    - result.tokens = 真实 usage → 记账不再按任务文件大小瞎估。
+    - text 事件逐段回放 → run_task_stream 真流式，stop_flag 可杀子进程（P0-4/P2）。
+
+    模型：恒不传 -m —— agent 模式一律用 agent 内部配置的模型（用户 2026-10-01 定调），
+    与 config 的 model.* 无关。旧实现透传 TokenHub（腾讯云）模型名，hermes 按它自己的
+    active provider（小米）解析 → 400 → 静默 fallback 到别家，「配置写 A、实际跑 B」。
+
+    工具面（P1-5）：`-t file` toolset（= patch/read_file/search_files/write_file 四件套）
+    —— 子会话不再持有 terminal/browser/kanban/cron/MCP 等全量工具，写盘越权从
+    「提示词约束」变成「机制约束」。⚠️ `-t` 收 **toolset 名**（file/web/terminal…），
+    传工具名（read_file,…）会得到空集合：模型照旧吐 tool_call 但永不派发，
+    result.text 是原始 <longcat_tool_call> 且 exit_code=0 假成功（2026-10-01 实测踩坑）。
+    config 可用 hermes.toolsets 覆盖（设为空串恢复全量工具，逃生门）。
+
+    超时（P0-3）：timeout 秒硬超时 → 返回 exit_code=124 结构化失败，走 auto_retry /
+    连败止损链，不再抛 TimeoutExpired 穿透 run_stage 把 run 打成 crashed。
+    （刻意不用 --run-budget：实测 budget=10 没切掉 40s 任务，语义不是墙钟秒，
+    生产杀开关上不猜单位；墙钟上界由本类 timeout 承担。）
+    """
+
+    # toolset 名（非工具名）：file = patch/read_file/search_files/write_file 四件套
+    DEFAULT_TOOLSETS = "file"
+
+    def __init__(self, hermes_bin="hermes", timeout=900, model=None,
+                 max_turns=60, toolsets=None):
         self.hermes_bin = hermes_bin
         self.timeout = timeout
         self.model = model
+        self.max_turns = max_turns
+        # None → 默认白名单；空串/False → 不加 -t（全量工具逃生门）
+        self.toolsets = self.DEFAULT_TOOLSETS if toolsets is None else toolsets
+
+    def _build_cmd(self, task_path, model=None):
+        cmd = [self.hermes_bin, "chat", "-q",
+               "阅读并严格按 " + str(task_path) + " 中的指示执行全部步骤。"
+               "完成后简要汇报：产物路径、校验结果、遇到的问题。",
+               "--format", "stream-json"]
+        if self.toolsets:
+            cmd += ["-t", str(self.toolsets)]
+        if self.max_turns:
+            cmd += ["--max-turns", str(int(self.max_turns))]
+        eff_model = model or self.model
+        if eff_model:   # 仅显式指定时；make_client 恒传 None（agent 内部模型）
+            cmd += ["-m", eff_model]
+        return cmd
+
+    @staticmethod
+    def _parse_stream_json(raw):
+        """JSONL → (result事件或None, init事件或None, text事件列表)。
+
+        非 JSON 行（stderr 混入 / 收尾 session_id 行）直接忽略，解析永不抛。
+        """
+        result, init, texts = None, None, []
+        for line in (raw or "").splitlines():
+            s = line.strip()
+            if not s.startswith("{"):
+                continue
+            try:
+                ev = json.loads(s)
+            except Exception:                               # noqa: BLE001
+                continue
+            if not isinstance(ev, dict):
+                continue
+            t = ev.get("type")
+            if t == "result":
+                result = ev
+            elif t == "system" and ev.get("subtype") == "init":
+                init = ev
+            elif t == "text":
+                texts.append(ev.get("text") or "")
+        return result, init, texts
+
+    def _finish(self, task_path, rc, raw, stderr="", error=None, stopped=False):
+        """把一次子会话执行收敛为 run_task 同构 dict（永不抛异常）。"""
+        result, init, texts = self._parse_stream_json(raw)
+        if stopped:
+            exit_code = 0          # 用户主动停 ≠ 失败（与 direct 流式停止同语义）
+        elif rc:
+            exit_code = int(rc)    # 进程非零必失败（result 可能没来得及写）
+        elif result is not None:
+            exit_code = int(result.get("exit_code") or 0)
+        else:
+            exit_code = 0
+        # stdout_tail：优先干净最终消息；无 result 则用已回放 text；再退原始尾部
+        parsed_tail = None
+        if result is not None and isinstance(result.get("text"), str):
+            parsed_tail = result["text"]
+        elif texts:
+            parsed_tail = "".join(texts)
+        tail = parsed_tail if parsed_tail is not None else (raw or "")[-2000:]
+        # usage：result 事件带真实 tokens；否则按任务文件保守估算（标注 estimated）
+        toks = (result or {}).get("tokens") or {}
+        if result is not None and parsed_tail is not None:
+            t_in = int(toks.get("input") or 0)
+            t_out = int(toks.get("output") or 0)
+            c_read = int(toks.get("cache_read") or 0)
+            estimated = False
+        else:
+            from utils.api_client import estimate_tokens as est
+            t_in, t_out = est(task_path)
+            c_read = 0
+            estimated = True
+        out = {
+            "exit_code": exit_code,
+            "stdout_tail": tail,
+            "tokens": t_in,
+            "tokens_out": t_out,
+            "cache_read": c_read,
+            "cost_yuan": 0.0,     # agent 订阅执行无按量成本（estimate 对 provider=hermes 同返 0）
+            "estimated": estimated,
+            "provider": "hermes",
+            "model": (init or {}).get("model") or self.model or "hermes-default",
+            "requests": 1,
+            "stopped": bool(stopped),
+        }
+        if error:
+            out["error"] = str(error)
+        if stderr and exit_code != 0:
+            out["stderr_tail"] = stderr[-600:]
+        return out
+
+    @staticmethod
+    def _kill_tree(proc):
+        """杀整棵进程树（Windows 关键坑，2026-10-01 实测）。
+
+        `hermes` 是 pip 入口 .exe，底下还孵着 python 子进程；`.bat` 桩同理
+        （cmd 孵孙进程）。只 kill 直接子进程 → 孤儿继续持有 stdout 管道 →
+        communicate()/wait() 等不到 EOF（实测超时阈值 1s 却 19.3s 才返回），
+        「停止」后真实子会话还在继续跑。必须 taskkill /F /T 连孙子一起杀。
+        """
+        import subprocess
+        try:
+            if proc.poll() is not None:
+                # 直接子进程已退出：按 PID taskkill 有 PID 复用误杀风险，
+                # 且活树已不在（孤孙进程场景由第二轮 communicate 的 10s 上界兜住）
+                return
+            if os.name == "nt":
+                subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                               capture_output=True, timeout=15)
+            else:
+                proc.kill()
+        except Exception:                               # noqa: BLE001
+            pass
+        try:
+            if proc.poll() is None:
+                proc.kill()
+        except Exception:                               # noqa: BLE001
+            pass
 
     def run_task(self, task_file, workdir=None, model=None):
         import subprocess
         task_path = Path(task_file)
-        cmd = [self.hermes_bin, "chat", "-q",
-               "阅读并严格按 " + str(task_path) + " 中的指示执行全部步骤。"
-               "完成后简要汇报：产物路径、校验结果、遇到的问题。"]
-        eff_model = model or self.model
-        if eff_model:
-            cmd += ["-m", eff_model]
-        proc = subprocess.run(cmd, capture_output=True, text=True,
-                              timeout=self.timeout, cwd=workdir)
-        from utils.api_client import parse_usage, estimate_tokens as est
-        stdout = proc.stdout or ""
-        t_in, t_out, cost_yuan, estimated = parse_usage(stdout)
-        if estimated:
-            t_in, t_out = est(task_path)
-        return {"exit_code": proc.returncode, "stdout_tail": stdout[-2000:],
-                "tokens": t_in, "tokens_out": t_out, "cost_yuan": cost_yuan,
-                "estimated": estimated, "provider": "hermes",
-                "model": eff_model or "default", "requests": 1}
+        cmd = self._build_cmd(task_path, model)
+        try:
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE, text=True,
+                                    encoding="utf-8", errors="replace",
+                                    cwd=workdir)
+        except OSError as e:
+            return self._finish(task_path, 127, "",
+                                error="无法启动 hermes（" + str(self.hermes_bin) +
+                                      "）: " + str(e))
+        try:
+            stdout, stderr = proc.communicate(timeout=self.timeout)
+        except subprocess.TimeoutExpired as e:
+            # P0-3：超时抛异常会穿透 run_stage → run 崩为 crashed 且绕过 auto_retry。
+            # 先杀整棵进程树，再有限等待管道收尾（防孤儿把 communicate 拖到任务自然结束）。
+            self._kill_tree(proc)
+            partial = e.output or ""
+            if isinstance(partial, bytes):
+                partial = partial.decode("utf-8", "replace")
+            err_tail = e.stderr or ""
+            if isinstance(err_tail, bytes):
+                err_tail = err_tail.decode("utf-8", "replace")
+            try:
+                out2, err2 = proc.communicate(timeout=10)
+                partial = out2 or partial
+                err_tail = err2 or err_tail
+            except Exception:                           # noqa: BLE001
+                pass
+            return self._finish(task_path, 124, partial, stderr=err_tail or "",
+                                error="hermes 子会话超时（%ss）被中止 → 结构化失败，"
+                                      "交给自动重试 / 止损" % self.timeout)
+        return self._finish(task_path, proc.returncode, stdout or "",
+                            stderr=stderr or "")
 
     def write_task(self, task_dir, name, content):
         task_dir = Path(task_dir)
@@ -995,12 +1161,95 @@ class HermesClient:
         return path
 
     def run_task_stream(self, task_file, on_piece, stop_flag, workdir=None, model=None):
-        """Hermes 引擎暂不支持真流式：降级为 run_task，结束后一次性回调。"""
-        print("[llm_client] Hermes 引擎不支持流式，降级为整块返回")
-        result = self.run_task(task_file, workdir=workdir, model=model)
-        if result["exit_code"] == 0 and result.get("stdout_tail"):
-            on_piece(result["stdout_tail"])
-        return result
+        """真流式（P2）：逐 text 事件回放；stop_flag 置位即杀子进程（P0-4）。
+
+        stderr 并入 stdout 读取（防管道填满死锁）；非 JSON 行由解析层忽略。
+        """
+        import subprocess
+        import threading
+        import time
+        import queue as _queue
+        task_path = Path(task_file)
+        cmd = self._build_cmd(task_path, model)
+        try:
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                                    stderr=subprocess.STDOUT, text=True,
+                                    encoding="utf-8", errors="replace",
+                                    bufsize=1, cwd=workdir)
+        except OSError as e:
+            return self._finish(task_path, 127, "",
+                                error="无法启动 hermes（" + str(self.hermes_bin) +
+                                      "）: " + str(e))
+        line_q = _queue.Queue()
+
+        def _reader():
+            try:
+                for line in proc.stdout:
+                    line_q.put(line)
+            except Exception:                               # noqa: BLE001
+                pass
+            line_q.put(None)   # EOF 哨兵
+
+        threading.Thread(target=_reader, daemon=True).start()
+        raw_parts = []
+        stopped = False
+        timed_out = False
+        deadline = time.time() + self.timeout
+        eof = False
+        while not eof:
+            if stop_flag and stop_flag():
+                stopped = True
+                break
+            if time.time() > deadline:
+                timed_out = True
+                break
+            try:
+                line = line_q.get(timeout=0.5)
+            except _queue.Empty:
+                continue
+            if line is None:
+                eof = True
+                break
+            raw_parts.append(line)
+            if not line.lstrip().startswith("{"):
+                continue
+            try:
+                ev = json.loads(line)
+            except Exception:                               # noqa: BLE001
+                continue
+            if isinstance(ev, dict) and ev.get("type") == "text":
+                piece = ev.get("text") or ""
+                if piece:
+                    try:
+                        on_piece(piece)
+                    except Exception:                       # noqa: BLE001
+                        pass   # 回调失败绝不打断执行
+
+        def _kill():
+            # 杀整棵进程树：只杀直接子进程会让 hermes.exe 的 python 孙进程
+            # 成孤儿继续跑（「停止」形同虚设）
+            self._kill_tree(proc)
+            try:
+                proc.wait(timeout=5)
+            except Exception:                               # noqa: BLE001
+                pass
+
+        if stopped or timed_out:
+            _kill()
+            rc = 124 if timed_out else 0
+        else:
+            try:
+                rc = proc.wait(timeout=30)
+            except Exception:                               # noqa: BLE001
+                _kill()
+                rc = 124
+        raw = "".join(raw_parts)
+        if timed_out:
+            return self._finish(task_path, 124, raw,
+                                error="hermes 子会话流式超时（%ss）被中止" % self.timeout)
+        if stopped:
+            return self._finish(task_path, 0, raw, stopped=True)
+        return self._finish(task_path, rc, raw)
 
 
 # ---------------------------------------------------------------- 工厂
@@ -1070,9 +1319,21 @@ def make_client(cfg, model_key="default", verbose=True):
     provs = (cfg or {}).get("providers") or {}
 
     if engine == "hermes" or provider_id == "hermes":
+        # 2026-10-01 用户定调：agent 模式（hermes 引擎）一律用 **agent 内部配置的模型**，
+        # 与本配置的 model.* 完全无关（流量本就走 agent 的订阅）。
+        # 历史坑：曾把 model_id 透传成 `-m` —— hermes 按它自己的 active provider 解析
+        # 裸模型名，TokenHub（腾讯云）的模型名发到小米端点 → 400 Unsupported model →
+        # 静默 fallback 到别家，「配置写 A、实际跑 B」。故此处不传 -m（= hermes 默认模型）。
         if verbose:
-            print("[client] 引擎=hermes 模型=" + (model_id or "(默认)"))
-        return HermesClient(model=model_id or None)
+            print("[client] 引擎=hermes → 用 agent 内部配置的模型（忽略 model." +
+                  str(model_key) + "）")
+        hcfg = (cfg or {}).get("hermes") or {}
+        return HermesClient(
+            model=None,
+            timeout=int(hcfg.get("timeout", 900)),
+            max_turns=int(hcfg.get("max_turns", 60)),
+            toolsets=hcfg.get("toolsets", HermesClient.DEFAULT_TOOLSETS),
+        )
 
     prov = provs.get(provider_id) or {}
     ptype = prov.get("type", "openai-compat")

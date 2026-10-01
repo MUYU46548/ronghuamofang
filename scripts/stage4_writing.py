@@ -38,6 +38,24 @@ def _kb_notice_once(msg):
         _KB_NOTICE["shown"] = True
 
 
+def _stop_requested():
+    """GUI/外部是否请求停止（与 orchestrator._stop_requested 同语义）。
+
+    P0-4（2026-10-01）：orchestrator 只在**阶段边界**查停止，而 stage4 一阶段
+    可能是几十章 —— 不在章间查，按了「停止」也要跑完整个阶段才生效。
+    延迟导入 nf_api 防循环依赖（nf_api 顶层 import orchestrator，orchestrator
+    模块级 import 本文件）；CLI 独立跑本文件时 nf_api 不可导入 → 降级「未请求」。
+    """
+    try:
+        from nf_api import should_stop
+    except Exception:                                       # noqa: BLE001
+        return False
+    try:
+        return bool(should_stop())
+    except Exception:                                       # noqa: BLE001
+        return False
+
+
 def _safe_read(path, budget=20000):
     try:
         return read_text(path)[:budget]
@@ -292,6 +310,13 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         return False
 
     for n in todo:
+        # P0-4（2026-10-01）：章间检查停止请求 —— 不在这里查，按了「停止」
+        # 也要跑完整个阶段（几十章）才轮到 orchestrator 的阶段边界检查。
+        if _stop_requested():
+            print(f"[stage4] 收到停止请求，停在第{n}章开始前"
+                  "（已完成章节保留，断点续跑不重写）")
+            aborted = "stopped"
+            break
         chap_path = raw_dir / f"{n:02d}.md"
         prev_path = raw_dir / f"{n - 1:02d}.md"
         prev_tail = extract_prev_tail(prev_path, 4) if prev_path.exists() else []
@@ -381,6 +406,10 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     if aborted:
         remaining_failed = progress.failed_chapters(4)
         progress.set_stage(4, "failed", failed_count=len(remaining_failed))
+        if aborted == "stopped":
+            # 用户主动中断 ≠ 章节失败：只报中断事实（连败止损文案不适用）
+            return False, ("stage4 被**用户中断**（本轮完成 %d 章）—— "
+                           "断点续跑不会重写已完成章节" % done_this_round)
         if aborted == "budget":
             return False, ("stage4 因**预算熔断**停止（本轮完成 %d 章，累计失败 %d 章）。"
                            "调整 budget.limit_yuan 或缩小范围后重跑；"

@@ -1289,6 +1289,7 @@ async function addManualModel() {
 // 现在改由后端写盘（键名白名单 + 值校验 + 写前备份），前端只传键与值。
 const envEditing = ref("");   // 正在编辑哪个 provider 的 Key（空 = 都不在编辑）
 const envValue = ref("");     // 新 Key 明文（仅存在于内存，不回显已存值）
+const envConfirmOpen = ref(false); // 「在文件夹中显示 .env」前的知情确认（明文密钥风险，2026-10-01）
 
 function startEnvEdit(pid) {
   envEditing.value = pid;
@@ -3272,7 +3273,7 @@ onUnmounted(() => {
         Key 写入项目 <code>.env</code>（不进 git、界面内从不回显明文）；保存后<b>立即生效、无需重启</b>；已存值只显示前后各几位。
       </div>
       <div style="display: flex; gap: 8px; margin-top: 8px; align-items: center;">
-        <button class="mini" @click="revealEnvInFolder" title="在资源管理器中定位 .env（只定位，不代为打开）">在文件夹中显示</button>
+        <button class="mini" @click="envConfirmOpen = true" title="在资源管理器中定位 .env（只定位，不代为打开；点击后需确认）">在文件夹中显示</button>
       </div>
       <div class="meta" style="margin-top: 4px;">
         <b>配置 Key 只需点上面的「填入 Key」</b>，不必手动编辑文件。.env 含明文密钥，
@@ -3816,6 +3817,24 @@ onUnmounted(() => {
       <div class="dialog-actions">
         <button class="mini" @click="refineOpen = false">取消</button>
         <button class="mini primary" @click="submitRefine">提交精修</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- .env 明文密钥知情确认：定位 .env 前强制过一道（2026-10-01 用户要求） -->
+  <div v-if="envConfirmOpen" class="drawer-mask" @click.self="envConfirmOpen = false">
+    <div class="dialog" style="width: min(520px, 92vw);">
+      <h3>即将在文件夹中显示 .env</h3>
+      <div class="meta">
+        <code>.env</code> 以<b>明文</b>保存各家 API Key。继续操作只会在资源管理器中定位该文件
+        （<b>不代为打开</b>），随后你自行打开时请注意：<br>
+        · 不要截图，也不要把内容粘贴到聊天、工单等第三方场景；<br>
+        · 编辑器插件 / AI 工具可能读取该文件，改完请尽快关闭；<br>
+        · 日常配置 Key 建议优先用上方「填入 Key」输入框（后端直写，不经外部编辑器）。
+      </div>
+      <div class="dialog-actions">
+        <button class="mini" @click="envConfirmOpen = false">取消</button>
+        <button class="mini danger" @click="envConfirmOpen = false; revealEnvInFolder()">我已了解风险，并愿意继续</button>
       </div>
     </div>
   </div>

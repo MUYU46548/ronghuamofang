@@ -156,6 +156,9 @@ def _stop_requested():
 def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False):
     cfg, proj = load_config()
     _warn_rewrite_conflict(cfg)
+    if cfg.get("engine") == "hermes":
+        print("[orchestrator] engine=hermes：LLM 走 agent 子会话（订阅流量，model.* 不适用）；"
+              "cost 记 0 + 真实 token 留痕 → ¥ 预算熔断对本引擎不生效（刻意语义）")
     if verbose:
         os.environ["NOVELFORGE_DEBUG"] = "1"
         print("[orchestrator] verbose：将把每次 LLM 请求/响应原文落盘 data/state/llm_raw/")
@@ -222,7 +225,8 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
         def _post_stage(n):
             """阶段成功后的后置动作（快照 / 素材体检 / 自动重写 / 审稿门 / 校对）。
 
-            返回退出码（需要停下等人工时）或 None。
+            返回退出码：3 = 停下等人工审阅；非 3 非零 = 后置检查失败（审稿门
+            fail-closed，P0-2）；None = 继续往下跑。
 
             ## 为什么抽成函数（2026-10-01）
 
@@ -289,8 +293,16 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
                               "然后运行: python scripts/batch_refine.py")
                         db.finish_run(run_id, "waiting_review")
                         return 3  # 复用 waiting_approval 语义（等待用户审阅）
+                    # P0-2 fail-closed（2026-10-01）：审查跑挂 / JSON 解析失败 = 审稿门
+                    # 失守。旧逻辑静默 return None → 流水线直接冲进 stage5，用户根本
+                    # 不知道审查没发生。门必须挡住，失败原因必须给人看。
+                    print("[orchestrator] 审查失败 —— 审稿门 fail-closed：暂停流水线"
+                          "（先修 chapter_review 输出可解析性，再重跑收尾）")
+                    return 1
                 except Exception as e:
-                    print(f"[orchestrator] 审查失败（不影响流程）: {e}")
+                    # P0-2 fail-closed：异常同样不许静默跳过审稿门
+                    print(f"[orchestrator] 审查异常 —— 审稿门 fail-closed，暂停流水线: {e}")
+                    return 1
             # stage 5.5：校对（润色后、Word 前）
             if n == 5 and cfg.get("gates", {}).get("proofread_after_polish", False):
                 try:
@@ -371,6 +383,11 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
             ok, msg = STAGES[n].run_stage(cfg, proj, progress, db, cost, client=client,
                                           task_dir="data/state/tasks", run_id=run_id)
             print(f"[orchestrator] 阶段{n} 结果: {msg}")
+            # P0-4：阶段内请求的停止（stage4 章间检查等）立即收尾 —— 不再等下一个
+            # 阶段边界，也绝不带着停止继续跑后置钩子（审稿等 LLM 动作）。
+            if _stop_requested():
+                print("[orchestrator] 阶段后收到停止请求，中断")
+                return _finalize("stopped", 4)
             if ok:
                 # 后置钩子统一走 _post_stage（快照 / 素材体检 / 自动重写 / 审稿门 / 校对）。
                 # 抽成函数的理由见其 docstring：原先写在这一分支里，导致
@@ -378,7 +395,8 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
                 # 等人工审稿的 review_after_stage4。
                 _code = _post_stage(n)
                 if _code is not None:
-                    return _finalize("waiting_review", _code)
+                    # 3 = 等人工审阅；其他非零 = 后置检查失败（审稿门 fail-closed，P0-2）
+                    return _finalize("waiting_review" if _code == 3 else "failed", _code)
             if not ok:
                 # 自动重试（默认开）：阶段失败后自动重试，减少人工干预。
                 # 整段包 try/except：重试是**失败兜底机制**，它自己绝不能成为最脆的一环。
@@ -427,9 +445,14 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
                     # 重试成功 → 后置钩子**必须照跑**（审稿门 / 校对 / 自动重写都在里面）。
                     # 漏了这一步，"重试成功的阶段"就偷偷降级成"只跑了 run_stage"。
                     print(f"[orchestrator] 阶段{n} 重试后成功，补跑后置动作")
+                    # 与首次成功路径同语义：停止请求先于后置钩子生效（P0-4）
+                    if _stop_requested():
+                        print("[orchestrator] 重试成功后收到停止请求，中断")
+                        return _finalize("stopped", 4)
                     _code = _post_stage(n)
                     if _code is not None:
-                        return _finalize("waiting_review", _code)
+                        # 3 = 等人工审阅；其他非零 = 后置检查失败（审稿门 fail-closed，P0-2）
+                        return _finalize("waiting_review" if _code == 3 else "failed", _code)
             # 阶段末尾的预算检查（S10 修复）。
             #
             # 此处原先只 `print` 一个状态就往下走 —— 计算了 `state` 却从不据此停机，

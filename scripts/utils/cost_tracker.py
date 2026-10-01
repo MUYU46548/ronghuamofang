@@ -466,7 +466,14 @@ def estimate_cost_yuan(tokens_in, tokens_out, model=None, provider=None, role=No
 
     cache_read: 缓存命中 token 数。RATES 中有 cache_read 字段时按缓存价计入，
     没有则按 0（保守不计，实际成本比估算低，熔断不会失灵）。
+
+    provider == "hermes" 恒返回 0（2026-10-01 用户定调）：agent 模式走订阅流量，
+    无按量 ¥ 成本 —— token 照记（run_task 返回真实 usage），但预算熔断对 hermes
+    引擎不生效是**刻意语义**（预算是 direct 引擎的按量保护），orchestrator 启动时
+    会显式提示，不做「按任务文件大小 × 刊例价」的虚构记账。
     """
+    if provider == "hermes":
+        return 0.0
     rate, _ = resolve_rate(model, provider, role)
     cache_rate = rate.get("cache_read", 0)
     # ⚠️ 缓存命中的 token **已经在 tokens_in 里**了（OpenAI / TokenHub / DeepSeek /

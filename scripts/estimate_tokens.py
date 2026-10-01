@@ -171,8 +171,13 @@ def history_stats(stage, db_path="logs/runs.db"):
 
 def _mk_stage(stage, calls, t_in, t_out, cfg, role):
     provider, model = model_for(cfg, role)
+    if (cfg.get("engine") or "direct") == "hermes":
+        # engine=hermes：LLM 走 agent 子会话（订阅流量）→ ¥ 预估恒 0（token 预估
+        # 保留，真实 usage 照记）。provider 标 hermes 让 cost_tracker 短路、
+        # rate_known 与报告口径一致（2026-10-01 排雷 P0-1 配套）。
+        provider = "hermes"
     cost = estimate_cost_yuan(int(t_in), int(t_out), model=model,
-                             provider=provider, role=role)
+                              provider=provider, role=role)
     return {
         "stage": stage,
         "name": STAGE_NAMES.get(stage, str(stage)),
@@ -324,7 +329,9 @@ def estimate(stages=None, cfg=None, proj=None, use_history=True):
     spent = current_spent()
     total_cost = round(sum(r["cost_yuan"] for r in rows), 4)
     hist_stages = [r["stage"] for r in rows if r.get("source") == "history"]
+    engine = (cfg.get("engine") or "direct")
     return {
+        "engine": engine,
         "generated_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
         "chars_per_token": chars_per_token(cfg),
         "stages": rows,
@@ -347,7 +354,10 @@ def estimate(stages=None, cfg=None, proj=None, use_history=True):
             "exceeds": (spent + total_cost) > limit,
         },
         "disclaimer": "估算值（历史实测均值优先，无历史则字符折算 + 刊例价），非账单；"
-                      "真实用量以 logs/runs.db 为准，下单前请以服务商官网实时价为准。",
+                      "真实用量以 logs/runs.db 为准，下单前请以服务商官网实时价为准。"
+                      + (" 当前 engine=hermes：LLM 走 agent 订阅流量，¥ 预估恒为 0、"
+                         "预算熔断不适用（真实 token 仍会记账）。"
+                         if engine == "hermes" else ""),
     }
 
 

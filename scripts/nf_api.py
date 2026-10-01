@@ -320,7 +320,8 @@ def _vault_ready(handler):
 
 def _wrap_client_for_streaming(client, job_id):
     """包装客户端：将 run_task 重定向到 run_task_stream，通过队列推送 token。
-    Hermes 引擎不支持真流式，降级为整块返回。
+    Hermes 引擎自 2026-10-01 起为真流式（stream-json 的 text 事件逐段回放，
+    stop_flag 可直接杀子进程）；无 run_task_stream 的客户端才走整块回放兜底。
     支持 pause/resume：通过 streamer["pause"] 事件控制。"""
     orig_run_task = client.run_task
     orig_run_task_stream = getattr(client, "run_task_stream", None)
