@@ -110,6 +110,7 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 | **模型/供应商切换通道自检** | `python scripts/nfctl.py model-check [provider]`（离线：base_url/key 完整性（**Key 只输出前 3 后 4**）、各角色模型是否在该 provider 清单内、fallback 是否跨供应商、白名单覆盖面；`--live` 才发最小请求） |
 | **stage4 长跑止损自检** | `python tests/unit/test_stage4_stoploss.py`（纯 fake：连续失败 3 章即停（**只跑 3 章不是 10 章**）· 阈值 0 = 关闭 · **章间预算熔断**真的在阶段内生效 · 反证：正常路径不受影响，16 断言） |
 | **续跑产物有效性判据自检** | `python tests/unit/test_resume_output_judgement.py`（13 断言：空壳必须判不可用、正常产物不误杀、阈值边界；并断言 **stage5/6 的调用点真的用了 `is_usable_output`**，防退回裸 `exists()` —— "修好了又漂回去"光测函数测不到） |
+| **第二轮审查修复回归** | `python tests/unit/test_audit_fixes_20261001.py`（22 断言：**缓存 token 不得双重计价**（数值断言，旧口径 1.18 → 新 0.28）· **行尾「……」不得当截断**（否则章节反复重写烧钱）· `merge_book` 逐章取优不丢章 · `progress.json` 顶层非对象不崩 · 结构性源码断言：reject 清理范围 / `build_state.agent_mode` / MCP 阶段上限 7 / orchestrator `_post_stage` 调用点 / 前端 `only_stage:false`） |
 | **段落级精修轴** | `python tests/unit/test_paragraph_refine.py`（零 LLM：char_diff/summarize_diff/风格特征/split_paragraphs/历史/回退，24 断言） |
 | **正文退化检测自检** | `python tests/unit/test_verify_degenerate.py`（审计行动项 10：6 种退化形态（复读填充/思考残片/元话语拒答/无段落换行/标点灌水/模板骨架）各**判据隔离**样本 + 真实章节零误报 + 阈值边界 + `is_chapter_complete` 集成 + **7 条反向验证**（删判据→必须变绿），59 断言） |
 | 审稿闭环端点 HTTP 自检 | `python tests/http/test_review_api_http.py`（临时项目根起 nf_api：报告缺失 → 400 可行动提示、审查 job、决策保存与回读、批量精修真读到决策、键值格式兼容、交互式被拒，25 断言） |

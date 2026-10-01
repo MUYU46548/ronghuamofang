@@ -717,6 +717,11 @@ def build_state():
         "budget": {
           "paused": progress.data.get("budget", {}).get("paused", False),
         },
+        # GUI 要靠它显示「Agent 模式」开关的**真实**状态。
+        # ⚠️ 前端读的是 `s.data.agent_mode`（顶层），而此前这个字段只存在于
+        # `gates` 里 → `!!undefined` 恒 false → 开关永远显示「已关闭」，
+        # 哪怕 system.yaml 里明明是 true（用户完全看不出真实权限状态）。
+        "agent_mode": bool((gates or {}).get("agent_mode", False)),
     }
 
 

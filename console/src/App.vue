@@ -756,7 +756,10 @@ async function runPipelineFull() {
 }
 
 async function doRunPipelineFull() {
-  const r = await api("/stage/1/run", "POST", { from_stage: 1 });
+  // ⚠️ 必须显式传 `only_stage: false`：后端把 URL 里的阶段号默认当成"只跑这一阶段"
+  // （`only = int(rest)`），只有显式声明 false 才走 `from_stage` 起跑全程。
+  // 漏传的后果是：点「全自动」实际只跑了阶段 1，界面却提示"已提交全流程运行"。
+  const r = await api("/stage/1/run", "POST", { from_stage: 1, only_stage: false });
   if (r.status === 202) say("已提交全流程运行，进度见顶栏");
   else say("提交失败: " + (r.data.error || r.status));
   refresh();
@@ -767,7 +770,9 @@ async function runPipelineStreamFull() {
 }
 
 async function doRunPipelineStreamFull() {
-  const r = await api("/stage/1/run", "POST", { from_stage: 1, stream: true });
+  // 同 doRunPipelineFull：不传 only_stage:false 就只会跑阶段 1
+  const r = await api("/stage/1/run", "POST",
+                      { from_stage: 1, stream: true, only_stage: false });
   if (r.status === 202) {
     say("已提交流式全流程运行");
     if (streamSource) streamSource.close();

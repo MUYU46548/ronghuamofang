@@ -172,7 +172,20 @@ function getWorkspaceDir() {
 // v14（2026-10-01，第十批）：payload 再变 —— 断点续跑的产物有效性判据
 //   （`utils/verify_chapter.is_usable_output`：stage5 的 checked、stage6 的 refined
 //   不再"文件存在就跳过"，空壳/残稿会被识别并重跑）。**先 bump 再 electron-builder**。
-const SEED_VERSION = 14;
+// v15（2026-10-01，第十一批）：第二轮系统审查的 11 处修复 ——
+//   · `orchestrator.py` 后置钩子抽成 `_post_stage()`（"首次失败→重试成功"也要跑，
+//     否则审稿门 review_after_stage4 会被跳过）；
+//   · `stage3_chapter_outline.py` 断点判据复用 `check_chapter_outline`；
+//   · `stage7_convert.py` 的 `merge_book` 逐章取优（不再只取第一个非空目录）+ 校验章数；
+//   · `reject.py` 补 `data/outline/chapters`（stage3 自己的产物）与 `data/summaries`；
+//   · `utils/cost_tracker.py` 修缓存 token 双重计价；
+//   · `utils/verify_chapter.py` 的截断判据不再误伤「……」结尾；
+//   · `snapshot.py` 恢复以"全部成功"为成功条件；
+//   · `utils/progress_manager.py` 容忍"合法 JSON 但顶层不是对象"；
+//   · `nf_api.py` 的 `build_state` 补顶层 `agent_mode`；
+//   · `nf_mcp.py` 的 `nf_run_stage` 阶段上限改 7（与后端一致）。
+//   **先 bump 再 electron-builder**。
+const SEED_VERSION = 15;
 
 // 只播种/刷新**代码与提示词**目录。
 // 刻意不含 data/：那是用户产物（章节、设定、大纲），任何情况下都不能被覆盖。

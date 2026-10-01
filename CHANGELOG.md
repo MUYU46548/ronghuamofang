@@ -97,6 +97,47 @@ CHANGELOG」）。本文件从工程审查修复起正式启用。
 本轮补齐 —— `load_template` 缺文件时给可执行的恢复方式；填充后残留占位符告警；
 `nfctl check` 从代码里的调用点反推必需清单做体检（缺文件 / 空文件 / 调用名漏 `.md` 一律阻塞）。
 
+### 🔴 第二轮系统审查（阶段状态机 / API 与前端 / 底层工具）—— 11 处缺陷
+- **前端「全自动」实际只跑了阶段 1**：`/stage/1/run` 没传 `only_stage:false`，而后端
+  把 URL 里的阶段号默认当成"只跑这一阶段" → 界面提示"已提交全流程运行"，实际停在
+  阶段 1。**典型的假成功。**
+- **orchestrator 重试成功后跳过后置钩子**：后置动作（快照 / 素材体检 / 自动重写 /
+  **审稿门** / 校对）原先写在「首次就成功」的分支里，"首次失败 → 自动重试成功"这条
+  路径会**整块跳过** —— 其中 `review_after_stage4` 本该停下来等人工审稿，被跳过后
+  直接冲进 stage5/6。而 `auto_retry` 默认开，这是常见路径而非边角情况。
+  已抽成 `_post_stage()`，两条路径都调用。
+- **成本把缓存 token 双重计价**：`cached_tokens` 是 `prompt_tokens` 的**子集**，
+  旧算法 `tokens_in * 输入价 + cache_read * 缓存价` 把命中部分算了两遍。实测缓存
+  占比可达 ~95% → 输入成本高估近一倍 → **熔断提前触发**（本该跑完的书被拦腰截断）。
+- **`is_chapter_complete` 把以「……」结尾的完整章判成截断**：省略号是中文小说对话与
+  留白的**合法结尾**，误判的代价不是"多跑一次"而是**反复重写**（每轮都当半成品，
+  模型保持同样结尾就永远完不成，钱一直烧）。改为只认真正的停顿符；真截断由
+  `finish_reason == "length"` 的产出契约判定。
+- **`reject.py --stage 3` 是空操作**：清理列表漏了 stage3 **自己的产物**
+  `data/outline/chapters` —— 旧逐章大纲一个没删，而 stage3 的断点判据那时只看
+  `exists()` → 重跑直接判"全部已存在"并 `mark_stage_done`。用户以为重做了，实际
+  喂给 stage4 的还是那批被打回的大纲。同时给 2/3/4 补上 `data/summaries`（滚动摘要
+  不清会新旧叠在一起，旧情节被当上下文注入写作）。
+- **`merge_book` 只取第一个非空目录**：`refined/` 里残留 1 个文件就只合并 1 章，
+  `checked/raw` 里其它章**全被忽略** —— 成品就此定稿，且 stage7 会 `mark_done`，
+  断点续跑再也不会补。改为逐章按优先级取（refined > checked > raw），并在调用方
+  校验合并章数（只判"docx 非空"是拦不住残卷的）。
+- **`snapshot.restore` 单项失败仍返回 True**：界面/MCP 显示"已恢复"，磁盘上却是
+  新旧混杂，用户不会再补救。改为以"全部成功"为成功条件。
+- **`ProgressManager` 对「合法 JSON 但顶层不是对象」直接崩**（`[]` / `"x"` / `123`
+  都能 `json.loads` 成功，随后 `data.items()` AttributeError 穿透出去把流水线打挂）。
+  与语法错误同样处置：告警 + 隔离原件 + 降级。
+- **`build_state` 缺顶层 `agent_mode`** → GUI 开关永远显示"已关闭"，哪怕
+  `system.yaml` 里是 true（用户完全看不出真实权限状态）。**把 Agent 模式开关提到
+  首页后，这个问题会被放大**（首页常驻显示错误状态）。
+- **MCP `nf_run_stage` 声明支持阶段 8**，而后端 `/stage/{n}/run` 只收 1-7 →
+  Agent 照契约调用必然撞 400。改为 1-7 并注明阶段 8 走 `nf_export_markdown`。
+- **stage3 断点判据只看 `exists()`** → 复用 `check_chapter_outline`（判据只有一份）。
+
+新增 `tests/unit/test_audit_fixes_20261001.py`（22 断言）：数值类（计价口径、截断
+判据）用真实断言；结构性（reject 清理范围 / build_state 字段 / MCP schema /
+orchestrator 钩子调用点 / 前端 only_stage 传参）用**源码断言**防"修好了又漂回去"。
+
 ---
 
 ## [Unreleased] — 2026-09-30 MCP stdio 垫片补位 · 定价批量导入 · `--root` 路径纪律清完
