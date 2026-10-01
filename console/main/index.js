@@ -40,6 +40,14 @@ function setupAutoUpdater() {
     });
     autoUpdater.on("update-not-available", () => {
       console.log("[updater] already up to date");
+      // 主动回推：主动检查后若「没有新版本」，只靠 checkForUpdates() 的返回值
+      // 前端拿不到结论（结果对象不可序列化），必须走事件
+      if (mainWindow) {
+        mainWindow.webContents.send("updater", {
+          type: "no-update",
+          message: `已是最新版本（v${app.getVersion()}）`,
+        });
+      }
     });
     autoUpdater.on("download-progress", (progress) => {
       console.log(`[updater] downloading ${progress.percent.toFixed(1)}%`);
@@ -365,12 +373,36 @@ async function waitForApi(timeoutMs = 15000) {
   return false;
 }
 
+// 数据/产物类路径解析：**workspace 优先，代码根（ROOT）兜底**。
+//
+// 为什么不能只认 ROOT：打包态 ROOT 指向安装目录里的 `resources/payload`
+// （随安装包只读，且 extraResources 里**没有** data/），而 `.env`、`data/`、
+// `output/` 全在 workspace（`%APPDATA%\绒花墨坊\workspace`）。
+// 用 ROOT 去解析 `.env` 必然「文件不存在」—— 这正是设置页「在文件夹中显示」
+// 点了没反应、关于弹窗「打开」按钮打不开产物的根因（2026-10-01 实测反馈）。
+function resolveExisting(relPath) {
+  const wsAbs = path.resolve(getWorkspaceDir(), relPath);
+  if (fs.existsSync(wsAbs)) return wsAbs;
+  const rootAbs = path.resolve(ROOT, relPath);
+  if (fs.existsSync(rootAbs)) return rootAbs;
+  return wsAbs;   // 都不存在 → 回 workspace，报错信息指向用户真实数据区
+}
+
 function pathAllowed(p) {
   const norm = path.resolve(p).replace(/\\/g, "/").toLowerCase();
-  const root = ROOT.replace(/\\/g, "/").toLowerCase() + "/";
-  const ws = getWorkspaceDir().replace(/\\/g, "/").toLowerCase() + "/";
-  if (!norm.startsWith(root) && !norm.startsWith(ws)) return false;
-  const rel = norm.slice(root.length);
+  // 两个根都要算：源码态二者相同（去重无害），打包态分别是 workspace 与 payload。
+  // ⚠️ 旧实现只按 ROOT 前缀 slice 计算相对路径 —— 打包态下 workspace 里的路径
+  // 会切出一段垃圾 rel，命中不了任何白名单分支，于是**所有**指向用户数据的
+  // 打开/预览请求都被判「路径不在白名单」。
+  const roots = [...new Set([getWorkspaceDir(), ROOT].map(
+    (r) => r.replace(/\\/g, "/").toLowerCase()))];
+  let rel = null;
+  for (const r of roots) {
+    if (norm === r) { rel = ""; break; }
+    if (norm.startsWith(r + "/")) { rel = norm.slice(r.length + 1); break; }
+  }
+  if (rel === null) return false;
+  if (rel === "") return true;
   // 允许直接打开这几个白名单目录本身（关于弹窗的「打开目录」按钮）
   if (["data", "output", "logs", "materials", "config"].includes(rel)) return true;
   if (rel.startsWith("data/") || rel.startsWith("output/")) return true;
@@ -384,7 +416,7 @@ function pathAllowed(p) {
 
 ipcMain.handle("read-preview", async (e, relPath) => {
   try {
-    const abs = path.resolve(ROOT, relPath);
+    const abs = resolveExisting(relPath);
     if (!pathAllowed(abs)) return { ok: false, error: "路径不在白名单: " + relPath };
     if (!fs.existsSync(abs)) return { ok: false, error: "文件不存在: " + relPath };
     const stat = fs.statSync(abs);
@@ -396,7 +428,7 @@ ipcMain.handle("read-preview", async (e, relPath) => {
 });
 
 ipcMain.handle("open-artifact", async (e, relPath) => {
-  const abs = path.resolve(ROOT, relPath);
+  const abs = resolveExisting(relPath);
   if (!pathAllowed(abs)) return { ok: false, error: "路径不在白名单" };
   const r = await shell.openPath(fs.existsSync(abs) ? abs : path.dirname(abs));
   return r ? { ok: false, error: r } : { ok: true };
@@ -404,22 +436,31 @@ ipcMain.handle("open-artifact", async (e, relPath) => {
 
 // 直接用系统默认程序打开文件（用户显式点击「打开」时调用）
 ipcMain.handle("open-file", async (e, relPath) => {
-  const abs = path.resolve(ROOT, relPath);
+  const abs = resolveExisting(relPath);
   if (!pathAllowed(abs)) return { ok: false, error: "路径不在白名单" };
   const r = await shell.openPath(fs.existsSync(abs) ? abs : path.dirname(abs));
   return r ? { ok: false, error: r } : { ok: true };
 });
 
-// 在文件管理器中定位文件（**不打开**内容）——给 .env 这类敏感文件用：
-// 用户需要自己编辑，但不该由程序代为「用外部编辑器打开明文密钥」。
+// 在文件管理器中定位 `.env`（含明文密钥：**只定位、不打开**）。
+// 2026-09-19 审查 S7 决定程序不代为用外部编辑器打开密钥文件，但当时的实现
+// 却把路径解析成 `ROOT/.env`（打包态 = 安装目录里的 payload，那里根本没有 .env）
+// → 恒返回「文件不存在」，前端又没检查返回值、照样提示成功 —— 用户看到的是
+// 「点了没反应」。现在改为解析到 workspace（后端写 .env 的地方），并把
+// 失败如实体现在返回值里。本 IPC 只服务 .env，不接受任意路径。
 ipcMain.handle("reveal-in-folder", async (e, relPath) => {
   try {
-    const abs = path.resolve(ROOT, relPath);
-    // 仅允许项目根内的路径（比 pathAllowed 更严：不开放 workspace 下的任意文件）
-    const root = ROOT.replace(/\\/g, "/").toLowerCase() + "/";
+    if (path.basename(String(relPath || "")) !== ".env") {
+      return { ok: false, error: "该操作仅支持 .env" };
+    }
+    const abs = resolveExisting(".env");
     const norm = abs.replace(/\\/g, "/").toLowerCase();
-    if (!norm.startsWith(root)) return { ok: false, error: "路径越界" };
-    if (!fs.existsSync(abs)) return { ok: false, error: "文件不存在: " + relPath };
+    const allowedRoots = [getWorkspaceDir(), ROOT].map(
+      (r) => r.replace(/\\/g, "/").toLowerCase() + "/");
+    if (!allowedRoots.some((r) => norm.startsWith(r))) {
+      return { ok: false, error: "路径越界" };
+    }
+    if (!fs.existsSync(abs)) return { ok: false, error: "文件不存在: " + abs };
     shell.showItemInFolder(abs);
     return { ok: true, path: abs };
   } catch (err) {
@@ -464,7 +505,11 @@ ipcMain.handle("app:about", async () => ({
   node: process.versions.node,
   packaged: app.isPackaged,
   userDataDir: app.getPath("userData"),
-  projectRoot: ROOT,
+  // projectRoot = **用户数据根**（.env / data / output 所在处）；
+  // 打包态它与安装目录里的 codeRoot（payload）不是同一个地方，
+  // 排查「东西写到哪去了」时必须能分别看到。
+  projectRoot: getWorkspaceDir(),
+  codeRoot: ROOT,
   apiPort: API_PORT,
 }));
 
@@ -543,15 +588,30 @@ ipcMain.handle("style-notes:save", async (e, content) => {
 });
 
 // 自动更新 IPC
+//
+// ⚠️ 返回值必须**只含可序列化字段**：`autoUpdater.checkForUpdates()` 的结果里有
+// `cancellationToken`（CancellationToken 实例，带 EventEmitter）与 `downloadPromise`，
+// 直接经 IPC 回传会触发 "An object could not be cloned"，invoke 直接 reject。
+// 前端当时没有 try/catch → 未捕获的 rejection，`checkingUpdate` 永远停在 true，
+// 按钮卡在「检查中…」并保持 disabled —— 表现就是「检查更新点了没反应 / 功能没了」。
 ipcMain.handle("updater:check", async () => {
-  if (!autoUpdater) return { ok: false, error: "updater 未初始化" };
+  if (!autoUpdater) {
+    return { ok: false, uninitialized: true,
+             error: "本机未启用自动更新（开发模式或便携版），请用「下载新版本」" };
+  }
   try {
     const result = await autoUpdater.checkForUpdates();
-    return { ok: true, result };
+    const info = (result && result.updateInfo) || {};
+    return {
+      ok: true,
+      currentVersion: app.getVersion(),
+      version: info.version || "",
+      releaseDate: info.releaseDate || "",
+    };
   } catch (e) {
     const msg = e.message || "";
     if (msg.includes("404") || msg.includes("no published versions")) {
-      return { ok: false, error: "暂无更新（当前已是最新版本）" };
+      return { ok: false, noUpdate: true, error: "暂无更新（当前已是最新版本）" };
     }
     return { ok: false, error: msg.slice(0, 200) };
   }
@@ -567,6 +627,9 @@ ipcMain.handle("updater:status", () => ({
   available: updateAvailable,
   downloaded: updateDownloaded,
   initialized: autoUpdater !== null,
+  packaged: app.isPackaged,
+  portable: !!process.env.PORTABLE_EXEC_DIR,
+  version: app.getVersion(),
   dev: process.env.NODE_ENV === "development" || !app.isPackaged,
 }));
 

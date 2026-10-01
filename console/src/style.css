@@ -13,6 +13,27 @@
   --ok: #7fae8f;
   --warn: #c9a26a;
   --bad: #c47f7f;
+  /* ---- 控件与状态文字变量（浅色默认；四套暗色主题各自覆盖）----
+     ⚠️ 控件背景**不得**硬编码颜色：暗色主题下 --ink 是浅色，写死
+     `background:#fff` 就是「浅底浅字」，内容直接读不出来 ——
+     2026-10-01 反馈「暗色主题下文本框内文字显示困难」的根因。
+     新增任何输入类控件一律用 var(--field) 系列，不要再写 #fff。 */
+  --field: #ffffff;          /* 输入框 / 按钮 / 可编辑卡片底 */
+  --field-inset: #fbfbfd;    /* 弱化输入区（对话框 textarea、流式输出） */
+  --field-dim: #f5f6f8;      /* 只读 / 禁用 / 侧栏 */
+  --field-hover: #f2f5fc;    /* 悬浮 */
+  --field-on: #eae6f7;       /* 选中 */
+  --field-head: #f6f6fa;     /* 表头 */
+  --field-code: #f4f4f8;     /* 行内代码底 */
+  --topbar: rgba(255, 255, 255, 0.72);
+  /* 多处样式引用 --muted-foreground，但它**从未被定义过** → 颜色静默失效、
+     退回继承色（层级丢失）。这里补上别名，暗色主题会自动跟随 --muted。 */
+  --muted-foreground: var(--muted);
+  --ink-ok: #4e7d5e;
+  --ink-bad: #9e4f4f;
+  --ink-warn: #8f6b33;
+  --ink-mute: #5b5f72;
+  --ink-accent: #6f5fa8;
 }
 :root.theme-dark {
   --bg: #1a1b2e;
@@ -22,6 +43,20 @@
   --accent-soft: #3d4278;
   --card: #232540;
   --border: #2e3258;
+  /* 暗色控件表面：比卡片略亮，靠边框分层级（写死白底 = 浅底浅字） */
+  --field: #2a2d4a;
+  --field-inset: #232640;
+  --field-dim: #1f2238;
+  --field-hover: rgba(255, 255, 255, 0.07);
+  --field-on: rgba(124, 131, 212, 0.26);
+  --field-head: rgba(255, 255, 255, 0.05);
+  --field-code: rgba(255, 255, 255, 0.08);
+  --topbar: rgba(35, 37, 64, 0.85);
+  --ink-ok: #8fd0a8;
+  --ink-bad: #e2a0a0;
+  --ink-warn: #d9b878;
+  --ink-mute: #a3a8bd;
+  --ink-accent: #b3b9ec;
   --shadow: 0 8px 32px rgba(0, 0, 0, 0.30);
   --radius: 14px;
   --ok: #6bbd8e;
@@ -108,6 +143,19 @@
   --accent-soft: #1e3a5f;
   --card: #161d2e;
   --border: #1e2a3d;
+  --field: #1a2338;
+  --field-inset: #151d2f;
+  --field-dim: #131a29;
+  --field-hover: rgba(255, 255, 255, 0.07);
+  --field-on: rgba(90, 143, 212, 0.26);
+  --field-head: rgba(255, 255, 255, 0.05);
+  --field-code: rgba(255, 255, 255, 0.08);
+  --topbar: rgba(15, 20, 32, 0.85);
+  --ink-ok: #8fd0a8;
+  --ink-bad: #e2a0a0;
+  --ink-warn: #d9b878;
+  --ink-mute: #9fb0c6;
+  --ink-accent: #9cc0ee;
   --shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
   --radius: 14px;
   --ok: #5cb88e;
@@ -122,6 +170,19 @@
   --accent-soft: #1e3d2e;
   --card: #162019;
   --border: #1e2d22;
+  --field: #1a2620;
+  --field-inset: #151f1a;
+  --field-dim: #131b16;
+  --field-hover: rgba(255, 255, 255, 0.07);
+  --field-on: rgba(92, 184, 138, 0.26);
+  --field-head: rgba(255, 255, 255, 0.05);
+  --field-code: rgba(255, 255, 255, 0.08);
+  --topbar: rgba(15, 26, 20, 0.85);
+  --ink-ok: #8fd0a8;
+  --ink-bad: #e2a0a0;
+  --ink-warn: #d9b878;
+  --ink-mute: #a0bfae;
+  --ink-accent: #9adcba;
   --shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
   --radius: 14px;
   --ok: #5cb88e;
@@ -136,6 +197,19 @@
   --accent-soft: #3d3530;
   --card: #201f1e;
   --border: #2d2b2a;
+  --field: #262423;
+  --field-inset: #1f1e1d;
+  --field-dim: #1b1a19;
+  --field-hover: rgba(255, 255, 255, 0.07);
+  --field-on: rgba(184, 160, 138, 0.26);
+  --field-head: rgba(255, 255, 255, 0.05);
+  --field-code: rgba(255, 255, 255, 0.08);
+  --topbar: rgba(26, 26, 30, 0.85);
+  --ink-ok: #8fd0a8;
+  --ink-bad: #e2a0a0;
+  --ink-warn: #d9b878;
+  --ink-mute: #b0aaa4;
+  --ink-accent: #d6c2ae;
   --shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
   --radius: 14px;
   --ok: #6bbd8e;
@@ -184,15 +258,18 @@ body {
   position: sticky; top: 0; z-index: 5;
   display: flex; align-items: center; gap: 18px;
   padding: 12px 20px;
-  background: rgba(255, 255, 255, 0.72);
+  background: var(--topbar);
   backdrop-filter: blur(14px);
   border-bottom: 1px solid var(--border);
 }
-.theme-dark .card { background: var(--card); }
-.theme-dark .topbar { background: rgba(35, 37, 64, 0.85); }
-.theme-dark .outline-chapter-item:hover { background: rgba(124, 131, 212, 0.12); }
-.theme-dark .outline-chapter-item.on { background: rgba(124, 131, 212, 0.2); }
-.theme-dark .tabs button:hover { background: rgba(124, 131, 212, 0.15); }
+/* 四套暗色主题（dark / night-blue / night-green / night-warm）的公共覆盖。
+   `is-dark` 由 App.vue 的 setTheme() 写在 <html> 上。
+   ⚠️ 旧写法只覆盖 .theme-dark，三套 night-* 完全裸奔：顶栏是白色半透明、
+   卡片/输入框写死 #fff —— 这正是「部分暗色主题下文字看不清」的来源。 */
+.is-dark .outline-chapter-item:hover { background: rgba(124, 131, 212, 0.12); }
+.is-dark .outline-chapter-item.on { background: rgba(124, 131, 212, 0.2); }
+.is-dark .tabs button:hover { background: rgba(124, 131, 212, 0.15); }
+.is-dark .runbar { background: rgba(124, 131, 212, 0.16); }
 .brand { display: flex; align-items: center; gap: 10px; }
 .brand-mark {
   width: 38px; height: 38px; border-radius: 10px;
@@ -305,14 +382,14 @@ body {
   line-height: 1.5;
 }
 .st-pending { background: rgba(107, 113, 128, 0.12); color: var(--muted); }
-.st-running { background: rgba(155, 143, 196, 0.18); color: #6f5fa8; }
-.st-done { background: rgba(127, 174, 143, 0.18); color: #4e7d5e; }
-.st-failed { background: rgba(196, 127, 127, 0.2); color: #9e4f4f; }
-.st-retrying { background: rgba(107, 113, 128, 0.16); color: #5b5f72; }
-.st-rejected { background: rgba(201, 162, 106, 0.2); color: #8f6b33; }
-.st-gate { background: rgba(201, 162, 106, 0.22); color: #8f6b33; font-weight: 600; }
-.st-rej { background: rgba(201, 162, 106, 0.16); color: #8f6b33; }
-.st-warn { background: rgba(201, 162, 106, 0.16); color: #8f6b33; }
+.st-running { background: rgba(155, 143, 196, 0.18); color: var(--ink-accent); }
+.st-done { background: rgba(127, 174, 143, 0.18); color: var(--ink-ok); }
+.st-failed { background: rgba(196, 127, 127, 0.2); color: var(--ink-bad); }
+.st-retrying { background: rgba(107, 113, 128, 0.16); color: var(--ink-mute); }
+.st-rejected { background: rgba(201, 162, 106, 0.2); color: var(--ink-warn); }
+.st-gate { background: rgba(201, 162, 106, 0.22); color: var(--ink-warn); font-weight: 600; }
+.st-rej { background: rgba(201, 162, 106, 0.16); color: var(--ink-warn); }
+.st-warn { background: rgba(201, 162, 106, 0.16); color: var(--ink-warn); }
 
 /* 流水线状态卡片 */
 .pipeline-status { margin-bottom: 16px; }
@@ -337,7 +414,7 @@ body {
   font-size: 11px; font-weight: 600; color: var(--ink); height: 100%;
   mix-blend-mode: multiply;
 }
-.theme-dark .ps-progress-text { color: #fff; mix-blend-mode: screen; }
+.is-dark .ps-progress-text { color: #fff; mix-blend-mode: screen; }
 
 /* 首启引导：就绪/警告条 */
 .cs-ready {
@@ -354,7 +431,7 @@ body {
 
 /* 按钮 */
 .mini {
-  border: 1px solid var(--border); background: #fff; color: var(--ink);
+  border: 1px solid var(--border); background: var(--field); color: var(--ink);
   border-radius: 9px; padding: 6px 13px; font-size: 12.5px; line-height: 1.5;
   cursor: pointer; white-space: nowrap;
 }
@@ -363,8 +440,8 @@ body {
 .mini:hover { border-color: var(--accent); color: var(--accent); }
 .mini.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 .mini.primary:hover { background: #8a7db6; }
-.theme-dark .mini.primary:hover { background: #6a70c0; }
-.mini.danger { color: #9e4f4f; }
+.is-dark .mini.primary:hover { background: #6a70c0; }
+.mini.danger { color: var(--ink-bad); }
 .mini.danger:hover { border-color: var(--bad); }
 
 /* 全自动运行条：已并入「一键工作流」条（.flow-strip），此处不留旧样式 ——
@@ -391,16 +468,16 @@ body {
 
 /* 成本中心 */
 .view-toggle { display: flex; border: 1px solid var(--border); border-radius: 9px; overflow: hidden; }
-.view-toggle button { border: none; background: #fff; color: var(--muted); padding: 4px 12px; font-size: 12.5px; cursor: pointer; }
+.view-toggle button { border: none; background: var(--field); color: var(--muted); padding: 4px 12px; font-size: 12.5px; cursor: pointer; }
 .view-toggle button.on { background: var(--accent); color: #fff; }
 .cost-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 14px; }
 .cost-stat { background: rgba(155, 143, 196, 0.06); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; }
 .stat-label { font-size: 12px; color: var(--muted); }
 .stat-val { font-size: 22px; font-weight: 700; color: var(--ink); margin: 4px 0; }
 .stat-sub { font-size: 11px; color: var(--muted); }
-.model-select { border: 1px solid var(--border); border-radius: 8px; padding: 4px 8px; font-size: 12.5px; color: var(--ink); background: #fff; cursor: pointer; }
+.model-select { border: 1px solid var(--border); border-radius: 8px; padding: 4px 8px; font-size: 12.5px; color: var(--ink); background: var(--field); cursor: pointer; }
 .model-select:focus { outline: none; border-color: var(--accent); }
-.text-input { flex: 1; min-width: 120px; border: 1px solid var(--border); border-radius: 8px; padding: 5px 9px; font-size: 12.5px; color: var(--ink); background: #fff; }
+.text-input { flex: 1; min-width: 120px; border: 1px solid var(--border); border-radius: 8px; padding: 5px 9px; font-size: 12.5px; color: var(--ink); background: var(--field); }
 .text-input:focus { outline: none; border-color: var(--accent); }
 
 /* 运行进度条 */
@@ -442,7 +519,7 @@ body {
 .dialog textarea {
   width: 100%; margin-top: 10px; padding: 10px; font-size: 13px;
   border: 1px solid var(--border); border-radius: 10px; resize: vertical;
-  font-family: inherit; color: var(--ink); background: #fbfbfd;
+  font-family: inherit; color: var(--ink); background: var(--field-inset);
 }
 .dialog textarea:focus { outline: none; border-color: var(--accent); }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
@@ -483,7 +560,9 @@ body {
 /* toast */
 .toast {
   position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%);
-  background: var(--ink); color: #fff; border-radius: 10px;
+  /* 反色提示条：底色取 --ink、字色取 --bg，两套主题下都自动成对反色。
+     写死 color:#fff 时，暗色主题的 --ink 是浅色 → 浅底白字，读不出来。 */
+  background: var(--ink); color: var(--bg); border-radius: 10px;
   padding: 9px 18px; font-size: 13px; z-index: 30; box-shadow: var(--shadow);
 }
 
@@ -505,34 +584,34 @@ body {
   flex: 1; overflow: auto; margin: 0; padding: 12px 16px;
   font-size: 13px; line-height: 1.7; white-space: pre-wrap; word-break: break-word;
   font-family: Consolas, "Microsoft YaHei", monospace;
-  background: #fbfbfd;
+  background: var(--field-inset);
 }
 
 /* 提示词模板编辑器 */
 .prompt-editor { display: flex; gap: 12px; margin-top: 4px; align-items: stretch; }
 .prompt-list {
   width: 250px; flex: none; max-height: 460px; overflow-y: auto;
-  border: 1px solid var(--border); border-radius: 10px; background: #fbfcfe;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--field-inset);
 }
 .prompt-item {
   display: flex; align-items: center; gap: 6px; padding: 7px 10px;
   font-size: 12.5px; cursor: pointer; border-bottom: 1px solid var(--border);
 }
 .prompt-item:last-child { border-bottom: none; }
-.prompt-item:hover { background: #f2f5fc; }
-.prompt-item.on { background: #eae6f7; }
+.prompt-item:hover { background: var(--field-hover); }
+.prompt-item.on { background: var(--field-on); }
 .prompt-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .prompt-size { color: var(--muted); font-size: 11.5px; white-space: nowrap; }
 .prompt-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .prompt-bar { display: flex; align-items: center; gap: 8px; }
 .prompt-text {
   width: 100%; min-height: 400px; resize: vertical; padding: 10px 12px;
-  border: 1px solid var(--border); border-radius: 10px; background: #fff;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--field);
   color: var(--ink); font-size: 12.5px; line-height: 1.75;
   font-family: Consolas, "Microsoft YaHei", monospace; white-space: pre-wrap;
 }
 .prompt-text:focus { outline: none; border-color: var(--accent); }
-.prompt-text:disabled { background: #f5f6f8; color: var(--muted); }
+.prompt-text:disabled { background: var(--field-dim); color: var(--muted); }
 
 /* ==========================================================================
    结构化大纲视图（任务 1/2/3/4）— 仅使用既有 CSS 变量，不引入新颜色
@@ -542,7 +621,7 @@ body {
 .ov-wrap { display: flex; flex-direction: column; }
 .ov-toolbar { padding-bottom: 10px; }
 .ov-issues { margin-top: 8px; display: flex; flex-direction: column; gap: 3px; }
-.ov-issue { font-size: 12px; color: #8f6b33; }
+.ov-issue { font-size: 12px; color: var(--ink-warn); }
 /* 大纲页左树右详情：树宽可拖（--ov-tree-w 由 OutlineView.vue 写入并持久化），
    默认给到 42% 且不低于 260px，避免长节点文案被迫逐字换行。 */
 .ov-body { display: flex; align-items: flex-start; gap: 0; }
@@ -588,7 +667,7 @@ body {
   border: 1px solid transparent; line-height: 1.65;
 }
 .tree-row:hover { background: rgba(155, 143, 196, 0.08); }
-.tree-row.sel { background: #eae6f7; border-color: var(--accent-soft); }
+.tree-row.sel { background: var(--field-on); border-color: var(--accent-soft); }
 .tree-row.lv1 { font-weight: 600; }
 .tree-row.dragging { opacity: 0.45; }
 .tree-row.drop-before { box-shadow: 0 -2px 0 0 var(--accent); }
@@ -609,7 +688,7 @@ body {
 }
 .tree-edit {
   flex: 1; min-height: 60px; padding: 6px 8px; font-size: 13px; line-height: 1.65;
-  border: 1px solid var(--accent); border-radius: 8px; background: #fff;
+  border: 1px solid var(--accent); border-radius: 8px; background: var(--field);
   color: var(--ink); font-family: inherit; resize: vertical;
 }
 .tree-edit:focus { outline: none; }
@@ -624,8 +703,8 @@ body {
 /* 属性面板评分维度 */
 .ov-flags { display: flex; flex-wrap: wrap; gap: 6px; }
 .ov-flag { font-size: 11.5px; border-radius: 7px; padding: 2px 8px; }
-.ov-flag.on { background: rgba(127, 174, 143, 0.2); color: #4e7d5e; }
-.ov-flag.off { background: rgba(196, 127, 127, 0.16); color: #9e4f4f; }
+.ov-flag.on { background: rgba(127, 174, 143, 0.2); color: var(--ink-ok); }
+.ov-flag.off { background: rgba(196, 127, 127, 0.16); color: var(--ink-bad); }
 .ov-chars { display: flex; flex-wrap: wrap; gap: 6px; }
 .ov-ai { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 
@@ -650,7 +729,7 @@ body {
 .ov-diff-seg {
   display: flex; gap: 10px; padding: 7px 10px; margin-bottom: 5px;
   border-radius: 9px; font-size: 12.5px; line-height: 1.7;
-  border: 1px solid var(--border); background: #fff;
+  border: 1px solid var(--border); background: var(--field);
 }
 .ov-diff-seg.seg-add { background: rgba(127, 174, 143, 0.13); }
 .ov-diff-seg.seg-del { background: rgba(196, 127, 127, 0.13); }
@@ -661,7 +740,7 @@ body {
 /* 多方案对比 */
 .ov-multi { flex: 1; overflow: auto; display: grid; gap: 12px; padding: 12px 16px;
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
-.ov-multi-col { border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; background: #fbfbfd; }
+.ov-multi-col { border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; background: var(--field-inset); }
 .ov-multi-head { display: flex; align-items: center; gap: 8px; }
 .ov-multi-score { font-size: 12px; color: var(--muted); margin: 4px 0 8px; }
 .ov-multi-act {
@@ -700,7 +779,7 @@ body {
 
 .ov-adv-verdict {
   padding: 10px 14px; border-radius: 10px; margin: 0 16px 10px;
-  border: 1px solid var(--border); background: #fbfbfd;
+  border: 1px solid var(--border); background: var(--field-inset);
   border-left-width: 3px;
 }
 .ov-adv-verdict.v-done { border-left-color: var(--ok); background: rgba(127, 174, 143, 0.10); }
@@ -718,13 +797,13 @@ body {
   border: 1px solid var(--border); border-radius: 9px; overflow: hidden;
 }
 .ov-trend th, .ov-trend td { padding: 5px 9px; text-align: left; border-bottom: 1px solid var(--border); }
-.ov-trend th { background: #f6f6fa; font-weight: 600; color: var(--muted); }
+.ov-trend th { background: var(--field-head); font-weight: 600; color: var(--muted); }
 .ov-trend tr:last-child td { border-bottom: none; }
 .ov-trend tbody tr:hover { background: rgba(155, 143, 196, 0.06); }
 
 .ov-opt {
   border: 1px solid var(--border); border-radius: 10px;
-  padding: 9px 11px; margin-bottom: 8px; background: #fff;
+  padding: 9px 11px; margin-bottom: 8px; background: var(--field);
 }
 .ov-opt.rec { border-color: var(--accent); background: rgba(155, 143, 196, 0.07); }
 .ov-opt-head { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
@@ -755,7 +834,7 @@ body {
 /* ---------- 审核队列（「审核」页签） ---------- */
 .sb-wrap { display: flex; flex-direction: column; gap: 12px; }
 .sb-toolbar .sb-dir { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
-.sb-dir code { background: #f4f4f8; padding: 1px 6px; border-radius: 4px; word-break: break-all; }
+.sb-dir code { background: var(--field-code); padding: 1px 6px; border-radius: 4px; word-break: break-all; }
 .sb-filter { margin-left: auto; display: flex; align-items: center; gap: 5px; font-size: 12px; cursor: pointer; }
 .sb-stats { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
 
@@ -768,7 +847,7 @@ body {
 .sb-item {
   display: flex; align-items: flex-start; gap: 10px;
   padding: 9px 11px; border-radius: 9px;
-  border: 1px solid var(--border); border-left-width: 3px; background: #fff;
+  border: 1px solid var(--border); border-left-width: 3px; background: var(--field);
 }
 .sb-item.sb-pending { border-left-color: var(--warn); }
 .sb-item.sb-approved { border-left-color: var(--ok); }
@@ -782,7 +861,7 @@ body {
 
 .sb-preview {
   max-height: 62vh; overflow: auto; white-space: pre-wrap; word-break: break-word;
-  background: #f7f7fb; padding: 11px; border-radius: 8px;
+  background: var(--field-inset); padding: 11px; border-radius: 8px;
   font-size: 12.5px; line-height: 1.7; margin: 0;
 }
 .drawer-wide { width: min(1180px, 96vw); }
@@ -827,7 +906,7 @@ body {
   border-radius: 8px;
   margin-bottom: 6px;
   cursor: pointer;
-  background: rgba(255, 255, 255, 0.5);
+  background: var(--field-inset);
 }
 .setting-row:hover {
   border-color: var(--accent);
@@ -866,13 +945,13 @@ body {
 }
 .sidebar-left {
   border-right: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.5);
+  background: var(--field-dim);
   padding: 12px 10px;
   overflow-y: auto;
 }
 .sidebar-right {
   border-left: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.5);
+  background: var(--field-dim);
   display: flex;
   flex-direction: column;
 }
@@ -985,7 +1064,7 @@ body {
   padding: 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: rgba(255,255,255,0.02);
+  background: var(--field-inset);
 }
 .export-panel h4 {
   margin: 0 0 12px;
@@ -1076,12 +1155,12 @@ body {
   padding: 8px 10px;
   border-radius: 8px;
   background: rgba(201, 162, 106, 0.14);
-  color: #8f6b33;
+  color: var(--ink-warn);
   font-size: 12.5px;
   line-height: 1.6;
 }
 .est-warn code {
-  background: rgba(0, 0, 0, 0.06);
+  background: var(--field-code);
   padding: 1px 5px;
   border-radius: 4px;
   font-size: 11.5px;

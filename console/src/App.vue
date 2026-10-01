@@ -65,7 +65,7 @@ const updateReady = ref(false);
 const updateProgress = ref(0);
 const checkingUpdate = ref(false);
 const updaterInitialized = ref(false);
-const updaterDev = ref(true);
+const updaterDev = ref(false);
 const modelSource = ref("config"); // "config" | "fetched"
 const fetchingModels = ref(false);
 const budgetPaused = ref(false);
@@ -271,10 +271,16 @@ const THEMES = [
   { id: "gray", name: "灰白", color: "#9a9aa4" },
 ];
 
+// 暗色主题清单：CSS 里所有 `.is-dark ...` 的公共覆盖都靠它生效。
+// 新增暗色主题时**必须**同时加到这里，否则新主题会像当年的 night-* 一样裸奔
+// （顶栏白半透明、输入框写死白底 → 部分界面看不清）。
+const DARK_THEMES = ["dark", "night-blue", "night-green", "night-warm"];
+
 function setTheme(t) {
   theme.value = t;
   localStorage.setItem("mofang_theme", t);
-  document.documentElement.className = `theme-${t}`;
+  document.documentElement.className =
+    `theme-${t}` + (DARK_THEMES.includes(t) ? " is-dark" : "");
 }
 
 function setFontSize(px) {
@@ -1317,10 +1323,21 @@ async function saveEnvKey(pid, clear = false) {
 
 async function revealEnvInFolder() {
   // 先确保 .env 存在（缺失时后端会按当前 providers 生成模板）
-  await api("/env/open");
-  if (window.mofangAPI && window.mofangAPI.revealInFolder) {
-    window.mofangAPI.revealInFolder(".env");
+  const r = await api("/env/open");
+  const envPath = (r.status === 200 && r.data && r.data.env_path) || "";
+  if (!window.mofangAPI || !window.mofangAPI.revealInFolder) {
+    say(envPath ? "当前为浏览器预览，无法定位；.env 实际位置：" + envPath
+                : "当前为浏览器预览，无法定位 .env");
+    return;
+  }
+  const res = await window.mofangAPI.revealInFolder(".env");
+  // 必须看返回值：此前不管成功与否都提示「已在文件夹中定位」——
+  // 定位失败被吞掉，用户只看到「点了没反应」，还以为是自己电脑的问题。
+  if (res && res.ok) {
     say("已在文件夹中定位 .env");
+  } else {
+    say("定位失败：" + ((res && res.error) || "未知错误")
+        + (envPath ? "；.env 实际位置：" + envPath : ""));
   }
 }
 
@@ -2263,26 +2280,54 @@ const artifacts = computed(() => [
 
 async function checkForUpdates() {
   if (!window.mofangAPI?.updaterCheck) {
-    updateStatus.value = "updater 未初始化";
+    updateStatus.value = "当前为浏览器预览，不支持自动更新";
     return;
   }
-  // 先检查 updater 状态
-  const status = await window.mofangAPI.updaterStatus();
-  if (status?.dev) {
-    updateStatus.value = "开发模式（仅打包版本支持自动更新）";
-    return;
+  try {
+    const status = await window.mofangAPI.updaterStatus();
+    if (status?.dev) {
+      updateStatus.value = "开发模式不支持自动更新（仅安装版可用）";
+      return;
+    }
+    if (status && status.initialized === false) {
+      updateStatus.value = "本机未启用自动更新，请用「下载新版本」";
+      return;
+    }
+    checkingUpdate.value = true;
+    updateStatus.value = "正在检查…";
+    const r = await window.mofangAPI.updaterCheck();
+    if (r?.ok) {
+      const v = r.version || "", cur = r.currentVersion || "";
+      // 有新版本时主进程会另推 update-available / download-progress 事件覆盖此行
+      updateStatus.value = (v && cur && v !== cur)
+        ? `发现新版本 ${v}，正在下载…`
+        : `已是最新版本（v${cur || "?"}）`;
+    } else if (r?.noUpdate) {
+      updateStatus.value = r.error || "暂无更新（当前已是最新版本）";
+    } else {
+      updateStatus.value = "检查失败：" + ((r && r.error) || "未知错误");
+    }
+  } catch (e) {
+    // IPC 自身抛错（例如返回值不可序列化）也必须让按钮恢复可用 ——
+    // 否则它会永远停在「检查中…」并保持 disabled，看起来就像功能消失了。
+    updateStatus.value = "检查失败：" + String((e && e.message) || e);
+  } finally {
+    checkingUpdate.value = false;
   }
-  checkingUpdate.value = true;
-  updateStatus.value = "正在检查...";
-  const r = await window.mofangAPI.updaterCheck();
-  if (!r.ok) updateStatus.value = "检查失败: " + (r.error || "");
-  checkingUpdate.value = false;
 }
 
 async function quitAndInstall() {
   if (window.mofangAPI?.updaterQuitAndInstall) {
     await window.mofangAPI.updaterQuitAndInstall();
   }
+}
+
+// 「下载新版本」的手动兜底入口：自动更新在便携版 / 开发模式下不可用，
+// 但用户永远需要一条能拿到新版本的路径（此前只在 dev 模式下显示，等于藏起来了）。
+const RELEASES_URL = "https://github.com/MUYU46548/ronghuamofang/releases";
+function openReleases() {
+  if (window.mofangAPI?.openExternal) window.mofangAPI.openExternal(RELEASES_URL);
+  else window.open(RELEASES_URL, "_blank");
 }
 
 
@@ -2296,8 +2341,15 @@ onMounted(() => {
     window.mofangAPI.updaterStatus().then((s) => {
       updaterDev.value = !!s?.dev;
       updaterInitialized.value = !!s?.initialized;
-      if (updaterDev.value) updateStatus.value = "开发模式（仅打包版本支持自动更新）";
-    });
+      if (updaterDev.value) {
+        updateStatus.value = "开发模式（仅安装版支持自动更新）";
+      } else if (!updaterInitialized.value) {
+        // 便携版 / updater 初始化失败：别让用户以为「点了没反应」
+        updateStatus.value = "本机未启用自动更新，请用「下载新版本」";
+      } else {
+        updateStatus.value = `当前 v${s?.version || "?"} · 可检查更新`;
+      }
+    }).catch(() => { updaterDev.value = false; });
   }
   // 退出确认
   setupExitGuard();
@@ -3217,12 +3269,16 @@ onUnmounted(() => {
         <button class="mini" @click="cancelEnvEdit">取消</button>
       </div>
       <div class="meta" style="margin-top: 8px;">
-        Key 写入项目 <code>.env</code>（不进 git），保存后**立即生效、无需重启**；已存值只显示前后各几位。
+        Key 写入项目 <code>.env</code>（不进 git、界面内从不回显明文）；保存后<b>立即生效、无需重启</b>；已存值只显示前后各几位。
       </div>
       <div style="display: flex; gap: 8px; margin-top: 8px; align-items: center;">
-        <button class="mini" @click="revealEnvInFolder" title="在文件管理器中定位 .env（不打开内容）">在文件夹中显示</button>
+        <button class="mini" @click="revealEnvInFolder" title="在资源管理器中定位 .env（只定位，不代为打开）">在文件夹中显示</button>
       </div>
-      <div class="meta" style="margin-top: 4px;">.env 含明文 API Key —— 刻意不支持「用外部编辑器一键打开」（编辑器插件/AI 工具可能读取）。</div>
+      <div class="meta" style="margin-top: 4px;">
+        <b>配置 Key 只需点上面的「填入 Key」</b>，不必手动编辑文件。.env 含明文密钥，
+        故刻意不提供「用外部编辑器一键打开」（编辑器插件 / AI 工具可能读取）；
+        确需手动编辑时，用「在文件夹中显示」定位后自行打开。
+      </div>
 
       <!-- P1: 审批门通知 -->
       <h4 style="margin-top: 16px;">审批门通知</h4>
@@ -3375,13 +3431,18 @@ onUnmounted(() => {
         <span class="art-path">{{ updateStatus }}</span>
         <span class="spacer"></span>
         <button class="mini" @click="checkForUpdates" :disabled="checkingUpdate"
-                :title="updaterDev ? '开发模式（仅打包版本支持自动更新）' : '检查更新'">
+                :title="updaterDev ? '开发模式不支持自动更新（仅安装版可用）' : '向 GitHub 查询是否有新版本'">
           {{ checkingUpdate ? "检查中…" : "检查更新" }}
         </button>
+        <button class="mini" @click="openReleases" title="在浏览器打开 GitHub Releases 手动下载">下载新版本</button>
         <button v-if="updateReady" class="mini primary" @click="quitAndInstall">重启安装</button>
       </div>
-      <div v-if="updaterDev" class="meta" style="margin-top: 4px; opacity: 0.7;">
-        开发模式下自动更新已禁用。手动下载：<a href="https://github.com/MUYU46548/ronghuamofang/releases" target="_blank" style="color: var(--accent);">GitHub Releases</a>
+      <div v-if="updaterDev || !updaterInitialized" class="meta" style="margin-top: 4px; opacity: 0.75;">
+        本机不支持自动更新（{{ updaterDev ? "开发模式" : "便携版 / updater 未初始化" }}）；
+        请用「下载新版本」手动更新 —— 数据都在本机工作区，覆盖安装不会丢。
+      </div>
+      <div v-else-if="!updateReady" class="meta" style="margin-top: 4px; opacity: 0.75;">
+        自动更新走 GitHub Releases：检查到新版本会自动下载，完成后这里出现「重启安装」。
       </div>
       <div v-if="updateProgress > 0 && updateProgress < 100" class="meta" style="margin-top: 4px;">
         下载进度: {{ updateProgress.toFixed(1) }}%

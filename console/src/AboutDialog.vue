@@ -50,6 +50,50 @@ function openExternal(url) {
   if (window.mofangAPI?.openExternal) window.mofangAPI.openExternal(url);
 }
 
+// ---------- 版本更新（与设置页共用主进程 IPC，判定口径只有一处） ----------
+// 以前「关于」里只有「下载新版本」外链 —— 用户找不到「检查更新」，
+// 会以为这功能被砍了。这里补上，并把失败原因说清楚（不再只显示一行错误码）。
+const updStatus = ref("");
+const updChecking = ref(false);
+
+// 每次重新打开都清掉上一次的检查结果（避免显示陈旧提示）
+watch(() => props.open, (v) => { if (v) updStatus.value = ""; });
+
+async function checkUpdate() {
+  if (!window.mofangAPI?.updaterCheck) {
+    updStatus.value = "当前为浏览器预览，不支持自动更新";
+    return;
+  }
+  try {
+    const st = await window.mofangAPI.updaterStatus();
+    if (st?.dev) {
+      updStatus.value = "开发模式不支持自动更新（仅安装版可用）";
+      return;
+    }
+    if (st && st.initialized === false) {
+      updStatus.value = "本机未启用自动更新，请用「下载新版本」";
+      return;
+    }
+    updChecking.value = true;
+    updStatus.value = "正在检查…";
+    const r = await window.mofangAPI.updaterCheck();
+    if (r?.ok) {
+      const v = r.version || "", cur = r.currentVersion || "";
+      updStatus.value = (v && cur && v !== cur)
+        ? `发现新版本 ${v}（正在下载，完成后可重启安装）`
+        : `已是最新版本（v${cur || "?"}）`;
+    } else if (r?.noUpdate) {
+      updStatus.value = r.error || "暂无更新（当前已是最新版本）";
+    } else {
+      updStatus.value = "检查失败：" + ((r && r.error) || "未知错误");
+    }
+  } catch (e) {
+    updStatus.value = "检查失败：" + String((e && e.message) || e);
+  } finally {
+    updChecking.value = false;
+  }
+}
+
 const STEPS = [
   { t: "放素材", d: "设定卡进 materials/raw/；随手写的碎片进 materials/original_scraps/" },
   { t: "建项目", d: "「项目」页签 →「＋ 新建项目」（书名/类型/章数，自动归档旧项目）" },
@@ -128,6 +172,17 @@ const STEPS = [
           <div class="meta">
             · 数据全在本机：快照在 history/，章节备份在 data/chapters/history/；除调用你自己配置的模型 API 外不向外发送数据<br>
             · API Key 只存项目 `.env`（不进版本库，界面内从不显示明文）；Obsidian 设定库固定只读
+          </div>
+
+          <h4 class="about-h">版本更新</h4>
+          <div class="about-links">
+            <button class="mini" @click="checkUpdate" :disabled="updChecking">
+              {{ updChecking ? "检查中…" : "检查更新" }}
+            </button>
+            <button class="mini" @click="openExternal(info.repo + '/releases')">下载新版本</button>
+          </div>
+          <div class="meta" style="margin-top: 6px;">
+            {{ updStatus || `当前 v${info.version}；检查更新需要能访问 GitHub Releases` }}
           </div>
 
           <h4 class="about-h">许可与链接</h4>
