@@ -7,6 +7,52 @@ CHANGELOG」）。本文件从工程审查修复起正式启用。
 
 ---
 
+## [0.4.0] — 2026-10-01 locked 违例落地 · 多书归档范围修正 · 模型切换通道自检 · CI
+
+### 🔴 多书归档范围修正（`switch_book.py`）—— 换书不再丢配置与素材卡
+- **问题**：`--archive` 只搬 `data/` 下 8 项，`config/` 与 `materials/` **完全不归档** ——
+  「归档成功」的代价是丢掉 `project.yaml`（书名/类型/章节数）与全部素材卡，下次才发现。
+- **修复**：两者纳入范围。`system.yaml` / `system.local.yaml` 属**应用级**（描述"这台机器怎么跑"），
+  归档后立即复制回工作区 —— 否则归档一完成工作区就缺 `config/system.yaml`，界面直接起不来。
+- **恢复语义 = 逐项合并**（非整体替换）：书档里没有的文件不会删掉工作区现有那份；
+  老格式归档（无 `config/`）恢复也不会毁掉工作区配置。
+- **顺带修一个真回归**：归档后工作区没有 `project.yaml`，而 `/project/create` 走的是
+  **定向改写**（读原文件再改）→ `FileNotFoundError` 500。现在归档后留一份**空白骨架**
+  （结构保留、book 值清空、技术参数如 `word_template` 不动）。
+
+### 🟢 `locked` 不可违逆：从提示词层落到确定性检查
+- `check_consistency.locked_violations` **自 2026-09-21 起恒为空列表**，CLI 却打印「违例 0 个」——
+  看起来像通过。现在接上三条**结构性**判据：`missing`（条目在最终设定集里消失）/
+  `lock_lost`（条目还在但锁定标记丢了 → 角色卡不再警告）/ `renamed`（同 vault 路径换了名字）。
+- **语义冲突依旧不碰**（"本章事实是否与 locked 设定矛盾"需要世界模型，硬做只会变噪音），输出里明说。
+- **不生效就说"没查"**：vault 无 locked 条目、或设定集尚未生成时回报 `checked=false` + 原因。
+  一个永远说"没问题"的检查器比没有检查器更危险 —— 这个模块此前正是栽在这里。
+- 新增 `python scripts/obsidian_bridge.py locked [--setting 路径]`（零 token）。
+
+### 🔵 `nfctl model-check`：换模型 / 换供应商前的通道自检
+- 一次列清所有会挡人的点：配置完整性、**Key 脱敏回显（前 3 后 4）**、各角色模型是否在该
+  provider 的 `available_models` 内、**fallback 是否跨供应商**（fallback 复用当前 provider 的
+  端点与 Key，放别家模型名 = 一跳就 404 并吃掉整条链）、白名单覆盖面。`--live` 才发最小请求。
+- **GUI 侧同时修 3 个会绊住换模型的坑**（`App.vue`）：
+  ① 模型下拉只取 providers 里**第一个**的 `available_models` → 新增供应商后它的模型根本不进下拉；
+  ② 「↻ 同步服务商模型」**硬编码 tokenhub**，还会把 provider 下拉重置成只剩 tokenhub → 切过去就选不回来；
+  ③ 切供应商后后端不校验模型是否还在清单里 → 现在返回 warning，GUI 提示"请同时改选模型"。
+
+### 🟣 美团 LongCat（龙猫）通道预置
+- `config/system.yaml` 新增 `providers.longcat`（OpenAI 兼容，`LongCat-2.0` / `LongCat-2.5-Preview`）。
+  **代码零改动** —— 换供应商只改配置（`llm_client.make_client` 全从配置取）。
+- ⚠️ 两处待实测（官方文档自相矛盾）：`base_url` 结尾要不要 `/v1`、`/models` 端点是否支持。
+  `nfctl model-check longcat --live` 一跑就知道。
+- ⚠️ **成本口径**：系统目前只有"token × 刊例价"一套算法，**不区分按量 / 订阅套餐 / 免费额度**。
+  走免费额度或包月时界面上的费用是**虚拟值**，300 元熔断会按虚拟值误触发。
+
+### 🟡 CI（GitHub Actions，`.github/workflows/ci.yml`）
+- 每次 push / PR 自动跑质量门（pyflakes，未定义名零容忍）+ 全量测试（`nfctl test`）。
+- 刻意**不跑 e2e**（需 playwright 浏览器 + 4 个空闲端口，CI 上不稳）—— 假红比没有 CI 更糟，
+  一旦"红灯是正常的"成为共识，真红也没人看。
+
+---
+
 ## [Unreleased] — 2026-09-30 MCP stdio 垫片补位 · 定价批量导入 · `--root` 路径纪律清完
 
 ### 🔴 MCP stdio 垫片（`scripts/nf_mcp_stdio_bridge.py`，执行单 ⑤前置步0）

@@ -47,7 +47,7 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 
 | 目的 | 命令（workdir=项目根，用 .venv python） |
 |------|------|
-| **Agent 只读入口（全景/自检）** | `python scripts/nfctl.py status`（一屏：书名/阶段/进度/成本/待审批/产物）· `check`（环境自检，含 **YAML 重复键检测**）· `doctor`（**数据一致性自检**：runs 脏行/产物完整性/孤儿文件/成本负数）· `test`（**统一测试运行器**：跑 tests/unit + tests/http 全部自定义测试，`--pattern` 选单个）· **`release-check`（发版前必跑：质量门 + 全量测试 + MCP 真机握手 + e2e 视觉验收 + 打包产物核验，一条命令；`--skip-e2e` 可跳）** · `api <GET路径>`（只读转发 nf_api，省手写 curl）· `serve`（启动零依赖调试看板 127.0.0.1:8766）。**只读、零 token**；写操作走下方各脚本 |
+| **Agent 只读入口（全景/自检）** | `python scripts/nfctl.py status`（一屏：书名/阶段/进度/成本/待审批/产物）· `check`（环境自检，含 **YAML 重复键检测**）· `doctor`（**数据一致性自检**：runs 脏行/产物完整性/孤儿文件/成本负数）· `test`（**统一测试运行器**：跑 tests/unit + tests/http 全部自定义测试，`--pattern` 选单个）· **`release-check`（发版前必跑：质量门 + 全量测试 + MCP 真机握手 + e2e 视觉验收 + 打包产物核验，一条命令；`--skip-e2e` 可跳）** · `api <GET路径>`（只读转发 nf_api，省手写 curl）· **`model-check [provider] [--live]`（换模型 / 换供应商前必跑**：配置完整性、Key 脱敏回显、各角色模型是否在该 provider 的 `available_models` 内、fallback 是否跨供应商（跨了必 404）、白名单覆盖面；`--live` 才发一次最小请求，默认零 token）· `serve`（启动零依赖调试看板 127.0.0.1:8766）。**只读、零 token**；写操作走下方各脚本 |
 | 全流程启动 | `python scripts/orchestrator.py` |
 | 从阶段 N 重跑 | `python scripts/orchestrator.py --from N` |
 | 只跑阶段 N | `python scripts/orchestrator.py --stage N` |
@@ -61,7 +61,8 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 | 设定体检（stage1后自动） | `python scripts/material_review.py`（确定性，**类型感知**：先按 `utils/setting_schema.is_character` 分开人物/非人物，再对人物标碎片/缺失维度，报告 data/setting/material_review.md） |
 | 从设定库导入设定 | `python scripts/obsidian_integrate.py scan [--vault 路径] [--output data/setting/setting.json]`（⚠️ **整体替换**语义：vault 内容覆盖现有设定集，`plot_fragments`/`timeline` 会清空；**覆盖前自动备份**到 `data/setting/history/setting_vN.json`。目录约定见 `obsidian_bridge.scan_vault` docstring） |
 | 扫描设定库（只读） | `python scripts/obsidian_bridge.py scan [--vault 路径]`（只扫不写，落 `data/state/obsidian_index.json`）；`config` 查看当前 vault/沙盒配置 |
-| 正典一致性检查 | `python scripts/obsidian_bridge.py check <文件>`（⚠️ **仅「疑似新角色」一项已实现**，`conflicts`/`locked_violations` **未实现**，输出会显式标注；空结果 ≠ 无问题） |
+| 正典一致性检查 | `python scripts/obsidian_bridge.py check <文件>`（已实现：**疑似新角色**（启发式）+ **locked 违例**（确定性）；⚠️ `conflicts` **仍未实现**（需语义判断）。输出会显式标注；`checked=false` 表示**检查未生效**，不等于通过） |
+| **locked 条目检查（确定性，零 token）** | `python scripts/obsidian_bridge.py locked [--setting 路径]`（vault 里 `locked=true` 的条目是否在最终设定集中 **缺失 / 丢了锁定标记 / 被改名**。**不判语义冲突** —— 机器判不准，硬做只会变噪音。vault 无 locked 条目或设定集未生成时明确回报"没查"） |
 | 沙盒查看/推送 | `python scripts/obsidian_bridge.py list` / `push <文件> [--subdir X]`（vault 只读，产物只写沙盒；默认 `data/state/obsidian_sandbox/`，可在 `config/system.yaml` 的 `obsidian.sandbox_dir` 改为你的库内目录） |
 | **沙盒审核队列** | `python scripts/sandbox_review.py --queue`（待审）· `--list`（全部+状态）· `--approve <路径>` · `--reject <路径> --note "原因"` · `--orphans`（未登记文件）· `--json`。**改过的文件会自动重置为待审**（内容 sha256 比对）；状态存 `data/state/sandbox_manifest.json`，不写进产物 frontmatter（避免带进 vault）。**GUI 等价物：「审核」页签**（`GET /sandbox/queue` + `GET /sandbox/file` 预览 + `POST /sandbox/review`） |
 | **大纲迭代 → 沙盒审核包** | `python scripts/outline_export.py [--dry-run] [--trend-window 5]`（导出 3 份待审产物：对比稿 / 当前大纲全文 / 迭代趋势。**只写沙盒，绝不改 global.md**） |
@@ -81,7 +82,7 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 | 生成前 token/费用预估 | `python scripts/estimate_tokens.py [--stage 4] [--json] [--no-history] [--verbose]`（历史实测均值优先，无历史则字符折算；GUI 运行前确认框走 `GET /estimate`） |
 | 拆书 / 章节节奏 | `python scripts/book_split.py --input <文本文件> [--emit] [--json] [--list-patterns]`（切章模式自动识别 → data/state/book_pacing.json；`--emit` 另导出切分正文到 data/state/book_split/。**输入文件只读**） |
 | 成本报告 | `python scripts/cost_report.py`（总览，含**阶段2 初版 vs 迭代**细分）；`--by-chapter`（分章）；`--by-outline`（**大纲逐轮费用**：v0 初版 + 每轮迭代 + 累计 + 平均）；`--runs 5` |
-| 多书切换 | `python scripts/switch_book.py --list` / `--archive` / `--restore "书名"`（归档 data/books/，均需 `--yes`） |
+| 多书切换 | `python scripts/switch_book.py --list` / `--archive` / `--restore "书名"`（均需 `--yes`）。归档范围 = `data/` 的 8 项产物 **+ `config/` 与 `materials/`**（2026-10-01 起：此前换书会丢配置与素材卡）。`system.yaml`/`system.local.yaml` 属**应用级**，归档后自动复制回工作区；`project.yaml` 重置为空白骨架，恢复时被书档版本覆盖 |
 | 项目快照 | `python scripts/snapshot.py "标签"`；查看 `--list`（orchestrator 每阶段成功后自动快照） |
 | 快照恢复 | `python scripts/snapshot.py --restore <ID>`（**默认 dry-run 预览**，加 `--yes` 执行；恢复前自动打 `pre_restore` 折返点；`--delete-extra` 才删快照外文件） |
 | 素材预扫描 | `python scripts/stage1_consolidate.py` |
@@ -103,7 +104,10 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 | **设定自动补全闭环自检** | `python tests/unit/test_setting_refine_auto.py`（在**临时项目根**跑 fake，零真实调用：达标即停**零 LLM 调用**短路 / 一轮达标即停 / 无进展即停 / 轮次上限 / 默认关 / dry-run / 缺设定集可行动报错 / CLI>gates 优先级 / **定向 feedback 真的写进了 LLM 任务文件**（端到端）/ **orchestrator 钩子签名可绑定**（AST + `inspect.signature().bind()`，防被 `except` 吞掉的静默降级），66 断言） |
 | **大纲迭代闭环自检** | `python tests/unit/test_outline_iteration.py`（临时项目根，零 LLM：版本对比三分支（改善/停滞/退化）+ 逐条目差分 / 趋势序列与收敛五分支出对 / `--trend` CLI / **精修成本真的写进 cost_log**（stage=2 + chapter=版本号）+ 未记账时明确标注 / `cost_report --by-outline` 初版与迭代分离，52 断言，含 6 组反向验证） |
 | **沙盒审核 + 回写 + 开工建议自检** | `python tests/unit/test_sandbox_review_and_advisor.py`（临时项目根，零 LLM：登记/通过/驳回/未登记报错 · **改过的文件必须重新审核**（sha256）· 孤儿检测 · `write_sandbox` 自动登记 · 审核队列 CLI · 导出审核包（3 份待审 + **global.md 未被改动**）· 重复导出保留审核状态 · 建议方案池与优先级 · entry_id 可执行 · 零 token 保证，78 断言，含 8 组反向验证） |
-| **obsidian 联动 + 大纲精修完整性** | `python tests/unit/test_obsidian_integrity.py`（临时项目根，零 LLM：扫描无跨类目污染/无重复 / 导入前自动备份 / 返回类型一致 / KB 注入不静默 / `check_consistency` 诚实化 + 召回修复 / **大纲精修不在体检 FAIL 时假成功**，42 断言，含 7 组反向验证） |
+| **obsidian 联动 + 大纲精修完整性** | `python tests/unit/test_obsidian_integrity.py`（临时项目根，零 LLM：扫描无跨类目污染/无重复 / 导入前自动备份 / 返回类型一致 / KB 注入不静默 / `check_consistency` 诚实化 + 召回修复 / **`locked_violations` 已实现**（从 unimplemented 移入 implemented）/ **大纲精修不在体检 FAIL 时假成功**，44 断言，含 7 组反向验证） |
+| **locked 违例检查自检** | `python tests/unit/test_locked_violations.py`（零 LLM：`missing`/`lock_lost`/`renamed` 三判据各自**正反例** + `locked: "true"` 字符串不误报 + 别名形态不算改名 + **未生效时必须回报 `checked=false`**（不许把没查伪装成通过），14 断言） |
+| **多书归档范围自检** | `python tests/unit/test_switch_book_scope.py`（**临时项目根真实归档/恢复**：`config/` 与 `materials/` 随书走 · 应用级配置留在工作区 · `project.yaml` 重置为骨架 · **老格式归档恢复不得删掉工作区配置**（逐项合并而非整体替换），21 断言） |
+| **模型/供应商切换通道自检** | `python scripts/nfctl.py model-check [provider]`（离线：base_url/key 完整性（**Key 只输出前 3 后 4**）、各角色模型是否在该 provider 清单内、fallback 是否跨供应商、白名单覆盖面；`--live` 才发最小请求） |
 | **段落级精修轴** | `python tests/unit/test_paragraph_refine.py`（零 LLM：char_diff/summarize_diff/风格特征/split_paragraphs/历史/回退，24 断言） |
 | **正文退化检测自检** | `python tests/unit/test_verify_degenerate.py`（审计行动项 10：6 种退化形态（复读填充/思考残片/元话语拒答/无段落换行/标点灌水/模板骨架）各**判据隔离**样本 + 真实章节零误报 + 阈值边界 + `is_chapter_complete` 集成 + **7 条反向验证**（删判据→必须变绿），59 断言） |
 | 审稿闭环端点 HTTP 自检 | `python tests/http/test_review_api_http.py`（临时项目根起 nf_api：报告缺失 → 400 可行动提示、审查 job、决策保存与回读、批量精修真读到决策、键值格式兼容、交互式被拒，25 断言） |
