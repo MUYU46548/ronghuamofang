@@ -1,4 +1,4 @@
-engine: direct
+engine: hermes
 providers:
   tokenhub:
     type: openai-compat
@@ -148,6 +148,36 @@ obsidian:
   sandbox_dir: ""
   # 是否启用路径遍历防护（默认开）
   path_traversal_guard: true
+  # ---- vault 目录映射（A1：可配置；默认值=通用虚构布局，仅开箱演示）----
+  # 每人 Obsidian 布局不同：把你的真实结构填进 config/system.local.yaml
+  # （不进 Git）的同名键即可整体覆盖，例如：
+  #   obsidian:
+  #     vault_dirs:
+  #       characters: "我的设定/我的人物"
+  #       ...
+  # 目录落空时扫描会打告警（不静默扫零）；characters 建议「根/目录」两段式。
+  vault_dirs:
+    characters: "设定/人物"    # 角色卡（其下子目录按类目归档）
+    locations:   "设定/地点"   # 世界观-地点
+    factions:    "设定/势力"   # 世界观-势力
+    concepts:    "设定/概念"   # 世界观-概念
+    timeline:    "年表"        # 时间线
+  # ---- 跳过目录（非正典内容）----
+  # 语义 = **追加**（2026-10-02 修正）：默认四项恒生效，本键只写你要**额外**跳过的
+  # 目录（如数字前缀模板目录、其他项目目录）。想追加却写成整份清单 → 默认项会被
+  # 顶掉（旧实现就是这样，已改掉）。
+  # 例：在 system.local.yaml 写
+  #   obsidian:
+  #     skip_dirs: ['99 模板']
+  skip_dirs: ['.obsidian', '.git', '.hermes', '.agent_context']
+  # ---- 旧布局兼容锚点（可选，默认空）----
+  # `path_kind` 判据靠 `vault_dirs.characters` 的「根/目录」两段式锚点。
+  # **换了锚点又不填这里，你既有的 vault 数据会整体失去 path 判据**（静默退回
+  # name 词表）。历史布局请把你自己的结构在 system.local.yaml 里追加，例如：
+  #   obsidian:
+  #     extra_character_anchors: ["我的旧布局/人物"]
+  # 多锚点并存，命中哪个根就按哪个根比；代码里不写任何具体目录名。
+  extra_character_anchors: []
 logging:
   level: info
   rotate_days: 30
