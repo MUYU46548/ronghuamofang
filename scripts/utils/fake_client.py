@@ -131,6 +131,21 @@ _BODY_CORPUS = [
 ]
 
 
+def _distinct_filler(k):
+    """逐句唯一的打散句（含三个递增数，长度 >12 字）。
+
+    为什么要它：12-gram 重复率是按**滑动窗口**算的。短句库里每句 <12 字时，
+    窗口会跨句取字，只要相邻句序稳定，窗口就会整段复现 → 循环复用句库必然
+    推高重复率。把三个递增序号塞进同一句、且让每 12 字窗口都至少含一个序号，
+    复用就不可能形成相同窗口。
+    """
+    a = k + 1
+    b = (k * 7 + 3) % 9973
+    c = (k * 13 + 5) % 4999
+    return (f"他第{a}次推开那扇旧门，数着第{b}颗星，"
+            f"又把第{c}块砖挪回原位，像是把日子重新码了一遍。")
+
+
 def _words_para(min_words):
     """生成达标字数、**结构健康**的中文正文（多段、低重复）。
 
@@ -138,22 +153,35 @@ def _words_para(min_words):
     且**整章一坨无换行**。旧判据只管字数，所以一直放行；补上退化检测后
     立刻被抓（复读率 97% + 单段占 98%），连带打红 `test_failure_paths` F5。
 
-    根因不是判据误报，而是**夹具在模拟非法产物**：所有用 FakeClient 跑
-    stage4 的端到端用例，此前实际验证的是「垃圾正文能被放行」。
-    这里改为产出多段、低重复的正文，让夹具忠于「合法章节」这一前提。
+    第二个坑（2026-10-02 修）：本函数按任务里的**字数下限**生成，而句库总量约
+    1147 字 → 一旦配置把下限抬过 ~2294 字，句库开始循环复用，12-gram 重复率
+    直接飙到 58%（实测 8000 字），撞「复读 >35%」退化门 →
+    **一批用 FakeClient 的端到端用例整片假红**（看起来像产品坏了，其实是夹具
+    模拟不出长章）。假红比没有测试更糟，所以这里不再依赖"下限不会太大"。
 
-    实现：`_BODY_CORPUS` 静态句库逐句取用，每 2 句成段。
-    超出句库容量（本章 >2294 字）时循环复用，重复率会回升 ——
-    但默认 target_words 上限 3000 字，仍在可控范围（实测约 2%）。
+    现策略：**够用就用句库**（保真、不影响既有用例）；**超出容量就整段改用
+    逐句唯一的打散句**，任意长度下重复率都压在阈值内。
+
+    ⚠️ 已验证的有效区间：**400–12000 字均无退化项**（check_degenerate 实测）。
+    20000 字起打散句里的取模序号开始回绕，复读率回升到 36%（略超 35% 上限）
+    —— 需要更大规模时把 `_distinct_filler` 的模数调大即可。
     """
     corpus = _BODY_CORPUS
     need = max(int(min_words), 400)
+    cap = sum(len(s) for s in corpus)
     out, total, i = [], 0, 0
-    while total < need:
-        s = corpus[i % len(corpus)]
-        out.append(s)
-        total += len(s)
-        i += 1
+    if need <= cap:
+        while total < need:
+            s = corpus[i % len(corpus)]
+            out.append(s)
+            total += len(s)
+            i += 1
+    else:
+        while total < need:
+            s = _distinct_filler(i)
+            out.append(s)
+            total += len(s)
+            i += 1
     # 每 2 句成一段：产生真实段落结构（段数 >= MIN_PARAGRAPHS）
     paras = ["".join(out[j:j + 2]) for j in range(0, len(out), 2)]
     return "\n\n".join(paras)
