@@ -73,8 +73,13 @@ def compress_recent(data, chapter_no, chapter_summary, global_summary):
 
 
 def extract_prev_tail(chapter_path, n_paras=4):
-    """提取上一章末尾 n 段（按空行分隔的段落），用于章节衔接语气注入。"""
-    text = read_text(chapter_path)
+    """提取上一章末尾 n 段（按空行分隔的段落），用于章节衔接语气注入。
+
+    先剥协议标记：老产物里可能残留在首行（见 llm_client.strip_protocol_markers），
+    不剥就会把 `E:\\CODE\\...` 这种私路径当"上一章内容"喂回提示词。
+    """
+    from utils.llm_client import strip_protocol_markers
+    text = strip_protocol_markers(read_text(chapter_path))
     text = re.sub(r"<!--.*?-->", "", text, flags=re.S)  # 去质量注释
     paras = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
     return paras[-n_paras:]

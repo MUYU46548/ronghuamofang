@@ -60,7 +60,8 @@ INPUT_SECTION_RE = re.compile("^[#]{1,3}[^" + NEWLINE + "]*输入文件", re.M)
 HEADING_RE = re.compile("^[#]{1,3}[ ]", re.M)
 OP_RE = re.compile("^[^\r" + NEWLINE + "]*?=== *(FILE|APPEND|DELETE) *: *(.+?) *===*[ ]*$",
                    re.M | re.IGNORECASE)
-END_RE = re.compile("^[^\r" + NEWLINE + "]*?=== *END *===*[ ]*$", re.M | re.IGNORECASE)
+END_RE = re.compile("^[^\r" + NEWLINE + "]*?=== *END(?:[ ]+[A-Za-z][A-Za-z ]*)? *===*[ ]*$",
+                    re.M | re.IGNORECASE)
 DIR_SPEC_RE = re.compile("下的\\s*[*][.]md")
 _NOISE_RE = re.compile("[*（(，,、" + NEWLINE + " ]")
 
@@ -161,22 +162,59 @@ def _strip_fence(content):
 
 
 def parse_ops(text):
-    """解析 FILE/APPEND/DELETE 块。返回 [(op, path, content)]。"""
+    """解析 FILE/APPEND/DELETE 块。返回 [(op, path, content)]。
+
+    ## 结束标记策略（2026-10-02 修，两处高危雷的根因）
+
+    旧实现：**OP 后面找不到 END_RE 就把这一块静默丢弃**。而
+
+    ① `END_RE` 只认 `===END===`，stage5 的提示词却教模型写 `===END FILE===`
+       → **整批块被丢掉**，stage5 于是走「复制 raw → checked」兜底，
+       「逻辑检查完成」照打，报告 `check_report.md` 根本没落盘；
+    ② 模型随手漏写结束标记时同样整块丢 → `_apply_ops` 的兜底把**整段模型输出**
+       （含 `===FILE:` 标记行与绝对路径）直接写进章节文件。实测
+       `data/chapters/raw/01.md` 首行就是 `===FILE: E:\\...\\01.md===`。
+
+    现改两处：`END_RE` 兼容带 tag 的写法（见其定义）；本函数在找不到 END 时
+    **不再丢弃**，改用「下一个 OP 之前」当块尾并打 WARN —— 「块尾外扩」的代价
+    （最多带一小段收尾说明）远小于「整块丢弃 + 兜底写全文」。
+    """
     text = text.replace(BS + BS, BS)          # 模型常把 Windows 路径双反斜杠转义
-    ops, pos = [], 0
-    matches = []
-    for m in OP_RE.finditer(text):
+    ops = []
+    op_matches = list(OP_RE.finditer(text))
+    for i, m in enumerate(op_matches):
         end_m = END_RE.search(text, m.end())
-        if end_m:
-            matches.append((m, end_m))
-    for m, end_m in matches:
-        if m.start() < pos:
-            continue
+        next_op = (op_matches[i + 1].start() if i + 1 < len(op_matches)
+                   else len(text))
+        if end_m and end_m.start() < next_op:
+            body_end = end_m.start()
+        else:
+            body_end = next_op
+            print("[llm_client] WARN 协议块缺结束标记（"
+                  + m.group(1).upper() + " " + m.group(2).strip()[:60]
+                  + "）—— 以块尾/下一个块为界收边（旧实现会整块丢弃）")
         op = m.group(1).upper()
         path = m.group(2).strip().strip('"').strip("'").strip()
-        ops.append((op, path, _strip_fence(text[m.end():end_m.start()])))
-        pos = end_m.end()
+        ops.append((op, path, _strip_fence(text[m.end():body_end])))
     return ops
+
+
+def strip_protocol_markers(text):
+    """剥掉正文里**残留**的协议标记行（`===FILE: ...===` / `===END===`）。
+
+    为什么需要（2026-10-02）：旧 `parse_ops` 在块没写结束标记时会整块丢弃，
+    `_apply_ops` 的兜底随即把**整段模型输出**（含标记行与绝对路径）写进章节文件。
+    实测 `data/chapters/raw/01.md` 首行就是
+    `===FILE: E:\\CODE\\...\\01.md===` —— 既是产物污染，也是私路径泄露。
+
+    只修解析器只能防新增；老产物里的残留会随「上一章内容 → 提示词 → 新章节」
+    和「合并正文 → Word 成品」继续传播。故在**读取侧**再兜一道。
+    """
+    if not text:
+        return text
+    out = OP_RE.sub("", text)
+    out = END_RE.sub("", out)
+    return out.lstrip(NEWLINE)
 
 
 def allowed_paths(paths):

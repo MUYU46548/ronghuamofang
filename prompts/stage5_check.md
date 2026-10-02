@@ -38,7 +38,7 @@ temperature: 0.3
 ```
 ===FILE: data/chapters/checked/NN.md===
 （修正后的全文，无问题则复制原稿）
-===END FILE===
+===END===
 ```
 
 报告同样用 FILE 块：
@@ -48,7 +48,7 @@ temperature: 0.3
 # 逻辑检查报告
 ## 问题清单
 - [严重度] 章节X 问题描述（问题类型）
-===END FILE===
+===END===
 ```
 
 **禁止**：只输出纯文本报告而不写 FILE 块。每章必须有对应的 checked/NN.md 产出。

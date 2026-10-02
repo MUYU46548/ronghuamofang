@@ -67,6 +67,7 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         return [f.name for f in batch
                 if not is_usable_output(raw_dir / f.name, checked_dir / f.name)]
 
+    copied_all = []
     for bi, batch in enumerate(batches, 1):
         # 件7（2026-09-29）：原先只写**裸文件名**（`- 01.md`），llm_client 的
         # `inline_inputs` 按 CWD 找不到 → 判 missing → **章节从未进入 prompt**，
@@ -103,7 +104,13 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                     shutil.copy2(src, dst)
                     copied.append(name)
             if copied:
-                print(f"[stage5] 兜底：复制 raw → checked ({', '.join(copied)})")
+                # ⚠️ 兜底复制 = **这批实际上没有被检查**。旧实现只打一行普通日志，
+                # 用户看到「阶段 5 完成」就以为检查过了。2026-09-28 那本正是如此：
+                # checked/03.md 与 raw/03.md 逐字节相同，check_report.md 从未落盘，
+                # 而「检查完成」照打（→ 报告的根因是协议结束标记不匹配，已修）。
+                copied_all.extend(copied)
+                print(f"[stage5] ⚠️ 兜底：本批 LLM 未产出有效修正 → 复制 raw → checked "
+                      f"({', '.join(copied)})；**这几章未经检查**")
                 missing = _bad_checked(batch)
         if missing:
             progress.set_stage(5, "failed", error=f"批 {bi} 缺修正文件: {missing[:3]}")
@@ -113,9 +120,41 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     if db and run_id:
         for f in pending:
             db.log_chapter(run_id, 5, int(f.stem), "ok")
-    progress.mark_stage_done(5)
-    print(f"[stage5] 逻辑检查完成（{len(raw_files)} 章，{total_batches} 批），报告: data/outline/check_report.md")
-    return True, "stage5 完成"
+
+    # 阶段收尾自检（2026-10-02）：**把「没检查」这件事显式化**。
+    # 旧实现只要文件存在就 `mark_stage_done` + 打印「报告: check_report.md」——
+    # 而报告可能压根不存在（实测如此）。空壳检查器比没有检查器更危险。
+    warnings = []
+    if copied_all:
+        names = sorted(set(copied_all))
+        warnings.append(f"{len(names)} 章未经检查（兜底复制 raw→checked）："
+                        + "、".join(names[:10]) + ("…" if len(names) > 10 else ""))
+    report_path = Path("data/outline/check_report.md")
+    try:
+        report_text = read_text(report_path) if report_path.exists() else ""
+    except Exception:                                         # noqa: BLE001
+        report_text = ""
+    if len(report_text.strip()) < 20:
+        warnings.append("检查报告 data/outline/check_report.md 缺失或为空 —— "
+                        "本轮没有留下检查记录（章节产物仍可用，但别当「检查通过」）")
+
+    if warnings:
+        print("[stage5] " + "=" * 58)
+        print("[stage5] ⚠️ 本阶段**带警告完成**（≠ 检查通过）：")
+        for w in warnings:
+            print("[stage5]   · " + w)
+        print("[stage5] " + "=" * 58)
+        progress.set_stage(5, "done", warning="；".join(warnings))
+    else:
+        progress.mark_stage_done(5)
+
+    print(f"[stage5] 逻辑检查完成（{len(raw_files)} 章，{total_batches} 批）")
+    if report_text.strip():
+        print("[stage5] 报告: data/outline/check_report.md")
+    msg = f"stage5 完成（{len(raw_files)} 章，{total_batches} 批）"
+    if warnings:
+        msg += "｜⚠️ " + "；".join(warnings)
+    return True, msg
 
 
 def main():
