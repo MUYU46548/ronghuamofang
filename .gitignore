@@ -83,3 +83,6 @@ console/runtime/
 /*.png
 /*.jpg
 .agent_context/
+
+# ===== 泄露门禁词表（真词表是敏感层，只在本机/CI secret，绝不入库）=====
+ci/blacklist.txt

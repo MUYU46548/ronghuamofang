@@ -154,7 +154,7 @@
         <h3>AI 修订「{{ sel && sel.title }}」</h3>
         <div class="meta">只重写这一条（保留事件核心），不影响其他节点与四节结构；修订前自动备份到 data/outline/history/。</div>
         <textarea v-model="aiFeedback" rows="4"
-                  placeholder="例如：侧重露汐；结尾留悬念"></textarea>
+                  placeholder="例如：侧重主角；结尾留悬念"></textarea>
         <div class="dialog-actions">
           <button class="mini" @click="aiOpen = false">取消</button>
           <button class="mini primary" :disabled="!aiFeedback.trim()" @click="submitAi">提交修订</button>

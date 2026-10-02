@@ -173,7 +173,7 @@ obsidian:
   # 顶掉（旧实现就是这样，已改掉）。
   # 例：在 system.local.yaml 写
   #   obsidian:
-  #     skip_dirs: ['99 模板']
+  #     skip_dirs: ['模板归档']
   skip_dirs: ['.obsidian', '.git', '.hermes', '.agent_context']
   # ---- 旧布局兼容锚点（可选，默认空）----
   # `path_kind` 判据靠 `vault_dirs.characters` 的「根/目录」两段式锚点。

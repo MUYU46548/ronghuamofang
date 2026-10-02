@@ -86,7 +86,7 @@ def case_parse_card():
         check("W1 来源被记录（冲突时要能指出出处）",
               c and "测试库" in c["source"], f"→ {c and c['source']}")
 
-        (Path(td) / "稿_旋转矩阵秘闻录.md").write_text(
+        (Path(td) / "稿_某秘闻录.md").write_text(
             "## 震惊！某人的深夜食堂\n\n正文。\n", encoding="utf-8")
         (Path(td) / "README.md").write_text("# 素材目录\n", encoding="utf-8")
         got = collect_cards(td)

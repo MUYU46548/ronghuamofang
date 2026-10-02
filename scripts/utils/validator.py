@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """校验器 —— 搬运自明鉴（MingJian）scripts/utils/validator.py。
 
-来源：E:/CODE/CangKu/MingJian/scripts/utils/validator.py（2026-09-14 快照）
+来源：明鉴（MingJian）项目 scripts/utils/validator.py（2026-09-14 快照）
 
 NovelForge 目前只用到 parse_llm_json（LLM 输出容错解析）。
 明鉴原文件里的决策表 schema 校验（validate_decision_table / loc_exists /

@@ -17,7 +17,7 @@
 | G1 | 默认值应为通用虚构布局、五键齐全 | 直读 get_vault_dirs/get_skip_dirs |
 | G2 | 自定义 vault_dirs 要真的改变**扫描目标** | 造 vault 后 scan_vault 数命中 |
 | G3 | `skip_dirs` 是**追加**不是替换（旧实现点一下就把 `.git` 放进来） | local 只写一项，断言默认四项仍在 |
-| G4 | skip_dirs 曾经**两处各写一份**且已漂移（bridge 有 '99 模板'、kb_index 没有） | 断言两处是**同一个函数对象** |
+| G4 | skip_dirs 曾经**两处各写一份**且已漂移（一处多跳过一个目录，另一处没跳） | 断言两处是**同一个函数对象** |
 | G5 | 锚点一改，既有「旧布局」数据**静默退回 name 词表** | `extra_character_anchors` 多锚点三态 |
 | G6 | 目录落空曾**静默 continue**（下游注入恒空无提示） | 断言打告警 |
 | G7 | 配置解析失败曾 `except: pass` 静默降级 | 坏 YAML → 必须打告警 |
@@ -176,7 +176,7 @@ _ticket(names=[c["name"] for c in sc["characters"]])
 def case_skip_dirs_is_append():
     print("\n[G3] skip_dirs 是**追加**：用户只写一项，默认四项必须仍在")
     root = build_sandbox()
-    _write_local(root, "obsidian:\n  skip_dirs: ['99 模板']\n")
+    _write_local(root, "obsidian:\n  skip_dirs: ['模板归档']\n")
     code = PRELUDE + '''
 from utils.setting_schema import get_skip_dirs
 _ticket(sd=sorted(get_skip_dirs()))
@@ -189,7 +189,7 @@ _ticket(sd=sorted(get_skip_dirs()))
         return
     sd = set(p["sd"])
     missing = {".obsidian", ".git", ".hermes", ".agent_context"} - sd
-    check("G3 用户追加项生效", "99 模板" in sd, f"→ {sorted(sd)}")
+    check("G3 用户追加项生效", "模板归档" in sd, f"→ {sorted(sd)}")
     check("G3 **默认四项没被顶掉**（旧实现此处会把 .git 放进扫描面）",
           not missing, f"→ 丢失 {sorted(missing)}")
     shutil.rmtree(root, ignore_errors=True)

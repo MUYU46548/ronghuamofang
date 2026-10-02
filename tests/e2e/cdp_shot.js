@@ -5,7 +5,7 @@ const fs = require('fs');
 
 const CHROME = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 const APP = 'http://127.0.0.1:5199/';
-const OUT = 'E:\\CODE\\CangKu\\NovelForge\\Temp\\';
+const OUT = './Temp/';
 
 function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 function get(url) {

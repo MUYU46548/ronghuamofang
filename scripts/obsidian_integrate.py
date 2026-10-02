@@ -41,9 +41,8 @@ def scan_vault_characters(vault_path=None):
     ⚠️ 2026-09-21 改为**委托** `obsidian_bridge.scan_vault`。
 
     本函数与 `scan_vault_worldbuilding` 此前是 `scan_vault` 的**逐行复制品**
-    （各约 95 行），且带着同一个缺陷：目录列表里混进**父目录** `03 设定` 并配
+    （各约 95 行），且带着同一个缺陷：目录列表里混进**父目录**（设定根）并配
     `rglob`，导致跨类目污染（地点/概念被当成角色）与重复（每条扫两遍）。
-    实测 4 个文件的 vault 扫出 6 个"角色"。
 
     重复实现意味着**同一个 bug 要修两遍**（而且很容易只修一处）。
     现统一委托，单一事实源在 `obsidian_bridge.scan_vault`。

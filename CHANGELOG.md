@@ -341,7 +341,7 @@ orchestrator 钩子调用点 / 前端 only_stage 传参）用**源码断言**防
 ### 🔴 修复：安全与配置
 
 - **S3** `config/system.yaml` / `config/obsidian_templates.yaml` 硬编码用户本机
-  绝对路径（含已废弃命名 `ROSA` 的漏网残留），并散落在 `obsidian_bridge` /
+  绝对路径（含已废弃命名的漏网残留），并散落在 `obsidian_bridge` /
   `kb_index` / `obsidian_postprocess` / `voice_to_docx` 的默认值中。
   - 修复：改为占位符 + 项目内默认沙盒（`data/state/obsidian_sandbox`）；
     `get_vault_path()` 未配置返回 `None`（**不再返回 `Path("")`** ——
@@ -766,7 +766,7 @@ pyflakes 门禁            BLOCK=0 ✅
 
 - **README**：`MYU46548`→`MUYU46548`（2 处）、`开发日志.md`→`CHANGELOG.md`、
   `Temp/`→`tests/`、补 requirements-dev 说明
-- **三个 .bat 启动脚本**：硬编码 `E:\CODE\CangKu\NovelForge` → `%~dp0`
+- **三个 .bat 启动脚本**：硬编码本机绝对路径 → `%~dp0`
 - **`nf_api_selftest.py` + 8 个 HTTP 测试**：硬编码 `.venv/Scripts/python.exe` → `sys.executable`
 - **`config/project.yaml`**：删除重复 `user_outline` 键（保留真实大纲 128 字符）
 - **`project_config.py`**：新增 `_UniqueKeyLoader` 重复键守卫（PyYAML 默认静默取后值）

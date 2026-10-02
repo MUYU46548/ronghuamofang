@@ -44,3 +44,59 @@ jobs:
       # 自定义运行器：exit 0 = 全部 PASS（非 pytest）
       - name: 全量测试（tests/unit + tests/http）
         run: python scripts/nfctl.py test
+
+  # ==========================================================================
+  # 泄露门禁：挡住「私人词 → 发布树」。
+  #
+  # fail-closed 是刻意的：secret 缺失 / 为空 / 条目数不足 → 任务直接红。
+  # 一个悄悄退化成空名单的门禁等于没有门禁，而"扫了但没报"比没扫更危险。
+  #
+  # 真词表只存在两处：本机 ci/blacklist.txt（.gitignore 忽略）与 CI secret
+  # `LEAK_BLACKLIST`（换行分隔）。仓库里只有零真值的 ci/blacklist.example。
+  #
+  # ⚠️ 只在 push / 手动触发 / **同仓** PR 上跑：fork PR 拿不到 secret，若一并强制
+  #    fail-closed，所有外部 PR 会永久红 —— 假红会训练人忽略红灯。外部 PR 合并前
+  #    维护者自己 push 一次即可被本任务覆盖。
+  # ==========================================================================
+  leak-gate:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: 泄露门禁（fail-closed）
+        env:
+          LEAK_BLACKLIST: ${{ secrets.LEAK_BLACKLIST }}
+        run: |
+          if [ -z "${LEAK_BLACKLIST:-}" ]; then
+            echo "::error::机密 LEAK_BLACKLIST 未配置 —— fail-closed，不放行（格式见 ci/blacklist.example）"
+            exit 1
+          fi
+          printf '%s\n' "$LEAK_BLACKLIST" > /tmp/blacklist.txt
+          echo "词表有效行数：$(grep -cvE '^[[:space:]]*(#|$)' /tmp/blacklist.txt || true)"
+          python scripts/leak_scan.py --list /tmp/blacklist.txt --max-print 80
+
+      # 通用规则（换个用户也成立）随发布树走，不依赖任何 secret。
+      #
+      # 只判**绝不该被跟踪**的路径。以下两类是**已知、已登记**的存量债，刻意不在这里
+      # 拦（拦了 CI 立刻常红，常红等于没红灯），改由发布日 checklist 处理：
+      #   · materials/vault_links.md            （含私路径/作品词，发布日 git rm --cached）
+      #   · deliverables/**                     （内部报告，发布日 git rm --cached）
+      # 这两项一旦执行，本步骤可收紧为全量。
+      - name: 通用规则（运行产物不得进发布树）
+        run: |
+          BAD=$(git ls-files | grep -E '^(logs|data|output|history)/|^materials/original_scraps/|^materials/raw/.+\.md$' \
+                | grep -vE '^materials/raw/README\.md$|^tests/e2e/fixture_project/' || true)
+          if [ -n "$BAD" ]; then
+            echo "::error::发布树里跟踪了运行产物："
+            echo "$BAD"
+            exit 1
+          fi
+          echo "OK：无运行产物被跟踪"
+

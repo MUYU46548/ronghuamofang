@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """明鉴（MingJian）校对规则库 —— 搬运层。
 
-来源：E:/CODE/CangKu/MingJian/scripts/stage2_proofread.py
+来源：明鉴（MingJian）项目 scripts/stage2_proofread.py
       （TYPO_DICT / PUNCT_RULES，2026-09-14 快照）
 
 设计约束（与 NovelForge 主库一致）：

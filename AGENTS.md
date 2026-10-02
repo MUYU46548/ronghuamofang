@@ -29,8 +29,8 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 1. 前置检查：
    - `config/project.yaml` 是否已填书名/类型/章节数（书名仍为"示例书名（待填写）"时提醒用户）
    - `materials/raw/` 是否有素材（为空时提醒用户，不要空跑）
-2. 启动：`terminal(command="python scripts/orchestrator.py", background=true, notify_on_complete=true, workdir="E:/CODE/CangKu/NovelForge")`
-   - 必须用项目 .venv 的 python：`E:/CODE/CangKu/NovelForge/.venv/Scripts/python.exe`
+2. 启动：`terminal(command="python scripts/orchestrator.py", background=true, notify_on_complete=true, workdir="<repo>")`
+   - 必须用项目 .venv 的 python：`<repo>/.venv/Scripts/python.exe`（POSIX 为 `<repo>/.venv/bin/python`）
    - 长任务（数小时），用后台运行 + 完成通知
 3. 监控：轮询 `logs/runs.db` 与 `data/state/progress.json` 向用户汇报进度/成本
 4. 退出码语义（orchestrator 返回）：
@@ -77,7 +77,7 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 | 章节审查（审稿闭环 Phase 1） | `python scripts/chapter_review.py [--scope raw\|checked\|refined] [--report data/outline/review_report.json] [--dry-run]`（产出 review_report.json/.md；GUI「审稿」页签等价于 `POST /review/run`） |
 | 批量精修（审稿闭环 Phase 2） | `python scripts/batch_refine.py --report data/outline/review_report.json [--decisions file\|interactive] [--auto] [--dry-run]`；`--decisions file` 读同目录 `review_report.decisions.json`（格式 `{"decisions":[{finding_id,chapter,action,feedback}]}`，action=accept/ignore；GUI 保存的即此格式） |
 | 全书摘要（完书后） | `python scripts/book_summary.py`（输出 output/{书名}_全书摘要.md，可粘贴 Obsidian） |
-| Obsidian 后处理（完书后） | `python scripts/obsidian_postprocess.py [--books\|--role-records\|--roles "露汐,小林"] [--dry-run] [--no-llm]`（作品介绍页/出场记录/新角色设定草稿 → Obsidian_AI_Sandbox/10_Inbox/） |
+| Obsidian 后处理（完书后） | `python scripts/obsidian_postprocess.py [--books\|--role-records\|--roles "角色甲,角色乙"] [--dry-run] [--no-llm]`（作品介绍页/出场记录/新角色设定草稿 → 沙盒 `data/state/obsidian_sandbox/`，可用 `config/system.yaml` 的 `obsidian.sandbox_dir` 指到你库内收件目录） |
 | 角色出场统计 | `python scripts/appearances.py`（确定性，输出 data/state/appearances.json，obsidian_postprocess 自动调用） |
 | 润色后体检 | `python scripts/polish_review.py`（确定性，交付 Word 前跑） |
 | 校对（stage 5.5，交付 Word 前） | `python scripts/proofread.py [--scope refined] [--llm] [--dry-run]`（确定性：标点/错字/格式/章节节奏，**零 token**；`--llm` 追加语义校对。报告 data/outline/proofread_report.json + .md） |
@@ -126,11 +126,13 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 | 项目向导/关于端点自检 | `python tests/http/test_project_wizard_api_http.py`（临时项目根起 nf_api：`/config/style_notes` 回归 ImportError、单行↔多行反复改写不写坏 YAML、`/project/create` 参数护栏与「有数据不归档则拒绝」、归档+重建+写 project.yaml 全链路、`/project/init` 真写盘、`/about` 字段，44 断言） |
 | 真机截图 + 控制台报错检查 | `node tests/e2e/cdp_shots_new_tabs.js <http://127.0.0.1:8090> <出图目录>`（CDP 驱动 headless Chrome，逐页签截图 + 抓 console error/warning + 抓非 2xx 响应 URL。先起 nf_api:8765 与构建产物的静态服务；Node 22 自带 WebSocket，无需额外依赖） |
 | **质量门禁（提交前必跑）** | `python scripts/quality_gate.py`（**未定义名零容忍**：`undefined name` 一律阻塞，退出码 1；其余历史告警只计数不阻塞。`--changed` 只查 git 变更文件，`--list-warn` 打印完整告警） |
+| **泄露门禁（发布前必跑 / CI 自动）** | `python scripts/leak_scan.py --list ci/blacklist.txt [--json]`（扫**被跟踪文件**里的私人词：真名 / 作品词 / 本机路径 / 私人 vault 目录结构。**fail-closed**：词表缺失·为空·条目 <20 条 → exit 2，绝不当"通过"。退出码 0 零命中 / 1 有命中 / 2 词表不可用）。词表：本机 `ci/blacklist.txt`（已 gitignore）+ CI secret `LEAK_BLACKLIST`；仓库里只有零真值的 `ci/blacklist.example`。路径豁免写在词表里（`allow: LICENSE # 理由`）且**会被打印出来** —— 静默豁免等于开后门 |
+| **发布树卫生** | `config/project.yaml.example` 是模板（`project.yaml` 发布后不再随仓库分发，缺文件会让新克隆首跑崩 —— `load_project_yaml` 没有兜底）；CI 的 `leak-gate` 任务同时拦「运行产物被跟踪」（`logs/`·`data/`·`output/`·`history/`·`materials/raw/*.md`） |
 | kb / 模型端点契约自检 | `python tests/http/test_kb_and_models_api_http.py`（vault 未配置 → /kb/* 给可行动 400；白名单两级校验与 strict=false 逃生门，27 断言） |
 | 重试路径回归自检 | `python tests/unit/test_orchestrator_retry.py`（S1 回归：阶段失败不得抛异常、runs 不得留 running 脏行、finish_run_if_running 幂等，13 断言） |
 | 流式跑阶段回归自检 | `python tests/unit/test_stream_stage.py`（S2 回归：流式/非流式共用退出码翻译、无平行分支，18 断言） |
 | 配置泄露 / 白名单回路自检 | `python tests/unit/test_config_and_models.py`（S3/S8 回归：无本机绝对路径泄露、白名单两级校验接通，29 断言） |
-| 设定集 schema 归一自检 | `python tests/unit/test_setting_schema.py`（两种 schema 都能读全 + 大纲解析 + 别名/id 匹配 + **实体类型判定** + 去重 + **真实 ROSA 快照回归**，70 断言） |
+| 设定集 schema 归一自检 | `python tests/unit/test_setting_schema.py`（两种 schema 都能读全 + 大纲解析 + 别名/id 匹配 + **实体类型判定** + 去重 + **真实归档快照回归**，70 断言） |
 
 ## 外部 Agent 接入（Hermes skill + nfctl）
 

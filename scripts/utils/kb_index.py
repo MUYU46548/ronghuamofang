@@ -17,7 +17,7 @@ from pathlib import Path
 from datetime import datetime
 
 # 跳过目录与 obsidian_bridge **同一配置源**（A1 修复：本处原是第二份写死清单，
-# 且与 bridge 漂移——缺 '99 模板'，模板目录会被索引进倒排库、污染检索）。
+# 且与 bridge 漂移——本处少跳过了一个目录，模板目录会被索引进倒排库、污染检索）。
 from utils.setting_schema import get_skip_dirs
 
 # 需要忽略的停用词（中文常见虚词 + 超长无意义词）
@@ -81,7 +81,7 @@ def build_index(vault_path, out_path=None, progress=None):
     md_files = list(vault.rglob("*.md"))
 
     # 跳过 Obsidian 配置和插件目录（A1 配置化：get_skip_dirs 与 bridge 同源，
-    # 此前两处清单漂移——本处缺 '99 模板'，模板目录会被误索引）
+    # 此前两处清单漂移——本处少跳过了一个目录，模板目录会被误索引）
     skip_dirs = get_skip_dirs()
     md_files = [
         f for f in md_files

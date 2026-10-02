@@ -1,0 +1,54 @@
+# =========================================================
+# NovelForge 项目信息 —— **模板文件**
+#
+# 用法：复制成 config/project.yaml 再改（`cp config/project.yaml.example config/project.yaml`）。
+#
+# 为什么要有这份模板：`config/project.yaml` 承载你自己的书名 / 署名 / 剧情梗概，
+# 属于**每本书都不一样**的活配置。公开发布时它会走 `git rm --cached`（移出跟踪），
+# 若没有模板，干净克隆下来的人**首跑就会崩**（`load_project_yaml` 是裸 read_text，
+# 缺文件直接 FileNotFoundError，没有兜底）。
+#
+# 每次运行前可修改。字段留空/删除大多有合理默认，见各字段注释。
+# =========================================================
+
+book:
+  name: "示例书名（待填写）"        # 必填：成品文件名、合并稿标题都用它
+  genre: "奇幻"
+  target_words: 300000              # 全书目标字数（供大纲阶段参考）
+  style: "冷峻、克制、侧重行动与选择"
+  chapters: 40                      # 目标章数：**总量用章数控制**，
+                                    #   单章字数区间见 config/system.yaml 的 chapter.target_words
+  language: "zh-CN"
+  author: "你的名字"
+  # 用户提供的大纲/梗概/核心构思（可选）。留空则系统基于素材自拟。
+  # 多行写法：user_outline: |
+  #   第一句点明核心设定……
+  #   第二句点明主角弧光……
+  user_outline: ""
+  # Word 成品模板（可选）。放 templates/ 下（.dotx 或 .docx），stage7 以模板为底版：
+  #   替换 [书籍标题]/[作者] 占位符、[目录占位符] 插入 TOC 域、正文写入 [请输入文本] 之后。
+  #   更换模板 = 替换本字段路径或覆盖 templates/ 下文件，无需改代码。
+  word_template: "templates/小说格式模板V1.3.dotx"
+  # 风格参考文本（可选，写作阶段注入）。放 materials/ 下，1-2 篇你满意的范文/片段。
+  #   配置了它，系统还会自动抽取代表性原文片段作为 few-shot 示例（自动避开与当前
+  #   章节高度相似的段落，并标注来源位置）。留空则按模板文风要求。
+  style_reference: ""
+  # 用户风格笔记（可选）。与自动分析结论叠加注入 stage4/stage6，冲突时以本节为准。
+  #   控制台「设置」页签可直接编辑（保存前自动备份 config/history/）。
+  style_notes: ""
+
+materials:
+  # 结构化素材卡目录（管线消费）：stage1 扫描此处并归并成设定集
+  dir: "materials/raw"
+  # 原始创作碎片目录（自由命名、私人数据、不进 Git）：只作 stage1 归并的额外输入，
+  #   永不写进 materials/raw/。聚类/时间轴/前瞻备忘由 scrap_cluster.py 确定性生成。
+  scraps_dir: "materials/original_scraps"
+  # 是否启用碎片管线：true=自动（碎片为空时退化为普通流程）；false=完全忽略碎片
+  use_scraps: true
+
+vault:
+  readonly: true                    # Obsidian 设定库只读（系统永不写入 vault）
+  vault_links: "materials/vault_links.md"   # 设定库引用索引（阶段1 生成/维护）
+
+run:
+  output_word: true                 # 阶段7 是否转 Word（false 则仅输出 merged Markdown）

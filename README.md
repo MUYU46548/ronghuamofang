@@ -43,6 +43,9 @@ cd ronghuamofang
 python -m venv .venv
 .venv/Scripts/python.exe -m pip install -r requirements.txt
 copy .env.example .env        # 填入 TOKENHUB_API_KEY（或你自己的 OpenAI 兼容服务）
+# config/project.yaml 若不存在（发布后它不再随仓库分发：里面是你的书名/署名/剧情），
+# 从模板复制一份再改：
+[ -f config/project.yaml ] || cp config/project.yaml.example config/project.yaml
 cd console && npm install && npm run build && cd ..
 ```
 

@@ -3813,7 +3813,7 @@ onUnmounted(() => {
     <div class="dialog">
       <h3>大纲精修（增量修订）</h3>
       <div class="meta">不重跑 stage2；自动备份旧版到 data/outline/history/。</div>
-      <textarea v-model="refineFeedback" rows="4" placeholder="例如：第3章侧重露汐；合的部分收太快，加一场过渡"></textarea>
+      <textarea v-model="refineFeedback" rows="4" placeholder="例如：第3章侧重主角；合的部分收太快，加一场过渡"></textarea>
       <div class="dialog-actions">
         <button class="mini" @click="refineOpen = false">取消</button>
         <button class="mini primary" @click="submitRefine">提交精修</button>

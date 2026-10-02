@@ -170,7 +170,7 @@ function clearChecked(file) {
 
 async function promote() {
   if (!points.value.length) { say("请先勾选信息点（或手工追加）"); return; }
-  if (!cardName.value.trim()) { say("请填写卡片名（如：月神）"); return; }
+  if (!cardName.value.trim()) { say("请填写卡片名（如：主角名）"); return; }
   busy.value = true;
   const r = await api("/scraps/promote", "POST", {
     card_name: cardName.value.trim(),
@@ -281,12 +281,12 @@ onMounted(() => { loadLS(); load(); });
 
             <h4 style="margin: 12px 0 6px;">手工追加信息点（一行一条，可选）</h4>
             <textarea class="prompt-text" style="min-height: 64px;" v-model="extraPoints"
-                      spellcheck="false" placeholder="例如：月神左耳的抓痕是第一版实验体留下的"></textarea>
+                      spellcheck="false" placeholder="例如：主角左耳的抓痕是第一版实验体留下的"></textarea>
 
             <h4 style="margin: 12px 0 6px;">生成素材卡</h4>
             <div class="form-row">
               <span class="art-label">卡片名</span>
-              <input class="text-input" v-model="cardName" placeholder="如：月神" />
+              <input class="text-input" v-model="cardName" placeholder="如：主角名" />
               <span class="art-label">类型</span>
               <select class="text-input" v-model="cardType">
                 <option v-for="t in CARD_TYPES" :key="t" :value="t">{{ t }}</option>
