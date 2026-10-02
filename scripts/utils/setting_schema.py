@@ -133,9 +133,149 @@ def is_locked(entry):
     return _truthy_locked(entry)
 
 
-# vault 路径的一级/二级目录名（ROSA 目录规范）
-_VAULT_ROOT = "03 设定"
-_VAULT_CHARACTER_DIR = "01 人物"
+# ---------------------------------------------------------------------------
+# vault 目录映射（A1 修复：配置化，默认值=通用虚构布局）
+#
+# 历史包袱：本模块曾把**某套「数字前缀分类法」**写死为判据锚点（某个私人 vault 的布局）。
+# 2026-10-02 起改从 config/system.yaml 的 `obsidian.vault_dirs` 读取，并支持
+# config/system.local.yaml（不进 Git）键级覆盖——每人 vault 结构不同，在本地
+# 覆盖里填自己的真实目录即可（拍板③：手动指定就是本设计，默认值仅开箱演示）。
+# 默认值刻意**不撞任何数字前缀类真实结构**：目录落空时 obsidian_bridge 会打
+# 零扫告警，引导用户去改配置，而不是静默扫零。
+# ---------------------------------------------------------------------------
+_DEFAULT_VAULT_DIRS = {
+    "characters": "设定/人物",
+    "locations": "设定/地点",
+    "factions": "设定/势力",
+    "concepts": "设定/概念",
+    "timeline": "年表",
+}
+_DEFAULT_SKIP_DIRS = (".obsidian", ".git", ".hermes", ".agent_context")
+
+_obsidian_cfg_cache = None
+
+
+def load_obsidian_config():
+    """读 `config/system.yaml` 的 obsidian 节，叠加 `system.local.yaml` 键级覆盖。
+
+    **单源实现**：obsidian_bridge 等消费方一律 import 本函数，不得自持副本
+    （本仓纪律：同一判据写两遍=漂移之源）。
+
+    - 读取失败**显式告警**、不静默（见 `_read_yaml_config`。静默降级会让用户以为
+      自己的本地覆盖生效了，实际全程跑默认值）；
+    - local 的 obsidian 节按键覆盖：`vault_dirs` **整体替换**（用户抄整套自己的结构，
+      行为可预测）；`skip_dirs` 走 **追加**（见 `get_skip_dirs`）；
+    - 结果缓存；外部改配置后调 reset_obsidian_config_cache()。
+    """
+    global _obsidian_cfg_cache
+    if _obsidian_cfg_cache is not None:
+        return _obsidian_cfg_cache
+    cfg = {}
+    base = _read_yaml_config("config/system.yaml", required=True)
+    if isinstance(base.get("obsidian"), dict):
+        cfg.update(base["obsidian"])
+    # system.local.yaml 不存在是**正常状态**（本地覆盖可选）→ 不告警
+    local = _read_yaml_config("config/system.local.yaml")
+    if isinstance(local.get("obsidian"), dict):
+        cfg.update(local["obsidian"])
+    _obsidian_cfg_cache = cfg
+    return cfg
+
+
+def _read_yaml_config(rel_path, required=False):
+    """读一个 YAML 配置；失败**显式告警**，不静默降级。
+
+    - `system.local.yaml` 不存在是正常状态（覆盖可选）→ 静默返回 {}；
+    - 但「文件在却解析失败 / 基线配置读不到」必须喊出来 —— 否则用户填了本地覆盖
+      却全程跑默认值，且没有任何提示（本仓最忌的静默失败）。
+    """
+    try:
+        import yaml
+        from utils.file_io import read_text
+        return yaml.safe_load(read_text(rel_path)) or {}
+    except FileNotFoundError:
+        if required:
+            print("[setting_schema] WARN 读不到 " + rel_path +
+                  " —— obsidian 配置改用默认值（确认进程 CWD 是项目根/工作区）")
+        return {}
+    except Exception as e:                                    # noqa: BLE001
+        print("[setting_schema] WARN 解析 " + rel_path + " 失败 —— obsidian 配置改用"
+              "默认值（**本地覆盖可能没生效**）: " + str(e)[:160])
+        return {}
+
+
+def reset_obsidian_config_cache():
+    """清配置缓存（测试 fixture / 配置热更调用）。"""
+    global _obsidian_cfg_cache
+    _obsidian_cfg_cache = None
+
+
+def get_vault_dirs():
+    """vault 目录映射（五键齐全、str、非空；空/缺配置回退默认）。"""
+    raw = _load_vault_dirs_raw()
+    out = {}
+    for k, d in _DEFAULT_VAULT_DIRS.items():
+        v = raw.get(k) if isinstance(raw, dict) else None
+        v = str(v).strip().strip("/\\") if v else ""
+        out[k] = v or d
+    return out
+
+
+def _load_vault_dirs_raw():
+    return load_obsidian_config().get("vault_dirs") or {}
+
+
+def get_skip_dirs():
+    """跳过目录集合（非正典内容）= **默认四项 ∪ 用户追加项**。
+
+    语义是**追加不是替换**（2026-10-02 修正）：用户在 system.local.yaml 的
+    `obsidian.skip_dirs` 里只写自己额外要跳过的目录即可，默认四项
+    （.obsidian/.git/.hermes/.agent_context）恒生效。
+
+    为什么改：旧实现是「local 有值就整体顶掉默认」，而 system.yaml 的注释却写着
+    「覆盖/追加」—— 用户按注释只写一项想追加，实际把 `.git` 放进了扫描面
+    （脚枪）。**取消**某个默认项本键做不到（刻意：删默认通常是想错了）。
+    """
+    out = set(_DEFAULT_SKIP_DIRS)
+    raw = load_obsidian_config().get("skip_dirs")
+    if isinstance(raw, (list, tuple)):
+        out |= {str(s).strip() for s in raw if str(s).strip()}
+    return out
+
+
+def _character_anchors():
+    """path_kind 可用锚点列表 `[(设定根, 人物目录名), ...]`。
+
+    ① 首选 `vault_dirs.characters`（「根/目录」两段式；多于两段只取前两段，
+       判据语义与历史行为一致）；
+    ② 其后追加 `obsidian.extra_character_anchors`（默认空）—— **兼容旧布局**用。
+
+    为什么必须有 ②：锚点一改，判据②（vault path 权威）会对「不匹配锚点」的既有
+    数据**整体失效并静默退回 name 词表**（实测：旧布局下本应判 True 的人物路径，
+    在默认锚点下变成 None）。老用户在自己 system.local.yaml 里写
+
+        obsidian:
+          extra_character_anchors: ["你的旧布局/人物"]
+
+    即可保住历史数据判定 —— 无需改代码，代码里也**不出现任何具体目录名**
+    （发布物零私人痕迹，与 A2 不冲突）。
+    """
+    anchors = []
+    seg = [s for s in get_vault_dirs()["characters"].replace("\\", "/").split("/") if s]
+    if seg:
+        anchors.append((seg[0], seg[1] if len(seg) > 1 else ""))
+    raw = load_obsidian_config().get("extra_character_anchors")
+    for item in (raw if isinstance(raw, (list, tuple)) else []):
+        s = [x for x in str(item).replace("\\", "/").split("/") if x]
+        if s:
+            anchors.append((s[0], s[1] if len(s) > 1 else ""))
+    return anchors
+
+
+def _character_anchor():
+    """主锚点（向后兼容的单值形态：取 `_character_anchors()` 第一项）。"""
+    anchors = _character_anchors()
+    return anchors[0] if anchors else ("", "")
 
 
 def path_kind(entry):
@@ -168,9 +308,18 @@ def path_kind(entry):
     if not raw:
         return None
     seg = [s for s in str(raw).replace("/", "\\").split("\\") if s]
-    if len(seg) < 2 or seg[0] != _VAULT_ROOT:
+    if len(seg) < 2:
         return None
-    if seg[1] != _VAULT_CHARACTER_DIR:
+    # 锚点可配置且可**多锚点**（见 _character_anchors）：命中哪个根就按哪个根的
+    # 「人物目录名」比。seg[0] 不匹配任何锚点根 → 不表态（None），交回其它判据。
+    matched_dir = None
+    for root, char_dir in _character_anchors():
+        if root and seg[0] == root:
+            matched_dir = char_dir
+            break
+    if matched_dir is None:
+        return None
+    if seg[1] != matched_dir:
         return False
     # `01 人物\<子类目>\<名字>.md` → 是人物
     # `01 人物\<名字>.md`（索引页如「碎片角色列表」）→ 交回名字判据

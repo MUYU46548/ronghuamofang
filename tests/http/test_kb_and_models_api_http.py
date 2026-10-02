@@ -92,8 +92,8 @@ def build_project(vault=None):
 
     if vault:
         vd = Path(vault)
-        (vd / "03 设定" / "01 人物").mkdir(parents=True, exist_ok=True)
-        (vd / "03 设定" / "01 人物" / "测试角色.md").write_text(
+        (vd / "设定" / "人物").mkdir(parents=True, exist_ok=True)
+        (vd / "设定" / "人物" / "测试角色.md").write_text(
             "---\nname: 测试角色\ntags: [角色]\nlocked: false\n---\n\n"
             "一个用于索引测试的角色词条。\n", encoding="utf-8")
     return tmp

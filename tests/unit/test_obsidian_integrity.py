@@ -71,24 +71,24 @@ def build_sandbox(prefix="nf_oi_"):
 
 def make_vault(root):
     """按 docstring 约定造一个 vault：
-    01 人物 下 2 个（含 1 个 locked）、02 地点 1 个、04 概念 1 个、06 年表 1 个。
+    人物 2 个（含 1 个 locked）、地点 1 个、概念 1 个、年表 1 个（目录=默认 vault_dirs 通用布局）。
     """
     v = root / "MyVault"
-    for d in ("03 设定/01 人物/01 主要角色", "03 设定/02 地点",
-              "03 设定/04 概念", "06 年表"):
+    for d in ("设定/人物/主要角色", "设定/地点",
+              "设定/概念", "年表"):
         (v / d).mkdir(parents=True, exist_ok=True)
-    (v / "03 设定/01 人物/01 主要角色" / "露汐.md").write_text(
+    (v / "设定/人物/主要角色" / "露汐.md").write_text(
         "---\nname: 露汐\ntags: [主角]\ntype: 人物\nlocked: true\n"
         "description: 绒花科学院研究员。\n---\n露汐擅长冰封术。\n", encoding="utf-8")
-    (v / "03 设定/01 人物/01 主要角色" / "罗霄.md").write_text(
+    (v / "设定/人物/主要角色" / "罗霄.md").write_text(
         "---\nname: 罗霄\ntags: [配角]\ntype: 人物\n---\n罗霄管档案室。\n",
         encoding="utf-8")
-    (v / "03 设定/02 地点" / "沙都.md").write_text(
+    (v / "设定/地点" / "沙都.md").write_text(
         "---\nname: 沙都\ntype: 地点\n---\n沙都分七区。\n", encoding="utf-8")
-    (v / "03 设定/04 概念" / "绒花帝国魔法管制法.md").write_text(
+    (v / "设定/概念" / "绒花帝国魔法管制法.md").write_text(
         "---\nname: 绒花帝国魔法管制法\ntype: 概念\n---\n法规正文。\n",
         encoding="utf-8")
-    (v / "06 年表" / "大事记.md").write_text(
+    (v / "年表" / "大事记.md").write_text(
         "---\nname: 大事记\n---\n某年冬，封锁开始。\n", encoding="utf-8")
     return v
 
@@ -180,7 +180,7 @@ def case_scan_parent_dir_glob_only():
     root = build_sandbox("nf_oi_f1b_")
     v = make_vault(root)
     # 直接放在 03 设定 下的松散文件（应被兜底收编为 world，而不是被漏掉）
-    (v / "03 设定" / "散装说明.md").write_text(
+    (v / "设定" / "散装说明.md").write_text(
         "---\nname: 散装说明\n---\n直接放在父目录下的条目。\n", encoding="utf-8")
     code = PRELUDE + '''
 import obsidian_bridge as ob

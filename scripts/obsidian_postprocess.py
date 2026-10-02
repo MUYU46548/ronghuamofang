@@ -35,6 +35,31 @@ SUMMARY_RE = re.compile(r"<!--\s*summary:\s*(.+?)\s*-->", re.IGNORECASE | re.S)
 TOC_RE = re.compile(r"^#+\s*(第\s*[\d一二三四五六七八九十百]+\s*章.*)$", re.MULTILINE)
 
 
+def _derive_character_dirs():
+    """从 `obsidian.vault_dirs.characters` 推导角色词条目录（A4）。
+
+    修的是**恒假判定**：`obsidian_templates.yaml` 的 `character_dirs` 默认 `[]`
+    → `has_obsidian_entry()` 永远返回 False → 「已有词条的角色只出出场记录」
+    这条分支**从未真跑过**；后处理对所有角色一律生成设定草稿（重复造词条）。
+
+    目录来源与扫描**同一配置源**（`vault_dirs.characters`），不再各写一份。
+    vault 未配置（`vault_path` 为空）= 未启用联动 → 静默返回空列表（正常态）。
+    """
+    try:
+        from obsidian_bridge import _get_vault_path
+        from utils.setting_schema import get_vault_dirs
+        vault = _get_vault_path()
+        rel = (get_vault_dirs().get("characters") or "").strip()
+        if not vault or not rel:
+            return []
+        parts = [s for s in rel.replace("\\", "/").split("/") if s]
+        return [str(Path(vault, *parts))]
+    except Exception as e:                                    # noqa: BLE001
+        # 推导失败要喊出来：静默回退空列表 = 又变回恒假，用户看不出区别
+        print("[obsidian] WARN character_dirs 推导失败（回退空列表）: " + str(e)[:120])
+        return []
+
+
 def load_obsidian_template_config():
     try:
         cfg = yaml.safe_load(read_text("config/obsidian_templates.yaml")) or {}
@@ -50,6 +75,12 @@ def load_obsidian_template_config():
     }
     for k, v in defaults.items():
         obsidian.setdefault(k, v)
+    if not obsidian.get("character_dirs"):
+        derived = _derive_character_dirs()
+        if derived:
+            obsidian["character_dirs"] = derived
+            print("[obsidian] character_dirs 留空 → 从 obsidian.vault_dirs.characters "
+                  "推导：" + "、".join(derived))
     return obsidian
 
 
@@ -105,11 +136,26 @@ def extract_toc():
 
 
 def has_obsidian_entry(role_name, character_dirs):
-    """判定角色是否已有 Obsidian 词条（按文件名 stem 匹配）。"""
+    """判定角色是否已有 Obsidian 词条（按文件名 stem 匹配）。
+
+    A4：`character_dirs` 现在由 `vault_dirs.characters` 推导，指向的是**角色根**
+    （如 `设定/人物`），而真实 vault 在角色根下还有子类目（`主要角色/` 等）
+    —— 只查 `<根>/<名>.md` 会漏掉绝大多数词条（推导了等于没推导）。
+    故先查同层（快路径），未命中再递归查子目录。
+
+    文件名用 `glob.escape` 转义：角色名里若含 `[`、`*`、`?`（如「第[1]号实验体」），
+    未转义会被当成通配符 → 误判「已有词条」。
+    """
+    from glob import escape as _glob_escape
     for d in character_dirs:
-        p = Path(d) / f"{role_name}.md"
-        if p.exists():
+        p = Path(d)
+        if (p / f"{role_name}.md").exists():
             return True
+        try:
+            if any(p.rglob(_glob_escape(role_name) + ".md")):
+                return True
+        except OSError:
+            continue
     return False
 
 

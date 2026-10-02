@@ -13,10 +13,13 @@
 3. check_consistency() — 检查写作产物是否偏离正典
 4. write_sandbox() — 写入沙盒（只读原稿，只写沙盒）
 
-配置（config/system.yaml 的 obsidian 节点）：
+配置（config/system.yaml 的 obsidian 节点，支持 system.local.yaml 本地覆盖）：
 - sandbox_dir: 沙盒目录（唯一可写位置）；留空 → 回落项目内 data/state/obsidian_sandbox/
 - vault_path: vault 路径（用户本地知识库；留空 = 未启用联动）
 - path_traversal_guard: 路径遍历防护（默认开）
+- vault_dirs: 目录映射五键（characters/locations/factions/concepts/timeline，
+  默认=通用虚构布局；每人真实结构在 system.local.yaml 覆盖——A1 配置化）
+- skip_dirs: 跳过目录（默认通用四项；私人项走本地覆盖）
 """
 
 import re
@@ -26,7 +29,13 @@ from datetime import datetime
 
 from utils.file_io import read_text, write_text
 # locked 语义与别名根名的**唯一实现**在 setting_schema（不在本文件重写一份）。
-from utils.setting_schema import base_name, is_locked
+# obsidian 节配置读取（含 system.local.yaml 本地覆盖，拍板③「手动指定」载体）
+# 也**单源**在 setting_schema——本文件不自持副本，防两处漂移（A1 修复）。
+from utils.setting_schema import (
+    base_name, is_locked, is_character,
+    load_obsidian_config, get_vault_dirs, get_skip_dirs,
+    reset_obsidian_config_cache,
+)
 
 # 默认配置（被 config/system.yaml 的 obsidian 节点覆盖）
 # 刻意**不设**任何用户本机绝对路径：vault 未配置时视为「未启用联动」，
@@ -36,13 +45,12 @@ DEFAULT_SANDBOX_DIR = "data/state/obsidian_sandbox"
 
 
 def _load_obsidian_config():
-    """从 config/system.yaml 加载 Obsidian 配置。"""
-    try:
-        import yaml
-        cfg = yaml.safe_load(read_text("config/system.yaml")) or {}
-        return cfg.get("obsidian", {})
-    except Exception:
-        return {}
+    """加载 Obsidian 配置（system.yaml + system.local.yaml 键级覆盖，单源转发）。
+
+    实现在 utils.setting_schema.load_obsidian_config。配置文件变更后
+    应调 _reload_config()（其内部会清 setting_schema 的配置缓存）。
+    """
+    return load_obsidian_config()
 
 
 def get_vault_path():
@@ -96,13 +104,18 @@ def _get_sandbox_dir():
 
 def _reload_config():
     """重新加载配置（测试/配置变更时调用）。"""
-    global _vault_path, _sandbox_dir
+    global _vault_path, _sandbox_dir, _skip_dirs
+    reset_obsidian_config_cache()
     _vault_path = get_vault_path()
     _sandbox_dir = get_sandbox_dir()
+    _skip_dirs = get_skip_dirs()
 
 
-# 跳过目录（非正典内容）
-SKIP_DIRS = {'.obsidian', '.git', '.hermes', '.agent_context', '.sitian', '99 模板'}
+# 跳过目录（非正典内容）——A1 配置化：常量已删，改由 utils.setting_schema
+# 的 get_skip_dirs() 提供（默认通用四项：.obsidian/.git/.hermes/.agent_context）。
+# 私人项（数字前缀模板目录、其他项目目录等）由用户在 system.local.yaml 的
+# obsidian.skip_dirs 里追加——发布物零私人痕迹（拍板③）。
+_skip_dirs = get_skip_dirs()
 
 # frontmatter 键
 NAME_KEYS = ["name", "title", "id"]
@@ -213,15 +226,34 @@ def scan_vault(vault_path=None):
     # （总纲/说明/索引页）绝大多数不是人物，归入 world 更合理（见下）。
     # 早先版本把父目录同时放进 char/world 两处，靠"角色优先"的排除规则决出归属，
     # 会把「散装说明」这类条目判成角色。
+    vd = get_vault_dirs()
+
+    def _sub(rel):
+        """vault 下相对目录：`设定/人物` → vault/设定/人物（段数任意，按 `/` 或 `\\` 拆）。"""
+        return Path(vault, *[s for s in str(rel).replace("\\", "/").split("/") if s])
+
+    def _root_of(rel):
+        """目录键的第一段（「设定/人物」→「设定」）：世界观散装兜底与角色根同源。"""
+        seg = [s for s in str(rel).replace("\\", "/").split("/") if s]
+        return seg[0] if seg else ""
+
+    def _warn_missing(path, key, value):
+        """A1 修法 2：零扫告警——目录落空不再静默 continue。"""
+        print(f"[obsidian_bridge] ⚠️ 目录不存在、跳过：{path}（vault_dirs.{key}={value!r}）"
+              "——若与你的 vault 结构不符，请在 config/system.yaml 或 "
+              "config/system.local.yaml 的 obsidian.vault_dirs 填真实目录。")
+
+    # 角色根 = vault_dirs.characters（默认「设定/人物」；用户真实结构走本地覆盖）。
     char_dirs = [
-        (vault / "03 设定" / "01 人物", True),
+        (_sub(vd["characters"]), True),
     ]
     for char_dir, recursive in char_dirs:
         if not char_dir.exists():
+            _warn_missing(char_dir, "characters", vd["characters"])
             continue
         for md_file in (char_dir.rglob("*.md") if recursive
                         else char_dir.glob("*.md")):
-            if any(part in SKIP_DIRS for part in md_file.relative_to(vault).parts):
+            if any(part in _skip_dirs for part in md_file.relative_to(vault).parts):
                 continue
             if "索引" in md_file.name or "模板" in md_file.name:
                 continue
@@ -285,18 +317,19 @@ def scan_vault(vault_path=None):
             })
 
     # 世界观目录。同样：类目 rglob，父目录仅 glob（见上面的污染说明）。
+    # 设定根兜底 = characters 键的第一段（「设定/人物」→「设定」），与角色根同源。
     world_dirs = [
-        (vault / "03 设定" / "02 地点", True),
-        (vault / "03 设定" / "03 势力", True),
-        (vault / "03 设定" / "04 概念", True),
-        (vault / "03 设定", False),        # 兜底：仅直接子文件
+        (_sub(vd["locations"]), True),
+        (_sub(vd["factions"]), True),
+        (_sub(vd["concepts"]), True),
+        (_sub(_root_of(vd["characters"])), False),   # 兜底：仅直接子文件
     ]
     for world_dir, recursive in world_dirs:
         if not world_dir.exists():
-            continue
+            continue  # 类目/兜底缺失不告警（根缺失时 characters 已告警过一次）
         for md_file in (world_dir.rglob("*.md") if recursive
                         else world_dir.glob("*.md")):
-            if any(part in SKIP_DIRS for part in md_file.relative_to(vault).parts):
+            if any(part in _skip_dirs for part in md_file.relative_to(vault).parts):
                 continue
             if "索引" in md_file.name or "模板" in md_file.name:
                 continue
@@ -338,11 +371,13 @@ def scan_vault(vault_path=None):
                 "source": "vault",
             })
 
-    # 时间线目录
-    timeline_dir = vault / "06 年表"
+    # 时间线目录 = vault_dirs.timeline（默认「年表」）
+    timeline_dir = _sub(vd["timeline"])
+    if not timeline_dir.exists():
+        _warn_missing(timeline_dir, "timeline", vd["timeline"])
     if timeline_dir.exists():
         for md_file in timeline_dir.rglob("*.md"):
-            if any(part in SKIP_DIRS for part in md_file.relative_to(vault).parts):
+            if any(part in _skip_dirs for part in md_file.relative_to(vault).parts):
                 continue
             if "索引" in md_file.name or "模板" in md_file.name:
                 continue
@@ -409,6 +444,15 @@ def scan_vault(vault_path=None):
         _seen.add(t["path"])
         _uniq_tl.append(t)
     timeline_entries = _uniq_tl
+
+    # A1 修法 2：零扫汇总告警。vault 已启用却三类全空 ≈ vault_dirs 与真实
+    # 结构不匹配（旧版此时静默返回全空、下游注入恒空——F4 的近亲）。
+    if not (characters or world_entries or timeline_entries):
+        print("[obsidian_bridge] ⚠️ vault 已启用但扫描结果全空——大概率是 "
+              "obsidian.vault_dirs 与你的 vault 真实结构不匹配。"
+              "每人 Obsidian 布局不同：请在 config/system.yaml 或 "
+              "config/system.local.yaml 的 obsidian.vault_dirs 里填入你的"
+              "真实目录（角色/地点/势力/概念/年表五键），无需改代码。")
 
     return {
         "characters": characters,
@@ -509,6 +553,31 @@ def _norm_path(p):
     return str(p or "").replace("/", "\\").strip().strip("\\").lower()
 
 
+def _match_setting_entry(entries, path=None, name=None):
+    """在设定集条目里找匹配项。优先级：vault `path` → `name` → 别名根名。
+
+    抽成函数是为了让 `check_locked_violations` 与 `sync_diff` 用**同一份**匹配判据
+    —— 本仓吃过「判据复制 N 份 = 同一 bug 修两遍只修一处」的亏（见 MEMORY）。
+    返回 `(来源区块, 条目, 命中方式)` 或 `None`。
+    """
+    lpath = _norm_path(path)
+    lname = str(name or "").strip()
+    lroot = base_name(lname)
+    if lpath:
+        for where, e in entries:
+            if _norm_path(e.get("path")) == lpath:
+                return (where, e, "path")
+    if lname:
+        for where, e in entries:
+            if str(e.get("name") or "").strip() == lname:
+                return (where, e, "name")
+    if lroot:
+        for where, e in entries:
+            if base_name(str(e.get("name") or "")) == lroot:
+                return (where, e, "alias")
+    return None
+
+
 def check_locked_violations(vault_data=None, setting_path=None):
     """确定性检查：vault 里 `locked=true` 的条目是否在最终设定集中被删除 / 丢锁定 / 改名。
 
@@ -562,25 +631,10 @@ def check_locked_violations(vault_data=None, setting_path=None):
     for lc in locked:
         lname = str(lc.get("name") or "").strip()
         lpath = str(lc.get("path") or "").strip()
-        lroot = base_name(lname)
 
         # 匹配优先级：path（最稳，但只有 vault 路径写出的条目才有）→ name → 别名根名
-        hit = None
-        if lpath:
-            for where, e in entries:
-                if _norm_path(e.get("path")) == _norm_path(lpath):
-                    hit = (where, e, "path")
-                    break
-        if hit is None and lname:
-            for where, e in entries:
-                if str(e.get("name") or "").strip() == lname:
-                    hit = (where, e, "name")
-                    break
-        if hit is None and lroot:
-            for where, e in entries:
-                if base_name(str(e.get("name") or "")) == lroot:
-                    hit = (where, e, "alias")
-                    break
+        # （判据提取在 _match_setting_entry，与 sync_diff 共用同一份）
+        hit = _match_setting_entry(entries, lpath, lname)
 
         if hit is None:
             result["violations"].append({
@@ -609,6 +663,120 @@ def check_locked_violations(vault_data=None, setting_path=None):
                 "detail": ("设定集条目「" + (ename or lname) + "」的 locked 标志丢失"
                            " —— 写作注入时不再提示「不可违逆」"),
             })
+
+    result["checked"] = True
+    return result
+
+
+def _keyset(entries, get_path, get_name):
+    """条目列表 → (path 集, name 集, 别名根名集)，用于「存在性」并集判定。"""
+    paths, names, roots = set(), set(), set()
+    for e in entries:
+        p = _norm_path(get_path(e))
+        if p:
+            paths.add(p)
+        n = str(get_name(e) or "").strip()
+        if n:
+            names.add(n)
+            r = base_name(n)
+            if r:
+                roots.add(r)
+    return paths, names, roots
+
+
+def sync_diff(vault_data=None, setting_path=None):
+    """vault ↔ 设定集 **内容级对账**（A4 同步 diff 闸门；确定性、零 token）。
+
+    一条命令报全四类差异，而不是让用户东跑一个命令西跑一个：
+
+    | 类别 | 判据 | 危害 / 处置 |
+    |---|---|---|
+    | `missing` | vault 有、设定集没有 | canon 被 stage1 归并吞掉 → 必须处理 |
+    | `added` | 设定集有、vault 没有 | stage1 新造的实体 → 人工确认后回写 vault |
+    | `renamed` | 同一 vault 路径，名字被换 | 改名绕过 locked 硬约束 |
+    | `lock_lost` | 条目还在，但 `locked` 标志丢了 | 角色卡不再打印「⚠ 不可违逆」→ **静默降级** |
+
+    `renamed` / `lock_lost` 直接复用 `check_locked_violations`（那份判据只做
+    「结构性违逆」—— 语义冲突机器判不了，硬做只会变噪音），**不另写一份匹配逻辑**。
+
+    ## ⚠️ 空结果 ≠ 一致
+
+    vault 未配置 / 无角色条目 / 设定集未生成 → `checked=False` + `reason`，
+    明确回报"没查"。绝不让「0 个差异」被读成"对得上"。
+
+    `missing`/`added` 的存在性判定用「path ∨ name ∨ 别名根名」的**并集**
+    （宽松，宁少报不多报），与 locked 检查「三者全不匹配才算 missing」等价。
+
+    返回 dict：{checked, reason, vault_total, setting_total, setting_path,
+                 missing, added, renamed, lock_lost, locked}
+    """
+    result = {
+        "checked": False, "reason": "",
+        "vault_total": 0, "setting_total": 0, "setting_path": "",
+        "missing": [], "added": [], "renamed": [], "lock_lost": [],
+    }
+    if vault_data is None:
+        vault_data = scan_vault()
+    vchars = list((vault_data or {}).get("characters", []))
+    result["vault_total"] = len(vchars)
+    if not vchars:
+        result["reason"] = ("vault 未配置或没有任何角色条目 → 无从对账"
+                            "（空结果 ≠ 一致）")
+        return result
+
+    path = Path(setting_path) if setting_path else Path("data/setting/setting.json")
+    result["setting_path"] = str(path)
+    if not path.exists():
+        result["reason"] = ("最终设定集不存在（" + str(path) + "）→ 无从对账"
+                            "（空结果 ≠ 一致）")
+        return result
+    try:
+        setting = json.loads(read_text(path))
+    except Exception as e:                                    # noqa: BLE001
+        result["reason"] = "设定集解析失败：" + repr(e)
+        return result
+
+    entries = _iter_setting_entries(setting)
+    result["setting_total"] = len(entries)
+
+    s_paths, s_names, s_roots = _keyset([e for _, e in entries],
+                                        lambda e: e.get("path"),
+                                        lambda e: e.get("name"))
+    v_paths, v_names, v_roots = _keyset(vchars,
+                                        lambda c: c.get("path"),
+                                        lambda c: c.get("name"))
+
+    def _present(p, n, paths, names, roots):
+        p = _norm_path(p)
+        n = str(n or "").strip()
+        r = base_name(n)
+        return bool((p and p in paths) or (n and n in names) or (r and r in roots))
+
+    # vault → 设定集：canon 条目丢了
+    for c in vchars:
+        if _present(c.get("path"), c.get("name"), s_paths, s_names, s_roots):
+            continue
+        result["missing"].append({
+            "name": str(c.get("name") or "").strip(),
+            "path": str(c.get("path") or "").strip()})
+
+    # 设定集 → vault：新增实体（只算被判为「角色」的条目，避免世界观条目刷屏）
+    for where, e in entries:
+        if not is_character(e):
+            continue
+        if _present(e.get("path"), e.get("name"), v_paths, v_names, v_roots):
+            continue
+        result["added"].append({
+            "name": str(e.get("name") or "").strip(), "where": where,
+            "path": str(e.get("path") or "").strip()})
+
+    lock = check_locked_violations(vault_data, setting_path)
+    for v in lock["violations"]:
+        if v["type"] == "renamed":
+            result["renamed"].append(v)
+        elif v["type"] == "lock_lost":
+            result["lock_lost"].append(v)
+    result["locked"] = lock
 
     result["checked"] = True
     return result
@@ -922,6 +1090,12 @@ if __name__ == "__main__":
     p_locked.add_argument("--setting", default=None,
                           help="设定集路径（默认 data/setting/setting.json）")
 
+    p_diff = sub.add_parser(
+        "diff", help="vault 与设定集内容级对账（缺失/新增/改名/丢 locked，零 token）")
+    p_diff.add_argument("--setting", default=None,
+                        help="设定集路径（默认 data/setting/setting.json）")
+    p_diff.add_argument("--json", action="store_true", help="输出 JSON")
+
     p_push = sub.add_parser("push", help="推送到沙盒")
     p_push.add_argument("file", help="源文件路径")
     p_push.add_argument("--subdir", default="", help="子目录")
@@ -993,6 +1167,40 @@ if __name__ == "__main__":
             print("  注意：语义级冲突（正文是否与 locked 设定矛盾）**不在本检查范围**，"
                   "机器判不准。")
         raise SystemExit(1 if rep["violations"] else 0)
+
+    elif args.cmd == "diff":
+        try:
+            rep = sync_diff(setting_path=args.setting)
+        except Exception as e:                                # noqa: BLE001
+            print(f"无法执行对账：{e}")
+            print("（vault 未配置时不启用联动；请在 config/system.yaml 的 "
+                  "obsidian.vault_path 填你的知识库目录）")
+            raise SystemExit(1)
+        if args.json:
+            print(json.dumps(rep, ensure_ascii=False, indent=2))
+            raise SystemExit(0 if rep["checked"] else 1)
+        print("===== vault ↔ 设定集 内容级对账（确定性，零 token）=====")
+        if not rep["checked"]:
+            print(f"⚠️ 本次对账**未生效**：{rep['reason']}")
+            raise SystemExit(1)
+        print(f"vault 角色 {rep['vault_total']} 个 · 设定集条目 {rep['setting_total']} 个"
+              f" · 设定集：{rep['setting_path']}")
+        print(f"缺失（vault 有、设定集没有）：{len(rep['missing'])} 个")
+        for m in rep["missing"][:30]:
+            print(f"  - {m['name']}  {m['path']}")
+        print(f"新增（设定集有、vault 没有，需人工确认是否回写）：{len(rep['added'])} 个")
+        for a in rep["added"][:30]:
+            print(f"  + {a['name']}  [{a['where']}]")
+        print(f"改名：{len(rep['renamed'])} 个")
+        for r in rep["renamed"]:
+            print(f"  [{r['type']}] {r['detail']}")
+        print(f"丢 locked：{len(rep['lock_lost'])} 个")
+        for l in rep["lock_lost"]:
+            print(f"  [{l['type']}] {l['detail']}")
+        if not (rep["missing"] or rep["added"] or rep["renamed"] or rep["lock_lost"]):
+            print("  （无差异）")
+            print("  注意：语义级冲突（正文是否与 locked 设定矛盾）**不在本检查范围**。")
+        raise SystemExit(1 if (rep["missing"] or rep["renamed"] or rep["lock_lost"]) else 0)
 
     elif args.cmd == "push":
         ok, msg = push_to_sandbox(args.file, args.subdir)

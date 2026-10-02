@@ -16,6 +16,10 @@ import re
 from pathlib import Path
 from datetime import datetime
 
+# 跳过目录与 obsidian_bridge **同一配置源**（A1 修复：本处原是第二份写死清单，
+# 且与 bridge 漂移——缺 '99 模板'，模板目录会被索引进倒排库、污染检索）。
+from utils.setting_schema import get_skip_dirs
+
 # 需要忽略的停用词（中文常见虚词 + 超长无意义词）
 STOP_WORDS = set(
     "的 了 是 在 我 有 和 就 不 人 都 一 一个 上 也 到 说 要 去 你 会 着 没有 看 好 自己 这 他 她 它 们 那 些 什么 怎么 吗 吧 呢 啊 嗯 哈 呀 嘛 被 把 让 给 从 对 与 等 最 更 太 非常 已经 可以 可能 应该 必须 需要 进行 通过 使用 作为 属于 由于 因为 所以 但是 如果 则 而 且 或 但 却 并 且 以及 中 后 前 内 外 下 时 地 得 里 中 之间 方面 部分 类型 方法 系统 功能 信息 内容 结构 方式 过程 结果 作用 目的 意义 影响 问题 情况 工作 学习 研究 发展 应用 技术 设计 实现 支持 提供 包含 具有 采用 基于 结合 利用 建立 创建 完成 实现 形成 产生 发生 存在 包括 涉及 相关 主要 重要 基本 一定 一定 通常 一般 往往 容易 难以 不同 相同 相似 类似 对应 对应 相应"
@@ -76,8 +80,9 @@ def build_index(vault_path, out_path=None, progress=None):
     vault = Path(vault_path)
     md_files = list(vault.rglob("*.md"))
 
-    # 跳过 Obsidian 配置和插件目录
-    skip_dirs = {'.obsidian', '.git', '.hermes', '.agent_context', '.sitian'}
+    # 跳过 Obsidian 配置和插件目录（A1 配置化：get_skip_dirs 与 bridge 同源，
+    # 此前两处清单漂移——本处缺 '99 模板'，模板目录会被误索引）
+    skip_dirs = get_skip_dirs()
     md_files = [
         f for f in md_files
         if not any(part in skip_dirs for part in f.relative_to(vault).parts)
