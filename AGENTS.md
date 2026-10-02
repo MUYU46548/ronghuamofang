@@ -53,7 +53,8 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 | 只跑阶段 N | `python scripts/orchestrator.py --stage N` |
 | **详细调试模式** | `python scripts/orchestrator.py --verbose`（打印配置全景 + LLM 请求/响应原文落盘 `data/state/llm_raw/`） |
 | **执行计划预演** | `python scripts/orchestrator.py --dry-run`（零 token 预演：打印将执行哪些阶段/会在哪个审批门停下，不调 LLM、不写文件、不建 runs 记录；判定逻辑与实跑一致） |
-| 审批阶段 N | `python scripts/approve.py --stage N` |
+| 审批阶段 N | `python scripts/approve.py --stage N`（**阶段 1 审批 = 设定集定稿 → 自动冻结 canon 快照** `data/setting/canon.json`；之后 stage2/3 只读快照，改素材不再扰动已定稿大纲。`--revoke` 会撤掉快照退回活稿） |
+| **素材状态 / 墓碑（A3，确定性零 token）** | `python scripts/material_review.py [--materials 目录] [--no-state]`（体检报告追加「素材状态」段：条目 status + 分歧分级 + 墓碑）· `--conflicts`（只列**需人工裁决**的分歧，有则退出码非零）· `--reject "名字" --reason "…"`（登记墓碑：该条目已否决，归并时**不得复活**）· `--unreject "名字"`。审计明细落 `data/setting/merge_audit.json`，墓碑落 `data/setting/tombstones.json`。判据是**确定性**的：同名字段两边都非空且字面不同 → `review`（报人）；一方是另一方子串/低风险字段（英文名·别名）/「待填充」→ `auto`（自动归并） |
 | 撤销审批 | `python scripts/approve.py --stage N --revoke` |
 | 打回阶段 N | `python scripts/reject.py --stage N "原因"`（记录原因+清理下游产物+重置状态+撤销审批；`--dry-run` 预演） |
 | 大纲体检 | `python scripts/outline_review.py`（确定性，标出空泛节点；默认附**与上一版对比**，`--no-compare` 关闭） |

@@ -67,10 +67,12 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
 
     batches = [pending[i:i + batch] for i in range(0, len(pending), batch)]
     for bi, chapters in enumerate(batches, 1):
+        # A3：与 stage2 同源 —— 只读 canon 快照（无快照则退回活稿）
+        from utils.material_state import canon_or_setting
         task = client.write_task(task_dir, f"stage3_batch{bi}.md",
                                  build_batch_task(cfg, proj, chapters,
                                                   "data/outline/global.md",
-                                                  "data/setting/setting.json"))
+                                                  canon_or_setting()))
         result = client.run_task(task)
         if cost and run_id:
             cost.charge_cost(run_id, 3, chapters[0], result)

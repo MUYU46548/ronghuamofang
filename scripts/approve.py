@@ -35,6 +35,22 @@ def main():
     action = "已撤销" if args.revoke else "已确认"
     status = pm.stage_status(args.stage)
     print(f"[approve] 阶段{args.stage} {action}（当前状态: {status}）")
+
+    # A3：阶段 1 的审批 = 设定集定稿 → 冻结 canon 快照。
+    # 之后 stage2/3（大纲）只读快照，改素材不再悄悄扰动已定稿的大纲；
+    # 撤销审批则把快照撤掉，退回读活稿。
+    if args.stage == 1:
+        try:
+            from utils import material_state as mstate
+            if args.revoke:
+                if mstate.drop_canon():
+                    print("[approve] canon 快照已撤销（大纲阶段退回读活稿）")
+            else:
+                ok, msg = mstate.freeze_canon()
+                print(f"[approve] {msg if ok else 'WARN ' + msg}")
+        except Exception as e:                                # noqa: BLE001
+            print(f"[approve] WARN canon 快照处理失败（不阻断审批）: {type(e).__name__}: {e}")
+
     if not args.revoke and status != "done":
         print(f"[approve] 注意：阶段{args.stage} 尚未完成（{status}），审批在完成后才生效")
         return 1

@@ -286,13 +286,107 @@ def print_summary(char_results, world_items, thin_names, warn_names):
         print("[material_review] 结论：设定集无碎片角色")
 
 
+def build_state_report(setting_path, materials_dir="materials/raw"):
+    """A3 状态审计（确定性、零 token）：素材分歧分级 + 墓碑 + 条目 status。
+
+    ⚠️ 刻意**不改 `review()` 的 4 元组返回形状** —— orchestrator ×2 与
+    setting_refine ×2 四个调用点都吃那个形状，改一次要动四处（判据复制的老坑）。
+    状态是**增量信息**，所以走独立函数 + 报告附加段。
+    """
+    from utils import material_state as mstate
+    return mstate.audit(setting_path, materials_dir)
+
+
+def format_state_section(rep):
+    """A3 状态 → markdown 段（追加到体检报告末尾）。"""
+    lines = ["", "## 素材状态（A3，确定性）", ""]
+    if not rep.get("checked"):
+        lines += [f"- ⚠️ **未生效**：{rep.get('reason', '原因未知')}",
+                  "- （空结果 ≠ 一致；先跑 stage1 生成设定集）", ""]
+        return "\n".join(lines)
+    c = rep["counts"]
+    lines.append(f"- 条目状态：adopted {c['adopted']} · uncertain {c['uncertain']} "
+                 f"· rejected {c['rejected']}")
+    lines.append(f"- 素材卡 {rep['card_count']} 张；墓碑 {len(rep['tombstones'])} 条")
+    rev = rep["review_conflicts"]
+    lines.append(f"- **需人工裁决的分歧：{len(rev)} 处**（目标个位数）")
+    for it in rev:
+        vals = " / ".join(v["value"] + "（" + v["file"] + "）" for v in it["values"])
+        lines.append(f"    - `{it['name']}` / {it['field']}：{vals}")
+    auto = [x for x in rep["conflicts"] if x["severity"] == "auto"]
+    if auto:
+        lines.append(f"- 可自动归并的分歧：{len(auto)} 处"
+                     "（信息量有包含关系，或英文名/别名这类低风险字段）")
+    if rep["tombstones"]:
+        lines.append("- 墓碑（**不得复活**）：" + "、".join(rep["tombstones"]))
+    lines.append("")
+    lines.append("用法：`python scripts/material_review.py --reject \"名字\" --reason \"…\"` "
+                 "登记墓碑；`--conflicts` 只看分歧清单（有分歧时非零退出）。")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def print_state_summary(rep):
+    if not rep.get("checked"):
+        print(f"[material_review] ⚠️ 状态审计**未生效**：{rep.get('reason', '原因未知')}")
+        return
+    c = rep["counts"]
+    rev = rep["review_conflicts"]
+    print(f"[material_review] 状态：adopted {c['adopted']} / uncertain {c['uncertain']} "
+          f"/ rejected {c['rejected']}（墓碑 {len(rep['tombstones'])} 条）")
+    if rev:
+        print(f"[material_review] ⚠️ {len(rev)} 处分歧需人工裁决（机器裁不了）：")
+        for it in rev[:10]:
+            vals = "  vs  ".join(v["value"][:26] + "[" + v["file"] + "]"
+                                 for v in it["values"])
+            print(f"  · {it['name']} / {it['field']}：{vals}")
+        if len(rev) > 10:
+            print(f"  …另有 {len(rev) - 10} 处，见 data/setting/merge_audit.json")
+    else:
+        print("[material_review] 状态：无待裁决分歧")
+
+
 def main():
     parser = argparse.ArgumentParser(description="NovelForge 素材完备度体检（确定性）")
     parser.add_argument("--setting", default="data/setting/setting.json")
     parser.add_argument("--normalized", default="data/setting/normalized")
     parser.add_argument("--out", default="data/setting/material_review.md")
     parser.add_argument("--json", action="store_true", help="输出机器可读摘要（thin/warn 名单）")
+    parser.add_argument("--materials", default="materials/raw",
+                        help="素材卡目录（A3 状态审计用）")
+    parser.add_argument("--no-state", action="store_true", help="跳过 A3 状态段")
+    parser.add_argument("--conflicts", action="store_true",
+                        help="只输出「需人工裁决」的分歧清单；有分歧时退出码非零")
+    parser.add_argument("--reject", metavar="NAME",
+                        help="登记墓碑：该条目已否决，归并时不得复活")
+    parser.add_argument("--reason", default="", help="配合 --reject 的否决理由")
+    parser.add_argument("--unreject", metavar="NAME", help="撤销墓碑")
     args = parser.parse_args()
+
+    from utils import material_state as mstate
+
+    # ---- 墓碑写操作（A3）：独立于体检，随时可用（设定集不存在也能登记）----
+    if args.reject:
+        ok, msg = mstate.add_tombstone(args.reject, args.reason)
+        print(f"[material_review] {msg}")
+        return 0 if ok else 1
+    if args.unreject:
+        ok, msg = mstate.remove_tombstone(args.unreject)
+        print(f"[material_review] {msg}")
+        return 0 if ok else 1
+
+    if args.conflicts:
+        rep = mstate.audit(args.setting, args.materials)
+        if not rep["checked"]:
+            print(f"[material_review] ⚠️ 未生效：{rep['reason']}")
+            return 1
+        rev = rep["review_conflicts"]
+        print(f"[material_review] 需人工裁决的分歧：{len(rev)} 处")
+        for it in rev:
+            vals = "  vs  ".join(v["value"] + "[" + v["file"] + "]"
+                                 for v in it["values"])
+            print(f"  · {it['name']} / {it['field']}：{vals}")
+        return 1 if rev else 0
 
     if not Path(args.setting).exists():
         print(f"[material_review] 设定集不存在: {args.setting}（先跑 stage1）")
@@ -301,15 +395,30 @@ def main():
     char_results, world_items, thin_names, warn_names = review(args.setting, args.normalized)
     print_summary(char_results, world_items, thin_names, warn_names)
 
+    state = None
+    if not args.no_state:
+        state = build_state_report(args.setting, args.materials)
+        print_state_summary(state)
+
     if args.json:
-        print(json.dumps({"thin": thin_names, "warn": warn_names,
-                          "total": len(char_results),
-                          "non_characters": get_last_non_characters()},
-                         ensure_ascii=False))
+        payload = {"thin": thin_names, "warn": warn_names,
+                   "total": len(char_results),
+                   "non_characters": get_last_non_characters()}
+        if state is not None:
+            payload["state"] = {
+                "checked": state.get("checked"),
+                "reason": state.get("reason", ""),
+                "counts": state.get("counts"),
+                "review_conflicts": len(state.get("review_conflicts") or []),
+                "tombstones": state.get("tombstones"),
+            }
+        print(json.dumps(payload, ensure_ascii=False))
         return 0
 
     report = format_report(char_results, world_items, thin_names, warn_names,
                            args.setting, args.normalized)
+    if state is not None:
+        report += format_state_section(state)
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     write_text(args.out, report)
     print(f"[material_review] 报告 → {args.out}")

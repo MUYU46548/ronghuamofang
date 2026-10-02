@@ -158,12 +158,15 @@ def _load_prev_fingerprint(manifest_path):
 
 def build_setting_task(proj, manifest_path, normalized_dir, extra_inputs=()):
     """构建设定集归并任务。extra_inputs 为额外输入文件（如碎片提炼结果）。"""
+    from utils.material_state import tombstones_prompt_section
     extra = "\n".join("- 碎片提炼结果: %s" % Path(p).resolve() for p in extra_inputs if p)
     _, body = load_template("stage1_materials.md", {
         "path_manifest": Path(manifest_path).resolve(),
         "path_normalized": Path(normalized_dir).resolve(),
         "path_setting": Path("data/setting/setting.json").resolve(),
         "extra_inputs": extra,
+        # A3：把「已否决条目」交给模型，它才不会下一轮复活
+        "tombstones": tombstones_prompt_section(),
     })
     return body
 
@@ -394,6 +397,40 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     if not ok:
         progress.set_stage(1, "failed", error="; ".join(errors))
         return False, "stage1 设定集校验失败: " + "; ".join(errors)
+
+    # ---- A3：素材库状态化（确定性、零 token）----
+    # 给条目打 status（adopted/uncertain/rejected）、把素材分歧分级列出、
+    # 让墓碑生效。任何一步失败都**不阻断归并**（状态是增强，不是前置）。
+    try:
+        from utils import material_state as mstate
+        report = mstate.audit(str(setting_path), materials_dir)
+        if report["checked"]:
+            marked = mstate.apply_status(json.loads(read_text(setting_path)), report)
+            write_text(setting_path, json.dumps(marked, ensure_ascii=False, indent=2) + "\n")
+            mstate.write_audit(report)
+            c = report["counts"]
+            print(f"[stage1] 状态标注：adopted {c['adopted']} / uncertain {c['uncertain']}"
+                  f" / rejected {c['rejected']}；审计报告 → {mstate.AUDIT_PATH}")
+            rev = report["review_conflicts"]
+            if rev:
+                print("[stage1] " + "=" * 58)
+                print(f"[stage1] ⚠️ {len(rev)} 处素材分歧**机器裁不了**，需你裁决：")
+                for it in rev[:10]:
+                    vals = "  vs  ".join(
+                        v["value"][:26] + "[" + v["file"] + "]" for v in it["values"])
+                    print(f"[stage1]   · {it['name']} / {it['field']}：{vals}")
+                if len(rev) > 10:
+                    print(f"[stage1]   …另有 {len(rev) - 10} 处，见 {mstate.AUDIT_PATH}")
+                print("[stage1]   （目标是个位数；裁决后把不要的登记墓碑："
+                      "python scripts/material_review.py --reject \"名字\" --reason \"…\"）")
+                print("[stage1] " + "=" * 58)
+            if report["tombstones"]:
+                print(f"[stage1] 墓碑 {len(report['tombstones'])} 条生效（不得复活）："
+                      + "、".join(report["tombstones"][:10]))
+        else:
+            print(f"[stage1] WARN 状态审计未生效：{report['reason']}")
+    except Exception as e:                                    # noqa: BLE001
+        print(f"[stage1] WARN 状态审计失败（不阻断归并）：{type(e).__name__}: {e}")
 
     # 设定集就绪 → 生成设定库引用索引（materials/vault_links.md）
     vault_links = proj.get("vault", {}).get("vault_links", "materials/vault_links.md")

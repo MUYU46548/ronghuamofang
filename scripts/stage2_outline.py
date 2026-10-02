@@ -65,13 +65,16 @@ def check_outline_anchors(path, setting_path="data/setting/setting.json"):
 
 
 def build_task(cfg, proj):
+    # A3：大纲阶段**只读 canon 快照**（approved 后冻结），不读活稿 ——
+    # 否则改素材会悄悄扰动已经定稿的大纲。没有快照时退回 setting.json。
+    from utils.material_state import canon_or_setting
     book = proj.get("book", {})
     user_outline = (book.get("user_outline") or "").strip()
     _, body = load_template("stage2_global_outline.md", {
         "book_name": book.get("name", "未命名"),
         "target_words": book.get("target_words", 300000),
         "user_outline": user_outline or "（未提供，请基于设定集与素材清单自拟整体大纲）",
-        "path_setting": Path("data/setting/setting.json").resolve(),
+        "path_setting": Path(canon_or_setting()).resolve(),
         "path_manifest": Path("data/setting/materials_manifest.json").resolve(),
         "path_project": Path("config/project.yaml").resolve(),
         "path_global_outline": Path("data/outline/global.md").resolve(),
