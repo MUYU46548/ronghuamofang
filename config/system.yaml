@@ -101,9 +101,12 @@ parallelism:
   polish: 3
   checks_max_concurrent: 2
 chapter:
+  # 单章字数区间（提示词按它约束篇幅）。2026-10-02 由 [2000,5500] 上调：
+  # 目标量级是「≥20 章 / ≥20 万字」→ 单章需 ~1 万字，旧上限 5500 会把总量封在 ~11 万。
+  # 若你要的是「多章摊薄」（如 50 章 × 4000 字），改回 [3000, 5000] 即可。
   target_words:
-  - 2000
-  - 5500
+  - 8000
+  - 12000
   summary_every: 15
   summary_window: 15
   batch_outline: 10
