@@ -364,6 +364,43 @@ def apply_status(setting, report):
     return out
 
 
+def adopted_sources(marked):
+    """从**已 `apply_status` 的**设定集里收集「已定稿（adopted）」条目对应的素材名。
+
+    B1 进料节流的判据来源：这些素材的内容已经进 canon 定稿，下一轮归并不必再把
+    它们的原文整篇交给模型（改由 canon 快照承担）。
+
+    ⚠️ 刻意**只扫 characters / world**：`apply_status` 也只给这两处打 status。
+    `plot_fragments.status` 是**另一套语义**（`unused`/… 指剧情碎片有没有被用过），
+    不是 A3 的 adopted/uncertain/rejected —— 拿它当定稿判据会把两套语义搅在一起，
+    而且会把「已采用的剧情碎片」误判成「素材已定稿」而整篇剔除。
+
+    没有 status 字段的旧条目一律**不算定稿** —— 宁可多喂一轮，不可漏喂。
+    """
+    out = set()
+
+    def _scan(items):
+        if not isinstance(items, list):
+            return
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            if str(it.get("status") or "") != STATUS_ADOPTED:
+                continue
+            s = str(it.get("source") or "").strip()
+            if s:
+                out.add(s)
+
+    _scan(marked.get("characters"))
+    world = marked.get("world")
+    if isinstance(world, dict):
+        for v in world.values():
+            _scan(v)
+    elif isinstance(world, list):
+        _scan(world)
+    return out
+
+
 def write_audit(report, path=None):
     p = Path(path or AUDIT_PATH)
     p.parent.mkdir(parents=True, exist_ok=True)

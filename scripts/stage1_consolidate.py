@@ -156,14 +156,77 @@ def _load_prev_fingerprint(manifest_path):
         return None
 
 
-def build_setting_task(proj, manifest_path, normalized_dir, extra_inputs=()):
-    """构建设定集归并任务。extra_inputs 为额外输入文件（如碎片提炼结果）。"""
+def _pending_material_paths(normalized_dir, setting_path="data/setting/setting.json",
+                            canon_path="data/setting/canon.json"):
+    """B1 进料节流：算出「本轮仍要交给模型看」的素材文件（绝对路径），并给出说明。
+
+    判据 = **上一轮 stage1 收尾时 `apply_status` 写进 setting 条目的 `status`**：
+    `status == adopted` 的条目，其 `source` 指向的素材即「已定稿」——本轮不再把
+    原文交给模型（定稿细节由 canon 快照承担）。`uncertain` 条目的素材**照旧进**
+    （存疑要重看原文）；纯新增素材（还没进任何条目）自然也进。
+
+    ⚠️ 刻意**不现场跑 `audit()`**：audit 的 status 按**卡片名**给的是「这张卡质量如何」
+    （有无冲突、够不够详细），不是「这个素材是否已被归并定稿」。拿它当定稿判据会把
+    **新增但无冲突的卡**误判成已定稿而整篇剔除 —— 那等于**丢素材**（实测踩到：一套
+    20 张卡的素材被排除 20 张）。所以只信条目上**已经存在**的 status（上轮 apply_status 写的）。
+
+    **节流的前提是「定稿有承载」**：adopted 素材的原文之所以能不贴，是因为其内容
+    已在 canon 快照里。canon 不存在（用户未审批 / 尚未冻结）时若照样剔除，模型就
+    **彻底看不到**那些素材 —— 那是丢上下文，不是省 token。所以 canon 缺失一律不节流。
+
+    旧数据/首轮：条目没有 status → `adopted_sources` 返回空 → **全量进**（宁多勿漏）。
+    任何异常同样退回全量：节流是优化，绝不能把「省 token」变成「丢素材」。
+    """
+    d = Path(normalized_dir)
+    all_files = sorted(f for f in d.glob("*.md") if f.is_file())
+    if not Path(canon_path).exists():
+        return all_files, "无 canon 快照（定稿无承载）→ 全量素材进 prompt（不节流）"
+    sp = Path(setting_path)
+    if not sp.exists():
+        return all_files, "首轮（无上一轮设定集）→ 全量素材进 prompt"
+    try:
+        from utils.material_state import adopted_sources
+        setting = json.loads(read_text(sp))
+        adopted = adopted_sources(setting)
+    except Exception as e:                                    # noqa: BLE001
+        return all_files, "节流判据计算失败（%s）→ 退回全量" % type(e).__name__
+    if not adopted:
+        return all_files, "上轮条目无 adopted 标注（首轮/旧数据）→ 全量素材进 prompt"
+    kept = [f for f in all_files if f.stem not in adopted]
+    return kept, "排除 %d 个已定稿素材（adopted），保留 %d 个" % (
+        len(all_files) - len(kept), len(kept))
+
+
+def build_setting_task(proj, manifest_path, normalized_dir, extra_inputs=(),
+                       canon_path="data/setting/canon.json",
+                       setting_path="data/setting/setting.json"):
+    """构建设定集归并任务。extra_inputs 为额外输入文件（如碎片提炼结果）。
+
+    B1 进料节流（2026-10-03）：**不再引用整个归一化目录**。
+    旧写法 `- 归一化素材目录: <dir>/ 下的 *.md` 会被 `llm_client.inline_inputs()`
+    按目录 `glob("*.md")` **全量内联**进 prompt —— 多回合迭代时 adopted 素材每轮
+    重贴一遍，越跑越贵。现在改为**逐文件列出未定稿素材**，已定稿的由 canon 快照承担。
+
+    ⚠️「不引用目录」是节流生效的**必要条件**：只要 body 里还留着目录引用（`下的
+    *.md`），inline_inputs 就会照旧全量内联，改了模板也白改 —— 测试有护栏钉这一点。
+    """
     from utils.material_state import status_context_section
+    canon = Path(canon_path)
+    pending, note = _pending_material_paths(normalized_dir, setting_path, canon_path)
+    print("[stage1] 进料节流：" + note)
+    pending_block = ("\n".join("- %s" % f.resolve() for f in pending)
+                     or "- （本轮无未定稿素材：新增为 0，只需按 canon 核对定稿一致性）")
+    canon_ref = ""
+    if canon.exists():
+        canon_ref = ("- 已定稿设定（canon 快照）: %s\n"
+                     "  （上一轮已拍板的**定稿**，勿重复推导，只需把新素材并入；"
+                     "与新素材冲突时以 canon 为准）" % canon.resolve())
     extra = "\n".join("- 碎片提炼结果: %s" % Path(p).resolve() for p in extra_inputs if p)
     _, body = load_template("stage1_materials.md", {
         "path_manifest": Path(manifest_path).resolve(),
-        "path_normalized": Path(normalized_dir).resolve(),
-        "path_setting": Path("data/setting/setting.json").resolve(),
+        "path_setting": Path(setting_path).resolve(),
+        "pending_inputs": pending_block,
+        "canon_ref": canon_ref,
         "extra_inputs": extra,
         # A3 唯一状态入口：墓碑（不得复活）+ 上一轮待裁决分歧（多回合继承）
         "status_context": status_context_section(),

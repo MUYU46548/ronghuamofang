@@ -11,7 +11,9 @@ temperature: 0.3
 
 ## 输入文件（用 read_file 读取）
 - 素材清单: {{path_manifest}}
-- 归一化素材目录: {{path_normalized}}/ 下的 *.md（按清单逐个读取）
+- 待归并素材（**逐个**读取；已定稿的素材**不在**此列 —— 其定稿内容见下方 canon 快照）:
+{{pending_inputs}}
+{{canon_ref}}
 {{extra_inputs}}
 
 {{status_context}}

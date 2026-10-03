@@ -95,6 +95,7 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 | 风格偏差自检 | `python tests/unit/test_style_drift.py`（compute_style_drift 阈值/边界 + stage6 报告追加集成） |
 | API 验收自测 | `python scripts/nf_api_selftest.py`（⚠️ 清空 data/ 与 logs/ 后以 fake 模式起服务跑全链用例；会销毁当前书档产物，history/ 快照保留。碎片写入类端点不在其中——见下） |
 | 碎片聚类自检 | `python tests/unit/test_scrap_cluster.py`（自由命名 / 时间戳回退 / 内容聚类 / 否定语境 / 指纹稳定性，44 断言） |
+| **stage1 进料节流（B1）** | `python tests/unit/test_stage1_intake.py`（多回合迭代时只把**未定稿**素材喂给归并：adopted 条目原文不进 prompt、改由 canon 快照承担；uncertain 与新增照旧进。⚠️ **节流前提是 canon 存在** —— canon 缺失一律不节流，否则剔除 adopted 等于丢上下文。含防回归护栏「body 里不得残留目录引用」：素材正文进 prompt 的机制是 `llm_client.inline_inputs` 对**目录**做 glob 全量内联，模板里留着目录引用就等于节流零效果） |
 | stage1 碎片集成自检 | `python tests/unit/test_stage1_scraps.py`（在**临时工作目录**跑 fake 全链，真实 data/ 零污染；含"改碎片必触发重归并"） |
 | 碎片端点 HTTP 自检 | `python tests/http/test_scraps_api_http.py`（临时项目根起 nf_api，覆盖 save/delete/promote 等写入端点与确认门，真实仓库零触碰） |
 | 质量自评闭环自检 | `python tests/unit/test_auto_rewrite.py`（临时工作目录跑 fake：目标收集/兜底重扫/dry-run/幂等/轮次上限/预算熔断/审稿发现叠加，43 断言） |
