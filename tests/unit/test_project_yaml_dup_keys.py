@@ -119,8 +119,9 @@ def case_duplicate_keys_raise():
         check("错误类型是 ValueError（可被上层收敛成一行话）",
               "ValueError" in str(r.get("err")), r.get("err"))
         check("错误里点名重复键所在的文件", "project.yaml" in str(r.get("err")), r.get("err"))
-        check("错误里带「Duplicate key」原文（PyYAML loader 的判据）",
-              "Duplicate key" in str(r.get("err")), r.get("err"))
+        check("错误里点明是重复键且带行号（判据来自 utils/config_io，措辞随它）",
+              "重复键 'name'" in str(r.get("err")) and "第 3 行" in str(r.get("err")),
+              r.get("err"))
         check("错误给出修法与体检入口",
               "重复键" in str(r.get("err")) and "nfctl.py check" in str(r.get("err")),
               r.get("err"))

@@ -11,9 +11,8 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
-import yaml
-
 from utils.file_io import read_text, write_text
+from utils.config_io import load_config_yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 PROJECT_YAML = ROOT / "config" / "project.yaml"
@@ -21,36 +20,21 @@ BACKUP_DIR = ROOT / "config" / "history"
 
 _BOOK_RE = re.compile(r"^book\s*:")
 
-
-class _UniqueKeyLoader(yaml.SafeLoader):
-    """YAML loader that rejects duplicate keys (PyYAML silently takes the last value).
-
-    2026-09-28: project.yaml had `user_outline` twice — real outline on line 14,
-    empty template value on line 19. PyYAML's safe_load silently returned '',
-    causing the outline to be silently dropped. This loader raises on duplicates.
-    """
-
-
-def _construct_mapping(loader, node, deep=False):
-    loader.flatten_mapping(node)
-    mapping = {}
-    for key_node, value_node in node.value:
-        key = loader.construct_object(key_node, deep=deep)
-        if key in mapping:
-            raise ValueError(f"Duplicate key '{key}' in YAML (line {key_node.start_mark.line + 1})")
-        mapping[key] = loader.construct_object(value_node, deep=deep)
-    return mapping
-
-
-_UniqueKeyLoader.add_constructor(
-    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _construct_mapping
-)
-
+# 注：原先这里自带一份 _UniqueKeyLoader（2026-09-28 为修 user_outline 重复键而写）。
+# 2026-10-03 收敛到 utils/config_io（同一判据只留一份）—— 那份实现当年只护住了
+# project.yaml，system.yaml 一直裸 safe_load 到本轮才修。
 
 def load_project_yaml(path=None):
-    """Load project.yaml with duplicate-key detection."""
-    p = path or PROJECT_YAML
-    return yaml.load(read_text(p), Loader=_UniqueKeyLoader)
+    """读 project.yaml（**严格**：重复键 → ConfigError，带行号与修法）。
+
+    判据只有一份：委托给 `utils/config_io.load_config_yaml`（2026-10-03 收敛）。
+    本模块原先自带一份 `_UniqueKeyLoader` 实现 —— 同一判据写两遍，
+    迟早一处改了另一处没改（本轮正是"只修了 project.yaml、system.yaml 漏着"）。
+
+    语义保持：文件不存在时抛 FileNotFoundError（老调用方依赖这个行为）。
+    """
+    p = Path(path) if path else PROJECT_YAML
+    return load_config_yaml(p, default=FileNotFoundError("找不到配置文件: %s" % p))
 
 
 def _indent_of(line):

@@ -32,6 +32,7 @@ if str(SCRIPT_DIR) not in sys.path:
 from utils.file_io import read_text, write_text
 from utils.verify_chapter import count_cn_words
 from utils.llm_client import make_client
+from utils.config_io import load_config_yaml
 
 import batch_refine as br
 
@@ -432,13 +433,12 @@ def main():
                         help="只建任务文件，不调用模型、不改章节内容")
     args = parser.parse_args()
 
-    import yaml
     from utils.progress_manager import ProgressManager
     from utils.db import RunDB
     from utils.cost_tracker import CostTracker
 
-    cfg = yaml.safe_load(read_text("config/system.yaml")) or {}
-    proj = yaml.safe_load(read_text("config/project.yaml")) or {}
+    cfg = load_config_yaml("config/system.yaml") or {}
+    proj = load_config_yaml("config/project.yaml") or {}
     progress = ProgressManager("data/state/progress.json")
 
     chapters = None

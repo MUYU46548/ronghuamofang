@@ -18,6 +18,7 @@ import json
 import re
 import sys
 from pathlib import Path
+from utils.config_io import load_config_yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 SETTING = ROOT / "data" / "setting" / "setting.json"
@@ -88,8 +89,7 @@ def check_word_count(text, chapter_no, project):
     issues = []
     if not project.exists():
         return []
-    import yaml
-    proj = yaml.safe_load(project.read_text(encoding="utf-8"))
+    proj = load_config_yaml(project)
     target = proj.get("book", {}).get("target_words", 9000)
     chapters = proj.get("book", {}).get("chapters", 10)
     per_chapter = target // max(chapters, 1)
@@ -126,11 +126,10 @@ def main():
     parser.add_argument("--chapter", type=int, help="只检查指定章节")
     args = parser.parse_args()
 
-    import yaml
     if not PROJECT.exists():
         print("ERROR: config/project.yaml 不存在")
         sys.exit(1)
-    proj = yaml.safe_load(PROJECT.read_text(encoding="utf-8"))
+    proj = load_config_yaml(PROJECT)
     total_chapters = proj.get("book", {}).get("chapters", 10)
 
     if args.chapter:

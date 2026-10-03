@@ -10,6 +10,7 @@ from pathlib import Path
 from utils.llm_client import make_client
 from utils.file_io import read_text, write_text
 from utils.template_loader import load_template
+from utils.config_io import load_config_yaml
 
 REQUIRED_FIELDS = ["核心事件", "涉及角色", "功能"]
 
@@ -99,9 +100,8 @@ def main():
     parser = argparse.ArgumentParser(description="NovelForge 阶段3：逐章大纲")
     parser.add_argument("--task-dir", default="data/state/tasks")
     args = parser.parse_args()
-    import yaml
-    cfg = yaml.safe_load(read_text("config/system.yaml"))
-    proj = yaml.safe_load(read_text("config/project.yaml"))
+    cfg = load_config_yaml("config/system.yaml")
+    proj = load_config_yaml("config/project.yaml")
     from utils.progress_manager import ProgressManager
     progress = ProgressManager("data/state/progress.json")
     ok, msg = run_stage(cfg, proj, progress, None, None, task_dir=args.task_dir)

@@ -20,17 +20,16 @@ import argparse
 import os
 import sys
 
-import yaml
 
 from utils import agent_guard
-from utils.file_io import read_text
 from utils.progress_manager import ProgressManager
+from utils.config_io import load_config_yaml
 
 
 def _load_system_cfg():
     """读 config/system.yaml（只看 gates.agent_mode；失败按未开启处理）。"""
     try:
-        return yaml.safe_load(read_text("config/system.yaml")) or {}
+        return load_config_yaml("config/system.yaml") or {}
     except Exception:                                       # noqa: BLE001
         return {}
 

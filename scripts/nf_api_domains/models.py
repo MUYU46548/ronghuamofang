@@ -177,7 +177,9 @@ def handle_models_switch(h, body):
         return 400, {"ok": False, "error": "role 与 model 均必填"}
     try:
         cfg_path = api.ROOT / "config" / "system.yaml"
-        cfg = api.yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
+        # 严格 loader（判据在 utils/config_io；走 api. 属性访问，不用 from nf_api import，
+        # 否则 --root 与测试临时根会失效 —— 见 AGENTS.md 的域模块纪律 2）
+        cfg = api.load_config_yaml(cfg_path) or {}
         models = cfg.get("model") or {}
         if role not in models:
             return 400, {"ok": False, "error":

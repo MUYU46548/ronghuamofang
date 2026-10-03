@@ -13,6 +13,7 @@ from utils.file_io import read_text, write_text
 from utils.cost_tracker import pause_detail as _pause_detail
 from utils.template_loader import load_template
 from utils.verify_chapter import is_usable_output
+from utils.config_io import load_config_yaml
 
 
 def build_check_task(proj, raw_dir, setting_path, checked_dir, batch_files, batch_index, total_batches):
@@ -167,9 +168,8 @@ def main():
     parser = argparse.ArgumentParser(description="NovelForge 阶段5：逻辑检查（P0 基础版）")
     parser.add_argument("--task-dir", default="data/state/tasks")
     args = parser.parse_args()
-    import yaml
-    cfg = yaml.safe_load(read_text("config/system.yaml"))
-    proj = yaml.safe_load(read_text("config/project.yaml"))
+    cfg = load_config_yaml("config/system.yaml")
+    proj = load_config_yaml("config/project.yaml")
     from utils.progress_manager import ProgressManager
     progress = ProgressManager("data/state/progress.json")
     ok, msg = run_stage(cfg, proj, progress, None, None, task_dir=args.task_dir)

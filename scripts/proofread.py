@@ -37,6 +37,7 @@ sys.path.insert(0, str(SCRIPT_DIR))
 
 from utils.file_io import read_text, write_text          # noqa: E402
 from utils.verify_chapter import count_cn_words          # noqa: E402
+from utils.config_io import load_config_yaml
 
 # ---- 明鉴（MingJian）规则库：搬运层，见 utils/mingjian_rules.py ----
 # 明鉴的 TYPO_DICT 覆盖率约为本库的两倍，且带 PUNCT_RULES（方括号/半角括号规范）。
@@ -569,8 +570,7 @@ def load_setting():
 def load_target_range():
     """从 config/project.yaml / system.yaml 读取章节字数区间。"""
     try:
-        import yaml
-        cfg = yaml.safe_load(read_text("config/system.yaml")) or {}
+        cfg = load_config_yaml("config/system.yaml") or {}
         rng = (cfg.get("chapter") or {}).get("target_words") or []
         if len(rng) == 2:
             return int(rng[0]), int(rng[1])
@@ -740,8 +740,7 @@ def main():
     client = None
     if args.llm and not args.dry_run:
         from utils.llm_client import make_client
-        import yaml
-        cfg = yaml.safe_load(read_text("config/system.yaml")) or {}
+        cfg = load_config_yaml("config/system.yaml") or {}
         client = make_client(cfg, "checker")
 
     ok, msg = run_proofread(scope=args.scope, report_path=args.report,

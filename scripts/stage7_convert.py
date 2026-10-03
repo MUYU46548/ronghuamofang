@@ -21,6 +21,7 @@ from docx.oxml.ns import qn
 from docx.shared import Pt, RGBColor
 
 from utils.file_io import read_text, write_text
+from utils.config_io import load_config_yaml
 
 HEADING_RE = re.compile(r"^(#{1,3})\s+(.*)$")
 LIST_ITEM_RE = re.compile(r"^\s*[-*]\s+(.*)$")
@@ -328,9 +329,8 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
 def main():
     parser = argparse.ArgumentParser(description="NovelForge 阶段7：Markdown→Word")
     args = parser.parse_args()
-    import yaml
-    cfg = yaml.safe_load(read_text("config/system.yaml"))
-    proj = yaml.safe_load(read_text("config/project.yaml"))
+    cfg = load_config_yaml("config/system.yaml")
+    proj = load_config_yaml("config/project.yaml")
     from utils.progress_manager import ProgressManager
     progress = ProgressManager("data/state/progress.json")
     ok, msg = run_stage(cfg, proj, progress, None, None)

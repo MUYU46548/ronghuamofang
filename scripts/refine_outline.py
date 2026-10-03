@@ -16,11 +16,11 @@ import shutil
 import sys
 from pathlib import Path
 
-import yaml
 
 from utils.llm_client import make_client
 from utils.file_io import read_text
 from utils.template_loader import load_template
+from utils.config_io import load_config_yaml
 
 import stage2_outline as s2
 import outline_review as ov
@@ -201,8 +201,8 @@ def main():
         print("用法: python scripts/refine_outline.py \"修订意见\" [--dry-run]")
         return 1
 
-    cfg = yaml.safe_load(read_text("config/system.yaml"))
-    proj = yaml.safe_load(read_text("config/project.yaml"))
+    cfg = load_config_yaml("config/system.yaml")
+    proj = load_config_yaml("config/project.yaml")
 
     # 成本记账（沿用 `auto_rewrite.py` 的 CLI 范式：自建 db/cost/run_id 并传下去）。
     # 记账失败不能影响精修本身 —— 但必须打印，不能静默丢账。

@@ -37,11 +37,11 @@ import shutil
 import sys
 from pathlib import Path
 
-import yaml
 
 from utils.llm_client import make_client
 from utils.file_io import read_text
 from utils.template_loader import load_template
+from utils.config_io import load_config_yaml
 
 import material_review as mr
 import stage1_consolidate as s1
@@ -328,8 +328,8 @@ def main():
         print("用法: python scripts/setting_refine.py \"补全意见\" [--dry-run] 或 --auto-thin")
         return 1
 
-    cfg = yaml.safe_load(read_text("config/system.yaml"))
-    proj = yaml.safe_load(read_text("config/project.yaml"))
+    cfg = load_config_yaml("config/system.yaml")
+    proj = load_config_yaml("config/project.yaml")
 
     if args.auto_thin:
         # 轮次上限优先级：CLI 显式指定 > gates 配置 > 代码默认

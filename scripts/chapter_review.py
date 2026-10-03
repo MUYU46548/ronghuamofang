@@ -39,6 +39,7 @@ from utils.llm_client import make_client
 # LAST_ERROR`）：LAST_ERROR 是模块级全局，parse_llm_json 会**重新绑定**它，
 # `from ... import` 拿到的是**死值**（同一个坑本项目在 nf_api.ROOT 上踩过）。
 from utils import validator
+from utils.config_io import load_config_yaml
 
 OUTLINE_DIR = Path("data/outline/chapters")
 SETTING_PATH = Path("data/setting/setting.json")
@@ -144,18 +145,16 @@ def deterministic_checks(chapter_path, outline_path):
 
 def _load_cfg():
     """加载 system.yaml 配置。"""
-    import yaml
     try:
-        return yaml.safe_load(read_text("config/system.yaml")) or {}
+        return load_config_yaml("config/system.yaml") or {}
     except FileNotFoundError:
         return {}
 
 
 def _load_proj():
     """加载 project.yaml 配置。"""
-    import yaml
     try:
-        return yaml.safe_load(read_text("config/project.yaml")) or {}
+        return load_config_yaml("config/project.yaml") or {}
     except FileNotFoundError:
         return {}
 

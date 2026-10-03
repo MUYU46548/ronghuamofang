@@ -25,11 +25,11 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-import yaml
 
 from utils.llm_client import make_client
 from utils.file_io import read_text, write_text
 from utils.template_loader import load_template
+from utils.config_io import load_config_yaml
 
 HISTORY_DIR = Path("data/chapters.history")
 PARA_HISTORY_DIR = Path("data/chapters/para_history")
@@ -315,8 +315,8 @@ def main():
         print('用法: python scripts/refine_paragraph.py <章号> <段落号> "修改意见"')
         return 1
 
-    cfg = yaml.safe_load(read_text("config/system.yaml"))
-    proj = yaml.safe_load(read_text("config/project.yaml"))
+    cfg = load_config_yaml("config/system.yaml")
+    proj = load_config_yaml("config/project.yaml")
     ok, msg, backup, version, hist = run_paragraph_refine(
         cfg, proj, args.chapter, args.paragraph_index, feedback,
         task_dir=args.task_dir, dry_run=args.dry_run

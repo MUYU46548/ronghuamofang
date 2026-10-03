@@ -21,10 +21,9 @@ from datetime import datetime
 from pathlib import Path
 
 from utils import agent_guard
-from utils.file_io import read_text
 from utils.progress_manager import ProgressManager
+from utils.config_io import load_config_yaml
 
-import yaml
 
 # Artifact directories to clean when rejecting stage N (self + downstream)
 DOWNSTREAM_ARTIFACTS = {
@@ -142,7 +141,7 @@ def main():
     # 守卫只补 approve.py 的话，这里就还是敞着的后门。
     # ⚠️ 必须**先于**任何写操作（progress.json 变更与产物清理都在后面）。
     try:
-        cfg = yaml.safe_load(read_text("config/system.yaml")) or {}
+        cfg = load_config_yaml("config/system.yaml") or {}
     except Exception:                                       # noqa: BLE001
         cfg = {}
     if agent_guard.agent_mode_enabled(cfg):

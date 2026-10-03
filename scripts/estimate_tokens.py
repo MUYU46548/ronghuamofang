@@ -35,6 +35,7 @@ sys.path.insert(0, str(SCRIPT_DIR))
 
 from utils.file_io import read_text                       # noqa: E402
 from utils.cost_tracker import RATES, estimate_cost_yuan  # noqa: E402
+from utils.config_io import load_config_yaml
 
 DEFAULT_CHARS_PER_TOKEN = 1.5
 # 与直连引擎「目录内联」一致的总量上限（超限只 WARN 且静默丢文件）
@@ -64,16 +65,14 @@ STAGE_PROMPTS = {
 
 def load_cfg():
     try:
-        import yaml
-        return yaml.safe_load(read_text("config/system.yaml")) or {}
+        return load_config_yaml("config/system.yaml") or {}
     except Exception:                                       # noqa: BLE001
         return {}
 
 
 def load_proj():
     try:
-        import yaml
-        return yaml.safe_load(read_text("config/project.yaml")) or {}
+        return load_config_yaml("config/project.yaml") or {}
     except Exception:                                       # noqa: BLE001
         return {}
 

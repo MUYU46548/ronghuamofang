@@ -29,6 +29,7 @@ from utils.style_analyzer import (
     format_drift_report,
     MIN_TEXT_LEN,
 )
+from utils.config_io import load_config_yaml
 
 # 范文特征缓存：style_reference 路径 -> 特征字典（一次提取，逐章复用）
 _REF_FEATURE_CACHE = {}
@@ -246,9 +247,8 @@ def main():
     parser = argparse.ArgumentParser(description="NovelForge 阶段6：基础润色（P1 分卷并行）")
     parser.add_argument("--task-dir", default="data/state/tasks")
     args = parser.parse_args()
-    import yaml
-    cfg = yaml.safe_load(read_text("config/system.yaml"))
-    proj = yaml.safe_load(read_text("config/project.yaml"))
+    cfg = load_config_yaml("config/system.yaml")
+    proj = load_config_yaml("config/project.yaml")
     from utils.progress_manager import ProgressManager
     progress = ProgressManager("data/state/progress.json")
     ok, msg = run_stage(cfg, proj, progress, None, None, task_dir=args.task_dir)

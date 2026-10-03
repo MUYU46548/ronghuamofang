@@ -20,11 +20,11 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-import yaml
 
 from utils.llm_client import make_client
 from utils.file_io import read_text, write_text
 from utils.template_loader import load_template
+from utils.config_io import load_config_yaml
 
 import appearances as app
 
@@ -62,7 +62,7 @@ def _derive_character_dirs():
 
 def load_obsidian_template_config():
     try:
-        cfg = yaml.safe_load(read_text("config/obsidian_templates.yaml")) or {}
+        cfg = load_config_yaml("config/obsidian_templates.yaml") or {}
     except Exception:
         cfg = {}
     obsidian = cfg.get("obsidian_templates", {})
@@ -298,7 +298,7 @@ def run(proj, mode="all", client=None, task_dir="data/state/tasks",
         return True, "dry-run（仅统计与规划）"
 
     client = client or make_client(
-        yaml.safe_load(read_text("config/system.yaml")), "default")
+        load_config_yaml("config/system.yaml"), "default")
     generated = []
 
     # 4) 作品介绍页（LLM 聚合，no_llm 时降级骨架）
@@ -439,7 +439,7 @@ def main():
         if not args.books:  # --roles 隐含只处理角色（除非同时显式 --books）
             mode = "roles"
 
-    proj = yaml.safe_load(read_text("config/project.yaml"))
+    proj = load_config_yaml("config/project.yaml")
     ok, msg = run(proj, mode=mode, dry_run=args.dry_run, no_llm=args.no_llm,
                   only_roles=only_roles)
     print(f"[obsidian] {msg}")

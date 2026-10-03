@@ -23,6 +23,7 @@ from utils.progress_manager import ProgressManager
 from utils.setting_schema import (
     base_name, build_character_card, normalize_character,
 )
+from utils.config_io import load_config_yaml
 
 SUMMARY_RE = re.compile(r"<!--\s*summary:\s*(.+?)\s*-->", re.IGNORECASE | re.S)
 
@@ -447,9 +448,8 @@ def main():
     parser = argparse.ArgumentParser(description="NovelForge 阶段4：逐章写作")
     parser.add_argument("--task-dir", default="data/state/tasks")
     args = parser.parse_args()
-    import yaml
-    cfg = yaml.safe_load(read_text("config/system.yaml"))
-    proj = yaml.safe_load(read_text("config/project.yaml"))
+    cfg = load_config_yaml("config/system.yaml")
+    proj = load_config_yaml("config/project.yaml")
     progress = ProgressManager("data/state/progress.json")
     ok, msg = run_stage(cfg, proj, progress, None, None, task_dir=args.task_dir)
     print(msg)

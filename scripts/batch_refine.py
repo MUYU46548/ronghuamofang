@@ -28,6 +28,7 @@ from utils.file_io import read_text, write_text
 from utils.verify_chapter import count_cn_words
 from utils.progress_manager import ProgressManager
 from utils.llm_client import make_client
+from utils.config_io import load_config_yaml
 
 HISTORY_DIR = Path("data/chapters/history")
 OUTLINE_DIR = Path("data/outline/chapters")
@@ -319,9 +320,8 @@ def run_batch_refine(report_path, decisions_mode, auto_accept, dry_run, client=N
     print(f"\n[batch_refine] 待精修 {len(chapters_to_refine)} 章: {sorted(chapters_to_refine.keys())}")
 
     # 加载配置
-    import yaml
-    cfg = yaml.safe_load(read_text("config/system.yaml")) or {}
-    proj = yaml.safe_load(read_text("config/project.yaml")) or {}
+    cfg = load_config_yaml("config/system.yaml") or {}
+    proj = load_config_yaml("config/project.yaml") or {}
 
     # 创建进度管理器
     progress = ProgressManager("data/state/progress.json")

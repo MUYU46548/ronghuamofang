@@ -14,11 +14,11 @@ import re
 import sys
 from pathlib import Path
 
-import yaml
 
 from utils.llm_client import make_client
 from utils.file_io import read_text
 from utils.template_loader import load_template
+from utils.config_io import load_config_yaml
 
 SUMMARY_RE = re.compile(r"<!--\s*summary:\s*(.+?)\s*-->", re.IGNORECASE | re.S)
 
@@ -57,7 +57,7 @@ def run(proj, out_path, client=None, task_dir="data/state/tasks", dry_run=False)
     print(f"[book_summary] 收集 {len(summaries)} 章摘要（第 {summaries[0][0]}-{summaries[-1][0]} 章）")
 
     client = client or make_client(
-        yaml.safe_load(read_text("config/system.yaml")), "default")
+        load_config_yaml("config/system.yaml"), "default")
     task = client.write_task(task_dir, "book_summary.md", build_task(proj, summaries, out_path))
     print(f"[book_summary] 任务文件: {task}")
     if dry_run:
@@ -79,7 +79,7 @@ def main():
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
-    proj = yaml.safe_load(read_text("config/project.yaml"))
+    proj = load_config_yaml("config/project.yaml")
     book = proj.get("book", {})
     out = args.out or f"output/{book.get('name', '未命名')}_全书摘要.md"
     ok, msg = run(proj, out, dry_run=args.dry_run)

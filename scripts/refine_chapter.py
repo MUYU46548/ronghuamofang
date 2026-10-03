@@ -22,11 +22,11 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-import yaml
 
 from utils.llm_client import make_client
 from utils.file_io import read_text
 from utils.template_loader import load_template
+from utils.config_io import load_config_yaml
 
 HISTORY_DIR = Path("data/chapters/history")
 QUALITY_RE = re.compile(r"<!--\s*quality:\s*(\d+(?:\.\d+)?)")
@@ -223,8 +223,8 @@ def main():
         print("      python scripts/refine_chapter.py 3 --list         # 看历史版本")
         print("      python scripts/refine_chapter.py 3 --restore 2    # 回退到 v2")
         return 1
-    cfg = yaml.safe_load(read_text("config/system.yaml"))
-    proj = yaml.safe_load(read_text("config/project.yaml"))
+    cfg = load_config_yaml("config/system.yaml")
+    proj = load_config_yaml("config/project.yaml")
     ok, msg = run_refine(cfg, proj, args.chapter, feedback,
                          task_dir=args.task_dir, dry_run=args.dry_run)
     print(f"[refine_ch] {msg}")

@@ -14,6 +14,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent))
 
 from utils.file_io import read_text, write_text
+from utils.config_io import load_config_yaml
 
 COMMENT_RE = re.compile(r"<!--.*?-->", re.S)
 
@@ -199,8 +200,7 @@ def main():
     parser.add_argument("--per-vol", type=int, default=5, help="每卷章节数")
     args = parser.parse_args()
 
-    import yaml
-    proj = yaml.safe_load(read_text("config/project.yaml"))
+    proj = load_config_yaml("config/project.yaml")
     book_name = proj.get("book", {}).get("name", "未命名")
 
     ok, msg, path = export_markdown(book_name, args.per_vol)

@@ -200,6 +200,45 @@ def case_targeted_write():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+# ============================================================ 5. 结构性护栏
+# 允许残留的裸 safe_load（**每一条都要写理由**，与泄露门禁的 `allow:` 同一纪律：
+# 静默豁免等于开后门）。新增文件若出现在这份名单外 → 本用例变红。
+SAFE_LOAD_ALLOWED = {
+    "scripts/utils/template_loader.py":
+        "提示词模板 frontmatter（不是配置；且已包在 except yaml.YAMLError 里）",
+    "scripts/nfctl.py":
+        "只读诊断入口（_read_yaml 故意宽松：配置坏了更要用 status 看出来；"
+        "重复键由 _find_duplicate_keys 专门报）",
+    "scripts/utils/setting_schema.py":
+        "设定集/素材数据文件（不是配置）",
+}
+
+
+def case_no_bare_config_safe_load():
+    print("\n【5】结构性护栏：配置类 YAML 不许再有裸 safe_load（防回流）")
+    offenders = []
+    for p in sorted((ROOT / "scripts").rglob("*.py")):
+        rel = p.relative_to(ROOT).as_posix()
+        if "__pycache__" in p.parts:
+            continue
+        for i, ln in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
+            if "yaml.safe_load(" in ln and not ln.strip().startswith("#"):
+                offenders.append("%s:%d" % (rel, i))
+    allowed_hits = [o for o in offenders if o.split(":")[0] in SAFE_LOAD_ALLOWED]
+    real = [o for o in offenders if o.split(":")[0] not in SAFE_LOAD_ALLOWED]
+    check("配置类裸 safe_load 已清零（A2 的机械替换）", real == [], real[:8])
+    check("豁免名单里的残留确实存在（名单不许变成空话）",
+          len(allowed_hits) >= 2, allowed_hits)
+    for f, why in sorted(SAFE_LOAD_ALLOWED.items()):
+        check("豁免条目指向真实文件：%s" % f, (ROOT / f).exists(), why)
+    # 反证：把一处替换回裸 safe_load → 判据必须能抓住
+    sample = (ROOT / "scripts" / "stage2_outline.py").read_text(encoding="utf-8")
+    reverted = sample.replace('load_config_yaml("config/system.yaml")',
+                              'yaml.safe_load(read_text("config/system.yaml"))')
+    check("旧写法确实会被本条判据识别（反证）",
+          "yaml.safe_load(" in reverted and reverted != sample)
+
+
 def main():
     print("=" * 62)
     print("  配置严格读取 / 定向写入自检（A 块）")
@@ -208,6 +247,7 @@ def main():
     case_merge()
     case_pipeline_config()
     case_targeted_write()
+    case_no_bare_config_safe_load()
     print("\n" + "=" * 62)
     print("  通过 %d / 失败 %d" % (len(PASS), len(FAIL)))
     for f in FAIL:
