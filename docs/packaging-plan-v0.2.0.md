@@ -217,7 +217,7 @@ const userDataDir = isPortable
 
 ---
 
-## 五、关键问题（请暮雨确认）
+## 五、关键问题（请作者确认）
 
 1. **embeddable Python 版本**：当前 .venv 是 Python 3.11，embeddable 也用 3.11。是否保持一致？
 2. **书名冲突**：`config/project.yaml` 的书名由用户在 GUI 里填写（新建项目向导）。安装包是通用壳还是按书名定制？建议做**通用壳**，首启时让用户选工作目录或新建项目。

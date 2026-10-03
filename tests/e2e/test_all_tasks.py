@@ -74,11 +74,11 @@ sd = tmp_dir / "setting_t2"
 sd.mkdir(exist_ok=True)
 sp = sd / "setting.json"
 op = sd / "01.md"
-setting = {"characters": [{"name": "露汐", "type": "主角", "tags": ["人类"], "snippet": "冷静"}, {"name": "林远", "type": "配角", "tags": ["水属性"], "snippet": "热血"}]}
+setting = {"characters": [{"name": "苏芷", "type": "主角", "tags": ["人类"], "snippet": "冷静"}, {"name": "林远", "type": "配角", "tags": ["水属性"], "snippet": "热血"}]}
 sp.write_text(json.dumps(setting, ensure_ascii=False), encoding="utf-8")
-op.write_text("## 第1章\n涉及角色：露汐、林远", encoding="utf-8")
+op.write_text("## 第1章\n涉及角色：苏芷、林远", encoding="utf-8")
 cards = s4_mod._extract_character_cards_for_chapter(str(sp), str(op))
-ok("露汐" in cards and "林远" in cards, "提取到角色卡")
+ok("苏芷" in cards and "林远" in cards, "提取到角色卡")
 
 with open(ROOT / "config/system.yaml", encoding="utf-8") as f:
     cfg = yaml.safe_load(f)

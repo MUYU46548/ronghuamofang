@@ -68,7 +68,7 @@ def _raw_list(value):
     """把任意值收敛为 list（**保留元素原始类型**）。
 
     与 `_as_list` 的区别：`_as_list` 会把 dict 转成 str，而关系项
-    `{"to": "暮雨", "type": "同事"}` 必须先当 dict 处理才能取出字段名。
+    `{"to": "观澜", "type": "同事"}` 必须先当 dict 处理才能取出字段名。
     所以关系归一用这个，纯文本类字段才用 `_as_list`。
     """
     if value is None or value is False:
@@ -89,8 +89,8 @@ def _first(entry, keys):
 def _rel_to_text(rel):
     """关系项 → 可读文本。
 
-    stage1 schema 用 `{"to": "暮雨", "type": "同事"}`，
-    vault / 手写常用 `"暮雨（同事）"` 或 `"暮雨"`。两种都要能读。
+    stage1 schema 用 `{"to": "观澜", "type": "同事"}`，
+    vault / 手写常用 `"观澜（同事）"` 或 `"观澜"`。两种都要能读。
     """
     if isinstance(rel, dict):
         other = _first(rel, ("to", "target", "name", "who", "对象", "name_en"))
@@ -363,7 +363,7 @@ def is_character(entry, kind_hint=None):
     """判断一个条目是否应当被当作「角色/人物」对待。
 
     **这是修正 material_review「480 个碎片角色」问题的关键判据**：
-    归档报告里「绒花帝国魔法管制法」「茶叶统计」「AX-B-16型隐形空天战机」
+    归档报告里「灰羽帝国魔法管制法」「盐引统计」「XR-7型隐形空天战机」
     被按角色维度打分，是因为只看「在不在 characters 数组里」。
 
     判据顺序（**确定性优先，误判代价不对称**）：
@@ -372,9 +372,9 @@ def is_character(entry, kind_hint=None):
     2. **vault path 权威**：`path_kind()` 有结论就用它。实测 480 条零误判。
     3. **id 编号惯例**：stage1 给角色分配 `c001` 这类编号 → 是。**真实流水线的最强信号**。
     4. **名字判据**：在 **name** 上（不是 role 上！）找非人物名词。
-       角色名是短专名（露汐/暮雨），设定条目名会带机构后缀（净源司）
+       角色名是短专名（苏芷/观澜），设定条目名会带机构后缀（澄源司）
        或物件后缀（魔法管制法）。
-       **只在 name 上判断是刻意的**：真实数据里「露汐」的 role 是
+       **只在 name 上判断是刻意的**：真实数据里「苏芷」的 role 是
        「绒花科学院研究员…」，里面有「院」；在 role 上匹配会把她误杀。
     5. **kind_hint 兜底**：显式声明这个条目来自 `characters` 数组。
        ⚠️ **它必须在 name 判据之后**。这里是本模块踩过的坑：
@@ -502,7 +502,7 @@ def normalize_setting(setting):
     角色卡注入时也会把同一个人写两遍。
 
     **判等键是 `(name, path)` 而不是 `name`** —— 同名不同物是合法的
-    （真实数据里「月兔」是种族、「月兔之城」是地点；星系和人物也可能同名）。
+    （真实数据里「鲸民」是种族、「鲸民之城」是地点；星系和人物也可能同名）。
     所以只丢「名字与路径都一致」的条目，那一定是同一条被写了两遍。
     """
     setting = setting if isinstance(setting, dict) else {}
@@ -523,7 +523,7 @@ def normalize_setting(setting):
             seen.add(k)
             out.append(nc)
 
-    # 别名分组：`暮雨` 与 `暮雨（神格）` → 同根名
+    # 别名分组：`观澜` 与 `观澜（神序）` → 同根名
     alias = {}
     for nc in out:
         alias.setdefault(base_name(nc["name"]), []).append(nc["name"])
@@ -543,7 +543,7 @@ def normalize_setting(setting):
 def base_name(name):
     """取别名根名：去掉括号/中括号后缀与常见变体后缀。
 
-    「暮雨（神格）」→「暮雨」；「露汐 · 某形态」→「露汐」。
+    「观澜（神序）」→「观澜」；「苏芷 · 某形态」→「苏芷」。
     """
     s = str(name or "").strip()
     s = re.sub(r"[（(\[【].*?[)）\]】]", "", s).strip()

@@ -22,7 +22,7 @@
 
 在**临时项目根**跑（与项目既有策略一致）：复制 scripts/prompts/config，
 真实 `data/`、`config/` 零污染。LLM 走 `FakeClient`，
-**零真实调用**（暮雨约束：qwen3.5-flash 免费额度，不得产生费用）。
+**零真实调用**（观澜约束：qwen3.5-flash 免费额度，不得产生费用）。
 """
 import json
 import os
@@ -113,7 +113,7 @@ def run_py(root, code, timeout=180):
 # ⚠️ 夹具必须产出**自洽**的产物 —— 这是本项目踩过的坑（见「夹具必须产出合法
 # 产物」纪律）。本套用例首版夹具就有两处不自洽，导致 15 条假红：
 #
-# 1. `凤凰` 的 role 是「负责档案室的整理员」—— 不含任何能力词
+# 1. `朱鸾` 的 role 是「负责档案室的整理员」—— 不含任何能力词
 #    （ABILITY_WORDS 里没有「整理」），于是 ability=False → score=2 → **THIN**。
 #    但注释声称它是 WARN、`n_thin=0` 应当「无 THIN」。结果 `already_ok`
 #    永远走不到，`thin_before` 恒 ≥1。
@@ -127,7 +127,7 @@ def run_py(root, code, timeout=180):
 # （见 MEMORY.md「判据阈值定标」），改它就等于为了让测试变绿而放松质量门。
 #
 # 现在三档角色各自**恰好**命中预期维度：
-#   - 露汐 / 凤凰：score=4（WARN，identity+personality+ability+source）→ 不补
+#   - 苏芷 / 朱鸾：score=4（WARN，identity+personality+ability+source）→ 不补
 #   - 碎片甲/乙/丙（thin_ok=False）：score=1（只 source）→ THIN，要补
 #   - 碎片甲/乙/丙（thin_ok=True）：score=3（WARN）→ 不再 THIN，模拟「补全成功」
 
@@ -135,11 +135,11 @@ def run_py(root, code, timeout=180):
 # 文本含能力词（ability）、带 source。**刻意不满足 relations/coverage**
 # —— 只要 score=4 就到 WARN，不必把六维填满（填满反而掩盖判据回归）。
 WARN_CAST = [
-    {"id": "c001", "name": "露汐",
-     "role": "绒花帝国魔法学院的年轻讲师，负责低阶课程的讲授",
+    {"id": "c001", "name": "苏芷",
+     "role": "灰羽帝国魔法学院的年轻讲师，负责低阶课程的讲授",
      "traits": ["冷静克制不轻易表态", "说话喜欢绕弯子", "对旧物有执念"],
      "source": "materials/raw/a.md"},
-    {"id": "c002", "name": "凤凰",
+    {"id": "c002", "name": "朱鸾",
      "role": "负责档案室的整理员，擅长索引编目与归档",
      "traits": ["记事极细从不出错", "怕麻烦但不推脱", "习惯用右手扶镜框"],
      "source": "materials/raw/b.md"},
@@ -151,7 +151,7 @@ THIN_FIXED = {
     "role": "来自边缘聚落的信使，负责传递跨区消息",
     "traits": ["沉默寡言极少开口", "认路极准从不迷途", "对陌生人保持距离"],
     "ability": "擅长在夜间辨认星辰方位并快速穿越荒野",
-    "relations": [{"target": "露汐", "type": "旧识"}],
+    "relations": [{"target": "苏芷", "type": "旧识"}],
     "source": "materials/raw/c.md",
 }
 
@@ -178,7 +178,7 @@ def make_setting(n_thin=3, thin_ok=False):
         chars.append(make_fixed_char(i) if thin_ok else make_thin_char(i))
     return {
         "characters": chars,
-        "world": {"地理": "沙都分七区，外围是荒漠。"},
+        "world": {"地理": "砾城分七区，外围是荒漠。"},
         "plot_fragments": ["碎片甲在路上丢了信"],
         "timeline": ["某年冬，封锁开始"],
     }
@@ -395,7 +395,7 @@ def patched(self, task_file, workdir=None, model=None):
                 c["role"] = "来自边缘聚落的信使，负责传递跨区消息"
                 c["traits"] = ["沉默寡言极少开口", "认路极准从不迷途", "对陌生人保持距离"]
                 c["ability"] = "擅长在夜间辨认星辰方位并快速穿越荒野"
-                c["relations"] = [{"target": "露汐", "type": "旧识"}]
+                c["relations"] = [{"target": "苏芷", "type": "旧识"}]
                 if fixed >= 1:
                     break
         write_text("data/setting/setting.json",
@@ -454,7 +454,7 @@ def patched(self, task_file, workdir=None, model=None):
                 c["role"] = "来自边缘聚落的信使，负责传递跨区消息"
                 c["traits"] = ["沉默寡言极少开口", "认路极准从不迷途", "对陌生人保持距离"]
                 c["ability"] = "擅长在夜间辨认星辰方位并快速穿越荒野"
-                c["relations"] = [{"target": "露汐", "type": "旧识"}]
+                c["relations"] = [{"target": "苏芷", "type": "旧识"}]
                 break
         write_text("data/setting/setting.json",
                    json.dumps(st, ensure_ascii=False, indent=1))

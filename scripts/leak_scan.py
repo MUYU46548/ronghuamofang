@@ -79,8 +79,12 @@ def tracked_files(root=".", use_git=True):
     root = Path(root)
     if use_git:
         try:
-            out = subprocess.run(["git", "ls-files"], cwd=str(root),
-                                 capture_output=True, text=True,
+            # ⚠️ `-c core.quotepath=false` 不能省：默认 true 时 git 会把**非 ASCII 文件名**
+            # 转义成 `"examples/...\344\274\221..."` 这种带引号的形式，于是 Path() 找不到
+            # 文件 → 扫描器**静默跳过**。中文文件名的素材/示例正好全是这一类
+            # （2026-10-03 实测：examples/ 19 个中文名文件从未被扫过，门禁少报 ~60 处）。
+            out = subprocess.run(["git", "-c", "core.quotepath=false", "ls-files"],
+                                 cwd=str(root), capture_output=True, text=True,
                                  encoding="utf-8", errors="replace", timeout=60)
             if out.returncode == 0:
                 return [root / ln for ln in (out.stdout or "").splitlines() if ln.strip()], "git"
@@ -124,7 +128,8 @@ def scan(files, words, skip=(), allow=(), root="."):
     skip = set(str(s).replace("\\", "/") for s in skip)
     allow_norm = {str(a).replace("\\", "/") for a in allow}
     hits = []
-    skipped_bin = 0
+    skipped_bin = []
+    unreadable = []
     exempted = []
     for f in files:
         fs = str(f)
@@ -135,19 +140,20 @@ def scan(files, words, skip=(), allow=(), root="."):
             exempted.append(fs)
             continue
         if f.suffix.lower() in BINARY_EXT:
-            skipped_bin += 1
+            skipped_bin.append(fs)
             continue
         try:
             text = f.read_text(encoding="utf-8")
-        except Exception:                                     # noqa: BLE001
-            skipped_bin += 1
+        except Exception as e:                                # noqa: BLE001
+            # 二进制扩展名之外读不出来 = **没扫到**，绝不当"通过"（无法验证 ≠ 通过）。
+            unreadable.append({"path": fs, "error": f"{type(e).__name__}: {e}"[:120]})
             continue
         for i, line in enumerate(text.splitlines(), 1):
             for w in words:
                 if w in line:
                     hits.append({"path": fs, "line": i, "word": w,
                                  "text": line.strip()[:160]})
-    return hits, skipped_bin, exempted
+    return hits, skipped_bin, exempted, unreadable
 
 
 def main():
@@ -169,24 +175,31 @@ def main():
     # 遍历模式给的是绝对路径、git 模式给的是相对路径，两种形态都放进去。
     lp = Path(args.list)
     skip = {str(lp).replace("\\", "/"), str(lp.resolve()).replace("\\", "/"), lp.name}
-    hits, skipped_bin, exempted = scan(files, words, skip=skip, allow=allow,
-                                       root=args.root)
+    hits, skipped_bin, exempted, unreadable = scan(files, words, skip=skip,
+                                                   allow=allow, root=args.root)
 
     if args.json:
         print(json.dumps({
             "words": len(words), "files": len(files), "mode": how,
-            "hits": hits, "skipped_binary": skipped_bin,
-            "exempted": exempted,
+            "hits": hits, "skipped_binary": len(skipped_bin),
+            "unreadable": unreadable, "exempted": exempted,
         }, ensure_ascii=False, indent=2))
     else:
         print(f"[leak_scan] 词表 {len(words)} 条 · 扫描 {len(files)} 个文件"
-              f"（{how}，跳过二进制 {skipped_bin}）")
+              f"（{how}，跳过二进制 {len(skipped_bin)}）")
         if exempted:
             # 豁免必须**可见** —— 静默豁免就是给门禁开后门
             print(f"[leak_scan] 已豁免 {len(exempted)} 个文件（词表里的 allow: 行）："
                   + "、".join(exempted))
+        if unreadable:
+            # 读不出来 = 没扫到。绝不当"通过"（无法验证 ≠ 通过）。
+            print(f"[leak_scan] ❌ {len(unreadable)} 个非二进制文件**无法读取**，"
+                  "等于没扫：")
+            for u in unreadable[:20]:
+                print(f"    {u['path']}  ({u['error']})")
         if not hits:
-            print("[leak_scan] ✅ 零命中")
+            print("[leak_scan] ✅ 零命中" if not unreadable
+                  else "[leak_scan] ⚠️ 零命中，但有文件没扫到（见上，不算通过）")
         else:
             by_file = {}
             for h in hits:
@@ -203,7 +216,7 @@ def main():
                 if shown >= args.max_print:
                     print("  …（还有更多，用 --json 看全量）")
                     break
-    return 1 if hits else 0
+    return 1 if (hits or unreadable) else 0
 
 
 if __name__ == "__main__":

@@ -424,7 +424,7 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="只统计与规划，不调 LLM")
     parser.add_argument("--no-llm", action="store_true", help="跳过 LLM 聚合（出场统计照出）")
     parser.add_argument("--roles", default=None,
-                        help="只处理指定角色（逗号分隔，如 露汐,小林）")
+                        help="只处理指定角色（逗号分隔，如 苏芷,小林）")
     args = parser.parse_args()
 
     mode = "all"

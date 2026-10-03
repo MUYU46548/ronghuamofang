@@ -40,8 +40,8 @@ def check(name, cond, detail=""):
                            ("  → " + str(detail)[:240]) if detail else ""))
 
 
-CHAPTER_TEXT = "第一章正文：林深在边城营地醒来，窗外落雪。"
-SETTING = {"characters": [{"name": "林深"}, {"name": "苏晚"}]}
+CHAPTER_TEXT = "第一章正文：沈砚在边城营地醒来，窗外落雪。"
+SETTING = {"characters": [{"name": "沈砚"}, {"name": "程砧"}]}
 
 
 def build(tmp, setting_line_prefix="- "):
@@ -93,7 +93,7 @@ def main():
         check("输入引用解析出 2 条（章节 + 设定集）", len(refs) == 2, refs)
         check("无 missing（输入不再被判缺失）", missing == [], missing)
         check("章节正文已内联", CHAPTER_TEXT in new_body)
-        check("设定集正文已内联（角色名可见）", "林深" in new_body and "苏晚" in new_body)
+        check("设定集正文已内联（角色名可见）", "沈砚" in new_body and "程砧" in new_body)
         check("带内联输入区标记", "## 内联输入" in new_body)
 
         print("\n[B] 反证：复刻修复前的构造，必须复现「输入缺失」")

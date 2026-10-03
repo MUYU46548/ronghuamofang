@@ -61,7 +61,7 @@ def _norm(s):
 def review_characters(setting, materials_text, all_names):
     """对每个**人物**条目 6 维打分。返回 (角色结果列表, 非人物条目名列表)。
 
-    ⚠️ 类型门是本次修复的核心：不再对「绒花帝国魔法管制法」这类条目
+    ⚠️ 类型门是本次修复的核心：不再对「灰羽帝国魔法管制法」这类条目
     按角色维度打分。判据集中在 `utils.setting_schema.is_character`，
     这里不重复实现、不各自维护词表。
 

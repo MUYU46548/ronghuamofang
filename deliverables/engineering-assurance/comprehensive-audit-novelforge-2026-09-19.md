@@ -16,7 +16,7 @@
   |------|------|---------|
   | `datetime` 未导入 → `NameError` | `orchestrator.py:282` | **`auto_retry` 默认 `true`，任一阶段失败即触发** |
   | `only_stage` 未定义 → `NameError` | `nf_api.py:2017` | GUI 勾选「流式输出」跑流水线即触发 |
-  | 全项目无路径下 `obsidian.vault_path` 硬编码 `E:/图书馆/ROSA` | `config/system.yaml:110/113` | 任何其他用户开箱即失败 |
+  | 全项目无路径下 `obsidian.vault_path` 硬编码 `<vault>/设定库` | `config/system.yaml:110/113` | 任何其他用户开箱即失败 |
 
 - **严重度分布**：🔴严重 **8** 项 / 🟠高 **12** 项 / 🟡中 **14** 项 / 🟢低 **8** 项
 - **阻塞 / 非阻塞**：**🔴 阻塞发布**。第 1 条 `auto_retry` 崩溃路径是**默认开启**的，一旦阶段失败，「自动重试」这个兜底机制本身会崩，并把 `runs.db` 留在脏状态。
@@ -130,13 +130,13 @@ rc = orch_run(from_stage=from_stage, only_stage=only_stage, client=client)
 
 ```yaml
 obsidian:
-  vault_path: "E:/图书馆/ROSA"                    # 用户本机私有路径，已进 Git
-  sandbox_dir: "E:/图书馆/ROSA/Obsidian_AI_Sandbox/10_Inbox"
+  vault_path: "<vault>/设定库"                    # 用户本机私有路径，已进 Git
+  sandbox_dir: "<vault>/设定库/obsidian_sandbox/00_inbox"
 ```
 
 **三重问题**：
 1. **泄露用户本机路径**到公开仓库（`config/` 按纪律进 Git）
-2. **`ROSA` 是已废弃命名**——`git log` 有 3 个连续 commit 专门做 ROSA→Obsidian 重命名（`fee46f2`→`fbfbff2`→`1d613b0`），**此处是漏网残留**
+2. **`设定库` 是已废弃命名**——`git log` 有 3 个连续 commit 专门做 设定库→Obsidian 重命名（`fee46f2`→`fbfbff2`→`1d613b0`），**此处是漏网残留**
 3. **对任何其他用户开箱即失败**：vault 路径不存在 → Obsidian 联动全部功能不可用
 
 **修复**：改为空字符串或相对路径占位，首次使用时由 GUI 引导用户填写并写入本地未跟踪配置。
@@ -194,7 +194,7 @@ exit=0   ← exit 0 意味着「该路径确实被忽略」
 |---|------|------|------|------|---------|------|
 | S1 | 正确性 | `orchestrator.py:282` | `datetime` 未导入 | **默认配置下必崩**，兜底机制失效 + runs.db 脏行 | 加 import + 包 try/except | Cody/Rex/Tessa/主理人 |
 | S2 | 正确性 | `nf_api.py:2017` | `only_stage` 未定义 | 流式跑阶段 100% 崩 | 改 `only_stage=only` | Cody/Tessa/主理人 |
-| S3 | 安全/配置 | `config/system.yaml:110,113` | 硬编码私路径 + ROSA 残留 | 泄露路径、他机不可用、命名债 | 改占位符 + 引导填写 | Cody/Docu/主理人 |
+| S3 | 安全/配置 | `config/system.yaml:110,113` | 硬编码私路径 + 设定库 残留 | 泄露路径、他机不可用、命名债 | 改占位符 + 引导填写 | Cody/Docu/主理人 |
 | S4 | 工程保障 | `.github/`（空） | **从未有 CI** | 无任何自动化门禁 | 建最小 CI | Rex/Tessa |
 | S5 | 工程保障 | `.gitignore:53` | `*.yml` 会静默吞掉 workflow | 未来 CI 做了也无效 | 加 `!.github/workflows/*.yml` | 主理人 |
 | S6 | 工程保障 | `.gitignore` (`Temp/`) | 67 个测试脚本不入 Git | fresh clone 后测试全丢 | 迁入 `tests/` 并跟踪 | Tessa/Docu |
@@ -374,7 +374,7 @@ exit=0   ← exit 0 意味着「该路径确实被忽略」
 | # | 事故 | 证据 | SEV | 根因（5 Why 收敛） | 残余风险 |
 |---|------|------|-----|-------------------|---------|
 | A1 | **思考模式空白产出**：glm-5.x/kimi 正文全进 `reasoning_content`，`content` 为空 | `AGENTS.md:12-14`；`2026-09-14` 修复 | **SEV-2** | 供应商侧默认行为变更未纳入兼容矩阵；**产出为"空"不报错**（静默失败） | 新模型不在 `disable_thinking_models` 名单；探测本身失败时的兜底正文质量未验证 |
-| A2 | **ROSA→Obsidian 全面重命名**：3 个连续 commit | `fee46f2`→`fbfbff2`→`1d613b0` | SEV-3 | 专有名词硬编码进代码；概念未集中到配置常量 | **`config/system.yaml:110/113` 仍有 ROSA 残留**（S3 已坐实） |
+| A2 | **设定库→Obsidian 全面重命名**：3 个连续 commit | `fee46f2`→`fbfbff2`→`1d613b0` | SEV-3 | 专有名词硬编码进代码；概念未集中到配置常量 | **`config/system.yaml:110/113` 仍有 设定库 残留**（S3 已坐实） |
 | A3 | 打包启动失败 / NSIS 弹窗侵略性 | `acce7a4`、`2af6f43` | SEV-3 | 打包产物从未被自动验证 | 无打包后冒烟测试 |
 | A4 | CSS 缺失闭合括号 `3c30e43` | commit | SEV-4 | 无 CSS 语法检查 | 同类问题可复发 |
 | A5 | `QualityTrend` 首次加载不触发 `165ecb1` | commit | SEV-4 | 无前端单测 | 同类问题可复发 |
@@ -511,7 +511,7 @@ exit=0   ← exit 0 意味着「该路径确实被忽略」
 | `rotate_days: 30` 控制日志轮转 | 无 `RotatingFileHandler`，死配置 | `grep -rn rotate_days scripts/` 零命中 |
 | 「破坏性操作前必须先 snapshot + 确认」 | `nf_api_selftest.py` 会清空 `data/`（靠自快照，非用户确认） | `nf_api_selftest.py:90` |
 | `prompts/`、`config/`、`scripts/` 进 Git（隐含"已提交"） | `nf_api.py`、`project.yaml`、`App.vue`、`NewProjectWizard.vue` 有未提交修改 | `git status` |
-| 概念已统一为 Obsidian/vault | `config/system.yaml:110/113` 仍有 `ROSA` | 实测 grep |
+| 概念已统一为 Obsidian/vault | `config/system.yaml:110/113` 仍有 `设定库` | 实测 grep |
 
 ### 完整性问题（新 Maintainer 会在哪卡住）
 
@@ -530,7 +530,7 @@ exit=0   ← exit 0 意味着「该路径确实被忽略」
 |------|------|---------|------|
 | `AGENTS.md` 命令速查 | 20+ 失效引用 | 所有读者 | S（改路径） |
 | `AGENTS.md` 整体 | 需拆为 AI 手册 + Runbook | Maintainer | M |
-| `config/system.yaml` | ROSA 残留 + 私路径 | 所有新用户 | S |
+| `config/system.yaml` | 设定库 残留 + 私路径 | 所有新用户 | S |
 | 缺 `CHANGELOG.md` | 无版本记录 | 用户/自己 | S |
 | 缺 `docs/architecture.md` | 架构无沉淀 | 长期维护 | M |
 | 缺 `docs/data-contracts.md` | 契约散落代码 | 改动风险 | M |
@@ -563,7 +563,7 @@ AGENTS.md              ← 保留为「AI 操作手册」，只留命令速查 +
 
 1. **引擎抽象干净**：`make_client(cfg, role)` 统一出口，`config/system.yaml` 切换 provider，**零调用点硬编码引擎/模型名**——这是很多成熟项目都做不到的纪律。
 2. **提示词与代码分离**：`prompts/stage[1-7]_*.md` 独立，GUI 可编辑 + 自动备份 + 白名单校验。**调优无需改代码**。
-3. **Electron 安全基线正确**：`contextIsolation: true` + `nodeIntegration: false` + `contextBridge` **白名单 IPC**（27 行 preload）——没有被"图省事"侵蚀。
+3. **Electron 安全基线正确**：`contextIsolation: true` + `nodeIntegration: false` + `contextBridge` **白名单 IPC**（27 行 preload）——没有被"图省事"白蚀。
 4. **模型产物落盘白名单**：只有 `data/**` 与 `logs/runs.db`，期望外路径直接拒绝。**对 LLM 输出的不信任是正确姿态**。
 5. **快照纪律是真的**：12 处真实调用点 + `snapshot.py:43` 的路径安全拦截。**不是纸面规定**。
 6. **测试隔离策略一流**：`Temp/` 大量脚本采用"临时项目根/临时工作目录"，真实 `data/` 零污染。
@@ -581,7 +581,7 @@ AGENTS.md              ← 保留为「AI 操作手册」，只留命令速查 +
 | **0** | **把 `py_compile` 门禁升级为 `pyflakes`**——**本轮 3 个缺陷中一次拦下 2 个**（`only_stage` + `datetime`），改动量≈零，仅加 dev 依赖、不动运行时零依赖 | Tessa | **P0（最高性价比）** | 30 分钟 |
 | 1 | `orchestrator.py` 加 `from datetime import datetime` + 重试循环包 `try/except` 确保 `db.finish_run()` 必执行 | Cody | **P0** | 15 分钟 |
 | 2 | `nf_api.py:2017` 改 `only_stage=only`；**并把流式/非流式合并为单一 `_run_stage_core`**（根治平行分支） | Cody | **P0** | 1 小时 |
-| 3 | `config/system.yaml` 的 `vault_path`/`sandbox_dir` 去私路径、去 ROSA 残留，改占位符+首启引导 | Cody+Docu | **P0** | 20 分钟 |
+| 3 | `config/system.yaml` 的 `vault_path`/`sandbox_dir` 去私路径、去 设定库 残留，改占位符+首启引导 | Cody+Docu | **P0** | 20 分钟 |
 | 4 | `.gitignore` 加 `!.github/workflows/*.yml`，并把 `console/main/index.js` 的 `.env` 移出外部打开白名单 | 主理人+Cody | **P0** | 15 分钟 |
 | 5 | **建立模型准入回路**：写入层收敛，两级校验（格式合法性 + 白名单归属）；**须先补齐 `/models/switch` 缺失的格式级校验**，避免"统一弱基线" | Cody | **P0** | 1 小时 |
 | 5 | 新建 `tests/` 并迁入 `Temp/test_*.py`（纳入 Git） | Tessa | **P1** | 1 小时 |

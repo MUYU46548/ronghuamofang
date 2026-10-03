@@ -55,7 +55,7 @@ LOGS = {"ok": True, "exists": True,
                   "[orchestrator] 阶段3 结果: exit=1",
                   "Traceback (most recent call last):",
                   "  File \"scripts/stage3_outline.py\", line 88, in run",
-                  "ValueError: 缺少角色「露汐」的设定"]}
+                  "ValueError: 缺少角色「苏芷」的设定"]}
 
 
 COLD = False   # --cold：全新工作区（所有阶段 pending + has_work=false）→ 冷启动引导

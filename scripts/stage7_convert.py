@@ -59,7 +59,7 @@ def merge_book(refined_dir, checked_dir, raw_dir, out_path, book_title="未命�
     if not files:
         raise FileNotFoundError("无可用章节（refined/checked/raw 均为空）")
     parts = [f"# {book_title}", ""]
-    # 剥协议标记：老产物首行可能残留 `===FILE: E:\...===`（见 strip_protocol_markers），
+    # 剥协议标记：老产物首行可能残留 `===FILE: <绝对路径>===`（见 strip_protocol_markers），
     # 不剥就会直接进 Word 成品（既是脏数据，也把本机绝对路径带出去）。
     from utils.llm_client import strip_protocol_markers
     for name in sorted(files):

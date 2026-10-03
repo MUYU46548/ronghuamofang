@@ -64,11 +64,11 @@ def build_project():
     (tmp / "materials" / "original_scraps").mkdir(parents=True)
     (tmp / "data").mkdir()
     d = tmp / "materials" / "original_scraps"
-    (d / "2024年3月5日 月神那点事.md").write_text(
-        "月神这个人，沉默到让人害怕。他造了月兔，却没给他们同类。\n"
+    (d / "2024年3月5日 潮神那点事.md").write_text(
+        "潮神这个人，沉默到让人害怕。他造了鲸民，却没给他们同类。\n"
         "待定：他左耳那道抓痕是谁留的？以后再想。\n", encoding="utf-8")
-    (d / "月兔密室随手写.md").write_text(
-        "月兔密室在月兔之城下面。月神几乎不去正殿。\n", encoding="utf-8")
+    (d / "鲸民密室随手写.md").write_text(
+        "鲸民密室在鲸民之城下面。潮神几乎不去正殿。\n", encoding="utf-8")
     (d / "买菜找零.txt").write_text("今天买菜，找零少了两块五。\n", encoding="utf-8")
     return tmp
 
@@ -98,15 +98,15 @@ def main():
         check("统计到 3 个碎片", d.get("count") == 3, d.get("count"))
         check("按簇分组返回", len(d.get("clusters") or []) >= 2, d.get("clusters") and
               [c["name"] for c in d["clusters"]])
-        check("月神碎片被聚成一簇（自由命名也能聚）",
+        check("潮神碎片被聚成一簇（自由命名也能聚）",
               any(c["count"] == 2 for c in d.get("clusters") or []),
               [c["count"] for c in d.get("clusters") or []])
         check("前瞻备忘已带出（GUI 提示作者待定事项）",
               d.get("stats", {}).get("lookahead_count", 0) >= 1, d.get("stats"))
 
         print("\n=== 2. GET /scraps/read ===")
-        code, r = req("GET", "/scraps/read?name=" + urllib.parse.quote("月兔密室随手写.md"))
-        check("200 且正文可读", code == 200 and "月兔密室" in (r.get("content") or ""),
+        code, r = req("GET", "/scraps/read?name=" + urllib.parse.quote("鲸民密室随手写.md"))
+        check("200 且正文可读", code == 200 and "鲸民密室" in (r.get("content") or ""),
               str(r)[:120])
         code, r2 = req("GET", "/scraps/read?name=" + urllib.parse.quote("../config/project.yaml"))
         check("路径穿越被拦截", code == 400, (code, str(r2)[:120]))
@@ -127,25 +127,25 @@ def main():
 
         print("\n=== 4. POST /scraps/promote（信息点 → 素材卡）===")
         code, p1 = req("POST", "/scraps/promote", {
-            "card_name": "月神", "card_type": "角色卡",
-            "points": [{"content": "月神造了月兔，却没给他们同类",
-                        "ts": "2024-03-05", "cluster": "月兔", "confidence": "high"},
-                       {"content": "月兔密室在月兔之城下面", "confidence": "low"}],
-            "open_questions": ["他左耳那道抓痕是谁留的（来自 月神那点事.md）"],
-            "sources": ["2024年3月5日 月神那点事.md（2024-03-05 / filename）"],
+            "card_name": "潮神", "card_type": "角色卡",
+            "points": [{"content": "潮神造了鲸民，却没给他们同类",
+                        "ts": "2024-03-05", "cluster": "鲸民", "confidence": "high"},
+                       {"content": "鲸民密室在鲸民之城下面", "confidence": "low"}],
+            "open_questions": ["他左耳那道抓痕是谁留的（来自 潮神那点事.md）"],
+            "sources": ["2024年3月5日 潮神那点事.md（2024-03-05 / filename）"],
         })
         check("200 且返回落盘路径", code == 200 and p1.get("ok"), str(p1)[:200])
-        card = tmp / "materials" / "raw" / "月神_角色卡.md"
+        card = tmp / "materials" / "raw" / "潮神_角色卡.md"
         check("卡片落到 materials/raw/", card.exists(), str(p1)[:200])
         body = card.read_text(encoding="utf-8") if card.exists() else ""
-        check("标题格式与原卡片一致（# 角色：月神）", body.startswith("# 角色：月神"), body[:40])
-        check("信息点写进正文", "月神造了月兔" in body)
+        check("标题格式与原卡片一致（# 角色：潮神）", body.startswith("# 角色：潮神"), body[:40])
+        check("信息点写进正文", "潮神造了鲸民" in body)
         check("前瞻备忘进【待定区】而不是被当成事实", "待定区" in body and "抓痕" in body)
-        check("来源可溯源", "来源溯源" in body and "月神那点事" in body)
-        check("不含类型后缀重复（# 角色：月神_角色卡）", "月神_角色卡" not in body[:40], body[:40])
+        check("来源可溯源", "来源溯源" in body and "潮神那点事" in body)
+        check("不含类型后缀重复（# 角色：潮神_角色卡）", "潮神_角色卡" not in body[:40], body[:40])
 
         code, p2 = req("POST", "/scraps/promote", {
-            "card_name": "月神", "card_type": "角色卡", "points": ["改了一条"]})
+            "card_name": "潮神", "card_type": "角色卡", "points": ["改了一条"]})
         check("同名卡片覆盖 → 自动备份", code == 200 and p2.get("backup"), str(p2)[:200])
         check("覆盖后内容已更新",
               "改了一条" in card.read_text(encoding="utf-8"), card.read_text(encoding="utf-8")[:60])

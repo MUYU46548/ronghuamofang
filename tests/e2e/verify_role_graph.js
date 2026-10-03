@@ -4,7 +4,7 @@
 // （把 /setting/current、/setting/appearances 指向本地 fixture），
 // 不需要启动 nf_api，也不碰真实 data/ 之外的任何东西。
 //
-// 断言：节点/边数量与数据层一致、月神边数=可匹配关系数、absent 虚线、
+// 断言：节点/边数量与数据层一致、潮神边数=可匹配关系数、absent 虚线、
 //       幽灵节点存在、力导向真的跑开了、拖拽固定、缩放生效、其他页签未受影响、无 JS 错误。
 //
 // 运行：cd console && node ../tests/e2e/verify_role_graph.js
@@ -115,7 +115,7 @@ async function expectations() {
   const setting = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'setting', 'setting.json'), 'utf8'));
   const appearances = JSON.parse(fs.readFileSync(path.join(ROOT, 'data', 'state', 'appearances.json'), 'utf8'));
   const g = buildGraph(setting, appearances, {});
-  const yueshen = g.nodes.find((n) => n.name === '月神');
+  const yueshen = g.nodes.find((n) => n.name === '潮神');
   const nb = neighborsOf(yueshen, g.links);
   const exp = {
     nodes: g.stats.nodeCount, links: g.stats.linkCount,
@@ -129,7 +129,7 @@ async function expectations() {
 
 (async () => {
   const exp = await expectations();
-  console.log('数据层期望：节点 %d（已入册 %d + 幽灵 %d）· 边 %d · 月神边数 %d',
+  console.log('数据层期望：节点 %d（已入册 %d + 幽灵 %d）· 边 %d · 潮神边数 %d',
     exp.nodes, exp.real, exp.ghosts, exp.links, exp.yueshenDegree);
 
   const srv = await serve();
@@ -226,7 +226,7 @@ async function expectations() {
   check('节点数与数据层一致', dom.nodeCount === exp.nodes, [dom.nodeCount, exp.nodes]);
   check('边数与数据层一致', dom.linkCount === exp.links, [dom.linkCount, exp.links]);
   check('幽灵节点数与数据层一致', dom.ghostNodes === exp.ghosts, [dom.ghostNodes, exp.ghosts]);
-  check('月神 成为节点', dom.labels.includes('月神'), dom.labels.slice(0, 6));
+  check('潮神 成为节点', dom.labels.includes('潮神'), dom.labels.slice(0, 6));
   check('absent 角色描边为虚线', dom.absentDashed > 0, dom.absentDashed);
   check('幽灵节点描边为虚线', dom.ghostDashed === exp.ghosts, dom.ghostDashed);
   check('locked 角色带锁形标（title 含 locked）', dom.lockedLabels > 0, dom.lockedLabels);
@@ -242,7 +242,7 @@ async function expectations() {
 
   console.log('\n=== 4. 点节点高亮一阶邻居 + 右栏详情 ===');
   const hl = await evaluate(cdp, `(async () => {
-    const g = [...document.querySelectorAll('.rg-node')].find(n => (n.querySelector('.rg-label')||{}).textContent === '月神');
+    const g = [...document.querySelectorAll('.rg-node')].find(n => (n.querySelector('.rg-label')||{}).textContent === '潮神');
     if (!g) return { ok: false };
     g.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     await new Promise(r => setTimeout(r, 400));
@@ -260,13 +260,13 @@ async function expectations() {
   check('点击后该节点标记为 sel', hl.ok && hl.sel === 1, hl);
   check('一阶邻居数 = 数据层可匹配关系数', hl.hl === exp.yueshenNeighborCount, [hl.hl, exp.yueshenNeighborCount]);
   check('其余节点被淡化', hl.dim > 0, hl.dim);
-  check('高亮的边数 = 月神边数', hl.hlLinks === exp.yueshenDegree, [hl.hlLinks, exp.yueshenDegree]);
-  check('右栏显示该角色详情', /月神/.test(hl.panel) && /出场/.test(hl.panel), hl.panel.slice(0, 60));
+  check('高亮的边数 = 潮神边数', hl.hlLinks === exp.yueshenDegree, [hl.hlLinks, exp.yueshenDegree]);
+  check('右栏显示该角色详情', /潮神/.test(hl.panel) && /出场/.test(hl.panel), hl.panel.slice(0, 60));
   await shot(cdp, 'rg_2_selected.png');
 
   console.log('\n=== 5. 拖拽固定 + 缩放 ===');
   const dnd = await evaluate(cdp, `(async () => {
-    const g = [...document.querySelectorAll('.rg-node')].find(n => (n.querySelector('.rg-label')||{}).textContent === '露汐');
+    const g = [...document.querySelectorAll('.rg-node')].find(n => (n.querySelector('.rg-label')||{}).textContent === '苏芷');
     const before = g.getAttribute('transform');
     const r = g.querySelector('circle').getBoundingClientRect();
     const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
@@ -298,7 +298,7 @@ async function expectations() {
     if (!btn) return { ok: false };
     btn.click();
     await new Promise(r => setTimeout(r, 900));
-    const g = [...document.querySelectorAll('.rg-node')].find(n => (n.querySelector('.rg-label')||{}).textContent === '露汐');
+    const g = [...document.querySelectorAll('.rg-node')].find(n => (n.querySelector('.rg-label')||{}).textContent === '苏芷');
     return { ok: true, transform: g.getAttribute('transform') };
   })()`);
   check('重新布局按钮存在且可点', re.ok, re);
@@ -311,9 +311,9 @@ async function expectations() {
     btn.click();
     await new Promise(r => setTimeout(r, 300));
     const rows = [...document.querySelectorAll('.rg-unmatched-row')];
-    const hz = rows.find(r => (r.querySelector('b') || {}).textContent === '休止符');
+    const hz = rows.find(r => (r.querySelector('b') || {}).textContent === '休止锚');
     return { ok: true, rows: rows.length,
-             hzRows: rows.filter(r => (r.querySelector('b') || {}).textContent === '休止符').length,
+             hzRows: rows.filter(r => (r.querySelector('b') || {}).textContent === '休止锚').length,
              hzFrom: hz ? hz.textContent.split('、').length : 0,
              text: (document.querySelector('.rg-unmatched') || {}).textContent || '' };
   })()`);

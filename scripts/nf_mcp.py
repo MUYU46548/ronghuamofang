@@ -334,7 +334,7 @@ MCP_TOOLS = [
             "properties": {
                 "path": {
                     "type": "string",
-                    "description": "沙盒文件相对路径（如 draft/露汐_角色卡.md）",
+                    "description": "沙盒文件相对路径（如 draft/苏芷_角色卡.md）",
                 },
                 "action": {
                     "type": "string",

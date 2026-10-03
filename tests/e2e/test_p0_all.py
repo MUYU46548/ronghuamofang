@@ -95,14 +95,14 @@ sp = setting_dir / "setting.json"
 op = setting_dir / "01.md"
 setting = {
     "characters": [
-        {"name": "露汐", "type": "主角", "tags": ["人类", "火属性"], "snippet": "冷静寡言的少女"},
+        {"name": "苏芷", "type": "主角", "tags": ["人类", "火属性"], "snippet": "冷静寡言的少女"},
         {"name": "林远", "type": "配角", "tags": ["水属性"], "snippet": "热血冲动"},
     ]
 }
 sp.write_text(json.dumps(setting, ensure_ascii=False), encoding="utf-8")
-op.write_text("## 第1章\n涉及角色：露汐、林远\n事件：...", encoding="utf-8")
+op.write_text("## 第1章\n涉及角色：苏芷、林远\n事件：...", encoding="utf-8")
 cards = s4_mod._extract_character_cards_for_chapter(str(sp), str(op))
-ok("露汐" in cards, "提取到露汐")
+ok("苏芷" in cards, "提取到苏芷")
 ok("林远" in cards, "提取到林远")
 
 # 配置文件

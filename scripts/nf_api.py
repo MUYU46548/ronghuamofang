@@ -2280,7 +2280,7 @@ class Handler(BaseHTTPRequestHandler):
                     chapter_no = int(body.get("chapter"))
                     finding_id = str(body.get("finding_id", "")).strip()
                     comment = str(body.get("comment", "")).strip()
-                    user = str(body.get("user", "暮雨")).strip() or "暮雨"
+                    user = str(body.get("user", "reviewer")).strip() or "reviewer"
                     if not finding_id or not comment:
                         self._send(400, {"ok": False, "error": "finding_id 和 comment 必填"})
                         return

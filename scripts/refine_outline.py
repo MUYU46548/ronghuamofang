@@ -7,7 +7,7 @@
 （approve 仍需用户显式执行）。
 
 用法：
-  python scripts/refine_outline.py "第3章侧重露汐，结尾留悬念"
+  python scripts/refine_outline.py "第3章侧重苏芷，结尾留悬念"
   python scripts/refine_outline.py --feedback "..." --dry-run   # 只备份+生成任务，不跑子会话
 """
 import argparse

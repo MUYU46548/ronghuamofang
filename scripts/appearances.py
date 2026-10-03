@@ -29,7 +29,7 @@ OUTLINE_DIR = "data/outline/chapters"
 SETTING = "data/setting/setting.json"
 OUT = "data/state/appearances.json"
 
-# 逐章大纲"涉及角色"行：形如 "luxi 露汐（写病历...）" 或 "小林（夜班护士）"
+# 逐章大纲"涉及角色"行：形如 "luxi 苏芷（写病历...）" 或 "小林（夜班护士）"
 ROLE_LINE_RE = re.compile(r"涉及角色[：:]\s*(.+)")
 # 角色项：可选 id + 中文名（不含括号），后跟（描述
 ROLE_ITEM_RE = re.compile(r"([A-Za-z_][A-Za-z0-9_]*\s+)?([\u4e00-\u9fff]{2,12})(?=\s*[（(])")
@@ -55,7 +55,7 @@ def load_setting_names(setting_path=SETTING):
 def load_outline_roles(outline_dir=OUTLINE_DIR):
     """从逐章大纲提取涉及角色名。返回 {name: {"id": id, "source": "outline"}}。
 
-    解析"涉及角色"行中的角色项：优先 id+中文名（luxi 露汐），
+    解析"涉及角色"行中的角色项：优先 id+中文名（luxi 苏芷），
     其次 中文名（描述，如 小林（夜班护士）），忽略括号内描述文字。
     """
     roles = {}

@@ -49,20 +49,20 @@ outline_path = tmp_dir / "01.md"
 import json
 setting = {
     "characters": [
-        {"name": "露汐", "性格": "冷静、寡言", "关系": "主角的妹妹", "禁止行为": "不可描写为热情开朗"},
-        {"name": "林远", "性格": "热血、冲动", "关系": "露汐的师兄", "禁止行为": "不可描写为冷静理性"},
+        {"name": "苏芷", "性格": "冷静、寡言", "关系": "主角的妹妹", "禁止行为": "不可描写为热情开朗"},
+        {"name": "林远", "性格": "热血、冲动", "关系": "苏芷的师兄", "禁止行为": "不可描写为冷静理性"},
         {"name": "苏白", "性格": "温和、睿智", "关系": "师父", "禁止行为": ""}
     ]
 }
 setting_path.write_text(json.dumps(setting, ensure_ascii=False), encoding="utf-8")
 
 # 创建测试大纲
-outline_text = "## 第1章 开篇\n涉及角色：露汐、林远\n核心事件：..."
+outline_text = "## 第1章 开篇\n涉及角色：苏芷、林远\n核心事件：..."
 outline_path.write_text(outline_text, encoding="utf-8")
 
 cards = s4_mod._extract_character_cards_for_chapter(str(setting_path), str(outline_path))
 print(f"  提取的角色卡:\n{cards[:200]}…")
-ok("露汐" in cards, "提取到露汐的角色卡")
+ok("苏芷" in cards, "提取到苏芷的角色卡")
 ok("林远" in cards, "提取到林远的角色卡")
 ok("苏白" not in cards, "未涉及的苏白不出现")
 

@@ -40,7 +40,7 @@ def check(name, cond, detail=""):
 
 SETTING = {
     "characters": [
-        {"id": "luxi", "name": "露汐", "role": "主角", "traits": ["冷静"], "source": "fake"},
+        {"id": "luxi", "name": "苏芷", "role": "主角", "traits": ["冷静"], "source": "fake"},
         {"id": "xiaolin", "name": "小林", "role": "配角", "traits": ["热心"], "source": "fake"},
     ],
     "world": {"locations": [], "factions": [], "magic_system": [], "items": []},
@@ -67,7 +67,7 @@ def build_workspace(tag="ws"):
                                                          encoding="utf-8")
     for n in (1, 2, 3):
         (tmp / "data" / "outline" / "chapters" / ("%02d.md" % n)).write_text(
-            "# 第%d章 大纲\n\n- 核心事件：测试事件\n- 涉及角色：露汐（主角）\n" % n,
+            "# 第%d章 大纲\n\n- 核心事件：测试事件\n- 涉及角色：苏芷（主角）\n" % n,
             encoding="utf-8")
     return tmp
 
@@ -95,9 +95,9 @@ def case_first_run_creates():
         check("data/state/appearances.json 已自动生成", raw.exists())
         data = json.loads(raw.read_text(encoding="utf-8"))
         chars = data.get("characters") or {}
-        check("统计到设定集角色", "露汐" in chars and "小林" in chars, list(chars)[:6])
-        luxi = chars.get("露汐") or {}
-        check("露汐有真实出场计数（不是 absent）",
+        check("统计到设定集角色", "苏芷" in chars and "小林" in chars, list(chars)[:6])
+        luxi = chars.get("苏芷") or {}
+        check("苏芷有真实出场计数（不是 absent）",
               luxi.get("chapters", 0) >= 1 and luxi.get("total", 0) > 0, luxi)
         check("首次出场章号正确（第1章）", luxi.get("first") == 1, luxi.get("first"))
         check("total_chapters 用书配置（3）", data.get("total_chapters") == 3, data.get("total_chapters"))
@@ -109,9 +109,9 @@ def case_first_run_creates():
 
         st = json.loads((tmp / "data" / "setting" / "setting.json").read_text(encoding="utf-8"))
         app = st.get("appearances") or {}
-        check("setting.json 的 appearances 字段已写入", "露汐" in app, list(app)[:6])
-        check("分章记录为 1..3 全章", sorted(app.get("露汐", {}).get("chapters") or []) == [1, 2, 3],
-              app.get("露汐"))
+        check("setting.json 的 appearances 字段已写入", "苏芷" in app, list(app)[:6])
+        check("分章记录为 1..3 全章", sorted(app.get("苏芷", {}).get("chapters") or []) == [1, 2, 3],
+              app.get("苏芷"))
     finally:
         os.chdir(ROOT)
         shutil.rmtree(tmp, ignore_errors=True)
@@ -124,7 +124,7 @@ def case_idempotent():
         ok, _ = run_stage4(tmp)
         check("首跑完成", ok)
         st_path = tmp / "data" / "setting" / "setting.json"
-        before = json.loads(st_path.read_text(encoding="utf-8"))["appearances"]["露汐"]["total_mentions"]
+        before = json.loads(st_path.read_text(encoding="utf-8"))["appearances"]["苏芷"]["total_mentions"]
 
         # 2-1 直接重复同步同一章
         os.chdir(tmp)
@@ -132,12 +132,12 @@ def case_idempotent():
         text = (tmp / "data" / "chapters" / "raw" / "01.md").read_text(encoding="utf-8")
         ri.sync_chapter_appearances(text, 1)
         ri.sync_chapter_appearances(text, 1)
-        mid = json.loads(st_path.read_text(encoding="utf-8"))["appearances"]["露汐"]["total_mentions"]
+        mid = json.loads(st_path.read_text(encoding="utf-8"))["appearances"]["苏芷"]["total_mentions"]
         check("同章重复同步 total_mentions 不变（幂等）", mid == before, (before, mid))
 
         # 2-2 stage4 重跑（章节已完成 → 跳过，不得翻倍）
         ok2, msg2 = run_stage4(tmp)
-        after = json.loads(st_path.read_text(encoding="utf-8"))["appearances"]["露汐"]["total_mentions"]
+        after = json.loads(st_path.read_text(encoding="utf-8"))["appearances"]["苏芷"]["total_mentions"]
         check("stage4 重跑后计数不翻倍", after == before, (before, after))
         check("stage4 重跑走“已完成跳过”分支", "跳过" in msg2 or ok2, msg2)
         return True
@@ -194,8 +194,8 @@ def case_missing_setting():
             data = json.loads(raw.read_text(encoding="utf-8"))
             chars = data.get("characters") or {}
             check("大纲角色被标为设定集外候选（新角色候选）",
-                  "露汐" in chars and chars["露汐"].get("in_setting") is False
-                  and "露汐" in (data.get("new_candidates") or []),
+                  "苏芷" in chars and chars["苏芷"].get("in_setting") is False
+                  and "苏芷" in (data.get("new_candidates") or []),
                   (list(chars)[:4], data.get("new_candidates")))
     finally:
         os.chdir(ROOT)
@@ -211,7 +211,7 @@ if __name__ == "__main__":
     # 正确做法：复用 fake_client 的静态句库，只把「主语」替换成角色名，
     # 既保留健康段落结构，又让出场统计有对象可数。
     _orig_para = fc._words_para
-    _ROLES = ("露汐", "凤凰", "塔罗斯")
+    _ROLES = ("苏芷", "朱鸾", "塔洛斯")
 
     def _para_with_roles(min_words):
         body = _orig_para(min_words)

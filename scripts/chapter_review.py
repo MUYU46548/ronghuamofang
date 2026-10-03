@@ -48,7 +48,7 @@ STYLE_PATTERNS = [
 ]
 
 
-def add_comment_to_finding(report_path, chapter_no, finding_id, comment, user="暮雨"):
+def add_comment_to_finding(report_path, chapter_no, finding_id, comment, user="reviewer"):
     """给指定 finding 添加评论。返回 True 表示成功。"""
     try:
         data = json.loads(read_text(report_path))

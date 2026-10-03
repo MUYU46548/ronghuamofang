@@ -40,8 +40,8 @@ def check(name, cond, detail=""):
                            ("  → " + str(detail)[:200]) if detail else ""))
 
 
-FRAG_A = "2024年3月5日 月神那点事.md"
-FRAG_B = "月兔密室随手写.md"
+FRAG_A = "2024年3月5日 潮神那点事.md"
+FRAG_B = "鲸民密室随手写.md"
 FRAG_C = "买菜找零.txt"
 
 
@@ -73,10 +73,10 @@ def build_workspace(tag="ws"):
 def add_fragments(tmp):
     d = tmp / "materials" / "original_scraps"
     (d / FRAG_A).write_text(
-        "月神这个人，沉默到让人害怕。他造了月兔，却没给他们同类。\n"
+        "潮神这个人，沉默到让人害怕。他造了鲸民，却没给他们同类。\n"
         "待定：他左耳那道抓痕是谁留的？以后再想。\n", encoding="utf-8")
     (d / FRAG_B).write_text(
-        "月兔密室在月兔之城下面。月神几乎不去正殿，只在书房待着。\n", encoding="utf-8")
+        "鲸民密室在鲸民之城下面。潮神几乎不去正殿，只在书房待着。\n", encoding="utf-8")
     (d / FRAG_C).write_text("今天买菜，找零少了两块五。\n", encoding="utf-8")
 
 
@@ -114,7 +114,7 @@ def case_task_format():
 
         inlined, missing = inline_inputs(body)
         check("碎片正文真的被内联进任务（否则模型看不到碎片）",
-              "月兔密室在月兔之城下面" in inlined and not missing, missing)
+              "鲸民密室在鲸民之城下面" in inlined and not missing, missing)
         check("归并结果路径被列为期望输出（不会被当成输入吞掉）",
               any(p.endswith("scraps_merge.json") for p, _ in refs) is False)
 
@@ -200,7 +200,7 @@ def case_fingerprint():
               "复用设定集" not in msg4 and ok4, msg4)
 
         newf = tmp / "materials" / "original_scraps" / "新碎片想到一点.md"
-        newf.write_text("歌唯的乐器店在正弦司隔壁。\n", encoding="utf-8")
+        newf.write_text("回声的乐器店在澄源司隔壁。\n", encoding="utf-8")
         ok5, msg5 = run_in(tmp, with_scraps=True)
         check("新增碎片 → 触发重新归并", "复用设定集" not in msg5 and ok5, msg5)
     finally:
@@ -213,9 +213,9 @@ def case_batching():
     tmp = build_workspace("batch")
     try:
         d = tmp / "materials" / "original_scraps"
-        args = {"月神与月兔的设定草稿": "月神与月兔" * 300,
-                "月兔密室与正殿": "月兔密室正殿" * 300,
-                "歌唯的乐器店": "歌唯乐器店" * 300}
+        args = {"潮神与鲸民的设定草稿": "潮神与鲸民" * 300,
+                "鲸民密室与正殿": "鲸民密室正殿" * 300,
+                "回声的乐器店": "回声乐器店" * 300}
         for n, t in args.items():
             (d / (n + ".md")).write_text(t + "\n", encoding="utf-8")
         old = sc.INLINE_CHAR_BUDGET
@@ -251,7 +251,7 @@ def case_ignore_noise():
     tmp = build_workspace("noise")
     try:
         d = tmp / "materials" / "original_scraps"
-        (d / "正常碎片.md").write_text("月神造了月兔。\n", encoding="utf-8")
+        (d / "正常碎片.md").write_text("潮神造了鲸民。\n", encoding="utf-8")
         (d / "_backup").mkdir()
         (d / "_backup" / "旧版.md").write_text("备份不该进索引。\n", encoding="utf-8")
         (d / ".hidden.md").write_text("隐藏不该进索引。\n", encoding="utf-8")

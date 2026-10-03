@@ -14,7 +14,7 @@
 只有引用来源是文本文件时才会写盘；**输入文件只读**，本模块从不修改它。
 
 用法：
-  python scripts/book_split.py --input D:/稿子/旧稿.txt
+  python scripts/book_split.py --input 旧稿.txt
   python scripts/book_split.py --input old.md --emit          # 同时导出切分章节
   python scripts/book_split.py --input old.md --json
   python scripts/book_split.py --input old.md --list-patterns # 看各标题正则命中数

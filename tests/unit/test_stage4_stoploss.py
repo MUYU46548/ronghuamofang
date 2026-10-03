@@ -45,7 +45,7 @@ def check(name, cond, detail=""):
 
 
 SETTING = {
-    "characters": [{"id": "luxi", "name": "露汐", "role": "主角",
+    "characters": [{"id": "luxi", "name": "苏芷", "role": "主角",
                     "traits": ["冷静"], "source": "fake"}],
     "world": {"locations": [], "factions": [], "magic_system": [], "items": []},
     "plot_fragments": [], "timeline": [],
@@ -106,7 +106,7 @@ def build_workspace(total=10, tag="ws"):
         "# 止损测试书 大纲\n\n## 起\n开篇\n", encoding="utf-8")
     for n in range(1, total + 1):
         (tmp / "data" / "outline" / "chapters" / ("%02d.md" % n)).write_text(
-            "# 第%d章 大纲\n\n- 核心事件：测试事件\n- 涉及角色：露汐（主角）\n" % n,
+            "# 第%d章 大纲\n\n- 核心事件：测试事件\n- 涉及角色：苏芷（主角）\n" % n,
             encoding="utf-8")
     return tmp
 

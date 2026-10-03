@@ -163,6 +163,63 @@ def case_example_is_clean():
                          cwd=str(REPO)).returncode == 0)
 
 
+# ====================================================================== L7
+
+def case_non_ascii_filenames_scanned():
+    print("\n[L7] 非 ASCII 文件名必须被扫到（git 默认会转义输出 → 曾静默跳过）")
+    sys.path.insert(0, str(REPO / "scripts"))
+    from leak_scan import tracked_files, scan
+    files, how = tracked_files(str(REPO))
+    check("L7 取到的是真实路径（含中文名文件）",
+          any("潮神_角色卡" in str(p) for p in files), f"→ mode={how}")
+    escaped = [str(p) for p in files if "\\344" in str(p)]
+    check("L7 不含被转义成 \\xxx 的伪路径", not escaped, f"→ 例：{escaped[:2]}")
+
+    # 端到端：真仓库扫一遍，中文名文件里的敏感词要被抓到
+    with tempfile.TemporaryDirectory() as td:
+        wl = Path(td) / "bl.txt"
+        wl.write_text("\n".join([f"填充词{i}" for i in range(24)]
+                                + ["白蚀效应"]) + "\n", encoding="utf-8")
+        rc, out, _ = run(["--list", str(wl), "--root", str(REPO)])
+        check("L7 **中文名文件里的词能被抓到**（修前这些文件从未被扫）",
+              rc == 1 and "潮崩_概念卡" in out, f"→ rc={rc} {out[:200]}")
+
+
+# ====================================================================== L8
+
+def case_unreadable_is_not_pass():
+    print("\n[L8] 非二进制文件读不到 = 没扫到，绝不当「通过」")
+    sys.path.insert(0, str(REPO / "scripts"))
+    from leak_scan import scan
+    with tempfile.TemporaryDirectory() as td:
+        missing = Path(td) / "不存在.md"
+        hits, bin_, exempt, unread = scan([missing], ["任意词"], skip=(), allow=(),
+                                          root=td)
+        check("L8 读不到的文件进 unreadable（而不是被当成二进制跳过）",
+              len(unread) == 1 and unread[0]["path"].endswith("不存在.md"),
+              f"→ {unread}")
+
+    # 端到端：git 里登记了、磁盘上被删掉 → 必须报出来且退出码非 0
+    import shutil as _sh
+    if not _sh.which("git"):
+        check("L8（跳过：本机无 git）", True)
+        return
+    with tempfile.TemporaryDirectory() as td:
+        subprocess.run(["git", "init", "-q"], cwd=td, capture_output=True)
+        subprocess.run(["git", "config", "user.email", "t@t"], cwd=td, capture_output=True)
+        subprocess.run(["git", "config", "user.name", "t"], cwd=td, capture_output=True)
+        f = Path(td) / "有词.md"
+        f.write_text("干净内容\n", encoding="utf-8")
+        subprocess.run(["git", "add", "-A"], cwd=td, capture_output=True)
+        subprocess.run(["git", "commit", "-qm", "x"], cwd=td, capture_output=True)
+        f.unlink()                       # 登记在册、磁盘已删
+        wl = Path(td) / "bl.txt"
+        wl.write_text("\n".join(f"填充词{i}" for i in range(24)) + "\n", encoding="utf-8")
+        rc, out, _ = run(["--list", str(wl), "--root", td])
+        check("L8 磁盘缺失的已跟踪文件 → 明确报出且退出码非 0",
+              rc != 0 and "无法读取" in out, f"→ rc={rc} {out[:200]}")
+
+
 def main():
     print("=" * 70)
     print("泄露门禁扫描器回归")
@@ -172,6 +229,8 @@ def main():
     case_allow_visible()
     case_binary_skipped()
     case_example_is_clean()
+    case_non_ascii_filenames_scanned()
+    case_unreadable_is_not_pass()
     print("\n" + "=" * 70)
     print(f"合计: {len(PASS)} 通过 / {len(FAIL)} 失败")
     print("=" * 70)

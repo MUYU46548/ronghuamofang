@@ -87,3 +87,8 @@ console/runtime/
 # ===== 泄露门禁词表（真词表是敏感层，只在本机/CI secret，绝不入库）=====
 ci/blacklist.txt
 ci/fictional-map.txt
+
+# ===== 发布日移出跟踪（工作副本保留，只是不再随仓库分发）=====
+config/project.yaml      # 承载你的书名/署名/剧情梗概，用 config/project.yaml.example 兜底
+materials/vault_links.md # 阶段1 生成的设定库引用索引（含私路径与作品词）
+deliverables/            # 内部交付/审计报告

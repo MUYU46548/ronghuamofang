@@ -94,7 +94,7 @@ def sync_appearances_after_chapter(chapter_text, chapter_no, total_chapters=None
 def _involved_names(outline_text):
     """从逐章大纲的「涉及角色」行解析角色名列表。
 
-    大纲里该项可能是 `露汐、暮雨`，也可能是 `luxi 露汐（写病历）、小林（夜班护士）`。
+    大纲里该项可能是 `苏芷、观澜`，也可能是 `luxi 苏芷（写病历）、小林（夜班护士）`。
     后者若整串拿去匹配 setting 的 name 永远匹配不上 → 角色卡恒为空。
     这里把「id 名（描述）」拆成候选名并剥掉括号描述。
     """
@@ -106,13 +106,13 @@ def _involved_names(outline_text):
         s = chunk.strip()
         if not s:
             continue
-        # `luxi 露汐（写病历）` → 先取描述括号内的内容当别名候选，再剥括号
+        # `luxi 苏芷（写病历）` → 先取描述括号内的内容当别名候选，再剥括号
         for inside in re.findall(r"[（(]([^）)]*)[）)]", s):
             inside = inside.strip()
             if inside:
                 names.append(inside)
         bare = re.sub(r"[（(].*?[)）]", "", s).strip()
-        # `luxi 露汐` → 拆出 ASCII id 与中文名
+        # `luxi 苏芷` → 拆出 ASCII id 与中文名
         for tok in bare.split():
             tok = tok.strip()
             if tok:
@@ -176,7 +176,7 @@ def _name_matches(nc, involved):
             continue
         if inv in names or base_name(inv) == base and base:
             return True
-        # 描述性括注：`露汐（写病历）` 已在上层拆出，这里再容忍一次包含关系
+        # 描述性括注：`苏芷（写病历）` 已在上层拆出，这里再容忍一次包含关系
         if len(inv) >= 2 and (inv in nc["name"] or nc["name"] in inv):
             return True
     return False

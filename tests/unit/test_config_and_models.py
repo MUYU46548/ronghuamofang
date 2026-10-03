@@ -4,7 +4,7 @@
 ## 本用例守护什么
 
 - **S3**：`config/system.yaml` 与 `config/obsidian_templates.yaml` 曾硬编码
-  用户本机绝对路径 `E:/图书馆/ROSA...`（已废弃命名 ROSA 的漏网残留），
+  用户本机绝对路径 `<vault>/设定库...`（已废弃命名 设定库 的漏网残留），
   并散落在 `obsidian_bridge` / `kb_index` / `obsidian_postprocess` /
   `voice_to_docx` 的默认值里 → 任何其他用户开箱即失败，且泄露私人路径到公开仓库。
 - **S8**：`available_models` 与 `fetched_models.json` 两份白名单数据**确实存在**，
@@ -13,7 +13,7 @@
 
 ## 断言策略
 
-  A. 全仓（源码 + 配置）不得出现该本机路径；不得出现 `ROSA` 残留
+  A. 全仓（源码 + 配置）不得出现该本机路径；不得出现 `设定库` 残留
   B. `model_registry` 两级校验：格式 → 白名单归属
   C. 逃生门 `strict=false` 只放行并回报未校验，不静默
   D. `/models/switch` 与 `/models/add` 的校验回路已接通（源码级确认调用点）
@@ -21,6 +21,7 @@
 用法：python tests/unit/test_config_and_models.py
 """
 import json
+import re
 import sys
 import tempfile
 import traceback
@@ -43,9 +44,12 @@ def check(cond, label, detail=""):
         print(f"  FAIL  {label}  {detail}")
 
 
-# 该字面量在本文件里必须拼出来，否则源码扫描会命中自己 —— 用拼接规避
-LEAK = "E:/" + "图书馆/" + "ROSA"
-LEAK_ALT = "E:\\" + "图书馆\\" + "ROSA"
+# 判据已**通用化**（2026-10-03）：原先点名一条具体的私有路径字面量，但那样的断言
+# 会随"发布树虚构化"被一起替换掉 —— 于是它变成**空转**（检查器还在，却什么都不查了）。
+# 现在改判**本机绝对路径的形态**：盘符 + 分隔符，或 POSIX 家目录前缀。
+# 这比点名更强，也不会因为路径改名而失效。
+# 负向回顾避免把 `https://` 里的 `s:/` 误判成盘符路径。
+ABS_RE = re.compile(r"(?<![A-Za-z0-9])[A-Za-z]:[\\/](?![/\\])|/(?:Users|home)/[^/\s]+/")
 
 
 def main():
@@ -74,45 +78,19 @@ def main():
                 txt = f.read_text(encoding="utf-8", errors="ignore")
             except Exception:
                 continue
-            if LEAK in txt or LEAK_ALT in txt:
-                hits.append(str(f.relative_to(REPO)))
+            m = ABS_RE.search(txt)
+            if m:
+                hits.append(f"{f.relative_to(REPO)}: {m.group(0)}")
     for name in scan_files:
         f = REPO / name
-        if f.exists() and (LEAK in f.read_text(encoding="utf-8", errors="ignore")):
-            hits.append(name)
+        if f.exists():
+            m = ABS_RE.search(f.read_text(encoding="utf-8", errors="ignore"))
+            if m:
+                hits.append(f"{name}: {m.group(0)}")
 
     check(not hits, "源码/配置中无本机绝对路径泄露", f"命中 {len(hits)} 处: {hits[:5]}")
-
-    # 测试文件自身允许出现（作为扫描目标字面量）
-    check(True, "（测试文件自身拼写该字面量属预期，已用拼接规避自命中）")
-
-    # 本机绝对路径残留（ROSA vault 目录）
-    #
-    # ⚠️ 判据是**绝对路径**，不是品牌名 "ROSA"。
-    # 曾经的实现是裸 `"ROSA" in txt`，过宽：`source: "rosa"` 是数据源的真实取值、
-    # 「ROSA 目录规范」是正当的文档表述，都会误报红。
-    # 本断言真正要守的是「别把用户本机路径写进仓库」，
-    # 那对应的字符串是 `E:/图书馆/ROSA` / `E:\图书馆\ROSA`，含盘符或「图书馆」段。
-    # 判据锚定契约（不泄露本机路径），不锚定品牌词。
-    rosa_hits = []
-    for d in scan_dirs:
-        p = REPO / d
-        if not p.exists():
-            continue
-        for f in p.rglob("*"):
-            if not f.is_file() or any(x in f.parts for x in
-                                      ("node_modules", "__pycache__", "dist")):
-                continue
-            if f.suffix not in (".py", ".yaml", ".yml", ".md", ".js", ".vue"):
-                continue
-            try:
-                txt = f.read_text(encoding="utf-8", errors="ignore")
-            except Exception:
-                continue
-            # 只认「盘符 + 图书馆」这种本机绝对路径形态
-            if LEAK in txt or LEAK_ALT in txt or "图书馆" in txt:
-                rosa_hits.append(str(f.relative_to(REPO)))
-    check(not rosa_hits, "ROSA 本机绝对路径残留清零", f"命中: {rosa_hits[:5]}")
+    # ⚠️ 这里原先还有**第二遍同范围扫描**（只多判了品牌词），属于"判据写两遍" ——
+    # 上一段的 ABS_RE 已覆盖它要守的东西，故删除（判据复制只会漂移，不会更保险）。
 
     # ---------- B. 路径回落行为 ----------
     print("\n--- B. vault 未配置时的行为（开箱即用，不崩）---")
@@ -123,8 +101,10 @@ def main():
           f"实际={get_vault_path()!r}")
     check(not is_vault_configured(), "is_vault_configured() 为 False（未启用联动）")
     sb = str(get_sandbox_dir()).replace("\\", "/")
-    check("ROSA" not in sb and "图书馆" not in sb,
-          "沙盒目录回落项目内路径（无本机绝对路径）", f"实际={sb}")
+    # 判据用**形态**（绝对路径）而不是某个具体品牌词：点名式断言会随发布树虚构化
+    # 一起被替换掉，然后静默退化成空转（这里原先就是点名 `<vault>/<库名>`）。
+    check(not ABS_RE.search(sb) and not sb.startswith("/"),
+          "沙盒目录回落项目内相对路径（不含本机绝对路径）", f"实际={sb}")
     check(sb == DEFAULT_SANDBOX_DIR.replace("\\", "/"),
           f"沙盒回落值为 {DEFAULT_SANDBOX_DIR}", f"实际={sb}")
 

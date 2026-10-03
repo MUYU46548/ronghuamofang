@@ -10,7 +10,7 @@
 即 `ch03_v1.md / ch03_v2.md …`；恢复前会把当前稿再存一版，故回退本身也可回退。
 
 用法：
-  python scripts/refine_chapter.py 3 "露汐决战前夜加一段内心独白，保持白描风格"
+  python scripts/refine_chapter.py 3 "苏芷决战前夜加一段内心独白，保持白描风格"
   python scripts/refine_chapter.py 3 "..." --dry-run   # 只备份+生成任务，不跑子会话
   python scripts/refine_chapter.py 3 --list            # 列出该章所有历史版本
   python scripts/refine_chapter.py 3 --restore 2       # 回退到 v2

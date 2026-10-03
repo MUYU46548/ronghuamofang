@@ -170,7 +170,7 @@ def main():
         check("dry-run 未清产物", (ROOT / "data/outline/global.md").exists() == before)
 
         # refine outline dry-run（FakeClient 模式下不调用真实引擎）
-        code, rf = req("POST", "/refine/outline", {"feedback": "第2章加强露汐", "dry_run": True})
+        code, rf = req("POST", "/refine/outline", {"feedback": "第2章加强苏芷", "dry_run": True})
         check("refine outline 202", code == 202, str(rf)[:120])
         if code == 202:
             jf = wait_job(rf["job_id"])
@@ -181,8 +181,8 @@ def main():
         scraps_dir.mkdir(parents=True, exist_ok=True)
         # 注意：碎片收集会跳过 "_" 开头的路径段（_backup/ 等），探针名不能以下划线开头；
         # 文件名带日期才能验证 ts_source=filename 分支。
-        probe = scraps_dir / "selftest_probe_2024-03-05_月神碎片.md"
-        probe.write_text("2024年3月5日\n月神造了月兔，却没给他们同类。\n待定：那道抓痕是谁留的。\n",
+        probe = scraps_dir / "selftest_probe_2024-03-05_潮神碎片.md"
+        probe.write_text("2024年3月5日\n潮神造了鲸民，却没给他们同类。\n待定：那道抓痕是谁留的。\n",
                          encoding="utf-8")
         try:
             code, sl = req("GET", "/scraps/list")
@@ -197,7 +197,7 @@ def main():
                   sl.get("stats", {}).get("ts_from_filename", 0) >= 1, sl.get("stats"))
             code, sr = req("GET", "/scraps/read?name=" + urllib.parse.quote(probe.name))
             check("scraps/read 200 且正文可读",
-                  code == 200 and "月神造了月兔" in (sr.get("content") or ""), str(sr)[:160])
+                  code == 200 and "潮神造了鲸民" in (sr.get("content") or ""), str(sr)[:160])
             code, st_ = req("GET", "/scraps/read?name=..%2Fconfig%2Fproject.yaml")
             check("scraps/read 拦截路径穿越", code == 400, (code, str(st_)[:120]))
         finally:

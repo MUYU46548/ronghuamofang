@@ -77,16 +77,16 @@ def make_vault(root):
     for d in ("设定/人物/主要角色", "设定/地点",
               "设定/概念", "年表"):
         (v / d).mkdir(parents=True, exist_ok=True)
-    (v / "设定/人物/主要角色" / "露汐.md").write_text(
-        "---\nname: 露汐\ntags: [主角]\ntype: 人物\nlocked: true\n"
-        "description: 绒花科学院研究员。\n---\n露汐擅长冰封术。\n", encoding="utf-8")
-    (v / "设定/人物/主要角色" / "罗霄.md").write_text(
-        "---\nname: 罗霄\ntags: [配角]\ntype: 人物\n---\n罗霄管档案室。\n",
+    (v / "设定/人物/主要角色" / "苏芷.md").write_text(
+        "---\nname: 苏芷\ntags: [主角]\ntype: 人物\nlocked: true\n"
+        "description: 绒花科学院研究员。\n---\n苏芷擅长冰封术。\n", encoding="utf-8")
+    (v / "设定/人物/主要角色" / "祁砚.md").write_text(
+        "---\nname: 祁砚\ntags: [配角]\ntype: 人物\n---\n祁砚管档案室。\n",
         encoding="utf-8")
-    (v / "设定/地点" / "沙都.md").write_text(
-        "---\nname: 沙都\ntype: 地点\n---\n沙都分七区。\n", encoding="utf-8")
-    (v / "设定/概念" / "绒花帝国魔法管制法.md").write_text(
-        "---\nname: 绒花帝国魔法管制法\ntype: 概念\n---\n法规正文。\n",
+    (v / "设定/地点" / "砾城.md").write_text(
+        "---\nname: 砾城\ntype: 地点\n---\n砾城分七区。\n", encoding="utf-8")
+    (v / "设定/概念" / "灰羽帝国魔法管制法.md").write_text(
+        "---\nname: 灰羽帝国魔法管制法\ntype: 概念\n---\n法规正文。\n",
         encoding="utf-8")
     (v / "年表" / "大事记.md").write_text(
         "---\nname: 大事记\n---\n某年冬，封锁开始。\n", encoding="utf-8")
@@ -149,21 +149,21 @@ _ticket(char_names=[c["name"] for c in sc["characters"]],
         return
     chars, world = p["char_names"], p["world_names"]
     print(f"  characters={chars}\n  world={world}  timeline={p['timeline_names']}")
-    check("F1 角色恰为 2 个（露汐/罗霄）", len(chars) == 2 and set(chars) == {"露汐", "罗霄"},
+    check("F1 角色恰为 2 个（苏芷/祁砚）", len(chars) == 2 and set(chars) == {"苏芷", "祁砚"},
           f"→ {chars}")
     check("F1 **无重复**（每个名字只出现一次）",
           len(chars) == len(set(chars)), f"→ {chars}")
-    check("F1 **地点未被当成角色**（沙都不在 characters）", "沙都" not in chars,
+    check("F1 **地点未被当成角色**（砾城不在 characters）", "砾城" not in chars,
           f"→ 污染: {chars}")
     check("F1 **概念未被当成角色**（管制法不在 characters）",
-          "绒花帝国魔法管制法" not in chars, f"→ 污染: {chars}")
-    check("F1 地点正确归入 world", "沙都" in world, f"→ {world}")
-    check("F1 概念正确归入 world", "绒花帝国魔法管制法" in world, f"→ {world}")
+          "灰羽帝国魔法管制法" not in chars, f"→ 污染: {chars}")
+    check("F1 地点正确归入 world", "砾城" in world, f"→ {world}")
+    check("F1 概念正确归入 world", "灰羽帝国魔法管制法" in world, f"→ {world}")
     check("F1 时间线独立归类（不混入 characters/world）",
           p["timeline_names"] == ["大事记"]
           and "大事记" not in chars and "大事记" not in world,
           f"→ {p['timeline_names']}")
-    check("F1 locked 检出且不重复", p["locked"] == ["露汐"], f"→ {p['locked']}")
+    check("F1 locked 检出且不重复", p["locked"] == ["苏芷"], f"→ {p['locked']}")
     check("F1 meta 计数与列表一致",
           p["counts"]["character_count"] == len(chars)
           and p["counts"]["world_count"] == len(world),
@@ -172,14 +172,14 @@ _ticket(char_names=[c["name"] for c in sc["characters"]],
 
 
 def case_scan_parent_dir_glob_only():
-    """F1 反向验证：父目录 `03 设定` 只 glob，不递归；直接子文件仍收编。
+    """F1 反向验证：父目录 `world` 只 glob，不递归；直接子文件仍收编。
 
     这是修复的核心机制 —— 若把父目录改回 rglob，污染立刻回来。
     """
     print("\n【F1b】父目录只 glob（直接子文件收编，子类目不递归）")
     root = build_sandbox("nf_oi_f1b_")
     v = make_vault(root)
-    # 直接放在 03 设定 下的松散文件（应被兜底收编为 world，而不是被漏掉）
+    # 直接放在 world 下的松散文件（应被兜底收编为 world，而不是被漏掉）
     (v / "设定" / "散装说明.md").write_text(
         "---\nname: 散装说明\n---\n直接放在父目录下的条目。\n", encoding="utf-8")
     code = PRELUDE + '''
@@ -343,8 +343,8 @@ def case_check_consistency_is_honest():
     code = PRELUDE + '''
 import obsidian_bridge as ob
 sc = ob.scan_vault(os.environ["V"])
-txt = ("露汐与暮雨在沙都对峙，暮雨质问封锁法令。暮雨说这里不该有封锁。"
-       "露汐沉默，暮雨继续追问，暮雨的声音在沙都的回廊里回荡。")
+txt = ("苏芷与观澜在砾城对峙，观澜质问封锁法令。观澜说这里不该有封锁。"
+       "苏芷沉默，观澜继续追问，观澜的声音在砾城的回廊里回荡。")
 cc = ob.check_consistency(txt, vault_data=sc)
 _ticket(keys=sorted(cc.keys()),
         implemented=cc.get("implemented"),
@@ -373,12 +373,12 @@ _ticket(keys=sorted(cc.keys()),
           f"→ {p['unimplemented']}")
     check("F5 带 caveat 说明（空结果 ≠ 无问题）",
           "不代表" in p["caveat"] or "未实现" in p["caveat"], f"→ {p['caveat'][:60]}")
-    check("F5 **滑动窗口召回了未登记角色「暮雨」**（旧贪心切片恒为空）",
-          "暮雨" in p["warn_names"], f"→ {p['warn_names']}")
+    check("F5 **滑动窗口召回了未登记角色「观澜」**（旧贪心切片恒为空）",
+          "观澜" in p["warn_names"], f"→ {p['warn_names']}")
     check("F5 已知角色未被误报为疑似新角色",
-          not any(n in ("露汐", "罗霄") for n in p["warn_names"]),
+          not any(n in ("苏芷", "祁砚") for n in p["warn_names"]),
           f"→ 误报 {p['warn_names']}")
-    check("F5 已知地点未被误报", "沙都" not in p["warn_names"], f"→ {p['warn_names']}")
+    check("F5 已知地点未被误报", "砾城" not in p["warn_names"], f"→ {p['warn_names']}")
     check("F5 conflicts 仍为空（诚实标注未实现）", p["conflicts"] == [])
     check("F5 设定集不存在 → locked 检查回报「未生效」，不伪造「通过」",
           p["locked"] == [] and p["locked_checked"] is False,
@@ -474,37 +474,37 @@ def case_refine_outline_ok_path():
     good = """# 《测试书》整体大纲
 
 ## 起
-露汐在绒花帝国魔法学院授课时收到一封来源不明的信，信纸上有旧案编号。
+苏芷在灰羽帝国魔法学院授课时收到一封来源不明的信，信纸上有旧案编号。
 
 ## 承
-她前往沙都档案馆调查，在回廊遭遇阻拦，与档案员罗霄发生对峙，冲突升级。
+她前往砾城档案馆调查，在回廊遭遇阻拦，与档案员祁砚发生对峙，冲突升级。
 
 ## 转
-调查触及高层利益，露汐被停职，学院内传出关于她的谣言，危机达到顶点。
+调查触及高层利益，苏芷被停职，学院内传出关于她的谣言，危机达到顶点。
 
 ## 合
 她在旧友帮助下取得关键证据，真相揭开后选择公开并留在学院继续任教。
 
 ## 关键节点
-- 节点1：第1-3章 露汐在学院授课时收到匿名信，发现信纸上有旧案编号，决定私下追查。
-- 节点2：第4-6章 她前往沙都档案馆调查，在档案室遭遇罗霄阻拦并发生对峙。
-- 节点3：第7-9章 调查触及高层利益，露汐被停职，学院内传出关于她的谣言。
+- 节点1：第1-3章 苏芷在学院授课时收到匿名信，发现信纸上有旧案编号，决定私下追查。
+- 节点2：第4-6章 她前往砾城档案馆调查，在档案室遭遇祁砚阻拦并发生对峙。
+- 节点3：第7-9章 调查触及高层利益，苏芷被停职，学院内传出关于她的谣言。
 - 节点4：第10-11章 她在旧友帮助下拿到关键证据，但证据在移交途中被夺。
-- 节点5：第12-13章 真相揭开，露汐选择公开证据并留在学院继续任教。
+- 节点5：第12-13章 真相揭开，苏芷选择公开证据并留在学院继续任教。
 
 ## 预计章节数
 5
 
 ## 章节规划
-- 第1-3章（铺垫）：露汐日常与匿名信登场，交代学院与沙都的地理关系。
-- 第4-6章（推进）：沙都档案馆调查与罗霄对峙，冲突第一次升级。
-- 第7-9章（转折）：露汐被停职与孤立，学院内部谣言四起。
+- 第1-3章（铺垫）：苏芷日常与匿名信登场，交代学院与砾城的地理关系。
+- 第4-6章（推进）：砾城档案馆调查与祁砚对峙，冲突第一次升级。
+- 第7-9章（转折）：苏芷被停职与孤立，学院内部谣言四起。
 - 第10-11章（推进）：关键证据的得与失，旧友关系受到考验。
-- 第12-13章（收束）：真相揭开与露汐的最终选择。
+- 第12-13章（收束）：真相揭开与苏芷的最终选择。
 """
     (root / "data" / "outline" / "global.md").write_text(good, encoding="utf-8")
     (root / "data" / "setting" / "setting.json").write_text(json.dumps({
-        "characters": [{"name": "露汐"}, {"name": "罗霄"}],
+        "characters": [{"name": "苏芷"}, {"name": "祁砚"}],
         "world": {}, "plot_fragments": [], "timeline": []}, ensure_ascii=False),
         encoding="utf-8")
     code = PRELUDE + '''

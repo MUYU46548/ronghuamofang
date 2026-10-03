@@ -93,7 +93,7 @@ def build_env(tmp):
 
     setting = {
         "characters": [
-            {"name": "露汐", "aliases": ["小汐", "汐"], "description": "女主"},
+            {"name": "苏芷", "aliases": ["小汐", "汐"], "description": "女主"},
             {"name": "沈砚", "aliases": ["砚哥"], "description": "男主"},
         ],
         "world": [], "plot_fragments": [], "timeline": [],
@@ -141,7 +141,7 @@ def main():
         print("\n[4] 格式一致性")
         fmt = pf.check_format(CH_PUNCT + "他说１２３次，又说 123 次。", 2, pf.load_setting())
         ok(any("全角数字" in f["detail"] for f in fmt), "命中全半角数字混用")
-        fmt_alias = pf.check_format("露汐看了小汐一眼，又看小汐。", 1, pf.load_setting())
+        fmt_alias = pf.check_format("苏芷看了小汐一眼，又看小汐。", 1, pf.load_setting())
         ok(any("多种称法" in f["detail"] for f in fmt_alias), "命中角色别名混用")
         fmt_title = pf.check_format("正文没有标题。", 9, {})
         ok(any("章节标题" in f["detail"] for f in fmt_title), "命中缺章节标题")

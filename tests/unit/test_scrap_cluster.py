@@ -38,30 +38,30 @@ def make_dir():
 
 # 自由命名样本：故意用 6 种完全不同的命名风格（无分隔符、空格、日期在中间、纯英文、中文括号、下划线）
 FREE_NAMES = {
-    "月神那点事": """
+    "潮神那点事": """
 2024年3月5日
 
-月神这个人，沉默到让人害怕。他造了月兔，却没给他们同类。
+潮神这个人，沉默到让人害怕。他造了鲸民，却没给他们同类。
 待定：他左耳那道抓痕是谁留的？以后再想。
-月兔文明被月面大结界罩着，外面探不进来。
+鲸民文明被穹顶结界罩着，外面探不进来。
 """,
-    "2024-03-09 月兔密室": """
-月兔密室在月兔之城下面。月神几乎不去正殿，只在书房待着。
-月兔对月神的称呼还没定，先这样。
+    "2024-03-09 鲸民密室": """
+鲸民密室在鲸民之城下面。潮神几乎不去正殿，只在书房待着。
+鲸民对潮神的称呼还没定，先这样。
 """,
-    "梦琴 半夜想到的": """
-梦琴的手指按在琴弦上，声音是斜的。
-这个角色和月神没关系，她是正弦司的人。回头再补她的背景。
+    "商羽 半夜想到的": """
+商羽的手指按在琴弦上，声音是斜的。
+这个角色和潮神没关系，她是澄源司的人。回头再补她的背景。
 """,
-    "歌唯(乐器店)": """
-歌唯开乐器店。她卖的不是乐器，是别人弹过的记忆。这和月神无关。
+    "回声(乐器店)": """
+回声开乐器店。她卖的不是乐器，是别人弹过的记忆。这和潮神无关。
 """,
     "notes_about_sine": """
-正弦司是一个组织。它和梦琴有关系，但和月神没有关系。
+澄源司是一个组织。它和商羽有关系，但和潮神没有关系。
 """,
     "3月12日": """
-月神在正殿高背椅上坐了整整一夜。月兔们不敢抬头。
-月兔密室的钥匙在谁手里，待确认。
+潮神在正殿高背椅上坐了整整一夜。鲸民们不敢抬头。
+鲸民密室的钥匙在谁手里，待确认。
 """,
 }
 
@@ -69,20 +69,20 @@ FREE_NAMES = {
 def case_timestamp():
     print("\n=== 1. 时间戳三级回退（自由命名）===")
     d = make_dir()
-    write(Path(d) / "月神那点事.md", FREE_NAMES["月神那点事"])
-    write(Path(d) / "2024-03-09 月兔密室.md", FREE_NAMES["2024-03-09 月兔密室"])
+    write(Path(d) / "潮神那点事.md", FREE_NAMES["潮神那点事"])
+    write(Path(d) / "2024-03-09 鲸民密室.md", FREE_NAMES["2024-03-09 鲸民密室"])
     write(Path(d) / "无日期随便写写.md", "这里没有任何日期。\n")
     write(Path(d) / "正文里才有日期.md", "2025年7月1日\n今天想到一件事。\n")
-    write(Path(d) / "3月12日.md", "月神坐了整夜。\n")
-    write(Path(d) / "0312.md", "月兔不敢抬头。\n")
+    write(Path(d) / "3月12日.md", "潮神坐了整夜。\n")
+    write(Path(d) / "0312.md", "鲸民不敢抬头。\n")
     write(Path(d) / "20250406.md", "正殿无人。\n")
     write(Path(d) / "第0312条草稿.md", "这里的 0312 不是日期，不该被当成日期。\n")
 
     by_name = {s.name: s for s in sc.scan_scraps(d)[0]}
     check("文件名含中文年月日 → source=filename",
-          by_name["月神那点事.md"].ts == "2024-03-05", by_name["月神那点事.md"].ts)
+          by_name["潮神那点事.md"].ts == "2024-03-05", by_name["潮神那点事.md"].ts)
     check("文件名含 ISO 日期 → 解出正确 ts",
-          by_name["2024-03-09 月兔密室.md"].ts == "2024-03-09")
+          by_name["2024-03-09 鲸民密室.md"].ts == "2024-03-09")
     check("正文首行日期 → source=content",
           by_name["正文里才有日期.md"].ts == "2025-07-01"
           and by_name["正文里才有日期.md"].ts_source == "content")
@@ -115,9 +115,9 @@ def case_free_naming():
     check("6 种命名风格全部被扫描到", len(scraps) == 6, len(scraps))
     hints = {s.stem: s.topic_hint for s in scraps}
     check("无分隔符中文名 → 提示退化为整个文件名（弱信号，仅作佐证）",
-          hints.get("月神那点事") == "月神那点事", hints.get("月神那点事"))
+          hints.get("潮神那点事") == "潮神那点事", hints.get("潮神那点事"))
     check("日期在名首 → 日期被剥离，不留残渣",
-          hints.get("2024-03-09 月兔密室") == "月兔密室", hints.get("2024-03-09 月兔密室"))
+          hints.get("2024-03-09 鲸民密室") == "鲸民密室", hints.get("2024-03-09 鲸民密室"))
     check("纯英文名 → 提示可取", hints.get("notes_about_sine") == "notes", hints.get("notes_about_sine"))
     check("纯月日名 → 无提示（不误当主题）", hints.get("3月12日") == "", hints.get("3月12日"))
     check("命名提示单独命中不足以成簇（自由命名不可靠）", sc.HINT_ONLY_SCORE is False)
@@ -131,17 +131,17 @@ def case_clustering():
         write(Path(d) / (name + ".md"), text)
     index, _ = sc.collect(d)
     clusters = {c["name"]: c for c in index["clusters"]}
-    yueshen = next((c for c in index["clusters"] if "月神那点事.md" in [s["name"] for s in c["scraps"]]), None)
-    check("讲月神的多个碎片被合并成一簇",
+    yueshen = next((c for c in index["clusters"] if "潮神那点事.md" in [s["name"] for s in c["scraps"]]), None)
+    check("讲潮神的多个碎片被合并成一簇",
           yueshen is not None and yueshen["count"] >= 3, yueshen and yueshen["count"])
     check("合并簇带可审计的合并证据",
           bool(yueshen and yueshen["evidence"]), yueshen and yueshen["evidence"][:1])
     mq = next((c for c in index["clusters"]
-               if "梦琴 半夜想到的.md" in [s["name"] for s in c["scraps"]]), None)
-    check("梦琴/正弦司 与月神簇相互独立",
+               if "商羽 半夜想到的.md" in [s["name"] for s in c["scraps"]]), None)
+    check("商羽/澄源司 与潮神簇相互独立",
           mq is not None and yueshen is not None and mq["name"] != yueshen["name"],
           mq and mq["name"])
-    check("梦琴与正弦司两条笔记合并（正确的一簇）",
+    check("商羽与澄源司两条笔记合并（正确的一簇）",
           mq is not None and mq["count"] == 2, mq and mq["count"])
     check("关键词已剔除跨词边界垃圾 n-gram",
           all(not any(ch in sc.FUNC_CHARS for ch in kw) for kw in (yueshen or {}).get("keywords", [])),
@@ -170,19 +170,19 @@ def case_negative_clustering():
 def case_negation():
     print("\n=== 4b. 排除性语境：「这和X无关」不应被当成关于X的证据 ===")
     d = make_dir()
-    write(Path(d) / "甲.md", "月神造了月兔。\n")
-    write(Path(d) / "乙.md", "月兔密室的钥匙在谁手里。\n")
-    write(Path(d) / "丙.md", "这个角色和月神无关，她是正弦司的人。\n")
+    write(Path(d) / "甲.md", "潮神造了鲸民。\n")
+    write(Path(d) / "乙.md", "鲸民密室的钥匙在谁手里。\n")
+    write(Path(d) / "丙.md", "这个角色和潮神无关，她是澄源司的人。\n")
     index, _ = sc.collect(d)
     clusters = {c["name"]: c for c in index["clusters"]}
     bing = next(c for c in index["clusters"] if "丙.md" in [s["name"] for s in c["scraps"]])
-    check("丙 未被并进月神簇（否定词已被剔除）", bing["count"] == 1, bing["count"])
-    check("丙 的关键词里不含被否定的「月神」",
-          "月神" not in bing["scraps"][0]["keywords"], bing["scraps"][0]["keywords"])
+    check("丙 未被并进潮神簇（否定词已被剔除）", bing["count"] == 1, bing["count"])
+    check("丙 的关键词里不含被否定的「潮神」",
+          "潮神" not in bing["scraps"][0]["keywords"], bing["scraps"][0]["keywords"])
     check("被剔除的否定词被透明记录（可人工复核）",
-          "月神" in bing["scraps"][0]["negated"], bing["scraps"][0]["negated"])
+          "潮神" in bing["scraps"][0]["negated"], bing["scraps"][0]["negated"])
     ab = next((c for c in index["clusters"] if "甲.md" in [s["name"] for s in c["scraps"]]), None)
-    check("甲/乙 仍因共享「月兔」合并", ab and ab["count"] == 2, ab and ab["count"])
+    check("甲/乙 仍因共享「鲸民」合并", ab and ab["count"] == 2, ab and ab["count"])
     shutil.rmtree(d, ignore_errors=True)
 
 
@@ -190,11 +190,11 @@ def case_lookahead():
     print("\n=== 5. 前瞻备忘识别 ===")
     d = make_dir()
     write(Path(d) / "备忘.md", "\n".join([
-        "月神造了月兔。",
+        "潮神造了鲸民。",
         "待定：他左耳的抓痕是谁留的",
         "> 引用行里的待定不该被当作备忘",
         "以后再想他的真名",
-        "TODO 补一段月兔对月神的称呼",
+        "TODO 补一段鲸民对潮神的称呼",
         "回头再说",
     ]))
     s = sc.scan_scraps(d)[0][0]
@@ -208,7 +208,7 @@ def case_lookahead():
 def case_skip_noise():
     print("\n=== 6. 忽略备份目录/隐藏文件/非文本 ===")
     d = make_dir()
-    write(Path(d) / "正常.md", "月神与月兔。\n")
+    write(Path(d) / "正常.md", "潮神与鲸民。\n")
     write(Path(d) / "_backup" / "旧版.md", "备份内容不该进索引。\n")
     write(Path(d) / ".hidden.md", "隐藏文件不该进索引。\n")
     write(Path(d) / "图.png", "not really an image")
@@ -221,8 +221,8 @@ def case_skip_noise():
 def case_fingerprint():
     print("\n=== 7. content_fingerprint 稳定性（防误判重归并）===")
     d = make_dir()
-    write(Path(d) / "a.md", "月神沉默寡言。\n")
-    write(Path(d) / "b.md", "月兔不敢抬头。\n")
+    write(Path(d) / "a.md", "潮神沉默寡言。\n")
+    write(Path(d) / "b.md", "鲸民不敢抬头。\n")
     i1 = sc.collect(d)[0]
     time.sleep(0.01)
     os.utime(Path(d) / "a.md", (os.path.getmtime(Path(d) / "a.md") + 100,)*2)  # 改 mtime
@@ -231,7 +231,7 @@ def case_fingerprint():
           i1["content_fingerprint"] == i2["content_fingerprint"])
     check("generated_at 存在但未参与指纹",
           i1["generated_at"] != "" and i1["content_fingerprint"].startswith("sha256:"))
-    write(Path(d) / "a.md", "月神沉默寡言。他改了。\n")
+    write(Path(d) / "a.md", "潮神沉默寡言。他改了。\n")
     i3 = sc.collect(d)[0]
     check("正文改动 → 指纹变化（会触发重归并）",
           i3["content_fingerprint"] != i1["content_fingerprint"])
@@ -245,7 +245,7 @@ def case_fingerprint():
 def case_encoding_and_edges():
     print("\n=== 8. 编码回退与边界 ===")
     d = make_dir()
-    (Path(d) / "gbk.md").write_bytes("月神用GBK编码写的一句话。".encode("gbk"))
+    (Path(d) / "gbk.md").write_bytes("潮神用GBK编码写的一句话。".encode("gbk"))
     scraps, warns = sc.scan_scraps(d)
     check("GBK 碎片能被读入（编码回退链生效）", len(scraps) == 1, warns)
     check("空文本碎片不崩", sc.collect(d)[0]["stats"]["scrap_count"] == 1)

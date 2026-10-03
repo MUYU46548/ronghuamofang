@@ -93,28 +93,28 @@ OUTLINE_BAD = """# 《测试书》整体大纲
 OUTLINE_GOOD = """# 《测试书》整体大纲
 
 ## 起
-露汐在沙都医院发现匿名信，决定独自追查寄信人的身份，与守卫发生冲突。
+苏芷在砾城医院发现匿名信，决定独自追查寄信人的身份，与守卫发生冲突。
 
 ## 承
-线索指向旧档案室，露汐与阿砚在雨夜潜入，撞见管理员正在焚毁卷宗。
+线索指向旧档案室，苏芷与阿砚在雨夜潜入，撞见管理员正在焚毁卷宗。
 
 ## 转
-真相揭开：匿名信出自她已故的母亲，信中藏着沙都供水改道的秘密。
+真相揭开：匿名信出自她已故的母亲，信中藏着砾城供水改道的秘密。
 
 ## 合
-露汐在议会上公开证据，代价是失去唯一的栖身之所，但她把秘密交给了值得的人。
+苏芷在议会上公开证据，代价是失去唯一的栖身之所，但她把秘密交给了值得的人。
 
 ## 关键节点
-- 露汐在沙都医院发现匿名信，决定追查寄信人。
-- 露汐与阿砚潜入旧档案室，撞见管理员焚毁卷宗。
-- 母亲遗信揭开沙都供水改道的秘密。
-- 露汐在议会上公开证据，失去栖身之所。
+- 苏芷在砾城医院发现匿名信，决定追查寄信人。
+- 苏芷与阿砚潜入旧档案室，撞见管理员焚毁卷宗。
+- 母亲遗信揭开砾城供水改道的秘密。
+- 苏芷在议会上公开证据，失去栖身之所。
 
 ## 预计章节数
 12
 
 ## 章节规划
-- 第1章 匿名信：露汐在医院值夜时拾到一封没有署名的信。
+- 第1章 匿名信：苏芷在医院值夜时拾到一封没有署名的信。
 - 第2章 夜探档案室：与阿砚潜入，撞破焚毁卷宗的场景。
 - 第3章 母亲的笔迹：辨认出笔迹，动摇对父亲之死的认知。
 - 第4章 供水改道：查到工程账目与议会的关联。
@@ -133,7 +133,7 @@ def build_project():
     (tmp / "data" / "outline" / "history").mkdir(parents=True)
     (tmp / "data" / "setting").mkdir(parents=True)
     (tmp / "data" / "setting" / "setting.json").write_text(json.dumps({
-        "characters": [{"name": "露汐", "aliases": [], "description": "女主"},
+        "characters": [{"name": "苏芷", "aliases": [], "description": "女主"},
                        {"name": "阿砚", "aliases": [], "description": "同伴"}],
         "world": [], "plot_fragments": [], "timeline": [],
     }, ensure_ascii=False), encoding="utf-8")
@@ -145,7 +145,7 @@ def build_project():
     subprocess.run([str(PY), "-c",
                     "import sys; sys.path.insert(0,'scripts');"
                     "from obsidian_bridge import write_sandbox as w;"
-                    "print(w('词条_露汐.md', '# 露汐\\n\\n沙都医院的夜班护士。\\n', kind='entry'));"
+                    "print(w('词条_苏芷.md', '# 苏芷\\n\\n砾城医院的夜班护士。\\n', kind='entry'));"
                     "print(w('词条_阿砚.md', '# 阿砚\\n\\n档案室的旧识。\\n', kind='entry'))"],
                    cwd=str(tmp), capture_output=True, text=True, encoding="utf-8")
     return tmp
@@ -236,7 +236,7 @@ def main():
         check("页面顶部能看到「审核」页签", rep.get("tabExists") is True,
               rep.get("tabText"))
         check("审核页签渲染出队列（含两份产物路径）",
-              "词条_露汐.md" in (rep.get("sandboxText") or "")
+              "词条_苏芷.md" in (rep.get("sandboxText") or "")
               and "词条_阿砚.md" in (rep.get("sandboxText") or ""),
               (rep.get("sandboxText") or "")[:220])
         check("页面明示「不会写入 Obsidian」的边界",

@@ -139,10 +139,10 @@ OUTLINE_BAD = """# 《测试书》整体大纲
 OUTLINE_GOOD = """# 《测试书》整体大纲
 
 ## 起
-露汐在沙都医院发现匿名信，决定追查。
+苏芷在砾城医院发现匿名信，决定追查。
 
 ## 承
-与罗霄对峙，冲突升级。
+与祁砚对峙，冲突升级。
 
 ## 转
 调查触及高层，她被停职。
@@ -151,13 +151,13 @@ OUTLINE_GOOD = """# 《测试书》整体大纲
 真相揭开，她选择留下。
 
 ## 关键节点
-- 节点1：第1章 露汐在沙都的医院里发现那封匿名信，与罗霄在回廊发生对峙，冲突迅速升级，她决定追查真相并封锁消息。
+- 节点1：第1章 苏芷在砾城的医院里发现那封匿名信，与祁砚在回廊发生对峙，冲突迅速升级，她决定追查真相并封锁消息。
 
 ## 预计章节数
 1
 
 ## 章节规划
-- 第1章（铺垫）：露汐在沙都医院发现匿名信，与罗霄对峙后冲突升级，她决定追查并封锁消息，交代学院与沙都的关系。
+- 第1章（铺垫）：苏芷在砾城医院发现匿名信，与祁砚对峙后冲突升级，她决定追查并封锁消息，交代学院与砾城的关系。
 """
 
 
@@ -175,7 +175,7 @@ def build_project():
     refined.mkdir(parents=True)
     (tmp / "data" / "setting").mkdir(parents=True)
     (tmp / "data" / "setting" / "setting.json").write_text(json.dumps({
-        "characters": [{"name": "露汐", "aliases": ["小汐"], "description": "女主"}],
+        "characters": [{"name": "苏芷", "aliases": ["小汐"], "description": "女主"}],
         "world": [], "plot_fragments": [], "timeline": [],
     }, ensure_ascii=False), encoding="utf-8")
     for n in (1, 2, 3):
@@ -401,7 +401,7 @@ def main():
               code in (200, 400) and "ok" in d, (code, str(d)[:180]))
 
         print("\n=== 5b. 本轮修好的两个断线端点 ===")
-        GOOD_CH = "# 第1章 测试大纲\n\n- 核心事件：主角收到一封旧信\n- 涉及角色：露汐（女主）\n"
+        GOOD_CH = "# 第1章 测试大纲\n\n- 核心事件：主角收到一封旧信\n- 涉及角色：苏芷（女主）\n"
         code, d = req("POST", "/outline/chapters/save", {"n": 1, "content": GOOD_CH})
         check("POST /outline/chapters/save → 200（此前 404，ChapterBlueprint 保存全废）",
               code == 200 and d.get("ok"), (code, str(d)[:180]))

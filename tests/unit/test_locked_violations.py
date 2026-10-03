@@ -35,8 +35,8 @@ from utils import setting_schema as ss  # noqa: E402
 
 PASS, FAIL = [], []
 
-VAULT_PATH = "03 设定\\01 人物\\01 主要角色\\露汐.md"
-OTHER_PATH = "03 设定\\01 人物\\01 主要角色\\罗霄.md"
+VAULT_PATH = "world\\characters\\01 主要角色\\苏芷.md"
+OTHER_PATH = "world\\characters\\01 主要角色\\祁砚.md"
 
 
 def check(name, cond, extra=""):
@@ -47,7 +47,7 @@ def check(name, cond, extra=""):
         print(f"  [FAIL] {name}  → {extra}")
 
 
-def _vault(locked=True, name="露汐"):
+def _vault(locked=True, name="苏芷"):
     """构造最小 vault_data（不依赖 scan_vault，隔离被测函数）。"""
     return {"characters": [{"name": name, "path": VAULT_PATH,
                             "type": "人物", "tags": ["主角"],
@@ -84,7 +84,7 @@ def main():
 
     # ---------------- 判据 1：missing ----------------
     print("\n【1】missing —— locked 条目在设定集中消失")
-    full = [{"name": "露汐", "path": VAULT_PATH, "locked": True,
+    full = [{"name": "苏芷", "path": VAULT_PATH, "locked": True,
              "role": "研究员", "traits": ["冷静"]}]
     rep = run_case("完整保留", _vault(), full)
     check("locked 条目被完整保留时不报违例", rep["violations"] == [],
@@ -93,7 +93,7 @@ def main():
           rep["checked"] is True and rep["matched"] == 1,
           f"checked={rep['checked']} matched={rep['matched']}")
 
-    rep = run_case("条目缺失", _vault(), [{"name": "罗霄", "path": OTHER_PATH}])
+    rep = run_case("条目缺失", _vault(), [{"name": "祁砚", "path": OTHER_PATH}])
     check("locked 条目缺失 → 报 missing",
           any(v["type"] == "missing" for v in rep["violations"]), rep["violations"])
     check("缺失时 matched=0", rep["matched"] == 0, rep["matched"])
@@ -101,17 +101,17 @@ def main():
     # ---------------- 判据 2：lock_lost ----------------
     print("\n【2】lock_lost —— 条目还在，但 locked 标志丢了（静默降级）")
     rep = run_case("丢锁定", _vault(),
-                   [{"name": "露汐", "path": VAULT_PATH, "locked": False,
+                   [{"name": "苏芷", "path": VAULT_PATH, "locked": False,
                      "role": "研究员"}])
     check("同名条目 locked 丢失 → 报 lock_lost",
           any(v["type"] == "lock_lost" for v in rep["violations"]), rep["violations"])
 
     rep = run_case("locking 写成字符串 'true'", _vault(),
-                   [{"name": "露汐", "path": VAULT_PATH, "locked": "true"}])
+                   [{"name": "苏芷", "path": VAULT_PATH, "locked": "true"}])
     check("locked 为字符串 'true' → 视为真，不误报",
           rep["violations"] == [], rep["violations"])
 
-    rep = run_case("缺 locked 字段", _vault(), [{"name": "露汐", "path": VAULT_PATH}])
+    rep = run_case("缺 locked 字段", _vault(), [{"name": "苏芷", "path": VAULT_PATH}])
     check("条目没有 locked 字段 → 报 lock_lost（默认已解锁）",
           any(v["type"] == "lock_lost" for v in rep["violations"]), rep["violations"])
 
@@ -122,8 +122,8 @@ def main():
     check("同 path 换名 → 报 renamed",
           any(v["type"] == "renamed" for v in rep["violations"]), rep["violations"])
 
-    rep = run_case("别名形态（露汐 → 露汐（神格））", _vault(),
-                   [{"name": "露汐（神格）", "locked": True}])
+    rep = run_case("别名形态（苏芷 → 苏芷（神序））", _vault(),
+                   [{"name": "苏芷（神序）", "locked": True}])
     check("别名形态不算改名（base_name 相同）", rep["violations"] == [],
           rep["violations"])
 
