@@ -116,6 +116,7 @@ import yaml  # noqa: E402
 from orchestrator import run as orch_run  # noqa: E402
 from utils.progress_manager import ProgressManager  # noqa: E402
 from utils.db import RunDB  # noqa: E402
+from utils import agent_guard  # noqa: E402 (Agent 模式守卫：与 CLI 侧同一份判据)
 from utils.llm_client import _load_env_file  # noqa: E402
 # project.yaml 定向读写（模块级导入：do_GET/do_POST 多个分支共用，禁止在函数内裸 import）
 from utils.project_config import get_project_config as pc_get_config  # noqa: E402
@@ -230,17 +231,14 @@ _set_root(_resolve_root())
 AUDIT_LOG_PATH = "data/state/agent_audit.jsonl"
 
 def _log_audit(path, method="POST", status=200, source="gui", detail=""):
-    """记录 API 调用审计日志（Agent 调用时 source=agent）"""
-    try:
-        import json as _json
-        ts = time.strftime("%Y-%m-%dT%H:%M:%S")
-        entry = json.dumps({
-            "ts": ts, "method": method, "path": path,
-            "status": status, "source": source, "detail": str(detail)[:120]
-        }, ensure_ascii=False)
-        nf_append_text(str(Path(ROOT) / AUDIT_LOG_PATH), entry + "\n")
-    except Exception:
-        pass
+    """记录 API 调用审计日志（Agent 调用时 source=agent）。
+
+    实现委托给 `utils.agent_guard.log_audit`（**同一份格式与落盘路径**）——
+    CLI 侧的审批守卫（approve.py / reject.py）也要写同一本台账，
+    两处各写一份必然漂移（本项目在「判据写两遍」上栽过多次）。
+    """
+    agent_guard.log_audit(path, method=method, status=status, source=source,
+                          detail=detail, root=ROOT)
 
 JOB_TTL = 50           # 内存保留的最近 job 数
 LOCK = threading.Lock()
@@ -1808,17 +1806,14 @@ class Handler(BaseHTTPRequestHandler):
         # Agent 模式安全守卫：禁止外部 Agent 调用敏感操作
         # 仅当 agent_mode=true 且请求路径在禁止列表中时生效
         # GUI 请求（带 X-Mofang-Source: gui 头）不受限制
+        #
+        # 判据（禁止清单 / 模式判定 / 审计落盘）统一在 utils/agent_guard ——
+        # CLI 侧（approve.py / reject.py）用**同一份**，否则两边必然漂移出后门。
         request_source = self.headers.get("X-Mofang-Source", "").strip().lower()
         if request_source != "gui":
             cfg_check, _ = load_all()
-            if bool(cfg_check.get("gates", {}).get("agent_mode", False)):
-                # Agent 模式下禁止的 POST 操作
-                _FORBIDDEN_POST = {
-                    "/approve", "/reject",
-                    "/project/create", "/project/archive", "/project/restore", "/project/init",
-                    "/config/agent_mode",  # Agent 不得自行切换模式
-                }
-                if p in _FORBIDDEN_POST:
+            if agent_guard.agent_mode_enabled(cfg_check):
+                if agent_guard.is_forbidden_in_agent_mode(p):
                     _log_audit(p, "POST", 403, source="agent", detail="blocked")
                     self._send(403, {"ok": False,
                                      "error": "Agent 模式下禁止此操作（仅 GUI 可执行）"})

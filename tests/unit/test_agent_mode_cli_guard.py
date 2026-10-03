@@ -1,0 +1,235 @@
+# -*- coding: utf-8 -*-
+"""Agent 模式 CLI 守卫自检（P2，2026-10-03）。零 LLM、零网络。
+
+## 为什么需要
+
+`gates.agent_mode = true` 的语义（2026-09-21 用户确认）是：
+**外部 Agent 可读、可跑流水线，但不能代替用户审批**。
+
+HTTP 层早就有这个守卫（`/approve` 等 7 条路径 → 403），但**同一条禁令还有一条
+CLI 后门**：外部 Agent 完全可以直接
+
+    python scripts/approve.py --stage 2
+
+照着 AGENTS.md 的文档跑一条命令就替用户拍板了 —— 判据只写在 HTTP 层，
+CLI 层就是敞开的。本用例守两件事：
+
+1. **判据只有一份**（`utils/agent_guard`）：禁止清单、模式判定、审计落盘，
+   HTTP 与 CLI 共用；任一侧改动都会让另一侧的行为断言变红。
+2. **拒绝发生在任何写操作之前**：progress.json 不许被改（审批没落地）、
+   data/state/agent_audit.jsonl 要留下 blocked 记录。
+
+用法：python tests/unit/test_agent_mode_cli_guard.py
+"""
+import io
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "scripts"))
+
+from utils import agent_guard                                  # noqa: E402
+
+PASS, FAIL = [], []
+
+
+def check(name, cond, detail=""):
+    (PASS if cond else FAIL).append(name)
+    print("  [%s] %s%s" % ("PASS" if cond else "FAIL", name,
+                           ("  → " + str(detail)[:240]) if detail else ""))
+
+
+# ============================================================ 1. 共享判据
+def case_shared_predicate():
+    print("\n【1】共享判据：禁止清单 / 模式判定（HTTP 与 CLI 同一份）")
+    check("agent_mode 缺键 → 关闭（默认不改行为）",
+          agent_guard.agent_mode_enabled({}) is False)
+    check("gates.agent_mode=true → 开启",
+          agent_guard.agent_mode_enabled({"gates": {"agent_mode": True}}) is True)
+    check("gates 结构异常不抛（按关闭处理）",
+          agent_guard.agent_mode_enabled({"gates": None}) is False
+          and agent_guard.agent_mode_enabled(None) is False)
+    for p in ("/approve", "/reject", "/project/create", "/project/archive",
+              "/project/restore", "/project/init", "/config/agent_mode"):
+        check("禁止清单含 %s" % p, agent_guard.is_forbidden_in_agent_mode(p))
+    for p in ("/state", "/stage/4/run", "/outline/save", "/sandbox/review"):
+        check("只读/沙盒类不受限：%s" % p,
+              agent_guard.is_forbidden_in_agent_mode(p) is False)
+    check("来源归一：大小写/空白不影响判定",
+          agent_guard.normalize_source(" GUI ") == "gui")
+
+
+def case_human_evidence():
+    print("\n【2】「人工来源」的取证：TTY 必须两端都是，显式声明优先")
+    check("MOFANG_SOURCE=gui → 人工",
+          agent_guard.cli_human_evidence(source_env="gui", isatty=False)[0] is True)
+    check("MOFANG_SOURCE=agent → 非人工",
+          agent_guard.cli_human_evidence(source_env="agent", isatty=True)[0] is False)
+    check("两端都是 TTY → 人工",
+          agent_guard.cli_human_evidence(source_env="", isatty=(True, True))[0] is True)
+    check("**只有 stdin 是 TTY** → 非人工（输出被管道接管 = 被程序捕获）",
+          agent_guard.cli_human_evidence(source_env="", isatty=(True, False))[0] is False)
+    check("**只有 stdout 是 TTY** → 非人工（stdin 被喂数据 = 程序驱动）",
+          agent_guard.cli_human_evidence(source_env="", isatty=(False, True))[0] is False)
+    check("都不是 TTY → 非人工（外部 Agent 的典型形态）",
+          agent_guard.cli_human_evidence(source_env="", isatty=(False, False))[0] is False)
+    check("显式 --human → 人工（人在非交互环境里的逃生门）",
+          agent_guard.cli_human_evidence(source_env="", isatty=False,
+                                         explicit_human=True)[0] is True)
+    check("MOFANG_SOURCE=agent 优先于 --human（显式标了非人工，不许再自我加冕）",
+          agent_guard.cli_human_evidence(source_env="agent", isatty=False,
+                                         explicit_human=True)[0] is False)
+    check("拒绝文案可行动（给出三条出路）",
+          all(k in agent_guard.refusal_message("/approve", "证据", "approve.py")
+              for k in ("不是人工来源", "--human", "MOFANG_SOURCE=gui", "agent_mode")))
+
+
+# ============================================================ 3. CLI 真跑
+def build_root(agent_mode):
+    tmp = Path(tempfile.mkdtemp(prefix="nf_guard_"))
+    (tmp / "config").mkdir(parents=True)
+    (tmp / "data" / "state").mkdir(parents=True)
+    (tmp / "config" / "system.yaml").write_text(
+        "engine: hermes\ngates:\n  agent_mode: %s\n" % ("true" if agent_mode else "false"),
+        encoding="utf-8")
+    (tmp / "config" / "project.yaml").write_text(
+        'book:\n  name: "守卫测试书"\n', encoding="utf-8")
+    (tmp / "data" / "state" / "progress.json").write_text(
+        json.dumps({"project": "守卫测试书", "budget": {"paused": False},
+                    "stages": {"1": {"status": "done", "approved": False}}},
+                   ensure_ascii=False), encoding="utf-8")
+    return tmp
+
+
+def run_approve(tmp, extra_args=(), env_extra=None):
+    """在临时根跑 approve.py（管道捕获 = 无 TTY = 非人工形态）。"""
+    env = dict(os.environ)
+    env.pop("MOFANG_SOURCE", None)
+    env["PYTHONIOENCODING"] = "utf-8"
+    if env_extra:
+        env.update(env_extra)
+    proc = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "approve.py"), "--stage", "1",
+         *extra_args],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        cwd=str(tmp), env=env, timeout=120)
+    return proc
+
+
+def approved(tmp):
+    try:
+        data = json.loads((tmp / "data" / "state" / "progress.json").read_text("utf-8"))
+        return bool(data["stages"]["1"].get("approved"))
+    except Exception as e:                                    # noqa: BLE001
+        return "读取失败: %r" % e
+
+
+def audit_entries(tmp):
+    p = tmp / "data" / "state" / "agent_audit.jsonl"
+    if not p.exists():
+        return []
+    return [json.loads(ln) for ln in p.read_text(encoding="utf-8").splitlines() if ln.strip()]
+
+
+def case_cli_refuses_non_human():
+    print("\n【3】agent_mode=true 且非人工来源 → CLI 拒绝，且**不写任何东西**")
+    tmp = build_root(agent_mode=True)
+    try:
+        p = run_approve(tmp)
+        check("退出码非零（拒绝执行）", p.returncode == 1, p.returncode)
+        check("报错点明「不是人工来源」", "不是人工来源" in p.stdout, p.stdout[-300:])
+        check("报错给出三条出路（TTY / --human / MOFANG_SOURCE=gui）",
+              "--human" in p.stdout and "MOFANG_SOURCE=gui" in p.stdout
+              and "交互式终端" in p.stdout)
+        check("**审批没有被写入 progress.json**（守卫在任何写操作之前）",
+              approved(tmp) is False, approved(tmp))
+        entries = audit_entries(tmp)
+        check("审计台账留下 blocked 记录",
+              len(entries) == 1 and entries[0]["status"] == 403,
+              entries)
+        check("审计记录标出非人工来源", entries and entries[0]["source"] != "gui", entries)
+        p2 = run_approve(tmp, env_extra={"MOFANG_SOURCE": "agent"})
+        check("显式 MOFANG_SOURCE=agent 同样被拒", p2.returncode == 1, p2.returncode)
+        check("仍未被写入", approved(tmp) is False, approved(tmp))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def case_cli_allows_human():
+    print("\n【4】人工来源三条通道都要放行（守卫不能变成 Always-Break）")
+    tmp = build_root(agent_mode=True)
+    try:
+        p = run_approve(tmp, env_extra={"MOFANG_SOURCE": "gui"})
+        check("MOFANG_SOURCE=gui → 执行（approve 落地）", approved(tmp) is True,
+              p.stdout[-300:])
+
+        # --human 通道：重置 approved 再试
+        (tmp / "data" / "state" / "progress.json").write_text(
+            json.dumps({"project": "守卫测试书", "budget": {"paused": False},
+                        "stages": {"1": {"status": "done", "approved": False}}},
+                       ensure_ascii=False), encoding="utf-8")
+        p2 = run_approve(tmp, extra_args=("--human",))
+        check("显式 --human → 执行（approve 落地）", approved(tmp) is True,
+              p2.stdout[-300:])
+        entries = audit_entries(tmp)
+        check("放行也留痕（allowed）", any(e.get("status") == 0 for e in entries), entries)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def case_standard_mode_unaffected():
+    print("\n【5】反证：agent_mode=false 时 CLI 行为与改动前一致")
+    tmp = build_root(agent_mode=False)
+    try:
+        p = run_approve(tmp)
+        check("标准模式下裸调用照常执行（approve 落地）", approved(tmp) is True,
+              p.stdout[-300:])
+        check("标准模式**不写** Agent 审计台账（不制造噪音）",
+              audit_entries(tmp) == [], audit_entries(tmp))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def case_http_layer_uses_same_set():
+    print("\n【6】HTTP 层确实改用共享判据（源码断言，防两侧漂移）")
+    src = (ROOT / "scripts" / "nf_api.py").read_text(encoding="utf-8")
+    check("do_POST 守卫调用 agent_guard.is_forbidden_in_agent_mode",
+          "agent_guard.is_forbidden_in_agent_mode(p)" in src)
+    check("模式判定走 agent_guard.agent_mode_enabled",
+          "agent_guard.agent_mode_enabled(cfg_check)" in src)
+    check("禁止清单不再在 nf_api 里**另写一份**",
+          "_FORBIDDEN_POST = {" not in src)
+    check("审计落盘也委托共享实现",
+          "agent_guard.log_audit(" in src)
+    s = (ROOT / "scripts" / "approve.py").read_text(encoding="utf-8")
+    check("approve.py 有 agent_mode 守卫（CLI 后门已堵）",
+          "agent_guard.agent_mode_enabled" in s and "/approve" in s)
+
+
+def main():
+    print("=" * 62)
+    print("  Agent 模式 CLI 守卫自检（P2）")
+    print("=" * 62)
+    case_shared_predicate()
+    case_human_evidence()
+    case_cli_refuses_non_human()
+    case_cli_allows_human()
+    case_standard_mode_unaffected()
+    case_http_layer_uses_same_set()
+    print("\n" + "=" * 62)
+    print("  通过 %d / 失败 %d" % (len(PASS), len(FAIL)))
+    for f in FAIL:
+        print("   ✗ " + f)
+    print("=" * 62)
+    return 1 if FAIL else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
