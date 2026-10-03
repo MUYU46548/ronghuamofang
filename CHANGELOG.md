@@ -214,8 +214,7 @@ orchestrator 的收尾闸门（`gates.quality_gate`）。现：缺失 → FAIL +
 临时根上跑：名录唯一/相对/不逃逸 · keep 拒绝且文件仍在 · dry-run 不删 ·
 `--yes` 真删且 `--keep-last` 生效 · zip 内容正确且源文件未变 · 未知 id 退非零并列出可用项）。
 
-### 🧪 本轮新增自检（本批 6 个用例 / 194 断言，全部零 LLM）
-`test_config_io.py`（38）· `test_quality_gate_syntax.py`（10）·
+### 🧪 本轮新增自检（本批 6 个用例 / 194 断言，全部零 LLM）`test_config_io.py`（38）· `test_quality_gate_syntax.py`（10）·
 `test_token_limit_config.py`（50）· `test_desktop_quit_guard.py`（31）·
 `test_quality_checklist_gate.py`（20）· `test_artifacts.py`（31）；
 HTTP：`test_token_limit_api_http.py`（33）。
@@ -234,6 +233,44 @@ HTTP：`test_token_limit_api_http.py`（33）。
 
 **全量回归**：`nfctl test` **73/73 全通过**；`quality_gate` BLOCK 0 / WARN 39（未增）；
 `leak_scan` 0 命中；`prompts/` 全程未动。
+
+### 🔒 截断类失败不再自动重试（第二处「白烧」）
+
+`finish_reason == "length"` 时我们隔离残缺稿，但留下的只有**给人看**的 txt ——
+机器无从判断"这次失败是截断类"，于是 `auto_retry`（默认开、默认 2 轮）照样重试：
+**同一个 `max_tokens` 上限再跑一次只会再截断一次**，白烧一倍输入（几万~几十万 token）。
+现：截断时同时写机器可读标记 `data/state/truncated/last.json`（判据 = `utils/truncation`，
+写 `mark()` / 读 `after(阶段开始时刻)`，**按时间戳比较**而不是"文件存在" ——
+标记是累积的，只看存在会把之后每次失败都误判成截断）。orchestrator 的重试判据抽成纯函数
+`should_auto_retry()`：截断一票否决（开关开着也不重试），拒绝理由给出根因 + 为什么 + 该调哪个键。
+自检 `test_truncation_no_retry.py`（28 断言，含反证与「真实工作区的标记未被碰到」）。
+
+### 🔒 MCP 暴露面护栏（外部 Agent 够不着禁止端点）
+
+`tests/unit/test_mcp_approval_surface.py`（9 断言，零网络）：25 个工具**没有任何一个**
+指向 `agent_guard.FORBIDDEN_IN_AGENT_MODE` 的端点（含 `/config/token_limit`）·
+名字里不许出现禁止语义（防改名绕过）· `nf_mcp` 不另立禁止清单（单一事实来源在 `agent_guard`）·
+每个 HTTP 工具的端点在 `nf_api` 分发链里真实存在（防死工具）· 数量不写死。
+
+### 📚 AGENTS.md 撞到 64 KB 指令加载预算（静默截断 = 手册半失效）
+
+`AGENTS.md` 涨到 **66508 字节**，超过工作区指令预算 65536 —— 超限部分被**静默截断**，
+即《硬性约束》《能力边界》对自动加载本手册的助手**不可见**，且没有任何报错
+（本项目最忌讳的"静默失效"，这次发生在自己的手册上）。罪魁是《命令速查》那张 30 KB 的表。
+现整表迁到 **`docs/commands.md`**，`AGENTS.md` 只留常用六条 + 指针 →
+**66508 → 38123 字节**，预算之内。
+
+### 🔧 switch_book：说清「将操作哪个根」+ 修 CP936 管道下打印即崩
+
+`PROJECT_ROOT` 取自 `__file__`（不是 CWD），运行时**完全看不出来** —— 本轮就因此把真实工作区
+归档过一次（已逐文件核对恢复）。现在任何写操作之前先打印将操作的根，CWD 不同则明确提示；
+`--list` 不啰嗦。顺带修掉一个真 bug：新加的 `⚠` 在 cp936 管道下把命令打死
+（本脚本只在函数内延迟 import utils → 包级安全网尚未生效）→ `main()` 显式调一次 + 文案改 GBK 安全字符。
+`test_switch_book_scope.py` +5 断言（26 全过）。
+
+**最终回归**：`nfctl test` **77/77 全过** · e2e 真机视觉验收 **78/78** ·
+`quality_gate` BLOCK 0 / WARN 39（未增）· `leak_scan` 0 命中（扫 302 个文件）。
+
 
 ---
 
