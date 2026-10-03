@@ -101,14 +101,14 @@ model:
     provider: tokenhub
     id: kimi-k2.6
 budget:
-  # ⚠️⚠️ engine: hermes 下**本键是虚设**（2026-10-11 核实）：hermes 走订阅流量，
+  # ⚠️⚠️ engine: hermes 下**本键是虚设**（2026-10-03 核实）：hermes 走订阅流量，
   #   `cost_tracker.estimate_cost_yuan` 对 provider="hermes" **恒返 0** →
   #   `cost_log.cost_yuan` 全是 0 → 金额阈值永远不会命中。
   #   **止烧请用下面的 token_limit（token 级熔断）**；切回 engine: direct 时本键
   #   立即恢复生效（那时才按量计费）。
   limit_yuan: 300
   warn_ratio: 0.7
-  # ==================== token 级熔断（P0 止烧，2026-10-11）====================
+  # ==================== token 级熔断（P0 止烧，2026-10-03）====================
   # 为什么必须有：hermes 下 ¥ 记账恒 0（见上）→ 一次跑几十章的子会话可以一路烧到
   #   没边。这里按 **token** 记账并熔断，触发后**走现有 budget/pause 机制**
   #   （progress.json 的 budget.paused + 退出码 2）—— 不新增状态机、不新增暂停语义。

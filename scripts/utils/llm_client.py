@@ -1083,7 +1083,7 @@ class HermesClient:
     def note_request_tokens(self, tokens_out):
         """单次子会话输出与配置上限比对：超了**大声告警**（不阻断、不丢弃产物）。
 
-        为什么不在这里判失败（2026-10-11 定）：
+        为什么不在这里判失败（2026-10-03 定）：
         - hermes 子会话已用文件工具把章节写进盘了，判失败 = 丢掉真产物 + 重跑更贵；
         - 「是否停机」是**熔断判据**，唯一来源是 CostTracker.status_detail()；
           想要按次熔断就把 token_limit.per_request_pause_hermes 设为 true。

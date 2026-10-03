@@ -443,7 +443,7 @@ DEFAULT_ROLE_RATES = {
 DEFAULT_MODEL = "hunyuan-a13b"
 DEFAULT_ROLE = "default"
 
-# ---- token 级熔断（P0 止烧，2026-10-11）----
+# ---- token 级熔断（P0 止烧，2026-10-03）----
 # 背景：engine: hermes 下 estimate_cost_yuan **恒返 0**（订阅流量，见其 docstring）
 # → cost_log.cost_yuan 全是 0 → `limit_yuan` 永不命中，金额熔断是**虚设**。
 # 唯一能止烧的口径是 token：累计（输入+输出）与单次输出。
@@ -531,7 +531,7 @@ def estimate_cost_yuan(tokens_in, tokens_out, model=None, provider=None, role=No
 class CostTracker:
     """预算熔断器：所有费用经由此处记账并判定是否暂停。
 
-    ## token 级熔断（2026-10-11）
+    ## token 级熔断（2026-10-03）
 
     `limit_yuan` 对 engine: hermes **恒不生效**（订阅流量 → 记账恒 0）。所以本类
     同时按 token 判定：累计超 `token_limit.max_total_tokens` → pause。

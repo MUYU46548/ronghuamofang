@@ -32,6 +32,13 @@ from utils.file_io import read_text, write_text
 from utils.template_loader import load_template
 from utils.summary_chain import load_rolling
 from utils.llm_client import make_client
+# JSON 容错解析：**唯一判据**（去围栏 / 剥 <think> / 断裂 JSON 补全未闭合括号）。
+# 2026-10-03：本模块原先自带一套手写解析（_extract_json_from_output），
+# 与 validator 的口径不一致且**没有断裂兜底** —— 审稿 JSON 被截断就整轮白烧。
+# ⚠️ 必须 `from utils import validator` 再按属性取（不要 `from utils.validator import
+# LAST_ERROR`）：LAST_ERROR 是模块级全局，parse_llm_json 会**重新绑定**它，
+# `from ... import` 拿到的是**死值**（同一个坑本项目在 nf_api.ROOT 上踩过）。
+from utils import validator
 
 OUTLINE_DIR = Path("data/outline/chapters")
 SETTING_PATH = Path("data/setting/setting.json")
@@ -267,18 +274,47 @@ def run_review(scope, report_path, dry_run, client=None):
         return True, "dry-run（仅任务文件）"
 
     # 调用 LLM
+    # ---- JSON 断裂修复路径（P0，2026-10-03）：解析失败 → 重试 → 仍败则明确报错停 ----
+    # 旧行为：解析失败**一次**就 return False —— 整轮审稿（几十万 token 的输入）
+    # 白烧，且返回的是一句截断原文，人看不出该改提示词还是该调上限。
+    # 现在：断裂兜底在 parse_llm_json 内（补全未闭合括号）；兜底也救不回来时按
+    # gates.review_retries（默认 1）重试；仍失败 → 原文隔离存放 + **可行动报错** +
+    # 非零返回，由 orchestrator 的审稿门 fail-closed 停住（不放行下游 stage5/6）。
+    cfg = _load_cfg()
     if client is None:
-        cfg = _load_cfg()
         client = make_client(cfg, "reviewer")
+    max_rounds = 1 + _review_retries(cfg)
 
-    result = client.run_task(task_path)
-    if result["exit_code"] != 0:
-        return False, f"LLM 审查失败: {result.get('stdout_tail', '')[:200]}"
-
-    # 读取报告（从 stdout 解析 JSON，兼容 FILE 协议与裸 JSON）
-    json_data = _extract_json_from_output(result.get("stdout_tail", ""))
+    json_data, last_tail = None, ""
+    for attempt in range(1, max_rounds + 1):
+        result = client.run_task(task_path)
+        last_tail = result.get("stdout_tail", "") or ""
+        if result["exit_code"] != 0:
+            # 调用本身失败（截断 / 超时 / 被拒）→ **不重试**：同一个 max_tokens 上限
+            # 再跑一次只会再截断一次，纯白烧。原因交出去，由审稿门停住。
+            raw_path = _save_failed_review_raw(task_path, last_tail)
+            return False, ("审查 LLM 调用失败（退出码 %s）：%s｜原文已隔离: %s"
+                           % (result["exit_code"],
+                              str(result.get("error") or last_tail[:300]), raw_path))
+        parsed = _extract_json_from_output(last_tail)
+        if _is_review_report(parsed):
+            json_data = parsed
+            break
+        if attempt < max_rounds:
+            print("[chapter_review] WARN 第 %d/%d 次输出解析不出审查报告（%s）→ 重试"
+                  % (attempt, max_rounds, _last_parse_error() or "输出里没有 chapters 数组"))
     if json_data is None:
-        return False, f"无法从 LLM 输出解析审查 JSON（前 500 字符: {result.get('stdout_tail', '')[:500]}）"
+        raw_path = _save_failed_review_raw(task_path, last_tail)
+        return False, (
+            "无法从 LLM 输出解析审查 JSON（已试 %d 次，含断裂 JSON 兜底）：%s。"
+            "**审稿门 fail-closed：不放行下游 stage5/6**。"
+            "原文已隔离存放: %s —— 处理：① 看原文判断是「被 max_tokens 截断」"
+            "还是「没按 JSON 契约输出」；② 截断 → 调大 config/system.yaml 的 "
+            "budget.token_limit.per_request_max_tokens 或缩小审查范围（--scope raw）；"
+            "③ 未按契约 → 修 prompts/chapter_review.md 的输出格式段；"
+            "④ 重跑 python scripts/orchestrator.py --from 4"
+            % (max_rounds, _last_parse_error() or "输出里没有可解析的 chapters 数组",
+               raw_path))
 
     # 补充元数据
     json_data["generated_at"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
@@ -314,39 +350,65 @@ def run_review(scope, report_path, dry_run, client=None):
 
 
 def _extract_json_from_output(text):
-    """从 LLM 输出中提取 JSON，兼容 FILE 协议与裸 JSON。"""
-    # 尝试直接解析
-    text = text.strip()
+    """从 LLM 输出中提取审查 JSON。**统一走 utils.validator.parse_llm_json**。
+
+    2026-10-03 重写（P0 审稿 JSON 断裂修复路径）。原实现是**第二套**手写解析
+    （json.loads 全文 → 正则抓 FILE 块 → 抓 ```json 围栏 → rfind('{"chapters"')），
+    它**没有断裂兜底**：被 max_tokens 截断、只差一个收尾 `}`/`]` 的报告一律
+    解析失败 → 整个审稿阶段报废、那一轮的审查 token 全白烧（09-28 冒烟实测事故）。
+    validator.parse_llm_json 自带「括号配对补全」+「剥 <think> / 去围栏」，
+    且 proofread 早已改用它 —— 本模块是最后一个漏网的复制实现
+    （tests/e2e/test_stop_and_mingjian.py 里那条"非各自实现"的断言正是为此）。
+
+    保留函数名是为了兼容既有调用点/自检脚本；语义已改为**薄转发**。
+    """
+    return validator.parse_llm_json(text)
+
+
+def _is_review_report(value):
+    """结构判据：审查报告必须是带 chapters 数组的对象。
+
+    这是**契约**（prompts/chapter_review.md 的「JSON 格式（严格遵守）」），不是
+    苛求：若只判「能解析成 JSON」，模型回一句 `{"error": "..."}` 也会被当报告收下，
+    然后渲染出一份"零问题"的空报告 —— 比报错更坏（审稿门静默失守）。
+    """
+    return isinstance(value, dict) and isinstance(value.get("chapters"), list)
+
+
+def _last_parse_error():
+    """validator 最近一次解析失败的诊断（含原文偏移），无则空串。"""
+    err = getattr(validator, "LAST_ERROR", None)
+    if not isinstance(err, dict):
+        return ""
+    return "偏移 %s：%s" % (err.get("offset"), err.get("reason"))
+
+
+def _review_retries(cfg):
+    """解析失败后的重试轮次（gates.review_retries，默认 1，夹在 0..3）。"""
     try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        pass
+        n = int(((cfg or {}).get("gates") or {}).get("review_retries", 1))
+    except (TypeError, ValueError):
+        n = 1
+    return max(0, min(3, n))
 
-    # 尝试从 FILE 协议提取
-    m = re.search(r"===FILE:.*?\n(.*?)===END===", text, re.S)
-    if m:
-        try:
-            return json.loads(m.group(1).strip())
-        except json.JSONDecodeError:
-            pass
 
-    # 尝试从 ```json 围栏提取
-    m = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", text, re.S)
-    if m:
-        try:
-            return json.loads(m.group(1).strip())
-        except json.JSONDecodeError:
-            pass
+def _save_failed_review_raw(task_path, text):
+    """把解析失败的 LLM 原文**隔离存放**（诊断用），返回路径或空串。
 
-    # 尝试找最后一个 { ... } 块
-    start = text.rfind('{"chapters"')
-    if start >= 0:
-        end = text.rfind('}') + 1
-        try:
-            return json.loads(text[start:end])
-        except json.JSONDecodeError:
-            pass
-    return None
+    为什么留：断裂 JSON 里往往有可用的前半段；让人能看见"究竟断在哪"，
+    比只回一句"解析失败"有用得多。任何 IO 异常都不得打断审稿门的报错路径。
+    """
+    try:
+        dump = Path("data/state/review_raw")
+        dump.mkdir(parents=True, exist_ok=True)
+        name = (Path(task_path).stem + "_" +
+                datetime.now().strftime("%Y%m%d_%H%M%S") + ".txt")
+        path = dump / name
+        write_text(path, text or "")
+        return str(path)
+    except Exception as e:                                    # noqa: BLE001
+        print(f"[chapter_review] WARN 失败原文隔离存放失败: {e}")
+        return ""
 
 
 def render_markdown_report(json_data, chapter_data, scope_name):
