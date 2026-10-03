@@ -95,6 +95,72 @@ def handle_config_style_notes(h):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+def _gui_only(h, what):
+    """设置类写入必须来自 GUI（Electron preload 注入 X-Mofang-Source: gui）。
+
+    为什么与 agent_mode 无关也要求：这些是**成本/安全相关的设置**。
+    外部 Agent 若能改预算与止烧阈值，就能抬高自己的闸门 —— 那等于没有闸门。
+    """
+    src = h.headers.get("X-Mofang-Source", "").strip().lower()
+    if src == "gui":
+        return None
+    return 403, {"ok": False,
+                 "error": "%s 仅允许在 GUI 中手动修改（缺少 X-Mofang-Source: gui 头）" % what}
+
+
+def handle_config_token_limit(h):
+    """读 token 级熔断阈值（budget.token_limit）+ 出厂预设 + 合法区间。
+
+    为什么要有这个读口：engine: hermes 下金额阈值恒不生效（订阅流量记账恒 0），
+    止烧全靠这里的 token 上限；要**调阈值**就必须先看得见当前值与它的边界。
+    """
+    try:
+        from utils import cost_tracker
+        cfg = api.load_all()[0]
+        raw = ((cfg.get("budget") or {}).get("token_limit")) or {}
+        return 200, {
+            "ok": True,
+            "current": cost_tracker.normalize_token_limit(raw),
+            "preset": dict(cost_tracker.TOKEN_LIMIT_PRESET),
+            "bounds": {k: list(v) for k, v in cost_tracker.TOKEN_LIMIT_BOUNDS.items()},
+            "path": "config/system.yaml",
+            "field": "budget.token_limit",
+            "note": ("engine: hermes 下金额阈值无效（订阅流量记账恒 0）；"
+                     "止烧靠这里的 token 上限。改完对**下一次运行**生效，"
+                     "正在跑的一轮不受影响。"),
+        }
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_config_token_limit_set(h, body):
+    """写 token 级熔断阈值（合法性与出厂预设见 utils/cost_tracker）。
+
+    校验在 cost_tracker（语义唯一来源），落盘在 config_io（定向改写 + 备份 + 回读）。
+    越界值一律 400 拒绝：把 max_total_tokens 改成 0 等于**让闸门静默消失**，
+    与本轮修掉的「hermes 下 ¥ 记账恒 0」是同一类坑。
+    """
+    guard = _gui_only(h, "止烧阈值（budget.token_limit）")
+    if guard:
+        return guard
+    try:
+        from utils import cost_tracker
+        from utils.config_io import set_section_scalars
+        ok, msg, values = cost_tracker.validate_token_limit(body or {})
+        if not ok:
+            return 400, {"ok": False, "error": msg}
+        sys_yaml = api.ROOT / "config" / "system.yaml"
+        if not sys_yaml.exists():
+            return 400, {"ok": False, "error": "config/system.yaml 不存在"}
+        w_ok, w_msg = set_section_scalars(("budget", "token_limit"), values, path=sys_yaml)
+        if not w_ok:
+            return 400, {"ok": False, "error": "写入失败：" + w_msg}
+        return 200, {"ok": True, "current": values, "message": "已更新止烧阈值（" + w_msg + "）",
+                     "note": "对下一次运行生效；正在跑的一轮不受影响。"}
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 def handle_config_agent_mode(h):
     """读取当前 Agent 模式开关（config/system.yaml 的 gates.agent_mode）。"""
     try:
@@ -110,45 +176,24 @@ def handle_config_agent_mode_set(h, body):
 
     安全守卫：Agent 模式只能从 GUI 手动开启，外部 Agent 不得调用此端点。
     检测方式：请求必须携带 X-Mofang-Source: gui 头（由 Electron preload 注入）。
+
+    2026-10-03：落盘改走 `utils.config_io.set_section_scalar`（原先这里自带一段
+    正则替换 + 手工备份 —— 同一件事第二份实现，且它不会回读校验）。
     """
+    guard = _gui_only(h, "Agent 模式")
+    if guard:
+        return guard
     try:
+        from utils.config_io import set_section_scalar
         enable = bool(body.get("agent_mode", False))
-
-        # 安全守卫：仅 GUI 可以切换 Agent 模式
-        # Electron preload 在发请求时注入 X-Mofang-Source: gui
-        request_source = h.headers.get("X-Mofang-Source", "").strip().lower()
-        if request_source != "gui":
-            return 403, {"ok": False,
-                         "error": "Agent 模式仅允许在 GUI 中手动切换（缺少 X-Mofang-Source: gui 头）"}
-
-        # 定向改写 system.yaml 的 gates.agent_mode 字段
         sys_yaml = api.ROOT / "config" / "system.yaml"
         if not sys_yaml.exists():
             return 400, {"ok": False, "error": "config/system.yaml 不存在"}
-        # 备份
-        backup_dir = api.ROOT / "config" / "history"
-        backup_dir.mkdir(parents=True, exist_ok=True)
-        import shutil
-        from datetime import datetime
-        shutil.copy2(sys_yaml, backup_dir / f"system_{datetime.now().strftime('%Y%m%d_%H%M%S')}.yaml")
-        # 读取并替换
-        content = sys_yaml.read_text(encoding="utf-8")
-        # 匹配 gates.agent_mode: false/true
-        import re
-        pattern = r"(gates:\s*(?:\r?\n(?:[ \t]*#[^\r\n]*\r?\n)*[ \t]*[^\r\n]*\r?\n)*?[ \t]*agent_mode:\s*)(false|true)"
-        match = re.search(pattern, content, re.MULTILINE)
-        if match:
-            new_content = content[:match.end(1)] + ("true" if enable else "false") + content[match.end(2):]
-        else:
-            # 没找到 → 在 gates: 块后追加
-            gates_match = re.search(r"^gates:\s*$", content, re.MULTILINE)
-            if gates_match:
-                insert_pos = gates_match.end()
-                new_content = content[:insert_pos] + f"\n  agent_mode: {'true' if enable else 'false'}  # 外部 Agent 模式（默认关）" + content[insert_pos:]
-            else:
-                return 400, {"ok": False, "error": "未找到 gates: 块"}
-        sys_yaml.write_text(new_content, encoding="utf-8")
-        return 200, {"ok": True, "agent_mode": enable, "message": f"Agent 模式已{'开启' if enable else '关闭'}"}
+        ok, msg = set_section_scalar("gates", "agent_mode", enable, path=sys_yaml)
+        if not ok:
+            return 400, {"ok": False, "error": "写入失败：" + msg}
+        return 200, {"ok": True, "agent_mode": enable,
+                     "message": "Agent 模式已%s（%s）" % ("开启" if enable else "关闭", msg)}
     except Exception as e:                                  # noqa: BLE001
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
@@ -163,4 +208,6 @@ ROUTES = (
     ("GET", "/config/style_notes", handle_config_style_notes),
     ("GET", "/config/agent_mode", handle_config_agent_mode),
     ("POST", "/config/agent_mode", handle_config_agent_mode_set),
+    ("GET", "/config/token_limit", handle_config_token_limit),
+    ("POST", "/config/token_limit", handle_config_token_limit_set),
 )

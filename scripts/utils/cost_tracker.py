@@ -458,9 +458,86 @@ DEFAULT_TOKEN_LIMIT = {
     "warn_ratio": 0.7,
 }
 
+# ---- 出厂预设（2026-10-03 用户定调）----
+# 「恢复默认预设」的**唯一**取值来源；设置页的初始值也取它。
+# 阈值依据（用户实测口径）：单章 5000–15000 字、常态 ~8000 字，偶有更长章；
+# 一次 stage1 子会话 ≈ 11.6 万 token（输入 9.8 万 + 输出 1.8 万）。
+#   · per_request_max_tokens 50000：远高于"一章正文"的输出量，正常写作不会撞；
+#     它拦的是**失控生成**（模型复读/思考跑飞）。
+#   · max_total_tokens 10000000（1000 万/轮）：给整本书（多阶段 + 重试 + 精修）留足余量，
+#     「鬼知道会不会发生什么奇怪的情况」—— 阈值先放宽，真撞上说明确实异常。
+TOKEN_LIMIT_PRESET = {
+    "enabled": True,
+    "per_request_max_tokens": 50000,
+    "per_request_pause_hermes": False,
+    "max_total_tokens": 10000000,
+    "warn_ratio": 0.7,
+}
+
+# ---- 合法区间（防"乱改改坏"）----
+# 为什么必须有边界：把 max_total_tokens 改成 0 或漏写一位数，
+# 会让**闸门静默消失**（0 在今天语义里 = 不限制）—— 与"¥ 记账恒 0"是同一类静默失效。
+# 区间取得很宽（只拦明显错误，不替用户做取舍）。
+TOKEN_LIMIT_BOUNDS = {
+    "per_request_max_tokens": (1000, 500000),
+    "max_total_tokens": (100000, 200000000),   # 10 万 ~ 2 亿
+    "warn_ratio": (0.1, 1.0),
+}
+
+
+def validate_token_limit(raw):
+    """校验并归一「设置页/API 传进来的一组阈值」。返回 (ok, msg, normalized)。
+
+    与 `normalize_token_limit` 的分工：那个是**读配置**时的容错归一（不抛、尽量可用），
+    这个是**写配置前**的把关（不合格就拒绝，并说清哪一项越界/是什么类型）。
+    """
+    if not isinstance(raw, dict):
+        return False, "请求体必须是对象", None
+    out = dict(TOKEN_LIMIT_PRESET)      # 未提供的项用预设补齐（部分提交也合法）
+    unknown = [k for k in raw if k not in DEFAULT_TOKEN_LIMIT]
+    if unknown:
+        return False, "未知字段: " + "、".join(sorted(unknown)), None
+
+    for k in ("enabled", "per_request_pause_hermes"):
+        if k in raw:
+            v = raw[k]
+            if isinstance(v, str):
+                v = v.strip().lower() in ("1", "true", "yes", "on")
+            out[k] = bool(v)
+
+    for k in ("per_request_max_tokens", "max_total_tokens"):
+        if k not in raw:
+            continue
+        try:
+            v = int(str(raw[k]).strip())
+        except (TypeError, ValueError):
+            return False, "%s 必须是整数（收到 %r）" % (k, raw[k]), None
+        lo, hi = TOKEN_LIMIT_BOUNDS[k]
+        if not (lo <= v <= hi):
+            return False, ("%s 越界：%d 不在 %d ~ %d 之间"
+                           "（阈值是为了止烧，设成 0/负数会让闸门直接消失）"
+                           % (k, v, lo, hi)), None
+        out[k] = v
+
+    if "warn_ratio" in raw:
+        try:
+            w = float(str(raw["warn_ratio"]).strip())
+        except (TypeError, ValueError):
+            return False, "warn_ratio 必须是小数（收到 %r）" % (raw["warn_ratio"],), None
+        lo, hi = TOKEN_LIMIT_BOUNDS["warn_ratio"]
+        if not (lo <= w <= hi):
+            return False, "warn_ratio 越界：%s 不在 %s ~ %s 之间" % (w, lo, hi), None
+        out["warn_ratio"] = w
+    return True, "", out
+
 
 def normalize_token_limit(raw):
-    """把 config 的 budget.token_limit 归一成完整 dict（缺键取默认，类型强制）。"""
+    """把 config 的 budget.token_limit 归一成完整 dict（缺键取默认，类型强制）。
+
+    **异常值不让闸门消失**（2026-10-03）：配置被手工改坏（`max_total_tokens: 0`、
+    漏写一位数、写成字符串）时，这里会把它**拉回预设值并打印 WARN**，而不是
+    静默变成"不限制"。理由与本轮的核心教训一致：止烧闸门的失效必须是**可见**的。
+    """
     out = dict(DEFAULT_TOKEN_LIMIT)
     if isinstance(raw, dict):
         for k, v in raw.items():
@@ -479,7 +556,24 @@ def normalize_token_limit(raw):
                 except (TypeError, ValueError):
                     pass
     if not (0 < out["warn_ratio"] <= 1):
-        out["warn_ratio"] = 0.7
+        out["warn_ratio"] = TOKEN_LIMIT_PRESET["warn_ratio"]
+
+    if out["enabled"]:
+        for k in ("per_request_max_tokens", "max_total_tokens"):
+            v = int(out.get(k) or 0)
+            lo, hi = TOKEN_LIMIT_BOUNDS[k]
+            if v == 0:
+                continue          # 0 = 显式不限制（老配置语义），不算写坏
+            if not (lo <= v <= hi):
+                print("[cost_tracker] WARN budget.token_limit.%s=%d 越界（应为 %d~%d）"
+                      " → 回落到预设值 %d（改坏配置不该让止烧闸门消失）"
+                      % (k, v, lo, hi, TOKEN_LIMIT_PRESET[k]))
+                out[k] = TOKEN_LIMIT_PRESET[k]
+        if not out.get("max_total_tokens") and not out.get("per_request_max_tokens"):
+            print("[cost_tracker] WARN budget.token_limit 已启用但两项上限都是 0 "
+                  "→ 相当于没有闸门；累计上限回落到预设值 %d"
+                  % TOKEN_LIMIT_PRESET["max_total_tokens"])
+            out["max_total_tokens"] = TOKEN_LIMIT_PRESET["max_total_tokens"]
     return out
 
 

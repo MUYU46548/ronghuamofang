@@ -43,6 +43,9 @@ FORBIDDEN_IN_AGENT_MODE = frozenset({
     "/project/restore",      # 恢复
     "/project/init",         # 首启初始化
     "/config/agent_mode",    # Agent 不得自行切换模式
+    # Agent 不得抬高自己的闸门（2026-10-03）：止烧阈值 = 成本与安全设置。
+    # 不拦的话，外部 Agent 只要 POST 一次把上限调到天上，"止烧"就是摆设。
+    "/config/token_limit",
 })
 
 # 人工来源的标记值（HTTP 头 / 环境变量通用）

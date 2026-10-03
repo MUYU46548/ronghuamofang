@@ -1683,6 +1683,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/config/agent_mode":
             # Agent 模式开关读取（config/system.yaml 的 gates.agent_mode）。
             self._send(*_dom(dom_project.handle_config_agent_mode(self)))
+        elif p == "/config/token_limit":
+            # token 级熔断阈值读取（budget.token_limit）+ 出厂预设 + 合法区间。
+            self._send(*_dom(dom_project.handle_config_token_limit(self)))
         elif p == "/materials/list":
             # 实现已迁至 nf_api_domains.materials（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_materials.handle_materials_list(self)))
@@ -2108,6 +2111,9 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/config/agent_mode":
                 # Agent 模式开关设置（仅 GUI 手动切换，Agent 不得调用）。
                 self._send(*_dom(dom_project.handle_config_agent_mode_set(self, body)))
+            elif p == "/config/token_limit":
+                # 止烧阈值设置（仅 GUI：外部 Agent 不得抬高自己的闸门）。
+                self._send(*_dom(dom_project.handle_config_token_limit_set(self, body)))
             elif p == "/env/set":
                 # 把 API Key 写进 .env（GUI 内置入口，替代「用外部编辑器打开 .env」）。
                 # 键名白名单/值校验/备份都在域模块里（判据只有一份）。

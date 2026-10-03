@@ -172,27 +172,8 @@ def _render_scalar(value):
     return parts[0]
 
 
-def set_section_scalar(section_path, key, value, path=SYSTEM_YAML,
-                       comment=None, allow_insert=True):
-    """把 `section_path.key` 定向改写为 value（保留注释与其它内容）。
-
-    `section_path` 可以是字符串（顶层段）或元组（嵌套段，如 `("budget", "token_limit")`）——
-    配置里绝大多数设置住在嵌套段下，只支持顶层段等于没法用。
-
-    - 已存在该键 → 整行替换（旧的尾注释一并替换，避免留下与实际值矛盾的说明）。
-    - 段/键不存在且 allow_insert → 按层级缩进补建（`budget:` → `  token_limit:` → `    key: v`）。
-    - 写前备份到 config/history/，写后**用严格 loader 回读校验**（按值比较，不按字符串比）。
-
-    返回 (ok: bool, msg: str)。
-    """
-    if isinstance(section_path, str):
-        section_path = (section_path,)
-    p = Path(path)
-    if not p.exists():
-        return False, "配置文件不存在: " + str(p)
-    lines = read_text(p).split("\n")
-
-    # 沿路径下钻：lo/hi 是当前块的搜索范围，indent 是当前块首的缩进
+def _apply_one(lines, section_path, key, value, comment=None, allow_insert=True):
+    """在内存里的 lines 上改写 `section_path.key`。返回 (ok, msg)。"""
     lo, hi, indent = 0, len(lines), -1
     missing_from = None
     for level in section_path:
@@ -214,9 +195,8 @@ def set_section_scalar(section_path, key, value, path=SYSTEM_YAML,
         # 回退跳过块尾的空行，插在块体最后一行之后（保持排版紧凑）
         while pos > ins_lo and not lines[pos - 1].strip():
             pos -= 1
-        pad = " " * ins_indent
-        new_lines = [pad + level_key + ":"]
         cur_indent = ins_indent
+        new_lines = [" " * ins_indent + level_key + ":"]
         for deeper in section_path[section_path.index(level_key) + 1:]:
             cur_indent += 2
             new_lines.append(" " * cur_indent + deeper + ":")
@@ -226,18 +206,46 @@ def set_section_scalar(section_path, key, value, path=SYSTEM_YAML,
             line += "  # " + str(comment).replace("\n", " ")
         new_lines.append(line)
         lines[pos:pos] = new_lines
+        return True, rendered
+
+    idx = _find_key(lines, key, lo, hi, indent + 2)
+    line = " " * (indent + 2) + key + ": " + rendered
+    if comment:
+        line += "  # " + str(comment).replace("\n", " ")
+    if idx >= 0:
+        lines[idx] = line
     else:
-        idx = _find_key(lines, key, lo, hi, indent + 2)
-        line = " " * (indent + 2) + key + ": " + rendered
-        if comment:
-            line += "  # " + str(comment).replace("\n", " ")
-        if idx >= 0:
-            lines[idx] = line
-        else:
-            pos = hi
-            while pos > lo and not lines[pos - 1].strip():
-                pos -= 1
-            lines[pos:pos] = [line]
+        pos = hi
+        while pos > lo and not lines[pos - 1].strip():
+            pos -= 1
+        lines[pos:pos] = [line]
+    return True, rendered
+
+
+def set_section_scalars(section_path, values, path=SYSTEM_YAML, comments=None,
+                        allow_insert=True):
+    """**一次写多个键**：一次备份、一次落盘、一次回读校验。
+
+    为什么要批量：设置页保存 4 个阈值时若逐个调用单键版，会落 4 份备份、
+    写 4 次盘，中途失败还会留下"改了一半"的配置。判据（定位/渲染/回读）与单键版**共用**
+    （`set_section_scalar` 就是它的薄包装），不重复实现。
+
+    返回 (ok, msg)。
+    """
+    if isinstance(section_path, str):
+        section_path = (section_path,)
+    comments = comments or {}
+    p = Path(path)
+    if not p.exists():
+        return False, "配置文件不存在: " + str(p)
+    lines = read_text(p).split("\n")
+    rendered = {}
+    for key, value in values.items():
+        ok, res = _apply_one(lines, section_path, key, value,
+                             comment=comments.get(key), allow_insert=allow_insert)
+        if not ok:
+            return False, res
+        rendered[key] = res
 
     backup = None
     try:
@@ -249,18 +257,39 @@ def set_section_scalar(section_path, key, value, path=SYSTEM_YAML,
         backup = None
 
     write_text(p, "\n".join(lines))
-    # 写后回读校验：严格 loader + **值真的落地且类型一致**（写坏就报错 + 指出备份）
+    # 写后回读校验：严格 loader + **每个值都真落地且类型一致**（写坏就报错 + 指出备份）
     try:
         back = load_config_yaml(p) or {}
         node = back
         for level in section_path:
             node = (node or {}).get(level) or {}
-        got = node.get(key)
     except Exception as e:                                  # noqa: BLE001
         return False, ("写入后回读失败（文件可能已写坏，备份在 %s）：%s"
                        % (backup, str(e)[:160]))
-    if got != value:
-        return False, ("写入后回读不一致（期望 %r，实际 %r；备份在 %s）"
-                       % (value, got, backup))
-    return True, "已更新 %s.%s = %s%s" % (".".join(section_path), key, rendered,
-                                          ("（备份 %s）" % backup.name) if backup else "")
+    bad = {k: (v, node.get(k)) for k, v in values.items() if node.get(k) != v}
+    if bad:
+        return False, ("写入后回读不一致（期望/实际：%s；备份在 %s）"
+                       % ("；".join("%s %r≠%r" % (k, a, b) for k, (a, b) in bad.items()),
+                          backup))
+    return True, "已更新 %s：%s%s" % (
+        ".".join(section_path),
+        "、".join("%s=%s" % (k, rendered[k]) for k in values),
+        ("（备份 %s）" % backup.name) if backup else "")
+
+
+def set_section_scalar(section_path, key, value, path=SYSTEM_YAML,
+                       comment=None, allow_insert=True):
+    """把 `section_path.key` 定向改写为 value（保留注释与其它内容）。
+
+    `section_path` 可以是字符串（顶层段）或元组（嵌套段，如 `("budget", "token_limit")`）——
+    配置里绝大多数设置住在嵌套段下，只支持顶层段等于没法用。
+
+    - 已存在该键 → 整行替换（旧的尾注释一并替换，避免留下与实际值矛盾的说明）。
+    - 段/键不存在且 allow_insert → 按层级缩进补建（`budget:` → `  token_limit:` → `    key: v`）。
+    - 写前备份到 config/history/，写后**用严格 loader 回读校验**（按值比较，不按字符串比）。
+
+    返回 (ok: bool, msg: str)。实现是 `set_section_scalars` 的薄包装（判据只有一份）。
+    """
+    return set_section_scalars(section_path, {key: value}, path=path,
+                               comments={key: comment} if comment else None,
+                               allow_insert=allow_insert)

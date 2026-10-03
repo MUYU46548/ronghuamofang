@@ -117,22 +117,29 @@ budget:
   #   ⚠️ 熔断后重跑（--from N）会开新 run_id → 计数归零，这是刻意的「每轮」语义。
   token_limit:
     enabled: true
-    # 单请求**输出**上限：direct 引擎真的把它设进每次请求的 payload["max_tokens"]
-    #   （真拦截，超了 finish_reason=length → 不落盘 + 退出码 2）。
-    #   hermes 引擎**没有这个旋钮**（hermes chat 不接受 max_tokens）→ 只做
-    #   「实测值 vs 本值」的比对与 WARN，**默认不据此熔断**（见 per_request_pause_hermes）。
-    per_request_max_tokens: 8000
+    # 单请求**输出**上限（2026-10-03 用户定调：50000，按单章 5000~15000 字、
+    #   常态 ~8000 字的口径留足余量 —— 它拦的是**失控生成**（复读/思考跑飞），
+    #   不是正常写长章）。
+    #   direct 引擎真的设进每次请求的 payload["max_tokens"]（超了 finish_reason=length
+    #   → 不落盘 + 退出码 2）；hermes 引擎**没有这个旋钮**（hermes chat 不接受
+    #   max_tokens）→ 只做「实测值 vs 本值」的比对与 WARN，默认不据此熔断
+    #   （见 per_request_pause_hermes）。
+    per_request_max_tokens: 50000
     # hermes 是否把「单次子会话输出 > per_request_max_tokens」也当熔断判据。
     #   **默认 false**：实测 hermes 一次 stage1 子会话输出就有 1.8 万 token
-    #   （含工具循环内的多轮），拿 8k 当判据会**第一轮就误停** —— 误停比不停更贵
-    #   （白跑一遍 + 人工排查）。要看真实数据请翻日志里的 WARN，或改这里再跑。
+    #   （含工具循环内的多轮）。要看真实数据请翻日志里的 WARN，或改这里再跑。
     per_request_pause_hermes: false
     # 单轮运行**累计** token 上限（输入 + 输出）：超了即熔断暂停。
+    #   2026-10-03 用户定调 1000 万/轮：给整本（多阶段 + 重试 + 精修）留足余量，
+    #   「鬼知道会不会发生什么奇怪的情况」—— 阈值先放宽，真撞上说明确实异常。
     #   量级参考：hermes 一次 stage1 子会话 ≈ 11.6 万（输入 9.8 万 + 输出 1.8 万），
-    #   40 章的 stage4 逐章子会话合计通常在 200~400 万之间。
+    #   40 章的 stage4 逐章子会话合计通常 200~400 万。
     #   熔断后：调大本值 → 清 progress.json 的 budget.paused → orchestrator --from N 续跑。
-    max_total_tokens: 3000000
+    max_total_tokens: 10000000
     warn_ratio: 0.7
+    # 以上四值可在桌面端「设置 → 预算与止烧」里改（含「恢复默认预设」）；
+    # 越界值会被拒绝（0/负数会让闸门静默消失，与"¥ 记账恒 0"是同一类坑）。
+    # 预设取值见 scripts/utils/cost_tracker.py 的 TOKEN_LIMIT_PRESET。
   # 熔断恢复：manual = 用户通过 GUI 手动恢复（默认）
   circuit_breaker:
     mode: "manual"
