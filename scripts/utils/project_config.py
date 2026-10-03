@@ -227,9 +227,20 @@ def set_book_fields(fields):
                 end = start + len(out)
                 applied.append(key)
                 continue
-            # 块内没有这个键 → 插到块尾
-            pad = " " * 4
-            rendered = _render_scalar(value, 4)
+            # 块内没有这个键 → 插到块尾。
+            # ⚠️ 缩进必须**跟随 book 块本身**，不能写死 4（2026-10-03 修，P2）：
+            # 本项目 project.yaml 的 book 用 2 空格缩进，而这里原先写死
+            # `pad = " " * 4` → 插出来的新键比同级键深一级 →
+            # **整份 project.yaml 直接变成非法 YAML**（"mapping values are not allowed
+            # here"）。实测路径：switch_book 归档后要把 project.yaml 重置成空白骨架
+            # （`set_book_fields` 插入 author/user_outline/style_notes/style 四个**新键**）
+            # → 写出的骨架文件解析不了 → 下次换书 `current_book_name()` 静默拿到空书名。
+            # 原先它被 `except Exception: return ""` 吞掉，没人看见；把读取侧改成严格
+            # loader（同一轮的 P2 修复）后，这条路径立刻显形 —— 正是"静默损坏"的标本。
+            book_indent = _indent_of(lines[start]) if start >= 0 else 0
+            key_indent = book_indent + 2
+            pad = " " * key_indent
+            rendered = _render_scalar(value, key_indent)
             new_lines = [pad + key + ": " + rendered[0]] + rendered[1:]
             lines = lines[:end] + new_lines + lines[end:]
             end += len(new_lines)
@@ -243,9 +254,12 @@ def set_book_fields(fields):
 
     text = "\n".join(lines)
     write_text(PROJECT_YAML, text)
-    # 写后回读校验：YAML 必须还能解析，且字段真落地
+    # 写后回读校验：YAML 必须还能解析，且字段真落地。
+    # ⚠️ 用**带重复键检测**的 loader（2026-10-03，P2）：裸 safe_load 对重复键静默取
+    # 后值 → 一次写坏的目录/值会被"回读通过"放行，而后续读取（如换书取书名）
+    # 会拿到另一个值。回读校验的意义就是**抓住这类不一致**，故此处必须严格。
     try:
-        back = yaml.safe_load(read_text(PROJECT_YAML)) or {}
+        back = load_project_yaml(PROJECT_YAML) or {}
         book = back.get("book") or {}
     except Exception as e:
         return False, "写入后 YAML 解析失败（已备份，请检查 config/project.yaml）: " + str(e)[:120]

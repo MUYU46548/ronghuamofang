@@ -60,21 +60,47 @@ def sanitize(name):
 
 
 def current_book_name(proj_path=None):
-    """当前工作区数据属于哪本书：progress.json 优先，其次 project.yaml。"""
-    if proj_path is None:
-        proj_path = PROJECT_ROOT / "config" / "project.yaml"
-    try:
-        prog = json.loads((DATA_DIR / "progress.json").read_text(encoding="utf-8"))
-        if prog.get("project"):
+    """当前工作区数据属于哪本书：progress.json 优先，project.yaml 兜底。
+
+    ⚠️ project.yaml 必须用**带重复键检测**的 loader（`utils.project_config.
+    load_project_yaml`），不能用裸 safe_load（2026-10-03 修，P2）：
+
+    PyYAML 对重复键**静默取后值**，不报错不告警 —— 于是 `book.name` 写了两遍时，
+    换书拿到的是**后一个**（历史上踩到过 `user_outline` 重复 → 真实大纲被空值覆盖）。
+    对建书工具而言后果更硬：可能把内容归档到**错误书名**的目录下。
+    这类「看起来配好了、实际没生效」的坑必须能被机器一眼看出来。
+
+    两个刻意的语义（别当成 bug 改掉）：
+    1. **只要 project.yaml 存在就一定解析校验**（哪怕 progress.json 已经给出书名）——
+       坏配置不该因为"这次恰好没读到它"而静默通过；同一份配置在有的机器上报错、
+       有的机器上不报错，排查全靠运气，正是本项目最忌讳的失败形态。
+    2. 解析失败**抛 ValueError**（不吞成空书名）：换书是破坏性操作（移动用户全部产物），
+       配置不可信时**拒绝动手**比猜一个名字安全。CLI 层（`_dispatch`）会收敛成一行话。
+    """
+    path = Path(proj_path) if proj_path else (PROJECT_ROOT / "config" / "project.yaml")
+    proj = None
+    if path.exists():
+        # 延迟导入：switch_book 在 scripts/ 不在 sys.path 时也要能 import
+        from utils.project_config import load_project_yaml
+        try:
+            proj = load_project_yaml(path) or {}
+        except Exception as e:                              # noqa: BLE001
+            raise ValueError(
+                "读取 " + str(path) + " 失败：" + str(e)[:200] +
+                "　—— project.yaml 有重复键或格式错误时**不能**靠「取后一个值」猜书名"
+                "（会把数据归档到错误书名下）。请修掉重复键后重试；"
+                "体检：python scripts/nfctl.py check") from e
+    # 书名：progress.json（真实位置 data/state/，旧布局在 data/ 下）优先，project.yaml 兜底。
+    # ⚠️ 原先只读 `data/progress.json` —— 那是**旧布局**，现网 progress.json 在
+    # data/state/ 下 → 该分支恒走不到，"progress 优先"的文档语义从未生效（一并修）。
+    for cand in (DATA_DIR / "state" / "progress.json", DATA_DIR / "progress.json"):
+        try:
+            prog = json.loads(cand.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, ValueError, OSError):
+            continue
+        if isinstance(prog, dict) and prog.get("project"):
             return prog["project"]
-    except (json.JSONDecodeError, ValueError, FileNotFoundError):
-        pass
-    try:
-        import yaml
-        proj = yaml.safe_load(Path(proj_path).read_text(encoding="utf-8"))
-        return proj.get("book", {}).get("name", "")
-    except Exception:
-        return ""
+    return ((proj or {}).get("book") or {}).get("name", "") or ""
 
 
 def _list_dir_items(root):
@@ -313,6 +339,18 @@ def main():
     parser.add_argument("--force", action="store_true", help="归档时覆盖同名归档（restore 自动归档默认启用）")
     args = parser.parse_args()
 
+    try:
+        return _dispatch(args)
+    except ValueError as e:
+        # current_book_name 对「project.yaml 重复键 / 格式错误」**报错不吞**（P2）。
+        # 这里把它收敛成**可行动的一行话**而不是 traceback：换书是破坏性操作，
+        # 用户需要知道该去改哪个文件，而不是读一段栈。
+        print("[switch_book] 拒绝执行（配置有问题，先修它再换书）：")
+        print("  " + str(e).replace("\n", "\n  "))
+        return 1
+
+
+def _dispatch(args):
     if args.list:
         books = list_books()
         print("===== 当前书 =====")
