@@ -89,6 +89,14 @@ ci/blacklist.txt
 ci/fictional-map.txt
 
 # ===== 发布日移出跟踪（工作副本保留，只是不再随仓库分发）=====
-config/project.yaml      # 承载你的书名/署名/剧情梗概，用 config/project.yaml.example 兜底
-materials/vault_links.md # 阶段1 生成的设定库引用索引（含私路径与作品词）
-deliverables/            # 内部交付/审计报告
+# ⚠️ 规则行**绝不能写行内注释**：gitignore 只把**行首** `#` 当注释，行内的 `#`
+#    属于模式本身 → `config/project.yaml   # 说明` 变成一条永远匹配不上的模式，
+#    忽略规则**静默失效**（实测踩到：本块三条规则全部没生效，随后的 `git add -A`
+#    把 `git rm --cached` 整体撤销，三个文件照旧入库）。
+#    说明写在上面，规则行保持「一行一模式」的裸形式。
+# config/project.yaml：承载书名/署名/剧情梗概，用 config/project.yaml.example 兜底
+# materials/vault_links.md：阶段1 生成的设定库引用索引（含私路径与作品词）
+# deliverables/：内部交付/审计报告
+config/project.yaml
+materials/vault_links.md
+deliverables/
