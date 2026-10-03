@@ -197,6 +197,44 @@ def case_standard_mode_unaffected():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def run_reject(tmp, extra_args=(), env_extra=None):
+    """在临时根跑 reject.py（管道捕获 = 无 TTY = 非人工形态）。"""
+    env = dict(os.environ)
+    env.pop("MOFANG_SOURCE", None)
+    env["PYTHONIOENCODING"] = "utf-8"
+    if env_extra:
+        env.update(env_extra)
+    proc = subprocess.run(
+        [sys.executable, str(ROOT / "scripts" / "reject.py"), "--stage", "6",
+         "--reason", "测试", *extra_args],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        cwd=str(tmp), env=env, timeout=120)
+    return proc
+
+
+def case_reject_cli_guarded():
+    print("\n【7】reject.py 同款守卫（打回也是「代替用户拍板」，只补 approve 等于半开）")
+    tmp = build_root(agent_mode=True)
+    try:
+        p = run_reject(tmp)
+        check("agent_mode=true + 非人工 → 拒绝", p.returncode == 1, p.returncode)
+        check("报错点明不是人工来源", "不是人工来源" in p.stdout, p.stdout[-200:])
+        check("**progress.json 未被写入**（守卫在打回写操作之前）",
+              json.loads((tmp / "data" / "state" / "progress.json").read_text("utf-8")
+                         )["stages"]["1"].get("rejected") is None)
+        entries = audit_entries(tmp)
+        check("审计台账记 /reject 的 blocked",
+              any(e["path"] == "/reject" and e["status"] == 403 for e in entries), entries)
+        p2 = run_reject(tmp, env_extra={"MOFANG_SOURCE": "gui"})
+        check("MOFANG_SOURCE=gui → 放行（打回真的执行，退 0）",
+              p2.returncode == 0 and "Rejected stage 6" in p2.stdout, p2.stdout[-300:])
+        st = json.loads((tmp / "data" / "state" / "progress.json").read_text("utf-8"))
+        check("放行后 progress.json 真的被写入 rejected",
+              "6" in st["stages"] and st["stages"]["6"].get("rejected"), st.get("stages"))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def case_http_layer_uses_same_set():
     print("\n【6】HTTP 层确实改用共享判据（源码断言，防两侧漂移）")
     src = (ROOT / "scripts" / "nf_api.py").read_text(encoding="utf-8")
@@ -208,9 +246,10 @@ def case_http_layer_uses_same_set():
           "_FORBIDDEN_POST = {" not in src)
     check("审计落盘也委托共享实现",
           "agent_guard.log_audit(" in src)
-    s = (ROOT / "scripts" / "approve.py").read_text(encoding="utf-8")
-    check("approve.py 有 agent_mode 守卫（CLI 后门已堵）",
-          "agent_guard.agent_mode_enabled" in s and "/approve" in s)
+    for script, action in (("approve.py", "/approve"), ("reject.py", "/reject")):
+        s = (ROOT / "scripts" / script).read_text(encoding="utf-8")
+        check("%s 有 agent_mode 守卫（CLI 后门已堵）" % script,
+              "agent_guard.agent_mode_enabled" in s and action in s, script)
 
 
 def main():
@@ -222,6 +261,7 @@ def main():
     case_cli_refuses_non_human()
     case_cli_allows_human()
     case_standard_mode_unaffected()
+    case_reject_cli_guarded()
     case_http_layer_uses_same_set()
     print("\n" + "=" * 62)
     print("  通过 %d / 失败 %d" % (len(PASS), len(FAIL)))
