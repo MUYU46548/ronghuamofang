@@ -157,6 +157,11 @@ def scan(files, words, skip=(), allow=(), root="."):
 
 
 def main():
+    # 控制台安全网：本脚本不 import utils（纯 stdlib），故显式调一次 ——
+    # stdout 被管道捕获时是 cp936，而下面的 ✅/❌ 不在 GBK 里，会让门禁
+    # **明明零命中却退 1**（假红；2026-10-03 本地实测复现）。见 utils/console.py。
+    from utils.console import ensure_utf8_stdout
+    ensure_utf8_stdout()
     ap = argparse.ArgumentParser(description="发布前泄露门禁扫描（fail-closed）")
     ap.add_argument("--list", required=True, help="敏感词表（# 注释，一行为一词）")
     ap.add_argument("--root", default=".", help="扫描根（默认当前目录）")

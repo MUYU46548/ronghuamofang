@@ -116,6 +116,12 @@ def check_outline_alignment(text, chapter_no):
 
 
 def main():
+    # 控制台安全网：本脚本不 import utils（纯 stdlib），故显式调一次 ——
+    # stdout 被管道捕获（GUI/Electron spawn、后台任务）时是 cp936，而通过行含
+    # ✓/✗ 不在 GBK 里 → UnicodeEncodeError → **门禁明明通过却退 1**（假红），
+    # 而 orchestrator 的 gates.quality_gate 正是靠退出码阻断"全部完成"。
+    from utils.console import ensure_utf8_stdout
+    ensure_utf8_stdout()
     parser = argparse.ArgumentParser(description="章节质量验收 checklist")
     parser.add_argument("--chapter", type=int, help="只检查指定章节")
     args = parser.parse_args()

@@ -139,6 +139,10 @@ async def handshake(tcp_port):
 
 
 def main():
+    # 控制台安全网：本脚本不 import utils（纯 stdlib + 可选 mcp），故显式调一次 ——
+    # 失败行含 ✗，管道 stdout（cp936）下会 UnicodeEncodeError → 自检明明通过却崩。
+    from utils.console import ensure_utf8_stdout
+    ensure_utf8_stdout()
     ap = argparse.ArgumentParser(description="MCP 真机握手自检")
     ap.add_argument("--keep-alive", action="store_true", help="跑完不杀服务（手工探活用）")
     a = ap.parse_args()

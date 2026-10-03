@@ -75,6 +75,10 @@ def wait_state(cond, timeout=30, desc=""):
 
 
 def main():
+    # 控制台安全网：本脚本不 import utils（纯 stdlib + 子进程），故显式调一次 ——
+    # 下面第一句提示就含 ⚠️，管道 stdout（cp936）下会 UnicodeEncodeError。
+    from utils.console import ensure_utf8_stdout
+    ensure_utf8_stdout()
     # 护栏：自测会清空 data/ 运行产物，检测到真实书档时拒绝执行（除非 --force）
     if "--force" not in sys.argv:
         guard = ROOT / "data" / "setting" / "setting.json"
