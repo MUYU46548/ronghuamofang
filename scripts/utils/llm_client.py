@@ -251,22 +251,56 @@ def _dedupe_by_name(paths):
     return sorted(out)
 
 
+def common_prefix_len(texts):
+    """一组文本的**公共前缀**长度（前缀缓存命中上限，用来定位分叉点）。
+
+    只用于诊断与自检：前缀缓存按「请求开头逐字相同」命中，所以这个数字直接
+    决定 N 个子请求能不能共享缓存。**前缀里一个字符都不能变**。
+    """
+    items = [t or "" for t in texts]
+    if not items:
+        return 0
+    n = min(len(t) for t in items)
+    i = 0
+    first = items[0]
+    while i < n and all(t[i] == first[i] for t in items[1:]):
+        i += 1
+    return i
+
+
+# 多文件任务的**统一请求头**（2026-10-03 重排，P1 缓存）。
+#
+# 分叉 = 独立缓存杀手：N 个子请求内容 95%+ 相同，只要有一处在前部不同，
+# 前缀缓存就全灭（实测：指令头插时命中率上限 1.2%，移尾后 77.6%）。
+# 所以这里定死两条纪律，并由 tests/unit/test_segment_cache_prefix.py 守：
+#   ① 变的部分（第 i/N 个 + 文件路径）**只能出现在最后**；
+#   ② 不变的部分（下面这段说明）必须**整段落在公共前缀里** —— 于是把常量放前面、
+#      变量放最后；旧写法「第 1/3 个」打头，分叉点落在指令第 3 个字符，
+#      后半段那句「严禁输出其他文件的内容块」每个子请求各成一份独立前缀。
+SEGMENT_HEAD = ("【本批次共 {total} 个输出文件，本次调用**只**处理其中一个："
+                "其余文件由其他调用处理，严禁输出其他文件的内容块；"
+                "报告类输出只记录与本次输出相关的内容。"
+                "本次输出文件（第 {index}/{total} 个）：{path}】")
+
+
 def segment_requests(body, expected_writes, expected_appends):
     """多文件输出任务 → 拆为逐请求指令。返回 [(sub_prompt, writes, appends)]。
 
-    **指令必须放在 body 之后**（2026-09-29 随行件3）。原先把「仅处理第 i/N 个输出」
-    的指令**头插**在 user 消息最前，于是 N 个子请求虽然共享 95%+ 的正文与内联输入，
-    却在**首字符**就分叉 → 前缀缓存全部失效（每次都是全新前缀）。
-    挪到内联输入之后，N 个子请求共享同一段前缀，只有尾部差异 →
+    **指令必须放在 body 之后、且变量只能在最末**（2026-09-29 随行件3 + 2026-10-03 重排）。
+    原先把「仅处理第 i/N 个输出」的指令**头插**在 user 消息最前，于是 N 个子请求虽然
+    共享 95%+ 的正文与内联输入，却在**首字符**就分叉 → 前缀缓存全部失效（每次都是
+    全新前缀）。挪到内联输入之后，N 个子请求共享同一段前缀，只有尾部差异 →
     前缀缓存可命中（实测 deepseek-v4-flash 重排后 57.9%，重排前上限 1.2%）。
+
+    2026-10-03（P1 缓存）：**连指令内部也统一** —— 常量说明在前、`第 i/N 个 + 路径`
+    放最末，使那句「严禁输出其他文件的内容块」也落进公共前缀（旧写法白丢）。
     """
     if len(expected_writes) <= 1:
         return [(body, list(expected_writes), list(expected_appends))]
     reqs = []
+    total = len(expected_writes)
     for i, w in enumerate(expected_writes, 1):
-        head = ("【本次调用仅处理第 " + str(i) + "/" + str(len(expected_writes)) +
-                " 个输出文件：" + w + "。其余文件由其他调用处理，严禁输出其他文件的"
-                "内容块。报告类输出只记录与本文件相关的内容。】")
+        head = SEGMENT_HEAD.format(total=total, index=i, path=w)
         reqs.append((body.rstrip() + NEWLINE * 2 + head, [w], list(expected_appends)))
     return reqs
 
