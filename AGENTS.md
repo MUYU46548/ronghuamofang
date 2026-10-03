@@ -56,6 +56,19 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
   `max_total_tokens`（本 run 累计输入+输出；**一轮 = 一次 orchestrator.run()**，`--from N` 重跑会新开 run_id → 计数归零）。
 - 熔断后处置：调大对应键 → 清 `data/state/progress.json` 的 `budget.paused` → `orchestrator.py --from N` 续跑（已完成阶段不重跑）。
 - 阈值参考量级：hermes 一次 stage1 子会话 ≈ 11.6 万 token（输入 9.8 万 + 输出 1.8 万）；40 章 stage4 合计通常 200~400 万。
+- **阈值可配 + 出厂预设 + 边界校验**（2026-10-03）：默认 **1000 万/轮 + 单请求 50000**
+  （用户口径：单章 5000~15000 字、常态 ~8000）。桌面端「**设置 → 预算与止烧**」可改，
+  「恢复默认预设」取 `cost_tracker.TOKEN_LIMIT_PRESET`（**预设与出厂配置由用例断言逐项一致**）。
+  越界值（0 / 负数 / 天文数字）**一律拒绝**并由 `validate_token_limit` 说清哪一项、区间是多少；
+  手工把配置改坏时 `normalize_token_limit` 会**回落预设并打印 WARN** —— 闸门不许静默消失。
+  端点：`GET/POST /config/token_limit`；写入口**只认 GUI 来源**并列入
+  `agent_guard.FORBIDDEN_IN_AGENT_MODE`（外部 Agent 不得抬高自己的闸门）。
+- **看得见**：`nfctl status` 打 `token 闸门: 已用 N / 上限 M（x%）（本 run #id）`；
+  `GET /state` 的 `budget` 带 `tokens_used / token_limit / token_pct`；`estimate_tokens.py`
+  给出「跑完预计 token / 是否撞闸门」；GUI 流水线条有同一项。
+  ⚠️ 口径是**最近一次 run**（一轮 = 一次 `orchestrator.run()`；`--from N` 重跑 = 新 run，计数归零）。
+- **未启用时会明说**「未启用（hermes 下金额阈值无效 → 本轮没有止烧闸门）」——
+  静默不显示等于让用户以为有闸门。
 
 **误开 `gates.auto_rewrite` = 双倍烧**（审稿前先跑一轮重写）。本机默认 `false`；
 orchestrator 启动横幅会打印生效值（`gates: auto_rewrite=… auto_refine=… review_after_stage4=…`），别靠翻 YAML 猜。
@@ -80,6 +93,18 @@ stdout 被管道捕获时 Python 用 cp936，一行日志就能 `UnicodeEncodeEr
 **project.yaml**：读写都必须走**带重复键检测**的 loader（`utils.project_config`）。
 裸 `yaml.safe_load` 对重复键静默取后值 → 换书可能把数据归档到**错误书名**下。
 `switch_book.py` 配置坏时**拒绝执行**（含 `--list`），改完再换书。
+
+**配置类 YAML 一律经 `utils/config_io`（2026-10-03 收口）**：`load_config_yaml` 严格
+（重复键/语法错 → `ConfigError` 带**行号 + 危害 + 体检入口**）、`load_pipeline_config`
+（system ← local 深合并 + project，三份全严格）、`set_section_scalar(s)`
+（**定向改写**保留注释 + 备份 + 写后按值回读；嵌套段路径如 `("budget","token_limit")`）。
+**结构性护栏**在 `tests/unit/test_config_io.py` 第 5 节：`scripts/**` 出现裸 `yaml.safe_load(`
+即 FAIL，豁免名单（模板 frontmatter / nfctl 只读诊断 / 设定集数据文件）**每条都要写理由**。
+
+**收尾质量闸门（`quality_checklist.py`）**：**产物缺失 = 失败**（`all_pass=False` + 指出
+`data/chapters/{refined,raw}/NN.md` 两个候选路径 + 说明「跑过但没落盘」的含义）。
+确属还没写到那一章时用 `--allow-missing`，届时摘要必须写「**未经验收**」—— 跳过 ≠ 通过。
+`book.chapters = 0` 这类空集合也直接报错（vacuous truth 是门禁最阴的假绿）。
 
 ## 命令速查
 
@@ -119,7 +144,7 @@ stdout 被管道捕获时 Python 用 cp936，一行日志就能 `UnicodeEncodeEr
 | 角色出场统计 | `python scripts/appearances.py`（确定性，输出 data/state/appearances.json，obsidian_postprocess 自动调用） |
 | 润色后体检 | `python scripts/polish_review.py`（确定性，交付 Word 前跑） |
 | 校对（stage 5.5，交付 Word 前） | `python scripts/proofread.py [--scope refined] [--llm] [--dry-run]`（确定性：标点/错字/格式/章节节奏，**零 token**；`--llm` 追加语义校对。报告 data/outline/proofread_report.json + .md） |
-| 生成前 token/费用预估 | `python scripts/estimate_tokens.py [--stage 4] [--json] [--no-history] [--verbose]`（历史实测均值优先，无历史则字符折算；GUI 运行前确认框走 `GET /estimate`） |
+| 生成前 token/费用预估 | `python scripts/estimate_tokens.py [--stage 4] [--json] [--no-history] [--verbose]`（历史实测均值优先，无历史则字符折算；GUI 运行前确认框走 `GET /estimate`。**同时给出 token 闸门对照**：已用 + 本轮估算 = 跑完预计，撞闸门会明确提示 —— hermes 下 ¥ 恒 0，这才是有意义的预估） |
 | 拆书 / 章节节奏 | `python scripts/book_split.py --input <文本文件> [--emit] [--json] [--list-patterns]`（切章模式自动识别 → data/state/book_pacing.json；`--emit` 另导出切分正文到 data/state/book_split/。**输入文件只读**） |
 | 成本报告 | `python scripts/cost_report.py`（总览，含**阶段2 初版 vs 迭代**细分）；`--by-chapter`（分章）；`--by-outline`（**大纲逐轮费用**：v0 初版 + 每轮迭代 + 累计 + 平均）；`--runs 5` |
 | 多书切换 | `python scripts/switch_book.py --list` / `--archive` / `--restore "书名"`（均需 `--yes`）。归档范围 = `data/` 的 8 项产物 **+ `config/` 与 `materials/`**（2026-10-01 起：此前换书会丢配置与素材卡）。`system.yaml`/`system.local.yaml` 属**应用级**，归档后自动复制回工作区；`project.yaml` 重置为空白骨架，恢复时被书档版本覆盖 |
@@ -164,10 +189,10 @@ stdout 被管道捕获时 Python 用 cp936，一行日志就能 `UnicodeEncodeEr
 | GUI↔API 契约核对 | `python tests/e2e/test_gui_api_contract.py`（**AST 解析**：Vue 里每个 `api("…")` 都能在 nf_api 找到**同方法**分支；do_GET/do_POST 名遮蔽 AST 检查；死分支、丢失 elif 守卫（结构判据）、分支链长度回归；每个主题都要有 CSS 变量块，35 断言） |
 | **失败路径回归（F1~F8 + S9/S10）** | `python tests/unit/test_failure_paths.py`（**主动把系统打坏**：重试计数/异常不外泄/预算熔断/用户停止/stage4 逐章失败隔离/静态门禁/seedWorkspace 升级/审批打回清下游/阶段键集对齐/末阶段熔断，69 断言。用 `utils/failing_client.py` 造可控失败，真实 data/ 零污染） |
 | UX 端点 HTTP 自检 | `python tests/http/test_ux_flow_api_http.py`（临时项目根起 nf_api：`/logs/tail` 无文件/混编码/lines 边界、`/stage/skip` 的 confirm 与 stage 护栏、跳过落盘与 `/state` 回读、跳过→打回清标记、`/review/comment` 回归，26 断言） |
-| UX 真机视觉验收 | `python tests/e2e/e2e_ux_verify.py`（Playwright 打开构建产物：一键工作流条、错误恢复条、跳过确认框、命令面板 Ctrl+K、快捷键 Space/R/数字/?、暗色主题对比度、**关于弹窗 / 项目页签 / 新建项目向导三步 / 冷启动引导**，64 断言 + 截图 `Temp/gui_verify/ux/`。需先起 8091 静态服务 + `tests/e2e/mock_nf_api_state.py --port 8798` + `--port 8797 --cold`（冷启动状态）+ `scripts/nf_api.py --port 8799 --allow-fake`） |
+| UX 真机视觉验收 | `python tests/e2e/e2e_ux_verify.py`（Playwright 打开构建产物：一键工作流条、错误恢复条、跳过确认框、命令面板 Ctrl+K、快捷键 Space/R/数字/?、暗色主题对比度、**关于弹窗 / 项目页签 / 新建项目向导三步 / 冷启动引导 / 止烧阈值面板 / 流水线条 token 闸门**，**78 断言** + 截图 `Temp/gui_verify/ux/`。需先起 8091 静态服务 + `tests/e2e/mock_nf_api_state.py --port 8798` + `--port 8797 --cold`（冷启动状态）+ `scripts/nf_api.py --port 8799 --allow-fake`。⚠️ 8799 打的是**真实工作区**：期望值必须从 `/state` 推导（不许写死阶段号），且**下一步是审批门时绝不按 Space**（Space = 执行下一步，会真的把审批按掉 —— 2026-10-03 实测踩到并已还原）） |
 | 项目向导/关于端点自检 | `python tests/http/test_project_wizard_api_http.py`（临时项目根起 nf_api：`/config/style_notes` 回归 ImportError、单行↔多行反复改写不写坏 YAML、`/project/create` 参数护栏与「有数据不归档则拒绝」、归档+重建+写 project.yaml 全链路、`/project/init` 真写盘、`/about` 字段，44 断言） |
 | 真机截图 + 控制台报错检查 | `node tests/e2e/cdp_shots_new_tabs.js <http://127.0.0.1:8090> <出图目录>`（CDP 驱动 headless Chrome，逐页签截图 + 抓 console error/warning + 抓非 2xx 响应 URL。先起 nf_api:8765 与构建产物的静态服务；Node 22 自带 WebSocket，无需额外依赖） |
-| **质量门禁（提交前必跑）** | `python scripts/quality_gate.py`（**未定义名零容忍**：`undefined name` 一律阻塞，退出码 1；其余历史告警只计数不阻塞。`--changed` 只查 git 变更文件，`--list-warn` 打印完整告警） |
+| **质量门禁（提交前必跑）** | `python scripts/quality_gate.py`（**未定义名 + 语法错零容忍**：`undefined name` 与 `compile()` 失败一律阻塞，退出码 1；其余历史告警只计数不阻塞。`--changed` 只查 git 变更文件，`--list-warn` 打印完整告警）。⚠️ 语法错**必须**阻塞：一个连 import 都跑不起来的仓库被盖绿灯时，全量测试会集体报 ImportError、真因被埋（2026-10-03 亲历） |
 | **泄露门禁（发布前必跑 / CI 自动）** | `python scripts/leak_scan.py --list ci/blacklist.txt [--json]`（扫**被跟踪文件**里的私人词：真名 / 作品词 / 本机路径 / 私人 vault 目录结构。**fail-closed**：词表缺失·为空·条目 <20 条 → exit 2；**非二进制文件读不到也算失败**（没扫到 ≠ 通过）。退出码 0 零命中 / 1 有命中或读不到 / 2 词表不可用）。词表：本机 `ci/blacklist.txt`（已 gitignore）+ CI secret `LEAK_BLACKLIST`；仓库里只有零真值的 `ci/blacklist.example`。**替换映射表**（真值 ↔ 虚构值）在私有的 `ci/fictional-map.txt`（已 gitignore）——它同时是词表损坏时的容灾重建来源。路径豁免写在词表里（`allow: LICENSE # 理由`）且**会被打印出来** —— 静默豁免等于开后门。⚠️ 取文件列表必须 `git -c core.quotepath=false ls-files`：默认会转义非 ASCII 文件名，导致中文名文件被**静默跳过**（本仓实测少报过 ~60 处） |
 | **发布树卫生** | `config/project.yaml.example` 是模板（`project.yaml` 发布后不再随仓库分发，缺文件会让新克隆首跑崩 —— `load_project_yaml` 没有兜底）；CI 的 `leak-gate` 任务同时拦「运行产物被跟踪」（`logs/`·`data/`·`output/`·`history/`·`materials/raw/*.md`） |
 | kb / 模型端点契约自检 | `python tests/http/test_kb_and_models_api_http.py`（vault 未配置 → /kb/* 给可行动 400；白名单两级校验与 strict=false 逃生门，27 断言） |
@@ -203,8 +228,10 @@ stdout 被管道捕获时 Python 用 cp936，一行日志就能 `UnicodeEncodeEr
 与 `ai-novel-pipeline`、`novelforge-gui` 同分类同级；**技能库在 AppData、不进 Git，改动前先留副本**。
 
 **Agent 模式守卫**：`gates.agent_mode = true` 时，非 GUI 来源（无 `X-Mofang-Source: gui`）
-调用 `/approve`、`/reject`、`/project/create|archive|restore|init`、`/config/agent_mode`
+调用 `/approve`、`/reject`、`/project/create|archive|restore|init`、`/config/agent_mode`、
+**`/config/token_limit`**（止烧阈值：Agent 不得抬高自己的闸门）
 返回 **403**。含义是：**外部 Agent 可读、可跑流水线，但不能代替用户审批** —— 这是设计，不是 bug。
+另外设置类写入（`/config/agent_mode`、`/config/token_limit`）**无论模式如何都要求 GUI 来源头**。
 
 ## 提示词前缀纪律（2026-09-23 定，改 `prompts/stage*.md` 前必读）
 
@@ -278,6 +305,7 @@ stdout 被管道捕获时 Python 用 cp936，一行日志就能 `UnicodeEncodeEr
   - `/project/create`、`/project/archive`、`/project/restore`
   - `/project/init`
   - `/config/agent_mode`（Agent 不得自行切换模式）
+  - `/config/token_limit`（止烧阈值 —— Agent 不得抬高自己的闸门）
 - Agent 生成的大纲/产物自动进入待审批状态（exit=3），需在桌面端确认
 - 双保险机制：Agent 被告知需在桌面端审批 + 桌面端自动检测审批门并弹窗提示
 - 审计日志：所有 Agent 调用记录到 `data/state/agent_audit.jsonl`

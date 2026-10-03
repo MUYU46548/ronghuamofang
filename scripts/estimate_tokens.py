@@ -301,6 +301,26 @@ def _heuristic_stage(stage, cfg, proj, calls, cpt, role):
 
 # ---------------------------------------------------------------- 汇总
 
+def current_tokens():
+    """最近一次 run 的累计 token（与 nfctl status / GET /state 同口径）。
+
+    run 语义 = 一次 orchestrator.run()；`--from N` 重跑 = 新 run（计数归零）。
+    """
+    try:
+        from utils.db import RunDB
+        p = Path("logs/runs.db")
+        if not p.exists():
+            return 0
+        db = RunDB(p)
+        try:
+            rid = db.conn.execute("SELECT COALESCE(MAX(id),0) FROM runs").fetchone()[0] or None
+            return int(db.sum_tokens(rid)) if rid else 0
+        finally:
+            db.close()
+    except Exception:                                       # noqa: BLE001
+        return 0
+
+
 def current_spent():
     try:
         from utils.db import RunDB
@@ -329,6 +349,13 @@ def estimate(stages=None, cfg=None, proj=None, use_history=True):
     total_cost = round(sum(r["cost_yuan"] for r in rows), 4)
     hist_stages = [r["stage"] for r in rows if r.get("source") == "history"]
     engine = (cfg.get("engine") or "direct")
+    # token 闸门对照（2026-10-03）：hermes 下 ¥ 预估恒 0，"会不会撞闸门"只能看 token。
+    # 判据（预设/归一/边界）在 cost_tracker，这里只做对照与提示。
+    from utils.cost_tracker import normalize_token_limit
+    tl = normalize_token_limit((cfg.get("budget") or {}).get("token_limit"))
+    est_tokens = (sum(r["tokens_in"] for r in rows) + sum(r["tokens_out"] for r in rows))
+    used_tokens = current_tokens()
+    cap = int(tl.get("max_total_tokens") or 0) if tl.get("enabled") else 0
     return {
         "engine": engine,
         "generated_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
@@ -351,6 +378,17 @@ def estimate(stages=None, cfg=None, proj=None, use_history=True):
             "projected_yuan": round(spent + total_cost, 4),
             "projected_pct": round((spent + total_cost) / limit * 100, 1) if limit else 0.0,
             "exceeds": (spent + total_cost) > limit,
+        },
+        # token 闸门对照：跑完这轮预计用多少 token、离上限多远（hermes 下这才是真闸门）
+        "token_limit": {
+            "enabled": bool(tl.get("enabled")),
+            "max_total_tokens": cap,
+            "per_request_max_tokens": int(tl.get("per_request_max_tokens") or 0),
+            "used_tokens": used_tokens,
+            "estimated_tokens": est_tokens,
+            "projected_tokens": used_tokens + est_tokens,
+            "projected_pct": (round((used_tokens + est_tokens) / cap * 100, 1) if cap else None),
+            "exceeds": bool(cap) and (used_tokens + est_tokens) > cap,
         },
         "disclaimer": "估算值（历史实测均值优先，无历史则字符折算 + 刊例价），非账单；"
                       "真实用量以 logs/runs.db 为准，下单前请以服务商官网实时价为准。"
@@ -380,6 +418,17 @@ def format_text(result):
           % (result["budget"]["spent_yuan"], result["budget"]["limit_yuan"],
              result["budget"]["projected_yuan"], result["budget"]["projected_pct"],
              "  ⚠ 超预算" if result["budget"]["exceeds"] else "")]
+    # token 闸门对照：hermes 下 ¥ 恒 0，这才是真正的止烧闸门（2026-10-03）
+    tk = result.get("token_limit") or {}
+    if not tk.get("enabled"):
+        L.append("token 闸门：**未启用** —— engine: hermes 下金额阈值无效，"
+                 "本轮没有任何止烧闸门（可在桌面端「设置 → 预算与止烧」开启）")
+    else:
+        L.append("token 闸门：已用 %d / 上限 %d；跑完预计 %d（%.1f%%）%s"
+                 % (tk.get("used_tokens", 0), tk.get("max_total_tokens", 0),
+                    tk.get("projected_tokens", 0), tk.get("projected_pct") or 0.0,
+                    "  ⚠ 跑完将撞闸门（届时熔断暂停，可调大上限或缩小范围）"
+                    if tk.get("exceeds") else ""))
     if result["unknown_rate_models"]:
         L.append("⚠ 以下模型无刊例价，费用按 default 角色兜底，偏差可能很大："
                  + "、".join(result["unknown_rate_models"])

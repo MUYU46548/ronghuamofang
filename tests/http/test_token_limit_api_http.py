@@ -183,6 +183,19 @@ def main():
         code, d = req("POST", "/config/token_limit", {"max_total_tokens": 3000000})
         check("agent_mode=true + 非 GUI → 403（agent_guard 层拦下）", code == 403, (code, d))
         check("仍未改动配置", cfg_text(tmp) == before_am)
+
+        print("\n【7】观测面：/state 必须带上 token 用量与上限（否则用户盲调阈值）")
+        code, st = req("GET", "/state")
+        b = (st or {}).get("budget") or {}
+        check("/state 200", code == 200, code)
+        check("budget.tokens_used 存在（数字，不是 None）",
+              isinstance(b.get("tokens_used"), int), b)
+        check("budget.token_limit 回显当前阈值",
+              (b.get("token_limit") or {}).get("max_total_tokens") == 3000000
+              or (b.get("token_limit") or {}).get("max_total_tokens") == 10000000, b.get("token_limit"))
+        check("budget.token_pct 存在（有上限时不是 None）",
+              b.get("token_pct") is not None, b)
+        check("空账本 → tokens_used = 0（不谎报）", b.get("tokens_used") == 0, b)
     finally:
         proc.terminate()
         try:

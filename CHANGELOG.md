@@ -16,12 +16,13 @@ CHANGELOG」）。本文件从工程审查修复起正式启用。
 `budget.limit_yuan` 永不命中。一次跑几十章可以一路烧到没边。
 
 - **token 级熔断**（`config/system.yaml` → `budget.token_limit`，显眼处）：
-  `max_total_tokens`（单轮累计输入+输出，默认 300 万）与 `per_request_max_tokens`
-  （单请求输出上限，默认 8000）。判据只有一份 `CostTracker.status_detail()`
+  `max_total_tokens`（单轮累计输入+输出，默认 **1000 万**）与 `per_request_max_tokens`
+  （单请求输出上限，默认 **50000**）。判据只有一份 `CostTracker.status_detail()`
   （金额 / token 累计 / token 单次），`status()` 退化为它的二元组包装 →
   老调用点零改动。触发后走**现有** budget/pause（`progress.budget.paused` + 退出码 2），
   **没有新状态机**；阶段内（stage4 逐章 / stage5 分批 / stage6 分卷）也查。
   熔断日志点明**是哪条判据命中 + 该调哪个键**（旧日志在 hermes 下只会打「已用 0.00 元」）。
+  （阈值初值 300 万/8000，同日按用户口径调高并做成可配 —— 见下方「阈值调高」。）
 - **单请求上限落到调用点**：direct 引擎真把 `max_tokens` 设进 payload（上限优先，
   不被调用点参数顶掉）；hermes **没有这个旋钮** → 只比对 + 大声告警，
   要按次熔断就开 `per_request_pause_hermes`（默认关：实测 hermes 一次 stage1 子会话
@@ -107,6 +108,110 @@ stdout 被捕获（GUI/后台任务/测试运行器）时 Python 用 cp936，而
 `switch_book.py`」的方式，而该脚本的 `PROJECT_ROOT` 取自 `__file__`（不是 CWD）→
 **把真实工作区归档了**。已当场恢复并逐文件核对（0 文件丢失 / 0 内容差异 / 0 文件被重写），
 新用例改为「复制脚本进临时根」并加断言护栏。
+
+---
+
+## [Unreleased] — 2026-10-03（第二轮）桌面端退出 · 配置严格化 · 阈值可配 · 闸门收口
+
+### 🔴 桌面端「关不掉」（用户复发报告）
+
+现象：应用无法退出，只能强杀。根因不止一处，且都是**静默**的：
+
+- 渲染进程 `beforeunload` + `returnValue` 会在 Electron 里唤起**原生**确认对话框 ——
+  而本项目的 GUI 纪律明令不用原生对话框（不可靠），且该守卫的触发条件是
+  「本轮完成 && 未审批」，一个**长期存在**的状态 → 每次关窗都被它拦。
+- 主进程**没有** `close` 处理器：窗口关了，子进程未必跟着走。
+- `stopApi()` 只杀直接子进程，而 `nf_api` 会再 spawn 孙进程（stage 子会话）→
+  8765 端口被孙进程继续占着。
+- 端口探测是**无上限递归**：一次失败就再递归一次，永远退不出去。
+
+修法：`console/main/quitGuard.js`（纯函数，可单测）+ 主进程状态机
+（`rendererBusy/isQuitting/lastCloseAskAt/closeAskTimer`）、`killTree()` 走
+`taskkill /F /T`（Windows 上杀整棵树）、`askRendererToClose()` 带 5 秒看门狗、
+`forceQuit()` 兜底；渲染侧改为**应用内**对话框（`app:quit-confirmed/canceled` IPC）。
+自检 `tests/unit/test_desktop_quit_guard.py`（31 断言）；另 `console/tests/quitGuard.test.js` 17 条。
+
+### 🔧 配置统一严格 loader（A1 + A2）
+
+`config/*.yaml` 原先散落 ~40 处裸 `yaml.safe_load` —— PyYAML 对重复键**静默取后值**。
+历史事故（`project.yaml` 的 `user_outline`、`system.yaml` 的 `gates.agent_mode` 双写）
+只做到了「`nfctl check` 能查出来」，**loader 并不拒绝**；而本轮止烧阈值恰恰住在这份
+文件里 → 配置被静默覆盖 = 熔断闸门看着设好了、实际没生效（与「¥ 记账恒 0」同一类失败）。
+
+- 新增 **`utils/config_io.py`**：配置类 YAML 的**唯一读写入口**。
+  `load_config_yaml`（重复键/语法错 → `ConfigError`，带**行号 + 危害说明 + 体检入口**；
+  文件不存在 → 返回 default）、`deep_merge` / `load_pipeline_config`
+  （system ← local 深合并 + project，三份全严格）、
+  `set_section_scalar(s)`（**定向改写**：嵌套段路径、缺段补建、写前备份、
+  写后**按值**回读校验；批量版一次备份一次落盘，避免「改了一半」）。
+- 21 个文件 / ~40 处调用点全部换掉（含 `nf_api_domains/models.py` 的
+  `api.yaml.safe_load(...)` 与 13 个文件里随之失效的 `import yaml`，含函数内缩进写法）。
+  `utils/project_config` 删掉**自己那份** `_UniqueKeyLoader`，改为委托
+  （同一判据写两遍 = 迟早只改一处 —— 本轮的坑正是「当年只修了 project.yaml」）。
+- **结构性护栏**（`tests/unit/test_config_io.py` 第 5 节）：`scripts/**` 出现
+  `yaml.safe_load(` 即报；豁免名单**每条必须写理由**并会被打印
+  （模板 frontmatter / nfctl 只读诊断 / 设定集数据文件），且带反证与「名单不许变成空话」断言。
+- `quality_gate.py`：**语法错从 WARN 提为 BLOCK**。理由是本轮亲历 ——
+  改 orchestrator 时留下一个 IndentationError，门禁照样显示「BLOCK 0 + 通过」，
+  而全量测试集体 ImportError、真因被埋。此改动随后**立刻抓到**一次真错误
+  （机械替换把 import 插进了多行 import 语句内部；另一次抓到 `nfctl.py` 的未定义名 `cfg`）。
+
+### 🎚 止烧阈值调高 + 设置页可配（出厂预设 + 边界校验）
+
+用户口径：「单章 5000~15000 字，常态 8000 字左右」「阈值调高：1000 万/轮、50000」
+「参数可由用户在设置中手动配置，并保留一套默认预设，防止用户乱改改坏」。
+
+- `config/system.yaml`：`per_request_max_tokens: 8000 → 50000`、
+  `max_total_tokens: 3000000 → 10000000`（把「为什么是这两个数」写进注释：
+  50000 拦的是**失控生成**，不是正常写长章）。
+- `cost_tracker`：`TOKEN_LIMIT_PRESET`（=「恢复默认」唯一取值来源）、
+  `TOKEN_LIMIT_BOUNDS`（累计 10 万~2 亿 / 单请求 1000~50 万 / warn 0.1~1）、
+  `validate_token_limit()`（写入口校验，报错说清哪一项与区间）。
+- **闸门不许静默消失**：`normalize_token_limit()` 读到越界值 → 回落预设并打印 WARN；
+  「enabled 但两项都是 0（= 没有闸门）」也回落累计上限。设成 0 在今天语义里是
+  「不限制」—— 与本轮修的「¥ 记账恒 0」是同一类坑。
+- API：`GET/POST /config/token_limit`（写入口只认 GUI 来源并列入
+  `agent_guard.FORBIDDEN_IN_AGENT_MODE` —— 外部 Agent 若能抬高自己的闸门，止烧就是摆设）；
+  `handle_config_agent_mode_set` 原先自带的第二份正则写入也收敛到 `config_io`。
+- GUI：设置页「**预算与止烧**」面板（四个数值 + 区间提示 + 保存 / 恢复默认预设 + 明确回显）。
+
+### 👁 token 闸门可见性（hermes 下不显示 = 让用户盲调阈值）
+
+- `nfctl status`：新增 `token 闸门: 已用 N / 上限 M（x%）（本 run #id）· 单请求上限 K`；
+  未启用时**明说**「未启用（hermes 下金额阈值无效 → 本轮没有止烧闸门）」。
+- `GET /state` → `budget.tokens_used / tokens_run_id / token_limit / token_pct`。
+- `estimate_tokens.py`：结果新增 `token_limit` 对照（已用 + 本轮估算 = 预计，超限 `exceeds`），
+  文本模式打印同一行；撞闸门时给「届时熔断暂停，可调大上限或缩小范围」。
+- GUI 流水线条新增「token 闸门」一项（数字真来自 `/state`）。
+
+### 🚦 质量验收闸门：产物缺失 = 失败（用户拍板）
+
+> 章节文件不存在，如果是跑了但没落盘，当然不是预期的结果。这绝对有问题。
+
+`quality_checklist.py` 旧实现对缺失章节只打 `[SKIP] 文件不存在` 就 `continue`，
+`all_pass` 保持 True → 末尾照打「**全部章节通过验收 ✓**」并退 0 —— 而它正是
+orchestrator 的收尾闸门（`gates.quality_gate`）。现：缺失 → FAIL + 两个候选路径 +
+含义说明；`--allow-missing` 为**显式**逃生门且摘要必须写「未经验收」（跳过 ≠ 通过）；
+`book.chapters = 0` 这类**空集合也直接报错**（vacuous truth 是门禁最阴的假绿）。
+
+### 🧪 本轮新增自检（本批 5 个用例 / 163 断言，全部零 LLM）
+
+`test_config_io.py`（38）· `test_quality_gate_syntax.py`（10）·
+`test_token_limit_config.py`（50）· `test_desktop_quit_guard.py`（31）·
+`test_quality_checklist_gate.py`（20）；HTTP：`test_token_limit_api_http.py`（33）。
+
+**e2e 真机视觉验收 76 → 78 通过 / 0 失败**，并修掉它两个会改**用户真实数据**的隐患：
+
+- ⚠️ **事故（已还原）**：真后端段落原先假定工作区是「1-4 已完成」并写死
+  「下一步 = 运行阶段 5」；本轮工作区停在**审批门**，于是那次 `Space`（= 执行下一步）
+  把用户的 `stage1.approved` 真按成了 true。已按原始 JSON 形状手工还原
+  （删掉 `approved` 键，不是写 false）并核对 `nfctl status` 回到「待人工确认: 阶段 1」。
+  现改为**从 `/state` 推导**期望值，且下一步是审批门时**整段跳过 Space**（附 SKIP 原因）。
+- About 断言硬编码**某台机器的绝对路径**（换机器假红，且把私人路径写进仓库源码）
+  → 改为从 `ROOT` 推导。
+
+**全量回归**：`nfctl test` **73/73 全通过**；`quality_gate` BLOCK 0 / WARN 39（未增）；
+`leak_scan` 0 命中；`prompts/` 全程未动。
 
 ---
 

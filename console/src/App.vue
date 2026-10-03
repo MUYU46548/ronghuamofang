@@ -2743,6 +2743,17 @@ onUnmounted(() => {
           <span class="ps-label">累计花费</span>
           <span class="ps-value">¥{{ state.cost.spent_yuan.toFixed(2) }} / ¥{{ state.cost.limit_yuan }}</span>
         </div>
+        <!-- token 级熔断（hermes 下金额恒 0，真正的止烧闸门是 token）：不显示就等于让用户盲调阈值 -->
+        <div class="ps-item" v-if="state.budget && state.budget.token_limit">
+          <span class="ps-label">token 闸门</span>
+          <span class="ps-value" :class="{ 'bad-val': (state.budget.token_pct || 0) >= 70 }">
+            <template v-if="!state.budget.token_limit.enabled">未启用</template>
+            <template v-else>
+              {{ fmtTok(state.budget.tokens_used) }} / {{ fmtTok(state.budget.token_limit.max_total_tokens) }}
+              <span class="meta" v-if="state.budget.token_pct !== null">（{{ state.budget.token_pct }}%）</span>
+            </template>
+          </span>
+        </div>
       </div>
       <div v-if="isRunning" class="ps-progress">
         <div class="ps-progress-bar" :style="{ width: progressPercent + '%' }"></div>

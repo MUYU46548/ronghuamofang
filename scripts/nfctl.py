@@ -226,18 +226,33 @@ def collect_status(root: Path) -> dict:
         limit = budget.get("limit_yuan") or 0
         # cost_tracker 记账在 DB，progress.json 的 budget 只是 orchestrator 运行时快照旧值
         # 此处读 DB（source of truth），避免显示 ¥0.0 的 bug
+        tokens_used, tokens_run = 0, None
         try:
             from utils.db import RunDB
             db = RunDB(str(root / "logs" / "runs.db"))
             spent = db.sum_cost() or 0.0
+            # token 级熔断的观测面（2026-10-03）：hermes 下金额恒 0，
+            # 只显示 ¥0.0/¥300 等于什么都没说 —— 而止烧阈值是**token**。
+            tokens_run = db.conn.execute(
+                "SELECT COALESCE(MAX(id),0) FROM runs").fetchone()[0] or None
+            tokens_used = db.sum_tokens(tokens_run) if tokens_run else 0
             db.close()
         except Exception:
             spent = budget.get("spent_yuan") or 0.0
+        from utils.cost_tracker import normalize_token_limit
+        sysconf = _read_yaml(root / "config" / "system.yaml", {}) or {}
+        tl = normalize_token_limit((sysconf.get("budget") or {}).get("token_limit"))
+        cap = int(tl.get("max_total_tokens") or 0) if tl.get("enabled") else 0
         out["cost"] = {
             "spent_yuan": round(float(spent), 4),
             "limit_yuan": limit,
             "ratio": round(float(spent) / limit, 4) if limit else None,
             "paused": bool(budget.get("paused")),
+            "tokens_used": int(tokens_used),
+            "tokens_run_id": tokens_run,
+            "token_limit": tl,
+            "token_cap": cap,
+            "token_pct": (round(tokens_used / cap * 100, 2) if cap else None),
         }
         # 待人工确认 = 「被 gates 要求审批」且「该阶段已完成」且「尚未审批」
         # 判据走 approval_stages（单一来源）—— 否则陪跑模式下 stage1 本该显示待审批，
@@ -330,6 +345,21 @@ def render_status(s: dict) -> str:
             ("（%.1f%%）" % (cost["ratio"] * 100)) if cost.get("ratio") is not None else "",
             "  ⚠ 已熔断暂停" if cost.get("paused") else "",
         ))
+        # token 级熔断（hermes 下唯一有效的止烧闸门）：不显示就等于让用户盲调阈值。
+        # 口径 = 最近一次 run 的累计（run = 一次 orchestrator.run()；--from N 重跑 = 新 run）。
+        tl = cost.get("token_limit") or {}
+        if not tl.get("enabled"):
+            lines.append("token 闸门: **未启用**（engine: hermes 下金额阈值无效 → 本轮没有止烧闸门）")
+        else:
+            cap = cost.get("token_cap") or 0
+            lines.append("token 闸门: 已用 %s / %s%s（本 run #%s）· 单请求上限 %s%s" % (
+                cost.get("tokens_used", 0),
+                cap or "不限",
+                ("（%.1f%%）" % cost["token_pct"]) if cost.get("token_pct") is not None else "",
+                cost.get("tokens_run_id") or "-",
+                tl.get("per_request_max_tokens") or "不限",
+                "· hermes 按次熔断已开" if tl.get("per_request_pause_hermes") else "",
+            ))
     if s.get("pending_approval"):
         lines.append("待人工确认的审批门: 阶段 %s" % ", ".join(str(x) for x in s["pending_approval"]))
     else:

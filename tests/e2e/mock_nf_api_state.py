@@ -34,7 +34,14 @@ STATE = {
         {"stage": 7, "status": "pending", "approved": None},
     ],
     "cost": {"spent_yuan": 12.3456, "limit_yuan": 50.0, "calls": 42, "estimated_entries": 3},
-    "budget": {"paused": False},
+    "budget": {"paused": False,
+               # token 闸门观测面（2026-10-03）：真后端 /state 也带这几个字段，
+               # mock 不补的话流水线条上的「token 闸门」一行在视觉验收里恒不渲染。
+               "tokens_used": 116599, "tokens_run_id": 7,
+               "token_limit": {"enabled": True, "per_request_max_tokens": 50000,
+                               "per_request_pause_hermes": False,
+                               "max_total_tokens": 10000000, "warn_ratio": 0.7},
+               "token_pct": 1.17},
 }
 
 ESTIMATE = {

@@ -384,8 +384,8 @@ def test_real(browser):
         check("版本号取自 console/package.json（非 dev）",
               ("v" + _pkg_ver) in atxt and "读取版本信息失败" not in atxt
               and "mock" not in atxt, atxt[:70].replace("\n", " | "))
-        # 路径断言**从 ROOT 推导**，不写死某台机器的绝对路径（旧实现硬编码 "E:\CODE"：
-        # 换机器/换盘就假红，而且把私人路径写进了仓库源码 —— 这是发布纪律不允许的）。
+        # 路径断言**从 ROOT 推导**，不写死某台机器的绝对路径（旧实现硬编码了一个本机盘符路径：
+        # 换机器/换盘就假红，而且把私人路径写进了仓库源码 —— 发布纪律不允许）。
         check("显示真实项目根路径", str(ROOT.name) in atxt and str(ROOT) in atxt,
               "期望含 %s" % ROOT)
         check("含快速上手 / 数据位置 / 许可区块",
@@ -537,6 +537,17 @@ def test_about_project(browser, mock_proc=None):
         check("命令面板能搜到「新建项目」", any("新建项目" in t for t in labels), labels[:3])
         page.keyboard.press("Escape")
         page.wait_for_timeout(200)
+
+        print("  --- 流水线条上的 token 闸门（hermes 下唯一有效的止烧观测面）---")
+        page.locator(".tabs button:has-text('流水线')").click()
+        page.wait_for_timeout(700)
+        strip = page.locator(".ps-item").all_inner_texts()
+        joined = " | ".join(strip)
+        check("流水线条显示「token 闸门」（不能只显示 ¥0.0）",
+              any(("token 闸门" in t) for t in strip), joined[:160])
+        check("显示 token 已用 / 上限（数字真的来自 /state）",
+              "116,599" in joined and "10,000,000" in joined, joined[:200])
+        shot(page, "D8_token_gate_strip")
 
         print("  --- 止烧阈值面板（设置页：读值 → 恢复默认预设 → 明确反馈）---")
         page.locator(".tabs button:has-text('设置')").click()

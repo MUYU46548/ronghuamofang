@@ -693,6 +693,7 @@ def build_state():
     stages = [stage_status(progress, n) for n in range(1, 8)]
     gates = load_all()[0].get("gates", {})
     cost_spent, calls, est = 0.0, 0, 0
+    tokens_used, tokens_run = 0, None
     db_path = ROOT / "logs" / "runs.db"
     if db_path.exists():
         db = RunDB(db_path)
@@ -701,9 +702,18 @@ def build_state():
                 "SELECT COALESCE(SUM(cost_yuan),0), COUNT(*), COALESCE(SUM(estimated),0)"
                 " FROM cost_log").fetchone()
             cost_spent, calls, est = float(row[0]), int(row[1]), int(row[2])
+            # token 级熔断的观测面（2026-10-03）：hermes 下金额恒 0，
+            # 光看 ¥ 完全看不出"离闸门还有多远"。这里给**最近一次 run** 的累计
+            # （run 语义 = 一次 orchestrator.run()；--from N 重跑 = 新 run）。
+            tokens_run = db.conn.execute(
+                "SELECT COALESCE(MAX(id),0) FROM runs").fetchone()[0] or None
+            tokens_used = db.sum_tokens(tokens_run) if tokens_run else 0
         finally:
             db.close()
     budget = load_all()[0].get("budget", {})
+    # token 上限与预警线（判据在 cost_tracker：预设/归一/边界只有一份）
+    from utils.cost_tracker import normalize_token_limit
+    tl = normalize_token_limit(budget.get("token_limit"))
     latest = JOBS[JOBS_ORDER[-1]] if JOBS_ORDER else None
     try:
         archived = [p.name for p in (ROOT / "data" / "books").iterdir() if p.is_dir()]
@@ -725,6 +735,12 @@ def build_state():
         "current_job": CURRENT["id"],
         "budget": {
           "paused": progress.data.get("budget", {}).get("paused", False),
+          # token 级熔断的观测面（hermes 下金额恒 0，看不到 token 就只能靠猜）
+          "tokens_used": int(tokens_used),
+          "tokens_run_id": tokens_run,
+          "token_limit": tl,
+          "token_pct": (round(tokens_used / tl["max_total_tokens"] * 100, 2)
+                        if tl.get("enabled") and tl.get("max_total_tokens") else None),
         },
         # GUI 要靠它显示「Agent 模式」开关的**真实**状态。
         # ⚠️ 前端读的是 `s.data.agent_mode`（顶层），而此前这个字段只存在于

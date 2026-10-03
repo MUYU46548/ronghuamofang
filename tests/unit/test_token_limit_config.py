@@ -166,6 +166,37 @@ def case_batch_write():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def case_estimate_shows_gate():
+    print("\n【5】预估工具必须给出 token 闸门对照（hermes 下 ¥ 恒 0，只能看 token）")
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import estimate_tokens as et
+    res = et.estimate(stages=[4], cfg=load_config_yaml(ROOT / "config" / "system.yaml"),
+                      proj=load_config_yaml(ROOT / "config" / "project.yaml"),
+                      use_history=False)
+    tk = res.get("token_limit") or {}
+    check("结果带 token_limit 块", bool(tk), tk)
+    check("上限与配置一致", tk.get("max_total_tokens") == 10000000, tk)
+    check("给出「预计跑完」的累计与该轮占比",
+          isinstance(tk.get("projected_tokens"), int) and tk.get("projected_pct") is not None, tk)
+    check("预计值 = 已用 + 本轮估算",
+          tk.get("projected_tokens") == tk.get("used_tokens", 0) + tk.get("estimated_tokens", 0), tk)
+    text = et.format_text(res)
+    check("文本模式也打印 token 闸门行（不能只有 JSON 有）", "token 闸门" in text, text[-200:])
+    check("文本里带上限数字", "10000000" in text, text[-200:])
+
+    # 反证：把上限调到极小 → 必须给出"跑完将撞闸门"的提示
+    cfg = load_config_yaml(ROOT / "config" / "system.yaml")
+    cfg["budget"]["token_limit"] = dict(cfg["budget"]["token_limit"])
+    cfg["budget"]["token_limit"]["max_total_tokens"] = 100000
+    res2 = et.estimate(stages=[4], cfg=cfg,
+                       proj=load_config_yaml(ROOT / "config" / "project.yaml"),
+                       use_history=False)
+    check("小上限 → exceeds=True", (res2.get("token_limit") or {}).get("exceeds") is True,
+          res2.get("token_limit"))
+    check("小上限 → 文本给出「跑完将撞闸门」",
+          "撞闸门" in et.format_text(res2), et.format_text(res2)[-200:])
+
+
 def main():
     print("=" * 62)
     print("  止烧阈值语义自检")
@@ -174,6 +205,7 @@ def main():
     case_validate()
     case_normalize_never_loses_brake()
     case_batch_write()
+    case_estimate_shows_gate()
     print("\n" + "=" * 62)
     print("  通过 %d / 失败 %d" % (len(PASS), len(FAIL)))
     for f in FAIL:
