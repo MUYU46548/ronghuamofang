@@ -124,6 +124,9 @@ def main():
     ensure_utf8_stdout()
     parser = argparse.ArgumentParser(description="章节质量验收 checklist")
     parser.add_argument("--chapter", type=int, help="只检查指定章节")
+    parser.add_argument("--allow-missing", action="store_true",
+                        help="把「产物缺失」降级为**明确标注的跳过**（探索期/只写了前几章时用）。"
+                             "默认缺失即失败：跑完却缺文件绝不算通过。")
     args = parser.parse_args()
 
     if not PROJECT.exists():
@@ -136,17 +139,36 @@ def main():
         chapters = [args.chapter]
     else:
         chapters = list(range(1, total_chapters + 1))
+    if not chapters:
+        # 空集合 = 什么都没验 → 不许"全过"（vacuous truth 是门禁最阴的假绿）
+        print("ERROR: 没有可验收的章节（config/project.yaml 的 book.chapters 为 0？）")
+        sys.exit(1)
 
     print(f"章节质量验收 checklist（共 {len(chapters)} 章）")
     print("=" * 60)
 
     all_pass = True
+    missing = []
     for ch in chapters:
         chapter_file = CHAPTERS / f"{ch:02d}.md"
         if not chapter_file.exists():
             chapter_file = CHAPTERS_RAW / f"{ch:02d}.md"
         if not chapter_file.exists():
-            print(f"\n第{ch}章: [SKIP] 文件不存在")
+            # ⚠️ 2026-10-03（用户拍板）：**产物缺失一律失败**。
+            # 旧实现这里只打一行 `[SKIP] 文件不存在` 就 continue，`all_pass` 保持 True
+            # → 末尾照打「全部章节通过验收 ✓」并退 0。而本脚本是 orchestrator 的收尾闸门
+            # （gates.quality_gate），于是"跑了但没落盘"这种最该拦的情形被盖了绿灯。
+            # 产物存在 ≠ 合格（那要靠下面的逐项检查）；但**产物缺失一定不合格**。
+            missing.append(ch)
+            if args.allow_missing:
+                print(f"\n第{ch}章: [SKIP] 产物缺失（--allow-missing 放行，**未经验收**）")
+                continue
+            all_pass = False
+            print(f"\n第{ch}章: [FAIL] 产物缺失 —— 该章没有任何落盘文件")
+            print(f"  - 既无 {CHAPTERS.relative_to(ROOT).as_posix()}/{ch:02d}.md，"
+                  f"也无 {CHAPTERS_RAW.relative_to(ROOT).as_posix()}/{ch:02d}.md")
+            print("  - 「跑过但没落盘」= 失败（截断丢弃 / 子会话异常 / 被删）；"
+                  "确属还没写到这一章，请显式加 --allow-missing（届时会标注为未验收）")
             continue
 
         text = chapter_file.read_text(encoding="utf-8")
@@ -167,9 +189,17 @@ def main():
 
     print("\n" + "=" * 60)
     if all_pass:
-        print("全部章节通过验收 ✓")
+        if missing:
+            # 不许把"跳过"说成"通过"（旧实现的病根就是这两句话糊在一起）
+            print(f"全部章节处理完毕，但其中 {len(missing)} 章产物缺失、**未经验收**："
+                  + "、".join(str(c) for c in missing))
+            print("（--allow-missing 已放行；这批章节不能算验收通过）")
+        else:
+            print("全部章节通过验收 ✓")
         sys.exit(0)
     else:
+        if missing:
+            print(f"有 {len(missing)} 章**产物缺失**（跑完却没落盘），另有章节未通过检查")
         print("部分章节未通过，请修复后再继续")
         sys.exit(1)
 
