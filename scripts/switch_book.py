@@ -329,6 +329,15 @@ def list_books():
 
 
 def main():
+    # 控制台安全网：本脚本**只在函数内**延迟 import utils（PROJECT_ROOT 与模块级 import 要
+    # 保持轻量），所以模块导入时的包级挂钩此时还没生效 —— 必须在这里显式调一次。
+    # 实测（2026-10-03）：换了目录 + 管道 stdout（cp936）跑本脚本，横幅里一个非 GBK 字符
+    # 就 `UnicodeEncodeError` 把命令打死；而这是**破坏性操作**的入口，最不该在打印阶段崩。
+    try:
+        from utils.console import ensure_utf8_stdout
+        ensure_utf8_stdout()
+    except Exception:                                       # noqa: BLE001
+        pass
     parser = argparse.ArgumentParser(description="NovelForge 多书目录隔离（归档式切换）")
     parser.add_argument("--list", action="store_true", help="列出归档")
     parser.add_argument("--archive", nargs="?", const="__auto__", default=None,
@@ -351,6 +360,22 @@ def main():
 
 
 def _dispatch(args):
+    # 「要动哪个项目」必须**每次都说清**（2026-10-03 事故后加的）。
+    # PROJECT_ROOT 取自 `__file__`，**不是 CWD** —— 从别的目录敲 `python 某路径/switch_book.py`
+    # 时，它动的是**脚本所在的那个仓库**，不是你现在所在的目录。这个差别很致命：
+    # 归档 = 把当前书的产物搬走并重置工作区。实测就有一次"以为在临时目录里跑，结果归档了
+    # 真实工作区"（已完整恢复）。所以这里在**任何写操作之前**把将要操作的根打出来，
+    # 并显式提示「与 CWD 不同」这一情形。
+    if not args.list:
+        try:
+            cwd = Path.cwd().resolve()
+        except OSError:
+            cwd = None
+        print("[switch_book] 将操作的项目根: %s" % PROJECT_ROOT)
+        if cwd is not None and cwd != PROJECT_ROOT:
+            print("[switch_book] 注意：当前目录是 %s，**与项目根不同** ——" % cwd)
+            print("              PROJECT_ROOT 取自脚本位置（不是 CWD），"
+                  "本次操作只影响上面那个根。")
     if args.list:
         books = list_books()
         print("===== 当前书 =====")

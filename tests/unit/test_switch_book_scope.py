@@ -69,6 +69,15 @@ def build_root(prefix="nf_sb_"):
     return root
 
 
+def _gbk_ok(ch):
+    """单个字符能否用 cp936 编码（控制台输出纪律的判据）。"""
+    try:
+        ch.encode("gbk")
+        return True
+    except Exception:                                       # noqa: BLE001
+        return False
+
+
 def run_switch(root, *args):
     p = subprocess.run([sys.executable, str(root / "scripts" / "switch_book.py"), *args],
                        capture_output=True, text=True, encoding="utf-8",
@@ -76,10 +85,40 @@ def run_switch(root, *args):
     return p.returncode, (p.stdout or "") + (p.stderr or "")
 
 
+def run_switch_from(root, cwd, *args):
+    """从**指定 CWD** 跑（默认 root）—— 用来验「项目根取自脚本位置，不是 CWD」这条地雷。"""
+    p = subprocess.run([sys.executable, str(root / "scripts" / "switch_book.py"), *args],
+                       capture_output=True, text=True, encoding="utf-8",
+                       errors="replace", cwd=str(cwd), timeout=120)
+    return p.returncode, (p.stdout or "") + (p.stderr or "")
+
+
 def main():
     print("=" * 62)
     print("  多书归档范围自检（离线，临时项目根）")
     print("=" * 62)
+
+    # ---------------- 0. 「要动哪个根」必须说清（事故后加的护栏）----------------
+    print("\n【0】从别的目录跑：必须大声报出将操作的根，且不许静默动手")
+    root0 = build_root("nf_sb_cwd_")
+    try:
+        outside = Path(tempfile.mkdtemp(prefix="nf_sb_outside_"))
+        try:
+            before = sorted(p.name for p in (root0 / "config").iterdir())
+            code, out = run_switch_from(root0, outside, "--archive")
+            check("输出里报出**将操作的项目根**", str(root0) in out, out[:200])
+            check("CWD 与项目根不同时必须提示",
+                  "与项目根不同" in out and str(outside).rstrip("\\/") in out, out[:260])
+            check("不加 --yes → 拒绝执行（退非零）", code != 0, code)
+            check("被拒绝时**一个文件都没动**",
+                  sorted(p.name for p in (root0 / "config").iterdir()) == before)
+            check("输出不含非 GBK 字符（cp936 管道下不许在打印阶段崩）",
+                  all(_gbk_ok(ch) for ch in out),
+                  [ch for ch in out if not _gbk_ok(ch)][:5])
+        finally:
+            shutil.rmtree(outside, ignore_errors=True)
+    finally:
+        shutil.rmtree(root0, ignore_errors=True)
 
     root = build_root()
     try:
