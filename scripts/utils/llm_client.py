@@ -320,7 +320,8 @@ class OpenAICompatClient:
 
     def __init__(self, model, base_url, api_key, timeout=600, retries=3,
                  provider="openai-compat", model_key=None, fallback_models=None,
-                 disable_thinking_models=None, disable_thinking_payloads=None):
+                 disable_thinking_models=None, disable_thinking_payloads=None,
+                 request_max_tokens=None):
         self.model = model
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
@@ -329,6 +330,13 @@ class OpenAICompatClient:
         self.provider = provider
         self.model_key = model_key
         self.fallback_models = fallback_models or []
+        # 单请求**输出**上限（P0 止烧，config: budget.token_limit.per_request_max_tokens）。
+        # 直连引擎能真的把它设进 payload["max_tokens"] → 单次生成不可能失控烧钱。
+        # None/0 = 不设（沿用 provider 默认）。
+        try:
+            self.request_max_tokens = int(request_max_tokens or 0) or None
+        except (TypeError, ValueError):
+            self.request_max_tokens = None
         # 配置驱动（config/system.yaml → providers.<id>.disable_thinking_models），
         # 代码内不硬编码任何模型名。
         self.disable_thinking_models = [str(x) for x in (disable_thinking_models or []) if x]
@@ -341,6 +349,23 @@ class OpenAICompatClient:
         self._bad_thinking_snippets = []        # 被 provider 拒绝过的候选
 
     # ---- 思考模式兼容 ----
+
+    def effective_max_tokens(self, given=None):
+        """本次请求实际使用的 max_tokens（单请求**输出**上限，P0 止烧）。
+
+        取 min(调用方指定, 配置上限)；两者都没有 → None（不设，交给 provider 默认）。
+        **上限优先**：调用方要 16000、配置上限 8000 → 发 8000 —— 熔断阈值不该被
+        调用点的参数悄悄顶掉（否则"设了上限"只是错觉）。
+        """
+        caps = []
+        for v in (given, self.request_max_tokens):
+            try:
+                n = int(v or 0)
+            except (TypeError, ValueError):
+                continue
+            if n > 0:
+                caps.append(n)
+        return min(caps) if caps else None
 
     def _thinking_disabled(self, model_name):
         """模型是否命中「禁用思考」名单：精确名 / 双向前缀（glm-5 命中 glm-5.1）。"""
@@ -499,8 +524,9 @@ class OpenAICompatClient:
             payload = {"model": model_name, "messages": messages}
             if temperature is not None:
                 payload["temperature"] = temperature
-            if max_tokens:
-                payload["max_tokens"] = max_tokens
+            _mt = self.effective_max_tokens(max_tokens)
+            if _mt:
+                payload["max_tokens"] = _mt
             injected = self._apply_no_thinking(payload, model_name)
             if injected is not None:
                 print("[llm_client] " + str(model_name) + " 命中 disable_thinking_models → 注入 "
@@ -600,8 +626,9 @@ class OpenAICompatClient:
         payload = {"model": self.model, "messages": messages, "stream": True}
         if temperature is not None:
             payload["temperature"] = temperature
-        if max_tokens:
-            payload["max_tokens"] = max_tokens
+        _mt = self.effective_max_tokens(max_tokens)
+        if _mt:
+            payload["max_tokens"] = _mt
         injected = self._apply_no_thinking(payload, self.model)
         if injected is not None:
             print("[llm_client] " + str(self.model) + " 命中 disable_thinking_models → 注入 "
@@ -1033,7 +1060,8 @@ class HermesClient:
     DEFAULT_TOOLSETS = "file"
 
     def __init__(self, hermes_bin="hermes", timeout=900, model=None,
-                 max_turns=60, toolsets=None, session_continuation=False):
+                 max_turns=60, toolsets=None, session_continuation=False,
+                 request_max_tokens=None):
         self.hermes_bin = hermes_bin
         self.timeout = timeout
         self.model = model
@@ -1044,6 +1072,37 @@ class HermesClient:
         # 而不是每次冷启动。默认关的理由：这是**行为变更**（agent 上下文跨段累积），
         # 真实试写里尚无收益实测证据，不该悄悄改掉既有流水线的行为。
         self.session_continuation = bool(session_continuation)
+        # 单请求输出上限（P0 止烧）。⚠️ hermes chat **不接受 max_tokens**（无此旋钮），
+        # 故这里只能做**事后比对 + 告警**：见 `note_request_tokens()`。
+        # 真正据此熔断的是 CostTracker（config: token_limit.per_request_pause_hermes）。
+        try:
+            self.request_max_tokens = int(request_max_tokens or 0) or None
+        except (TypeError, ValueError):
+            self.request_max_tokens = None
+
+    def note_request_tokens(self, tokens_out):
+        """单次子会话输出与配置上限比对：超了**大声告警**（不阻断、不丢弃产物）。
+
+        为什么不在这里判失败（2026-10-11 定）：
+        - hermes 子会话已用文件工具把章节写进盘了，判失败 = 丢掉真产物 + 重跑更贵；
+        - 「是否停机」是**熔断判据**，唯一来源是 CostTracker.status_detail()；
+          想要按次熔断就把 token_limit.per_request_pause_hermes 设为 true。
+        返回是否超限（供测试与调用方观察）。
+        """
+        if not self.request_max_tokens:
+            return False
+        try:
+            n = int(tokens_out or 0)
+        except (TypeError, ValueError):
+            n = 0
+        if n <= self.request_max_tokens:
+            return False
+        print("[llm_client] WARN 单次子会话输出 %d token > 单请求上限 %d"
+              "（config/system.yaml 的 budget.token_limit.per_request_max_tokens）。"
+              "hermes chat 无 max_tokens 旋钮 → 本次**不阻断**；"
+              "要按次熔断请把 budget.token_limit.per_request_pause_hermes 设为 true"
+              % (n, self.request_max_tokens))
+        return True
 
     def _build_cmd(self, task_path, model=None, session_id=None):
         cmd = [self.hermes_bin, "chat", "-q",
@@ -1148,6 +1207,10 @@ class HermesClient:
             out["error"] = str(error)
         if stderr and exit_code != 0:
             out["stderr_tail"] = stderr[-600:]
+        # P0 止烧：单次子会话输出的比对（hermes 无 max_tokens 旋钮 → 只告警不停机，
+        # 「是否熔断」由 CostTracker.status_detail 一元判据决定）。
+        if self.note_request_tokens(t_out):
+            out["request_tokens_over"] = True
         return out
 
     @staticmethod
@@ -1385,6 +1448,22 @@ def _load_env_file(path=".env"):
             os.environ[k] = v
 
 
+def _request_max_tokens_from_cfg(cfg):
+    """从 config 取「单请求输出上限」（budget.token_limit.per_request_max_tokens）。
+
+    只在这一处解析（两个引擎共用一份判据），返回 int 或 None。
+    enabled=false 时返回 None = 不设上限（老行为）。
+    """
+    tl = ((cfg or {}).get("budget") or {}).get("token_limit") or {}
+    if not isinstance(tl, dict) or not tl.get("enabled"):
+        return None
+    try:
+        n = int(tl.get("per_request_max_tokens") or 0)
+    except (TypeError, ValueError):
+        return None
+    return n if n > 0 else None
+
+
 def make_client(cfg, model_key="default", verbose=True):
     """按 config/system.yaml 构建客户端。model_key: default/architect/outliner/writer/checker/reviewer/polisher。"""
     _load_env_file()
@@ -1395,6 +1474,8 @@ def make_client(cfg, model_key="default", verbose=True):
     provider_id = mspec.get("provider", "hermes" if engine == "hermes" else "")
     model_id = mspec.get("id", "")
     provs = (cfg or {}).get("providers") or {}
+    # 单请求输出上限（P0 止烧）：直连引擎真的设进 payload；hermes 只能事后比对+告警
+    req_cap = _request_max_tokens_from_cfg(cfg)
 
     if engine == "hermes" or provider_id == "hermes":
         # 2026-10-01 用户定调：agent 模式（hermes 引擎）一律用 **agent 内部配置的模型**，
@@ -1413,6 +1494,7 @@ def make_client(cfg, model_key="default", verbose=True):
             toolsets=hcfg.get("toolsets", HermesClient.DEFAULT_TOOLSETS),
             # B2：会话续接默认 **关**（不改既有行为）
             session_continuation=bool(hcfg.get("session_continuation", False)),
+            request_max_tokens=req_cap,
         )
 
     prov = provs.get(provider_id) or {}
@@ -1441,10 +1523,12 @@ def make_client(cfg, model_key="default", verbose=True):
 
     if verbose:
         print("[client] 引擎=direct provider=" + provider_id + " 模型=" + model_id +
-              " 角色=" + model_key)
+              " 角色=" + model_key +
+              ("｜单请求输出上限=" + str(req_cap) if req_cap else ""))
     return OpenAICompatClient(
         model=model_id, base_url=base_url, api_key=api_key,
         timeout=int(prov.get("timeout", 600)), retries=int(prov.get("retries", 3)),
         provider=provider_id, model_key=model_key, fallback_models=prov.get("fallback", []),
         disable_thinking_models=prov.get("disable_thinking_models", []),
-        disable_thinking_payloads=prov.get("disable_thinking_payloads"))
+        disable_thinking_payloads=prov.get("disable_thinking_payloads"),
+        request_max_tokens=req_cap)
