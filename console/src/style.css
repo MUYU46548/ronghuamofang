@@ -1483,6 +1483,27 @@ kbd {
 }
 .gate-notify-row .label { font-weight: 600; font-size: 13px; }
 
+/* ---- 止烧阈值（token 级熔断，设置页）----
+   一律用主题变量：硬编码色值在暗色主题下会看不清（GUI 纪律③）。 */
+.tl-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px 16px;
+  padding: 10px 0;
+  border-bottom: 1px dashed var(--border);
+}
+.tl-field { display: flex; flex-direction: column; gap: 4px; }
+.tl-field .label { font-weight: 600; font-size: 13px; }
+.tl-field input[type="number"] {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);      /* 只在主题里定义过的变量（硬编码色值在暗色下看不清） */
+}
+.tl-field input[type="number"]:focus { outline: 1px solid var(--accent); }
+.tl-field .meta { font-size: 11px; color: var(--muted); }
+
 /* 全局"下一步"提示条 */
 .next-action-bar {
   display: flex;

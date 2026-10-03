@@ -246,6 +246,7 @@ function switchTab(t) {
     if (!providers.value) refreshModels();
     if (!promptFiles.value.length) loadPromptList();
     if (!styleNotesLoaded.value) loadStyleNotes();
+    loadTokenLimit();          // 止烧阈值：每次进设置页都重读（可能在别处改过）
   }
   if (t === "materials") loadMaterials();
   if (t === "chapters" && !chaptersLoaded.value) loadChapters();
@@ -2133,6 +2134,73 @@ const chapterQuality = ref({});  // {1: 7.5, 2: null, ...}
 const chapterThreshold = ref(6);
 const gateNotify = ref(gateNotifyEnabled());
 const agentMode = ref(false);
+
+/* ---------- 止烧阈值（budget.token_limit）----------
+ * 为什么放在设置页：hermes 下金额阈值恒不生效（订阅流量记账恒 0），
+ * 止烧全靠这几个 token 上限；阈值要按实测调，看不见就只能猜。
+ * 校验在后端（utils/cost_tracker.validate_token_limit）—— 前端只回显错误，
+ * 不自己写一份判据（否则两边必然漂移）。 */
+const tokenLimit = ref({
+  loading: true, busy: false, ok: true, msg: "",
+  bounds: {}, preset: {},
+  form: { enabled: true, per_request_max_tokens: 50000, per_request_pause_hermes: false,
+          max_total_tokens: 10000000, warn_ratio: 0.7 },
+});
+async function loadTokenLimit() {
+  tokenLimit.value.loading = true;
+  try {
+    const r = await api('/config/token_limit', 'GET');
+    if (r.status === 200 && r.data.ok) {
+      tokenLimit.value.bounds = r.data.bounds || {};
+      tokenLimit.value.preset = r.data.preset || {};
+      tokenLimit.value.form = Object.assign({}, tokenLimit.value.preset, r.data.current || {});
+      tokenLimit.value.msg = "";
+      tokenLimit.value.ok = true;
+    } else {
+      tokenLimit.value.msg = '读取失败: ' + (r.data.error || r.status);
+      tokenLimit.value.ok = false;
+    }
+  } catch (e) {
+    tokenLimit.value.msg = '读取失败: ' + (e.message || e);
+    tokenLimit.value.ok = false;
+  } finally {
+    tokenLimit.value.loading = false;
+  }
+}
+async function saveTokenLimit() {
+  tokenLimit.value.busy = true;
+  try {
+    const r = await api('/config/token_limit', 'POST', tokenLimit.value.form);
+    tokenLimit.value.ok = !!(r.status === 200 && r.data.ok);
+    tokenLimit.value.msg = tokenLimit.value.ok
+      ? (r.data.message || '已保存')
+      : ('保存失败: ' + (r.data.error || r.status));
+    if (tokenLimit.value.ok && r.data.current) tokenLimit.value.form = Object.assign({}, r.data.current);
+  } catch (e) {
+    tokenLimit.value.ok = false;
+    tokenLimit.value.msg = '保存失败: ' + (e.message || e);
+  } finally {
+    tokenLimit.value.busy = false;
+  }
+}
+async function resetTokenLimit() {
+  tokenLimit.value.busy = true;
+  try {
+    const r = await api('/config/token_limit', 'POST', tokenLimit.value.preset);
+    tokenLimit.value.ok = !!(r.status === 200 && r.data.ok);
+    tokenLimit.value.msg = tokenLimit.value.ok
+      ? ('已恢复默认预设（单请求 ' + tokenLimit.value.preset.per_request_max_tokens
+         + ' / 累计 ' + tokenLimit.value.preset.max_total_tokens + '）')
+      : ('恢复失败: ' + (r.data.error || r.status));
+    if (tokenLimit.value.ok && r.data.current) tokenLimit.value.form = Object.assign({}, r.data.current);
+  } catch (e) {
+    tokenLimit.value.ok = false;
+    tokenLimit.value.msg = '恢复失败: ' + (e.message || e);
+  } finally {
+    tokenLimit.value.busy = false;
+  }
+}
+
 async function toggleAgentMode() {
   const newState = !agentMode.value;
   // 二次确认：开启 Agent 模式前明确提示
@@ -3319,6 +3387,57 @@ onUnmounted(() => {
           {{ gateNotify ? '已开启' : '已关闭' }}
         </button>
       </div>
+
+      <!-- 止烧阈值（token 级熔断）：hermes 下金额阈值无效，止烧全靠这几个值 -->
+      <h4 style="margin-top: 16px;">预算与止烧（token 级熔断）</h4>
+      <div class="meta" style="line-height: 1.8; margin-bottom: 8px;">
+        engine: hermes 走订阅流量，<b>金额阈值恒不生效</b>（记账恒 0）—— 止烧靠这里的 token 上限。
+        越界值会被拒绝（设成 0/负数等于让闸门消失）。改动对<b>下一次运行</b>生效。
+      </div>
+      <div v-if="tokenLimit.loading" class="meta">读取中…</div>
+      <template v-else>
+        <div class="tl-grid">
+          <label class="tl-field">
+            <span class="label">启用 token 级熔断</span>
+            <input type="checkbox" v-model="tokenLimit.form.enabled" />
+          </label>
+          <label class="tl-field">
+            <span class="label">单请求输出上限（token）</span>
+            <input type="number" v-model="tokenLimit.form.per_request_max_tokens" />
+            <span class="meta">区间 {{ tokenLimit.bounds.per_request_max_tokens?.join(' ~ ') }}</span>
+          </label>
+          <label class="tl-field">
+            <span class="label">单轮累计上限（token）</span>
+            <input type="number" v-model="tokenLimit.form.max_total_tokens" />
+            <span class="meta">区间 {{ tokenLimit.bounds.max_total_tokens?.join(' ~ ') }}</span>
+          </label>
+          <label class="tl-field">
+            <span class="label">预警比例</span>
+            <input type="number" step="0.05" v-model="tokenLimit.form.warn_ratio" />
+            <span class="meta">区间 {{ tokenLimit.bounds.warn_ratio?.join(' ~ ') }}</span>
+          </label>
+          <label class="tl-field" style="grid-column: 1 / -1;">
+            <span class="label">hermes 单次子会话超限也熔断</span>
+            <span style="display: flex; gap: 8px; align-items: center;">
+              <input type="checkbox" v-model="tokenLimit.form.per_request_pause_hermes" />
+              <span class="meta">默认关：实测一次 stage1 子会话输出就有 1.8 万 token，
+                单次判据更容易误停（误停比不停更贵）。</span>
+            </span>
+          </label>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center; margin-top: 10px;">
+          <button class="mini primary" :disabled="tokenLimit.busy" @click="saveTokenLimit">
+            {{ tokenLimit.busy ? '保存中…' : '保存阈值' }}
+          </button>
+          <button class="mini" :disabled="tokenLimit.busy" @click="resetTokenLimit">恢复默认预设</button>
+          <span class="meta">预设：单请求 {{ tokenLimit.preset.per_request_max_tokens }} ·
+            累计 {{ tokenLimit.preset.max_total_tokens }}（{{ tokenLimit.preset.enabled ? '启用' : '停用' }}）</span>
+        </div>
+        <div v-if="tokenLimit.msg" class="meta tl-msg"
+             :style="{ color: tokenLimit.ok ? 'var(--ok)' : 'var(--bad)', marginTop: '6px' }">
+          {{ tokenLimit.msg }}
+        </div>
+      </template>
 
       <!-- P1: Agent 模式开关 -->
       <h4 style="margin-top: 16px;">Agent 模式（外部 Agent 控制）</h4>

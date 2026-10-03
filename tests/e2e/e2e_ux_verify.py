@@ -261,33 +261,91 @@ def test_mock(browser):
         ctx.close()
 
 
+def real_state():
+    """取真后端 /state（供 test_real 推导期望值）。取不到返回 None。"""
+    try:
+        import urllib.request
+        with urllib.request.urlopen(REAL_API + "/state", timeout=10) as r:
+            return json.loads(r.read().decode("utf-8"))
+    except Exception:
+        return None
+
+
+def real_next():
+    """从 /state 推导 (下一可运行阶段号, 待审批门阶段号)。
+
+    ⚠️ 为什么不写死「阶段 5」（2026-10-03 事故）：
+    本脚本原先假定真后端工作区是「1-4 已完成」，断言写死 `下一步 = 运行阶段 5`。
+    换成别的工作区状态（例如刚跑完 stage1、停在审批门）之后：
+      ① 4 条断言集体**假红**（其实什么都没验）；
+      ② 更糟：下面那段 `Space`（= 执行下一步）会**真的把审批按掉** ——
+         本轮实测把用户工作区的 `stage1.approved` 改成了 true（已手工还原成"从未审批"）。
+    现在：阶段号从 /state 推导；**下一步是审批门时整段跳过 Space**。
+    """
+    st = real_state() or {}
+    gate, run = None, None
+    for s in st.get("stages") or []:
+        n = int(s.get("stage") or 0)
+        if s.get("status") == "done" and not s.get("approved"):
+            gate = gate if gate is not None else n
+        elif s.get("status") != "done" and run is None:
+            run = n
+    return run, gate
+
+
 def test_real(browser):
     print("\n=== B. 真后端（8799）：真数据上的工作流 / 预估 / 日志 ===")
+    run_stage, gate_stage = real_next()
+    is_gate = bool(gate_stage) and (run_stage is None or gate_stage < run_stage)
+    print("  真后端推导：下一可运行阶段=%s · 待审批门=%s" % (run_stage, gate_stage))
     ctx, page, errs, bad = new_page(browser, REAL_API, "real")
     try:
         nxt = page.locator(".flow-next b").first.inner_text()
-        check("真数据：下一步 = 运行阶段 5·逻辑检查", "阶段 5" in nxt, nxt)
-        check("快速运行选择器自动对齐到阶段 5",
-              page.locator(".flow-quick select").input_value() == "5",
-              page.locator(".flow-quick select").input_value())
+        if is_gate:
+            check("真数据：下一步 = 确认阶段 %s（审批门优先）" % gate_stage,
+                  ("阶段 %s" % gate_stage) in nxt and "确认" in nxt, nxt)
+            sel = page.locator(".flow-quick select").input_value()
+            # 审批门状态下 quickStage 为 null → select 显示占位项文本（"选择阶段…"）。
+            # 断言放宽到「占位项或某个阶段号」：前者是当前设计，后者是"将来预选下一可运行阶段"
+            # 的实现 —— 两种都算健康，写死任一种都会在对方实现下假红。
+            check("审批门状态下快速运行选择器停在占位项（不预设阶段）",
+                  page.locator(".flow-quick select").count() == 1
+                  and ("选择阶段" in str(sel) or str(sel).strip().isdigit()),
+                  repr(sel))
+        else:
+            check("真数据：下一步 = 运行阶段 %s" % run_stage,
+                  ("阶段 %s" % run_stage) in nxt, nxt)
+            check("快速运行选择器自动对齐到阶段 %s" % run_stage,
+                  page.locator(".flow-quick select").input_value() == str(run_stage),
+                  page.locator(".flow-quick select").input_value())
         page.wait_for_timeout(2500)
-        est = page.locator(".flow-est").first.inner_text()
-        check("预估成本已拉到（/estimate 真实口径）", "预计" in est and "¥" in est, est)
+        est = (page.locator(".flow-est").first.inner_text()
+               if page.locator(".flow-est").count() else "")
+        if "预计" in est:
+            check("预估成本已拉到（/estimate 真实口径）", "¥" in est, est)
+        else:
+            print("  [SKIP] 预估成本：当前工作流条不展示预估（下一步=%s）"
+                  % ("审批门" if is_gate else "运行"))
         shot(page, "B1_pipeline_real")
 
-        print("  --- Space = 执行下一步（走费用预估确认，不真花钱）---")
-        page.locator("body").click(position={"x": 700, "y": 700})
-        page.keyboard.press(" ")
-        page.wait_for_timeout(1800)
-        check("Space 打开运行前预估确认框",
-              page.locator(".dialog:has-text('运行前预估')").count() == 1)
-        shot(page, "B2_estimate_by_space")
-        if page.locator(".dialog button:has-text('取消')").count():
-            page.locator(".dialog button:has-text('取消')").first.click()
-            page.wait_for_timeout(400)
-        check("取消后回到流水线且未启动任务",
-              page.locator(".dialog:has-text('运行前预估')").count() == 0,
-              page.locator(".runbar").count())
+        if is_gate:
+            # ⚠️ 绝不在这里按 Space：Space = 执行下一步 = 会真的把审批按掉（改用户数据）。
+            print("  [SKIP] Space = 执行下一步：下一步是**审批门**，真机按下去会改用户工作区；"
+                  "该段只在「下一步 = 运行」时有意义（那时会先弹费用预估确认框）。")
+        else:
+            print("  --- Space = 执行下一步（走费用预估确认，不真花钱）---")
+            page.locator("body").click(position={"x": 700, "y": 700})
+            page.keyboard.press(" ")
+            page.wait_for_timeout(1800)
+            check("Space 打开运行前预估确认框",
+                  page.locator(".dialog:has-text('运行前预估')").count() == 1)
+            shot(page, "B2_estimate_by_space")
+            if page.locator(".dialog button:has-text('取消')").count():
+                page.locator(".dialog button:has-text('取消')").first.click()
+                page.wait_for_timeout(400)
+            check("取消后回到流水线且未启动任务",
+                  page.locator(".dialog:has-text('运行前预估')").count() == 0,
+                  page.locator(".runbar").count())
 
         print("  --- 命令面板搜索 + 执行只读命令 ---")
         page.keyboard.press("Control+k")
@@ -326,7 +384,10 @@ def test_real(browser):
         check("版本号取自 console/package.json（非 dev）",
               ("v" + _pkg_ver) in atxt and "读取版本信息失败" not in atxt
               and "mock" not in atxt, atxt[:70].replace("\n", " | "))
-        check("显示真实项目根路径", "NovelForge" in atxt and "E:\\CODE" in atxt, None)
+        # 路径断言**从 ROOT 推导**，不写死某台机器的绝对路径（旧实现硬编码 "E:\CODE"：
+        # 换机器/换盘就假红，而且把私人路径写进了仓库源码 —— 这是发布纪律不允许的）。
+        check("显示真实项目根路径", str(ROOT.name) in atxt and str(ROOT) in atxt,
+              "期望含 %s" % ROOT)
         check("含快速上手 / 数据位置 / 许可区块",
               about.locator(".about-steps li").count() == 4 and about.locator(".ap-row").count() == 3
               and "MIT" in atxt)
@@ -476,6 +537,31 @@ def test_about_project(browser, mock_proc=None):
         check("命令面板能搜到「新建项目」", any("新建项目" in t for t in labels), labels[:3])
         page.keyboard.press("Escape")
         page.wait_for_timeout(200)
+
+        print("  --- 止烧阈值面板（设置页：读值 → 恢复默认预设 → 明确反馈）---")
+        page.locator(".tabs button:has-text('设置')").click()
+        page.wait_for_timeout(700)
+        check("止烧面板渲染（网格 + 四个字段）", page.locator(".tl-grid").count() == 1
+              and page.locator(".tl-field").count() >= 4,
+              page.locator(".tl-field").count())
+        # 值来自后端（mock 回的就是出厂预设）
+        vals = [page.locator(".tl-field input[type=number]").nth(i).input_value()
+                for i in range(page.locator(".tl-field input[type=number]").count())]
+        check("单请求上限显示 50000（与出厂预设一致）", "50000" in vals, vals)
+        check("累计上限显示 10000000（1000 万/轮）", "10000000" in vals, vals)
+        check("区间提示可见（不是空标签）",
+              "1000" in page.locator(".tl-grid").inner_text()
+              and "100000" in page.locator(".tl-grid").inner_text(),
+              page.locator(".tl-grid").inner_text()[:80].replace("\n", " | "))
+        shot(page, "D7_token_limit_panel")
+        page.locator("button:has-text('恢复默认预设')").click()
+        page.wait_for_timeout(900)
+        msg = (page.locator(".tl-msg").first.inner_text()
+               if page.locator(".tl-msg").count() else "")
+        check("点「恢复默认预设」后有明确反馈（成功或失败都要说清）",
+              ("已恢复默认预设" in msg) or ("恢复失败" in msg), msg or "（无反馈元素）")
+        page.locator(".tabs button:has-text('流水线')").click()
+        page.wait_for_timeout(400)
     finally:
         ctx.close()
 

@@ -119,6 +119,20 @@ class Handler(BaseHTTPRequestHandler):
                                     "pct": 24.7, "warn_ratio": 0.7, "tokens_in": 0, "tokens_out": 0})
         if p == "/config/project":
             return self._send(200, {"ok": True, "config": {"book": {"name": "验收用书", "chapters": 12}}})
+        if p == "/config/token_limit":
+            # 止烧阈值面板（设置页）：回一份**与出厂预设一致**的数据，
+            # 让视觉验收能真读到值，而不是只看到"读取失败"。
+            preset = {"enabled": True, "per_request_max_tokens": 50000,
+                      "per_request_pause_hermes": False, "max_total_tokens": 10000000,
+                      "warn_ratio": 0.7}
+            return self._send(200, {
+                "ok": True, "current": preset, "preset": preset,
+                "bounds": {"per_request_max_tokens": [1000, 500000],
+                           "max_total_tokens": [100000, 200000000],
+                           "warn_ratio": [0.1, 1.0]},
+                "path": "config/system.yaml", "field": "budget.token_limit",
+                "note": "mock：engine: hermes 下金额阈值无效；止烧靠 token 上限。",
+            })
         if p == "/chapters/quality":
             # 确定性质量数据（验收用）
             return self._send(200, {"ok": True, "total": 12, "chapters": [
