@@ -14,6 +14,7 @@ from pathlib import Path
 
 from utils.llm_client import make_client
 from utils.file_io import read_text, write_text
+from utils.cost_tracker import pause_detail as _pause_detail
 from utils.verify_chapter import check_chapter, count_cn_words, is_chapter_complete
 from utils.summary_chain import append_chapter_summary, extract_prev_tail, compress_recent, load_rolling, write_rolling
 from utils.template_loader import load_template
@@ -398,7 +399,10 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
             # "一次跑 100 章"这种最需要保护的场景恰好**完全失效**。
             state = cost.charge_cost(run_id, 4, n, result)
             if state == "pause":
-                print(f"[stage4] 💰 预算熔断（已用 {cost.spent(run_id):.2f} 元 ≥ 限额）"
+                # 熔断原因由 CostTracker.status_detail 给出（金额 or token）——
+                # engine: hermes 下 ¥ 恒 0，真正会命中的是 token 累计，文案必须对上。
+                _detail = _pause_detail(cost, run_id)
+                print(f"[stage4] 💰 熔断停止[{_detail['reason']}]：{_detail['message']}"
                       "—— 停止本阶段")
                 progress.data.setdefault("budget", {})["paused"] = True
                 progress.save()
@@ -419,7 +423,8 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                            "断点续跑不会重写已完成章节" % done_this_round)
         if aborted == "budget":
             return False, ("stage4 因**预算熔断**停止（本轮完成 %d 章，累计失败 %d 章）。"
-                           "调整 budget.limit_yuan 或缩小范围后重跑；"
+                           "调大 config/system.yaml 的 budget.token_limit.max_total_tokens"
+                           "（金额口径则调 budget.limit_yuan）或缩小范围后重跑；"
                            "断点续跑不会重写已完成章节"
                            % (done_this_round, len(remaining_failed)))
         return False, ("stage4 **提前止损**（连续 %s 章失败，本轮完成 %d 章）—— "

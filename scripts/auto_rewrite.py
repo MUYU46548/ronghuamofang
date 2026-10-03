@@ -451,7 +451,9 @@ def main():
         db = RunDB("logs/runs.db")
         budget = cfg.get("budget", {})
         limit = float(os.environ.get("BUDGET_LIMIT_YUAN") or budget.get("limit_yuan", 300))
-        cost = CostTracker(db, limit_yuan=limit, warn_ratio=budget.get("warn_ratio", 0.7))
+        cost = CostTracker(db, limit_yuan=limit, warn_ratio=budget.get("warn_ratio", 0.7),
+                           # token 级熔断与 orchestrator 同源（hermes 下 ¥ 恒 0）
+                           token_limit=budget.get("token_limit"))
         run_id = db.start_run(plan_json="auto_rewrite_cli")
 
     try:

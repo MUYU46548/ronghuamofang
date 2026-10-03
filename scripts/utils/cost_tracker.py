@@ -443,6 +443,45 @@ DEFAULT_ROLE_RATES = {
 DEFAULT_MODEL = "hunyuan-a13b"
 DEFAULT_ROLE = "default"
 
+# ---- token 级熔断（P0 止烧，2026-10-11）----
+# 背景：engine: hermes 下 estimate_cost_yuan **恒返 0**（订阅流量，见其 docstring）
+# → cost_log.cost_yuan 全是 0 → `limit_yuan` 永不命中，金额熔断是**虚设**。
+# 唯一能止烧的口径是 token：累计（输入+输出）与单次输出。
+# 判据只有一份：本模块的 `CostTracker.status()`；触发后仍走**现有的**
+# orchestrator/stage 的 `state == "pause"` 分支（progress.budget.paused + 退出码 2），
+# 不新增状态机、不新增暂停语义。
+DEFAULT_TOKEN_LIMIT = {
+    "enabled": False,                 # 缺省关：不改变未配置时的既有行为
+    "per_request_max_tokens": 0,      # 0 = 不限制（direct 引擎即不设 payload.max_tokens）
+    "per_request_pause_hermes": False,  # hermes 单次超限是否熔断（默认只 WARN）
+    "max_total_tokens": 0,            # 0 = 不限制累计
+    "warn_ratio": 0.7,
+}
+
+
+def normalize_token_limit(raw):
+    """把 config 的 budget.token_limit 归一成完整 dict（缺键取默认，类型强制）。"""
+    out = dict(DEFAULT_TOKEN_LIMIT)
+    if isinstance(raw, dict):
+        for k, v in raw.items():
+            if k not in out:
+                continue
+            if isinstance(out[k], bool):
+                out[k] = bool(v)
+            elif isinstance(out[k], float):
+                try:
+                    out[k] = float(v)
+                except (TypeError, ValueError):
+                    pass
+            else:
+                try:
+                    out[k] = int(v)
+                except (TypeError, ValueError):
+                    pass
+    if not (0 < out["warn_ratio"] <= 1):
+        out["warn_ratio"] = 0.7
+    return out
+
 
 def resolve_rate(model=None, provider=None, role=None):
     """解析计价条目。返回 (rate dict, display_model)。
@@ -490,16 +529,76 @@ def estimate_cost_yuan(tokens_in, tokens_out, model=None, provider=None, role=No
 
 
 class CostTracker:
-    """预算熔断器：所有费用经由此处记账并判定是否暂停。"""
+    """预算熔断器：所有费用经由此处记账并判定是否暂停。
 
-    def __init__(self, db: RunDB, limit_yuan=300.0, warn_ratio=0.7):
+    ## token 级熔断（2026-10-11）
+
+    `limit_yuan` 对 engine: hermes **恒不生效**（订阅流量 → 记账恒 0）。所以本类
+    同时按 token 判定：累计超 `token_limit.max_total_tokens` → pause。
+    判据集中在 `status_detail()`（**唯一来源**），`status()` 是它的兼容薄包装
+    （老调用点写的是 `state, spent = cost.status(run_id)`，签名不动）。
+    """
+
+    def __init__(self, db: RunDB, limit_yuan=300.0, warn_ratio=0.7, token_limit=None):
         self.db = db
         self.limit = limit_yuan
         self.warn_ratio = warn_ratio
+        self.token_limit = normalize_token_limit(token_limit)
 
     @staticmethod
     def estimate_cost_yuan(tokens_in, tokens_out, model=None, provider=None, role=None, cache_read=0):
         return estimate_cost_yuan(tokens_in, tokens_out, model, provider, role, cache_read=cache_read)
+
+    # ---- token 记账（token 级熔断的唯一读数口）----
+
+    def tokens_used(self, run_id=None):
+        """本 run 累计 token（输入 + 输出）。token_limit 关时返回 0（不查库）。"""
+        if not self.token_limit.get("enabled"):
+            return 0
+        return int(self.db.sum_tokens(run_id) or 0)
+
+    def status_detail(self, run_id=None):
+        """返回熔断诊断 dict：{state, spent_yuan, tokens, reason, message}。
+
+        state: 'ok' | 'warn' | 'pause'；reason 指出**是哪条判据命中**（金额/token 累计/
+        token 单次）—— 熔断日志必须能回答「为什么停」，否则用户只能瞎猜该调哪个键。
+        """
+        spent = float(self.db.sum_cost(run_id) or 0.0)
+        tl = self.token_limit
+        tokens = self.tokens_used(run_id)
+
+        def _out(state, reason, message):
+            return {"state": state, "spent_yuan": spent, "tokens": tokens,
+                    "reason": reason, "message": message}
+
+        # 1) 金额（direct 引擎按量计费时才可能命中；hermes 恒 0，天然不触发）
+        #    判据与旧版**逐字一致**（`spent >= self.limit`，不加真值守卫）——
+        #    兼容旧语义，避免「limit_yuan=0 从不熔断」这种静默语义漂移。
+        if spent >= self.limit:
+            return _out("pause", "yuan",
+                        "已用 %.2f 元 ≥ 上限 %.2f 元" % (spent, self.limit))
+        # 2) token 累计（hermes 的**主力**止烧判据）
+        cap_total = int(tl.get("max_total_tokens") or 0)
+        if tl.get("enabled") and cap_total and tokens >= cap_total:
+            return _out("pause", "tokens_total",
+                        "本 run 累计 %d token ≥ 上限 %d（输入+输出）" % (tokens, cap_total))
+        # 3) token 单次输出（默认只对 direct 有意义；hermes 需显式开启）
+        cap_one = int(tl.get("per_request_max_tokens") or 0)
+        if tl.get("enabled") and cap_one and tl.get("per_request_pause_hermes"):
+            biggest = int(self.db.max_call_tokens_out(run_id) or 0)
+            if biggest > cap_one:
+                return _out("pause", "tokens_request",
+                            "单次调用输出 %d token > 单请求上限 %d" % (biggest, cap_one))
+        # 4) 警告区（不熔断，只提示）
+        if spent >= self.limit * self.warn_ratio:
+            return _out("warn", "yuan",
+                        "已用 %.2f 元（预警线 %.2f 元）"
+                        % (spent, self.limit * self.warn_ratio))
+        if tl.get("enabled") and cap_total and tokens >= cap_total * tl.get("warn_ratio", 0.7):
+            return _out("warn", "tokens_total",
+                        "本 run 累计 %d token（预警线 %d）"
+                        % (tokens, int(cap_total * tl.get("warn_ratio", 0.7))))
+        return _out("ok", "", "")
 
     def charge_cost(self, run_id, stage, chapter, result):
         """按 run_task 返回 dict 记账（model/provider/role 取自结果元数据）。
@@ -532,10 +631,32 @@ class CostTracker:
         return self.db.sum_cost(run_id, stage)
 
     def status(self, run_id=None):
-        """返回 ('ok'|'warn'|'pause', spent_yuan)。"""
-        spent = self.db.sum_cost(run_id)
-        if spent >= self.limit:
-            return "pause", spent
-        if spent >= self.limit * self.warn_ratio:
-            return "warn", spent
-        return "ok", spent
+        """返回 ('ok'|'warn'|'pause', spent_yuan)。
+
+        金额判据与 token 判据都在 `status_detail()` 里（单一来源）；本方法只做
+        二元组兼容，**签名与返回形状不变**（老调用点零改动）。
+        """
+        detail = self.status_detail(run_id)
+        return detail["state"], detail["spent_yuan"]
+
+
+def pause_detail(cost, run_id=None):
+    """取熔断诊断（stage 内部停机文案用）。**任何情况下都不抛异常、不打断生产线**。
+
+    为什么要这层包装：各 stage 的 cost 参数是可注入的（测试常塞只有
+    `charge_cost`/`spent` 的替身）。诊断信息只用于**打印**，让它因为
+    「替身没有 status_detail」而把 stage 搞崩，是本末倒置。
+    """
+    try:
+        return cost.status_detail(run_id)
+    except AttributeError:
+        pass
+    except Exception:                                       # noqa: BLE001
+        pass
+    spent = 0.0
+    try:
+        spent = float(cost.spent(run_id) or 0.0)
+    except Exception:                                       # noqa: BLE001
+        pass
+    return {"state": "pause", "spent_yuan": spent, "tokens": 0,
+            "reason": "unknown", "message": "已用 %.2f 元（替身未提供明细）" % spent}

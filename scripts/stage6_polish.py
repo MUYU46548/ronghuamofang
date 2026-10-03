@@ -148,8 +148,12 @@ def _run_one_volume(client, task_dir, vol_index, proj, checked_dir, refined_dir,
         # 限额对"一轮润完几十万字"这种最需要保护的情形恰好失效。
         state = cost.charge_cost(run_id, 6, vol_chapters[0] if vol_chapters else 0, result)
         if state == "pause":
-            return False, (f"stage6 预算熔断（已用 {cost.spent(run_id):.2f} 元）"
-                           "—— 停止润色；已完成的卷保留"), vol_chapters
+            # 熔断口径见 CostTracker.status_detail（金额 or token —— hermes 下只有 token）
+            _detail = _pause_detail(cost, run_id)
+            return False, (f"stage6 熔断停止[{_detail['reason']}]：{_detail['message']}"
+                           "（累计 token=%d）—— 调大 budget.token_limit.max_total_tokens "
+                           "后重跑；已完成的卷保留"
+                           % _detail["tokens"]), vol_chapters
     if result["exit_code"] != 0:
         return False, f"stage6 卷{vol_index} 子会话失败", vol_chapters
 

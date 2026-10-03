@@ -141,6 +141,33 @@ class RunDB:
             args.append(stage)
         return self.conn.execute(sql, args).fetchone()[0]
 
+    def sum_tokens(self, run_id=None, stage=None):
+        """累计 token（输入 + 输出）。token 级熔断的**唯一记账来源**。
+
+        2026-10-11：engine: hermes 下 `cost_yuan` 恒 0（订阅流量）→ 金额熔断是虚设，
+        唯一的止烧口径就是这里。round 语义：按 run_id 归集 = 「一轮」
+        （每次 orchestrator.run() 新建 run_id，--from N 重跑即新的一轮）。
+        """
+        sql = ("SELECT COALESCE(SUM(COALESCE(tokens_in,0) + COALESCE(tokens_out,0)),0)"
+               " FROM cost_log WHERE 1=1")
+        args = []
+        if run_id is not None:
+            sql += " AND run_id=?"
+            args.append(run_id)
+        if stage is not None:
+            sql += " AND stage=?"
+            args.append(stage)
+        return int(self.conn.execute(sql, args).fetchone()[0] or 0)
+
+    def max_call_tokens_out(self, run_id=None):
+        """单次调用里**最大的输出** token 数（用于单请求上限的比对/熔断）。"""
+        sql = "SELECT COALESCE(MAX(tokens_out),0) FROM cost_log WHERE 1=1"
+        args = []
+        if run_id is not None:
+            sql += " AND run_id=?"
+            args.append(run_id)
+        return int(self.conn.execute(sql, args).fetchone()[0] or 0)
+
     # ---------- summary_log ----------
     def log_summary(self, run_id, rollup_index, path):
         self._write(

@@ -214,7 +214,9 @@ def main():
             budget = cfg.get("budget", {}) or {}
             db = RunDB("logs/runs.db")
             cost = CostTracker(db, limit_yuan=budget.get("limit_yuan", 300),
-                               warn_ratio=budget.get("warn_ratio", 0.7))
+                               warn_ratio=budget.get("warn_ratio", 0.7),
+                               # token 级熔断与 orchestrator 同源（hermes 下 ¥ 恒 0）
+                               token_limit=budget.get("token_limit"))
             run_id = db.start_run(plan_json="outline_refine_cli")
         except Exception as e:                     # noqa: BLE001
             print(f"[refine] ⚠ 记账初始化失败（本轮费用将不进账本）: {e}")

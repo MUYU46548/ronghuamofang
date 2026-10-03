@@ -1039,7 +1039,9 @@ def act_refine_outline(feedback, dry_run):
             budget = cfg.get("budget", {}) or {}
             db = RunDB(ROOT / "logs" / "runs.db")
             cost = CostTracker(db, limit_yuan=budget.get("limit_yuan", 300),
-                               warn_ratio=budget.get("warn_ratio", 0.7))
+                               warn_ratio=budget.get("warn_ratio", 0.7),
+                               # token 级熔断与 orchestrator 同源（hermes 下 ¥ 恒 0）
+                               token_limit=budget.get("token_limit"))
             run_id = db.start_run(plan_json="outline_refine_api")
         except Exception as e:                              # noqa: BLE001
             print(f"[api] ⚠ 大纲精修记账初始化失败（本轮费用不进账本）: {e}")
@@ -1149,7 +1151,9 @@ def act_auto_rewrite_run(threshold=None, dry_run=False, max_rounds=None, chapter
             db = RunDB(ROOT / "logs" / "runs.db")
             budget = cfg.get("budget", {}) or {}
             cost = CostTracker(db, limit_yuan=budget.get("limit_yuan", 300),
-                               warn_ratio=budget.get("warn_ratio", 0.7))
+                               warn_ratio=budget.get("warn_ratio", 0.7),
+                               # token 级熔断与 orchestrator 同源（hermes 下 ¥ 恒 0）
+                               token_limit=budget.get("token_limit"))
             run_id = db.start_run(plan_json="auto_rewrite_api")
         try:
             ok, msg, _ = auto_rewrite.run_auto_rewrite(

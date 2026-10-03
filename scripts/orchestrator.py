@@ -168,9 +168,28 @@ def _stop_requested():
 def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False):
     cfg, proj = load_config()
     _warn_rewrite_conflict(cfg)
+    _tl = (cfg.get("budget", {}) or {}).get("token_limit") or {}
     if cfg.get("engine") == "hermes":
         print("[orchestrator] engine=hermes：LLM 走 agent 子会话（订阅流量，model.* 不适用）；"
-              "cost 记 0 + 真实 token 留痕 → ¥ 预算熔断对本引擎不生效（刻意语义）")
+              "cost 记 0 + 真实 token 留痕 → **¥ 预算熔断对本引擎不生效（刻意语义）**，"
+              "止烧靠 token 级熔断")
+    if _tl.get("enabled"):
+        print(f"[orchestrator] token 级熔断：单请求输出上限="
+              f"{_tl.get('per_request_max_tokens') or '不限'}"
+              f"（hermes 无该旋钮 → 仅告警" +
+              ("并熔断" if _tl.get("per_request_pause_hermes") else "") + "）"
+              f"｜本 run 累计上限={_tl.get('max_total_tokens') or '不限'} token")
+    else:
+        # 刻意不用 ⚠️/emoji：本行会在**管道**里被打印（GUI/测试捕获 stdout），
+        # 而管道下 Python 用本地编码（cp936）→ emoji 会 UnicodeEncodeError 把启动搞崩。
+        print("[orchestrator] 注意：token 级熔断未开启（budget.token_limit.enabled=false）"
+              "：engine=hermes 下 ¥ 记账恒 0 → **本轮没有任何止烧闸门**")
+    # 误开 auto_rewrite 会在审稿前先跑一轮重写（同一批章节改两遍 = 双倍烧），
+    # 启动时把生效值打出来，别让人靠翻 YAML 猜。
+    print(f"[orchestrator] gates: auto_rewrite={bool(cfg.get('gates', {}).get('auto_rewrite'))}"
+          f" auto_refine={bool(cfg.get('gates', {}).get('auto_refine'))}"
+          f" review_after_stage4={bool(cfg.get('gates', {}).get('review_after_stage4'))}"
+          f" material_autonomy={bool(cfg.get('gates', {}).get('material_autonomy'))}")
     if verbose:
         os.environ["NOVELFORGE_DEBUG"] = "1"
         print("[orchestrator] verbose：将把每次 LLM 请求/响应原文落盘 data/state/llm_raw/")
@@ -206,7 +225,10 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
         budget = cfg.get("budget", {})
         limit_yuan = float(os.environ.get("BUDGET_LIMIT_YUAN") or budget.get("limit_yuan", 300))
         cost = CostTracker(db, limit_yuan=limit_yuan,
-                           warn_ratio=budget.get("warn_ratio", 0.7))
+                           warn_ratio=budget.get("warn_ratio", 0.7),
+                           # token 级熔断（P0 止烧）：hermes 下 ¥ 恒 0 → 真正的闸门在这里。
+                           # 判据仍在 CostTracker.status()（单一来源），此处只做接线。
+                           token_limit=budget.get("token_limit"))
 
         if dry_run:
             # 预演模式：只打印执行计划，不调 LLM、不写产物、不建 runs 记录。
@@ -328,6 +350,28 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
             return None
 
         order = [only_stage] if only_stage else range(from_stage, 9)
+
+        def _budget_gate(where=""):
+            """阶段边界 / 重试前后的**统一**熔断闸门。返回退出码 2 或 None。
+
+            判据只有一份（`CostTracker.status_detail`）：金额（direct 按量计费）与
+            token（engine: hermes 走订阅流量、¥ 记账恒 0 → 真正的闸门是 token）。
+            熔断必须**说清是哪条判据命中 + 该调哪个键** —— 否则用户面对
+            「预算超限（已用 0.00 元）」只能瞎猜（hermes 下旧日志就是这个形状）。
+            """
+            detail = cost.status_detail(run_id)
+            if detail["state"] != "pause":
+                return None
+            print(f"[orchestrator] 熔断暂停[{detail['reason']}]{where}：{detail['message']}"
+                  f"（累计 token={detail['tokens']}，已用 {detail['spent_yuan']:.2f} 元）")
+            print("[orchestrator]   处理：调大 config/system.yaml 的 "
+                  "budget.token_limit.max_total_tokens（金额口径则调 budget.limit_yuan）"
+                  " → 清 data/state/progress.json 的 budget.paused"
+                  " → python scripts/orchestrator.py --from N 续跑（已完成阶段不重跑）")
+            progress.data["budget"]["paused"] = True
+            progress.save()
+            return 2
+
         for n in order:
             # 用户中断（GUI「停止」）：每轮阶段开始前检查，置位则不再启动新阶段。
             # 已经跑完的阶段照常保留（断点续跑语义不变）。
@@ -335,12 +379,9 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
                 print("[orchestrator] 收到停止请求，中断")
                 return _finalize("stopped", 4)  # 退出码 4：用户中断
             # 预算熔断
-            state, spent = cost.status(run_id)
-            if state == "pause":
-                print(f"[orchestrator] 预算超限（已用 {spent:.2f} 元），熔断暂停")
-                progress.data["budget"]["paused"] = True
-                progress.save()
-                return _finalize("paused", 2)
+            _code = _budget_gate(f"（阶段{n} 启动前）")
+            if _code is not None:
+                return _finalize("paused", _code)
             # 打回提示：该阶段曾被打回（reject.py），重跑前告知原因
             st_n = progress.data["stages"].get(str(n), {})
             if st_n.get("rejected"):
@@ -443,12 +484,9 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
                             print("[orchestrator] 重试前收到停止请求，中断")
                             return _finalize("stopped", 4)
                         # 重试前检查预算熔断
-                        state, spent = cost.status(run_id)
-                        if state == "pause":
-                            print(f"[orchestrator] 重试前预算超限（已用 {spent:.2f} 元），熔断暂停")
-                            progress.data["budget"]["paused"] = True
-                            progress.save()
-                            return _finalize("paused", 2)
+                        _code = _budget_gate(f"（阶段{n} 重试前）")
+                        if _code is not None:
+                            return _finalize("paused", _code)
                         # 执行重试
                         ok, msg = STAGES[n].run_stage(cfg, proj, progress, db, cost, client=client, run_id=run_id)
                         print(f"[orchestrator] 阶段{n} 重试结果: {msg}")
@@ -481,13 +519,13 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
             # （阶段8 Markdown 导出）跑完后 `state == "pause"` 会被直接吞掉，
             # 最终 `_finalize("done", 0)` 宣告"全部完成"，GUI 显示成功。
             # 实际已超预算，属**静默失败**。现在与阶段起始处的熔断保持同一语义。
-            state, spent = cost.status(run_id)
-            if state == "pause":
-                print(f"[orchestrator] 预算超限（已用 {spent:.2f} 元），熔断暂停")
-                progress.data["budget"]["paused"] = True
-                progress.save()
-                return _finalize("paused", 2)
-            print(f"[orchestrator] 当前成本: {spent:.4f} 元（状态 {state}）")
+            _code = _budget_gate(f"（阶段{n} 结束后）")
+            if _code is not None:
+                return _finalize("paused", _code)
+            _detail = cost.status_detail(run_id)
+            print(f"[orchestrator] 当前成本: {_detail['spent_yuan']:.4f} 元"
+                  f"（状态 {_detail['state']}）"
+                  f"｜本 run 累计 token: {_detail['tokens']}")
 
         # 件4：质量验收闸门（gates.quality_gate，默认开）。
         #

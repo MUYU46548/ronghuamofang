@@ -10,6 +10,7 @@ from pathlib import Path
 
 from utils.llm_client import make_client
 from utils.file_io import read_text, write_text
+from utils.cost_tracker import pause_detail as _pause_detail
 from utils.template_loader import load_template
 from utils.verify_chapter import is_usable_output
 
@@ -83,11 +84,13 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
             # 分批阶段内部不查的话，一轮 20 批可以一路烧过限额。
             state = cost.charge_cost(run_id, 5, 0, result)
             if state == "pause":
-                spent_now = cost.spent(run_id)
+                # 熔断口径见 CostTracker.status_detail（金额 or token —— hermes 下只有 token）
+                _detail = _pause_detail(cost, run_id)
                 progress.set_stage(5, "failed",
-                                   error=f"预算熔断（已用 {spent_now:.2f} 元）")
-                return False, (f"stage5 预算熔断（已用 {spent_now:.2f} 元）—— 停止检查；"
-                               "已完成的批次保留，调整预算后重跑可续上")
+                                   error=f"熔断暂停（{_detail['reason']}）：{_detail['message']}")
+                return False, (f"stage5 熔断停止（{_detail['message']}；累计 token="
+                               f"{_detail['tokens']}）—— 调大 budget.token_limit.max_total_tokens "
+                               "后重跑可续上；已完成的批次保留")
         if result["exit_code"] != 0:
             progress.set_stage(5, "failed", error=f"批 {bi}/{total_batches} 子会话退出码非零")
             return False, f"stage5 批 {bi}/{total_batches} 子会话失败"
