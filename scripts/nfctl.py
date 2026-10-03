@@ -949,9 +949,20 @@ def render_test_results(d: dict) -> str:
 
 E2E_PORTS = {"静态 8091": 8091, "假后端 8798": 8798, "冷启动 8797": 8797, "真后端 8799": 8799}
 # payload 里「用户可见入口」清单：任一与工作区不一致 → 包是旧的（改了代码没重打包）。
-PAYLOAD_MUST_MATCH = ["scripts/nf_api.py", "scripts/nf_mcp.py",
-                      "scripts/nf_mcp_stdio_bridge.py", "scripts/nf_mcp_handshake_check.py",
-                      "scripts/nfctl.py", "scripts/utils/cost_tracker.py"]
+# ⚠️ 清单要覆盖**改了就影响产物**的链路，不只是最外层几个入口 —— 2026-10-03 复核发现
+# 原清单只有 6 个文件，而当天改动的 llm_client / material_state / stage1 / stage4 /
+# orchestrator / 新增域模块全不在内，等于「改了半个产品、核验照样绿」。
+PAYLOAD_MUST_MATCH = [
+    "scripts/nf_api.py", "scripts/nf_mcp.py",
+    "scripts/nf_mcp_stdio_bridge.py", "scripts/nf_mcp_handshake_check.py",
+    "scripts/nfctl.py", "scripts/utils/cost_tracker.py",
+    # 归并 / 写作 / 编排主链路 + 状态机与审批策略（B1-B4）
+    "scripts/utils/llm_client.py", "scripts/utils/material_state.py",
+    "scripts/utils/approval_policy.py", "scripts/stage1_consolidate.py",
+    "scripts/stage4_writing.py", "scripts/orchestrator.py",
+    "scripts/nf_api_domains/setting_state.py",
+    "prompts/stage1_materials.md", "config/system.yaml",
+]
 
 
 def _port_busy(port):

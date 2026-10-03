@@ -7,6 +7,65 @@ CHANGELOG」）。本文件从工程审查修复起正式启用。
 
 ---
 
+## [0.4.2] — 2026-10-03 协议两个高危雷 · 素材库状态机 · 进料节流 · 三薄工具
+
+### 🔴 两个高危**静默失败**（协议层，会污染产物）
+
+**① 结束标记不匹配 → 整块被丢 → 兜底把带标记的原文写进章节**
+`parse_ops` 要求块后有 `===END===`，而 `prompts/stage5_check.md` 教模型写的是
+`===END FILE===` → 解析器不认 → 每批的块**全部被丢弃** → `_apply_ops` 的兜底把
+**整段模型输出**（含 `===FILE:` 标记行）写进章节文件。实证：`data/chapters/raw/01.md`、
+`02.md` 的首行就是那条标记行。
+- 修：`END_RE` 兼容带 tag 的写法；找不到 END **不再丢块**（改用「下一个块之前」收边 +
+  告警）；提示词统一为 `===END===`；读取侧再加 `strip_protocol_markers()` 兜一道
+  （stage7 合并正文、stage4 上一章衔接都会剥）。
+
+**② 阶段 5 空转，却报「逻辑检查完成」**
+雷 ① 的直接后果：stage5 每批块被丢弃 → 走「复制 raw → checked」兜底 → 然后**照打**
+「逻辑检查完成，报告: data/outline/check_report.md」——**而该报告从未落盘**，
+`checked/03.md` 与 `raw/03.md` 逐字节相同。
+- 修：收尾自检，把「兜底复制过哪几章」「报告是否落盘」变成**显式警告**，同时写进
+  返回消息与 `progress.warning`（旧实现只打一行普通日志，下一行照打「阶段 5 完成」）。
+
+### 素材库状态机（**确定性、零 token**，不给 LLM 自报置信度的机会）
+- **冲突分级**：同名同字段、两边非空且字面不同 → **报人**（目标个位数）；
+  子串包含 / 英文名·别名 / 「待填充」→ 自动归并。
+- **墓碑**：被否决的条目下一轮**不得复活**，归并提示词真的携带；损坏文件**不静默**。
+- **canon 快照**：`approve.py --stage 1`（设定集定稿）自动冻结；stage2/3 只读快照 →
+  改素材不再悄悄扰动已定稿的大纲。`--revoke` 撤掉。
+- **多回合继承**：上一轮待裁决分歧（带双方出处）进本轮提示词，并标注「继承、不得当成已定」；
+  分歧数回升会报警。
+- **进料节流（B1）**：stage1 多回合迭代时只把**未定稿**素材交给模型（adopted 条目原文
+  不再进 prompt，改由 canon 快照承担）。⚠️ 节流的闸门在 `llm_client.inline_inputs`
+  对**目录**的 glob 全量内联，不在提示词模板 —— 「不引用目录」是生效的必要条件。
+- **canon 自动重冻（B4）**：stage1 收尾时若 canon 已存在，按条目级 diff 重冻并打印
+  **变更字段**。首轮**不自动造** canon（定稿必须走审批）。
+
+### 外部 Agent 三薄工具（MCP 25 个工具）
+`GET /setting/conflicts`（素材冲突清单，零 token）· `GET /setting/canon[?full=1]`
+（canon 元信息，默认不含全文）· `POST /setting/status`（人工拍板：`reject` 必填原因且
+**先写墓碑**，不依赖条目存在；人工结果带 `status_source=human`，**压过**后续机器判定）。
+对应 MCP 工具 `nf_get_setting_conflicts` / `nf_get_canon` / `nf_set_material_status`。
+
+### 进料与写作的节流/续接开关（**默认不改行为**）
+- `gates.material_autonomy`：本机默认 `false` = **陪跑**（stage1 归并后停在审批门等拍板）；
+  `true` = 自主。**键缺失 = 保持改动前行为**。
+- `hermes.session_continuation`：默认 `false`。开启后逐章写作经 `hermes chat --resume`
+  接续上一章的**子会话**；只有成功的章节才把 session 传下去，续接失败自动降级为全新会话。
+
+### 桥层（Obsidian 联动）
+- 目录清单配置化（`obsidian.vault_dirs` / `skip_dirs`），`obsidian_bridge` 与 `kb_index`
+  **同源**（此前两处各写一份且已漂移）。
+- 修 `has_obsidian_entry` **恒假**（`character_dirs` 留空时从未真跑过该分支）。
+- 新增 `obsidian_bridge.py diff`：vault ↔ 设定集**内容级对账**（缺失/新增/改名/丢 locked 一次报全）。
+
+### 发布树卫生
+- 新增 `scripts/leak_scan.py` 泄露门禁（**fail-closed**：词表缺失/为空/条目不足 → 拒绝放行）
+  + CI 门禁；发布树**虚构化**（示例宇宙统一）。修掉 `git ls-files` 转义非 ASCII 文件名
+  导致中文名文件**从未被扫过**的漏洞（实测少报约 60 处）。
+
+---
+
 ## [0.4.0] — 2026-10-01 locked 违例落地 · 多书归档范围修正 · 模型切换通道自检 · CI
 
 ### 🔴 GUI 实测反馈三修（2026-10-01，装上安装包实测后）
