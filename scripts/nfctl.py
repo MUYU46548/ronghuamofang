@@ -240,7 +240,10 @@ def collect_status(root: Path) -> dict:
             "paused": bool(budget.get("paused")),
         }
         # 待人工确认 = 「被 gates 要求审批」且「该阶段已完成」且「尚未审批」
-        for s in (gates.get("require_approval") or []):
+        # 判据走 approval_stages（单一来源）—— 否则陪跑模式下 stage1 本该显示待审批，
+        # 这里却看不到（config 的 require_approval 里并没有 1）。
+        from utils.approval_policy import approval_stages
+        for s in approval_stages(gates):
             st = stages.get(str(s)) or {}
             if st.get("status") == "done" and not st.get("approved"):
                 out["pending_approval"].append(int(s))
@@ -518,6 +521,7 @@ def collect_check(root: Path) -> dict:
     res["gates"] = {
         "agent_mode": gates.get("agent_mode"),
         "require_approval": gates.get("require_approval"),
+        "material_autonomy": gates.get("material_autonomy"),
         "auto_rewrite": gates.get("auto_rewrite"),
         "setting_refine_auto": gates.get("setting_refine_auto"),
         "auto_refine": gates.get("auto_refine"),
@@ -533,9 +537,9 @@ def render_check(c: dict) -> str:
         lines.append("  %s %s: %s" % ("[ok]" if it["ok"] else "[!!]", it["name"], it["detail"]))
     lines.append("")
     g = c.get("gates") or {}
-    lines.append("gates: agent_mode=%s · require_approval=%s · auto_rewrite=%s · setting_refine_auto=%s · auto_refine=%s" % (
-        g.get("agent_mode"), g.get("require_approval"), g.get("auto_rewrite"),
-        g.get("setting_refine_auto"), g.get("auto_refine"),
+    lines.append("gates: agent_mode=%s · require_approval=%s · material_autonomy=%s · auto_rewrite=%s · setting_refine_auto=%s · auto_refine=%s" % (
+        g.get("agent_mode"), g.get("require_approval"), g.get("material_autonomy"),
+        g.get("auto_rewrite"), g.get("setting_refine_auto"), g.get("auto_refine"),
     ))
     lines.append("阻塞项: %s" % (", ".join(c["blocking"]) if c["blocking"] else "无"))
     lines.append("提醒项: %s" % (", ".join(c["warnings"]) if c["warnings"] else "无"))

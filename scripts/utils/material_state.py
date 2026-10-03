@@ -493,6 +493,116 @@ def freeze_canon(setting_path=None, canon_path=None):
     return True, f"canon 快照已冻结 → {cp}"
 
 
+# ---------------------------------------------------------------- canon 新鲜度（B4）
+
+def _entries_index(data):
+    """把设定集条目摊平成 `{类型:名字 → item}`，供 diff 用。
+
+    范围与 `apply_status` / `adopted_sources` 一致：只取 characters / world.*。
+    `plot_fragments` 的 status 是另一套语义，不进来。
+    """
+    idx = {}
+    for it in (data.get("characters") or []):
+        if isinstance(it, dict) and it.get("name"):
+            idx["characters:" + str(it["name"]).strip()] = it
+    world = data.get("world")
+    if isinstance(world, dict):
+        for cat, items in world.items():
+            if isinstance(items, list):
+                for it in items:
+                    if isinstance(it, dict) and it.get("name"):
+                        idx["world.%s:%s" % (cat, str(it["name"]).strip())] = it
+    return idx
+
+
+def diff_canon_entries(old, new, fields=("role", "traits", "relations",
+                                         "description", "type", "status")):
+    """两份设定集的条目级差异 → `{"added": [...], "removed": [...], "changed": [...]}`。
+
+    `changed` 带**变更字段名**，只回答「哪些键变了」。
+
+    ⚠️ 刻意**不报「谁改的」** —— 单人本地场景里没有作者信息，硬造一个字段是假信息。
+    （执行单原写「日志写明哪个键被谁改了」，后半句在本项目里无法成立。）
+    """
+    a, b = _entries_index(old or {}), _entries_index(new or {})
+    added = sorted(set(b) - set(a))
+    removed = sorted(set(a) - set(b))
+    changed = []
+    for k in sorted(set(a) & set(b)):
+        diff_fields = [
+            f for f in fields
+            if json.dumps(a[k].get(f), ensure_ascii=False, sort_keys=True)
+            != json.dumps(b[k].get(f), ensure_ascii=False, sort_keys=True)
+        ]
+        if diff_fields:
+            changed.append({"key": k, "fields": diff_fields})
+    return {"added": added, "removed": removed, "changed": changed}
+
+
+def canon_stale(canon_path=None, materials_dir=None):
+    """canon 是否已过期：**素材卡 mtime 晚于 canon 冻结时间**即算过期。
+
+    返回 `(stale, reason, detail)`。**未冻结 → (False, ...)** —— 「没冻结」不是
+    「过期」，首轮不该被误报成过期。
+    """
+    cp = Path(canon_path or CANON_PATH)
+    if not cp.exists():
+        return False, "尚未冻结（无 canon 快照）", {}
+    try:
+        data = json.loads(cp.read_text(encoding="utf-8"))
+    except Exception as e:                                    # noqa: BLE001
+        return False, "canon 解析失败：" + repr(e)[:120], {}
+    frozen_at = str(((data.get("_meta") or {}).get("canon_frozen_at")) or "")
+    d = Path(materials_dir or MATERIALS_DIR)
+    if not frozen_at or not d.exists():
+        return False, "", {"canon_frozen_at": frozen_at}
+    try:
+        fts = datetime.strptime(frozen_at, "%Y-%m-%dT%H:%M:%S")
+    except ValueError:
+        return False, "canon_frozen_at 格式异常：" + frozen_at, {}
+    newest, newest_m = None, 0.0
+    for f in d.rglob("*"):
+        if f.is_file() and f.suffix.lower() in (".md", ".txt", ".docx"):
+            m = f.stat().st_mtime
+            if m > newest_m:
+                newest, newest_m = f, m
+    if newest is None:
+        return False, "", {"canon_frozen_at": frozen_at}
+    newest_dt = datetime.fromtimestamp(newest_m)
+    detail = {"canon_frozen_at": frozen_at,
+              "newest_material": str(newest),
+              "newest_mtime": newest_dt.strftime("%Y-%m-%dT%H:%M:%S")}
+    if newest_dt > fts:
+        return True, ("素材 `%s` 在 canon 冻结（%s）之后被改动（%s）"
+                      % (newest.name, frozen_at, detail["newest_mtime"])), detail
+    return False, "", detail
+
+
+def recanon(setting_path=None, canon_path=None):
+    """重冻 canon，返回 `(ok, msg, changes)`；changes 来自「旧 canon vs 当前设定集」的 diff。
+
+    调用方应**先确认 canon 已存在**（首轮无 canon 不该凭空造 —— 定稿要走审批）。
+    """
+    cp = Path(canon_path or CANON_PATH)
+    old = {}
+    if cp.exists():
+        try:
+            old = json.loads(cp.read_text(encoding="utf-8"))
+        except Exception:                                     # noqa: BLE001
+            old = {}
+    ok, msg = freeze_canon(setting_path, str(cp))
+    if not ok:
+        return False, msg, {}
+    new = {}
+    try:
+        new = json.loads(cp.read_text(encoding="utf-8"))
+    except Exception:                                         # noqa: BLE001
+        pass
+    changes = diff_canon_entries(old, new)
+    n = len(changes["added"]) + len(changes["removed"]) + len(changes["changed"])
+    return True, "canon 已重冻（条目级变更 %d 项）" % n, changes
+
+
 def drop_canon(canon_path=None):
     cp = Path(canon_path or CANON_PATH)
     if cp.exists():

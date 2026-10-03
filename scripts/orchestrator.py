@@ -47,6 +47,18 @@ import snapshot as snap
 STAGES = {1: s1, 2: s2, 3: s3, 4: s4, 5: s5, 6: s6, 7: s7, 8: s8}
 
 # stage 5.5 校对（proofread.py）
+def _approval_stages(cfg):
+    """本次运行的有效审批门集合。
+
+    逻辑在 `utils.approval_policy.approval_stages`（**单一来源**）—— 这里只是把
+    cfg 剥出 gates 的薄包装。原先这套判据在 dry-run 预演 / 实际执行 / 启动横幅
+    三处各写一份（外加 nfctl 的待审批统计），改一处忘其余就会
+    「预演说会停、实跑不停」或「status 里看不到待审批的 stage1」。
+    """
+    from utils.approval_policy import approval_stages
+    return approval_stages((cfg or {}).get("gates"))
+
+
 def _run_proofread(cfg, progress):
     """阶段5.5：校对（确定性 + 可选 LLM）。返回 (ok, report_path)"""
     try:
@@ -163,7 +175,7 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
         os.environ["NOVELFORGE_DEBUG"] = "1"
         print("[orchestrator] verbose：将把每次 LLM 请求/响应原文落盘 data/state/llm_raw/")
         print(f"[orchestrator] verbose：engine={cfg.get('engine')} 预算={cfg.get('budget', {}).get('limit_yuan')}"
-              f" 审批门={cfg.get('gates', {}).get('require_approval', [2])}")
+              f" 审批门={_approval_stages(cfg)}")
         for k, v in (cfg.get("model") or {}).items():
             print(f"[orchestrator] verbose：model.{k} = {v.get('provider', '?')}/{v.get('id', '?')}")
     progress = ProgressManager("data/state/progress.json")
@@ -205,7 +217,7 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
                 if progress.stage_status(n) == "done" and not only_stage:
                     print(f"[dry-run] 阶段{n} 已完成，将跳过")
                     continue
-                req = cfg.get("gates", {}).get("require_approval", [2])
+                req = _approval_stages(cfg)
                 pending = [s for s in req
                            if n > s and progress.stage_status(s) == "done"
                            and not progress.is_approved(s)]
@@ -334,14 +346,23 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
             if st_n.get("rejected"):
                 print(f"[orchestrator] 阶段{n} 曾被打回"
                       f"（{st_n.get('rejected_at', '')}）：{st_n['rejected']}，正在重跑")
-            # 审批门：require_approval 中已完成但未人工确认的阶段 → 暂停
-            req = cfg.get("gates", {}).get("require_approval", [2])
+            # 审批门：已完成但未人工确认的阶段 → 暂停（判据在 _approval_stages，单一来源）
+            req = _approval_stages(cfg)
             pending_approvals = [s for s in req
                                  if n > s and progress.stage_status(s) == "done"
                                  and not progress.is_approved(s)]
             if pending_approvals:
                 for s in pending_approvals:
-                    if s == 2:
+                    if s == 1:
+                        print("[orchestrator] 阶段1（素材归并）未获人工确认，暂停 —— "
+                              "**陪跑模式**（gates.material_autonomy=false）。")
+                        print("[orchestrator]   下一步：① 看冲突清单 "
+                              "`GET /setting/conflicts`（或 GUI 素材面板）；"
+                              "② 拍板 `nf_set_material_status` 或 "
+                              "`material_review.py --reject \"名字\" --reason \"…\"`；"
+                              "③ 确认 `approve.py --stage 1`。"
+                              "想让它自动继续，把 gates.material_autonomy 设为 true。")
+                    elif s == 2:
                         print("[orchestrator] 阶段2 未获人工确认，暂停。"
                               "请审阅 data/outline/global.md 后在主会话确认"
                               "（approve.py --stage 2）")

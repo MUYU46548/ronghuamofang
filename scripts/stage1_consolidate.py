@@ -510,6 +510,30 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     except Exception as e:                                    # noqa: BLE001
         print(f"[stage1] WARN 状态审计失败（不阻断归并）：{type(e).__name__}: {e}")
 
+    # ---- B4：canon 新鲜度 —— **只在上一轮已审批冻结过**时才在本轮重冻 ----
+    # 首轮没有 canon 就**不造**：定稿必须走审批（approve.py --stage 1），
+    # 自动冻结会把「机器归并结果」冒充成「人工定稿」。
+    try:
+        from utils import material_state as mstate
+        if Path(mstate.CANON_PATH).exists():
+            stale, why, _det = mstate.canon_stale()
+            ok, msg, changes = mstate.recanon(str(setting_path))
+            if ok:
+                print("[stage1] " + msg)
+                for c in (changes.get("changed") or [])[:8]:
+                    print("[stage1]   变更字段：%s（%s）" % (c["key"], "、".join(c["fields"])))
+                for k in (changes.get("added") or [])[:8]:
+                    print("[stage1]   新增条目：%s" % k)
+                for k in (changes.get("removed") or [])[:8]:
+                    print("[stage1]   移除条目：%s" % k)
+                if stale:
+                    print("[stage1]   触发原因：" + why)
+            else:
+                print("[stage1] WARN canon 重冻失败（不阻断归并）：" + msg)
+    except Exception as e:                                    # noqa: BLE001
+        print("[stage1] WARN canon 新鲜度检查失败（不阻断归并）：%s: %s"
+              % (type(e).__name__, e))
+
     # 设定集就绪 → 生成设定库引用索引（materials/vault_links.md）
     vault_links = proj.get("vault", {}).get("vault_links", "materials/vault_links.md")
     try:

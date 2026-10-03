@@ -123,6 +123,13 @@ gates:
   pause_on_failure: true
   setting_refine_reminder: true
   setting_refine_auto: false     # stage1 后自动跑 setting_refine --auto-thin 闭环（默认关）
+  # 素材库陪跑 / 自主（B4）。**只有显式写下这个键才生效**（键缺失 = 保持改动前行为，
+  # 老配置与测试替身不受影响）：
+  #   false（本机默认，**陪跑**）= stage1 归并结束后**停在审批门**，等作者看冲突清单并拍板
+  #     （GET /setting/conflicts → nf_set_material_status 或 material_review.py --reject
+  #      → approve.py --stage 1）。人在场时更安全，也是默认值。
+  #   true（**自主**）= 不额外停，仍按 require_approval 走。
+  material_autonomy: false
   setting_refine_max_rounds: 1   # 闭环轮次上限（1=只跑一轮；建议不超过 2）
   review_after_stage4: true
   review_after_stage5: false
