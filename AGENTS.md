@@ -99,6 +99,10 @@ stdout 被管道捕获时 Python 用 cp936，一行日志就能 `UnicodeEncodeEr
 **project.yaml**：读写都必须走**带重复键检测**的 loader（`utils.project_config`）。
 裸 `yaml.safe_load` 对重复键静默取后值 → 换书可能把数据归档到**错误书名**下。
 `switch_book.py` 配置坏时**拒绝执行**（含 `--list`），改完再换书。
+⚠️ 它的 `PROJECT_ROOT` 取自**脚本位置**（不是 CWD）：从别的目录敲
+`python <某路径>/scripts/switch_book.py --archive`，动的是**脚本所在的那个仓库**
+（本轮就因此归档过一次真实工作区，已恢复）。现它会在任何写操作前打印
+「将操作的项目根」，CWD 不同还会显式提示 —— 别忽略那两行。
 
 **配置类 YAML 一律经 `utils/config_io`（2026-10-03 收口）**：`load_config_yaml` 严格
 （重复键/语法错 → `ConfigError` 带**行号 + 危害 + 体检入口**）、`load_pipeline_config`
