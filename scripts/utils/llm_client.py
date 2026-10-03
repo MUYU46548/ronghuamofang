@@ -623,14 +623,20 @@ class OpenAICompatClient:
 
         为什么隔离而不是直接丢：截断的正文里往往有可用的开头，人需要能看见
         "究竟写到哪里断的"；但它**绝不能**冒充成品进入 data/chapters/。
+
+        同时写一份**机器可读标记**（`utils.truncation.mark`）：orchestrator 靠它判断
+        "这次失败是不是截断类" → 是就不自动重试（同一个上限只会再截断一次，白烧一倍输入）。
         """
         try:
-            dump = Path("data/state/truncated")
-            dump.mkdir(parents=True, exist_ok=True)
-            name = Path(task_path).stem + "_" + time.strftime("%Y%m%d_%H%M%S") + ".txt"
-            path = dump / name
+            from utils import truncation
+            info = truncation.mark(task_path, texts)
+            path = truncation.TRUNC_DIR / (
+                Path(task_path).stem + "_" + time.strftime("%Y%m%d_%H%M%S") + ".txt")
             write_text(path, NEWLINE.join(texts))
             print("[llm_client] 被截断的输出已隔离存放（非正式产物）: " + str(path))
+            print("[llm_client] 截断标记已写入 %s（自动重试会据此跳过：同一上限只会再截断一次）"
+                  % (truncation.TRUNC_DIR / truncation.MARK_NAME))
+            _ = info
         except Exception as e:                        # noqa: BLE001
             print("[llm_client] WARN 截断输出隔离存放失败: " + repr(e))
 

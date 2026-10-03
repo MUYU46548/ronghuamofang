@@ -169,6 +169,25 @@ def _stop_requested():
         return False
 
 
+def should_auto_retry(gates, retry_count, truncated):
+    """是否该自动重试。返回 (bool, 原因)。判据只有这一份（便于单测）。
+
+    **截断类失败一律不重试**（2026-10-03）：同一个 `max_tokens` 上限再跑一次，
+    只会再截断一次 —— 白烧一倍输入（几万~几十万 token）。这类失败要的是
+    "调大 `budget.token_limit.per_request_max_tokens` / 改提示词"，不是再赌一次。
+    """
+    if not (gates or {}).get("auto_retry", True):
+        return False, "auto_retry 已关闭"
+    if truncated:
+        return False, ("上一次失败是**输出被 max_tokens 截断**（finish_reason=length）"
+                       "→ 不重试：同一上限只会再截断一次，白烧一倍输入。处理：调大 "
+                       "config/system.yaml 的 budget.token_limit.per_request_max_tokens，"
+                       "或减小单次任务量 / 改提示词")
+    if retry_count >= int((gates or {}).get("auto_retry_max_rounds", 2)):
+        return False, "已达重试轮次上限"
+    return True, ""
+
+
 def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False):
     _safe_stdout()      # 管道 stdout 下 ¥/emoji 会把启动横幅直接搞崩（见其 docstring）
     cfg, proj = load_config()
@@ -452,6 +471,8 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
                     print(f"[orchestrator] 阶段{n} 前快照已保存")
                 except Exception as e:
                     print(f"[orchestrator] 阶段前快照失败（不影响流程）: {e}")
+            # 记录阶段开始时刻：自动重试前用它判定"这次失败之后有没有新的截断标记"
+            _stage_started_iso = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
             ok, msg = STAGES[n].run_stage(cfg, proj, progress, db, cost, client=client,
                                           task_dir="data/state/tasks", run_id=run_id)
             print(f"[orchestrator] 阶段{n} 结果: {msg}")
@@ -476,12 +497,20 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
                 # 而不是穿透 run() 把 runs 留在 status='running' 脏状态。
                 try:
                     gates = cfg.get("gates", {}) or {}
-                    auto_retry = gates.get("auto_retry", True)
-                    max_retry = int(gates.get("auto_retry_max_rounds", 2))
                     retry_delay = float(gates.get("auto_retry_delay_seconds", 3))
                     retry_backoff = float(gates.get("auto_retry_backoff", 2))
                     retry_count = 0
-                    while auto_retry and retry_count < max_retry:
+                    # 截断类失败不重试（见 should_auto_retry）：判据来自
+                    # data/state/truncated/last.json —— 本次阶段开始之后有没有新的截断标记。
+                    from utils import truncation
+                    stage_started = _stage_started_iso
+                    while True:
+                        _truncated = truncation.after(stage_started)
+                        _do, _why = should_auto_retry(gates, retry_count, _truncated)
+                        if not _do:
+                            if _why:
+                                print("[orchestrator] 不自动重试：%s" % _why)
+                            break
                         retry_count += 1
                         # 记录重试次数到 progress.json（GUI 可显示"自动重试中"）
                         progress.set_stage(n, "retrying", retry_count=retry_count,

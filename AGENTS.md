@@ -77,6 +77,12 @@ orchestrator 启动横幅会打印生效值（`gates: auto_rewrite=… auto_refi
 仍失败 → 按 `gates.review_retries`（默认 1）重试 → 仍败则**原文隔离** `data/state/review_raw/` +
 可行动报错 + 审稿门 fail-closed（不放行 stage5/6）。调用本身失败（退出码非零）**不重试**（同一上限只会再截断一次）。
 
+**截断类失败不自动重试**（2026-10-03）：`finish_reason == "length"` 时除了隔离残缺稿，
+还会写机器可读标记 `data/state/truncated/last.json`（判据 = `utils/truncation`，
+写 `mark()` / 读 `after(阶段开始时刻)`）。orchestrator 的 `auto_retry`（默认开、默认 2 轮）
+**先过 `should_auto_retry()`**：截断 → 一票否决并打印「同一上限只会再截断一次，白烧一倍输入 +
+该调 `budget.token_limit.per_request_max_tokens`」。自检 `tests/unit/test_truncation_no_retry.py`（28 断言）。
+
 **输入段格式**：任务「输入文件」段每条路径必须是**列表行**（`- 名称: <路径>`）。
 格式不符（含目录引用指向不存在的目录）→ `InputSectionFormatError`（行号 + 原文 + 正确写法），
 **不再静默返空** —— stage5 空稿事故的同类根因。
