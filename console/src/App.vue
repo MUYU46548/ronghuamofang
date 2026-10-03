@@ -293,7 +293,19 @@ function setFontSize(px) {
 setTheme(theme.value);
 setFontSize(fontSize.value);
 
-/* ---------- 退出确认 ---------- */
+/* ---------- 退出确认（2026-10-03 重做：不再用 window.beforeunload） ----------
+ *
+ * 旧实现把确认挂在 `window.beforeunload` 上，触发条件包含「有 stage 是 done 但未审批」
+ * —— 那是审批门的**长期正常状态**（可持续数天）。于是每次关窗都弹 Chromium **原生**确认框：
+ * 它无法自绘、可能跑到窗口后面、或被 Esc/取消吃掉 → 用户看到的就是「点了 X 没反应、
+ * 关不掉、原因不明」，还会连带卡住「重启安装」。
+ *
+ * 现在按项目既有 GUI 纪律（破坏性操作走**应用内**确认框，不用原生对话框）改成：
+ *   ① 渲染进程只 `setQuitBusy(hasUnfinishedJob)` 上报状态；
+ *   ② 主进程在关窗时按需 `app:close-requested` 问过来；
+ *   ③ 这里弹应用内对话框（复用「跳过阶段」那套抽屉 + 勾选护栏）；
+ *   ④ 主进程有 5s 看门狗：本进程若挂了/没应答，它会强制退出，**绝不把用户关在应用里**。
+ */
 const hasUnfinishedJob = computed(() => {
   if (!state.value) return false;
   // 当前有运行中的 job，或存在未完成/待审批的 stage
@@ -301,15 +313,30 @@ const hasUnfinishedJob = computed(() => {
   const stages = state.value.stages || [];
   return stages.some((s) => s.status === "running" || (s.status === "done" && !s.approved));
 });
+const quitDlg = ref({ open: false, agreed: false });
 
 function setupExitGuard() {
-  window.addEventListener("beforeunload", (e) => {
-    if (hasUnfinishedJob.value) {
-      e.preventDefault();
-      e.returnValue = "当前有正在运行的流水线或待审批阶段，退出将中止当前任务。确定退出？";
-      return e.returnValue;
-    }
-  });
+  // ① 上报 busy（状态一变就推给主进程，主进程据此决定关窗要不要拦）
+  watch(hasUnfinishedJob, (v) => {
+    try { window.mofangAPI?.setQuitBusy?.(!!v); } catch (e) { /* 非 Electron 环境忽略 */ }
+  }, { immediate: true });
+  // ② 主进程问「确认退出吗」→ 弹应用内对话框（忙碌时才问；不忙主进程会直接放行）
+  try {
+    window.mofangAPI?.onCloseRequested?.(() => {
+      if (!hasUnfinishedJob.value) { window.mofangAPI.confirmQuit(); return; }
+      quitDlg.value = { open: true, agreed: false };
+    });
+  } catch (e) { /* 非 Electron 环境忽略 */ }
+}
+
+function cancelQuit() {
+  quitDlg.value = { open: false, agreed: false };
+  try { window.mofangAPI?.cancelQuit?.(); } catch (e) { /* ignore */ }
+}
+
+function confirmQuit() {
+  if (!quitDlg.value.agreed) return;
+  try { window.mofangAPI?.confirmQuit?.(); } catch (e) { /* ignore */ }
 }
 
 /* ---------- 导出（P3 多平台发布） ---------- */
@@ -3908,9 +3935,28 @@ onUnmounted(() => {
     </div>
   </div>
 
-  <!-- ③ 跳过阶段确认（比 window.confirm 更明确：勾选护栏 + 事后回报缺失产物） -->
-  <div v-if="skipDlg.open" class="drawer-mask" @click.self="skipDlg.open = false">
-    <div class="dialog" style="width: min(560px, 92vw);">
+  <!-- ③ 退出确认（**应用内**，替代 window.beforeunload 的 Chromium 原生框） -->
+  <div v-if="quitDlg.open" class="drawer-mask" @click.self="cancelQuit">
+    <div class="dialog" style="width: min(520px, 92vw);">
+      <h3>退出绒花墨坊？</h3>
+      <div class="meta" style="line-height: 1.8; margin-bottom: 10px;">
+        当前有正在运行的流水线，或存在<b>待审批阶段</b>。<br>
+        · 退出会中止正在运行的任务（已完成阶段的产物保留，重跑从断点续上）<br>
+        · 待审批阶段不受影响，下次打开仍停在审批门
+      </div>
+      <label style="display: flex; gap: 8px; align-items: flex-start; margin-bottom: 10px;">
+        <input type="checkbox" v-model="quitDlg.agreed" />
+        <span>我已了解，确认退出</span>
+      </label>
+      <div class="dialog-actions">
+        <button class="mini" @click="cancelQuit">取消</button>
+        <button class="mini danger" :disabled="!quitDlg.agreed" @click="confirmQuit">确认退出</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ④ 跳过阶段确认（比 window.confirm 更明确：勾选护栏 + 事后回报缺失产物） -->
+  <div v-if="skipDlg.open" class="drawer-mask" @click.self="skipDlg.open = false">    <div class="dialog" style="width: min(560px, 92vw);">
       <h3>跳过阶段 {{ skipDlg.stage }} · {{ STAGE_NAMES[skipDlg.stage] }}</h3>
       <div class="meta" style="line-height: 1.8; margin-bottom: 10px;">
         跳过只会把该阶段标记为「已完成 + 已审批」，<b>不会生成任何产物</b>：<br>

@@ -28,4 +28,15 @@ contextBridge.exposeInMainWorld("mofangAPI", {
     ipcRenderer.on("updater", handler);
     return () => ipcRenderer.removeListener("updater", handler);
   },
+  // ---- 退出守卫（2026-10-03）----
+  // 渲染进程只负责：① 上报"我这儿有没有在忙"；② 主进程问过来时弹**应用内**确认框。
+  // 关窗拦不拦、超时怎么办，都在主进程里判（见 main/quitGuard.js 的说明）。
+  setQuitBusy: (busy) => ipcRenderer.send("app:busy", !!busy),
+  onCloseRequested: (callback) => {
+    const handler = () => callback();
+    ipcRenderer.on("app:close-requested", handler);
+    return () => ipcRenderer.removeListener("app:close-requested", handler);
+  },
+  confirmQuit: () => ipcRenderer.invoke("app:quit-confirmed"),
+  cancelQuit: () => ipcRenderer.invoke("app:quit-canceled"),
 });

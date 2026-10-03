@@ -1,9 +1,65 @@
 // 绒花墨坊桌面控制台 — Electron 主进程
 const { app, BrowserWindow, ipcMain, shell, Menu, dialog } = require("electron");
 app.disableHardwareAcceleration();
-const { spawn } = require("child_process");
+const { spawn, spawnSync } = require("child_process");
 const path = require("path");
 const fs = require("fs");
+const { shouldGuardClose, closeAskTimedOut, killTreeArgv,
+        shouldRetryPortProbe, MAX_PORT_PROBE_RETRIES } = require("./quitGuard");
+
+// ---------------------------------------------------------------------------
+// 退出守卫状态（2026-10-03：修「关不掉」）
+//
+// 旧实现把退出确认挂在渲染进程的 window.beforeunload 上，触发条件含
+// 「有 stage 是 done 但未审批」= 审批门的长期正常状态 → 每次关窗都弹
+// Chromium 原生框；该框可能跑到窗口后面、或被 Esc 吃掉 → 用户以为"关不掉"。
+// 现在：渲染进程只上报 busy，**主进程**决定拦不拦，确认走应用内对话框，
+// 并且永远有看门狗兜底（宁可丢掉一次确认，也不能把用户关在应用里）。
+// ---------------------------------------------------------------------------
+let rendererBusy = false;      // 渲染进程上报：有运行中 job / 未审批阶段
+let isQuitting = false;        // 用户已确认退出或已在退出流程中
+let lastCloseAskAt = 0;        // 上次询问时间（连点合并）
+let closeAskTimer = null;      // 看门狗定时器
+let updateInstalling = false;  // 正在装更新（此时不许硬退出）
+
+function killTree(pid) {
+  /** 杀整棵进程树（Windows 用 taskkill /T，连孙子一起）。返回是否失败。 */
+  const spec = killTreeArgv(pid, process.platform);
+  if (!spec) return false;
+  try {
+    spawnSync(spec.argv[0], spec.argv.slice(1), { windowsHide: true, timeout: 10000 });
+    return true;
+  } catch (e) {
+    console.error("[console] killTree failed:", e && e.message);
+    return false;
+  }
+}
+
+function askRendererToClose() {
+  /** 拦住关窗 → 问渲染进程（应用内确认框）。同时启动看门狗。 */
+  lastCloseAskAt = Date.now();
+  if (!mainWindow || mainWindow.isDestroyed()) { forceQuit("no-window"); return; }
+  try { mainWindow.webContents.send("app:close-requested"); }
+  catch (e) { console.error("[console] send close-requested failed:", e && e.message); }
+  if (closeAskTimer) clearTimeout(closeAskTimer);
+  const askedAt = lastCloseAskAt;
+  // 看门狗：渲染进程挂了/在 reload/根本没接这个通道 → 到点强制退出。
+  closeAskTimer = setTimeout(() => {
+    if (!isQuitting && closeAskTimedOut({ askedAt, now: Date.now() })) {
+      console.error("[console] 关窗确认超时（渲染进程未应答）→ 强制退出");
+      forceQuit("ask-timeout");
+    }
+  }, 5000);
+}
+
+function forceQuit(why) {
+  /** 无条件退出：先杀整棵树，再硬退（任何异常都不许挡住退出）。 */
+  console.log("[console] forceQuit:", why);
+  isQuitting = true;
+  if (closeAskTimer) { clearTimeout(closeAskTimer); closeAskTimer = null; }
+  stopApi();
+  try { app.exit(0); } catch (e) { process.exit(0); }
+}
 
 // 自动更新（生产模式 + 非 portable 模式）
 let autoUpdater = null;
@@ -294,7 +350,8 @@ const BASE = "http://127.0.0.1:" + API_PORT;
 let apiProc = null;
 let mainWindow = null;
 
-function startApi() {
+function startApi(attempt) {
+  const tryNo = attempt || 1;
   if (!fs.existsSync(PY)) {
     console.error("[console] python not found:", PY);
     return;
@@ -303,25 +360,39 @@ function startApi() {
   const tester = net.createServer();
   tester.once("error", (e) => {
     if (e.code === "EADDRINUSE") {
-      console.warn(`[console] port ${API_PORT} in use, killing old process...`);
-      // Kill whatever is using our port, then retry
+      console.warn(`[console] port ${API_PORT} in use (attempt ${tryNo}), killing old process...`);
+      // Kill whatever is using our port, then retry。
+      // ⚠️ 必须杀**整棵树**：旧实现 process.kill(pid) 只杀那一个 PID，
+      // 上一轮遗留的 nf_api 孙进程会继续占着端口 → 下轮又撞 → 无限重试。
       try {
         require("child_process").execSync(`netstat -ano | findstr :${API_PORT} | findstr LISTENING`, { stdio: "pipe" })
           .toString().split("\n").forEach(line => {
             const pid = line.trim().split(/\s+/).pop();
             if (pid && /^\d+$/.test(pid)) {
-              console.log(`[console] killing PID ${pid}`);
-              try { process.kill(parseInt(pid)); } catch (e) {}
+              console.log(`[console] killing PID ${pid} (tree)`);
+              if (!killTree(parseInt(pid))) {
+                try { process.kill(parseInt(pid)); } catch (e) { /* ignore */ }
+              }
             }
           });
-      } catch (e) {}
+      } catch (e) { /* netstat 没有输出 = 没人占，交给下一轮 */ }
+      // 重试**有上限**（2026-10-03）：旧实现无条件递归，端口被一个杀不掉的进程占住时
+      // 会每秒重试到天荒地老（每次还漏一个 net.Server），界面看起来就是"应用起不来"。
+      if (!shouldRetryPortProbe(tryNo)) {
+        console.error(`[console] port ${API_PORT} 连续 ${MAX_PORT_PROBE_RETRIES} 次被占用且无法释放`
+                      + " → 放弃自动清理；界面会显示离线，"
+                      + "请手动结束占用该端口的进程（或重启电脑）后重开应用。");
+        try { tester.close(); } catch (e) { /* ignore */ }
+        return;
+      }
       setTimeout(() => {
-        tester.close();
-        startApi();
+        try { tester.close(); } catch (e) { /* ignore */ }
+        startApi(tryNo + 1);
       }, 1000);
       return;
     }
     console.error("[console] port probe error:", e);
+    try { tester.close(); } catch (err) { /* ignore */ }
   });
   tester.once("listening", () => {
     tester.close();
@@ -356,7 +427,13 @@ function startApi() {
 
 function stopApi() {
   if (apiProc) {
-    try { apiProc.kill(); } catch (e) { /* ignore */ }
+    const pid = apiProc.pid;
+    // ⚠️ 先杀**整棵树**（2026-10-03）：实测 nf_api 自己还孵着孙进程，
+    // 只 `apiProc.kill()` 会让孙子成孤儿继续占 8765 与句柄 —— 那正是
+    // 「退出后端口还占着 / 下次启动撞端口 / 应用像没死透」的来源。
+    if (pid && !killTree(pid)) {
+      try { apiProc.kill(); } catch (e) { /* ignore */ }
+    }
     apiProc = null;
   }
 }
@@ -619,6 +696,10 @@ ipcMain.handle("updater:check", async () => {
 
 ipcMain.handle("updater:quitAndInstall", () => {
   if (autoUpdater && updateDownloaded) {
+    // 更新安装期间**关掉硬退出看门狗**：安装器要接管退出流程，
+    // 5 秒后强杀 Electron 可能打断安装器启动（用户点了「重启安装」却什么都没发生）。
+    updateInstalling = true;
+    if (closeAskTimer) { clearTimeout(closeAskTimer); closeAskTimer = null; }
     autoUpdater.quitAndInstall();
   }
 });
@@ -632,6 +713,27 @@ ipcMain.handle("updater:status", () => ({
   version: app.getVersion(),
   dev: process.env.NODE_ENV === "development" || !app.isPackaged,
 }));
+
+// ---- 退出守卫 IPC（2026-10-03）----
+// 渲染进程上报 busy（有运行中 job / 未审批阶段）；主进程据此决定关窗要不要拦。
+ipcMain.on("app:busy", (e, busy) => { rendererBusy = !!busy; });
+// 用户在应用内确认框里点了「确认退出」→ 真正关窗（isQuitting=true 后 close 不再被拦）。
+ipcMain.handle("app:quit-confirmed", () => {
+  isQuitting = true;
+  if (closeAskTimer) { clearTimeout(closeAskTimer); closeAskTimer = null; }
+  console.log("[console] 用户确认退出");
+  stopApi();
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.close();
+  else forceQuit("confirmed-no-window");
+  return { ok: true };
+});
+// 用户点了「取消」→ 只记一笔，让下次关窗还能再问（不改变 busy 状态）。
+ipcMain.handle("app:quit-canceled", () => {
+  console.log("[console] 用户取消退出");
+  if (closeAskTimer) { clearTimeout(closeAskTimer); closeAskTimer = null; }
+  lastCloseAskAt = 0;
+  return { ok: true };
+});
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -656,6 +758,18 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname, "..", "renderer", "dist", "index.html"));
   }
+  // ---- 退出守卫（2026-10-03 修「关不掉」）----
+  // 关窗时**由主进程**决定拦不拦：渲染进程只上报 busy，确认走应用内对话框。
+  // 判据在 quitGuard.shouldGuardClose（纯函数，可单测）。
+  mainWindow.on("close", (e) => {
+    if (!shouldGuardClose({ rendererBusy, isQuitting, lastAskAt: lastCloseAskAt,
+                            now: Date.now() })) {
+      return;                       // 没在忙 / 已确认 / 连点合并 → 放行
+    }
+    e.preventDefault();
+    askRendererToClose();
+  });
+  mainWindow.on("closed", () => { mainWindow = null; });
   // 外链一律交给系统浏览器；窗口内导航只允许本地页面（file:// 与 dev server）
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:/i.test(url)) shell.openExternal(url);
@@ -704,9 +818,24 @@ app.whenReady().then(async () => {
 });
 
 app.on("window-all-closed", () => {
+  isQuitting = true;
   stopApi();
   app.quit();
 });
 
-app.on("before-quit", stopApi);
+// 退出流程：先标记 isQuitting（让 close 处理器不再拦），再杀子树，
+// 最后挂一个**硬退出看门狗** —— 任何环节卡住（子进程杀不掉、窗口不肯关）
+// 都会在 5 秒后被 `app.exit(0)` 强制收场。宁可丢掉一次清理，也不能把用户关在应用里。
+app.on("before-quit", () => {
+  isQuitting = true;
+  if (closeAskTimer) { clearTimeout(closeAskTimer); closeAskTimer = null; }
+  stopApi();
+  const t = setTimeout(() => {
+    if (updateInstalling) return;   // 更新安装器接管中，不抢它的退出
+    console.error("[console] 退出流程超时（5s）→ 强制 exit");
+    forceQuit("before-quit-timeout");
+  }, 5000);
+  if (t.unref) t.unref();          // 正常退出时不要因为这个 timer 多活 5 秒
+});
+app.on("quit", () => { isQuitting = true; });
 process.on("exit", stopApi);
