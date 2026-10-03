@@ -154,7 +154,8 @@ stdout 被管道捕获时 Python 用 cp936，一行日志就能 `UnicodeEncodeEr
 | 原始碎片聚类预览 | `python scripts/utils/scrap_cluster.py`（自由命名碎片 → 内容聚类 + 时间序 + 前瞻备忘；`--json` 机器可读、`--dir` 换目录） |
 | 本地 API 服务（GUI 化 P0） | `python scripts/nf_api.py`（默认 127.0.0.1:8765；`--port/--host` 可调；`--allow-fake` 为无 LLM 测试模式） |
 | 提示词模板编辑（GUI） | 控制台「设置」页签 → 提示词模板面板；底层 `GET /prompts/list`、`GET /prompts/get?name=`、`POST /prompts/save`（白名单 `prompts/stage[1-7]_*.md`，禁止 `../`；保存自动备份 `prompts/history/`） |
-| 文风特征自检 | `python tests/unit/test_style_v2.py`（对范文跑 extract_style_features + build_style_instruction，含空/短文本边界） |
+| 文风特征自检 | `python tests/unit/test_style_v2.py`（**19 断言**：边界输入（None/空/空白/极短/无标点/纯标点）不炸也不硬凑 · 旧键向后兼容 · v2 新增键丰富度 · 抒情段 vs 口语段的特征与**风格指令都不同** · 对白比例真的把两类分开。⚠️ 它 2026-10-03 之前是**纯 print 的临时脚本**（`print("旧键齐全:", ...)` → False 也退 0）） |
+| **测试文件卫生（结构性护栏）** | `python tests/unit/test_runner_hygiene.py`（**8 断言**：`tests/unit`+`tests/http` 每个用例都必须有**判定构造**（`check(`/`ok(`/`assert`/计数器/清单）+ **非零退出路径** + **失败必须驱动退出码**（不是无条件 `exit(0)`、也不是"只打印状态"）+ 判定数 ≥3；含**反证**（造一个纯 print 用例必须被抓）+ e2e 的 print 型基线只许降。判据会先剥掉 docstring/注释 —— 否则"文档里举的坏例子"会被当成坏代码） |
 | 风格偏差自检 | `python tests/unit/test_style_drift.py`（compute_style_drift 阈值/边界 + stage6 报告追加集成） |
 | API 验收自测 | `python scripts/nf_api_selftest.py`（⚠️ 清空 data/ 与 logs/ 后以 fake 模式起服务跑全链用例；会销毁当前书档产物，history/ 快照保留。碎片写入类端点不在其中——见下） |
 | 碎片聚类自检 | `python tests/unit/test_scrap_cluster.py`（自由命名 / 时间戳回退 / 内容聚类 / 否定语境 / 指纹稳定性，44 断言） |
