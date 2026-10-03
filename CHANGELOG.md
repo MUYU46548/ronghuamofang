@@ -7,6 +7,109 @@ CHANGELOG」）。本文件从工程审查修复起正式启用。
 
 ---
 
+## [Unreleased] — 2026-10-03 止烧 + 静默失败收口（P0/P1/P2 + 前置：控制台安全网）
+
+### 🔴 P0 止烧
+
+**engine: hermes 下整条流水线原本没有任何止烧闸门。** `estimate_cost_yuan` 对
+`provider="hermes"` **恒返 0**（订阅流量，刻意语义）→ `cost_log.cost_yuan` 全是 0 →
+`budget.limit_yuan` 永不命中。一次跑几十章可以一路烧到没边。
+
+- **token 级熔断**（`config/system.yaml` → `budget.token_limit`，显眼处）：
+  `max_total_tokens`（单轮累计输入+输出，默认 300 万）与 `per_request_max_tokens`
+  （单请求输出上限，默认 8000）。判据只有一份 `CostTracker.status_detail()`
+  （金额 / token 累计 / token 单次），`status()` 退化为它的二元组包装 →
+  老调用点零改动。触发后走**现有** budget/pause（`progress.budget.paused` + 退出码 2），
+  **没有新状态机**；阶段内（stage4 逐章 / stage5 分批 / stage6 分卷）也查。
+  熔断日志点明**是哪条判据命中 + 该调哪个键**（旧日志在 hermes 下只会打「已用 0.00 元」）。
+- **单请求上限落到调用点**：direct 引擎真把 `max_tokens` 设进 payload（上限优先，
+  不被调用点参数顶掉）；hermes **没有这个旋钮** → 只比对 + 大声告警，
+  要按次熔断就开 `per_request_pause_hermes`（默认关：实测 hermes 一次 stage1 子会话
+  输出就有 1.8 万 token，拿 8k 当判据会**第一轮就误停**）。
+- 启动横幅打印生效的 token 闸门与 `gates`（`auto_rewrite` 误开 = 双倍烧，摆到台面上）；
+  `gates.auto_rewrite` 本机确认 **false**。
+
+### 🔴 P0 审稿 JSON 断裂（一断报废整轮 → 兜底/重试/明确停）
+
+- `chapter_review` 原先自带**第二套**手写 JSON 解析，**没有断裂兜底** → 被 max_tokens
+  截断（只差收尾括号）的报告一律解析失败，且**一次就 return False**：整轮审稿
+  （输入动辄几十万 token）白烧，返回的还是半截原文。
+- 现统一走 `utils.validator.parse_llm_json`（括号配对补全 + 剥 `<think>`/去围栏）；
+  仍失败 → `gates.review_retries`（默认 1）重试 → 仍败则**原文隔离**
+  `data/state/review_raw/` + 可行动报错 + 审稿门 fail-closed（不放行 stage5/6）。
+  调用本身失败（退出码非零）**不重试**（同一个上限只会再截断一次，纯白烧）。
+- 新增契约判据：报告必须是带 `chapters` 数组的对象 —— 只判「能解析成 JSON」的话，
+  模型回一句 `{"error": …}` 会被当报告收下，渲染出一份假的「零问题」报告（比报错更坏）。
+
+### 🟠 P1 缓存与输入构造
+
+- **多文件任务统一请求头**：`segment_requests` 把**变量放到最末**
+  （`第 i/N 个 + 路径`），常量说明整段落进公共前缀 —— 旧写法指令自身第 3 个字符就分叉，
+  那句「严禁输出其他文件的内容块」每个子请求各成一份独立前缀。新增
+  `common_prefix_len()` 作为唯一判据，导出前缀占比 99.30%（反证：变量前置 0.04%）。
+- **输入段格式不符 → 明确报错**：`extract_input_paths` 新增诊断出口（段起始行号 +
+  逐条**绝对行号/原文/原因**），`inline_inputs` 在诊断到「有路径但解析器不认」时抛
+  `InputSectionFormatError` 并打印正确写法 —— 不再静默返空。这条是 stage5 空稿事故的
+  同类根因（模板漏写 `- ` 前缀 →「该行从未被内联」而照打「检查完成」）；
+  连带的第二个静默口子「目录引用指向不存在的目录」也一并报。
+
+### 🟡 P2 守卫与配置完整性
+
+- **Agent 模式 CLI 后门堵上**：HTTP 层对 `/approve` 早有 403 守卫，但
+  `python scripts/approve.py --stage 2` 原先**没有任何检查** —— 外部 Agent 照文档跑一条
+  命令就能替用户拍板（`reject.py` 同）。现两侧共用 `utils/agent_guard.py`
+  （禁止清单 / 模式判定 / 审计落盘各一份）；CLI 侧「人工来源」取证 =
+  交互式 TTY（stdin+stdout 都要）或 `MOFANG_SOURCE=gui` 或显式 `--human`，
+  守卫**在任何写操作之前**（progress.json 不被改）。⚠️ 不是沙箱，别夸大。
+- **project.yaml 重复键必须报错**：`switch_book.current_book_name` 原先裸 `safe_load`
+  （PyYAML 对重复键**静默取后值**）→ 换书可能把内容归档到**错误书名**下。
+  现走带重复键检测的 loader、**只要文件存在就校验**、解析失败抛 ValueError
+  （CLI 收敛成一行话，不产生任何归档）。顺带挖出两个静默损坏：
+  ① 该函数读的是**旧布局** `data/progress.json`（现网在 `data/state/`）→「progress 优先」
+  从未生效；② `set_book_fields` 插入新键时把缩进**写死 4 空格**（本项目 book 用 2 空格）
+  → 写出的骨架 project.yaml **是非法 YAML**，而读取侧的 `except: return ""` 把它吞了。
+
+### 🔴 系统性问题：管道 stdout 下的非 GBK 字符会打死流水线
+
+stdout 被捕获（GUI/后台任务/测试运行器）时 Python 用 cp936，而 `¥`/`⚠️`/`💰`/`✅`
+**不在 GBK 里** → `UnicodeEncodeError`。实测后果都不是"日志难看"而是行为错：
+
+- `orchestrator.py --dry-run` 在 `engine: hermes` 下**直接退 1**（第一行横幅含 `¥`）；
+- `quality_gate.py` 的**通过行**含 ✅ → 门禁明明通过却退 1（**假红**），
+  而 release-check/CI 靠退出码判定；`stage4` 的 KB 注入失败分支在 `except` 里打印 ⚠
+  → **异常处理自己变成新的异常源**；
+- `leak_scan.py`（发布前/CI 泄露门禁）同理：本仓词表 62 条、扫 289 个文件、**命中 0**，
+  退出码却是 1 —— 一个"永远红"的门禁等于没有门禁；`quality_checklist.py`
+  （orchestrator 收尾闸门）同样假红。
+
+修法分两层，判据仍只有一份（`utils/console.ensure_utf8_stdout()`）：
+① **包级挂钩** —— `utils/__init__.py` import 时调一次（项目里每个脚本都会
+`from utils…`，覆盖面最广且只需维护一处）；② 不 import utils 的四个纯 stdlib 脚本
+（leak_scan / quality_checklist / nf_mcp_handshake_check / nf_api_selftest）在 `main()` 显式调。
+刻意**不改 errors**：UTF-8 能编码任何正常字符，改成 `replace` 反而会在 MCP stdio
+这类协议流上静默毁数据。
+连带修 `nfctl.py test` 的**结果不可信**（子进程输出按 cp936 解 UTF-8 → 解码异常让
+`proc.stdout` 变 None → 被记成「错误: 'NoneType' …」，实测 7 个用例的结果根本没读到；
+现按项目惯例给子进程 `PYTHONIOENCODING=utf-8`）。
+
+**回归**：`tests/unit/test_failure_paths.py` 59 PASS/3 FAIL → **69 PASS / 0 FAIL**；
+之前"挂"的 7 个用例全部 rc=0；`quality_gate` / `leak_scan` / `quality_checklist`
+（管道）退 1 → **0**；`orchestrator --dry-run`（管道）退 1 → **0**；
+`nfctl test` **68/68 全通过**。
+
+### 🧪 新增自检（207 断言，全部零 LLM/零网络）
+
+`test_token_circuit.py`（54）· `test_review_json_repair.py`（33）·
+`test_segment_cache_prefix.py`（21）· `test_input_section_format.py`（32）·
+`test_agent_mode_cli_guard.py`（49）· `test_project_yaml_dup_keys.py`（18）。
+
+⚠️ 事故与教训（写进用例护栏）：新用例一度用「chdir 到临时目录 + 跑真实仓库的
+`switch_book.py`」的方式，而该脚本的 `PROJECT_ROOT` 取自 `__file__`（不是 CWD）→
+**把真实工作区归档了**。已当场恢复并逐文件核对（0 文件丢失 / 0 内容差异 / 0 文件被重写），
+新用例改为「复制脚本进临时根」并加断言护栏。
+
+---
+
 ## [0.4.2] — 2026-10-03 协议两个高危雷 · 素材库状态机 · 进料节流 · 三薄工具
 
 ### 🔴 两个高危**静默失败**（协议层，会污染产物）

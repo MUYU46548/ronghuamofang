@@ -43,6 +43,44 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
      - 阶段2：跑 `python scripts/refine_outline.py "意见"`（增量修订，自动备份旧版到 `data/outline/history/`）→ 反复至满意 → 再审批
      - 其余阶段：跑 `python scripts/reject.py --stage N "原因"`（记录原因+清下游产物+重置状态）→ 重新运行 orchestrator（`--from N` 重跑）
 
+## 止烧与安全闸门（2026-10-03 定，跑长任务前先看这一节）
+
+**token 级熔断**：`config/system.yaml` 的 `budget.token_limit`（**engine: hermes 下唯一有效的止烧闸门**）。
+- 为什么不是金额：hermes 走订阅流量，`estimate_cost_yuan` 对 `provider="hermes"` **恒返 0**
+  → `budget.limit_yuan` 永不命中（虚设）。切回 `engine: direct` 时金额阈值自动恢复有效。
+- 判据只有一份：`CostTracker.status_detail()`（金额 / token 累计 / token 单次），
+  `status()` 只是它的二元组包装；触发后走**现有** budget/pause（`progress.budget.paused` + 退出码 2），
+  没有新状态机。阶段内（stage4 逐章 / stage5 分批 / stage6 分卷）也查。
+- 键义：`per_request_max_tokens`（direct 引擎真设进 `payload.max_tokens`；
+  hermes **没有这个旋钮** → 只比对+告警，要按次熔断就开 `per_request_pause_hermes`）、
+  `max_total_tokens`（本 run 累计输入+输出；**一轮 = 一次 orchestrator.run()**，`--from N` 重跑会新开 run_id → 计数归零）。
+- 熔断后处置：调大对应键 → 清 `data/state/progress.json` 的 `budget.paused` → `orchestrator.py --from N` 续跑（已完成阶段不重跑）。
+- 阈值参考量级：hermes 一次 stage1 子会话 ≈ 11.6 万 token（输入 9.8 万 + 输出 1.8 万）；40 章 stage4 合计通常 200~400 万。
+
+**误开 `gates.auto_rewrite` = 双倍烧**（审稿前先跑一轮重写）。本机默认 `false`；
+orchestrator 启动横幅会打印生效值（`gates: auto_rewrite=… auto_refine=… review_after_stage4=…`），别靠翻 YAML 猜。
+
+**审稿 JSON 断裂**：解析统一走 `utils.validator.parse_llm_json`（含括号配对补全）；
+仍失败 → 按 `gates.review_retries`（默认 1）重试 → 仍败则**原文隔离** `data/state/review_raw/` +
+可行动报错 + 审稿门 fail-closed（不放行 stage5/6）。调用本身失败（退出码非零）**不重试**（同一上限只会再截断一次）。
+
+**输入段格式**：任务「输入文件」段每条路径必须是**列表行**（`- 名称: <路径>`）。
+格式不符（含目录引用指向不存在的目录）→ `InputSectionFormatError`（行号 + 原文 + 正确写法），
+**不再静默返空** —— stage5 空稿事故的同类根因。
+
+**Agent 模式守卫（CLI 侧）**：`gates.agent_mode=true` 时，`approve.py` / `reject.py` 会拒绝
+**非人工来源**。人工证据：交互式 TTY / `MOFANG_SOURCE=gui` / 显式 `--human`
+（判据与 HTTP 侧同一份：`utils/agent_guard.py`）。⚠️ 这不是沙箱，别对外宣称更强。
+
+**控制台输出纪律**：`print` 里**不要**写非 GBK 字符（`¥`/`⚠️`/`✅`/emoji）——
+stdout 被管道捕获时 Python 用 cp936，一行日志就能 `UnicodeEncodeError` 打死长跑
+（实测：hermes 横幅把 orchestrator 启动搞崩、`quality_gate` 通过却退 1 假红）。
+入口已统一调 `utils.console.ensure_utf8_stdout()` 兜底，但新代码请仍按此纪律写。
+
+**project.yaml**：读写都必须走**带重复键检测**的 loader（`utils.project_config`）。
+裸 `yaml.safe_load` 对重复键静默取后值 → 换书可能把数据归档到**错误书名**下。
+`switch_book.py` 配置坏时**拒绝执行**（含 `--list`），改完再换书。
+
 ## 命令速查
 
 | 目的 | 命令（workdir=项目根，用 .venv python） |
@@ -372,7 +410,11 @@ if __name__ == "__main__":
 ## 运维场景
 
 - **阶段失败（exit=1）**：读 orchestrator 输出定位失败阶段 → 检查原因（校验失败/子会话异常）→ 修 `prompts/` 模板或素材 → 重跑 `--from N`
-- **预算熔断（exit=2）**：查询 `SELECT SUM(cost_yuan) FROM cost_log` → 与用户确认是否调高 `config/system.yaml` 的 `budget.limit_yuan` → 清 `data/state/progress.json` 的 `budget.paused` → 重跑
+- **熔断暂停（exit=2）**：先看 orchestrator 打出的 `熔断暂停[原因]`——
+  `原因=tokens_total` → 调 `config/system.yaml` 的 `budget.token_limit.max_total_tokens`；
+  `原因=yuan` → 查 `SELECT SUM(cost_yuan) FROM cost_log` 并与用户确认是否调高 `budget.limit_yuan`
+  （**engine: hermes 下金额恒 0，不可能命中**）。改完清 `data/state/progress.json` 的
+  `budget.paused` → `orchestrator.py --from N` 续跑（已完成阶段不重跑）。
 - **用户打回**：`python scripts/reject.py --stage N "原因"`（记录原因、清理 N 及下游产物、重置状态、撤销审批；history/ 备份保留可回退）→ `--from N` 重跑。打回 2 用精修通道（refine_outline）而非 reject
 - **素材更新**：新增素材后 `--from 1` 重跑（已有章节文件自动跳过，不会重写）
 - **低分章自动重写（方向3）**：默认关闭。开启：`config/system.yaml` 的 `gates.auto_rewrite: true`
