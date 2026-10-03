@@ -14,7 +14,7 @@ temperature: 0.3
 - 归一化素材目录: {{path_normalized}}/ 下的 *.md（按清单逐个读取）
 {{extra_inputs}}
 
-{{tombstones}}
+{{status_context}}
 
 ## 任务
 阅读全部素材，完成归并工作并生成设定集：

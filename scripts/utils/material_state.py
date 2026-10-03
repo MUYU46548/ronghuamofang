@@ -262,6 +262,7 @@ def audit(setting_path=None, materials_dir=None, tombstone_path=None):
 
     result = {
         "checked": False, "reason": "",
+        "audited_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
         "materials_dir": str(materials_dir),
         "setting_path": str(setting_path),
         "tombstone_path": str(tombstone_path),
@@ -420,17 +421,87 @@ def canon_state(canon_path=None):
 
 # ---------------------------------------------------------------- 给提示词用
 
-def tombstones_prompt_section(path=None):
-    """墓碑 → 提示词小节（「已否决，不得复活」）。无墓碑返回空串。"""
+def load_audit(path=None):
+    """读上一轮审计结果（`merge_audit.json`）；缺失/损坏返回 None。"""
+    p = Path(path or AUDIT_PATH)
+    if not p.exists():
+        return None
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else None
+    except Exception as e:                                    # noqa: BLE001
+        print("[material_state] WARN 上一轮审计文件解析失败（本轮按「无历史」处理）："
+              + str(e)[:140])
+        return None
+
+
+def _tombstones_subsection(path):
     data = load_tombstones(path)
     entries = data["entries"]
     if not entries:
-        return ""
-    lines = ["## 已否决条目（**不得复活**）", "",
+        return []
+    lines = ["### 已否决条目（**不得复活**）", "",
              "以下条目此前被明确否决。归并时**不得**把它们重新写入设定集；",
              "若素材里再次出现，跳过并在 `_meta` 里记一条 `resurrect_blocked`。", ""]
     for name in sorted(entries):
         e = entries[name]
         lines.append(f"- {name}：{e.get('reason', '')}"
                      + (f"（登记于 {e['rejected_at']}）" if e.get("rejected_at") else ""))
-    return "\n".join(lines)
+    lines.append("")
+    return lines
+
+
+def _prev_conflicts_subsection(prev_audit):
+    """上一轮的**待裁决分歧** → 提示词小节（多回合继承，防"失忆版"）。
+
+    开工单 §四.c：第二轮提示词必须含第一轮落盘的冲突记录，uncertain 卡带前轮冲突
+    继续；冲突清单应随回合**单调下降**。没有这一段，每轮都是"从头自由心证"——
+    数据结构落了盘却不在回合间继承，等于把状态机做成了摆设。
+    """
+    rev = (prev_audit or {}).get("review_conflicts") or []
+    if not rev:
+        return []
+    lines = [f"### 上一轮仍有 {len(rev)} 处分歧**未裁决**（本轮继承，不得当成已定）", "",
+             "对上轮已记过分歧的条目，本轮请：",
+             "- 素材已更新到能判定 → 按新素材归并，并写明取舍依据；",
+             "- 仍无法判定 → **保留双方**、在该条目 `merge_note` 里记下分歧，**不要拍板**。",
+             ""]
+    for it in rev[:20]:
+        vals = " / ".join(f"{v.get('value', '')}（{v.get('file', '')}）"
+                          for v in (it.get("values") or []))
+        lines.append(f"- {it.get('name', '')} · {it.get('field', '')}：{vals}")
+    if len(rev) > 20:
+        lines.append(f"- …另有 {len(rev) - 20} 处（完整清单见 {AUDIT_PATH}）")
+    lines.append("")
+    return lines
+
+
+def status_context_section(tombstone_path=None, audit_path=None):
+    """归并提示词的**唯一**状态小节：墓碑（不得复活）+ 上一轮待裁决分歧（继承）。
+
+    无墓碑也无历史 → 返回空串（不往提示词里塞空标题）。
+    """
+    lines = _tombstones_subsection(tombstone_path)
+    prev = load_audit(audit_path)
+    lines += _prev_conflicts_subsection(prev)
+    if not lines:
+        return ""
+    head = ["## 素材状态（由系统确定性维护，必须遵守）", ""]
+    if prev:
+        counts = prev.get("counts") or {}
+        head.append("上一轮结论：adopted {a} · uncertain {u} · rejected {r}"
+                    "（登记于 {t}）".format(
+                        a=counts.get("adopted", 0), u=counts.get("uncertain", 0),
+                        r=counts.get("rejected", 0),
+                        t=prev.get("audited_at", "未知时间")))
+        head.append("")
+    return "\n".join(head + lines)
+
+
+def tombstones_prompt_section(path=None):
+    """**旧入口**，保留为墓碑子段的单独取用（内部/兼容用）。
+
+    新代码请用 `status_context_section()` —— 它是单一入口，同时携带墓碑与
+    上一轮待裁决分歧。留两个入口容易漂移，但这里保留是因为它语义明确、可单测。
+    """
+    return "\n".join(_tombstones_subsection(path)).strip()

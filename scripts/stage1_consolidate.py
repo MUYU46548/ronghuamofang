@@ -158,15 +158,15 @@ def _load_prev_fingerprint(manifest_path):
 
 def build_setting_task(proj, manifest_path, normalized_dir, extra_inputs=()):
     """构建设定集归并任务。extra_inputs 为额外输入文件（如碎片提炼结果）。"""
-    from utils.material_state import tombstones_prompt_section
+    from utils.material_state import status_context_section
     extra = "\n".join("- 碎片提炼结果: %s" % Path(p).resolve() for p in extra_inputs if p)
     _, body = load_template("stage1_materials.md", {
         "path_manifest": Path(manifest_path).resolve(),
         "path_normalized": Path(normalized_dir).resolve(),
         "path_setting": Path("data/setting/setting.json").resolve(),
         "extra_inputs": extra,
-        # A3：把「已否决条目」交给模型，它才不会下一轮复活
-        "tombstones": tombstones_prompt_section(),
+        # A3 唯一状态入口：墓碑（不得复活）+ 上一轮待裁决分歧（多回合继承）
+        "status_context": status_context_section(),
     })
     return body
 
@@ -401,8 +401,12 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     # ---- A3：素材库状态化（确定性、零 token）----
     # 给条目打 status（adopted/uncertain/rejected）、把素材分歧分级列出、
     # 让墓碑生效。任何一步失败都**不阻断归并**（状态是增强，不是前置）。
+    a3_warnings = []
     try:
         from utils import material_state as mstate
+        # 先读**上一轮**结论：既用于提示词继承（build_setting_task 里已读），
+        # 也用于「待裁决分歧应随回合单调下降」的护栏 —— 必须在本轮 write_audit 之前读。
+        prev_audit = mstate.load_audit()
         report = mstate.audit(str(setting_path), materials_dir)
         if report["checked"]:
             marked = mstate.apply_status(json.loads(read_text(setting_path)), report)
@@ -427,6 +431,17 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
             if report["tombstones"]:
                 print(f"[stage1] 墓碑 {len(report['tombstones'])} 条生效（不得复活）："
                       + "、".join(report["tombstones"][:10]))
+
+            # 多回合收敛护栏（开工单 §四.c）：冲突清单应随回合**单调下降**。
+            # 回升说明素材被改坏、或墓碑/上一轮审计文件丢了 —— 那等于状态没继承。
+            if prev_audit:
+                pn = len(prev_audit.get("review_conflicts") or [])
+                if len(rev) > pn:
+                    w = (f"待裁决分歧由上一轮 {pn} 处回升到 {len(rev)} 处"
+                         "（应单调下降）—— 检查素材是否被改坏，或 "
+                         f"{mstate.AUDIT_PATH} / tombstones.json 是否丢失")
+                    print("[stage1] ⚠️ " + w)
+                    a3_warnings.append(w)
         else:
             print(f"[stage1] WARN 状态审计未生效：{report['reason']}")
     except Exception as e:                                    # noqa: BLE001
@@ -441,9 +456,15 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     except Exception as e:
         print(f"[WARN] vault_links 生成失败（不影响归并结果）: {e}")
 
-    progress.mark_stage_done(1)
+    if a3_warnings:
+        progress.set_stage(1, "done", warning="；".join(a3_warnings))
+    else:
+        progress.mark_stage_done(1)
     print(f"[stage1] 素材归一化 {len(manifest)} 条（去重 {len(removed)} 条），设定集生成完成")
-    return True, "stage1 完成"
+    msg = "stage1 完成"
+    if a3_warnings:
+        msg += "｜⚠️ " + "；".join(a3_warnings)
+    return True, msg
 
 
 def main():

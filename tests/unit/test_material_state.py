@@ -265,26 +265,118 @@ def case_prompt_section():
     from utils import material_state as ms
     with tempfile.TemporaryDirectory() as td:
         tp = str(Path(td) / "tomb.json")
-        check("W9 无墓碑 → 不产生空小节（不污染提示词）",
-              ms.tombstones_prompt_section(tp) == "")
+        ap = str(Path(td) / "audit.json")
+        check("W9 无墓碑无历史 → 不产生空小节（不污染提示词）",
+              ms.status_context_section(tp, ap) == "")
         ms.add_tombstone("庚", "作者明确废弃", path=tp)
-        sec = ms.tombstones_prompt_section(tp)
+        sec = ms.status_context_section(tp, ap)
         check("W9 有墓碑 → 含「不得复活」与条目名",
               "不得复活" in sec and "庚" in sec and "作者明确废弃" in sec,
               f"→ {sec[:90]}")
+        check("W9 旧入口 tombstones_prompt_section 仍可用（兼容）",
+              "庚" in ms.tombstones_prompt_section(tp))
 
 
-# ====================================================================== W10
+# ====================================================================== W11
 
-def case_stage2_reads_canon():
-    print("\n[W10] stage2 的提示词里 path_setting 必须指向 canon（接线验证）")
+def case_round_inheritance():
+    print("\n[W11] 多回合继承：上一轮待裁决分歧必须进本轮提示词（开工单 §四.c）")
+    from utils import material_state as ms
+    with tempfile.TemporaryDirectory() as td:
+        ap = Path(td) / "merge_audit.json"
+        tp = str(Path(td) / "tomb.json")
+        ap.write_text(json.dumps({
+            "audited_at": "2026-10-03T09:00:00",
+            "counts": {"adopted": 3, "uncertain": 1, "rejected": 1},
+            "review_conflicts": [{
+                "name": "甲", "field": "能力", "severity": "review",
+                "values": [{"value": "控火", "file": "甲_角色卡.md", "source": "库A"},
+                           {"value": "控水", "file": "甲_角色卡2.md", "source": "库B"}],
+            }],
+        }, ensure_ascii=False), encoding="utf-8")
+
+        sec = ms.status_context_section(tp, str(ap))
+        check("W11 上一轮分歧进提示词（带双方出处）",
+              "甲" in sec and "能力" in sec and "控火" in sec
+              and "甲_角色卡.md" in sec and "甲_角色卡2.md" in sec, f"→ {sec[:160]}")
+        check("W11 明确标注「继承、不得当成已定」", "继承" in sec and "未裁决" in sec,
+              f"→ {sec[:160]}")
+        check("W11 带上轮计数（多回合可读）",
+              "上一轮结论" in sec and "uncertain" in sec, f"→ {sec[:160]}")
+
+        # 历史丢失 → 只剩墓碑；不得因此炸掉
+        sec2 = ms.status_context_section(tp, str(Path(td) / "nope.json"))
+        check("W11 历史文件缺失时安全降级（不炸、不产生假历史）",
+              sec2 == "", f"→ {sec2!r}")
+
+        # 审计文件损坏 → WARN 且按无历史处理
+        bad = Path(td) / "bad.json"
+        bad.write_text("{ 坏", encoding="utf-8")
+        import contextlib
+        import io
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            got = ms.load_audit(str(bad))
+        check("W11 审计文件损坏 → WARN 且返回 None（不静默）",
+              got is None and "WARN" in buf.getvalue(), f"→ {buf.getvalue()[:80]}")
+
+        # 单源护栏：提示词模板里只有一个状态占位，不许残留旧名
+        from utils.file_io import read_text
+        tpl = read_text("prompts/stage1_materials.md")
+        check("W11 模板用 {{status_context}} 且无残留 {{tombstones}}（单源）",
+              "{{status_context}}" in tpl and "{{tombstones}}" not in tpl)
+
+
+# ====================================================================== W12
+
+def case_canon_freezes_stage2_input():
+    print("\n[W12] canon 冻结生效：改活稿后 stage2 输入**逐字不变**（开工单 §四.b）")
     from utils import material_state as ms
     with tempfile.TemporaryDirectory() as td:
         sp = Path(td) / "setting.json"
         cp = str(Path(td) / "canon.json")
+        v1 = {"characters": [{"name": "甲", "role": "旧身份"}],
+              "world": {}, "plot_fragments": [], "timeline": []}
+        sp.write_text(json.dumps(v1, ensure_ascii=False), encoding="utf-8")
+        ms.freeze_canon(str(sp), cp)
+        frozen_text = Path(cp).read_text(encoding="utf-8")
+
+        old_canon, old_setting = ms.CANON_PATH, ms.SETTING_PATH
+        ms.CANON_PATH, ms.SETTING_PATH = cp, str(sp)
+        try:
+            import importlib
+            import stage2_outline
+            importlib.reload(stage2_outline)
+            body1 = stage2_outline.build_task({}, {"book": {"name": "测试书"}})
+
+            # 改动活稿（模拟用户改素材/手改设定集）
+            v2 = {"characters": [{"name": "甲", "role": "新身份"},
+                                 {"name": "乙", "role": "新增角色"}],
+                  "world": {}, "plot_fragments": [], "timeline": []}
+            sp.write_text(json.dumps(v2, ensure_ascii=False), encoding="utf-8")
+
+            body2 = stage2_outline.build_task({}, {"book": {"name": "测试书"}})
+            check("W12 改活稿后 stage2 任务文本**逐字不变**", body1 == body2,
+                  "→ 输入被活稿影响了")
+            check("W12 canon 快照内容本身未被改写",
+                  Path(cp).read_text(encoding="utf-8") == frozen_text)
+            check("W12 任务里指向的是 canon 而不是 setting.json",
+                  "canon.json" in body1, f"→ 未指向 canon")
+        finally:
+            ms.CANON_PATH, ms.SETTING_PATH = old_canon, old_setting
+            import importlib
+            import stage2_outline
+            importlib.reload(stage2_outline)
+
+
+def case_stage2_falls_back_without_canon():
+    print("\n[W13] 无 canon 时 stage2 退回活稿（不破坏既有流程）")
+    from utils import material_state as ms
+    with tempfile.TemporaryDirectory() as td:
+        sp = Path(td) / "setting.json"
         sp.write_text(json.dumps({"characters": [{"name": "甲"}]}, ensure_ascii=False),
                       encoding="utf-8")
-        ms.freeze_canon(str(sp), cp)
+        cp = str(Path(td) / "canon.json")
         old_canon, old_setting = ms.CANON_PATH, ms.SETTING_PATH
         ms.CANON_PATH, ms.SETTING_PATH = cp, str(sp)
         try:
@@ -292,12 +384,8 @@ def case_stage2_reads_canon():
             import stage2_outline
             importlib.reload(stage2_outline)
             body = stage2_outline.build_task({}, {"book": {"name": "测试书"}})
-            check("W10 stage2 任务里出现 canon 路径（只读冻结快照）",
-                  "canon.json" in body, f"→ 未在提示词中找到 canon.json")
-            ms.drop_canon(cp)
-            body2 = stage2_outline.build_task({}, {"book": {"name": "测试书"}})
-            check("W10 无 canon 时退回 setting.json",
-                  "canon.json" not in body2 and "setting.json" in body2)
+            check("W13 无快照 → 退回 setting.json",
+                  "canon.json" not in body and "setting.json" in body)
         finally:
             ms.CANON_PATH, ms.SETTING_PATH = old_canon, old_setting
             import importlib
@@ -315,7 +403,9 @@ def main():
     case_audit_and_status()
     case_canon()
     case_prompt_section()
-    case_stage2_reads_canon()
+    case_round_inheritance()
+    case_canon_freezes_stage2_input()
+    case_stage2_falls_back_without_canon()
     print("\n" + "=" * 70)
     print(f"合计: {len(PASS)} 通过 / {len(FAIL)} 失败")
     print("=" * 70)
