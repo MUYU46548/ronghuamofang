@@ -95,6 +95,7 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 | 风格偏差自检 | `python tests/unit/test_style_drift.py`（compute_style_drift 阈值/边界 + stage6 报告追加集成） |
 | API 验收自测 | `python scripts/nf_api_selftest.py`（⚠️ 清空 data/ 与 logs/ 后以 fake 模式起服务跑全链用例；会销毁当前书档产物，history/ 快照保留。碎片写入类端点不在其中——见下） |
 | 碎片聚类自检 | `python tests/unit/test_scrap_cluster.py`（自由命名 / 时间戳回退 / 内容聚类 / 否定语境 / 指纹稳定性，44 断言） |
+| **设定集状态（B3，外部 Agent 三薄工具）** | `GET /setting/conflicts`（素材冲突清单，零 token）· `GET /setting/canon[?full=1]`（canon 元信息，默认**不含全文**）· `POST /setting/status {name, action: adopt\|reject\|uncertain, reason?}`（人工拍板：`reject` 必填 reason 且**先写墓碑**、不依赖条目存在；`adopt/uncertain` 需条目已存在。人工结果带 `status_source=human`，**压过**后续机器判定）。MCP 侧 = `nf_get_setting_conflicts` / `nf_get_canon` / `nf_set_material_status`。自检：`python tests/http/test_setting_state_api.py`（**真起 nf_api** 跑 28 断言；⚠️ `checked=false` = **没查**，不等于一致） |
 | **stage1 进料节流（B1）** | `python tests/unit/test_stage1_intake.py`（多回合迭代时只把**未定稿**素材喂给归并：adopted 条目原文不进 prompt、改由 canon 快照承担；uncertain 与新增照旧进。⚠️ **节流前提是 canon 存在** —— canon 缺失一律不节流，否则剔除 adopted 等于丢上下文。含防回归护栏「body 里不得残留目录引用」：素材正文进 prompt 的机制是 `llm_client.inline_inputs` 对**目录**做 glob 全量内联，模板里留着目录引用就等于节流零效果） |
 | stage1 碎片集成自检 | `python tests/unit/test_stage1_scraps.py`（在**临时工作目录**跑 fake 全链，真实 data/ 零污染；含"改碎片必触发重归并"） |
 | 碎片端点 HTTP 自检 | `python tests/http/test_scraps_api_http.py`（临时项目根起 nf_api，覆盖 save/delete/promote 等写入端点与确认门，真实仓库零触碰） |
@@ -144,7 +145,8 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 2. **HTTP**（`nf_api` on `127.0.0.1:8765`）：只在需要「正在跑的那个任务」的状态、
    流式 token、SSE 时才用。只读转发用 `nfctl.py api <GET路径>`。
 3. **MCP**：`nf_mcp.py` 在 **TCP 127.0.0.1:8766** 暴露白名单工具（`tools/list` 返回
-   **22 个**：20 个 HTTP loopback + 2 个 LOCAL 直调），`tools/call` 经 HTTP loopback 复用
+   **25 个**：23 个 HTTP loopback + 2 个 LOCAL 直调 —— ⚠️ **数量勿写死**，以
+   `nf_mcp.MCP_TOOLS` 为唯一事实来源），`tools/call` 经 HTTP loopback 复用
    现有域模块。审批类/项目类/模式切换端点**永不**暴露给 MCP。
    ⚠️ **8766 不是标准 MCP 传输**（是 TCP + 换行分帧的裸 JSON-RPC）——标准 MCP 客户端
    （Hermes / Claude Code / Cline）**必须经 stdio 垫片**接入：

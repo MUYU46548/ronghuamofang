@@ -340,7 +340,10 @@ def apply_status(setting, report):
                 continue
             nm = str(it.get("name") or "").strip()
             info = by_name.get(nm) or by_name.get(base_name(nm)) if nm else None
-            if info:
+            # 人工拍板优先：`status_source == "human"` 的条目**不被机器判定覆盖**
+            # —— 否则 MCP/GUI 侧的「拍板写入」会被下一轮 stage1 的 apply_status
+            # 原样抹掉，拍板等于没拍。机器判定只在没人拍过板时生效。
+            if info and str(it.get("status_source") or "") != "human":
                 it = dict(it)
                 it["status"] = info["status"]
                 it["status_reason"] = info["reason"]
@@ -399,6 +402,67 @@ def adopted_sources(marked):
     elif isinstance(world, list):
         _scan(world)
     return out
+
+
+def set_entry_status(name, status, reason="", setting_path=None):
+    """人工拍板：把设定集里 `name` 条目的 status 设为给定值。返回 (命中数, 说明)。
+
+    与 `apply_status` 的分工：`apply_status` 是**机器判定**（按素材卡冲突推导），
+    本函数是**人工覆盖**（GUI / MCP 侧拍板）。人工结果带 `status_source="human"`，
+    `apply_status` 见到该标记**跳过不覆盖** —— 否则这一次拍板会被下一轮 stage1
+    的自动判定抹掉，等于白拍。
+
+    范围与 `apply_status` 一致：只认 characters / world（`plot_fragments.status`
+    是 unused/used 那套语义，不能混用）。
+    """
+    if status not in (STATUS_ADOPTED, STATUS_REJECTED, STATUS_UNCERTAIN):
+        return 0, "status 必须是 adopted / rejected / uncertain 之一，收到: " + str(status)
+    nm = str(name or "").strip()
+    if not nm:
+        return 0, "name 必填"
+    sp = Path(setting_path or SETTING_PATH)
+    if not sp.exists():
+        return 0, "设定集不存在：" + str(sp)
+    try:
+        data = json.loads(sp.read_text(encoding="utf-8"))
+    except Exception as e:                                    # noqa: BLE001
+        return 0, "设定集解析失败：" + repr(e)
+    hit = [0]
+
+    def _mark(items):
+        if not isinstance(items, list):
+            return items
+        out = []
+        for it in items:
+            if isinstance(it, dict) and str(it.get("name") or "").strip() == nm:
+                it = dict(it)
+                it["status"] = status
+                it["status_reason"] = (reason or "人工拍板")
+                it["status_source"] = "human"
+                hit[0] += 1
+            out.append(it)
+        return out
+
+    data["characters"] = _mark(data.get("characters"))
+    world = data.get("world")
+    if isinstance(world, dict):
+        data["world"] = {k: (_mark(v) if isinstance(v, list) else v)
+                         for k, v in world.items()}
+    elif isinstance(world, list):
+        data["world"] = _mark(world)
+    if not hit[0]:
+        return 0, "设定集里没有名为「%s」的条目（可能尚未归并）" % nm
+    meta = dict(data.get("_meta") or {})
+    audit_meta = dict(meta.get("status_audit") or {})
+    audit_meta["last_human_decision"] = {
+        "at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+        "name": nm, "status": status, "reason": reason,
+    }
+    meta["status_audit"] = audit_meta
+    data["_meta"] = meta
+    sp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n",
+                  encoding="utf-8")
+    return hit[0], "已把「%s」标记为 %s（人工拍板）" % (nm, status)
 
 
 def write_audit(report, path=None):

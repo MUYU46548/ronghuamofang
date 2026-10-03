@@ -446,6 +446,48 @@ MCP_TOOLS = [
         },
         "_local": "snapshot_restore",   # 直接函数调用（复用 snapshot.py，不经 HTTP loopback）
     },
+    # ---- A3 素材库状态机三薄工具（只包既有数据层，不新造逻辑）----
+    {
+        "name": "nf_get_setting_conflicts",
+        "description": "读素材冲突清单：**机器裁不了、需人拍板**的分歧（带双方出处）"
+                       "+ 状态分布 + 已登记墓碑。零 token。"
+                       "⚠️ checked=false 表示「**根本没查**」（设定集缺失/损坏），"
+                       "此时 review_conflicts 为空**不代表**没有冲突。",
+        "inputSchema": {"type": "object", "properties": {}},
+        "_http": ("GET", "/setting/conflicts", None),
+    },
+    {
+        "name": "nf_get_canon",
+        "description": "读 canon 快照（已定稿设定集）的元信息：冻结时间 + 各类条目数。"
+                       "默认**不含全文**（可能几万字符）；需要全文时传 full=true。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "full": {"type": "boolean",
+                         "description": "是否返回全文（默认 false，只给元信息）"},
+            },
+        },
+        "_http": ("GET", "/setting/canon", None),
+    },
+    {
+        "name": "nf_set_material_status",
+        "description": "人工拍板：把设定集条目标为 adopted / rejected / uncertain。"
+                       "reject 会**同时写墓碑**（按名字生效、不依赖条目，条目不存在也成功）；"
+                       "adopt / uncertain 需要条目已存在（否则 404）。"
+                       "人工决定**优先于**后续机器判定（带 status_source=human 标记）。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "条目名（如角色名）"},
+                "action": {"type": "string", "enum": ["adopt", "reject", "uncertain"],
+                           "description": "拍板动作"},
+                "reason": {"type": "string",
+                           "description": "原因（reject 必填；无原因的否决事后自己也看不懂）"},
+            },
+            "required": ["name", "action"],
+        },
+        "_http": ("POST", "/setting/status", None),
+    },
 ]
 
 

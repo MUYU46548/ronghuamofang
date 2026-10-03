@@ -90,8 +90,12 @@ async def handshake(tcp_port):
             check("工具全为 nf_* 前缀（白名单未被污染）",
                   bool(names) and all(n.startswith("nf_") for n in names),
                   [n for n in names if not n.startswith("nf_")][:5])
+            # 工具数**不写死**：与 MCP_TOOLS 声明数比对。写死数字的老写法每加一个
+            # 工具就假红一次 —— 假红比没有测试更糟（会被当成噪声忽略掉真问题）。
+            import nf_mcp as _mcp_mod
+            expect = len(_mcp_mod.MCP_TOOLS)
             check("工具数量与 MCP_TOOLS 声明一致",
-                  len(names) == 22, "%d 个（声明 22）" % len(names))
+                  len(names) == expect, "%d 个（声明 %d）" % (len(names), expect))
 
             r = await session.call_tool("nf_get_state", {})
             texts = [c.text for c in r.content if getattr(c, "type", "") == "text"]

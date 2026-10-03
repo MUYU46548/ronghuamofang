@@ -82,12 +82,12 @@ def main():
         sock.sendall(b'{"jsonrpc":"2.0","id":2,"method":"tools/list"}\n')
         r = read_response(sock)
         tools = r.get("result", {}).get("tools", []) if r else []
-        # tools/list：19 个 HTTP 工具 + 3 个 LOCAL 工具（dispatch / get_agent_run /
-        # restore_snapshot）= 22。
-        # （Phase 4 加 2 个 LOCAL；Phase 5 加 nf_get_stream_status；
-        #   段落精修轴加 nf_refine_paragraph / nf_paragraph_restore / nf_get_paragraph_history；
-        #   2026-09-29 件5 加 nf_get_remedy(HTTP) + nf_restore_snapshot(LOCAL)）
-        checks.append((f"tools/list: {len(tools)} tools", len(tools) == 22))
+        # 工具数**不写死**：与 nf_mcp.MCP_TOOLS 的声明数比对。写死数字的老写法
+        # （历史上是 22）每加一个工具就假红一次 —— 假红会被当噪声，掩盖真问题。
+        import nf_mcp as _mcp_mod
+        expect = len(_mcp_mod.MCP_TOOLS)
+        checks.append((f"tools/list: {len(tools)} tools（声明 {expect}）",
+                       len(tools) == expect))
 
         # 3. nf_get_state (真实 HTTP 调用)
         sock.sendall(json.dumps({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"nf_get_state","arguments":{}}}).encode() + b"\n")

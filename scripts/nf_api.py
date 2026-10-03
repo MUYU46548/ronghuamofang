@@ -158,6 +158,7 @@ try:
     from nf_api_domains import refine as dom_refine        # noqa: E402
     from nf_api_domains import runtime as dom_runtime      # noqa: E402
     from nf_api_domains import sandbox as dom_sandbox      # noqa: E402
+    from nf_api_domains import setting_state as dom_setting_state  # noqa: E402
 except Exception as _dom_err:                            # noqa: BLE001
     dom_materials = None
     dom_misc = None
@@ -167,6 +168,7 @@ except Exception as _dom_err:                            # noqa: BLE001
     dom_project = None
     dom_runtime = None
     dom_sandbox = None
+    dom_setting_state = None
     dom_refine = None
     print("[nf_api] 域模块加载失败（端点将返回可行动错误）: " + str(_dom_err))
 
@@ -1690,6 +1692,12 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/setting/appearances":
             # 实现已迁至 nf_api_domains.materials（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_materials.handle_setting_appearances(self)))
+        elif p == "/setting/conflicts":
+            # 素材冲突清单（A3 读侧，零 token）→ 实现见 nf_api_domains.setting_state
+            self._send(*_dom(dom_setting_state.handle_setting_conflicts(self)))
+        elif p == "/setting/canon":
+            # canon 快照元信息（默认不含全文，?full=1 才给）
+            self._send(*_dom(dom_setting_state.handle_setting_canon(self)))
         elif p == "/outline/chapters/list":
             # 实现已迁至 nf_api_domains.outline（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_outline.handle_chapters_list(self)))
@@ -2036,6 +2044,12 @@ class Handler(BaseHTTPRequestHandler):
                 # 不写不删沙盒文件、绝不碰 vault —— 决策权始终在用户手里。
                 # 必须把已读的 body 传进去：请求体是一次性流，handler 再读会挂死。
                 self._send(*_dom(dom_sandbox.handle_sandbox_review(self, body)))
+            elif p == "/setting/status":
+                # 人工拍板（A3 写侧）：把条目标为 adopted/rejected/uncertain。
+                # reject 会**先写墓碑**（不依赖设定集条目）；人工结果带
+                # status_source="human"，下一轮 stage1 的 apply_status 会跳过它。
+                # 同沙盒审核：必须传已读的 body（请求体是一次性流）。
+                self._send(*_dom(dom_setting_state.handle_setting_status(self, body)))
             elif p == "/config/project":
                 try:
                     self._send(200, {"ok": True, "config": pc_get_config()})

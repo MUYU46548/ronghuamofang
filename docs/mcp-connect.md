@@ -12,7 +12,7 @@
 scripts/nf_mcp_stdio_bridge.py            ← ① stdio 垫片
    │  TCP 127.0.0.1:8766
    ▼
-scripts/nf_mcp.py                         ← ② 8766 MCP 传输层（22 个 nf_* 白名单工具）
+scripts/nf_mcp.py                         ← ② 8766 MCP 传输层（25 个 nf_* 白名单工具）
    │  HTTP 127.0.0.1:8765
    ▼
 scripts/nf_api.py                         ← ③ 8765 服务本体
@@ -88,9 +88,9 @@ Claude Code / Cline / Cursor 的配置形状相同（都是 `mcpServers` 下的 
 [PASS] 8766 MCP 传输层已就绪（真 nf_mcp）
 [PASS] 标准客户端 initialize 握手成功（垫片 → 8766）  → name='novelforge-mcp' version='0.1.0'
 [PASS] 协议版本已协商  → 2024-11-05
-[PASS] tools/list 返回工具清单  → 22
+[PASS] tools/list 返回工具清单  → 25
 [PASS] 工具全为 nf_* 前缀（白名单未被污染）
-[PASS] 工具数量与 MCP_TOOLS 声明一致  → 22 个（声明 22）
+[PASS] 工具数量与 MCP_TOOLS 声明一致  → 25 个（声明 25）
 [PASS] tools/call 真调用成功（全链路 垫片→8766→8765 通）  → book=<你的书名>
 ---
 通过 7 / 失败 0 / 跳过 0
@@ -100,7 +100,7 @@ Claude Code / Cline / Cursor 的配置形状相同（都是 `mcpServers` 下的 
 不等于「失败」。
 
 **③ 客户端实测**（最终判据）：在 Hermes / Claude Code 里问一句
-「列出 novelforge 的工具」，应当看到 22 个 `nf_*` 工具；再调一个只读的
+「列出 novelforge 的工具」，应当看到 25 个 `nf_*` 工具；再调一个只读的
 （如 `nf_get_state`）确认能拿到真实书档数据。
 
 更省事的做法：`python -m mcp.client <项目根>/.venv/Scripts/python.exe <项目根>/scripts/nf_mcp_stdio_bridge.py`
@@ -121,5 +121,7 @@ Claude Code / Cline / Cursor 的配置形状相同（都是 `mcpServers` 下的 
 
 - **审批类**（`/approve`、`/reject`）、**项目类**（`/project/create|archive|restore|init`）、
   **模式切换**（`/config/agent_mode`）：外部 Agent 可读、可跑流水线，**不能代替用户审批**。
-- 工具白名单共 22 个，`nf_mcp.py` 的 `MCP_TOOLS` 是唯一事实来源；
-  新增工具必须同步更新 `tests/unit/test_mcp_e2e.py` / `test_agent_dispatch.py` 里的数量断言。
+- 工具白名单共 **25 个**，`nf_mcp.py` 的 `MCP_TOOLS` 是**唯一事实来源**。
+  ⚠️ **数量断言一律不写死**：`nf_mcp_handshake_check.py` / `test_mcp_e2e` /
+  `test_agent_dispatch` / `test_mcp_remedy_snapshot` 都与 `len(MCP_TOOLS)` **动态比对**
+  —— 新增工具只需改 `MCP_TOOLS` 一处（写死数字每加一个工具就假红一次，假红会被当噪声）。

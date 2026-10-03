@@ -18,6 +18,10 @@ import tempfile
 import time
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+
+import nf_mcp                                                  # noqa: E402
+
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -235,9 +239,11 @@ def main():
         r = mcp_call(sock, "tools/list")
         tools = r.get("result", {}).get("tools", []) if r else []
         names = [t["name"] for t in tools]
-        # 19 个 HTTP 工具 + 3 个 LOCAL 工具 = 22
-        # （2026-09-29 件5 加 nf_get_remedy(HTTP) + nf_restore_snapshot(LOCAL)）
-        check("tools/list 含 22 个工具（含段落精修 3 件套 + 件5 两把钥匙）", len(tools) == 22, names)
+        # 工具数**不写死**：与 nf_mcp.MCP_TOOLS 的声明数比对。写死数字的老写法每加
+        # 一个工具就假红一次 —— 假红会被当噪声，反而掩盖真问题。
+        check("tools/list 工具数与 MCP_TOOLS 声明一致",
+              len(tools) == len(nf_mcp.MCP_TOOLS),
+              "%d 个（声明 %d）" % (len(tools), len(nf_mcp.MCP_TOOLS)))
         check("新工具在清单里",
               "nf_dispatch_task" in names and "nf_get_agent_run" in names)
         check("tools/list 不泄露 _local/_http 内部字段",

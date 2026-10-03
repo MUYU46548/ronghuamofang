@@ -44,7 +44,8 @@ def test_tools_list():
     names = [t["name"] for t in resp["result"]["tools"]]
     check("含 nf_get_remedy", "nf_get_remedy" in names)
     check("含 nf_restore_snapshot", "nf_restore_snapshot" in names)
-    check("工具总数 == 22（19 HTTP + 3 LOCAL）", len(names) == 22, len(names))
+    check("工具总数与 MCP_TOOLS 声明一致（数量勿写死）",
+          len(names) == len(nf_mcp.MCP_TOOLS), len(names))
     check("tools/list 不泄漏内部字段（_http/_local）",
           all("_http" not in t and "_local" not in t for t in resp["result"]["tools"]))
 
