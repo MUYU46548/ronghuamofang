@@ -27,12 +27,10 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-import yaml
-
-from utils.file_io import read_text
 from utils.progress_manager import ProgressManager
 from utils.db import RunDB
 from utils.cost_tracker import CostTracker
+from utils.config_io import load_pipeline_config
 
 import stage1_consolidate as s1
 import stage2_outline as s2
@@ -102,17 +100,6 @@ def run_material_review(progress):
         return [], []
 
 
-def _deep_merge(base, override):
-    """深度合并两个 dict，override 优先。"""
-    result = dict(base)
-    for k, v in override.items():
-        if k in result and isinstance(result[k], dict) and isinstance(v, dict):
-            result[k] = _deep_merge(result[k], v)
-        else:
-            result[k] = v
-    return result
-
-
 def get_data_root():
     """数据根目录：支持 NOVELFORGE_DATA_DIR 环境变量把 data/ 移到项目外。
 
@@ -127,15 +114,14 @@ def get_data_root():
 
 
 def load_config():
-    cfg = yaml.safe_load(read_text("config/system.yaml"))
-    # 本地覆盖（不进 Git）：模型选择、API Key 路径、本地沙盒目录等个人配置
-    local_path = "config/system.local.yaml"
-    if os.path.exists(local_path):
-        local = yaml.safe_load(read_text(local_path))
-        if local:
-            cfg = _deep_merge(cfg, local)
-    proj = yaml.safe_load(read_text("config/project.yaml"))
-    return cfg, proj
+    """读 (cfg, proj)。**全部走严格 loader**（utils/config_io）。
+
+    2026-10-03：原先三处都是裸 `yaml.safe_load` —— system.yaml / system.local.yaml /
+    project.yaml 的重复键会**静默取后值**。止烧阈值（budget.token_limit.*）就在
+    system.yaml 里：静默覆盖 = 闸门看着设好了、实际没生效（与 hermes 下 ¥ 记账恒 0
+    是同一类"静默失效"）。判定与合并逻辑统一在 config_io.load_pipeline_config。
+    """
+    return load_pipeline_config()
 
 
 def _safe_stdout():

@@ -36,6 +36,45 @@ from pathlib import Path
 BLOCK_PATTERN = re.compile(r"undefined name")
 
 
+def syntax_errors(targets):
+    """逐文件 `compile()`：**语法错必须 BLOCK**。
+
+    2026-10-03 实测踩到：`orchestrator.py` 被我改出一个 IndentationError
+    （两个同名 def 相邻），而 pyflakes 对语法错只输出一条**普通消息**
+    （`expected an indented block after function definition on line 104`）→
+    被本脚本算进 WARN → **退出码 0，"质量门通过"**。一个连 import 都跑不起来的仓库
+    被盖绿灯，正是本项目最忌讳的失败形态（而且它还会让全量测试集体报 ImportError，
+    真因被埋在一堆红里）。
+
+    这里不依赖 pyflakes 的措辞（措辞会随版本变），直接对每个文件做 Python 编译。
+    返回 ["文件:行: 原因", ...]。
+    """
+    errs = []
+    for t in targets:
+        p = Path(t)
+        if p.is_dir():
+            files = sorted(p.rglob("*.py"))
+        elif p.suffix == ".py" and p.exists():
+            files = [p]
+        else:
+            continue
+        for f in files:
+            if "__pycache__" in f.parts:
+                continue
+            try:
+                source = f.read_text(encoding="utf-8")
+            except OSError as e:
+                errs.append("%s: 读不到（%s）" % (f, e))
+                continue
+            try:
+                compile(source, str(f), "exec")
+            except SyntaxError as e:
+                errs.append("%s:%s: %s" % (f, e.lineno, e.msg))
+            except ValueError as e:                # 例如源码里的空字节
+                errs.append("%s: %s" % (f, e))
+    return errs
+
+
 def run_pyflakes(targets):
     """跑 pyflakes，返回 (stdout 行列表, 是否成功执行)。"""
     try:
@@ -90,6 +129,13 @@ def main():
         targets = ["scripts/"]
 
     print(f"[gate] 检查目标: {', '.join(targets)}")
+    syn = syntax_errors(targets)
+    if syn:
+        print(f"\n[gate] BLOCK（**语法错**，文件连 import 都跑不起来）: {len(syn)}")
+        for ln in syn[:20]:
+            print("  ❌ " + ln)
+        print("[gate] 失败：先修语法，再谈其它检查。")
+        return 1
     lines, ok = run_pyflakes(targets)
     if not ok:
         return 2

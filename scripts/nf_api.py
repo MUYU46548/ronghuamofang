@@ -117,6 +117,7 @@ from orchestrator import run as orch_run  # noqa: E402
 from utils.progress_manager import ProgressManager  # noqa: E402
 from utils.db import RunDB  # noqa: E402
 from utils import agent_guard  # noqa: E402 (Agent 模式守卫：与 CLI 侧同一份判据)
+from utils.config_io import load_config_yaml  # noqa: E402 (严格 loader：重复键要报错)
 from utils.llm_client import _load_env_file  # noqa: E402
 # project.yaml 定向读写（模块级导入：do_GET/do_POST 多个分支共用，禁止在函数内裸 import）
 from utils.project_config import get_project_config as pc_get_config  # noqa: E402
@@ -126,7 +127,9 @@ import reject as reject_mod  # noqa: E402
 import snapshot as snap_mod  # noqa: E402
 import switch_book as sb_mod  # noqa: E402
 # 审计日志（Agent 调用记录）
-from utils.file_io import append_text as nf_append_text  # noqa: E402
+# 注：原 `from utils.file_io import append_text as nf_append_text` 已删 ——
+# 审计落盘自 3c27769 起委托给 utils.agent_guard.log_audit（CLI 侧要写同一本台账），
+# 这里再挂一个未使用的别名只会给质量门禁添一条 WARN。
 # 校对 / 预估 / 拆书：模块级导入（绝不在 do_GET/do_POST 内写裸 import，
 # 否则该名会被判定为整个函数的局部名，同函数其它分支一用就 UnboundLocalError）
 import proofread as proofread_mod  # noqa: E402
@@ -518,14 +521,19 @@ def save_prompt(name, content):
 
 
 def load_all():
+    """读 (cfg, proj)。**严格 loader**（重复键/格式错误 → ConfigError 带行号）。
+
+    旧实现是裸 `yaml.safe_load`：system.yaml 的重复键会静默取后值 ——
+    而止烧阈值（budget.token_limit.*）就住在这个文件里，静默覆盖 = 闸门形同虚设。
+    """
     _load_env_file()
     sys_yaml = ROOT / "config" / "system.yaml"
     proj_yaml = ROOT / "config" / "project.yaml"
     # Retry up to 3 times with delay (handles race with seedWorkspace on slow disks)
     for attempt in range(3):
         try:
-            cfg = yaml.safe_load(sys_yaml.read_text(encoding="utf-8"))
-            proj = yaml.safe_load(proj_yaml.read_text(encoding="utf-8"))
+            cfg = load_config_yaml(sys_yaml)
+            proj = load_config_yaml(proj_yaml)
             return cfg, proj
         except FileNotFoundError:
             if attempt < 2:
