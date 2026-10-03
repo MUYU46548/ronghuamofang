@@ -110,6 +110,33 @@ async def handshake(tcp_port):
             check("tools/call 真调用成功（全链路 垫片→8766→8765 通）",
                   ok and not getattr(r, "isError", False), extra)
 
+            # A3 三薄工具（B3）：这里只验证**读类**两条 —— 写类
+            # `nf_set_material_status` 会改真实 data/setting/，**绝不在真仓上跑**；
+            # 它的端到端验证在 tests/http/test_setting_state_api.py（临时项目根）。
+            r2 = await session.call_tool("nf_get_setting_conflicts", {})
+            t2 = [c.text for c in r2.content if getattr(c, "type", "") == "text"]
+            ok2, extra2 = False, (t2[0][:120] if t2 else "")
+            try:
+                d2 = json.loads(t2[0])
+                ok2 = isinstance(d2, dict) and "checked" in d2
+                extra2 = "checked=%s review=%s" % (d2.get("checked"), d2.get("review_count"))
+            except (ValueError, IndexError):
+                pass
+            check("nf_get_setting_conflicts 真调用成功（B3 新路由 垫片→8766→8765 通）",
+                  ok2 and not getattr(r2, "isError", False), extra2)
+
+            r3 = await session.call_tool("nf_get_canon", {})
+            t3 = [c.text for c in r3.content if getattr(c, "type", "") == "text"]
+            ok3, extra3 = False, (t3[0][:120] if t3 else "")
+            try:
+                d3 = json.loads(t3[0])
+                ok3 = isinstance(d3, dict) and "exists" in d3
+                extra3 = "exists=%s frozen_at=%s" % (d3.get("exists"), d3.get("frozen_at"))
+            except (ValueError, IndexError):
+                pass
+            check("nf_get_canon 真调用成功（B3 新路由通）",
+                  ok3 and not getattr(r3, "isError", False), extra3)
+
 
 def main():
     ap = argparse.ArgumentParser(description="MCP 真机握手自检")
