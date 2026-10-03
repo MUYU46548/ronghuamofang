@@ -194,11 +194,33 @@ orchestrator 的收尾闸门（`gates.quality_gate`）。现：缺失 → FAIL +
 含义说明；`--allow-missing` 为**显式**逃生门且摘要必须写「未经验收」（跳过 ≠ 通过）；
 `book.chapters = 0` 这类**空集合也直接报错**（vacuous truth 是门禁最阴的假绿）。
 
-### 🧪 本轮新增自检（本批 5 个用例 / 163 断言，全部零 LLM）
+### 🗂 副产物管理台（看清 / 导出 / 清理）
 
+用户第 4 条：「非报告类副产物找个专门的地方丢，用户自己决定复用、导出或清理。」
+
+流水线会在十来处目录铺东西，但性质完全不同，此前**没有任何统一入口**（要么翻文档目录表，
+要么根本不知道存在）。新增 `scripts/artifacts.py`：一屏列出路径 / 文件数 / 体积 / 最老最新 /
+**安全等级** / 是什么 / 怎么复用，并提供导出与清理。三档安全等级：
+
+- `safe`（截断稿、失败审稿原文、`--verbose` 的 LLM 原文、任务文件、拆书切分）→ 随时可清；
+- `backup`（config / prompts / 大纲 / 章节 / 设定集的历史版本）→ 按天或按量收口，也能整体导出；
+- **`keep`（快照 `history/`、归档书 `data/books/`、报告、待审沙盒、账本 `logs/runs.db`）
+  → 一律拒绝清理**，并把"该用哪个工具"指出来（快照→`snapshot.py --restore`、
+  归档书→`switch_book.py --restore`、沙盒→审核流程）。
+
+`--export <id,…|all> --to <目录>`（默认打包 zip，**不动源文件**）、
+`--clean <id,…> [--older-than 天] [--keep-last N] --yes`（**默认 dry-run**，
+与 `snapshot.py --restore` 同惯例）。自检 `tests/unit/test_artifacts.py`（**31 断言**，
+临时根上跑：名录唯一/相对/不逃逸 · keep 拒绝且文件仍在 · dry-run 不删 ·
+`--yes` 真删且 `--keep-last` 生效 · zip 内容正确且源文件未变 · 未知 id 退非零并列出可用项）。
+
+### 🧪 本轮新增自检（本批 6 个用例 / 194 断言，全部零 LLM）
 `test_config_io.py`（38）· `test_quality_gate_syntax.py`（10）·
 `test_token_limit_config.py`（50）· `test_desktop_quit_guard.py`（31）·
-`test_quality_checklist_gate.py`（20）；HTTP：`test_token_limit_api_http.py`（33）。
+`test_quality_checklist_gate.py`（20）· `test_artifacts.py`（31）；
+HTTP：`test_token_limit_api_http.py`（33）。
+另有两个「让假绿无处藏」的护栏：`test_runner_hygiene.py`（8）与
+`test_style_v2.py`（由纯 print 改造为 19 断言）。
 
 **e2e 真机视觉验收 76 → 78 通过 / 0 失败**，并修掉它两个会改**用户真实数据**的隐患：
 

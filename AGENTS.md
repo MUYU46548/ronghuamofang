@@ -148,7 +148,7 @@ stdout 被管道捕获时 Python 用 cp936，一行日志就能 `UnicodeEncodeEr
 | 拆书 / 章节节奏 | `python scripts/book_split.py --input <文本文件> [--emit] [--json] [--list-patterns]`（切章模式自动识别 → data/state/book_pacing.json；`--emit` 另导出切分正文到 data/state/book_split/。**输入文件只读**） |
 | 成本报告 | `python scripts/cost_report.py`（总览，含**阶段2 初版 vs 迭代**细分）；`--by-chapter`（分章）；`--by-outline`（**大纲逐轮费用**：v0 初版 + 每轮迭代 + 累计 + 平均）；`--runs 5` |
 | 多书切换 | `python scripts/switch_book.py --list` / `--archive` / `--restore "书名"`（均需 `--yes`）。归档范围 = `data/` 的 8 项产物 **+ `config/` 与 `materials/`**（2026-10-01 起：此前换书会丢配置与素材卡）。`system.yaml`/`system.local.yaml` 属**应用级**，归档后自动复制回工作区；`project.yaml` 重置为空白骨架，恢复时被书档版本覆盖 |
-| 项目快照 | `python scripts/snapshot.py "标签"`；查看 `--list`（orchestrator 每阶段成功后自动快照） |
+| **副产物管理台（看清 / 导出 / 清理）** | `python scripts/artifacts.py`（**一屏看清**十来处副产物：路径 / 文件数 / 体积 / 最老最新 / **安全等级** / 是什么 / 怎么复用）· `--json`（机器可读，给外部 Agent）· `--export <id,…\|all> --to <目录>`（默认打包成 zip，**不动源文件**）· `--clean <id,…> [--older-than 天] [--keep-last N] --yes`（**默认 dry-run**，与 `snapshot.py --restore` 同惯例）。等级三档：`safe`（截断稿/失败审稿原文/`--verbose` 原文/任务文件/拆书切分 → 随时可清）、`backup`（config、prompts、大纲、章节、设定集的历史版本 → 按天/按量收口）、**`keep`（快照 `history/`、归档书 `data/books/`、报告、待审沙盒、账本 `logs/runs.db` → 一律拒绝清理并指出该用哪个工具）**。自检：`python tests/unit/test_artifacts.py`（31 断言，临时根上跑，含 keep 拒绝 / dry-run 不删 / `--yes` 真删 / zip 内容与源文件未变） |
 | 快照恢复 | `python scripts/snapshot.py --restore <ID>`（**默认 dry-run 预览**，加 `--yes` 执行；恢复前自动打 `pre_restore` 折返点；`--delete-extra` 才删快照外文件） |
 | 素材预扫描 | `python scripts/stage1_consolidate.py` |
 | 原始碎片聚类预览 | `python scripts/utils/scrap_cluster.py`（自由命名碎片 → 内容聚类 + 时间序 + 前瞻备忘；`--json` 机器可读、`--dir` 换目录） |
