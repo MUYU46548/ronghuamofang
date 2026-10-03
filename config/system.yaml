@@ -1,4 +1,16 @@
 engine: hermes
+
+# Hermes 子会话（engine: hermes 时生效；此时 model.* 被忽略 —— 用 agent 内部模型）
+hermes:
+  timeout: 900          # 单次子会话墙钟硬超时（秒）→ 超时结构化失败，走重试/止损
+  max_turns: 60         # agent 内部工具循环上限
+  toolsets: file        # 工具白名单（file = patch/read_file/search_files/write_file）；
+                        # 设为空串则不加 -t（全量工具，逃生门）
+  # 会话续接（B2，默认 false）：true 时逐段写作可经 `--resume` 接上一段的子会话，
+  # 而不是每段冷启动。⚠️ 这是**行为变更**（agent 上下文跨段累积），真实试写尚无
+  # 收益实测证据 —— 首次启用建议先跑一章，看过产物质量与用量再决定是否长期开。
+  session_continuation: false
+
 providers:
   tokenhub:
     type: openai-compat

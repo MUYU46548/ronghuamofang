@@ -309,6 +309,8 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
             return True
         return False
 
+    # B2：章间会话续接（默认关）—— 只有「引擎开了续接」且「上一章成功」时才传下去
+    chapter_session = None
     for n in todo:
         # P0-4（2026-10-01）：章间检查停止请求 —— 不在这里查，按了「停止」
         # 也要跑完整个阶段（几十章）才轮到 orchestrator 的阶段边界检查。
@@ -326,7 +328,8 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                                                     "data/setting/setting.json",
                                                     "data/summaries/rolling.md",
                                                     prev_tail))
-        result = client.run_task(task)
+        # B2：session_id 只在引擎开启续接时才有意义（direct 客户端收下但忽略）
+        result = client.run_task(task, session_id=chapter_session)
         cost_est = (cost.estimate_cost_yuan(result["tokens"], result["tokens_out"],
                                             model=result.get("model"),
                                             provider=result.get("provider"),
@@ -367,6 +370,10 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         # 这样熔断/止损消息里的"本轮完成 N 章"才是准的
         consec_fail = 0
         done_this_round += 1
+        # B2：只把**成功**章节的 session 传下去 —— 失败章节的子会话没有产出，
+        # 把它的上下文接给下一章只会把噪音带过去
+        if result.get("session_id") and getattr(client, "session_continuation", False):
+            chapter_session = result["session_id"]
 
         # 摘要提取 + 滚动维护
         text = read_text(chap_path)

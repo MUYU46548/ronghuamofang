@@ -802,8 +802,12 @@ class OpenAICompatClient:
             print("[llm_client] 已写入 (" + op + ") " + str(p) +
                   "  (" + str(len(content)) + " chars)")
 
-    def run_task(self, task_file, workdir=None, model=None, dry_run=False):
+    def run_task(self, task_file, workdir=None, model=None, dry_run=False,
+                 session_id=None):
         """执行自包含任务文件。返回 dict 与 HermesClient 同构。
+
+        `session_id` 只为**签名同构**而收：直连（OpenAI 兼容）模式是无状态单次
+        POST，**没有会话概念**，此处一律忽略（B2 的会话续接只对 Hermes 子会话有意义）。
 
         model 参数兼容保留：与配置模型不同时仅告警（直连模式换模型改 config/system.yaml）。
         设 NOVELFORGE_DEBUG=1 时把每次请求/响应原文存 data/state/llm_raw/。
@@ -1029,15 +1033,19 @@ class HermesClient:
     DEFAULT_TOOLSETS = "file"
 
     def __init__(self, hermes_bin="hermes", timeout=900, model=None,
-                 max_turns=60, toolsets=None):
+                 max_turns=60, toolsets=None, session_continuation=False):
         self.hermes_bin = hermes_bin
         self.timeout = timeout
         self.model = model
         self.max_turns = max_turns
         # None → 默认白名单；空串/False → 不加 -t（全量工具逃生门）
         self.toolsets = self.DEFAULT_TOOLSETS if toolsets is None else toolsets
+        # B2 会话续接（默认 **关**）：开启后段与段之间可经 `--resume` 接续同一子会话，
+        # 而不是每次冷启动。默认关的理由：这是**行为变更**（agent 上下文跨段累积），
+        # 真实试写里尚无收益实测证据，不该悄悄改掉既有流水线的行为。
+        self.session_continuation = bool(session_continuation)
 
-    def _build_cmd(self, task_path, model=None):
+    def _build_cmd(self, task_path, model=None, session_id=None):
         cmd = [self.hermes_bin, "chat", "-q",
                "阅读并严格按 " + str(task_path) + " 中的指示执行全部步骤。"
                "完成后简要汇报：产物路径、校验结果、遇到的问题。",
@@ -1046,6 +1054,11 @@ class HermesClient:
             cmd += ["-t", str(self.toolsets)]
         if self.max_turns:
             cmd += ["--max-turns", str(int(self.max_turns))]
+        if session_id and self.session_continuation:
+            # B2 续接：接上上一段的子会话。**开关关着时即使传了 session_id 也不拼**
+            # —— 默认关就是真的不改行为。`--create-if-missing` 让 session 过期/
+            # 不存在时**新建**而不是直接失败（续接是优化，不该成为新的失败源）。
+            cmd += ["--resume", str(session_id), "--create-if-missing"]
         eff_model = model or self.model
         if eff_model:   # 仅显式指定时；make_client 恒传 None（agent 内部模型）
             cmd += ["-m", eff_model]
@@ -1053,11 +1066,14 @@ class HermesClient:
 
     @staticmethod
     def _parse_stream_json(raw):
-        """JSONL → (result事件或None, init事件或None, text事件列表)。
+        """JSONL → (result事件或None, init事件或None, text事件列表, session_id或None)。
 
         非 JSON 行（stderr 混入 / 收尾 session_id 行）直接忽略，解析永不抛。
+
+        session_id（B2）：事件里能找到就带出来，供 `--resume` 续接；找不到就是
+        None —— 续接自然不生效而**不报错**（她是优化项，不该成为新的失败源）。
         """
-        result, init, texts = None, None, []
+        result, init, texts, session_id = None, None, [], None
         for line in (raw or "").splitlines():
             s = line.strip()
             if not s.startswith("{"):
@@ -1075,11 +1091,17 @@ class HermesClient:
                 init = ev
             elif t == "text":
                 texts.append(ev.get("text") or "")
-        return result, init, texts
+            if not session_id:
+                for _k in ("session_id", "sessionId", "session"):
+                    _v = ev.get(_k)
+                    if isinstance(_v, str) and _v.strip():
+                        session_id = _v.strip()
+                        break
+        return result, init, texts, session_id
 
     def _finish(self, task_path, rc, raw, stderr="", error=None, stopped=False):
         """把一次子会话执行收敛为 run_task 同构 dict（永不抛异常）。"""
-        result, init, texts = self._parse_stream_json(raw)
+        result, init, texts, session_id = self._parse_stream_json(raw)
         if stopped:
             exit_code = 0          # 用户主动停 ≠ 失败（与 direct 流式停止同语义）
         elif rc:
@@ -1119,6 +1141,8 @@ class HermesClient:
             "model": (init or {}).get("model") or self.model or "hermes-default",
             "requests": 1,
             "stopped": bool(stopped),
+            # B2：子会话 id（供下一章 `--resume` 续接）；事件里拿不到就是 None
+            "session_id": session_id,
         }
         if error:
             out["error"] = str(error)
@@ -1154,10 +1178,26 @@ class HermesClient:
         except Exception:                               # noqa: BLE001
             pass
 
-    def run_task(self, task_file, workdir=None, model=None):
+    def run_task(self, task_file, workdir=None, model=None, session_id=None):
+        """执行任务。`session_id` 非空**且**开启了会话续接时走 `--resume`（B2）。
+
+        续接失败（非零退出）会**自动降级**为全新会话重试一次 —— 续接是优化，
+        不该成为新的失败源。降级结果里带 `resumed_fallback: true` 供调用方识别。
+        """
+        res = self._run_once(task_file, workdir, model, session_id)
+        if (session_id and self.session_continuation
+                and not res.get("stopped") and res.get("exit_code")):
+            why = str(res.get("error") or res.get("stderr_tail") or "")[:140]
+            print("[llm_client] WARN 续接会话失败（exit=%s）：%s → 降级为全新会话重试"
+                  % (res.get("exit_code"), why))
+            res = self._run_once(task_file, workdir, model, None)
+            res["resumed_fallback"] = True
+        return res
+
+    def _run_once(self, task_file, workdir=None, model=None, session_id=None):
         import subprocess
         task_path = Path(task_file)
-        cmd = self._build_cmd(task_path, model)
+        cmd = self._build_cmd(task_path, model, session_id)
         try:
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
                                     stderr=subprocess.PIPE, text=True,
@@ -1371,6 +1411,8 @@ def make_client(cfg, model_key="default", verbose=True):
             timeout=int(hcfg.get("timeout", 900)),
             max_turns=int(hcfg.get("max_turns", 60)),
             toolsets=hcfg.get("toolsets", HermesClient.DEFAULT_TOOLSETS),
+            # B2：会话续接默认 **关**（不改既有行为）
+            session_continuation=bool(hcfg.get("session_continuation", False)),
         )
 
     prov = provs.get(provider_id) or {}

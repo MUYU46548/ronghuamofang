@@ -140,7 +140,7 @@ class FailingClient(FakeClient):
 
     # ---------------------------------------------------------------- 接口
 
-    def run_task(self, task_file, workdir=None, model=None):
+    def run_task(self, task_file, workdir=None, model=None, session_id=None):
         name = Path(task_file).name
         stage = _stage_of(name)
         if self._should_fail(stage):
@@ -192,7 +192,7 @@ class ExpensiveClient(FakeClient):
     def __init__(self, cost_per_call=200.0):
         self.cost_per_call = cost_per_call
 
-    def run_task(self, task_file, workdir=None, model=None):
+    def run_task(self, task_file, workdir=None, model=None, session_id=None):
         res = super().run_task(task_file, workdir=workdir, model=model)
         res["cost_yuan"] = self.cost_per_call
         res["estimated"] = False   # 走真实计价，避免被 estimated 逻辑改写

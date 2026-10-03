@@ -192,7 +192,7 @@ class Stub:
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content, encoding="utf-8")
         return p
-    def run_task(self, task_file, workdir=None, model=None):
+    def run_task(self, task_file, workdir=None, model=None, session_id=None):
         if MODE in ("ok", "no_report"):
             src = Path("data/chapters/raw/01.md")
             dst = Path("data/chapters/checked/01.md")

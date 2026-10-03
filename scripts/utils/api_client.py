@@ -71,7 +71,7 @@ class HermesClient:
         self.timeout = timeout
         self.model = model  # 阶段模型路由（-m 参数）；None = 用 Hermes 默认
 
-    def run_task(self, task_file, workdir=None, model=None):
+    def run_task(self, task_file, workdir=None, model=None, session_id=None):
         """运行一个自包含任务文件。
 
         返回 dict: {exit_code, stdout_tail, tokens, cost_yuan, estimated}

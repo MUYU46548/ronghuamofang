@@ -65,7 +65,7 @@ class AlwaysFailClient:
         p.write_text(content, encoding="utf-8")
         return str(p)
 
-    def run_task(self, task_path):
+    def run_task(self, task_path, **kwargs):   # **kwargs：收下 session_id 等新参数（签名同构）
         self.calls += 1
         return {"exit_code": 1, "tokens": 10, "tokens_out": 5, "text": "", "model": "fake"}
 

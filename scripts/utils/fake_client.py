@@ -418,7 +418,7 @@ class FakeClient:
         write_text(path, content)
         return path
 
-    def run_task(self, task_file, workdir=None, model=None):
+    def run_task(self, task_file, workdir=None, model=None, session_id=None):
         path = Path(task_file)
         text = read_text(path)
         name = path.name
