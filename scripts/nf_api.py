@@ -2552,6 +2552,11 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main():
+    # 控制台输出安全网：本服务的 stdout 由 GUI（Electron spawn）以管道捕获，
+    # 管道下 Python 用本地编码（cp936），而本文件里就有 ⚠️ 这类不在 GBK 的字符
+    # → 一行日志就能让服务在启动/报错路径上崩掉（见 utils/console.py 的实测记录）。
+    from utils.console import ensure_utf8_stdout
+    ensure_utf8_stdout()
     parser = argparse.ArgumentParser(description="NovelForge 本地 API（GUI 化 P0 + 流式输出）")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--host", default="127.0.0.1")

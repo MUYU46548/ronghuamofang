@@ -873,6 +873,20 @@ def run_tests(root: Path, pattern: str = "test_*.py", verbose: bool = False) -> 
 
     results = {"total": 0, "passed": 0, "failed": 0, "errors": [], "details": []}
 
+    # 子进程输出必须按 UTF-8 读，并强制子进程按 UTF-8 写（2026-10-03）。
+    #
+    # 原先这两处都没写：`text=True` 走本地编码（本机 cp936），而 40+ 个测试脚本
+    # 开头就把自己的 stdout 换成 UTF-8（项目惯例）→ 父进程按 cp936 解 UTF-8 字节，
+    # **解码异常发生在读取线程里**：communicate() 返回 stdout=None，
+    # 紧接着 `proc.stdout.splitlines()` 抛 AttributeError，被下面 except 记成
+    # 「错误: 'NoneType' object has no attribute 'splitlines'」。
+    # 后果不是崩溃，而是**结果不可信**：那几个用例的通过/失败根本没读到，
+    # 报告里只剩一句看不懂的 NoneType（实测 7 个用例命中，一度被当成"7 个测试挂了"）。
+    # 修法用项目既有惯例：给子进程 PYTHONIOENCODING=utf-8 + 父进程按 utf-8 解码
+    # （errors="replace" 兜底：日志宁可显示成 ?，也不许再变成 None）。
+    child_env = dict(os.environ)
+    child_env["PYTHONIOENCODING"] = "utf-8"
+
     for tf in test_files:
         rel = tf.relative_to(root)
         results["total"] += 1
@@ -884,25 +898,29 @@ def run_tests(root: Path, pattern: str = "test_*.py", verbose: bool = False) -> 
                 cmd,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
+                env=child_env,
                 timeout=1200,
                 cwd=str(root),
             )
+            out = proc.stdout or ""            # 不再假定它一定不是 None
             # 自定义运行器：exit 0 = 全 PASS，非 0 = 有 FAIL
             passed = proc.returncode == 0
             # 退出码不可靠的测试：解析 stdout 的失败标记兜底
             if passed and tf.name in NO_EXITCODE_TESTS:
-                fail_markers = [l for l in proc.stdout.splitlines()
+                fail_markers = [l for l in out.splitlines()
                                 if l.strip().startswith("失败项") and "失败项: " in l
                                 and l.split("失败项: ", 1)[1].strip()]
                 passed = not fail_markers
             if passed:
                 results["passed"] += 1
                 if verbose:
-                    results["details"].append({"file": str(rel), "status": "PASS", "output": proc.stdout[-500:]})
+                    results["details"].append({"file": str(rel), "status": "PASS", "output": out[-500:]})
             else:
                 results["failed"] += 1
                 # 提取 FAIL 行
-                fail_lines = [l for l in proc.stdout.splitlines() if "FAIL" in l or "ERROR" in l]
+                fail_lines = [l for l in out.splitlines() if "FAIL" in l or "ERROR" in l]
                 results["errors"].append({
                     "file": str(rel),
                     "exit_code": proc.returncode,

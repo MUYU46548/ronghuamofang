@@ -19,6 +19,7 @@ from pathlib import Path
 
 from utils.llm_client import make_client
 from utils.file_io import read_text, append_text
+from utils.cost_tracker import pause_detail as _pause_detail
 from utils.verify_chapter import count_cn_words, is_usable_output
 from utils.template_loader import load_template
 from utils.style_analyzer import (

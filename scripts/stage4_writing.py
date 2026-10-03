@@ -402,7 +402,10 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                 # 熔断原因由 CostTracker.status_detail 给出（金额 or token）——
                 # engine: hermes 下 ¥ 恒 0，真正会命中的是 token 累计，文案必须对上。
                 _detail = _pause_detail(cost, run_id)
-                print(f"[stage4] 💰 熔断停止[{_detail['reason']}]：{_detail['message']}"
+                # ⚠️ 本行不要 emoji：停机日志在「被捕获的 stdout」（GUI/后台任务）下是
+                # cp936，emoji 会 UnicodeEncodeError —— 恰好在熔断那一刻把阶段搞崩，
+                # 于是「干净地暂停」变成「崩溃 + runs 脏行」。
+                print(f"[stage4] 熔断停止[{_detail['reason']}]：{_detail['message']}"
                       "—— 停止本阶段")
                 progress.data.setdefault("budget", {})["paused"] = True
                 progress.save()

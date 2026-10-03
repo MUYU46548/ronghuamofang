@@ -39,9 +39,16 @@ from pathlib import Path
 
 from utils.file_io import read_text, write_text
 from utils import cost_tracker
+from utils.console import ensure_utf8_stdout
 # 解析层容错（件2）：`<think>` 内嵌剥离 + 从思考里捞可解析的 JSON 文档。
 # 同包内复用，避免「同一判据写两遍、只修一处」（见 TESTS.md 的复制实现教训）。
 from utils.validator import strip_think, extract_json
+
+# 进程级输出安全网（幂等）：stdout 被捕获时是 cp936，而 ¥/⚠️/✅ 等字符不在 GBK 里
+# → 一行日志就能 UnicodeEncodeError 打死整轮长跑。放在这里是因为**所有会跑 LLM 的
+# 脚本都 import 本模块**（阶段脚本 / 精修 / 审稿 / 校对 / GUI 服务），覆盖面最广。
+# 详见 utils/console.py 的实测记录。
+ensure_utf8_stdout()
 
 BS = chr(92)          # 反斜杠字符（源码零字面量纪律）
 NEWLINE = chr(10)     # 换行字符

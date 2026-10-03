@@ -138,11 +138,29 @@ def load_config():
     return cfg, proj
 
 
+def _safe_stdout():
+    """把 stdout 切到 UTF-8，**让 print 永远不会打死流水线**（实现见 utils/console.py）。
+
+    2026-10-03 实测（本机即复现）：stdout 是**管道**时 Python 用本地编码（cp936），
+    而 ¥ / ⚠️ / 💰 / ✅ 这些字符**不在 GBK 里** →
+    `UnicodeEncodeError: 'gbk' codec can't encode character '\\xa5'`。
+    管道正是 GUI（Electron spawn）与后台任务捕获输出的形态，于是
+    `engine: hermes` 下 orchestrator **第一行启动横幅就崩**（实测 dry-run 直接退出码 1）。
+    注意：TTY 下 Python 用 UTF-8（PEP 528），所以这个问题只在「被捕获」时才现形 ——
+    典型的「本地手跑好好的，GUI 一跑就挂」。
+
+    项目已有同一做法（`nfctl.py` 的 `sys.stdout.reconfigure(encoding="utf-8")`），
+    现统一收敛到 `utils.console.ensure_utf8_stdout()`（单一来源）。
+    """
+    from utils.console import ensure_utf8_stdout
+    ensure_utf8_stdout()
+
+
 def _warn_rewrite_conflict(cfg):
     """auto_rewrite 与 auto_refine 同时开启会改同一批章节 → 启动时明确告警。"""
     gates = cfg.get("gates", {}) or {}
     if gates.get("auto_rewrite") and gates.get("auto_refine"):
-        print("[orchestrator] ⚠️ 告警：gates.auto_rewrite 与 gates.auto_refine 同时开启，"
+        print("[orchestrator] 告警：gates.auto_rewrite 与 gates.auto_refine 同时开启，"
               "两者都会改写同一批章节。")
         print("            以 auto_rewrite 为先；batch_refine 请仅处理审稿报告中的"
               "非 quality 类问题，避免重复改稿。")
@@ -166,12 +184,15 @@ def _stop_requested():
 
 
 def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False):
+    _safe_stdout()      # 管道 stdout 下 ¥/emoji 会把启动横幅直接搞崩（见其 docstring）
     cfg, proj = load_config()
     _warn_rewrite_conflict(cfg)
     _tl = (cfg.get("budget", {}) or {}).get("token_limit") or {}
-    if cfg.get("engine") == "hermes":
+    _engine = cfg.get("engine")
+    if _engine == "hermes":
+        # 刻意不用 U+00A5 的 ¥：它不在 GBK 里（管道 stdout 下必崩）。￥（全角）安全。
         print("[orchestrator] engine=hermes：LLM 走 agent 子会话（订阅流量，model.* 不适用）；"
-              "cost 记 0 + 真实 token 留痕 → **¥ 预算熔断对本引擎不生效（刻意语义）**，"
+              "cost 记 0 + 真实 token 留痕 → **￥ 预算熔断对本引擎不生效（刻意语义）**，"
               "止烧靠 token 级熔断")
     if _tl.get("enabled"):
         print(f"[orchestrator] token 级熔断：单请求输出上限="
@@ -180,10 +201,13 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
               ("并熔断" if _tl.get("per_request_pause_hermes") else "") + "）"
               f"｜本 run 累计上限={_tl.get('max_total_tokens') or '不限'} token")
     else:
-        # 刻意不用 ⚠️/emoji：本行会在**管道**里被打印（GUI/测试捕获 stdout），
-        # 而管道下 Python 用本地编码（cp936）→ emoji 会 UnicodeEncodeError 把启动搞崩。
+        # ⚠️ 本行**不要**出现 U+00A5 的 ¥ / emoji：它们不在 GBK 里，而这一行在
+        # 「被捕获的 stdout」（GUI/后台任务）下是 cp936 → 一行日志就能把启动搞崩
+        # （本轮实测踩到：engine=direct + 无 token_limit 时启动即 UnicodeEncodeError）。
+        # _safe_stdout() 已兜一道，这里再保证字符本身安全（双保险）。
         print("[orchestrator] 注意：token 级熔断未开启（budget.token_limit.enabled=false）"
-              "：engine=hermes 下 ¥ 记账恒 0 → **本轮没有任何止烧闸门**")
+              "：engine=" + str(_engine) + " 下若金额也不计费（hermes），"
+              "则**本轮没有任何止烧闸门**")
     # 误开 auto_rewrite 会在审稿前先跑一轮重写（同一批章节改两遍 = 双倍烧），
     # 启动时把生效值打出来，别让人靠翻 YAML 猜。
     print(f"[orchestrator] gates: auto_rewrite={bool(cfg.get('gates', {}).get('auto_rewrite'))}"

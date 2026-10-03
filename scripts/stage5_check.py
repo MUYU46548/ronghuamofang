@@ -112,7 +112,10 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                 # checked/03.md 与 raw/03.md 逐字节相同，check_report.md 从未落盘，
                 # 而「检查完成」照打（→ 报告的根因是协议结束标记不匹配，已修）。
                 copied_all.extend(copied)
-                print(f"[stage5] ⚠️ 兜底：本批 LLM 未产出有效修正 → 复制 raw → checked "
+                # ⚠️ 提示文字不用 emoji：本行会在「被捕获的 stdout」（GUI/后台任务）下
+                # 以 cp936 输出，emoji 直接 UnicodeEncodeError —— 恰好在这一条
+                # 「这几章未经检查」的告警上崩，等于把最该被看见的话弄丢。
+                print(f"[stage5] 兜底：本批 LLM 未产出有效修正 → 复制 raw → checked "
                       f"({', '.join(copied)})；**这几章未经检查**")
                 missing = _bad_checked(batch)
         if missing:
@@ -143,7 +146,7 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
 
     if warnings:
         print("[stage5] " + "=" * 58)
-        print("[stage5] ⚠️ 本阶段**带警告完成**（≠ 检查通过）：")
+        print("[stage5] 本阶段**带警告完成**（≠ 检查通过）：")   # 不用 emoji，见上
         for w in warnings:
             print("[stage5]   · " + w)
         print("[stage5] " + "=" * 58)

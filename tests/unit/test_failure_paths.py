@@ -30,6 +30,7 @@
 
 用法：python tests/unit/test_failure_paths.py
 """
+import io
 import json
 import os
 import re
@@ -39,6 +40,14 @@ import sys
 import tempfile
 import traceback
 from pathlib import Path
+
+# 本文件会把**子进程的输出**（可能含 emoji：如 quality_gate 的 ❌/✅）原样打印出来，
+# 而 stdout 是管道时 Python 用本地编码（本机 cp936）→ 打印失败详情本身会
+# UnicodeEncodeError，于是"某个用例失败"变成"报告失败时崩掉"，真正的原因被掩盖
+# （2026-10-03 实测：F6 的真实失败原因被这条打印异常吃掉）。
+# 统一按项目惯例切成 UTF-8。
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")   # noqa: E402
+sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8")   # noqa: E402
 
 REPO = Path(__file__).resolve().parents[2]
 PASS = 0

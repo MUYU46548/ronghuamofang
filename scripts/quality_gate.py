@@ -76,6 +76,12 @@ def main():
     ap.add_argument("targets", nargs="*", help="显式指定路径（默认 scripts/）")
     args = ap.parse_args()
 
+    # 门禁的**退出码不能由一行日志的字符集决定**（2026-10-03 实测）：
+    # stdout 被管道捕获时是 cp936，而通过行的 ✅ 不在 GBK 里 →
+    # UnicodeEncodeError → 门禁明明通过却退 1（假红），而 release-check/CI 正是靠退出码判定。
+    from utils.console import ensure_utf8_stdout
+    ensure_utf8_stdout()
+
     if args.targets:
         targets = args.targets
     elif args.changed:
