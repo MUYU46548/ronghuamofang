@@ -82,24 +82,73 @@ def _split_sections(body):
     return secs
 
 
-def extract_input_paths(body):
-    """解析任务正文「输入文件」段的路径引用。返回 [(path_str, is_dir)]。"""
-    out, seen = [], set()
+class InputSectionFormatError(ValueError):
+    """「输入文件」段里存在**路径引用但格式不被解析器接受**。
+
+    这不是"文件缺失"（那种是 FileNotFoundError），而是**段落格式对不上**：
+    路径写在了非列表行上、目录引用指向不存在的目录等。旧实现一律**静默跳过**，
+    于是任务照跑、prompt 里却没有这些输入 → 模型基于缺失信息产出空壳/胡编，
+    而日志里一个字的异常都没有（stage5 空稿事故的同类根因）。
+    现在一律抛本异常，报错里带**行号 + 原文 + 为什么没被接受 + 该怎么写**。
+    """
+
+
+# 输入段里允许的两种写法（报错文案里要写清楚，别让人猜解析器的口味）
+_INPUT_FORMAT_HINT = (
+    "输入段每条路径必须写成**列表行**：`- 名称: <路径>`；"
+    "目录引用写成 `- 名称: <目录>/ 下的 *.md` 且该目录必须存在。"
+    "（解析器只认以 `- ` 开头的行，这是 stage5 空稿事故的根因）"
+)
+
+
+def extract_input_paths(body, diag=None):
+    """解析任务正文「输入文件」段的路径引用。返回 [(path_str, is_dir)]。
+
+    diag（可选 dict）：**诊断出口**，供调用方显式报错而不是静默返空。填入：
+      {"section_found": bool, "section_line": int, "accepted": [...],
+       "skipped": [{"line": 行号, "text": 原文, "path": 命中路径, "reason": 为什么没被接受}]}
+    行号是**任务正文里的绝对行号**（人拿它去模板/任务文件里定位，不用自己数）。
+    """
+    out, seen, skipped = [], set(), []
+    if isinstance(diag, dict):
+        diag.update({"section_found": False, "section_line": 0,
+                     "accepted": out, "skipped": skipped})
     m = INPUT_SECTION_RE.search(body)
     if not m:
         return out
+    if isinstance(diag, dict):
+        diag["section_found"] = True
+        diag["section_line"] = body.count(NEWLINE, 0, m.start()) + 1
     end_m = HEADING_RE.search(body, m.end())
     section = body[m.end(): end_m.start() if end_m else len(body)]
-    for line in section.splitlines():
-        line = line.strip()
+    base_line = body.count(NEWLINE, 0, m.end()) + 1     # 段内首行的绝对行号
+    for offset, raw in enumerate(section.splitlines()):
+        lineno = base_line + offset
+        line = raw.strip()
+        if not line:
+            continue
         if not line.startswith("- "):
+            # 非列表行：只有**含路径**才算格式错误；纯说明行（无路径）是正常的
+            pm = PATH_RE.search(line)
+            if pm:
+                skipped.append({"line": lineno, "text": line, "path": pm.group(0).strip(),
+                                "reason": "非列表行（缺 `- ` 前缀）"})
             continue
         content = line[2:]
         if DIR_SPEC_RE.search(content):
             rest = DIR_SPEC_RE.sub("", content)
             rest = re.split("[（(，,、]", rest)[0]  # 切掉尾随括号说明
             p = rest.split(": ", 1)[-1].strip().rstrip("/" + BS)
-            if p and p not in seen and Path(p).is_dir():
+            if not p:
+                skipped.append({"line": lineno, "text": line, "path": "",
+                                "reason": "目录引用里没解析出路径"})
+                continue
+            if not Path(p).is_dir():
+                # 目录不存在 → 旧实现**静默跳过**（内联 0 个文件也不说）
+                skipped.append({"line": lineno, "text": line, "path": p,
+                                "reason": "目录引用指向的目录不存在"})
+                continue
+            if p not in seen:
                 seen.add(p)
                 out.append((p, True))
             continue
@@ -112,9 +161,37 @@ def extract_input_paths(body):
     return out
 
 
-def inline_inputs(body, char_limit=220000):
-    """把「输入文件」段引用的文件内容内联进正文。返回 (new_body, [缺失路径])。"""
-    refs = extract_input_paths(body)
+def format_input_section_error(diag, task_path=None):
+    """把 extract_input_paths 的诊断渲染成**可行动**的报错文案。"""
+    head = ("任务「输入文件」段有 %d 处路径引用**不能被解析**（这些输入不会被内联，"
+            "模型会收不到它们）：" % len(diag.get("skipped") or []))
+    lines = [head]
+    for s in diag.get("skipped") or []:
+        lines.append("  · 第 %d 行 —— %s：`%s`"
+                     % (s.get("line"), s.get("reason"), (s.get("text") or "")[:90]))
+    where = ("任务文件: " + str(task_path)) if task_path else "任务正文"
+    lines.append("  %s（「输入文件」段起于第 %s 行）" % (where, diag.get("section_line")))
+    lines.append("  " + _INPUT_FORMAT_HINT)
+    return NEWLINE.join(lines)
+
+
+def inline_inputs(body, char_limit=220000, task_path=None):
+    """把「输入文件」段引用的文件内容内联进正文。返回 (new_body, [缺失路径])。
+
+    **格式不符 = 明确报错**（P1，2026-10-03）：段落里出现「有路径、但解析器不认」的行
+    （最常见的形态就是漏写 `- ` 前缀 —— stage5 空稿事故的同类根因）时，抛
+    `InputSectionFormatError` 并指出**行号 + 原文 + 正确写法**，而不是静默返空。
+
+    与既有的「输入文件缺失就抛 FileNotFoundError」是同一处置哲学：
+    输入构造错了必须**当场停**，不能让模型基于空输入跑出一轮"看起来成功"的产物
+    （白烧钱 + 产物不可信，两样都比报错贵）。
+    """
+    diag = {}
+    refs = extract_input_paths(body, diag)
+    if diag.get("skipped"):
+        msg = format_input_section_error(diag, task_path)
+        print("[llm_client] ERROR " + msg.replace(NEWLINE, NEWLINE + "[llm_client] "))
+        raise InputSectionFormatError(msg)
     if not refs:
         return body, []
     parts, missing, budget = [], [], 0
@@ -886,7 +963,7 @@ class OpenAICompatClient:
         self._validate_creds()
         task_path = Path(task_file)
         body = read_text(task_path)
-        new_body, missing = inline_inputs(body)
+        new_body, missing = inline_inputs(body, task_path=task_path)
         if missing:
             raise FileNotFoundError(
                 "任务引用的输入文件缺失（" + str(len(missing)) + " 个）：\n" +
@@ -976,7 +1053,7 @@ class OpenAICompatClient:
         self._validate_creds()
         task_path = Path(task_file)
         body = read_text(task_path)
-        new_body, missing = inline_inputs(body)
+        new_body, missing = inline_inputs(body, task_path=task_path)
         if missing:
             raise FileNotFoundError(
                 "任务引用的输入文件缺失（" + str(len(missing)) + " 个）：\n" +
