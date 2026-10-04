@@ -76,6 +76,8 @@ def load_config_yaml(path, default=None):
     - 重复键 / 语法错误：抛 `ConfigError`（带行号与修法）。
     """
     p = Path(path)
+    if not p.is_absolute():
+        p = ROOT / p
     if not p.exists():
         if isinstance(default, Exception):
             raise default

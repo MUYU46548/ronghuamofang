@@ -54,7 +54,7 @@ def handle_project_status(h):
     """
     try:
         project_status = {
-            "book": api.load_all()[1].get("book", {}),
+            "book": (api.load_all()[1] or {}).get("book", {}),
             "stages": api.build_state().get("stages", []),
             "setting_exists": (api.ROOT / "data" / "setting" / "setting.json").exists(),
             "outline_exists": (api.ROOT / "data" / "outline" / "global.md").exists(),

@@ -720,7 +720,7 @@ def build_state():
     except (FileNotFoundError, OSError):
         archived = []
     return {
-        "book": load_all()[1].get("book", {}).get("name", ""),
+        "book": (load_all()[1] or {}).get("book", {}).get("name", ""),
         "project_dir": str(ROOT),
         "allow_fake": ALLOW_FAKE,
         "has_work": sb_mod.has_work(),          # 新建项目向导用：工作区是否有数据
