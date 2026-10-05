@@ -22,7 +22,6 @@ from pathlib import Path
 
 from utils import agent_guard
 from utils.progress_manager import ProgressManager
-from utils.config_io import load_config_yaml
 
 
 # Artifact directories to clean when rejecting stage N (self + downstream)
@@ -133,19 +132,18 @@ def main():
     parser.add_argument("--dry-run", action="store_true",
                         help="Show what would be cleaned without executing")
     parser.add_argument("--human", action="store_true",
-                        help="显式声明本次为人工操作（Agent 模式下无 TTY 时的逃生门）")
+                        help="历史遗留声明通道（gates.agent_mode=true 下不构成人工证据，仅标准档语义）")
     args = parser.parse_args()
 
     # Agent 模式守卫（CLI 层，与 approve.py / HTTP 侧**同一份判据**）。
     # 打回同样是「代替用户拍板」的动作（HTTP 侧 /reject 就在禁止清单里），
     # 守卫只补 approve.py 的话，这里就还是敞着的后门。
+    # agent_mode=True = 加固档（2026-10-04）：声明通道死透 + 祖先链主判据。
     # ⚠️ 必须**先于**任何写操作（progress.json 变更与产物清理都在后面）。
-    try:
-        cfg = load_config_yaml("config/system.yaml") or {}
-    except Exception:                                       # noqa: BLE001
-        cfg = {}
-    if agent_guard.agent_mode_enabled(cfg):
-        is_human, evidence = agent_guard.cli_human_evidence(explicit_human=args.human)
+    # 配置读取走 CWD 项目优先（与 progress.json 同根；实现见 agent_guard）。
+    if agent_guard.agent_mode_enabled(agent_guard.load_project_config()):
+        is_human, evidence = agent_guard.cli_human_evidence(
+            explicit_human=args.human, agent_mode=True)
         if not is_human:
             print(agent_guard.refusal_message("/reject", evidence, entry="reject.py CLI"))
             agent_guard.log_audit("/reject", method="CLI", status=403,

@@ -1842,8 +1842,11 @@ class Handler(BaseHTTPRequestHandler):
             if agent_guard.agent_mode_enabled(cfg_check):
                 if agent_guard.is_forbidden_in_agent_mode(p):
                     _log_audit(p, "POST", 403, source="agent", detail="blocked")
+                    # V5 拒文泄题（2026-10-04）：拒文与 CLI 侧共用同一份零通道文案
+                    # （旧文案等于向挨拒者传授来源头的伪造通道）。
                     self._send(403, {"ok": False,
-                                     "error": "Agent 模式下禁止此操作（仅 GUI 可执行）"})
+                                     "error": agent_guard.refusal_message(
+                                         p, "非 GUI 来源", entry="HTTP POST")})
                     return
                 # 非禁止操作也记录审计日志
                 _log_audit(p, "POST", 0, source="agent", detail="allowed")

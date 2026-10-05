@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Agent 模式 CLI 守卫自检（P2，2026-10-03）。零 LLM、零网络。
+"""Agent 模式 CLI 守卫自检（P2，2026-10-03；2026-10-04 TTY 加固跟进）。零 LLM、零网络。
 
 ## 为什么需要
 
@@ -18,6 +18,13 @@ CLI 层就是敞开的。本用例守两件事：
    HTTP 与 CLI 共用；任一侧改动都会让另一侧的行为断言变红。
 2. **拒绝发生在任何写操作之前**：progress.json 不许被改（审批没落地）、
    data/state/agent_audit.jsonl 要留下 blocked 记录。
+
+2026-10-04 TTY 加固跟进（修复单第三节，用例随新规格改）：
+- 加固档（agent_mode=true）下声明通道（--human / MOFANG_SOURCE=gui）死透
+  → 用例 4/7 的「声明放行」断言**反转**为「声明照样被拒」（V1/V2 死透）；
+- 拒文 V5 零通道名 → 用例 2/3 的文案断言反转（不得再出现 --human 等通道指路）；
+- 正路（真实交互终端）= 用例 2b 单元级注入祖先链断言；真实终端的动态放行验收
+  归红队/用户亲手 TTY（修复方不自验，Step 4b）。
 
 用法：python tests/unit/test_agent_mode_cli_guard.py
 """
@@ -67,7 +74,7 @@ def case_shared_predicate():
 
 
 def case_human_evidence():
-    print("\n【2】「人工来源」的取证：TTY 必须两端都是，显式声明优先")
+    print("\n【2】「人工来源」取证·标准档历史语义（agent_mode=false，接口兼容反证）；加固档见【2b】")
     check("MOFANG_SOURCE=gui → 人工",
           agent_guard.cli_human_evidence(source_env="gui", isatty=False)[0] is True)
     check("MOFANG_SOURCE=agent → 非人工",
@@ -86,9 +93,75 @@ def case_human_evidence():
     check("MOFANG_SOURCE=agent 优先于 --human（显式标了非人工，不许再自我加冕）",
           agent_guard.cli_human_evidence(source_env="agent", isatty=False,
                                          explicit_human=True)[0] is False)
-    check("拒绝文案可行动（给出三条出路）",
-          all(k in agent_guard.refusal_message("/approve", "证据", "approve.py")
-              for k in ("不是人工来源", "--human", "MOFANG_SOURCE=gui", "agent_mode")))
+    msg = agent_guard.refusal_message("/approve", "证据", "approve.py")
+    check("V5 拒文：点名 agent_mode + 停手/报告用户指引",
+          all(k in msg for k in ("不是人工来源", "agent_mode", "停手", "报告用户")),
+          msg[:160])
+    check("V5 拒文零通道名（--human / MOFANG_SOURCE / pty / 交互式终端 / 改配置退路）",
+          all(k not in msg for k in
+              ("--human", "MOFANG_SOURCE", "pty", "交互式终端", "设为 false")), msg[:160])
+
+
+# ================================================ 2b. agent_mode=true 加固档（2026-10-04）
+def case_agent_mode_strict():
+    print("\n【2b】加固档：声明死透（V1/V2）+ 双端 TTY 快筛 + 祖先链主判据（fail-closed）")
+    GOOD = ["powershell.exe", "WindowsTerminal.exe", "explorer.exe"]
+
+    # 正路（单元级注入；真实终端动态验收归红队/用户）
+    ok, ev = agent_guard.cli_human_evidence(
+        source_env="", isatty=(True, True), agent_mode=True, ancestry=GOOD)
+    check("正路：双端 TTY + 用户终端链 → 放行", ok is True, ev)
+    check("放行证据带完整进程链（台账可追责）", "explorer" in ev, ev)
+
+    # 自动化宿主（V3：hermes 今早的 pty 形态 —— TTY 齐全也照拒）
+    for chain, label in (
+            (["bash.exe", "Hermes.exe", "explorer.exe"], "hermes"),
+            (["node.exe", "explorer.exe"], "node"),
+            (["python.exe", "explorer.exe"], "python（执行者包装层）"),
+            (["winpty-agent.exe", "explorer.exe"], "winpty（pty 孵化器）")):
+        ok, ev = agent_guard.cli_human_evidence(
+            source_env="", isatty=(True, True), agent_mode=True, ancestry=chain)
+        check("祖先链含 %s → 拒（快筛 TTY 全过也照拒）" % label,
+              ok is False and "自动化宿主" in ev, ev)
+
+    # 无锚点
+    ok, ev = agent_guard.cli_human_evidence(
+        source_env="", isatty=(True, True), agent_mode=True,
+        ancestry=["svchost.exe", "services.exe"])
+    check("链不落在用户 shell/explorer → 拒", ok is False and "未落在用户交互终端" in ev, ev)
+
+    # fail-closed
+    ok, ev = agent_guard.cli_human_evidence(
+        source_env="", isatty=(True, True), agent_mode=True, ancestry=None)
+    check("取证失败 → fail-closed 拒", ok is False and "取证失败" in ev, ev)
+    ok, ev = agent_guard.cli_human_evidence(
+        source_env="", isatty=(True, True), agent_mode=True, ancestry=["bash.exe", "?"])
+    check("链截断（未知祖先段无法核验）→ 拒", ok is False and "不完整" in ev, ev)
+
+    # V1/V2 死透：声明救不了 TTY 缺失，也救不了脏链
+    ok, ev = agent_guard.cli_human_evidence(
+        source_env="gui", isatty=(False, False), agent_mode=True, ancestry=GOOD)
+    check("V2：MOFANG_SOURCE=gui 但无 TTY → 拒（声明不构成证据）", ok is False, ev)
+    ok, ev = agent_guard.cli_human_evidence(
+        source_env="", isatty=(False, False), explicit_human=True,
+        agent_mode=True, ancestry=GOOD)
+    check("V1：--human 但无 TTY → 拒", ok is False, ev)
+    ok, ev = agent_guard.cli_human_evidence(
+        source_env="gui", isatty=(True, True), agent_mode=True,
+        ancestry=["bash.exe", "node.exe"])
+    check("声明 + TTY + 宿主链 → 照样拒", ok is False, ev)
+    check("声明痕迹进证据（台账可追责）", "不构成人工证据" in ev, ev)
+
+    # 前置快筛：半端 TTY（管道接管）拒
+    ok, ev = agent_guard.cli_human_evidence(
+        source_env="", isatty=(True, False), agent_mode=True, ancestry=GOOD)
+    check("只有一端 TTY → 拒（前置快筛）", ok is False, ev)
+
+    # 实测冒烟：不抛异常，返回 None 或字符串列表
+    chain = agent_guard.probe_ancestry()
+    check("probe_ancestry 实测不抛（None 或 list[str]）",
+          chain is None or (isinstance(chain, list)
+                            and all(isinstance(x, str) for x in chain)), chain)
 
 
 # ============================================================ 3. CLI 真跑
@@ -145,9 +218,12 @@ def case_cli_refuses_non_human():
         p = run_approve(tmp)
         check("退出码非零（拒绝执行）", p.returncode == 1, p.returncode)
         check("报错点明「不是人工来源」", "不是人工来源" in p.stdout, p.stdout[-300:])
-        check("报错给出三条出路（TTY / --human / MOFANG_SOURCE=gui）",
-              "--human" in p.stdout and "MOFANG_SOURCE=gui" in p.stdout
-              and "交互式终端" in p.stdout)
+        check("V5 拒文零通道名（不教 --human / MOFANG_SOURCE / pty / 交互终端 / 改配置）",
+              all(k not in p.stdout for k in
+                  ("--human", "MOFANG_SOURCE", "pty", "交互式终端", "设为 false")),
+              p.stdout[-300:])
+        check("V5 拒文要求停手并报告用户",
+              "停手" in p.stdout and "报告用户" in p.stdout, p.stdout[-300:])
         check("**审批没有被写入 progress.json**（守卫在任何写操作之前）",
               approved(tmp) is False, approved(tmp))
         entries = audit_entries(tmp)
@@ -162,24 +238,26 @@ def case_cli_refuses_non_human():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def case_cli_allows_human():
-    print("\n【4】人工来源三条通道都要放行（守卫不能变成 Always-Break）")
+def case_cli_declared_channels_dead():
+    print("\n【4】加固档：声明通道死透（V1/V2）—— --human / MOFANG_SOURCE=gui 照样被拒")
     tmp = build_root(agent_mode=True)
     try:
         p = run_approve(tmp, env_extra={"MOFANG_SOURCE": "gui"})
-        check("MOFANG_SOURCE=gui → 执行（approve 落地）", approved(tmp) is True,
-              p.stdout[-300:])
+        check("V2：MOFANG_SOURCE=gui → 照样拒绝（退 1）", p.returncode == 1, p.returncode)
+        check("V2：审批没有落地", approved(tmp) is False, approved(tmp))
+        check("V2：声明痕迹进 blocked 台账（不构成人工证据）",
+              any("不构成人工证据" in (e.get("detail") or "")
+                  for e in audit_entries(tmp)), audit_entries(tmp))
 
-        # --human 通道：重置 approved 再试
-        (tmp / "data" / "state" / "progress.json").write_text(
-            json.dumps({"project": "守卫测试书", "budget": {"paused": False},
-                        "stages": {"1": {"status": "done", "approved": False}}},
-                       ensure_ascii=False), encoding="utf-8")
         p2 = run_approve(tmp, extra_args=("--human",))
-        check("显式 --human → 执行（approve 落地）", approved(tmp) is True,
-              p2.stdout[-300:])
+        check("V1：--human → 照样拒绝（退 1）", p2.returncode == 1, p2.returncode)
+        check("V1：审批仍未落地", approved(tmp) is False, approved(tmp))
         entries = audit_entries(tmp)
-        check("放行也留痕（allowed）", any(e.get("status") == 0 for e in entries), entries)
+        check("两次尝试都留 blocked 台账",
+              sum(1 for e in entries if e.get("status") == 403) >= 2, entries)
+        # 注：正路「放行也留痕（allowed）」无法在 agent 宿主环境自验（加固档下
+        # 本机任何自动化形态都过不了祖先链 —— 这正是修复目标）；
+        # 真实终端的放行 + allowed 台账由红队/用户亲手 TTY 跑出（验收 2）。
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -226,11 +304,15 @@ def case_reject_cli_guarded():
         check("审计台账记 /reject 的 blocked",
               any(e["path"] == "/reject" and e["status"] == 403 for e in entries), entries)
         p2 = run_reject(tmp, env_extra={"MOFANG_SOURCE": "gui"})
-        check("MOFANG_SOURCE=gui → 放行（打回真的执行，退 0）",
-              p2.returncode == 0 and "Rejected stage 6" in p2.stdout, p2.stdout[-300:])
+        check("V2：reject 同样不认声明通道（打回也是拍板，照样拒）",
+              p2.returncode == 1, p2.returncode)
         st = json.loads((tmp / "data" / "state" / "progress.json").read_text("utf-8"))
-        check("放行后 progress.json 真的被写入 rejected",
-              "6" in st["stages"] and st["stages"]["6"].get("rejected"), st.get("stages"))
+        check("两次尝试都未写入 rejected（守卫先于一切写操作）",
+              st["stages"].get("6", {}).get("rejected") is None, st.get("stages"))
+        entries = audit_entries(tmp)
+        check("reject 两次 blocked 都在台账",
+              sum(1 for e in entries if e["path"] == "/reject" and e["status"] == 403) >= 2,
+              entries)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -250,6 +332,10 @@ def case_http_layer_uses_same_set():
         s = (ROOT / "scripts" / script).read_text(encoding="utf-8")
         check("%s 有 agent_mode 守卫（CLI 后门已堵）" % script,
               "agent_guard.agent_mode_enabled" in s and action in s, script)
+        check("%s 接线加固档（cli_human_evidence 传 agent_mode=True）" % script,
+              "agent_mode=True" in s, script)
+    check("HTTP 403 拒文共用零通道文案（V5，不教「仅 GUI」通道）",
+          "refusal_message(" in src and "仅 GUI 可执行" not in src)
 
 
 def main():
@@ -258,8 +344,9 @@ def main():
     print("=" * 62)
     case_shared_predicate()
     case_human_evidence()
+    case_agent_mode_strict()
     case_cli_refuses_non_human()
-    case_cli_allows_human()
+    case_cli_declared_channels_dead()
     case_standard_mode_unaffected()
     case_reject_cli_guarded()
     case_http_layer_uses_same_set()

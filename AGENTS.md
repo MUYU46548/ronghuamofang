@@ -88,8 +88,12 @@ orchestrator 启动横幅会打印生效值（`gates: auto_rewrite=… auto_refi
 **不再静默返空** —— stage5 空稿事故的同类根因。
 
 **Agent 模式守卫（CLI 侧）**：`gates.agent_mode=true` 时，`approve.py` / `reject.py` 会拒绝
-**非人工来源**。人工证据：交互式 TTY / `MOFANG_SOURCE=gui` / 显式 `--human`
-（判据与 HTTP 侧同一份：`utils/agent_guard.py`）。⚠️ 这不是沙箱，别对外宣称更强。
+**非人工来源**。人工证据 = **真实交互终端**：双端 `isatty` 只是前置快筛，主判据为
+**祖先进程链取证**（链须落在用户终端锚点 explorer/cmd/powershell/bash/WindowsTerminal，
+禁 node/python/pythonw/hermes*/winpty 等自动化宿主；取证失败或链截断 = fail-closed 拒）。
+`--human` 与 `MOFANG_SOURCE=gui` 在 agent_mode 下**不构成人工证据**——只当声明留痕进
+`agent_audit.jsonl`，不参与放行（2026-10-04 守卫加固 V1/V2）；拒绝文案零通道名，只说
+「停手并报告用户」（V5，拒文本身不教绕行）。⚠️ 这不是沙箱，别对外宣称更强。
 
 **控制台输出纪律**：`print` 里**不要**写非 GBK 字符（`¥`/`⚠️`/`✅`/emoji）——
 stdout 被管道捕获时 Python 用 cp936，一行日志就能 `UnicodeEncodeError` 打死长跑
