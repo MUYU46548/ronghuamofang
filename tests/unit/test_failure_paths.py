@@ -802,6 +802,115 @@ print("__RESULT__" + json.dumps({{
     check(pm_b.is_approved(2) is False, "F8 撤销后审批位被清")
 
 
+# ============================================================ F9 (#9 打回范围)
+def case_f9():
+    """F9 reject 范围扩展到 stage1（修复单 #9）。
+
+    背景：stage1 陪跑闸是合法审批点（gates.material_autonomy=false），用户实测
+    `reject.py --stage 1` 被 "valid: 2-7" 挡在门外。同时「打回 stage1 ≠ 空操作」
+    必须成立——setting.json/canon.json 若残留，stage1 的增量判据
+    （_pending_material_paths 读两者判「还有哪些素材没定稿」）重跑恒判无待归并。
+    """
+    print("\n【F9】reject stage1（#9：打回范围 2-7 → 1-7）")
+    sys.path.insert(0, str(REPO / "scripts"))
+    import reject as R
+
+    check(set(R.DOWNSTREAM_ARTIFACTS) == {1, 2, 3, 4, 5, 6, 7},
+          "F9 DOWNSTREAM_ARTIFACTS 覆盖 1-7 全阶段",
+          sorted(R.DOWNSTREAM_ARTIFACTS))
+    own1 = R.DOWNSTREAM_ARTIFACTS[1]
+    check("data/setting/setting.json" in own1 and "data/setting/canon.json" in own1,
+          "F9 stage1 清单含 setting.json + canon.json（否则重跑判「无待归并」空跑）",
+          own1[:3])
+    check("data/outline/global.md" in own1 and "data/chapters/refined" in own1,
+          "F9 stage1 清单含下游大纲与章节产物（自+下游语义）")
+    check(not any("history" in p for p in own1),
+          "F9 不清 history 备份（打回留退路）", own1)
+    api_src = (REPO / "scripts" / "nf_api.py").read_text(encoding="utf-8")
+    check("stage 须为 1-7" in api_src and "stage 须为 2-7" not in api_src,
+          "F9 HTTP /reject 报错口径同步为 1-7")
+    # 越界阶段：范围校验先于一切写操作，pm 传 None 也不会被用到
+    ok_bad, msgs_bad = R.reject_stage(None, 99, "")
+    check(ok_bad is False and any("1-7" in m for m in msgs_bad),
+          "F9 越界阶段仍被拒且提示 1-7", msgs_bad)
+
+    # ---- 行为面：沙盒里真打回 stage1 ----
+    root = build_sandbox("nf_f9_")
+    code = f'''
+import sys, json, os
+sys.path.insert(0, r"{root / 'scripts'}")
+sys.path.insert(0, r"{root}")
+os.chdir(r"{root}")
+from pathlib import Path
+from utils.file_io import write_text
+from utils.progress_manager import ProgressManager
+import reject as R
+
+# 造 stage1~8 完成态 + stage1 自己与下游产物
+for d in ("data/setting", "data/outline", "data/chapters/refined", "output"):
+    Path(d).mkdir(parents=True, exist_ok=True)
+for f in ("data/setting/setting.json", "data/setting/canon.json",
+          "data/setting/material_review.md", "data/setting/vault_links.md",
+          "data/setting/scraps_merge.json", "data/setting/scraps_merge_b01.json",
+          "data/outline/global.md"):
+    write_text(f, "{{}}")
+write_text("data/chapters/refined/01.md", "x")
+write_text("output/book.docx", "x")
+
+pm = ProgressManager("data/state/progress.json")
+for n in range(1, 9):
+    pm.data["stages"][str(n)]["status"] = "done"
+pm.data["stages"]["1"]["approved"] = True
+pm.save()
+
+ok, msgs = R.reject_stage(pm, 1, "重做素材归并", dry_run=False)
+pm2 = ProgressManager("data/state/progress.json")
+print("__RESULT__" + json.dumps({{
+    "ok": ok,
+    "unsupported": [m for m in msgs if "Unsupported" in m],
+    "setting": Path("data/setting/setting.json").exists(),
+    "canon": Path("data/setting/canon.json").exists(),
+    "material_review": Path("data/setting/material_review.md").exists(),
+    "vault_links": Path("data/setting/vault_links.md").exists(),
+    "scraps": Path("data/setting/scraps_merge.json").exists(),
+    "scraps_b01": Path("data/setting/scraps_merge_b01.json").exists(),
+    "global": Path("data/outline/global.md").exists(),
+    "refined": Path("data/chapters/refined").exists(),
+    "st1_status": pm2.data["stages"]["1"].get("status"),
+    "st1_approved": pm2.data["stages"]["1"].get("approved"),
+    "st1_rejected": bool(pm2.data["stages"]["1"].get("rejected")),
+    "st2": pm2.data["stages"]["2"].get("status"),
+    "st8": pm2.data["stages"]["8"].get("status"),
+    "next": [m for m in msgs if m.startswith("Next:")],
+}}, ensure_ascii=False))
+'''
+    p, out, errout = run_py(root, code)
+    if p is None:
+        check(False, "F9 子进程产出结果", f"stdout={out[-800:]} stderr={errout[-800:]}")
+        return
+    print("  打回 stage1 后: " + json.dumps(
+        {k: v for k, v in p.items() if k not in ("unsupported", "next")},
+        ensure_ascii=False))
+    check(p["ok"] is True, "F9 reject --stage 1 不再被范围校验拦下",
+          f"unsupported={p['unsupported']}")
+    check(not p["setting"] and not p["canon"],
+          "F9 stage1 自己的产物被清（setting.json + canon.json）", p["setting"])
+    check(not p["material_review"] and not p["vault_links"],
+          "F9 体检报告与溯源索引一并清除", (p["material_review"], p["vault_links"]))
+    check(not p["scraps"] and not p["scraps_b01"],
+          "F9 碎片归并产物（含分批 glob）被清", (p["scraps"], p["scraps_b01"]))
+    check(not p["global"], "F9 上游大纲作废（global.md 清除）", p["global"])
+    check(not p["refined"], "F9 下游章节产物被清", p["refined"])
+    check(p["st1_status"] == "rejected" and p["st1_rejected"] is True,
+          "F9 stage1 状态置 rejected + 原因留档",
+          (p["st1_status"], p["st1_rejected"]))
+    check(p["st1_approved"] is None, "F9 stage1 审批位被撤销（防旧审批背书新产物）",
+          p["st1_approved"])
+    check(p["st2"] == "pending" and p["st8"] == "pending",
+          "F9 下游 2..8 全部重置 pending", (p["st2"], p["st8"]))
+    check(any("--from 1" in m for m in p["next"]), "F9 提示续跑命令 --from 1", p["next"])
+
+
 # ====================================================================== S9
 def case_s9():
     """S9（本轮 F3 用例暴露的新缺陷）：阶段键集与编排遍历范围失同步。
@@ -877,7 +986,7 @@ def main():
     print("F1~F8 失败路径回归（FakeClient 恒成功盲区）")
     print("=" * 72)
     for fn in (case_f1_f2, case_f3, case_f4, case_f5, case_f6, case_f7,
-               case_f8, case_s9):
+               case_f8, case_f9, case_s9):
         try:
             fn()
         except Exception:

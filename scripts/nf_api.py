@@ -1961,7 +1961,7 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/reject":
                 stage = int(body.get("stage") or 0)
                 if stage not in reject_mod.DOWNSTREAM_ARTIFACTS:
-                    self._send(400, {"error": "stage 须为 2-7"})
+                    self._send(400, {"error": "stage 须为 1-7"})
                     return
                 ok, msg = act_reject(stage, str(body.get("reason") or ""),
                                      dry_run=bool(body.get("dry_run")))

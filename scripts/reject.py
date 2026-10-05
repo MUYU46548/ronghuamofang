@@ -25,6 +25,21 @@ from utils.progress_manager import ProgressManager
 
 
 # Artifact directories to clean when rejecting stage N (self + downstream)
+#
+# ⚠️ 阶段 1 的「自己 + 下游」在字面量之后拼装（见 DOWNSTREAM_ARTIFACTS[1]）：
+# 自己的产物必须清，否则打回是空操作——stage1 的增量判据
+# （stage1_consolidate._pending_material_paths）读 setting.json + canon.json 判断
+# 「还有哪些素材没定稿」，两者留着，重跑会判「无未定稿素材」直接空跑。
+# 与 stage3 漏清 data/outline/chapters 是同一类坑（见下方 3: 的注释）。
+STAGE1_OWN_ARTIFACTS = [
+    "data/setting/setting.json",      # 归并产物（stage1 的 STAGE_ARTIFACTS 主项）
+    "data/setting/canon.json",        # 审批冻结的定稿快照——不清则增量判据恒「无待归并」
+    "data/setting/material_review.md",  # 素材体检报告（stage1 后自动产出）
+    "data/setting/materials_manifest.json",
+    "data/setting/merge_audit.json",
+    "data/setting/vault_links.md",    # 素材→设定条目溯源（归并后自动生成）
+    "data/setting/scraps_merge*.json",  # 碎片归并产物（含分批 scraps_merge_bNN.json，走 glob）
+]
 DOWNSTREAM_ARTIFACTS = {
     2: ["data/outline/chapters", "data/chapters/raw", "data/chapters/checked",
         "data/chapters/refined", "data/summaries", "data/merged", "output"],
@@ -45,6 +60,15 @@ DOWNSTREAM_ARTIFACTS = {
     7: ["data/merged", "output"],
 }
 
+# 阶段 1 = 自己的产物 + 全部下游（下游清单与 stage2 逐字同源，避免两处漂移）。
+# 2026-10-05 #9：stage1 陪跑闸是合法审批点（gates.material_autonomy=false，
+# orchestrator.py 审批段），打回却一直被 "valid: 2-7" 挡在门外——用户实测的报错原文。
+DOWNSTREAM_ARTIFACTS[1] = (
+    STAGE1_OWN_ARTIFACTS
+    + ["data/outline/global.md"]       # 上游作废 → 大纲本体一并清（重跑 stage2 会重出）
+    + DOWNSTREAM_ARTIFACTS[2]
+)
+
 STAGE_LABEL = {
     1: "Materials", 2: "Global Outline", 3: "Chapter Outlines", 4: "Writing",
     5: "Check", 6: "Polish", 7: "Word",
@@ -55,6 +79,10 @@ def collect_artifacts(stage):
     """Collect artifact paths to clean when rejecting stage N."""
     paths = []
     for rel in DOWNSTREAM_ARTIFACTS.get(stage, []):
+        if any(ch in rel for ch in "*?["):
+            # 含通配（如 scraps_merge*.json 分批产物）→ 展开全部命中，不命中即空
+            paths.extend(sorted(Path().glob(rel)))
+            continue
         p = Path(rel)
         if p.exists():
             paths.append(p)
@@ -66,7 +94,7 @@ def reject_stage(pm, stage, reason="", dry_run=False):
     msgs = []
 
     if stage not in DOWNSTREAM_ARTIFACTS:
-        return False, [f"Unsupported stage: {stage} (valid: 2-7)"]
+        return False, [f"Unsupported stage: {stage} (valid: 1-7)"]
 
     # Safety: snapshot before destructive ops
     if not dry_run:
@@ -127,7 +155,7 @@ def reject_stage(pm, stage, reason="", dry_run=False):
 def main():
     parser = argparse.ArgumentParser(description="NovelForge reject/rerun normalization")
     parser.add_argument("--stage", type=int, required=True,
-                        help="Stage to reject (2-7; downstream artifacts cleaned)")
+                        help="Stage to reject (1-7; self + downstream artifacts cleaned)")
     parser.add_argument("--reason", default="", help="Rejection reason (recorded in progress.json)")
     parser.add_argument("--dry-run", action="store_true",
                         help="Show what would be cleaned without executing")
