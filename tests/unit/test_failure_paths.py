@@ -621,6 +621,10 @@ def case_f7():
             "const app = { getPath: () => WORKSPACE };\n"
             "process.resourcesPath = ROOT;\n"
             "function getWorkspaceDir() { return WORKSPACE };\n"
+            # 2026-10-04 Step 4c 根修：seedWorkspace 新增依赖（显式配置的项目根
+            # 不播种）。probe 环境 = 打包态默认工作区 → source 恒为 'default'，
+            # 播种流程照旧，F7 的行为断言不变。
+            "function getWorkspaceSource() { return 'default' };\n"
             + re.search(r"const SEED_VERSION = \d+;", src).group(0) + "\n"
             + re.search(r"const SEED_CODE_DIRS = \[[^\]]*\];", src).group(0) + "\n"
             + re.search(r"const SEED_CONFIG_DIR = \"[^\"]*\";", src).group(0) + "\n"

@@ -6,6 +6,8 @@ const path = require("path");
 const fs = require("fs");
 const { shouldGuardClose, closeAskTimedOut, killTreeArgv,
         shouldRetryPortProbe, MAX_PORT_PROBE_RETRIES } = require("./quitGuard");
+// 项目根显式解析（2026-10-04 Step 4c 根修）：纯函数模块，node 可直测
+const { configFileFor, resolveProjectRoot, persistRoot } = require("./project-root");
 
 // ---------------------------------------------------------------------------
 // 退出守卫状态（2026-10-03：修「关不掉」）
@@ -161,7 +163,7 @@ const PY = isPackaged
   : path.join(ROOT, ".venv", "Scripts", "pythonw.exe");
 const API_PORT = 8765;
 
-// 工作区目录（可写）—— **按态分流**：
+// 工作区目录（可写）—— 默认值**按态分流**：
 //   打包态 → %APPDATA%\绒花墨坊\workspace
 //            用户可写、与安装目录解耦，升级不丢数据；便携版不放 temp
 //            （每次解压路径不同 + 旧进程锁目录 = 端口冲突）
@@ -171,9 +173,49 @@ const API_PORT = 8765;
 //            此前源码态也走 appdata，后果是「改项目代码零生效 + 界面看到的是
 //            一个空壳工作区（书名待填写 / 暂无素材 / API 未配置）」，开发时
 //            完全无法自测，且不报任何错（2026-09-23 排查）。
-function getWorkspaceDir() {
+//
+// ⚠️ 2026-10-04 根修（修复单 Step 4c）：默认值之上还有**显式配置**层 ——
+// 项目根优先由 --project-root 启动参数 / NF_ROOT 环境变量 / 记忆配置文件决定
+// （实现与优先级见 project-root.js），消除「安装版 GUI 无条件指 %APPDATA%
+// 工作区 → 与 orchestrator 源码树静默分裂」（双 progress.json、审批门不可见、
+// GUI 批准落空 —— 本轮试写事故 P0 病根）。解析结果连同来源
+// （source=cli|env|config|default）打启动日志，**无静默回退**。
+function defaultWorkspaceDir() {
   if (!isPackaged) return ROOT;
   return path.join(app.getPath("appData"), "绒花墨坊", "workspace");
+}
+
+let projectRootResolved = null;   // { root, source } —— 解析一次，进程内恒定
+
+function resolveAndRememberProjectRoot() {
+  const cliRoot = app.commandLine.hasSwitch("project-root")
+    ? app.commandLine.getSwitchValue("project-root") : "";
+  const envRoot = process.env.NF_ROOT || "";
+  const cfgFile = configFileFor(app.getPath("appData"));
+  const hit = resolveProjectRoot({
+    cliRoot, envRoot, configFile: cfgFile, defaultDir: defaultWorkspaceDir(),
+    log: console.log, warn: console.warn,
+  });
+  if (cliRoot && hit.source === "cli") {
+    // 「启动参数记住项目根」：写进配置文件，下次启动不再需要参数
+    if (persistRoot(cfgFile, hit.root, fs)) {
+      console.log("[console] projectRoot 已记住 →", cfgFile);
+    } else {
+      console.warn("[console] projectRoot 记忆写入失败（本次运行仍生效）:", cfgFile);
+    }
+  }
+  projectRootResolved = hit;
+  return hit;
+}
+
+function getWorkspaceDir() {
+  if (!projectRootResolved) resolveAndRememberProjectRoot();
+  return projectRootResolved.root;
+}
+
+function getWorkspaceSource() {
+  getWorkspaceDir();
+  return projectRootResolved.source;
 }
 
 // 种子版本号。**改动 payload 内容（scripts/ 或 prompts/）时必须 +1**，
@@ -276,6 +318,15 @@ function seedWorkspace() {
   // 会「自己复制自己」，Node 直接抛 ERR_FS_CP_EINVAL。
   if (!isPackaged) {
     console.log("[console] seedWorkspace: 源码态跳过播种（workspace = 项目根）");
+    return;
+  }
+
+  // 显式配置的项目根（--project-root / NF_ROOT / 记忆配置）**绝不播种**：
+  // 它可能指向用户的源码仓库，payload 播种（升级时 force 覆盖）会把外部项目
+  // 的 scripts/prompts 换成本次安装包的快照 —— 播种只属于默认工作区。
+  if (getWorkspaceSource() !== "default") {
+    console.log("[console] seedWorkspace: 项目根为显式配置（source="
+                + getWorkspaceSource() + "），跳过播种（保护外部项目代码）");
     return;
   }
 
