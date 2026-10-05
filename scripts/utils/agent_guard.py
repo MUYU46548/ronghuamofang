@@ -339,14 +339,19 @@ def refusal_message(action, evidence, entry="CLI"):
 
 
 def log_audit(path, method="POST", status=200, source="gui", detail="", root=None):
-    """审计日志（data/state/agent_audit.jsonl）。**任何异常都不得影响主流程**。"""
+    """审计日志（data/state/agent_audit.jsonl）。**任何异常都不得影响主流程**。
+
+    detail 上限 600 字符（2026-10-05 红队实测修正：原 [:120] 会把祖先链证据之后的
+    **声明痕迹**切掉——链文本一长，`声明来源=gui / 声明--human` 就只剩半句
+    「；附带声明（不构」，V1/V2 的留痕可追责性被自己截没了）。
+    """
     try:
         base = Path(root) if root else Path(".")
         target = base / AUDIT_LOG_PATH
         target.parent.mkdir(parents=True, exist_ok=True)
         entry = json.dumps({
             "ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "method": method, "path": path,
-            "status": status, "source": source, "detail": str(detail)[:120],
+            "status": status, "source": source, "detail": str(detail)[:600],
         }, ensure_ascii=False)
         with open(target, "a", encoding="utf-8", newline="\n") as f:
             f.write(entry + "\n")

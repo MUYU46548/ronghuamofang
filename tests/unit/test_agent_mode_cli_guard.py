@@ -338,6 +338,35 @@ def case_http_layer_uses_same_set():
           "refusal_message(" in src and "仅 GUI 可执行" not in src)
 
 
+def case_audit_detail_intact():
+    print("\n【8】审计 detail 不截断声明痕迹（红队 2026-10-05 实测发现的自伤）")
+    tmp = Path(tempfile.mkdtemp(prefix="nf_audit_"))
+    try:
+        # 真实尺寸：16 跳祖先链 + 声明痕迹（原 [:120] 在这个长度必切到声明）
+        chain = " → ".join(["python.exe", "cmd.exe", "python.exe", "bash.exe",
+                            "Hermes.exe", "explorer.exe"] * 3)
+        ev = ("blocked: 祖先链含自动化宿主 python.exe（链: %s）；附带声明"
+              "（不构成人工证据）: 声明来源=gui、声明--human" % chain)
+        check("回归现场：该证据确实超过原 120 上限", len(ev) > 120, len(ev))
+        agent_guard.log_audit("/approve", method="CLI", status=403, source="gui",
+                              detail=ev, root=str(tmp))
+        p = tmp / "data" / "state" / "agent_audit.jsonl"
+        entry = json.loads(p.read_text(encoding="utf-8").splitlines()[0])
+        check("声明痕迹在台账完整可读（V1/V2 留痕可追责）",
+              "不构成人工证据" in entry["detail"] and "声明--human" in entry["detail"],
+              entry["detail"][-160:])
+        check("进程链在台账完整可读", "explorer.exe" in entry["detail"],
+              entry["detail"][:160])
+        # 上限仍在（防有人直接删 cap 导致 JSONL 无界膨胀）
+        agent_guard.log_audit("/x", method="POST", status=200, source="gui",
+                              detail="Z" * 5000, root=str(tmp))
+        last = json.loads(p.read_text(encoding="utf-8").splitlines()[-1])
+        check("detail 仍有上限（≤600，防 JSONL 无界膨胀）",
+              len(last["detail"]) <= 600, len(last["detail"]))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def main():
     print("=" * 62)
     print("  Agent 模式 CLI 守卫自检（P2）")
@@ -350,6 +379,7 @@ def main():
     case_standard_mode_unaffected()
     case_reject_cli_guarded()
     case_http_layer_uses_same_set()
+    case_audit_detail_intact()
     print("\n" + "=" * 62)
     print("  通过 %d / 失败 %d" % (len(PASS), len(FAIL)))
     for f in FAIL:
