@@ -74,10 +74,17 @@ def load_config_yaml(path, default=None):
 
     - 文件不存在：返回 default（缺省 None）—— 「未初始化」是合法状态，不该抛。
     - 重复键 / 语法错误：抛 `ConfigError`（带行号与修法）。
+    - **相对路径 = CWD 项目优先，缺失才回退脚本仓根**（与
+      `agent_guard.load_project_config` 同一判据，2026-10-05 统一）。
+      为什么不是「固定解到仓根」：数据侧（progress.json / data/ 产物）全是 **CWD 相对**
+      = 正在操作的那个项目；配置若固定读脚本仓根，就是「按 B 项目的配置写 A 项目的数据」。
+      2026-10-04 A0 把相对路径一律解到仓根，本为修非仓库根 CWD 的 FileNotFoundError，
+      却顺带架空了所有依赖 chdir 的调用方（审稿重试 / 自动重写两组测试同源挂掉即此）。
     """
     p = Path(path)
     if not p.is_absolute():
-        p = ROOT / p
+        cwd_p = Path.cwd() / p
+        p = cwd_p if cwd_p.exists() else (ROOT / p)
     if not p.exists():
         if isinstance(default, Exception):
             raise default

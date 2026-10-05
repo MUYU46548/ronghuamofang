@@ -184,11 +184,17 @@ def case_estimate_shows_gate():
     check("文本模式也打印 token 闸门行（不能只有 JSON 有）", "token 闸门" in text, text[-200:])
     check("文本里带上限数字", "10000000" in text, text[-200:])
 
-    # 反证：把上限调到极小 → 必须给出"跑完将撞闸门"的提示
+    # 反证：把上限压到**校验下限 100000**（validate_token_limit 的最小值，
+    # normalize 会把低于下限的配置回落预设——不能设得更小），并把本轮估算放大到必超下限。
+    # 写死「估算 > 100000」会让本用例随仓库 data/ 漂移假红（2026-10-05 修：
+    # 判据与数据解耦——重复投喂 stage4 直到估算 ≥ 200000，再用下限做对照）。
+    est = (res.get("token_limit") or {}).get("estimated_tokens") or 0
+    check("前提：本轮估算 > 0（否则反证无意义）", est > 0, est)
+    repeat = max(1, -(-200000 // max(int(est), 1)))
     cfg = load_config_yaml(ROOT / "config" / "system.yaml")
     cfg["budget"]["token_limit"] = dict(cfg["budget"]["token_limit"])
     cfg["budget"]["token_limit"]["max_total_tokens"] = 100000
-    res2 = et.estimate(stages=[4], cfg=cfg,
+    res2 = et.estimate(stages=[4] * repeat, cfg=cfg,
                        proj=load_config_yaml(ROOT / "config" / "project.yaml"),
                        use_history=False)
     check("小上限 → exceeds=True", (res2.get("token_limit") or {}).get("exceeds") is True,

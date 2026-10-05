@@ -88,16 +88,14 @@ _ANCESTRY_UNSET = object()
 def load_project_config():
     """CLI 守卫读配置：**CWD 项目优先**，缺文件回退脚本仓根（两侧共用的单一实现）。
 
-    为什么不能用 config_io 的默认相对解析（非绝对路径固定解到脚本仓根）：
-    approve/reject 的 progress.json 是 **CWD 相对**（= 所操作项目的根），
-    配置若读到另一个仓，就出现「批 A 项目的进度、按 B 项目的 agent_mode 判」——
-    测试床与多项目/`--root` 场景同源（2026-10-04 修复单 Step 4 回归发现）。
+    判据自 2026-10-05 起统一实现在 `config_io.load_config_yaml`（相对路径 CWD 优先、
+    缺失回退仓根）—— 本函数只做「守卫读配置绝不抛」的容错包装。
+    为什么必须 CWD 优先：approve/reject 的 progress.json 是 **CWD 相对**（= 所操作
+    项目的根），配置若读到另一个仓，就出现「批 A 项目的进度、按 B 项目的 agent_mode 判」
+    （2026-10-04 修复单 Step 4 回归发现；测试床与多项目/`--root` 场景同源）。
     """
     try:
         from utils.config_io import load_config_yaml
-        cwd_cfg = Path("config/system.yaml")
-        if cwd_cfg.exists():
-            return load_config_yaml(str(cwd_cfg.resolve())) or {}
         return load_config_yaml("config/system.yaml") or {}
     except Exception:                                       # noqa: BLE001
         return {}
