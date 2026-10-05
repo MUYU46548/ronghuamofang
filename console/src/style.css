@@ -1523,3 +1523,16 @@ kbd {
 
 /* 运行进度条 */
 .runbar .run-cost { color: var(--warn); font-size: 12px; }
+
+/* 模型使用免责声明静态卡片（2026-10-04；文案由用户指定原样照录，勿改写） */
+.model-disclaimer {
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--warn);
+  background: var(--field);
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin: 10px 0 4px;
+  font-size: 13px;
+  line-height: 1.75;
+  color: var(--muted-foreground);
+}

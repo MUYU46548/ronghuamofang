@@ -8,7 +8,7 @@ const props = defineProps({
   api: { type: Function, required: true },   // App.vue 的 api(path, method, body)
   book: { type: String, default: "" },
 });
-const emit = defineEmits(["close", "goto"]);
+const emit = defineEmits(["close", "goto", "disclaimer"]);
 
 const info = ref(null);
 const loading = ref(false);
@@ -191,6 +191,7 @@ const STEPS = [
             <button class="mini" @click="openExternal(info.repo + '/releases')">下载新版本</button>
             <button class="mini" @click="openExternal(info.repo + '/blob/main/LICENSE')">开源许可（MIT）</button>
             <button class="mini" @click="openExternal(info.repo + '/issues')">问题反馈</button>
+            <button class="mini" @click="$emit('disclaimer')" title="AI 订阅合规 / 内容权属 / 风险自担 · 首次使用需确认">免责声明</button>
             <button class="mini" @click="$emit('close'); $emit('goto', 'settings')">设置与密钥</button>
           </div>
           <div class="meta" style="margin-top: 8px;">

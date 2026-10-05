@@ -12,6 +12,8 @@ import ProofreadPanel from "./ProofreadPanel.vue";
 import StylePanel from "./StylePanel.vue";
 import CommandPalette from "./CommandPalette.vue";
 import AboutDialog from "./AboutDialog.vue";
+import DisclaimerDialog from "./DisclaimerDialog.vue";
+import { hasAckedDisclaimer, ackedDisclaimerAt } from "./disclaimer.js";
 import NewProjectWizard from "./NewProjectWizard.vue";
 import QualityTrend from "./QualityTrend.vue";
 
@@ -1898,6 +1900,16 @@ const helpOpen = ref(false);
 
 /* ---------- 关于 / 新建项目（发布级入口） ---------- */
 const aboutOpen = ref(false);
+
+// 免责声明弹窗：first-run=首启强制（未同意不可关）；view=随时查看（关于/命令面板/设置页）
+const disclaimerOpen = ref(false);
+const disclaimerMode = ref("view");
+const disclaimerAckedAt = ref("");
+function openDisclaimer(mode = "view") {
+  disclaimerMode.value = mode;
+  disclaimerAckedAt.value = ackedDisclaimerAt();
+  disclaimerOpen.value = true;
+}
 const newProjectOpen = ref(false);
 
 function openAbout() { aboutOpen.value = true; }
@@ -2007,8 +2019,9 @@ function onGlobalKey(e) {
     if (helpOpen.value) { helpOpen.value = false; return; }
     return;
   }
-  // 弹层打开时不吃其它按键（交给弹层自己处理）
+  // 弹层打开时不吃其它按键（交给弹层自己处理）；免责声明首启强制模式同样锁键
   if (paletteOpen.value || helpOpen.value) return;
+  if (disclaimerOpen.value && disclaimerMode.value === "first-run") return;
   if (isTypingTarget(e.target) || e.ctrlKey || e.metaKey || e.altKey) return;
   if (k === "?") { e.preventDefault(); helpOpen.value = true; return; }
   const tag = (e.target?.tagName || "").toLowerCase();
@@ -2079,6 +2092,7 @@ const commands = computed(() => {
   }
   cs.push({ id: "logs", group: "诊断", label: "查看运行日志", desc: "orchestrator / nf_api 输出尾部", keywords: "log 日志 报错" });
   cs.push({ id: "about", group: "诊断", label: "关于绒花墨坊", desc: "版本 / 运行环境 / 数据位置 / 许可证", keywords: "about 关于 版本 许可" });
+  cs.push({ id: "disclaimer", group: "诊断", label: "查看免责声明", desc: "AI 订阅合规 / 内容权属 / 风险自担 · 首次使用需确认", keywords: "disclaimer 免责 声明 条款 合规" });
   cs.push({ id: "refresh", group: "诊断", label: "刷新状态", hint: "R", keywords: "refresh 刷新" });
   cs.push({ id: "help", group: "诊断", label: "快捷键说明", hint: "?", keywords: "help 快捷键" });
   cs.push({ id: nextPopupDismissed.value ? "popup.on" : "popup.off", group: "诊断",
@@ -2101,6 +2115,7 @@ async function runCommand(id) {
   if (id === "next") return runNextAction();
   if (id === "newproject") return openNewProject();
   if (id === "about") return openAbout();
+  if (id === "disclaimer") return openDisclaimer("view");
   if (id === "flow.all") return runPipelineFull();
   if (id === "flow.stream") return runPipelineStreamFull();
   if (id === "publish") return runPublish();
@@ -2470,6 +2485,10 @@ onMounted(() => {
       }
     };
     updaterCleanup = window.mofangAPI.onUpdater(updaterHandler);
+  }
+  // 免责声明首启强制确认（先于向导/引导/updater——合规确认优先于一切 UX）
+  if (!hasAckedDisclaimer()) {
+    openDisclaimer("first-run");
   }
   // 首次检查是否需要显示初始化向导
   checkInitWizard();
@@ -3318,6 +3337,8 @@ onUnmounted(() => {
         <h3>引擎与模型（config/system.yaml）</h3>
         <button class="mini" @click="refreshModels" title="从 config/system.yaml 重载">刷新</button>
       </div>
+      <!-- 模型使用免责声明（2026-10-04 用户指定文案，原样照录，静态展示，勿改写） -->
+      <div class="model-disclaimer">若您的AI订阅仅可在编程工具（如 OpenClaw、OpenCode 等）中使用，请务必开启绒花墨坊的Agent模式，使用外部Agent调用绒花墨坊。否则您可能因以API调用的形式用于自动化脚本、自定义应用程序后端等被AI提供商封禁。因此造成的一切损失与绒花墨坊无关。若您继续使用绒花墨坊，则代表您已知悉并同意以上内容。</div>
       <div class="meta">
         engine: {{ models.engine }} · 下拉来源：{{ modelSource === 'fetched' ? '服务商动态拉取' : 'config 手写列表' }}
         <button class="mini" style="margin-left: 8px;" @click="refreshFetchedModels" :disabled="fetchingModels">
@@ -3385,6 +3406,12 @@ onUnmounted(() => {
         <b>配置 Key 只需点上面的「填入 Key」</b>，不必手动编辑文件。.env 含明文密钥，
         故刻意不提供「用外部编辑器一键打开」（编辑器插件 / AI 工具可能读取）；
         确需手动编辑时，用「在文件夹中显示」定位后自行打开。
+      </div>
+      <div class="art-row" style="margin-top: 10px;">
+        <span class="pill st-done">免责声明</span>
+        <span class="meta">AI 订阅合规 · 内容权属 · 风险自担 · 首次使用需确认</span>
+        <span class="spacer"></span>
+        <button class="mini" @click="openDisclaimer('view')">查看完整声明</button>
       </div>
 
       <!-- P1: 审批门通知 -->
@@ -4005,7 +4032,13 @@ onUnmounted(() => {
   <!-- 关于（左上皮牌点击打开）：版本 / 环境 / 数据位置 / 快速上手 / 许可 -->
   <AboutDialog :open="aboutOpen" :api="api" :book="state ? state.book : ''"
                @close="aboutOpen = false"
-               @goto="(t) => { aboutOpen = false; switchTab(t); }" />
+               @goto="(t) => { aboutOpen = false; switchTab(t); }"
+               @disclaimer="aboutOpen = false; openDisclaimer('view')" />
+
+  <!-- 免责声明：首启强制确认（未勾选不可关）/ 随时查看（关于 · 命令面板 · 设置页） -->
+  <DisclaimerDialog :open="disclaimerOpen" :mode="disclaimerMode" :acked-at="disclaimerAckedAt"
+                    @close="disclaimerOpen = false"
+                    @ack="disclaimerOpen = false; say('已确认免责声明，祝创作顺利')" />
 
   <!-- 新建项目向导（项目页签 / 命令面板入口） -->
   <NewProjectWizard :open="newProjectOpen" :api="api"

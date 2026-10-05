@@ -105,6 +105,7 @@ def new_page(browser, api_base, tag):
             if r.status >= 400 and "/favicon" not in r.url else None)
     page.goto(SITE, wait_until="domcontentloaded")
     page.wait_for_timeout(2500)
+    settle_disclaimer(page)   # 首启强制免责声明：全新 profile 必弹，先验后放行
     return ctx, page, errs, bad
 
 
@@ -113,6 +114,57 @@ def shot(page, name, full=False):
     page.screenshot(path=str(p), full_page=full)
     print("      shot → %s" % p.name)
     return p
+
+
+# 免责声明首启门只在第一个上下文跑行为断言（后续上下文走同一放行流即可）
+_DISCLAIMER_VERIFIED = [False]
+
+
+def settle_disclaimer(page):
+    """首启免责声明强制弹窗（2026-10-05 · DisclaimerDialog A/B 双版）的处理。
+
+    全新浏览器 profile 没有 `mofang_disclaimer_ack_v*` → App.vue onMounted 弹出
+    first-run 真锁模态（z-60 压全抽屉、焦点困于弹窗内），不处理会把后续所有点击拦死
+    （2026-10-05 实测：卡在「跳过确认框」，报 disclaimer-mask intercepts pointer events）。
+    这里**先跑该门的行为断言（仅首次），再走完真实勾选流放行**——不是绕过，是把这道闸
+    纳入真机验收；勾选流本身也验证了「滚到底才解锁 → 同意 → ack 落 localStorage」。
+    """
+    if page.locator(".disclaimer-mask.forced").count() == 0:
+        check("首启强制免责声明弹出（无 ack 的全新 profile 必弹）",
+              False, "弹窗未出现（首启门失效或 ack 被残留）")
+        return False
+    if not _DISCLAIMER_VERIFIED[0]:
+        _DISCLAIMER_VERIFIED[0] = True
+        check("首启强制免责声明弹出（无 ack 的全新 profile 必弹）", True)
+        check("弹窗语义=对话框（role=dialog + aria-modal）",
+              page.locator(".disclaimer-dlg[role=dialog][aria-modal=true]").count() == 1)
+        agree = page.locator(".disclaimer-dlg button:has-text('我已阅读并同意')")
+        check("「我已阅读并同意」按钮存在且未滚到底前禁用",
+              agree.count() == 1 and agree.first.is_disabled(),
+              "count=%d disabled=%s" % (agree.count(),
+                                        agree.first.is_disabled() if agree.count() else "-"))
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(250)
+        check("ESC 无旁路（强制模式弹窗不关）",
+              page.locator(".disclaimer-mask").count() == 1)
+        shot(page, "E1_disclaimer_first_run")
+    # 滚到底 → 解锁勾选 → 同意（与用户真实路径一致）
+    page.locator(".disclaimer-body").evaluate("el => { el.scrollTop = el.scrollHeight; }")
+    page.wait_for_timeout(350)
+    cb = page.locator(".disclaimer-check input")
+    agree = page.locator(".disclaimer-dlg button:has-text('我已阅读并同意')")
+    if cb.count() and cb.first.is_enabled() and agree.count():
+        cb.first.check()
+        page.wait_for_timeout(150)
+        agree.first.click()
+        page.wait_for_timeout(450)
+        check("滚到底后勾选解锁 → 同意生效 → 弹窗关闭且 ack 落 localStorage",
+              page.locator(".disclaimer-mask").count() == 0
+              and page.evaluate("() => !!localStorage.getItem('mofang_disclaimer_ack_v1')"))
+    else:
+        check("滚到底后勾选解锁", False,
+              "勾选框=%s 同意按钮=%s" % (cb.count(), agree.count()))
+    return True
 
 
 def test_mock(browser):
@@ -537,6 +589,15 @@ def test_about_project(browser, mock_proc=None):
         check("命令面板能搜到「新建项目」", any("新建项目" in t for t in labels), labels[:3])
         page.keyboard.press("Escape")
         page.wait_for_timeout(200)
+        page.keyboard.press("Control+k")
+        page.wait_for_timeout(300)
+        page.fill(".cmd-input", "免责")
+        page.wait_for_timeout(250)
+        labels = page.locator(".cmd-item .cmd-label").all_inner_texts()
+        check("命令面板能搜到「查看免责声明」（常驻入口之一）",
+              any("免责声明" in t for t in labels), labels[:3])
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(200)
 
         print("  --- 流水线条上的 token 闸门（hermes 下唯一有效的止烧观测面）---")
         page.locator(".tabs button:has-text('流水线')").click()
@@ -552,6 +613,11 @@ def test_about_project(browser, mock_proc=None):
         print("  --- 止烧阈值面板（设置页：读值 → 恢复默认预设 → 明确反馈）---")
         page.locator(".tabs button:has-text('设置')").click()
         page.wait_for_timeout(700)
+        check("设置页有免责声明入口（pill + 查看完整声明按钮）",
+              page.locator(".pill:has-text('免责声明')").count() >= 1
+              and page.locator("button:has-text('查看完整声明')").count() >= 1,
+              (page.locator(".pill:has-text('免责声明')").count(),
+               page.locator("button:has-text('查看完整声明')").count()))
         check("止烧面板渲染（网格 + 四个字段）", page.locator(".tl-grid").count() == 1
               and page.locator(".tl-field").count() >= 4,
               page.locator(".tl-field").count())
