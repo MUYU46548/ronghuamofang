@@ -108,7 +108,7 @@ const STEPS = [
       <div class="about-head">
         <span class="brand-mark">绒</span>
         <div>
-          <div class="about-title">绒花墨坊<span class="about-ver">v{{ info?.version || "…" }}</span></div>
+          <div class="about-title">绒花墨坊<span class="about-ver">v{{ app?.version || info?.version || "…" }}</span></div>
           <div class="meta">全自动长篇小说生成系统 · 内部代号 NovelForge</div>
         </div>
         <span class="spacer"></span>
@@ -134,7 +134,7 @@ const STEPS = [
           <h4 class="about-h">运行环境</h4>
           <table class="cost-table">
             <tbody>
-              <tr><td style="width:130px;">绒花墨坊</td><td>v{{ info.version }}</td>
+              <tr><td style="width:130px;">绒花墨坊</td><td>v{{ app?.version || info.version }}</td>
                   <td style="width:110px;">Python</td><td>{{ info.python }}</td></tr>
               <tr><td>Electron</td><td>{{ app?.electron || (isElectron ? electronVer : "（浏览器预览）") }}</td>
                   <td>平台</td><td>{{ info.platform }}</td></tr>
@@ -182,7 +182,7 @@ const STEPS = [
             <button class="mini" @click="openExternal(info.repo + '/releases')">下载新版本</button>
           </div>
           <div class="meta" style="margin-top: 6px;">
-            {{ updStatus || `当前 v${info.version}；检查更新需要能访问 GitHub Releases` }}
+            {{ updStatus || `当前 v${app?.version || info?.version || "…"}；检查更新需要能访问 GitHub Releases` }}
           </div>
 
           <h4 class="about-h">许可与链接</h4>
@@ -203,7 +203,7 @@ const STEPS = [
       </div>
 
       <div class="dialog-actions">
-        <span class="meta">绒花墨坊 v{{ info?.version || "…" }}</span>
+        <span class="meta">绒花墨坊 v{{ app?.version || info?.version || "…" }}</span>
         <span class="spacer"></span>
         <button class="mini" @click="$emit('close'); $emit('goto', 'pipeline')">前往流水线</button>
         <button class="mini primary" @click="$emit('close')">关闭</button>
