@@ -26,13 +26,19 @@ scripts/nf_api.py                         ← ③ 8765 服务本体
 
 ## 2. 三步接入
 
-### 步骤 1：确认两件事在跑
+> **2026-10-06 起有捷径**：GUI「设置 → 接入其他 Agent」按本机路径生成配置段
+> （Hermes YAML / Claude·Cline JSON）+ 一键复制 + 打开目标配置文件，kickoff
+> 启动提示词也在同一块。且垫片**自启动**：8765 没起时代拉一次 nf_api（连带 8766），
+> 下面的手动起服务只在你想自己管进程时才需要。
+
+### 步骤 1：确认两件事在跑（自启动开启时可跳过）
 
 ```bash
 # 用控制台启动时（推荐）：控制台会自动拉起 8765 与 8766
 # 手动启动：
 .venv/Scripts/python.exe scripts/nf_api.py      # 8765 服务本体
 .venv/Scripts/python.exe scripts/nf_mcp.py      # 8766 MCP 传输层
+# 或什么都不起：垫片首次连接时自动代拉（NF_BRIDGE_NO_AUTOSTART=1 关闭）
 ```
 
 自检：<http://127.0.0.1:8765/health> 能返回 JSON。

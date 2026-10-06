@@ -68,7 +68,9 @@ def check(name, cond, detail=""):
 #   那属于验收基建的独立议题，别顺手塞进本脚本。
 PRELOAD_SHIM_JS = """
 window.mofangAPI = window.mofangAPI || {
-  readPreview: async () => ({ ok: false, error: "e2e harness: 无文件桥（readPreview 是 Electron 独有 IPC）" }),
+  readPreview: async (p) => (p === "prompts/agent_kickoff.md"
+    ? { ok: true, size: 64, content: "# kickoff\\n\\n项目根：{{PROJECT_ROOT}}\\n\\n禁止从头重建本项目。\\n" }
+    : { ok: false, error: "e2e harness: 无文件桥（readPreview 是 Electron 独有 IPC）" }),
   openArtifact: async () => ({ ok: true }),
   openFile: async () => ({ ok: true }),
   revealInFolder: async () => ({ ok: true }),
@@ -84,6 +86,31 @@ window.mofangAPI = window.mofangAPI || {
   updaterStatus: async () => ({ ok: true }),
   updaterQuitAndInstall: async () => ({ ok: true }),
   onUpdater: () => () => {},
+  // ---- 接入其他 Agent（agent-connect:* IPC 的等价假实现）----
+  agentConnectInfo: async () => ({
+    ok: true, packaged: false, version: "0.0.0-e2e",
+    pythonCmd: "C:\\\\fake\\\\repo\\\\.venv\\\\Scripts\\\\python.exe",
+    bridgePath: "C:\\\\fake\\\\repo\\\\scripts\\\\nf_mcp_stdio_bridge.py",
+    hermesConfig: "C:\\\\fake\\\\AppData\\\\Local\\\\hermes\\\\config.yaml",
+    claudeConfig: "C:\\\\fake\\\\.claude.json",
+    clineConfig: "C:\\\\fake\\\\cline_mcp_settings.json",
+    yamlSnippet: "mcp_servers:\\n  novelforge:\\n    command: C:\\\\fake\\\\repo\\\\.venv\\\\Scripts\\\\python.exe\\n    args:\\n      - C:\\\\fake\\\\repo\\\\scripts\\\\nf_mcp_stdio_bridge.py\\n    enabled: true",
+    jsonSnippet: "{\\n  \\"mcpServers\\": {\\n    \\"novelforge\\": {\\n      \\"command\\": \\"C:\\\\\\\\fake\\\\\\\\repo\\\\\\\\.venv\\\\\\\\Scripts\\\\\\\\python.exe\\",\\n      \\"args\\": [\\n        \\"C:\\\\\\\\fake\\\\\\\\repo\\\\\\\\scripts\\\\\\\\nf_mcp_stdio_bridge.py\\"\\n      ]\\n    }\\n  }\\n}",
+    mcpListening: false,
+  }),
+  agentOpenConfig: async () => ({ ok: true, path: "C:\\\\fake\\\\hermes\\\\config.yaml", existed: true }),
+  // ---- 诊断与调试（debug:* IPC 的等价假实现）----
+  debugInfo: async () => ({
+    ok: true, version: "0.0.0-e2e", packaged: false, platform: "win32",
+    electron: "28.3.3", node: "18",
+    logPath: "C:\\\\fake\\\\repo\\\\Temp\\\\nf_api_child.log", logExists: true,
+    codeRoot: "C:\\\\fake\\\\repo", projectRoot: "C:\\\\fake\\\\repo",
+    projectRootSource: "default", apiBase: "http://127.0.0.1:8798",
+    apiChildPid: 4242, apiHealthy: true, devtoolsOpen: false,
+  }),
+  debugOpenLog: async () => ({ ok: true, path: "C:\\\\fake\\\\repo\\\\Temp\\\\nf_api_child.log" }),
+  debugToggleDevtools: async () => ({ ok: true, open: true }),
+  debugRestartApi: async () => ({ ok: true, healthy: true }),
 };
 """
 
@@ -258,6 +285,16 @@ def test_mock(browser):
         page.wait_for_timeout(600)
         check("数字键 1 → 流水线页签", "流水线" in page.locator(".tabs button.active").first.inner_text())
         shot(page, "A8_back_to_pipeline")
+
+        print("  --- 顶栏「📋 日志」（对齐方寸 顶栏诊断入口）---")
+        page.locator("header button:has-text('📋 日志')").click()
+        page.wait_for_timeout(900)
+        check("顶栏 📋 按钮打开运行日志面板（排障第一入口常驻可见）",
+              page.locator(".log-body").count() == 1,
+              page.locator(".log-body").count())
+        shot(page, "A12_header_log_button")
+        page.locator(".dialog button:has-text('关闭')").first.click()
+        page.wait_for_timeout(300)
 
         print("  --- 定价批量导入（预览 → 确认 两段式）---")
         page.locator(".tabs button:has-text('成本')").click()
@@ -637,6 +674,70 @@ def test_about_project(browser, mock_proc=None):
                if page.locator(".tl-msg").count() else "")
         check("点「恢复默认预设」后有明确反馈（成功或失败都要说清）",
               ("已恢复默认预设" in msg) or ("恢复失败" in msg), msg or "（无反馈元素）")
+
+        print("  --- 接入其他 Agent（配置段生成 + kickoff 一键复制）---")
+        check("「接入其他 Agent」配置块渲染", page.locator(".ac-block").count() == 1,
+              page.locator(".ac-block").count())
+        acode = page.locator(".ac-code")
+        check("默认展示 Hermes YAML 配置段（含 mcp_servers 与垫片路径）",
+              "mcp_servers" in acode.inner_text()
+              and "nf_mcp_stdio_bridge" in acode.inner_text(),
+              acode.inner_text()[:100].replace("\n", " | "))
+        page.locator(".ac-tabs button", has_text="Claude").click()
+        page.wait_for_timeout(250)
+        check("切到 JSON 目标后展示 mcpServers JSON",
+              "mcpServers" in acode.inner_text() and "nf_mcp_stdio_bridge" in acode.inner_text(),
+              acode.inner_text()[:80].replace("\n", " | "))
+        kick = page.locator(".ac-kickoff textarea")
+        kick_val = kick.input_value() if kick.count() else ""
+        check("kickoff 提示词已加载且占位符被替换（不是空壳）",
+              kick.count() == 1 and "PROJECT_ROOT}}" not in kick_val
+              and len(kick_val) > 25,
+              "len=%d" % len(kick_val))
+        check("「复制启动提示词」按钮可用",
+              not page.locator(".ac-kickoff button:has-text('复制启动提示词')").is_disabled())
+        page.locator(".ac-kickoff button:has-text('复制启动提示词')").click()
+        page.wait_for_timeout(400)
+        kick_toast = page.locator(".toast").inner_text() if page.locator(".toast").count() else ""
+        check("复制动作有明确反馈（已复制 / 失败都要说）",
+              ("已复制" in kick_toast) or ("失败" in kick_toast), kick_toast)
+        shot(page, "D9_agent_connect")
+        # 视觉验收的几何层（vision 通道 401 时的客观兜底 —— 不依赖像素审阅）
+        bb = page.locator(".ac-block").bounding_box()
+        check("配置块在视口内且不越界（几何断言）",
+              bool(bb) and bb["x"] >= 0 and bb["x"] + bb["width"] <= 1440 + 2
+              and bb["y"] >= 0,
+              bb)
+        check("页面无水平溢出（scrollWidth ≤ clientWidth+2）",
+              page.evaluate("() => document.documentElement.scrollWidth"
+                            " <= document.documentElement.clientWidth + 2"))
+
+        print("  --- 诊断与调试（对齐方寸 🩺 诊断页签）---")
+        check("「诊断与调试」块渲染",
+              page.locator("h4:has-text('诊断与调试')").count() == 1,
+              page.locator("h4:has-text('诊断与调试')").count())
+        dbg_meta = page.locator("h4:has-text('诊断与调试') + .meta")
+        dbg_txt = dbg_meta.inner_text() if dbg_meta.count() else ""
+        check("诊断信息显示运行形态/版本/健康态（来自 debug:info）",
+              "源码版" in dbg_txt and "0.0.0-e2e" in dbg_txt and "在线" in dbg_txt,
+              dbg_txt[:120].replace("\n", " | "))
+        check("显示代码根/数据根/日志路径三行",
+              "fake" in dbg_txt and "nf_api_child.log" in dbg_txt,
+              dbg_txt[-160:].replace("\n", " | "))
+        for label in ("查看运行日志", "打开日志文件", "复制诊断信息", "DevTools 开关", "重启后端 API"):
+            check("诊断块含「%s」按钮" % label,
+                  page.locator("button:has-text('%s')" % label).count() >= 1, label)
+        page.locator("button:has-text('DevTools 开关')").click()
+        page.wait_for_timeout(300)
+        dt_toast = page.locator(".toast").inner_text() if page.locator(".toast").count() else ""
+        check("DevTools 开关有反馈（IPC 等价假实现回 ok）",
+              "DevTools" in dt_toast, dt_toast)
+        shot(page, "D10_diagnostics")
+        # 诊断块几何：按钮行不得压出卡片
+        dbb = page.locator("h4:has-text('诊断与调试')").bounding_box()
+        check("诊断块标题在视口内（几何断言）",
+              bool(dbb) and dbb["x"] >= 0 and dbb["x"] + dbb["width"] <= 1440 + 2, dbb)
+
         page.locator(".tabs button:has-text('流水线')").click()
         page.wait_for_timeout(400)
     finally:

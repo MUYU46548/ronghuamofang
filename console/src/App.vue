@@ -249,6 +249,9 @@ function switchTab(t) {
     if (!promptFiles.value.length) loadPromptList();
     if (!styleNotesLoaded.value) loadStyleNotes();
     loadTokenLimit();          // 止烧阈值：每次进设置页都重读（可能在别处改过）
+    loadAgentConnect();        // 接入其他 Agent：路径/MCP 状态每次重探（垫片可能刚代拉）
+    loadKickoff();             // 启动提示词：项目根可能变，每次重读替换占位符
+    loadDebugInfo();           // 诊断与调试：健康/路径/日志位置每次重探
   }
   if (t === "materials") loadMaterials();
   if (t === "chapters" && !chaptersLoaded.value) loadChapters();
@@ -2236,6 +2239,100 @@ async function toggleAgentMode() {
     say('切换失败: ' + (r.data.error || r.status));
   }
 }
+
+/* ---------- 接入其他 Agent（2026-10-06 对齐方寸「接入页」） ---------- */
+// 配置段在主进程按安装态/源码态生成真实路径；这里只展示、复制、打开目标文件。
+const agentConnect = ref(null);
+const acTab = ref('hermes');
+const acKickoff = ref('');
+async function loadAgentConnect() {
+  if (!window.mofangAPI || !window.mofangAPI.agentConnectInfo) return;
+  try {
+    const r = await window.mofangAPI.agentConnectInfo();
+    if (r && r.ok) agentConnect.value = r;
+  } catch (e) { /* IPC 不可用（浏览器验收态）→ 隐藏该块 */ }
+}
+async function loadKickoff() {
+  try {
+    const r = await window.mofangAPI.readPreview('prompts/agent_kickoff.md');
+    if (r && r.ok) {
+      const root = (state.value && state.value.project_dir) || '';
+      acKickoff.value = String(r.content || '')
+        .replace(/\{\{PROJECT_ROOT\}\}/g, root);
+    } else if (r && r.error && r.error.indexOf('文件不存在') === -1) {
+      say('启动提示词读取失败: ' + r.error);
+    }
+  } catch (e) { /* 同上 */ }
+}
+function copyText(text, okMsg) {
+  const fallback = () => {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      say(okMsg);
+    } catch (e) { say('复制失败: ' + (e && e.message)); }
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(() => say(okMsg)).catch(fallback);
+  } else fallback();
+}
+function copyAcSnippet() {
+  if (!agentConnect.value) return;
+  const s = acTab.value === 'hermes'
+    ? agentConnect.value.yamlSnippet : agentConnect.value.jsonSnippet;
+  copyText(s, 'MCP 配置段已复制');
+}
+function copyKickoff() { copyText(acKickoff.value, '启动提示词已复制'); }
+async function openAgentCfg(target) {
+  const r = await window.mofangAPI.agentOpenConfig(target);
+  if (r && r.ok) say(r.message || ('已打开: ' + r.path));
+  else say('打开失败: ' + ((r && r.error) || '未知错误'));
+}
+
+/* ---------- 诊断与调试（2026-10-06 对齐方寸「🩺 诊断」） ---------- */
+const dbg = ref(null);
+async function loadDebugInfo() {
+  if (!window.mofangAPI || !window.mofangAPI.debugInfo) return;
+  try {
+    const r = await window.mofangAPI.debugInfo();
+    if (r && r.ok) dbg.value = r;
+  } catch (e) { /* IPC 不可用（浏览器验收态）→ 隐藏值 */ }
+}
+async function toggleDevtools() {
+  const r = await window.mofangAPI.debugToggleDevtools();
+  if (r && r.ok) say(r.open ? 'DevTools 已打开' : 'DevTools 已关闭');
+  else say('DevTools 切换失败: ' + ((r && r.error) || '未知错误'));
+  loadDebugInfo();
+}
+async function openBackendLog() {
+  const r = await window.mofangAPI.debugOpenLog();
+  if (r && r.ok) say('已打开日志: ' + r.path);
+  else say((r && r.error) || '打开日志失败');
+}
+async function restartBackend() {
+  say('正在重启后端…');
+  const r = await window.mofangAPI.debugRestartApi();
+  if (r && r.ok) { say('后端已重启，/health 正常'); refresh(); }
+  else say('后端重启后未就绪 —— 用「查看运行日志」排查');
+  loadDebugInfo();
+}
+function copyDiagnostics() {
+  const d = dbg.value || {};
+  copyText(JSON.stringify({
+    version: d.version, packaged: d.packaged, platform: d.platform,
+    electron: d.electron, apiBase: d.apiBase, apiHealthy: d.apiHealthy,
+    apiChildPid: d.apiChildPid, codeRoot: d.codeRoot,
+    projectRoot: d.projectRoot, projectRootSource: d.projectRootSource,
+    logPath: d.logPath, engine: models.value ? models.value.engine : null,
+    agentMode: agentMode.value, online: online.value,
+    book: state.value ? state.value.book : null,
+    copiedAt: new Date().toISOString(),
+  }, null, 2), '诊断信息已复制');
+}
 async function loadChapters() {
   // 章数从 config/project.yaml 读（白名单允许 config/*.yaml）
   let total = 3;
@@ -2570,6 +2667,7 @@ onUnmounted(() => {
     <div class="conn" :class="{ on: online }">{{ online ? "已连接" : "离线" }}</div>
     <button class="mini global-refresh-btn" @click="globalRefresh" title="全局刷新（所有页签数据）">↻</button>
     <button class="mini" @click="runRemedy" title="一键补救：检测问题并给出修复建议">🩹 补救</button>
+    <button class="mini" @click="openRunLog" title="运行日志（nf_api / 流水线输出尾部）—— 排障第一入口">📋 日志</button>
     <div v-if="agentMode" class="agent-mode-badge" title="Agent 模式已开启 —— 外部 Agent 可通过 HTTP API 调用">⚡ Agent</div>
   </header>
 
@@ -3507,6 +3605,66 @@ onUnmounted(() => {
         </div>
       </div>
 
+      <!-- 接入其他 Agent（2026-10-06 对齐方寸「接入页」）：MCP 配置段 + kickoff -->
+      <h4 style="margin-top: 16px;">接入其他 Agent（MCP 配置生成）</h4>
+      <div class="meta" style="margin-bottom: 8px;">
+        标准 MCP 客户端（Hermes / Claude Code / Cline / Cursor）配置一次即可接入；
+        后端未启动时垫片会<b>自动代拉</b> nf_api（逃生门：环境变量
+        <code>NF_BRIDGE_NO_AUTOSTART=1</code>）。审批/打回等红线操作<b>不经过 MCP</b>，
+        外部 Agent 拿不到 —— 这是设计，不是故障。
+        <template v-if="agentConnect">
+          <br>MCP 8766：
+          <b :style="{ color: agentConnect.mcpListening ? 'var(--ok)' : 'var(--warn)' }">
+            {{ agentConnect.mcpListening ? '监听中' : '未监听（客户端连接时自动拉起）' }}
+          </b>
+          · 运行形态：{{ agentConnect.packaged ? '安装版' : '源码版' }} v{{ agentConnect.version }}
+        </template>
+      </div>
+      <div v-if="agentConnect" class="ac-block">
+        <div class="ac-tabs">
+          <button class="mini" :class="{ primary: acTab === 'hermes' }"
+                  @click="acTab = 'hermes'">Hermes（config.yaml · YAML）</button>
+          <button class="mini" :class="{ primary: acTab === 'json' }"
+                  @click="acTab = 'json'">Claude Code / Cline（JSON）</button>
+        </div>
+        <pre class="ac-code">{{ acTab === 'hermes' ? agentConnect.yamlSnippet : agentConnect.jsonSnippet }}</pre>
+        <div class="ac-actions">
+          <button class="mini primary" @click="copyAcSnippet">复制配置段</button>
+          <button v-if="acTab === 'hermes'" class="mini" @click="openAgentCfg('hermes')">
+            打开 Hermes 配置文件
+          </button>
+          <template v-else>
+            <button class="mini" @click="openAgentCfg('claude')">打开 Claude 配置</button>
+            <button class="mini" @click="openAgentCfg('cline')">打开 Cline 配置</button>
+          </template>
+        </div>
+        <div class="meta" style="margin-top: 4px; word-break: break-all;">
+          配置文件：<code>{{ acTab === 'hermes' ? agentConnect.hermesConfig
+            : (acTab === 'claude' ? agentConnect.claudeConfig : agentConnect.clineConfig) }}</code><br>
+          配置段里的路径按当前运行形态生成（安装版 = 安装目录资源，源码版 = 本仓库 .venv）；
+          粘进对应客户端的 MCP 配置后重启客户端生效。
+        </div>
+
+        <div class="ac-kickoff">
+          <div class="label" style="margin-top: 12px;">
+            启动提示词（kickoff）—— 复制给外部 Agent 作开场白
+          </div>
+          <div class="meta">
+            单一事实源 <code>prompts/agent_kickoff.md</code>；复制时自动把
+            <code>&#123;&#123;PROJECT_ROOT&#125;&#125;</code> 占位符替换为项目根。
+            防「AI 从头重建本项目 / 擅自绕过审批守卫」的第一道闸。
+          </div>
+          <textarea class="prompt-text" style="min-height: 150px; margin-top: 6px;"
+                    :value="acKickoff" readonly spellcheck="false"
+                    placeholder="读取中…（prompts/agent_kickoff.md）"></textarea>
+          <div class="ac-actions" style="margin-top: 6px;">
+            <button class="mini primary" :disabled="!acKickoff"
+                    @click="copyKickoff">复制启动提示词</button>
+            <button class="mini" @click="loadKickoff">重新读取</button>
+          </div>
+        </div>
+      </div>
+
       <!-- 用户风格笔记 -->
       <h4 style="margin-top: 16px;">用户风格笔记（book.style_notes）</h4>
       <div class="meta" style="margin-bottom: 8px;">
@@ -3631,6 +3789,38 @@ onUnmounted(() => {
       </div>
       <div v-if="updateProgress > 0 && updateProgress < 100" class="meta" style="margin-top: 4px;">
         下载进度: {{ updateProgress.toFixed(1) }}%
+      </div>
+
+      <!-- 诊断与调试（2026-10-06 对齐方寸「🩺 诊断」—— 像样的调试入口） -->
+      <h4 style="margin-top: 16px;">诊断与调试</h4>
+      <div class="meta" style="line-height: 1.8; margin-bottom: 8px;">
+        运行形态：{{ dbg ? (dbg.packaged ? '安装版' : '源码版') + ' v' + dbg.version : '读取中…' }}
+        · 后端：<b :style="{ color: dbg && dbg.apiHealthy ? 'var(--ok)' : 'var(--bad)' }">
+          {{ dbg ? (dbg.apiHealthy ? '在线' : '离线') : '…' }}</b>
+        <template v-if="dbg">
+          · 子进程 PID {{ dbg.apiChildPid || '无（端口可能由外部进程服务）' }}
+          · 项目根来源 {{ dbg.projectRootSource }}
+        </template>
+        <br>代码根：<code>{{ dbg ? dbg.codeRoot : '-' }}</code>
+        <br>数据根：<code>{{ dbg ? dbg.projectRoot : '-' }}</code>
+        <br>日志：<code>{{ dbg ? dbg.logPath : '-' }}</code>
+      </div>
+      <div class="ac-actions" style="margin-top: 0;">
+        <button class="mini" @click="openRunLog">查看运行日志（400 行）</button>
+        <button class="mini" @click="openBackendLog">打开日志文件</button>
+        <button class="mini" @click="loadDebugInfo">刷新诊断</button>
+        <button class="mini" @click="copyDiagnostics">复制诊断信息</button>
+        <button class="mini" @click="toggleDevtools" title="快捷键 Ctrl+Shift+I 或 F12">
+          DevTools 开关
+        </button>
+        <button class="mini" :disabled="isRunning" @click="restartBackend"
+                :title="isRunning ? '流水线运行中，重启会打断当前任务' : '杀掉并重启 nf_api 子进程（约 3-15 秒）'">
+          重启后端 API
+        </button>
+      </div>
+      <div class="meta" style="margin-top: 4px; opacity: 0.75;">
+        排障顺序：先「查看运行日志」→ 拿「复制诊断信息」贴给协助者 →
+        仍不行再「重启后端 API」。DevTools 看渲染层（前端报错、网络请求）。
       </div>
 
       <div class="meta" style="margin-top: 12px;">项目目录: {{ state ? state.project_dir : "-" }}</div>

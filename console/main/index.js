@@ -294,7 +294,11 @@ function getWorkspaceSource() {
 //     抛异常此前会让请求**直接挂起**（socketserver 断连，无 400 无 500）；
 //   · `nf_api_domains/refine.py` 两处裸相对路径改经 `api.ROOT`。
 //   **先 bump 再 electron-builder**。
-const SEED_VERSION = 15;
+// v16（2026-10-06，第十二批）：payload 内 scripts/ + prompts/ 再次实质变更 ——
+//   nf_mcp_stdio_bridge.py 自启动（代拉 nf_api + 项目根同链解析）、
+//   prompts/agent_kickoff.md 新增（外部 Agent 启动提示词）。
+//   **先 bump 再 electron-builder**。
+const SEED_VERSION = 16;
 
 // 只播种/刷新**代码与提示词**目录。
 // 刻意不含 data/：那是用户产物（章节、设定、大纲），任何情况下都不能被覆盖。
@@ -536,6 +540,9 @@ function pathAllowed(p) {
   if (rel.startsWith("data/") || rel.startsWith("output/")) return true;
   if ((rel.startsWith("logs/") || rel.startsWith("materials/")) && /\.(md|log|json)$/.test(rel)) return true;
   if (rel.startsWith("config/") && /\.(yaml|yml)$/.test(rel)) return true;
+  // Agent kickoff 提示词（单一事实源 prompts/agent_kickoff.md）：
+  // 「接入其他 Agent」设置块要读它展示/复制。精确到这一个文件，不放开整个 prompts/。
+  if (rel === "prompts/agent_kickoff.md") return true;
   // 注意：.env 含明文密钥，**刻意不放入外部打开白名单** —— 不再允许用外部编辑器
   // 直接打开（2026-09-19 审查 S7）。如需编辑密钥，请用 GUI 设置页的专用入口，
   // 或由用户自行在文件管理器中打开。
@@ -609,6 +616,163 @@ ipcMain.handle("open-file-dialog", async (e, options = {}) => {
     return { ok: false, error: "未选择文件" };
   }
   return { ok: true, paths: result.filePaths };
+});
+
+// ---------------------------------------------------------------------------
+// 接入其他 Agent（2026-10-06 对齐方寸「接入其他 Agent」设置页）
+// 生成 MCP 配置段（按安装态/源码态算真实路径）+ 打开目标配置文件。
+// 纪律：路径**全在主进程计算**，渲染进程只拿结果；open 只接受三个固定 target，
+// 不接受任意路径（否则这就是一个任意文件打开后门）。
+function agentConnectPaths() {
+  const os = require("os");
+  const localAppData = process.env.LOCALAPPDATA
+    || path.join(os.homedir(), "AppData", "Local");
+  const appData = process.env.APPDATA
+    || path.join(os.homedir(), "AppData", "Roaming");
+  // MCP 客户端 spawn 的是**stdio 进程** → 必须 console 版 python.exe
+  // （源码态 PY 用的 pythonw.exe 没有 stdio，配置段里不能用它）。
+  const pythonCmd = isPackaged
+    ? path.join(process.resourcesPath, "runtime", "python", "python.exe")
+    : path.join(ROOT, ".venv", "Scripts", "python.exe");
+  const bridgePath = isPackaged
+    ? path.join(process.resourcesPath, "payload", "scripts", "nf_mcp_stdio_bridge.py")
+    : path.join(ROOT, "scripts", "nf_mcp_stdio_bridge.py");
+  return {
+    pythonCmd, bridgePath,
+    hermesConfig: path.join(localAppData, "hermes", "config.yaml"),
+    claudeConfig: path.join(os.homedir(), ".claude.json"),
+    clineConfig: path.join(appData, "Code", "User", "globalStorage",
+      "cline.vscode-cline", "cline_mcp_settings.json"),
+  };
+}
+
+ipcMain.handle("agent-connect:info", async () => {
+  const p = agentConnectPaths();
+  const jsonSnippet = JSON.stringify({
+    mcpServers: {
+      novelforge: { command: p.pythonCmd, args: [p.bridgePath] },
+    },
+  }, null, 2);
+  const yamlSnippet = [
+    "mcp_servers:",
+    "  novelforge:",
+    "    command: " + p.pythonCmd,
+    "    args:",
+    "      - " + p.bridgePath,
+    "    enabled: true",
+  ].join("\n");
+  // MCP 8766 现状探针（垫片自启动只覆盖 8765；8766 由 nf_api 连带拉起）
+  const mcpListening = await new Promise((resolve) => {
+    try {
+      const net = require("net");
+      const sock = net.connect({ host: "127.0.0.1", port: 8766, timeout: 400 });
+      sock.on("connect", () => { sock.destroy(); resolve(true); });
+      sock.on("error", () => resolve(false));
+      sock.on("timeout", () => { sock.destroy(); resolve(false); });
+    } catch (e) { resolve(false); }
+  });
+  return {
+    ok: true,
+    packaged: isPackaged,
+    version: app.getVersion(),
+    pythonCmd: p.pythonCmd,
+    bridgePath: p.bridgePath,
+    hermesConfig: p.hermesConfig,
+    claudeConfig: p.claudeConfig,
+    clineConfig: p.clineConfig,
+    jsonSnippet, yamlSnippet,
+    mcpListening,
+    mcpConfigured: false,   // 客户端配置在外部文件里，本进程无法可靠判读——由用户点「打开」自查
+  };
+});
+
+ipcMain.handle("agent-connect:open-config", async (e, target) => {
+  try {
+    const p = agentConnectPaths();
+    const map = { hermes: p.hermesConfig, claude: p.claudeConfig, cline: p.clineConfig };
+    const abs = map[String(target || "")];
+    if (!abs) return { ok: false, error: "未知目标: " + target };
+    if (fs.existsSync(abs)) {
+      const err = await shell.openPath(abs);
+      return err ? { ok: false, error: err, path: abs }
+                 : { ok: true, path: abs, existed: true };
+    }
+    // 文件还没有 → 打开所在目录（让用户看清位置；绝不代创建外部工具的配置）
+    const dir = path.dirname(abs);
+    const err2 = fs.existsSync(dir) ? await shell.openPath(dir) : "";
+    return { ok: !err2, path: abs, existed: false,
+             message: "配置文件尚不存在，已打开所在目录: " + dir };
+  } catch (err) {
+    return { ok: false, error: String(err) };
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 诊断与调试入口（2026-10-06 对齐方寸「诊断日志抽屉 / 🩺 诊断页签」）
+// 纪律：全部是**固定目标**操作（自家日志文件、DevTools、自家后端进程），
+// 不接受渲染进程传来的任意路径 / 任意命令 —— 否则这就是后门。
+function nfApiLogPath() {
+  const logDir = isPackaged
+    ? path.join(process.env.LOCALAPPDATA || ROOT, "Temp")
+    : path.join(ROOT, "Temp");
+  return path.join(logDir, "nf_api_child.log");
+}
+
+ipcMain.handle("debug:info", async () => {
+  // 后端健康与「谁在服务 8765」分开报：GUI 自己的子进程挂了但外部进程在服务
+  // 时，光看 apiProc 会误判。
+  let healthOk = false;
+  try {
+    const r = await fetch(BASE + "/health");
+    healthOk = r.ok;
+  } catch (e) { /* 离线 */ }
+  return {
+    ok: true,
+    version: app.getVersion(),
+    packaged: isPackaged,
+    platform: process.platform,
+    electron: process.versions.electron,
+    node: process.versions.node,
+    logPath: nfApiLogPath(),
+    logExists: fs.existsSync(nfApiLogPath()),
+    codeRoot: ROOT,                       // 代码根（源码仓 / 安装目录 payload）
+    projectRoot: getWorkspaceDir(),       // 数据根（项目根 = 书稿所在）
+    projectRootSource: getWorkspaceSource(),
+    apiBase: BASE,
+    apiChildPid: apiProc ? apiProc.pid : null,
+    apiHealthy: healthOk,
+    devtoolsOpen: mainWindow ? mainWindow.webContents.isDevToolsOpened() : false,
+  };
+});
+
+// 打开后端日志文件（固定路径，唯一目标）
+ipcMain.handle("debug:open-log", async () => {
+  const p = nfApiLogPath();
+  if (!fs.existsSync(p)) {
+    return { ok: false, path: p, error: "日志文件尚不存在: " + p };
+  }
+  const err = await shell.openPath(p);
+  return err ? { ok: false, path: p, error: err } : { ok: true, path: p };
+});
+
+// DevTools 开关（打包态没有开发菜单 —— 这就是「像样的调试入口」的开发者半边）
+ipcMain.handle("debug:devtools", async () => {
+  if (!mainWindow) return { ok: false, error: "窗口不存在" };
+  const wc = mainWindow.webContents;
+  if (wc.isDevToolsOpened()) {
+    wc.closeDevTools();
+    return { ok: true, open: false };
+  }
+  wc.openDevTools({ mode: "detach" });
+  return { ok: true, open: true };
+});
+
+// 重启后端 API（杀自家子进程 → 重新 startApi → 等 /health）
+ipcMain.handle("debug:restart-api", async () => {
+  stopApi();
+  startApi();
+  const healthy = await waitForApi(20000);
+  return { ok: healthy, healthy, logPath: nfApiLogPath() };
 });
 
 // 打开外部链接（关于页的 GitHub/许可等）。只放行 http(s)，其它协议一律拒绝
@@ -809,6 +973,21 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname, "..", "renderer", "dist", "index.html"));
   }
+  // ---- 调试入口快捷键（2026-10-06 对齐方寸）----
+  // 打包态没有开发菜单可点，Ctrl+Shift+I / F12 是开发者的常驻通道；
+  // 普通用户的入口在 设置 → 诊断与调试（日志 / 重启后端 / 诊断信息）。
+  // preventDefault 后由这里唯一处理，不与 Chromium 默认快捷键叠成「按一次开两次」。
+  mainWindow.webContents.on("before-input-event", (event, input) => {
+    if (input.type !== "keyDown") return;
+    const isToggle = input.key === "F12"
+      || (input.control && input.shift && (input.key === "I" || input.key === "i"));
+    if (!isToggle) return;
+    event.preventDefault();
+    const wc = mainWindow && mainWindow.webContents;
+    if (!wc) return;
+    if (wc.isDevToolsOpened()) wc.closeDevTools();
+    else wc.openDevTools({ mode: "detach" });
+  });
   // ---- 退出守卫（2026-10-03 修「关不掉」）----
   // 关窗时**由主进程**决定拦不拦：渲染进程只上报 busy，确认走应用内对话框。
   // 判据在 quitGuard.shouldGuardClose（纯函数，可单测）。

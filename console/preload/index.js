@@ -8,6 +8,14 @@ contextBridge.exposeInMainWorld("mofangAPI", {
   openFile: (relPath) => ipcRenderer.invoke("open-file", relPath),
   // 在文件夹中定位（不打开内容）——用于 .env 等含密钥的敏感文件
   revealInFolder: (relPath) => ipcRenderer.invoke("reveal-in-folder", relPath),
+  // 接入其他 Agent：MCP 配置段生成（真实路径）+ 打开目标配置文件
+  agentConnectInfo: () => ipcRenderer.invoke("agent-connect:info"),
+  agentOpenConfig: (target) => ipcRenderer.invoke("agent-connect:open-config", target),
+  // 诊断与调试入口（设置 → 诊断与调试）
+  debugInfo: () => ipcRenderer.invoke("debug:info"),
+  debugOpenLog: () => ipcRenderer.invoke("debug:open-log"),
+  debugToggleDevtools: () => ipcRenderer.invoke("debug:devtools"),
+  debugRestartApi: () => ipcRenderer.invoke("debug:restart-api"),
   openFileDialog: (options) => ipcRenderer.invoke("open-file-dialog", options),
   // 提示词模板编辑器（prompts/stage[1-7]_*.md）
   promptsList: () => ipcRenderer.invoke("prompts:list"),

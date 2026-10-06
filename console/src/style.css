@@ -1536,3 +1536,43 @@ kbd {
   line-height: 1.75;
   color: var(--muted-foreground);
 }
+
+/* ---- 接入其他 Agent（2026-10-06 对齐方寸「接入页」）---- */
+.ac-block {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: var(--field);
+}
+.ac-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.ac-code {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--foreground);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.ac-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.ac-kickoff {
+  border-top: 1px dashed var(--border);
+  margin-top: 12px;
+  padding-top: 4px;
+}
