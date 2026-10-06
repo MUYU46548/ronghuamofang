@@ -15,7 +15,7 @@ metadata:
 `AGENTS.md`、`scripts/nf_api.py`（头部 docstring 就是端点总览）、`scripts/*.py --help` ——
 本卡不维护会过期的清单快照。
 
-项目根 `$NF = E:/CODE/CangKu/NovelForge`，**所有命令的 workdir 都是 `$NF`**，
+项目根 `$NF` = **本仓库克隆根**（本卡就在仓库里，路径由克隆位置解析，**不把本机绝对路径写进卡内**），**所有命令的 workdir 都是 `$NF`**，
 Python 一律用 `$NF/.venv/Scripts/python.exe`（下称 `python`）。
 
 ## When to Use
@@ -80,7 +80,7 @@ cd $NF && python scripts/nfctl.py check
 `/project/create|archive|restore|init`、`/config/agent_mode` 直接返回 **403** —— **这是设计，不是故障**。
 到了审批门 → 报告「审哪个文件 + 现在什么状态」，等用户自己批。
 
-**永不**：写 `E:/图书馆/ROSA`；对 `data/`、`history/` 直接 `rm`/`del`/覆盖；
+**永不**：写外部 Obsidian 世界观知识库（本机 vault，路径不入库）；对 `data/`、`history/` 直接 `rm`/`del`/覆盖；
 回显 `.env` 里的 Key（只报有/无）。
 
 ## 纪律

@@ -7,7 +7,7 @@
 //             A 版内可点「查看完整声明」切换 B 视图（不能强迫先同意才给看全文），B 视图可返回。
 //   view：B 版（完整八节）——普通弹窗，底部显示既往确认时间；关闭即返回。
 // 入口：首启自动（App.vue onMounted）/ 关于弹窗按钮 / 命令面板 / 设置页。
-// 文案：./disclaimer.js 单一事实源（哨兵草案 A/B 双版），暮雨划线改字后只改那个文件。
+// 文案：./disclaimer.js 单一事实源（哨兵草案 A/B 双版），作者划线改字后只改那个文件。
 import { ref, computed, watch, nextTick, onBeforeUnmount } from "vue";
 import {
   DISCLAIMER_VERSION, DISCLAIMER_ACK_KEY,
