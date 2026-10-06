@@ -150,6 +150,10 @@ stdout 被管道捕获时 Python 用 cp936，一行日志就能 `UnicodeEncodeEr
    **25 个**：23 个 HTTP loopback + 2 个 LOCAL 直调 —— ⚠️ **数量勿写死**，以
    `nf_mcp.MCP_TOOLS` 为唯一事实来源），`tools/call` 经 HTTP loopback 复用
    现有域模块。审批类/项目类/模式切换端点**永不**暴露给 MCP。
+   **垫片自启动（2026-10-06）**：`nf_mcp_stdio_bridge.py` 起来时若 8765 `/health` 不通
+   会**代拉一次 nf_api**（连带起 8766），最多等 12s；逃生门 `NF_BRIDGE_NO_AUTOSTART=1`
+   （测试/握手自检必设）。配置段在 GUI「设置 → 接入其他 Agent」按运行态生成；
+   外部 Agent 启动提示词单一事实源 `prompts/agent_kickoff.md`（同页一键复制）。
    ⚠️ **8766 不是标准 MCP 传输**（是 TCP + 换行分帧的裸 JSON-RPC）——标准 MCP 客户端
    （Hermes / Claude Code / Cline）**必须经 stdio 垫片**接入：
    `scripts/nf_mcp_stdio_bridge.py`（stdio ↔ 8766 双向透传；`mcpServers` 配置示例见该文件头）。
@@ -381,6 +385,9 @@ if __name__ == "__main__":
   （**engine: hermes 下金额恒 0，不可能命中**）。改完清 `data/state/progress.json` 的
   `budget.paused` → `orchestrator.py --from N` 续跑（已完成阶段不重跑）。
 - **用户打回**：`python scripts/reject.py --stage N "原因"`（记录原因、清理 N 及下游产物、重置状态、撤销审批；history/ 备份保留可回退）→ `--from N` 重跑。打回 2 用精修通道（refine_outline）而非 reject
+- **GUI 排障（2026-10-06 对齐方寸）**：顶栏「📋 日志」常驻；设置 → 诊断与调试
+  （运行形态/健康态/代码根/数据根/日志路径 + 查看日志/打开日志文件/复制诊断信息/
+  DevTools 开关（Ctrl+Shift+I 或 F12）/重启后端 API；重启在流水线运行中禁用）。
 - **素材更新**：新增素材后 `--from 1` 重跑（已有章节文件自动跳过，不会重写）
 - **低分章自动重写（方向3）**：默认关闭。开启：`config/system.yaml` 的 `gates.auto_rewrite: true`
   → stage4 后自动重写 `quality < chapter.quality_threshold` 的章节（排在审稿分支之前）。
