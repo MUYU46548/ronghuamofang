@@ -35,6 +35,25 @@ ok("合并窗口可配",
    shouldGuardClose({ rendererBusy: true, isQuitting: false, lastAskAt: 1000, now: 3000,
                       coalesceMs: 100 }) === true);
 
+console.log("\n=== 1b. 退出必确认（confirmOnExit，2026-10-06 用户需求） ===");
+ok("confirmOnExit=true → 不忙也拦（防误触杀 Agent 运行）",
+   shouldGuardClose({ rendererBusy: false, isQuitting: false, lastAskAt: 0, now: 1000,
+                      confirmOnExit: true }) === true);
+ok("confirmOnExit=true + 忙 → 照拦",
+   shouldGuardClose({ rendererBusy: true, isQuitting: false, lastAskAt: 0, now: 1000,
+                      confirmOnExit: true }) === true);
+ok("confirmOnExit=true + 连点合并仍生效（不重复弹）",
+   shouldGuardClose({ rendererBusy: false, isQuitting: false, lastAskAt: 1000, now: 3000,
+                      confirmOnExit: true }) === false);
+ok("confirmOnExit=true + 已确认退出 → 绝不再拦",
+   shouldGuardClose({ rendererBusy: false, isQuitting: true, lastAskAt: 0, now: 1000,
+                      confirmOnExit: true }) === false);
+ok("confirmOnExit=false → 不忙放行（旧行为保留）",
+   shouldGuardClose({ rendererBusy: false, isQuitting: false, lastAskAt: 0, now: 1000,
+                      confirmOnExit: false }) === false);
+ok("confirmOnExit 缺省 → 旧行为（向后兼容）",
+   shouldGuardClose({ rendererBusy: false, isQuitting: false, lastAskAt: 0, now: 1000 }) === false);
+
 console.log("\n=== 2. 看门狗（渲染进程不应答也必须能退） ===");
 ok("刚问出去 → 不算超时",
    closeAskTimedOut({ askedAt: 1000, now: 3000 }) === false);

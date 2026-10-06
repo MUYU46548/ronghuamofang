@@ -49,4 +49,7 @@ contextBridge.exposeInMainWorld("mofangAPI", {
   },
   confirmQuit: () => ipcRenderer.invoke("app:quit-confirmed"),
   cancelQuit: () => ipcRenderer.invoke("app:quit-canceled"),
+  // 退出必确认设置（默认开；设置页可关）
+  getConfirmOnExit: () => ipcRenderer.invoke("app:get-confirm-on-exit"),
+  setConfirmOnExit: (v) => ipcRenderer.invoke("app:set-confirm-on-exit", !!v),
 });

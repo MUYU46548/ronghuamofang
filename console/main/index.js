@@ -23,6 +23,24 @@ let isQuitting = false;        // 用户已确认退出或已在退出流程中
 let lastCloseAskAt = 0;        // 上次询问时间（连点合并）
 let closeAskTimer = null;      // 看门狗定时器
 let updateInstalling = false;  // 正在装更新（此时不许硬退出）
+let confirmOnExit = true;      // 退出必确认（默认开；设置页可关，存 console-settings.json）
+
+// 退出确认设置持久化（userData/console-settings.json；损坏/缺失视为默认开）
+function readConsoleSettings() {
+  try {
+    return JSON.parse(fs.readFileSync(
+      path.join(app.getPath("userData"), "console-settings.json"), "utf8")) || {};
+  } catch (e) { return {}; }
+}
+function writeConsoleSettings(patchObj) {
+  try {
+    fs.mkdirSync(app.getPath("userData"), { recursive: true });
+    fs.writeFileSync(
+      path.join(app.getPath("userData"), "console-settings.json"),
+      JSON.stringify({ ...readConsoleSettings(), ...patchObj }, null, 2));
+    return true;
+  } catch (e) { console.error("[console] 写设置失败:", e && e.message); return false; }
+}
 
 function killTree(pid) {
   /** 杀整棵进程树（Windows 用 taskkill /T，连孙子一起）。返回是否失败。 */
@@ -967,6 +985,15 @@ ipcMain.handle("updater:status", () => ({
 // ---- 退出守卫 IPC（2026-10-03）----
 // 渲染进程上报 busy（有运行中 job / 未审批阶段）；主进程据此决定关窗要不要拦。
 ipcMain.on("app:busy", (e, busy) => { rendererBusy = !!busy; });
+// ---- 退出必确认设置（2026-10-06：默认任何关窗都确认，设置页可关）----
+ipcMain.handle("app:get-confirm-on-exit", () => ({ ok: true, confirmOnExit }));
+ipcMain.handle("app:set-confirm-on-exit", (e, v) => {
+  confirmOnExit = !!v;
+  const ok = writeConsoleSettings({ confirmOnExit });
+  console.log("[console] confirmOnExit ->", confirmOnExit);
+  return { ok, confirmOnExit };
+});
+
 // 用户在应用内确认框里点了「确认退出」→ 真正关窗（isQuitting=true 后 close 不再被拦）。
 ipcMain.handle("app:quit-confirmed", () => {
   isQuitting = true;
@@ -1028,7 +1055,7 @@ function createWindow() {
   // 判据在 quitGuard.shouldGuardClose（纯函数，可单测）。
   mainWindow.on("close", (e) => {
     if (!shouldGuardClose({ rendererBusy, isQuitting, lastAskAt: lastCloseAskAt,
-                            now: Date.now() })) {
+                            now: Date.now(), confirmOnExit })) {
       return;                       // 没在忙 / 已确认 / 连点合并 → 放行
     }
     e.preventDefault();
@@ -1054,6 +1081,7 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  confirmOnExit = readConsoleSettings().confirmOnExit !== false;   // 默认开
   seedWorkspace();
   const ws = getWorkspaceDir();
   const seedMarker = path.join(ws, ".seeded");

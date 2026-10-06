@@ -15,13 +15,16 @@
 
 /**
  * 关窗时是否要拦住并询问渲染进程。
- * @param {{rendererBusy:boolean, isQuitting:boolean, lastAskAt:number, now:number, coalesceMs?:number}} s
+ * @param {{rendererBusy:boolean, isQuitting:boolean, lastAskAt:number, now:number, coalesceMs?:number, confirmOnExit?:boolean}} s
  * @returns {boolean} true = preventDefault 并去问渲染进程
  */
 function shouldGuardClose(s) {
   const coalesceMs = s.coalesceMs == null ? 4000 : s.coalesceMs;
   if (s.isQuitting) return false;          // 已经在退出了（含用户刚确认过）
-  if (!s.rendererBusy) return false;       // 没在忙 → 直接放行，不打扰
+  // confirmOnExit（退出必确认，2026-10-06 用户需求）：主进程设置开关传入。
+  // true → 任何关窗都拦下确认（防误触杀掉 Agent 运行）；
+  // false/缺省 → 旧行为：只在忙（运行中 job / 未审批阶段）时拦。
+  if (!s.confirmOnExit && !s.rendererBusy) return false;
   if (s.lastAskAt && s.now - s.lastAskAt < coalesceMs) return false; // 连点合并
   return true;
 }

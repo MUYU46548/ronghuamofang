@@ -329,7 +329,7 @@ function setupExitGuard() {
   // ② 主进程问「确认退出吗」→ 弹应用内对话框（忙碌时才问；不忙主进程会直接放行）
   try {
     window.mofangAPI?.onCloseRequested?.(() => {
-      if (!hasUnfinishedJob.value) { window.mofangAPI.confirmQuit(); return; }
+      if (!hasUnfinishedJob.value && !confirmOnExit.value) { window.mofangAPI.confirmQuit(); return; }
       quitDlg.value = { open: true, agreed: false };
     });
   } catch (e) { /* 非 Electron 环境忽略 */ }
@@ -343,6 +343,18 @@ function cancelQuit() {
 function confirmQuit() {
   if (!quitDlg.value.agreed) return;
   try { window.mofangAPI?.confirmQuit?.(); } catch (e) { /* ignore */ }
+}
+
+// 退出必确认（2026-10-06 用户需求：防误触杀掉 Agent 运行；默认开，设置页可关）
+const confirmOnExit = ref(true);
+try {
+  window.mofangAPI?.getConfirmOnExit?.().then((r) => {
+    confirmOnExit.value = !!(r && r.confirmOnExit !== false);
+  }).catch(() => {});
+} catch (e) { /* 非 Electron 环境 */ }
+function toggleConfirmOnExit() {
+  confirmOnExit.value = !confirmOnExit.value;
+  try { window.mofangAPI?.setConfirmOnExit?.(confirmOnExit.value); } catch (e) { /* ignore */ }
 }
 
 /* ---------- 导出（P3 多平台发布） ---------- */
@@ -3665,6 +3677,18 @@ onUnmounted(() => {
         </div>
         <button class="mini" :class="{ primary: gateNotify }" @click="gateNotify = !gateNotify; setGateNotify(gateNotify)">
           {{ gateNotify ? '已开启' : '已关闭' }}
+        </button>
+      </div>
+
+      <!-- 退出必确认（2026-10-06 用户需求） -->
+      <h4 style="margin-top: 16px;">退出确认</h4>
+      <div class="gate-notify-row">
+        <div>
+          <div class="label">退出前必须确认</div>
+          <div class="meta">点 X 关窗/退出时弹应用内确认框，防误触中断 Agent 运行（Agent 自主跑时尤其重要）。默认开启，可在下方按钮关闭。</div>
+        </div>
+        <button class="mini" :class="{ primary: confirmOnExit }" @click="toggleConfirmOnExit">
+          {{ confirmOnExit ? '已开启' : '已关闭' }}
         </button>
       </div>
 
