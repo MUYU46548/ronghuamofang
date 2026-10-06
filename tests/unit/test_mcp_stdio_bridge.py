@@ -19,6 +19,7 @@ G. stdout **只走协议**：读到的每一行都必须是合法 JSON（日志�
 """
 import io
 import json
+import os
 import queue
 import socket
 import subprocess
@@ -118,9 +119,13 @@ class Bridge:
     """垫子进程 + 行队列（读 stdout 的线程，避免测试被阻塞）。"""
 
     def __init__(self, port):
+        # NF_BRIDGE_NO_AUTOSTART=1：垫片的后端自启动对本测试是纯污染 ——
+        # 健康探测打真实 8765，若恰逢用户服务没开，会代拉起真的 nf_api。
+        env = dict(os.environ, NF_BRIDGE_NO_AUTOSTART="1")
         self.p = subprocess.Popen(
             [sys.executable, str(BRIDGE), "--tcp-port", str(port)],
-            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            env=env)
         self.lines = queue.Queue()
         self.stderr = []
         threading.Thread(target=self._pump, daemon=True).start()

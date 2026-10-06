@@ -27,6 +27,7 @@ ClientSession + stdio_client 是官方实现，不是自造协议栈。
 """
 import argparse
 import json
+import os
 import subprocess
 import sys
 import time
@@ -72,9 +73,12 @@ async def handshake(tcp_port):
     from mcp import ClientSession, StdioServerParameters
     from mcp.client.stdio import stdio_client
 
+    # 自启动逃生门：握手自检自带 18765/18766，绝不能让垫片把 8765 的真实
+    # nf_api 代拉起来（那会污染用户环境、拖慢自检——健康探测默认打 8765）。
     params = StdioServerParameters(
         command=sys.executable,
-        args=[str(SCRIPTS / "nf_mcp_stdio_bridge.py"), "--tcp-port", str(tcp_port)])
+        args=[str(SCRIPTS / "nf_mcp_stdio_bridge.py"), "--tcp-port", str(tcp_port)],
+        env=dict(os.environ, NF_BRIDGE_NO_AUTOSTART="1"))
     async with stdio_client(params) as (read, write):
         async with ClientSession(read, write) as session:
             init = await session.initialize()
