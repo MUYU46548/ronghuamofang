@@ -2286,6 +2286,30 @@ function copyAcSnippet() {
     ? agentConnect.value.yamlSnippet : agentConnect.value.jsonSnippet;
   copyText(s, 'MCP 配置段已复制');
 }
+// 各阶段对应的主提示词模板（用于 Agent 一键复制）
+const STAGE_MAIN_PROMPT = {
+  1: "stage1_materials.md",
+  2: "stage2_global_outline.md",
+  3: "stage3_chapter_outline.md",
+  4: "stage4_writing.md",
+  5: "stage5_check.md",
+  6: "stage6_polish.md",
+  7: "",
+};
+
+async function copyStagePrompt(stage) {
+  const name = STAGE_MAIN_PROMPT[stage];
+  if (!name) {
+    say("该阶段无提示词模板");
+    return;
+  }
+  const r = await api("/prompts/get?name=" + encodeURIComponent(name));
+  if (r.status !== 200 || !r.data?.content) {
+    say("读取提示词失败: " + (r.data?.error || r.status));
+    return;
+  }
+  copyText(r.data.content, "阶段 " + stage + " 提示词已复制");
+}
 function copyKickoff() { copyText(acKickoff.value, '启动提示词已复制'); }
 async function openAgentCfg(target) {
   const r = await window.mofangAPI.agentOpenConfig(target);
@@ -2960,6 +2984,7 @@ onUnmounted(() => {
           <div class="stage-actions">
             <button class="mini" :disabled="isRunning" @click="runStage(s.stage)">运行</button>
             <button class="mini" :disabled="isRunning" @click="runStageStream(s.stage)" title="实时流式输出，可随时中断">流式运行</button>
+            <button v-if="agentMode && STAGE_MAIN_PROMPT[s.stage]" class="mini" :disabled="isRunning" @click="copyStagePrompt(s.stage)" title="复制本阶段提示词给外部 Agent">复制提示词</button>
             <button v-if="s.status === 'done' && !s.approved" class="mini primary" @click="approve(s.stage)">确认</button>
             <button v-else-if="s.approved" class="mini" @click="approve(s.stage, true)">撤销</button>
             <button v-if="s.stage >= 2 && s.status !== 'pending'" class="mini danger" :disabled="isRunning" @click="openReject(s.stage)">打回</button>
