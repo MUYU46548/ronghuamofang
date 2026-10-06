@@ -17,6 +17,7 @@
 """
 import io
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -33,6 +34,9 @@ sys.path.insert(0, str(ROOT / "scripts"))
 PY = sys.executable
 PORT = 8933
 BASE = "http://127.0.0.1:%d" % PORT
+# GUI 来源双因子（2026-10-06 红队修复）：起服务时注入的会话 token。
+# 只认来源头的话，任何本机进程加一个 `X-Mofang-Source: gui` 就能绕过全部写入守卫。
+TEST_TOKEN = "nf-test-gui-token-" + "0123456789abcdef" * 2
 PASS, FAIL = [], []
 
 
@@ -42,13 +46,17 @@ def check(name, cond, detail=""):
                            ("  → " + str(detail)[:220]) if detail else ""))
 
 
-def req(method, path, body=None, timeout=60, gui=False, source=None):
+def req(method, path, body=None, timeout=60, gui=False, source=None, token=None):
     data = json.dumps(body or {}, ensure_ascii=False).encode("utf-8") if method == "POST" else None
     headers = {"Content-Type": "application/json"}
     if gui:
+        # gui=True = 「可信 GUI」：来源头 + 正确 token（双因子齐备）
         headers["X-Mofang-Source"] = "gui"
+        headers["X-Mofang-Token"] = TEST_TOKEN if token is None else token
     if source:
         headers["X-Mofang-Source"] = source
+        if token is not None:
+            headers["X-Mofang-Token"] = token
     r = urllib.request.Request(BASE + path, data=data, method=method, headers=headers)
     try:
         with urllib.request.urlopen(r, timeout=timeout) as resp:
@@ -93,7 +101,11 @@ def main():
     from utils import agent_guard
     proc = subprocess.Popen([str(PY), str(tmp / "scripts" / "nf_api.py"),
                              "--port", str(PORT), "--allow-fake"],
-                            cwd=str(tmp), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            cwd=str(tmp), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                            # 会话 token：模拟 Electron 主进程 spawn 时的 env 注入。
+                            # 没有它 → nf_api 不认任何 GUI 来源（fail-closed），
+                            # 下面【3】的「合法写入」会全挂，所以必须给。
+                            env=dict(os.environ, NF_GUI_TOKEN=TEST_TOKEN))
     try:
         ready = False
         for _ in range(60):
@@ -131,6 +143,16 @@ def main():
         check("显式 agent 来源 → 403", code == 403, code)
         check("/config/token_limit 在 agent_guard 禁止清单里",
               agent_guard.is_forbidden_in_agent_mode("/config/token_limit"))
+        # --- 2026-10-06 红队修复回归：来源头是**客户端自述**，光有它不算数 ---
+        code, d = req("POST", "/config/token_limit", {"max_total_tokens": 2000000},
+                      source="gui")
+        check("**伪造 gui 来源头但无 token → 403**（端点闸 _gui_only 层）",
+              code == 403, (code, d))
+        check("伪造被拒时配置文件仍未被动过", cfg_text(tmp) == before)
+        code, d = req("POST", "/config/token_limit", {"max_total_tokens": 2000000},
+                      gui=True, token="wrong-token-value")
+        check("来源头齐 + token 错误 → 403（token 才是真凭据）",
+              code == 403, (code, d))
 
         print("\n【3】合法写入：部分提交用预设补齐 + 注释保留 + 回读一致")
         comments_before = [ln for ln in before.splitlines() if ln.strip().startswith("#")]
@@ -141,7 +163,7 @@ def main():
         check("目标值落盘", vals.get("max_total_tokens") == 2000000, vals)
         check("未提交的项按预设补齐（不是 0）",
               vals.get("per_request_max_tokens") == 50000
-              and vals.get("per_request_pause_hermes") is False, vals)
+              and vals.get("per_request_pause_hermes") is True, vals)
         comments_after = [ln for ln in after.splitlines() if ln.strip().startswith("#")]
         check("**注释与说明段落逐行保留**（定向改写而非 dump）",
               comments_before == comments_after,

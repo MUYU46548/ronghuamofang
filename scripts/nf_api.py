@@ -1503,7 +1503,9 @@ class Handler(BaseHTTPRequestHandler):
         # 页面加载 200、JS/CSS 都到位，但 /state 等全部 CORS 被拒 → 组件渲染为 0 个。
         # 安全性不受影响：Allow-Origin 仍只放行本机来源（见上方 ALLOW_ORIGIN_RE），
         # 外部站点拿不到 Access-Control-Allow-Origin，加不加这个头都读不到响应。
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Mofang-Source")
+        # X-Mofang-Token（2026-10-06 GUI 来源双因子）同理必须列出，漏写即预检失败。
+        self.send_header("Access-Control-Allow-Headers",
+                         "Content-Type, X-Mofang-Source, X-Mofang-Token")
         self.send_header("Access-Control-Max-Age", "600")
 
     def do_OPTIONS(self):
@@ -1850,16 +1852,26 @@ class Handler(BaseHTTPRequestHandler):
 
         # Agent 模式安全守卫：禁止外部 Agent 调用敏感操作
         # 仅当 agent_mode=true 且请求路径在禁止列表中时生效
-        # GUI 请求（带 X-Mofang-Source: gui 头）不受限制
+        # GUI 请求不受限制 —— 但「是不是 GUI」必须用**双因子**判：
+        # 来源头 + 主进程签发 token，唯一实现在 agent_guard.is_trusted_gui。
+        #
+        # ⚠️ 旧实现只看 X-Mofang-Source != "gui"：该头任何本机进程都能伪造，
+        # 伪造一个就跳过整张禁用名单（2026-10-06 红队复现，见 is_trusted_gui 上方）。
         #
         # 判据（禁止清单 / 模式判定 / 审计落盘）统一在 utils/agent_guard ——
         # CLI 侧（approve.py / reject.py）用**同一份**，否则两边必然漂移出后门。
-        request_source = self.headers.get("X-Mofang-Source", "").strip().lower()
-        if request_source != "gui":
+        trusted_gui = agent_guard.is_trusted_gui(self.headers)
+        if not trusted_gui:
+            # 自称来源留痕：伪造 gui 头的请求必须在台账里看得出来
+            src_claim = agent_guard.normalize_source(
+                self.headers.get(agent_guard.GUI_SOURCE_HEADER, ""))
+            audit_src = src_claim or "agent"
+            if src_claim in agent_guard.HUMAN_SOURCES:
+                audit_src = src_claim + "(untrusted)"
             cfg_check, _ = load_all()
             if agent_guard.agent_mode_enabled(cfg_check):
                 if agent_guard.is_forbidden_in_agent_mode(p):
-                    _log_audit(p, "POST", 403, source="agent", detail="blocked")
+                    _log_audit(p, "POST", 403, source=audit_src, detail="blocked")
                     # V5 拒文泄题（2026-10-04）：拒文与 CLI 侧共用同一份零通道文案
                     # （旧文案等于向挨拒者传授来源头的伪造通道）。
                     self._send(403, {"ok": False,
@@ -1867,7 +1879,7 @@ class Handler(BaseHTTPRequestHandler):
                                          p, "非 GUI 来源", entry="HTTP POST")})
                     return
                 # 非禁止操作也记录审计日志
-                _log_audit(p, "POST", 0, source="agent", detail="allowed")
+                _log_audit(p, "POST", 0, source=audit_src, detail="allowed")
 
         try:
             if p.startswith("/stage/") and p.endswith("/run"):

@@ -35,6 +35,9 @@ sys.path.insert(0, str(ROOT / "scripts"))
 # ⚠️ 必须在 import nf_api 之前钉死 NF_ROOT：模块加载期就 _set_root(_resolve_root())
 TMP = Path(tempfile.mkdtemp(prefix="archive_test_"))
 os.environ["NF_ROOT"] = str(TMP)
+# GUI 来源双因子（2026-10-06 红队修复）：可信 GUI 必须同时有来源头 + 主进程签发 token。
+# 测试用固定 token，FakeH(gui=True) 会带上它。
+os.environ["NF_GUI_TOKEN"] = "archive-test-gui-token-20261006"
 
 import nf_api as api                     # noqa: E402
 import switch_book as sb                 # noqa: E402
@@ -54,7 +57,7 @@ class FakeH:
 
     def __init__(self, query=None, gui=True):
         self._q = query or {}
-        self.headers = {"X-Mofang-Source": "gui"} if gui else {}
+        self.headers = {"X-Mofang-Source": "gui", "X-Mofang-Token": "archive-test-gui-token-20261006"} if gui else {}
 
     def _query(self):
         return {k: [v] for k, v in self._q.items()}

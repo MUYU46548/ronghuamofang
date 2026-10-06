@@ -23,8 +23,10 @@
 | 标准档 | `agent_mode=false` | ① 环境变量 `MOFANG_SOURCE=gui`；② 双端交互式 TTY；③ 显式 `--human`（历史语义；守卫关闭时调用方根本不进本函数） |
 | **加固档** | `agent_mode=true` | **只有「真实交互式终端」一种**：双端 TTY（前置快筛）+ **祖先进程链取证**（主判据，链须落在用户 shell/explorer、不得经过自动化宿主） |
 
-HTTP 侧入口不变：请求头 `X-Mofang-Source: gui`（Electron preload 注入）是 GUI
-本体的通道；CLI 没有请求头，加固档改用进程链取证代替「声明式」证据。
+HTTP 侧入口自 2026-10-06 起为**双因子**：来源头 `X-Mofang-Source: gui`（渲染层 `api()` 携带）
+**加**主进程签发的 `X-Mofang-Token`，判据唯一实现见 `is_trusted_gui()` —— 单靠来源头
+可被任何本机进程伪造（见该函数上方的红队复现）。CLI 没有请求头，加固档改用进程链取证
+代替「声明式」证据。
 
 加固档三条硬规格（信息哨兵三缺口钉死，勿回退）：
 
@@ -41,6 +43,7 @@ HTTP 侧入口不变：请求头 `X-Mofang-Source: gui`（Electron preload 注�
 **这不是沙箱**：它拦的是「Agent 照着文档跑一条命令就悄悄替用户拍板」，
 不要对外宣称更强。
 """
+import hmac
 import json
 import os
 import sys
@@ -120,6 +123,60 @@ def normalize_source(raw):
 def is_forbidden_in_agent_mode(path):
     """该路径在 Agent 模式下是否禁止非人工来源调用。"""
     return str(path or "") in FORBIDDEN_IN_AGENT_MODE
+
+
+# ---------------------------------------------------- GUI 来源可信度（2026-10-06 红队修复）
+#
+# 为什么不能只看 `X-Mofang-Source: gui`：那是**客户端自述**，任何本机进程随手可伪造。
+# 实测复现（2026-10-06）：gates.agent_mode=true 下对 /project/archive/delete
+#   无来源头 → 403；伪造 gui 头 → 200 且真删成功（目录进 _trash）。
+# 根因是**两道闸读同一个可伪造的头**：do_POST 的禁用名单靠它跳过、
+# 端点内的 _gui_only 靠它放行 —— 同源等于一层没有，全部写入守卫形同虚设。
+#
+# 修法 = **双因子**：① 来源头（保留，供审计分类）+ ② 主进程签发的 token ——
+# Electron 主进程 crypto.randomBytes(32) 生成，spawn nf_api 时经 env 注入，
+# 渲染层经 IPC gui-token:get 取得后随请求带上。token 不在请求方掌控之内，
+# 光伪造头拿不到它。
+#
+# **fail-closed**：nf_api 未被注入 token（独立启动 / CLI / 测试）→ 一律不认 GUI 来源。
+# 这是正确语义：这些端点本就只该由桌面端调用，没有桌面端就不该有 GUI 权限。
+GUI_TOKEN_ENV = "NF_GUI_TOKEN"
+GUI_SOURCE_HEADER = "X-Mofang-Source"
+GUI_TOKEN_HEADER = "X-Mofang-Token"
+
+
+def issued_gui_token():
+    """主进程签发的 GUI token（nf_api 启动环境注入）。空串 = 未签发。"""
+    try:
+        return str(os.environ.get(GUI_TOKEN_ENV, "") or "").strip()
+    except Exception:                                       # noqa: BLE001
+        return ""
+
+
+def is_trusted_gui(headers, token=None):
+    """该 HTTP 请求是否**可信**为 GUI 本体 —— HTTP 侧唯一的 GUI 判据。
+
+    为什么只有一份：`do_POST`（禁用名单）与域模块 `_gui_only`（端点闸）
+    必须共用本函数，否则两边判据漂移就重新裂出后门（与本模块拒绝清单同理）。
+
+    参数：
+      - headers：请求头映射（`self.headers` / `h.headers`）
+      - token：注入用（测试传值）；缺省取环境变量
+
+    返回 False 的三种情形**都必须拒绝**：未签发 token / 来源头不是 gui / token 不匹配。
+    `hmac.compare_digest` 防时序侧信道。
+    """
+    if token is None:
+        token = issued_gui_token()
+    if not token:
+        return False                                        # 未签发 → 不认
+    try:
+        if normalize_source(headers.get(GUI_SOURCE_HEADER, "")) != "gui":
+            return False
+    except Exception:                                       # noqa: BLE001
+        return False
+    got = str(headers.get(GUI_TOKEN_HEADER, "") or "")
+    return hmac.compare_digest(got, token)
 
 
 def _proc_core(name):

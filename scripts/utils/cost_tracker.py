@@ -469,7 +469,9 @@ DEFAULT_TOKEN_LIMIT = {
 TOKEN_LIMIT_PRESET = {
     "enabled": True,
     "per_request_max_tokens": 50000,
-    "per_request_pause_hermes": False,
+    # 2026-10-06 用户要求改为 true：单次子会话输出 > 50000 token 时熔断暂停。
+    # 实测 hermes 一次 stage1 子会话输出约 1.8 万 token，远低于 50000，不会误停。
+    "per_request_pause_hermes": True,
     "max_total_tokens": 10000000,
     "warn_ratio": 0.7,
 }

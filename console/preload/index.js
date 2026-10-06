@@ -52,4 +52,6 @@ contextBridge.exposeInMainWorld("mofangAPI", {
   // 退出必确认设置（默认开；设置页可关）
   getConfirmOnExit: () => ipcRenderer.invoke("app:get-confirm-on-exit"),
   setConfirmOnExit: (v) => ipcRenderer.invoke("app:set-confirm-on-exit", !!v),
+  // GUI 来源 token（2026-10-06 双因子）：渲染层 api() 随请求头带给 nf_api
+  getGuiToken: () => ipcRenderer.invoke("gui-token:get"),
 });

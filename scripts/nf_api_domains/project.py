@@ -96,16 +96,24 @@ def handle_config_style_notes(h):
 
 
 def _gui_only(h, what):
-    """设置类写入必须来自 GUI（Electron preload 注入 X-Mofang-Source: gui）。
+    """设置类写入必须来自**可信的 GUI 本体**（来源头 + 主进程签发 token 双因子）。
 
     为什么与 agent_mode 无关也要求：这些是**成本/安全相关的设置**。
     外部 Agent 若能改预算与止烧阈值，就能抬高自己的闸门 —— 那等于没有闸门。
+
+    为什么不能只认 `X-Mofang-Source: gui`：该头任何本机进程都可伪造（2026-10-06
+    红队复现：伪造后 /project/archive/delete 返回 200 真删成功）。判据唯一实现是
+    `agent_guard.is_trusted_gui`，与 `nf_api.do_POST` 的禁用名单**共用同一份**，
+    否则两道闸各自漂移就重新裂出后门。
+
+    拒文**零通道名**（V5）：不提缺哪个头、该填什么值 —— 拒文本身是攻击面。
     """
-    src = h.headers.get("X-Mofang-Source", "").strip().lower()
-    if src == "gui":
+    from utils import agent_guard
+    if agent_guard.is_trusted_gui(h.headers):
         return None
     return 403, {"ok": False,
-                 "error": "%s 仅允许在 GUI 中手动修改（缺少 X-Mofang-Source: gui 头）" % what}
+                 "error": "%s 仅允许用户本人在桌面端手动修改；本次调用不是可信的 "
+                          "GUI 来源。请停手并报告用户。" % what}
 
 
 def handle_config_token_limit(h):

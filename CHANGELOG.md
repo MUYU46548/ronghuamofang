@@ -7,6 +7,53 @@ CHANGELOG」）。本文件从工程审查修复起正式启用。
 
 ---
 
+## [v0.6.3] — 2026-10-06 GUI 来源双因子（红队修复）· 版本号不再 vdev · 退出必确认 · 止烧保险开启
+
+- **伪造 `X-Mofang-Source: gui` 可绕过全部 HTTP 写入守卫（红队发现，本次最重）**：
+  受保护端点原先**两道闸读同一个可伪造的头** —— `do_POST` 的禁用名单靠它跳过、
+  端点内的 `_gui_only` 靠它放行，同源等于一层没有。实测复现：
+  `gates.agent_mode=true` 下对 `/project/archive/delete` 无来源头 → 403，
+  伪造 gui 头 → **200 且真删成功**（目录进 `_trash`）。影响面覆盖整张禁用名单：
+  `/approve`、`/reject`、`/project/create|archive|restore|init`、
+  `/project/archive/delete`、`/config/agent_mode`、`/config/token_limit`。
+  - **修法 = 双因子**：① 来源头（保留，供审计分类）+ ② **主进程签发的会话 token** ——
+    Electron 主进程 `crypto.randomBytes(32)` 生成，`spawn nf_api` 时经 env
+    `NF_GUI_TOKEN` 注入，渲染层经 IPC `gui-token:get` 取得后随 `X-Mofang-Token` 头带上。
+    token 只存在主进程内存，外部 Agent 走 HTTP 拿不到它，光伪造来源头无用。
+    每次启动重新生成（会话级、不落盘）。
+  - **判据唯一实现** `agent_guard.is_trusted_gui()`：`do_POST` 与 `_gui_only` 共用同一份，
+    否则两边漂移又裂出后门（与拒绝清单同理）。`hmac.compare_digest` 防时序侧信道。
+  - **fail-closed**：nf_api 未被注入 token（独立启动 / CLI / 测试）→ 一律不认 GUI 来源；
+    渲染层拿不到 token（浏览器预览）→ 受保护端点 403，这是**正确**语义 —— 预览模式
+    本就不该能改成本/安全设置。
+  - **审计留痕**：自称 gui 但未过双因子的请求记为 `gui(untrusted)` 进
+    `agent_audit.jsonl`（对齐该模块「伪造必须显式留痕可追责」口径）。
+  - **拒文零通道化**：`_gui_only` 旧文案「缺少 X-Mofang-Source: gui 头」等于教人绕过，
+    违反 V5（拒文本身是攻击面），改写为不提任何通道名。
+  - CORS `Access-Control-Allow-Headers` 补 `X-Mofang-Token`（漏写即预检失败 →
+    前端只看到 `Failed to fetch`，前车之鉴见 2026-09-29 注释）。
+- **关于页版本号不再显示 vdev**：打包版 workspace 只播种 `scripts/prompts/templates`，
+  `console/package.json` 不在 payload → `/about` 的 version 两个解析路径全落空、
+  fallback `"dev"`。现三处（标题徽标 / 运行环境表格 / 版本更新提示 / 底栏）优先显示
+  Electron 侧真实版本（主进程 `app:about` IPC 的 `app.getVersion()`，打包版恒可得），
+  `/about` 的 version 降为浏览器预览兜底。
+- **退出必确认（默认开，设置页可关）**：防误触关窗杀掉 Agent 运行。`quitGuard.shouldGuardClose`
+  新增 `confirmOnExit` opt-in 参数（缺省 = 旧行为，旧调用方与既有单测语义不变）；
+  设置持久化在 `userData/console-settings.json`（损坏视为默认开）。
+- **止烧失控保险开启**：`budget.token_limit.per_request_pause_hermes` 预设
+  `false → true`（用户 2026-10-06 定调）。原测试断言理由「一次子会话 1.8 万会撞 8k 误停」
+  **已过时** —— 阈值自 2026-10-03 起为 50000，实测 1.8 万远低于它，不会误停。
+  预设与出厂配置由用例逐项一致，故 `TOKEN_LIMIT_PRESET` 与 `config/system.yaml` 同步翻转。
+- **新增/加固测试**：`test_token_limit_api_http.py` 注入 `NF_GUI_TOKEN` 并加**防伪回归断言**
+  （伪造 gui 头无 token → 403、token 不匹配 → 403）；`test_archive_manage.py` 的 `FakeH`
+  补双因子头。
+- **验证**：`nfctl test` 80/80 · `release-check` 110/110（含打包产物核验 15 文件比对）·
+  http 专项 36/36 · quitGuard node 单测 23/23 · `vite build` 通过 ·
+  `leak_scan` 零命中 · `quality_gate` BLOCK 0。
+- SEED_VERSION 17 → 18（payload `scripts/config` 变更，安装版升级自动刷新工作区）。
+
+---
+
 ## [v0.6.2] — 2026-10-06 归档可看可删 · 通知改系统级 · 提示词死字段清理 · 泄露清零
 
 - **归档不再是死胡同**（此前已归档项目每行只有「恢复」，看不了内容也删不掉）：

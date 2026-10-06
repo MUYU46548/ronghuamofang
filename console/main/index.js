@@ -2,6 +2,7 @@
 const { app, BrowserWindow, ipcMain, shell, Menu, dialog, Notification } = require("electron");
 app.disableHardwareAcceleration();
 const { spawn, spawnSync } = require("child_process");
+const crypto = require("crypto");
 const path = require("path");
 const fs = require("fs");
 const { shouldGuardClose, closeAskTimedOut, killTreeArgv,
@@ -24,6 +25,17 @@ let lastCloseAskAt = 0;        // 上次询问时间（连点合并）
 let closeAskTimer = null;      // 看门狗定时器
 let updateInstalling = false;  // 正在装更新（此时不许硬退出）
 let confirmOnExit = true;      // 退出必确认（默认开；设置页可关，存 console-settings.json）
+
+// ---------------------------------------------------------------- GUI 来源 token（2026-10-06 红队修复）
+// 为什么要有：受保护写入端点（审批/打回/归档增删改/止烧阈值/Agent 模式）原先只认
+// `X-Mofang-Source: gui` 这个**客户端自述头**，任何本机进程（curl / 外部 Agent）
+// 随手加一个就能绕过全部守卫 —— 实测伪造后 /project/archive/delete 返回 200 真删成功。
+// 现改为双因子：来源头 + 本 token。token 由主进程生成，只有两条出口：
+//   ① spawn nf_api 时经 env `NF_GUI_TOKEN` 注入（Python 侧校验）；
+//   ② 渲染层经 IPC `gui-token:get` 取得，随请求头 `X-Mofang-Token` 带上。
+// 外部 Agent 走 HTTP 拿不到它（在主进程内存里），伪造来源头无用。
+// 每次启动重新生成 → 会话级，不落盘、不持久化（泄漏也只影响当次会话）。
+const guiToken = crypto.randomBytes(32).toString("hex");
 
 // 退出确认设置持久化（userData/console-settings.json；损坏/缺失视为默认开）
 function readConsoleSettings() {
@@ -324,7 +336,9 @@ function getWorkspaceSource() {
 //     （tree / file / delete，默认进回收站，agent 侧 403）+ nf_api 薄转发；
 //   · switch_book.list_books 跳过 _trash；agent_guard 禁用名单加 /project/archive/delete。
 //   **先 bump 再 electron-builder**。
-const SEED_VERSION = 17;
+// 2026-10-06：GUI 来源双因子（来源头 + 主进程 token）+ 版本号优先取 app.getVersion，
+// 安装版不再显示「vdev」+ 退出必确认默认开。scripts/prompts/templates 均有实质变更。
+const SEED_VERSION = 18;
 
 // 只播种/刷新**代码与提示词**目录。
 // 刻意不含 data/：那是用户产物（章节、设定、大纲），任何情况下都不能被覆盖。
@@ -495,6 +509,10 @@ function startApi(attempt) {
       cwd: ws,
       stdio: ["ignore", out, out],
       windowsHide: true,
+      // GUI 来源双因子：把会话 token 注入 nf_api 环境（Python 侧 agent_guard 读它
+      // 判定「请求是否真来自本桌面端」）。漏注入 = nf_api 不认任何 GUI 来源 →
+      // 受保护端点一律 403（fail-closed，宁可拒绝也不放行）。
+      env: { ...process.env, NF_GUI_TOKEN: guiToken },
     });
     console.log("[console] nf_api child started pid=", apiProc.pid, "log ->", logPath);
     apiProc.on("error", (e) => console.error("[console] nf_api spawn failed:", e));
@@ -981,6 +999,11 @@ ipcMain.handle("updater:status", () => ({
   version: app.getVersion(),
   dev: process.env.NODE_ENV === "development" || !app.isPackaged,
 }));
+
+// ---- GUI 来源 token（2026-10-06 红队修复）----
+// 渲染层 api() 从这里取会话 token，随请求头带给 nf_api。
+// 只发给本应用渲染进程（contextIsolation 下外部脚本摸不到 mofangAPI）。
+ipcMain.handle("gui-token:get", () => guiToken);
 
 // ---- 退出守卫 IPC（2026-10-03）----
 // 渲染进程上报 busy（有运行中 job / 未审批阶段）；主进程据此决定关窗要不要拦。

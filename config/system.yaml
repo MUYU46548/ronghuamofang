@@ -128,7 +128,7 @@ budget:
     # hermes 是否把「单次子会话输出 > per_request_max_tokens」也当熔断判据。
     #   **默认 false**：实测 hermes 一次 stage1 子会话输出就有 1.8 万 token
     #   （含工具循环内的多轮）。要看真实数据请翻日志里的 WARN，或改这里再跑。
-    per_request_pause_hermes: false
+    per_request_pause_hermes: true
     # 单轮运行**累计** token 上限（输入 + 输出）：超了即熔断暂停。
     #   2026-10-03 用户定调 1000 万/轮：给整本（多阶段 + 重试 + 精修）留足余量，
     #   「鬼知道会不会发生什么奇怪的情况」—— 阈值先放宽，真撞上说明确实异常。

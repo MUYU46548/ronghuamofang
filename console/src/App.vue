@@ -31,8 +31,25 @@ import { API } from "./apiBase.js";
 // 素材页签内的子视图：结构化卡片（materials/raw） / 原始碎片（materials/original_scraps）
 const materialSub = ref("cards");
 
+// GUI 来源 token（2026-10-06 红队修复）：受保护写入端点要**双因子**（来源头 + 主进程
+// 签发的 token）。只认来源头的话，任何本机进程加一个 `X-Mofang-Source: gui` 就能
+// 伪造 GUI 绕过审批/删除/止烧阈值等全部守卫 —— 实测复现于 2026-10-06。
+// token 经 preload IPC 取一次即可（每次主进程启动重新生成）。
+// 浏览器预览模式没有 mofangAPI → 拿不到 token → 受保护端点 403，这是**正确**的
+// fail-closed：预览模式本就不该能改成本/安全设置。
+let _guiToken = "";
+async function guiToken() {
+  if (_guiToken) return _guiToken;
+  try {
+    _guiToken = (await window.mofangAPI?.getGuiToken?.()) || "";
+  } catch (e) { /* 非 Electron 环境（浏览器预览）→ 保持空，下方不带该头 */ }
+  return _guiToken;
+}
+
 async function api(path, method = "GET", body = null) {
   const opt = { method, headers: { "Content-Type": "application/json", "X-Mofang-Source": "gui" } };
+  const tok = await guiToken();
+  if (tok) opt.headers["X-Mofang-Token"] = tok;
   if (body) opt.body = JSON.stringify(body);
   const r = await fetch(API + path, opt);
   let data = {};

@@ -49,8 +49,8 @@ def case_preset_matches_shipped():
           shipped.get("max_total_tokens") == 10000000, shipped.get("max_total_tokens"))
     check("单请求上限 = 50000（按单章 5000~15000 字留足余量）",
           shipped.get("per_request_max_tokens") == 50000, shipped.get("per_request_max_tokens"))
-    check("预设默认不按次熔断 hermes（实测一次子会话就 1.8 万，8k 会误停）",
-          shipped.get("per_request_pause_hermes") is False)
+    check("预设按次熔断 hermes（用户 2026-10-06 要求；实测一次子会话 1.8 万 < 50000 不误停）",
+          shipped.get("per_request_pause_hermes") is True)
     check("预设是「开」的（止烧默认生效）", shipped.get("enabled") is True)
     check("DEFAULT_TOKEN_LIMIT（缺键兜底）仍是关闭态：不改变未配置时的老行为",
           DEFAULT_TOKEN_LIMIT["enabled"] is False
@@ -140,14 +140,14 @@ def case_batch_write():
             "  token_limit:\n"
             "    enabled: true\n"
             "    per_request_max_tokens: 8000\n"
-            "    per_request_pause_hermes: false\n"
+            "    per_request_pause_hermes: true\n"
             "    max_total_tokens: 3000000\n"
             "    warn_ratio: 0.7\n"
             "gates:\n  agent_mode: false\n", encoding="utf-8")
         os.chdir(tmp)
         try:
             values = {"enabled": True, "per_request_max_tokens": 50000,
-                      "per_request_pause_hermes": False, "max_total_tokens": 10000000,
+                      "per_request_pause_hermes": True, "max_total_tokens": 10000000,
                       "warn_ratio": 0.7}
             ok, msg = set_section_scalars(("budget", "token_limit"), values, path=cfg)
             check("批量写成功", ok, msg)
