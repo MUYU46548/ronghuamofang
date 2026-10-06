@@ -41,6 +41,14 @@ SCRIPTS_DIR = Path(__file__).resolve().parent
 DEFAULT_ROOT = SCRIPTS_DIR.parent
 sys.path.insert(0, str(SCRIPTS_DIR))
 
+# 解释器守卫：裸 python 缺 PyYAML 时切 .venv 重跑（stderr 留痕，不污染 --json stdout）。
+# 切不动就返回 False —— collect_check 会把它变成一条阻塞自检项，绝不静默降级。
+from utils.interp_guard import ensure_working_python, missing_yaml_hint, has_yaml  # noqa: E402
+
+_GUARD_OK = ensure_working_python("scripts/nfctl.py")
+if not _GUARD_OK:
+    sys.stderr.write("[nfctl] 解释器缺 PyYAML（未能切换 venv）：" + missing_yaml_hint() + "\n")
+
 API_HOST = "127.0.0.1"
 API_PORT = 8765
 API_TIMEOUT = 8
@@ -501,6 +509,20 @@ def collect_check(root: Path) -> dict:
     # Python 解释器
     venv_py = root / ".venv" / "Scripts" / "python.exe"
     add("venv python", venv_py.exists(), str(venv_py) if venv_py.exists() else "缺失：%s" % venv_py, blocking=True)
+
+    # 当前解释器（2026-10-06 试跑实锤）：裸 python 缺 PyYAML → orchestrator 开跑即崩，
+    # 却被误诊成「.venv 缺依赖」，一天炸五次。守卫切不动 venv 时这里必须显式阻塞。
+    if has_yaml():
+        add("当前解释器", True, "%s（PyYAML 可用）" % sys.executable)
+    else:
+        add("当前解释器", False, missing_yaml_hint(root), blocking=True)
+    # yaml 有、但不是项目 venv → 依赖可能只装了半套（跑得到 stage1、栽在 stage7）
+    from utils.interp_guard import venv_python as _venv_python
+    _vpy = _venv_python(root)
+    if _vpy.exists() and has_yaml() and Path(sys.executable).resolve() != _vpy.resolve():
+        add("解释器 = 项目 venv", False,
+            "正在用 %s，项目 venv 是 %s（依赖以 venv 为准，建议改用 venv 运行）"
+            % (sys.executable, _vpy), warning=True)
 
     # system.yaml（含重复键检测）
     sys_path = root / "config" / "system.yaml"

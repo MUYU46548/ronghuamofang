@@ -27,6 +27,14 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+# 解释器守卫（必须先于一切 utils.* 导入）：裸 python 缺 PyYAML 时切 .venv 重跑，
+# 切不动则给可行动报错 —— 详见 utils/interp_guard 模块文档。
+from utils.interp_guard import ensure_working_python, missing_yaml_hint
+
+if not ensure_working_python("scripts/orchestrator.py"):
+    sys.stderr.write("[orchestrator] 启动被解释器守卫拦下：" + missing_yaml_hint() + "\n")
+    raise SystemExit(1)
+
 from utils.progress_manager import ProgressManager
 from utils.db import RunDB
 from utils.cost_tracker import CostTracker

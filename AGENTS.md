@@ -31,6 +31,10 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
    - `materials/raw/` 是否有素材（为空时提醒用户，不要空跑）
 2. 启动：`terminal(command="python scripts/orchestrator.py", background=true, notify_on_complete=true, workdir="<repo>")`
    - 必须用项目 .venv 的 python：`<repo>/.venv/Scripts/python.exe`（POSIX 为 `<repo>/.venv/bin/python`）
+   - **写成裸 `python` 也不会再炸**：`orchestrator.py` / `nfctl.py` 入口挂了解释器守卫
+     `utils/interp_guard.py` —— 当前解释器缺 PyYAML 时 stderr 留痕 `[py-guard]` 后自动切 venv 重跑
+     （`NF_PY_GUARD` 防拉锯）；切不动才退 1 并给可行动命令。⚠️ 2026-10-06 试跑连炸的真根因
+     就是裸 python（宿主环境缺 yaml），被误诊成「.venv 缺依赖」——venv 里 PyYAML 一直在
    - 长任务（数小时），用后台运行 + 完成通知
 3. 监控：轮询 `logs/runs.db` 与 `data/state/progress.json` 向用户汇报进度/成本
 4. 退出码语义（orchestrator 返回）：

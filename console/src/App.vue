@@ -317,6 +317,12 @@ const THEMES = [
 // （顶栏白半透明、输入框写死白底 → 部分界面看不清）。
 const DARK_THEMES = ["dark", "night-blue", "night-green", "night-warm"];
 
+// 分排展示（2026-10-06 用户反馈）：光看颜色圆圈分不清是亮是暗 ——
+// 亮色一排、暗色一排，各带文字标识，一目了然。按 DARK_THEMES 动态分组，
+// 以后加新主题只需登记进 DARK_THEMES，分排自动跟上。
+const lightThemes = computed(() => THEMES.filter((t) => !DARK_THEMES.includes(t.id)));
+const darkThemes = computed(() => THEMES.filter((t) => DARK_THEMES.includes(t.id)));
+
 function setTheme(t) {
   theme.value = t;
   localStorage.setItem("mofang_theme", t);
@@ -4028,18 +4034,37 @@ onUnmounted(() => {
 
       <div class="bp-field">
         <label>主题颜色</label>
-        <div class="theme-swatches">
-          <button
-            v-for="t in THEMES"
-            :key="t.id"
-            class="theme-swatch"
-            :class="{ on: theme === t.id }"
-            :style="{ background: t.color }"
-            :title="t.name"
-            @click="setTheme(t.id)"
-          >
-            <span v-if="theme === t.id" class="theme-check">✓</span>
-          </button>
+        <div class="theme-group">
+          <div class="theme-group-title">亮色主题</div>
+          <div class="theme-swatches">
+            <button
+              v-for="t in lightThemes"
+              :key="t.id"
+              class="theme-swatch"
+              :class="{ on: theme === t.id }"
+              :style="{ background: t.color }"
+              :title="t.name"
+              @click="setTheme(t.id)"
+            >
+              <span v-if="theme === t.id" class="theme-check">✓</span>
+            </button>
+          </div>
+        </div>
+        <div class="theme-group">
+          <div class="theme-group-title">暗色主题</div>
+          <div class="theme-swatches">
+            <button
+              v-for="t in darkThemes"
+              :key="t.id"
+              class="theme-swatch"
+              :class="{ on: theme === t.id }"
+              :style="{ background: t.color }"
+              :title="t.name"
+              @click="setTheme(t.id)"
+            >
+              <span v-if="theme === t.id" class="theme-check">✓</span>
+            </button>
+          </div>
         </div>
       </div>
 

@@ -7,6 +7,12 @@ CHANGELOG」）。本文件从工程审查修复起正式启用。
 
 ---
 
+## [v0.6.5] — 2026-10-06 主题颜色亮暗分排 · 解释器守卫（试跑连炸根因）
+
+- **主题颜色亮色/暗色分排**：设置 → 外观与更新，主题色圆圈拆成「亮色主题」（6 个）/「暗色主题」（4 个）两排，各带文字标识 —— 光看颜色圆圈分不清明暗的问题就此解决。分组按 `DARK_THEMES` 动态计算，以后新增主题登记进清单即自动归排。e2e 新增 4 断言（截图 `D11_theme_rows.png`）。
+- **解释器守卫 `scripts/utils/interp_guard.py`（试跑连炸五次的真根因）**：裸 `python`（宿主环境，缺 PyYAML）跑 `orchestrator.py` 开跑即 `ModuleNotFoundError`，被误诊成「.venv 缺依赖」—— 实际 venv 里 PyYAML 一直在，**错的从来不是依赖，是解释器**。现 `orchestrator.py` / `nfctl.py` 两入口：缺 PyYAML 时 stderr 留痕 `[py-guard]` 自动切 venv 重跑（`NF_PY_GUARD` 防拉锯）；切不动则 orchestrator 退 1 给可行动命令、`nfctl check` 转阻塞自检项「当前解释器」（`--json` stdout 不受污染）。裸 python 下 `orchestrator --dry-run` 实测跑通、`nfctl check` 实测全绿。
+- **验证**：`nfctl test` 81/81（新增 `tests/unit/test_interp_guard.py` 20 断言，含「藏掉 yaml」反证）· `e2e_ux_verify` **121/121** · `vite build` · `quality_gate` BLOCK 0 · `leak_scan` 零命中。
+
 ## [v0.6.4] — 2026-10-06 设置页侧栏分类 · Agent 接入三通道闭环 · 固定测试示例工程
 
 - **设置页侧栏分类（7 项）**：原「一条长名单」改为侧边栏页签（引擎与模型 / 预算与止烧 / 通知与退出 / Agent 接入 / 风格与提示词 / 外观与更新 / 诊断与调试），对齐方寸设置页。分类状态存 `localStorage.mofang_settings_tab`，下次进来还停同一页。方寸实测：折叠解决的是「太长」，侧边栏解决的是「找不到」。

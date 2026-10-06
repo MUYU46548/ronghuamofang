@@ -687,6 +687,29 @@ def test_about_project(browser, mock_proc=None):
         check("点「恢复默认预设」后有明确反馈（成功或失败都要说清）",
               ("已恢复默认预设" in msg) or ("恢复失败" in msg), msg or "（无反馈元素）")
 
+        print("  --- 主题颜色：亮色/暗色分排 + 文字标识（2026-10-06 用户反馈）---")
+        page.locator(".set-nav-btn", has_text="外观与更新").click()
+        page.wait_for_timeout(250)
+        groups = page.locator(".theme-group")
+        titles = page.locator(".theme-group-title")
+        check("主题颜色分两排（.theme-group × 2）", groups.count() == 2, groups.count())
+        check("两排各有文字标识（亮色主题 / 暗色主题）",
+              titles.count() == 2
+              and titles.nth(0).inner_text().strip() == "亮色主题"
+              and titles.nth(1).inner_text().strip() == "暗色主题",
+              titles.all_inner_texts())
+        light_btns = groups.nth(0).locator(".theme-swatch")
+        dark_btns = groups.nth(1).locator(".theme-swatch")
+        check("亮色排 6 个 / 暗色排 4 个（与 THEMES / DARK_THEMES 一致）",
+              light_btns.count() == 6 and dark_btns.count() == 4,
+              (light_btns.count(), dark_btns.count()))
+        dark_titles = [dark_btns.nth(i).get_attribute("title")
+                       for i in range(dark_btns.count())]
+        check("暗色排全是「暗夜」系主题（分组没串排）",
+              bool(dark_titles) and all(t and t.startswith("暗夜") for t in dark_titles),
+              dark_titles)
+        shot(page, "D11_theme_rows")
+
         print("  --- 接入其他 Agent（配置段生成 + kickoff 一键复制）---")
         page.locator(".set-nav-btn", has_text="Agent 接入").click()
         page.wait_for_timeout(250)

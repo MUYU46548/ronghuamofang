@@ -343,7 +343,15 @@ function getWorkspaceSource() {
 //   声明工作态并不混用）。console/src/*（App.vue / AboutDialog.vue / style.css）再次变更 ——
 //   设置页侧栏分类 + Agent 接入「让它自装」第三渠道 + 关于页清理「内部代号 NovelForge」。
 //   **先 bump 再 electron-builder**。
-const SEED_VERSION = 19;
+// v20（2026-10-06，第十五批）：payload 内 scripts/ 实质变更 ——
+//   · 新增 utils/interp_guard.py 解释器守卫：裸 python 缺 PyYAML 时 stderr 留痕
+//     [py-guard] 自动切 venv 重跑（NF_PY_GUARD 防拉锯）；切不动 orchestrator 退 1
+//     给可行动命令、nfctl check 转阻塞项「当前解释器」（--json stdout 不受污染）。
+//   · orchestrator.py / nfctl.py 两入口挂守卫 + nfctl 自检新增解释器判据
+//     （2026-10-06 试跑连炸五次的真根因：裸 python 缺 yaml 被误诊成 .venv 缺依赖）。
+//   · tests/unit/test_interp_guard.py 20 断言（含「藏掉 yaml」反证）。
+//   **先 bump 再 electron-builder**。
+const SEED_VERSION = 20;
 
 // 只播种/刷新**代码与提示词**目录。
 // 刻意不含 data/：那是用户产物（章节、设定、大纲），任何情况下都不能被覆盖。

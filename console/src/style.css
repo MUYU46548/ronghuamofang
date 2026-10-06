@@ -1086,6 +1086,17 @@ body {
 .export-meta { flex: 1; }
 
 /* ===== 外观配置 ===== */
+/* 亮色/暗色分排（2026-10-06）：每排带文字标识，光看圆圈分不清明暗的问题就此解决 */
+.theme-group + .theme-group {
+  margin-top: 12px;
+}
+.theme-group-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 6px;
+  letter-spacing: 0.02em;
+}
 .theme-swatches {
   display: flex;
   gap: 8px;
