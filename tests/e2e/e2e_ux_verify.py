@@ -701,12 +701,14 @@ def test_about_project(browser, mock_proc=None):
         kick_toast = page.locator(".toast").inner_text() if page.locator(".toast").count() else ""
         check("复制动作有明确反馈（已复制 / 失败都要说）",
               ("已复制" in kick_toast) or ("失败" in kick_toast), kick_toast)
-        shot(page, "D9_agent_connect")
-        # 视觉验收的几何层（vision 通道 401 时的客观兜底 —— 不依赖像素审阅）
-        bb = page.locator(".ac-block").bounding_box()
-        check("配置块在视口内且不越界（几何断言）",
+        blk = page.locator(".ac-block")
+        blk.scroll_into_view_if_needed()
+        page.wait_for_timeout(200)
+        shot(page, "D9_agent_connect")     # 先滚到可见再拍：拍的必须是新块本身
+        bb = blk.bounding_box()
+        check("配置块滚到可见后在视口内且不越界（几何断言）",
               bool(bb) and bb["x"] >= 0 and bb["x"] + bb["width"] <= 1440 + 2
-              and bb["y"] >= 0,
+              and bb["y"] >= -2 and bb["y"] + bb["height"] <= 940 + 2,
               bb)
         check("页面无水平溢出（scrollWidth ≤ clientWidth+2）",
               page.evaluate("() => document.documentElement.scrollWidth"
@@ -732,11 +734,15 @@ def test_about_project(browser, mock_proc=None):
         dt_toast = page.locator(".toast").inner_text() if page.locator(".toast").count() else ""
         check("DevTools 开关有反馈（IPC 等价假实现回 ok）",
               "DevTools" in dt_toast, dt_toast)
+        # 诊断块几何：先滚到可见再拍/再断言（bounding_box 是视口相对坐标）
+        h4d = page.locator("h4:has-text('诊断与调试')")
+        h4d.scroll_into_view_if_needed()
+        page.wait_for_timeout(200)
         shot(page, "D10_diagnostics")
-        # 诊断块几何：按钮行不得压出卡片
-        dbb = page.locator("h4:has-text('诊断与调试')").bounding_box()
-        check("诊断块标题在视口内（几何断言）",
-              bool(dbb) and dbb["x"] >= 0 and dbb["x"] + dbb["width"] <= 1440 + 2, dbb)
+        dbb = h4d.bounding_box()
+        check("诊断块标题滚到可见后在视口内（几何断言）",
+              bool(dbb) and dbb["x"] >= 0 and dbb["x"] + dbb["width"] <= 1440 + 2
+              and dbb["y"] >= -2 and dbb["y"] <= 940 + 2, dbb)
 
         page.locator(".tabs button:has-text('流水线')").click()
         page.wait_for_timeout(400)

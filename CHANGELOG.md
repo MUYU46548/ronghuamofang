@@ -7,6 +7,28 @@ CHANGELOG」）。本文件从工程审查修复起正式启用。
 
 ---
 
+## [Unreleased] — 2026-10-06 对齐方寸：接入页 · 诊断调试 · MCP 自启动 · kickoff
+
+- **GUI「设置 → 接入其他 Agent」**：按运行态（安装版/源码版）生成 MCP 配置段
+  （Hermes YAML / Claude·Cline JSON，路径真实可复制）+ 一键复制 + 打开目标配置文件
+  （主进程固定三目标，不收渲染层任意路径）；MCP 8766 状态实时探针。
+- **kickoff 启动提示词**：单一事实源 `prompts/agent_kickoff.md`（防外部 AI 从头重建 /
+  绕守卫的第一道闸），同页一键复制并自动替换 `{{PROJECT_ROOT}}`。
+- **MCP stdio 垫片自启动**：8765 `/health` 不通时代拉一次 nf_api（连带 8766 MCP 线程），
+  最多等 12s；项目根解析与 `project-root.js` 同链（NF_ROOT → project-root.json → 默认），
+  全废不代拉；逃生门 `NF_BRIDGE_NO_AUTOSTART=1` / `--no-autostart`（测试/握手自检必设）。
+  新增 `tests/unit/test_bridge_autostart.py`（18 断言）。
+- **调试入口（对齐方寸「诊断日志 / 🩺 诊断」）**：顶栏「📋 日志」常驻按钮 +
+  设置页「诊断与调试」块（运行形态/健康态/代码根/数据根/日志路径 + 查看运行日志 /
+  打开日志文件 / 复制诊断信息 / DevTools 开关 / 重启后端 API——运行中禁用）+
+  快捷键 Ctrl+Shift+I / F12（打包态也能开 DevTools）。
+- **接线卡仓库真源**：`skills/worldbuilding/ronghuamofang/` 入仓（此前只有 AppData
+  副本，不符接线卡纪律）；方寸 `fangcun-bridge` 卡「绒花墨坊无 MCP 层」过时表述已在
+  方寸仓修正（该仓在施工，改动留工作树待其合并）。
+- **验证**：`nfctl test` 78/78 · `e2e_ux_verify` 107/107（含新块 DOM + 几何断言）·
+  quality_gate 通过 · 握手自检 9/9。
+- SEED_VERSION 15 → 16（payload scripts/prompts 变更，安装版升级自动刷新工作区）。
+
 ## [Unreleased] — 2026-10-05 免责声明首启强制确认（用户 00:34 需求）
 
 - **新增 `DisclaimerDialog.vue` + `disclaimer.js`（A/B 双版文案单一事实源）**：
