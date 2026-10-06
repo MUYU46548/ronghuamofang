@@ -198,12 +198,166 @@ def handle_config_agent_mode_set(h, body):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+# ---------------------------------------------------------------- 归档查看 / 删除
+# 为什么在「项目」域：/project/list 已在此，归档的「看」与「删」是它的自然延伸 ——
+# 此前 GUI 每行只有「恢复」，既看不了内容也删不掉，归档变成死胡同。
+#
+# 路径纪律：一律 api.ROOT 拼接（AGENTS.md「路径 IO 必须经 ROOT」）。
+# 不用 switch_book 的模块常量：那套常量按**脚本位置**解析，--root 场景下
+# 会静默指向另一个项目 —— 与 nf_api 里 Path("data/...") 是同一类坑。
+
+_MAX_ARCHIVE_FILE = 300_000        # 单文件预览上限（300 KB，超了只报体积不给内容）
+_MAX_ARCHIVE_ENTRIES = 800         # 目录树条目上限（防归档巨大时把响应撑爆）
+
+
+def _query1(h, key):
+    """取查询串单值（?name=xxx）。"""
+    q = h._query()
+    vals = q.get(key) or []
+    return str(vals[0]).strip() if vals else ""
+
+
+def _books_root():
+    return (api.ROOT / "data" / "books").resolve()
+
+
+def _archive_dir(name):
+    """书名 → 归档目录。返回 (path|None, error|None)。
+
+    安全要点：
+    · sanitize 只替换 `\\/:*?"<>|`，**不拦 `..`** —— 必须显式拒绝；
+    · 解析后再用 is_relative_to 卡一次，双保险（任何漏网字符都出不了根）。
+    """
+    import switch_book as sb
+    clean = sb.sanitize(name)
+    if not name or not clean or ".." in clean or clean in (".", "未命名"):
+        return None, "非法书名: %r" % (name,)
+    base = _books_root()
+    d = (base / clean).resolve()
+    if not d.is_relative_to(base):
+        return None, "路径越界: %r" % (name,)
+    if not d.is_dir():
+        return None, "未找到归档: %s（用 GET /project/list 查看）" % clean
+    return d, None
+
+
+def handle_archive_tree(h):
+    """归档内容清单：`GET /project/archive/tree?name=X`。
+
+    只读。给「归档项目查看」用 —— 想删之前先看清楚里面有什么，
+    也是「恢复出来才能看」这个死胡同的替代出口。
+    """
+    name = _query1(h, "name")
+    if not name:
+        return 400, {"ok": False, "error": "name 必填"}
+    d, err = _archive_dir(name)
+    if err:
+        return 404, {"ok": False, "error": err}
+    entries, total, truncated = [], 0, False
+    try:
+        for p in sorted(d.rglob("*")):
+            if p.is_dir():
+                continue
+            if len(entries) >= _MAX_ARCHIVE_ENTRIES:
+                truncated = True
+                break
+            try:
+                size = p.stat().st_size
+            except OSError:
+                size = -1
+            entries.append({"path": p.relative_to(d).as_posix(), "size": size})
+            total += max(size, 0)
+    except OSError as e:
+        return 500, {"ok": False, "error": "读取归档失败: %s" % e}
+    return 200, {"ok": True, "name": name, "root": str(d),
+                 "entries": entries, "count": len(entries),
+                 "total_size": total, "truncated": truncated}
+
+
+def handle_archive_file(h):
+    """归档内单文件预览：`GET /project/archive/file?name=X&path=rel`。
+
+    只读 + 三道闸：路径不许越出归档根、超大文件只报体积、二进制不回内容
+    （下载 .docx 之类对「看一眼」没有意义，还会把 JSON 响应变成乱码）。
+    """
+    name, rel = _query1(h, "name"), _query1(h, "path")
+    if not name or not rel:
+        return 400, {"ok": False, "error": "name 与 path 均必填"}
+    d, err = _archive_dir(name)
+    if err:
+        return 404, {"ok": False, "error": err}
+    target = (d / rel).resolve()
+    if not target.is_relative_to(d):
+        return 400, {"ok": False, "error": "路径越界: %r" % rel}
+    if not target.is_file():
+        return 404, {"ok": False, "error": "归档内无此文件: %s" % rel}
+    try:
+        size = target.stat().st_size
+    except OSError as e:
+        return 500, {"ok": False, "error": str(e)}
+    if size > _MAX_ARCHIVE_FILE:
+        return 413, {"ok": False, "error": "文件过大（%d B > %d B），请用「恢复」后查看"
+                                            % (size, _MAX_ARCHIVE_FILE)}
+    data = target.read_bytes()
+    if b"\x00" in data[:4096]:
+        return 415, {"ok": False, "error": "二进制文件，不支持在线预览: %s" % rel}
+    return 200, {"ok": True, "name": name, "path": rel, "size": size,
+                 "content": data.decode("utf-8", errors="replace")}
+
+
+def handle_archive_delete(h, body):
+    """删除归档：`POST /project/archive/delete` {name, confirm, purge?}。
+
+    破坏性操作的四道闸：
+    1. **GUI 来源**（`_gui_only`）：与止烧阈值同一档，与 agent_mode 无关也拦 ——
+       外部 Agent 不该有能力抹掉用户的成书数据；
+    2. **confirm 必须逐字等于书名**：防手滑 / 防脚本无脑重放；
+    3. **默认不真删**：移入 `data/books/_trash/<书名>__<时间戳>`（列表不再显示），
+       `purge=true` 才真删 —— 用户对数据丢失极度敏感，回收站是默认形态；
+    4. **返回落点路径**：真删时明确告知不可恢复，回收站时告知还能捞回来。
+    """
+    guard = _gui_only(h, "归档删除")
+    if guard:
+        return guard
+    body = body or {}
+    name = str(body.get("name") or "").strip()
+    confirm = str(body.get("confirm") or "").strip()
+    purge = bool(body.get("purge"))
+    if not name:
+        return 400, {"ok": False, "error": "name 必填"}
+    if confirm != name:
+        return 400, {"ok": False, "error": "请输入归档名「%s」以确认删除" % name}
+    d, err = _archive_dir(name)
+    if err:
+        return 404, {"ok": False, "error": err}
+    import shutil
+    try:
+        if purge:
+            shutil.rmtree(str(d))
+            return 200, {"ok": True, "mode": "purged", "name": name,
+                         "message": "已彻底删除「%s」（%s）—— 不可恢复" % (name, d)}
+        ts = api.time.strftime("%Y%m%d_%H%M%S", api.time.localtime())
+        trash = _books_root() / "_trash"
+        trash.mkdir(parents=True, exist_ok=True)
+        target = trash / ("%s__%s" % (d.name, ts))
+        shutil.move(str(d), str(target))
+        return 200, {"ok": True, "mode": "trashed", "name": name,
+                     "trash_path": str(target),
+                     "message": "已移出归档列表「%s」→ 回收站 %s（要彻底清除请手工删除该目录）"
+                                % (name, target)}
+    except OSError as e:
+        return 500, {"ok": False, "error": "删除失败: %s" % e}
+
+
 # 本模块负责的端点（供自检与文档）
 ROUTES = (
     ("GET", "/health", handle_health),
     ("GET", "/state", handle_state),
     ("GET", "/project/list", handle_project_list),
     ("GET", "/project/status", handle_project_status),
+    ("GET", "/project/archive/tree", handle_archive_tree),
+    ("GET", "/project/archive/file", handle_archive_file),
+    ("POST", "/project/archive/delete", handle_archive_delete),
     ("GET", "/config/project", handle_config_project),
     ("GET", "/config/style_notes", handle_config_style_notes),
     ("GET", "/config/agent_mode", handle_config_agent_mode),

@@ -310,6 +310,11 @@ def list_books():
         for d in sorted(BOOKS_DIR.iterdir()):
             if not d.is_dir():
                 continue
+            # _trash = 删除归档的回收站（POST /project/archive/delete 的默认落点）。
+            # 不跳过的话它会以「一本叫 _trash 的书」出现在归档列表里。
+            # 只认这一个名字：宽到 `_` 开头会连真叫「_某某」的书一起藏掉。
+            if d.name == "_trash":
+                continue
             meta = {}
             if (d / "_meta.json").exists():
                 try:

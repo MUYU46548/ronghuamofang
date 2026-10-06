@@ -1,7 +1,6 @@
 ---
 stage: review
 name: chapter_review
-model: hy3
 max_tokens: 8000
 temperature: 0.3
 ---

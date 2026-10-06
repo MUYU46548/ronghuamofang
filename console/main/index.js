@@ -1,5 +1,5 @@
 // 绒花墨坊桌面控制台 — Electron 主进程
-const { app, BrowserWindow, ipcMain, shell, Menu, dialog } = require("electron");
+const { app, BrowserWindow, ipcMain, shell, Menu, dialog, Notification } = require("electron");
 app.disableHardwareAcceleration();
 const { spawn, spawnSync } = require("child_process");
 const path = require("path");
@@ -298,7 +298,15 @@ function getWorkspaceSource() {
 //   nf_mcp_stdio_bridge.py 自启动（代拉 nf_api + 项目根同链解析）、
 //   prompts/agent_kickoff.md 新增（外部 Agent 启动提示词）。
 //   **先 bump 再 electron-builder**。
-const SEED_VERSION = 16;
+// v17（2026-10-06，第十三批）：payload 内 scripts/ + prompts/ 再次实质变更 ——
+//   · prompts/*.md 清除死字段 `model: hy3`（全项目无一处代码读它；真源是
+//     config/system.yaml 的 model.*，三份副本同步）；utils/template_loader.py
+//     文档同步 + 新增 tests/unit/test_prompt_frontmatter.py 防回潮；
+//   · nf_api_domains/project.py 新增归档「查看/删除」三端点
+//     （tree / file / delete，默认进回收站，agent 侧 403）+ nf_api 薄转发；
+//   · switch_book.list_books 跳过 _trash；agent_guard 禁用名单加 /project/archive/delete。
+//   **先 bump 再 electron-builder**。
+const SEED_VERSION = 17;
 
 // 只播种/刷新**代码与提示词**目录。
 // 刻意不含 data/：那是用户产物（章节、设定、大纲），任何情况下都不能被覆盖。
@@ -773,6 +781,33 @@ ipcMain.handle("debug:restart-api", async () => {
   startApi();
   const healthy = await waitForApi(20000);
   return { ok: healthy, healthy, logPath: nfApiLogPath() };
+});
+
+// 审批门系统通知（2026-10-06 修「通知权限是死按钮」）
+//
+// 旧实现：渲染进程 Notification.requestPermission()。它只在 permission === "default"
+// 时才动作，而打包态 Electron 里权限通常已是 granted/denied → 按钮点了毫无反应，
+// 且授权结果从不回显 —— 用户看到的就是一颗死按钮（而且就算点了也常常弹不出通知）。
+//
+// 现在：主进程 new Notification().show()，OS 级通知、**无需授权**、不存在权限弹窗。
+// 方寸桌面版同款方案（fangcun/desktop/src/main/services/notifier.ts）。
+// 渲染进程保留浏览器通知作为回退（浏览器预览模式下没有 mofangAPI）。
+ipcMain.handle("notify:gate", async (e, opts) => {
+  try {
+    const o = opts || {};
+    if (!Notification.isSupported()) {
+      return { ok: false, error: "当前系统不支持桌面通知" };
+    }
+    const n = new Notification({
+      title: String(o.title || "绒花墨坊"),
+      body: String(o.body || ""),
+      silent: false,
+    });
+    n.show();
+    return { ok: true, mode: "system" };
+  } catch (err) {
+    return { ok: false, error: String((err && err.message) || err) };
+  }
 });
 
 // 打开外部链接（关于页的 GitHub/许可等）。只放行 http(s)，其它协议一律拒绝

@@ -741,6 +741,83 @@ async function restoreProject(name) {
   }
 }
 
+/* ---------- 归档：查看 / 删除（2026-10-06 补） ----------
+   此前已归档项目每行只有「恢复」：想先看看里面有什么 → 只能整个恢复出来；
+   想清掉 → 没有入口（switch_book.py 连删除函数都没有）。归档成了死胡同。
+   现在：查看 = 只读列树 + 单文件预览；删除 = 应用内确认框 + 勾选护栏，
+   默认进回收站（data/books/_trash），勾了「彻底删除」才真删。 */
+const archViewer = ref({ open: false, name: "", root: "", entries: [], count: 0, total: 0,
+                        truncated: false, loading: false, error: "",
+                        current: "", content: "", contentLoading: false, contentError: "" });
+const archDelete = ref({ open: false, name: "", confirm: "", agreed: false, purge: false,
+                        busy: false, warn: "" });
+
+function fmtSize(n) {
+  const v = Number(n || 0);
+  if (v < 1024) return v + " B";
+  if (v < 1024 * 1024) return (v / 1024).toFixed(1) + " KB";
+  return (v / 1024 / 1024).toFixed(1) + " MB";
+}
+
+async function openArchiveViewer(b) {
+  archViewer.value = { open: true, name: b.name, root: "", entries: [], count: 0, total: 0,
+                       truncated: false, loading: true, error: "",
+                       current: "", content: "", contentLoading: false, contentError: "" };
+  const r = await api("/project/archive/tree?name=" + encodeURIComponent(b.name));
+  const v = archViewer.value;
+  v.loading = false;
+  if (r.status === 200 && r.data && r.data.ok) {
+    v.root = r.data.root || "";
+    v.entries = r.data.entries || [];
+    v.count = r.data.count || 0;
+    v.total = r.data.total_size || 0;
+    v.truncated = !!r.data.truncated;
+    if (v.entries.length) viewArchiveFile(v.entries[0].path);
+  } else {
+    v.error = (r.data && r.data.error) || ("读取失败 " + r.status);
+  }
+}
+
+async function viewArchiveFile(rel) {
+  const v = archViewer.value;
+  v.current = rel;
+  v.content = "";
+  v.contentError = "";
+  v.contentLoading = true;
+  const r = await api("/project/archive/file?name=" + encodeURIComponent(v.name)
+                      + "&path=" + encodeURIComponent(rel));
+  v.contentLoading = false;
+  if (r.status === 200 && r.data && r.data.ok) v.content = r.data.content;
+  else v.contentError = (r.data && r.data.error) || ("读取失败 " + r.status);
+}
+
+function askDeleteArchive(b) {
+  archDelete.value = { open: true, name: b.name, confirm: "", agreed: false,
+                       purge: false, busy: false, warn: "" };
+}
+
+async function submitDeleteArchive() {
+  const d = archDelete.value;
+  if (!d.agreed || d.busy) return;
+  if (d.confirm.trim() !== d.name) {
+    d.warn = "请输入归档名「" + d.name + "」以确认（必须逐字一致）";
+    return;
+  }
+  d.busy = true;
+  d.warn = "";
+  const r = await api("/project/archive/delete", "POST",
+                      { name: d.name, confirm: d.confirm.trim(), purge: !!d.purge });
+  d.busy = false;
+  if (r.status === 200 && r.data && r.data.ok) {
+    d.open = false;
+    say(r.data.message || "已删除归档");
+    loadProjects(true);
+    refresh();
+  } else {
+    d.warn = (r.data && (r.data.error || r.data.message)) || ("删除失败 " + r.status);
+  }
+}
+
 /* ---------- 生成前 token / 费用预估确认 ---------- */
 const estDialog = ref({ open: false, loading: false, data: null, title: "", confirm: null });
 const estSkipSession = ref(false);   // 「本次会话不再提示」
@@ -1773,22 +1850,55 @@ async function checkAgentOrigin(artifactPath) {
 
 watch(pendingGates, loadGateArtifacts, { immediate: true });
 
-// 撞门通知：当审批门出现时弹系统通知
+// 撞门通知：当审批门出现时弹通知。
+//
+// 主路径 = **主进程系统通知**（mofangAPI.notifyGate → Electron new Notification().show()）：
+// OS 级、无需授权，也就不存在「点了没反应」的权限死按钮。
+// 浏览器预览模式（没有 mofangAPI）才回退到渲染进程的 Notification —— 那条老路
+// 正是 2026-10-06 修掉的死按钮：requestPermission 只在 permission === "default"
+// 时才动作，而打包态通常已是 granted/denied，点了什么都不发生，且结果从不回显。
+function browserNotify(title, body) {
+  try {
+    if ("Notification" in window && Notification.permission === "granted") {
+      new Notification(title, { body: body });
+    }
+  } catch (e) { /* 通知失败不该影响流程 */ }
+}
+
 function notifyGate(stage) {
   if (!gateNotify.value) return;
   const label = STAGE_NAMES[stage] || "未知阶段";
-  try {
-    if ("Notification" in window && Notification.permission === "granted") {
-      new Notification("绒花墨坊 — 阶段 " + stage + " 可审批", {
-        body: label + " 已完成，点击进入收件箱审阅放行。",
-        tag: "gate-" + stage,
-      });
-    }
-  } catch (e) { /* ignore */ }
+  const title = "绒花墨坊 — 阶段 " + stage + " 可审批";
+  const body = label + " 已完成，点击进入收件箱审阅放行。";
+  const api = window.mofangAPI;
+  if (api && typeof api.notifyGate === "function") {
+    api.notifyGate({ title: title, body: body }).then(function (r) {
+      if (!r || !r.ok) browserNotify(title, body);
+    }).catch(function () { browserNotify(title, body); });
+  } else {
+    browserNotify(title, body);
+  }
 }
-async function requestNotifyPermission() {
-  if ("Notification" in window && Notification.permission === "default") {
-    await Notification.requestPermission();
+
+// 通知通道说明（收件箱按钮旁的副文案）—— 说清「为什么不需要授权」
+function notifyChannelLabel() {
+  const api = window.mofangAPI;
+  if (api && typeof api.notifyGate === "function") return "系统级通知，无需授权";
+  if (!("Notification" in window)) return "当前环境不支持通知";
+  if (Notification.permission === "granted") return "浏览器通知已授权";
+  if (Notification.permission === "denied") return "浏览器通知被拒绝（请在站点设置里放开）";
+  return "浏览器通知待授权（点按钮授权）";
+}
+
+// 通知开关：桌面版只翻开关；浏览器预览下顺带要权限（必须有用户手势才弹得出授权框）
+async function toggleGateNotify() {
+  const on = !gateNotify.value;
+  gateNotify.value = on;
+  setGateNotify(on);
+  const api = window.mofangAPI;
+  const isDesktop = api && typeof api.notifyGate === "function";
+  if (!isDesktop && "Notification" in window && Notification.permission === "default") {
+    try { await Notification.requestPermission(); } catch (e) { /* ignore */ }
   }
 }
 
@@ -2308,7 +2418,13 @@ async function copyStagePrompt(stage) {
     say("读取提示词失败: " + (r.data?.error || r.status));
     return;
   }
-  copyText(r.data.content, "阶段 " + stage + " 提示词已复制");
+  // frontmatter 里没有任何键被代码消费（stage/name 也只是给人看），
+  // 复制给外部 Agent 时只给任务正文 —— 老的 model: hy3 就是这么散播出去的。
+  const raw = String(r.data.content);
+  const m = raw.match(/^---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*\r?\n/);
+  const body = (m ? raw.slice(m[0].length) : raw).trimStart();
+  copyText(body || raw,
+    "阶段 " + stage + " 提示词已复制" + (m ? "（已剥掉 frontmatter，只含任务正文）" : ""));
 }
 function copyKickoff() { copyText(acKickoff.value, '启动提示词已复制'); }
 async function openAgentCfg(target) {
@@ -3197,8 +3313,11 @@ onUnmounted(() => {
       <div class="card-head">
         <h3>审批收件箱</h3>
         <span v-if="gateJustHit" class="pill st-gate">刚到达</span>
-        <button class="mini" @click="requestNotifyPermission" title="允许浏览器发送审批门通知">🔔 通知权限</button>
-        <span class="meta">{{ gateNotify ? '已开启' : '已关闭' }}（点击切换）</span>
+        <button class="mini" :class="{ primary: gateNotify }" @click="toggleGateNotify"
+                title="审批门到达时弹通知；桌面版走主进程系统通知（OS 级），无需浏览器授权">
+          🔔 通知 {{ gateNotify ? '已开' : '已关' }}
+        </button>
+        <span class="meta">{{ notifyChannelLabel() }} · 撞门自动跳转收件箱</span>
       </div>
       <div v-if="!pendingGates.length" class="empty">暂无待审项 —— 审批门阶段（2 大纲 / 6 润色）完成并等待确认时会出现在这里</div>
       <div v-for="s in pendingGates" :key="s.stage" class="gate-card">
@@ -3541,8 +3660,8 @@ onUnmounted(() => {
       <h4 style="margin-top: 16px;">审批门通知</h4>
       <div class="gate-notify-row">
         <div>
-          <div class="label">浏览器通知 + 自动跳转收件箱</div>
-          <div class="meta">审批门到达（阶段 2/6 完成未确认）时，自动切到收件箱页签并弹浏览器通知（需授权）。可关闭。</div>
+          <div class="label">通知 + 自动跳转收件箱</div>
+                      <div class="meta">审批门到达（阶段 2/6 完成未确认）时，自动切到收件箱页签并弹通知。桌面版走主进程<b>系统通知（无需授权）</b>；浏览器预览模式回退到浏览器通知。可关闭。</div>
         </div>
         <button class="mini" :class="{ primary: gateNotify }" @click="gateNotify = !gateNotify; setGateNotify(gateNotify)">
           {{ gateNotify ? '已开启' : '已关闭' }}
@@ -4020,7 +4139,11 @@ onUnmounted(() => {
           <span class="pill st-done">{{ b.display_name }}</span>
           <span class="art-path">{{ b.items }} 项 / {{ b.size_kb }} KB · {{ b.archived_at }}</span>
           <span class="spacer"></span>
+          <button class="mini" @click="openArchiveViewer(b)"
+                  title="只读浏览这份归档里有什么（不改动任何数据）">查看</button>
           <button class="mini primary" @click="restoreProject(b.name)">恢复</button>
+          <button class="mini danger" @click="askDeleteArchive(b)"
+                  title="默认移入回收站 data/books/_trash，可手工找回">删除</button>
         </div>
       </div>
       <div v-else class="empty">暂无归档项目</div>
@@ -4515,6 +4638,72 @@ onUnmounted(() => {
       <div class="dialog-actions">
         <span class="spacer"></span>
         <button class="mini primary" @click="submitInitWizard">确认初始化</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ⑤ 归档查看（只读）：内容清单 + 单文件预览 —— 不用「先恢复才能看」 -->
+  <div v-if="archViewer.open" class="drawer-mask" @click.self="archViewer.open = false">
+    <div class="dialog" style="width: min(960px, 96vw); max-height: min(86vh, 760px); display: flex; flex-direction: column;">
+      <div style="display:flex; align-items:center; margin-bottom:8px; gap:8px;">
+        <h3 style="margin:0;">查看归档 · {{ archViewer.name }}</h3>
+        <span class="meta">{{ archViewer.count }} 个文件 · {{ fmtSize(archViewer.total) }}</span>
+        <span v-if="archViewer.truncated" class="meta">（条目过多，只显示前 {{ archViewer.count }} 项）</span>
+        <span class="spacer"></span>
+        <button class="mini" @click="archViewer.open = false">关闭</button>
+      </div>
+      <div class="meta" style="margin-bottom:8px;">
+        {{ archViewer.root }} —— 只读预览，不改动任何数据；要动它请先「恢复」
+      </div>
+      <div v-if="archViewer.loading" class="empty">读取中…</div>
+      <div v-else-if="archViewer.error" class="empty" style="color: var(--bad);">{{ archViewer.error }}</div>
+      <template v-else>
+        <div style="display:flex; gap:12px; min-height:0; flex:1;">
+          <div style="width: 36%; overflow:auto; border-right:1px solid var(--border); padding-right:6px;">
+            <div v-for="e in archViewer.entries" :key="e.path"
+                 style="cursor:pointer; padding:3px 6px; font-size:12px; border-radius:4px; word-break:break-all;"
+                 :style="e.path === archViewer.current ? { background: 'var(--accent)', color: '#fff' } : {}"
+                 @click="viewArchiveFile(e.path)">
+              {{ e.path }}<span class="meta"> · {{ fmtSize(e.size) }}</span>
+            </div>
+            <div v-if="!archViewer.entries.length" class="empty">归档内没有文件</div>
+          </div>
+          <div style="flex:1; min-width:0; display:flex; flex-direction:column;">
+            <div class="meta" style="margin-bottom:4px;">{{ archViewer.current || '（左侧点选文件）' }}</div>
+            <div v-if="archViewer.contentLoading" class="empty">读取中…</div>
+            <div v-else-if="archViewer.contentError" class="empty" style="color: var(--bad);">{{ archViewer.contentError }}</div>
+            <pre v-else class="log-body" style="flex:1; overflow:auto; margin:0;">{{ archViewer.content }}</pre>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  <!-- ⑥ 归档删除确认：应用内对话框 + 勾选护栏 + 输入书名（不用 window.confirm） -->
+  <div v-if="archDelete.open" class="drawer-mask" @click.self="archDelete.open = false">
+    <div class="dialog" style="width: min(560px, 92vw);">
+      <h3>删除归档 · {{ archDelete.name }}</h3>
+      <div class="meta" style="line-height: 1.9; margin-bottom: 10px;">
+        · 默认移入回收站 <code>data/books/_trash/</code> —— 列表里不再显示，需要时可手工找回<br>
+        · 勾选「彻底删除」则直接抹掉目录，<b style="color: var(--bad);">不可恢复</b><br>
+        · 只影响这份归档，不动当前工作区
+      </div>
+      <label style="display: flex; gap: 8px; align-items: flex-start; margin-bottom: 10px;">
+        <input type="checkbox" v-model="archDelete.purge" />
+        <span>彻底删除（跳过回收站，不可恢复）</span>
+      </label>
+      <label style="display: flex; gap: 8px; align-items: flex-start; margin-bottom: 10px;">
+        <input type="checkbox" v-model="archDelete.agreed" />
+        <span>我确认删除归档「{{ archDelete.name }}」</span>
+      </label>
+      <label class="meta">输入归档名以确认</label>
+      <input v-model="archDelete.confirm" class="text-input" :placeholder="archDelete.name" />
+      <div v-if="archDelete.warn" class="meta" style="color: var(--bad); margin-top: 8px;">{{ archDelete.warn }}</div>
+      <div class="dialog-actions">
+        <button class="mini" @click="archDelete.open = false">取消</button>
+        <button class="mini danger" :disabled="!archDelete.agreed || archDelete.busy" @click="submitDeleteArchive">
+          {{ archDelete.busy ? '处理中…' : (archDelete.purge ? '彻底删除' : '移入回收站') }}
+        </button>
       </div>
     </div>
   </div>

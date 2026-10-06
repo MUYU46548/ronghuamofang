@@ -1,7 +1,6 @@
 ---
 stage: 4
 name: stage4_writing
-model: hy3  # 死代码：真源见 config/system.yaml 的 model.*，代码不读取此字段，仅作文档同步参考
 max_tokens: 25000
 temperature: 0.8
 # 顺序约束（勿破坏，2026-09-23 定）：下方 body 中 `---` 分隔线**之前**的内容必须逐章

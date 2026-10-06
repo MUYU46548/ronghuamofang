@@ -223,6 +223,18 @@ def _set_root(path):
     ROOT = Path(path).resolve()                 # 相对路径必须 resolve，否则 ROOT 随 CWD 漂移
     GLOBAL = str(ROOT / "data" / "outline" / "global.md")
     HISTORY_DIR = str(ROOT / "data" / "outline" / "history")
+    # switch_book 的三个常量（PROJECT_ROOT / DATA_DIR / BOOKS_DIR）在**导入时**
+    # 按「脚本所在目录」固化。`--root` 指向别处时它们与 ROOT 分叉 →
+    # `/project/list` 列出的是**另一个项目**的归档，而归档查看/删除按 ROOT 走 ——
+    # 同一个「项目」页读到两份不同数据源（2026-10-06 真机验收时实测到）。
+    # 与 GLOBAL/HISTORY_DIR 同理：凡由路径派生的常量，都在这里一并刷新。
+    try:
+        import switch_book as _sb
+        _sb.PROJECT_ROOT = ROOT
+        _sb.DATA_DIR = ROOT / "data"
+        _sb.BOOKS_DIR = ROOT / "data" / "books"
+    except Exception:                                  # noqa: BLE001
+        pass        # 刷新失败不致命：归档相关端点自会按 ROOT 解析并报错
 
 
 _set_root(_resolve_root())
@@ -1684,6 +1696,12 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/project/list":
             # 实现已迁至 nf_api_domains.project（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_project.handle_project_list(self)))
+        elif p == "/project/archive/tree":
+            # 归档内容清单（只读）；实现在域模块，这里只转发。
+            self._send(*_dom(dom_project.handle_archive_tree(self)))
+        elif p == "/project/archive/file":
+            # 归档内单文件预览（只读）；实现在域模块，这里只转发。
+            self._send(*_dom(dom_project.handle_archive_file(self)))
         elif p == "/prompts/get" or p.startswith("/prompts/get/"):
             # 实现已迁至 nf_api_domains.runtime（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_runtime.handle_prompts_get(self)))
@@ -2192,6 +2210,9 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 ok, msg = sb_mod.restore(name, yes=bool(body.get("yes")))
                 self._send(200 if ok else 400, {"ok": ok, "message": msg})
+            elif p == "/project/archive/delete":
+                # 删除归档（默认进回收站）；守卫与业务都在域模块，这里只转发。
+                self._send(*_dom(dom_project.handle_archive_delete(self, body)))
             elif p == "/project/create":
                 # 一键新建项目：归档当前 → 初始化空工作区 → 写 project.yaml
                 # 护栏：写前快照（与 /project/init 一致），失败不落地

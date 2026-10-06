@@ -189,6 +189,13 @@ stdout 被管道捕获时 Python 用 cp936，一行日志就能 `UnicodeEncodeEr
 **说明文字写 frontmatter，不要写进 body** —— frontmatter 不进任务文本（`load_template` 只取 body），
 写进 body 会变成逐章变化的内容，反而破坏前缀（这个坑已踩过一次）。
 
+**frontmatter 里没有任何键会被代码当参数用**（2026-10-06 实证：20 个 `load_template()`
+调用点无一读取 `meta`；模型/温度/上限的真源是 `config/system.yaml` 的 `model.*` 按角色取）。
+原先 15 个模板里的 `model: hy3` 因此被判死字段并从**三份副本**（源码树 / 桌面工作区 /
+安装包 payload）一并清除 —— 它的危害在**误导**：GUI 提示词编辑器显示它、「复制提示词」
+把它连正文一起塞进剪贴板，读的人（和外部 Agent）会以为模板在挑模型。
+复制按钮现已剥掉 frontmatter 只给正文；防回潮见 `tests/unit/test_prompt_frontmatter.py`。
+
 **另注**：`qwen3.5-flash` 在 TokenHub 上**完全不缓存**（同前缀连发 3 次 cached 恒为 0），
 而当前 7 个角色（含 writer）全用它 —— 即上述优化要变现需换到支持缓存的模型（见 `cost_tracker.RATES` 的 cache_read）。
 
@@ -247,6 +254,7 @@ stdout 被管道捕获时 Python 用 cp936，一行日志就能 `UnicodeEncodeEr
   - `/project/init`
   - `/config/agent_mode`（Agent 不得自行切换模式）
   - `/config/token_limit`（止烧阈值 —— Agent 不得抬高自己的闸门）
+  - `/project/archive/delete`（删除归档 = 抹掉成书数据；端点另要求 `X-Mofang-Source: gui`）
 - Agent 生成的大纲/产物自动进入待审批状态（exit=3），需在桌面端确认
 - 双保险机制：Agent 被告知需在桌面端审批 + 桌面端自动检测审批门并弹窗提示
 - 审计日志：所有 Agent 调用记录到 `data/state/agent_audit.jsonl`
@@ -270,6 +278,8 @@ stdout 被管道捕获时 Python 用 cp936，一行日志就能 `UnicodeEncodeEr
 - `GET /costs`、`/costs/summary`、`/costs/streaming`
 - `GET /estimate`
 - `GET /prompts/list`、`/prompts/get`
+- `GET /project/list`、`/project/status`、`/project/archive/tree`、`/project/archive/file`
+  （归档**只读**查看：清单 + 单文件预览，越界/超大/二进制有闸）
 
 **✅ 可调用**（写入沙盒/草稿类，产物自动进入待审）：
 - `POST /outline/save`、`POST /outline/chapters/save`
@@ -281,6 +291,7 @@ stdout 被管道捕获时 Python 用 cp936，一行日志就能 `UnicodeEncodeEr
 **🚫 禁止调用**（返回 403）：
 - `POST /approve`、`/reject`
 - `POST /project/create`、`/project/archive`、`/project/restore`、`/project/init`
+- `POST /project/archive/delete`（删归档，默认进回收站；GUI 来源头 + 逐字书名确认双闸）
 - `POST /config/agent_mode`（Agent 不得自行切换模式）
 
 ### ⚠️ 路径 IO 必须经 `ROOT`，不得用相对路径
@@ -332,6 +343,10 @@ if __name__ == "__main__":
   - **恢复**：`python scripts/snapshot.py --restore <ID> --yes`。默认 dry-run；
     恢复前自动存 `pre_restore` 快照作折返点；快照外的文件默认保留。
 - 多书归档：`data/books/{书名}/`（switch_book.py 归档/恢复；切换前 orchestrator 会提示书名不一致）
+  - **查看 / 删除**：`GET /project/archive/tree|file`（只读）、`POST /project/archive/delete`
+    （GUI 来源头 + 逐字书名确认；默认移入下条的回收站，`purge=true` 才真删）
+  - 归档回收站：`data/books/_trash/{书名}__{时间戳}/`（删除的默认落点，要彻底清除手工删该目录；
+    `list_books()` 跳过它，不会以「一本叫 _trash 的书」出现在列表里）
 - 章节修订历史：`data/chapters/history/`（refine_chapter.py 每次精修备份 chNN_vM.md）
 - 校对报告：`data/outline/proofread_report.json` + `.md`（proofread.py / `POST /proofread/run` 产出；
   **schema 与 review_report 对齐**：finding 带 `id/type/severity/detail/suggested_action`，

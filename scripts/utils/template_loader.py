@@ -1,8 +1,13 @@
 # -*- coding: utf-8 -*-
 """提示词模板加载器（v2 4.3：模板与代码分离，可热更新）。
 
-模板文件位于 prompts/，结构：YAML frontmatter（stage/model/max_tokens/temperature）
+模板文件位于 prompts/，结构：YAML frontmatter（stage/name 等，**仅供人读**）
 + Markdown 正文；正文占位符用 {{var}} 形式，加载时填充。
+
+⚠️ frontmatter 里**没有任何键会被代码当参数用**（2026-10-06 实证：20 个
+load_template 调用点无一读取 meta；模型/温度/上限的真源是 config/system.yaml
+按角色取）。原先的 `model: hy3` 因此被判死字段并从三份副本清除，
+由 tests/unit/test_prompt_frontmatter.py 防回潮。
 """
 import re
 from pathlib import Path

@@ -7,6 +7,34 @@ CHANGELOG」）。本文件从工程审查修复起正式启用。
 
 ---
 
+## [Unreleased] — 2026-10-06 归档可看可删 · 通知改系统级 · 提示词死字段清理
+
+- **归档不再是死胡同**（此前已归档项目每行只有「恢复」，看不了内容也删不掉）：
+  - 「查看」= `GET /project/archive/tree|file` 只读清单 + 单文件预览
+    （路径越界 / 超 300 KB / 二进制三道闸）；
+  - 「删除」= 应用内确认框（勾选护栏 + 逐字输入书名，不用 `window.confirm`），
+    默认移入回收站 `data/books/_trash/{书名}__{时间戳}`，勾「彻底删除」才真删；
+  - `POST /project/archive/delete` 进 Agent 禁用名单，端点另要求 `X-Mofang-Source: gui`；
+  - `list_books()` 跳过 `_trash`（否则回收站会以「一本叫 _trash 的书」出现在归档列表）。
+- **审批门通知改走主进程系统通知**：修收件箱「🔔 通知权限」死按钮 —— 旧实现
+  `Notification.requestPermission()` 只在 permission 为 `default` 时才动作，打包态通常已是
+  granted/denied → 点了毫无反应、且授权结果从不回显。现走 IPC `notify:gate` → 主进程
+  `new Notification().show()`（OS 级、无需授权，方寸同款方案），浏览器预览模式回退旧实现；
+  按钮本身变成开关，旁边显示当前通道（「系统级通知，无需授权」）。
+- **提示词死字段清理**：15 个模板的 `model: hy3` 从**三份副本**（源码树 / 桌面工作区 /
+  安装包 payload）删除 —— 全项目无一处代码读它，真源是 `config/system.yaml` 的 `model.*`；
+  「复制提示词」按钮剥掉 frontmatter 只给任务正文；新增
+  `tests/unit/test_prompt_frontmatter.py` 防回潮。
+- **修 `--root` 下两个数据源**：`_set_root()` 现同步刷新 `switch_book` 的
+  `PROJECT_ROOT/DATA_DIR/BOOKS_DIR` —— 否则 `/project/list` 列的是**脚本所在项目**的归档、
+  归档查看/删除按 `ROOT` 读，同一个项目页两边会静默不一致。
+- **新增测试**：`tests/unit/test_archive_manage.py`（43 断言：路径穿越、删除四道闸、根唯一性）、
+  `tests/unit/test_prompt_frontmatter.py`、`tests/e2e/e2e_new_features.py`
+  （25 断言：自建假归档夹具 + 动态空闲端口 + 跑完自清，不碰用户在用的 8765）。
+- **验证**：`nfctl test` 80/80 · `e2e_ux_verify` 110/110 · 新增 e2e 25/25 ·
+  真 Electron（CDP 附着）通知 IPC 8/8 · `node --check` main+preload 通过。
+- SEED_VERSION 16 → 17（payload scripts/prompts 变更，安装版升级自动刷新工作区）。
+
 ## [Unreleased] — 2026-10-06 一键复制阶段提示词给 Agent
 
 - **流水线页签每阶段「复制提示词」按钮（仅 Agent 模式可见）**：点一下就把该阶段主提示词全文复制到剪贴板，Agent 拿到就知道接下来干什么，不用每次用自然语言重新描述。按钮在「流式运行」之后、「确认」之前，仅 `agentMode` 开启时显示。

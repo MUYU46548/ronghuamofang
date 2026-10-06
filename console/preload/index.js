@@ -16,6 +16,8 @@ contextBridge.exposeInMainWorld("mofangAPI", {
   debugOpenLog: () => ipcRenderer.invoke("debug:open-log"),
   debugToggleDevtools: () => ipcRenderer.invoke("debug:devtools"),
   debugRestartApi: () => ipcRenderer.invoke("debug:restart-api"),
+  // 审批门系统通知（主进程 OS 级通知，无需授权 —— 修「通知权限是死按钮」）
+  notifyGate: (opts) => ipcRenderer.invoke("notify:gate", opts),
   openFileDialog: (options) => ipcRenderer.invoke("open-file-dialog", options),
   // 提示词模板编辑器（prompts/stage[1-7]_*.md）
   promptsList: () => ipcRenderer.invoke("prompts:list"),

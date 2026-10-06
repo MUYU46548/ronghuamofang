@@ -55,6 +55,9 @@ FORBIDDEN_IN_AGENT_MODE = frozenset({
     "/project/archive",      # 归档
     "/project/restore",      # 恢复
     "/project/init",         # 首启初始化
+    # 删除归档 = 抹掉成书数据（2026-10-06 补）：与归档/恢复同档。
+    # 端点自身还要求 X-Mofang-Source: gui，这里是第二道闸。
+    "/project/archive/delete",
     "/config/agent_mode",    # Agent 不得自行切换模式
     # Agent 不得抬高自己的闸门（2026-10-03）：止烧阈值 = 成本与安全设置。
     # 不拦的话，外部 Agent 只要 POST 一次把上限调到天上，"止烧"就是摆设。
