@@ -338,7 +338,12 @@ function getWorkspaceSource() {
 //   **先 bump 再 electron-builder**。
 // 2026-10-06：GUI 来源双因子（来源头 + 主进程 token）+ 版本号优先取 app.getVersion，
 // 安装版不再显示「vdev」+ 退出必确认默认开。scripts/prompts/templates 均有实质变更。
-const SEED_VERSION = 18;
+// v19（2026-10-06，第十四批）：payload 内 prompts/agent_kickoff.md 实质变更 ——
+//   新增「开发态 ≠ 客户端」三条红线（管线状态只 orchestrator 写 / 含 {{...}} 模板停下报告 /
+//   声明工作态并不混用）。console/src/*（App.vue / AboutDialog.vue / style.css）再次变更 ——
+//   设置页侧栏分类 + Agent 接入「让它自装」第三渠道 + 关于页清理「内部代号 NovelForge」。
+//   **先 bump 再 electron-builder**。
+const SEED_VERSION = 19;
 
 // 只播种/刷新**代码与提示词**目录。
 // 刻意不含 data/：那是用户产物（章节、设定、大纲），任何情况下都不能被覆盖。

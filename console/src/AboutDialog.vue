@@ -109,7 +109,7 @@ const STEPS = [
         <span class="brand-mark">绒</span>
         <div>
           <div class="about-title">绒花墨坊<span class="about-ver">v{{ app?.version || info?.version || "…" }}</span></div>
-          <div class="meta">全自动长篇小说生成系统 · 内部代号 NovelForge</div>
+          <div class="meta">全自动长篇小说生成系统</div>
         </div>
         <span class="spacer"></span>
       </div>

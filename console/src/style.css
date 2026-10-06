@@ -1576,3 +1576,33 @@ kbd {
   margin-top: 12px;
   padding-top: 4px;
 }
+
+/* ---- 设置页侧边栏分类（2026-10-06 对齐方寸设置页：侧边栏页签取代一条长名单） ----
+   方寸实测：折叠解决的是"太长"，侧边栏解决的是"找不到"。分类状态存 localStorage。 */
+.set-layout { display: flex; gap: 16px; align-items: flex-start; }
+.set-nav {
+  display: flex; flex-direction: column; gap: 4px;
+  flex: 0 0 auto; min-width: 150px; max-width: 172px;
+  position: sticky; top: 8px;
+}
+.set-nav-btn {
+  display: block; width: 100%; text-align: left;
+  padding: 8px 12px; font-size: 13px; line-height: 1.4;
+  color: var(--ink); cursor: pointer;
+  background: var(--field-dim);
+  border: 1px solid transparent; border-radius: 10px;
+  transition: background 0.12s ease;
+}
+.set-nav-btn:hover { background: var(--field-hover); }
+.set-nav-btn.on {
+  background: var(--field-on); border-color: var(--accent-soft);
+  color: var(--ink-accent); font-weight: 600;
+}
+.set-panes { flex: 1 1 auto; min-width: 0; }
+.set-pane { min-width: 0; }
+.set-pane > h4:first-child { margin-top: 0; }
+/* 窄窗口兜底：侧栏放不下时换行到上方，绝不压扁右侧内容 */
+@media (max-width: 760px) {
+  .set-layout { flex-wrap: wrap; }
+  .set-nav { flex-direction: row; flex-wrap: wrap; max-width: none; position: static; min-width: 0; }
+}

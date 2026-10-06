@@ -27,6 +27,18 @@
 3. 有 MCP 的客户端可直接配 stdio 垫片（配置段在 GUI「设置 → 接入其他 Agent」生成），
    后端没起时垫片会自动代拉 nf_api。
 
+### 开发态 ≠ 客户端（混淆 = 试跑不合格，已多次踩坑）
+
+1. **管线状态只有 orchestrator 写**：`data/state/progress.json`、`logs/runs.db`、
+   `data/setting/setting.json`、`data/outline/`、`data/chapters/` 一律由
+   `orchestrator.py` 及阶段脚本产生。你手工"补"的产物进不了进度系统 ——
+   客户端永远显示待跑、后续阶段闸门打不开。**手写产物冒充执行 = 本次试跑不合格。**
+2. **占位符未替换的提示词是模板，不是任务**：收到的文本里还有 `{{path_manifest}}`
+   这类 `{{...}}` 占位符 → 停下报告"拿到的是模板"，禁止自行填充、自行发挥。
+3. **动手前声明工作态并全程只用一态**：源码态 = 本仓库根；安装版 =
+   `%APPDATA%\绒花墨坊\workspace`。以 `nfctl status` 的 project_dir 为准核对，
+   走该态的正常入口（orchestrator / GUI 按钮 / HTTP API），不得读一态、写另一态。
+
 ### 三条通道（要结果走 CLI，要实时过程走 HTTP）
 
 - **CLI（默认）**：`python scripts/nfctl.py status / check / api <GET>`，

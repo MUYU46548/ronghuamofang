@@ -281,6 +281,24 @@ function switchTab(t) {
 const theme = ref(localStorage.getItem("mofang_theme") || "purple");
 const fontSize = ref(parseInt(localStorage.getItem("mofang_font_size") || "14"));
 
+/* ---------- 设置页分类（2026-10-06 对齐方寸设置页：侧边栏页签分类） ----------
+   用户原话「设置项不该挤在一条长名单里，要像各大软件那样用侧边栏页签分类」；
+   方寸实测：折叠解决的是"太长"，侧边栏解决的是"找不到"。当前分类记进 localStorage。 */
+const SETTINGS_TABS = [
+  { id: "model", name: "引擎与模型" },
+  { id: "budget", name: "预算与止烧" },
+  { id: "notify", name: "通知与退出" },
+  { id: "agent", name: "Agent 接入" },
+  { id: "prompt", name: "风格与提示词" },
+  { id: "general", name: "外观与更新" },
+  { id: "diag", name: "诊断与调试" },
+];
+const settingsTab = ref(localStorage.getItem("mofang_settings_tab") || "model");
+function selectSettingsTab(id) {
+  settingsTab.value = id;
+  localStorage.setItem("mofang_settings_tab", id);
+}
+
 const THEMES = [
   { id: "purple", name: "雾灰紫", color: "#9b8fc4" },
   { id: "dark", name: "暗夜紫", color: "#7c83d4" },
@@ -2462,6 +2480,53 @@ async function openAgentCfg(target) {
   else say('打开失败: ' + ((r && r.error) || '未知错误'));
 }
 
+/* ---------- 让它自装（2026-10-06 对齐方寸「🤖 让它自装」· A 路线第三渠道） ----------
+   方寸同款零写入：只生成一段贴给目标 agent 的指令（目标配置文件 + 按它家格式生成的
+   配置段 + 技能卡 + 自检步骤），写配置、重启、验证全由对方自己动手 —— 现地操作不盲猜。 */
+const acSelfTarget = ref('hermes');
+const AC_SELF_META = {
+  hermes: { name: 'Hermes', fmt: 'YAML（mcp_servers）', cfgKey: 'hermesConfig', yaml: true },
+  claude: { name: 'Claude Code', fmt: 'JSON（mcpServers）', cfgKey: 'claudeConfig', yaml: false },
+  cline: { name: 'Cline', fmt: 'JSON（mcpServers）', cfgKey: 'clineConfig', yaml: false },
+};
+const acSelfText = computed(() => {
+  const c = agentConnect.value;
+  const m = AC_SELF_META[acSelfTarget.value];
+  if (!c || !m) return '';
+  const root = (state.value && state.value.project_dir) || '';
+  const cfg = c[m.cfgKey] || '（未取到 —— 按你自己的文档定位，不猜、不代写）';
+  const snippet = m.yaml ? c.yamlSnippet : c.jsonSnippet;
+  const indented = String(snippet || '').split('\n').map((l) => '   ' + l).join('\n');
+  const skill = root
+    ? root + '/skills/worldbuilding/ronghuamofang/SKILL.md（源码版才有）'
+    : '（项目根未取到，从绒花墨坊仓库 skills/ 目录取）';
+  return [
+    '你是 ' + m.name + '。请自行完成「绒花墨坊」的 MCP 接入 —— 由你现地操作，比外部盲写更可靠：',
+    '',
+    '1）配置 MCP 服务（配置段已按你家格式 ' + m.fmt + ' 生成，可直接使用）：',
+    '   目标配置文件：' + cfg,
+    '   配置段：',
+    indented,
+    '   保存后按你自己的方式重启生效。',
+    '   ⚠ 若你家配置格式与此不同，按你自己的文档改写，但 command 与 args 必须原样保留',
+    '     （那是绒花墨坊的真实入口路径）。',
+    '',
+    '2）安装操作技能卡（可选，SKILL.md 标准格式）：',
+    '   源文件：' + skill,
+    '   复制到你自己的技能目录，重启后确认能加载；找不到就跳过，不影响接入。',
+    '',
+    '3）自检：连接后列出工具，应看到 25 个 nf_* 白名单工具（如 nf_get_state / nf_run_stage）；',
+    '   再向用户汇报：配置写到哪了、怎么验证的。',
+    '',
+    '红线：审批/打回不经过 MCP（403 是设计）；不伪造来源头、不改 gates/提示词/模型；',
+    '管线状态文件只有 orchestrator 能写 —— 禁止手写产物冒充执行。',
+  ].join('\n');
+});
+function copySelfInstall() {
+  if (!acSelfText.value) { say('未取到配置信息，无法生成自装指令'); return; }
+  copyText(acSelfText.value, '自装指令已复制 —— 粘贴给目标 Agent，让它自己装');
+}
+
 /* ---------- 诊断与调试（2026-10-06 对齐方寸「🩺 诊断」） ---------- */
 const dbg = ref(null);
 async function loadDebugInfo() {
@@ -3605,13 +3670,24 @@ onUnmounted(() => {
     <!-- 设置 -->
     <section v-if="tab === 'settings' && models" class="card">
       <div class="card-head">
-        <h3>引擎与模型（config/system.yaml）</h3>
-        <button class="mini" @click="refreshModels" title="从 config/system.yaml 重载">刷新</button>
+        <h3>设置</h3>
       </div>
+      <!-- 侧边栏页签分类（2026-10-06 对齐方寸设置页）：分类记进 localStorage，下次进来还停在那一页 -->
+      <div class="set-layout">
+        <nav class="set-nav">
+          <button v-for="t in SETTINGS_TABS" :key="t.id" class="set-nav-btn"
+                  :class="{ on: settingsTab === t.id }" @click="selectSettingsTab(t.id)">
+            {{ t.name }}
+          </button>
+        </nav>
+        <div class="set-panes">
+          <div class="set-pane" v-show="settingsTab === 'model'">
+      <h4>引擎与模型（config/system.yaml）</h4>
       <!-- 模型使用免责声明（2026-10-04 用户指定文案，原样照录，静态展示，勿改写） -->
       <div class="model-disclaimer">若您的AI订阅仅可在编程工具（如 OpenClaw、OpenCode 等）中使用，请务必开启绒花墨坊的Agent模式，使用外部Agent调用绒花墨坊。否则您可能因以API调用的形式用于自动化脚本、自定义应用程序后端等被AI提供商封禁。因此造成的一切损失与绒花墨坊无关。若您继续使用绒花墨坊，则代表您已知悉并同意以上内容。</div>
       <div class="meta">
         engine: {{ models.engine }} · 下拉来源：{{ modelSource === 'fetched' ? '服务商动态拉取' : 'config 手写列表' }}
+        <button class="mini" style="margin-left: 8px;" @click="refreshModels" title="从 config/system.yaml 重载">刷新</button>
         <button class="mini" style="margin-left: 8px;" @click="refreshFetchedModels" :disabled="fetchingModels">
           {{ fetchingModels ? '同步中…' : '↻ 同步服务商模型' }}
         </button>
@@ -3684,6 +3760,8 @@ onUnmounted(() => {
         <span class="spacer"></span>
         <button class="mini" @click="openDisclaimer('view')">查看完整声明</button>
       </div>
+          </div><!-- /set-pane model -->
+          <div class="set-pane" v-show="settingsTab === 'notify'">
 
       <!-- P1: 审批门通知 -->
       <h4 style="margin-top: 16px;">审批门通知</h4>
@@ -3708,6 +3786,8 @@ onUnmounted(() => {
           {{ confirmOnExit ? '已开启' : '已关闭' }}
         </button>
       </div>
+          </div><!-- /set-pane notify -->
+          <div class="set-pane" v-show="settingsTab === 'budget'">
 
       <!-- 止烧阈值（token 级熔断）：hermes 下金额阈值无效，止烧全靠这几个值 -->
       <h4 style="margin-top: 16px;">预算与止烧（token 级熔断）</h4>
@@ -3759,6 +3839,8 @@ onUnmounted(() => {
           {{ tokenLimit.msg }}
         </div>
       </template>
+          </div><!-- /set-pane budget -->
+          <div class="set-pane" v-show="settingsTab === 'agent'">
 
       <!-- P1: Agent 模式开关 -->
       <h4 style="margin-top: 16px;">Agent 模式（外部 Agent 控制）</h4>
@@ -3848,7 +3930,30 @@ onUnmounted(() => {
             <button class="mini" @click="loadKickoff">重新读取</button>
           </div>
         </div>
-      </div>
+
+        <!-- 让它自装（2026-10-06 对齐方寸「🤖 让它自装」· A 路线第三渠道）：指令贴给目标 Agent，由它自己动手 -->
+        <div class="ac-selfinstall">
+          <div class="label" style="margin-top: 12px;">🤖 让它自装 —— 复制一段指令贴给目标 Agent，由它自己写配置并自检</div>
+          <div class="ac-actions" style="margin-top: 6px;">
+            <button class="mini" :class="{ primary: acSelfTarget === 'hermes' }"
+                    @click="acSelfTarget = 'hermes'">Hermes</button>
+            <button class="mini" :class="{ primary: acSelfTarget === 'claude' }"
+                    @click="acSelfTarget = 'claude'">Claude Code</button>
+            <button class="mini" :class="{ primary: acSelfTarget === 'cline' }"
+                    @click="acSelfTarget = 'cline'">Cline</button>
+            <button class="mini primary" :disabled="!acSelfText" @click="copySelfInstall">复制自装指令</button>
+          </div>
+          <textarea class="prompt-text" style="min-height: 110px; margin-top: 6px;"
+                    :value="acSelfText" readonly spellcheck="false"
+                    placeholder="读取中…（需先载入接入信息）"></textarea>
+          <div class="meta" style="margin-top: 4px;">
+            指令含：目标配置文件路径 + 按该家格式生成的配置段 + 技能卡 + 自检步骤。
+            零写入 —— 绒花墨坊不代写对方的配置文件，现地操作不盲猜（方寸同款第三渠道）。
+          </div>
+        </div>
+      </div><!-- /ac-block -->
+          </div><!-- /set-pane agent -->
+          <div class="set-pane" v-show="settingsTab === 'prompt'">
 
       <!-- 用户风格笔记 -->
       <h4 style="margin-top: 16px;">用户风格笔记（book.style_notes）</h4>
@@ -3914,6 +4019,8 @@ onUnmounted(() => {
           </div>
         </div>
       </div>
+          </div><!-- /set-pane prompt -->
+          <div class="set-pane" v-show="settingsTab === 'general'">
 
       <!-- 外观配置 -->
       <h4 style="margin-top: 16px;">外观配置</h4>
@@ -3975,6 +4082,8 @@ onUnmounted(() => {
       <div v-if="updateProgress > 0 && updateProgress < 100" class="meta" style="margin-top: 4px;">
         下载进度: {{ updateProgress.toFixed(1) }}%
       </div>
+          </div><!-- /set-pane general -->
+          <div class="set-pane" v-show="settingsTab === 'diag'">
 
       <!-- 诊断与调试（2026-10-06 对齐方寸「🩺 诊断」—— 像样的调试入口） -->
       <h4 style="margin-top: 16px;">诊断与调试</h4>
@@ -4007,6 +4116,10 @@ onUnmounted(() => {
         排障顺序：先「查看运行日志」→ 拿「复制诊断信息」贴给协助者 →
         仍不行再「重启后端 API」。DevTools 看渲染层（前端报错、网络请求）。
       </div>
+
+          </div><!-- /set-pane diag -->
+        </div><!-- /set-panes -->
+      </div><!-- /set-layout -->
 
       <div class="meta" style="margin-top: 12px;">项目目录: {{ state ? state.project_dir : "-" }}</div>
     </section>

@@ -655,9 +655,18 @@ def test_about_project(browser, mock_proc=None):
         page.wait_for_timeout(700)
         check("设置页有免责声明入口（pill + 查看完整声明按钮）",
               page.locator(".pill:has-text('免责声明')").count() >= 1
-              and page.locator("button:has-text('查看完整声明')").count() >= 1,
+              and page.locator("button:has-text('查看完整声明')").count() >= 1
+              and page.locator("button:has-text('查看完整声明')").is_visible(),
               (page.locator(".pill:has-text('免责声明')").count(),
                page.locator("button:has-text('查看完整声明')").count()))
+        navs = page.locator(".set-nav-btn")
+        check("设置页侧边栏分类渲染（7 项，取代一条长名单）",
+              navs.count() == 7, navs.all_inner_texts())
+        check("默认停在「引擎与模型」分类（免责声明在其下可见）",
+              "on" in (navs.nth(0).get_attribute("class") or ""),
+              navs.nth(0).get_attribute("class"))
+        page.locator(".set-nav-btn", has_text="预算与止烧").click()
+        page.wait_for_timeout(250)
         check("止烧面板渲染（网格 + 四个字段）", page.locator(".tl-grid").count() == 1
               and page.locator(".tl-field").count() >= 4,
               page.locator(".tl-field").count())
@@ -679,6 +688,8 @@ def test_about_project(browser, mock_proc=None):
               ("已恢复默认预设" in msg) or ("恢复失败" in msg), msg or "（无反馈元素）")
 
         print("  --- 接入其他 Agent（配置段生成 + kickoff 一键复制）---")
+        page.locator(".set-nav-btn", has_text="Agent 接入").click()
+        page.wait_for_timeout(250)
         check("「接入其他 Agent」配置块渲染", page.locator(".ac-block").count() == 1,
               page.locator(".ac-block").count())
         acode = page.locator(".ac-code")
@@ -704,6 +715,30 @@ def test_about_project(browser, mock_proc=None):
         kick_toast = page.locator(".toast").inner_text() if page.locator(".toast").count() else ""
         check("复制动作有明确反馈（已复制 / 失败都要说）",
               ("已复制" in kick_toast) or ("失败" in kick_toast), kick_toast)
+
+        print("  --- 让它自装（对齐方寸「🤖 让它自装」第三渠道）---")
+        si = page.locator(".ac-selfinstall")
+        check("「让它自装」块渲染", si.count() == 1, si.count())
+        si_ta = page.locator(".ac-selfinstall textarea")
+        si_val = si_ta.input_value() if si_ta.count() else ""
+        check("自装指令含目标配置路径 + YAML 配置段（不是空壳）",
+              "config.yaml" in si_val and "mcp_servers" in si_val
+              and "nf_mcp_stdio_bridge" in si_val,
+              "len=%d" % len(si_val))
+        check("自装指令带自检步骤与红线（25 个 nf_* / 禁手写产物）",
+              "nf_get_state" in si_val and "冒充执行" in si_val,
+              si_val[-160:].replace("\n", " | "))
+        page.locator(".ac-selfinstall button", has_text="Claude Code").click()
+        page.wait_for_timeout(250)
+        si_val2 = si_ta.input_value()
+        check("切换目标后指令跟随（JSON mcpServers + 该家配置路径）",
+              "mcpServers" in si_val2 and ".claude.json" in si_val2,
+              si_val2[:120].replace("\n", " | "))
+        page.locator(".ac-selfinstall button:has-text('复制自装指令')").click()
+        page.wait_for_timeout(400)
+        si_toast = page.locator(".toast").inner_text() if page.locator(".toast").count() else ""
+        check("复制自装指令有明确反馈",
+              ("已复制" in si_toast) or ("失败" in si_toast), si_toast)
         blk = page.locator(".ac-block")
         blk.scroll_into_view_if_needed()
         page.wait_for_timeout(200)
@@ -718,6 +753,8 @@ def test_about_project(browser, mock_proc=None):
                             " <= document.documentElement.clientWidth + 2"))
 
         print("  --- 诊断与调试（对齐方寸 🩺 诊断页签）---")
+        page.locator(".set-nav-btn", has_text="诊断与调试").click()
+        page.wait_for_timeout(250)
         check("「诊断与调试」块渲染",
               page.locator("h4:has-text('诊断与调试')").count() == 1,
               page.locator("h4:has-text('诊断与调试')").count())
