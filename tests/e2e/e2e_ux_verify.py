@@ -185,9 +185,12 @@ def settle_disclaimer(page):
         page.wait_for_timeout(150)
         agree.first.click()
         page.wait_for_timeout(450)
+        # ack 键随 DISCLAIMER_VERSION 走（v1 → v1.1 …），只断言前缀，不断言具体版本号
         check("滚到底后勾选解锁 → 同意生效 → 弹窗关闭且 ack 落 localStorage",
               page.locator(".disclaimer-mask").count() == 0
-              and page.evaluate("() => !!localStorage.getItem('mofang_disclaimer_ack_v1')"))
+              and page.evaluate(
+                  "() => Object.keys(localStorage).some("
+                  "k => k.startsWith('mofang_disclaimer_ack_v'))"))
     else:
         check("滚到底后勾选解锁", False,
               "勾选框=%s 同意按钮=%s" % (cb.count(), agree.count()))
