@@ -24,7 +24,13 @@
 // ─────────────────────────────────────────────────────────────
 
 export const DISCLAIMER_VERSION = 1.1;
-export const DISCLAIMER_ACK_KEY = "mofang_disclaimer_ack_v" + DISCLAIMER_VERSION;
+// 内容指纹（2026-10-07）：对本文件全文（`export const DISCLAIMER_CONTENT_SHA` 行
+// 本身除外）的 sha256 前 12 位。它并入 ack 键 —— **免责声明正文只要被改动，
+// 全体用户的 ack 键即失效并重新强制确认**，「未来更新要不要重新确认」从纪律
+// 变成机制。改正文后必须同步重算本值；忘记重算会被
+// tests/unit/test_disclaimer_version.py 拦下。
+export const DISCLAIMER_CONTENT_SHA = "f4f494e9424f";
+export const DISCLAIMER_ACK_KEY = "mofang_disclaimer_ack_v" + DISCLAIMER_VERSION + "_" + DISCLAIMER_CONTENT_SHA;
 
 // —— A 版 · 首启强制弹窗（短版）——
 export const DISCLAIMER_SHORT_SECTIONS = [

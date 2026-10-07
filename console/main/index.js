@@ -6,7 +6,8 @@ const crypto = require("crypto");
 const path = require("path");
 const fs = require("fs");
 const { shouldGuardClose, closeAskTimedOut, killTreeArgv,
-        shouldRetryPortProbe, MAX_PORT_PROBE_RETRIES } = require("./quitGuard");
+        shouldRetryPortProbe, parseNetstatListeningPids,
+        MAX_PORT_PROBE_RETRIES } = require("./quitGuard");
 // 项目根显式解析（2026-10-04 Step 4c 根修）：纯函数模块，node 可直测
 const { configFileFor, resolveProjectRoot, persistRoot } = require("./project-root");
 
@@ -23,6 +24,7 @@ let rendererBusy = false;      // 渲染进程上报：有运行中 job / 未审
 let isQuitting = false;        // 用户已确认退出或已在退出流程中
 let lastCloseAskAt = 0;        // 上次询问时间（连点合并）
 let closeAskTimer = null;      // 看门狗定时器
+let closeAskAnswered = false;  // 渲染进程已回执（确认框已接手）→ 看门狗退场
 let updateInstalling = false;  // 正在装更新（此时不许硬退出）
 let confirmOnExit = true;      // 退出必确认（默认开；设置页可关，存 console-settings.json）
 
@@ -70,6 +72,7 @@ function killTree(pid) {
 function askRendererToClose() {
   /** 拦住关窗 → 问渲染进程（应用内确认框）。同时启动看门狗。 */
   lastCloseAskAt = Date.now();
+  closeAskAnswered = false;
   if (!mainWindow || mainWindow.isDestroyed()) { forceQuit("no-window"); return; }
   try { mainWindow.webContents.send("app:close-requested"); }
   catch (e) { console.error("[console] send close-requested failed:", e && e.message); }
@@ -77,7 +80,8 @@ function askRendererToClose() {
   const askedAt = lastCloseAskAt;
   // 看门狗：渲染进程挂了/在 reload/根本没接这个通道 → 到点强制退出。
   closeAskTimer = setTimeout(() => {
-    if (!isQuitting && closeAskTimedOut({ askedAt, now: Date.now() })) {
+    if (!isQuitting && closeAskTimedOut({ askedAt, now: Date.now(),
+                                          acked: closeAskAnswered })) {
       console.error("[console] 关窗确认超时（渲染进程未应答）→ 强制退出");
       forceQuit("ask-timeout");
     }
@@ -351,7 +355,15 @@ function getWorkspaceSource() {
 //     （2026-10-06 试跑连炸五次的真根因：裸 python 缺 yaml 被误诊成 .venv 缺依赖）。
 //   · tests/unit/test_interp_guard.py 20 断言（含「藏掉 yaml」反证）。
 //   **先 bump 再 electron-builder**。
-const SEED_VERSION = 20;
+// v21（2026-10-07，第十六批）：payload 内 scripts/ 实质变更 ——
+//   · nf_mcp_stdio_bridge.py：项目根解析补「注册表 User NF_ROOT」兜底 ——
+//     长驻进程（Hermes 网关）的环境变量可能过期/缺失，与新起的 GUI 解析出
+//     不同的数据根 → GUI 与 MCP 垫片双根分裂（2026-10-07 事故）。
+//   · 随包新增 skills/（extraResources：技能卡随版本分发）。
+//   · Electron 主进程（asar 内，不走种子）：8765 双绑接管 + 退出确认回执
+//     （确认框不再被 5s 看门狗计时强退）。
+// **先 bump 再 electron-builder**。
+const SEED_VERSION = 21;
 
 // 只播种/刷新**代码与提示词**目录。
 // 刻意不含 data/：那是用户产物（章节、设定、大纲），任何情况下都不能被覆盖。
@@ -453,13 +465,71 @@ function seedWorkspace() {
     console.log(`[console] seedWorkspace: 工作区已升级到种子 v${SEED_VERSION}（用户 data/ 未受影响）`);
   }
 }
+// 技能随版本分发（2026-10-07，对齐方寸「升级后启动自动同步」）：
+// 随包 skills/worldbuilding → Hermes 技能库，内容不一致才覆盖（发布版赢），
+// 运行态技能永远等于当前安装版本，Agent 手改下次启动即被复位。
+// 只碰 worldbuilding/ 子树：技能库根目录还有别家的技能与清单文件，不越界。
+function syncSkills() {
+  if (!isPackaged) return;
+  try {
+    const src = path.join(process.resourcesPath, "payload", "skills", "worldbuilding");
+    const dstBase = process.env.LOCALAPPDATA;
+    if (!fs.existsSync(src) || !dstBase) return;
+    const dst = path.join(dstBase, "hermes", "skills", "worldbuilding");
+    let copied = 0;
+    const walk = (rel) => {
+      for (const ent of fs.readdirSync(path.join(src, rel), { withFileTypes: true })) {
+        const r = rel ? path.join(rel, ent.name) : ent.name;
+        if (ent.isDirectory()) { walk(r); continue; }
+        const s = path.join(src, r), t = path.join(dst, r);
+        let same = false;
+        try {
+          same = fs.existsSync(t) && fs.readFileSync(s).equals(fs.readFileSync(t));
+        } catch (e) { /* 读失败按内容不同处理 */ }
+        if (!same) {
+          fs.mkdirSync(path.dirname(t), { recursive: true });
+          fs.copyFileSync(s, t);
+          copied += 1;
+          console.log("[console] syncSkills: 更新 " + r);
+        }
+      }
+    };
+    walk("");
+    if (copied) console.log("[console] syncSkills: 技能随版本分发完成，更新 " + copied + " 个文件");
+  } catch (e) {
+    console.error("[console] syncSkills 失败（不阻断启动）:", e && e.message);
+  }
+}
+
 const BASE = "http://127.0.0.1:" + API_PORT;
 
 let apiProc = null;
 let mainWindow = null;
 
+function killPortOccupants(port) {
+  /** 杀掉占用 port 的既有监听进程（Windows：netstat → PID → 杀整树）。返回被清 PID。 */
+  if (process.platform !== "win32") return [];
+  let pids = [];
+  try {
+    const out = require("child_process").execSync(
+      "netstat -ano | findstr :" + port + " | findstr LISTENING",
+      { stdio: "pipe" }).toString();
+    pids = parseNetstatListeningPids(out, port);
+  } catch (e) { /* netstat 没输出 = 没人占 */ }
+  pids.forEach((pid) => {
+    console.log("[console] port " + port + " 被既有实例占用（无本会话 GUI token）"
+                + " → 杀 PID " + pid + "（树）");
+    if (!killTree(parseInt(pid))) {
+      try { process.kill(parseInt(pid)); } catch (e) { /* ignore */ }
+    }
+  });
+  return pids;
+}
+
 function startApi(attempt) {
   const tryNo = attempt || 1;
+  // 本进程已拉起过 → 不重复 spawn（重启走 debug:restart-api 的 stopApi 前置）。
+  if (apiProc) return;
   if (!fs.existsSync(PY)) {
     console.error("[console] python not found:", PY);
     return;
@@ -504,6 +574,11 @@ function startApi(attempt) {
   });
   tester.once("listening", () => {
     tester.close();
+    // 双绑接管（2026-10-07）：Windows 下 SO_REUSEADDR 会让「端口空闲」探测在
+    // 既有实例（MCP 垫片自启 / 上轮遗留）仍在监听时假成功 —— 不清场就双绑，
+    // 新连接落进无 GUI token 的旧实例，受保护写入全 403（gui(untrusted)）。
+    // spawn 前先清场：8765 只允许本进程注入了本会话 token 的实例持有。
+    killPortOccupants(API_PORT);
     const ws = getWorkspaceDir();
     fs.mkdirSync(ws, { recursive: true });
     const apiScript = path.join(ws, "scripts", "nf_api.py");
@@ -694,8 +769,15 @@ function agentConnectPaths() {
   const bridgePath = isPackaged
     ? path.join(process.resourcesPath, "payload", "scripts", "nf_mcp_stdio_bridge.py")
     : path.join(ROOT, "scripts", "nf_mcp_stdio_bridge.py");
+  // 技能卡真源（自装指令用）：打包态指安装目录 payload（恒存在），
+  // 不再让渲染层拿 project_dir 拼 —— 打包态工作区里没有 skills/，必然断路径
+  // （2026-10-07 用户指出的发布态问题）。
+  const skillPath = isPackaged
+    ? path.join(process.resourcesPath, "payload", "skills",
+                "worldbuilding", "ronghuamofang", "SKILL.md")
+    : path.join(ROOT, "skills", "worldbuilding", "ronghuamofang", "SKILL.md");
   return {
-    pythonCmd, bridgePath,
+    pythonCmd, bridgePath, skillPath,
     hermesConfig: path.join(localAppData, "hermes", "config.yaml"),
     claudeConfig: path.join(os.homedir(), ".claude.json"),
     clineConfig: path.join(appData, "Code", "User", "globalStorage",
@@ -734,6 +816,7 @@ ipcMain.handle("agent-connect:info", async () => {
     version: app.getVersion(),
     pythonCmd: p.pythonCmd,
     bridgePath: p.bridgePath,
+    skillPath: p.skillPath,
     hermesConfig: p.hermesConfig,
     claudeConfig: p.claudeConfig,
     clineConfig: p.clineConfig,
@@ -1030,6 +1113,14 @@ ipcMain.handle("app:set-confirm-on-exit", (e, v) => {
   return { ok, confirmOnExit };
 });
 
+// 渲染进程回执「确认框已弹出/已接手」（2026-10-07 修「几秒后自动退出」）：
+// 收到回执立刻撤看门狗 —— 确认框在场绝不计时自动退；没回执才走 5s 强退
+// （渲染进程死掉时兜底，不把用户关在应用里）。
+ipcMain.on("app:close-answered", () => {
+  closeAskAnswered = true;
+  if (closeAskTimer) { clearTimeout(closeAskTimer); closeAskTimer = null; }
+});
+
 // 用户在应用内确认框里点了「确认退出」→ 真正关窗（isQuitting=true 后 close 不再被拦）。
 ipcMain.handle("app:quit-confirmed", () => {
   isQuitting = true;
@@ -1119,6 +1210,7 @@ function createWindow() {
 app.whenReady().then(async () => {
   confirmOnExit = readConsoleSettings().confirmOnExit !== false;   // 默认开
   seedWorkspace();
+  syncSkills();   // 技能随版本分发（幂等：内容不同才写）
   const ws = getWorkspaceDir();
   const seedMarker = path.join(ws, ".seeded");
   const configOk = fs.existsSync(path.join(ws, "config", "system.yaml"));

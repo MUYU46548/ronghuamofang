@@ -262,7 +262,7 @@ def _health_ok(host=None, port=None, timeout=0.5):
 def _resolve_project_root(env=None, appdata=None, here=None, valid=None):
     """解析项目根 —— 与 console/main/project-root.js 同一条链的 Python 镜像：
 
-        1) NF_ROOT 环境变量（显式覆盖）
+        1) NF_ROOT 环境变量（显式覆盖；进程环境缺失时回读注册表用户环境）
         2) %APPDATA%\\绒花墨坊\\project-root.json（GUI 记忆的项目根）
         3) 默认：源码态 = 仓库根；打包态（脚本在 payload/ 下）= %APPDATA% 工作区
 
@@ -284,6 +284,22 @@ def _resolve_project_root(env=None, appdata=None, here=None, valid=None):
         return Path(root).resolve()
     if root:
         _log("NF_ROOT 指向的项目根无效（缺 config/system.yaml）: " + str(root))
+    # 2026-10-07：进程环境拿不到时回读**注册表用户环境变量** —— 长驻宿主
+    # （Hermes 网关）的环境可能过期/缺失 NF_ROOT，而新起的 GUI 按注册表拿到
+    # 它，两边就解析出不同的数据根（GUI 与垫片双根分裂）。注册表与「新起
+    # 进程」看到的一致，读它才能对齐。
+    if not root and os.name == "nt":
+        try:
+            import winreg
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment") as _k:
+                root, _ = winreg.QueryValueEx(_k, "NF_ROOT")
+            root = str(root or "").strip() or None
+        except OSError:
+            root = None
+        if root and valid(root):
+            _log("NF_ROOT（注册表用户环境）: " + str(root))
+            return Path(root).resolve()
+        root = None
     if appdata:
         cfg = Path(appdata) / "绒花墨坊" / "project-root.json"
         try:

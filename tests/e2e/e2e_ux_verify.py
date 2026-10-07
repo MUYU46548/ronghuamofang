@@ -96,6 +96,7 @@ window.mofangAPI = window.mofangAPI || {
     clineConfig: "C:\\\\fake\\\\cline_mcp_settings.json",
     yamlSnippet: "mcp_servers:\\n  novelforge:\\n    command: C:\\\\fake\\\\repo\\\\.venv\\\\Scripts\\\\python.exe\\n    args:\\n      - C:\\\\fake\\\\repo\\\\scripts\\\\nf_mcp_stdio_bridge.py\\n    enabled: true",
     jsonSnippet: "{\\n  \\"mcpServers\\": {\\n    \\"novelforge\\": {\\n      \\"command\\": \\"C:\\\\\\\\fake\\\\\\\\repo\\\\\\\\.venv\\\\\\\\Scripts\\\\\\\\python.exe\\",\\n      \\"args\\": [\\n        \\"C:\\\\\\\\fake\\\\\\\\repo\\\\\\\\scripts\\\\\\\\nf_mcp_stdio_bridge.py\\"\\n      ]\\n    }\\n  }\\n}",
+    skillPath: "C:/fake/repo/skills/worldbuilding/ronghuamofang/SKILL.md",
     mcpListening: false,
   }),
   agentOpenConfig: async () => ({ ok: true, path: "C:\\\\fake\\\\hermes\\\\config.yaml", existed: true }),
@@ -748,6 +749,8 @@ def test_about_project(browser, mock_proc=None):
               "config.yaml" in si_val and "mcp_servers" in si_val
               and "nf_mcp_stdio_bridge" in si_val,
               "len=%d" % len(si_val))
+        check("自装指令技能源是真实路径（skillPath，非空壳提示）",
+              "skills/worldbuilding/ronghuamofang/SKILL.md" in si_val)
         check("自装指令带自检步骤与红线（25 个 nf_* / 禁手写产物）",
               "nf_get_state" in si_val and "冒充执行" in si_val,
               si_val[-160:].replace("\n", " | "))
@@ -816,8 +819,12 @@ def test_about_project(browser, mock_proc=None):
     ctx2, page2, errs2, bad2 = new_page(browser, COLD_API, "cold")
     try:
         check("全新工作区显示冷启动引导卡", page2.locator(".coldstart").count() == 1)
-        check("引导含四步上手路径", page2.locator(".cs-step").count() == 4,
+        check("引导含五步上手路径", page2.locator(".cs-step").count() == 5,
               page2.locator(".cs-step").count())
+        check("第 5 步是 Agent 接入检查（监听状态两态之一）",
+              page2.locator(".cs-step:has-text('接外部 Agent')").count() == 1
+              and (page2.locator(".cs-step:has-text('MCP 未监听')").count() == 1
+                   or page2.locator(".cs-step:has-text('MCP 监听中')").count() == 1))
         check("引导里有「新建项目」直达按钮",
               page2.locator(".coldstart button:has-text('新建项目')").count() == 1)
         shot(page2, "D6_coldstart")

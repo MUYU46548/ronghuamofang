@@ -43,7 +43,12 @@ contextBridge.exposeInMainWorld("mofangAPI", {
   // 关窗拦不拦、超时怎么办，都在主进程里判（见 main/quitGuard.js 的说明）。
   setQuitBusy: (busy) => ipcRenderer.send("app:busy", !!busy),
   onCloseRequested: (callback) => {
-    const handler = () => callback();
+    const handler = () => {
+      // 应答即撤看门狗（2026-10-07）：主进程发问后我们先回执「我活着/框已接手」，
+      // 它就清掉 5s 强退定时器 —— 退出不再计时自动退；回执先于回调，回调再抛也不断链。
+      try { ipcRenderer.send("app:close-answered"); } catch (e) { /* ignore */ }
+      callback();
+    };
     ipcRenderer.on("app:close-requested", handler);
     return () => ipcRenderer.removeListener("app:close-requested", handler);
   },

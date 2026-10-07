@@ -11,6 +11,11 @@ metadata:
 
 # 绒花墨坊 ↔ Hermes 操作卡
 
+> **本卡随绒花墨坊版本分发**：安装版启动时会把随包 `skills/worldbuilding/` 同步到
+> 技能库（内容不一致即以发布版覆盖）。**运行态请勿手工修改本文件** —— 改动会被
+> 下次升级覆盖；要改内容请改仓库真源 `skills/worldbuilding/ronghuamofang/`
+> （或在会话里提建议，由维护者改仓库后随版本带出）。
+
 接线卡模式：只写**入口 + 自检 + 边界 + 处方**。命令与端点的**唯一真源是现场读**
 `AGENTS.md`、`scripts/nf_api.py`（头部 docstring 就是端点总览）、`scripts/*.py --help` ——
 本卡不维护会过期的清单快照。

@@ -10,6 +10,7 @@ const {
   closeAskTimedOut,
   killTreeArgv,
   shouldRetryPortProbe,
+  parseNetstatListeningPids,
   MAX_PORT_PROBE_RETRIES,
 } = require("../main/quitGuard.js");
 
@@ -79,6 +80,34 @@ ok("第 1、2 次可以重试", shouldRetryPortProbe(1) === true && shouldRetryP
 ok("到达上限后放弃（并打日志提示手动处理）",
    shouldRetryPortProbe(MAX_PORT_PROBE_RETRIES) === false);
 ok("上限可配", shouldRetryPortProbe(1, 1) === false);
+
+console.log("=== 5. 应答回执：确认框在场绝不计时自动退（2026-10-07） ===");
+ok("已回执 → 即使远超 5s 也不判超时",
+   closeAskTimedOut({ askedAt: 1000, now: 99999, acked: true }) === false);
+ok("未回执 → 照旧 5s 判超时（死渲染进程兜底强退）",
+   closeAskTimedOut({ askedAt: 1000, now: 6000 }) === true);
+ok("已回执 + 从没问过 → 不超时（不凭空强退）",
+   closeAskTimedOut({ askedAt: 0, now: 99999, acked: true }) === false);
+
+console.log("=== 6. netstat 监听 PID 解析（双绑接管判据） ===");
+const NL = String.fromCharCode(10);
+const NS = [
+  "  TCP    127.0.0.1:8765         0.0.0.0:0              LISTENING       1608",
+  "  TCP    127.0.0.1:18765        0.0.0.0:0              LISTENING       9999",
+  "  TCP    [::]:8765              [::]:0                 LISTENING       4248",
+  "  TCP    127.0.0.1:8765         0.0.0.0:0              TIME_WAIT       7777",
+  "  TCP    127.0.0.1:87650        0.0.0.0:0              LISTENING       5555",
+].join(NL);
+ok("解析出正确 PID（IPv4 + IPv6，非 LISTENING 不收）",
+   JSON.stringify(parseNetstatListeningPids(NS, 8765)) === JSON.stringify(["1608", "4248"]),
+   JSON.stringify(parseNetstatListeningPids(NS, 8765)));
+ok(":87650 不撞 :8765（前缀端口排除）",
+   parseNetstatListeningPids(NS, 8765).indexOf("5555") === -1);
+ok("重复 PID 去重保序",
+   parseNetstatListeningPids(NS + NL + "  TCP    127.0.0.1:8765   0.0.0.0:0   LISTENING   1608", 8765).length === 2);
+ok("空输入 / 非法输入 → 空表（不误杀）",
+   parseNetstatListeningPids("", 8765).length === 0
+   && parseNetstatListeningPids("garbage without columns", 8765).length === 0);
 
 console.log("\n" + "=".repeat(52));
 console.log("  node 单测：通过 " + pass + " / 失败 " + fails.length);

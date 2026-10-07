@@ -938,6 +938,12 @@ def run_tests(root: Path, pattern: str = "test_*.py", verbose: bool = False) -> 
     # （errors="replace" 兜底：日志宁可显示成 ?，也不许再变成 None）。
     child_env = dict(os.environ)
     child_env["PYTHONIOENCODING"] = "utf-8"
+    # NF_ROOT 毒化防护（2026-10-07 实测）：用户级 NF_ROOT 会被 nf_api 当作
+    # `--root` 的默认值（nf_api.py:2624），测试起的临时根服务器就全被钉回
+    # 真实仓库 —— 临时配置的 vault/agent_mode 不生效、models/switch 把真
+    # config/system.yaml 整份 safe_dump（注释全丢）、夹具断言对着空仓库全红。
+    # 测试子进程一律不继承该变量（要指根的用例自己传 --root）。
+    child_env.pop("NF_ROOT", None)
 
     for tf in test_files:
         rel = tf.relative_to(root)

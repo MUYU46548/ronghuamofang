@@ -144,7 +144,7 @@ def case_reflection():
     print("\n【5】反证：把守卫改回旧形态，本用例必须变红")
     vue = read("console/src/App.vue")
     # 模拟旧实现（只做字符串层面的反证，不改真文件）
-    old_vue = vue.replace("const quitDlg = ref({ open: false, agreed: false });",
+    old_vue = vue.replace("const quitDlg = ref({ open: false, agreed: false, busy: false });",
                           'window.addEventListener("beforeunload", (e) => {\n'
                           '  e.returnValue = "确认退出？";\n'
                           '});\nconst quitDlg = ref({ open: false, agreed: false });')

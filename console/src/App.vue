@@ -360,7 +360,7 @@ const hasUnfinishedJob = computed(() => {
   const stages = state.value.stages || [];
   return stages.some((s) => s.status === "running" || (s.status === "done" && !s.approved));
 });
-const quitDlg = ref({ open: false, agreed: false });
+const quitDlg = ref({ open: false, agreed: false, busy: false });
 
 function setupExitGuard() {
   // ① 上报 busy（状态一变就推给主进程，主进程据此决定关窗要不要拦）
@@ -371,7 +371,10 @@ function setupExitGuard() {
   try {
     window.mofangAPI?.onCloseRequested?.(() => {
       if (!hasUnfinishedJob.value && !confirmOnExit.value) { window.mofangAPI.confirmQuit(); return; }
-      quitDlg.value = { open: true, agreed: false };
+      // busy 决定文案与护栏（2026-10-07）：旧版无条件写「有流水线/待审批」，
+      // 空闲时也这么说 = 误导；空闲仅因「退出必确认」而弹 → 免勾选、直接确认。
+      const busy = hasUnfinishedJob.value;
+      quitDlg.value = { open: true, agreed: !busy, busy };
     });
   } catch (e) { /* 非 Electron 环境忽略 */ }
 }
@@ -396,6 +399,18 @@ try {
 function toggleConfirmOnExit() {
   confirmOnExit.value = !confirmOnExit.value;
   try { window.mofangAPI?.setConfirmOnExit?.(confirmOnExit.value); } catch (e) { /* ignore */ }
+}
+
+// 免责声明确认回调（2026-10-07）：首启强制模式点「同意」后，接着跑被延后的
+// 引导/向导 —— 新手检查严格放在免责声明之后，不与免责弹窗叠层。
+function onDisclaimerAck() {
+  disclaimerOpen.value = false;
+  say("已确认免责声明，祝创作顺利");
+  if (pendingAfterDisclaimer) {
+    const fn = pendingAfterDisclaimer;
+    pendingAfterDisclaimer = null;
+    fn();
+  }
 }
 
 /* ---------- 导出（P3 多平台发布） ---------- */
@@ -2070,6 +2085,7 @@ const aboutOpen = ref(false);
 // 免责声明弹窗：first-run=首启强制（未同意不可关）；view=随时查看（关于/命令面板/设置页）
 const disclaimerOpen = ref(false);
 const disclaimerMode = ref("view");
+let pendingAfterDisclaimer = null;   // 首启强制免责 ack 后再跑的引导/向导（2026-10-07）
 const disclaimerAckedAt = ref("");
 function openDisclaimer(mode = "view") {
   disclaimerMode.value = mode;
@@ -2126,7 +2142,8 @@ const coldStartStatus = ref({
 });
 
 async function checkColdStartStatus() {
-  if (!isColdStart.value) return;
+  // 2026-10-07 放开冷启动限制：非冷启动工作区的首启引导也要真实状态
+  // （全部只读接口，仅在展示引导时调用）。
   // 素材数
   try {
     const m = await api("/materials/list");
@@ -2147,6 +2164,12 @@ async function checkColdStartStatus() {
     const c = await api("/config/project");
     if (c.status === 200 && c.data.ok) {
       coldStartStatus.value.bookName = { name: c.data.config?.book?.name || "", checked: true };
+    }
+  } catch (e) { /* ignore */ }
+  // 外部 Agent 接入状态（仅 Electron 有 IPC；浏览器验收态保持「未检查」）
+  try {
+    if (window.mofangAPI?.agentConnectInfo && !agentConnect.value) {
+      await loadAgentConnect();
     }
   } catch (e) { /* ignore */ }
 }
@@ -2503,9 +2526,12 @@ const acSelfText = computed(() => {
   const cfg = c[m.cfgKey] || '（未取到 —— 按你自己的文档定位，不猜、不代写）';
   const snippet = m.yaml ? c.yamlSnippet : c.jsonSnippet;
   const indented = String(snippet || '').split('\n').map((l) => '   ' + l).join('\n');
-  const skill = root
-    ? root + '/skills/worldbuilding/ronghuamofang/SKILL.md（源码版才有）'
-    : '（项目根未取到，从绒花墨坊仓库 skills/ 目录取）';
+  // 技能源走主进程算好的真实路径（打包态 = 安装目录 payload，恒存在）；
+  // 旧版拿 project_dir 拼 —— 打包态工作区里没有 skills/，必然断路径（2026-10-07 修）。
+  const skill = c.skillPath
+    ? c.skillPath
+    : (root ? root + '/skills/worldbuilding/ronghuamofang/SKILL.md（源码版才有）'
+            : '（技能路径未取到，从绒花墨坊仓库 skills/ 目录取）');
   return [
     '你是 ' + m.name + '。请自行完成「绒花墨坊」的 MCP 接入 —— 由你现地操作，比外部盲写更可靠：',
     '',
@@ -2823,14 +2849,6 @@ onMounted(() => {
     };
     updaterCleanup = window.mofangAPI.onUpdater(updaterHandler);
   }
-  // 免责声明首启强制确认（先于向导/引导/updater——合规确认优先于一切 UX）
-  if (!hasAckedDisclaimer()) {
-    openDisclaimer("first-run");
-  }
-  // 首次检查是否需要显示初始化向导
-  checkInitWizard();
-  // 检查素材目录是否为空
-  checkMaterialsEmpty();
   // 首启引导状态检测（监听 isColdStart 变化，state 加载完成后自动触发）
   watch(isColdStart, (v) => {
     if (v) {
@@ -2840,6 +2858,27 @@ onMounted(() => {
       showGuide.value = false;
     }
   });
+  // 免责声明首启强制确认（先于向导/引导/updater——合规确认优先于一切 UX）。
+  // 2026-10-07：向导/引导/素材检查延后到**免责声明确认之后**执行，不叠层
+  // （用户要求：新手检查放在免责声明之后）。
+  const bootAfterDisclaimer = () => {
+    // 首次检查是否需要显示初始化向导
+    checkInitWizard();
+    // 检查素材目录是否为空
+    checkMaterialsEmpty();
+    // 新手引导：没手动关闭过就展示（含非冷启动工作区的首启）——
+    // 引导卡含素材 / 书名 / API Key / Agent 接入就绪检查。
+    if (!localStorage.getItem(GUIDE_KEY)) {
+      showGuide.value = true;
+      checkColdStartStatus();
+    }
+  };
+  if (!hasAckedDisclaimer()) {
+    openDisclaimer("first-run");
+    pendingAfterDisclaimer = bootAfterDisclaimer;
+  } else {
+    bootAfterDisclaimer();
+  }
 });
 
 async function checkMaterialsEmpty() {
@@ -2997,10 +3036,10 @@ onUnmounted(() => {
     </div>
 
 
-    <!-- 冷启动引导：工作区全新（无产物）时给出三步上手路径 -->
-    <div v-if="tab === 'pipeline' && state && showGuide" class="coldstart">
+    <!-- 新手引导（首启未关闭即显示，免责声明确认后弹出）：五步上手路径 + 就绪状态检查 -->
+    <div v-if="tab === 'pipeline' && state && showGuide && !disclaimerOpen" class="coldstart">
       <div style="display:flex;justify-content:space-between;align-items:center;">
-        <div class="cs-title">从这个开始（四步跑通第一本书）</div>
+        <div class="cs-title">从这个开始（五步跑通第一本书）</div>
         <button class="mini" @click="dismissGuide" title="关闭引导">✕</button>
       </div>
       <div class="cs-steps">
@@ -3041,6 +3080,16 @@ onUnmounted(() => {
             <div class="meta">审稿逐条决策 → 校对体检 → 导出 Word 成品</div>
           </div>
           <button class="mini" @click="openAbout">看完整说明</button>
+        </div>
+        <div class="cs-step">
+          <span class="cs-no">5</span>
+          <div>
+            <b>接外部 Agent（可选）</b>
+            <div class="meta">设置 → 接入其他 Agent：MCP 配置段 / 「让它自装」指令，配好后外部 Agent 可代管流水线</div>
+          </div>
+          <span v-if="agentConnect && agentConnect.mcpListening" class="pill st-done">✓ MCP 监听中</span>
+          <span v-else-if="agentConnect" class="pill st-warn">MCP 未监听</span>
+          <button class="mini" @click="switchTab('settings')">去接入</button>
         </div>
       </div>
       <!-- 状态全绿时显示「开始运行」按钮 -->
@@ -4555,7 +4604,7 @@ onUnmounted(() => {
   <!-- 免责声明：首启强制确认（未勾选不可关）/ 随时查看（关于 · 命令面板 · 设置页） -->
   <DisclaimerDialog :open="disclaimerOpen" :mode="disclaimerMode" :acked-at="disclaimerAckedAt"
                     @close="disclaimerOpen = false"
-                    @ack="disclaimerOpen = false; say('已确认免责声明，祝创作顺利')" />
+                    @ack="onDisclaimerAck" />
 
   <!-- 新建项目向导（项目页签 / 命令面板入口） -->
   <NewProjectWizard :open="newProjectOpen" :api="api"
@@ -4619,12 +4668,16 @@ onUnmounted(() => {
   <div v-if="quitDlg.open" class="drawer-mask" @click.self="cancelQuit">
     <div class="dialog" style="width: min(520px, 92vw);">
       <h3>退出绒花墨坊？</h3>
-      <div class="meta" style="line-height: 1.8; margin-bottom: 10px;">
+      <div v-if="quitDlg.busy" class="meta" style="line-height: 1.8; margin-bottom: 10px;">
         当前有正在运行的流水线，或存在<b>待审批阶段</b>。<br>
         · 退出会中止正在运行的任务（已完成阶段的产物保留，重跑从断点续上）<br>
         · 待审批阶段不受影响，下次打开仍停在审批门
       </div>
-      <label style="display: flex; gap: 8px; align-items: flex-start; margin-bottom: 10px;">
+      <div v-else class="meta" style="line-height: 1.8; margin-bottom: 10px;">
+        当前没有运行中的流水线，也没有待审批阶段，退出不会中断任何工作。<br>
+        （「退出必确认」默认开启，可在设置页关闭）
+      </div>
+      <label v-if="quitDlg.busy" style="display: flex; gap: 8px; align-items: flex-start; margin-bottom: 10px;">
         <input type="checkbox" v-model="quitDlg.agreed" />
         <span>我已了解，确认退出</span>
       </label>
