@@ -269,6 +269,7 @@ function switchTab(t) {
     loadAgentConnect();        // 接入其他 Agent：路径/MCP 状态每次重探（垫片可能刚代拉）
     loadKickoff();             // 启动提示词：项目根可能变，每次重读替换占位符
     loadDebugInfo();           // 诊断与调试：健康/路径/日志位置每次重探
+    if (settingsTab.value === "diag") loadFactory();   // 出厂内容：停在诊断页时重读
   }
   if (t === "materials") loadMaterials();
   if (t === "chapters" && !chaptersLoaded.value) loadChapters();
@@ -297,6 +298,9 @@ const settingsTab = ref(localStorage.getItem("mofang_settings_tab") || "model");
 function selectSettingsTab(id) {
   settingsTab.value = id;
   localStorage.setItem("mofang_settings_tab", id);
+  // 出厂内容盘点只在进「诊断与调试」时拉：/factory/list 要逐文件算 sha256，
+  // 没必要每次进设置页都跑一遍
+  if (id === "diag") loadFactory();
 }
 
 const THEMES = [
@@ -2599,6 +2603,55 @@ function copyDiagnostics() {
     copiedAt: new Date().toISOString(),
   }, null, 2), '诊断信息已复制');
 }
+
+/* ---------- 出厂内容（0.6.7 出厂/用户数据分治） ----------
+   为什么放在「诊断与调试」：这条数据回答的正是「工作区里哪些东西不是我写的」——
+   典型排障场景就是用户问「素材怎么多了几张卡」。盘点只读（GET /factory/list），
+   归档是破坏性操作 → 走应用内确认框 + 勾选护栏（与跳过阶段同一套纪律，
+   不用 window.confirm：Electron 原生对话框不可靠）。 */
+const factory = ref(null);                       // GET /factory/list 的响应体
+const facDlg = ref({ open: false, agreed: false, busy: false, warn: "" });
+
+async function loadFactory() {
+  try {
+    const r = await api("/factory/list");
+    factory.value = (r.status === 200) ? r.data : null;
+    if (r.status !== 200) {
+      factory.value = Object.assign({ _error: r.data?.error || ("HTTP " + r.status) },
+                                    r.data || {});
+    }
+  } catch (e) {
+    factory.value = { _error: String((e && e.message) || e) };
+  }
+}
+
+function openFactoryClean() {
+  facDlg.value = { open: true, agreed: false, busy: false, warn: "" };
+}
+
+async function submitFactoryClean() {
+  const d = facDlg.value;
+  if (!d.agreed) { d.warn = "请先勾选护栏确认项"; return; }
+  d.busy = true;
+  d.warn = "";
+  try {
+    const r = await api("/factory/clean", "POST", { confirm: true });
+    if (r.status === 200 && r.data.ok) {
+      // toast 必须带回收站路径：用户下一步就是「能不能捞回来」
+      say(r.data.message || ("已归档 " + (r.data.count || 0) + " 个文件到 "
+                             + (r.data.trash_dir || "回收站")));
+      facDlg.value = { open: false, agreed: false, busy: false, warn: "" };
+      loadFactory();
+    } else {
+      d.warn = r.data?.error || r.data?.message || ("HTTP " + r.status);
+    }
+  } catch (e) {
+    d.warn = String((e && e.message) || e);
+  } finally {
+    facDlg.value.busy = false;
+  }
+}
+
 async function loadChapters() {
   // 章数从 config/project.yaml 读（白名单允许 config/*.yaml）
   let total = 3;
@@ -4191,6 +4244,46 @@ onUnmounted(() => {
         仍不行再「重启后端 API」。DevTools 看渲染层（前端报错、网络请求）。
       </div>
 
+      <!-- 出厂内容（0.6.7 出厂/用户数据分治）：样例书曾被试跑搬进真实工作区，
+           与用户自写的素材卡无标记可分辨 —— 这里把「机器发的」摊出来给用户看。 -->
+      <h4 style="margin-top: 16px;">出厂内容</h4>
+      <div class="meta" style="line-height: 1.8; margin-bottom: 8px;">
+        <template v-if="factory && !factory._error">
+          出厂清单：<b>{{ factory.manifest
+            ? (factory.manifest.count + ' 个文件（种子 v' + factory.manifest.seed_version + '）')
+            : '未播种（源码态不播种，或工作区尚未首次启动）' }}</b>
+          · 样例目录：<b :style="{ color: factory.sample_root_exists ? 'var(--ok)' : 'var(--bad)' }">
+            {{ factory.sample_root_exists ? '已随包' : '未找到' }}</b>
+          <br>样例匹配：<b :style="{ color: (factory.match_count || 0) > 0 ? 'var(--warn)' : 'var(--ok)' }">
+            {{ factory.match_count || 0 }} 个</b>
+          <span v-if="!(factory.match_count || 0)">（未检出与出厂示例一致的文件）</span>
+          <div v-if="(factory.match_count || 0)"
+               style="max-height: 168px; overflow: auto; margin-top: 4px; padding: 6px 8px;
+                      border: 1px solid var(--line, rgba(128,128,128,.35)); border-radius: 6px;">
+            <div v-for="m in (factory.matches || []).slice(0, 20)" :key="m.path"
+                 style="display: flex; gap: 8px; justify-content: space-between;">
+              <code>{{ m.path }}</code>
+              <span class="meta" style="white-space: nowrap;">同 {{ m.sample_rel }}</span>
+            </div>
+            <div v-if="(factory.match_count || 0) > 20" class="meta" style="margin-top: 4px;">
+              … 其余 {{ factory.match_count - 20 }} 条未列出（本次最多显示 20 条）
+            </div>
+          </div>
+        </template>
+        <template v-else-if="factory && factory._error">读取失败：{{ factory._error }}</template>
+        <template v-else>读取中…</template>
+      </div>
+      <div class="ac-actions" style="margin-top: 0;">
+        <button class="mini" @click="loadFactory">刷新出厂盘点</button>
+        <button class="mini danger" @click="openFactoryClean"
+                :disabled="!factory || !(factory.match_count > 0) || facDlg.busy"
+                :title="!(factory && factory.match_count > 0)
+                  ? '没有与出厂示例逐字节一致的文件，无可清理项'
+                  : '把这些文件移入回收站（保留原相对路径，可手工捞回）'">
+          清理出厂样例
+        </button>
+      </div>
+
           </div><!-- /set-pane diag -->
         </div><!-- /set-panes -->
       </div><!-- /set-layout -->
@@ -4707,6 +4800,30 @@ onUnmounted(() => {
         <button class="mini" @click="skipDlg.open = false">取消</button>
         <button class="mini danger" :disabled="!skipDlg.agreed || skipDlg.busy" @click="submitSkipStage">
           {{ skipDlg.busy ? '处理中…' : '确认跳过' }}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ⑤ 出厂样例清理确认（勾选护栏 + 明示回收站落点；不用 window.confirm） -->
+  <div v-if="facDlg.open" class="drawer-mask" @click.self="facDlg.open = false">
+    <div class="dialog" style="width: min(560px, 92vw);">
+      <h3>清理出厂样例</h3>
+      <div class="meta" style="line-height: 1.8; margin-bottom: 10px;">
+        将把 <b>{{ factory ? (factory.match_count || 0) : 0 }}</b> 个与出厂示例
+        <b>逐字节一致</b> 的素材文件移入回收站<br>
+        <code>data/books/_trash/factory__时间戳/</code>（保留原相对路径，可手工捞回）。<br>
+        不删除、不改动用户改过的文件，也不碰 progress.json 与未匹配文件。
+      </div>
+      <label style="display: flex; gap: 8px; align-items: flex-start; margin-bottom: 10px;">
+        <input type="checkbox" v-model="facDlg.agreed" />
+        <span>我已了解：仅移动与示例逐字节一致的文件</span>
+      </label>
+      <div v-if="facDlg.warn" class="meta" style="color: var(--bad); margin-top: 8px;">{{ facDlg.warn }}</div>
+      <div class="dialog-actions">
+        <button class="mini" @click="facDlg.open = false">取消</button>
+        <button class="mini danger" :disabled="!facDlg.agreed || facDlg.busy" @click="submitFactoryClean">
+          {{ facDlg.busy ? '处理中…' : '确认归档' }}
         </button>
       </div>
     </div>

@@ -53,7 +53,9 @@ check("确认框文案分忙闲两态（不再误导）", "quitDlg.busy" in appv
 
 print("=== 3. 技能分发 / 自装 / 版本 ===")
 check("extraResources 带 payload/skills", '"to": "payload/skills"' in pkg)
-check("版本已 bump 0.6.6", '"version": "0.6.6"' in pkg)
+check("extraResources 带 payload/examples（样例随包，出厂内容检测的比对真源）",
+      '"to": "payload/examples"' in pkg)
+check("版本已 bump 0.6.7", '"version": "0.6.7"' in pkg)
 seed_lines = [l for l in main.splitlines() if "const SEED_VERSION" in l]
 seed_ok = False
 if seed_lines:

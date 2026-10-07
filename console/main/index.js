@@ -363,7 +363,16 @@ function getWorkspaceSource() {
 //   · Electron 主进程（asar 内，不走种子）：8765 双绑接管 + 退出确认回执
 //     （确认框不再被 5s 看门狗计时强退）。
 // **先 bump 再 electron-builder**。
-const SEED_VERSION = 21;
+// v22（2026-10-07，第十七批，0.6.7 出厂/用户数据分治）：payload scripts 变更 ——
+//   · 新增域模块 nf_api_domains/factory.py：`GET /factory/list`（出厂清单 + 样例
+//     逐字节命中盘点，只读）与 `POST /factory/clean`（confirm 护栏 → 移进
+//     data/books/_trash/factory__<时间戳>/，只动 materials/ 开头的路径）；
+//   · 新增 utils/factory_manifest.py（sha256 / 清单读写 / 样例检测 / 清理硬边界）；
+//   · agent_guard 禁用名单加 /factory/clean（只读 list 不拦，清理只许用户本人动手）；
+//   · 同批 seedWorkspace 播种后写 data/state/factory_manifest.json（出厂清单）。
+//   · 随包新增 examples/（extraResources → payload/examples，样例书成为比对真源）。
+// **先 bump 再 electron-builder**。
+const SEED_VERSION = 22;
 
 // 只播种/刷新**代码与提示词**目录。
 // 刻意不含 data/：那是用户产物（章节、设定、大纲），任何情况下都不能被覆盖。
@@ -371,6 +380,56 @@ const SEED_VERSION = 21;
 // 缺文件时才补，绝不做覆盖式刷新。
 const SEED_CODE_DIRS = ["scripts", "prompts", "templates"];
 const SEED_CONFIG_DIR = "config";
+
+// ---- 出厂清单（0.6.7 出厂/用户数据分治）----
+// 播种把哪些文件**实际复制**进工作区，就往 data/state/factory_manifest.json 记哪些
+// （相对路径 + sha256）。为什么必须记：历史上 examples/sample-book 的素材卡被试跑
+// 手工搬进真实工作区，与用户自己写的卡**没有任何标记可分辨** —— 「哪些是机器发的」
+// 没有账可查，GUI 的「出厂内容」面板就只能靠逐字节比对样例（那是另一条检测线，
+// 见 nf_api_domains/factory.py）。本清单回答的是「这次播种动了哪些文件」。
+//
+// 合并语义：已记的保留，本次复制的追加/覆盖（与 Python 侧
+// utils/factory_manifest.write_manifest 同一口径）；只在**真的复制过文件**时才落盘，
+// 「无事可做」不写生成时间。
+function listFilesUnder(base, dir, out) {
+  for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, ent.name);
+    if (ent.isDirectory()) listFilesUnder(base, p, out);
+    else if (ent.isFile()) out.push(path.relative(base, p));
+  }
+  return out;
+}
+
+function recordFactoryManifest(ws, relPaths) {
+  if (!relPaths || !relPaths.length) return;
+  try {
+    const crypto = require("crypto");
+    const file = path.join(ws, "data", "state", "factory_manifest.json");
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    let prev = {};
+    try { prev = JSON.parse(fs.readFileSync(file, "utf8")); } catch (e) { /* 无/损坏 → 空清单 */ }
+    if (!prev || typeof prev !== "object") prev = {};
+    const files = Object.assign({}, (prev.files && typeof prev.files === "object") ? prev.files : {});
+    for (const rel of relPaths) {
+      const key = String(rel).split(path.sep).join("/");
+      try {
+        files[key] = crypto.createHash("sha256")
+          .update(fs.readFileSync(path.join(ws, rel))).digest("hex");
+      } catch (e) { /* 单个文件读不到不该毁掉整份清单 */ }
+    }
+    const prevVer = parseInt(prev.seed_version, 10) || 0;
+    fs.writeFileSync(file, JSON.stringify({
+      seed_version: Math.max(prevVer, SEED_VERSION),
+      generated_at: new Date().toISOString(),
+      files,
+    }, null, 2) + "\n");
+    console.log("[console] seedWorkspace: 出厂清单已更新（" + Object.keys(files).length
+                + " 个文件，本次记录 " + relPaths.length + " 个）");
+  } catch (e) {
+    // 清单是**账本**，写不进去绝不能连累播种本身
+    console.error("[console] factory_manifest 写入失败（不阻断播种）:", e && e.message);
+  }
+}
 
 // 首启/升级：种子 payload 进 workspace + 建 data/ 目录结构
 // 打包态：从 process.resourcesPath/payload 复制；源码态：从项目根目录 ROOT 复制
@@ -414,17 +473,22 @@ function seedWorkspace() {
 
   if (!firstRun && !stale) return;   // 情形 ③：无事可做
 
+  // 本次**实际复制**的文件（相对路径）→ 收尾统一写进出厂清单
+  const seededRels = [];
+
   for (const d of SEED_CODE_DIRS) {
     const src = path.join(payloadRoot, d);
     const dst = path.join(ws, d);
     if (!fs.existsSync(src)) continue;
     if (firstRun || !fs.existsSync(dst)) {
       fs.cpSync(src, dst, { recursive: true });
+      listFilesUnder(ws, dst, seededRels);
     } else {
       // 升级刷新：force 覆盖代码与提示词。
       // 用户若改过 prompts/ 会被覆盖 —— 这是刻意取舍：
       // 提示词属于随版本发布的资产，与旧版不兼容的提示词比"丢失自定义"危害更大。
       fs.cpSync(src, dst, { recursive: true, force: true });
+      listFilesUnder(ws, dst, seededRels);
       console.log(`[console] seedWorkspace: 已刷新 ${d}（种子 v${seededVersion} → v${SEED_VERSION}）`);
     }
   }
@@ -435,6 +499,7 @@ function seedWorkspace() {
   if (fs.existsSync(cfgSrc)) {
     if (!fs.existsSync(cfgDst)) {
       fs.cpSync(cfgSrc, cfgDst, { recursive: true });
+      listFilesUnder(ws, cfgDst, seededRels);
     } else {
       // 逐文件补缺：**只在整个文件缺失时**才从 payload 复制。
       // ⚠️ 这只做到「文件粒度」，**不会**把新版本新增的 provider 并进用户已有的
@@ -448,11 +513,15 @@ function seedWorkspace() {
         const t = path.join(cfgDst, f);
         if (fs.statSync(s).isFile() && !fs.existsSync(t)) {
           fs.copyFileSync(s, t);
+          seededRels.push(path.join(SEED_CONFIG_DIR, f));
           console.log(`[console] seedWorkspace: 补充配置 ${f}`);
         }
       }
     }
   }
+
+  // 出厂清单：把本次真正落盘的文件记进 data/state/factory_manifest.json（合并写）
+  recordFactoryManifest(ws, seededRels);
 
   // 预建 data/ 目录结构（幂等，已有内容不受影响）
   ["data/state", "data/outline/chapters", "data/setting", "data/chapters/raw", "data/chapters/checked", "data/chapters/refined", "data/books"].forEach(d => {
@@ -469,33 +538,67 @@ function seedWorkspace() {
 // 随包 skills/worldbuilding → Hermes 技能库，内容不一致才覆盖（发布版赢），
 // 运行态技能永远等于当前安装版本，Agent 手改下次启动即被复位。
 // 只碰 worldbuilding/ 子树：技能库根目录还有别家的技能与清单文件，不越界。
+//
+// 0.6.7 扩展：除默认技能库外，同步 **%LOCALAPPDATA%\hermes\profiles\*\** 里的
+// 同名子树 —— 但**只有该 profile 已经装过这张卡**（skills/worldbuilding/ronghuamofang/
+// 目录存在）才同步进去。理由：绝不在没装过卡的 profile 里凭空创建目录
+// （那等于替用户给别的 profile 装了没要的东西）；已装过的才需要跟版本更新。
+// 默认根的同步行为与 0.6.6 完全一致；任何一步失败都不阻断启动。
 function syncSkills() {
   if (!isPackaged) return;
   try {
     const src = path.join(process.resourcesPath, "payload", "skills", "worldbuilding");
     const dstBase = process.env.LOCALAPPDATA;
     if (!fs.existsSync(src) || !dstBase) return;
-    const dst = path.join(dstBase, "hermes", "skills", "worldbuilding");
-    let copied = 0;
-    const walk = (rel) => {
-      for (const ent of fs.readdirSync(path.join(src, rel), { withFileTypes: true })) {
-        const r = rel ? path.join(rel, ent.name) : ent.name;
-        if (ent.isDirectory()) { walk(r); continue; }
-        const s = path.join(src, r), t = path.join(dst, r);
-        let same = false;
-        try {
-          same = fs.existsSync(t) && fs.readFileSync(s).equals(fs.readFileSync(t));
-        } catch (e) { /* 读失败按内容不同处理 */ }
-        if (!same) {
-          fs.mkdirSync(path.dirname(t), { recursive: true });
-          fs.copyFileSync(s, t);
-          copied += 1;
-          console.log("[console] syncSkills: 更新 " + r);
+    const hermesRoot = path.join(dstBase, "hermes");
+
+    // 把随包技能树同步进 dst；返回实际更新的文件数。
+    const syncInto = (dst) => {
+      let copied = 0;
+      const walk = (rel) => {
+        for (const ent of fs.readdirSync(path.join(src, rel), { withFileTypes: true })) {
+          const r = rel ? path.join(rel, ent.name) : ent.name;
+          if (ent.isDirectory()) { walk(r); continue; }
+          const s = path.join(src, r), t = path.join(dst, r);
+          let same = false;
+          try {
+            same = fs.existsSync(t) && fs.readFileSync(s).equals(fs.readFileSync(t));
+          } catch (e) { /* 读失败按内容不同处理 */ }
+          if (!same) {
+            fs.mkdirSync(path.dirname(t), { recursive: true });
+            fs.copyFileSync(s, t);
+            copied += 1;
+            console.log("[console] syncSkills: 更新 " + r);
+          }
+        }
+      };
+      walk("");
+      return copied;
+    };
+
+    // 默认技能库（0.6.6 起的原行为，保持不变）
+    let total = syncInto(path.join(hermesRoot, "skills", "worldbuilding"));
+
+    // 多 profile（0.6.7）：只更新**已装过这张卡**的 profile
+    try {
+      const profRoot = path.join(hermesRoot, "profiles");
+      if (fs.existsSync(profRoot)) {
+        for (const ent of fs.readdirSync(profRoot, { withFileTypes: true })) {
+          if (!ent.isDirectory()) continue;
+          const dst = path.join(profRoot, ent.name, "skills", "worldbuilding");
+          if (!fs.existsSync(path.join(dst, "ronghuamofang"))) {
+            continue;   // 该 profile 没装过卡 → 绝不创建目录，跳过
+          }
+          total += syncInto(dst);
         }
       }
-    };
-    walk("");
-    if (copied) console.log("[console] syncSkills: 技能随版本分发完成，更新 " + copied + " 个文件");
+    } catch (e) {
+      // profiles 目录读不到 / 某个 profile 损坏：默认根已同步完，不连累启动
+      console.warn("[console] syncSkills: profile 遍历失败（不影响默认技能库）:",
+                   e && e.message);
+    }
+
+    if (total) console.log("[console] syncSkills: 技能随版本分发完成，更新 " + total + " 个文件");
   } catch (e) {
     console.error("[console] syncSkills 失败（不阻断启动）:", e && e.message);
   }
@@ -600,7 +703,15 @@ function startApi(attempt) {
       // GUI 来源双因子：把会话 token 注入 nf_api 环境（Python 侧 agent_guard 读它
       // 判定「请求是否真来自本桌面端」）。漏注入 = nf_api 不认任何 GUI 来源 →
       // 受保护端点一律 403（fail-closed，宁可拒绝也不放行）。
-      env: { ...process.env, NF_GUI_TOKEN: guiToken },
+      // 出厂样例真源（0.6.7）：打包态样例书随包住在安装目录
+      // resources/payload/examples，而 nf_api 的 ROOT 被 --root 指向工作区
+      // （工作区里没有 examples）→ 不注入这个变量，/factory/list 就永远
+      // 「样例目录不存在」，出厂内容检测在安装版上等于失效。
+      // 源码态 ROOT 就是仓库根，无需注入（注入了也无害：按存在性取）。
+      env: isPackaged
+        ? { ...process.env, NF_GUI_TOKEN: guiToken,
+            NF_SAMPLE_ROOT: path.join(process.resourcesPath, "payload", "examples") }
+        : { ...process.env, NF_GUI_TOKEN: guiToken },
     });
     console.log("[console] nf_api child started pid=", apiProc.pid, "log ->", logPath);
     apiProc.on("error", (e) => console.error("[console] nf_api spawn failed:", e));

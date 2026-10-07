@@ -584,6 +584,20 @@ def case_f7():
         return
     fn_body = src[fn_start:fn_end + 2]
 
+    # 0.6.7 出厂清单：seedWorkspace 调用了同文件里的两个小函数
+    # （listFilesUnder / recordFactoryManifest），抽取函数体跑探针时必须**一并带上**，
+    # 否则探针里 ReferenceError（函数未定义）→ __RESULT__ 永远不出现，
+    # 表现成「F7 node 探测产出结果」失败（2026-10-07 实测）。
+    helper_src = []
+    for hname in ("function listFilesUnder(", "function recordFactoryManifest("):
+        hs = src.find(hname)
+        he = src.find("\n}", hs)
+        check(hs > 0 and he > hs, "F7 能抽取 seedWorkspace 的辅助函数 " + hname,
+              "未找到 " + hname)
+        if hs > 0 and he > hs:
+            helper_src.append(src[hs:he + 2])
+    helper_body = "\n".join(helper_src) + "\n"
+
     probe = Path(tempfile.mkdtemp(prefix="nf_seed_"))
     try:
         # payload：打包态的 process.resourcesPath/payload（seedWorkspace 从此读）
@@ -628,6 +642,7 @@ def case_f7():
             + re.search(r"const SEED_VERSION = \d+;", src).group(0) + "\n"
             + re.search(r"const SEED_CODE_DIRS = \[[^\]]*\];", src).group(0) + "\n"
             + re.search(r"const SEED_CONFIG_DIR = \"[^\"]*\";", src).group(0) + "\n"
+            + helper_body
             + fn_body + "\n"
             "seedWorkspace();\n"
             "const rd = (p) => { try { return fs.readFileSync(p, 'utf8').trim(); }"
@@ -639,6 +654,7 @@ def case_f7():
             "  newConfig: rd(path.join(WORKSPACE, 'config', 'new_feature.yaml')),\n"
             "  userChapter: rd(path.join(WORKSPACE, 'data', 'chapters', 'raw', '01.md')),\n"
             "  seedVersion: rd(path.join(WORKSPACE, '.seed-version')),\n"
+            "  manifest: rd(path.join(WORKSPACE, 'data', 'state', 'factory_manifest.json')),\n"
             "}));\n",
             encoding="utf-8")
         proc = subprocess.run([node, str(script)], capture_output=True, text=True,
@@ -673,6 +689,13 @@ def case_f7():
         check(payload["seedVersion"] == current_seed_ver,
               "F7 版本标记被写为当前种子版本（下次启动不再重复刷新）",
               f"实际={payload['seedVersion']!r}")
+        # 0.6.7 出厂清单：真正复制过文件后必须落账（path + sha256 + seed_version）
+        mani = payload.get("manifest", "")
+        check("scripts/orchestrator.py" in mani
+              and '"seed_version": %s' % current_seed_ver in mani
+              and re.search(r'"scripts/orchestrator\.py":\s*"[0-9a-f]{64}"', mani),
+              "F7 播种后写 data/state/factory_manifest.json（含被复制文件 sha256）",
+              f"实际={mani[:200]!r}")
 
         # 幂等性：再跑一次，用户若是自己改过代码则不应被二次刷新
         (ws / "scripts" / "orchestrator.py").write_text("# USER-PATCHED\n",

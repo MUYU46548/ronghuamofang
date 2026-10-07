@@ -174,7 +174,8 @@ stdout 被管道捕获时 Python 用 cp936，一行日志就能 `UnicodeEncodeEr
 
 **Agent 模式守卫**：`gates.agent_mode = true` 时，非 GUI 来源（无 `X-Mofang-Source: gui`）
 调用 `/approve`、`/reject`、`/project/create|archive|restore|init`、`/config/agent_mode`、
-**`/config/token_limit`**（止烧阈值：Agent 不得抬高自己的闸门）
+**`/config/token_limit`**（止烧阈值：Agent 不得抬高自己的闸门）、
+**`/factory/clean`**（出厂样例清理：Agent 可用只读 `/factory/list` 盘点，不得动手搬素材）
 返回 **403**。含义是：**外部 Agent 可读、可跑流水线，但不能代替用户审批** —— 这是设计，不是 bug。
 另外设置类写入（`/config/agent_mode`、`/config/token_limit`）**无论模式如何都要求 GUI 来源头**。
 
@@ -206,7 +207,7 @@ stdout 被管道捕获时 Python 用 cp936，一行日志就能 `UnicodeEncodeEr
 ## 架构：API 层的域模块拆分（P2）
 
 `scripts/nf_api.py` 原本是 2,872 行的 God Object（91 个端点全挤在
-`do_GET`/`do_POST` 两条 elif 链里）。现已拆为 **2374 行的分发器 + 8 个域模块**，
+`do_GET`/`do_POST` 两条 elif 链里）。现已拆为 **2686 行的分发器 + 11 个域模块**，
 端点实现住在 `scripts/nf_api_domains/`。
 
 **改 API 时请遵守三条纪律**（全部由 `tests/unit/test_api_domains.py` 守护）：
@@ -237,6 +238,8 @@ stdout 被管道捕获时 Python 用 cp936，一行日志就能 `UnicodeEncodeEr
 | `post_misc.py` | Markdown 导出 | 1 |
 | `sandbox.py` | 沙盒审核/文件预览 | 2 |
 | `refine.py` | 大纲精修/节点精修/撤销/章节精修 | 4 |
+| `setting_state.py` | 设定集冲突/canon/状态回写 | 3 |
+| `factory.py` | 出厂清单盘点 / 出厂样例一键归档（0.6.7） | 2 |
 
 ### Agent 模式（外部 Agent 控制，P1 新增）
 
@@ -258,6 +261,7 @@ stdout 被管道捕获时 Python 用 cp936，一行日志就能 `UnicodeEncodeEr
   - `/project/init`
   - `/config/agent_mode`（Agent 不得自行切换模式）
   - `/config/token_limit`（止烧阈值 —— Agent 不得抬高自己的闸门）
+  - `/factory/clean`（出厂样例清理 —— 移动用户素材文件；只读 `/factory/list` 不拦）
   - `/project/archive/delete`（删除归档 = 抹掉成书数据；端点另要求 `X-Mofang-Source: gui`）
 - Agent 生成的大纲/产物自动进入待审批状态（exit=3），需在桌面端确认
 - 双保险机制：Agent 被告知需在桌面端审批 + 桌面端自动检测审批门并弹窗提示
@@ -297,6 +301,7 @@ stdout 被管道捕获时 Python 用 cp936，一行日志就能 `UnicodeEncodeEr
 - `POST /project/create`、`/project/archive`、`/project/restore`、`/project/init`
 - `POST /project/archive/delete`（删归档，默认进回收站；GUI 来源头 + 逐字书名确认双闸）
 - `POST /config/agent_mode`（Agent 不得自行切换模式）
+- `POST /factory/clean`（出厂样例清理：移动用户工作区素材；只读 `GET /factory/list` 可用）
 
 ### ⚠️ 路径 IO 必须经 `ROOT`，不得用相对路径
 
@@ -351,6 +356,12 @@ if __name__ == "__main__":
     （GUI 来源头 + 逐字书名确认；默认移入下条的回收站，`purge=true` 才真删）
   - 归档回收站：`data/books/_trash/{书名}__{时间戳}/`（删除的默认落点，要彻底清除手工删该目录；
     `list_books()` 跳过它，不会以「一本叫 _trash 的书」出现在列表里）
+  - **出厂样例回收站**：`data/books/_trash/factory__{时间戳}/`（`POST /factory/clean` 的落点，
+    保留原相对路径、可手工捞回；同上不会出现在书列表）
+- 出厂清单：`data/state/factory_manifest.json`（seedWorkspace 实际复制文件后写，合并语义：
+  `{seed_version, generated_at, files:{相对路径: sha256}}`）；盘点/清理端点 `GET /factory/list`
+  （零副作用）与 `POST /factory/clean {confirm:true}`，GUI 入口在「设置 → 诊断与调试 → 出厂内容」，
+  比对真源是随包 `examples/`（源码态 `ROOT/examples`，打包态 `NF_SAMPLE_ROOT` 注入）
 - 章节修订历史：`data/chapters/history/`（refine_chapter.py 每次精修备份 chNN_vM.md）
 - 校对报告：`data/outline/proofread_report.json` + `.md`（proofread.py / `POST /proofread/run` 产出；
   **schema 与 review_report 对齐**：finding 带 `id/type/severity/detail/suggested_action`，

@@ -163,6 +163,7 @@ try:
     from nf_api_domains import runtime as dom_runtime      # noqa: E402
     from nf_api_domains import sandbox as dom_sandbox      # noqa: E402
     from nf_api_domains import setting_state as dom_setting_state  # noqa: E402
+    from nf_api_domains import factory as dom_factory      # noqa: E402 (0.6.7 出厂/用户数据分治)
 except Exception as _dom_err:                            # noqa: BLE001
     dom_materials = None
     dom_misc = None
@@ -174,6 +175,7 @@ except Exception as _dom_err:                            # noqa: BLE001
     dom_sandbox = None
     dom_setting_state = None
     dom_refine = None
+    dom_factory = None
     print("[nf_api] 域模块加载失败（端点将返回可行动错误）: " + str(_dom_err))
 
 
@@ -1683,6 +1685,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/sandbox/file":
             # 沙盒产物只读预览（审核「通过」前必须能看清真实内容，否则是盲签）。
             self._send(*_dom(dom_sandbox.handle_sandbox_file(self)))
+        elif p == "/factory/list":
+            # 出厂内容盘点（清单 + 样例逐字节命中）；只读，实现在域模块。
+            self._send(*_dom(dom_factory.handle_factory_list(self)))
         elif p == "/review/decisions":
             # 实现已迁至 nf_api_domains.runtime（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_runtime.handle_review_decisions(self)))
@@ -2225,6 +2230,9 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/project/archive/delete":
                 # 删除归档（默认进回收站）；守卫与业务都在域模块，这里只转发。
                 self._send(*_dom(dom_project.handle_archive_delete(self, body)))
+            elif p == "/factory/clean":
+                # 清理出厂样例（confirm 护栏 + 服务端重新检测 + 只动 materials/）。
+                self._send(*_dom(dom_factory.handle_factory_clean(self, body)))
             elif p == "/project/create":
                 # 一键新建项目：归档当前 → 初始化空工作区 → 写 project.yaml
                 # 护栏：写前快照（与 /project/init 一致），失败不落地

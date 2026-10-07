@@ -800,6 +800,18 @@ def test_about_project(browser, mock_proc=None):
         dt_toast = page.locator(".toast").inner_text() if page.locator(".toast").count() else ""
         check("DevTools 开关有反馈（IPC 等价假实现回 ok）",
               "DevTools" in dt_toast, dt_toast)
+        # 出厂内容（0.6.7 出厂/用户数据分治）：诊断节的新块，数据来自 /factory/list
+        page.wait_for_timeout(500)          # 等 mock 的 /factory/list 回来
+        fac_meta = page.locator("h4:has-text('出厂内容') + .meta")
+        fac_txt = fac_meta.inner_text() if fac_meta.count() else ""
+        check("「出厂内容」块渲染（清单文件数 + 样例匹配数）",
+              page.locator("h4:has-text('出厂内容')").count() == 1
+              and "214" in fac_txt and "2 个" in fac_txt,
+              fac_txt[:160].replace("\n", " | "))
+        fac_btn = page.locator("button:has-text('清理出厂样例')")
+        check("有命中时「清理出厂样例」按钮存在且可用",
+              fac_btn.count() >= 1 and not fac_btn.first.is_disabled(),
+              fac_btn.count())
         # 诊断块几何：先滚到可见再拍/再断言（bounding_box 是视口相对坐标）
         h4d = page.locator("h4:has-text('诊断与调试')")
         h4d.scroll_into_view_if_needed()

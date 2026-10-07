@@ -9,6 +9,17 @@ CHANGELOG」）。本文件从工程审查修复起正式启用。
 
 ## [Unreleased]
 
+- **出厂数据与用户数据分治（0.6.7 主线）**：`examples/sample-book/`（雾港核心 + 19 张素材卡）历史上被试跑**手工搬进真实用户工作区**的 `materials/raw/`，与用户自写的素材卡**无任何标记可分辨** —— 分不清哪张是出厂的、不敢删（怕删掉自己的）也不敢留（污染 stage1 归并）。三条线把它拆开：
+  - **清单**：`seedWorkspace` 每次**实际复制文件后**（首启 / 升级刷新 / config 补缺）用 node crypto 算 sha256，合并写工作区 `data/state/factory_manifest.json`（`seed_version` 取新旧较大者，回滚不倒退；清单写失败只告警，绝不连累播种）。
+  - **检测**：新域 `nf_api_domains/factory.py` 的 `GET /factory/list`（**零副作用**，盘点前后工作区逐字节不变）逐文件 sha256 与样例随包目录比对，**逐字节一致才算出厂** —— 用户改过一个字即判为用户数据。范围只在 `materials/`（含 `raw/`、`original_scraps/`），与清理硬边界对齐：**检出来的一定清得动**。样例随包 `examples/` → `payload/examples`（extraResources 新增）；打包态 nf_api 的 ROOT 被 `--root` 指向工作区（那里没有 examples），故 Electron spawn 时注入 `NF_SAMPLE_ROOT` 指向安装目录里的真源。
+  - **清理**：`POST /factory/clean {confirm:true}`（缺 confirm → 400 可行动提示；服务端**重新检测**，不信任客户端传来的命中列表）→ 移进 `data/books/_trash/factory__<时间戳>/` **保留原相对路径**、可手工捞回；硬边界只许 `materials/` 开头，越界直接抛错（一个都不动）；幂等（已移走的跳过）。GUI 在「设置 → 诊断与调试 → 出厂内容」：清单文件数 / 样例匹配数 / 前 20 条相对路径 + 「清理出厂样例」按钮（无命中即禁用）+ 应用内确认框勾选护栏「我已了解：仅移动与示例逐字节一致的文件」，成功 toast 报回收站路径并重拉盘点；无命中文案「未检出与出厂示例一致的文件」。
+  - **守卫**：`/factory/clean` 列入 `agent_guard.FORBIDDEN_IN_AGENT_MODE`（外部 Agent 可盘点、不可动手），只读 `/factory/list` 不拦。
+- **syncSkills 多 profile（对齐「装了多套 Hermes profile」的用法）**：除默认 `%LOCALAPPDATA%\hermes\skills\worldbuilding` 外，同时遍历 `profiles\*\`，**仅当该 profile 已装过 `skills\worldbuilding\ronghuamofang\`** 才同步进去 —— 绝不在没装过卡的 profile 里凭空创建目录；默认根行为与 0.6.6 完全一致，任何一步失败都不阻断启动。
+- **版本**：0.6.6 → 0.6.7（`console/package.json` + `console/package-lock.json` 两处），`SEED_VERSION` 21 → 22（payload scripts 新增 factory 域与清单模块、随包新增 `examples/`，按惯例**先 bump 再 electron-builder**）。
+- **验证**：`nfctl test` **85/85**（新增 `tests/unit/test_factory_manifest.py` 42 断言、`tests/http/test_factory_api_http.py` 26 断言；`test_failure_paths` 的 F7 探针改为连带抽取 `seedWorkspace` 的两个新辅助函数 + 清单落盘断言）· `quality_gate` **BLOCK 0**（WARN 40 历史存量）· `vite build` + `node --check console/main/index.js` 通过 · `release-check`：质量门 / 全量测试 / MCP 握手 9-9（25 工具）/ e2e 视觉验收 **125/125** 全绿，**仅「打包产物核验」FAIL**（源码已新于 0.6.6 安装包，按「先 bump 再 electron-builder」由打包流程解决）· 真实仓库只读实测：`detect_sample_matches` 在本仓 `materials/` 命中 **20** 个与 `examples/sample-book/` 逐字节一致的文件（19 张样例卡 + 1 份 `_backup` 副本）—— 正是本需求要治的现场，检测已可复现。
+
+## [v0.6.6] — 2026-10-07 双绑接管 · 退出确认修正 · 技能随版本分发
+
 - **8765 双绑接管（GUI 写操作全 403 的根因）**：MCP 垫片自启动的 nf_api 不带 GUI token；Windows SO_REUSEADDR 下端口探测「假成功」不清理 → 双实例并存，请求全落进无 token 实例，审批/打回等受保护操作 403（审计记 `gui(untrusted)`，今天上午的「撤销失败」就是它）。现 spawn 前清场（`killPortOccupants`：netstat → PID → 杀树，解析走纯函数 `parseNetstatListeningPids` 单测钉住），`startApi` 加 `apiProc` 重入守卫。
 - **退出确认不再计时自动退（用户报障「几秒后自动退出」）**：旧实现发问后不认回执，5s 看门狗在确认框还开着时就 forceQuit。现渲染进程收到 close-requested 即回执 `app:close-answered`，主进程撤表 —— 确认框在场永不计时退出；看门狗只兜「渲染进程死掉」。同时修误导文案：空闲时不再谎称「有流水线/待审批」，空闲免勾选直接确认。
 - **新手引导补 Agent 接入 + 顺序修正**：引导卡四步 → 五步（新增「接外部 Agent（可选）」，带 8766 监听状态）；向导/引导/素材检查延后到**免责声明确认之后**执行，不叠层；引导不再限冷启动（没关闭过就展示，状态检查放开为按需只读调用）。

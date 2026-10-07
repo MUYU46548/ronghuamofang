@@ -172,6 +172,24 @@ class Handler(BaseHTTPRequestHandler):
                                     "archived": [{"name": "旧书", "display_name": "旧书",
                                                   "items": 6, "size_kb": 320.5,
                                                   "archived_at": "2026-09-14 18:20:00"}]})
+        if p == "/factory/list":
+            # 出厂内容面板（设置 → 诊断与调试）：回一份「有命中」的确定性数据，
+            # 让视觉验收能真读到清单文件数 / 匹配数 / 前 20 条路径，
+            # 而不是停在「读取中…」（mock 不给 fixture，面板就恒为空壳）。
+            return self._send(200, {
+                "ok": True,
+                "manifest": {"seed_version": 22, "count": 214,
+                             "generated_at": "2026-10-07T09:00:00"},
+                "matches": [
+                    {"path": "materials/raw/潮神_角色卡.md",
+                     "sample_rel": "materials/潮神_角色卡.md", "sha256": "a" * 64},
+                    {"path": "materials/raw/回声_角色卡.md",
+                     "sample_rel": "materials/回声_角色卡.md", "sha256": "b" * 64},
+                ],
+                "match_count": 2,
+                "sample_root": "C:/mock/NovelForge/examples",
+                "sample_root_exists": True,
+            })
         if p.startswith("/jobs/"):
             return self._send(200, {"id": p.split("/")[-1], "kind": "stage3", "state": "failed",
                                     "result": "exit=1"})
@@ -189,6 +207,18 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"ok": True,
                                     "message": "已快照 current；已归档「验收用书」；空工作区骨架已初始化；"
                                                "已更新 name、genre、chapters"})
+        if p == "/factory/clean":
+            # 出厂样例清理：mock 只回确定性结果（不真动文件），但**护栏照旧**——
+            # 缺 confirm 必须 400，否则确认框的勾选护栏在视觉验收里形同虚设。
+            if not body.get("confirm"):
+                return self._send(400, {"ok": False,
+                                        "error": "清理出厂样例是破坏性操作，必须显式确认"
+                                                 "（请求体需 confirm: true）。"})
+            return self._send(200, {"ok": True, "count": 2, "moved": [
+                "materials/raw/潮神_角色卡.md", "materials/raw/回声_角色卡.md"],
+                "trash_dir": "C:/mock/NovelForge/data/books/_trash/factory__20261007_090000",
+                "message": "已归档 2 个出厂样例文件到 "
+                           "data/books/_trash/factory__20261007_090000（原相对路径保留，可手工捞回）"})
         if p == "/costs/rates/import":
             # 定价批量导入：**复用真实解析器**（解析是纯函数、零状态），
             # mock 只负责补一个确定性的落盘语义，避免在这里复制一份解析判据。
