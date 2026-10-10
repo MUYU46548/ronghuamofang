@@ -111,6 +111,11 @@ def has_work(root=None):
     """工作区是否有数据。"""
     if root is None:
         root = DATA_DIR
+    if not Path(root).exists():
+        # 新鲜工作区（全新克隆 / 出厂未播种，data/ 还没建）= 没数据，不是错误。
+        # 这里抛 FileNotFoundError 会让 GET /state 直接 500 —— 而「工作区有没有
+        # 数据」恰恰是新建项目向导在**最空的时刻**要问的问题（2026-10-10 CI 实测）。
+        return False
     return bool(_list_dir_items(root))
 
 
