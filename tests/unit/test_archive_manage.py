@@ -212,7 +212,10 @@ def case_root_is_single_source():
     项目页一边列出 A 项目的归档、一边按 B 项目解析，静默读错项目。
     """
     print("\n[6] 根唯一性（_set_root 刷新 switch_book 常量）")
-    check("nf_api.ROOT == 临时根", str(api.ROOT) == str(TMP), api.ROOT)
+    # 比较吃两种形式：nf_api 对 NF_ROOT 做 resolve()（8.3 短名 / 大小写归一），
+    # CI runner 上 mkdtemp 原始串与 resolve 后不一致（10-10 CI 假红根因）。
+    check("nf_api.ROOT == 临时根",
+          str(api.ROOT) in {str(TMP), str(Path(TMP).resolve())}, (api.ROOT, TMP))
     check("switch_book.PROJECT_ROOT 跟着 ROOT 走", sb.PROJECT_ROOT == api.ROOT, sb.PROJECT_ROOT)
     check("switch_book.BOOKS_DIR 指向 ROOT 下的 books",
           sb.BOOKS_DIR == api.ROOT / "data" / "books", sb.BOOKS_DIR)

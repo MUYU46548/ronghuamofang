@@ -58,6 +58,10 @@ def build_project():
                     ignore=shutil.ignore_patterns("__pycache__"))
     shutil.copytree(ROOT / "config", tmp / "config",
                     ignore=shutil.ignore_patterns("history"))
+    if not (tmp / "config" / "project.yaml").exists():
+        # 新克隆没有 gitignore 的用户配置：缺它时 nf_api 读配置 NoneType 崩
+        shutil.copy2(ROOT / "config" / "project.yaml.example",
+                     tmp / "config" / "project.yaml")
     shutil.copytree(ROOT / "prompts", tmp / "prompts",
                     ignore=shutil.ignore_patterns("history", "reference"))
     (tmp / "materials" / "raw").mkdir(parents=True)

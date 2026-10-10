@@ -64,6 +64,8 @@ def build_sandbox(prefix="nf_oi_"):
                     dirs_exist_ok=True)
     for n in ("system.yaml", "project.yaml"):
         s = REPO / "config" / n
+        if not s.exists() and (REPO / "config" / (n + ".example")).exists():
+            s = REPO / "config" / (n + ".example")   # 新克隆：project.yaml 被 gitignore，用 example 播种
         if s.exists():
             shutil.copy2(s, root / "config" / n)
     return root

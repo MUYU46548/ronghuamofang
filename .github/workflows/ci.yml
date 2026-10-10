@@ -34,20 +34,23 @@ jobs:
           python-version: "3.11"
           cache: pip
 
-      # requirements-dev.txt 一并装上（含 pyflakes）。
-      # 不装 = 闸门静默跳过 ≠ 通过 —— 这条教训在 requirements-dev.txt 里也写着。
-      - name: 安装依赖
+      # 依赖装进**项目 .venv** —— 源码态约定：interp_guard 与测试套（B1/D2/E3 等）
+      # 都假定仓库里有 .venv；装进 setup-python 解释器会让守卫判「缺 PyYAML 且
+      # 项目没有 .venv」直接拦下（10-10 首轮 Windows CI 红的根因之一）。
+      # 装进 setup-python 的老步骤已删（.venv 才是这些断言的对象）。
+      - name: 建项目 .venv 并装依赖
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
-          python -m pip install -r requirements-dev.txt
+          python -m venv .venv
+          .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+          .\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
 
+      # 质量门（pyflakes：未定义名必须为 0）
       - name: 质量门（pyflakes：未定义名必须为 0）
-        run: python scripts/quality_gate.py
+        run: .\.venv\Scripts\python.exe scripts\quality_gate.py
 
       # 自定义运行器：exit 0 = 全部 PASS（非 pytest）
       - name: 全量测试（tests/unit + tests/http）
-        run: python scripts/nfctl.py test
+        run: .\.venv\Scripts\python.exe scripts\nfctl.py test
 
   # ==========================================================================
   # 泄露门禁：挡住「私人词 → 发布树」。

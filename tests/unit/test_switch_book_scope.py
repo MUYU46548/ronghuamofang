@@ -106,9 +106,17 @@ def main():
         try:
             before = sorted(p.name for p in (root0 / "config").iterdir())
             code, out = run_switch_from(root0, outside, "--archive")
-            check("输出里报出**将操作的项目根**", str(root0) in out, out[:200])
+            # 路径比对吃两种形式：产品打印 resolve 后的路径（PROJECT_ROOT =
+            # Path(__file__).resolve()...），测试手里是 mkdtemp 原始串；
+            # CI runner 上两者字符串不等（8.3 短名 / 大小写归一，10-10 假红根因）。
+            check("输出里报出**将操作的项目根**",
+                  any(f in out for f in (str(root0), str(Path(root0).resolve()))),
+                  (root0, out[:200]))
             check("CWD 与项目根不同时必须提示",
-                  "与项目根不同" in out and str(outside).rstrip("\\/") in out, out[:260])
+                  "与项目根不同" in out
+                  and any(f.rstrip("\\/") in out for f in
+                          (str(outside), str(Path(outside).resolve()))),
+                  (outside, out[:260]))
             check("不加 --yes → 拒绝执行（退非零）", code != 0, code)
             check("被拒绝时**一个文件都没动**",
                   sorted(p.name for p in (root0 / "config").iterdir()) == before)

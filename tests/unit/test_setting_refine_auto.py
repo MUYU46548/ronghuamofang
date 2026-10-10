@@ -78,6 +78,8 @@ def build_sandbox(prefix="nf_sr_"):
     # config 必须真实复制（但可被用例覆写）
     for name in ("system.yaml", "project.yaml"):
         src = REPO / "config" / name
+        if not src.exists() and (REPO / "config" / (name + ".example")).exists():
+            src = REPO / "config" / (name + ".example")   # 新克隆：project.yaml 被 gitignore
         if src.exists():
             shutil.copy2(src, root / "config" / name)
     return root
