@@ -19,15 +19,19 @@ concurrency:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Windows 中心测试（.bat 桩 / taskkill / .venv\Scripts 路径 / 本机录制指纹）
+    # 在 ubuntu 上必红（10-09 实证 30/30 红的第二层根因），换回原生环境。
+    runs-on: windows-latest
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          # 对齐本地开发环境 .venv 3.11（原 3.13 与开发/录制环境差两个小版本，
+          # 版本敏感断言会制造与平台无关的假红）
+          python-version: "3.11"
           cache: pip
 
       # requirements-dev.txt 一并装上（含 pyflakes）。
