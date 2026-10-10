@@ -39,6 +39,11 @@ jobs:
       # 项目没有 .venv」直接拦下（10-10 首轮 Windows CI 红的根因之一）。
       # 装进 setup-python 的老步骤已删（.venv 才是这些断言的对象）。
       - name: 建项目 .venv 并装依赖
+        env:
+          # pip 24 按 locale 读 requirements 文件：runner 默认 cp1252，遇到
+          # requirements.txt 的 UTF-8 中文注释直接 UnicodeDecodeError（10-10 实测）。
+          # UTF-8 模式把解码钉死成 utf-8，不赌 runner 的语言设置。
+          PYTHONUTF8: "1"
         run: |
           python -m venv .venv
           .\.venv\Scripts\python.exe -m pip install -r requirements.txt
