@@ -55,7 +55,12 @@ print("=== 3. 技能分发 / 自装 / 版本 ===")
 check("extraResources 带 payload/skills", '"to": "payload/skills"' in pkg)
 check("extraResources 带 payload/examples（样例随包，出厂内容检测的比对真源）",
       '"to": "payload/examples"' in pkg)
-check("版本已 bump 0.6.7", '"version": "0.6.7"' in pkg)
+# 版本防回退（下界判断，与下面 SEED_VERSION 的 >= 口径一致）：
+# 原来写死 '"version": "0.6.7"' → 每次 bump 都会假红，拦的是「回退」不是「前进」。
+import re as _re_ver
+_m_ver = _re_ver.search(r'"version":\s*"(\d+)\.(\d+)\.(\d+)"', pkg)
+_cur_ver = tuple(int(x) for x in _m_ver.groups()) if _m_ver else (0, 0, 0)
+check("版本 ≥ 0.6.7（bump 不可回退）", _cur_ver >= (0, 6, 7), _cur_ver)
 seed_lines = [l for l in main.splitlines() if "const SEED_VERSION" in l]
 seed_ok = False
 if seed_lines:

@@ -9,6 +9,15 @@ CHANGELOG」）。本文件从工程审查修复起正式启用。
 
 ## [Unreleased]
 
+### v0.6.8 — 2026-10-11 端口严格绑定 · 打回放开 stage1 · T5 断言跟契约
+
+- **端口占用从「静默双绑」变成「严格绑定 + 人话提示」**：实测 `ThreadingHTTPServer`（`allow_reuse_address=1`）在 Windows 上对**已被占用**的 8765 二次绑定**直接成功** —— 新旧实例抢一个端口、请求被随机分流，`except OSError` 永远不触发（10-04 登记的「端口占用无处理」真身是这个，不是裸堆栈）。现 `bind_or_explain()`：先 `allow_reuse_address=False` 严格绑定 → 被占再 TCP 判「真监听」还是 TIME_WAIT 残留（前者打人话 + `exit 1`，含占位者 `project_root` 与两条处置路径；后者放宽重绑一次，快速重启不误伤）；`8766` 被占时同步提示「多半是另一个 nf_api」。新护栏 `tests/unit/test_nf_api_port_conflict.py` **24 断言**（含真占位回归）。真机复现从「挂 180s」变秒退 `exit=1` 且原实例不受影响。
+- **打回/回退入口放开 stage1（10-04 复盘 #9 收口）**：后端 `/reject` 本就按 `DOWNSTREAM_ARTIFACTS` 收 1-7（stage1 于 10-05 支持），前端两处 `s.stage >= 2` 却把入口挡在门外 —— 陪跑闸是合法审批点。
+- **T5 断言跟上 `segment_requests` 新契约**：`72aab54` 改了请求头结构（常量在前、变量在最末，前缀缓存优化），自检仍断言旧文案 → 假红；改为逐子请求校验尾部序号与文件（`llm_client_selftest` 29/29）。
+- **换根补齐**：`%APPDATA%\绒花墨坊\project-root.json` 落盘指向源码树（Step 4c 正路），GUI / CLI / MCP 三通道 `project_root` 实测同根；workspace 假审批（stage1 `done+approved`）已清并整目录备份。
+- **知识沉淀**：仓库真源 `skills/worldbuilding/ronghuamofang/SKILL.md` 补三条实测坑（垫片 `ensure_backend` 只在启动时跑一次 → nf_api 被杀 MCP 不自愈；`_spawn_nf_api` 的 `sys.executable` 必须用项目 venv，用 Hermes 自带解释器缺 `docx` 秒退；端口被占走严格绑定）。
+- **版本**：0.6.7 → 0.6.8（`console/package.json` + `console/package-lock.json` 两处），`SEED_VERSION` 22 → 23（`nf_api.py` / `cost_tracker.py` 变更，按「先 bump 再 dist」）。
+- **验证**：`nfctl test` **89/89** · `quality_gate` BLOCK 0 · `leak_scan` 零命中 · `llm_client_selftest` 29/29 · `release-check`（质量门 / 全量测试 / MCP 握手 9-9 / e2e **136/136** / 打包产物核验 15 文件一致）全绿 · 产物抽检：asar 含 `SEED_VERSION = 23` 与新前端 bundle、payload `nf_api.py` 含 `bind_or_explain`。
 - **出厂数据与用户数据分治（0.6.7 主线）**：`examples/sample-book/`（雾港核心 + 19 张素材卡）历史上被试跑**手工搬进真实用户工作区**的 `materials/raw/`，与用户自写的素材卡**无任何标记可分辨** —— 分不清哪张是出厂的、不敢删（怕删掉自己的）也不敢留（污染 stage1 归并）。三条线把它拆开：
   - **清单**：`seedWorkspace` 每次**实际复制文件后**（首启 / 升级刷新 / config 补缺）用 node crypto 算 sha256，合并写工作区 `data/state/factory_manifest.json`（`seed_version` 取新旧较大者，回滚不倒退；清单写失败只告警，绝不连累播种）。
   - **检测**：新域 `nf_api_domains/factory.py` 的 `GET /factory/list`（**零副作用**，盘点前后工作区逐字节不变）逐文件 sha256 与样例随包目录比对，**逐字节一致才算出厂** —— 用户改过一个字即判为用户数据。范围只在 `materials/`（含 `raw/`、`original_scraps/`），与清理硬边界对齐：**检出来的一定清得动**。样例随包 `examples/` → `payload/examples`（extraResources 新增）；打包态 nf_api 的 ROOT 被 `--root` 指向工作区（那里没有 examples），故 Electron spawn 时注入 `NF_SAMPLE_ROOT` 指向安装目录里的真源。
