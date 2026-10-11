@@ -277,9 +277,10 @@ def md_to_docx(md_text, out_path, book_title="未命名", author="",
         # 普通段落
         flush_list()
         if use_template:
-            p = _add_paragraph_before(anchor, line.strip())
-            p.paragraph_format.space_after = Pt(6)
-            p.paragraph_format.line_spacing = 1.5
+            # 模板模式：**只写文本，段落格式全继承模板 Normal**（1.15 行距/首行缩进/两端对齐）。
+            # 旧实现硬编码 space_after=6pt + line_spacing=1.5 直写每个段落 → 覆盖模板规格，
+            # 违反件一验收线「样式继承自模板非硬编码」（2026-10-11 template_check 抓出）。
+            _add_paragraph_before(anchor, line.strip())
         else:
             p = doc.add_paragraph(line.strip())
             p.paragraph_format.space_after = Pt(6)

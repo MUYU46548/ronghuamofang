@@ -1,7 +1,7 @@
 ---
 name: ronghuamofang
 description: "绒花墨坊（NovelForge）的操作接线卡：让 Hermes 主动查询与驱动这本书的流水线。需要看写到哪了、跑/续跑阶段、体检大纲与设定、审稿闭环、看成本、导出 Word、切书档时加载。触发词：绒花墨坊、NovelForge、跑书、流水线、大纲体检、章节进度、成本、审批门、nf_api、nfctl。区别于开发类 skill（novelforge-gui / ai-novel-pipeline）—— 本卡只管「用」，不管「改」。"
-version: 1.1.0
+version: 1.2.0
 metadata:
   hermes:
     tags: [novelforge, 绒花墨坊, novel, pipeline, 操作卡, nfctl, nf_api, 审批门]
@@ -116,6 +116,27 @@ cd $NF && python scripts/nfctl.py check
 
 **看钱** → `cost_report.py`（总览）/ `--by-outline`（大纲逐轮）/ `--by-chapter`；
 服务在跑时 `nfctl api /costs/streaming` 看当前 run 实时消耗。
+
+**Word 成品出口校验** → `python scripts/template_check.py`（零 LLM，15 项：占位符零残留 /
+章节 heading 逐条映射 / 样式与模板逐字一致 / 页面设置一致 / 无直写格式覆盖 / TOC 域 / 章前分页）。
+基线 = `config/project.yaml` 的 `book.word_template`，可用 `--docx` / `--template` / `--md` 指定。
+退出码 0 才算成品过关；**stage7 重跑会覆盖 `output/*.docx`**。
+
+## Word 链手改工序（改模板 / 改成品）
+
+**改模板**（换格式规格）：
+1. 新模板放 `templates/`（.dotx/.docx 均可），占位符必须是 `[书籍标题]` `[作者]` `[目录占位符]` `[请输入文本]` 四件。
+2. `config/project.yaml` 的 `book.word_template` 指到它（只改这一个键，别动其余）。
+3. 重跑 stage7 出新成品 → `python scripts/template_check.py` 出口校验（退出码 0 才算过关）。
+4. **段落格式一律由模板说了算**：stage7 模板模式只写文本（2026-10-11 起不再直写行距/段后），
+   想调行距/缩进/段间距 → 改模板的 Normal 样式，**不要**在 stage7 里加直写代码。
+
+**改成品**（手工修 output 下的 docx）：
+1. **stage7 重跑即覆盖 `output/{书名}_完整版.docx`** —— 手改稿必须先另存（如 `{书名}_手改版.docx`），
+   或把改动落到源头 `data/chapters/refined/*.md` 后重跑，**不要**直接改成品文件指望它留着。
+2. 改完跑 `python scripts/template_check.py --docx <你改的那份>` 自查（占位符别改回方括号、
+   章标题别脱离 heading 样式手工加粗冒充）。
+3. 手改只归暮雨；Agent 不代改成品文字（产线分工：AI 管结构/格式/干净，文字归暮雨）。
 
 ## engine=hermes 实测排雷（2026-10-01，切引擎前必读）
 
