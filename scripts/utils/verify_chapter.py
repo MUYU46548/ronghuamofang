@@ -200,7 +200,7 @@ def check_degenerate(text):
     printable = re.sub(r"\s+", "", flat)
     if printable:
         # 去标点后剩多少
-        content = re.sub(r"[。，、！？；：""''《》（）—…·,.!?;:\"'()\[\]<>~\-*#]+", "", printable)
+        content = re.sub(r"[。，、！？；：""''《》（）—…·,.!?;:\"'()\\[\\]<>~\\-*#]+", "", printable)
         content_ratio = len(content) / len(printable)
         metrics["content_ratio"] = round(content_ratio, 3)
         if content_ratio < 0.5:

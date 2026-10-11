@@ -2773,6 +2773,18 @@ def main():
     parser.add_argument("--allow-fake", action="store_true",
                         help="测试模式：stage/refine 用 FakeClient（无 LLM）")
     args = parser.parse_args()
+    # ---- 项目根存在性校验（2026-10-11 工单 P0-3）----
+    # NF_ROOT / --root 指向不存在的目录 → 启动即人话报错退出。不拦的实测后果：
+    # 服务照常起来、/state 一路 AttributeError 裸抛 500，排障的人看不到"根就不对"这个真因。
+    if args.root:
+        _root_arg = Path(args.root).expanduser()
+        if not _root_arg.is_dir():
+            _src = ("--root 参数" if any(a == "--root" or a.startswith("--root=")
+                                         for a in sys.argv[1:]) else "NF_ROOT 环境变量")
+            print(f"[nf_api] 启动失败：项目根不存在：{_root_arg}（来源：{_src}）")
+            print("[nf_api] 处置：改指向真实项目目录；或去掉该参数回到默认解析"
+                  "（打包态=%APPDATA% 工作区 / 源码态=仓库根）。")
+            sys.exit(1)
     if args.root:
         os.environ["NF_ROOT"] = str(args.root)
         # 走 _set_root：它同时刷新 GLOBAL / HISTORY_DIR 等派生常量，

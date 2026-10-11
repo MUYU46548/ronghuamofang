@@ -67,7 +67,7 @@ Windows 路径里的反斜杠要写成 `\\`）::
 - `NF_BRIDGE_NO_AUTOSTART=1` 或 `--no-autostart`：完全关闭代拉
   （单元测试 / 握手自检用它隔离，绝不能把测试代拉到 8765 的真实服务）。
 - 项目根解析与 `console/main/project-root.js` 同链：`NF_ROOT` →
-  `%APPDATA%\绒花墨坊\project-root.json` → 默认（源码态=仓库根 / 打包态=%APPDATA% 工作区）；
+  `%APPDATA%\\绒花墨坊\\project-root.json` → 默认（源码态=仓库根 / 打包态=%APPDATA% 工作区）；
   全都不合法就**不代拉**（宁可不启动，也不写错项目）。
 - 子进程 DETACHED：垫片退出不影响已拉起的服务；超时不拦，-32002 兜底照旧。
 

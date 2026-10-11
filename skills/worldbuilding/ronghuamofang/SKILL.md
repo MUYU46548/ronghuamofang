@@ -1,7 +1,7 @@
 ---
 name: ronghuamofang
 description: "绒花墨坊（NovelForge）的操作接线卡：让 Hermes 主动查询与驱动这本书的流水线。需要看写到哪了、跑/续跑阶段、体检大纲与设定、审稿闭环、看成本、导出 Word、切书档时加载。触发词：绒花墨坊、NovelForge、跑书、流水线、大纲体检、章节进度、成本、审批门、nf_api、nfctl。区别于开发类 skill（novelforge-gui / ai-novel-pipeline）—— 本卡只管「用」，不管「改」。"
-version: 1.3.0
+version: 1.3.1
 metadata:
   hermes:
     tags: [novelforge, 绒花墨坊, novel, pipeline, 操作卡, nfctl, nf_api, 审批门]
@@ -27,7 +27,9 @@ metadata:
 
 1. `GET http://127.0.0.1:8765/about` 的 `project_root`（产品正在服务的根）；
 2. `%APPDATA%\绒花墨坊\project-root.json` 的 `projectRoot`（空串或缺文件 = 默认工作区）；
-3. 兜底：本卡所在目录带 `.venv` → 源码态；否则安装态 = `%APPDATA%\绒花墨坊\workspace`。
+3. 兜底：本卡所在目录（或其上层）有 `scripts/nf_api.py` 且有 `.git` → **源码态**
+   （即使尚未建 `.venv` —— 新克隆 / CI checkout 也算）；仅带 `.venv` → 源码态；
+   否则安装态 = `%APPDATA%\绒花墨坊\workspace`。
 
 **源码态**（开发克隆根，有 `.venv`）：`$NF` = 克隆根，workdir = `$NF`，
 Python = `$NF/.venv/Scripts/python.exe`（下称 `python`）。

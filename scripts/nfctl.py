@@ -1468,6 +1468,19 @@ def main(argv=None):
     root = Path(args.root).resolve() if getattr(args, "root", None) else DEFAULT_ROOT
     as_json = bool(getattr(args, "json", False))
 
+    # ---- 项目根存在性校验（2026-10-11 工单 P0-3，与 nf_api 同款）----
+    # 不拦的后果同 nf_api：后面每条子命令都在不存在的根上"成功"返回空数据，
+    # 看起来像"这本书没数据"，真因却是根不对。
+    if not root.is_dir():
+        _src = "--root 参数" if getattr(args, "root", None) else "默认（脚本所在项目）"
+        if as_json:
+            print(json.dumps({"ok": False, "error": "项目根不存在",
+                              "root": str(root), "source": _src}, ensure_ascii=False))
+        else:
+            print(f"[nfctl] 项目根不存在：{root}（来源：{_src}）")
+            print("[nfctl] 处置：检查 --root 是否拼错/盘符未挂载；去掉 --root 则回到脚本自带项目根。")
+        return 2
+
     if args.cmd == "status":
         data = collect_status(root)
         print(json.dumps(data, ensure_ascii=False, indent=2) if as_json else render_status(data))

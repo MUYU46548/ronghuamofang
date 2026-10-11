@@ -319,6 +319,9 @@ def handle_about(h):
             cfg = api.pc_get_config() or {}
         except Exception:                                   # noqa: BLE001
             cfg = {}
+        # 空根提示（2026-10-11 工单 P0-3）：root 存在但 data/ 缺失 = 空根
+        # （工作区尚未播种 / --root 指错目录）—— 让"看起来能服务其实没数据"可被看见。
+        _empty_root = not (api.ROOT / "data").is_dir()
         return 200, {
             "ok": True,
             "app": "绒花墨坊",
@@ -328,6 +331,9 @@ def handle_about(h):
             "platform": api.sys.platform,
             "project_root": str(api.ROOT),
             "data_dir": str(api.ROOT / "data"),
+            "empty_root": _empty_root,
+            "empty_hint": ("项目根存在但 data/ 缺失（空根）：工作区可能尚未播种，"
+                           "或 --root/NF_ROOT 指错了目录。" if _empty_root else None),
             "books_dir": str(api.ROOT / "data" / "books"),
             "output_dir": str(api.ROOT / "output"),
             "config": (cfg.get("book") or {}),

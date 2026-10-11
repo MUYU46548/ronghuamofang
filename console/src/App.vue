@@ -1959,15 +1959,22 @@ const gateArtifacts = ref({}); // {stage: [{path, lines}]}
 // 加载审批门的产物概况（行数/是否为空）
 async function loadGateArtifacts() {
   for (const g of pendingGates.value) {
-    const paths = g.stage === 2
-      ? ["data/outline/global.md", "data/outline/review_report.md"]
-      : ["data/outline/polish_report.md"];
+    // 每个门看自己的审批对象（2026-10-11 工单 P0-1：原三元只有 stage2 分支，
+    // stage 1 门错抓 polish_report.md → 产物概况恒显示 0 行）
+    let paths = [];
+    if (g.stage === 2) {
+      paths = ["data/outline/global.md", "data/outline/review_report.md"];
+    } else if (g.stage === 1) {
+      paths = ["data/setting/setting.json", "data/setting/material_review.md"];
+    } else if (g.stage === 6) {
+      paths = ["data/outline/polish_report.md"];
+    }
     const info = [];
     for (const p of paths) {
       const r = await window.mofangAPI.readPreview(p);
       if (r.ok) {
-        // 检查最近一条审计日志，判断产物是否由 Agent 生成
-        const agentGenerated = await checkAgentOrigin(p);
+        // 是否处于 Agent 模式（不读审计日志，见 isAgentModeConfigured）
+        const agentGenerated = await isAgentModeConfigured();
         info.push({ path: p, lines: r.content.split("\n").length, agent: agentGenerated });
       }
       else info.push({ path: p, lines: 0, agent: false });
@@ -1976,12 +1983,13 @@ async function loadGateArtifacts() {
   }
 }
 
-// 检查产物是否由 Agent 生成（读取审计日志）
-async function checkAgentOrigin(artifactPath) {
+// 是否配置了 Agent 模式（只读 /state 的 agent_mode 开关）。
+// ⚠️ 原名 checkAgentOrigin(artifactPath) 注释声称"读取审计日志"但从未实现、
+// 参数也没人用 —— 2026-10-11 工单 P1-6 更名纠偏：名实一致，别让它看起来像逐文件溯源。
+async function isAgentModeConfigured() {
   try {
     const r = await api("/state");
     if (r.status !== 200) return false;
-    // 如果 agent_mode=true，则标记为 Agent 生成
     return !!r.data?.agent_mode;
   } catch (e) {
     return false;
@@ -3610,6 +3618,8 @@ onUnmounted(() => {
           <button class="mini danger" @click="openReject(s.stage)">打回</button>
         </div>
         <div class="gate-files">
+          <button class="mini" v-if="s.stage === 1" @click="preview('data/setting/setting.json')">设定集原文</button>
+          <button class="mini" v-if="s.stage === 1" @click="preview('data/setting/material_review.md')">素材体检报告</button>
           <button class="mini" v-if="s.stage === 2" @click="preview('data/outline/global.md')">预览原文</button>
           <button class="mini" v-if="s.stage === 2" @click="preview('data/outline/review_report.md')">体检报告</button>
           <button class="mini" v-if="s.stage === 6" @click="preview('data/outline/polish_report.md')">润色体检报告</button>

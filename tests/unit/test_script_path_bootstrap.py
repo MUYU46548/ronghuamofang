@@ -48,8 +48,24 @@ def check(name, cond, detail=""):
                            ("  → " + str(detail)[:260]) if detail else ""))
 
 
+def _build_local_names():
+    """从 scripts/ **动态收集**顶层本地模块名（2026-10-11 工单 P0-4）。
+
+    构成：`*.py` 的 stem + 含 `__init__.py` 的子包目录名（utils / nf_api_domains …）。
+    此前是 8 个名字的硬编码白名单 —— 将来新增顶层本地包（`scripts/foo/`）就漏判，
+    无自举的新脚本会静默通过护栏。纯数据目录（如 `scripts/data/`，无 `__init__.py`）
+    天然排除，不会被误判成本地包。
+    """
+    names = {f.stem for f in SCRIPTS.glob("*.py")}
+    names |= {d.name for d in SCRIPTS.iterdir()
+              if d.is_dir() and (d / "__init__.py").exists()}
+    names.discard("__init__")
+    return names
+
+
+LOCAL_NAMES = _build_local_names()
 LOCAL_RE = re.compile(
-    r"^(nf_api_domains|orchestrator|llm_client|obsidian_bridge|stage\d|utils|approve|reject)$")
+    "^(" + "|".join(re.escape(n) for n in sorted(LOCAL_NAMES)) + ")$")
 
 
 def module_level_inserts(tree):
