@@ -51,12 +51,19 @@ def run(args, env_extra=None, timeout=90):
 def main():
     missing = Path(tempfile.mkdtemp(prefix="nf_root_missing_")) / "no_such_dir"
     assert not missing.exists()
+    # 路径断言双口径：nf_api 打印原始入参、nfctl 打印 resolve() 后的规范路径；
+    # CI runner 的 TEMP 常是 8.3 短名/不同大小写 → 只比原始串会在 CI 假红
+    # （2026-10-11 首跑实测：本机绿、runner 红在「报出路径」）。
+    miss_raw, miss_res = str(missing), str(Path(missing).resolve())
+
+    def path_in(out):
+        return miss_raw in out or miss_res in out
 
     print("【A】nf_api --root 指向不存在目录 → 人话报错退出（来源=--root 参数）")
     r = run(["scripts/nf_api.py", "--root", str(missing)])
     out = (r.stdout or "") + (r.stderr or "")
     check("退出非零", r.returncode != 0, f"rc={r.returncode}")
-    check("报出路径", str(missing) in out, out[:200])
+    check("报出路径", path_in(out), out[:200])
     check("报出来源", "--root 参数" in out, out[:200])
     check("人话处置提示", "处置" in out, out[:200])
 
@@ -70,7 +77,7 @@ def main():
     r = run(["scripts/nfctl.py", "--root", str(missing), "status"])
     out = (r.stdout or "") + (r.stderr or "")
     check("退出码=2", r.returncode == 2, f"rc={r.returncode}")
-    check("报出路径", str(missing) in out, out[:200])
+    check("报出路径", path_in(out), out[:200])
     check("报出来源", "--root 参数" in out, out[:200])
     r = run(["scripts/nfctl.py", "--root", str(missing), "status", "--json"])
     try:
