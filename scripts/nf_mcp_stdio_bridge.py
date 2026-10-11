@@ -90,6 +90,8 @@ import threading
 import time
 from pathlib import Path
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 # 拒连错误码：沿用原交付物约定（JSON-RPC server error 区间），不要随意更改 ——
 # 下游若按码分流，改码等于静默破协议。
 CODE_UNREACHABLE = -32002

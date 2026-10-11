@@ -24,6 +24,9 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
+import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 # 路径不再写死本机绝对路径：改用「参数 > 环境变量 > 项目内默认」
 DEFAULT_SRC_DIR = "materials/voice"
 DEFAULT_OUT = "output/角色语音设定集.docx"

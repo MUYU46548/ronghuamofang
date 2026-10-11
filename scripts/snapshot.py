@@ -34,6 +34,9 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+import os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 # 快照覆盖的关键产物（文件或目录；目录整棵复制）
 SNAPSHOT_ITEMS = [
     "data/state/progress.json",

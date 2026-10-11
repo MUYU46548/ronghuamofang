@@ -12,6 +12,10 @@ import json
 import re
 from pathlib import Path
 
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from utils.llm_client import make_client
 from utils.file_io import read_text, write_text
 from utils.cost_tracker import pause_detail as _pause_detail

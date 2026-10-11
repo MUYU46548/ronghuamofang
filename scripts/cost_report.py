@@ -16,6 +16,9 @@ import sqlite3
 import sys
 from pathlib import Path
 
+import os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 
 DB = Path("logs/runs.db")
 

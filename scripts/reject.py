@@ -20,6 +20,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from utils import agent_guard
 from utils.progress_manager import ProgressManager
 

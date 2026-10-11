@@ -21,6 +21,8 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 ROOT = Path(__file__).resolve().parents[1]
 PY = sys.executable
 PORT = 8901

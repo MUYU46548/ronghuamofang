@@ -34,6 +34,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+import os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 MIN_ENTRIES = 20
 BINARY_EXT = {".png", ".jpg", ".jpeg", ".gif", ".ico", ".pdf", ".docx", ".dotx",
               ".xlsx", ".zip", ".gz", ".exe", ".dll", ".so", ".dylib", ".pkl",

@@ -20,6 +20,10 @@ from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
 from docx.shared import Pt, RGBColor
 
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from utils.file_io import read_text, write_text
 from utils.config_io import load_config_yaml
 

@@ -10,6 +10,10 @@
 import json
 import socket
 
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 
 def discover_mcp(timeout=5, broadcast_port=8767):
     """监听 UDP 广播，发现绒花墨坊 MCP 服务。

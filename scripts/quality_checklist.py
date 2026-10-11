@@ -18,6 +18,10 @@ import json
 import re
 import sys
 from pathlib import Path
+
+import os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from utils.config_io import load_config_yaml
 
 ROOT = Path(__file__).resolve().parents[1]

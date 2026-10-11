@@ -28,6 +28,10 @@ import json
 from pathlib import Path
 from datetime import datetime
 
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from utils.file_io import read_text, write_text
 # locked 语义与别名根名的**唯一实现**在 setting_schema（不在本文件重写一份）。
 # obsidian 节配置读取（含 system.local.yaml 本地覆盖，拍板③「手动指定」载体）

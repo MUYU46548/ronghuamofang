@@ -35,6 +35,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 # 项目根目录：脚本在 scripts/ 下，项目根是其父目录
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 BOOKS_DIR = PROJECT_ROOT / "data" / "books"

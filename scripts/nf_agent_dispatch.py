@@ -43,6 +43,9 @@ import time
 import uuid
 from pathlib import Path
 
+import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 # ---- 常量（路径一律经 _root() 解析，禁止相对路径 IO） ----
 RUNS_REL = "data/state/agent_runs.jsonl"   # 运行记录（append-only，最新行生效）
 BRIEFS_REL = "data/state/agent_briefs"     # 任务书 / 日志 / 结果摘要

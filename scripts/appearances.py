@@ -22,6 +22,9 @@ import re
 import sys
 from pathlib import Path
 
+import os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from utils.file_io import read_text, write_text
 
 CHAPTER_DIRS = ("data/chapters/refined", "data/chapters/checked", "data/chapters/raw")

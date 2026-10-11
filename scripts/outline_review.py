@@ -18,6 +18,10 @@ import json
 import re
 from pathlib import Path
 
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from utils.file_io import read_text, write_text
 
 # 启发式词表（可热修；中文动词/事件词）

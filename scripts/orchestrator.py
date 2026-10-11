@@ -27,6 +27,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 # 解释器守卫（必须先于一切 utils.* 导入）：裸 python 缺 PyYAML 时切 .venv 重跑，
 # 切不动则给可行动报错 —— 详见 utils/interp_guard 模块文档。
 from utils.interp_guard import ensure_working_python, missing_yaml_hint

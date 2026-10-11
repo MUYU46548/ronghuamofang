@@ -63,6 +63,9 @@ import urllib.request
 import urllib.error
 from pathlib import Path
 
+import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 ROOT = Path(__file__).resolve().parent.parent
 
 # ---------------------------------------------------------------------------

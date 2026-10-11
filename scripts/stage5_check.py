@@ -8,6 +8,10 @@ P1 升级：四路并行（角色/时间线/伏笔/世界观）分批 delegate +
 import argparse
 from pathlib import Path
 
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from utils.llm_client import make_client
 from utils.file_io import read_text, write_text
 from utils.cost_tracker import pause_detail as _pause_detail

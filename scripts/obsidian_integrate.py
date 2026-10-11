@@ -21,6 +21,9 @@ from pathlib import Path
 from datetime import datetime
 from collections import Counter
 
+import os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 from utils.file_io import read_text, write_text
 from obsidian_bridge import scan_vault, _get_vault_path
 
