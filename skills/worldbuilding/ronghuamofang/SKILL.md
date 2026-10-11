@@ -1,7 +1,7 @@
 ---
 name: ronghuamofang
 description: "绒花墨坊（NovelForge）的操作接线卡：让 Hermes 主动查询与驱动这本书的流水线。需要看写到哪了、跑/续跑阶段、体检大纲与设定、审稿闭环、看成本、导出 Word、切书档时加载。触发词：绒花墨坊、NovelForge、跑书、流水线、大纲体检、章节进度、成本、审批门、nf_api、nfctl。区别于开发类 skill（novelforge-gui / ai-novel-pipeline）—— 本卡只管「用」，不管「改」。"
-version: 1.2.0
+version: 1.3.0
 metadata:
   hermes:
     tags: [novelforge, 绒花墨坊, novel, pipeline, 操作卡, nfctl, nf_api, 审批门]
@@ -20,8 +20,30 @@ metadata:
 `AGENTS.md`、`scripts/nf_api.py`（头部 docstring 就是端点总览）、`scripts/*.py --help` ——
 本卡不维护会过期的清单快照。
 
-项目根 `$NF` = **本仓库克隆根**（本卡就在仓库里，路径由克隆位置解析，**不把本机绝对路径写进卡内**），**所有命令的 workdir 都是 `$NF`**，
-Python 一律用 `$NF/.venv/Scripts/python.exe`（下称 `python`）。
+## ⚠️ 开工第一红线：先判执行形态，绝不默认退回源码树（2026-10-11 十连炸复盘）
+
+收到"跑/查绒花墨坊"任务，**第一动作 = 判定源码态还是安装态**，判据按序现场解析；
+解析不出就报 blocker，**禁止自行假设、禁止把"源码树"当默认答案**：
+
+1. `GET http://127.0.0.1:8765/about` 的 `project_root`（产品正在服务的根）；
+2. `%APPDATA%\绒花墨坊\project-root.json` 的 `projectRoot`（空串或缺文件 = 默认工作区）；
+3. 兜底：本卡所在目录带 `.venv` → 源码态；否则安装态 = `%APPDATA%\绒花墨坊\workspace`。
+
+**源码态**（开发克隆根，有 `.venv`）：`$NF` = 克隆根，workdir = `$NF`，
+Python = `$NF/.venv/Scripts/python.exe`（下称 `python`）。
+
+**安装态**（用户只有客户端：无克隆、无 `.venv`、无 git）：
+
+- `$NF` = 上面解析出的工作区（默认 `%APPDATA%\绒花墨坊\workspace`），**不是任何源码树**；
+  所有命令 workdir = `$NF`；
+- Python = 安装自带 runtime `<安装目录>resources\runtime\python\python.exe`
+  （自带 PyYAML / python-docx。定位法：查 `ronghuamofang-console` 进程树的 CommandLine，
+  或看 GUI 日志里的 `spawn nf_api:` 行 —— **不把本机绝对路径写进卡内**）；
+- **工作区没有 `.venv` 不是故障**：不建 venv、不 pip install、不退回源码树，
+  更不许为了"修使用问题"去改开发仓源码 —— 用户的写作数据在工作区，不在开发目录。
+
+历史教训：2026-10-11 前连续十次试跑全部死在"警告再明确也退回源码树执行"。
+判形态必须是任何跑书任务的**第一步**，不是出错后的补救。
 
 ## When to Use
 
@@ -105,7 +127,8 @@ cd $NF && python scripts/nfctl.py check
 
 1. **不静默回退**：`nfctl api` 报"未运行"就是端口没服务，**不是数据为空**。报错比假装没有安全。
 2. **退出码优先**：orchestrator 返回 `0` 完成 / `1` 阶段失败 / `2` 预算熔断 / `3` **等审批** / `4` 被中断。
-   汇报先给退出码，再给细节。
+   汇报先给退出码，再给细节。**退出码 3 是正常闸门不是故障**：立即停止重跑，
+   把暂停原文转给用户、等批准后再 `--from N` 续跑（十连炸之一：门正常暂停却被当故障反复重跑）。
 3. **改配置不擅自动手**：发现 `system.yaml` 重复键、模型不是白名单内 → 报告，不自行改。
 4. **两套工作区别混用**：Electron 源码版工作区 = 项目根；安装版 = `%APPDATA%\绒花墨坊\workspace`。
    两边的产物不能互相解释。GUI 启动时若发现 8765 被占会**杀掉占用者**。
