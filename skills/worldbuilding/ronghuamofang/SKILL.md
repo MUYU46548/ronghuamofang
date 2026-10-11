@@ -46,6 +46,19 @@ Python 一律用 `$NF/.venv/Scripts/python.exe`（下称 `python`）。
 （测试/自检必设，防代拉污染）；项目根解析与 `console/main/project-root.js` 同链
 （NF_ROOT → project-root.json → 默认），全废则不代拉。
 
+⚠️ **代拉只发生在垫片自己的启动时**（`ensure_backend()` 在进主循环前调用一次），
+**不会**在每次 `tools/call` 时重查。所以：nf_api 被杀掉 → 8765/8766 一起死 → MCP 调用
+恒报「无法连接 8766 MCP 传输层」，而垫片进程还活着、**不会自愈**。修法两条：
+① 重启 MCP 垫片（它启动时会重新代拉）；② 用垫片同款 `_spawn_nf_api(root)` 重拉 nf_api
+（`NF_ROOT` 显式钉住，`sys.executable` 必须用**项目 venv 的 python** —— 从 Hermes 自带
+解释器里调会因为缺 `docx` 等依赖秒退，症状是 8765 起来又立刻拒连、日志只剩一条
+`ModuleNotFoundError`）。
+
+**nf_api 端口被占**：`bind_or_explain()` 会**先严格绑定**（`allow_reuse_address=False`）——
+Windows 上带 `SO_REUSEADDR` 的二次绑定会**成功**（两个服务抢一个端口、请求随机分流），
+所以绝不能只靠 `except OSError`。被占时打人话（占位者 `project_root` + 两条处置路径）
+并以退出码 1 失败，不静默陪跑。
+
 **给外部 Agent 的启动提示词（kickoff）**：单一事实源 `prompts/agent_kickoff.md`
 （GUI「设置 → 接入其他 Agent」可一键复制，自动替换 `{{PROJECT_ROOT}}`）。
 用户要开新 Agent 会话时，先让它读这份。
