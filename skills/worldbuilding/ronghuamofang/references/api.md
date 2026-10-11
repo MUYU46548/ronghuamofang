@@ -36,6 +36,7 @@
 | `/models/available` / `/models/fetched` / `/models/cache` | 可选模型 / 已拉取 / 缓存（含手动添加） |
 | `/config/project` | project.yaml 回显 |
 | `/config/style_notes` | 用户风格笔记 |
+| `/config/word_template` | Word 成品模板：`templates/` 下 .dotx/.docx 清单 + 当前值 + 出厂默认（`current_exists` 标当前值指向的文件是否还在） |
 | `/config/agent_mode` | Agent 模式开关当前值 |
 | `/env/open` | 打开 .env 所在位置（本机动作） |
 | `/logs/tail` | `?lines=200` nf_api + orchestrator 输出尾部（排障用） |
@@ -153,6 +154,7 @@
 | `/scraps/promote` | `{card_name, card_type, points[], open_questions[], sources[]}` → 落盘 `materials/raw/<名>_<类型>.md` |
 | `/config/project` | project.yaml 定向写入 |
 | `/config/style_notes` | 风格笔记写入 |
+| `/config/word_template` | `{template}` 选模板 / `{reset: true}` 回出厂（只收 `templates/` 里真实存在的文件名，穿越/不存在/非模板扩展 400 零改动；写 `book.word_template` + 备份到 `config/history/`） |
 | `/config/provider` | provider 配置 |
 | `/prompts/save` | `{name, content}`（白名单 `prompts/stage[1-7]_*.md`，备份到 `prompts/history/`） |
 | `/models/add` / `/models/switch` | 模型缓存 / 切换（**换模型需用户确认**） |

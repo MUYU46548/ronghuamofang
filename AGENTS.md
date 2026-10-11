@@ -169,7 +169,7 @@ stdout 被管道捕获时 Python 用 cp936，一行日志就能 `UnicodeEncodeEr
 **专属接线卡**：Hermes 技能库 `worldbuilding/ronghuamofang/`
 （实机路径 `%LOCALAPPDATA%\hermes\skills\worldbuilding\ronghuamofang\`）
 — `SKILL.md`（入口 / 自检 / 边界 / 处方 / 能力边界）、
-`references/api.md`（97 个端点与请求体形状）。
+`references/api.md`（端点与请求体形状速查 —— 条目随端点增减，勿在此处写死数量）。
 与 `ai-novel-pipeline`、`novelforge-gui` 同分类同级；**技能库在 AppData、不进 Git，改动前先留副本**。
 
 **Agent 模式守卫**：`gates.agent_mode = true` 时，非 GUI 来源（无 `X-Mofang-Source: gui`）
