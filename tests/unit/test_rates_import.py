@@ -40,19 +40,30 @@ def check(name, cond, detail=""):
 
 
 class Sandbox:
-    """把自定义定价落到临时文件，绝不碰仓库里的 data/state/cost_rates.json。"""
+    """把自定义定价落到临时文件，绝不碰仓库里的 data/state/cost_rates.json。
 
-    def __init__(self):
+    2026-10-11 起**连历史错位的旧位置一起隔离**：加载侧加了「新位置没有就读旧位置」
+    的兜底之后，沙盒若只改 `CUSTOM_RATES_PATH`，`load_custom_rates()` 会 fallback 到
+    **真仓库的 scripts/data/state/cost_rates.json** —— 测试读到真实用户单价，还会在
+    保存时把它「迁移」进沙盒（语义全错）。所以两个路径都得指进沙盒。
+    """
+
+    def __init__(self, legacy=None):
         self.dir = Path(tempfile.mkdtemp(prefix="nf_rates_"))
         self.path = self.dir / "cost_rates.json"
+        # legacy=None → 指向一个不存在的路径（= 无兜底，行为等同旧版沙盒）
+        self.legacy = Path(legacy) if legacy else self.dir / "no_legacy.json"
         self._orig = cost_tracker.CUSTOM_RATES_PATH
+        self._orig_legacy = cost_tracker._CUSTOM_RATES_LEGACY
 
     def __enter__(self):
         cost_tracker.CUSTOM_RATES_PATH = self.path
+        cost_tracker._CUSTOM_RATES_LEGACY = self.legacy
         return self
 
     def __exit__(self, *exc):
         cost_tracker.CUSTOM_RATES_PATH = self._orig
+        cost_tracker._CUSTOM_RATES_LEGACY = self._orig_legacy
         return False
 
     def write(self, rates):
@@ -243,6 +254,33 @@ def test_regression():
           cost_tracker.RATES.get("kimi-k2.6", {}).get("out") == 4.2, cost_tracker.RATES.get("kimi-k2.6"))
 
 
+# ------------------------------- G. 历史错位兼容（2026-10-11 路径修正）
+def test_legacy_compat():
+    """新位置（项目根 data/state/）与历史错位旧位置（scripts/data/state/）的过渡。
+
+    背景：`CUSTOM_RATES_PATH` 原先算成 `scripts/data/state/cost_rates.json`，
+    2026-10-11 改成项目根后，仓库里那个旧文件（用户手改的单价）若没人接住就
+    **静默消失**。所以加载要兜底、首次保存要迁移、旧文件不删。
+    """
+    print("\n[G] 历史错位定价：读兜底 + 首存迁移，用户单价不许静默消失")
+    legacy = Path(tempfile.mkdtemp(prefix="nf_rates_legacy_")) / "cost_rates.json"
+    legacy.write_text(json.dumps({"rates": {"old-model": {"in": 1.0, "out": 2.0}}},
+                                 ensure_ascii=False), encoding="utf-8")
+    with Sandbox(legacy=legacy) as sb:
+        got = cost_tracker.load_custom_rates()
+        check("新位置不存在 → 读历史错位的旧文件（兜底生效）",
+              got == {"old-model": {"in": 1.0, "out": 2.0}}, got)
+        cost_tracker.save_custom_rates({"new-model": {"in": 3.0, "out": 4.0}})
+        check("首次保存落到正确位置（项目根 data/state/）", sb.path.exists(), sb.path)
+        got2 = cost_tracker.load_custom_rates()
+        check("保存后读到的是本次内容（全量语义不被兜底污染）",
+              got2 == {"new-model": {"in": 3.0, "out": 4.0}}, got2)
+        check("旧文件原样保留（迁移不删源，可回退）",
+              legacy.exists() and "old-model" in legacy.read_text(encoding="utf-8"))
+        check("此后一律优先新位置（不再读旧）",
+              cost_tracker._rates_file() == sb.path, cost_tracker._rates_file())
+
+
 def main():
     print("=" * 62)
     print("  定价批量导入自检（离线）")
@@ -253,6 +291,7 @@ def main():
     test_merge_policy()
     test_apply_and_refuse()
     test_regression()
+    test_legacy_compat()
     print("\n" + "=" * 62)
     print("  通过 %d / 失败 %d" % (len(PASS), len(FAIL)))
     for f in FAIL:

@@ -112,6 +112,28 @@ def test_C_functional_switch():
         check("夹具 root 下阶段状态来自夹具 progress.json（1-4 done）",
               [s["status"] for s in st.get("stages", [])[:4]] == ["done"] * 4,
               [s["status"] for s in st.get("stages", [])])
+
+        # 配置族（2026-10-11）：漏刷它们 = `--root` 下静默读写**另一个项目**的
+        # project.yaml（GET 200 但内容是 A 的；写入还落到 A）。这是本节存在的理由：
+        # 常量刷新只有「真的换了根、值真的跟着变」这条反证能守住。
+        import utils.project_config as pc
+        check("project_config.PROJECT_YAML 跟着 ROOT 走",
+              pc.PROJECT_YAML == fixture / "config" / "project.yaml",
+              pc.PROJECT_YAML)
+        check("project_config.BACKUP_DIR 跟着 ROOT 走（写前备份别落到 A）",
+              pc.BACKUP_DIR == fixture / "config" / "history", pc.BACKUP_DIR)
+        import utils.config_io as cio
+        check("config_io.ROOT 跟着 ROOT 走（load_config_yaml 的兜底根）",
+              cio.ROOT == fixture, cio.ROOT)
+        import utils.cost_tracker as ct
+        check("cost_tracker.CUSTOM_RATES_PATH 跟着 ROOT 走（定价别读写 A）",
+              ct.CUSTOM_RATES_PATH == fixture / "data" / "state" / "cost_rates.json",
+              ct.CUSTOM_RATES_PATH)
+        # 写入路径的落点验证（不碰任何真实文件）：set_book_fields 全程只读
+        # project_config.PROJECT_YAML 这一个常量，它指对了 = 写入就落在 B。
+        check("set_book_fields 的写入落点 = 夹具 B 的 project.yaml",
+              str(pc.PROJECT_YAML) == str(fixture / "config" / "project.yaml"),
+              str(pc.PROJECT_YAML))
     finally:
         nf_api._set_root(orig)
 

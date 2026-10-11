@@ -63,15 +63,32 @@ RATES = {
 # turbos 等未录入模型 → 回退 default 角色单价（保守），跑批前按控制台账单补录
 
 # GUI 定价编辑器存储路径（与 RATES 合并生效，不修改源码）
-CUSTOM_RATES_PATH = Path(__file__).resolve().parent.parent / "data" / "state" / "cost_rates.json"
+#
+# ⚠️ 2026-10-11 修：原写法 `parent.parent` 落在 **scripts/** 下（`scripts/data/state/…`），
+# 与本注释、文档、`.gitignore`（`data/`）的口径全都不符，而且按脚本位置固化 →
+# `--root` 指向别的书档时，自定义定价会读写**另一个项目**。现按**项目根**解析
+# （`nf_api._set_root()` 会一并刷新）。
+# 历史错位的旧文件做**一次性兼容**：新位置没有而旧位置有 → 先读旧的；下次保存时
+# 自动把旧文件带进新位置。理由：那 113 字节里是用户手改的单价，直接换路径等于让它
+# 静默消失（本项目栽过太多次「换实现 = 用户数据没了」）。
+_CUSTOM_RATES_LEGACY = Path(__file__).resolve().parent.parent / "data" / "state" / "cost_rates.json"
+CUSTOM_RATES_PATH = Path(__file__).resolve().parents[2] / "data" / "state" / "cost_rates.json"
+
+
+def _rates_file():
+    """当前该读的定价文件：新位置优先，历史错位的旧位置兜底。"""
+    if CUSTOM_RATES_PATH.exists() or not _CUSTOM_RATES_LEGACY.exists():
+        return CUSTOM_RATES_PATH
+    return _CUSTOM_RATES_LEGACY
 
 
 def load_custom_rates():
     """加载 GUI 定价编辑器保存的自定义单价（data/state/cost_rates.json）。"""
-    if not CUSTOM_RATES_PATH.exists():
+    p = _rates_file()
+    if not p.exists():
         return {}
     try:
-        data = json.loads(CUSTOM_RATES_PATH.read_text(encoding="utf-8"))
+        data = json.loads(p.read_text(encoding="utf-8"))
         return data.get("rates", {}) if isinstance(data, dict) else {}
     except Exception:
         return {}
@@ -79,8 +96,16 @@ def load_custom_rates():
 
 def save_custom_rates(rates):
     """保存自定义单价到 data/state/cost_rates.json（GUI 定价编辑器用）。"""
-    CUSTOM_RATES_PATH.parent.mkdir(parents=True, exist_ok=True)
-    CUSTOM_RATES_PATH.write_text(
+    p = CUSTOM_RATES_PATH
+    if not p.exists() and _CUSTOM_RATES_LEGACY.exists():
+        # 首次写正确位置时，先把历史错位的旧定价带过去（迁移，不丢数据）
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_bytes(_CUSTOM_RATES_LEGACY.read_bytes())
+        except OSError:
+            pass
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(
         json.dumps({"rates": rates}, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )

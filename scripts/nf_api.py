@@ -240,6 +240,32 @@ def _set_root(path):
     except Exception:                                  # noqa: BLE001
         pass        # 刷新失败不致命：归档相关端点自会按 ROOT 解析并报错
 
+    # 配置族（2026-10-11 补，第三次踩同一坑）：project_config / config_io / cost_tracker
+    # 也是**导入时按脚本位置**固化。漏刷的后果最阴 —— 不报错、返回 200，但内容是
+    # 另一个项目的：
+    #   `--root` 指向书档 B，`GET /state` 给 B 的阶段，`GET /config/*` 却给 **A** 的
+    #   project.yaml（UI 上书名是 A、状态是 B；README 截图就这么把真实书名带出去过）；
+    #   `/config/style_notes`、`/config/word_template` 的**写入**同样落到 A。
+    # 三个都必须跟：常量只在模块里被读（无 `from ... import PROJECT_YAML` 值拷贝，
+    # 已 grep 验证），刷模块属性即可生效。
+    try:
+        import utils.project_config as _pc
+        _pc.ROOT = ROOT
+        _pc.PROJECT_YAML = ROOT / "config" / "project.yaml"
+        _pc.BACKUP_DIR = ROOT / "config" / "history"
+    except Exception:                                  # noqa: BLE001
+        pass
+    try:
+        import utils.config_io as _cio
+        _cio.ROOT = ROOT        # load_config_yaml 的兜底根（CWD 不在时用它）
+    except Exception:                                  # noqa: BLE001
+        pass
+    try:
+        import utils.cost_tracker as _ct
+        _ct.CUSTOM_RATES_PATH = ROOT / "data" / "state" / "cost_rates.json"
+    except Exception:                                  # noqa: BLE001
+        pass
+
 
 _set_root(_resolve_root())
 
