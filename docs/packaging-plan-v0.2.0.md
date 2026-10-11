@@ -1,7 +1,7 @@
 # NovelForge 打包方案 — v0.2.0
 
 > 撰写时间：2026-09-16
-> 依据：产物实测 + SiTian/方寸-desktop 对比 + skill `electron-python-app-packaging`
+> 依据：产物实测 + 同类 Electron 桌面端对比 + skill `electron-python-app-packaging`
 
 ---
 
@@ -56,14 +56,14 @@ os.chdir(ROOT)                               # 工作目录改到项目根
 | scripts/ + scripts/utils/ | 2 MB | 含 orchestrator 全链 |
 | prompts/ | ~100 KB | 19 个 LLM 模板 |
 | templates/ | ~30 KB | Word 模板 |
-| config/ | ~10 KB | system / project / templates_rosa |
+| config/ | ~10 KB | system / project / obsidian_templates |
 | **运行时 + 负载总增量** | **~15 MB** | 壳已很大，增量可接受 |
 
-### 1.5 方寸-desktop 对比
+### 1.5 同类桌面端对比
 
-- 方寸-desktop 有 `release/方寸 Setup 0.1.0.exe` → `electron-builder` 工具链没问题
+- 同类 Electron 桌面产品产出过 `release/<名字> Setup <版本>.exe` → `electron-builder` 工具链没问题
 - 但它纯 Electron，**没有本地 Python 服务的包袱** → 不能直接抄
-- SiTian 同理，纯前端 + 文件读取
+- 纯前端 + 文件读取型桌面产品同理
 
 ---
 

@@ -719,6 +719,8 @@ def stage_status(progress, n):
     }
     if "skipped" in st:
         out["skipped"] = st["skipped"]
+    if st.get("skip_reason"):
+        out["skip_reason"] = st["skip_reason"]
     if "needs_rewrite" in st:
         out["needs_rewrite"] = st["needs_rewrite"]
     if "auto_rewritten" in st:
@@ -958,28 +960,18 @@ def act_run_stage_streamed(cfg, only_stage, from_stage, preview_job_id,
     return _fn
 
 
-# 各阶段「应该有」的产物（/stage/skip 回报缺失项用；目录只判是否为空）
-STAGE_ARTIFACTS = {
-    1: ["data/setting/setting.json"],
-    2: ["data/outline/global.md"],
-    3: ["data/outline/chapters"],
-    4: ["data/chapters/raw"],
-    5: ["data/chapters/checked"],
-    6: ["data/chapters/refined"],
-    7: ["output"],
-}
+# 阶段产物表与判定（完成判定挂产物，2026-10-11 甲2）—— 单源在 utils/stage_artifacts：
+# 完成判定的咽喉在 orchestrator，而本文件已顶层 `from orchestrator import run`（单向），
+# 反向 import 会成环 → 表与判定下沉 utils，两边同引一份。
+from utils.stage_artifacts import missing_artifacts as _missing_artifacts
 
 
 def missing_artifacts(stage):
-    """返回该阶段缺失/为空的产物路径列表（确定性，不读内容）。"""
-    missing = []
-    for rel in STAGE_ARTIFACTS.get(stage, []):
-        p = ROOT / rel
-        if not p.exists():
-            missing.append(rel)
-        elif p.is_dir() and not any(p.glob("*")):
-            missing.append(rel + "（空目录）")
-    return missing
+    """返回该阶段缺失/为空的产物路径列表（保留原签名；root = 本服务 ROOT）。
+
+    「空文件」判据为 2026-10-11 新增：0 行产物此前被 exists() 放行走完审批门。
+    """
+    return _missing_artifacts(stage, ROOT)
 
 
 def act_skip_stage(stage, reason=""):

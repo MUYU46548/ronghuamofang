@@ -9,6 +9,17 @@ CHANGELOG」）。本文件从工程审查修复起正式启用。
 
 ## [Unreleased]
 
+### v0.6.9 — 2026-10-11 拆弹两件 · 7 条工单 · 完成判定挂产物（三批合一发版）
+
+- **装机版 CLI 根因修复（sys.path 自举）**：打包态 embeddable python 由 `python311._pth` 冻结 sys.path（不含脚本目录、连 cwd 都没有）→ `python scripts/x.py` 首个本地 import 即 `ModuleNotFoundError: No module named 'utils'`，`interp_guard` 自己都够不着（守卫 import 排在被守 import 后面，鸡生蛋）。**35 个入口脚本**补自举（另修 `auto_rewrite` 原自举位置过低=装机版无效）；护栏 `tests/unit/test_script_path_bootstrap.py`（静态 AST 判据 + `-P` 复现打包态跑 4 入口 --help，防新脚本回潮）。实证：自带 python 跑 `orchestrator --dry-run` 修前崩、修后 8 阶段全通。
+- **完成判定挂产物（欠账甲2）**：`missing_artifacts` 新增**空文件判据** —— 0 行产物此前被 `exists()` 放行并走完审批门（10-11 15:52 实证事故）；判定逻辑抽 `utils/stage_artifacts.py` 单源（nf_api → orchestrator 已单向占用，反向 import 会成环）；`orchestrator.artifact_gate` 在完成咽喉处校验，**只推翻已被标完成的阶段**（测试替身不碰 progress 不越权），空产物标 failed 并给人话出路（重跑 / 显式带理由跳过），不触发 auto_retry（同输入重跑同结果，重试即白烧）。`/state` 透出 `skip_reason`、GUI 跳过理由回显。新测 `test_stage_artifact_gate` **25 断言**；熔断沙盒补产物夹具（机制随件走）。
+- **修复工单 7 条**：① stage1 审批门错抓 `polish_report.md` → `loadGateArtifacts` stage 分支补全（stage1=setting.json+material_review.md / stage6=polish_report）；② gate-files 补 stage1 预览按钮 ×2；③ `--root`/`NF_ROOT` 指向不存在目录 → nf_api 启动即人话报错（含路径与来源）、`/about` 增 `empty_root` 空根提示、nfctl 同款校验（新测 `test_root_validation` 16 断言）；④ 护栏 `LOCAL_RE` 白名单退役 → 从 `scripts/` 动态收集顶层模块名；⑤ `nf_mcp_stdio_bridge:70` 等两处转义警告清零（3.12+ `-W error::SyntaxWarning` 口径，3.11 会空过）；⑥ `checkAgentOrigin` → `isAgentModeConfigured` 名实纠偏（原名声称读审计日志从未实现）；⑦ 操作卡 **v1.3.1** 形态判定兜底（有 `scripts/nf_api.py` 且有 `.git` → 源码态，新克隆/CI checkout 无 `.venv` 不误判）。
+- **拆弹两件（CI 泄露面）**：`立项契约.md` 移出发布树（`git rm --cached` + `.gitignore` 裸规则行，仓库外逐字节备份留档，git 历史仍可取回）；`test_nf_api_port_conflict` 4 处真实本机路径 → `Q:/fixture` 虚构占位。leak-gate 由红转绿。
+- **文档卫生**：`docs/packaging-plan-v0.2.0.md` 外部项目名一词中性化（templates_rosa / SiTian / 方寸-desktop 全仓 tracked 零命中）。
+- **版本**：0.6.8 → 0.6.9（`package.json` + `package-lock.json` 两处），`SEED_VERSION` 23 → 24（scripts/ 与技能卡变更，按「先 bump 再 dist」）。
+- **验证**：`nfctl test` **92/92** · `quality_gate` BLOCK 0（WARN 39 存量）· GUI 冒烟 `gate_stage1_smoke` **12/12**（pill 精确行数/诱饵缺席/双按钮真内容）· `release-check` 全绿（MCP 握手 9/9 · e2e 视觉 136/136 · 打包产物核验 version=0.6.9 payload 15 文件一致）。
+
+
 ### v0.6.8 — 2026-10-11 端口严格绑定 · 打回放开 stage1 · T5 断言跟契约
 
 - **端口占用从「静默双绑」变成「严格绑定 + 人话提示」**：实测 `ThreadingHTTPServer`（`allow_reuse_address=1`）在 Windows 上对**已被占用**的 8765 二次绑定**直接成功** —— 新旧实例抢一个端口、请求被随机分流，`except OSError` 永远不触发（10-04 登记的「端口占用无处理」真身是这个，不是裸堆栈）。现 `bind_or_explain()`：先 `allow_reuse_address=False` 严格绑定 → 被占再 TCP 判「真监听」还是 TIME_WAIT 残留（前者打人话 + `exit 1`，含占位者 `project_root` 与两条处置路径；后者放宽重绑一次，快速重启不误伤）；`8766` 被占时同步提示「多半是另一个 nf_api」。新护栏 `tests/unit/test_nf_api_port_conflict.py` **24 断言**（含真占位回归）。真机复现从「挂 180s」变秒退 `exit=1` 且原实例不受影响。

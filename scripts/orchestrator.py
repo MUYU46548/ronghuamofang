@@ -38,6 +38,7 @@ if not ensure_working_python("scripts/orchestrator.py"):
     raise SystemExit(1)
 
 from utils.progress_manager import ProgressManager
+from utils.stage_artifacts import missing_artifacts
 from utils.db import RunDB
 from utils.cost_tracker import CostTracker
 from utils.config_io import load_pipeline_config
@@ -196,6 +197,30 @@ def should_auto_retry(gates, retry_count, truncated):
     if retry_count >= int((gates or {}).get("auto_retry_max_rounds", 2)):
         return False, "已达重试轮次上限"
     return True, ""
+
+
+def artifact_gate(stage, progress, root="."):
+    """完成判定挂产物（2026-10-11 欠账甲2）：空/缺失产物不判"完成"。
+
+    返回 None = 放行；否则返回错误串，并已把该阶段标 failed。设计约束：
+    · **只判已被标完成的阶段** —— 完成判定推翻的只能是"完成标记"本身；
+      测试注入的替身 stage（FakeStage）不碰 progress、不标 done，闸门不越权
+      替它们定失败（2026-10-11 实测：无差别开火把两族既有测试的期望 rc 0/2
+      全打成 1 —— 语义收窄后既守住验收线，又不误伤）；
+    · 绝不静默放行 —— 0 行产物此前能一路走完审批门（exists() 只看有没有）；
+    · 绝不替用户跳过 —— 继续只有两条路：重跑本阶段，或 /stage/skip 显式带理由跳过；
+    · 不触发 auto_retry（产物判定是结论不是偶发，同输入重跑同样结果，重试即白烧）。
+    抽成独立函数：run() 整跑代价太大，nfctl 测试要能直接打这个分支。
+    """
+    if progress.stage_status(stage) != "done":
+        return None
+    missing = missing_artifacts(stage, root)
+    if not missing:
+        return None
+    err = ("产物校验未过：" + "、".join(missing)
+           + " —— 空产物不判完成；重跑本阶段，或用跳过（显式带理由）放行后续")
+    progress.set_stage(stage, "failed", error=err)
+    return err
 
 
 def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False):
@@ -492,6 +517,12 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
                 print("[orchestrator] 阶段后收到停止请求，中断")
                 return _finalize("stopped", 4)
             if ok:
+                # 完成判定挂产物（2026-10-11 甲2）：0 行/缺失产物不许标"完成"。
+                # 判定域与写入端一致（阶段产物以相对路径写在进程 CWD 下）。
+                _gate_err = artifact_gate(n, progress)
+                if _gate_err:
+                    print(f"[orchestrator] 阶段{n} {_gate_err}")
+                    return _finalize("failed", 1)
                 # 后置钩子统一走 _post_stage（快照 / 素材体检 / 自动重写 / 审稿门 / 校对）。
                 # 抽成函数的理由见其 docstring：原先写在这一分支里，导致
                 # 「首次失败 → 自动重试成功」的路径整块跳过 —— 包括本该停下来

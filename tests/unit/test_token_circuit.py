@@ -288,6 +288,22 @@ def run_sandbox(cap):
         "    max_total_tokens: %d\n" % cap, encoding="utf-8")
     (root / "config" / "project.yaml").write_text(
         "book:\n  name: token 熔断测试书\n  chapters: 2\n", encoding="utf-8")
+    # 产物夹具（2026-10-11「完成判定挂产物」后必须有）：本沙盒的替身阶段会
+    # `set_stage(done)`，orchestrator.artifact_gate 随即校验 STAGE_ARTIFACTS ——
+    # 沙盒必须像"各阶段真产出了"，否则测到的是产物闸门而不是熔断本身
+    # （首版实测：rc 2 被打成 1、calls 停在 [1]，正是被闸门截胡）。
+    for relp, content in {
+        "data/setting/setting.json": "{}",
+        "data/outline/global.md": "# 大纲",
+        "data/outline/chapters/01.md": "# 第1章",
+        "data/chapters/raw/01.md": "正文",
+        "data/chapters/checked/01.md": "正文",
+        "data/chapters/refined/01.md": "正文",
+        "output/book.docx": "PK-fake-docx-bytes",
+    }.items():
+        p = root / relp
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content, encoding="utf-8")
     code = SANDBOX_ORCH.format(scripts=str(ROOT / "scripts"), root=str(root), cap=cap)
     env = dict(os.environ)
     env["PYTHONIOENCODING"] = "utf-8"

@@ -3395,7 +3395,7 @@ onUnmounted(() => {
               ⚠ 阶段 {{ s.stage }} 执行失败<span v-if="lastJob?.result">（最近一次：{{ lastJob.result }}）</span>
             </span>
             <span v-else-if="s.status === 'rejected'" class="rec-msg">↩ 已被打回：{{ s.rejected }}</span>
-            <span v-if="s.skipped" class="rec-msg">⏭ 已人工跳过，未生成产物</span>
+            <span v-if="s.skipped" class="rec-msg">⏭ 已人工跳过{{ s.skip_reason ? "：" + s.skip_reason : "，未生成产物" }}</span>
             <span v-if="s.needs_rewrite && s.needs_rewrite.length" class="rec-msg">
               ✍ 第 {{ s.needs_rewrite.join('、') }} 章未达质量线
             </span>
