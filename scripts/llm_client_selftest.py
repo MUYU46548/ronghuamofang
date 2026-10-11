@@ -102,7 +102,15 @@ b5 = "## 输出" + NEWLINE + "写入: A.md" + NEWLINE + "写入: B.md" + NEWLINE
 reqs = lc.segment_requests(b5, ["A.md", "B.md", "C.md"], [])
 check("T5 拆3请求", len(reqs) == 3, str(len(reqs)))
 check("T5 各含1写", all(len(r[1]) == 1 for r in reqs))
-check("T5 头部指令", "仅处理第 2/3" in reqs[1][0], reqs[1][0][:80])
+# 2026-10-03 起请求头改为「常量在前、第 i/N 个 + 路径在最末」（72aab54 缓存优化，
+# 结构由 tests/unit/test_segment_cache_prefix.py 钉死）——断言跟着新契约走：
+# 每个子请求的尾部必须点名自己那一个文件与序号。
+check("T5 头部指令",
+      all(("本批次共 3 个输出文件" in r[0]
+           and "第 %d/3 个" % (i + 1) in r[0]
+           and w in r[0])
+          for i, (r, w) in enumerate(zip(reqs, ["A.md", "B.md", "C.md"]))),
+      reqs[1][0][-160:])
 reqs1 = lc.segment_requests(b5, ["A.md"], [])
 check("T5 单文件不拆", len(reqs1) == 1)
 
