@@ -661,8 +661,8 @@ def test_about_project(browser, mock_proc=None):
               (page.locator(".pill:has-text('免责声明')").count(),
                page.locator("button:has-text('查看完整声明')").count()))
         navs = page.locator(".set-nav-btn")
-        check("设置页侧边栏分类渲染（7 项，取代一条长名单）",
-              navs.count() == 7, navs.all_inner_texts())
+        check("设置页侧边栏分类渲染（8 项，取代一条长名单；含件五「Word 模板」）",
+              navs.count() == 8, navs.all_inner_texts())
         check("默认停在「引擎与模型」分类（免责声明在其下可见）",
               "on" in (navs.nth(0).get_attribute("class") or ""),
               navs.nth(0).get_attribute("class"))
@@ -687,6 +687,52 @@ def test_about_project(browser, mock_proc=None):
                if page.locator(".tl-msg").count() else "")
         check("点「恢复默认预设」后有明确反馈（成功或失败都要说清）",
               ("已恢复默认预设" in msg) or ("恢复失败" in msg), msg or "（无反馈元素）")
+
+        print("  --- Word 模板面板（件五 GUI 入口：下拉 / 打开模板目录 / 恢复默认）---")
+        page.locator(".set-nav-btn", has_text="Word 模板").click()
+        page.wait_for_timeout(450)
+        wpane = page.locator(".set-pane", has_text="Word 成品模板（templates/")
+        check("「Word 模板」面板渲染（h4 + 说明）",
+              wpane.count() == 1 and wpane.locator("h4").count() == 1, wpane.count())
+        wsel = wpane.locator("select.model-select")
+        check("下拉列出 mock 清单的 2 个模板",
+              wsel.locator("option").count() == 2, wsel.locator("option").count())
+        check("当前值 = 出厂模板（GET 回读真的接上了）",
+              wsel.input_value() == "templates/小说格式模板V1.3.dotx", wsel.input_value())
+        check("四个按钮齐全（重新读取 / 打开模板目录 / 恢复默认 / 应用）",
+              all(wpane.locator("button:has-text('%s')" % b).count() >= 1
+                  for b in ("重新读取", "打开模板目录", "恢复默认", "应用")),
+              wpane.locator("button").all_inner_texts())
+        check("未改动时「应用」禁用（防误写配置）",
+              wpane.locator("button:has-text('应用')").is_disabled())
+        check("字段口径写在面板上（book.word_template）",
+              "book.word_template" in wpane.inner_text(),
+              wpane.inner_text()[:120].replace("\n", " | "))
+        shot(page, "D11_word_template")
+
+        wsel.select_option("templates/备用模板.docx")
+        page.wait_for_timeout(250)
+        check("改选后出现「已修改」徽标 + 应用解锁",
+              wpane.locator(".pill.st-gate").count() >= 1
+              and not wpane.locator("button:has-text('应用')").is_disabled())
+        wpane.locator("button:has-text('打开模板目录')").click()
+        page.wait_for_timeout(350)
+        wt_toast = page.locator(".toast").inner_text() if page.locator(".toast").count() else ""
+        check("「打开模板目录」有明确反馈（成功或失败都要说清）",
+              "模板目录" in wt_toast, wt_toast)
+        wpane.locator("button:has-text('应用')").click()
+        page.wait_for_timeout(700)
+        check("应用后下拉回读到新值（写→读真链路，不是静态面板）",
+              wsel.input_value() == "templates/备用模板.docx", wsel.input_value())
+        wt_txt = wpane.inner_text()
+        check("应用后给出落点反馈且「已修改」徽标消失",
+              "word_template" in wt_txt and "已修改" not in wt_txt,
+              wt_txt[:200].replace("\n", " | "))
+        wpane.locator("button:has-text('恢复默认')").click()
+        page.wait_for_timeout(600)
+        check("恢复默认回到出厂模板",
+              wsel.input_value() == "templates/小说格式模板V1.3.dotx", wsel.input_value())
+        shot(page, "D12_word_template_applied")
 
         print("  --- 主题颜色：亮色/暗色分排 + 文字标识（2026-10-06 用户反馈）---")
         page.locator(".set-nav-btn", has_text="外观与更新").click()

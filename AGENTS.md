@@ -348,6 +348,7 @@ if __name__ == "__main__":
 - 大纲修订历史：`data/outline/history/`（每次精修自动备份 global_vN.md，可回退）
 - 用户大纲输入：`config/project.yaml` 的 `book.user_outline`（可选；提供后 stage2/精修优先遵循）
 - Word 成品模板：`templates/*.dotx`（config 的 `book.word_template` 指定；.dotx 自动转换；替换 [书籍标题]/[作者]/[目录占位符]/[请输入文本] 占位符；更换模板只改配置或覆盖 templates/）
+  - **GUI 入口（件五，2026-10-11）**：设置 →「Word 模板」= 下拉列 `templates/` 下 .dotx/.docx + 打开模板目录 + 恢复默认；写入走 `POST /config/word_template {template|reset}`（`project_config.set_book_fields` 定向改写 + 备份 + 回读校验），读取走 `GET /config/word_template`（清单 + 当前值 + 出厂默认）。**面向用户的入口一律 GUI**（暮雨 2026-10-10：「用户永远不会用终端」），CLI 直改该键仍是 agent 通道
 - 项目快照：`history/{时间戳}_{标签}/`（每阶段成功后自动生成，保留最近 10 份；data/ 不进 git，快照承担版本职责）
   - **恢复**：`python scripts/snapshot.py --restore <ID> --yes`。默认 dry-run；
     恢复前自动存 `pre_restore` 快照作折返点；快照外的文件默认保留。

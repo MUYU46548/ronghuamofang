@@ -122,11 +122,19 @@ cd $NF && python scripts/nfctl.py check
 基线 = `config/project.yaml` 的 `book.word_template`，可用 `--docx` / `--template` / `--md` 指定。
 退出码 0 才算成品过关；**stage7 重跑会覆盖 `output/*.docx`**。
 
+**换 Word 模板** → 用户一律走 **GUI：设置 →「Word 模板」**（下拉列 `templates/` 下
+`.dotx/.docx` + 打开模板目录 + 恢复默认 + 应用）；agent 用
+`POST /config/word_template {"template": "<文件名>"}`（`{"reset": true}` 回出厂）。
+只收 `templates/` 里真实存在的文件名，写入走 `project_config.set_book_fields`（保留注释 +
+写前备份到 `config/history/` + 写后回读）。
+
 ## Word 链手改工序（改模板 / 改成品）
 
 **改模板**（换格式规格）：
 1. 新模板放 `templates/`（.dotx/.docx 均可），占位符必须是 `[书籍标题]` `[作者]` `[目录占位符]` `[请输入文本]` 四件。
-2. `config/project.yaml` 的 `book.word_template` 指到它（只改这一个键，别动其余）。
+2. `config/project.yaml` 的 `book.word_template` 指到它（只改这一个键，别动其余）——
+   **用户走 GUI** 设置 →「Word 模板」→ 下拉选中 → 应用；agent 走
+   `POST /config/word_template {"template": "<文件名>"}`（都会备份旧配置）。
 3. 重跑 stage7 出新成品 → `python scripts/template_check.py` 出口校验（退出码 0 才算过关）。
 4. **段落格式一律由模板说了算**：stage7 模板模式只写文本（2026-10-11 起不再直写行距/段后），
    想调行距/缩进/段间距 → 改模板的 Normal 样式，**不要**在 stage7 里加直写代码。

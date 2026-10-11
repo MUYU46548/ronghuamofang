@@ -70,6 +70,8 @@ POST /project/create      {name, genre?, chapters?, style_notes?, archive_curren
                           一键新建项目：归档当前 → 初始化空工作区 → 写 project.yaml
 GET  /about               版本 / 运行环境 / 路径（GUI「关于」弹窗数据）
 GET  /config/style_notes  book.style_notes 读取（GUI 设置页签）
+GET  /config/word_template Word 成品模板清单（templates/ 下 .dotx/.docx）+ 当前值
+POST /config/word_template {template?|reset?} → 定向改写 book.word_template（件五 GUI 入口）
 
 安全边界（本地自用）：默认 127.0.0.1；写操作只允许 POST 且 Content-Type=application/json；
 除 /stage /refine /snapshot 外均即时执行。NF_API_ALLOW_FAKE=1 时 stage/refine 走
@@ -1721,6 +1723,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/config/style_notes":
             # 实现已迁至 nf_api_domains.project（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_project.handle_config_style_notes(self)))
+        elif p == "/config/word_template":
+            # Word 成品模板清单 + 当前值（件五 GUI 入口）。
+            self._send(*_dom(dom_project.handle_config_word_template(self)))
         elif p == "/config/agent_mode":
             # Agent 模式开关读取（config/system.yaml 的 gates.agent_mode）。
             self._send(*_dom(dom_project.handle_config_agent_mode(self)))
@@ -2168,6 +2173,9 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/config/token_limit":
                 # 止烧阈值设置（仅 GUI：外部 Agent 不得抬高自己的闸门）。
                 self._send(*_dom(dom_project.handle_config_token_limit_set(self, body)))
+            elif p == "/config/word_template":
+                # Word 成品模板选择/恢复默认（件五 GUI 入口，定向改写 project.yaml）。
+                self._send(*_dom(dom_project.handle_config_word_template_set(self, body)))
             elif p == "/env/set":
                 # 把 API Key 写进 .env（GUI 内置入口，替代「用外部编辑器打开 .env」）。
                 # 键名白名单/值校验/备份都在域模块里（判据只有一份）。

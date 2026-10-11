@@ -45,6 +45,7 @@
 | 角色出场统计 | `python scripts/appearances.py`（确定性，输出 data/state/appearances.json，obsidian_postprocess 自动调用） |
 | 润色后体检 | `python scripts/polish_review.py`（确定性，交付 Word 前跑） |
 | **Word 成品出口校验（件一）** | `python scripts/template_check.py [--docx 路径] [--template 路径] [--md 路径]`（零 LLM、15 项：四占位符零残留 / 章节 heading 与 merged/book.md 逐条映射 / Normal+heading1-3 样式与模板**逐字一致** / 页面 pgSz+pgMar 一致 / 段落直写 w:spacing·w:ind 不多于模板 / TOC 域 / 章前分页。基线取 `config/project.yaml` 的 `book.word_template`，默认查 `output/{书名}_完整版.docx`；退出码 0 才算成品过关。判据按 `<w:name>` 反查而非 styleId —— V1.3 的 styleId 是 `a/1/2/3`，写死必炸） |
+| **Word 模板切换（件五·GUI）** | 设置 →「Word 模板」：下拉列 `templates/` 下 .dotx/.docx + 打开模板目录 + 恢复默认 + 应用（写 `book.word_template`，旧版备份到 `config/history/`）。API：`GET /config/word_template`（清单/当前值/出厂默认）、`POST /config/word_template {template?, reset?}`（只收 `templates/` 里真实存在的文件名，路径穿越/不存在/非 .dotx\|.docx 一律 400 且零改动） |
 | 校对（stage 5.5，交付 Word 前） | `python scripts/proofread.py [--scope refined] [--llm] [--dry-run]`（确定性：标点/错字/格式/章节节奏，**零 token**；`--llm` 追加语义校对。报告 data/outline/proofread_report.json + .md） |
 | 生成前 token/费用预估 | `python scripts/estimate_tokens.py [--stage 4] [--json] [--no-history] [--verbose]`（历史实测均值优先，无历史则字符折算；GUI 运行前确认框走 `GET /estimate`。**同时给出 token 闸门对照**：已用 + 本轮估算 = 跑完预计，撞闸门会明确提示 —— hermes 下 ¥ 恒 0，这才是有意义的预估） |
 | 拆书 / 章节节奏 | `python scripts/book_split.py --input <文本文件> [--emit] [--json] [--list-patterns]`（切章模式自动识别 → data/state/book_pacing.json；`--emit` 另导出切分正文到 data/state/book_split/。**输入文件只读**） |

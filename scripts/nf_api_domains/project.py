@@ -95,6 +95,96 @@ def handle_config_style_notes(h):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+# ---------------------------------------------------------------- Word 模板
+# 件五（GUI 模板入口，A 方案）后端：清单来自磁盘 templates/，当前值来自
+# project.yaml 的 book.word_template —— 两者**分开回**：当前值指向的模板可能
+# 已被移走（配置陈旧），前端据此提示「文件不在」而不是让下拉悄悄显示空值。
+DEFAULT_WORD_TEMPLATE = "templates/小说格式模板V1.3.dotx"   # 出厂默认（恢复默认的落点）
+TPL_DIR = "templates"      # 模板目录名（配置值里存的是 `templates/<文件名>`）
+TPL_PREFIX = TPL_DIR + "/"
+
+
+def _word_templates_dir():
+    """模板目录（**必须经 api.ROOT 解析**：--root 场景下 CWD 不等于项目根）。"""
+    return api.ROOT / TPL_DIR
+
+
+def _list_word_templates():
+    """templates/ 下的 .dotx/.docx 清单（按名字排序，带大小与修改时间）。"""
+    d = _word_templates_dir()
+    files = []
+    if d.is_dir():
+        for p in sorted(d.iterdir(), key=lambda x: x.name.lower()):
+            if p.is_file() and p.suffix.lower() in (".dotx", ".docx"):
+                st = p.stat()
+                files.append({"name": p.name, "size": st.st_size,
+                              "mtime": api.time.strftime("%Y-%m-%d %H:%M",
+                                                         api.time.localtime(st.st_mtime)),
+                              "path": TPL_PREFIX + p.name})
+    return files
+
+
+def handle_config_word_template(h):
+    """Word 成品模板读取（config/project.yaml → book.word_template，件五 GUI 入口）。
+
+    与 /config/style_notes 分开的理由相同：模板清单要扫盘（glob + stat），
+    没必要为它重读整份 project.yaml，也没必要把整份 yaml 塞给前端。
+    """
+    try:
+        from utils.project_config import get_project_config
+        files = _list_word_templates()
+        try:
+            cfg = get_project_config() or {}
+        except Exception:
+            cfg = {}
+        book = cfg.get("book") if isinstance(cfg.get("book"), dict) else {}
+        cur = str(book.get("word_template") or "").strip()
+        cur_name = cur.replace("\\", "/").rsplit("/", 1)[-1] if cur else ""
+        return 200, {"ok": True, "current": cur, "default": DEFAULT_WORD_TEMPLATE,
+                     "current_exists": bool(cur_name) and any(
+                         f["name"] == cur_name for f in files),
+                     "files": files, "dir": TPL_DIR,
+                     "path": "config/project.yaml", "field": "book.word_template"}
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_config_word_template_set(h, body):
+    """选择 / 恢复 Word 成品模板 —— 定向改写 book.word_template（写前自动备份）。
+
+    只接受 **templates/ 目录里真实存在的文件名**：配置里的值会被 stage7 当路径
+    用（`Path(tmpl).exists()`），放行不存在或带目录的值等于给成品链埋一个
+    「静默退回硬编码样式」的坑；`../` 这类写法一律拒在门外。
+    """
+    body = body or {}
+    name = str(body.get("template") or "").strip()
+    if bool(body.get("reset")):
+        name = DEFAULT_WORD_TEMPLATE
+    norm = name.replace("\\", "/")
+    if norm.startswith(TPL_PREFIX):
+        norm = norm[len(TPL_PREFIX):]
+    if not norm:
+        return 400, {"ok": False, "error": "未选择模板（要回到出厂模板请点「恢复默认」）"}
+    if "/" in norm or "\\" in norm or ".." in norm:
+        return 400, {"ok": False, "error": "模板名非法（只允许 %s 下的文件名）: %s" % (TPL_PREFIX, name)}
+    if not norm.lower().endswith((".dotx", ".docx")):
+        return 400, {"ok": False, "error": "只支持 .dotx / .docx 模板: %s" % norm}
+    if norm not in {f["name"] for f in _list_word_templates()}:
+        return 400, {"ok": False,
+                     "error": "%s 下没有这个文件: %s（请先放进模板目录再选）" % (TPL_PREFIX, norm)}
+    value = TPL_PREFIX + norm
+    try:
+        from utils.project_config import set_book_fields
+        ok, msg = set_book_fields({"word_template": value})
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+    if not ok:
+        return 400, {"ok": False, "error": msg}
+    return 200, {"ok": True, "current": value,
+                 "message": "%s（book.word_template，旧版已备份到 config/history/）" % msg,
+                 "path": "config/project.yaml", "field": "book.word_template"}
+
+
 def _gui_only(h, what):
     """设置类写入必须来自**可信的 GUI 本体**（来源头 + 主进程签发 token 双因子）。
 
@@ -368,6 +458,8 @@ ROUTES = (
     ("POST", "/project/archive/delete", handle_archive_delete),
     ("GET", "/config/project", handle_config_project),
     ("GET", "/config/style_notes", handle_config_style_notes),
+    ("GET", "/config/word_template", handle_config_word_template),
+    ("POST", "/config/word_template", handle_config_word_template_set),
     ("GET", "/config/agent_mode", handle_config_agent_mode),
     ("POST", "/config/agent_mode", handle_config_agent_mode_set),
     ("GET", "/config/token_limit", handle_config_token_limit),

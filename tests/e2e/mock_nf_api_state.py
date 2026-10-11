@@ -67,6 +67,11 @@ LOGS = {"ok": True, "exists": True,
 
 COLD = False   # --cold：全新工作区（所有阶段 pending + has_work=false）→ 冷启动引导
 
+# Word 成品模板面板（件五）的**有状态**当前值：POST 改、GET 读，
+# 这样「选模板 → 应用 → 下拉回读新值」在视觉验收里是真链路而不是静态截图。
+DEFAULT_WT = "templates/小说格式模板V1.3.dotx"
+WT = {"current": DEFAULT_WT}
+
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
@@ -190,6 +195,23 @@ class Handler(BaseHTTPRequestHandler):
                 "sample_root": "C:/mock/NovelForge/examples",
                 "sample_root_exists": True,
             })
+        if p == "/config/word_template":
+            # Word 成品模板面板（设置 → Word 模板，件五）：确定性清单，
+            # 让视觉验收能真读到「下拉有几项 / 当前是哪份 / 默认是哪份」。
+            return self._send(200, {
+                "ok": True,
+                "current": WT["current"],
+                "default": DEFAULT_WT,
+                "current_exists": True,
+                "files": [
+                    {"name": "小说格式模板V1.3.dotx", "size": 28815,
+                     "mtime": "2026-08-13 19:54", "path": "templates/小说格式模板V1.3.dotx"},
+                    {"name": "备用模板.docx", "size": 14336,
+                     "mtime": "2026-10-11 08:00", "path": "templates/备用模板.docx"},
+                ],
+                "dir": "templates",
+                "path": "config/project.yaml", "field": "book.word_template",
+            })
         if p.startswith("/jobs/"):
             return self._send(200, {"id": p.split("/")[-1], "kind": "stage3", "state": "failed",
                                     "result": "exit=1"})
@@ -199,6 +221,19 @@ class Handler(BaseHTTPRequestHandler):
         p = self.path.split("?")[0].rstrip("/") or "/"
         n = int(self.headers.get("Content-Length") or 0)
         body = json.loads(self.rfile.read(n).decode("utf-8")) if n else {}
+        if p == "/config/word_template":
+            # Word 模板面板（件五）：**有状态** mock —— 选完再读必须能看到新值，
+            # 否则「应用 → 下拉回跳」这种真 bug 在视觉验收里测不出来。
+            if not body.get("reset") and not str(body.get("template") or "").strip():
+                return self._send(400, {"ok": False,
+                                        "error": "未选择模板（要回到出厂模板请点「恢复默认」）"})
+            WT["current"] = (DEFAULT_WT if body.get("reset")
+                             else str(body.get("template")))
+            return self._send(200, {"ok": True, "current": WT["current"],
+                                    "message": "已更新 word_template（book.word_template，"
+                                               "旧版已备份到 config/history/）",
+                                    "path": "config/project.yaml",
+                                    "field": "book.word_template"})
         if p == "/stage/skip":
             return self._send(200, {"ok": True,
                                     "message": "阶段%d 已标记完成（人工跳过，未生成产物）" % body.get("stage", 0),

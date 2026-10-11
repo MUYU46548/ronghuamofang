@@ -291,6 +291,7 @@ const SETTINGS_TABS = [
   { id: "notify", name: "通知与退出" },
   { id: "agent", name: "Agent 接入" },
   { id: "prompt", name: "风格与提示词" },
+  { id: "word", name: "Word 模板" },
   { id: "general", name: "外观与更新" },
   { id: "diag", name: "诊断与调试" },
 ];
@@ -301,6 +302,8 @@ function selectSettingsTab(id) {
   // 出厂内容盘点只在进「诊断与调试」时拉：/factory/list 要逐文件算 sha256，
   // 没必要每次进设置页都跑一遍
   if (id === "diag") loadFactory();
+  // Word 模板清单每次进都要重扫磁盘（用户可能刚往 templates/ 里放了新模板）
+  if (id === "word") loadWordTemplate();
 }
 
 const THEMES = [
@@ -771,6 +774,71 @@ async function saveStyleNotes() {
   }
   styleNotesDirty.value = false;
   say("风格笔记" + (r.message || "已保存"));
+}
+
+/* ---------- Word 成品模板（config/project.yaml → book.word_template，件五） ----------
+   面向用户的唯一入口（暮雨 2026-10-10 拍板：「用户永远不会用终端」）：
+   下拉选 templates/ 里的 .dotx/.docx + 打开模板目录 + 恢复默认，写入走
+   后端 project_config 定向改写（保留注释 + 写前备份 + 写后回读）。 */
+const wordTpl = ref({ files: [], current: "", default: "", current_exists: true });
+const wordTplPick = ref("");
+const wordTplDirty = ref(false);
+const wordTplMsg = ref("");
+const wordTplLoading = ref(false);
+
+async function loadWordTemplate() {
+  wordTplLoading.value = true;
+  const r = await api("/config/word_template");
+  wordTplLoading.value = false;
+  if (r.status !== 200 || !r.data.ok) {
+    wordTplMsg.value = "模板清单读取失败: " + (r.data.error || r.status);
+    return;
+  }
+  wordTpl.value = r.data;
+  wordTplPick.value = r.data.current || "";
+  wordTplDirty.value = false;
+  // 当前值指向的模板不在 templates/（被移走/改名）时**明说**，不静默显示空
+  wordTplMsg.value = r.data.current && !r.data.current_exists
+    ? "注意：当前配置的模板文件不在 templates/ —— " + r.data.current
+    + "（阶段7 会静默退回硬编码样式，出口校验也会判无基线）"
+    : "";
+}
+
+async function applyWordTemplate() {
+  if (!wordTplPick.value) {
+    wordTplMsg.value = "未选择模板（要回到出厂模板请点「恢复默认」）";
+    return;
+  }
+  const r = await api("/config/word_template", "POST", { template: wordTplPick.value });
+  if (r.status !== 200 || !r.data.ok) {
+    wordTplMsg.value = "设置失败: " + (r.data.error || r.status);
+    return;
+  }
+  await loadWordTemplate();
+  wordTplMsg.value = r.data.message || ("已设为 " + wordTplPick.value);
+}
+
+async function resetWordTemplate() {
+  const r = await api("/config/word_template", "POST", { reset: true });
+  if (r.status !== 200 || !r.data.ok) {
+    wordTplMsg.value = "恢复默认失败: " + (r.data.error || r.status);
+    return;
+  }
+  await loadWordTemplate();
+  wordTplMsg.value = r.data.message || "已恢复出厂模板";
+}
+
+async function openTemplatesDir() {
+  if (!window.mofangAPI?.openArtifact) {
+    say("当前为浏览器预览模式，打开目录需通过 Electron 启动");
+    return;
+  }
+  const r = await window.mofangAPI.openArtifact("templates");
+  if (r.ok) {
+    say("已打开模板目录：把 .dotx / .docx 放进去就会出现在下拉里（重新读取可见）");
+  } else {
+    say("打开模板目录失败: " + (r.error || ""));
+  }
 }
 
 async function loadProjects(quiet = false) {
@@ -2861,6 +2929,9 @@ function openReleases() {
 onMounted(() => {
   refresh();
   timer = setInterval(refresh, 2500);
+  // 上次停在「Word 模板」页签时（localStorage 记住的），进来就把清单拉上，
+  // 否则页面停在「读取中/空下拉」，得点一下别的再点回来才有数据
+  if (settingsTab.value === "word") loadWordTemplate();
   // 首屏拉一次待审数：沙盒产物是后台写入时自动登记的，不主动刷就看不见徽标
   refreshSandboxBadge();
   // 检查 updater 状态
@@ -4128,6 +4199,50 @@ onUnmounted(() => {
         </div>
       </div>
           </div><!-- /set-pane prompt -->
+          <div class="set-pane" v-show="settingsTab === 'word'">
+
+      <!-- Word 成品模板（件五 GUI 入口，立项契约修订 1：「用户永远不会用终端」） -->
+      <h4 style="margin-top: 16px;">Word 成品模板（templates/*.dotx）</h4>
+      <div class="meta" style="margin-bottom: 8px;">
+        阶段7 用它生成成品 docx —— 换模板就是换整本书的版式（页面 / 标题层级 /
+        字体行距 / 目录域）。把 <code>.dotx</code> 或 <code>.docx</code> 放进模板目录，
+        这里点「重新读取」即可选到；改动写入 config/project.yaml 的
+        <code>book.word_template</code>（旧版自动备份到 config/history/），下次跑阶段7 生效。
+      </div>
+      <div class="bp-field">
+        <label>当前模板</label>
+        <select class="model-select" style="max-width: 460px;" v-model="wordTplPick"
+                :disabled="wordTplLoading" @change="wordTplDirty = true">
+          <option v-if="wordTpl.current && !wordTpl.current_exists" :value="wordTpl.current">
+            {{ wordTpl.current }}（文件不在 templates/）
+          </option>
+          <option v-for="f in wordTpl.files" :key="f.path" :value="f.path">
+            {{ f.name }}（{{ Math.round(f.size / 1024) }}KB · {{ f.mtime }}）
+          </option>
+          <option v-if="!wordTpl.files.length && !wordTpl.current" value="">
+            （templates/ 下没有模板文件）
+          </option>
+        </select>
+      </div>
+      <div class="provider-row" style="margin-top: 6px;">
+        <span class="meta">{{ wordTpl.files.length }} 个模板 · 字段 book.word_template</span>
+        <span v-if="wordTplDirty" class="pill st-gate">已修改</span>
+        <span class="spacer"></span>
+        <button class="mini" :disabled="wordTplLoading" @click="loadWordTemplate">重新读取</button>
+        <button class="mini" @click="openTemplatesDir" title="在文件管理器里打开模板目录，把新模板放进去">
+          打开模板目录</button>
+        <button class="mini" @click="resetWordTemplate"
+                title="恢复为出厂模板（旧配置自动备份）">恢复默认</button>
+        <button class="mini primary" :disabled="!wordTplDirty" @click="applyWordTemplate">应用</button>
+      </div>
+      <div v-if="wordTplLoading" class="meta" style="margin-top: 6px;">读取中…</div>
+      <div v-else-if="wordTplMsg" class="meta" style="margin-top: 6px;">{{ wordTplMsg }}</div>
+      <div class="meta" style="margin-top: 8px; opacity: 0.75;">
+        出口校验：成品与模板逐项核对（占位符 / 章节层级 / 样式逐字一致 / 页面设置）走
+        <code>scripts/template_check.py</code>，基线就是这里选的这份模板。
+        出厂默认：{{ wordTpl.default || "（读取中…）" }}。
+      </div>
+          </div><!-- /set-pane word -->
           <div class="set-pane" v-show="settingsTab === 'general'">
 
       <!-- 外观配置 -->

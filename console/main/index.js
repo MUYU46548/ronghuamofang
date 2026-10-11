@@ -779,7 +779,8 @@ function pathAllowed(p) {
   if (rel === null) return false;
   if (rel === "") return true;
   // 允许直接打开这几个白名单目录本身（关于弹窗的「打开目录」按钮）
-  if (["data", "output", "logs", "materials", "config"].includes(rel)) return true;
+  // templates = 件五「打开模板目录」：用户要把 .dotx 放进去才能在设置页选到
+  if (["data", "output", "logs", "materials", "config", "templates"].includes(rel)) return true;
   if (rel.startsWith("data/") || rel.startsWith("output/")) return true;
   if ((rel.startsWith("logs/") || rel.startsWith("materials/")) && /\.(md|log|json)$/.test(rel)) return true;
   if (rel.startsWith("config/") && /\.(yaml|yml)$/.test(rel)) return true;
