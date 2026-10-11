@@ -39,7 +39,7 @@ class _QuietHandler(BaseHTTPRequestHandler):
     """最小应答器：/health 与 /about 都回 200 JSON（供绑定/探测分支实测）。"""
 
     def do_GET(self):
-        body = b'{"ok": true, "project_root": "E:/busy/holder"}'
+        body = b'{"ok": true, "project_root": "Q:/fixture/other_project"}'
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
@@ -75,7 +75,7 @@ def case_probe_down():
 # ---- 2. 探测到服务：报项目根 + 两条处置 ----
 def case_probe_alive():
     print("\n【2】端口上是另一个 nf_api → 报 project_root + 处置路径")
-    about = json.dumps({"project_root": r"E:\CODE\X-book"}, ensure_ascii=False)
+    about = json.dumps({"project_root": r"Q:\fixture\other_project"}, ensure_ascii=False)
 
     def probe(url):
         if url.endswith("/health"):
@@ -83,7 +83,7 @@ def case_probe_alive():
         return about
 
     hint = nf_api.port_busy_hint("127.0.0.1", 8765, probe=probe)
-    check("报出占位者项目根", r"E:\CODE\X-book" in hint, hint)
+    check("报出占位者项目根", r"Q:\fixture\other_project" in hint, hint)
     check("给出 GUI 处置路径", "重启后端" in hint, hint)
     check("给出 CLI 换端口路径", "--port" in hint, hint)
 
@@ -176,7 +176,7 @@ def case_bind_busy():
         check("返回的是人话提示而非 server", isinstance(res, str), repr(res)[:200])
         if isinstance(res, str):
             check("提示含处置路径", "--port" in res, res)
-            check("报出占位者的项目根", "E:/busy/holder" in res, res)
+            check("报出占位者的项目根", "Q:/fixture/other_project" in res, res)
         else:
             check("返回的是人话提示而非 server", False, repr(res)[:160])
     finally:
