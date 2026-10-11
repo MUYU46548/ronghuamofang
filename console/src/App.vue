@@ -3376,7 +3376,9 @@ onUnmounted(() => {
             <button v-if="agentMode && STAGE_MAIN_PROMPT[s.stage]" class="mini" :disabled="isRunning" @click="copyStagePrompt(s.stage)" title="复制本阶段提示词给外部 Agent">复制提示词</button>
             <button v-if="s.status === 'done' && !s.approved" class="mini primary" @click="approve(s.stage)">确认</button>
             <button v-else-if="s.approved" class="mini" @click="approve(s.stage, true)">撤销</button>
-            <button v-if="s.stage >= 2 && s.status !== 'pending'" class="mini danger" :disabled="isRunning" @click="openReject(s.stage)">打回</button>
+            <!-- 2026-10-11 #9 收口：stage1 陪跑闸是合法审批点，后端 /reject 本就收 1-7，
+                 这里不再用 >=2 把 stage1 的打回入口挡在门外 -->
+            <button v-if="s.status !== 'pending'" class="mini danger" :disabled="isRunning" @click="openReject(s.stage)">打回</button>
           </div>
           <!-- 错误恢复一级入口（UX-3）：失败/被打回/跳过的恢复动作直接摆在卡片上 -->
           <div v-if="s.status === 'failed' || s.status === 'rejected' || s.skipped || (s.needs_rewrite && s.needs_rewrite.length)"
@@ -3392,7 +3394,7 @@ onUnmounted(() => {
             <span class="spacer"></span>
             <button class="mini primary" :disabled="isRunning" @click="retryStage(s.stage)">重试</button>
             <button class="mini" :disabled="isRunning" @click="openSkipDlg(s.stage)">跳过此阶段</button>
-            <button v-if="s.stage >= 2" class="mini" :disabled="isRunning" @click="openReject(s.stage)">回退（清下游）</button>
+            <button class="mini" :disabled="isRunning" @click="openReject(s.stage)">回退（清下游）</button>
             <button class="mini" @click="openRunLog">查看日志</button>
             <button v-if="s.needs_rewrite && s.needs_rewrite.length" class="mini" @click="switchTab('review')">去批量精修</button>
           </div>
