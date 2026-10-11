@@ -777,7 +777,7 @@ async function saveStyleNotes() {
 }
 
 /* ---------- Word 成品模板（config/project.yaml → book.word_template，件五） ----------
-   面向用户的唯一入口（暮雨 2026-10-10 拍板：「用户永远不会用终端」）：
+   面向用户的唯一入口（2026-10-10 拍板：「用户永远不会用终端」——面向用户的入口一律 GUI）：
    下拉选 templates/ 里的 .dotx/.docx + 打开模板目录 + 恢复默认，写入走
    后端 project_config 定向改写（保留注释 + 写前备份 + 写后回读）。 */
 const wordTpl = ref({ files: [], current: "", default: "", current_exists: true });

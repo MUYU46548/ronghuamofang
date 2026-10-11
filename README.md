@@ -9,6 +9,8 @@
 
 ![关于页面](docs/screenshots/about.png)
 
+![设置 · Word 模板](docs/screenshots/settings-word-template.png)
+
 本项目**使用AI辅助开发**。
 
 ## 特性
@@ -20,6 +22,8 @@
 - **断点续跑**：每章落盘 + `progress.json` + SQLite 记账，中断/熔断后从断点继续，不重复花钱
 - **成本估算透明**：逐次调用记账、按阶段/模型聚合、超预算自动熔断
 - **模板与代码分离**：提示词在 `prompts/`、Word 版式在 `templates/`，改文件即可，无需改代码
+- **Word 成品出口校验**：`template_check.py` 逐项核对成品与模板（四占位符零残留 / 章节层级逐条映射 / 字体段落与模板**逐字一致** / 页面设置 / 目录域 / 章前分页），零 LLM，退出码 0 才算过关
+- **Word 模板图形化管理**：设置 →「Word 模板」下拉选 `.dotx`/`.docx`、一键打开模板目录、恢复出厂模板；写入自动备份，无需手改配置文件
 - **数据本地存储**：素材、大纲、章节、成品全部留在本机；除模型 API 和自动更新（GitHub Releases）外不向外发送数据
 
 ## 安装与启动
@@ -40,22 +44,35 @@
 
 前置：Windows 10/11、Python 3.11、Node.js 20+。
 
-```bash
+命令按 **PowerShell / cmd** 写（逐行执行，**不含 `&&`** —— Windows PowerShell 5.1 不认它）：
+
+```powershell
 git clone https://github.com/MUYU46548/ronghuamofang.git
 cd ronghuamofang
+
 python -m venv .venv
-.venv/Scripts/python.exe -m pip install -r requirements.txt
-copy .env.example .env        # 填入 TOKENHUB_API_KEY（或你自己的 OpenAI 兼容服务）
-# config/project.yaml 若不存在（发布后它不再随仓库分发：里面是你的书名/署名/剧情），
-# 从模板复制一份再改：
-[ -f config/project.yaml ] || cp config/project.yaml.example config/project.yaml
-cd console && npm install && npm run build && cd ..
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+
+copy .env.example .env
+# 打开 .env 填入 TOKENHUB_API_KEY（或你自己的 OpenAI 兼容服务）
+
+# config/project.yaml 发布后不再随仓库分发（里面是你的书名/署名/剧情）。
+# 它不存在时才复制模板；已存在就别执行这一行（会覆盖你写的书名）：
+copy config\project.yaml.example config\project.yaml
+
+cd console
+npm install        # 自带 prepare 步骤，会拉 Electron 运行时
+npm run build      # 生成 renderer/dist（生产模式加载它）
+cd ..
 ```
+
+> 用 Git Bash 的话：`copy` → `cp`，`\` → `/`，其余逐行相同。
 
 启动桌面控制台：
 
-```bash
-console\启动控制台.bat        # 等价于 console/node_modules/electron/dist/electron.exe . --disable-gpu
+```powershell
+.\console\启动控制台.bat
+# 等价于 console\node_modules\electron\dist\electron.exe . --disable-gpu
 ```
 
 也可以只用命令行跑管线（见下方「常用命令」）。
@@ -81,10 +98,16 @@ console\启动控制台.bat        # 等价于 console/node_modules/electron/dis
 点左上角 **LOGO** 打开「关于」（版本 / 运行环境 / 数据位置 / 快速上手 / 许可）；
 点左侧 **书名** 直达「项目」页签。
 
+「设置」页分八类：引擎与模型 / 预算与止烧 / 通知与退出 / Agent 接入 /
+风格与提示词 / **Word 模板** / 外观与更新 / 诊断与调试。
+
 ## 常用命令
 
 | 操作 | 命令（项目根，用 `.venv` 的 python） |
 |------|--------------------------------------|
+| **一屏全景（先跑这条）** | `python scripts/nfctl.py status`（离线，不启服务） |
+| **环境自检** | `python scripts/nfctl.py check`（含配置重复键检测） |
+| **全量测试** | `python scripts/nfctl.py test`（跑 tests/ 全部自检） |
 | 全流程启动（断点续跑） | `python scripts/orchestrator.py` |
 | 从阶段 N 重跑 | `python scripts/orchestrator.py --from N` |
 | 只跑阶段 N | `python scripts/orchestrator.py --stage N` |
@@ -99,9 +122,10 @@ console\启动控制台.bat        # 等价于 console/node_modules/electron/dis
 | 多书切换 | `python scripts/switch_book.py --list` / `--archive` / `--restore "书名"` |
 | 项目快照 | `python scripts/snapshot.py "标签"` |
 | 本地 API 服务 | `python scripts/nf_api.py`（默认 127.0.0.1:8765） |
+| Word 成品出口校验（零 LLM） | `python scripts/template_check.py` |
 | 桌面控制台 | `console\启动控制台.bat` |
 
-完整命令表（含全部自检脚本）见 `AGENTS.md`。
+完整命令表（90+ 条，含全部自检脚本）见 **`docs/commands.md`**；开发约定、踩坑与阶段语义见 `AGENTS.md`。
 
 ## 目录结构
 
@@ -158,9 +182,11 @@ NovelForge/
 
 ## 开发
 
-```bash
-cd console && npm run build      # 改前端后必须构建（生产模式加载 renderer/dist）
-cd console && npm run dist       # 本地打包（不发布）
+```powershell
+cd console
+npm run build      # 改前端后必须构建（生产模式加载 renderer/dist）
+npm run dist       # 本地打包（不发布）
+cd ..
 ```
 
 跑自检前先装开发依赖：`.venv/Scripts/python.exe -m pip install -r requirements-dev.txt`
@@ -169,6 +195,8 @@ cd console && npm run dist       # 本地打包（不发布）
 
 | 自检 | 命令 | 覆盖 |
 |------|------|------|
+| **全量（一条命令）** | `python scripts/nfctl.py test` | `tests/` 下全部自检，退出码 0 = 全过 |
+| 质量门 | `python scripts/quality_gate.py` | pyflakes 未定义名必须为 0 |
 | GUI↔API 契约 | `python tests/e2e/test_gui_api_contract.py` | 前端每个 `api()` 都有同方法后端分支 |
 | 真机视觉验收 | `python tests/e2e/e2e_ux_verify.py` | Playwright 点击/按键 + 截图 + console 报错 |
 | 项目向导/关于端点 | `python tests/http/test_project_wizard_api_http.py` | 新建项目、风格笔记、`/about` |

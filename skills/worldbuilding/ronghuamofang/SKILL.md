@@ -144,7 +144,7 @@ cd $NF && python scripts/nfctl.py check
    或把改动落到源头 `data/chapters/refined/*.md` 后重跑，**不要**直接改成品文件指望它留着。
 2. 改完跑 `python scripts/template_check.py --docx <你改的那份>` 自查（占位符别改回方括号、
    章标题别脱离 heading 样式手工加粗冒充）。
-3. 手改只归暮雨；Agent 不代改成品文字（产线分工：AI 管结构/格式/干净，文字归暮雨）。
+3. 手改只归用户本人；Agent 不代改成品文字（产线分工：AI 管结构/格式/干净，文字归用户）。
 
 ## engine=hermes 实测排雷（2026-10-01，切引擎前必读）
 
