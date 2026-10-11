@@ -372,7 +372,7 @@ function getWorkspaceSource() {
 //   · 同批 seedWorkspace 播种后写 data/state/factory_manifest.json（出厂清单）。
 //   · 随包新增 examples/（extraResources → payload/examples，样例书成为比对真源）。
 // **先 bump 再 electron-builder**。
-const SEED_VERSION = 22;
+const SEED_VERSION = 23;
 
 // 只播种/刷新**代码与提示词**目录。
 // 刻意不含 data/：那是用户产物（章节、设定、大纲），任何情况下都不能被覆盖。
