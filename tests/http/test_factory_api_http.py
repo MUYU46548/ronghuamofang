@@ -99,11 +99,13 @@ def build_project():
                     ignore=shutil.ignore_patterns("history"))
     # 徽标断言的前提：把**当前**项目书名钉成样例书名 —— 与本机 config/project.yaml
     # 的实际取值解耦（那本书名是用户数据，测试不该依赖它）。
+    # ⚠ 文件可能压根不存在：config/project.yaml **不随仓库分发**（CI 干净检出就是没有），
+    # 所以缺文件时补一份最小夹具，而不是跳过 —— 跳过会让断言在 CI 上假红。
     import re as _re
     _proj = tmp / "config" / "project.yaml"
-    if _proj.exists():
-        w(_proj, _re.sub(r'(?m)^(\s*name:\s*).*$', r'\1"雾港核心"',
-                         _proj.read_text(encoding="utf-8"), count=1))
+    _txt = (_proj.read_text(encoding="utf-8") if _proj.exists()
+            else "# 测试夹具：CI 干净检出没有 config/project.yaml（不随仓库分发）\nbook:\n  name: \"雾港核心\"\n")
+    w(_proj, _re.sub(r'(?m)^(\s*name:\s*).*$', r'\1"雾港核心"', _txt, count=1))
     shutil.copytree(ROOT / "prompts", tmp / "prompts",
                     ignore=shutil.ignore_patterns("history", "reference"))
     _force_agent_mode_off(tmp / "config" / "system.yaml")
