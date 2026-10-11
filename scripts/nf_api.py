@@ -2654,6 +2654,111 @@ class Handler(BaseHTTPRequestHandler):
             self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
 
 
+def port_busy_hint(host, port, probe=None):
+    """端口绑定失败时给**可行动**的一段话（纯函数 + 可注入探测，单测友好）。
+
+    为什么值得单独立一段（产品池欠账「端口占用无处理」，2026-10-11 收口）：
+    `ThreadingHTTPServer` 绑不上端口会直接抛 OSError 裸堆栈（Windows 上是
+    WinError 10048），用户只看到一行英文异常 —— 既不知道谁占着端口，也不知道
+    下一步做什么。这里把它翻成两句人话：占位者是谁（能探测到就报它的项目根）、
+    以及两条处置路径（GUI 重启后端 / 命令行换端口）。
+
+    探测只打本机这两个只读端点，1.5s 超时；**探测失败不影响提示主干**（拿不到
+    就退化成「被其他进程占用」+ 查占用者的命令）。`probe` 可注入以便单测离线跑。
+    """
+    if probe is None:
+        def _default_probe(url):
+            from urllib.request import urlopen
+            with urlopen(url, timeout=1.5) as r:
+                return r.read().decode("utf-8", "replace")
+        probe = _default_probe
+    base = "http://%s:%d" % (host, port)
+    from urllib.error import HTTPError
+    try:
+        probe(base + "/health")
+    except HTTPError:
+        # 有服务在应答、但端点不是我们的 → 别把它说成「没服务」
+        return ("该端口上有一个 HTTP 服务在应答，但它不是绒花墨坊（/health 无回应）。"
+                " 处置：命令行改用别的端口：python scripts/nf_api.py --port <其他端口>")
+    except Exception:                                     # noqa: BLE001
+        return ("该端口没有服务在响应（/health 不通）→ 被其他进程占用；"
+                " 查占用者：netstat -ano | findstr :%d；"
+                " 若占位者不是绒花墨坊，可改用别的端口："
+                "python scripts/nf_api.py --port <其他端口>" % port)
+    root = ""
+    try:
+        about = json.loads(probe(base + "/about") or "{}")
+        if isinstance(about, dict):
+            root = str(about.get("project_root") or "")
+    except Exception:                                     # noqa: BLE001
+        root = ""
+    msg = "该端口上已经有另一个绒花墨坊 API 在跑"
+    if root:
+        msg += "（project_root=" + root + "）"
+    msg += ("。处置：GUI 侧「设置 → 诊断与调试 → 重启后端 API」会先清掉占用者；"
+            "命令行改用别的端口：python scripts/nf_api.py --port <其他端口>")
+    return msg
+
+
+def _tcp_listening(host, port, timeout=0.5):
+    """端口上是否**有人在听**（独立于 HTTP 语义）。
+
+    返回 True=在听 / False=明确拒绝（无监听者） / True=超时拿不准。
+    拿不准时一律按「有人」处理 —— 宁可报一次占用，也不能静默双绑
+    （Windows 上 `SO_REUSEADDR=1` 的二次绑定会**成功**，这才是本欠账的真身：
+    不是抛裸堆栈，而是两个服务抢一个端口、请求被随机分流）。
+    """
+    import socket
+    s = socket.socket()
+    s.settimeout(timeout)
+    try:
+        s.connect((host, port))
+        return True
+    except ConnectionRefusedError:
+        return False
+    except OSError:
+        return True                     # 超时 / 其他错 → 按有人处理（fail-safe）
+    finally:
+        s.close()
+
+
+def bind_or_explain(host, port, server_cls=None, handler=None, listening=None):
+    """绑定 HTTP 服务；**被占时返回人话字符串**，成功返回已绑定的 server。
+
+    调用方只需判类型：`str` = 失败原因（打印 + 退出码 1），否则就是 server。
+
+    为什么不能只靠 `except OSError`（2026-10-11 实机复现）：`ThreadingHTTPServer`
+    继承 `HTTPServer.allow_reuse_address = 1`，Windows 上带 SO_REUSEADDR 的二次
+    绑定**直接成功** —— 我拿正被占用的 8765 复现时，新实例没报错而是挂住陪跑。
+    所以顺序改成：
+
+    1. **先严格绑定**（子类把 `allow_reuse_address` 关掉）：有活跃监听者 → 立刻
+       EADDRINUSE，零网络往返；
+    2. 严格失败 → TCP 连一下判是「真有人」还是 TIME_WAIT 残留：前者给提示，
+       后者（刚重启过、无监听者）放宽重绑一次，保证快速重启不被误伤；
+    3. 两者都失败 → 仍给提示，并把底层错误带上。
+
+    三个分支全部可注入（`server_cls` / `handler` / `listening`），单测离线跑。
+    """
+    server_cls = server_cls or ThreadingHTTPServer
+    handler = handler or Handler
+    if listening is None:
+        listening = lambda: _tcp_listening(host, port)            # noqa: E731
+
+    class _Strict(server_cls):
+        allow_reuse_address = False
+
+    try:
+        return _Strict((host, port), handler)
+    except OSError:
+        if listening():
+            return port_busy_hint(host, port)
+        try:
+            return server_cls((host, port), handler)              # TIME_WAIT：放宽重绑
+        except OSError as e2:
+            return port_busy_hint(host, port) + "（严格/放宽绑定均失败：%s）" % e2
+
+
 def main():
     # 控制台输出安全网：本服务的 stdout 由 GUI（Electron spawn）以管道捕获，
     # 管道下 Python 用本地编码（cp936），而本文件里就有 ⚠️ 这类不在 GBK 的字符
@@ -2689,7 +2794,15 @@ def main():
         print(f"[nf_api] 日志: level={_lvl} rotate_days={_days} → {_rr['reason']}")
     except Exception as _e:                                 # noqa: BLE001
         print(f"[nf_api] 日志轮转检查跳过（不影响服务）: {_e}")
-    httpd = ThreadingHTTPServer((args.host, args.port), Handler)
+    # 端口占用不再裸抛、更不许静默双绑（产品池「端口占用无处理」收口，2026-10-11）：
+    # Windows 上 allow_reuse_address=1 会让二次绑定**成功**（实机复现：新实例陪跑、
+    # 请求被随机分流），所以绑定走 bind_or_explain —— 先严格绑定，被占才退提示。
+    _bound = bind_or_explain(args.host, args.port)
+    if isinstance(_bound, str):
+        print("[nf_api] 启动失败：端口 %d 不可用" % args.port)
+        print("[nf_api] " + _bound)
+        sys.exit(1)
+    httpd = _bound
     print("[nf_api] NovelForge API 服务 → http://" + args.host + ":" + str(args.port)
           + "  (allow_fake=" + str(ALLOW_FAKE) + ")")
     # ---- MCP Server (P3: MCP agent layer) ----
@@ -2703,7 +2816,10 @@ def main():
         mcp_started = True
         print(f"[nf_api] MCP 服务 → tcp://{args.host}:{mcp_port}")
     except Exception as _e:                                 # noqa: BLE001
-        print(f"[nf_api] MCP 服务启动跳过（不影响 HTTP）: {_e}")
+        _hint = ""
+        if isinstance(_e, OSError):
+            _hint = "（8766 多半被另一个 nf_api 占着 → 按 8765 的占用提示先处置）"
+        print(f"[nf_api] MCP 服务启动跳过（不影响 HTTP）: {_e}{_hint}")
     # ---- 端点列表 ----
     print("[nf_api] 端点: /health /state /about /agent/runs /models /stage/{n}/run /stage/skip /logs/tail /stream/{job_id} /stop /jobs/{id} /approve /reject /refine/* /outline/* /snapshot /costs /prompts/* /config/style_notes /materials/* /project/*")
     if mcp_started:
