@@ -67,6 +67,54 @@ def resolve_sample_root():
     return None, False
 
 
+def _book_title(path):
+    """读 project.yaml 的 `book.name`；缺失/坏文件/无该键一律返回 None。
+
+    只取这一个键 —— 出厂徽标只需要书名，整份解析反而把「配置坏掉」这种
+    与本功能无关的状态带进响应。
+    """
+    try:
+        from utils.config_io import load_config_yaml
+        data = load_config_yaml(str(path), default=None) or {}
+        title = ((data.get("book") or {}).get("name") or "").strip()
+        return title or None
+    except Exception:                                          # noqa: BLE001
+        return None
+
+
+def current_sample_view():
+    """当前项目 vs 出厂样例的轻量比对（GUI「项目」页徽标用）。
+
+    **判据 = 书名相等**（样例随包的 `examples/sample-book/project.yaml` 的
+    `book.name` ↔ 当前 `config/project.yaml` 的 `book.name`），零 sha、
+    零目录遍历 —— 与 `handle_factory_list` 的逐字节盘点分工：那边回答
+    「工作区里哪些文件是机器发的」，这边只回答「当前这本书是不是示例书」。
+
+    为什么不用逐字节判据：示例书进工作区后配置**本来就会变**（word_template、
+    style_notes、模型选择都会被写进去），拿「配置没动过」当必要条件会让徽标
+    在最该出现的场景里消失。书名相同 + 素材来自 examples/ 才是用户的实际
+    认知（「这就是那个出厂测试项目」），而**改过书名的项目永远不会命中**
+    —— 徽标误报的方向是「多提醒一次」，不是「漏掉用户数据」。
+    """
+    sample_root, exists = resolve_sample_root()
+    out = {"title": None, "sample_title": None, "is_sample": False}
+    try:
+        out["title"] = _book_title(api.ROOT / "config" / "project.yaml")
+    except OSError:
+        out["title"] = None
+    if exists and sample_root:
+        # `resolve_sample_root()` 回的是**样例根目录**（`examples/`），
+        # 样例书住在它下面的 `sample-book/`；源码态若直接把项目当样例根，
+        # project.yaml 就在根上。两个候选都试，谁在算谁。
+        for cand in (Path(sample_root) / "sample-book" / "project.yaml",
+                     Path(sample_root) / "project.yaml"):
+            if cand.is_file():
+                out["sample_title"] = _book_title(cand)
+                break
+    out["is_sample"] = bool(out["title"] and out["title"] == out["sample_title"])
+    return out
+
+
 def _manifest_view(workspace):
     """清单 → 响应用的精简视图；没有清单返回 None（GUI 显示「未播种」）。"""
     data = fm.read_manifest(workspace)
@@ -89,6 +137,8 @@ def handle_factory_list(h):
             "match_count": len(matches),
             "sample_root": str(root) if root else None,
             "sample_root_exists": exists,
+            # 当前项目是否就是出厂示例书（项目页徽标）；轻量，零 sha。
+            "current": current_sample_view(),
         }
     except Exception as e:                                    # noqa: BLE001
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}

@@ -9,6 +9,16 @@ CHANGELOG」）。本文件从工程审查修复起正式启用。
 
 ## [Unreleased]
 
+### v0.6.10 — 2026-10-11 三处「看不懂 / 试跑即炸」修复（用户实测反馈驱动）
+
+- **项目页给出厂样例书挂徽标**（用户原话：「雾港核心工作区有数据，但是没有任何显示标识」）：`GET /factory/list` 新增 `current` 视图（新函数 `current_sample_view()`：当前 `config/project.yaml` 的书名 ↔ 随包样例 `examples/sample-book/project.yaml` 的书名，**零 sha、零目录遍历**，与既有逐字节盘点分工）。书名相同即在「当前项目」旁点亮 **出厂测试项目 ?** 徽标，悬浮（`title`）与点击（toast）都给同一段说明：出厂自带、删了不动程序也不动别的书、删前先「查看」确认（删除本就进回收站可捞回，故**不写「不可删除」**——那会与页面上的删除按钮自相矛盾）。判据只认书名：**改过书名的项目永不命中**，误报方向是「多提醒一次」而不是漏标用户数据；反例（改书名后熄灭）有测试钉住。
+- **启动提示词不再把给人看的说明书贴给 Agent**（用户原话：「这都什么玩意？…被 AI 读进去会怎么样？」）：`prompts/agent_kickoff.md` 开头的「用法」引言是写给**人**的。GUI 现在**展示与复制同源同截**——都走 `kickoffBody()`，只取 `## 提示词正文` 标题之后的内容，所见即所贴。匹配**整行锚定**：说明文字里若引用这行字也不会在句子中间下刀（自查时先踩了这个坑，随即修掉并加断言）。
+- **阶段「复制提示词」→「复制任务」**（用户原话：「试跑还没跑起来就炸了」）：原实现把 `prompts/stageN_*.md` 全文原样塞剪贴板，而花括号占位符只有流水线渲染时才填 → 外部 Agent 按 kickoff 红线判「这是模板不是任务」**当场停工**。现复制**任务简报**：项目根 + CLI/HTTP/GUI 三通道命令 + 预期产物 + 退出码 + 模板位置与只读提示；**简报里不得出现成对花括号**（那正是对方的停下判据），模板留给 Agent 自己按需读。
+- **测试**：新增 `tests/unit/test_gui_agent_copy.py` **20 断言**（简报零花括号 / 复制出口不再请求 `/prompts/get` / 剥离整行锚定与正文首行）；`test_factory_api_http` **+2 断言**（书名相同亮徽标、改书名熄灭）；e2e 视觉验收 **+3 断言**（徽标出现 / 悬浮说明含删除后果 / 点击弹说明）。
+- **文档**：`AGENTS.md` 补「2026-10-11 改道」段（按钮复制的是简报、简报不得含成对花括号）；`prompts/agent_kickoff.md` 头部补人机分界说明。
+- **版本**：0.6.9 → 0.6.10（`package.json` + `package-lock.json` 两处），`SEED_VERSION` 24 → 25（`factory.py` / `agent_kickoff.md` 变更，按「先 bump 再 dist」）。
+- **验证**：`nfctl test` **93/93** · `quality_gate` BLOCK 0（WARN 39 存量）· `release-check` 全绿（MCP 握手 9/9 · e2e 视觉 **139/139** · 打包产物核验 version=0.6.10 payload 15 文件一致）· 产物抽检：payload `factory.py` 含 `current_sample_view`、`agent_kickoff.md` 含新说明、asar 内前端 bundle 含徽标与简报文案。
+
 ### v0.6.9 — 2026-10-11 拆弹两件 · 7 条工单 · 完成判定挂产物（三批合一发版）
 
 - **装机版 CLI 根因修复（sys.path 自举）**：打包态 embeddable python 由 `python311._pth` 冻结 sys.path（不含脚本目录、连 cwd 都没有）→ `python scripts/x.py` 首个本地 import 即 `ModuleNotFoundError: No module named 'utils'`，`interp_guard` 自己都够不着（守卫 import 排在被守 import 后面，鸡生蛋）。**35 个入口脚本**补自举（另修 `auto_rewrite` 原自举位置过低=装机版无效）；护栏 `tests/unit/test_script_path_bootstrap.py`（静态 AST 判据 + `-P` 复现打包态跑 4 入口 --help，防新脚本回潮）。实证：自带 python 跑 `orchestrator --dry-run` 修前崩、修后 8 阶段全通。

@@ -194,6 +194,10 @@ class Handler(BaseHTTPRequestHandler):
                 "match_count": 2,
                 "sample_root": "C:/mock/NovelForge/examples",
                 "sample_root_exists": True,
+                # 出厂样例徽标（项目页「当前项目」旁，2026-10-11）：mock 书名与样例书名
+                # 刻意相同 → 徽标必须点亮；书名不同的反例由 tests/http 的 HTTP 自检覆盖。
+                "current": {"title": "验收用书", "sample_title": "验收用书",
+                            "is_sample": True},
             })
         if p == "/config/word_template":
             # Word 成品模板面板（设置 → Word 模板，件五）：确定性清单，

@@ -849,6 +849,10 @@ async function loadProjects(quiet = false) {
   } else {
     say("加载失败: " + (r.data.error || r.status));
   }
+  // 出厂样例徽标（同一次进项目页顺带拉）：响应里的 `current` 只做两次书名比较，
+  // 真正逐文件算 sha 的盘点部分本来就在这个端点里，诊断页复用同一个 ref。
+  // 拉失败不影响项目页任何功能 —— 徽标是加分项，不能反过来拖垮主流程。
+  loadFactory();
 }
 
 async function archiveCurrent() {
@@ -1231,6 +1235,17 @@ async function stopJob() {
 
 /* ---------- 其他 ---------- */
 const projects = ref({ current: "", archived: [] });
+/* 出厂样例书徽标（2026-10-11 用户需求：「雾港核心工作区有数据，但没有任何显示标识」）。
+   判据在后端 nf_api_domains/factory.py 的 current_sample_view()（当前书名 == 随包样例书名），
+   前端只负责把结论摆出来 + 说清「删了会怎样」。 */
+const factorySampleTip = computed(() => {
+  const c = factory.value && factory.value.current;
+  const t = (c && c.sample_title) || "示例书";
+  return `此为出厂自带的测试项目（随包样例书《${t}》，素材来自 examples/sample-book），`
+    + "用于试跑流水线与验收界面，不是你新建的书。\n"
+    + "删除或归档它不会影响程序运行，也不会动其他项目；样例源文件仍随安装包保留。\n"
+    + "⚠ 若你在这本书里写过自己的内容，删除前请先「查看」确认（删除默认进回收站，可捞回）。";
+});
 const archiveName = ref("");
 
 /* ---------- 初始化向导（C1） ---------- */
@@ -2523,8 +2538,10 @@ async function loadKickoff() {
     const r = await window.mofangAPI.readPreview('prompts/agent_kickoff.md');
     if (r && r.ok) {
       const root = (state.value && state.value.project_dir) || '';
-      acKickoff.value = String(r.content || '')
-        .replace(/\{\{PROJECT_ROOT\}\}/g, root);
+      // 展示与复制**同源同截**（所见即所贴）：只留「提示词正文」标题之后的内容，
+      // 标题之前的用法说明是写给人看的，进文本框就等于进剪贴板。
+      acKickoff.value = kickoffBody(String(r.content || '')
+        .replace(/\{\{PROJECT_ROOT\}\}/g, root));
     } else if (r && r.error && r.error.indexOf('文件不存在') === -1) {
       say('启动提示词读取失败: ' + r.error);
     }
@@ -2552,7 +2569,7 @@ function copyAcSnippet() {
     ? agentConnect.value.yamlSnippet : agentConnect.value.jsonSnippet;
   copyText(s, 'MCP 配置段已复制');
 }
-// 各阶段对应的主提示词模板（用于 Agent 一键复制）
+// 各阶段对应的主提示词模板名（按钮可见性 + 简报里告诉 Agent 模板在哪）
 const STAGE_MAIN_PROMPT = {
   1: "stage1_materials.md",
   2: "stage2_global_outline.md",
@@ -2562,6 +2579,45 @@ const STAGE_MAIN_PROMPT = {
   6: "stage6_polish.md",
   7: "",
 };
+// 给外部 Agent 的任务简报用：阶段叫什么、跑完该看到什么产物
+const STAGE_TASK_INFO = {
+  1: { name: "素材归并 → 设定集", out: "data/setting/setting.json" },
+  2: { name: "整体大纲", out: "data/outline/global.md（审批门）" },
+  3: { name: "逐章大纲", out: "data/outline/chapters/NN.md" },
+  4: { name: "逐章写作", out: "data/chapters/raw/NN.md" },
+  5: { name: "逻辑检查", out: "data/chapters/checked/NN.md" },
+  6: { name: "润色", out: "data/chapters/refined/NN.md（审批门）" },
+};
+
+/* 一键复制给外部 Agent 的是**任务简报**，不是提示词原文（2026-10-11 实测改道）。
+   为什么改：原实现把 prompts/stageN_*.md 全文原样塞进剪贴板，里面的花括号占位符
+   只有流水线渲染时才填 —— 外部 Agent 拿到手第一件事就是按红线「这是模板不是任务，
+   立即停下报告」，试跑一步没走就炸（用户原话：还没跑起来就炸了）。按钮的本意是
+   「让 Agent 知道接下来干什么」，那么给它的就该是**可执行的任务**：跑哪条命令、
+   产物落哪、退出码怎么读；模板留给它自己按需读，作为背景而不是任务书。
+   ⚠ 简报里**不得出现成对花括号** —— 那正是外部 Agent 的停下判据，写了等于白改。 */
+function stageTaskBrief(stage) {
+  const root = (state.value && state.value.project_dir) || "（当前项目根）";
+  const info = STAGE_TASK_INFO[stage] || { name: "阶段 " + stage, out: "见 AGENTS.md 关键路径" };
+  const tpl = STAGE_MAIN_PROMPT[stage];
+  return [
+    "# 任务：执行绒花墨坊 阶段 " + stage + " —— " + info.name,
+    "",
+    "- 项目根：" + root,
+    "- 执行（任选你已接入的通道，项目根下）：",
+    "  · CLI：python scripts\\orchestrator.py --stage " + stage,
+    "  · HTTP：POST http://127.0.0.1:8765/stage/" + stage + "/run （agent_mode 已开时）",
+    "  · GUI：流水线页签 → 阶段 " + stage + " →「运行」",
+    "- 预期产物：" + info.out,
+    "- 退出码：0=完成 · 1=阶段失败 · 2=预算熔断 · 3=等审批（报告后停下等用户） · 4=被中断",
+    "",
+    "背景（只读参考，不是本任务）：",
+    "本阶段提示词模板在 prompts/" + tpl + "。其中的花括号占位符由流水线渲染，",
+    "读它可以了解任务细节，但**不要**手工填充占位符、不要把模板原文当任务执行；",
+    "管线状态文件（progress.json / runs.db / data/outline / data/chapters …）只有",
+    "orchestrator 能写，手写产物 = 试跑不合格；审批与打回归用户（approve/reject 不碰）。",
+  ].join("\n");
+}
 
 async function copyStagePrompt(stage) {
   const name = STAGE_MAIN_PROMPT[stage];
@@ -2569,20 +2625,28 @@ async function copyStagePrompt(stage) {
     say("该阶段无提示词模板");
     return;
   }
-  const r = await api("/prompts/get?name=" + encodeURIComponent(name));
-  if (r.status !== 200 || !r.data?.content) {
-    say("读取提示词失败: " + (r.data?.error || r.status));
-    return;
-  }
-  // frontmatter 里没有任何键被代码消费（stage/name 也只是给人看），
-  // 复制给外部 Agent 时只给任务正文 —— 老的 model: hy3 就是这么散播出去的。
-  const raw = String(r.data.content);
-  const m = raw.match(/^---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*\r?\n/);
-  const body = (m ? raw.slice(m[0].length) : raw).trimStart();
-  copyText(body || raw,
-    "阶段 " + stage + " 提示词已复制" + (m ? "（已剥掉 frontmatter，只含任务正文）" : ""));
+  copyText(stageTaskBrief(stage),
+    "阶段 " + stage + " 任务简报已复制（命令 + 产物 + 退出码；模板原文请在「风格与提示词」页查看）");
 }
-function copyKickoff() { copyText(acKickoff.value, '启动提示词已复制'); }
+/* 人机分界：`## 提示词正文` 之前的「用法」引言是写给**人**看的（从哪复制、
+   占位符怎么换），不是任务开场白的一部分。展示（文本框）与复制都走这一个函数，
+   保证所见即所贴；标题被改没了就回退全文 —— 宁可多贴三行说明，也不能贴出空串。
+   ⚠ 必须**整行锚定**匹配：说明文字里也会引用「## 提示词正文」这几个字，
+   不锚定就会在说明句子中间下刀，把一半说明当成正文发出去（2026-10-11 自查抓到）。 */
+const KICKOFF_MARKER = "## 提示词正文";
+const KICKOFF_MARKER_RE = /^[ \t]*## 提示词正文[ \t]*$/m;
+function kickoffBody(src) {
+  const s = String(src || "");
+  const m = s.match(KICKOFF_MARKER_RE);
+  if (!m) return s;
+  return s.slice((m.index || 0) + m[0].length).replace(/^[ \t]*\r?\n+/, "").trimEnd();
+}
+function copyKickoff() {
+  const text = kickoffBody(acKickoff.value);
+  if (!text) { say("启动提示词为空，未复制"); return; }
+  copyText(text, text === String(acKickoff.value || "")
+    ? "启动提示词已复制" : "启动提示词已复制（只含提示词正文）");
+}
 async function openAgentCfg(target) {
   const r = await window.mofangAPI.agentOpenConfig(target);
   if (r && r.ok) say(r.message || ('已打开: ' + r.path));
@@ -3381,7 +3445,7 @@ onUnmounted(() => {
           <div class="stage-actions">
             <button class="mini" :disabled="isRunning" @click="runStage(s.stage)">运行</button>
             <button class="mini" :disabled="isRunning" @click="runStageStream(s.stage)" title="实时流式输出，可随时中断">流式运行</button>
-            <button v-if="agentMode && STAGE_MAIN_PROMPT[s.stage]" class="mini" :disabled="isRunning" @click="copyStagePrompt(s.stage)" title="复制本阶段提示词给外部 Agent">复制提示词</button>
+            <button v-if="agentMode && STAGE_MAIN_PROMPT[s.stage]" class="mini" :disabled="isRunning" @click="copyStagePrompt(s.stage)" title="复制「执行本阶段」的任务简报给外部 Agent（项目根 + 命令 + 产物 + 退出码）。阶段提示词是模板，占位符由流水线渲染，不再原样复制 —— 否则对方按红线当成「模板不是任务」直接停工">复制任务</button>
             <button v-if="s.status === 'done' && !s.approved" class="mini primary" @click="approve(s.stage)">确认</button>
             <button v-else-if="s.approved" class="mini" @click="approve(s.stage, true)">撤销</button>
             <!-- 2026-10-11 #9 收口：stage1 陪跑闸是合法审批点，后端 /reject 本就收 1-7，
@@ -4572,6 +4636,11 @@ onUnmounted(() => {
       </div>
       <div class="meta" style="margin-bottom: 12px;">
         当前项目：<b>{{ projects.current || "（未初始化）" }}</b>
+        <span v-if="factory?.current?.is_sample" class="pill st-warn"
+              style="cursor: help;" :title="factorySampleTip"
+              @click="say(factorySampleTip.replace(/\n/g, ' '))">
+          出厂测试项目<span style="margin-left: 4px; font-weight: 700;">?</span>
+        </span>
         <span v-if="state?.has_work" class="pill st-gate">工作区有数据</span>
         <span v-else class="pill">工作区为空</span>
       </div>

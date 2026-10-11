@@ -97,6 +97,13 @@ def build_project():
                     ignore=shutil.ignore_patterns("__pycache__"))
     shutil.copytree(ROOT / "config", tmp / "config",
                     ignore=shutil.ignore_patterns("history"))
+    # 徽标断言的前提：把**当前**项目书名钉成样例书名 —— 与本机 config/project.yaml
+    # 的实际取值解耦（那本书名是用户数据，测试不该依赖它）。
+    import re as _re
+    _proj = tmp / "config" / "project.yaml"
+    if _proj.exists():
+        w(_proj, _re.sub(r'(?m)^(\s*name:\s*).*$', r'\1"雾港核心"',
+                         _proj.read_text(encoding="utf-8"), count=1))
     shutil.copytree(ROOT / "prompts", tmp / "prompts",
                     ignore=shutil.ignore_patterns("history", "reference"))
     _force_agent_mode_off(tmp / "config" / "system.yaml")
@@ -176,6 +183,12 @@ def main():
         check("每条命中带 sample_rel 与 sha256",
               all(m.get("sample_rel") and len(m.get("sha256", "")) == 64
                   for m in d.get("matches") or []), d.get("matches"))
+        # 出厂样例徽标（2026-10-11，项目页「这是不是出厂测试项目」）：书名比对视图
+        cur = d.get("current") or {}
+        check("current 视图给出两侧书名（样例书名来自样例随包 project.yaml）",
+              cur.get("sample_title") == "雾港核心" and cur.get("title") == "雾港核心", cur)
+        check("书名相同 → is_sample=true（项目页徽标据此点亮）",
+              cur.get("is_sample") is True, cur)
         after = snap(tmp)
         check("**零副作用**：盘点前后工作区逐字节不变", before == after,
               sorted(set(before) ^ set(after)))
@@ -234,6 +247,16 @@ def main():
         check("本例 agent_mode 关闭，端点是正常走通而非被豁免放过（200 已实证）",
               agent_guard.agent_mode_enabled(
                   {"gates": {"agent_mode": False}}) is False)
+
+        print("\n=== 6. 徽标反例：书名不同 = 不是出厂样例 ===")
+        _pj = tmp / "config" / "project.yaml"
+        w(_pj, _pj.read_text(encoding="utf-8")
+          .replace('name: "雾港核心"', 'name: "我自己写的书"', 1))
+        code, d3 = req("GET", "/factory/list")
+        cur3 = d3.get("current") or {}
+        check("改书名后 is_sample=false（不把用户的书标成出厂样例）",
+              code == 200 and cur3.get("is_sample") is False
+              and cur3.get("title") == "我自己写的书", (code, cur3))
 
         print("=" * 62)
         print("合计: %d 通过 / %d 失败" % (len(PASS), len(FAIL)))

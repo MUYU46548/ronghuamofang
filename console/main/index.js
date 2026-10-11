@@ -372,7 +372,14 @@ function getWorkspaceSource() {
 //   · 同批 seedWorkspace 播种后写 data/state/factory_manifest.json（出厂清单）。
 //   · 随包新增 examples/（extraResources → payload/examples，样例书成为比对真源）。
 // **先 bump 再 electron-builder**。
-const SEED_VERSION = 24;
+// v25（2026-10-11，第十八批，0.6.10 用户可见三修）：payload scripts/prompts 变更 ——
+//   · nf_api_domains/factory.py：新增 `current_sample_view()` 并随 /factory/list 回
+//     `current`（当前书名 ↔ 样例书名，项目页「出厂测试项目」徽标据此点亮）；
+//   · prompts/agent_kickoff.md：补「复制只取提示词正文」的人机分界说明；
+//   · 前端（asar，不走种子）：项目页出厂徽标 / 启动提示词剥离说明书 /
+//     阶段复制改任务简报（原样贴模板会被外部 Agent 按红线判「模板不是任务」停工）。
+// **先 bump 再 electron-builder**。
+const SEED_VERSION = 25;
 
 // 只播种/刷新**代码与提示词**目录。
 // 刻意不含 data/：那是用户产物（章节、设定、大纲），任何情况下都不能被覆盖。
