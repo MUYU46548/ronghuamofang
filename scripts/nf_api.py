@@ -166,6 +166,7 @@ try:
     from nf_api_domains import sandbox as dom_sandbox      # noqa: E402
     from nf_api_domains import setting_state as dom_setting_state  # noqa: E402
     from nf_api_domains import factory as dom_factory      # noqa: E402 (0.6.7 出厂/用户数据分治)
+    from nf_api_domains import plan as dom_plan            # noqa: E402 (丙0 规划四态状态机)
 except Exception as _dom_err:                            # noqa: BLE001
     dom_materials = None
     dom_misc = None
@@ -178,6 +179,7 @@ except Exception as _dom_err:                            # noqa: BLE001
     dom_setting_state = None
     dom_refine = None
     dom_factory = None
+    dom_plan = None
     print("[nf_api] 域模块加载失败（端点将返回可行动错误）: " + str(_dom_err))
 
 
@@ -1708,6 +1710,15 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/factory/list":
             # 出厂内容盘点（清单 + 样例逐字节命中）；只读，实现在域模块。
             self._send(*_dom(dom_factory.handle_factory_list(self)))
+        elif p == "/plan/stats":
+            # 规划四态状态机（丙0）统计（只读）
+            self._send(*_dom(dom_plan.handle_stats(self)))
+        elif p == "/plan/list":
+            # 规划四态状态机（丙0）列表（只读）
+            self._send(*_dom(dom_plan.handle_list(self)))
+        elif p == "/plan/get":
+            # 规划四态状态机（丙0）单条查询（只读）
+            self._send(*_dom(dom_plan.handle_get(self)))
         elif p == "/review/decisions":
             # 实现已迁至 nf_api_domains.runtime（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_runtime.handle_review_decisions(self)))
@@ -2259,6 +2270,25 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/factory/clean":
                 # 清理出厂样例（confirm 护栏 + 服务端重新检测 + 只动 materials/）。
                 self._send(*_dom(dom_factory.handle_factory_clean(self, body)))
+            elif p == "/plan/propose":
+                # 规划四态状态机（丙0）提案（agent 可提案，不可自选）
+                self._send(*_dom(dom_plan.handle_propose(self, body)))
+            elif p == "/plan/select":
+                # 规划四态状态机（丙0）用户选中（Agent 模式下禁用）
+                if not trusted_gui and agent_guard.agent_mode_enabled(load_all()[0] or {}):
+                    self._send(403, {"ok": False,
+                                     "error": "Agent 模式禁用：规划选择权归用户"})
+                    return
+                self._send(*_dom(dom_plan.handle_select(self, body)))
+            elif p == "/plan/write":
+                # 规划四态状态机（丙0）写进正文（用户专属）
+                self._send(*_dom(dom_plan.handle_write(self, body)))
+            elif p == "/plan/drop":
+                # 规划四态状态机（丙0）丢弃（用户专属）
+                self._send(*_dom(dom_plan.handle_drop(self, body)))
+            elif p == "/plan/revive":
+                # 规划四态状态机（丙0）复活（用户专属）
+                self._send(*_dom(dom_plan.handle_revive(self, body)))
             elif p == "/project/create":
                 # 一键新建项目：归档当前 → 初始化空工作区 → 写 project.yaml
                 # 护栏：写前快照（与 /project/init 一致），失败不落地

@@ -68,6 +68,11 @@ FORBIDDEN_IN_AGENT_MODE = frozenset({
     # 清理出厂样例（0.6.7）：移动用户工作区素材文件 = 破坏性写操作，
     # 只读的 /factory/list 不在此列（外部 Agent 可以盘点，不能动手）。
     "/factory/clean",
+    # 规划四态状态机（丙0）：AI 可提案，但选择/写进正文/丢弃/复活归用户
+    "/plan/select",
+    "/plan/write",
+    "/plan/drop",
+    "/plan/revive",
 })
 
 # 人工来源的标记值（HTTP 头 / 环境变量通用）
