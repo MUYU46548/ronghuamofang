@@ -38,12 +38,50 @@ from utils.config_io import load_config_yaml
 # 范文特征缓存：style_reference 路径 -> 特征字典（一次提取，逐章复用）
 _REF_FEATURE_CACHE = {}
 
+# 润色咒语缓存（prompts/reference/对话优化咒语.md → 剥离 frontmatter + 交付节后的正文）
+_POLISH_RULES_CACHE = None
+
 
 def _report_path(vol_index=None):
     """润色报告路径（分卷时带卷号），偏差报告追加到同一文件。"""
     if vol_index is not None:
         return Path(f"data/outline/polish_report_vol{vol_index}.md").resolve()
     return Path("data/outline/polish_report.md").resolve()
+
+
+# 润语咒语缓存键：None = 未加载；"" = 文件缺失/空（已跳过）；非空 = 已缓存咒语正文
+_POLISH_RULES_CACHE = None
+
+
+def _load_polish_rules():
+    """加载 prompts/reference/对话优化咒语.md，剥离 frontmatter 与交付节。
+
+    咒语全文 24KB，每条规则都有其价值；但「五、最终承诺与交付」讲的是
+    「只输出润色后文本，不必附带说明」—— 与 stage6 自己的输出格式契约
+    （修改清单追加到 path_report）冲突，故剥离交付节，保留前五节全部规则。
+    文件缺失时返回空字符串（回退到模板里的基础约束）。
+    """
+    global _POLISH_RULES_CACHE
+    if _POLISH_RULES_CACHE is not None:
+        return _POLISH_RULES_CACHE
+
+    ref = Path("prompts/reference/对话优化咒语.md").resolve()
+    if not ref.exists():
+        print("[stage6] 润色咒语文件缺失，回退基础约束（不影响润色）")
+        _POLISH_RULES_CACHE = ""
+        return ""
+
+    text = read_text(ref)
+    # 剥离 frontmatter
+    import re as _re
+    m = _re.match(r"^---\s*\n.*?\n---\s*\n", text, _re.S)
+    body = text[m.end():] if m else text
+    # 剥离「五、最终承诺与交付」节（stage6 自身定义输出契约）
+    cut = body.find("\n## 五、")
+    if cut != -1:
+        body = body[:cut]
+    _POLISH_RULES_CACHE = body.strip()
+    return _POLISH_RULES_CACHE
 
 
 def _load_reference_features(style_ref):
@@ -92,6 +130,7 @@ def build_polish_task(proj, checked_dir, refined_dir, chapters, vol_index=None):
         "style_instruction": style_instruction,
         "style_samples": style_samples,
         "style_notes": style_notes,
+        "polish_rules": _load_polish_rules(),
     })
     return body
 
