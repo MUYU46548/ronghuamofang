@@ -3,7 +3,7 @@
 > 半自动长篇小说生成系统 —— 机器包办苦力（素材归并→大纲→写作→检查→润色→Word），你保留审批权和最终精修权。
 > 八阶段流水线自动执行，关键节点设审批门：随时暂停、打回、重跑，成本逐笔记账并可熔断。
 
-**对外品牌名：绒花墨坊**（`ronghuamofang`）；`NovelForge` 为早期内部代号（仓库名沿用）。
+**对外品牌名：绒花墨坊**（`ronghuamofang`）。
 
 ![流水线主界面](docs/screenshots/pipeline.png)
 
@@ -129,6 +129,8 @@ cd ..
 
 ## 目录结构
 
+请以最新代码结构为准，本小节仅供参考。
+
 ```
 NovelForge/
 ├── console/          # Electron 桌面控制台（main / preload / src + Vite 构建产物）
@@ -203,6 +205,10 @@ cd ..
 | UX 端点 | `python tests/http/test_ux_flow_api_http.py` | `/stage/skip`、`/logs/tail` |
 
 开发约定、踩坑与阶段语义见 `AGENTS.md`；历次变更见 `CHANGELOG.md`。
+
+## 赞助与支持
+
+当前本应用**完全免费**。如果喜欢本应用，欢迎到[爱发电](https://afdian.com/a/muyu46548B?utm_source=copylink&utm_medium=link)支持作者！
 
 ## 许可
 
