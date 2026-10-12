@@ -17,6 +17,7 @@ CHANGELOG」）。本文件从工程审查修复起正式启用。
 - **`tests/e2e/make_readme_shots.py`（README 三图一条命令）**：`docs/screenshots/` 的 pipeline / about / settings-word-template 从此由脚本再生成，界面改版后重跑即出新图，永不过期。自管一切：临时夹具根（fixture 拷贝 + `templates/` 播种 + 书名改「示例长篇」，替换全部带护栏，夹具漂移即大声失败）、nf_api 8795、8091 静态服务、Playwright headless（1440x940 @2x = 2880x1880，与既有图同尺寸）。免责放行与 preload 垫片复用 `e2e_ux_verify` 单一真源；缺依赖/缺 dist/端口被占 = 干净 SKIP，断言失败 = 退出 1；**只杀自己起的 PID**。首跑全绿：三图 2880x1880，目检书名/阶段/模板下拉/关于弹窗全部正确（关于页版本号顺带从 `vdev` 矫正为 `v0.6.10`）。
 - **README**：三图由上述命令再生成；收录用户手改文案（品牌行去内部代号、目录结构加「以最新代码结构为准」、赞助与支持段）。
 - **文档**：`docs/commands.md` 命令表新增「README 三图一条命令」行。
+- **`nfctl check` 形态感知（安装态假红两连修）**：新增「执行形态」自检项（判据：无 `.git`/`.venv` + 有 `scripts/nf_api.py` → 安装态）。安装态不再报「venv 缺失」阻塞（工作区不建 venv 是设计）；`engine=hermes` 不再报「API Key 空」阻塞（LLM 走 agent 子会话，直连 Key 不参与运行），direct 引擎原语义不变。实测：安装工作区 `check` 从 2 条假阻塞 → **阻塞项: 无**；新测 `test_nfctl_check_form` **13 断言**（含反证：真红不许被顺手放掉），`test_interp_guard` 回归 20/20。
 
 ### v0.6.10 — 2026-10-11 三处「看不懂 / 试跑即炸」修复（用户实测反馈驱动）
 

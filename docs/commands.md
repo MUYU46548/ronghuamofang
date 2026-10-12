@@ -11,7 +11,7 @@
 
 | 目的 | 命令（workdir=项目根，用 .venv python） |
 |------|------|
-| **Agent 只读入口（全景/自检）** | `python scripts/nfctl.py status`（一屏：书名/阶段/进度/成本/待审批/产物）· `check`（环境自检，含 **YAML 重复键检测** + **提示词模板体检**：必需清单从代码里 `load_template()` 的**调用点**反推，缺文件/空文件/调用名漏 `.md` 都算阻塞）· `doctor`（**数据一致性自检**：runs 脏行/产物完整性/孤儿文件/成本负数）· `test`（**统一测试运行器**：跑 tests/unit + tests/http 全部自定义测试，`--pattern` 选单个）· **`release-check`（发版前必跑：质量门 + 全量测试 + MCP 真机握手 + e2e 视觉验收 + 打包产物核验，一条命令；`--skip-e2e` 可跳）** · `api <GET路径>`（只读转发 nf_api，省手写 curl）· **`model-check [provider] [--live]`（换模型 / 换供应商前必跑**：配置完整性、Key 脱敏回显、各角色模型是否在该 provider 的 `available_models` 内、fallback 是否跨供应商（跨了必 404）、白名单覆盖面；`--live` 才发一次最小请求，默认零 token）· `serve`（启动零依赖调试看板 127.0.0.1:8766）。**只读、零 token**；写操作走下方各脚本 |
+| **Agent 只读入口（全景/自检）** | `python scripts/nfctl.py status`（一屏：书名/阶段/进度/成本/待审批/产物）· `check`（环境自检，含 **YAML 重复键检测** + **提示词模板体检**：必需清单从代码里 `load_template()` 的**调用点**反推，缺文件/空文件/调用名漏 `.md` 都算阻塞；**形态感知（2026-10-12）**：先判源码态/安装态（无 `.git`/`.venv` + 有 `scripts/nf_api.py` → 安装态）——安装态不报 venv 假红、`engine=hermes` 不拦空 Key，direct 源码态原语义不变）· `doctor`（**数据一致性自检**：runs 脏行/产物完整性/孤儿文件/成本负数）· `test`（**统一测试运行器**：跑 tests/unit + tests/http 全部自定义测试，`--pattern` 选单个）· **`release-check`（发版前必跑：质量门 + 全量测试 + MCP 真机握手 + e2e 视觉验收 + 打包产物核验，一条命令；`--skip-e2e` 可跳）** · `api <GET路径>`（只读转发 nf_api，省手写 curl）· **`model-check [provider] [--live]`（换模型 / 换供应商前必跑**：配置完整性、Key 脱敏回显、各角色模型是否在该 provider 的 `available_models` 内、fallback 是否跨供应商（跨了必 404）、白名单覆盖面；`--live` 才发一次最小请求，默认零 token）· `serve`（启动零依赖调试看板 127.0.0.1:8766）。**只读、零 token**；写操作走下方各脚本 |
 | 全流程启动 | `python scripts/orchestrator.py` |
 | 从阶段 N 重跑 | `python scripts/orchestrator.py --from N` |
 | 只跑阶段 N | `python scripts/orchestrator.py --stage N` |

@@ -506,9 +506,25 @@ def collect_check(root: Path) -> dict:
         if not ok:
             (res["blocking"] if blocking else res["warnings"]).append(name)
 
+    # 执行形态（2026-10-12 形态感知）：先判源码态 / 安装态。安装态（工作区）无 .git/.venv
+    # 是设计（跑在安装自带 runtime 上），此前与源码态共用同一条 venv 阻塞 → 对安装态恒假红，
+    # 而假红会训练人忽略红灯 —— 用户口径：agent 分不清开发态和客户端，check 自己先把形态说清。
+    installed = (not (root / ".git").exists()
+                 and not (root / ".venv").exists()
+                 and (root / "scripts" / "nf_api.py").exists())
+    res["form"] = "installed" if installed else "source"
+    add("执行形态", True,
+        "安装态（工作区：无 .venv，跑在安装自带 runtime 上）" if installed
+        else "源码态（开发克隆：依赖以 .venv 为真源）")
+
     # Python 解释器
     venv_py = root / ".venv" / "Scripts" / "python.exe"
-    add("venv python", venv_py.exists(), str(venv_py) if venv_py.exists() else "缺失：%s" % venv_py, blocking=True)
+    if installed:
+        add("venv python", True,
+            "安装态不建 venv（设计如此）——以「当前解释器 PyYAML 可用」为准")
+    else:
+        add("venv python", venv_py.exists(),
+            str(venv_py) if venv_py.exists() else "缺失：%s" % venv_py, blocking=True)
 
     # 当前解释器（2026-10-06 试跑实锤）：裸 python 缺 PyYAML → orchestrator 开跑即崩，
     # 却被误诊成「.venv 缺依赖」，一天炸五次。守卫切不动 venv 时这里必须显式阻塞。
@@ -549,12 +565,18 @@ def collect_check(root: Path) -> dict:
     pr = _check_prompts(root)
     add("提示词模板完整", pr["ok"], pr["detail"], blocking=not pr["ok"])
 
-    # API Key（只看有无）
+    # API Key（只看有无）。engine=hermes 时 LLM 走 agent 子会话（订阅流量），
+    # 直连 Key 根本不参与运行 → 空 Key 阻塞是假红（2026-10-12 安装态实测：hermes 工作区
+    # 被这条恒拦成「有阻塞项不要开跑」）。direct 引擎照旧阻塞，语义不变。
+    engine = str((sysconf or {}).get("engine") or "direct").lower()
     key_state, wanted = _env_key_state(root)
-    if wanted:
-        ok = any(key_state.values())
-        add("API Key 已配置", ok, "；".join("%s=%s" % (k, "有" if v else "空") for k, v in key_state.items()),
-            blocking=True)
+    key_detail = "；".join("%s=%s" % (k, "有" if v else "空") for k, v in key_state.items())
+    if engine == "hermes":
+        add("API Key 已配置", True,
+            "engine=hermes：LLM 走 agent 子会话（订阅流量），直连 Key 不参与运行"
+            "（.env 现状：%s）" % (key_detail or "无声明"))
+    elif wanted:
+        add("API Key 已配置", bool(any(key_state.values())), key_detail, blocking=True)
     else:
         add("API Key 已配置", False, "config/system.yaml 未声明 api_key_env", warning=True)
 
