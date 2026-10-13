@@ -50,6 +50,9 @@ def build_root(prefix="nf_sb_"):
     root = Path(tempfile.mkdtemp(prefix=prefix))
     (root / "scripts").mkdir(parents=True)
     shutil.copy2(REPO / "scripts" / "switch_book.py", root / "scripts" / "switch_book.py")
+    # snapshot.py 是 switch_book 的**契约依赖**（丙3 before-import 快照）：
+    # archive/restore 动手前必须先打快照，缺这个模块会 fail-closed 中止归档。
+    shutil.copy2(REPO / "scripts" / "snapshot.py", root / "scripts" / "snapshot.py")
     # utils/ 是必需的：归档后要把 project.yaml 重置成骨架，走的是
     # utils.project_config.set_book_fields（与 UI 改写同一判据，不重写一份）
     shutil.copytree(REPO / "scripts" / "utils", root / "scripts" / "utils",

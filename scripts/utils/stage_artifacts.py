@@ -53,3 +53,80 @@ def missing_artifacts(stage, root):
             if not content.strip():
                 missing.append(rel + "（空文件）")
     return missing
+
+
+# ---------------------------------------------------------------- 上游输入（自由模式）
+# 阶段可读名。原先 `chapter_handoff.STAGE_NAMES` 里也有一份 —— 两处并存必漂移，
+# 故这里当唯一真源、那边改为 re-export。
+STAGE_NAMES = {
+    1: "素材归并", 2: "大纲", 3: "分章大纲",
+    4: "写作", 5: "检查", 6: "润色", 7: "Word", 8: "Markdown导出",
+}
+
+# 各阶段「开工前要吃」的**上游**产物 —— 与 STAGE_ARTIFACTS 的方向相反：
+# 后者是"这阶段该留下什么"（完成判定用），这里是"这阶段开工前必须已有什么"
+# （自由模式执行前拦人用）。条目 = (产出该产物的上游阶段, 相对路径)。
+#
+# · all：全都要非空，缺一个就拦
+# · any：至少一层可用。阶段 7/8 走 refined > checked > raw **逐章**回退链
+#   （stage7.merge_book / stage8.get_available_chapters），只要有任一层就能出稿
+#   —— 硬要三层齐全会把"导入毛坯直接出稿"这条正路拦死。
+# 阶段 1 不列：素材来自 materials/raw，由用户放置，不是流水线产物。
+STAGE_INPUTS = {
+    2: {"all": [(1, "data/setting/setting.json")]},
+    3: {"all": [(2, "data/outline/global.md")]},
+    4: {"all": [(3, "data/outline/chapters")]},
+    5: {"all": [(4, "data/chapters/raw")]},
+    6: {"all": [(5, "data/chapters/checked")]},
+    7: {"any": [(4, "data/chapters/raw"), (5, "data/chapters/checked"),
+                (6, "data/chapters/refined")]},
+    8: {"any": [(4, "data/chapters/raw"), (5, "data/chapters/checked"),
+                (6, "data/chapters/refined")]},
+}
+
+
+def _usable(path):
+    """非空判据（与 missing_artifacts 同口径：目录看有没有条目，文件看有没有字）。"""
+    p = Path(path)
+    if not p.exists():
+        return False
+    if p.is_dir():
+        return any(p.iterdir())
+    try:
+        return bool(p.read_text(encoding="utf-8", errors="replace").strip())
+    except OSError:
+        return False
+
+
+def missing_inputs(stage, root, will_produce=None):
+    """该阶段开工前缺的**上游**产物。返回 dict 列表，空 = 够料可跑。
+
+    每条：{"path", "produced_by", "kind": "all"|"any", "group": [同组全部路径]}
+    kind="any" 表示该组是"任一层即可"，组内全部不可用才报（且整组一起报，
+    让人一次看清 raw/checked/refined 三层都没有这个事实）。
+
+    `will_produce` = **本次同一批里会执行的阶段号集合**。自由模式勾「检查+润色+
+    出稿」时，checked 是这次跑阶段5 才产出的，开工前磁盘上当然还没有 —— 不带上
+    这个集合就会把正常组合误拦（漏掉它 = 勾了上下游就跑不动，正是本功能要解的
+    痛点）。判定：**磁盘上已有** 或 **本次会产出**，两者满足其一即算够料。
+    """
+    spec = STAGE_INPUTS.get(stage)
+    if not spec:
+        return []
+    will = set(will_produce or ())
+    problems = []
+
+    def ok(producer, rel):
+        return producer in will or _usable(Path(root) / rel)
+
+    for producer, rel in (spec.get("all") or []):
+        if not ok(producer, rel):
+            problems.append({"path": rel, "produced_by": producer,
+                             "kind": "all", "group": [rel]})
+    any_req = spec.get("any") or []
+    if any_req and not any(ok(p, rel) for p, rel in any_req):
+        group = [rel for _, rel in any_req]
+        for producer, rel in any_req:
+            problems.append({"path": rel, "produced_by": producer,
+                             "kind": "any", "group": group})
+    return problems

@@ -7,7 +7,8 @@ Replace the fragile "manual cleanup + --from N rerun" flow:
   3. Clean stage N + downstream artifact directories (history/ preserved)
 
 Safety:
-  - Auto-snapshot before rejection (history/{ts}_reject_stage{N}), recoverable
+  - Auto-snapshot before rejection (history/{ts}_before_reject.stage{N}), recoverable.
+    快照失败 = 中止打回（丙3 契约 fail-closed），不许"备份不了还照删"。
 
 Usage:
   python scripts/reject.py --stage 6 "Over-polished, keep original style"
@@ -98,14 +99,18 @@ def reject_stage(pm, stage, reason="", dry_run=False):
     if stage not in DOWNSTREAM_ARTIFACTS:
         return False, [f"Unsupported stage: {stage} (valid: 1-7)"]
 
-    # Safety: snapshot before destructive ops
+    # Safety: 丙3 before-import 契约 —— 打回要清产物，**先快照，备份不了就不许动**。
+    # 原实现是 fail-open（快照失败只 append 一行 "Snapshot failed (continuing)"
+    # 然后照删不误），2026-10-04「进度全清重跑烧 116,413 token」正缺这道闸。
     if not dry_run:
+        from utils.import_guard import ImportGuardError, preimport
         try:
-            from snapshot import snapshot as make_snapshot
-            snap = make_snapshot(f"reject_stage{stage}")
-            msgs.append(f"Snapshot saved: {snap}")
-        except Exception as e:
-            msgs.append(f"Snapshot failed (continuing): {e}")
+            entry = preimport(f"reject.stage{stage}", root=Path.cwd())
+        except ImportGuardError as e:
+            return False, [str(e)]
+        msgs.append(f"Snapshot saved: {entry.get('snapshot_path')}")
+        if entry.get("rollback"):
+            msgs.append(f"Rollback: {entry['rollback']}")
 
     # Record rejection reason
     if not dry_run:

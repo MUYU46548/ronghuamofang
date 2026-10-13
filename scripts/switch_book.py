@@ -219,10 +219,12 @@ def _restore_root_items(src):
     return moved
 
 
-def archive(book_name=None, yes=False, force=False):
+def archive(book_name=None, yes=False, force=False, guard_snapshot=True):
     """归档当前工作区。返回 (success: bool, message: str)。
 
     force=True 时覆盖同名归档（用于 restore 路径的自动归档）。
+    guard_snapshot=False 仅供**已经打过 before-import 快照**的上层调用方
+    （restore）使用 —— 契约要求"操作前一次快照"，不是"每层都来一次"。
     """
     if not yes:
         return False, "归档将移动 data/ 下产物与 config/、materials/ 到 data/books/，确认请加 --yes"
@@ -231,6 +233,16 @@ def archive(book_name=None, yes=False, force=False):
         return False, "无法确定当前书名（progress.json 与 project.yaml 均无）"
     if not has_work() and not _has_root_items():
         return True, "工作区无数据，无需归档"
+    # 丙3 before-import 契约：data/ 一旦被搬走，工作区就不再自洽 ——
+    # 必须**先**留下可回退点。放在任何 shutil.move 之前（含下面的同名归档临时改名）。
+    note = ""
+    if guard_snapshot:
+        from utils.import_guard import ImportGuardError, preimport
+        try:
+            entry = preimport("switch_book.archive", root=PROJECT_ROOT)
+        except ImportGuardError as e:
+            return False, str(e)
+        note = f"；回退点 {entry.get('snapshot_id')}"
     dest = BOOKS_DIR / sanitize(name)
     if dest.exists() and not force:
         return False, f"{dest} 已存在同名归档。如需覆盖请加 --force，或先用 --restore 恢复"
@@ -255,7 +267,7 @@ def archive(book_name=None, yes=False, force=False):
             shutil.rmtree(tmp_dest)
         extra = ("，含 " + "、".join(root_moved)) if root_moved else ""
         keep_note = ("；应用级配置已复制回工作区（" + "、".join(kept) + "）") if kept else ""
-        return True, f"已归档「{name}」→ {dest}（{len(moved)} 项{extra}）{keep_note}"
+        return True, f"已归档「{name}」→ {dest}（{len(moved)} 项{extra}）{keep_note}{note}"
     except Exception as e:
         # 失败：先把已挪进书档的 config/ materials/ 并回工作区，再恢复旧归档
         try:
@@ -265,7 +277,7 @@ def archive(book_name=None, yes=False, force=False):
         if tmp_dest and tmp_dest.exists() and dest.exists():
             shutil.rmtree(dest)
             shutil.move(str(tmp_dest), str(dest))
-        return False, f"归档失败（已尽力回退）: {e}"
+        return False, f"归档失败（已尽力回退）{note}: {e}"
 
 
 def restore(book_name, yes=False):
@@ -275,19 +287,28 @@ def restore(book_name, yes=False):
     src = BOOKS_DIR / sanitize(book_name)
     if not src.exists():
         return False, f"未找到归档: {src}（用 --list 查看）"
+    # 丙3 before-import 契约：把归档书**导进**工作区之前，先给当前工作区留回退点。
+    # 下面的自动归档因此关掉自己的快照（guard_snapshot=False）——
+    # 契约是"操作前一次快照"，不是"调用链每层各来一次"。
+    from utils.import_guard import ImportGuardError, preimport
+    try:
+        entry = preimport("switch_book.restore", root=PROJECT_ROOT)
+    except ImportGuardError as e:
+        return False, str(e)
     # 先自动归档当前工作区（若不同书）
     cur = current_book_name()
     # 判据含 _has_root_items()：只靠 data/ 判断的话，「data 空但 config/materials
     # 有内容」的工作区会被直接覆盖掉，且没有任何归档留底。
     if cur and sanitize(cur) != sanitize(book_name) and (has_work() or _has_root_items()):
         print(f"[switch_book] 当前工作区有「{cur}」数据，先自动归档")
-        ok, msg = archive(cur, yes=True, force=True)
+        ok, msg = archive(cur, yes=True, force=True, guard_snapshot=False)
         if not ok:
             return False, f"自动归档失败: {msg}"
     moved = _move_items(src, DATA_DIR)
     root_moved = _restore_root_items(src)
     extra = ("，含 " + "、".join(root_moved)) if root_moved else ""
-    return True, f"已恢复「{book_name}」→ data/（{len(moved)} 项{extra}）"
+    return True, (f"已恢复「{book_name}」→ data/（{len(moved)} 项{extra}）"
+                  f"；回退点 {entry.get('snapshot_id')}")
 
 
 def init_empty():

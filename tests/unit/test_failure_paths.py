@@ -949,15 +949,19 @@ def case_s9():
     sys.path.insert(0, str(REPO / "scripts"))
     from utils.progress_manager import STAGE_KEYS, ProgressManager
 
-    # 编排侧的遍历上界（硬编码 9 = 阶段 8 是最后一站）。用文本抽取而非 import，
-    # 避免拉起 orchestrator 的完整依赖链。
-    orch_src = (REPO / "scripts" / "orchestrator.py").read_text(encoding="utf-8")
-    m = re.search(r"range\(from_stage,\s*(\d+)\)", orch_src)
-    check(m is not None, "S9 能从 orchestrator 抽到阶段遍历上界",
-          "未匹配 range(from_stage, N)")
-    if not m:
+    # 编排侧的遍历上界（阶段 8 是最后一站）。**2026-10-13 自由模式改了契约**：
+    # 遍历不再内联在 orchestrator 里（原 `range(from_stage, 9)`），而是收敛到
+    # `utils.stage_select.stage_order` —— 它是 --stages / --stage / --from 三选一的
+    # 唯一来源（新单测 `test_stage_select` 也钉它）。断言改判**行为**（直接问
+    # stage_order 默认跑到哪一站），不再刮 orchestrator 源码文本：换实现不会再假红，
+    # 而本用例真正要守的「键集必须盖住编排遍历上界」原样保留。
+    from utils.stage_select import stage_order
+    default_order = list(stage_order(from_stage=1))
+    check(default_order == list(range(1, 9)),
+          "S9 默认全流程遍历 1..8（stage_order(from_stage=1)）", default_order)
+    if default_order != list(range(1, 9)):
         return
-    upper = int(m.group(1)) - 1          # range 右开 → 实际最大阶段号
+    upper = max(default_order)              # 阶段 8 是最后一站
     declared = max(int(k) for k in STAGE_KEYS)
     print(f"  orchestrator 最大阶段号 = {upper}；STAGE_KEYS 最大 = {declared}")
     check(declared >= upper,

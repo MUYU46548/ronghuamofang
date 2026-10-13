@@ -50,12 +50,18 @@ SNAPSHOT_ITEMS = [
 KEEP = 10  # 保留最近 N 份，超出删除最旧
 
 
-def snapshot(label="manual", keep=KEEP, history_dir="history", dry_run=False):
+def snapshot(label="manual", keep=KEEP, history_dir="history", dry_run=False, root=None):
     """创建快照并清理旧快照。返回快照目录路径。
 
     dry_run=True 时列出将清理的旧快照但不删除。
 
     安全护栏：history_dir 解析后必须含 "history" 段，防止误删其他目录。
+
+    `root` = 项目根（默认 CWD）。给了就把 SNAPSHOT_ITEMS 按该根解析。
+    **不给 root 而调用方 cwd 又不等于项目根时，快照会静默落空**：
+    `src.exists()` 逐项为假 → copied=0 却返回成功目录，看起来"备份过了"，
+    实际一个文件没复制。按 `__file__` 定根的调用方（switch_book / nf_api）
+    必须显式传 root —— 这条是丙3「先快照后动手」契约能成立的前提。
     """
     # 路径验证：防止 history_dir 被误改为 data/ 等关键目录
     history_path = Path(history_dir).resolve()
@@ -65,13 +71,14 @@ def snapshot(label="manual", keep=KEEP, history_dir="history", dry_run=False):
             f"防止误删。快照目录必须位于 history/ 下。"
         )
 
+    base = Path(root) if root is not None else Path(".")
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     dest = history_path / f"{ts}_{label}"
     dest.mkdir(parents=True, exist_ok=True)
 
     copied = 0
     for item in SNAPSHOT_ITEMS:
-        src = Path(item)
+        src = base / item
         if not src.exists():
             continue
         dst = dest / item

@@ -39,6 +39,8 @@ if not ensure_working_python("scripts/orchestrator.py"):
 
 from utils.progress_manager import ProgressManager
 from utils.stage_artifacts import missing_artifacts
+from utils.stage_select import (mutual_exclusion_error, parse_stages,
+                                preflight_lines, stage_order)
 from utils.db import RunDB
 from utils.cost_tracker import CostTracker
 from utils.config_io import load_pipeline_config
@@ -223,7 +225,14 @@ def artifact_gate(stage, progress, root="."):
     return err
 
 
-def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False):
+def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False,
+        stages=None):
+    """跑流水线。
+
+    `stages` = 自由模式（`--stages 3,5,7`）的显式阶段集合：只改「执行哪些阶段」
+    这一个来源，已完成跳过 / 审批门 / 断点续跑 / 预算熔断 / 规划四态一律走原路径。
+    与 `only_stage`（单跑）互斥，由 CLI 层先拦（`utils.stage_select`）。
+    """
     _safe_stdout()      # 管道 stdout 下 ¥/emoji 会把启动横幅直接搞崩（见其 docstring）
     cfg, proj = load_config()
     _warn_rewrite_conflict(cfg)
@@ -271,6 +280,27 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
         print("             换书请用: python scripts/switch_book.py --archive "
               f"(归档「{prev_book}」) / --restore \"书名\"；继续将按 project.yaml 处理")
     progress.data["project"] = book_name
+    # ---- 自由模式：本次要按序执行哪些阶段（唯一来源）----
+    # 报缺**只在多选模式**启用：--from / --stage 是续跑、重跑语义，历史上游
+    # 可能就是还没跑，给它们加拦会打破既有流程与测试（见 utils/stage_select）。
+    order = stage_order(stages=stages, only_stage=only_stage, from_stage=from_stage)
+    if stages:
+        # 已完成的阶段本次会被跳过，不为它验料（否则"上游产物被清过但该件已完成"
+        # 会被误拦，而它根本不会跑）
+        todo = [n for n in order
+                if not (only_stage is None and progress.stage_status(n) == "done")]
+        problems = preflight_lines(todo, ".", will_produce=todo)
+        if problems:
+            print("[orchestrator] 无法执行：所选工序缺上游产物"
+                  "（执行前统一拦截，一次报全，不跑一半才报）")
+            for _ln in problems:
+                print("  · " + _ln)
+            print("[orchestrator] 处理：按上面「建议」先跑缺的那件再重来；"
+                  "确实不想跑就对它用「跳过（带理由）」。"
+                  "各阶段状态: python scripts/nfctl.py status")
+            return 1
+        print(f"[orchestrator] 自由模式：所选 {order}，"
+              f"本次将执行 {todo if todo else '（所选均已完成，无事可做）'}")
     db = RunDB("logs/runs.db")
     run_id = None
     finished = False   # 正常路径已显式收尾置 True；兜底据此判断是否需补偿
@@ -299,7 +329,7 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
             # 判定逻辑与实跑完全一致（断点/审批门/预算），保证「预演=实跑会走到的路径」。
             print("[orchestrator] === dry-run 预演开始 ===")
             planned = []
-            for n in ([only_stage] if only_stage else range(from_stage, 9)):
+            for n in order:
                 if progress.stage_status(n) == "done" and not only_stage:
                     print(f"[dry-run] 阶段{n} 已完成，将跳过")
                     continue
@@ -318,7 +348,9 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
             print("[orchestrator] === dry-run 预演结束（未产生任何实际调用/写入）===")
             return 0
 
-        run_id = db.start_run(plan_json=f"from={from_stage} only={only_stage}")
+        run_id = db.start_run(
+            plan_json=(f"stages={stages}" if stages
+                       else f"from={from_stage} only={only_stage}"))
 
         def _post_stage(n):
             """阶段成功后的后置动作（快照 / 素材体检 / 自动重写 / 审稿门 / 校对）。
@@ -413,7 +445,9 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
                     print(f"[orchestrator] 校对失败（不影响流程）: {e}")
             return None
 
-        order = [only_stage] if only_stage else range(from_stage, 9)
+        # order 已在进入 try 之前按 --stages / --stage / --from 三选一算好
+        # （utils.stage_select.stage_order）—— 这里不再重算：两处各算一次，
+        # 自由模式的集合就会在这行被打回 range()，静默跑错范围。
 
         def _budget_gate(where=""):
             """阶段边界 / 重试前后的**统一**熔断闸门。返回退出码 2 或 None。
@@ -649,16 +683,32 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
 
 def main():
     parser = argparse.ArgumentParser(description="NovelForge 主调度器")
-    parser.add_argument("--from", dest="from_stage", type=int, default=1, help="起始阶段")
+    parser.add_argument("--from", dest="from_stage", type=int, default=None,
+                        help="起始阶段（从第 N 件跑到底；默认 1）")
     parser.add_argument("--stage", type=int, default=None, help="只运行指定阶段")
+    parser.add_argument("--stages", default=None, metavar="3,5,7",
+                        help="自由模式：只跑勾选的这几件，按序执行（如 3,5,7）。"
+                             "与 --from / --stage 互斥——同时给会报错，不猜意图")
     parser.add_argument("--verbose", action="store_true", help="输出详细调试信息（LLM 请求/响应摘要、阶段内部状态）")
     parser.add_argument("--dry-run", action="store_true", help="预演模式：跳过所有 LLM 调用和文件写入，只打印将执行的操作")
     args = parser.parse_args()
+    # 解析与互斥判断都在 utils.stage_select（纯函数，单测不拉整条 stage 链）
+    try:
+        stages = parse_stages(args.stages) if args.stages is not None else None
+    except ValueError as e:
+        parser.error(str(e))
+    conflict = mutual_exclusion_error(stages,
+                                      from_given=args.from_stage is not None,
+                                      only_stage=args.stage)
+    if conflict:
+        parser.error(conflict)
+    from_stage = args.from_stage if args.from_stage is not None else 1
     if args.verbose:
         print("[orchestrator] verbose 模式已开启")
     if args.dry_run:
         print("[orchestrator] dry-run 模式已开启（跳过 LLM 调用和文件写入）")
-    sys.exit(run(args.from_stage, args.stage, verbose=args.verbose, dry_run=args.dry_run))
+    sys.exit(run(from_stage, args.stage, verbose=args.verbose,
+                 dry_run=args.dry_run, stages=stages))
 
 
 if __name__ == "__main__":
