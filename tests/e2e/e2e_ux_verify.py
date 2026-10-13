@@ -41,6 +41,10 @@ SITE = "http://127.0.0.1:8091"
 MOCK_API = "http://127.0.0.1:8798"
 COLD_API = "http://127.0.0.1:8797"   # 同一个 mock 的 --cold 实例（全新工作区）
 REAL_API = "http://127.0.0.1:8799"
+# GUI 双因子的第二因子（可选）。设了它，new_page 就会把同值注入前端垫片，
+# 与后端 spawn 时的 NF_GUI_TOKEN 配对 —— 归档删除 / 止烧阈值这类 `_gui_only`
+# 端点才在验收环境里走得通。不设 = 与旧行为一致（这些端点仍然 403）。
+GUI_TOKEN = ""
 
 PASS, FAIL = [], []
 
@@ -68,6 +72,11 @@ def check(name, cond, detail=""):
 #   那属于验收基建的独立议题，别顺手塞进本脚本。
 PRELOAD_SHIM_JS = """
 window.mofangAPI = window.mofangAPI || {
+  // GUI 双因子的第二因子（2026-10-06 加固）：真机由 Electron 主进程经 IPC 签发。
+  // 验收环境没有主进程 → 由 new_page 注入 window.__NF_GUI_TOKEN__（与后端
+  // NF_GUI_TOKEN 同值）。不给这个值的话，_gui_only 类端点（归档删除、止烧阈值）
+  // 在浏览器垫片下**永远 403**，看着像前端 bug（e2e_new_features 踩过）。
+  getGuiToken: async () => window.__NF_GUI_TOKEN__ || "",
   readPreview: async (p) => (p === "prompts/agent_kickoff.md"
     ? { ok: true, size: 64, content: "# kickoff\\n\\n项目根：{{PROJECT_ROOT}}\\n\\n禁止从头重建本项目。\\n" }
     : { ok: false, error: "e2e harness: 无文件桥（readPreview 是 Electron 独有 IPC）" }),
@@ -119,6 +128,8 @@ window.mofangAPI = window.mofangAPI || {
 def new_page(browser, api_base, tag):
     ctx = browser.new_context(viewport={"width": 1440, "height": 940})
     ctx.add_init_script("window.__NF_API_BASE__ = %s;" % json.dumps(api_base))
+    if GUI_TOKEN:
+        ctx.add_init_script("window.__NF_GUI_TOKEN__ = %s;" % json.dumps(GUI_TOKEN))
     ctx.add_init_script(PRELOAD_SHIM_JS)
     page = ctx.new_page()
     errs, bad = [], []

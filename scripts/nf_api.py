@@ -1085,6 +1085,15 @@ def act_project_create(name, genre=None, chapters=None, style_notes=None,
 
 
 def act_approve(stage, revoke):
+    # 丙4 分段审批闸：与 approve.py CLI 调**同一份**判据（单源，防漂移）。
+    # 放在任何写操作之前 —— 先判后写，拦下时 progress.json 一个字节都没动。
+    if not revoke and stage == 2:
+        from utils.outline_segments import gate_status
+        cfg, _ = load_all()
+        ok, why = gate_status(str(ROOT), cfg=cfg, stage=stage)
+        if not ok:
+            # 单行：这条会进 GUI 的单行 toast，多行会折成一坨
+            return False, ("阶段2 分段审批未全过，暂不放行：" + why)
     progress = ProgressManager(ROOT / "data" / "state" / "progress.json")
     progress.set_approved(stage, not revoke)
     status = progress.stage_status(stage)

@@ -199,6 +199,7 @@ gates:
                                    # （防「门禁失守还盖绿灯」：产物存在 ≠ 产物合格）。
                                    # 仅在**全流程**收尾生效；单阶段 --stage N 重跑不拦。
   stage8_export: true  # 阶段8：Markdown 分卷导出
+  segment_approval: true  # 丙4 大纲分段审批：全部分段通过才放行阶段2（false=退回整本一次审）
 obsidian:
   # vault path（只读）：用户自己的 Obsidian 知识库根目录
   # 留空则不启用 Obsidian 联动；首次使用请在 GUI「设置」页填写本地路径

@@ -30,6 +30,7 @@ import sys
 import tempfile
 import time
 import urllib.request
+import uuid
 from pathlib import Path
 
 # ⚠️ 用 reconfigure 而不是重包一层：本脚本随后要 import e2e_ux_verify，
@@ -48,6 +49,7 @@ OUT = ROOT / "Temp" / "gui_verify" / "ux"
 
 SITE = ""            # 由 ensure_services 赋值（动态端口，不写死 8091/8796）
 API = ""
+TOKEN = ""           # GUI 双因子 token（与后端 NF_GUI_TOKEN 同值），由 ensure_services 签发
 
 PASS, FAIL = [], []
 SPAWNED = []
@@ -68,9 +70,10 @@ def _port_open(port):
         return False
 
 
-def _spawn(args):
+def _spawn(args, env=None):
     p = subprocess.Popen(args, cwd=str(ROOT),
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         env=env)
     SPAWNED.append(p)
     return p
 
@@ -180,8 +183,15 @@ def ensure_services(fixture):
 
     api_port = _free_port()
     api = "http://127.0.0.1:%d" % api_port
+    # GUI 双因子：后端签发 token（NF_GUI_TOKEN），前端由 new_page 注入同值。
+    # 没有它，`_gui_only` 端点（归档删除 / 止烧阈值）在浏览器验收下永远 403 ——
+    # 本用例的删除分支正是这么红的（双因子落地晚于本用例）。
+    global TOKEN
+    TOKEN = uuid.uuid4().hex
+    env = dict(os.environ)
+    env["NF_GUI_TOKEN"] = TOKEN
     proc = _spawn([sys.executable, str(ROOT / "scripts" / "nf_api.py"),
-                   "--port", str(api_port), "--root", str(fixture)])
+                   "--port", str(api_port), "--root", str(fixture)], env=env)
     if not _wait_port(proc, api_port):
         return "", "", "后端（%d）起不来" % api_port
 
@@ -226,6 +236,7 @@ def main():
 
     import e2e_ux_verify as ux        # 导入时会重包 sys.stdout（别再叠一层）
     ux.SITE = site                    # new_page() 读的是 ux 模块里的 SITE
+    ux.GUI_TOKEN = TOKEN              # 垫片的 getGuiToken 读它（双因子第二因子）
 
     ws = Path(fixture)
     print("=" * 62)

@@ -53,6 +53,18 @@ def main():
         agent_guard.log_audit(action, method="CLI", status=0, source="human",
                               detail="allowed: " + evidence)
 
+    # 丙4 分段审批闸：**先判后写**（快照/改 progress.json 之前）。
+    # 判据单源 utils.outline_segments.gate_status —— CLI 与 HTTP 都调它，
+    # 各写一遍必然漂移。撤销审批不拦（撤销是把门关上，不存在"没读完就放行"）。
+    if not args.revoke and args.stage == 2:
+        from utils.outline_segments import gate_status
+        ok, why = gate_status(".", cfg=agent_guard.load_project_config(),
+                              stage=args.stage)
+        if not ok:
+            print("[approve] 拒绝放行阶段2（分段审批未全过）")
+            print("  " + why)
+            return 1
+
     # 安全护栏：审批/撤销前自动快照
     try:
         from snapshot import snapshot as make_snapshot
