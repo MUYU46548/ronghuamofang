@@ -137,6 +137,10 @@ import switch_book as sb_mod  # noqa: E402
 import proofread as proofread_mod  # noqa: E402
 import estimate_tokens as estimate_mod  # noqa: E402
 import book_split as book_split_mod  # noqa: E402
+# 活一 自由模式 / 活二 Word 导入（2026-10-13）：与上面同理模块级导入 ——
+# do_POST 是一个巨型函数，在它内部裸 import 会让该名变成整个函数的局部名。
+import import_docx as import_docx_mod  # noqa: E402
+from utils.stage_select import parse_stages, preflight_lines  # noqa: E402
 import refine_chapter as refine_ch_mod  # noqa: E402
 from utils.verify_chapter import is_chapter_complete  # noqa: E402
 # 模型准入登记处（白名单纪律的唯一实现点，2026-09-19 审查 S8 修复）
@@ -959,6 +963,20 @@ def act_run_stage_streamed(cfg, only_stage, from_stage, preview_job_id,
         client = _wrap_client_for_streaming(client, real_job)
         return _rc_to_result(orch_run(from_stage=from_stage,
                                       only_stage=only_stage, client=client))
+    return _fn
+
+
+def act_run_stages(cfg, stages):
+    """自由模式（活一）：一次跑勾选的多道工序。
+
+    与 `act_run_stage` 的差别只有「执行哪些阶段」这一个入参 —— `orch_run(stages=…)`
+    内部走同一套已完成跳过 / 审批门 / 熔断 / 规划四态，这里不再复述一遍。
+    """
+    client = _client_for_env(cfg, "default")
+    chosen = list(stages)
+
+    def _fn():
+        return _rc_to_result(orch_run(stages=chosen, client=client))
     return _fn
 
 
@@ -1971,6 +1989,57 @@ class Handler(BaseHTTPRequestHandler):
                     else:
                         self._send(202, {"job_id": jid, "stage": only,
                                          "from_stage": from_stage})
+            elif p == "/stages/run":
+                # 自由模式（活一）：勾选多道工序一次跑。解析/互斥/报缺与 CLI
+                # **同一份判据**（utils.stage_select），GUI 与命令行不会各判各的。
+                raw = body.get("stages")
+                if not isinstance(raw, (list, tuple)) or not raw:
+                    self._send(400, {"error": "stages 必须是非空数组，如 [3, 5, 7]"})
+                    return
+                try:
+                    stages = parse_stages(",".join(str(x) for x in raw))
+                except (TypeError, ValueError) as e:
+                    self._send(400, {"error": str(e)})
+                    return
+                # 执行前统一拦一次（orchestrator 内部还会再拦一道，防竞态）：
+                # 409 让 GUI 当场把「缺什么 / 哪件产的 / 建议先跑哪件」显示出来，
+                # 而不是先建 job 再让人去翻日志。
+                prog = ProgressManager(ROOT / "data" / "state" / "progress.json")
+                todo = [n for n in stages if prog.stage_status(n) != "done"]
+                problems = preflight_lines(todo, str(ROOT), will_produce=todo)
+                if problems:
+                    self._send(409, {"error": "所选工序缺上游产物",
+                                     "problems": problems, "stages": stages})
+                    return
+                cfg, _ = load_all()
+                _client_for_env(cfg, "default")
+                jid, err = start_job("stages", act_run_stages(cfg, stages))
+                if err:
+                    self._send(409, {"error": err})
+                else:
+                    self._send(202, {"job_id": jid, "stages": stages})
+            elif p == "/import/docx":
+                # Word 稿导入（活二）：预览与落盘同一个口，靠 body 区分。
+                # 不给 yes 且 preview=false → 返回预检清单但**不落盘**（红线2），
+                # GUI 拿到清单弹确认框再带 yes 重发。
+                path = str(body.get("path") or "").strip()
+                if not path:
+                    self._send(400, {"error": "path 必填（要导入的 .docx 路径）"})
+                    return
+                tier = str(body.get("tier") or "raw")
+                if tier not in ("raw", "checked", "refined"):
+                    self._send(400, {"error": "tier 只能是 raw / checked / refined"})
+                    return
+                res = import_docx_mod.import_docx(
+                    path, tier=tier, root=str(ROOT),
+                    yes=bool(body.get("yes")),
+                    single=bool(body.get("single")),
+                    split_by=(str(body["split_by"]) if body.get("split_by") else None),
+                    preview_only=bool(body.get("preview")),
+                    overwrite=bool(body.get("overwrite")),
+                    interactive=False)     # HTTP 没有 stdin：不给 yes 就只出清单
+                payload = {k: v for k, v in res.items() if k != "chapters"}
+                self._send(200 if res.get("ok") else 400, payload)
             elif p == "/costs/rates":
                 # 定价表保存（GUI 定价编辑器写入）。
                 self._send(*_dom(dom_misc.handle_costs_rates_save(self, body)))
@@ -2855,7 +2924,7 @@ def main():
             _hint = "（8766 多半被另一个 nf_api 占着 → 按 8765 的占用提示先处置）"
         print(f"[nf_api] MCP 服务启动跳过（不影响 HTTP）: {_e}{_hint}")
     # ---- 端点列表 ----
-    print("[nf_api] 端点: /health /state /about /agent/runs /models /stage/{n}/run /stage/skip /logs/tail /stream/{job_id} /stop /jobs/{id} /approve /reject /refine/* /outline/* /snapshot /costs /prompts/* /config/style_notes /materials/* /project/*")
+    print("[nf_api] 端点: /health /state /about /agent/runs /models /stage/{n}/run /stages/run /import/docx /stage/skip /logs/tail /stream/{job_id} /stop /jobs/{id} /approve /reject /refine/* /outline/* /snapshot /costs/prompts/* /config/style_notes /materials/* /project/*")
     if mcp_started:
         print(f"[nf_api] MCP 工具: {', '.join(t['name'] for t in __import__('nf_mcp').MCP_TOOLS)}")
     try:

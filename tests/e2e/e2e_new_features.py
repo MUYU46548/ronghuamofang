@@ -104,6 +104,37 @@ def _free_port():
         s.close()
 
 
+def _force_agent_mode_off(system_yaml: Path):
+    """把临时根的 gates.agent_mode 改 false（按行定向替换，保留注释）。
+
+    它消掉的是**第一层**假红：本机 config/system.yaml 是 `agent_mode: true`，
+    照抄进夹具后，浏览器验收环境（拿不到 GUI token）会被 FORBIDDEN_IN_AGENT_MODE
+    端点一律 403，表现是「对话框关不掉」，看着像前端 bug，实为夹具继承了 Agent 模式。
+    与 tests/http/* 的 `_force_agent_mode_off` 同一做法。
+
+    ⚠️ **只解第一层**。`/project/archive/delete` 还有第二层闸 `_gui_only` ——
+    它与 agent_mode 无关、**始终**要求 GUI 双因子（`X-Mofang-Token`，由 Electron
+    主进程经 IPC 签发），浏览器垫片给不出这个 token，所以本用例的**删除分支**
+    仍然过不去。这不是本轮引入的（双因子落地晚于本用例），要修得让垫片带 token
+    （`NF_GUI_TOKEN` 注入 nf_api + `window.__NF_GUI_TOKEN__` 注入 preload 垫片）——
+    本轮未做，交付说明里已单列。
+    """
+    p = Path(system_yaml)
+    if not p.exists():
+        return
+    lines = p.read_text(encoding="utf-8").splitlines()
+    out, replaced = [], False
+    for ln in lines:
+        if ln.strip().startswith("agent_mode:"):
+            indent = ln[:len(ln) - len(ln.lstrip())]
+            out.append(indent + "agent_mode: false   # 验收环境强制标准模式")
+            replaced = True
+        else:
+            out.append(ln)
+    if replaced:
+        p.write_text("\n".join(out) + "\n", encoding="utf-8")
+
+
 def make_fixture():
     """临时项目根：一份可被"查看"、也能被"删除"的假归档。"""
     root = Path(tempfile.mkdtemp(prefix="nf_arch_fixture_"))
@@ -120,6 +151,7 @@ def make_fixture():
     sys_yaml = ROOT / "config" / "system.yaml"
     if sys_yaml.exists():
         shutil.copy(sys_yaml, root / "config" / "system.yaml")
+        _force_agent_mode_off(root / "config" / "system.yaml")
     (root / "config" / "project.yaml").write_text(
         "book:\n  name: 演示书\n  type: 奇幻\n  chapters: 3\n", encoding="utf-8")
     return root

@@ -1867,7 +1867,51 @@ const TAB_ORDER = [
   { t: "export", name: "导出", key: "" },
 ];
 
-const quickStage = ref(null);      // 快速运行面板选中的阶段
+// ---- 活一 自由模式：快速运行从"单选"改成"勾选集合" ----
+// 勾几件跑几件；单数 quickStage 只读视图 = 最近一次勾的那件 —— 预估显示与按钮
+// 禁用沿用旧读法，改动面就不再扩散到模板每一处。
+const quickStages = ref([]);
+const quickStage = computed(() => quickStages.value.length
+  ? quickStages.value[quickStages.value.length - 1] : null);
+
+function toggleQuickStage(n) {
+  const i = quickStages.value.indexOf(n);
+  if (i >= 0) quickStages.value.splice(i, 1);
+  else quickStages.value = [...quickStages.value, n].sort((a, b) => a - b);
+}
+
+// 常用组合：起名存本地，下次一键回填（存 localStorage，不占后端）
+const stageCombos = ref(JSON.parse(localStorage.getItem("mofang_stage_combos") || "[]"));
+const comboName = ref("");
+const comboPick = ref("");
+
+function persistCombos() {
+  localStorage.setItem("mofang_stage_combos", JSON.stringify(stageCombos.value));
+}
+function saveCombo() {
+  const name = (comboName.value || "").trim();
+  if (!name) return say("先给这组工序起个名字");
+  if (!quickStages.value.length) return say("先勾选要保存的工序");
+  const stages = [...quickStages.value].sort((a, b) => a - b);
+  stageCombos.value = [...stageCombos.value.filter((c) => c.name !== name),
+                       { name, stages }];
+  persistCombos();
+  comboName.value = "";
+  say("已保存组合「" + name + "」：" + stages.join(","));
+}
+function applyCombo() {
+  const c = stageCombos.value.find((x) => x.name === comboPick.value);
+  if (!c) return;
+  quickStages.value = [...c.stages];
+  say("已回填组合「" + c.name + "」：" + c.stages.join(","));
+}
+function removeCombo() {
+  if (!comboPick.value) return say("先选要删除的组合");
+  stageCombos.value = stageCombos.value.filter((c) => c.name !== comboPick.value);
+  persistCombos();
+  say("已删除组合");
+  comboPick.value = "";
+}
 const quickEstLoading = ref(false);
 const quickEstData = ref(null);
 const quickEstError = ref("");
@@ -1930,18 +1974,32 @@ const nextActions = computed(() => {
   return acts;
 });
 
-watch(quickStage, (n) => { if (n) loadQuickEstimate(); });
+watch(quickStages, () => { if (quickStages.value.length) loadQuickEstimate(); },
+      { deep: true });
 
 async function loadQuickEstimate() {
-  const n = quickStage.value;
+  const sel = [...quickStages.value].sort((a, b) => a - b);
   quickEstData.value = null;
   quickEstError.value = "";
-  if (!n) return;
+  if (!sel.length) return;
   quickEstLoading.value = true;
-  const r = await api("/estimate?stage=" + n);
+  // /estimate 一次只认一个 stage → 多选就并行取再相加（本地只读接口，很便宜）
+  const rs = await Promise.all(sel.map((n) => api("/estimate?stage=" + n)));
   quickEstLoading.value = false;
-  if (r.status === 200) quickEstData.value = r.data;
-  else quickEstError.value = r.data?.error || ("HTTP " + r.status);
+  const bad = rs.find((r) => r.status !== 200);
+  if (bad) {
+    quickEstError.value = bad.data?.error || ("HTTP " + bad.status);
+    return;
+  }
+  const at = (r, k) => r.data?.totals?.[k] || 0;
+  quickEstData.value = {
+    totals: {
+      tokens_in: rs.reduce((s, r) => s + at(r, "tokens_in"), 0),
+      tokens_out: rs.reduce((s, r) => s + at(r, "tokens_out"), 0),
+      cost_yuan: rs.reduce((s, r) => s + at(r, "cost_yuan"), 0),
+    },
+    budget: { exceeds: rs.some((r) => r.data?.budget?.exceeds) },
+  };
 }
 
 async function execNextAction(a) {
@@ -1958,9 +2016,99 @@ async function runNextAction() {
 }
 
 async function runQuickStage() {
-  const n = quickStage.value;
-  if (!n) return say("请先选择要运行的阶段");
-  await runStage(n);
+  const sel = [...quickStages.value].sort((a, b) => a - b);
+  if (!sel.length) return say("请先勾选要运行的阶段");
+  if (sel.length === 1) return runStage(sel[0]);   // 单选走原路（带预估确认框）
+  await confirmRunWithEstimate(
+    "运行所选 " + sel.length + " 道工序：" +
+      sel.map((n) => n + "·" + (STAGE_NAMES[n] || "")).join(" → "),
+    null, () => doRunStages(sel));
+}
+
+async function doRunStages(stages) {
+  const r = await api("/stages/run", "POST", { stages });
+  if (r.status === 202) {
+    say("已提交 " + stages.length + " 道工序（job " + r.data.job_id + "），进度见顶栏");
+  } else if (r.status === 409 && Array.isArray(r.data.problems)) {
+    // 后端执行前统一拦下并给全三要素，原样摊给用户（不跑一半才报）
+    say("无法执行（缺上游产物）：" + r.data.problems.join(" ｜ "));
+  } else {
+    say("提交失败: " + (r.data.error || r.status));
+  }
+  refresh();
+}
+
+// ---- 活二 Word 导入（外部稿进墨坊）----
+// 两段式：先「预检」拿切分清单（不落盘）→ 用户看过再「确认导入」。
+// 后端不给 yes 就只出清单，红线「预检未过不落盘」在服务端也成立，不靠前端自觉。
+const importPath = ref("");
+const importTier = ref("raw");
+const importSingle = ref(false);
+const importSplitBy = ref("");
+const importOverwrite = ref(false);
+const docxBusy = ref(false);
+const importPreview = ref(null);
+const importResult = ref(null);
+
+function importPayload(extra) {
+  return Object.assign({
+    path: (importPath.value || "").trim(),
+    tier: importTier.value,
+    single: importSingle.value,
+    split_by: (importSplitBy.value || "").trim() || null,
+    overwrite: importOverwrite.value,
+  }, extra || {});
+}
+
+async function pickImportDocx() {
+  try {
+    const dlg = window.mofangAPI && window.mofangAPI.openFileDialog;
+    if (!dlg) {
+      return say("这个环境没有系统文件对话框 —— 请在输入框里直接粘 .docx 路径");
+    }
+    const r = await dlg({ title: "选择要导入的 Word 稿",
+                          properties: ["openFile"],
+                          filters: [{ name: "Word 文档", extensions: ["docx"] }] });
+    if (!r || r.canceled) return;
+    if (r.filePaths && r.filePaths[0]) {
+      importPath.value = r.filePaths[0];
+      importPreview.value = null;
+      importResult.value = null;
+    }
+  } catch (e) {
+    say("文件对话框不可用：" + (e && e.message ? e.message : e) + " —— 请直接粘路径");
+  }
+}
+
+async function previewDocxImport() {
+  if (!importPayload().path) return say("先选择或粘贴要导入的 .docx 路径");
+  docxBusy.value = true;
+  importResult.value = null;
+  const r = await api("/import/docx", "POST", importPayload());
+  docxBusy.value = false;
+  if (r.status !== 200) {
+    importPreview.value = null;
+    const s = [].concat(r.data.suggestions || [], r.data.suggestion || []).join(" ｜ ");
+    return say("预检未过：" + (r.data.error || r.status) + (s ? " ｜ " + s : ""));
+  }
+  importPreview.value = r.data;
+}
+
+async function confirmDocxImport() {
+  if (!importPreview.value) return say("先点「预检」看切分结果");
+  docxBusy.value = true;
+  const r = await api("/import/docx", "POST", importPayload({ yes: true }));
+  docxBusy.value = false;
+  if (r.status !== 200) {
+    // conflict（同名章节已存在）不改走自动覆盖 —— 必须用户显式勾「允许覆盖」
+    importResult.value = r.data;
+    return say(r.data.error || ("导入失败 HTTP " + r.status));
+  }
+  importResult.value = r.data;
+  say("导入成功：" + r.data.wrote + " 章 → data/chapters/" + r.data.tier + "/");
+  importPreview.value = null;
+  chaptersLoaded.value = false;
+  loadChapters();
 }
 
 // 跑完自动提示下一步（②"完成后自动跳转"）：检测 job 从「有」到「无」的跳变
@@ -2082,7 +2230,7 @@ function noteJobTransition(snap) {
     lastFinishedKind = (lastJob.value?.kind || snap?.last_job?.kind || "") + "";
     // 跑完自动把「快速运行」的选择器推进到下一个未完成阶段
     const a = nextAction.value;
-    if (a && a.kind === "run") quickStage.value = a.stage;
+    if (a && a.kind === "run") quickStages.value = [a.stage];
     if (!nextPopupDismissed.value) nextPopup.value = true;
   }
   wasRunning = nowRunning;
@@ -2092,8 +2240,8 @@ const stage4Done = computed(() => state.value?.stages?.[3]?.status === "done");
 
 // 状态首次加载后，把快速运行面板对齐到「下一个未完成阶段」
 watch(state, () => {
-  if (quickStage.value === null && nextAction.value?.kind === "run") {
-    quickStage.value = nextAction.value.stage;
+  if (!quickStages.value.length && nextAction.value?.kind === "run") {
+    quickStages.value = [nextAction.value.stage];
   }
 });
 
@@ -3378,7 +3526,7 @@ onUnmounted(() => {
           <button class="flow-step"
                   :class="{ done: s.status === 'done', cur: nextAction && nextAction.stage === s.stage, bad: s.status === 'failed' || s.status === 'rejected', skip: s.skipped }"
                   :title="(s.rejected ? '打回原因：' + s.rejected : STAGE_NAMES[s.stage]) + '（点击可设为快速运行目标）'"
-                  @click="quickStage = s.stage">
+                  @click="quickStages = [s.stage]">
             <span class="fs-no">{{ s.status === 'done' ? '✓' : s.stage }}</span>
             <span class="fs-name">{{ STAGE_NAMES[s.stage] }}</span>
           </button>
@@ -3402,25 +3550,43 @@ onUnmounted(() => {
 
       <div class="flow-quick">
         <span class="meta">快速运行</span>
-        <select v-model="quickStage" class="model-select">
-          <option :value="null">选择阶段…</option>
-          <option v-for="s in stageList" :key="s.stage" :value="s.stage">
-            {{ s.stage }} · {{ STAGE_NAMES[s.stage] }}（{{ statusBadge(s.status) }}）
+        <!-- 活一 自由模式：单选下拉 → 勾选条（勾几件跑几件） -->
+        <span class="qstage-group">
+          <button v-for="s in stageList" :key="'q' + s.stage"
+                  class="mini qstage" :class="{ on: quickStages.includes(s.stage) }"
+                  :disabled="isRunning"
+                  :title="s.stage + '·' + (STAGE_NAMES[s.stage] || '') + '（' + statusBadge(s.status) + '）—— 点击勾选/取消'"
+                  @click="toggleQuickStage(s.stage)">
+            {{ s.stage }}·{{ STAGE_NAMES[s.stage] }}
+          </button>
+        </span>
+        <select v-model="comboPick" class="model-select combo-sel"
+                @change="applyCombo" title="常用工序组合：选中即回填勾选">
+          <option value="">组合…</option>
+          <option v-for="c in stageCombos" :key="c.name" :value="c.name">
+            {{ c.name }}（{{ c.stages.join(",") }}）
           </option>
         </select>
+        <input v-model="comboName" class="combo-name" placeholder="组合名"
+               title="给当前这组勾选取个名字，下次一键回填"
+               @keyup.enter="saveCombo" />
+        <button class="mini" :disabled="!quickStages.length" @click="saveCombo"
+                title="把当前勾选存为组合（存在本机浏览器里）">存组合</button>
+        <button class="mini" :disabled="!comboPick" @click="removeCombo"
+                title="删除所选组合">删除</button>
         <span class="flow-est" :class="{ warn: quickEstData?.budget?.exceeds }">
-          <template v-if="!quickStage">—</template>
+          <template v-if="!quickStages.length">—</template>
           <template v-else-if="quickEstLoading">预估中…</template>
           <template v-else-if="quickEstData">
-            预计 {{ fmtTok(quickEstData.totals.tokens_in) }} in / {{ fmtTok(quickEstData.totals.tokens_out) }} out
+            {{ quickStages.length }} 件 · 预计 {{ fmtTok(quickEstData.totals.tokens_in) }} in / {{ fmtTok(quickEstData.totals.tokens_out) }} out
             · {{ fmtYuan(quickEstData.totals.cost_yuan) }}
             <span v-if="quickEstData.budget?.exceeds">⚠ 跑完将超预算</span>
           </template>
           <template v-else-if="quickEstError">预估不可用（仍可运行）：{{ quickEstError }}</template>
           <template v-else>—</template>
         </span>
-        <button class="mini" :disabled="isRunning || !quickStage" @click="loadQuickEstimate">重估</button>
-        <button class="mini primary" :disabled="isRunning || !quickStage" @click="runQuickStage">▶ 运行所选阶段</button>
+        <button class="mini" :disabled="isRunning || !quickStages.length" @click="loadQuickEstimate">重估</button>
+        <button class="mini primary" :disabled="isRunning || !quickStages.length" @click="runQuickStage">▶ 运行所选工序</button>
       </div>
     </section>
 
@@ -3496,6 +3662,48 @@ onUnmounted(() => {
         <button class="mini" @click="loadChapters">重新探测</button>
         <button class="mini" @click="loadChapterQuality" title="刷新质量评分">质量</button>
       </div>
+      <!-- 活二 Word 导入：外部稿 → 当作"已写好的章节"。两段式：预检（不落盘）→ 确认 -->
+      <details class="import-box" :open="!!importPath || !!importPreview || !!importResult">
+        <summary>导入 Word 稿（外部稿件 → raw / checked / refined）</summary>
+        <div class="import-row">
+          <input v-model="importPath" class="import-path"
+                 placeholder="把 .docx 的完整路径粘在这里（或点「浏览…」挑文件）"
+                 @keyup.enter="previewDocxImport" />
+          <button class="mini" @click="pickImportDocx" title="用系统对话框挑文件">浏览…</button>
+          <select v-model="importTier" class="model-select" title="落位档 = 起点：导入到哪一层，就从哪道工序开始用">
+            <option value="raw">毛坯 raw（从检查起可用）</option>
+            <option value="checked">校对过 checked（从润色起可用）</option>
+            <option value="refined">润过 refined（直接出稿）</option>
+          </select>
+          <label class="import-opt"><input type="checkbox" v-model="importSingle" /> 整本当一章</label>
+          <input v-model="importSplitBy" class="import-split"
+                 placeholder="自定义分隔正则（可空，如 ^第.{1,6}幕）" />
+          <label class="import-opt" title="目标层已有同名章节时才用得上；覆盖前会先打 before-import 快照">
+            <input type="checkbox" v-model="importOverwrite" /> 允许覆盖同名章节
+          </label>
+          <button class="mini" :disabled="docxBusy || !importPath.trim()" @click="previewDocxImport">预检（不落盘）</button>
+          <button class="mini primary" :disabled="docxBusy || !importPreview" @click="confirmDocxImport">确认导入</button>
+        </div>
+        <div v-if="importPreview" class="import-preview">
+          <div class="meta">
+            切分模式：{{ importPreview.pattern }} · 共 {{ importPreview.chapter_count }} 章 /
+            {{ importPreview.total_chars }} 字（确认前一个文件都不会写）
+          </div>
+          <pre class="import-list">{{ (importPreview.preview || []).join("\n") }}</pre>
+          <div v-for="s in [].concat(importPreview.suggestions || [], importPreview.suggestion ? [importPreview.suggestion] : [])"
+               :key="s" class="import-sugg">{{ s }}</div>
+        </div>
+        <div v-if="importResult" class="import-result" :class="{ bad: !importResult.ok }">
+          <div>{{ importResult.ok
+                ? ("导入成功：" + importResult.wrote + " 章 → data/chapters/" + importResult.tier + "/")
+                : ("未完成：" + importResult.error) }}</div>
+          <div v-if="importResult.snapshot_id" class="meta">
+            回退点：{{ importResult.snapshot_id }}（python scripts/snapshot.py --restore {{ importResult.snapshot_id }} --yes）
+          </div>
+          <div v-if="importResult.doctor && importResult.doctor.note" class="meta">体检：{{ importResult.doctor.note }}</div>
+          <div v-for="w in (importResult.warnings || [])" :key="w" class="meta">提示：{{ w }}</div>
+        </div>
+      </details>
       <!-- P2: 质量趋势图 -->
       <QualityTrend :chapters="Object.keys(chapterQuality).map(n => ({n: +n, quality: chapterQuality[n]}))"
                     :threshold="chapterThreshold" class="qt-wrap"

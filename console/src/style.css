@@ -1617,3 +1617,60 @@ kbd {
   .set-layout { flex-wrap: wrap; }
   .set-nav { flex-direction: row; flex-wrap: wrap; max-width: none; position: static; min-width: 0; }
 }
+
+/* ---- 活一 自由模式：工序勾选条 + 常用组合（2026-10-13）----
+   全部走主题变量：暗夜紫下 --accent/--ink-accent 会自动换亮一档，
+   硬编码色值在深色主题下会看不清（GUI 纪律第 3 条）。 */
+.qstage-group { display: inline-flex; flex-wrap: wrap; gap: 5px; }
+.qstage.on {
+  background: var(--accent-soft); border-color: var(--accent);
+  color: var(--ink-accent); font-weight: 600;
+}
+.qstage:not(.on):hover { background: var(--field-hover); }
+.combo-sel { max-width: 200px; }
+.combo-name {
+  width: 130px; padding: 4px 8px; font-size: 12.5px;
+  color: var(--ink); background: var(--field);
+  border: 1px solid var(--border); border-radius: 8px;
+}
+.combo-name:focus { outline: none; border-color: var(--accent); }
+
+/* ---- 活二 Word 导入（外部稿进墨坊）---- */
+.import-box {
+  margin: 4px 0 12px; padding: 8px 12px;
+  border: 1px dashed var(--border); border-radius: 10px;
+}
+.import-box > summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--ink); }
+.import-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 9px; }
+.import-path {
+  flex: 1 1 260px; min-width: 200px; padding: 5px 9px; font-size: 12.5px;
+  color: var(--ink); background: var(--field);
+  border: 1px solid var(--border); border-radius: 8px;
+}
+.import-split {
+  flex: 0 1 250px; padding: 5px 9px; font-size: 12.5px;
+  color: var(--ink); background: var(--field);
+  border: 1px solid var(--border); border-radius: 8px;
+}
+.import-path:focus, .import-split:focus { outline: none; border-color: var(--accent); }
+.import-opt {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 12.5px; color: var(--muted);
+}
+.import-preview {
+  margin-top: 9px; padding: 8px 10px; border-radius: 8px;
+  background: var(--field-dim); border: 1px solid var(--border);
+}
+.import-list {
+  margin: 6px 0 0; max-height: 220px; overflow: auto;
+  font-size: 12px; line-height: 1.55; color: var(--ink);
+  white-space: pre-wrap; word-break: break-all;
+}
+.import-sugg { font-size: 12.5px; color: var(--warn); margin-top: 4px; }
+.import-result {
+  margin-top: 9px; padding: 8px 10px; border-radius: 8px; font-size: 12.5px;
+  color: var(--ink); background: rgba(155, 143, 196, 0.10);
+  border: 1px solid var(--ok);
+}
+.import-result.bad { border-color: var(--bad); background: rgba(196, 127, 127, 0.10); }
+.import-result .meta { margin-top: 4px; }

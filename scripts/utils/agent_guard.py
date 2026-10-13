@@ -73,6 +73,11 @@ FORBIDDEN_IN_AGENT_MODE = frozenset({
     "/plan/write",
     "/plan/drop",
     "/plan/revive",
+    # Word 稿导入（活二，2026-10-13）：一次性把**整本外部稿**写进
+    # data/chapters/{raw,checked,refined}/，且 --overwrite 能盖掉已有章节
+    # —— 与归档/恢复同档的批量写入，归用户点。预览走同一端点（GUI 一体），
+    # 只读的 /chapters/*、/outline/chapters/* 不在此列。
+    "/import/docx",
 })
 
 # 人工来源的标记值（HTTP 头 / 环境变量通用）
