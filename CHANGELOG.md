@@ -58,6 +58,25 @@ CHANGELOG」）。本文件从工程审查修复起正式启用。
   戳推到最新 —— 正是本机制要防的「静默跳过」，被回归当场抓住后修正。
 - **本批仍未做**：C4 验收三件（红队攻防需第三方）、A 打包新版客户端。
 
+### v0.6.11 — 2026-10-14 分段审阅闭环 · 书稿跨版本迁移机制 · 契约测试修红
+
+本版的详细技术记录就是上方 [Unreleased] 的 2026-10-14 两节（内容即本版），此处只列发版要点：
+
+- **丙4 大纲分段审批 GUI 闭环**：收件箱 stage2 门内「分段审阅」面板（逐段展开阅读 / 通过与撤销 /
+  拦它的理由直接上屏 / 门头部「分段 x/y」徽标）+ `GET /outline/segments`（读侧不设闸）+
+  `POST /outline/segments/set`（写侧审批级：GUI 双因子 + Agent 模式禁用）。上一轮「闸开着、
+  界面没做」的落差闭合，CLI（`segment_cli.py`）与 GUI 同一份判据。
+- **C3 升级断崖的机制侧答案**：书稿数据跨版本迁移 —— `DATA_SCHEMA` ↔
+  `data/state/workspace_schema.json`，`nf_api` / `orchestrator` 启动时自动对齐（先快照后动手、
+  只自动跑 safe 步骤、数据比代码新即拒绝运行）。承诺与边界写进新增的 `docs/upgrade.md`。
+- **存量红修复**：`test_gui_api_contract` 自 `06473c5` 起把整张 GET 路由表判空（13 项假红），
+  现跟随 `_do_GET_raw` 转发取真链。
+- **版本**：0.6.10 → 0.6.11（`package.json` + `package-lock.json` 两处），
+  `SEED_VERSION` 25 → 26（payload `scripts/` 变更，按「先 bump 再 dist」）。
+- **验证**：`nfctl test` **102/102** · `test_gui_api_contract` **47/0** · `e2e_new_features`
+  **39/39**（分段审阅真点段 + 截图目检）· `quality_gate` BLOCK 0（新文件零 WARN）·
+  `leak_scan` exit 0。
+
 ### v0.6.10 — 2026-10-11 三处「看不懂 / 试跑即炸」修复（用户实测反馈驱动）
 
 - **项目页给出厂样例书挂徽标**（用户原话：「雾港核心工作区有数据，但是没有任何显示标识」）：`GET /factory/list` 新增 `current` 视图（新函数 `current_sample_view()`：当前 `config/project.yaml` 的书名 ↔ 随包样例 `examples/sample-book/project.yaml` 的书名，**零 sha、零目录遍历**，与既有逐字节盘点分工）。书名相同即在「当前项目」旁点亮 **出厂测试项目 ?** 徽标，悬浮（`title`）与点击（toast）都给同一段说明：出厂自带、删了不动程序也不动别的书、删前先「查看」确认（删除本就进回收站可捞回，故**不写「不可删除」**——那会与页面上的删除按钮自相矛盾）。判据只认书名：**改过书名的项目永不命中**，误报方向是「多提醒一次」而不是漏标用户数据；反例（改书名后熄灭）有测试钉住。
