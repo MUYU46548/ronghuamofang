@@ -707,6 +707,22 @@ def main():
         print("[orchestrator] verbose 模式已开启")
     if args.dry_run:
         print("[orchestrator] dry-run 模式已开启（跳过 LLM 调用和文件写入）")
+    # 书稿数据结构迁移（C3）：与 nf_api 同一份判据。直接敲 CLI 绕过了桌面端，
+    # 所以这里也要拦 —— 数据比代码新还硬跑，烧的是 token、坏的是书稿。
+    try:
+        from utils.workspace_migrate import ensure as _wm_ensure
+        # orchestrator 全程按 **CWD 相对**读写（progress.json / data/ 皆然），
+        # 所以这里也用 CWD 定根 —— 拿脚本所在目录定根会去迁另一个项目的书稿。
+        _wm_ok, _wm_rep = _wm_ensure(Path.cwd())
+        if not _wm_ok:
+            print("[orchestrator] 已停止：书稿数据结构检查未通过（原因见上面的 [migrate] 行）。")
+            print("[orchestrator] 处置：python scripts/data_migrate.py 看状态；"
+                  "数据比代码新时升级程序，或 python scripts/snapshot.py --restore <快照> --yes 回退。")
+            # 退出码 5 = 数据结构拒绝。**不能用 2**：2 在本入口已表示「预算熔断」，
+            # 共用会让同一份日志里的失败原因无法分辨。
+            sys.exit(5)
+    except Exception as _wm_e:                              # noqa: BLE001
+        print(f"[orchestrator] 数据结构检查跳过（不影响运行）: {_wm_e}")
     sys.exit(run(from_stage, args.stage, verbose=args.verbose,
                  dry_run=args.dry_run, stages=stages))
 

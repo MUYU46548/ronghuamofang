@@ -22,6 +22,7 @@
 | 撤销审批 | `python scripts/approve.py --stage N --revoke` |
 | **大纲分段审批（丙4，只影响阶段2）** | `python scripts/segment_cli.py list`（列分段与通过状态）· `status`（一段话总览，未全过时退出码 1）· `approve <段号>` / `revoke <段号>`。GUI 侧是收件箱 stage2 门内的「**分段审阅**」面板（`GET /outline/segments` 读、`POST /outline/segments/set` 勾），与 CLI 同一份判据：**全部分段通过才放行 `approve.py --stage 2`**（分段只拆阅读负担，不降强度）。开关 `gates.segment_approval`：键缺失或 false = 整本一次审，切不出 2 段时也自动放行 |
 | 打回阶段 N | `python scripts/reject.py --stage N "原因"`（记录原因+清理下游产物+重置状态+撤销审批；`--dry-run` 预演） |
+| **跨版本 / 书稿数据迁移（C3）** | `python scripts/data_migrate.py`（状态，只读）· `--dry-run`（预演）· `--run`（执行 safe 步骤；会改写用户文件结构的步骤要再加 `--yes`）。nf_api 与 orchestrator **启动时自动对齐**（先快照后动手，快照失败一个字节不动）；数据比代码新 / 迁移链断裂 → **拒绝启动**（退出码 5，2 已是预算熔断）。承诺与边界 → `docs/upgrade.md` |
 | 大纲体检 | `python scripts/outline_review.py`（确定性，标出空泛节点；默认附**与上一版对比**，`--no-compare` 关闭） |
 | 大纲迭代趋势 | `python scripts/outline_review.py --trend [--history 目录]`（确定性零 token：逐版本指标表 + **收敛判断** done/improving/stalled/mixed/insufficient，回答「还要不要再迭代一轮」） |
 | 设定体检（stage1后自动） | `python scripts/material_review.py`（确定性，**类型感知**：先按 `utils/setting_schema.is_character` 分开人物/非人物，再对人物标碎片/缺失维度，报告 data/setting/material_review.md） |

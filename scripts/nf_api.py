@@ -2900,6 +2900,25 @@ def main():
         # 走 _set_root：它同时刷新 GLOBAL / HISTORY_DIR 等派生常量，
         # 只 `global ROOT` 会留下指向旧项目的路径（详见 _set_root docstring）。
         _set_root(args.root)
+    # ---- 书稿数据结构迁移（C3 升级断崖）----
+    # 代码与提示词由 Electron 的 seedWorkspace 刷新（.seed-version），而 data/
+    # 从不被碰 —— 可新版一旦改了数据结构，旧书稿就成了「没人保证读得懂」的东西。
+    # 所以在**服务起来之前**对齐结构：能自动迁的就迁（先快照后动手，丙3 契约），
+    # 迁不动 / 数据比代码新 → 拒绝启动。
+    # 契约（utils/workspace_migrate）：ok=False 时**不许继续** —— 拿旧代码去写
+    # 新书稿，坏的是用户唯一那份数据；停在这里至少还留着完整快照。
+    try:
+        from utils.workspace_migrate import ensure as _wm_ensure
+        _wm_ok, _wm_rep = _wm_ensure(ROOT)
+        if not _wm_ok:
+            print("[nf_api] 启动失败：书稿数据结构检查未通过（原因见上面的 [migrate] 行）。")
+            print("[nf_api] 处置：python scripts/data_migrate.py 看状态；"
+                  "数据比代码新时升级程序，或 python scripts/snapshot.py --restore <快照> --yes 回退。")
+            # 退出码 5 专用于「数据结构拒绝」：2 已被 orchestrator 占用（预算熔断），
+            # 共用一个码会让日志里的失败原因无法分辨。
+            sys.exit(5)
+    except Exception as _wm_e:                              # noqa: BLE001
+        print(f"[nf_api] 数据结构检查跳过（不影响启动）: {_wm_e}")
     if args.allow_fake:
         os.environ["NF_API_ALLOW_FAKE"] = "1"
         global ALLOW_FAKE

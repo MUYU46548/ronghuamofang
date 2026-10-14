@@ -427,6 +427,17 @@ if __name__ == "__main__":
   （运行形态/健康态/代码根/数据根/日志路径 + 查看日志/打开日志文件/复制诊断信息/
   DevTools 开关（Ctrl+Shift+I 或 F12）/重启后端 API；重启在流水线运行中禁用）。
 - **素材更新**：新增素材后 `--from 1` 重跑（已有章节文件自动跳过，不会重写）
+- **跨版本升级 / 书稿迁移（C3，2026-10-14）**：三样东西三个版本 —— 程序本体（安装包版本）、
+  代码与提示词（`SEED_VERSION` ↔ 工作区 `.seed-version`，`seedWorkspace` 启动时 force 刷新，
+  `config/` 只补缺不覆盖）、书稿数据（`DATA_SCHEMA` ↔ `data/state/workspace_schema.json`，
+  `utils/workspace_migrate` 启动时对齐）。数据侧六条契约：判据只有一份（CLI / nf_api /
+  orchestrator 都调 `ensure()`）· **数据比代码新 = 拒绝运行** · 先快照后动手（丙3，快照失败
+  一个字节不动）· **只自动跑 safe 步骤**（会改写用户文件结构的要 CLI `--run --yes`）·
+  无戳的既有书稿记基线 v1、不碰数据 · 失败**不推进版本戳**。拒绝时退出码 **5**
+  （2 已被「预算熔断」占用，共用会让日志里的失败原因无法分辨）。
+  改数据结构 = `DATA_SCHEMA` +1 + `MIGRATIONS` 加 `Step` + 加回归，两处不同步 `status()`
+  会大声拒绝而不是静默跳过。CLI：`python scripts/data_migrate.py`（`--dry-run` / `--run [--yes]`）；
+  承诺与边界 → `docs/upgrade.md`。
 - **低分章自动重写（方向3）**：默认关闭。开启：`config/system.yaml` 的 `gates.auto_rewrite: true`
   → stage4 后自动重写 `quality < chapter.quality_threshold` 的章节（排在审稿分支之前）。
   手动跑：`python scripts/auto_rewrite.py`（先 `--dry-run` 预演）。批次报告见
