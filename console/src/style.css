@@ -457,7 +457,7 @@ body {
 /* 收件箱 */
 .empty { color: var(--muted); padding: 26px 0; text-align: center; }
 .gate-card { border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; }
-.gate-head { display: flex; align-items: center; gap: 9px; }
+.gate-head { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
 .gate-files { margin-top: 9px; display: flex; gap: 6px; }
 
 /* 成本表 */
@@ -1674,3 +1674,31 @@ kbd {
 }
 .import-result.bad { border-color: var(--bad); background: rgba(196, 127, 127, 0.10); }
 .import-result .meta { margin-top: 4px; }
+
+/* —— 丙4 分段审阅（收件箱 stage2 审批门内）——
+   逐段读完打勾、全过才放行；颜色一律走主题变量（硬编码色值在暗色主题下看不清） */
+.seg-review {
+  margin-top: 10px; padding-top: 9px; border-top: 1px dashed var(--border);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.seg-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.seg-gate-msg { font-size: 12.5px; line-height: 1.7; color: var(--warn); }
+.seg-row {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 5px 7px; border: 1px solid transparent; border-radius: 8px;
+}
+.seg-row.on { border-color: var(--ok); }
+.seg-row.on .seg-id { color: var(--ok); }
+.seg-toggle {
+  flex: 1 1 240px; text-align: left; background: none; border: 0;
+  color: var(--ink); font: inherit; cursor: pointer; padding: 2px 0;
+}
+.seg-toggle:hover { color: var(--accent); }
+.seg-id { display: inline-block; min-width: 36px; font-weight: 600; color: var(--accent); }
+.seg-text {
+  flex: 1 0 100%; max-height: 360px; overflow: auto;
+  white-space: pre-wrap; word-break: break-word;
+  font-size: 13px; line-height: 1.85; color: var(--ink);
+  background: var(--field-dim); border: 1px solid var(--border);
+  border-radius: 8px; padding: 10px 12px;
+}

@@ -285,6 +285,7 @@ stdout 被管道捕获时 Python 用 cp936，一行日志就能 `UnicodeEncodeEr
 - `GET /models`、`/models/available`、`/models/cache`、`/models/fetched`
 - `GET /config/project`、`/config/style_notes`、`/config/agent_mode`
 - `GET /outline/structure`、`/outline/trend`、`/outline/advise`、`/outline/history`、`/outline/diff`
+- `GET /outline/segments`（丙4 分段审阅：分段清单 + 每段正文 + 放行判据回显；**读侧不设闸**）
 - `GET /sandbox/queue`、`/sandbox/file`
 - `GET /review/report`、`/review/decisions`
 - `GET /chapters/quality`、`/chapters/history`
@@ -307,6 +308,7 @@ stdout 被管道捕获时 Python 用 cp936，一行日志就能 `UnicodeEncodeEr
 - `POST /project/archive/delete`（删归档，默认进回收站；GUI 来源头 + 逐字书名确认双闸）
 - `POST /config/agent_mode`（Agent 不得自行切换模式）
 - `POST /factory/clean`（出厂样例清理：移动用户工作区素材；只读 `GET /factory/list` 可用）
+- `POST /outline/segments/set`（大纲分段审批标记 —— 勾一段 = 替用户读一段，归用户在 GUI 分段审阅面板里点；Agent 可读不可勾）
 
 ### ⚠️ 路径 IO 必须经 `ROOT`，不得用相对路径
 

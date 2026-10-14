@@ -2121,6 +2121,10 @@ const gateArtifacts = ref({}); // {stage: [{path, lines}]}
 
 // 加载审批门的产物概况（行数/是否为空）
 async function loadGateArtifacts() {
+  // 分段审阅面板跟着 stage2 门一起加载：不加载的话用户点「确认放行」
+  // 只会吃到一个 409，看不到「还差哪几段」—— 哑闸。
+  if (pendingGates.value.some((g) => g.stage === 2)) await loadSegReview();
+  else segReview.value = null;
   for (const g of pendingGates.value) {
     // 每个门看自己的审批对象（2026-10-11 工单 P0-1：原三元只有 stage2 分支，
     // stage 1 门错抓 polish_report.md → 产物概况恒显示 0 行）
@@ -2157,6 +2161,35 @@ async function isAgentModeConfigured() {
   } catch (e) {
     return false;
   }
+}
+
+// —— 丙4 分段审阅（收件箱 stage2 门内）——
+// 一次读 5 万字的通读负担被拆成「逐段读」，但**放行门槛一分没松**：
+// 全部分段通过才允许 approve stage2。勾一段 = 确认自己读过那一段。
+// 判据单源在 utils.outline_segments.gate_status，这里只做展示与提交。
+const segReview = ref(null);   // GET /outline/segments 的回显（null = 没开分段审批）
+const segOpenId = ref("");     // 当前展开阅读的段号（点标题展开/收起）
+
+async function loadSegReview() {
+  try {
+    const r = await api("/outline/segments");
+    segReview.value = (r.status === 200 && r.data && r.data.ok) ? r.data : null;
+  } catch (e) {
+    segReview.value = null;   // 端点不可用时静默降级：面板不渲染，不影响整本审批
+  }
+}
+
+async function setSeg(id, approved) {
+  const r = await api("/outline/segments/set", "POST", { id, approved });
+  if (r.status === 200 && r.data && r.data.ok) {
+    say(approved
+      ? `已标记 ${id} 通过（${r.data.approved}/${r.data.total}）` + (r.data.all_approved ? "，可以放行阶段2" : "")
+      : `已撤销 ${id} 的通过标记（${r.data.approved}/${r.data.total}）`);
+  } else {
+    // 403 = 不是可信 GUI 来源（浏览器预览拿不到 token），400 = 段号不对
+    say(r.data && (r.data.error || r.data.message) ? (r.data.error || r.data.message) : `操作失败: ${r.status}`);
+  }
+  await loadSegReview();
 }
 
 watch(pendingGates, loadGateArtifacts, { immediate: true });
@@ -3880,6 +3913,12 @@ onUnmounted(() => {
           <span class="stage-no">{{ s.stage }}</span>
           <b>{{ STAGE_NAMES[s.stage] }}</b>
           <span class="pill st-done">完成</span>
+          <!-- 分段未全过时，「完成」只说明**跑完了**、不等于可以放行 ——
+               徽标直接写清还差几段，免得绿「完成」和满屏「未通过」自相矛盾 -->
+          <span v-if="s.stage === 2 && segReview && segReview.enabled && !segReview.all_approved"
+                class="pill st-gate" title="阶段跑完了，但分段还没读完：全过才放行">
+            分段 {{ segReview.approved }}/{{ segReview.total }}
+          </span>
           <span class="spacer"></span>
           <button class="mini primary" @click="approve(s.stage)">确认放行</button>
           <button class="mini" v-if="s.stage === 2" @click="openOutlineTab">查看结构化大纲</button>
@@ -3913,6 +3952,39 @@ onUnmounted(() => {
           <span v-if="outlineSummary.issues?.length" class="score-issues">
             · {{ outlineSummary.issues.length }} 项待改进
           </span>
+        </div>
+        <!-- Stage 2: 分段审阅（丙4）—— 逐段读，全过才放行（分段不降低强度） -->
+        <div v-if="s.stage === 2 && segReview && segReview.enabled" class="seg-review">
+          <div class="seg-head">
+            <b>分段审阅</b>
+            <span class="pill" :class="segReview.all_approved ? 'st-done' : 'st-gate'">
+              已通过 {{ segReview.approved }}/{{ segReview.total }}
+            </span>
+            <span class="meta">点标题读该段 → 读完打勾；全部通过才放行阶段2</span>
+            <span class="spacer"></span>
+            <button class="mini" @click="loadSegReview()">刷新</button>
+          </div>
+          <div v-if="!segReview.gate_ok" class="seg-gate-msg">{{ segReview.gate_message }}</div>
+          <div v-for="sg in segReview.segments" :key="sg.id"
+               class="seg-row" :class="{ on: sg.status === 'approved' }">
+            <button class="seg-toggle" @click="segOpenId = (segOpenId === sg.id ? '' : sg.id)"
+                    :title="segOpenId === sg.id ? '收起' : '展开阅读该段'">
+              <span class="seg-id">{{ sg.id }}</span>{{ sg.title }}
+              <span class="meta">{{ sg.chars }} 字</span>
+            </button>
+            <span class="pill" :class="sg.status === 'approved' ? 'st-done' : 'st-gate'">
+              {{ sg.status === 'approved' ? '已通过' : '未通过' }}
+            </span>
+            <button class="mini" :class="{ primary: sg.status !== 'approved' }"
+                    @click="setSeg(sg.id, sg.status !== 'approved')">
+              {{ sg.status === 'approved' ? '撤销' : '通过本段' }}
+            </button>
+            <div v-if="segOpenId === sg.id" class="seg-text">{{ sg.text }}</div>
+          </div>
+          <div v-if="segReview.invalidations" class="meta">
+            大纲改过 {{ segReview.invalidations }} 次 —— 每次改动都把全部分段打回未通过（旧审核不为新内容背书）
+          </div>
+          <div class="meta">偏好终端的话同一套判据在 CLI：<code>python scripts/segment_cli.py list</code></div>
         </div>
       </div>
     </section>

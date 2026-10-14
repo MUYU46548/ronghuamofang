@@ -78,6 +78,10 @@ FORBIDDEN_IN_AGENT_MODE = frozenset({
     # —— 与归档/恢复同档的批量写入，归用户点。预览走同一端点（GUI 一体），
     # 只读的 /chapters/*、/outline/chapters/* 不在此列。
     "/import/docx",
+    # 大纲分段审批标记（丙4，2026-10-14）：勾一段 = 替用户读了那一段，
+    # 而分段的全部意义就是「不降低强度、全过才放行」—— 让 Agent 自己勾满
+    # 八段再放行，等于把审阅义务整个绕过。读侧 GET /outline/segments 不拦。
+    "/outline/segments/set",
 })
 
 # 人工来源的标记值（HTTP 头 / 环境变量通用）

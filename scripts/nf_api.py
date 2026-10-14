@@ -37,6 +37,8 @@ POST /outline/compose     {selections, act_source} → 拼合为最终 global.md
 POST /outline/drafts/cleanup 清理临时 draft
 GET  /outline/trend        迭代趋势：每轮指标序列 + 与上一版对比 + 收敛判定（确定性，零 token）
 GET  /outline/advise       开工方向建议：按严重度排序的候选方案 + 可执行 next_step（确定性，零 token）
+GET  /outline/segments     丙4 分段审阅：分段清单 + 每段正文 + 放行判据回显（读侧不设闸）
+POST /outline/segments/set {id, approved} → 标记某段已读通过（写侧：GUI 双因子 + Agent 模式禁用）
 GET  /sandbox/queue        沙盒审核队列：待审条目 + 状态统计 + 孤儿文件（确定性，零 token）
 GET  /sandbox/file         ?path=<相对路径> → 只读预览沙盒产物正文（审核前必须看得见内容）
 POST /sandbox/review       {path, action: approve|reject|reset, note?} → 变更沙盒审核状态
@@ -171,6 +173,7 @@ try:
     from nf_api_domains import setting_state as dom_setting_state  # noqa: E402
     from nf_api_domains import factory as dom_factory      # noqa: E402 (0.6.7 出厂/用户数据分治)
     from nf_api_domains import plan as dom_plan            # noqa: E402 (丙0 规划四态状态机)
+    from nf_api_domains import segments as dom_segments    # noqa: E402 (丙4 分段审批读写)
 except Exception as _dom_err:                            # noqa: BLE001
     dom_materials = None
     dom_misc = None
@@ -184,6 +187,7 @@ except Exception as _dom_err:                            # noqa: BLE001
     dom_refine = None
     dom_factory = None
     dom_plan = None
+    dom_segments = None
     print("[nf_api] 域模块加载失败（端点将返回可行动错误）: " + str(_dom_err))
 
 
@@ -1728,6 +1732,9 @@ class Handler(BaseHTTPRequestHandler):
             # 开工方向建议：候选方案 + 依据 + 可执行 next_step（确定性，零 token）。
             # trend 说「有没有进展」，advise 说「接下来能做什么」。
             self._send(*_dom(dom_outline.handle_outline_advise(self)))
+        elif p == "/outline/segments":
+            # 丙4 分段审阅（读侧）：分段清单 + 每段正文 + 放行判据回显。
+            self._send(*_dom(dom_segments.handle_segments_get(self)))
         elif p == "/sandbox/queue":
             # 沙盒产物审核队列（待审/已通过/已驳回 + 孤儿检测）。
             self._send(*_dom(dom_outline.handle_sandbox_queue(self)))
@@ -2129,6 +2136,9 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/refine/outline":
                 # 实现已迁至 nf_api_domains.refine（P2 拆分）；此处只做转发。
                 self._send(*_dom(dom_refine.handle_refine_outline(self, body)))
+            elif p == "/outline/segments/set":
+                # 丙4 分段审批标记（写侧）：GUI 双因子闸在域模块内，此处只转发。
+                self._send(*_dom(dom_segments.handle_segments_set(self, body)))
             # ---- 大纲结构化面板（任务1/2/3/4）----
             elif p == "/outline/save":
                 ok, res = act_outline_save(body.get("content"))

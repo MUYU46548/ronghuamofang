@@ -20,6 +20,7 @@
 | 审批阶段 N | `python scripts/approve.py --stage N`（**阶段 1 审批 = 设定集定稿 → 自动冻结 canon 快照** `data/setting/canon.json`；之后 stage2/3 只读快照，改素材不再扰动已定稿大纲。`--revoke` 会撤掉快照退回活稿） |
 | **素材状态 / 墓碑（A3，确定性零 token）** | `python scripts/material_review.py [--materials 目录] [--no-state]`（体检报告追加「素材状态」段：条目 status + 分歧分级 + 墓碑）· `--conflicts`（只列**需人工裁决**的分歧，有则退出码非零）· `--reject "名字" --reason "…"`（登记墓碑：该条目已否决，归并时**不得复活**）· `--unreject "名字"`。审计明细落 `data/setting/merge_audit.json`，墓碑落 `data/setting/tombstones.json`。判据是**确定性**的：同名字段两边都非空且字面不同 → `review`（报人）；一方是另一方子串/低风险字段（英文名·别名）/「待填充」→ `auto`（自动归并） |
 | 撤销审批 | `python scripts/approve.py --stage N --revoke` |
+| **大纲分段审批（丙4，只影响阶段2）** | `python scripts/segment_cli.py list`（列分段与通过状态）· `status`（一段话总览，未全过时退出码 1）· `approve <段号>` / `revoke <段号>`。GUI 侧是收件箱 stage2 门内的「**分段审阅**」面板（`GET /outline/segments` 读、`POST /outline/segments/set` 勾），与 CLI 同一份判据：**全部分段通过才放行 `approve.py --stage 2`**（分段只拆阅读负担，不降强度）。开关 `gates.segment_approval`：键缺失或 false = 整本一次审，切不出 2 段时也自动放行 |
 | 打回阶段 N | `python scripts/reject.py --stage N "原因"`（记录原因+清理下游产物+重置状态+撤销审批；`--dry-run` 预演） |
 | 大纲体检 | `python scripts/outline_review.py`（确定性，标出空泛节点；默认附**与上一版对比**，`--no-compare` 关闭） |
 | 大纲迭代趋势 | `python scripts/outline_review.py --trend [--history 目录]`（确定性零 token：逐版本指标表 + **收敛判断** done/improving/stalled/mixed/insufficient，回答「还要不要再迭代一轮」） |

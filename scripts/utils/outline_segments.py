@@ -236,8 +236,11 @@ def gate_status(root, cfg=None, stage=2):
     more = " 等" if sm["pending"] > 8 else ""
     # 单行，不是段落：这条既要给 CLI 打印，也要进 GUI 的单行 toast
     # （多行文案塞进 toast 会折成一坨，命令就没人看得见了）。
+    # GUI 与 CLI 两条路都写在这一行里 —— 只给 CLI 会让不用终端的用户
+    # 在界面上点「确认放行」吃 409 却不知道下一步做什么。
     msg = ("阶段2 还有 %d/%d 段未通过（%s%s）—— 逐段读完再放行"
-           "（分段不降低强度：全过才放行）：python scripts/segment_cli.py list，"
-           "approve <段号> 全过后再跑 python scripts/approve.py --stage 2"
+           "（分段不降低强度：全过才放行）：GUI 走收件箱「分段审阅」逐段读完打勾，"
+           "或 CLI 跑 python scripts/segment_cli.py list 后 approve <段号>，"
+           "全过再跑 python scripts/approve.py --stage 2"
            % (sm["pending"], sm["total"], ids, more))
     return False, msg

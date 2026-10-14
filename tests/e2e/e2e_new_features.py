@@ -1,13 +1,22 @@
 # -*- coding: utf-8 -*-
-"""归档查看/删除 + 收件箱通知按钮的真机视觉验收（Playwright）。
+"""归档查看/删除 + 收件箱通知 + 分段审阅（丙4）的真机视觉验收（Playwright）。
 
 ## 为什么单独一个用例
 
-`e2e_ux_verify.py` 是既有功能的回归网，覆盖不到**本轮新增**的三处 UI：
-项目页归档行的「查看」「删除」、归档查看对话框、收件箱的通知开关。
+`e2e_ux_verify.py` 是既有功能的回归网，覆盖不到**本轮新增**的 UI：
+项目页归档行的「查看」「删除」、归档查看对话框、收件箱的通知开关，
+以及丙4 的**分段审阅面板**（收件箱 stage2 门内）。
 按钮"看着有、点了没反应"正是本项目栽过的翻车点（2026-10-06：收件箱
 「🔔 通知权限」点了毫无反应 —— requestPermission 只在 permission 为
 "default" 时才动作），所以新按钮必须真的点一次才算数。
+
+## 分段审阅为什么也必须真点
+
+后端的闸 `tests/unit/test_outline_segments.py` 已经验过（拦/放都是真的），
+但「闸开着、界面没做」正是丙4 上一轮留下的落差：用户在界面上点「确认放行」
+只吃到一个 toast，看不到**差哪几段**。本用例要证的是闭环：面板真的渲染 8 段
+→ 未全过时点「确认放行」被拦**且 toast 说得出差哪几段** → 逐段打勾真的推进
+进度 → 全过后真的放行（门消失）。
 
 ## 自带夹具与服务（不依赖手工准备）
 
@@ -138,13 +147,52 @@ def _force_agent_mode_off(system_yaml: Path):
         p.write_text("\n".join(out) + "\n", encoding="utf-8")
 
 
+# 与 prompts/stage2_global_outline.md 的固定输出格式一致（8 段）——
+# 分段就是按这些 `## ` 切的，夹具必须长得像真产物，否则验的不是真路径。
+SEG_OUTLINE = """# 《演示书》整体大纲
+
+## 起
+开端：主角登场，冲突埋下。（验收用占位文本）
+
+## 承
+承接：冲突升级，势力登场。
+
+## 转
+转折：真相揭露，关系翻转。
+
+## 合
+收束：主线闭合，余韵留白。
+
+## 关键节点
+- 第 5 章 码头对峙
+- 第 12 章 身份揭晓
+
+## 预计章节数
+24 章
+
+## 章节规划
+分三卷，每卷 8 章。
+
+## 要求
+保持冷峻文风，避免说明文。
+"""
+
+
 def make_fixture():
-    """临时项目根：一份可被"查看"、也能被"删除"的假归档。"""
+    """临时项目根：一份可被"查看"、也能被"删除"的假归档 + 阶段2 待审批的大纲。"""
     root = Path(tempfile.mkdtemp(prefix="nf_arch_fixture_"))
     book = root / "data" / "books" / "测试归档书"
     (book / "chapters").mkdir(parents=True, exist_ok=True)
     (root / "config").mkdir(parents=True, exist_ok=True)
     (root / "materials" / "raw").mkdir(parents=True, exist_ok=True)
+    # 分段审阅夹具（丙4）：8 段大纲 + 阶段2「已完成、未审批」→ 收件箱出 stage2 门。
+    (root / "data" / "outline").mkdir(parents=True, exist_ok=True)
+    (root / "data" / "outline" / "global.md").write_text(SEG_OUTLINE, encoding="utf-8")
+    (root / "data" / "state").mkdir(parents=True, exist_ok=True)
+    (root / "data" / "state" / "progress.json").write_text(
+        json.dumps({"project": "演示书",
+                    "stages": {"2": {"status": "done", "approved": False}}},
+                   ensure_ascii=False), encoding="utf-8")
     (book / "_meta.json").write_text(
         '{"book": "测试归档书", "archived_at": "2026-10-01 12:00:00"}', encoding="utf-8")
     (book / "chapters" / "01.md").write_text(
@@ -240,7 +288,7 @@ def main():
 
     ws = Path(fixture)
     print("=" * 62)
-    print("  新增前端验收：归档查看/删除 + 收件箱通知")
+    print("  新增前端验收：归档查看/删除 + 收件箱通知 + 分段审阅")
     print("  site = %s   api = %s" % (site, api))
     print("  fixture =", ws)
     print("=" * 62)
@@ -328,7 +376,67 @@ def main():
             check("点击可切换开/关（不再是死按钮）", before != after, (before, after))
             ux.shot(page, "NEW6_inbox_notify")
 
-            real_errs = [e for e in errs if e.startswith("error:")]
+            # ---------- 收件箱：分段审阅（丙4 · 闸与界面必须成对）----------
+            panel = page.locator(".seg-review")
+            check("stage2 门内渲染分段面板", panel.count() == 1, panel.count())
+            check("面板列出 8 段", panel.locator(".seg-row").count() == 8,
+                  panel.locator(".seg-row").count())
+            check("进度 0/8",
+                  "0/8" in page.locator(".seg-head .pill").inner_text(),
+                  page.locator(".seg-head .pill").inner_text())
+            check("未全过时拦它的理由直接显示（不是哑闸）",
+                  page.locator(".seg-gate-msg").count() == 1,
+                  page.locator(".seg-gate-msg").count())
+
+            # 展开阅读：正文真在场（只有标题的空壳等于让人盲签）
+            panel.locator(".seg-toggle").first.click()
+            page.wait_for_timeout(300)
+            txt = panel.locator(".seg-text")
+            check("点标题展开该段正文",
+                  txt.count() == 1 and "开端" in txt.inner_text(),
+                  txt.inner_text()[:60] if txt.count() else "无正文")
+            ux.shot(page, "NEW7_segment_panel")
+
+            # 未全过时点「确认放行」→ 必须被拦，且 toast 说得出差哪几段 + 下一条命令
+            page.locator(".gate-head button:has-text('确认放行')").click()
+            page.wait_for_timeout(500)
+            toast = page.locator(".toast").inner_text()
+            check("未全过 → 放行被拦", "段未通过" in toast, toast[:160])
+            check("toast 给出差哪几段（不是哑闸）", "还有" in toast, toast[:200])
+            check("toast 给出下一条命令（不是死胡同）", "segment_cli" in toast, toast[:240])
+            check("被拦后门仍在（stage2 未被误批）", page.locator(".seg-review").count() == 1)
+
+            # 逐段打勾：走的是 GUI 双因子写入端点，进度必须真推进
+            for _ in range(8):
+                btn = page.locator(".seg-row button:has-text('通过本段')")
+                if btn.count() == 0:
+                    break
+                btn.first.click()
+                page.wait_for_timeout(450)
+            check("八段全部勾完",
+                  page.locator(".seg-row button:has-text('通过本段')").count() == 0)
+            check("进度 8/8",
+                  "8/8" in page.locator(".seg-head .pill").inner_text(),
+                  page.locator(".seg-head .pill").inner_text())
+            check("全过后拦它的理由消失",
+                  page.locator(".seg-gate-msg").count() == 0)
+            ux.shot(page, "NEW8_segment_all_approved")
+
+            # 全过 → 放行真的通（门消失）
+            page.locator(".gate-head button:has-text('确认放行')").click()
+            page.wait_for_timeout(1000)
+            check("全过后放行成功（stage2 门消失）",
+                  page.locator(".seg-review").count() == 0,
+                  page.locator(".seg-review").count())
+
+            # 唯一预期的「报错」是上面那次刻意触发的 409：Chromium 把被拒的
+            # fetch 记成一条网络级 console error，而它正是本用例要证的拦截本身。
+            # 只放行这一条、且必须真的发生过 —— 放宽成「忽略全部 409」会让
+            # 真出问题的冲突（如并发写）一起溜过去。
+            blocked = [e for e in errs
+                       if "Failed to load resource" in e and "409" in e]
+            check("刻意触发的 409 拦截确实发生过", len(blocked) >= 1, blocked[:2])
+            real_errs = [e for e in errs if e.startswith("error:") and e not in blocked]
             check("无 console error", not real_errs, real_errs[:3])
         finally:
             ctx.close()

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""丙4 大纲分段审批回归 —— 28 断言。
+"""丙4 大纲分段审批回归（切分 / 状态 / 判据 / CLI / 接线 / GUI 侧成对）。
 
 守四条契约（utils/outline_segments 模块 docstring）：
 1. 旧审核不为新内容背书 —— global.md 一改，全部分段打回未通过
@@ -299,6 +299,42 @@ def test_wiring():
     check("7.4 本仓已显式开启 segment_approval", "segment_approval: true" in cfg)
 
 
+def test_gui_wiring():
+    """[8] GUI 侧接线 —— 闸与界面必须成对（丙4 上一轮的落差就出在这）。
+
+    上一轮交付时闸已开着、分段审阅界面还没做：用户在界面上点「确认放行」
+    只会吃到一个 409，看不到差哪几段。这些断言钉住「界面在场 + 写侧有闸」，
+    防止又一次只交付一半。
+    """
+    print("\n[8] GUI 侧接线（分段审阅界面 + 写侧闸必须成对）")
+    from utils import agent_guard
+    seg = (REPO / "scripts" / "nf_api_domains" / "segments.py").read_text(encoding="utf-8")
+    api = (REPO / "scripts" / "nf_api.py").read_text(encoding="utf-8")
+    check("8.1 读写两侧住在域模块（不内联回 do_GET/do_POST）",
+          seg.count("def handle_segments_") == 2, seg.count("def handle_segments_"))
+    check("8.2 do_GET 有 /outline/segments 转发", 'p == "/outline/segments"' in api)
+    check("8.3 do_POST 有 /outline/segments/set 转发",
+          'p == "/outline/segments/set"' in api)
+    check("8.4 写侧列入 FORBIDDEN_IN_AGENT_MODE（可读不可勾）",
+          agent_guard.is_forbidden_in_agent_mode("/outline/segments/set") is True)
+    check("8.5 读侧不拦（否则 Agent 看不到差哪几段）",
+          agent_guard.is_forbidden_in_agent_mode("/outline/segments") is False)
+    check("8.6 放行判据不复述（调 gate_status，不 def gate_status）",
+          "gate_status" in seg and "def gate_status" not in seg)
+    check("8.7 双因子判据不重写（复用 project._gui_only，不自调 is_trusted_gui）",
+          "from nf_api_domains.project import _gui_only" in seg
+          and "is_trusted_gui(" not in seg)
+    app = (REPO / "console" / "src" / "App.vue").read_text(encoding="utf-8")
+    check("8.8 前端有分段审阅面板", 'class="seg-review"' in app)
+    check("8.9 前端真的会提交勾选（走写侧端点）", '"/outline/segments/set"' in app)
+    check("8.10 面板跟着 stage2 门自动加载（不是藏在某个按钮后面）",
+          "loadSegReview()" in app and "pendingGates.value.some" in app)
+    css = (REPO / "console" / "src" / "style.css").read_text(encoding="utf-8")
+    blk = css[css.find(".seg-review"):] if ".seg-review" in css else ""
+    check("8.11 样式在场且走主题变量（硬编码色值在暗色主题下看不清）",
+          ".seg-review" in blk and "var(--" in blk and "#9e4f4f" not in blk)
+
+
 def main():
     test_split()
     test_state_flow()
@@ -307,6 +343,7 @@ def main():
     test_cli()
     test_switch_off()
     test_wiring()
+    test_gui_wiring()
     print("\n总计: %d  通过: %d  失败: %d" % (len(PASS) + len(FAIL), len(PASS), len(FAIL)))
     if FAIL:
         print("失败项: %s" % "；".join(FAIL))
