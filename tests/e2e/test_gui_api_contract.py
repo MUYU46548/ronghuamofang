@@ -115,25 +115,67 @@ def _extract_from_body(body):
 
 
 def _handler_methods(tree):
-    """找出 nf_api.py 里 Handler 类的 do_GET / do_POST 方法节点。"""
-    found = {}
+    """找出 nf_api.py 里 Handler 类的 do_GET / do_POST 方法节点。
+
+    另附 `_all`：类内**全部**方法名 → 节点，供 `_follow` 追转发用
+    （`_do_GET_raw` 不是 do_GET/do_POST，只收两个入口会追不到它）。
+    """
+    found, allm = {}, {}
     for node in ast.walk(tree):
         if isinstance(node, ast.ClassDef) and node.name == "Handler":
             for sub in node.body if hasattr(node, "body") else []:
-                if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef)) \
-                        and sub.name in ("do_GET", "do_POST"):
-                    found[sub.name] = sub
+                if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    allm[sub.name] = sub
+                    if sub.name in ("do_GET", "do_POST"):
+                        found[sub.name] = sub
+    found["_all"] = allm
     return found
 
 
+def _follow(methods_map, node, limit=6):
+    """跟随 `self._do_GET_raw()` 这类**转发**，把真正的分发链找回来。
+
+    2026-10 修：`06473c5` 给 GET 加了兜底包装，`do_GET` 从此只剩
+    `try: self._do_GET_raw() except → 500`（19 行、零个路由分支）。本函数
+    只看 do_GET 本身时，整张 GET 路由表被判成空 → 13 项断言成片假红，
+    新端点的核对也一起失去意义（丙4 分段审阅接入时实测踩到）。
+    只跟随 `_do_*` 形态的转发，避免误入 `_send` / `_stream_sse` 这类执行函数。
+    """
+    out, seen, queue = [], set(), []
+    if node is not None:
+        seen.add(node.name)
+        queue.append(node)
+    while queue and len(out) < limit:
+        m = queue.pop(0)
+        out.append(m)
+        for n in ast.walk(m):
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) \
+                    and isinstance(n.func.value, ast.Name) and n.func.value.id == "self" \
+                    and n.func.attr.startswith("_do_") and n.func.attr in methods_map \
+                    and n.func.attr not in seen:
+                seen.add(n.func.attr)
+                queue.append(methods_map[n.func.attr])
+    return out
+
+
 def server_routes():
-    """按方法拆分路由表。"""
+    """按方法拆分路由表（含 do_GET → _do_GET_raw 的转发）。"""
     src = API_PY.read_text(encoding="utf-8")
     tree = ast.parse(src)
     methods = _handler_methods(tree)
-    blocks = {}
+    full = methods.get("_all") or methods
+    blocks, chain = {}, {}
     for name, m in (("GET", methods.get("do_GET")), ("POST", methods.get("do_POST"))):
-        blocks[name] = _extract_from_body(m.body) if m else (set(), set(), set())
+        nodes = _follow(full, m)
+        chain[name] = nodes
+        exact, prefixes, templated = set(), set(), set()
+        for x in nodes:
+            e, p, t = _extract_from_body(x.body)
+            exact |= e
+            prefixes |= p
+            templated |= t
+        blocks[name] = (exact, prefixes, templated)
+    server_routes.chain = chain          # 供「死分支」等检查复用同一条链
     return blocks, src, methods
 
 
@@ -217,6 +259,7 @@ def main():
     for m in ("GET", "POST"):
         e, p, t = routes[m]
         print("do_%s：精确 %d / 前缀 %d / 模板 %d" % (m, len(e), len(p), len(t)))
+        print("   （链: %s）" % " -> ".join(n.name for n in server_routes.chain[m]))
     calls = gui_calls()
     print("前端调用点：%d 个 (method, path) 组合\n" % len(calls))
 
@@ -253,7 +296,9 @@ def main():
                        # 2026-09-21：大纲迭代闭环 + 沙盒审核队列（GUI 页签依赖）
                        ("GET", "/outline/trend"), ("GET", "/outline/advise"),
                        ("GET", "/sandbox/queue"), ("GET", "/sandbox/file"),
-                       ("POST", "/sandbox/review")):
+                       ("POST", "/sandbox/review"),
+                       # 2026-10-14：丙4 分段审阅（读写两侧成对，缺一侧 = 哑闸）
+                       ("GET", "/outline/segments"), ("POST", "/outline/segments/set")):
         check("%s %s" % (method, ep), ep in routes[method][0])
 
     print("\n=== 4. do_GET / do_POST 内的裸 import 是否遮蔽模块级名 ===")
@@ -303,8 +348,10 @@ def main():
           "均不遮蔽模块级名，可后续统一提取" % inline_count)
 
     print("\n=== 5. 死分支 / 裸尾随代码不再回来 ===")
-    get_node = methods["do_GET"]
-    get_body_src = ast.unparse(get_node)
+    # 跟随 do_GET → _do_GET_raw 的转发：只看 do_GET 包装层的话，这三条检查
+    # 会因为「包装层里当然没有裸 read_text」而恒绿（空断言）。
+    get_body_src = "\n".join(ast.unparse(n)
+                             for n in server_routes.chain.get("GET", []))
     check("do_GET 内不再出现裸 read_text(/write_text(（未导入的名字）",
           not re.search(r"(?<![.\w])(read_text|write_text)\(", get_body_src),
           re.findall(r"(?<![.\w])(?:read_text|write_text)\(", get_body_src)[:5])
