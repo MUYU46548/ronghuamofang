@@ -284,7 +284,9 @@ def probe_ancestry(max_depth=48):
     """实测祖先进程链：返回**从父进程向上**的 core 名列表（近 → 远）。
 
     读不到任何父链时返回 `None`（取证失败，调用方 fail-closed 拒绝）；
-    中途某个祖先读不到名字 → 记 "?" 后截断（截断链同样拒绝）。
+    中途某个祖先读不到名字 → 记 "?" 后截断（截断链同样拒绝）；
+    **走满 max_depth 仍未到锚点/链尾 → 同样记 "?"**（深度上限截断与读名失败同款
+    fail-closed——2026-10-15 红队实弹 cmd×48 曾在此静默放行，勿回退）。
     """
     try:
         info = _win_proc_info if os.name == "nt" else _posix_proc_info
@@ -292,7 +294,13 @@ def probe_ancestry(max_depth=48):
         seen = {os.getpid()}
         pid = info(os.getpid())[0]
         depth = 0
-        while pid and pid > 0 and pid not in seen and depth < max_depth:
+        while pid and pid > 0 and pid not in seen:
+            if depth >= max_depth:
+                # 深度上限截断 = 与「读不到名字」同款截断标记（2026-10-15 红队实弹：
+                # cmd×48 把自动化宿主推出上限外，旧实现静默返回"看似完整"的链 → fail-open）。
+                # 走满 max_depth 仍未落到锚点/链尾 = 无法核验，fail-closed。
+                names.append("?")
+                break
             seen.add(pid)
             parent, name = info(pid)
             if not name:

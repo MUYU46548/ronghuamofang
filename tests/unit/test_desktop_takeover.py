@@ -65,7 +65,11 @@ seed_lines = [l for l in main.splitlines() if "const SEED_VERSION" in l]
 seed_ok = False
 if seed_lines:
     try:
-        seed_ok = int(seed_lines[0].split("=")[1].strip().rstrip(";")) >= 21
+        # 2026-10-15 修：SEED_VERSION 行允许带 `//` 注释（6545802 起有）——
+        # 旧 split("=")[1].rstrip(";") 见注释即 ValueError → 恒假红。
+        import re as _re
+        m = _re.search(r"SEED_VERSION\s*=\s*(\d+)", seed_lines[0])
+        seed_ok = bool(m) and int(m.group(1)) >= 21
     except ValueError:
         seed_ok = False
 check("SEED_VERSION >= 21（payload 脚本有实质变更）", seed_ok, seed_lines[:1])

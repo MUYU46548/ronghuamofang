@@ -367,6 +367,59 @@ def case_audit_detail_intact():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+# ============================================================ 10. 深度上限截断 fail-closed
+def case_depth_cap_truncation():
+    """红队 2026-10-15 实弹回归（P10 真绕过）：cmd×48 深链曾静默放行。
+
+    旧 probe_ancestry 走满 max_depth 后**静默退出、不打截断标记**，返回一条
+    「前 48 跳全是锚点(cmd)、宿主全在上限之外」的看似完整链 → 放行。
+    规格（V5）：取证失败**或链截断** = fail-closed。本用例钉死：
+    深度上限截断必须打 "?"，且消费端 cli_human_evidence 据此拒绝。
+    """
+    print("\n【10】祖先链深度上限截断 → fail-closed（红队 P10 绕过回归）")
+    info_slot = "_win_proc_info" if os.name == "nt" else "_posix_proc_info"
+    real_info = getattr(agent_guard, info_slot)
+
+    def deep_info(pid):
+        # 自身 → 1000 起每级 parent = pid+1、名字恒 cmd：永远到不了锚点/链尾
+        if pid == os.getpid():
+            return (1000, "self")
+        return (pid + 1, "cmd")
+
+    def shallow_info(pid):
+        # cmd → explorer：2 跳内正常落锚点（对照组，证明修复不误伤短链）
+        if pid == os.getpid():
+            return (1000, "self")
+        if pid == 1000:
+            return (1001, "cmd")
+        return (1, "explorer")
+
+    try:
+        agent_guard.__dict__[info_slot] = deep_info
+        chain = agent_guard.probe_ancestry()          # 默认 max_depth=48，对齐实弹
+        check("走满 max_depth 的深链末尾必须打 '?'（旧实现静默返回=绕过）",
+              isinstance(chain, list) and len(chain) > 48 and chain[-1] == "?",
+              "len=%s tail=%s" % (len(chain) if chain else chain,
+                                  chain[-1] if chain else None))
+        check("截断标记前的可见段只有 cmd（复现宿主被推出上限外的攻击形态）",
+              isinstance(chain, list) and all(h == "cmd" for h in chain[:-1]),
+              chain[:4] if chain else chain)
+        ok, ev = agent_guard.cli_human_evidence(
+            source_env="", isatty=(True, True), agent_mode=True, ancestry=chain)
+        check("消费端据 '?' 截断 fail-closed 拒（P10 端到端回归）",
+              ok is False and "不完整" in ev, ev)
+
+        agent_guard.__dict__[info_slot] = shallow_info
+        chain2 = agent_guard.probe_ancestry()
+        check("对照组：短链正常落锚点不打 '?'（修复零误伤）",
+              chain2 == ["cmd", "explorer"], chain2)
+        ok2, ev2 = agent_guard.cli_human_evidence(
+            source_env="", isatty=(True, True), agent_mode=True, ancestry=chain2)
+        check("对照组：短链仍可正常放行", ok2 is True, ev2)
+    finally:
+        agent_guard.__dict__[info_slot] = real_info
+
+
 def main():
     print("=" * 62)
     print("  Agent 模式 CLI 守卫自检（P2）")
@@ -380,6 +433,7 @@ def main():
     case_reject_cli_guarded()
     case_http_layer_uses_same_set()
     case_audit_detail_intact()
+    case_depth_cap_truncation()
     print("\n" + "=" * 62)
     print("  通过 %d / 失败 %d" % (len(PASS), len(FAIL)))
     for f in FAIL:
