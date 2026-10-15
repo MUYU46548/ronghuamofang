@@ -6,6 +6,18 @@
 `gates.agent_mode = true` 时：**外部 Agent 可读、可跑流水线，但不能代替用户审批**。
 这是设计，不是 bug。
 
+## 方案A（2026-10-15 用户拍板）：加固档下 CLI 审批**无条件拒绝**
+
+原口径是「正路 = 真实交互式终端（TTY 快筛 + 祖先链取证），伪造须留痕可追责」。
+用户拍板翻案，原话：**「都用桌面端了，没人会用 CLI」** —— 于是加固档下 CLI 审批
+（`approve.py` / `reject.py` / `segment_cli.py` 勾段与撤销）**无论证据多完美一律拒绝**
+（判据唯一实现 = `cli_approval_gate()`，策略原因进台账），审批的唯一入口 = 桌面端 GUI 双因子。
+
+- 本文件其余 V1/V2/fail-closed 规格**继续有效**，但语义降级为**证据采集与留痕**：
+  `cli_human_evidence` 仍是唯一证据实现，**正判不再等于放行**；
+- 祖先链 / TTY 机制保留作纵深防御（2026-10-15 红队深度截断修复 `?` 标记不回退）；
+- 标准档（`agent_mode=false`）的 CLI 语义与 HTTP 双因子路径**不受影响**。
+
 ## 为什么要有本模块
 
 原先这条守卫只写在 `nf_api.do_POST` 里（HTTP 侧，靠 `X-Mofang-Source: gui` 头区分来源），
@@ -316,6 +328,28 @@ def probe_ancestry(max_depth=48):
         return names
     except Exception:                                       # noqa: BLE001
         return None
+
+
+def cli_approval_gate(explicit_human=False, source_env=None, isatty=None,
+                      ancestry=_ANCESTRY_UNSET):
+    """CLI 审批闸（**方案A**，2026-10-15 用户拍板：「都用桌面端了，没人会用 CLI」）。
+
+    只应在 `agent_mode=true` 分支调用（调用方已判模式）。返回 `(allowed, evidence)`：
+
+    - `allowed` **恒 False** —— 加固档下 CLI 审批（approve / reject / 分段勾选）
+      无论 TTY / 祖先链 / 声明证据多完美，一律拒绝；审批唯一入口 = 桌面端 GUI 双因子。
+    - `evidence` = 策略原因 + `cli_human_evidence` 的原证据（含声明痕迹），供台账留痕
+      —— 证据照采，只是不再构成放行依据。
+
+    历史：2026-10-04 V5 的正路「真实交互式终端」自此废止；`cli_human_evidence`
+    原样保留（标准档语义 + 证据层 + 纵深防御）。**勿把本函数改回「证据好就放行」** ——
+    那会让 CLI 重新变成守卫最脆的攻击面（红队 63 向量里一多半攻的就是那条路）。
+    """
+    _ok, ev = cli_human_evidence(source_env=source_env, isatty=isatty,
+                                 explicit_human=explicit_human,
+                                 agent_mode=True, ancestry=ancestry)
+    return False, ("方案A(2026-10-15): 加固档 CLI 审批一律拒绝、只走桌面端"
+                   "（原正路「真实交互终端」废止）；原证据: " + ev)
 
 
 def cli_human_evidence(source_env=None, isatty=None, explicit_human=False,

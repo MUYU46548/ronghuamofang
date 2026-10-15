@@ -91,13 +91,15 @@ orchestrator 启动横幅会打印生效值（`gates: auto_rewrite=… auto_refi
 格式不符（含目录引用指向不存在的目录）→ `InputSectionFormatError`（行号 + 原文 + 正确写法），
 **不再静默返空** —— stage5 空稿事故的同类根因。
 
-**Agent 模式守卫（CLI 侧）**：`gates.agent_mode=true` 时，`approve.py` / `reject.py` 会拒绝
-**非人工来源**。人工证据 = **真实交互终端**：双端 `isatty` 只是前置快筛，主判据为
-**祖先进程链取证**（链须落在用户终端锚点 explorer/cmd/powershell/bash/WindowsTerminal，
-禁 node/python/pythonw/hermes*/winpty 等自动化宿主；取证失败或链截断 = fail-closed 拒）。
-`--human` 与 `MOFANG_SOURCE=gui` 在 agent_mode 下**不构成人工证据**——只当声明留痕进
-`agent_audit.jsonl`，不参与放行（2026-10-04 守卫加固 V1/V2）；拒绝文案零通道名，只说
-「停手并报告用户」（V5，拒文本身不教绕行）。⚠️ 这不是沙箱，别对外宣称更强。
+**Agent 模式守卫（CLI 侧，2026-10-15 方案A）**：`gates.agent_mode=true` 时，`approve.py` /
+`reject.py` / `segment_cli.py`（勾段与撤销）对 CLI 审批**无条件拒绝**——判据唯一实现
+`utils/agent_guard.cli_approval_gate()`（恒拒；策略原因 + 原证据进 `agent_audit.jsonl` 台账）。
+用户拍板原话「都用桌面端了，没人会用 CLI」，**审批唯一入口 = 桌面端 GUI 双因子**。
+原正路「真实交互终端」（双端 `isatty` 快筛 + 祖先进程链取证）废止但机制保留：`cli_human_evidence`
+仍是唯一证据实现（**正判 ≠ 放行**），链须落在用户终端锚点、不得经自动化宿主、取证失败或链截断
+= fail-closed 拒（2026-10-15 红队修复：深度上限截断同样打 `?`）；`--human` / `MOFANG_SOURCE=gui`
+只当声明留痕，不参与放行（V1/V2）。拒绝文案零通道名，只说「停手并报告用户」（V5，拒文不教绕行）。
+只读命令（`segment_cli list/status` 等）不受方案A限制（Agent 可读）。⚠️ 这不是沙箱，别对外宣称更强。
 
 **控制台输出纪律**：`print` 里**不要**写非 GBK 字符（`¥`/`⚠️`/`✅`/emoji）——
 stdout 被管道捕获时 Python 用 cp936，一行日志就能 `UnicodeEncodeError` 打死长跑

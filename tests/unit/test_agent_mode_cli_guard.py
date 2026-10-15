@@ -26,6 +26,11 @@ CLI 层就是敞开的。本用例守两件事：
 - 正路（真实交互终端）= 用例 2b 单元级注入祖先链断言；真实终端的动态放行验收
   归红队/用户亲手 TTY（修复方不自验，Step 4b）。
 
+2026-10-15 方案A（用户拍板「都用桌面端了，没人会用 CLI」）：
+- 加固档下 CLI 审批（approve/reject/segment_cli 勾段）改经 `cli_approval_gate` **恒拒**，
+  证据只入台账；本用例新增【11】【12】两节钉死「完美证据也拒 + 写前拦截 + 只读不受限」；
+- `cli_human_evidence` 原样保留（标准档语义 + 证据层 + 纵深防御），正判 ≠ 放行。
+
 用法：python tests/unit/test_agent_mode_cli_guard.py
 """
 import io
@@ -332,8 +337,10 @@ def case_http_layer_uses_same_set():
         s = (ROOT / "scripts" / script).read_text(encoding="utf-8")
         check("%s 有 agent_mode 守卫（CLI 后门已堵）" % script,
               "agent_guard.agent_mode_enabled" in s and action in s, script)
-        check("%s 接线加固档（cli_human_evidence 传 agent_mode=True）" % script,
-              "agent_mode=True" in s, script)
+        # 2026-10-15 方案A 契约更新（旧断言「agent_mode=True 传参」随之作废）：
+        # 加固档审批入口改经 cli_approval_gate 恒拒，证据函数不再直接决定放行。
+        check("%s 接线方案A（调 cli_approval_gate，加固档恒拒）" % script,
+              "cli_approval_gate" in s, script)
     check("HTTP 403 拒文共用零通道文案（V5，不教「仅 GUI」通道）",
           "refusal_message(" in src and "仅 GUI 可执行" not in src)
 
@@ -420,6 +427,83 @@ def case_depth_cap_truncation():
         agent_guard.__dict__[info_slot] = real_info
 
 
+# ============================================================ 11. 方案A CLI 审批恒拒
+def case_plan_a_cli_approval():
+    """方案A（2026-10-15 拍板）：加固档 CLI 审批无条件拒，证据层原样保留。"""
+    print("\n【11】方案A：加固档 CLI 审批无条件拒（正路废止，审批只走桌面端）")
+    GOOD = ["cmd", "Windowsterminal", "explorer"]
+
+    # 证据层不变：完美链在证据函数里仍判正（留痕/纵深防御用；正判不再等于放行）
+    ok, ev = agent_guard.cli_human_evidence(
+        source_env="", isatty=(True, True), agent_mode=True, ancestry=GOOD)
+    check("证据层保留：完美链 cli_human_evidence 仍判正（非放行依据）", ok is True, ev)
+
+    # 策略层：同一完美证据过审批闸恒拒
+    allowed, ev = agent_guard.cli_approval_gate(
+        source_env="", isatty=(True, True), ancestry=GOOD)
+    check("方案A：完美证据过审批闸仍恒拒", allowed is False, ev)
+    check("拒因写明方案A策略（策略原因进台账）",
+          "方案A" in ev and "只走桌面端" in ev, ev)
+
+    # 声明通道同理：不放行，且声明痕迹仍在证据里（留痕可追责）
+    allowed, ev = agent_guard.cli_approval_gate(
+        source_env="gui", explicit_human=True, isatty=(True, True), ancestry=GOOD)
+    check("方案A：声明痕迹同样不放行且留痕于证据",
+          allowed is False and "声明" in ev, ev)
+
+    # 审批闸只服务加固档：显式不传 agent_mode 也不改变恒拒语义（策略不含证据分支）
+    allowed2, _ = agent_guard.cli_approval_gate(ancestry=None)
+    check("取证失败形态（ancestry=None）也恒拒且不抛", allowed2 is False)
+
+
+# ============================================================ 12. segment_cli 同族守卫
+def case_segment_cli_guarded():
+    """方案A：勾段 CLI 此前零守卫（HTTP 侧 GUI-only、CLI 侧敞着）——同族洞用例。"""
+    print("\n【12】segment_cli 勾段守卫（方案A；list/status 只读不受限）")
+    seg_state = Path("data") / "state" / "outline_segment_approval.json"
+
+    def run_seg(root, *cmd):
+        p = subprocess.run(
+            [sys.executable, str(ROOT / "scripts" / "segment_cli.py")] + list(cmd),
+            cwd=str(root), capture_output=True, encoding="utf-8",
+            errors="replace", timeout=60)
+        return p.returncode, (p.stdout or "") + (p.stderr or "")
+
+    def mk_root(agent_mode):
+        tmp = Path(tempfile.mkdtemp(prefix="nf_seg_a_"))
+        (tmp / "config").mkdir(parents=True)
+        (tmp / "config" / "system.yaml").write_text(
+            "engine: hermes\ngates:\n  agent_mode: %s\n"
+            % ("true" if agent_mode else "false"), encoding="utf-8")
+        return tmp
+
+    tmp = mk_root(True)
+    try:
+        rc, out = run_seg(tmp, "approve", "s01")
+        check("agent_mode 下勾段被守卫拒（rc=1 + 拒文）",
+              rc == 1 and "[guard] 拒绝执行" in out, out[-300:])
+        check("拒文零通道名（V5 口径延续到 segment_cli）",
+              "--human" not in out and "MOFANG_SOURCE" not in out, out[-300:])
+        check("写前拦截：分段状态文件未被创建",
+              not (tmp / seg_state).exists(), tmp / seg_state)
+        rc2, out2 = run_seg(tmp, "revoke", "s01")
+        check("撤销同样被拒（审批族双向覆盖）",
+              rc2 == 1 and "[guard] 拒绝执行" in out2, out2[-200:])
+        rc3, out3 = run_seg(tmp, "status")
+        check("只读 status 不受方案A拦（无守卫拒文）",
+              "[guard] 拒绝执行" not in out3, out3[-200:])
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    tmp2 = mk_root(False)
+    try:
+        rc, out = run_seg(tmp2, "approve", "s01")
+        check("标准档不触发方案A（无守卫拒文，业务错另说）",
+              "[guard] 拒绝执行" not in out, out[-200:])
+    finally:
+        shutil.rmtree(tmp2, ignore_errors=True)
+
+
 def main():
     print("=" * 62)
     print("  Agent 模式 CLI 守卫自检（P2）")
@@ -434,6 +518,8 @@ def main():
     case_http_layer_uses_same_set()
     case_audit_detail_intact()
     case_depth_cap_truncation()
+    case_plan_a_cli_approval()
+    case_segment_cli_guarded()
     print("\n" + "=" * 62)
     print("  通过 %d / 失败 %d" % (len(PASS), len(FAIL)))
     for f in FAIL:

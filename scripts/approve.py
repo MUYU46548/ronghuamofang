@@ -37,11 +37,11 @@ def main():
     args = parser.parse_args()
 
     # Agent 模式守卫（CLI 层）：判据与 HTTP 层同源（utils/agent_guard）。
-    # agent_mode=True = 加固档（2026-10-04）：声明通道死透 + 祖先链主判据。
+    # agent_mode=True = 加固档：2026-10-15 方案A 起 CLI 审批**恒拒**（cli_approval_gate），
+    # 证据只入台账；正路「真实交互终端」废止，审批只走桌面端 GUI 双因子。
     # 必须在**任何写操作之前**：一旦快照/改 progress.json 就晚了。
     if agent_guard.agent_mode_enabled(agent_guard.load_project_config()):
-        is_human, evidence = agent_guard.cli_human_evidence(
-            explicit_human=args.human, agent_mode=True)
+        is_human, evidence = agent_guard.cli_approval_gate(explicit_human=args.human)
         action = "/approve?revoke" if args.revoke else "/approve"
         if not is_human:
             print(agent_guard.refusal_message(action, evidence, entry="approve.py CLI"))

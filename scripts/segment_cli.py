@@ -31,6 +31,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from utils.outline_segments import gate_status, set_segment, summary  # noqa: E402
 from utils.file_io import read_text  # noqa: E402
 from utils.outline_segments import DOC_REL  # noqa: E402
+from utils import agent_guard  # noqa: E402
 
 STATUS_CN = {"approved": "已通过", "pending": "未通过"}
 
@@ -81,6 +82,20 @@ def main():
             for ln in why.splitlines():
                 print("  " + ln)
         return 0 if ok else 1
+
+    # 方案A（2026-10-15）：勾段 = 替用户读一段，与 HTTP 侧 /outline/segments/set 同族
+    # （那边 GUI 双因子 + Agent 禁用名单，这边此前**零守卫**——同族洞一并堵上）。
+    # agent_mode=true 下勾段/撤销 CLI 无条件拒，归用户在桌面端分段审阅面板里点；
+    # 只读命令（list/status）不受影响（Agent 可读）。位于 set_segment 之前 = 写前拦截。
+    if agent_guard.agent_mode_enabled(agent_guard.load_project_config()):
+        _allowed, evidence = agent_guard.cli_approval_gate()
+        action = "/outline/segments/set"
+        print(agent_guard.refusal_message(action, evidence, entry="segment_cli.py CLI"))
+        agent_guard.log_audit(action, method="CLI", status=403,
+                              source=agent_guard.normalize_source(
+                                  os.environ.get("MOFANG_SOURCE")) or "unknown",
+                              detail="blocked: " + evidence)
+        return 1
 
     ok, msg = set_segment(".", args.id, approved=(args.cmd == "approve"))
     print(("[approve] " if args.cmd == "approve" else "[revoke] ") + msg)

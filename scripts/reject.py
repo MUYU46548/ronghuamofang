@@ -173,12 +173,12 @@ def main():
     # Agent 模式守卫（CLI 层，与 approve.py / HTTP 侧**同一份判据**）。
     # 打回同样是「代替用户拍板」的动作（HTTP 侧 /reject 就在禁止清单里），
     # 守卫只补 approve.py 的话，这里就还是敞着的后门。
-    # agent_mode=True = 加固档（2026-10-04）：声明通道死透 + 祖先链主判据。
+    # 2026-10-15 方案A：加固档 CLI 审批**恒拒**（cli_approval_gate），证据只入台账；
+    # 正路「真实交互终端」废止，审批只走桌面端 GUI 双因子。
     # ⚠️ 必须**先于**任何写操作（progress.json 变更与产物清理都在后面）。
     # 配置读取走 CWD 项目优先（与 progress.json 同根；实现见 agent_guard）。
     if agent_guard.agent_mode_enabled(agent_guard.load_project_config()):
-        is_human, evidence = agent_guard.cli_human_evidence(
-            explicit_human=args.human, agent_mode=True)
+        is_human, evidence = agent_guard.cli_approval_gate(explicit_human=args.human)
         if not is_human:
             print(agent_guard.refusal_message("/reject", evidence, entry="reject.py CLI"))
             agent_guard.log_audit("/reject", method="CLI", status=403,
