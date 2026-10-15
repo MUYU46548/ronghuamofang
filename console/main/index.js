@@ -379,7 +379,7 @@ function getWorkspaceSource() {
 //   · 前端（asar，不走种子）：项目页出厂徽标 / 启动提示词剥离说明书 /
 //     阶段复制改任务简报（原样贴模板会被外部 Agent 按红线判「模板不是任务」停工）。
 // **先 bump 再 electron-builder**。
-const SEED_VERSION = 26;   // 0.6.11: scripts/ 新增分段审阅 + 数据迁移机制（payload 变更）
+const SEED_VERSION = 27;   // 0.6.11: 红队修复（agent_guard 深度截断 fail-closed，payload 变更）
 
 // 只播种/刷新**代码与提示词**目录。
 // 刻意不含 data/：那是用户产物（章节、设定、大纲），任何情况下都不能被覆盖。
