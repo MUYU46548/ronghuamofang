@@ -1,6 +1,10 @@
 # -*- coding: utf-8 -*-
 """规划四态状态机（丙0）CLI 工具。
 
+安全护栏（P2，2026-10-16）：`gates.agent_mode=true` 时 select/write/drop/revive
+**拒绝执行**（规划决策权归用户；判据单源 utils/agent_guard，与 HTTP 侧
+/plan/select|write|drop|revive 同族）；propose 与只读命令不受限。
+
 用法：
   python scripts/plan_cli.py list
   python scripts/plan_cli.py propose "标题" "摘要" [--source outline_advisor]
@@ -14,11 +18,13 @@
 """
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+from utils import agent_guard                                  # noqa: E402
 from utils.plan_state import (
     propose, select, write, drop, revive,
     list_items, get, stats,
@@ -140,8 +146,27 @@ def main():
     sp.set_defaults(func=cmd_audit)
 
     args = p.parse_args()
+
+    # Agent 模式守卫（P2，2026-10-16，与 HTTP 侧同族）：/plan/select|write|drop|revive
+    # 四个写端点早在 FORBIDDEN_IN_AGENT_MODE 里，CLI 这四个同名命令此前**零守卫**
+    # —— Agent 一条命令就能替用户拍板（规划决策权归用户）。gates.agent_mode=true 下
+    # 无条件拒（方案A 口径，判据单源 agent_guard.cli_approval_gate），位于任何状态
+    # 写入之前；propose 是 AI 本职（可提案不可自选），list/get/stats/audit 只读，
+    # 均不受限。与 approve.py / segment_cli.py 同款接线。
+    if args.cmd in ("select", "write", "drop", "revive") and \
+            agent_guard.agent_mode_enabled(agent_guard.load_project_config()):
+        _allowed, evidence = agent_guard.cli_approval_gate()
+        action = "/plan/" + args.cmd
+        print(agent_guard.refusal_message(action, evidence, entry="plan_cli.py CLI"))
+        agent_guard.log_audit(action, method="CLI", status=403,
+                              source=agent_guard.normalize_source(
+                                  os.environ.get("MOFANG_SOURCE")) or "unknown",
+                              detail="blocked: " + evidence)
+        return 1
+
     args.func(args)
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

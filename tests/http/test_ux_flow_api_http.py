@@ -12,6 +12,7 @@
   POST /stage/skip       缺 confirm / 非法 stage → 400（防误点放行整条管线）
   POST /stage/skip       正常跳过 → progress.json 写 done+approved+skipped，/state 回读可见
   POST /stage/skip       产物缺失时 message 明确回报缺失路径（下游会不会炸先说清楚）
+  POST /stage/skip       agent_mode=true → 403 进禁用名单（P1，2026-10-16；伪造来源头同拒）
   POST /reject           跳过之后仍可打回（skipped 标记被清掉，状态回到 pending）
   POST /review/comment   （回归）必须挂在 do_POST 上：GET 版本 body 不存在 → 必然 500
 
@@ -47,15 +48,21 @@ def _force_agent_mode_off(system_yaml: Path):
     X-Mofang-Source: gui header）会被 Agent 守卫 403，测试意图（护栏 400）
     根本轮不到执行。测试环境必须是标准模式。
     """
+    _set_agent_mode(system_yaml, False)
+
+
+def _set_agent_mode(system_yaml: Path, on: bool):
+    """按行定向改写 gates.agent_mode（保留注释）。section 7 用它翻回 true 复测守卫。"""
     p = Path(system_yaml)
     if not p.exists():
         return
+    val = "true" if on else "false"
     lines = p.read_text(encoding="utf-8").splitlines()
     out, replaced = [], False
     for ln in lines:
         if ln.strip().startswith("agent_mode:"):
             indent = ln[:len(ln) - len(ln.lstrip())]
-            out.append(indent + "agent_mode: false   # 测试环境强制标准模式")
+            out.append(indent + "agent_mode: %s   # 测试环境定向改写" % val)
             replaced = True
         else:
             out.append(ln)
@@ -69,10 +76,12 @@ def check(name, cond, detail=""):
                            ("  → " + str(detail)[:220]) if detail else ""))
 
 
-def req(method, path, body=None, timeout=60):
+def req(method, path, body=None, timeout=60, headers=None):
     data = json.dumps(body or {}, ensure_ascii=False).encode("utf-8") if method == "POST" else None
-    r = urllib.request.Request(BASE + path, data=data, method=method,
-                               headers={"Content-Type": "application/json"})
+    hdrs = {"Content-Type": "application/json"}
+    if headers:
+        hdrs.update(headers)
+    r = urllib.request.Request(BASE + path, data=data, method=method, headers=hdrs)
     try:
         with urllib.request.urlopen(r, timeout=timeout) as resp:
             return resp.status, json.loads(resp.read().decode("utf-8"))
@@ -225,6 +234,35 @@ def main():
         check("404 提示里列出了新端点",
               "/stage/skip" in str(d.get("error")) and "/logs/tail" in str(d.get("error")),
               str(d.get("error"))[:220])
+
+        print("\n=== 7. Agent 模式闸（P1，2026-10-16）：/stage/skip 进禁用名单 ===")
+        # /stage/skip 把阶段标成 done+已审批+skipped，与审批同族 —— agent_mode=true
+        # 下裸请求（无 GUI 双因子）必须 403；GUI 真 token 路径不受影响（由
+        # trusted_gui 在名单检查之前短路，token 由 Electron 主进程签发，本测试无从伪造）。
+        _set_agent_mode(tmp / "config" / "system.yaml", True)
+        prog_before = (tmp / "data" / "state" / "progress.json").read_text(encoding="utf-8")
+        code, d = req("POST", "/stage/skip", {"stage": 4, "confirm": True,
+                                              "reason": "agent 试图放行"})
+        check("agent_mode + 裸请求 /stage/skip + confirm → 403（不再只查 confirm）",
+              code == 403, (code, str(d)[:200]))
+        check("拒文零通道名（V5 口径延续到 /stage/skip）",
+              all(k not in str(d.get("error")) for k in
+                  ("--human", "MOFANG_SOURCE", "伪造", "设为 false")),
+              str(d.get("error"))[:200])
+        code2, d2 = req("POST", "/stage/skip", {"stage": 4, "confirm": True},
+                        headers={"X-Mofang-Source": "gui"})
+        check("只伪造来源头（无主进程 token）→ 仍 403（双因子判据在名单检查之前）",
+              code2 == 403, (code2, str(d2)[:160]))
+        prog_after = (tmp / "data" / "state" / "progress.json").read_text(encoding="utf-8")
+        check("progress.json 未被改动（写前拦截，approved 没有落地）",
+              prog_after == prog_before)
+        audit_p = tmp / "data" / "state" / "agent_audit.jsonl"
+        entries = ([json.loads(x) for x in
+                    audit_p.read_text(encoding="utf-8").splitlines() if x.strip()]
+                   if audit_p.exists() else [])
+        check("台账留下 /stage/skip 的 403 blocked 记录",
+              any(e.get("path") == "/stage/skip" and e.get("status") == 403
+                  for e in entries), entries)
 
         print("=" * 62)
         print("合计: %d 通过 / %d 失败" % (len(PASS), len(FAIL)))

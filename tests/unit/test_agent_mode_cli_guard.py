@@ -31,6 +31,11 @@ CLI 层就是敞开的。本用例守两件事：
   证据只入台账；本用例新增【11】【12】两节钉死「完美证据也拒 + 写前拦截 + 只读不受限」；
 - `cli_human_evidence` 原样保留（标准档语义 + 证据层 + 纵深防御），正判 ≠ 放行。
 
+2026-10-16（P1/P2 同族补闸）：
+- 【1】禁止清单断言补全（/stage/skip、/plan 四态、/import/docx 等）+ propose 放行反证；
+- 【13】【14】【15】plan_cli / switch_book / import_docx 三个 CLI 家族此前**零守卫**，
+  与 HTTP 侧禁用名单同族对齐：拍板/破坏性写入拒，propose、--preview、--list 只读放行。
+
 用法：python tests/unit/test_agent_mode_cli_guard.py
 """
 import io
@@ -69,8 +74,14 @@ def case_shared_predicate():
           agent_guard.agent_mode_enabled({"gates": None}) is False
           and agent_guard.agent_mode_enabled(None) is False)
     for p in ("/approve", "/reject", "/project/create", "/project/archive",
-              "/project/restore", "/project/init", "/config/agent_mode"):
+              "/project/restore", "/project/init", "/config/agent_mode",
+              "/config/token_limit", "/factory/clean", "/project/archive/delete",
+              "/plan/select", "/plan/write", "/plan/drop", "/plan/revive",
+              "/import/docx", "/outline/segments/set",
+              "/stage/skip"):            # P1（2026-10-16）：跳过=标 done+已审批，审批同族
         check("禁止清单含 %s" % p, agent_guard.is_forbidden_in_agent_mode(p))
+    check("AI 可提案：/plan/propose 不在禁用名单（可提案不可自选）",
+          agent_guard.is_forbidden_in_agent_mode("/plan/propose") is False)
     for p in ("/state", "/stage/4/run", "/outline/save", "/sandbox/review"):
         check("只读/沙盒类不受限：%s" % p,
               agent_guard.is_forbidden_in_agent_mode(p) is False)
@@ -504,6 +515,204 @@ def case_segment_cli_guarded():
         shutil.rmtree(tmp2, ignore_errors=True)
 
 
+# ============================================================ 13. plan_cli 同族守卫
+def case_plan_cli_guarded():
+    """P2（2026-10-16）：规划四态 CLI 此前零守卫（HTTP 侧四端点早在禁用名单）。"""
+    print("\n【13】plan_cli 守卫（select/write/drop/revive 拍板拒；propose/只读不受限）")
+
+    def mk_root(agent_mode):
+        tmp = Path(tempfile.mkdtemp(prefix="nf_plan_a_"))
+        (tmp / "config").mkdir(parents=True)
+        (tmp / "data" / "state").mkdir(parents=True)
+        (tmp / "config" / "system.yaml").write_text(
+            "engine: hermes\ngates:\n  agent_mode: %s\n"
+            % ("true" if agent_mode else "false"), encoding="utf-8")
+        # 一条 idea 态提案（select/drop 的合法目标）
+        (tmp / "data" / "state" / "plan_state.json").write_text(json.dumps({
+            "proposal_guard01": {
+                "id": "proposal_guard01", "title": "守卫测试提案", "summary": "",
+                "status": "idea", "kind": "proposal", "source": "user",
+                "ref_path": "", "context": {},
+                "created_at": "2026-10-16 00:00:00", "updated_at": "2026-10-16 00:00:00",
+                "transition_history": [],
+            }}, ensure_ascii=False, indent=1), encoding="utf-8")
+        return tmp
+
+    def run_plan(root, *cmd):
+        p = subprocess.run(
+            [sys.executable, str(ROOT / "scripts" / "plan_cli.py")] + list(cmd),
+            cwd=str(root), capture_output=True, encoding="utf-8",
+            errors="replace", timeout=60)
+        return p.returncode, (p.stdout or "") + (p.stderr or "")
+
+    def state_of(root):
+        try:
+            return json.loads(
+                (root / "data" / "state" / "plan_state.json").read_text("utf-8"))
+        except Exception:                                   # noqa: BLE001
+            return None
+
+    tmp = mk_root(True)
+    try:
+        rc, out = run_plan(tmp, "select", "proposal_guard01")
+        check("agent_mode 下 select 被守卫拒（rc=1 + 拒文）",
+              rc == 1 and "[guard] 拒绝执行" in out, out[-300:])
+        check("写前拦截：提案状态未变（仍 idea）",
+              (state_of(tmp) or {}).get("proposal_guard01", {}).get("status") == "idea",
+              state_of(tmp))
+        for cmd in (("write", "proposal_guard01", "data/outline/global.md"),
+                    ("drop", "proposal_guard01"),
+                    ("revive", "proposal_guard01")):
+            rc, out = run_plan(tmp, *cmd)
+            check("%s 同样被拒（四态全覆盖）" % cmd[0],
+                  rc == 1 and "[guard] 拒绝执行" in out, out[-200:])
+        check("四个命令轮着试完，状态仍未变",
+              (state_of(tmp) or {}).get("proposal_guard01", {}).get("status") == "idea",
+              state_of(tmp))
+        rc, out = run_plan(tmp, "propose", "新提案", "摘要")
+        check("propose 不受限（AI 可提案不可自选）——无守卫拒文",
+              "[guard] 拒绝执行" not in out, out[-200:])
+        check("propose 真落地为 idea 态",
+              any(e.get("status") == "idea" and e.get("title") == "新提案"
+                  for e in (state_of(tmp) or {}).values()), state_of(tmp))
+        rc, out = run_plan(tmp, "list")
+        check("只读 list 不受限", "[guard] 拒绝执行" not in out, out[-200:])
+        entries = audit_entries(tmp)
+        check("台账留下 /plan/select 等 blocked 记录",
+              any(e.get("path", "").startswith("/plan/") and e.get("status") == 403
+                  for e in entries), entries)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    tmp2 = mk_root(False)
+    try:
+        rc, out = run_plan(tmp2, "select", "proposal_guard01")
+        check("标准档不触发守卫（无守卫拒文，转换真落地）",
+              "[guard] 拒绝执行" not in out
+              and (state_of(tmp2) or {}).get("proposal_guard01", {}).get("status") == "selected",
+              (out[-200:], state_of(tmp2)))
+    finally:
+        shutil.rmtree(tmp2, ignore_errors=True)
+
+
+# ============================================================ 14. switch_book 同族守卫
+def case_switch_book_cli_guarded():
+    """P2（2026-10-16）：换书三旗标（--archive/--restore/--init）此前零守卫。"""
+    print("\n【14】switch_book CLI 守卫（归档/恢复/初始化拒；--list 只读不受限）")
+
+    def mk_tree(agent_mode):
+        # ⚠️ switch_book 的 PROJECT_ROOT 取自**脚本位置**而非 CWD —— 必须把脚本
+        # 连同 utils/ 与 snapshot.py 一起拷进临时树：守卫一旦失效，被「归档」的
+        # 也只能是夹具树，绝不能是真仓库。
+        tmp = Path(tempfile.mkdtemp(prefix="nf_swb_a_"))
+        (tmp / "scripts").mkdir(parents=True)
+        for name in ("switch_book.py", "snapshot.py"):
+            shutil.copy2(ROOT / "scripts" / name, tmp / "scripts" / name)
+        shutil.copytree(ROOT / "scripts" / "utils", tmp / "scripts" / "utils",
+                        ignore=shutil.ignore_patterns("__pycache__"))
+        (tmp / "config").mkdir(parents=True)
+        (tmp / "config" / "system.yaml").write_text(
+            "engine: hermes\ngates:\n  agent_mode: %s\n"
+            % ("true" if agent_mode else "false"), encoding="utf-8")
+        (tmp / "config" / "project.yaml").write_text(
+            'book:\n  name: "守卫测试书"\n', encoding="utf-8")
+        (tmp / "data" / "state").mkdir(parents=True)
+        (tmp / "data" / "state" / "progress.json").write_text(
+            json.dumps({"project": "守卫测试书",
+                        "stages": {}}, ensure_ascii=False), encoding="utf-8")
+        (tmp / "materials").mkdir(parents=True)
+        (tmp / "materials" / "raw").mkdir(parents=True)
+        return tmp
+
+    def run_swb(root, *args_):
+        p = subprocess.run(
+            [sys.executable, str(root / "scripts" / "switch_book.py")] + list(args_),
+            cwd=str(root), capture_output=True, encoding="utf-8",
+            errors="replace", timeout=180)
+        return p.returncode, (p.stdout or "") + (p.stderr or "")
+
+    tmp = mk_tree(True)
+    try:
+        rc, out = run_swb(tmp, "--archive", "--yes")
+        check("agent_mode 下 --archive 被守卫拒（rc=1 + 拒文）",
+              rc == 1 and "[guard] 拒绝执行" in out, out[-300:])
+        check("写前拦截：data 产物未被搬走、无书档生成",
+              (tmp / "data" / "state" / "progress.json").exists()
+              and not (tmp / "data" / "books").exists(), sorted(p.name for p in (tmp / "data").iterdir()))
+        rc, out = run_swb(tmp, "--restore", "某书", "--yes")
+        check("--restore 同样被拒", rc == 1 and "[guard] 拒绝执行" in out, out[-200:])
+        rc, out = run_swb(tmp, "--init", "--yes")
+        check("--init 同样被拒（/project/init 同族）",
+              rc == 1 and "[guard] 拒绝执行" in out, out[-200:])
+        rc, out = run_swb(tmp, "--list")
+        check("--list 只读不受限（无守卫拒文）",
+              rc == 0 and "[guard] 拒绝执行" not in out, out[-200:])
+        entries = audit_entries(tmp)
+        check("台账留下 /project/archive blocked 记录",
+              any(e.get("path") == "/project/archive" and e.get("status") == 403
+                  for e in entries), entries)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    tmp2 = mk_tree(False)
+    try:
+        rc, out = run_swb(tmp2, "--archive", "--yes")
+        check("标准档不触发守卫（无守卫拒文，归档真落地）",
+              "[guard] 拒绝执行" not in out and rc == 0
+              and (tmp2 / "data" / "books" / "守卫测试书").exists(),
+              (rc, out[-260:]))
+    finally:
+        shutil.rmtree(tmp2, ignore_errors=True)
+
+
+# ============================================================ 15. import_docx 同族守卫
+def case_import_docx_cli_guarded():
+    """P2（2026-10-16）：整本导入 CLI 此前零守卫（HTTP /import/docx 早在名单）。"""
+    print("\n【15】import_docx CLI 守卫（落盘拒；--preview 零写入不受限）")
+
+    def mk_root(agent_mode):
+        tmp = Path(tempfile.mkdtemp(prefix="nf_imp_a_"))
+        (tmp / "config").mkdir(parents=True)
+        (tmp / "config" / "system.yaml").write_text(
+            "engine: hermes\ngates:\n  agent_mode: %s\n"
+            % ("true" if agent_mode else "false"), encoding="utf-8")
+        return tmp
+
+    def run_imp(root, *args_):
+        p = subprocess.run(
+            [sys.executable, str(ROOT / "scripts" / "import_docx.py")] + list(args_),
+            cwd=str(root), capture_output=True, encoding="utf-8",
+            errors="replace", timeout=120)
+        return p.returncode, (p.stdout or "") + (p.stderr or "")
+
+    tmp = mk_root(True)
+    try:
+        rc, out = run_imp(tmp, "不存在的书稿.docx", "--yes")
+        check("agent_mode + 落盘导入 → 守卫拒（rc=1 + 拒文）",
+              rc == 1 and "[guard] 拒绝执行" in out, out[-300:])
+        check("写前拦截：data/chapters 未被创建",
+              not (tmp / "data" / "chapters").exists(), sorted(p.name for p in tmp.iterdir()))
+        rc, out = run_imp(tmp, "不存在的书稿.docx", "--yes", "--overwrite")
+        check("--overwrite 形态同样被拒", rc == 1 and "[guard] 拒绝执行" in out, out[-200:])
+        rc, out = run_imp(tmp, "不存在的书稿.docx", "--preview")
+        check("--preview 不受限（零写入，无守卫拒文；业务错另说）",
+              "[guard] 拒绝执行" not in out, out[-200:])
+        entries = audit_entries(tmp)
+        check("台账留下 /import/docx blocked 记录",
+              any(e.get("path") == "/import/docx" and e.get("status") == 403
+                  for e in entries), entries)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    tmp2 = mk_root(False)
+    try:
+        rc, out = run_imp(tmp2, "不存在的书稿.docx", "--yes")
+        check("标准档不触发守卫（业务错：文件不存在，无守卫拒文）",
+              "[guard] 拒绝执行" not in out, out[-200:])
+    finally:
+        shutil.rmtree(tmp2, ignore_errors=True)
+
+
 def main():
     print("=" * 62)
     print("  Agent 模式 CLI 守卫自检（P2）")
@@ -520,6 +729,9 @@ def main():
     case_depth_cap_truncation()
     case_plan_a_cli_approval()
     case_segment_cli_guarded()
+    case_plan_cli_guarded()
+    case_switch_book_cli_guarded()
+    case_import_docx_cli_guarded()
     print("\n" + "=" * 62)
     print("  通过 %d / 失败 %d" % (len(PASS), len(FAIL)))
     for f in FAIL:

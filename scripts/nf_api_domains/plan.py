@@ -4,9 +4,12 @@
 语义：规划提案必须经用户确认（select）才能写进正文（written）。
 AI 只能提案（propose），不能自选。
 
-外部 Agent（gates.agent_mode=true）可读但不可调用 write/drop/revive
+外部 Agent（gates.agent_mode=true）可读但不可调用 select/write/drop/revive
 （规划决策权归用户）。只读端点（/stats, /list, /get, /audit）不禁用；
-写入端点（/propose, /select, /write, /drop, /revive）走 FORBIDDEN_IN_AGENT_MODE。
+propose 允许（AI 只能提案，不能自选 —— 2026-10-16 修正本文档：此前误写
+「propose 走 FORBIDDEN_IN_AGENT_MODE」，实码从来只禁四态转换）；
+写入端点（/select, /write, /drop, /revive）走 FORBIDDEN_IN_AGENT_MODE。
+CLI 侧同名四命令同受 utils/agent_guard.cli_approval_gate 守卫（P2，2026-10-16）。
 """
 from pathlib import Path
 

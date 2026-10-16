@@ -91,8 +91,12 @@ orchestrator 启动横幅会打印生效值（`gates: auto_rewrite=… auto_refi
 格式不符（含目录引用指向不存在的目录）→ `InputSectionFormatError`（行号 + 原文 + 正确写法），
 **不再静默返空** —— stage5 空稿事故的同类根因。
 
-**Agent 模式守卫（CLI 侧，2026-10-15 方案A）**：`gates.agent_mode=true` 时，`approve.py` /
-`reject.py` / `segment_cli.py`（勾段与撤销）对 CLI 审批**无条件拒绝**——判据唯一实现
+**Agent 模式守卫（CLI 侧，2026-10-15 方案A；2026-10-16 扩族 P2）**：`gates.agent_mode=true` 时，
+`approve.py` / `reject.py` / `segment_cli.py`（勾段与撤销）对 CLI 审批**无条件拒绝**，
+且 `plan_cli.py`（select/write/drop/revive 四态拍板）、`switch_book.py`（--archive/--restore/--init）、
+`import_docx.py`（非 --preview 落盘）三个拍板/破坏性写入家族同日补闸 —— HTTP 侧早在这张禁用名单里、
+CLI 侧此前**零守卫**（Agent 一条命令即可拍板/搬空工作区/整本盖稿）。propose（可提案不可自选）、
+只读命令、`--preview`、`--list` 不受限。判据唯一实现
 `utils/agent_guard.cli_approval_gate()`（恒拒；策略原因 + 原证据进 `agent_audit.jsonl` 台账）。
 用户拍板原话「都用桌面端了，没人会用 CLI」，**审批唯一入口 = 桌面端 GUI 双因子**。
 原正路「真实交互终端」（双端 `isatty` 快筛 + 祖先进程链取证）废止但机制保留：`cli_human_evidence`
@@ -174,10 +178,11 @@ stdout 被管道捕获时 Python 用 cp936，一行日志就能 `UnicodeEncodeEr
 `references/api.md`（端点与请求体形状速查 —— 条目随端点增减，勿在此处写死数量）。
 与 `ai-novel-pipeline`、`novelforge-gui` 同分类同级；**技能库在 AppData、不进 Git，改动前先留副本**。
 
-**Agent 模式守卫**：`gates.agent_mode = true` 时，非 GUI 来源（无 `X-Mofang-Source: gui`）
-调用 `/approve`、`/reject`、`/project/create|archive|restore|init`、`/config/agent_mode`、
-**`/config/token_limit`**（止烧阈值：Agent 不得抬高自己的闸门）、
-**`/factory/clean`**（出厂样例清理：Agent 可用只读 `/factory/list` 盘点，不得动手搬素材）
+**Agent 模式守卫**：`gates.agent_mode = true` 时，非 GUI 来源（GUI 判据 = 双因子：来源头 **加**
+主进程签发 token，光带头子不算）调用 `/approve`、`/reject`、`/project/create|archive|restore|init`、
+`/config/agent_mode`、**`/config/token_limit`**（止烧阈值：Agent 不得抬高自己的闸门）、
+**`/factory/clean`**（出厂样例清理：Agent 可用只读 `/factory/list` 盘点，不得动手搬素材）、
+**`/stage/skip`**（跳过阶段 = 标 done+已审批，与审批同族，2026-10-16 补入名单）
 返回 **403**。含义是：**外部 Agent 可读、可跑流水线，但不能代替用户审批** —— 这是设计，不是 bug。
 另外设置类写入（`/config/agent_mode`、`/config/token_limit`）**无论模式如何都要求 GUI 来源头**。
 
@@ -269,6 +274,7 @@ stdout 被管道捕获时 Python 用 cp936，一行日志就能 `UnicodeEncodeEr
   - `/config/agent_mode`（Agent 不得自行切换模式）
   - `/config/token_limit`（止烧阈值 —— Agent 不得抬高自己的闸门）
   - `/factory/clean`（出厂样例清理 —— 移动用户素材文件；只读 `/factory/list` 不拦）
+  - `/stage/skip`（跳过阶段会把状态标成 done+已审批+skipped —— 与审批同族，2026-10-16 补）
   - `/project/archive/delete`（删除归档 = 抹掉成书数据；端点另要求 `X-Mofang-Source: gui`）
 - Agent 生成的大纲/产物自动进入待审批状态（exit=3），需在桌面端确认
 - 双保险机制：Agent 被告知需在桌面端审批 + 桌面端自动检测审批门并弹窗提示
@@ -311,6 +317,11 @@ stdout 被管道捕获时 Python 用 cp936，一行日志就能 `UnicodeEncodeEr
 - `POST /config/agent_mode`（Agent 不得自行切换模式）
 - `POST /factory/clean`（出厂样例清理：移动用户工作区素材；只读 `GET /factory/list` 可用）
 - `POST /outline/segments/set`（大纲分段审批标记 —— 勾一段 = 替用户读一段，归用户在 GUI 分段审阅面板里点；Agent 可读不可勾）
+- `POST /stage/skip`（跳过阶段 = 人工拍板放行管线（approved 真写进 progress.json），与审批同族；2026-10-16 补入名单）
+
+CLI 侧同族守卫（2026-10-16 P2，判据同源 `cli_approval_gate`）：`plan_cli.py` 的 select/write/drop/revive、
+`switch_book.py` 的 --archive/--restore/--init、`import_docx.py` 的非 --preview 落盘在 agent_mode=true 下
+同样拒绝执行；propose、只读命令、--preview、--list 不受限。
 
 ### ⚠️ 路径 IO 必须经 `ROOT`，不得用相对路径
 

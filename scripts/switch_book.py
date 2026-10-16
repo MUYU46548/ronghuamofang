@@ -25,6 +25,9 @@ NovelForge 是单书工作区：data/ 只存当前一本书。换书时必须清
 - data/tmp/（模板缓存）不归档，跨书复用
 - 恢复是**逐项合并**而非整体替换：书档里没有的文件不会删掉工作区现有那份
 - 破坏性动作前打印清单，需 --yes 确认
+- **Agent 模式守卫**（P2，2026-10-16）：`gates.agent_mode=true` 时 --archive/
+  --restore/--init 拒绝执行（判据单源 utils/agent_guard，与 HTTP 侧
+  /project/archive|restore|init 同族）；--list 只读不受限。
 """
 import argparse
 import json
@@ -409,6 +412,35 @@ def _dispatch(args):
             print("[switch_book] 注意：当前目录是 %s，**与项目根不同** ——" % cwd)
             print("              PROJECT_ROOT 取自脚本位置（不是 CWD），"
                   "本次操作只影响上面那个根。")
+    # Agent 模式守卫（P2，2026-10-16，与 HTTP 侧同族）：/project/archive|restore|init
+    # 早在 FORBIDDEN_IN_AGENT_MODE 里，CLI 这三个旗标此前**零守卫** —— Agent 一条
+    # 命令就能搬空/覆盖工作区。gates.agent_mode=true 下无条件拒（方案A 口径，判据
+    # 单源 agent_guard.cli_approval_gate），位于任何搬移/写盘之前；--list 只读不受限。
+    # 判据读**两份**配置取「或」：CWD 项目（配置解析惯例）+ PROJECT_ROOT（本脚本真正
+    # 操作的根）—— 本脚本数据根不随 CWD 走，只读 CWD 就出现「按 A 根的配置放行、
+    # 动的却是 B 根」的分叉。延迟 import（本脚本 utils 一律函数内导入，见 main 顶部）。
+    if args.init or args.archive is not None or args.restore:
+        from utils import agent_guard
+        from utils.config_io import load_config_yaml
+        cfgs = [agent_guard.load_project_config()]
+        try:
+            if Path.cwd().resolve() != PROJECT_ROOT:
+                cfgs.append(load_config_yaml(
+                    str(PROJECT_ROOT / "config" / "system.yaml")))
+        except Exception:                                   # noqa: BLE001
+            # 读不到/读坏了按关闭处理（与 load_project_config 容错口径一致）；
+            # CWD 侧那份判据仍在，不因这一份异常而整体失效。
+            pass
+        if any(agent_guard.agent_mode_enabled(c) for c in cfgs):
+            _allowed, evidence = agent_guard.cli_approval_gate()
+            action = "/project/archive"
+            print(agent_guard.refusal_message(action, evidence,
+                                              entry="switch_book.py CLI"))
+            agent_guard.log_audit(action, method="CLI", status=403,
+                                  source=agent_guard.normalize_source(
+                                      os.environ.get("MOFANG_SOURCE")) or "unknown",
+                                  detail="blocked: " + evidence)
+            return 1
     if args.list:
         books = list_books()
         print("===== 当前书 =====")

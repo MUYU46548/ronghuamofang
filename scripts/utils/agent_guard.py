@@ -94,6 +94,12 @@ FORBIDDEN_IN_AGENT_MODE = frozenset({
     # 而分段的全部意义就是「不降低强度、全过才放行」—— 让 Agent 自己勾满
     # 八段再放行，等于把审阅义务整个绕过。读侧 GET /outline/segments 不拦。
     "/outline/segments/set",
+    # 人工跳过阶段（P1 补，2026-10-16）：/stage/skip 把阶段标成 done+已审批+skipped，
+    # approved 是**真写进 progress.json** 的 —— 与审批同族，却长期漏在名单外：
+    # Agent 一发 POST {stage, confirm:true} 就能替用户放行管线（跳过虽回报缺失
+    # 产物，但审批状态已落地）。GUI（真 token）走 trusted_gui，在名单检查之前，
+    # 不受影响；纯请求在 agent_mode 下 fail-closed，正是该有的语义。
+    "/stage/skip",
 })
 
 # 人工来源的标记值（HTTP 头 / 环境变量通用）

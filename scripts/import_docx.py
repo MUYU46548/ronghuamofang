@@ -37,6 +37,11 @@ raw = 检查/润色/出稿都能跑；checked = 跳过校对直接润色；refin
 
 整篇识别不出任何章节结构 → 报「未识别出章节结构」+ 两条出路（`--single` /
 `--split-by`），**不落任何文件**。
+
+## Agent 模式守卫（P2，2026-10-16）
+
+`gates.agent_mode=true` 时，非 `--preview` 的落盘导入**拒绝执行**（判据单源
+utils/agent_guard，与 HTTP 侧 /import/docx 同族）；--preview 零写入不受限。
 """
 import argparse
 import hashlib
@@ -372,6 +377,35 @@ def main():
     parser.add_argument("--json", action="store_true", dest="as_json",
                         help="机器可读输出（给接口/脚本用）")
     args = parser.parse_args()
+
+    # Agent 模式守卫（P2，2026-10-16，与 HTTP 侧同族）：/import/docx 早在
+    # FORBIDDEN_IN_AGENT_MODE 里（一次性把整本外部稿写进 data/chapters/*，
+    # --overwrite 还能盖掉已有章节），CLI 这条路此前**零守卫**。
+    # gates.agent_mode=true 下非预览落盘无条件拒（方案A 口径，判据单源
+    # agent_guard.cli_approval_gate），位于任何读取/切分/落盘之前；
+    # --preview 零写入（只出预检清单）不受限。判据读 --root 指向项目的配置
+    # （写进哪个根、按哪个根判），root="." 时 load_project_config 的 CWD
+    # 优先语义已覆盖同一份文件。
+    if not args.preview:
+        from utils import agent_guard
+        cfgs = [agent_guard.load_project_config()]
+        if str(args.root or ".") != ".":
+            try:
+                from utils.config_io import load_config_yaml
+                cfgs.append(load_config_yaml(
+                    os.path.join(str(args.root), "config", "system.yaml")))
+            except Exception:                               # noqa: BLE001
+                pass                  # 读不到/读坏按关闭（CWD 侧判据仍在）
+        if any(agent_guard.agent_mode_enabled(c) for c in cfgs):
+            _allowed, evidence = agent_guard.cli_approval_gate()
+            action = "/import/docx"
+            print(agent_guard.refusal_message(action, evidence,
+                                              entry="import_docx.py CLI"))
+            agent_guard.log_audit(action, method="CLI", status=403,
+                                  source=agent_guard.normalize_source(
+                                      os.environ.get("MOFANG_SOURCE")) or "unknown",
+                                  detail="blocked: " + evidence)
+            return 1
 
     res = import_docx(args.docx, tier=args.tier, root=args.root, yes=args.yes,
                       single=args.single, split_by=args.split_by,

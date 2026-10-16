@@ -9,6 +9,34 @@ CHANGELOG」）。本文件从工程审查修复起正式启用。
 
 ## [Unreleased]
 
+### 守卫补闸（2026-10-16）：P1 /stage/skip 入禁用名单 + P2 三个 CLI 家族零守卫收口
+
+- **P1 · `POST /stage/skip` 补入 `FORBIDDEN_IN_AGENT_MODE`（中高危漏闸）**：它把阶段标成
+  done+**已审批**+skipped（approved 真写进 `progress.json`），与审批同族，却长期只要求
+  `confirm:true` —— `gates.agent_mode=true` 下外部 Agent 一发请求即可替用户放行管线。
+  修法一行入名单即可：`trusted_gui` 双因子判据在名单检查**之前**，GUI（真 token）不受影响；
+  纯请求在 agent_mode 下 fail-closed。HTTP 端到端用例（`test_ux_flow_api_http` 新增 §7）：
+  裸请求 403 / 伪造来源头（无 token）仍 403 / progress.json 未动 / 台账 403 记录在案。
+- **P2 · 三个 CLI 家族补同族闸（此前零守卫，HTTP 侧早禁）**：`plan_cli.py` 的
+  select/write/drop/revive（规划拍板）、`switch_book.py` 的 --archive/--restore/--init
+  （搬空/覆盖工作区）、`import_docx.py` 的非 --preview 落盘（整本盖稿，含 --overwrite）
+  —— 全部接 `agent_guard.cli_approval_gate()`（方案A 口径：agent_mode=true 恒拒，策略原因
+  + 原证据进 `agent_audit.jsonl` 台账），位于任何写操作之前。**刻意放行**：propose（AI 可
+  提案不可自选）、只读命令（list/get/stats/audit、segment_cli list/status）、--preview
+  （零写入）、--list。`switch_book` 判据读**双配置取或**（CWD + PROJECT_ROOT）——该脚本
+  数据根取自脚本位置不随 CWD 走，只读一份会出现「按 A 根的配置放行、动的却是 B 根」。
+  测试 +3 节（plan_cli / switch_book / import_docx 各一节真子进程实跑，含标准档反证与
+  写前拦截断言；switch_book 夹具**拷贝脚本树**，守卫若失效伤的也只是夹具）。
+- **P4 · 方案A + segment_cli 第三方红队补验**：隔离子代理攻击矩阵（HTTP 路径形态绕过 /
+  CLI 各旗标 / 方案A 恒拒 / 只读放行对照）—— 结论与报告见发版要点。
+- **顺手修**：`nf_api_domains/plan.py` 模块文档误写「/plan/propose 走 FORBIDDEN 名单」
+  （实码从来只禁四态转换）—— 文档跟实码对齐；`plan_state._gen_idea_id` 同 tick 碰撞
+  （Windows 时钟粒度粗 → 同名提案同 id → 后一条**静默覆盖**前一条）加 uuid4 防撞，
+  单测 1.6 三跑一挂的存量 flaky 同根治愈（`nfctl test` 回归 **102/102**）。
+- **文档**：AGENTS.md 三处（CLI 守卫段扩族 / HTTP 守卫段补 /stage/skip + 双因子措辞 /
+  禁用清单两处）；技能卡 novelforge-gui 同步 + 新增发布纪律「红队攻防记录永不作 release
+  附件」（报告含本机路径，2026-10-15 已踩过一次未遂）。
+
 ### 方案A（2026-10-15）：agent 模式下 CLI 审批无条件拒，审批只走桌面端
 
 - **判据单源新增 `agent_guard.cli_approval_gate()`**：`gates.agent_mode=true` 时
