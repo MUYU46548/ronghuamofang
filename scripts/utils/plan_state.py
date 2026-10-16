@@ -38,6 +38,7 @@ import hashlib
 import json
 from datetime import datetime
 from pathlib import Path
+from uuid import uuid4
 
 from utils.file_io import read_text, write_text
 
@@ -145,8 +146,14 @@ def _validate_reference(ref_path):
 
 
 def _gen_idea_id(title, kind="proposal"):
-    """基于标题+类型+时间戳生成稳定 ID（防重）。"""
-    seed = f"{kind}:{title}:{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
+    """基于标题+类型+时间戳+随机量生成 ID（防重）。
+
+    随机量是必需的（2026-10-16）：Windows 上 `datetime.now()` 时钟粒度粗，
+    同一 tick 内两次 propose 同名提案会拿到相同 seed → 相同 id → 状态库按
+    id 索引，后一条**静默覆盖**前一条（提案丢失且无报错）。单测 1.6 在高
+    负载下三跑一挂即此；加 uuid4 后防重不再依赖时钟步进。
+    """
+    seed = f"{kind}:{title}:{datetime.now().strftime('%Y%m%d%H%M%S%f')}:{uuid4().hex}"
     return f"{kind}_" + hashlib.sha1(seed.encode("utf-8")).hexdigest()[:10]
 
 
