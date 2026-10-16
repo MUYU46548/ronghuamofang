@@ -185,6 +185,9 @@ stdout 被管道捕获时 Python 用 cp936，一行日志就能 `UnicodeEncodeEr
 **`/stage/skip`**（跳过阶段 = 标 done+已审批，与审批同族，2026-10-16 补入名单）
 返回 **403**。含义是：**外部 Agent 可读、可跑流水线，但不能代替用户审批** —— 这是设计，不是 bug。
 另外设置类写入（`/config/agent_mode`、`/config/token_limit`）**无论模式如何都要求 GUI 来源头**。
+双因子的边界如实声明（2026-10-16 红队 A11）：同机攻击者可自起一份 nf_api 并自铸 `NF_GUI_TOKEN`
+整体穿透本名单 —— 但这不比「直接手改 `data/state/*.json`」多出任何能力，同属已声明残余
+（防线语义 = 拦住照文档跑命令的 Agent，**不是沙箱**）。
 
 ## 提示词前缀纪律（2026-09-23 定，改 `prompts/stage*.md` 前必读）
 

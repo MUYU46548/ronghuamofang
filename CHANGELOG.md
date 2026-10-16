@@ -27,8 +27,17 @@ CHANGELOG」）。本文件从工程审查修复起正式启用。
   数据根取自脚本位置不随 CWD 走，只读一份会出现「按 A 根的配置放行、动的却是 B 根」。
   测试 +3 节（plan_cli / switch_book / import_docx 各一节真子进程实跑，含标准档反证与
   写前拦截断言；switch_book 夹具**拷贝脚本树**，守卫若失效伤的也只是夹具）。
-- **P4 · 方案A + segment_cli 第三方红队补验**：隔离子代理攻击矩阵（HTTP 路径形态绕过 /
-  CLI 各旗标 / 方案A 恒拒 / 只读放行对照）—— 结论与报告见发版要点。
+- **P4 · 方案A + segment_cli 第三方红队补验（隔离子代理，125+ 探针）**：四个修复点
+  **0 绕过** —— A 矩阵 81 个 HTTP 探针（裸 POST / 伪造来源头 / 21 种路径形态含 URL 编码与
+  尾空白 / GET / Content-Type 变体 / method-override / stage 1-7 / 名单其余 16 条 / CL 欺骗 /
+  坏配置 fail-closed，前后 sha256 比对 progress.json）全 403/404 零落写；B 矩阵 44 项 CLI
+  （四态拍板 / --root 双向错位 / switch_book 拷贝树跨 cwd 双配置 / 方案A 恒拒含真实 pty 与
+  完美证据注入 / 只读放行对照）42 PASS；C 矩阵 AST 核对守卫与派发共用同一归一化路径、
+  MCP 白名单无 skip 族、**6 个突变实测**证明新断言非假绿。发现 1 条**结构性穿透**：
+  同机攻击者自起 nf_api 自铸 `NF_GUI_TOKEN` 可整体穿透名单（A11，等同直接手改
+  `data/state/*.json` 的已声明残余，无新增能力）—— 文档过强措辞「token 不在请求方掌控
+  之内」按实修正为实例级口径（agent_guard 模块注释 + AGENTS.md + 技能卡三处）。
+  报告（含本机路径，永不作 release 附件）：`E:/AI/Hermes_Workspace/output/`。
 - **顺手修**：`nf_api_domains/plan.py` 模块文档误写「/plan/propose 走 FORBIDDEN 名单」
   （实码从来只禁四态转换）—— 文档跟实码对齐；`plan_state._gen_idea_id` 同 tick 碰撞
   （Windows 时钟粒度粗 → 同名提案同 id → 后一条**静默覆盖**前一条）加 uuid4 防撞，

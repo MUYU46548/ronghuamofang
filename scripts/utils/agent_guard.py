@@ -170,8 +170,13 @@ def is_forbidden_in_agent_mode(path):
 #
 # 修法 = **双因子**：① 来源头（保留，供审计分类）+ ② 主进程签发的 token ——
 # Electron 主进程 crypto.randomBytes(32) 生成，spawn nf_api 时经 env 注入，
-# 渲染层经 IPC gui-token:get 取得后随请求带上。token 不在请求方掌控之内，
-# 光伪造头拿不到它。
+# 渲染层经 IPC gui-token:get 取得后随请求带上。对**用户正在跑的那个实例**，
+# token 不在请求方掌控之内，光伪造头拿不到它（2026-10-06 红队口径）。
+#
+# 边界如实声明（2026-10-16 红队 A11 补验修正措辞）：同机攻击者可以**自起一份
+# nf_api 并自铸 token**（`NF_GUI_TOKEN=<自设>`）整体穿透本名单 —— 但这不比
+# 「直接手改 data/state/*.json」多出任何能力，同属已声明残余（这不是沙箱，
+# 防线语义 = 拦住照文档跑命令的 Agent）。勿把双因子宣称为同机攻击模型下的保证。
 #
 # **fail-closed**：nf_api 未被注入 token（独立启动 / CLI / 测试）→ 一律不认 GUI 来源。
 # 这是正确语义：这些端点本就只该由桌面端调用，没有桌面端就不该有 GUI 权限。
