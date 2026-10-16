@@ -419,9 +419,27 @@ def test_real(browser):
         else:
             check("真数据：下一步 = 运行阶段 %s" % run_stage,
                   ("阶段 %s" % run_stage) in nxt, nxt)
-            check("快速运行选择器自动对齐到阶段 %s" % run_stage,
-                  page.locator(".flow-quick select").input_value() == str(run_stage),
-                  page.locator(".flow-quick select").input_value())
+            # 活一契约（b676efe + App.vue watch(state)）：快速运行从单选下拉改成
+            # **勾选条**（勾几件跑几件），但「自动对齐到下一个未完成阶段」保留 ——
+            # 只是形态从 select.input_value() 变成该阶段按钮的 .on 勾选态。
+            # 旧断言读 .flow-quick select（现已只剩「组合…」下拉）必假红，按新契约改写。
+            strip = page.locator(".flow-quick .qstage")
+            n_stages = len((real_state() or {}).get("stages") or [])
+            check("快速运行勾选条渲染全部 %s 个阶段按钮（新契约）" % n_stages,
+                  strip.count() == n_stages, strip.count())
+            on_txt = page.locator(".flow-quick .qstage.on").all_inner_texts()
+            check("勾选条自动对齐到阶段 %s（旧「select 自动对齐」契约的新形态）" % run_stage,
+                  len(on_txt) == 1 and on_txt[0].startswith(str(run_stage)), on_txt)
+            strip.nth(run_stage - 1).click()
+            page.wait_for_timeout(250)
+            check("点击取消勾选（勾选条真交互：可关）",
+                  page.locator(".flow-quick .qstage.on").count() == 0,
+                  page.locator(".flow-quick .qstage.on").count())
+            strip.nth(run_stage - 1).click()
+            page.wait_for_timeout(250)
+            on_txt2 = page.locator(".flow-quick .qstage.on").all_inner_texts()
+            check("再点恢复勾选（可开可关，回到对齐态）",
+                  len(on_txt2) == 1 and on_txt2[0].startswith(str(run_stage)), on_txt2)
         page.wait_for_timeout(2500)
         est = (page.locator(".flow-est").first.inner_text()
                if page.locator(".flow-est").count() else "")

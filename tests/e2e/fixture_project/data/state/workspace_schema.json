@@ -1,0 +1,14 @@
+{
+ "schema": 1,
+ "updated_at": "2026-10-16 20:48:38",
+ "note": "baseline",
+ "history": [
+  {
+   "at": "2026-10-16 20:48:38",
+   "from": null,
+   "to": 1,
+   "note": "baseline"
+  }
+ ],
+ "migrations": 0
+}

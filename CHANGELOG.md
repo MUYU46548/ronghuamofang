@@ -111,6 +111,33 @@ CHANGELOG」）。本文件从工程审查修复起正式启用。
   戳推到最新 —— 正是本机制要防的「静默跳过」，被回归当场抓住后修正。
 - **本批仍未做**：C4 验收三件（红队攻防需第三方）、A 打包新版客户端。
 
+### v0.6.12 — 2026-10-16 守卫补闸（P1/P2 同族）· 方案A 首次入包 · 红队补验
+
+本版把 0.6.11 发布后新发现与新做的守卫工作一并带上（详细技术记录见上方
+[Unreleased] 的「守卫补闸 2026-10-16」与「方案A 2026-10-15」两节）：
+
+- **0.6.11 未含方案A**（包打于 c488730 之前）——本版首次把「agent 模式下 CLI 审批恒拒、
+  审批只走桌面端」带给装机用户。
+- **P1**：`POST /stage/skip` 补入 Agent 禁用名单（跳过=标 done+已审批，与审批同族）；
+  GUI 双因子正路实测不受影响（真 token → 200，裸请求/伪造头 → 403，progress 零落写）。
+- **P2**：三个 CLI 零守卫家族收口 —— `plan_cli`（select/write/drop/revive）、`switch_book`
+  （--archive/--restore/--init）、`import_docx`（非 --preview 落盘）接 `cli_approval_gate`；
+  propose/只读/--preview/--list 刻意放行。
+- **第三方红队补验（隔离子代理，125+ 探针 + 6 突变实测）**：四个修复点 **0 绕过**；
+  发现同机自起 nf_api 自铸 token 可穿透名单（等同直接手改状态文件的已声明残余），
+  文档过强措辞按实例级口径修正。攻防记录含本机路径，**不作 release 附件**。
+- **顺手修**：`plan_state._gen_idea_id` 同 tick 碰撞（Windows 时钟粒度 → 同名提案
+  静默覆盖）加 uuid4；`plan.py` 域文档误写按实码修正。
+- **存量过时断言修复（e2e 视觉）**：「快速运行选择器自动对齐」仍读旧单选 `<select>`，
+  而活一（b676efe）已把它改成勾选条 —— 断言按新契约改写（勾选条在场 + 自动对齐以
+  `.on` 勾选态保留 + 可开可关真交互），139 假红项转 **142/142** 全绿。
+- **版本**：0.6.11 → 0.6.12（`package.json` + `package-lock.json` 两处），
+  `SEED_VERSION` 27 → 28（payload 的 agent_guard/plan_cli/switch_book/import_docx 变更，
+  按「先 bump 再 electron-builder」）。
+- **验证**：`nfctl test` **102/102** · 守卫单测 **128/0** · `test_ux_flow_api_http` **32/0** ·
+  `test_gui_api_contract` **47/0** · e2e 视觉 **142/142** · `quality_gate` BLOCK 0 ·
+  `leak_scan` 零命中 · 红队报告零 BYPASS（修复点）。
+
 ### v0.6.11 — 2026-10-14 分段审阅闭环 · 书稿跨版本迁移机制 · 红队攻防修复
 
 本版的详细技术记录就是上方 [Unreleased] 的 2026-10-14 两节（内容即本版），此处只列发版要点：
