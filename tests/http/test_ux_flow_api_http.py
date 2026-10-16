@@ -37,6 +37,7 @@ ROOT = Path(__file__).resolve().parents[2]
 PY = sys.executable
 PORT = 8933
 BASE = "http://127.0.0.1:%d" % PORT
+GUI_TOKEN = "nf-test-token-abcdef"        # 测试专用假 token（模拟 Electron 主进程签发）
 
 PASS, FAIL = [], []
 
@@ -133,6 +134,7 @@ def main():
     env["TEMP"] = str(fake_appdata / "Temp")
     env["TMP"] = str(fake_appdata / "Temp")
     log = io.open(tmp / "nf_api.log", "w", encoding="utf-8")
+    env["NF_GUI_TOKEN"] = GUI_TOKEN      # 模拟 Electron 主进程签发（section 7 验 GUI 正路）
     proc = subprocess.Popen([str(PY), str(tmp / "scripts" / "nf_api.py"),
                              "--port", str(PORT), "--allow-fake"],
                             cwd=str(tmp), env=env, stdout=log, stderr=subprocess.STDOUT)
@@ -237,8 +239,8 @@ def main():
 
         print("\n=== 7. Agent 模式闸（P1，2026-10-16）：/stage/skip 进禁用名单 ===")
         # /stage/skip 把阶段标成 done+已审批+skipped，与审批同族 —— agent_mode=true
-        # 下裸请求（无 GUI 双因子）必须 403；GUI 真 token 路径不受影响（由
-        # trusted_gui 在名单检查之前短路，token 由 Electron 主进程签发，本测试无从伪造）。
+        # 下裸请求（无 GUI 双因子）必须 403；真 token 的 GUI 双因子仍可正常跳过
+        # （服务端 env 注入 NF_GUI_TOKEN 模拟 Electron 主进程签发）。
         _set_agent_mode(tmp / "config" / "system.yaml", True)
         prog_before = (tmp / "data" / "state" / "progress.json").read_text(encoding="utf-8")
         code, d = req("POST", "/stage/skip", {"stage": 4, "confirm": True,
@@ -256,6 +258,12 @@ def main():
         prog_after = (tmp / "data" / "state" / "progress.json").read_text(encoding="utf-8")
         check("progress.json 未被改动（写前拦截，approved 没有落地）",
               prog_after == prog_before)
+        # 正路对照：真 token 的 GUI 双因子在 agent_mode 下**仍能**跳过（修复不误伤 GUI）
+        code3, d3 = req("POST", "/stage/skip", {"stage": 4, "confirm": True,
+                                                "reason": "用户在桌面端点的跳过"},
+                        headers={"X-Mofang-Source": "gui", "X-Mofang-Token": GUI_TOKEN})
+        check("真 token GUI 双因子 → 200（agent_mode 下桌面端跳过不受影响）",
+              code3 == 200 and d3.get("ok"), (code3, str(d3)[:200]))
         audit_p = tmp / "data" / "state" / "agent_audit.jsonl"
         entries = ([json.loads(x) for x in
                     audit_p.read_text(encoding="utf-8").splitlines() if x.strip()]
