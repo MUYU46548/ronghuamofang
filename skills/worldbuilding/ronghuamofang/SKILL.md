@@ -94,6 +94,12 @@ python scripts/nfctl.py check           # 环境自检：密钥/配置重复键/
 python scripts/nfctl.py api /state      # 只读转发 nf_api（省手写 curl）
 ```
 
+> **`/state` 自报执行形态（2026-10-17）**：`form` = `source`（源码树）/ `installed`
+> （安装工作区）、`runtime_python` = 本机能跑管线的解释器。跑阶段前先读它选通道：
+> 客户端在跑 → 走 HTTP（`POST /stage/<n>/run`）；没起服务 → 走 CLI（解释器用
+> `runtime_python`，**绝不用裸 `python`**）。Agent 模式开启时 GUI 常规运行按钮
+> 锁定（防双跑），审批 / 打回 / 停止不受影响。
+
 ## 自检（开工前必做，失败显式报错）
 
 ```bash

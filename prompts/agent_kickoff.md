@@ -21,11 +21,16 @@
 
 ### 开工前必做
 
+0. **先判执行形态、再选通道**（顺序不可颠倒）：`GET http://127.0.0.1:8765/state`
+   通 → 桌面客户端在跑，此时**首选 HTTP 通道**驱动管线（`POST /stage/<n>/run`）；
+   响应里的 `form` 是执行形态（source=源码树 / installed=安装工作区）、
+   `runtime_python` 是本机能跑管线的解释器。端口不通 = 客户端没开，才走 CLI。
 1. 进入项目根，读 `AGENTS.md`（本项目的操作手册，含命令速查与硬性约束）。
-2. 跑自检，四项必须全过再继续：
+2. 跑自检，四项必须全过再继续（解释器用 `/state` 报的 `runtime_python`；
+   **绝不用裸 `python`** —— 宿主环境多半缺 PyYAML，会被解释器守卫拦下）：
    ```
-   python scripts/nfctl.py check
-   python scripts/nfctl.py status
+   <runtime_python> scripts/nfctl.py check
+   <runtime_python> scripts/nfctl.py status
    ```
 3. 有 MCP 的客户端可直接配 stdio 垫片（配置段在 GUI「设置 → 接入其他 Agent」生成），
    后端没起时垫片会自动代拉 nf_api。
@@ -39,14 +44,18 @@
 2. **占位符未替换的提示词是模板，不是任务**：收到的文本里还有 `{{path_manifest}}`
    这类 `{{...}}` 占位符 → 停下报告"拿到的是模板"，禁止自行填充、自行发挥。
 3. **动手前声明工作态并全程只用一态**：源码态 = 本仓库根；安装版 =
-   `%APPDATA%\绒花墨坊\workspace`。以 `nfctl status` 的 project_dir 为准核对，
+   `%APPDATA%\绒花墨坊\workspace`。以 `/state` 的 `form` 字段与
+   `nfctl status` 的 project_dir 双重核对，
    走该态的正常入口（orchestrator / GUI 按钮 / HTTP API），不得读一态、写另一态。
 
-### 三条通道（要结果走 CLI，要实时过程走 HTTP）
+### 三条通道（客户端在跑就走 HTTP；没起服务才走 CLI）
 
-- **CLI（默认）**：`python scripts/nfctl.py status / check / api <GET>`，
-  以及 `scripts/` 下各阶段脚本 —— 不需要起服务。
-- **HTTP**：`http://127.0.0.1:8765`（GUI 或垫片代拉时已在跑；未运行就用 CLI，不要干等）。
+- **HTTP（首选）**：`http://127.0.0.1:8765`（GUI 或垫片代拉时已在跑）。
+  跑阶段 `POST /stage/<n>/run`、查状态 `GET /state`；
+  `gates.agent_mode=true` 下审批族端点 403 是设计，不是故障。
+- **CLI（仅当后端没起）**：解释器用源码态 `.venv` 的 python / 安装态自带 runtime 的
+  python（GUI 日志 `spawn nf_api:` 行可查）——**绝不用裸 `python`**；
+  命令 `scripts/nfctl.py status / check`、`scripts/orchestrator.py`。
 - **MCP**：`scripts/nf_mcp_stdio_bridge.py`（标准 MCP 客户端接入，25 个 `nf_*` 只读白名单工具）。
 
 ### 权限红线（违反即失败，无例外）

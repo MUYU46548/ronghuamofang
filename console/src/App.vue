@@ -999,6 +999,7 @@ function cancelEstimate() {
 }
 
 async function runStage(n) {
+  if (agentRunGuard()) return;
   await confirmRunWithEstimate("运行阶段 " + n + "（" + (STAGE_NAMES[n] || "") + "）",
                                n, () => doRunStage(n));
 }
@@ -1011,6 +1012,7 @@ async function doRunStage(n) {
 }
 
 async function runPipelineFull() {
+  if (agentRunGuard()) return;
   await confirmRunWithEstimate("全自动运行流水线（从第一个未完成阶段跑到审批门）",
                                null, doRunPipelineFull);
 }
@@ -1026,6 +1028,7 @@ async function doRunPipelineFull() {
 }
 
 async function runPipelineStreamFull() {
+  if (agentRunGuard()) return;
   await confirmRunWithEstimate("流式全自动运行流水线", null, doRunPipelineStreamFull);
 }
 
@@ -1073,6 +1076,7 @@ async function doRunPipelineStreamFull() {
 }
 
 async function runPublish() {
+  if (agentRunGuard()) return;
   if (!state.value) return say("状态未加载");
   const incomplete = state.value.stages.filter(s => s.status !== "done");
   if (incomplete.length > 0) {
@@ -1170,6 +1174,7 @@ function logError(message, detail = "") {
 }
 
 async function runStageStream(n) {
+  if (agentRunGuard()) return;
   const r = await api("/stage/" + n + "/run", "POST", { stream: true });
   if (r.status !== 202) {
     say("提交失败: " + (r.data.error || r.status));
@@ -2016,6 +2021,7 @@ async function runNextAction() {
 }
 
 async function runQuickStage() {
+  if (agentRunGuard()) return;
   const sel = [...quickStages.value].sort((a, b) => a - b);
   if (!sel.length) return say("请先勾选要运行的阶段");
   if (sel.length === 1) return runStage(sel[0]);   // 单选走原路（带预估确认框）
@@ -2702,6 +2708,24 @@ async function toggleAgentMode() {
   }
 }
 
+/* ---------- Agent 模式运行锁（2026-10-17） ----------
+ * Agent 模式 = 运行由外部 Agent 经 HTTP 驱动；GUI 的常规运行入口此时全部锁死，
+ * 防「人点一下、Agent 跑一半」的双跑（两个 job 各烧一倍 token）。
+ * 审批 / 打回 / 跳过 / 停止不受影响 —— 那几件事本来就只归桌面端。
+ * 双保险：按钮 :disabled（可见锁）+ 这里的函数级守卫（命令面板 / Space / 下一步
+ * 提示条 / 失败重试等所有调用路径都汇到这几个入口，模板之外也锁得住）。 */
+const agentRunLocked = computed(() => !!agentMode.value);
+// 「下一步」的 run / publish 是运行类要锁；approve / tab 不锁
+const nextRunLocked = computed(() =>
+  !!agentMode.value && (nextAction.value?.kind === "run" || nextAction.value?.kind === "publish"));
+const AGENT_LOCK_HINT =
+  "Agent 模式已开启：运行由外部 Agent 驱动；如需手动运行请先在流水线页关闭 Agent 模式";
+function agentRunGuard() {
+  if (!agentMode.value) return false;
+  say(AGENT_LOCK_HINT);
+  return true;
+}
+
 /* ---------- 接入其他 Agent（2026-10-06 对齐方寸「接入页」） ---------- */
 // 配置段在主进程按安装态/源码态生成真实路径；这里只展示、复制、打开目标文件。
 const agentConnect = ref(null);
@@ -2781,14 +2805,24 @@ function stageTaskBrief(stage) {
   const root = (state.value && state.value.project_dir) || "（当前项目根）";
   const info = STAGE_TASK_INFO[stage] || { name: "阶段 " + stage, out: "见 AGENTS.md 关键路径" };
   const tpl = STAGE_MAIN_PROMPT[stage];
+  // 通道指引按执行形态给（2026-10-17）：安装态工作区没有 .venv、宿主 python 缺
+  // PyYAML —— 原简报的裸 `python` CLI 行是条死路，是 13 次试跑指引层的根因之一。
+  // runtime_python = 后端 /state 自报的解释器（安装态=自带 runtime，源码态=.venv）。
+  const py = (state.value && state.value.runtime_python) || "";
+  const form = (state.value && state.value.form) || "";
+  const cliLine = py
+    ? "  · CLI：" + py + " scripts\\orchestrator.py --stage " + stage
+      + "（在项目根下执行；勿用裸 python —— 它多半缺 PyYAML 会被解释器守卫拦下）"
+    : "  · CLI：用自带 runtime 或 .venv 的 python 跑 scripts\\orchestrator.py --stage " + stage
+      + "（勿用裸 python）";
   return [
     "# 任务：执行绒花墨坊 阶段 " + stage + " —— " + info.name,
     "",
-    "- 项目根：" + root,
-    "- 执行（任选你已接入的通道，项目根下）：",
-    "  · CLI：python scripts\\orchestrator.py --stage " + stage,
-    "  · HTTP：POST http://127.0.0.1:8765/stage/" + stage + "/run （agent_mode 已开时）",
-    "  · GUI：流水线页签 → 阶段 " + stage + " →「运行」",
+    "- 项目根：" + root + (form ? "（执行形态：" + form + "）" : ""),
+    "- 执行（按推荐顺序任选其一）：",
+    "  · HTTP（推荐，桌面客户端在跑即可用）：POST http://127.0.0.1:8765/stage/" + stage + "/run （agent_mode 已开时）",
+    cliLine,
+    "  · GUI：流水线页签 → 阶段 " + stage + " →「运行」（Agent 模式下已锁定，请用前两条）",
     "- 预期产物：" + info.out,
     "- 退出码：0=完成 · 1=阶段失败 · 2=预算熔断 · 3=等审批（报告后停下等用户） · 4=被中断",
     "",
@@ -3328,12 +3362,12 @@ onUnmounted(() => {
   </header>
 
   <!-- 全局"下一步"提示条 -->
-  <div v-if="nextAction && !isRunning" class="next-action-bar" @click="runNextAction">
+  <div v-if="nextAction && !isRunning" class="next-action-bar" @click="nextRunLocked ? null : runNextAction()">
     <span class="na-icon">▶</span>
     <span class="na-label">{{ nextAction.label }}</span>
-    <span class="na-hint">{{ nextAction.hint }}</span>
+    <span class="na-hint">{{ nextRunLocked ? AGENT_LOCK_HINT : nextAction.hint }}</span>
     <span class="spacer"></span>
-    <button class="mini primary" @click.stop="runNextAction">执行</button>
+    <button class="mini primary" :disabled="nextRunLocked" :title="nextRunLocked ? AGENT_LOCK_HINT : ''" @click.stop="runNextAction">执行</button>
   </div>
 
   <!-- 一键补救结果弹窗 -->
@@ -3491,7 +3525,7 @@ onUnmounted(() => {
       <span class="agent-bar-dot"></span>
       <span class="agent-bar-label">Agent 模式</span>
       <span class="agent-bar-desc">
-        <template v-if="agentMode">已开启 —— 外部 Agent（Hermes 等）可通过 HTTP API 调用本机；审批 / 打回 / 归档 / 建项目仍只在桌面端手动执行</template>
+        <template v-if="agentMode">已开启 —— 外部 Agent（Hermes 等）可通过 HTTP API 调用本机；常规运行按钮已锁定（防双跑）；审批 / 打回 / 归档 / 建项目仍只在桌面端手动执行</template>
         <template v-else>已关闭 —— 外部 Agent 无法调用本机 API</template>
       </span>
       <span class="spacer"></span>
@@ -3572,12 +3606,16 @@ onUnmounted(() => {
         <b>{{ nextAction ? nextAction.label : '（七阶段已完成，可生成成品或导出）' }}</b>
         <span class="meta">{{ nextAction ? nextAction.hint : '' }}</span>
         <span class="spacer"></span>
-        <button class="mini primary" :disabled="isRunning || !nextAction" @click="runNextAction">
+        <button class="mini primary" :disabled="isRunning || !nextAction || nextRunLocked"
+                :title="nextRunLocked ? AGENT_LOCK_HINT : ''" @click="runNextAction">
           ⏎ 执行下一步
         </button>
-        <button class="mini" :disabled="isRunning" @click="runPipelineFull" title="从第一个未完成阶段跑到审批门">全自动</button>
-        <button class="mini" :disabled="isRunning" @click="runPipelineStreamFull" title="全自动 + 实时流式输出（可暂停/中断）">流式全自动</button>
-        <button class="mini" :disabled="isRunning" @click="runPublish" title="生成最终 Word 全书">📄 Word 成品</button>
+        <button class="mini" :disabled="isRunning || agentRunLocked" @click="runPipelineFull"
+                :title="agentRunLocked ? AGENT_LOCK_HINT : '从第一个未完成阶段跑到审批门'">全自动</button>
+        <button class="mini" :disabled="isRunning || agentRunLocked" @click="runPipelineStreamFull"
+                :title="agentRunLocked ? AGENT_LOCK_HINT : '全自动 + 实时流式输出（可暂停/中断）'">流式全自动</button>
+        <button class="mini" :disabled="isRunning || agentRunLocked" @click="runPublish"
+                :title="agentRunLocked ? AGENT_LOCK_HINT : '生成最终 Word 全书'">📄 Word 成品</button>
         <button class="mini" @click="openSettingEdit" title="暂停流水线并编辑设定集（不影响已完成章节）">✏️ 中途改设定</button>
       </div>
 
@@ -3619,7 +3657,8 @@ onUnmounted(() => {
           <template v-else>—</template>
         </span>
         <button class="mini" :disabled="isRunning || !quickStages.length" @click="loadQuickEstimate">重估</button>
-        <button class="mini primary" :disabled="isRunning || !quickStages.length" @click="runQuickStage">▶ 运行所选工序</button>
+        <button class="mini primary" :disabled="isRunning || !quickStages.length || agentRunLocked"
+                :title="agentRunLocked ? AGENT_LOCK_HINT : ''" @click="runQuickStage">▶ 运行所选工序</button>
       </div>
     </section>
 
@@ -3642,7 +3681,7 @@ onUnmounted(() => {
             </span>
           </div>
           <div class="stage-actions">
-            <button class="mini" :disabled="isRunning" @click="runStage(s.stage)">运行</button>
+            <button class="mini" :disabled="isRunning || agentRunLocked" :title="agentRunLocked ? AGENT_LOCK_HINT : ''" @click="runStage(s.stage)">运行</button>
             <button class="mini" :disabled="isRunning" @click="runStageStream(s.stage)" title="实时流式输出，可随时中断">流式运行</button>
             <button v-if="agentMode && STAGE_MAIN_PROMPT[s.stage]" class="mini" :disabled="isRunning" @click="copyStagePrompt(s.stage)" title="复制「执行本阶段」的任务简报给外部 Agent（项目根 + 命令 + 产物 + 退出码）。阶段提示词是模板，占位符由流水线渲染，不再原样复制 —— 否则对方按红线当成「模板不是任务」直接停工">复制任务</button>
             <button v-if="s.status === 'done' && !s.approved" class="mini primary" @click="approve(s.stage)">确认</button>
@@ -3663,7 +3702,7 @@ onUnmounted(() => {
               ✍ 第 {{ s.needs_rewrite.join('、') }} 章未达质量线
             </span>
             <span class="spacer"></span>
-            <button class="mini primary" :disabled="isRunning" @click="retryStage(s.stage)">重试</button>
+            <button class="mini primary" :disabled="isRunning || agentRunLocked" :title="agentRunLocked ? AGENT_LOCK_HINT : ''" @click="retryStage(s.stage)">重试</button>
             <button class="mini" :disabled="isRunning" @click="openSkipDlg(s.stage)">跳过此阶段</button>
             <button class="mini" :disabled="isRunning" @click="openReject(s.stage)">回退（清下游）</button>
             <button class="mini" @click="openRunLog">查看日志</button>

@@ -5,7 +5,7 @@
 不经过 Hermes 子进程。端点总览：
 
 GET  /health              存活 + 当前 job
-GET  /state               progress + gates + 成本汇总 + 最近 job
+GET  /state               progress + gates + 成本汇总 + 最近 job + 形态自报（form/runtime_python）
 GET  /models              config/system.yaml 的 engine/providers/model 回显
 GET  /prompts/list        提示词模板列表（prompts/stage[1-7]_*.md）
 GET  /prompts/get         读取模板正文（?name=xxx 或 /prompts/get/xxx）
@@ -738,6 +738,17 @@ def stage_status(progress, n):
     return out
 
 
+def runtime_form():
+    """执行形态自报（2026-10-17 指引层修复）。
+
+    'source' = 源码树（ROOT 下有 .git/.venv）；'installed' = 安装态工作区。
+    外部 Agent 据此选通道与解释器 —— 13 次试跑全死在「拿宿主裸 python 跑安装态
+    工作区」上，判据此前只写在技能卡里，没有可编程出口。
+    """
+    return "source" if ((ROOT / ".git").exists() or (ROOT / ".venv").exists()) \
+        else "installed"
+
+
 def build_state():
     # 2026-09-29：这里原写死相对路径 "data/state/progress.json" —— 依赖进程 CWD。
     # `--root` 场景（自动化验收 / 多书隔离）下 CWD 仍是发起进程的目录，
@@ -776,6 +787,12 @@ def build_state():
     return {
         "book": (load_all()[1] or {}).get("book", {}).get("name", ""),
         "project_dir": str(ROOT),
+        # 执行形态 + 能跑管线的解释器（2026-10-17）：Electron 两种形态下都用
+        # 「能跑管线的那份 python」拉起 nf_api（安装态=自带 runtime，源码态=.venv），
+        # 所以本进程解释器天然就是 CLI 该用的解释器 —— 简报/kickoff 直接引用，
+        # 不再写裸 python（裸 python 缺 PyYAML 必被 interp_guard 拦，是拿错解释器）。
+        "form": runtime_form(),
+        "runtime_python": sys.executable,
         "allow_fake": ALLOW_FAKE,
         "has_work": sb_mod.has_work(),          # 新建项目向导用：工作区是否有数据
         "has_progress": (ROOT / "data" / "state" / "progress.json").exists(),  # 冷启动引导用：是否跑过流水线

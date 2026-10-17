@@ -20,6 +20,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 
 STATE = {
     "book": "验收用书",
+    "form": "source",
+    "runtime_python": "C:/fake/venv/Scripts/python.exe",
     "current_job": None,
     "has_work": True,
     "archived": ["旧书", "试稿"],
