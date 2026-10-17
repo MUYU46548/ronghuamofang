@@ -436,9 +436,12 @@ _orig = fc.FakeClient.run_task
 def patched(self, task_file, workdir=None, model=None):
     name = str(task_file).split(os.sep)[-1]
     if name.startswith("stage2"):
-        # 子会话产出「0 节点」的废稿（体检必 FAIL）
+        # 子会话产出「0 节点」的废稿（体检必 FAIL）。
+        # 与初始 global.md 逐字节不同（改一个词）—— 否则被 refine_outline 的
+        # 空转检测（内容与备份相同 = 子会话没做任何事）正确判失败，
+        # 「体检 FAIL 不假成功」这条路径就测不到了。
         write_text("data/outline/global.md",
-                   "# 《测试书》整体大纲\\n\\n## 起\\n开端。\\n\\n## 承\\n发展。\\n\\n"
+                   "# 《测试书》整体大纲\\n\\n## 起\\n开端篇。\\n\\n## 承\\n发展。\\n\\n"
                    "## 转\\n高潮。\\n\\n## 合\\n结局。\\n\\n## 关键节点\\n（无）\\n\\n"
                    "## 预计章节数\\n12\\n\\n## 章节规划\\n（无）\\n")
         return {"exit_code": 0, "stdout_tail": "", "tokens": 10, "tokens_out": 5,
@@ -523,7 +526,8 @@ _orig = fc.FakeClient.run_task
 def patched(self, task_file, workdir=None, model=None):
     name = str(task_file).split(os.sep)[-1]
     if name.startswith("stage2"):
-        write_text("data/outline/global.md", GOOD)
+        # 追加修订注释产生真实差异（否则被 refine_outline 空转检测判失败）
+        write_text("data/outline/global.md", GOOD.replace("继续任教", "继续任教至今"))
         return {"exit_code": 0, "stdout_tail": "", "tokens": 10, "tokens_out": 5,
                 "cost_yuan": 0.0, "estimated": True, "provider": "fake",
                 "model": "fake", "requests": 1}

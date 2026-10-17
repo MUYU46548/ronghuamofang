@@ -158,6 +158,17 @@ cd $NF && python scripts/nfctl.py check
 
 **整章不要了/重跑某阶段** → `reject.py --stage N "原因"`（先 `--dry-run` 看它清什么）→ `orchestrator.py --from N`。
 
+**并发红线（2026-10-17 起有机制兜底）**：同一本书**同时只跑一条流水线**。
+orchestrator 启动时拿 `data/state/run.lock` 跨进程锁 —— 已有活流水线在跑时
+第二条**直接拒绝启动**并打印持有者 pid/命令；死进程/超龄留下的陈旧锁自动接管。
+`runs.db` 里历史遗留的 `status='running'` 脏行会在下次启动时被清扫为
+`interrupted`。被拒时不要删锁硬跑：等它结束，确认它已死才可人工删锁。
+
+**stage4 字数差一点 ≠ 重写**：正文写出来了但只差一点字数（≥ 下限 60%）时，
+stage4 会自动发「读原稿、只补量」的扩写任务（每章每轮至多一次），不再整章
+重写 —— 重写实测会复现同样的短稿。扩写后仍不达标才判失败。想改下限就调
+`config/system.yaml` 的 `chapter.target_words`，不要指望重写碰运气。
+
 **看钱** → `cost_report.py`（总览）/ `--by-outline`（大纲逐轮）/ `--by-chapter`；
 服务在跑时 `nfctl api /costs/streaming` 看当前 run 实时消耗。
 

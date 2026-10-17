@@ -355,12 +355,64 @@ def case_orchestrator_wiring():
     check("finally 释放锁", "run_lock.release()" in src)
 
 
+# ---------------------------------------------------------------- 8. 精修空转检测
+class NoopClient:
+    """exit 0 但一字不写的子会话（第14次试跑 ch01 的真实形态）。"""
+
+    def write_task(self, task_dir, name, content):
+        Path(task_dir).mkdir(parents=True, exist_ok=True)
+        p = Path(task_dir) / name
+        p.write_text(content, encoding="utf-8")
+        return str(p)
+
+    def run_task(self, task_path, **kwargs):
+        return {"exit_code": 0, "tokens": 10, "tokens_out": 5, "text": "",
+                "model": "fake"}
+
+
+def case_refine_noop_detection():
+    print("\n【8】精修空转检测（用户质疑「AI精修该不会在空转吧」）")
+    tmp = build_workspace(total=1, tag="noop")
+    origin = os.getcwd()
+    os.chdir(tmp)          # run_refine 用相对路径读 data/，必须先进沙盒
+    try:
+        # 准备一章达标稿 + 逐章大纲
+        raw = tmp / "data" / "chapters" / "raw"
+        raw.mkdir(parents=True, exist_ok=True)
+        (raw / "01.md").write_text(_chapter(1, 2400), encoding="utf-8")
+        import yaml
+        cfg = yaml.safe_load((tmp / "config" / "system.yaml").read_text(encoding="utf-8"))
+        proj = yaml.safe_load((tmp / "config" / "project.yaml").read_text(encoding="utf-8"))
+
+        # refine_chapter：子会话什么都不写 → 必须判失败（空转），不能报「精修完成」
+        import refine_chapter as rc
+        ok, msg = rc.run_refine(cfg, proj, 1, "把冲突写得更狠", client=NoopClient(),
+                                task_dir=str(tmp / "data" / "state" / "tasks"))
+        check("refine_chapter：子会话空转 → 判失败", ok is False, msg)
+        check("refine_chapter：失败消息点明「空转」", "空转" in msg, msg)
+
+        # refine_outline：同上
+        import refine_outline as ro
+        good = ("# 《修复测试书》整体大纲\n\n## 起\n开篇事件。\n\n## 承\n冲突升级。\n\n"
+                "## 转\n她被停职。\n\n## 合\n真相揭开。\n\n## 关键节点\n- 第1章：相遇。\n\n"
+                "## 预计章节数\n3\n")
+        (tmp / "data" / "outline" / "global.md").write_text(good, encoding="utf-8")
+        ok2, msg2 = ro.run_refine(cfg, proj, "加强冲突", client=NoopClient(),
+                                task_dir=str(tmp / "data" / "state" / "tasks"))
+        check("refine_outline：子会话空转 → 判失败", ok2 is False, msg2)
+        check("refine_outline：失败消息点明「空转」", "空转" in msg2, msg2)
+    finally:
+        os.chdir(origin)
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def main():
     t0 = time.time()
     for fn in (case_build_cmd_absolute, case_rolling_skeleton,
                case_expand_success, case_expand_refused_when_too_short,
                case_expand_once_no_loop, case_run_lock, case_sweep_stale_running,
-               case_app_vue_fixes, case_orchestrator_wiring):
+               case_app_vue_fixes, case_orchestrator_wiring,
+               case_refine_noop_detection):
         fn()
     print("\n==== 结果: PASS %d / FAIL %d （%.1fs）===="
           % (len(PASS), len(FAIL), time.time() - t0))

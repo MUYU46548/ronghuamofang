@@ -109,6 +109,13 @@ def run_refine(cfg, proj, feedback, client=None, task_dir=None, dry_run=False,
     if result["exit_code"] != 0:
         return False, "精修子会话失败"
 
+    # 空转检测（2026-10-17）：子会话 exit 0 但大纲一字未改时，下面的
+    # check_global_outline 照样通过 → 报「精修完成」，白烧一次 token。
+    # 与备份逐字节相同 = 什么都没做，判失败。
+    if read_text(GLOBAL) == read_text(backup):
+        return False, (f"精修子会话未产出任何修改（空转）—— 大纲与备份逐字节相同"
+                       f"（{backup}）；检查任务路径与子会话是否找到任务文件")
+
     # 成本归集（stage=2，chapter=版本号 → 与「初版 chapter=0」区分）
     cost_note = ""
     if cost is not None and run_id is not None:

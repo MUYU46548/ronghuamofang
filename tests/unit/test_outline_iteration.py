@@ -437,7 +437,9 @@ GOOD = read_text("_good.md")
 _orig = fc.FakeClient.run_task
 def patched(self, task_file, workdir=None, model=None):
     if str(task_file).split(os.sep)[-1].startswith("stage2"):
-        write_text("data/outline/global.md", GOOD)
+        # 追加一行修订注释产生真实差异 —— 否则被 refine_outline 的空转检测
+        # （内容与备份逐字节相同 = 子会话什么都没做）正确判失败
+        write_text("data/outline/global.md", GOOD.replace("她选择留下", "她最终选择留下"))
         return {"exit_code": 0, "stdout_tail": "", "tokens": 20000,
                 "tokens_out": 6000, "cost_yuan": 0.0310, "estimated": True,
                 "provider": "fake", "model": "fake", "requests": 1}
@@ -504,7 +506,9 @@ GOOD = read_text("_good.md")
 _orig = fc.FakeClient.run_task
 def patched(self, task_file, workdir=None, model=None):
     if str(task_file).split(os.sep)[-1].startswith("stage2"):
-        write_text("data/outline/global.md", GOOD)
+        # 追加一行修订注释产生真实差异 —— 否则被 refine_outline 的空转检测
+        # （内容与备份逐字节相同 = 子会话什么都没做）正确判失败
+        write_text("data/outline/global.md", GOOD.replace("她选择留下", "她最终选择留下"))
         return {"exit_code": 0, "stdout_tail": "", "tokens": 20000,
                 "tokens_out": 6000, "cost_yuan": 0.0310, "estimated": True,
                 "provider": "fake", "model": "fake", "requests": 1}

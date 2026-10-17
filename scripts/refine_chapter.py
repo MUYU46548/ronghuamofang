@@ -177,6 +177,15 @@ def run_refine(cfg, proj, chapter, feedback, client=None, task_dir=None,
     if not chap_path.exists():
         return False, "精修后章节文件缺失"
 
+    # 空转检测（2026-10-17 用户质疑「精修该不会在空转吧」）：hermes 子会话
+    # exit 0 但一个字没写（读不到任务/放弃写作）时，原实现会因「字数变化 0%」
+    # 通过 ±20% 校验而报「精修完成」—— 白烧一次 token 还骗过验收。
+    # 内容与备份逐字节相同 = 子会话什么都没做，判失败。
+    if read_text(chap_path) == read_text(backup):
+        return False, (f"精修子会话未产出任何修改（空转）—— 第 {chapter} 章与备份"
+                       f"逐字节相同；已保留备份 {backup}。检查任务路径与子会话"
+                       f"是否找到任务文件")
+
     # 校验：字数 ±20% + quality 注释
     before = _count_cn(read_text(backup))
     after = _count_cn(read_text(chap_path))
