@@ -1229,6 +1229,14 @@ class HermesClient:
         return True
 
     def _build_cmd(self, task_path, model=None, session_id=None):
+        # 任务路径绝对化（2026-10-17 第14次试跑根因）：-q 提示里给子会话的任务路径
+        # 若是相对路径（write_task 返回的就是 `data/state/tasks/xx.md`），子会话的
+        # cwd 继承调用方 —— orchestrator 被外部 agent 从别的目录拉起时，子会话
+        # 找不到任务文件，什么都没写就 exit 0 → stage4 报"章节文件未生成"
+        # （实测同章 14 连败；用绝对路径手工跑同一任务文件一次即成）。
+        # 任务文件内部的输入/输出路径本就是绝对路径，所以子会话只要找得到任务
+        # 文件，读写就都不依赖 cwd。
+        task_path = Path(task_path).resolve()
         cmd = [self.hermes_bin, "chat", "-q",
                "阅读并严格按 " + str(task_path) + " 中的指示执行全部步骤。"
                "完成后简要汇报：产物路径、校验结果、遇到的问题。",

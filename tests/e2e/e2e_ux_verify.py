@@ -454,6 +454,20 @@ def test_real(browser):
             # ⚠️ 绝不在这里按 Space：Space = 执行下一步 = 会真的把审批按掉（改用户数据）。
             print("  [SKIP] Space = 执行下一步：下一步是**审批门**，真机按下去会改用户工作区；"
                   "该段只在「下一步 = 运行」时有意义（那时会先弹费用预估确认框）。")
+        elif (real_state() or {}).get("agent_mode"):
+            # Agent 模式运行锁（2026-10-17 新契约）：Space = 执行下一步 = 运行类
+            # → 被 agentRunGuard 拦下吃锁定 toast，**不弹**预估框。此前这条断言
+            # 只认「弹预估框」，真后端开 agent_mode 时必假红 —— 按新语义分流。
+            print("  --- Space = 执行下一步（Agent 模式：应吃锁定提示，不弹预估）---")
+            page.locator("body").click(position={"x": 700, "y": 700})
+            page.keyboard.press(" ")
+            page.wait_for_timeout(1200)
+            check("Agent 模式下 Space 吃锁定提示（运行锁生效）",
+                  page.locator(".toast:has-text('Agent 模式已开启')").count() >= 1,
+                  page.locator(".toast").all_inner_texts() if page.locator(".toast").count() else "<无 toast>")
+            check("锁定时不开预估确认框",
+                  page.locator(".dialog:has-text('运行前预估')").count() == 0)
+            shot(page, "B2_space_locked_by_agent_mode")
         else:
             print("  --- Space = 执行下一步（走费用预估确认，不真花钱）---")
             page.locator("body").click(position={"x": 700, "y": 700})

@@ -9,6 +9,45 @@ CHANGELOG」）。本文件从工程审查修复起正式启用。
 
 ## [Unreleased]
 
+## [v0.6.13] — 2026-10-17 第14次试跑修复：任务路径绝对化 · 字数定向扩写 · 跨进程运行锁
+
+第14次试跑 stage1-3 正常、stage4 系统性失败（ch01「章节文件未生成」14 连败、
+ch03「字数 1706 < 2000」9 连败）。逐条定位后修复，四层验收全绿
+（单测 104/104 · e2e_agent_lock 24/24 · e2e_ux_verify 142/142 · e2e_new_features 39/39）。
+
+- **ch01 连败主因 · 任务路径绝对化**（`utils/llm_client.py`）：`_build_cmd` 把 `-q`
+  提示里的任务路径 resolve 成绝对路径。此前是相对路径（write_task 返回
+  `data/state/tasks/xx.md`），子会话 cwd 继承调用方 —— orchestrator 被外部 agent
+  从别的目录拉起时子会话找不到任务文件，什么都没写就 exit 0。实证：同一任务文件
+  用绝对路径手工跑一次即成（2937 字 / quality 8 / 校验通过）。
+- **ch01 连败次因 · 滚动摘要骨架预创建**（`stage4_writing.py`）：首章开跑前
+  `data/summaries/rolling.md` 尚不存在，而任务把它列为必读输入，子会话读不到
+  输入会直接放弃。现在开工前自动建骨架（空摘要，与 load_rolling 解析语义一致）。
+- **ch03 连败 · 字数不足改定向扩写**（`stage4_writing.py` + 新模板
+  `prompts/stage4_expand.md`）：正文写出来了但只差一点（≥ 下限 60%）时不再整章
+  重写（实测重写复现同样的短稿），改为「读原稿、只补量」的扩写任务，每章每轮
+  至多一次防空转；差距太大（< 60%）仍直接判失败。
+- **跨会话双跑 → 跨进程运行锁**（新 `utils/run_lock.py` + `orchestrator.py`）：
+  此前 nf_api 的 409 只防同进程双跑，CLI/GUI/外部 agent 各起进程互不知情。
+  现在 `data/state/run.lock` 互斥：活进程持锁即拒绝启动（给出处置指引），
+  死进程/超龄/损坏锁自动接管。Windows 查活用 OpenProcess + 退出码
+  STILL_ACTIVE 双查（os.kill(pid,0) 在 Windows 会真的杀进程，禁用）。
+- **runs 脏行启动清扫**（`utils/db.py`）：强杀/崩溃留下的 `status='running'`
+  脏行此前永远留在库里（第14次试跑攒下 2 条）。orchestrator 拿锁后启动时统一
+  收敛为 `interrupted`，幂等。
+- **Agent 模式运行锁 + /state 形态自报**（承接 301cd5d，随本版首发）：GUI 全部
+  运行类入口锁定（审批/打回/跳过/停止不锁）；`/state` 自报 `form` 与
+  `runtime_python`，任务简报 HTTP 提为首选、CLI 行用后端自报解释器。
+- **复制任务按钮不再被运行禁用**（App.vue）：复制是只读操作，此前 `isRunning`
+  时禁用导致试跑中拿不到简报。
+- **一键补救建议可整段复制**（App.vue）：补救弹窗新增「复制全部建议」，
+  拼成「[阻塞/提醒] 问题 → 建议（命令）」纯文本，可直接贴给外部 Agent。
+- **收件箱空态指路**（App.vue）：写明审批门只在阶段 2/6，阶段 3 逐章大纲
+  不设门、产物在「大纲 / 分章」页签查看。
+- **e2e_ux_verify 按新契约分流**：真后端开 agent_mode 时 Space=执行下一步
+  应吃锁定 toast（不再假红「未弹预估框」）。
+
+
 ### 守卫补闸（2026-10-16）：P1 /stage/skip 入禁用名单 + P2 三个 CLI 家族零守卫收口
 
 - **P1 · `POST /stage/skip` 补入 `FORBIDDEN_IN_AGENT_MODE`（中高危漏闸）**：它把阶段标成

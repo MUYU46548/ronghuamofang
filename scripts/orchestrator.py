@@ -304,6 +304,10 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
     db = RunDB("logs/runs.db")
     run_id = None
     finished = False   # 正常路径已显式收尾置 True；兜底据此判断是否需补偿
+    # 跨进程运行锁（2026-10-17 第14次试跑修复）：对象先建、锁在 try 内拿，
+    # finally 统一释放 —— 保证任何退出路径都不残留本进程持有的锁。
+    from utils.run_lock import RunLock
+    run_lock = RunLock("data/state/run.lock")
 
     def _finalize(status, code):
         """收尾：写 runs 状态 + 标记已完成，返回退出码（幂等）。"""
@@ -347,6 +351,19 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
             print("[dry-run] 预计费用请用 estimate_tokens.py 查看（按历史均值/字符折算）")
             print("[orchestrator] === dry-run 预演结束（未产生任何实际调用/写入）===")
             return 0
+
+        # 跨进程互斥（2026-10-17）：nf_api 的 409 只防**同进程**双跑；CLI
+        # orchestrator 与 GUI 后台任务可以同时起两条流水线，互踩 progress.json /
+        # runs.db / data/chapters。拿不到锁 = 已有一条活着的流水线，直接退出。
+        lock_ok, lock_msg = run_lock.acquire()
+        if not lock_ok:
+            print("[orchestrator] 无法获取运行锁：" + lock_msg)
+            return 1
+        # 锁到手后再清扫：库里的 status=running 必是历史遗留（活的那条已被锁挡住）。
+        swept = db.sweep_stale_running()
+        if swept:
+            print(f"[orchestrator] 启动清扫：{swept} 条历史遗留的 running 脏行"
+                  "已标记为 interrupted（强杀/崩溃留下的，不是活任务）")
 
         run_id = db.start_run(
             plan_json=(f"stages={stages}" if stages
@@ -678,6 +695,10 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
                     print(f"[orchestrator] 检测到异常退出，已将 run {run_id} 标记为 crashed")
             except Exception as e:                          # noqa: BLE001
                 print(f"[orchestrator] 警告：崩溃兜底收尾失败: {e}")
+        try:
+            run_lock.release()      # 未持有 / 别人持有 → 各自的 no-op / pid 比对，安全
+        except Exception as e:                          # noqa: BLE001
+            print(f"[orchestrator] 警告：释放运行锁失败: {e}")
         db.close()
 
 

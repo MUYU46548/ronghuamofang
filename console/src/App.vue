@@ -153,6 +153,22 @@ async function refreshAgentRuns() {
 
 const remedyResult = ref(null);
 const remedyOpen = ref(false);
+/* 一键补救建议此前只能逐条手抄（2026-10-17 用户反馈）—— 这里拼成一段
+   可直接贴给外部 Agent / 存档的纯文本：每条一行「问题 → 建议（命令）」。 */
+function remedyAsText() {
+  const rr = remedyResult.value;
+  if (!rr) return "";
+  const lines = [];
+  for (const r of (rr.remedies || [])) {
+    lines.push(`${r.blocking ? "[阻塞]" : "[提醒]"} ${r.issue} → ${r.action}：${r.command}`);
+  }
+  return lines.join("\n") || "（无建议项）";
+}
+async function copyRemedy() {
+  const text = remedyAsText();
+  if (!text || text === "（无建议项）") return say("没有可复制的建议");
+  copyText(text, "补救建议已复制（" + (remedyResult.value?.remedies || []).length + " 条）");
+}
 async function runRemedy() {
   const r = await api("/remedy");
   if (r.status === 200) {
@@ -3390,6 +3406,7 @@ onUnmounted(() => {
       </div>
       <div class="dialog-actions">
         <span class="spacer"></span>
+        <button class="mini" @click="copyRemedy" title="把全部建议拼成一段纯文本复制（可直接贴给外部 Agent 或存档）">📋 复制全部建议</button>
         <button class="mini" @click="remedyOpen = false">关闭</button>
       </div>
     </div>
@@ -3683,7 +3700,7 @@ onUnmounted(() => {
           <div class="stage-actions">
             <button class="mini" :disabled="isRunning || agentRunLocked" :title="agentRunLocked ? AGENT_LOCK_HINT : ''" @click="runStage(s.stage)">运行</button>
             <button class="mini" :disabled="isRunning" @click="runStageStream(s.stage)" title="实时流式输出，可随时中断">流式运行</button>
-            <button v-if="agentMode && STAGE_MAIN_PROMPT[s.stage]" class="mini" :disabled="isRunning" @click="copyStagePrompt(s.stage)" title="复制「执行本阶段」的任务简报给外部 Agent（项目根 + 命令 + 产物 + 退出码）。阶段提示词是模板，占位符由流水线渲染，不再原样复制 —— 否则对方按红线当成「模板不是任务」直接停工">复制任务</button>
+            <button v-if="agentMode && STAGE_MAIN_PROMPT[s.stage]" class="mini" @click="copyStagePrompt(s.stage)" title="复制「执行本阶段」的任务简报给外部 Agent（项目根 + 命令 + 产物 + 退出码）。复制是只读操作，运行中也可用。阶段提示词是模板，占位符由流水线渲染，不再原样复制 —— 否则对方按红线当成「模板不是任务」直接停工">复制任务</button>
             <button v-if="s.status === 'done' && !s.approved" class="mini primary" @click="approve(s.stage)">确认</button>
             <button v-else-if="s.approved" class="mini" @click="approve(s.stage, true)">撤销</button>
             <!-- 2026-10-11 #9 收口：stage1 陪跑闸是合法审批点，后端 /reject 本就收 1-7，
@@ -3946,7 +3963,7 @@ onUnmounted(() => {
         </button>
         <span class="meta">{{ notifyChannelLabel() }} · 撞门自动跳转收件箱</span>
       </div>
-      <div v-if="!pendingGates.length" class="empty">暂无待审项 —— 审批门阶段（2 大纲 / 6 润色）完成并等待确认时会出现在这里</div>
+      <div v-if="!pendingGates.length" class="empty">暂无待审项 —— 审批门只在阶段 2（大纲）和 6（润色）设置；阶段 3（逐章大纲）不设审批门，产物在「大纲 / 分章」页签查看；阶段跑完后想复核可去「章节」页签</div>
       <div v-for="s in pendingGates" :key="s.stage" class="gate-card">
         <div class="gate-head">
           <span class="stage-no">{{ s.stage }}</span>

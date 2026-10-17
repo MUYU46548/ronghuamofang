@@ -740,7 +740,7 @@ def collect_doctor(root: Path) -> dict:
         "data/chapters": ["*.md"],
         "data/outline": ["*.md", "*.json"],
         "data/setting": ["*.json", "*.md"],
-        "data/state": ["*.json", "*.jsonl", "*.log"],
+        "data/state": ["*.json", "*.jsonl", "*.log", "*.lock"],   # *.lock = 跨进程运行锁（utils/run_lock）
         "data/summaries": ["*.md"],
     }
     orphans = []

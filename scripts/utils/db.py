@@ -93,6 +93,22 @@ class RunDB:
             self.conn.commit()
         return cur.rowcount > 0
 
+    def sweep_stale_running(self):
+        """启动清扫：把历史遗留的 status='running' 脏行统一收敛为 'interrupted'。
+
+        finally 兜底只收敛**本进程这一条** run；进程被强杀（taskkill / 崩溃 /
+        断电）时它自己也死了，脏行会永远留在库里 —— 第14次试跑就攒下两条
+        （runs 13/15），`nfctl status` 的"进行中"与成本统计都会被它们污染。
+        orchestrator **每次启动**调用一次：此刻本进程还没开跑，库里所有
+        'running' 必是历史遗留。返回收敛行数。
+        """
+        with self._lock:
+            cur = self.conn.execute(
+                "UPDATE runs SET finished_at=?, status='interrupted' "
+                "WHERE status='running'", (now_iso(),))
+            self.conn.commit()
+        return cur.rowcount
+
     # ---------- chapter_log ----------
     def log_chapter(self, run_id, stage, chapter, status, attempts=1, quality=None,
                     tokens_in=0, tokens_out=0, cost_yuan=0.0, error=None, session_id=None):

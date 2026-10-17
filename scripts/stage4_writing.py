@@ -259,6 +259,54 @@ def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, p
     return body
 
 
+def build_expand_task(cfg, proj, n, cur_words, low, high):
+    """字数不足时的定向扩写任务（2026-10-17 第14次试跑修复）。
+
+    为什么不是整章重写：实测同章字数不足重跑 9 次仍复现同样的短稿 ——
+    模型收到"重写本章"会走同一条生成路径，短是系统性的。改成"读原稿、
+    只补量"后目标明确（插细节不动骨架），成功率高得多，且原稿已过的
+    校验项（标题/注释/风格）不会被重写破坏。
+
+    模板优先（prompts/stage4_expand.md），装机端 payload 未含该模板时
+    用内置兜底文本 —— 升级后 seedWorkspace 会补上模板，兜底只服务过渡期。
+    """
+    book = proj.get("book", {})
+    draft = Path(f"data/chapters/raw/{n:02d}.md").resolve()
+    style_notes = build_style_notes_section(book.get("style_notes", ""))
+    variables = {
+        "n": n, "cur_words": cur_words,
+        "min_words": low, "max_words": high,
+        "path_draft": draft, "style_notes": style_notes,
+    }
+    try:
+        _, body = load_template("stage4_expand.md", variables)
+        return body
+    except FileNotFoundError:
+        print("[stage4] 提示：prompts/stage4_expand.md 缺失（装机端 payload 未更新？）"
+              "—— 用内置扩写指令兜底")
+        return (
+            "# 阶段 4 任务：扩写第 {n} 章至字数下限\n\n"
+            "现有稿件只有 {cur_words} 字，低于要求下限 {min_words} 字。"
+            "请先用 read_file 读取现有稿件，然后在保留既有情节、结构、对话的"
+            "前提下扩写正文，使总字数达到 {min_words}~{max_words} 字之间。\n\n"
+            "## 扩写要求\n"
+            "- 只增不删：既有段落全部保留，扩写内容插在语义衔接处\n"
+            "- 扩写手法：补充动作细节、环境的具体感官呈现、对话的往还回合、"
+            "物件与机关的运转过程\n"
+            "- 严禁新增关键情节、新角色、新冲突；不得改动结尾走向\n"
+            "- 保留文末 summary 与 quality 注释行，原样不动\n\n"
+            "## 文风笔记（最高优先级）\n{style_notes}\n\n"
+            "## 硬性禁止\n"
+            "- 禁止占位符（XXX/TODO/待补充）；禁止 AI 腔套话\n"
+            "- 禁止 Markdown 表格、图片、代码块\n"
+            "- 禁止复读：同一描写不得换个说法再来一遍\n\n"
+            "## 输入文件（用 read_file 读取）\n"
+            "- 现有稿件: {path_draft}\n\n"
+            "## 输出\n"
+            "将扩写后的完整稿件（含原注释行）写回文件: {path_draft}\n"
+        ).format(**variables)
+
+
 def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=None):
     client = client or make_client(cfg, "writer")
     task_dir = task_dir or "data/state/tasks"
@@ -266,6 +314,13 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     raw_dir = Path("data/chapters/raw")
     raw_dir.mkdir(parents=True, exist_ok=True)
     rolling_path = Path("data/summaries/rolling.md")
+    # 滚动摘要骨架预创建（2026-10-17 第14次试跑修复）：首章开跑前 rolling.md
+    # 尚不存在，而写作任务把它列为"用 read_file 读取"的输入 —— 子会话读不到
+    # 输入会直接放弃写作（"章节文件未生成"连败的一半根因）。骨架=空摘要，
+    # 与 load_rolling 对缺失文件的解析结果逐字一致，不改任何下游语义。
+    if not rolling_path.exists():
+        write_rolling(rolling_path, {"global_summary": "", "chapters": {}})
+        print(f"[stage4] 初始化滚动摘要骨架 → {rolling_path}")
     quality_threshold = int(cfg.get("chapter", {}).get("quality_threshold", 6))
     max_recent = int(cfg.get("chapter", {}).get("summary_every", 5))
 
@@ -289,6 +344,7 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     # 连续失败止损阈值（0 = 关闭）。见 _fail 的说明。
     max_consec_fail = int(cfg.get("gates", {}).get("stage4_max_consecutive_failures", 3))
     consec_fail = 0
+    expanded = set()   # 本轮已扩写过的章节（每章至多一次，防空转）
     aborted = ""
     done_this_round = 0
 
@@ -355,6 +411,31 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
             continue
 
         check = check_chapter(chap_path, low, high)
+        # 字数不足的定向扩写（2026-10-17 第14次试跑修复）：正文写出来了但只差
+        # 一点（>= 下限 60%）时，整章重写往往复现同样的短稿（同章 9 连败实证）；
+        # 换成"读原稿、只补量"的扩写任务。每章每轮至多一次，防扩写本身空转。
+        if (not check.ok and not check.degenerate
+                and check.word_count < low
+                and check.word_count >= int(low * 0.6)
+                and n not in expanded):
+            expanded.add(n)
+            print(f"[stage4] 第{n}章字数 {check.word_count} < {low}"
+                  " —— 定向扩写重试（读原稿补量，不整章重写）")
+            etask = client.write_task(task_dir, f"stage4_ch{n:02d}_expand.md",
+                                      build_expand_task(cfg, proj, n,
+                                                        check.word_count, low, high))
+            eres = client.run_task(etask)
+            if cost:
+                if cost.charge_cost(run_id, 4, n, eres) == "pause":
+                    _detail = _pause_detail(cost, run_id)
+                    print(f"[stage4] 熔断停止[{_detail['reason']}]：{_detail['message']}"
+                          "—— 停止本阶段（扩写调用后）")
+                    progress.data.setdefault("budget", {})["paused"] = True
+                    progress.save()
+                    aborted = "budget"
+                    break
+            if eres["exit_code"] == 0 and chap_path.exists():
+                check = check_chapter(chap_path, low, high)
         if not check.ok:
             # 退化（正文够长但内容是垃圾）单独标注：这类失败与「字数不足」
             # 的处置不同 —— 重试往往没用，多半是模型/提示词层面出了问题。
