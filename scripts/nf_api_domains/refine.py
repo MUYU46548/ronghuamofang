@@ -13,6 +13,7 @@
 - 写后回读校验
 """
 import nf_api as api
+from utils.branch_samples import BRANCH_KINDS
 from utils.field_refine import FIELD_LABELS
 
 
@@ -176,6 +177,77 @@ def handle_field_submit(h, body):
                                           note=str(body.get("note") or ""))
         status = 200 if ok else 400
         return status, ({"ok": True, **detail} if ok else {"ok": False, "error": detail})
+    except Exception as e:
+        return 500, {"error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_branch_candidates(h, body):
+    """分支样例生成（第 4 件 · 选项可视化）：{chapter, kind, note?} → job_id
+
+    同一章出 2-3 个方向明显不同的开头，让用户在动笔前先比「同一件事，三种写法」。
+    产物不碰章大纲；选定后走 /outline/sample/submit 落提案（批准才写回）。
+    """
+    try:
+        ch = int(body.get("chapter") or 0)
+    except (TypeError, ValueError):
+        return 400, {"error": "chapter 须为整数"}
+    kind = str(body.get("kind") or "tone").strip() or "tone"
+    if not (1 <= ch <= 999):
+        return 400, {"error": "chapter(>=1) 必填"}
+    if kind not in BRANCH_KINDS:
+        return 400, {"error": "kind 须是 " + "/".join(BRANCH_KINDS) + " 之一"}
+    note = str(body.get("note") or "")
+    try:
+        cfg, _ = api.load_all()
+        api._client_for_env(cfg, "writer")
+        jid, err = api.start_job(f"branch_sample_ch{ch}_{kind}",
+                                 lambda: api.act_branch_samples(ch, kind, note))
+        if err:
+            return 409, {"error": err}
+        return 202, {"job_id": jid}
+    except Exception as e:
+        return 500, {"error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_branch_submit(h, body):
+    """把选定的写作方向落成**样例类**提案（不直接写章大纲）：
+    {chapter, kind, label, text, why?, note?}
+    """
+    try:
+        ch = int(body.get("chapter") or 0)
+    except (TypeError, ValueError):
+        return 400, {"error": "chapter 须为整数"}
+    kind = str(body.get("kind") or "tone").strip() or "tone"
+    label = str(body.get("label") or "").strip()
+    text = str(body.get("text") or "")
+    if not (1 <= ch <= 999):
+        return 400, {"error": "chapter(>=1) 必填"}
+    if kind not in BRANCH_KINDS:
+        return 400, {"error": "kind 须是 " + "/".join(BRANCH_KINDS) + " 之一"}
+    if not text.strip():
+        return 400, {"error": "text 必填（选定方向的样例正文）"}
+    try:
+        cfg, _ = api.load_all()
+        ok, detail = api.act_branch_submit(ch, kind, label, text,
+                                           why=str(body.get("why") or ""),
+                                           note=str(body.get("note") or ""))
+        status = 200 if ok else 400
+        return status, ({"ok": True, **detail} if ok else {"ok": False, "error": detail})
+    except Exception as e:
+        return 500, {"error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_branch_current(h, body):
+    """读某章已选定的写作方向（GUI 面板显示「这一章已经选了什么」）。"""
+    try:
+        ch = int((body or {}).get("chapter") or 0)
+    except (TypeError, ValueError):
+        return 400, {"error": "chapter 须为整数"}
+    if not (1 <= ch <= 999):
+        return 400, {"error": "chapter(>=1) 必填"}
+    try:
+        ok, detail = api.act_branch_current(ch)
+        return 200, {"ok": ok, "chapter": ch, **detail}
     except Exception as e:
         return 500, {"error": type(e).__name__ + ": " + str(e)[:200]}
 
@@ -359,6 +431,9 @@ ROUTES = (
     ("POST", "/outline/field/candidates", handle_field_candidates),
     ("POST", "/outline/field/submit", handle_field_submit),
     ("POST", "/outline/field/current", handle_field_current),
+    ("POST", "/outline/sample/candidates", handle_branch_candidates),
+    ("POST", "/outline/sample/submit", handle_branch_submit),
+    ("POST", "/outline/sample/current", handle_branch_current),
     ("POST", "/chapters/paragraph/restore", handle_paragraph_restore),
     ("POST", "/style/drift", handle_style_drift_post),
     ("GET", "/chapters/paragraphs", handle_chapters_paragraphs),

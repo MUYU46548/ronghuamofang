@@ -92,6 +92,28 @@ def chapter_samples(chapter_no, root="."):
     return "\n".join(parts).rstrip() + "\n"
 
 
+def list_samples(chapter_no, root="."):
+    """结构化读某章的样例块：[{"n": int, "title": str, "body": str, "anchor": dict}]。
+
+    `chapter_samples()` 给 stage4 拼注入串；这个给 GUI 面板显示「这一章已经选了
+    哪些方向」——两者读同一份块切分逻辑，避免面板和注入看到两套结果。
+    """
+    p = Path(root) / CHAPTERS_DIR / f"{int(chapter_no):02d}.md"
+    if not p.exists():
+        return []
+    out = []
+    for raw, anchor in _iter_opt_blocks(read_text(p)):
+        if not _is_sample(anchor):
+            continue
+        title, body = _read_block(raw, anchor)
+        if not body:
+            continue
+        m = _OPT_BLOCK_START_RE.match(raw or "")
+        out.append({"n": int(anchor.get("n") or (m.group(1) if m else 0) or 0),
+                    "title": title, "body": body, "anchor": anchor})
+    return out
+
+
 # 优化点块的起点：## 【优化点N】（不锚定行尾 —— 标题行可能嵌着整段正文）
 _OPT_BLOCK_START_RE = re.compile(r"^##\s*【优化点(\d+)】", re.M)
 

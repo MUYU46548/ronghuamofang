@@ -225,12 +225,12 @@ def test_real_write_path():
 
         # 标题行嵌正文（append_opt_point 的旧产物格式）
         inline = ("## 第三章\n\n- 核心事件：\n  1. x\n\n"
-                  "## 【优化点1】暮雨没有立刻回答。他把星图推回去。\n\n"
+                  "## 【优化点1】主角甲没有立刻回答。他把星图推回去。\n\n"
                   '<!--opt-anchor {"kind": "sample", "target_n": 3, "n": 1} -->\n')
         (t / "data" / "outline" / "chapters" / "04.md").write_text(
             inline, encoding="utf-8")
         out2 = chapter_samples.chapter_samples(4, root=str(t))
-        check("标题行嵌正文：正文不丢", "暮雨没有立刻回答" in out2)
+        check("标题行嵌正文：正文不丢", "主角甲没有立刻回答" in out2)
         check("标题行嵌正文：回退编号标题", "优化点" in out2)
 
         # 非样例锚点走同一路径仍不注入（回归）

@@ -1221,6 +1221,48 @@ def act_field_submit(chapter, field, text, why, note):
                   "message": "提案已落盘待审：批准后才会写回第 %d 章的「%s」字段" % (chapter, field)}
 
 
+def act_branch_samples(chapter, kind, note):
+    """分支样例生成（第 4 件 · 选项可视化）。
+
+    同一章出 2-3 个**方向明显不同**的开头（基调/视角/节奏），让用户在正文动笔前
+    先比「同一件事，三种写法」。与定向改写的差别：那个改章大纲的**一个字段**
+    （结构层），这个定整章的**写作方向**（基调层）。产物同样**不直接写稿** ——
+    选定后走 /outline/sample/submit 落提案，批准才写回。
+    """
+    from utils import branch_samples
+    cfg, _ = load_all()
+    db = RunDB(ROOT / "logs" / "runs.db")
+    try:
+        ok, err, payload = branch_samples.generate_branch_samples(
+            chapter, kind=kind, note=note, client=_client_for_env(cfg, "writer"),
+            cfg=cfg, db=db, root=str(ROOT))
+        return ok, (payload if ok else err)
+    finally:
+        db.close()
+
+
+def act_branch_submit(chapter, kind, label, text, why, note):
+    """把选定的写作方向落成样例类提案（不直接写章大纲 —— 写回归用户批准）。"""
+    from utils import branch_samples
+    ok, err, rel = branch_samples.submit_chosen(chapter, kind, label, text,
+                                                why=why, note=note, root=str(ROOT))
+    if not ok:
+        return False, err
+    return True, {"proposal": rel,
+                  "message": "方向样例已落盘待审：批准后才会进第 %d 章的写作参照" % chapter}
+
+
+def act_branch_current(chapter):
+    """读某章已选定的写作方向（GUI 面板显示「这一章已经选了什么」）。"""
+    from utils.chapter_samples import list_samples
+    items = list_samples(chapter, root=str(ROOT))
+    # 锚点不外漏给前端：只留面板要展示的字段
+    return True, {"samples": [{"n": it["n"], "title": it["title"],
+                               "body": it["body"],
+                               "kind": (it["anchor"] or {}).get("branch_kind") or ""}
+                              for it in items]}
+
+
 def act_paragraph_restore(chapter, paragraph_index, history_id):
     """回退段落到历史版本"""
     import refine_paragraph
@@ -2341,6 +2383,15 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/outline/field/submit":
                 # 选定候选 → 落提案进待审队列（写回归用户在「审核」页签批准）
                 self._send(*_dom(dom_refine.handle_field_submit(self, body)))
+            elif p == "/outline/sample/candidates":
+                # 分支样例生成（选项可视化）：同章 2-3 个方向，不碰章大纲
+                self._send(*_dom(dom_refine.handle_branch_candidates(self, body)))
+            elif p == "/outline/sample/current":
+                # 读某章已选定的写作方向（面板顶部显示「已选」）
+                self._send(*_dom(dom_refine.handle_branch_current(self, body)))
+            elif p == "/outline/sample/submit":
+                # 选定方向 → 落样例类提案（写回归用户在「审核」页签批准）
+                self._send(*_dom(dom_refine.handle_branch_submit(self, body)))
             elif p == "/chapters/paragraph/restore":
                 self._send(*_dom(dom_refine.handle_paragraph_restore(self, body)))
             elif p == "/style/drift":

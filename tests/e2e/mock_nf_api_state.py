@@ -80,6 +80,8 @@ WT = {"current": DEFAULT_WT}
 # 这里按 job_id 记住候选，/jobs/<id> 才能回 state=ok + result ——
 # mock 的 /jobs/ 默认恒回 failed，会让候选流程走失败分支。
 FIELD_JOBS = {}
+# 第 4 件（选项可视化）：分支样例同样走 job 轮询，理由同 FIELD_JOBS。
+SAMPLE_JOBS = {}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -302,6 +304,9 @@ class Handler(BaseHTTPRequestHandler):
             if jid in FIELD_JOBS:
                 return self._send(200, {"id": jid, "kind": "field_refine",
                                         "state": "ok", "result": FIELD_JOBS[jid]})
+            if jid in SAMPLE_JOBS:
+                return self._send(200, {"id": jid, "kind": "branch_sample",
+                                        "state": "ok", "result": SAMPLE_JOBS[jid]})
             return self._send(200, {"id": jid, "kind": "stage3", "state": "failed",
                                     "result": "exit=1"})
         if p == "/outline/discussion/brief":
@@ -375,6 +380,51 @@ class Handler(BaseHTTPRequestHandler):
                 "ok": True,
                 "proposal": "data/outline/drafts/ch%02d_mock.md" % int(body.get("chapter") or 1),
                 "message": "提案已落盘待审 —— 去「审核」页签批准后才会写回章大纲"})
+
+        if p == "/outline/sample/current":
+            # 已选定的方向：mock 固定回一条，让「已选定」区在视觉验收里可见
+            ch = int(body.get("chapter") or 1)
+            return self._send(200, {"ok": True, "chapter": ch, "samples": [
+                {"n": 1, "title": "克制隐忍", "kind": "tone",
+                 "body": "主角甲没有立刻回答。他把星图推回去……"}]})
+
+        if p == "/outline/sample/candidates":
+            # 分支样例生成（选项可视化）：喂 3 个方向明显不同的样例，走 job 轮询。
+            ch = int(body.get("chapter") or 1)
+            kind = str(body.get("kind") or "tone")
+            jid = "samplejob_%d_%s" % (ch, kind)
+            SAMPLE_JOBS[jid] = {
+                "kind": kind,
+                "samples": [
+                    {"label": "克制隐忍",
+                     "text": "主角甲没有立刻回答。他把星图推回去，很久才开口："
+                             "「规模不是问题，补给才是。」",
+                     "why": "适合内敛主角、慢热铺陈的书"},
+                    {"label": "外放热烈",
+                     "text": "「不行！」主角甲一掌拍在桌上，星图跳了一下，"
+                             "「三倍兵力进去，回来的不到一半！」",
+                     "why": "适合冲突驱动、节奏明快的书"},
+                    {"label": "冷峻疏离",
+                     "text": "星图在两人之间发着冷光。主角甲看着它，"
+                             "像在看一份与自己无关的报表。",
+                     "why": "适合硬科幻、旁观视角的书"},
+                ],
+                "cost_yuan": 0.0043, "model": "mock-model",
+                "tokens_in": 1500, "tokens_out": 900,
+            }
+            return self._send(202, {"job_id": jid})
+
+        if p == "/outline/sample/submit":
+            # 提交所选方向 → 落样例类提案。空 text 拒绝（护栏照旧）。
+            if not str(body.get("text") or "").strip():
+                return self._send(400, {"ok": False,
+                                        "error": "text 必填（选定方向的样例正文）"})
+            return self._send(200, {
+                "ok": True,
+                "proposal": "data/outline/drafts/ch%02d_sample_mock.md"
+                            % int(body.get("chapter") or 1),
+                "message": "方向样例已落盘待审 —— 去「审核」页签批准后才会进"
+                           "第 %d 章的写作参照" % int(body.get("chapter") or 1)})
 
         if p == "/config/word_template":
             # Word 模板面板（件五）：**有状态** mock —— 选完再读必须能看到新值，

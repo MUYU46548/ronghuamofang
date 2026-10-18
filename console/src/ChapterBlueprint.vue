@@ -38,6 +38,13 @@
             </label>
             <button
               class="mini"
+              title="同章生成 2-3 个方向明显不同的开头，并排对比后选一个当写作参照。不直接写稿，提交后进「审核」页签待审"
+              @click="sampleOpen = !sampleOpen"
+            >
+              {{ sampleOpen ? "收起方向" : "选写作方向" }}
+            </button>
+            <button
+              class="mini"
               title="打包本章讨论任务书（章大纲 + 设定 + 上一章 + 初稿 + 摘要）到剪贴板，粘贴给你的 Agent 开聊。结论会以提案落回审核页签，你批准才写回大纲"
               @click="openDiscuss"
             >
@@ -53,6 +60,14 @@
             </button>
           </div>
         </div>
+
+        <!-- 分支样例选向（第 4 件 · 选项可视化）：工具栏按钮展开 -->
+        <BranchSamplePanel
+          :chapter="currentN || 0"
+          :open="sampleOpen"
+          @close="sampleOpen = false"
+          @say="onSampleEvent"
+        />
 
         <!-- 原始模式 -->
         <div v-if="rawMode" class="bp-raw-editor">
@@ -183,6 +198,7 @@ import { ref, computed, onMounted, watch } from 'vue';
 
 import { API } from "./apiBase.js";
 import { copyToClipboard } from "./clipboard.js";
+import BranchSamplePanel from "./BranchSamplePanel.vue";
 const FUNC_CHOICES = ['铺垫', '推进', '转折', '高潮', '收束', 'transition'];
 
 // ---- 状态 ----
@@ -191,6 +207,7 @@ const currentN = ref(null);
 const current = ref(null);        // 当前加载的原始 markdown
 const rawContent = ref('');
 const rawMode = ref(false);
+const sampleOpen = ref(false);    // 分支样例选向面板（第 4 件 · 选项可视化）
 const isDirty = ref(false);
 const saving = ref(false);
 const dirty = ref({});           // {n: true} 各章节脏状态
@@ -239,6 +256,7 @@ async function selectChapter(n) {
     return;
   }
   currentN.value = n;
+  sampleOpen.value = false;   // 面板绑当前章号，切章即收起，免得看着 A 章的面板改 B 章
   await loadCurrent();
 }
 
@@ -463,6 +481,15 @@ async function save() {
 function say(msg) {
   // 简单 toast
   if (window._bpToast) window._bpToast(msg);
+}
+
+function onSampleEvent(kind) {
+  // 分支样例面板事件（第 4 件）：提交落提案后，这一章的大纲**没有**变（要等
+  // 你在「审核」页签批准），所以这里只提示，不重载当前章 —— 重载会把你正在
+  // 编辑的未保存内容冲掉。
+  if (kind === "sample_submitted") {
+    say("方向样例已落提案 —— 去「审核」页签批准后生效");
+  }
 }
 
 // ---- 初始化 ----
