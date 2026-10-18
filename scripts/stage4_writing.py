@@ -239,6 +239,20 @@ def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, p
     # 角色卡锁定：从 setting.json 提取当前章节涉及的角色
     character_cards = _extract_character_cards_for_chapter(setting_path, outline_path)
 
+    # 分支样例锚点（第 4 件 · 选项可视化）：用户在章大纲里选定的「样例文本」
+    # 注入成 few-shot 参照。读章大纲里的优化点锚点，只挑 kind=sample 的 ——
+    # 讨论意见/字段改写类锚点是给**人**看的决策记录，混进去会污染写作模型。
+    # 全量注入不做 top-K 截断（用户口径：整套写作用不了多少 token，样例文是
+    # 精心磨出来的，截断可能丢掉关键语气/节奏信息）。
+    try:
+        from utils.chapter_samples import chapter_samples
+        chapter_samples_block = chapter_samples(n)
+    except Exception as e:                              # noqa: BLE001
+        # 注入失败不阻断写作（同 kb_context 的三态纪律：这里属「失败」要打印）
+        print(f"[stage4] ⚠ 样例锚点注入失败（本章将无样例参照）: "
+              f"{type(e).__name__}: {e}")
+        chapter_samples_block = ""
+
     _, body = load_template("stage4_writing.md", {
         "n": n,
         "book_name": book.get("name", "未命名"),
@@ -251,6 +265,7 @@ def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, p
         "style_samples": style_samples,
         "style_notes": style_notes,
         "kb_context": kb_context,
+        "chapter_samples": chapter_samples_block,
         "character_cards": character_cards,
         "min_words": target[0],
         "max_words": target[1],

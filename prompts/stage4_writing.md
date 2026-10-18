@@ -57,6 +57,8 @@ temperature: 0.8
 
 {{style_samples}}
 
+{{chapter_samples}}
+
 ## 知识库上下文（相关正典词条，写作时参考）
 {{kb_context}}
 
