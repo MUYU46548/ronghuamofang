@@ -13,6 +13,7 @@
 - 写后回读校验
 """
 import nf_api as api
+from utils.field_refine import FIELD_LABELS
 
 
 def handle_refine_outline(h, body):
@@ -98,6 +99,83 @@ def handle_refine_paragraph(h, body):
         if err:
             return 409, {"error": err}
         return 202, {"job_id": jid}
+    except Exception as e:
+        return 500, {"error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_field_candidates(h, body):
+    """定向改写候选生成（第 3 件 · C 兜底）：{chapter, field, note?} → job_id
+
+    单轮产出 2-3 个候选，**不碰章大纲**；挑中哪个、要不要改由用户在 GUI 决定，
+    选定后走 /outline/field/submit 落提案（进待审队列，批准才写回）。
+    """
+    try:
+        ch = int(body.get("chapter") or 0)
+    except (TypeError, ValueError):
+        return 400, {"error": "chapter 须为整数"}
+    field = str(body.get("field") or "").strip()
+    if not (1 <= ch <= 999):
+        return 400, {"error": "chapter(>=1) 必填"}
+    if field not in FIELD_LABELS:
+        return 400, {"error": "field 必填且须是 " + "/".join(FIELD_LABELS) + " 之一"}
+    note = str(body.get("note") or "")
+    try:
+        cfg, _ = api.load_all()
+        api._client_for_env(cfg, "outliner")
+        jid, err = api.start_job(f"field_refine_ch{ch}_{field}",
+                                 lambda: api.act_field_candidates(ch, field, note))
+        if err:
+            return 409, {"error": err}
+        return 202, {"job_id": jid}
+    except Exception as e:
+        return 500, {"error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_field_current(h, body):
+    """读某章某字段当前值（GUI 打开改写面板时预填）。"""
+    try:
+        ch = int((body or {}).get("chapter") or 0)
+    except (TypeError, ValueError):
+        return 400, {"error": "chapter 须为整数"}
+    field = str((body or {}).get("field") or "").strip()
+    if not (1 <= ch <= 999):
+        return 400, {"error": "chapter(>=1) 必填"}
+    if field not in FIELD_LABELS:
+        return 400, {"error": "field 必填且须是 " + "/".join(FIELD_LABELS) + " 之一"}
+    try:
+        from utils import field_refine
+        ok, err, val = field_refine.current_field(ch, field, root=str(api.ROOT))
+        if not ok:
+            return 404, {"ok": False, "error": err}
+        return 200, {"ok": True, "chapter": ch, "field": field, "value": val}
+    except Exception as e:
+        return 500, {"error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_field_submit(h, body):
+    """把选定的候选落成提案（**不直接写章大纲**）：{chapter, field, text, why?, note?}
+
+    写回归用户在「审核」页签批准（与讨论提案同一队列、同一守卫）。
+    """
+    try:
+        ch = int(body.get("chapter") or 0)
+    except (TypeError, ValueError):
+        return 400, {"error": "chapter 须为整数"}
+    field = str(body.get("field") or "").strip()
+    text = str(body.get("text") or "")
+    if not (1 <= ch <= 999):
+        return 400, {"error": "chapter(>=1) 必填"}
+    if field not in FIELD_LABELS:
+        return 400, {"error": "field 必填且须是 " + "/".join(FIELD_LABELS) + " 之一"}
+    if not text.strip():
+        return 400, {"error": "text 必填（选定的候选内容）"}
+    try:
+        cfg, _ = api.load_all()
+        ok, detail = api.act_field_submit(ch, field, text,
+                                          why=str(body.get("why") or ""),
+                                          note=str(body.get("note") or ""))
+        status = 200 if ok else 400
+        return status, ({"ok": True, **detail} if ok else {"ok": False, "error": detail})
     except Exception as e:
         return 500, {"error": type(e).__name__ + ": " + str(e)[:200]}
 
@@ -278,6 +356,9 @@ ROUTES = (
     ("POST", "/refine/outline/undo", handle_refine_outline_undo),
     ("POST", "/refine/chapter", handle_refine_chapter),
     ("POST", "/refine/paragraph", handle_refine_paragraph),
+    ("POST", "/outline/field/candidates", handle_field_candidates),
+    ("POST", "/outline/field/submit", handle_field_submit),
+    ("POST", "/outline/field/current", handle_field_current),
     ("POST", "/chapters/paragraph/restore", handle_paragraph_restore),
     ("POST", "/style/drift", handle_style_drift_post),
     ("GET", "/chapters/paragraphs", handle_chapters_paragraphs),

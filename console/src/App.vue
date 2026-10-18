@@ -6,6 +6,7 @@ import ReviewConsole from "./ReviewConsole.vue";
 import SandboxQueue from "./SandboxQueue.vue";
 import DiscussionQueue from "./DiscussionQueue.vue";
 import ParagraphRefinePanel from "./ParagraphRefinePanel.vue";
+import FieldRefinePanel from "./FieldRefinePanel.vue";
 import OutlineView from "./OutlineView.vue";
 import ScrapsPanel from "./ScrapsPanel.vue";
 import RoleGraph from "./RoleGraph.vue";
@@ -3851,8 +3852,10 @@ onUnmounted(() => {
       <ReviewConsole @goto-refine="switchToRefine" />
     </section>
 
-    <!-- 精修（段落级定点重写） -->
+    <!-- 精修（段落级定点重写 + 字段级定向改写） -->
     <section v-if="tab === 'refine'">
+      <FieldRefinePanel />
+      <div class="refine-sep"></div>
       <ParagraphRefinePanel />
     </section>
 

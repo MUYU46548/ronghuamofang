@@ -46,13 +46,16 @@ CHAPTERS_DIR = "data/outline/chapters"
 # 状态机直接复用沙盒那一份实现，只换 manifest 落点（判据只有一份，不另写状态机）
 KIND = "outline_discussion"
 
+_LIST_MARK = re.compile(r"^\s*\d+[.、)]\s*")   # 只剥行首序号标记
+
 BODY_OPEN = "<!--opt-body 开始 -->"
 BODY_CLOSE = "<!--opt-body 结束 -->"
 ANCHOR_RE = re.compile(r"<!--\s*opt-anchor\s*(\{[\s\S]*?\})\s*-->")
 
-# 提案类型 → 写回动作。第一版只有 opt_point（追加优化点）；
-# blueprint_patch（改骨架字段）等后续再加，类型先留扩展位。
-KINDS = ("opt_point",)
+# 提案类型 → 写回动作（apply_proposal 按 kind 分派）：
+#   opt_point       追加一条优化点（讨论沉淀，只追加不覆盖）
+#   blueprint_patch 替换一个骨架字段（定向改写，C 兜底产出）
+KINDS = ("opt_point", "blueprint_patch")
 
 
 def _bad(msg):
@@ -188,10 +191,42 @@ def apply_proposal(rel, root=".", reviewer=""):
     if not chap_path.exists():
         return _bad(f"第 {target_n} 章大纲已不存在（可能被重生成）：{chap_path}")
 
-    from utils.chapter_blueprint import append_opt_point
+    from utils.chapter_blueprint import (append_opt_point, parse_chapter_md,
+                                        render_chapter_md)
 
-    old = read_text(chap_path)
-    new = append_opt_point(old, body, anchor)
+    src = read_text(chap_path)
+    kind = (anchor.get("kind") or "opt_point").strip()
+    if kind == "blueprint_patch":
+        # 定向改写：替换指定骨架字段。走 parse→改字段→render，保住优化点块
+        # （render_chapter_md 会把 opt_points 原样拼回，见该函数 docstring）。
+        field = (anchor.get("field") or "").strip()
+        allowed = {"title", "events", "roles", "function", "carryover", "hook"}
+        if field not in allowed:
+            return _bad(f"blueprint_patch 缺合法 field（可选 {sorted(allowed)}），"
+                        f"收到: {field or '(空)'}")
+        d = parse_chapter_md(src)
+        old_val = d.get(field)
+        if isinstance(old_val, list):
+            # 只剥形如「1. 」「1、」的行首序号 —— lstrip("0123456789.") 会连内容
+            # 开头的数字一起吃掉（「10. 十年布局」→「十年布局」是数据损坏）。
+            new_val = [_LIST_MARK.sub("", ln).strip()
+                       for ln in body.splitlines() if ln.strip()]
+        else:
+            new_val = body.strip()
+        # 空改检测比**字段值**，不是整份文档 —— render_chapter_md 的规范化输出
+        # 与原始文件在格式上本就不同（空行/分隔符），比整份文档恒不相等，
+        # 检测形同虚设（实测同值提案照样写回）。
+        def _norm(v):
+            if isinstance(v, list):
+                return [x.strip() for x in v]
+            return (v or "").strip()
+        if _norm(new_val) == _norm(old_val):
+            return _bad(f"改写后内容与原稿完全相同（{field}），未写回")
+        d[field] = new_val
+        new = render_chapter_md(d)
+    else:
+        new = append_opt_point(src, body, anchor)
+    old = src
 
     # 写前备份（章大纲是用户手磨的，多轮讨论的载体，绝不能裸写）
     bak = chap_path.with_name(f"{int(target_n):02d}_v"
@@ -211,8 +246,11 @@ def apply_proposal(rel, root=".", reviewer=""):
     ok, msg = srv.set_status(rel, srv.APPROVED, note=reviewer,
                              manifest_path=str(root / MANIFEST))
     if not ok:
-        return _bad(f"已写回但状态未更新：{msg}（优化点已在章大纲里，请手动核对）")
-    return True, (f"已写回第 {target_n} 章（新增优化点，原稿备份 {bak.name}）；"
+        return _bad(f"已写回但状态未更新：{msg}（改动已在章大纲里，请手动核对）")
+    # 文案按 kind 分流 —— blueprint_patch 是字段替换，说成「新增优化点」会误导
+    what = (f"替换字段「{anchor.get('field')}」" if kind == "blueprint_patch"
+            else "新增优化点")
+    return True, (f"已写回第 {target_n} 章（{what}，原稿备份 {bak.name}）；"
                   f"提案 {rel} 已标记通过")
 
 

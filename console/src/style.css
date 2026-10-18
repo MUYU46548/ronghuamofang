@@ -1702,3 +1702,10 @@ kbd {
   background: var(--field-dim); border: 1px solid var(--border);
   border-radius: 8px; padding: 10px 12px;
 }
+
+/* 精修页签内两个工作台的分隔（定向改写 / 段落精修各占一块，别让它们糊在一起） */
+.refine-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 24px 0;
+}

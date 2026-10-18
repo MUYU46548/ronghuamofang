@@ -76,6 +76,10 @@ COLD = False   # --cold：全新工作区（所有阶段 pending + has_work=fals
 # 这样「选模板 → 应用 → 下拉回读新值」在视觉验收里是真链路而不是静态截图。
 DEFAULT_WT = "templates/小说格式模板V1.3.dotx"
 WT = {"current": DEFAULT_WT}
+# 第 3 件（C 兜底定向改写）：候选生成走 job 轮询（与真后端同构）。
+# 这里按 job_id 记住候选，/jobs/<id> 才能回 state=ok + result ——
+# mock 的 /jobs/ 默认恒回 failed，会让候选流程走失败分支。
+FIELD_JOBS = {}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -279,6 +283,27 @@ class Handler(BaseHTTPRequestHandler):
                     "- 衔接：承接第二章；钩子——远征队异常信号" + NL)
             return self._send(200, {"ok": True, "n": int(n) if n.isdigit() else 1,
                                     "content": demo})
+        if p == "/outline/discussion/draft":
+            # 提案全文预览：mock 喂一段带待审声明的提案，让视觉验收能真读到
+            # 抬头（「这是待审提案」）与正文结构。
+            demo = ("# 讨论提案：第3章优化点" + NL + NL +
+                    "> **这是待审提案，不是成品。** 批准后优化点会追加进 "
+                    "data/outline/chapters/03.md，不改正文。" + NL + NL +
+                    "## 理由" + NL + NL + "关键段缺可感知的代价" + NL + NL +
+                    "## 提案正文" + NL + NL + "说服力不足，补故人旧创案例" + NL)
+            return self._send(200, {
+                "ok": True,
+                "path": str((self._query().get("path") or [""])[0]),
+                "content": demo,
+                "chars": len(demo),
+            })
+        if p.startswith("/jobs/"):
+            jid = p.split("/")[-1]
+            if jid in FIELD_JOBS:
+                return self._send(200, {"id": jid, "kind": "field_refine",
+                                        "state": "ok", "result": FIELD_JOBS[jid]})
+            return self._send(200, {"id": jid, "kind": "stage3", "state": "failed",
+                                    "result": "exit=1"})
         if p == "/outline/discussion/brief":
             # 讨论任务书打包（P0-1 简报投递）：mock 喂一份自包含任务书，
             # 让视觉验收能真点「讨论此章 → 打包并复制」并读到内容。
@@ -302,29 +327,55 @@ class Handler(BaseHTTPRequestHandler):
                 "n": int(n) if n.isdigit() else 3,
                 "brief": demo, "chars": len(demo),
             })
-        if p == "/outline/discussion/draft":
-            # 提案全文预览：mock 喂一段带待审声明的提案，让视觉验收能真读到
-            # 抬头（「这是待审提案」）与正文结构。
-            demo = ("# 讨论提案：第3章优化点" + NL + NL +
-                    "> **这是待审提案，不是成品。** 批准后优化点会追加进 "
-                    "data/outline/chapters/03.md，不改正文。" + NL + NL +
-                    "## 理由" + NL + NL + "关键段缺可感知的代价" + NL + NL +
-                    "## 提案正文" + NL + NL + "说服力不足，补故人旧创案例" + NL)
-            return self._send(200, {
-                "ok": True,
-                "path": str((self._query().get("path") or [""])[0]),
-                "content": demo,
-                "chars": len(demo),
-            })
-        if p.startswith("/jobs/"):
-            return self._send(200, {"id": p.split("/")[-1], "kind": "stage3", "state": "failed",
-                                    "result": "exit=1"})
+
         return self._send(404, {"ok": False, "error": "mock: 未实现的 " + p})
+
 
     def do_POST(self):
         p = self.path.split("?")[0].rstrip("/") or "/"
         n = int(self.headers.get("Content-Length") or 0)
         body = json.loads(self.rfile.read(n).decode("utf-8")) if n else {}
+        if p == "/outline/field/current":
+            # 定向改写（C 兜底）读当前字段值：喂一段固定字段，让 GUI 预填可见。
+            # 复用 do_POST 开头已解析的 body —— rfile 是一次性流，二次读会挂死
+            # （本项目记着的坑：请求体只能读一次）。
+            fld = str(body.get("field") or "events")
+            demo_val = {
+                "events": ("1. 主角甲与主角乙争论出征规模" + NL +
+                           "2. 以旧创案例说服主角乙"),
+                "roles": "主角甲；主角乙",
+                "function": "转折",
+                "carryover": "承接第二章",
+                "hook": "远征队异常信号",
+                "title": "相聚风神城",
+            }.get(fld, "（空）")
+            return self._send(200, {"ok": True, "chapter": int(body.get("chapter") or 1),
+                                    "field": fld, "value": demo_val})
+
+        if p == "/outline/field/candidates":
+            # 定向改写候选生成（C 兜底）：喂 3 个方向不同的候选，走 job 轮询。
+            jid = "fieldjob_" + str(body.get("chapter") or 1) + "_" + str(body.get("field") or "events")
+            FIELD_JOBS[jid] = {
+                "field": str(body.get("field") or "events"),
+                "candidates": [
+                    {"text": "主角乙拿出星图指出航道风险", "why": "用具体物件代替抽象争论"},
+                    {"text": "主角甲列举三场败绩说明必要", "why": "用往事支撑论点"},
+                    {"text": "两人以兵棋推演验证规模差异", "why": "把争论落到可演算的行动"},
+                ],
+                "cost_yuan": 0.0035, "model": "mock-model",
+                "tokens_in": 1200, "tokens_out": 300,
+            }
+            return self._send(202, {"job_id": jid})
+
+        if p == "/outline/field/submit":
+            # 提交所选 → 落提案。空 text 拒绝（护栏照旧：mock 也验必填）。
+            if not str(body.get("text") or "").strip():
+                return self._send(400, {"ok": False, "error": "text 必填（选定的候选内容）"})
+            return self._send(200, {
+                "ok": True,
+                "proposal": "data/outline/drafts/ch%02d_mock.md" % int(body.get("chapter") or 1),
+                "message": "提案已落盘待审 —— 去「审核」页签批准后才会写回章大纲"})
+
         if p == "/config/word_template":
             # Word 模板面板（件五）：**有状态** mock —— 选完再读必须能看到新值，
             # 否则「应用 → 下拉回跳」这种真 bug 在视觉验收里测不出来。

@@ -1189,6 +1189,38 @@ def act_refine_paragraph(chapter, paragraph_index, feedback, dry_run):
     return ok, msg
 
 
+def act_field_candidates(chapter, field, note):
+    """定向改写候选生成（第 3 件 · C 兜底）。
+
+    单轮直调产出 2-3 个候选改写，**不碰章大纲** —— 用户挑中哪个、要不要改，
+    由他在 GUI 里决定，选定后走 /outline/field/submit 落成提案（进待审队列，
+    批准才写回）。Hermes 不在场时讨论入口不断，靠的就是这条轻链路。
+
+    返回 (ok, detail)：detail 是候选 dict（供前端挑）或错误文案。
+    """
+    from utils import field_refine
+    cfg, _ = load_all()
+    db = RunDB(ROOT / "logs" / "runs.db")
+    try:
+        ok, err, payload = field_refine.generate_candidates(
+            chapter, field, note=note, client=_client_for_env(cfg, "outliner"),
+            cfg=cfg, db=db)
+        return ok, (payload if ok else err)
+    finally:
+        db.close()
+
+
+def act_field_submit(chapter, field, text, why, note):
+    """把选定的候选落成提案（不直接写章大纲 —— 写回归用户批准）。"""
+    from utils import field_refine
+    ok, err, rel = field_refine.submit_chosen(chapter, field, text, why=why,
+                                              note=note)
+    if not ok:
+        return False, err
+    return True, {"proposal": rel,
+                  "message": "提案已落盘待审：批准后才会写回第 %d 章的「%s」字段" % (chapter, field)}
+
+
 def act_paragraph_restore(chapter, paragraph_index, history_id):
     """回退段落到历史版本"""
     import refine_paragraph
@@ -2300,6 +2332,15 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(*_dom(dom_refine.handle_refine_chapter(self, body)))
             elif p == "/refine/paragraph":
                 self._send(*_dom(dom_refine.handle_refine_paragraph(self, body)))
+            elif p == "/outline/field/candidates":
+                # 定向改写候选生成（C 兜底）：单轮 2-3 候选，不碰章大纲
+                self._send(*_dom(dom_refine.handle_field_candidates(self, body)))
+            elif p == "/outline/field/current":
+                # 读某章某字段当前值（GUI 打开改写面板时预填）
+                self._send(*_dom(dom_refine.handle_field_current(self, body)))
+            elif p == "/outline/field/submit":
+                # 选定候选 → 落提案进待审队列（写回归用户在「审核」页签批准）
+                self._send(*_dom(dom_refine.handle_field_submit(self, body)))
             elif p == "/chapters/paragraph/restore":
                 self._send(*_dom(dom_refine.handle_paragraph_restore(self, body)))
             elif p == "/style/drift":

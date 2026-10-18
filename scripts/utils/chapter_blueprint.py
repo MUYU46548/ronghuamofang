@@ -122,7 +122,10 @@ def parse_chapter_md(text: str) -> dict:
         # 衔接可能包含"承接..."和"钩子..."两段
         carry, hook = "", ""
         if "钩子" in raw:
-            parts = re.split(r"钩子[：:]?\s*", raw, maxsplit=1)
+            # 分隔符可能是「钩子：」「钩子:」「钩子——」——统一切掉，否则破折号
+            # 留进 hook 值里，而渲染时又拼一个「钩子——」→ 每轮 parse/render
+            # 累积两个破折号（定向改写每批准一次就多一对，实测 3 轮后变 8 个）。
+            parts = re.split(r"钩子\s*[：:—\-]*\s*", raw, maxsplit=1)
             carry = parts[0].strip().rstrip("；;。")
             hook = parts[1].strip() if len(parts) > 1 else ""
         else:
