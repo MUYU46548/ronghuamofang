@@ -5,6 +5,7 @@
 
 | 端点 | 方法 | Agent 可调用 | 说明 |
 |------|------|--------------|------|
+| `/outline/discussion/brief`   | GET  | ✅ | 打包「讨论第 N 章」的自包含任务书（只读，供复制给外部 Agent） |
 | `/outline/discussion/apply`  | POST | ✅ | 提交提案 → 写草稿区 + 登记 pending（草稿类，自动待审） |
 | `/outline/discussion/review` | POST | ❌ 进 `FORBIDDEN_IN_AGENT_MODE` | 批准（真正写回章大纲）/ 驳回 —— 审批族，与 /approve 同档 |
 | `/outline/discussions`       | GET  | ✅ | 提案队列（GUI 审批页签消费） |
@@ -113,6 +114,30 @@ def handle_discussion_draft(h):
                  "chars": len(text)}
 
 
+def handle_discussion_brief(h):
+    """GET /outline/discussion/brief?n=<章号>&note=<可选意见> —— 打包讨论任务书。
+
+    只读：读章大纲 / 设定集 / 上一章末尾 / 初稿 / 滚动摘要，拼成一份自包含任务书
+    返回给 GUI 复制。**不写任何文件** —— 所以 Agent 也可调用（它只是在读）。
+
+    `note` 是用户意见，可选；不给就让 Agent 自己先提可讨论的问题。
+    """
+    from utils import discuss_brief
+
+    q = h._query()
+    raw_n = str((q.get("n") or [""])[0]).strip()
+    if not raw_n.isdigit():
+        return _bad("n 必填且须为章号整数（如 ?n=3）")
+    note = str((q.get("note") or [""])[0] or "")
+    ok, msg, brief = discuss_brief.build_chapter_brief(
+        int(raw_n), note=note, root=str(api.ROOT),
+        project_root_label=str(api.ROOT))
+    if not ok:
+        return _bad(msg)
+    return 200, {"ok": True, "message": msg, "n": int(raw_n),
+                 "brief": brief, "chars": len(brief)}
+
+
 def _queue_stats():
     from utils import discuss
     from utils import sandbox_review as srv
@@ -127,6 +152,7 @@ def _queue_snapshot():
 
 # 域模块负责的端点（供自检与文档）。注意 review 是 POST 且在禁用名单里。
 ROUTES = (
+    ("GET", "/outline/discussion/brief", handle_discussion_brief),
     ("POST", "/outline/discussion/apply", handle_discussion_apply),
     ("POST", "/outline/discussion/review", handle_discussion_review),
     ("GET", "/outline/discussions", handle_discussions),

@@ -45,18 +45,18 @@ def check(name, cond, detail=""):
 BASE_CHAPTER = """## 第三章 仙台争花火
 
 - 核心事件：
-  1. 暮雨与风灵争论出征规模
-- 涉及角色：暮雨；风灵
+  1. 主角甲与主角乙争论出征规模
+- 涉及角色：主角甲；主角乙
 - 功能：转折
 - 衔接：承接第二章；钩子——远征队信号
 """
 
-PROPOSAL_BODY = ("- 候选：A 池鸿威旧创（选定）/ B 芦苇童年\n"
-                 "- 理由：说服段缺可感知的代价\n"
+PROPOSAL_BODY = ("- 候选：A 故人旧创（选定）/ B 芦苇童年\n"
+                 "- 理由：关键段缺可感知的代价\n"
                  "- 样例文（对话）：\n"
-                 "  > 「我想起池鸿威终战那次……」\n"
+                 "  > 「我想起故人终战那次……」\n"
                  "- 样例文（心理）：\n"
-                 "  > 暮雨心中一震，沙都绝境的窒息感又漫上来。")
+                 "  > 主角甲心中一震，旧地绝境的窒息感又漫上来。")
 
 
 def _tmp_root():
@@ -72,11 +72,11 @@ def test_draft_isolation():
     print("\n[1] 草稿隔离：提案落盘不碰章大纲")
     t = _tmp_root()
     ok, msg, rel = discuss.submit(
-        target_n=3, title="说服段补具体案例", body=PROPOSAL_BODY,
-        rationale="说服段缺可感知的代价", candidates=["A 池鸿威旧创", "B 芦苇童年"],
-        chosen="A 池鸿威旧创",
+        target_n=3, title="关键段补具体案例", body=PROPOSAL_BODY,
+        rationale="关键段缺可感知的代价", candidates=["A 故人旧创", "B 芦苇童年"],
+        chosen="A 故人旧创",
         anchor={"id": "ch3-opt1", "kind": "dialogue-sample",
-                "tags": ["说服", "沙都线"], "weight": "high"},
+                "tags": ["说服", "旧地线"], "weight": "high"},
         rounds=3, root=str(t))
     check("提案提交成功且落盘", ok and (t / rel).exists(), msg)
     check("提案文件带待审声明", "待审提案" in (t / rel).read_text(encoding="utf-8"))
@@ -102,10 +102,10 @@ def test_approve_writes_back(t, rel):
     check("锚点 id 可反查", d["opt_points"][0]["anchor"].get("id") == "ch3-opt1",
           d["opt_points"][0]["anchor"])
     check("锚点 tags/weight 保留",
-          d["opt_points"][0]["anchor"].get("tags") == ["说服", "沙都线"]
+          d["opt_points"][0]["anchor"].get("tags") == ["说服", "旧地线"]
           and d["opt_points"][0]["anchor"].get("weight") == "high")
-    check("骨架 roles 不被样例文污染", d["roles"] == ["暮雨", "风灵"], d["roles"])
-    check("骨架 events 完好", d["events"] == ["暮雨与风灵争论出征规模"])
+    check("骨架 roles 不被样例文污染", d["roles"] == ["主角甲", "主角乙"], d["roles"])
+    check("骨架 events 完好", d["events"] == ["主角甲与主角乙争论出征规模"])
 
     baks = list((t / "data" / "outline" / "chapters").glob("03_v*.bak"))
     check("写前备份存在且是原始版",
@@ -177,18 +177,18 @@ def test_blueprint_roundtrip():
     text = BASE_CHAPTER + """
 
 ## 【优化点1】说服力不足，缺具体案例
-- 候选：A 池鸿威旧创（选定）/ B 芦苇童年
-- 理由：说服段缺可感知的代价
+- 候选：A 故人旧创（选定）/ B 芦苇童年
+- 理由：关键段缺可感知的代价
 - 样例文（对话）：
-  > 「我想起池鸿威终战那次……」
+  > 「我想起故人终战那次……」
 - 样例文（心理）：
-  > 暮雨心中一震。注意：样例文里出现「涉及角色：」字样也不该污染骨架
+  > 主角甲心中一震。注意：样例文里出现「涉及角色：」字样也不该污染骨架
 
-<!--opt-anchor {"id":"ch3-opt1","kind":"dialogue-sample","tags":["说服","沙都线"],"rounds":3,"chosen":"A","rationale":"说服段缺可感知的代价","weight":"high"} -->
+<!--opt-anchor {"id":"ch3-opt1","kind":"dialogue-sample","tags":["说服","旧地线"],"rounds":3,"chosen":"A","rationale":"关键段缺可感知的代价","weight":"high"} -->
 """
     d = parse_chapter_md(text)
     check("解析出 1 个优化点", len(d["opt_points"]) == 1)
-    check("骨架不被优化点样例文污染", d["roles"] == ["暮雨", "风灵"], d["roles"])
+    check("骨架不被优化点样例文污染", d["roles"] == ["主角甲", "主角乙"], d["roles"])
 
     rt = render_chapter_md(d)
     d2 = parse_chapter_md(rt)

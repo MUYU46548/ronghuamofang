@@ -36,6 +36,13 @@
               <input type="checkbox" v-model="rawMode" />
               <span>原始 Markdown</span>
             </label>
+            <button
+              class="mini"
+              title="打包本章讨论任务书（章大纲 + 设定 + 上一章 + 初稿 + 摘要）到剪贴板，粘贴给你的 Agent 开聊。结论会以提案落回审核页签，你批准才写回大纲"
+              @click="openDiscuss"
+            >
+              讨论此章
+            </button>
             <button class="mini" @click="loadCurrent">重置</button>
             <button
               class="mini primary"
@@ -147,6 +154,27 @@
         </div>
       </div>
     </div>
+
+    <!-- 讨论意见输入（P0-1 简报投递）：内联弹层，不用 window.prompt（Electron 禁用） -->
+    <div v-if="discussOpen" class="drawer-mask" @click.self="discussOpen = false">
+      <div class="dialog">
+        <h3>讨论第 {{ currentN }} 章</h3>
+        <div class="meta">
+          打包本章讨论任务书到剪贴板（含章大纲 + 相关角色设定 + 上一章末尾 +
+          本章初稿 + 滚动摘要 + 提交端点与红线），粘贴给你的 Agent 即可开聊。
+          结论会以提案落回「审核」页签，<strong>你批准才写回大纲</strong>。
+        </div>
+        <textarea v-model="discussNote" rows="3"
+                  placeholder="想讨论什么？（留空 = 让 Agent 先自己提可讨论的问题）"></textarea>
+        <div class="dialog-actions">
+          <button class="mini" @click="discussOpen = false">取消</button>
+          <button class="mini primary" :disabled="discussBusy"
+                  @click="discussThisChapter">
+            {{ discussBusy ? '打包中…' : '打包并复制任务书' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -154,6 +182,7 @@
 import { ref, computed, onMounted, watch } from 'vue';
 
 import { API } from "./apiBase.js";
+import { copyToClipboard } from "./clipboard.js";
 const FUNC_CHOICES = ['铺垫', '推进', '转折', '高潮', '收束', 'transition'];
 
 // ---- 状态 ----
@@ -354,6 +383,47 @@ function addSuggestedRole(name) {
 function markDirty() {
   isDirty.value = true;
   if (currentN.value) dirty.value[currentN.value] = true;
+}
+
+// ---- 讨论（P0-1 简报投递）----
+/* 打包本章讨论任务书到剪贴板。用户切到 Agent 桌面端粘贴即可开聊 —— 复用他已
+   有的讨论端（多轮记忆、能真读文件、能跑体检），不在墨坊里重造一个聊天框。
+   任务书自包含：章大纲 + 相关角色设定 + 上一章末尾 + 本章初稿 + 滚动摘要 +
+   提交端点与红线。结论经 POST /outline/discussion/apply 落提案，用户回墨坊在
+   审核页签批准才写回大纲 —— 讨论发生在哪都行，落地与审批固定在这。
+
+   ⚠️ 意见输入**不能用 window.prompt** —— Electron 禁用原生对话框，prompt()
+   恒返回 null，函数会静默退出（用户点了没反应）。改用内联 textarea 弹层。 */
+const discussOpen = ref(false);
+const discussNote = ref('');
+const discussBusy = ref(false);
+
+function openDiscuss() {
+  if (!currentN.value) return;
+  discussNote.value = '';
+  discussOpen.value = true;
+}
+async function discussThisChapter() {
+  if (!currentN.value || discussBusy.value) return;
+  const note = discussNote.value.trim();
+  discussBusy.value = true;
+  try {
+    const q = '/outline/discussion/brief?n=' + currentN.value
+      + (note ? '&note=' + encodeURIComponent(note) : '');
+    const r = await api(q);
+    if (r.status !== 200 || !r.data.ok) {
+      say('打包失败: ' + (r.data.error || r.data.message || r.status));
+      return;
+    }
+    await copyToClipboard(r.data.brief);
+    discussOpen.value = false;
+    say(`已复制第 ${currentN.value} 章讨论任务书（${r.data.chars} 字）—— `
+      + '粘贴给你的 Agent 即可开聊；结论会落回「审核」页签待你批准');
+  } catch (e) {
+    say('打包失败: ' + (e.message || e));
+  } finally {
+    discussBusy.value = false;
+  }
 }
 
 // ---- 保存 ----

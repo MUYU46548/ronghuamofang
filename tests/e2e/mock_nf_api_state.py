@@ -254,14 +254,62 @@ class Handler(BaseHTTPRequestHandler):
                 "status": str((self._query().get("status") or ["pending"])[0]),
                 "stats": DISCUSS["stats"],
             })
+        if p == "/setting/current":
+            # 分章页签的蓝图编辑器会读设定集摘要；mock 喂空骨架，只为消掉 404
+            # （console error 断言会把任何 404 计入，包括 mock 未实现的路由）。
+            return self._send(200, {"ok": True,
+                                    "setting": {"characters": [], "world": {},
+                                                "plot_fragments": [], "timeline": []},
+                                    "path": "data/setting/setting.json"})
+        if p == "/outline/chapters/list":
+            # 分章页签（章节蓝图编辑器）的章节清单：喂两章，让视觉验收能真选中
+            # 一章再点「讨论此章」（currentN 为空时 openDiscuss 直接 return）。
+            return self._send(200, {"ok": True, "chapters": [
+                {"n": 1, "title": "相聚风神城", "path": "data/outline/chapters/01.md"},
+                {"n": 2, "title": "兵棋展巧思", "path": "data/outline/chapters/02.md"},
+            ]})
+        if p == "/outline/chapters/get":
+            n = str((self._query().get("n") or ["1"])[0])
+            demo = ("## 第 " + n + " 章 相聚风神城" + NL + NL +
+                    "- 核心事件：" + NL +
+                    "  1. 主角甲与主角乙争论出征规模" + NL +
+                    "  2. 以旧创案例说服主角乙" + NL +
+                    "- 涉及角色：主角甲；主角乙" + NL +
+                    "- 功能：转折" + NL +
+                    "- 衔接：承接第二章；钩子——远征队异常信号" + NL)
+            return self._send(200, {"ok": True, "n": int(n) if n.isdigit() else 1,
+                                    "content": demo})
+        if p == "/outline/discussion/brief":
+            # 讨论任务书打包（P0-1 简报投递）：mock 喂一份自包含任务书，
+            # 让视觉验收能真点「讨论此章 → 打包并复制」并读到内容。
+            n = str((self._query().get("n") or ["3"])[0])
+            note = str((self._query().get("note") or [""])[0])
+            demo = ("# 讨论任务：第 " + n + " 章" + NL + NL +
+                    "- 项目根：C:/mock/NovelForge" + NL +
+                    "- 讨论对象：data/outline/chapters/" + n.zfill(2) + ".md（单章大纲）" + NL + NL +
+                    "## 用户意见" + NL + NL + (note or "（用户未填具体意见）") + NL + NL +
+                    "## 要做的事" + NL + NL +
+                    "1. 读上面那份章大纲（相对项目根）。" + NL +
+                    "2. 结合下方材料，就用户意见展开**多轮讨论**。" + NL +
+                    "3. 讨论收敛后，把结论整理成一条**优化点提案**提交。" + NL + NL +
+                    "## 提交方式" + NL + NL +
+                    "POST http://127.0.0.1:8765/outline/discussion/apply" + NL + NL +
+                    "## 红线" + NL + NL +
+                    "- **不要直接写** data/outline/chapters/*.md。" + NL +
+                    "- **不要代替用户批准**。" + NL)
+            return self._send(200, {
+                "ok": True, "message": "已打包第 " + n + " 章讨论任务书",
+                "n": int(n) if n.isdigit() else 3,
+                "brief": demo, "chars": len(demo),
+            })
         if p == "/outline/discussion/draft":
             # 提案全文预览：mock 喂一段带待审声明的提案，让视觉验收能真读到
             # 抬头（「这是待审提案」）与正文结构。
             demo = ("# 讨论提案：第3章优化点" + NL + NL +
                     "> **这是待审提案，不是成品。** 批准后优化点会追加进 "
                     "data/outline/chapters/03.md，不改正文。" + NL + NL +
-                    "## 理由" + NL + NL + "说服段缺可感知的代价" + NL + NL +
-                    "## 提案正文" + NL + NL + "说服力不足，补池鸿威旧创案例" + NL)
+                    "## 理由" + NL + NL + "关键段缺可感知的代价" + NL + NL +
+                    "## 提案正文" + NL + NL + "说服力不足，补故人旧创案例" + NL)
             return self._send(200, {
                 "ok": True,
                 "path": str((self._query().get("path") or [""])[0]),

@@ -1761,6 +1761,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/outline/discussions":
             # 讨论提案队列（P0-1 落地协议：agent 可提案、不可自批）。
             self._send(*_dom(dom_discuss.handle_discussions(self)))
+        elif p == "/outline/discussion/brief":
+            # 打包「讨论第 N 章」的自包含任务书（只读，供复制给外部 Agent）。
+            self._send(*_dom(dom_discuss.handle_discussion_brief(self)))
         elif p == "/outline/discussion/draft":
             # 提案全文预览（批准前必须看 diff，否则又是盲签）。
             self._send(*_dom(dom_discuss.handle_discussion_draft(self)))

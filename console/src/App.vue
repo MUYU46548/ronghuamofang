@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from "vue";
 import { diffParagraphs } from "./diff.js";
+import { copyToClipboard } from "./clipboard.js";
 import ReviewConsole from "./ReviewConsole.vue";
 import SandboxQueue from "./SandboxQueue.vue";
 import DiscussionQueue from "./DiscussionQueue.vue";
@@ -2805,20 +2806,9 @@ async function loadKickoff() {
   } catch (e) { /* 同上 */ }
 }
 function copyText(text, okMsg) {
-  const fallback = () => {
-    try {
-      const ta = document.createElement('textarea');
-      ta.value = text;
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand('copy');
-      document.body.removeChild(ta);
-      say(okMsg);
-    } catch (e) { say('复制失败: ' + (e && e.message)); }
-  };
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(text).then(() => say(okMsg)).catch(fallback);
-  } else fallback();
+  // 复制实现统一走 clipboard.js（Electron 下 navigator.clipboard 可能不可用，
+  // 必须有 execCommand 回退）—— 此前 App.vue 与各组件各写一套，坑踩两遍。
+  copyToClipboard(text).then((ok) => say(ok ? okMsg : "复制失败"));
 }
 function copyAcSnippet() {
   if (!agentConnect.value) return;
