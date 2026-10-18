@@ -121,6 +121,10 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/models":
             return self._send(200, {"engine": "direct", "model": {"default": "glm-5.3"},
                                     "providers": ["tokenhub"], "gates": {}})
+        if p == "/models/available":
+            return self._send(200, {"engine": "direct",
+                                    "available_models": ["glm-5.3", "mock-model-b"],
+                                    "providers": ["tokenhub"], "has_key": True})
         if p == "/costs":
             return self._send(200, {"entries": []})
         if p == "/costs/summary":
@@ -240,6 +244,17 @@ class Handler(BaseHTTPRequestHandler):
                                                "旧版已备份到 config/history/）",
                                     "path": "config/project.yaml",
                                     "field": "book.word_template"})
+        if p in ("/export/markdown", "/export/word"):
+            # 导出面板分流验收（2026-10-17 复盘修）：确定性回显收到的参数 ——
+            # book_name 显式 null / include_frontmatter 未透传这类回归直接在 toast 里露馅。
+            kind = "Markdown" if p.endswith("markdown") else "Word"
+            name = body.get("book_name") or "夹具书"
+            fm = bool(body.get("include_frontmatter"))
+            return self._send(200, {
+                "ok": True,
+                "message": f"{kind} mock 导出 2 章（book_name={name}, frontmatter={fm}）",
+                "path": f"output/{name}_{kind.lower()}_mock",
+                "chapters": 2})
         if p == "/stage/skip":
             return self._send(200, {"ok": True,
                                     "message": "阶段%d 已标记完成（人工跳过，未生成产物）" % body.get("stage", 0),

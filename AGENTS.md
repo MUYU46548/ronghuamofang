@@ -312,6 +312,7 @@ stdout 被管道捕获时 Python 用 cp936，一行日志就能 `UnicodeEncodeEr
 - `POST /stage/{n}/run`（生成大纲/章节）
 - `POST /auto_rewrite/run`
 - `POST /sandbox/review`（驳回/退回，但需在 GUI 中确认）
+- `POST /export/markdown`、`POST /export/word`（导出成品副本到 output/；只落导出物，不改书稿与进度）
 
 **🚫 禁止调用**（返回 403）：
 - `POST /approve`、`/reject`
@@ -366,7 +367,8 @@ if __name__ == "__main__":
 - 素材体检报告：`data/setting/material_review.md`（material_review.py 生成，stage1 后自动）
 - 设定补全历史：`data/setting/history/`（setting_refine.py 每次补全自动备份 setting_vN.json）
 - 角色出场统计：`data/state/appearances.json`（appearances.py / `refresh_appearances()` 生成，**stage4 每章通过校验后自动刷新**，obsidian_postprocess 自动调用；同章重复同步不重复计数）
-- 风格偏差报告：追加在 `data/outline/polish_report.md`（分卷为 `polish_report_volN.md`）末尾，
+- 风格偏差报告：追加在 `data/outline/polish_report.md` 末尾（分卷模式先写 `polish_report_volN.md`，
+  stage6 收尾自动**合并覆盖**成 `polish_report.md`——GUI 产物概况与「润色体检报告」按钮只认汇总名，2026-10-17 修），
   stage6 每卷润色后自动写入；配置 `book.style_reference` 才生成，阈值 30%，仅供参考不阻断流程
 - 大纲修订历史：`data/outline/history/`（每次精修自动备份 global_vN.md，可回退）
 - 用户大纲输入：`config/project.yaml` 的 `book.user_outline`（可选；提供后 stage2/精修优先遵循）

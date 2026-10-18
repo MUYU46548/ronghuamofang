@@ -130,6 +130,12 @@
 | `/refine/outline/node` | `{node_id, feedback, dry_run?}` |
 | `/refine/outline/undo` | 撤销上一次节点精修 |
 | `/refine/chapter` | `{chapter, feedback, dry_run?}`（改稿前自动备份） |
+| `/refine/paragraph` | `{chapter, paragraph_index, feedback, dry_run?}`（段落级定点重写；段落数变化>2 拒绝落盘） |
+| `/chapters/paragraphs` | `?n=章号` 段落列表（精修工作台取索引用） |
+| `/chapters/paragraph/history` | `?n=&p=` 段落改写历史 |
+| `/chapters/paragraph/diff` | `?n=&p=&h1?=&h2?=` 段落版本对比 |
+| `/chapters/paragraph/restore` | `{chapter, paragraph_index, history_id}` 回退段落 |
+| `/style/drift` | `?mode=chapter&n=&p=` 或 POST 两段文本 → 风格偏差检测 |
 | `/chapters/restore` | `{n, version}`（回退前再存一版当前稿） |
 | `/outline/save` | `{content}`（格式校验 + 备份） |
 | `/outline/restore` | `{version}` |

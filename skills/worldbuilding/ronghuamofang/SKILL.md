@@ -183,6 +183,15 @@ stage4 会自动发「读原稿、只补量」的扩写任务（每章每轮至�
 只收 `templates/` 里真实存在的文件名，写入走 `project_config.set_book_fields`（保留注释 +
 写前备份到 `config/history/` + 写后回读）。
 
+**段落级精修（定点重写一段，不整章重跑）**——三通道任选，`dry_run` 先行：
+1. **GUI**（用户）：「精修」页签 → 选章 → 选段 → 写意见 → 先看 diff 再落盘（有改写历史可回退）。
+2. **HTTP**（agent）：`POST /refine/paragraph {chapter, paragraph_index, feedback, dry_run?}`——
+   `dry_run:true` 只回建议稿不落盘；段落数变化 >2 拒绝落盘（防跑飞）。
+   配套只读：`GET /chapters/paragraphs?n=`（取索引）、`/chapters/paragraph/history`、
+   `/chapters/paragraph/diff`、`POST /chapters/paragraph/restore`（回退）、`POST /style/drift`（风格偏差）。
+3. **MCP**：`nf_refine_paragraph`（同 HTTP 语义）。
+**纪律**：一律先 `dry_run` 拿建议稿，用户看过 diff 说行才落盘；落盘前该段自动留历史版本。
+
 ## Word 链手改工序（改模板 / 改成品）
 
 **改模板**（换格式规格）：

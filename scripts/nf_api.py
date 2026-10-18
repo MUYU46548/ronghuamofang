@@ -66,7 +66,8 @@ POST /style/analyze       {source: reference|path|chapter, path?, n?, scope?, co
 POST /book/split          {path, emit?} → 拆书/章节节奏（同步返回，落盘 data/state/book_pacing.json）
 GET  /book/pacing         拆书节奏结果（供 GUI 画图）
 POST /models/switch       {role, model} → 切换模型
-POST /export/markdown     {per_vol?, book_name?} → Markdown 分卷导出
+POST /export/markdown     {per_vol?, book_name?, include_frontmatter?} → Markdown 分卷导出
+POST /export/word         {book_name?} → Word 成品导出（复用 stage7 转换；不写进度）
 POST /project/init        首次向导：初始化空工作区 + 写 project.yaml 基本信息（书名/类型/章数）
 POST /project/create      {name, genre?, chapters?, style_notes?, archive_current?}
                           一键新建项目：归档当前 → 初始化空工作区 → 写 project.yaml
@@ -2773,6 +2774,9 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/export/markdown":
                 # 实现已迁至 nf_api_domains.post_misc（P2 拆分）；此处只做转发。
                 self._send(*_dom(dom_post_misc.handle_export_markdown(self, body)))
+            elif p == "/export/word":
+                # Word 成品导出（导出面板「双格式/仅 Word」；复用 stage7 转换，不写进度）
+                self._send(*_dom(dom_post_misc.handle_export_word(self, body)))
             else:
                 self._send(404, {"error": "未知路径 " + p})
         except (ValueError, TypeError) as e:

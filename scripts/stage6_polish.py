@@ -14,7 +14,9 @@ P1 改造：尊重 config system.yaml 的 parallelism.polish（并发卷数）�
 - 成本记账：每卷独立记账。
 """
 import argparse
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
 from pathlib import Path
 
 import sys
@@ -22,7 +24,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from utils.llm_client import make_client
-from utils.file_io import read_text, append_text
+from utils.file_io import read_text, write_text, append_text
 from utils.cost_tracker import pause_detail as _pause_detail
 from utils.verify_chapter import count_cn_words, is_usable_output
 from utils.template_loader import load_template
@@ -47,6 +49,41 @@ def _report_path(vol_index=None):
     if vol_index is not None:
         return Path(f"data/outline/polish_report_vol{vol_index}.md").resolve()
     return Path("data/outline/polish_report.md").resolve()
+
+
+def _merge_vol_reports():
+    """把分卷润色报告（polish_report_vol*.md）合并成单一 polish_report.md。
+
+    为什么需要（2026-10-17 第15次试跑复盘 P0）：分卷模式下每个子会话只写
+    polish_report_vol{N}.md，而 GUI 审批门的产物概况、「润色体检报告」按钮
+    只认 data/outline/polish_report.md —— 于是产物概况显示空、按钮报「文件
+    不存在」，用户以为报告丢了（其实分卷文件一直在，只是没人合并）。
+
+    - 幂等：每次**覆盖写**汇总文件（它是分卷文件的派生物，不是增量日志）。
+    - 无分卷文件时不动 polish_report.md（非分卷模式直接写它，别覆盖）。
+    - 排序按卷号数值（vol10 排在 vol2 后），不按文件名字典序。
+    返回合并后的路径；没有分卷文件时返回 None。
+    """
+    outline = Path("data/outline")
+    vol_files = sorted(outline.glob("polish_report_vol*.md"),
+                       key=lambda p: int(re.search(r"vol(\d+)", p.stem).group(1))
+                       if re.search(r"vol(\d+)", p.stem) else 0)
+    if not vol_files:
+        return None
+    parts = ["# 润色修改清单（分卷合并）\n",
+             f"> 本文件由 stage6 自动合并 {len(vol_files)} 个分卷报告生成"
+             f"（{datetime.now().strftime('%Y-%m-%d %H:%M')}）；分卷原件见 polish_report_vol*.md。\n"]
+    for f in vol_files:
+        text = read_text(f).strip()
+        if not text:
+            continue
+        m = re.search(r"vol(\d+)", f.stem)
+        parts.append(f"\n---\n\n## 卷{int(m.group(1)) + 1 if m else '?'}（{f.name}）\n")
+        parts.append(text)
+    out = outline / "polish_report.md"
+    write_text(out, "\n".join(parts) + "\n")
+    print(f"[stage6] 分卷润色报告已合并 → {out}（{len(vol_files)} 卷）")
+    return out
 
 
 # 润语咒语缓存键：None = 未加载；"" = 文件缺失/空（已跳过）；非空 = 已缓存咒语正文
@@ -251,6 +288,11 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         print(f"[stage6] {len(stale)} 章 refined 文件是空壳/残稿，将重跑: {stale[:8]}"
               + ("…" if len(stale) > 8 else ""))
     if not pending:
+        # 跳过路径也合并：老工作区只有分卷报告、GUI 产物概况读不到 polish_report.md 时，重跑一次即可自愈
+        try:
+            _merge_vol_reports()
+        except Exception as e:  # noqa: BLE001 — 合并失败不阻塞跳过判定
+            print(f"[stage6] 分卷报告合并失败（不影响流程）：{e}")
         progress.mark_stage_done(6)
         return True, "stage6 跳过（refined 已存在且内容有效）"
 
@@ -281,6 +323,11 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     if db and run_id:
         for n in chapters:
             db.log_chapter(run_id, 6, n, "ok")
+    # 合并分卷报告 → polish_report.md（GUI 审批门产物概况与「润色体检报告」按钮只认这个路径）
+    try:
+        _merge_vol_reports()
+    except Exception as e:  # noqa: BLE001 — 合并失败不把已完成的润色判成失败
+        print(f"[stage6] 分卷报告合并失败（不影响润色结果）：{e}")
     progress.mark_stage_done(6)
     print(f"[stage6] 基础润色完成（{len(chapters)} 章，{len(vols)} 卷）")
     return True, "stage6 完成"

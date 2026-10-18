@@ -444,26 +444,46 @@ const exportHistory = ref([]);
 
 async function runExport() {
   if (exporting.value) return;
-  if (!window.confirm(`确定导出？\n\n格式: ${exportCfg.value.format}\n每卷 ${exportCfg.value.volSize} 章`)) return;
+  const fmt = exportCfg.value.format; // both | md | docx —— 三个选项都真实生效（2026-10-17 修：此前只出 Markdown）
+  if (!window.confirm(`确定导出？\n\n格式: ${fmt === "both" ? "Markdown + Word" : fmt === "docx" ? "仅 Word" : "仅 Markdown"}\n每卷 ${exportCfg.value.volSize} 章`)) return;
   exporting.value = true;
   exportMsg.value = "";
+  const msgs = [];
+  let okAll = false, lastPath = null;
   try {
-    const r = await api("/export/markdown", "POST", {
-      per_vol: exportCfg.value.volSize,
-      book_name: null,
-    });
-    if (r.status === 200 && r.data.ok) {
-      exportMsg.value = r.data.message;
+    if (fmt === "md" || fmt === "both") {
+      const r = await api("/export/markdown", "POST", {
+        per_vol: exportCfg.value.volSize,
+        include_frontmatter: !!exportCfg.value.includeFrontmatter,
+      });
+      if (r.status === 200 && r.data.ok) {
+        okAll = true;
+        msgs.push("Markdown: " + r.data.message);
+        lastPath = r.data.path;
+      } else {
+        msgs.push("Markdown 导出失败: " + (r.data.error || r.data.message));
+      }
+    }
+    if (fmt === "docx" || fmt === "both") {
+      const r = await api("/export/word", "POST", {});
+      if (r.status === 200 && r.data.ok) {
+        okAll = true;
+        msgs.push("Word: " + r.data.message);
+        lastPath = lastPath || r.data.path;
+      } else {
+        msgs.push("Word 导出失败: " + (r.data.error || r.data.message));
+      }
+    }
+    exportMsg.value = msgs.join("；");
+    if (okAll) {
       exportHistory.value.unshift({
         time: new Date().toLocaleString("zh-CN"),
         volumes: "",
         chapters: "",
-        format: exportCfg.value.format,
-        path: r.data.path,
+        format: fmt,
+        path: lastPath,
       });
       say("导出完成");
-    } else {
-      exportMsg.value = "导出失败: " + (r.data.error || r.data.message);
     }
   } catch (e) {
     exportMsg.value = "导出错误: " + (e.message || e);

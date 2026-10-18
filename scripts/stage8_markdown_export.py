@@ -23,6 +23,25 @@ def datnow():
     return datetime.now().strftime("%Y-%m-%d %H:%M")
 
 
+def _frontmatter(book_name):
+    """YAML frontmatter（导出面板「包含 frontmatter 元数据」勾选项的真实现）。
+
+    多平台发布（Hugo/Jekyll 等静态站）需要书名元数据；此前勾选框是摆设，
+    勾了不勾一个样。作者等字段从 project.yaml 读，读不到就不写该行。
+    """
+    try:
+        proj = load_config_yaml("config/project.yaml") or {}
+    except Exception:                                  # noqa: BLE001 — frontmatter 是装饰，读不了不炸导出
+        proj = {}
+    book = proj.get("book") or {}
+    author = (book.get("author") or "").strip()
+    lines = ["---", f"title: {book_name}", f"date: {datetime.now().strftime('%Y-%m-%dT%H:%M:%S')}"]
+    if author:
+        lines.append(f"author: {author}")
+    lines.append("---")
+    return "\n".join(lines) + "\n\n"
+
+
 def get_available_chapters():
     for d in ["data/chapters/refined", "data/chapters/checked", "data/chapters/raw"]:
         files = sorted(Path(d).glob("*.md"))
@@ -120,14 +139,27 @@ def validate_export(tmp_dir, chapters, volumes):
     return len(errors) == 0, errors
 
 
-def export_markdown(book_name="未命名", chapters_per_vol=5, out_dir=None):
+def export_markdown(book_name="未命名", chapters_per_vol=5, out_dir=None,
+                    include_frontmatter=False):
     """
     事务性导出：
     1. 写临时目录
     2. 校验完整性
     3. 原子提交（shutil.move）
     失败时清理临时目录，不留半成品。
+
+    书名兜底（2026-10-17 复盘 P0）：GUI 导出面板曾显式传 book_name=null，
+    Python 侧 `f"{None}_markdown"` 造出「None_markdown」目录。空名一律回退
+    project.yaml 的 book.name，再不行才用「未命名」。
     """
+    if not (book_name or "").strip():
+        try:
+            _proj = load_config_yaml("config/project.yaml") or {}
+            book_name = ((_proj.get("book") or {}).get("name") or "").strip()
+        except Exception:                                  # noqa: BLE001 — 配置读不了不应炸导出
+            book_name = ""
+    book_name = (book_name or "").strip() or "未命名"
+
     chapters = get_available_chapters()
     if not chapters:
         return False, "无可用章节", None
@@ -138,7 +170,8 @@ def export_markdown(book_name="未命名", chapters_per_vol=5, out_dir=None):
     tmp_dir = Path(tempfile.mkdtemp(prefix="nf_export_"))
     try:
         # 阶段 1: 写临时目录
-        full_md = build_full_markdown(chapters, book_name)
+        fm = _frontmatter(book_name) if include_frontmatter else ""
+        full_md = fm + build_full_markdown(chapters, book_name)
         write_text(tmp_dir / "全书.md", full_md)
 
         volumes = split_into_volumes(len(chapters), chapters_per_vol)
@@ -147,7 +180,7 @@ def export_markdown(book_name="未命名", chapters_per_vol=5, out_dir=None):
             vol_dir = tmp_dir / f"卷{vol_idx + 1:02d}_章节{vol_chapters[0].stem}-{vol_chapters[-1].stem}"
             vol_dir.mkdir(parents=True, exist_ok=True)
 
-            vol_md = build_volume_markdown(vol_chapters, vol_idx, book_name)
+            vol_md = fm + build_volume_markdown(vol_chapters, vol_idx, book_name)
             write_text(vol_dir / f"卷{vol_idx + 1:02d}.md", vol_md)
 
             readme = f"# 第{vol_idx + 1}卷\n\n"
@@ -192,6 +225,10 @@ def run_stage(cfg, proj, progress, db=None, cost=None, client=None, task_dir=Non
     book_name = (proj or {}).get("book", {}).get("name", "未命名")
     chapters_per_vol = int((cfg or {}).get("chapter", {}).get("batch_outline", 5))
     ok, msg, path = export_markdown(book_name, chapters_per_vol)
+    # 进度落账（2026-10-17 复盘 P1）：此前不标 done —— 文件已产出、progress.json
+    # 却恒显示 pending，nfctl status 永远说阶段8没跑，每次都要人肉去 output/ 数文件。
+    if ok and progress is not None:
+        progress.mark_stage_done(8)
     return ok, msg
 
 

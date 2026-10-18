@@ -9,6 +9,31 @@ CHANGELOG」）。本文件从工程审查修复起正式启用。
 
 ## [Unreleased]
 
+## [v0.6.14] — 2026-10-18 复盘修复：润色报告合并 · 导出面板真实分流 · 书名兜底
+
+第15次试跑复盘定位的三个用户可见缺陷，全部修复并加回归锁（新增单测 16 断言全绿）。
+
+- **润色体检报告「不存在」+ 产物概况空白**（`stage6_polish.py`）：分卷模式下每个
+  子会话只写 `polish_report_volN.md`，而 GUI 审批门产物概况与「润色体检报告」按钮
+  只认 `polish_report.md` —— 报告一直在盘上，只是没人合并。现在 stage6 收尾
+  （成功与跳过两条路径）自动把分卷**覆盖合并**成汇总文件；按卷号数值排序（vol10
+  不再排在 vol2 前），幂等，无分卷文件时不动非分卷模式直写的报告。
+- **导出目录名错成 None_markdown**（`stage8_markdown_export.py` + `App.vue`）：GUI
+  导出面板曾显式传 `book_name: null` 压掉默认参数，Python 侧 `f"{None}_markdown"`
+  造出错误目录。现在前端不再传 null，后端空名一律回退 project.yaml 的 book.name
+  （再不行才用「未命名」），两头设防。
+- **导出面板「双格式/仅 Word」是假选项**（新端点 `POST /export/word` +
+  `nf_api_domains/post_misc.py` + `App.vue`）：此前三个格式选项全都只调
+  `/export/markdown`。现在按选项值分流：Word 分支复用 stage7 的合并+模板转换，
+  同步执行、不写进度（导出是即时动作，progress 语义仍归流水线）；「包含
+  frontmatter」勾选框同批真实现（`_frontmatter()`，Hugo/Jekyll 等多平台发布用）。
+- **阶段8 落进度**：`run_stage` 成功后 `mark_stage_done(8)` —— 此前文件已产出但
+  progress.json 恒显示 pending，断点续跑会重跑已完成的导出。
+- **操作卡补段落级精修用法**（`skills/.../ronghuamofang/SKILL.md` + `references/api.md`）：
+  三通道（GUI 精修页签 / HTTP `/refine/paragraph` / MCP `nf_refine_paragraph`），
+  dry_run 先行、看过 diff 再落盘；速查表补 6 个段落精修配套端点。
+
+
 ## [v0.6.13] — 2026-10-17 第14次试跑修复：任务路径绝对化 · 字数定向扩写 · 跨进程运行锁
 
 第14次试跑 stage1-3 正常、stage4 系统性失败（ch01「章节文件未生成」14 连败、
