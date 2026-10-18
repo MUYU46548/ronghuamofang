@@ -67,6 +67,9 @@ LOGS = {"ok": True, "exists": True,
                   "ValueError: 缺少角色「苏芷」的设定"]}
 
 
+DISCUSS = {"items": [], "stats": {"pending": 1, "approved": 0, "rejected": 0}}
+# 换行常量：demo 提案文案里拼真实换行用（对齐真后端的多行 markdown）
+NL = "\n"
 COLD = False   # --cold：全新工作区（所有阶段 pending + has_work=false）→ 冷启动引导
 
 # Word 成品模板面板（件五）的**有状态**当前值：POST 改、GET 读，
@@ -102,6 +105,16 @@ class Handler(BaseHTTPRequestHandler):
         self._cors()
         self.end_headers()
         self.wfile.write(body)
+
+    def _query(self):
+        """解析 query string 成 {key: [values]}（对齐 nf_api.Handler._query 契约）。
+
+        新端点的 mock 分支若要读 ?status= / ?path= 这类查询参数，用这个方法 ——
+        直接调 self._query() 在这里曾经 AttributeError（真后端才有该方法），
+        do_GET 中途崩掉 → 浏览器只见 ERR_EMPTY_RESPONSE，前端 console 报错成片。
+        """
+        from urllib.parse import parse_qs, urlparse
+        return parse_qs(urlparse(self.path).query)
 
     def do_GET(self):
         p = self.path.split("?")[0].rstrip("/") or "/"
@@ -222,6 +235,39 @@ class Handler(BaseHTTPRequestHandler):
                 "dir": "templates",
                 "path": "config/project.yaml", "field": "book.word_template",
             })
+        if p == "/outline/discussions":
+            # 讨论提案队列（P0-1 落地协议）：mock 喂 1 条待审，让视觉验收能
+            # 真点到「读提案 / 批准并写回 / 驳回」三个动作。
+            if not DISCUSS["items"]:
+                DISCUSS["items"] = [{
+                    "path": "data/outline/drafts/ch03_20261018_101010.md",
+                    "kind": "outline_discussion", "source": "agent 讨论",
+                    "status": "pending",
+                    "created_at": "2026-10-18 10:10:10",
+                    "updated_at": "2026-10-18 10:10:10", "reviewed_at": "", "note": "",
+                }]
+            return self._send(200, {
+                "ok": True,
+                "items": DISCUSS["items"] if str(
+                    (self._query().get("status") or ["pending"])[0]) != "pending"
+                    else [i for i in DISCUSS["items"] if i["status"] == "pending"],
+                "status": str((self._query().get("status") or ["pending"])[0]),
+                "stats": DISCUSS["stats"],
+            })
+        if p == "/outline/discussion/draft":
+            # 提案全文预览：mock 喂一段带待审声明的提案，让视觉验收能真读到
+            # 抬头（「这是待审提案」）与正文结构。
+            demo = ("# 讨论提案：第3章优化点" + NL + NL +
+                    "> **这是待审提案，不是成品。** 批准后优化点会追加进 "
+                    "data/outline/chapters/03.md，不改正文。" + NL + NL +
+                    "## 理由" + NL + NL + "说服段缺可感知的代价" + NL + NL +
+                    "## 提案正文" + NL + NL + "说服力不足，补池鸿威旧创案例" + NL)
+            return self._send(200, {
+                "ok": True,
+                "path": str((self._query().get("path") or [""])[0]),
+                "content": demo,
+                "chars": len(demo),
+            })
         if p.startswith("/jobs/"):
             return self._send(200, {"id": p.split("/")[-1], "kind": "stage3", "state": "failed",
                                     "result": "exit=1"})
@@ -255,6 +301,36 @@ class Handler(BaseHTTPRequestHandler):
                 "message": f"{kind} mock 导出 2 章（book_name={name}, frontmatter={fm}）",
                 "path": f"output/{name}_{kind.lower()}_mock",
                 "chapters": 2})
+        if p == "/outline/discussion/review":
+            # 讨论提案审批：mock 只改内存状态（有状态 —— 批准后队列要真变化，
+            # 否则「批准 → 待审归零」这类闭环在视觉验收里测不出来）。
+            action = str(body.get("action") or "")
+            rel = str(body.get("path") or "")
+            for it in DISCUSS["items"]:
+                if it["path"] == rel:
+                    if action == "approve":
+                        it["status"] = "approved"
+                        DISCUSS["stats"]["pending"] = max(
+                            0, DISCUSS["stats"]["pending"] - 1)
+                        DISCUSS["stats"]["approved"] += 1
+                        return self._send(200, {
+                            "ok": True,
+                            "message": "已写回第 3 章（新增优化点，原稿备份 03_v2026.bak）",
+                            "action": "approve", "status": "approved",
+                            "stats": DISCUSS["stats"], "items": DISCUSS["items"]})
+                    if action == "reject":
+                        if not str(body.get("note") or "").strip():
+                            return self._send(400, {"ok": False, "error": "驳回必须填原因"})
+                        it["status"] = "rejected"
+                        it["note"] = str(body.get("note"))
+                        DISCUSS["stats"]["pending"] = max(
+                            0, DISCUSS["stats"]["pending"] - 1)
+                        DISCUSS["stats"]["rejected"] += 1
+                        return self._send(200, {
+                            "ok": True, "message": "已驳回", "action": "reject",
+                            "status": "rejected",
+                            "stats": DISCUSS["stats"], "items": DISCUSS["items"]})
+            return self._send(400, {"ok": False, "error": "提案不存在: " + rel})
         if p == "/stage/skip":
             return self._send(200, {"ok": True,
                                     "message": "阶段%d 已标记完成（人工跳过，未生成产物）" % body.get("stage", 0),

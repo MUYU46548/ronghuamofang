@@ -100,6 +100,10 @@ FORBIDDEN_IN_AGENT_MODE = frozenset({
     # 产物，但审批状态已落地）。GUI（真 token）走 trusted_gui，在名单检查之前，
     # 不受影响；纯请求在 agent_mode 下 fail-closed，正是该有的语义。
     "/stage/skip",
+    # 讨论提案审批（P0-1 落地协议，2026-10-18）：approve 会把优化点**真正写回
+    # 章大纲**（data/outline/chapters/NN.md）—— 与审批同族。提案提交
+    # （/outline/discussion/apply）只落草稿区，不在名单里（agent 可提案不可自批）。
+    "/outline/discussion/review",
 })
 
 # 人工来源的标记值（HTTP 头 / 环境变量通用）

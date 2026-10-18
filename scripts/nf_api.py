@@ -175,6 +175,7 @@ try:
     from nf_api_domains import factory as dom_factory      # noqa: E402 (0.6.7 出厂/用户数据分治)
     from nf_api_domains import plan as dom_plan            # noqa: E402 (丙0 规划四态状态机)
     from nf_api_domains import segments as dom_segments    # noqa: E402 (丙4 分段审批读写)
+    from nf_api_domains import discuss as dom_discuss      # noqa: E402 (讨论落地协议)
 except Exception as _dom_err:                            # noqa: BLE001
     dom_materials = None
     dom_misc = None
@@ -189,6 +190,7 @@ except Exception as _dom_err:                            # noqa: BLE001
     dom_factory = None
     dom_plan = None
     dom_segments = None
+    dom_discuss = None
     print("[nf_api] 域模块加载失败（端点将返回可行动错误）: " + str(_dom_err))
 
 
@@ -1756,6 +1758,12 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/sandbox/queue":
             # 沙盒产物审核队列（待审/已通过/已驳回 + 孤儿检测）。
             self._send(*_dom(dom_outline.handle_sandbox_queue(self)))
+        elif p == "/outline/discussions":
+            # 讨论提案队列（P0-1 落地协议：agent 可提案、不可自批）。
+            self._send(*_dom(dom_discuss.handle_discussions(self)))
+        elif p == "/outline/discussion/draft":
+            # 提案全文预览（批准前必须看 diff，否则又是盲签）。
+            self._send(*_dom(dom_discuss.handle_discussion_draft(self)))
         elif p == "/sandbox/file":
             # 沙盒产物只读预览（审核「通过」前必须能看清真实内容，否则是盲签）。
             self._send(*_dom(dom_sandbox.handle_sandbox_file(self)))
@@ -2248,6 +2256,15 @@ class Handler(BaseHTTPRequestHandler):
                 # 不写不删沙盒文件、绝不碰 vault —— 决策权始终在用户手里。
                 # 必须把已读的 body 传进去：请求体是一次性流，handler 再读会挂死。
                 self._send(*_dom(dom_sandbox.handle_sandbox_review(self, body)))
+            elif p == "/outline/discussion/apply":
+                # 讨论提案（P0-1 落地协议）：agent 可调用 —— 只写提案文件到
+                # data/outline/drafts/ 并登记 pending，不碰章大纲。批准那一步
+                # （真正写回）走 /outline/discussion/review，在禁用名单里。
+                self._send(*_dom(dom_discuss.handle_discussion_apply(self, body)))
+            elif p == "/outline/discussion/review":
+                # 提案审批：approve 会把优化点写回章大纲（写前备份）——审批族，
+                # 已列入 FORBIDDEN_IN_AGENT_MODE，agent 不可自批。
+                self._send(*_dom(dom_discuss.handle_discussion_review(self, body)))
             elif p == "/setting/status":
                 # 人工拍板（A3 写侧）：把条目标为 adopted/rejected/uncertain。
                 # reject 会**先写墓碑**（不依赖设定集条目）；人工结果带

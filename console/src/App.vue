@@ -3,6 +3,7 @@ import { ref, computed, watch, onMounted, onUnmounted } from "vue";
 import { diffParagraphs } from "./diff.js";
 import ReviewConsole from "./ReviewConsole.vue";
 import SandboxQueue from "./SandboxQueue.vue";
+import DiscussionQueue from "./DiscussionQueue.vue";
 import ParagraphRefinePanel from "./ParagraphRefinePanel.vue";
 import OutlineView from "./OutlineView.vue";
 import ScrapsPanel from "./ScrapsPanel.vue";
@@ -697,26 +698,41 @@ function onStructureLoaded(s) {
   outlineSummary.value = s;
 }
 
-/* ---------- 沙盒审核队列（「审核」页签） ----------
-   徽标数 = 待审份数。刻意**独立于页签是否打开**去轮询（节流 60s）：
-   沙盒产物是后台产物写入时自动登记的，用户在别的页签干活时也可能新增，
-   徽标不刷新就成了「有活等你但你看不见」。
+/* ---------- 审核队列（「审核」页签：沙盒产物 + 讨论提案两个队列） ----------
+   徽标数 = 两类待审计数之和（沙盒产物 + 讨论提案）。刻意**独立于页签是否打开**
+   去轮询（节流 60s）：沙盒产物是后台写入时自动登记的，讨论提案是 agent 提交的，
+   用户在别的页签干活时也可能新增，徽标不刷新就成了「有活等你但你看不见」。
    只在首页加载时拉一次 + 每次切到该页签刷新，避免无谓请求。 */
 const sandboxRef = ref(null);
+const discussionRef = ref(null);
 const sandboxPending = ref(0);
+const discussionPending = ref(0);
+/** 顶部徽标显示两类待审之和（讨论提案也是「等你拍板」的活）。 */
+const reviewPending = computed(() => sandboxPending.value + discussionPending.value);
 async function loadSandboxQueue() {
-  if (sandboxRef.value) { sandboxRef.value.load(false); return; }
-  await refreshSandboxBadge();
+  if (sandboxRef.value) sandboxRef.value.load(false);
+  if (discussionRef.value) discussionRef.value.load(true);
+  if (!sandboxRef.value) await refreshSandboxBadge();
 }
 /** 审核动作后组件广播 stats → 顶部徽标即时同步（不用再打一次接口）。 */
 function onSandboxStats(st) {
   sandboxPending.value = (st && st.pending) || 0;
 }
+function onDiscussionStats(st) {
+  discussionPending.value = (st && st.pending) || 0;
+}
 
 async function refreshSandboxBadge() {
-  const r = await api("/sandbox/queue");
-  if (r.status !== 200) return;
-  sandboxPending.value = (r.data.stats && r.data.stats.pending) || 0;
+  const [a, b] = await Promise.allSettled([
+    api("/sandbox/queue"),
+    api("/outline/discussions"),
+  ]);
+  if (a.status === "fulfilled" && a.value.status === 200) {
+    sandboxPending.value = (a.value.data.stats && a.value.data.stats.pending) || 0;
+  }
+  if (b.status === "fulfilled" && b.value.status === 200) {
+    discussionPending.value = (b.value.data.stats && b.value.data.stats.pending) || 0;
+  }
 }
 function openSandboxTab() {
   switchTab("sandbox");
@@ -3378,7 +3394,7 @@ onUnmounted(() => {
       <button :class="{ active: tab === 'review' }" @click="switchTab('review')">审稿</button>
       <button :class="{ active: tab === 'refine' }" @click="switchTab('refine')">精修</button>
       <button :class="{ active: tab === 'sandbox' }" @click="switchTab('sandbox'); loadSandboxQueue()">
-        审核<span v-if="sandboxPending" class="badge">{{ sandboxPending }}</span>
+        审核<span v-if="reviewPending" class="badge">{{ reviewPending }}</span>
       </button>
       <button :class="{ active: tab === 'proofread' }" @click="switchTab('proofread')">校对</button>
       <button :class="{ active: tab === 'style' }" @click="switchTab('style')">文风</button>
@@ -3852,6 +3868,7 @@ onUnmounted(() => {
 
     <!-- 审核（沙盒产物审核队列：通过/驳回只改状态，不写文件、不碰 vault） -->
     <section v-if="tab === 'sandbox'">
+      <DiscussionQueue ref="discussionRef" :api="api" @say="say" @stats="onDiscussionStats" />
       <SandboxQueue ref="sandboxRef" :api="api"
                     @say="say" @stats="onSandboxStats" />
     </section>

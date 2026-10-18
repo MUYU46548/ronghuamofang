@@ -227,31 +227,43 @@ async function loadCurrent() {
 
 // ---- 解析 ----
 function parseContent(md) {
-  const f = { title: '', events: [], roles: [], function: '', carryover: '', hook: '' };
+  const f = { title: '', events: [], roles: [], function: '', carryover: '', hook: '', optTail: '' };
+
+  // 优化点尾块（讨论沉淀）必须先切出来单独存 —— 只渲染骨架字段的话，
+  // 用户在结构化视图里改一次保存，讨论成果就被静默删掉了（2026-10-18 修）。
+  // 与后端 utils/chapter_blueprint.split_opt_sections 同一契约：从第一个
+  // `## 【优化点` 起到文件尾都是优化点区，原样保留（含 <!--opt-anchor --> 注释）。
+  let skeleton = md;
+  const om = md.match(/^##\s*【优化点/m);
+  if (om) {
+    const idx = md.search(/^##\s*【优化点/m);
+    skeleton = md.slice(0, idx);
+    f.optTail = md.slice(idx).replace(/\s+$/, '');
+  }
 
   // 标题
-  const tm = md.match(/^#{1,2}\s*第?\s*\d*\s*章?\s*(.+?)\s*$/m);
+  const tm = skeleton.match(/^#{1,2}\s*第?\s*\d*\s*章?\s*(.+?)\s*$/m);
   if (tm) f.title = tm[1].trim();
 
   // 核心事件
-  const em = md.match(/-\s*核心事件[：:]\s*\n((?:\s*\d+[.、]\s*.+\n?)*)/);
+  const em = skeleton.match(/-\s*核心事件[：:]\s*\n((?:\s*\d+[.、]\s*.+\n?)*)/);
   if (em) {
     const items = [...em[1].matchAll(/^\s*\d+[.、]\s*(.+?)\s*$/gm)];
     f.events = items.map(m => m[1].trim());
   }
 
   // 涉及角色
-  const rm = md.match(/-\s*涉及角色[：:]\s*(.+)/);
+  const rm = skeleton.match(/-\s*涉及角色[：:]\s*(.+)/);
   if (rm) {
     f.roles = rm[1].split(/[；;、,，]\s*/).map(s => s.trim()).filter(Boolean);
   }
 
   // 功能
-  const fm = md.match(/-\s*功能[：:]\s*(.+)/);
+  const fm = skeleton.match(/-\s*功能[：:]\s*(.+)/);
   if (fm) f.function = fm[1].trim();
 
   // 衔接
-  const cm = md.match(/-\s*衔接[：:]\s*([\s\S]*?)(?=\n## |\n- |\Z)/);
+  const cm = skeleton.match(/-\s*衔接[：:]\s*([\s\S]*?)(?=\n## |\n- |\Z)/);
   if (cm) {
     let raw = cm[1].trim();
     if (raw.includes('钩子')) {
@@ -293,6 +305,14 @@ function renderContent() {
     let carry = f.carryover.replace(/[；;。]+$/, '');
     let hook = f.hook ? `钩子——${f.hook}` : '';
     lines.push(`- 衔接：${[carry, hook].filter(Boolean).join('；')}`);
+    lines.push('');
+  }
+
+  // 优化点尾块原样拼回（讨论沉淀，只追加不覆盖）—— 少了这几行，
+  // 用户在结构化视图保存一次就把讨论成果删了（2026-10-18 修）。
+  if (f.optTail) {
+    lines.push('');
+    lines.push(f.optTail);
     lines.push('');
   }
 
