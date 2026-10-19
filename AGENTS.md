@@ -74,6 +74,38 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 - **未启用时会明说**「未启用（hermes 下金额阈值无效 → 本轮没有止烧闸门）」——
   静默不显示等于让用户以为有闸门。
 
+**单章字数区间（`chapter.target_words`，2026-10-18）**：出厂默认 **[5000, 9000]**
+（旧默认 [2000,5500] 让实测 2033 字的章直接过检，用户判定「一章两三千字根本不合格」）。
+**总量仍由章数控制**，抬高这里只把单章篇幅拉到合格线。
+端点 `GET/POST /config/target_words`（GUI 设置页「预算与止烧 → 单章字数（篇幅口径）」同源），
+边界 500~20000 / 500~30000，越界一律 400 并说清区间。
+⚠️ **落盘必须是列表 `[low, high]`**：消费方全是 list 语义（`low, high = tw[:2]`、
+`is_chapter_complete(path, *tw)`、`tw[0]`），落 dict 会全线炸；`test_target_words.py` 锁死这条。
+不设 GUI-only —— 它是**创作决策**不是安全闸门，Agent 可代设但越界拒收。
+
+## 中文标点归一化（2026-10-18，确定性、零 token）
+
+**为什么必须是代码不是提示词**：提示词里早就写着「所有标点使用全角中文标点」，产物照旧
+（实测《雾港核心》refined 稿 76 个半角 `"`、67 对 `「」`，成品 docx 里 `“` 出现 0 次）。
+形态错误只能靠确定性替换治理——可单测、可幂等、可事后验收。
+
+**唯一实现** `scripts/utils/text_norm.py`（`normalize_chinese_punctuation` /
+`normalize_chapter_file`）。判据：半角 `" `按**行内开合交替**转 `“”`（偶数个严格交替、
+奇数个保留最后一个为孤儿不硬造配对）；`「」`→`“”`、`『』`→`‘’`；单 `—`/`--`→`——`；
+`...`/`。。。`/单 `…`→`……`；汉字间半角 `,;:!?`→全角；括号内含汉字→全角。
+
+三条护栏（每条都是实测踩出来的）：
+- **幂等** —— 挂载点有 7 处，重复跑是常态；`f(f(x)) == f(x)` 由用例断言。
+- **保守** —— 英文语境一律不动（`--flag`、`3-5`、`don't`）；破折号只在汉字/中文标点
+  语境下转换。孤儿引号保持原样 —— 宁可留脏，不可把正文改错。
+- **保护区** —— `<!-- -->` 注释块与 ``` 代码围栏**整块跳过**（注释里全是 ASCII，
+  归一化它会把 `<!-- quality: 8/10 -->` 改坏 → 下游 `QUALITY_RE` 再也匹配不上）。
+
+挂载点（都在 LLM 落盘后、下游校验前）：stage4 / stage5 / stage6 / `refine_chapter` /
+`refine_paragraph` 各自落盘后，外加 stage7 `merge_book()` 合并时**兜底**——
+前面各阶段只覆盖新产出的章，**修复前写下的历史脏章**只有合并这一步才洗得到，
+所以成品 docx 永不带脏标点。失败只打印不阻断主链路（标点是清洁工作，它坏了不该拖垮写作）。
+
 **误开 `gates.auto_rewrite` = 双倍烧**（审稿前先跑一轮重写）。本机默认 `false`；
 orchestrator 启动横幅会打印生效值（`gates: auto_rewrite=… auto_refine=… review_after_stage4=…`），别靠翻 YAML 猜。
 
@@ -294,7 +326,8 @@ stdout 被管道捕获时 Python 用 cp936，一行日志就能 `UnicodeEncodeEr
 **✅ 可调用**（查询类）：
 - `GET /state`、`/health`、`/about`
 - `GET /models`、`/models/available`、`/models/cache`、`/models/fetched`
-- `GET /config/project`、`/config/style_notes`、`/config/agent_mode`
+- `GET /config/project`、`/config/style_notes`、`/config/agent_mode`、`/config/target_words`
+  （单章字数区间：当前值 + 出厂预设 + 合法区间）
 - `GET /outline/structure`、`/outline/trend`、`/outline/advise`、`/outline/history`、`/outline/diff`
 - `GET /outline/segments`（丙4 分段审阅：分段清单 + 每段正文 + 放行判据回显；**读侧不设闸**）
 - `GET /sandbox/queue`、`/sandbox/file`
@@ -313,6 +346,8 @@ stdout 被管道捕获时 Python 用 cp936，一行日志就能 `UnicodeEncodeEr
 - `POST /auto_rewrite/run`
 - `POST /sandbox/review`（驳回/退回，但需在 GUI 中确认）
 - `POST /export/markdown`、`POST /export/word`（导出成品副本到 output/；只落导出物，不改书稿与进度）
+- `POST /config/target_words`（单章字数区间：**创作决策不是安全闸门**，故不设 GUI-only；
+  越界值一律 400 拒收并说清合法区间；落盘必须是列表 `[low, high]`）
 
 **🚫 禁止调用**（返回 403）：
 - `POST /approve`、`/reject`
@@ -388,7 +423,22 @@ if __name__ == "__main__":
   `{seed_version, generated_at, files:{相对路径: sha256}}`）；盘点/清理端点 `GET /factory/list`
   （零副作用）与 `POST /factory/clean {confirm:true}`，GUI 入口在「设置 → 诊断与调试 → 出厂内容」，
   比对真源是随包 `examples/`（源码态 `ROOT/examples`，打包态 `NF_SAMPLE_ROOT` 注入）
+- **样例书的大纲与素材必须配套**（2026-10-18）：`examples/sample-book/` 的 `user_outline`
+  讲沈砚/程砧/机关术，`materials/` 的 19 张卡讲**同一套设定**。改其中任一侧后跑
+  `tests/unit/test_sample_book_coherence.py`（判据：大纲专有名词在卡里都有落点、
+  旧宇宙词不残留、脱敏声明不丢）。⚠️ 历史教训：2026-10-03 虚构化把素材卡整套换成
+  另一个宇宙而 `user_outline` 未同步 → 拿样例书试跑时设定集 87% 与大纲无关，
+  成品崩坏而**全程绿灯**（此前无任何判据检查二者配套）
+- **二号测试用例**（2026-10-19）：`tests/fixtures/sample-book-2/`（《炭城纪》）是
+  **第三个虚构宇宙**的完整素材集（19 张卡 + `project.yaml`），与出厂样例并列但
+  **不进安装包、不进 GUI**。判据 `tests/unit/test_sample_book_2_coherence.py`（11 断言：
+  卡数 / 大纲实体落点 / 前两个宇宙零词重叠 / 脱敏声明 / 文件名与专名一致）。
+  它存在的意义是**换一整套专名，判据照样成立** —— 一套夹具证明不了流水线不过拟合
 - 章节修订历史：`data/chapters/history/`（refine_chapter.py 每次精修备份 chNN_vM.md）
+- 单章字数区间：`config/system.yaml` 的 `chapter.target_words`（**列表** `[low, high]`，出厂 [5000,9000]；
+  `GET/POST /config/target_words` 读写，GUI 设置页同源。判据与边界见「止烧与安全闸门」节）
+- 中文标点归一化：唯一实现 `scripts/utils/text_norm.py`，7 处挂载点（stage4/5/6 落盘后、
+  refine_chapter / refine_paragraph 落盘后、stage7 合并兜底）。判据与护栏见专节
 - 校对报告：`data/outline/proofread_report.json` + `.md`（proofread.py / `POST /proofread/run` 产出；
   **schema 与 review_report 对齐**：finding 带 `id/type/severity/detail/suggested_action`，
   故审稿 UI 与 batch_refine 决策链路可直接复用。`rhythm` 字段含逐章节奏与离群判定）
