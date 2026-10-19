@@ -47,6 +47,9 @@ materials/original_scraps/
 materials/original_scraps/_backup/
 # 碎片→卡片落盘时的同名覆盖备份
 materials/raw/_backup/
+# 素材归档：用户清理工作区时把整批卡搬到这里（可逆、含 sha256 清单），
+# 内容仍是用户作品词，绝不上 Git
+materials/_archive/
 
 # ===== 备份文件（一律是**用户数据**，不进 Git）=====
 # 覆盖：config/project.yaml.bak 这类手改残留、章节/成品备份的 *.bak。

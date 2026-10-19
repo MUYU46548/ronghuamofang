@@ -76,6 +76,13 @@ def scan_materials(materials_dir, normalized_dir):
             if path.is_file() and path.suffix.lower() == ".pdf":
                 print(f"[WARN] PDF 素材暂不支持自动归一化，请手动转文本: {path.name}")
             continue
+        # 跳过备份/归档子目录（`raw/_backup/`、`.hidden/` 这类）。
+        # 为什么必须跳：rglob 会钻进去，而 `_backup/` 装的是**同名覆盖前的旧版本** ——
+        # 误扫等于把同一张卡的两个版本都喂给归并（实测该目录存量 4 个备份文件），
+        # 既费 token 又让「素材指纹」随备份变化而抖动。
+        rel_parts = path.relative_to(materials_dir).parts[:-1]
+        if any(part.startswith(("_", ".")) for part in rel_parts):
+            continue
         try:
             if path.suffix.lower() == ".docx":
                 out = normalize_docx(path, normalized_dir)
@@ -465,10 +472,48 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         progress.set_stage(1, "failed", error="; ".join(errors))
         return False, "stage1 设定集校验失败: " + "; ".join(errors)
 
+    # ---- 方案 C：设定集与大纲的重合度（2026-10-19）----
+    # 判据：拿用户自己写的 user_outline **反查**设定集里的每个专名。
+    # 为什么必须在归并之后：归并产物是后续所有阶段的输入，判它才有意义。
+    # 为什么默认 warn 而不是 block：阈值是启发式（大纲可能写得很抽象，不点名），
+    #   硬拦会把正常流程卡死；warn 会打印横幅 + 落盘报告 + 挂 progress warning，
+    #   **可见**但不改行为。确认口径后把 gates.setting_coherence 改成 block 即硬拦。
+    coh_warnings = []
+    coh_report = None
+    try:
+        from utils import coherence as coh
+        gates = (cfg or {}).get("gates", {}) or {}
+        coh_report = coh.evaluate(
+            json.loads(read_text(setting_path)),
+            ((proj.get("book") or {}).get("user_outline") or "").strip(),
+            mode=str(gates.get("setting_coherence", "warn")).lower(),
+            min_ratio=float(gates.get("setting_coherence_min_ratio", 0.15)),
+        )
+        coh.write_report(coh_report)
+        line = coh.summary_line(coh_report)
+        if coh_report["verdict"] in ("warn", "block"):
+            print("[stage1] " + "=" * 58)
+            print("[stage1] [coherence] " + line)
+            for r in coh_report.get("reasons") or []:
+                print("[stage1]   · " + r)
+            print("[stage1]   报告 → " + coh.REPORT_PATH)
+            print("[stage1] " + "=" * 58)
+            coh_warnings.append(line)
+        else:
+            print("[stage1] " + line)
+    except Exception as e:                                    # noqa: BLE001
+        print("[stage1] WARN 重合度检查失败（不阻断归并）：%s: %s"
+              % (type(e).__name__, e))
+    if coh_report and coh_report.get("verdict") == "block":
+        progress.set_stage(1, "failed",
+                           error="设定集与大纲不配套：" + "；".join(coh_report.get("reasons") or []))
+        return False, ("stage1 失败：设定集与大纲不配套（多半是素材卡换错了书）—— 见 "
+                       + coh.REPORT_PATH)
+
     # ---- A3：素材库状态化（确定性、零 token）----
     # 给条目打 status（adopted/uncertain/rejected）、把素材分歧分级列出、
     # 让墓碑生效。任何一步失败都**不阻断归并**（状态是增强，不是前置）。
-    a3_warnings = []
+    a3_warnings = list(coh_warnings)
     try:
         from utils import material_state as mstate
         # 先读**上一轮**结论：既用于提示词继承（build_setting_task 里已读），
