@@ -1889,6 +1889,10 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/config/style_notes":
             # 实现已迁至 nf_api_domains.project（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_project.handle_config_style_notes(self)))
+        elif p == "/config/style_reference":
+            # 范文正文（GUI 粘贴窗口的数据源）：路径取 book.style_reference，
+            # 未配置时用默认 materials/style_sample.md。
+            self._send(*_dom(dom_project.handle_config_style_reference(self)))
         elif p == "/config/word_template":
             # Word 成品模板清单 + 当前值（件五 GUI 入口）。
             self._send(*_dom(dom_project.handle_config_word_template(self)))
@@ -2426,6 +2430,9 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/config/target_words":
                 # 单章字数区间设置（创作决策，非安全闸门；越界值一律 400 拒绝）。
                 self._send(*_dom(dom_project.handle_config_target_words_set(self, body)))
+            elif p == "/config/style_reference":
+                # 范文正文保存（创作决策，非安全闸门；空字符串 = 清空）。
+                self._send(*_dom(dom_project.handle_config_style_reference_set(self, body)))
             elif p == "/config/word_template":
                 # Word 成品模板选择/恢复默认（件五 GUI 入口，定向改写 project.yaml）。
                 self._send(*_dom(dom_project.handle_config_word_template_set(self, body)))

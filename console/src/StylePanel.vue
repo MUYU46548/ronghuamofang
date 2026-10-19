@@ -99,6 +99,43 @@ const punctuationRows = computed(() => {
   ];
 });
 
+/* ---------- 范文正文（GUI 粘贴窗口，2026-10-19） ----------
+ * 存的是工作区里的文件（默认 materials/style_sample.md，随书档归档），
+ * 不是 config 里的字符串 —— 范文可达数万字，塞 yaml 会让读配置变慢且易被手改坏。
+ * 字数口径由后端算（prose_char_count，与 stage4 判「是否只有占位符」同源）。
+ */
+const refState = ref(null);      // GET /config/style_reference
+const refText = ref("");
+const refDirty = ref(false);
+const refSaving = ref(false);
+
+async function loadReference() {
+  const r = await api("/config/style_reference");
+  if (r.data && r.data.ok) {
+    refState.value = r.data;
+    refText.value = r.data.text || "";
+    refDirty.value = false;
+  } else {
+    refState.value = { ok: false, error: r.data?.error || ("HTTP " + r.status) };
+  }
+}
+
+async function saveReference(clear = false) {
+  if (clear && !window.confirm(
+    "清空范文？\n\n· 写作阶段将不再注入范文\n· 旧内容已自动备份到 data/state/style_reference_history/")) return;
+  refSaving.value = true;
+  const r = await api("/config/style_reference", "POST", { text: clear ? "" : refText.value });
+  refSaving.value = false;
+  if (r.data?.ok) {
+    refState.value = r.data;
+    if (clear) { refText.value = ""; }
+    refDirty.value = false;
+    say(r.data.message || "已保存");
+  } else {
+    say(r.data?.error || ("保存失败 HTTP " + r.status));
+  }
+}
+
 /* ---------- 文风分析 ---------- */
 const note = ref("");
 
@@ -245,6 +282,7 @@ const pacingTrend = computed(() => {
 });
 
 onMounted(() => {
+  loadReference();
   analyze();
   loadPacing("current");
 });
@@ -259,6 +297,37 @@ onMounted(() => {
 
     <!-- ================= 文风特征 ================= -->
     <template v-if="sub === 'style'">
+      <!-- 范文正文：一键粘贴。属于用户数据（工作区文件，随书档归档） -->
+      <div class="card">
+        <div class="card-head">
+          <h3>范文正文</h3>
+          <span class="spacer"></span>
+          <button class="mini" :disabled="refSaving" @click="saveReference(false)">
+            {{ refSaving ? "保存中…" : "保存" }}</button>
+          <button class="mini" :disabled="refSaving || !refText"
+                  @click="saveReference(true)">清空</button>
+        </div>
+        <div class="meta">
+          写作时模仿它的节奏、用词与句式。<b>给 2~3 个场景切片</b>（对白 / 动作 / 内省各一）
+          比给一整章更有效 —— 系统只抽 3 段做 few-shot。粘贴后点「保存」即可，无需改配置。
+        </div>
+        <textarea v-model="refText" class="style-ref-input" rows="12"
+                  placeholder="在这里粘贴正文（Ctrl+V）…"
+                  @input="refDirty = true"></textarea>
+        <div class="meta ref-status" v-if="refState && refState.ok">
+          <span class="ref-path">{{ refState.path }}</span>
+          <span>· 有效正文 <b>{{ refState.prose_chars }}</b> 字（注入上限 {{ refState.limit }}）</span>
+          <span v-if="!refState.effective" class="ref-warn">· 不足 {{ refState.min_prose }} 字，暂不生效</span>
+          <span v-else class="ref-ok">· 已生效</span>
+          <span v-if="refState.truncated" class="ref-warn">
+            · 超出上限 {{ refState.truncated }} 字，stage4 只注入前 {{ refState.limit }} 字</span>
+          <span v-if="refDirty" class="ref-warn">· 有未保存改动</span>
+        </div>
+        <div class="meta ref-warn" v-else-if="refState && !refState.ok">
+          读取失败：{{ refState.error }}
+        </div>
+      </div>
+
       <div class="card">
         <div class="card-head">
           <h3>文风分析</h3>
@@ -517,6 +586,25 @@ onMounted(() => {
 </template>
 
 <style scoped>
+/* 范文粘贴框：暗色主题下必须走 var(--field)，禁止硬编码白底 */
+.style-ref-input {
+  width: 100%;
+  margin: 8px 0 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--field);
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.75;
+  font-family: inherit;
+  resize: vertical;
+}
+.style-ref-input:focus { outline: none; border-color: var(--accent); }
+.ref-status { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: baseline; }
+.ref-path { font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; color: var(--muted); }
+.ref-ok { color: var(--ok); }
+.ref-warn { color: var(--warn, #b45309); }
 .spacer { flex: 1; }
 .llm-toggle { display: flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--muted); }
 .stat-row { display: flex; gap: 12px; flex-wrap: wrap; }

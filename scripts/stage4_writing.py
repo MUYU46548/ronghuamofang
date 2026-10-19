@@ -24,6 +24,7 @@ from utils.summary_chain import append_chapter_summary, extract_prev_tail, compr
 from utils.template_loader import load_template
 from utils.style_analyzer import (
     MIN_TEXT_LEN as STYLE_REF_MIN_PROSE, extract_style_samples, build_style_notes_section,
+    prose_char_count,
 )
 from utils.progress_manager import ProgressManager
 from utils.setting_schema import (
@@ -77,11 +78,11 @@ def build_style_reference_block(book):
     meta["chars"] = len(text)
     # 只有占位符/标题 = 作者还没粘正文。**不能**把占位说明当范文贴进每章任务
     # （它会进统计特征与 few-shot 候选池），所以按"未提供"处理并出声。
-    prose = re.sub(r"[\s#>*_`\-—–…·（）()【】\[\]「」“”\"'’,，。.:：;；!！?？/|~]", "", text)
-    if len(prose) < STYLE_REF_MIN_PROSE:
+    prose = prose_char_count(text)
+    if prose < STYLE_REF_MIN_PROSE:
         print("[stage4] WARN 范文文件 %s 里只有占位符/标题（有效正文 %d 字，少于 %d）"
               "—— 本次按「未提供范文」写作，请把正文粘进去"
-              % (ref, len(prose), STYLE_REF_MIN_PROSE))
+              % (ref, prose, STYLE_REF_MIN_PROSE))
         meta["injected"] = 0
         return STYLE_REF_PLACEHOLDER, meta
     limit = meta["limit"]

@@ -95,6 +95,152 @@ def handle_config_style_notes(h):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+# ---------------------------------------------------------------- 风格范文（GUI 粘贴窗口）
+# 2026-10-19：范文原来只能「用编辑器打开 materials/style_sample.md 粘」，用户提的
+# 更对——直接在面板里粘贴，且它属于**用户数据**（materials/ 是书档级内容，换书跟着走）。
+#
+# 设计取舍：
+#   · 存文件而不是塞 project.yaml：范文可达数万字，塞 yaml 会让每次读配置都变慢，
+#     且 yaml 里多行标量的转义/缩进极易被手改坏；文件还能被 stage4 直接读。
+#   · 不设 GUI-only：这是**创作决策**（写什么范文），不是成本/安全闸门，
+#     外部 Agent 可以代写（与 target_words 同口径）。
+#   · 写入一律限在工作区内（拒绝 ../ 与绝对路径外溢）；写前备份，保留最近 20 份。
+DEFAULT_STYLE_REF_PATH = "materials/style_sample.md"
+STYLE_REF_HISTORY_DIR = "data/state/style_reference_history"
+STYLE_REF_HISTORY_KEEP = 20
+STYLE_REF_MAX_CHARS = 40000          # 与 stage4 的注入上限上限一致（STYLE_REF_LIMIT_MAX）
+
+
+def _style_ref_target():
+    """配置里的范文路径 → (绝对路径, 相对路径, 是否已配置)。"""
+    from utils.project_config import get_project_config
+    try:
+        cfg = get_project_config() or {}
+    except Exception:                                       # noqa: BLE001
+        cfg = {}
+    rel = str(((cfg.get("book") or {}).get("style_reference") or "")).strip()
+    configured = bool(rel)
+    rel = (rel or DEFAULT_STYLE_REF_PATH).replace("\\", "/")
+    return api.ROOT / rel, rel, configured
+
+
+def _style_ref_inside_root(p):
+    """范文本必须落在工作区内 —— 否则 GUI 一次粘贴就能往任意路径写用户正文。"""
+    try:
+        api.Path(str(p)).resolve().relative_to(api.Path(str(api.ROOT)).resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def _style_ref_limits():
+    """注入上限（与 stage4 同源）：book.style_reference_max_chars，夹在 1000~40000。"""
+    from utils.project_config import get_project_config
+    try:
+        cfg = get_project_config() or {}
+        raw = ((cfg.get("book") or {}).get("style_reference_max_chars"))
+        n = int(raw) if raw not in (None, "") else 6000
+    except Exception:                                       # noqa: BLE001
+        n = 6000
+    return max(1000, min(STYLE_REF_MAX_CHARS, n))
+
+
+def _style_ref_payload(text, rel, configured):
+    from utils.style_analyzer import MIN_TEXT_LEN, prose_char_count
+    limit = _style_ref_limits()
+    prose = prose_char_count(text)
+    return {
+        "ok": True,
+        "path": rel,
+        "configured": configured,
+        "text": text,
+        "chars": len(text),
+        "prose_chars": prose,
+        "min_prose": MIN_TEXT_LEN,
+        "limit": limit,
+        "effective": prose >= MIN_TEXT_LEN,
+        # 超出注入上限的部分 stage4 不会用（那里会 WARN），这里先让用户看见
+        "truncated": max(0, len(text) - limit),
+    }
+
+
+def handle_config_style_reference(h):
+    """读范文正文 + 字数口径（GUI「范文」编辑框的数据源）。"""
+    p, rel, configured = _style_ref_target()
+    text = ""
+    if p.exists():
+        try:
+            from utils.file_io import read_text
+            text = read_text(str(p))
+        except Exception as e:                              # noqa: BLE001
+            return 500, {"ok": False, "path": rel,
+                         "error": "范文读取失败：%s: %s" % (type(e).__name__, str(e)[:160])}
+    return 200, _style_ref_payload(text, rel, configured)
+
+
+def handle_config_style_reference_set(h, body):
+    """保存范文正文（GUI 粘贴 → 落盘 → 配置指向它）。
+
+    写前把旧内容备份到 `data/state/style_reference_history/`（保留最近 20 份）——
+    范文是作者原文，误覆盖的代价比多存一份大得多。
+    """
+    body = body or {}
+    if "text" not in body:
+        return 400, {"ok": False, "error": "缺少 text 字段（清空请传空字符串）"}
+    text = str(body.get("text") or "").replace("\r\n", "\n").replace("\r", "\n")
+    if len(text) > STYLE_REF_MAX_CHARS:
+        return 400, {"ok": False,
+                     "error": "范文过长（%d 字 > 上限 %d）—— 建议给 2~3 个场景切片，"
+                              "多篇合并到一个文件" % (len(text), STYLE_REF_MAX_CHARS)}
+    p, rel, configured = _style_ref_target()
+    if not _style_ref_inside_root(p):
+        return 400, {"ok": False,
+                     "error": "范文路径必须落在工作区内：%s（当前配置 book.style_reference）"
+                              % rel}
+    try:
+        from utils.file_io import read_text, write_text
+        if p.exists():
+            try:
+                old = read_text(str(p))
+            except Exception:                               # noqa: BLE001
+                old = ""
+            if old.strip() and old != text:
+                hist = api.Path(STYLE_REF_HISTORY_DIR)
+                hist.mkdir(parents=True, exist_ok=True)
+                stamp = api.datetime.now().strftime("%Y%m%d_%H%M%S")
+                (hist / ("reference_%s.md" % stamp)).write_text(old, encoding="utf-8")
+                olds = sorted(hist.glob("reference_*.md"))
+                for f in olds[:-STYLE_REF_HISTORY_KEEP]:
+                    try:
+                        f.unlink()
+                    except OSError:
+                        pass
+        write_text(str(p), text if (not text or text.endswith("\n")) else text + "\n")
+        if not configured:
+            from utils.project_config import set_book_fields
+            ok_c, msg_c = set_book_fields({"style_reference": rel})
+            if not ok_c:
+                return 400, {"ok": False,
+                             "error": "范文已写入，但 project.yaml 指向失败：%s" % msg_c}
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+    payload = _style_ref_payload(text, rel, True)
+    if not text.strip():
+        payload["message"] = "已清空范文 —— 写作阶段不再注入范文"
+    elif payload["prose_chars"] < payload["min_prose"]:
+        payload["message"] = ("已保存，但有效正文只有 %d 字（少于 %d）—— **暂不生效**，"
+                              "写作时会按「未提供范文」处理"
+                              % (payload["prose_chars"], payload["min_prose"]))
+    elif payload["truncated"]:
+        payload["message"] = ("已保存：有效正文 %d 字；超出注入上限 %d 字，stage4 只注入前 %d 字"
+                              % (payload["prose_chars"], payload["truncated"], payload["limit"]))
+    else:
+        payload["message"] = ("已保存：有效正文 %d 字（stage4 注入上限 %d 字）"
+                              % (payload["prose_chars"], payload["limit"]))
+    return 200, payload
+
+
 # ---------------------------------------------------------------- Word 模板
 # 件五（GUI 模板入口，A 方案）后端：清单来自磁盘 templates/，当前值来自
 # project.yaml 的 book.word_template —— 两者**分开回**：当前值指向的模板可能
@@ -552,6 +698,8 @@ ROUTES = (
     ("POST", "/project/archive/delete", handle_archive_delete),
     ("GET", "/config/project", handle_config_project),
     ("GET", "/config/style_notes", handle_config_style_notes),
+    ("GET", "/config/style_reference", handle_config_style_reference),
+    ("POST", "/config/style_reference", handle_config_style_reference_set),
     ("GET", "/config/word_template", handle_config_word_template),
     ("POST", "/config/word_template", handle_config_word_template_set),
     ("GET", "/config/agent_mode", handle_config_agent_mode),
