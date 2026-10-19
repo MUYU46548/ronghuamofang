@@ -28,8 +28,27 @@ from utils.setting_schema import (
     base_name, build_character_card, normalize_character,
 )
 from utils.config_io import load_config_yaml
+from utils.text_norm import normalize_chapter_file
 
 SUMMARY_RE = re.compile(r"<!--\s*summary:\s*(.+?)\s*-->", re.IGNORECASE | re.S)
+
+
+def _norm(path, n=None):
+    """就地归一化章节文件的中文标点（半角引号/直角引号/单破折号/省略号…）。
+
+    幂等、零 token。失败只打印不阻断 —— 标点归一化是**清洁**工作，
+    它坏了不应该拖垮写作主链路（正文还在，脏标点最多回到修复前的状态）。
+    """
+    try:
+        changed, counts = normalize_chapter_file(path)
+    except Exception as e:                                    # noqa: BLE001
+        print(f"[text_norm] 第{n}章标点归一化失败（不影响主流程）: {type(e).__name__}: {e}")
+        return
+    if changed:
+        total = sum(counts.values())
+        detail = "、".join(f"{k}={v}" for k, v in counts.items() if v)
+        print(f"[stage4] 第{n}章标点归一化 {total} 处（{detail}）" if n
+              else f"[text_norm] 归一化 {total} 处（{detail}）")
 
 # 知识库注入的「一次性提示」开关。
 # `build_chapter_task` 每章调一次，逐章打印同一条提示会淹没日志；
@@ -98,37 +117,223 @@ def sync_appearances_after_chapter(chapter_text, chapter_no, total_chapters=None
 
 
 def _involved_names(outline_text):
-    """从逐章大纲的「涉及角色」行解析角色名列表。
+    """从逐章大纲的「涉及角色」解析角色名列表。
 
-    大纲里该项可能是 `苏芷、观澜`，也可能是 `luxi 苏芷（写病历）、小林（夜班护士）`。
-    后者若整串拿去匹配 setting 的 name 永远匹配不上 → 角色卡恒为空。
-    这里把「id 名（描述）」拆成候选名并剥掉括号描述。
+    ## 支持两种真实格式（2026-10-18 修正）
+
+    1. **多行列表**（当前流水线产出的真实形态）::
+
+           - 涉及角色：
+             - 沈砚（c015）：主角，落魄机关术师；被读数图与七锁摹痕一步步推出废屋。
+             - 程砧（c016）：边城守卫队长；以军令与读数图促成同行。
+
+    2. 单行顿号：`- 涉及角色：苏芷、观澜`
+    3. 混合：`luxi 苏芷（写病历）、小林（夜班护士）`
+
+    ⚠️ **旧实现只取「涉及角色」那一行**，多行格式下后续两行被整行丢掉，
+    于是只剩 `- 沈砚（c015）：主角…` 一句，再按顿号切就得到
+    `['-', '沈砚：主角', '落魄机关术师', …]` —— 真正的角色名 `沈砚` 反而不在里面，
+    带括号的描述文字全成了"名字"。后果：角色卡恒空、设定条目恒空，
+    而上层不报错（匹配不到就返回空串）——**静默失效**。
     """
-    rm = re.search(r"涉及角色[：:]\s*(.+)", outline_text)
-    if not rm:
+    m = re.search(r"涉及角色[：:]", outline_text)
+    if not m:
         return []
+    tail = outline_text[m.end():]
+    lines = tail.split("\n")
+    chunks = []
+    first = lines[0].strip() if lines else ""
+    if first:
+        chunks.append(first)                       # 单行格式：冒号后的内容在本行
+    for ln in lines[1:]:                           # 多行列表：缩进的 `- xxx` 项
+        s = ln.strip()
+        if not s:
+            if chunks:                             # 空行后若已有内容则结束（段落边界）
+                break
+            continue
+        if s.startswith(("-", "*", "·")):
+            chunks.append(s.lstrip("-*· ").strip())
+            continue
+        if chunks:                                 # 非列表行 → 本节结束
+            break
+
+    # 逐项两段法（2026-10-18 第四次修正）。
+    #
+    # ⚠️ 教训记录：这条函数改了四版，前三版都是「按顿号切整行」，每修好一种格式
+    # 又漏另一种 —— `沈砚（c015）：主角，落魄机关术师；…` 一切就是
+    # `['沈砚（c015）', '主角', '落魄机关术师', …]`，描述碎片全成了"名字"；
+    # `玄翎卫统领（本章新登场，无设定集编号）` 的括号内含逗号，剥括号后残出
+    # `无设定集编号）`。
+    #
+    # 现在的口径（**先砍描述，再切名字**）：
+    #   1. 每一项先按 `：` 砍一刀 —— 冒号后全是描述，直接丢
+    #   2. 剩下的名字区按顿号/逗号切
+    #   3. 每个 token 里，括号内的 ASCII 串**单独收为 id 候选**
+    #      （⚠️ 不能丢：`_name_matches` 会拿 `nc["id"]` 比对，`c001` 是功能性匹配键，
+    #       不是噪音 —— 2026-10-18 就是把它误删导致 test_setting_schema 红了一条）
+    #   4. 中文名：剥括号后按空白切，只收 2-8 个汉字
+    ASCII_ID = re.compile(r"[A-Za-z][A-Za-z0-9_\-]{1,15}")
     names = []
-    for chunk in re.split(r"[,，、/；;]", rm.group(1)):
-        s = chunk.strip()
+    for item in chunks:
+        s = item.strip()
         if not s:
             continue
-        # `luxi 苏芷（写病历）` → 先取描述括号内的内容当别名候选，再剥括号
-        for inside in re.findall(r"[（(]([^）)]*)[）)]", s):
-            inside = inside.strip()
-            if inside:
-                names.append(inside)
-        bare = re.sub(r"[（(].*?[)）]", "", s).strip()
-        # `luxi 苏芷` → 拆出 ASCII id 与中文名
-        for tok in bare.split():
-            tok = tok.strip()
-            if tok:
-                names.append(tok)
+        # 1. 冒号后是描述，砍掉（`沈砚（c015）：主角，落魄机关术师` → `沈砚（c015）`）
+        name_zone = re.split(r"[：:]", s, 1)[0]
+        # 2. 名字区按顿号/逗号/斜杠/分号切
+        for tok in re.split(r"[,，、/；;]+", name_zone):
+            tok = tok.strip().strip("-*·").strip()
+            if not tok:
+                continue
+            # 3. 括号内的 ASCII 串收为 id 候选（`c001 苏芷（写病历）` 的 c001、写病历里若含 id）
+            for cid in re.findall(r"[（(]\s*([A-Za-z][A-Za-z0-9_\-]{1,15})\s*[)）]", tok):
+                names.append(cid)
+            # 剥括号，剩下的空白切分（`c001 苏芷` → ['c001', '苏芷']）
+            bare = re.sub(r"[（(][^）)]*[)）]", "", tok).strip()
+            for piece in bare.split():
+                piece = piece.strip().strip("-*·").strip()
+                if not piece:
+                    continue
+                # 纯 ASCII token 就是 id 前缀（`c001`），收为 id 候选
+                if re.fullmatch(r"[A-Za-z][A-Za-z0-9_\-]{1,15}", piece):
+                    names.append(piece)
+                # 中文名：2-8 个汉字，不含任何非汉字
+                elif 2 <= len(piece) <= 8 and not re.search(r"[^\u4e00-\u9fff]", piece):
+                    names.append(piece)
     out, seen = [], set()
     for n in names:
+        n = n.strip()
         if n and n not in seen:
             seen.add(n)
             out.append(n)
     return out
+
+
+def _extract_world_context(setting_path, outline_text, involved=None, budget=4500):
+    """从 setting.json 提取与本章相关的 world / timeline / plot_fragments 条目，**内联**进任务。
+
+    ## 为什么必须内联（2026-10-18 P1）
+
+    此前只有**角色卡**内联，其余一律只给 `{{path_setting}}` 让子会话自己 `read_file`。
+    实测真实设定集（《雾港核心》）69 KB，含 `world`（18 地点 / 16 势力 / 19 世界规则 /
+    8 物品）、`timeline`（15 条）、`plot_fragments`（24 条）——
+    **这些条目一个都没进任务**，模型读多少、读哪条完全不受控。
+    用户的判断正是：「设定库里扔了一堆语料都学不明白吗？」
+
+    根因不是模型不学，是**没给它可学的东西**。内联后设定上下文从"一个路径"
+    变成"本章相关的具体条目"，且与角色卡一样可被校验、可被计数。
+
+    ## 匹配口径（保守，宁缺勿滥）
+
+    - 条目名**出现在大纲正文**里 → 收录（地点/势力/规则/物品同规则）
+    - `timeline` 事件文本含涉及角色名 → 收录（时间线是 locked 硬约束，漏了会写错年份）
+    - `plot_fragments` 的 summary 含涉及角色名 → 收录；另附**未启用**（status=unused）
+      的前 3 条作为「可用素材」——它们是 stage1 归并时留下的候选情节
+    - 每条 desc 截断，总预算 `budget` 字；匹配不到就返回空，**不塞无关条目**
+      （把整个设定集灌进去等于没灌：模型会跳读，且白烧输入 token）
+    """
+    try:
+        setting = json.loads(read_text(setting_path))
+    except Exception:                                        # noqa: BLE001
+        return ""
+    involved = involved or []
+    outline = outline_text or ""
+
+    def _hit(text):
+        """条目相关性：正文提到条目名，或事件/情节提到涉及角色名。"""
+        if not text:
+            return False
+        if any(n and n in outline for n in involved) and any(n in text for n in involved if n):
+            return True
+        return False
+
+    def _render(entry, name_field="name", desc_field="desc", desc_cap=300):
+        name = str(entry.get(name_field) or "").strip()
+        if not name:
+            return None
+        typ = str(entry.get("type") or "").strip()
+        desc = str(entry.get(desc_field) or "").strip()
+        if len(desc) > desc_cap:
+            desc = desc[:desc_cap] + "…"
+        locked = "（locked，不可违逆）" if entry.get("locked") else ""
+        head = f"- {name}" + (f"（{typ}）" if typ else "") + locked
+        return head + (f"：{desc}" if desc else "")
+
+    world = setting.get("world") or {}
+    if isinstance(world, dict):
+        buckets = [("地点", world.get("locations") or []),
+                   ("势力", world.get("factions") or []),
+                   ("世界规则", world.get("magic_system") or []),
+                   ("物品", world.get("items") or [])]
+    elif isinstance(world, list):                     # 兼容扁平 schema
+        buckets = [("设定", world)]
+    else:
+        buckets = []
+
+    sections = []
+    total = 0
+
+    def _push(title, lines):
+        nonlocal total
+        lines = [l for l in lines if l]
+        if not lines:
+            return
+        block = f"### {title}\n" + "\n".join(lines)
+        if total + len(block) > budget:
+            return
+        sections.append(block)
+        total += len(block)
+
+    for label, entries in buckets:
+        lines = []
+        for e in entries:
+            if not isinstance(e, dict):
+                continue
+            name = str(e.get("name") or "")
+            if not name or name not in outline:
+                continue
+            lines.append(_render(e))
+        _push(f"本章相关{label}", lines)
+
+    # 时间线：locked 事件是硬约束，漏了会把年份/因果写错
+    tl_lines = []
+    for ev in (setting.get("timeline") or []):
+        if not isinstance(ev, dict):
+            continue
+        text = str(ev.get("event") or "")
+        if not _hit(text):
+            continue
+        year = ev.get("year")
+        lock = "（locked）" if ev.get("locked") else ""
+        body = text if len(text) <= 300 else text[:300] + "…"
+        tl_lines.append(f"- {('[%s] ' % year) if year else ''}{body}{lock}")
+    _push("本章相关时间线", tl_lines)
+
+    # 情节碎片：命中涉及角色的 + 未启用的前 3 条（候选素材）
+    pf_lines = []
+    unused_left = 3
+    for pf in (setting.get("plot_fragments") or []):
+        if not isinstance(pf, dict):
+            continue
+        summary = str(pf.get("summary") or "")
+        if not summary:
+            continue
+        status = str(pf.get("status") or "").strip()
+        if _hit(summary):
+            tag = f"（{status}）" if status else ""
+        elif status == "unused" and unused_left > 0:
+            unused_left -= 1
+            tag = "（未启用，可作候选素材）"
+        else:
+            continue
+        body = summary if len(summary) <= 300 else summary[:300] + "…"
+        pf_lines.append(f"- {body}{tag}")
+    _push("情节碎片", pf_lines)
+
+    if not sections:
+        return ""
+    return ("### 相关设定条目（已按本章大纲筛过，写作时参考；**locked 条目不可违逆**）\n\n"
+            + "\n\n".join(sections))
 
 
 def _extract_character_cards_for_chapter(setting_path, outline_path, budget=3000):
@@ -239,6 +444,13 @@ def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, p
     # 角色卡锁定：从 setting.json 提取当前章节涉及的角色
     character_cards = _extract_character_cards_for_chapter(setting_path, outline_path)
 
+    # 相关设定条目内联（2026-10-18 P1）：world / timeline / plot_fragments 此前
+    # **只给一个文件路径**，模型读多少、读哪条不受控 —— 实测设定集 69 KB，
+    # 这些条目一个都没进任务。现按本章大纲筛过后内联（见 _extract_world_context）。
+    outline_text_for_ctx = _safe_read(outline_path, budget=8000)
+    world_context = _extract_world_context(
+        setting_path, outline_text_for_ctx, involved=_involved_names(outline_text_for_ctx))
+
     # 分支样例锚点（第 4 件 · 选项可视化）：用户在章大纲里选定的「样例文本」
     # 注入成 few-shot 参照。读章大纲里的优化点锚点，只挑 kind=sample 的 ——
     # 讨论意见/字段改写类锚点是给**人**看的决策记录，混进去会污染写作模型。
@@ -267,6 +479,7 @@ def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, p
         "kb_context": kb_context,
         "chapter_samples": chapter_samples_block,
         "character_cards": character_cards,
+        "world_context": world_context,
         "min_words": target[0],
         "max_words": target[1],
         "path_output": Path(f"data/chapters/raw/{n:02d}.md").resolve(),
@@ -425,6 +638,10 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                 break
             continue
 
+        # 中文标点归一化（2026-10-18）：模型产出的半角引号 / 直角引号 / 单破折号
+        # 在**校验之前**修掉。实测《雾港核心》三章：76 个半角 "、67 对「」——
+        # stage6 提示词写着「全角标点」也不管用，故改为确定性替换（utils/text_norm）。
+        _norm(chap_path, n)
         check = check_chapter(chap_path, low, high)
         # 字数不足的定向扩写（2026-10-17 第14次试跑修复）：正文写出来了但只差
         # 一点（>= 下限 60%）时，整章重写往往复现同样的短稿（同章 9 连败实证）；

@@ -33,12 +33,30 @@ from utils.llm_client import make_client
 from utils.file_io import read_text, write_text
 from utils.template_loader import load_template
 from utils.config_io import load_config_yaml
+from utils.text_norm import normalize_chapter_file
 
 HISTORY_DIR = Path("data/chapters.history")
 PARA_HISTORY_DIR = Path("data/chapters/para_history")
 QUALITY_RE = re.compile(r"<!--\s*quality:\s*(\d+(?:\.\d+)?)")
 VERSION_RE = re.compile(r"^ch(\d{2})_v(\d+)\.md$")
 PARA_HISTORY_RE = re.compile(r"^ch(\d{2})_p(\d+)_h(\d+)\.json$")
+
+
+def _norm(path, chapter=None):
+    """就地归一化章节文件的中文标点。幂等、零 token；失败只打印不阻断。
+
+    段落回退读的是历史版本 JSON（原样搬运），历史版本本身可能已带脏标点
+    —— 回退后统一清洗一次，避免「回退一次脏一次」。
+    """
+    try:
+        changed, counts = normalize_chapter_file(path)
+    except Exception as e:                                    # noqa: BLE001
+        print(f"[text_norm] 第{chapter}章标点归一化失败（不影响主流程）: "
+              f"{type(e).__name__}: {e}")
+        return
+    if changed:
+        detail = "、".join(f"{k}={v}" for k, v in counts.items() if v)
+        print(f"[refine_p] 第{chapter}章标点归一化（{detail}）")
 
 
 def _pick_chapter_path(n):
@@ -174,6 +192,9 @@ def restore_paragraph_version(chapter, paragraph_index, history_id):
     backup = HISTORY_DIR / f"ch{chapter:02d}_v{version}.md"
     shutil.copy2(chap_path, backup)
     write_text(chap_path, new_text)
+    # 中文标点归一化（2026-10-18）：历史版本里可能带着修复前的脏标点，
+    # 回退后统一清洗一次。
+    _norm(chap_path, chapter)
 
     return True, f"段落 #{paragraph_index} 已回退到 h{history_id}（整章备份 v{version}）"
 

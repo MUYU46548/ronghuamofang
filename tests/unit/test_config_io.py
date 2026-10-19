@@ -25,7 +25,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from utils.config_io import (ConfigError, deep_merge,  # noqa: E402
                              load_config_yaml, load_pipeline_config,
-                             set_section_scalar)
+                             set_section_scalar, set_section_scalars)
 
 PASS, FAIL = [], []
 
@@ -200,6 +200,124 @@ def case_targeted_write():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def case_block_seq_to_flow_list():
+    """【4b】块序列键 → 流式列表值：旧的 `- 项` 必须一并删掉。
+
+    2026-10-18 实测抓出的缺陷：`_block_range` 按「缩进 <= 键缩进即块结束」判，
+    而 YAML 块序列的 `- 2000` 与所属键 `target_words:` **同缩进** —— 于是块被判成
+    空块，替换首行后旧序列残留成孤儿，**整份 YAML 解析失败**。
+    写后回读能拦住（fail-closed），但文件此时已经写坏，只能靠备份回退。
+
+    这条用例锁的是「列表值能被安全改写」—— `/config/target_words` 端点依赖它。
+    """
+    print("\n【4b】块序列 → 流式列表：旧序列项必须一并删除（否则写坏整份配置）")
+    tmp = tmpdir()
+    try:
+        cfg = tmp / "system.yaml"
+        original = (
+            "# 顶部说明（必须保留）\n"
+            "engine: hermes\n"
+            "chapter:\n"
+            "  target_words:\n"
+            "  - 2000\n"
+            "  - 5500\n"
+            "  summary_every: 15\n"
+            "logging:\n"
+            "  level: info\n"
+        )
+        cfg.write_text(original, encoding="utf-8")
+        import os
+        origin = os.getcwd()
+        os.chdir(tmp)
+        try:
+            (tmp / "config").mkdir(exist_ok=True)
+            ok, msg = set_section_scalar(("chapter",), "target_words",
+                                         [5000, 9000], path=cfg)
+            check("写入成功（不因旧序列残留而回读失败）", ok, msg)
+            text = cfg.read_text(encoding="utf-8")
+            check("旧序列项 - 2000 / - 5500 已删除",
+                  "- 2000" not in text and "- 5500" not in text, text)
+            check("新值以单行落盘", "target_words: [5000, 9000]" in text, text)
+            back = load_config_yaml(cfg)
+            check("回读值为列表且元素正确",
+                  back["chapter"]["target_words"] == [5000, 9000], back)
+            check("邻近键未被误删",
+                  back["chapter"]["summary_every"] == 15
+                  and back["logging"]["level"] == "info", back)
+            check("顶部注释保留", "# 顶部说明（必须保留）" in text)
+            # 幂等：再写一次同样的值不应出错，也不应改变结果
+            ok2, msg2 = set_section_scalar(("chapter",), "target_words",
+                                           [5000, 9000], path=cfg)
+            check("二次写入幂等（值与文件均稳定）",
+                  ok2 and load_config_yaml(cfg)["chapter"]["target_words"] == [5000, 9000],
+                  msg2)
+            # 真配置文件（含大量注释与嵌套段）也要能整体解析
+            ok3, msg3 = set_section_scalar(("chapter",), "target_words",
+                                           [3000, 6000], path=cfg)
+            check("改到别的区间同样安全",
+                  ok3 and load_config_yaml(cfg)["chapter"]["target_words"] == [3000, 6000],
+                  msg3)
+        finally:
+            os.chdir(origin)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def case_block_range_keeps_comments():
+    """【4c】块尾注释不得被 `_apply_one` 的 del 吞掉。
+
+    2026-10-18 实测：为修「块序列残留」而放宽 `_block_range` 后，一次写 5 个键时
+    245 → 225 行 —— 块尾（下一个键的说明注释）被算进 del 范围，20 行说明文字消失。
+    回读校验查不出这种损坏（值都对，只是注释没了），只能靠这条断言锁。
+    """
+    print("\n【4c】块尾注释保留：一次写多个键时不得吞掉下一个键的说明注释")
+    tmp = tmpdir()
+    try:
+        cfg = tmp / "system.yaml"
+        original = (
+            "engine: hermes\n"
+            "budget:\n"
+            "  token_limit:\n"
+            "    enabled: true\n"
+            "    # 说明一：这一行属于 max_total_tokens\n"
+            "    max_total_tokens: 3000000\n"
+            "    # 说明二：这一行属于 warn_ratio\n"
+            "    warn_ratio: 0.7\n"
+            "logging:\n"
+            "  level: info\n"
+        )
+        cfg.write_text(original, encoding="utf-8")
+        import os
+        origin = os.getcwd()
+        os.chdir(tmp)
+        try:
+            (tmp / "config").mkdir(exist_ok=True)
+            before = cfg.read_text(encoding="utf-8")
+            cbefore = [l for l in before.splitlines() if l.strip().startswith("#")]
+            ok, msg = set_section_scalars(
+                ("budget", "token_limit"),
+                {"enabled": True, "max_total_tokens": 2000000, "warn_ratio": 0.8},
+                path=cfg)
+            check("多键写入成功", ok, msg)
+            after = cfg.read_text(encoding="utf-8")
+            cafter = [l for l in after.splitlines() if l.strip().startswith("#")]
+            check("注释行数不减（说明一/说明二都在）", len(cafter) == len(cbefore),
+                  "%d → %d" % (len(cbefore), len(cafter)))
+            check("说明一保留", "# 说明一：这一行属于 max_total_tokens" in after)
+            check("说明二保留", "# 说明二：这一行属于 warn_ratio" in after)
+            check("三处值都落盘", "max_total_tokens: 2000000" in after
+                  and "warn_ratio: 0.8" in after, after)
+            back = load_config_yaml(cfg)
+            check("回读值正确",
+                  back["budget"]["token_limit"]["max_total_tokens"] == 2000000
+                  and back["budget"]["token_limit"]["warn_ratio"] == 0.8, back)
+            check("邻近段未受影响", back["logging"]["level"] == "info", back)
+        finally:
+            os.chdir(origin)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 # ============================================================ 5. 结构性护栏
 # 允许残留的裸 safe_load（**每一条都要写理由**，与泄露门禁的 `allow:` 同一纪律：
 # 静默豁免等于开后门）。新增文件若出现在这份名单外 → 本用例变红。
@@ -247,6 +365,8 @@ def main():
     case_merge()
     case_pipeline_config()
     case_targeted_write()
+    case_block_seq_to_flow_list()
+    case_block_range_keeps_comments()
     case_no_bare_config_safe_load()
     print("\n" + "=" * 62)
     print("  通过 %d / 失败 %d" % (len(PASS), len(FAIL)))

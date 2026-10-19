@@ -106,6 +106,15 @@ MIN_NGRAM_SAMPLES = 60         # 样本太少（短章）不做复读判定，�
 # 低于此值时不判——短文本上「1 段里有 1 段命中」就是 100%，毫无统计意义。
 MIN_RATIO_BODY_CHARS = 600
 
+# 段落过碎（非必要分段）判据的三个常量。**软指标**：只进 metrics 与
+# check_chapter 的 warnings，不进 problems（理由见 check_degenerate 第 7 节注释）。
+# FRAG_SHORT_LEN：算作「碎段」的段落长度上限（含标点）。
+# FRAG_MAX_SHORT_RATIO：碎段占比超过它才算可疑。
+# FRAG_MAX_AVG_LEN：且全章均段长须低于它 —— 合取，缺一不触发。
+FRAG_SHORT_LEN = 12
+FRAG_MAX_SHORT_RATIO = 0.40
+FRAG_MAX_AVG_LEN = 20
+
 
 def _body_lines(text):
     """去掉标题行、质量注释、空行 → 正文段落列表。"""
@@ -205,6 +214,27 @@ def check_degenerate(text):
         metrics["content_ratio"] = round(content_ratio, 3)
         if content_ratio < 0.5:
             problems.append(f"有效字符占比仅 {content_ratio:.0%}（疑似标点灌水）")
+
+    # ---- 7 段落过碎（非必要分段）----
+    #
+    # 用户原话：「老师留下的。/七锁回环。/这是老师的手笔。—— 这些都属于非必要的
+    # 分段，单独成段纯属败笔。」
+    #
+    # ⚠️ 刻意做成**软指标**（只进 metrics + check_chapter 的 warnings，不进 problems），
+    # 原因写在本文件 79-98 行的定标记录里：中文小说**单句成段是合法写法**，
+    # 实测健康章节均段长低至 19.2 字。放进 problems 会让 `is_chapter_complete`
+    # 判未完成 → 断点续跑反复重写 → 白烧 token，那正是这条注释警告过的坑。
+    #
+    # 判据取「短段占比 > 40% **且** 均段长 < 20 字」的合取：单独任何一条都不触发。
+    # 实测《雾港核心》refined 三章：
+    #   01 章 32/94 短段、均段 37.0 → 不触发（均段太健康）
+    #   02 章  9/57、均段 35.7  → 不触发
+    #   03 章 11/47、均段 51.7  → 不触发
+    frag_short = sum(1 for x in body if len(x) <= FRAG_SHORT_LEN)
+    frag_ratio = frag_short / len(body) if body else 0.0
+    metrics["frag_short_ratio"] = round(frag_ratio, 3)
+    metrics["frag_suspect"] = bool(frag_ratio > FRAG_MAX_SHORT_RATIO
+                                   and metrics.get("avg_para_len", 0) < FRAG_MAX_AVG_LEN)
 
     return problems, metrics
 

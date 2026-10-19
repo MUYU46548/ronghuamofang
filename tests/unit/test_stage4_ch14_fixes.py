@@ -86,6 +86,33 @@ def _chapter(n, target_chars, seed_base=7):
         + "\n\n" + (_PH % n) + "\n"
 
 
+def _patch_chapter_target_words(sys_yaml, low, high):
+    """把临时 system.yaml 的 chapter.target_words 钉死成 [low, high]。
+
+    为什么用行级替换而不是 config_io：本用例的夹具是**测试自己的**临时文件，
+    不需要备份/回读那套生产纪律；而 config_io 的定向改写会往 tests 的 cwd 写
+    config/history/ 备份目录，污染仓库。
+    """
+    lines = Path(sys_yaml).read_text(encoding="utf-8").split("\n")
+    out, i, done = [], 0, False
+    while i < len(lines):
+        ln = lines[i]
+        if ln.strip() == "target_words:":
+            out.append("  target_words: [%d, %d]" % (low, high))
+            i += 1
+            # 跳过旧的块序列项（`- 2000` / `- 5500`，与键同缩进）
+            while i < len(lines) and lines[i].lstrip().startswith("- "):
+                i += 1
+            done = True
+            continue
+        out.append(ln)
+        i += 1
+    if not done:
+        out.append("chapter:")
+        out.append("  target_words: [%d, %d]" % (low, high))
+    Path(sys_yaml).write_text("\n".join(out), encoding="utf-8")
+
+
 def build_workspace(total=1, tag="ch14"):
     tmp = Path(tempfile.mkdtemp(prefix="stage4_%s_" % tag))
     shutil.copytree(ROOT / "prompts", tmp / "prompts",
@@ -94,6 +121,11 @@ def build_workspace(total=1, tag="ch14"):
     (tmp / "config" / "project.yaml").write_text(
         'book:\n  name: "修复测试书"\n  chapters: %d\n' % total, encoding="utf-8")
     shutil.copy2(ROOT / "config" / "system.yaml", tmp / "config" / "system.yaml")
+    # ⚠️ 用例里的字数常量（SHORT_CHARS / LONG_CHARS）是按 [2000, ...] 硬算的，
+    # 而上面拷来的是**仓库真配置** —— 它的 chapter.target_words 会随出厂默认漂移
+    # （2026-10-18 出厂默认从 [2000,5500] 抬到 [5000,9000]，本用例当场假红）。
+    # 用例必须自带字数口径，不依赖仓库配置的当前值。
+    _patch_chapter_target_words(tmp / "config" / "system.yaml", 2000, 3000)
     (tmp / "materials" / "raw").mkdir(parents=True)
     (tmp / "data" / "setting").mkdir(parents=True)
     (tmp / "data" / "outline" / "chapters").mkdir(parents=True)

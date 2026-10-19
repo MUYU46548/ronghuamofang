@@ -1,0 +1,36 @@
+# =========================================================
+# NovelForge 二号测试用例（《炭城纪》）
+#
+# 用途：与 examples/sample-book（《雾港核心》）并列的第二套**完整且自洽**的
+#   虚构作品夹具。它存在的意义是证明流水线不是只对一套素材成立：
+#   - 素材卡来自**第三个虚构宇宙**，与《雾港核心》《雾港纪年》零词重叠
+#   - user_outline 的每个专名都在素材卡里有落点（判据见
+#     tests/unit/test_sample_book_2_coherence.py）
+#
+# 不是出厂样例：不进安装包、不在 GUI「出厂测试项目」里出现。
+# =========================================================
+
+book:
+  name: "炭城纪"
+  genre: "奇幻"
+  target_words: 9000
+  style: "冷峻、克制、侧重行动与选择"
+  chapters: 3
+  language: "zh-CN"
+  author: "阅川"
+  user_outline: "判律官裴砚在炭城记录了三百次判律的现场坐标，却发现三本册子里同一场判律的坐标永远差一个小数点，偏差全部指向盐蚀区边缘一处空白。他带着册子找上静窑院院长禾芷核对被裁掉两页的病历，两人在陶民密室发现窑心的待机指令正在衰减。添薪会的截火部队奉命封锁现场，陶律者公约会则急于把这事记成一次误报——因为公约会的记录里，那个坐标早就被涂黑过。"
+  word_template: ""
+  style_reference: ""
+  style_notes: ""
+
+materials:
+  dir: "materials/raw"
+  scraps_dir: "materials/original_scraps"
+  use_scraps: true
+
+vault:
+  readonly: true
+  vault_links: "materials/vault_links.md"
+
+run:
+  output_word: false

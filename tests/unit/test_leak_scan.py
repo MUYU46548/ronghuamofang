@@ -20,6 +20,7 @@
 用法：python tests/unit/test_leak_scan.py（零 LLM、零网络）
 """
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -170,19 +171,63 @@ def case_non_ascii_filenames_scanned():
     sys.path.insert(0, str(REPO / "scripts"))
     from leak_scan import tracked_files, scan
     files, how = tracked_files(str(REPO))
-    check("L7 取到的是真实路径（含中文名文件）",
-          any("潮神_角色卡" in str(p) for p in files), f"→ mode={how}")
+    # 本用例的判据是「中文名文件能被取到真实路径」，与**具体是哪张卡无关**。
+    # 旧实现硬编码 `潮神_角色卡` / `白蚀效应` / `潮崩_概念卡`，2026-10-18 样例卡
+    # 整套重写（与 user_outline 配套）后当场假红 —— 现改为**动态取一张中文名文件**，
+    # 并从它自己的内容里提取探针词，将来再换卡也不会再红。
+    # ⚠️ 选探针必须排除 allow 豁免文件：豁免文件**本就不该命中**，
+    # 拿它当"命中证明"会构造一个永远失败的断言（2026-10-18 实测：
+    # 首位中文名文件恰好含"绒花墨坊"，而该词的真命中文件 AGENTS.md 在豁免名单里）。
+    # 本机词表不进仓库（CI 里没有），读不到就退化为"不排除"。
+    allow_paths = set()
+    local_bl = REPO / "ci" / "blacklist.txt"
+    if local_bl.exists():
+        for ln in local_bl.read_text(encoding="utf-8").splitlines():
+            s = ln.strip()
+            if s.lower().startswith("allow:"):
+                allow_paths.add(s[len("allow:"):].split("#")[0].strip().replace("\\", "/"))
+
+    def _exempt(p):
+        try:
+            rel = str(p.relative_to(REPO)).replace("\\", "/")
+        except ValueError:
+            return False
+        return any(rel == a for a in allow_paths if a and not a.endswith("/"))
+
+    cjk_files = [p for p in files
+                 if re.search(r"[一-鿿]", str(p)) and not _exempt(p)]
+    check("L7 取到的是真实路径（含中文名文件）", bool(cjk_files),
+          f"→ mode={how} 中文名文件 {len(cjk_files)} 个")
     escaped = [str(p) for p in files if "\\344" in str(p)]
     check("L7 不含被转义成 \\xxx 的伪路径", not escaped, f"→ 例：{escaped[:2]}")
 
+    if not cjk_files:
+        return
+    probe_file = cjk_files[0]
+    # 从该文件正文里取一个 3-4 字的中文词当探针（避开标题行与标点）
+    text = probe_file.read_text(encoding="utf-8")
+    m = re.search(r"[一-鿿]{3,4}", text)
+    probe = m.group(0) if m else None
+    check("L7 能从中文名文件里取到探针词", bool(probe), f"→ {probe_file.name}")
+
     # 端到端：真仓库扫一遍，中文名文件里的敏感词要被抓到
+    if not probe:
+        return
     with tempfile.TemporaryDirectory() as td:
         wl = Path(td) / "bl.txt"
         wl.write_text("\n".join([f"填充词{i}" for i in range(24)]
-                                + ["白蚀效应"]) + "\n", encoding="utf-8")
-        rc, out, _ = run(["--list", str(wl), "--root", str(REPO)])
+                                + [probe]) + "\n", encoding="utf-8")
+        # 用 --json 取**全量命中**：默认 --max-print=50 会被排在前面的文件占满，
+        # 断言"文件被扫到"不能建立在被截断的终端输出上（那会随仓库内容随机假红/假绿）。
+        rc, out, _ = run(["--list", str(wl), "--root", str(REPO), "--json"])
+        data = json.loads(out[out.index("{"):]) if "{" in out else {}
+        hit_files = {h["path"].replace("\\", "/").split("/")[-1]
+                     for h in data.get("hits", [])}
+        hit_words = {h["word"] for h in data.get("hits", [])}
         check("L7 **中文名文件里的词能被抓到**（修前这些文件从未被扫）",
-              rc == 1 and "潮崩_概念卡" in out, f"→ rc={rc} {out[:200]}")
+              rc == 1 and probe_file.name in hit_files and probe in hit_words,
+              f"→ rc={rc} 探针={probe} 文件={probe_file.name} "
+              f"命中文件数={len(hit_files)} {out[:200]}")
 
 
 # ====================================================================== L8

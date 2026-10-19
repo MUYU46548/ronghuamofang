@@ -36,12 +36,31 @@ from utils.style_analyzer import (
     MIN_TEXT_LEN,
 )
 from utils.config_io import load_config_yaml
+from utils.text_norm import normalize_chapter_file
 
 # 范文特征缓存：style_reference 路径 -> 特征字典（一次提取，逐章复用）
 _REF_FEATURE_CACHE = {}
 
 # 润色咒语缓存（prompts/reference/对话优化咒语.md → 剥离 frontmatter + 交付节后的正文）
 _POLISH_RULES_CACHE = None
+
+
+def _norm(path, n=None):
+    """就地归一化润色稿的中文标点。幂等、零 token；失败只打印不阻断。
+
+    润色模型与写作模型一样会写出半角引号 / 直角引号（实测《雾港核心》
+    refined 稿里 76 个半角 "、67 对「」），提示词管不住，故在字数比对前做
+    确定性替换。放在「±20% 字数铁律」之前是因为归一化会轻微改变字符数。
+    """
+    try:
+        changed, counts = normalize_chapter_file(path)
+    except Exception as e:                                    # noqa: BLE001
+        print(f"[text_norm] 第{n}章标点归一化失败（不影响主流程）: {type(e).__name__}: {e}")
+        return
+    if changed:
+        detail = "、".join(f"{k}={v}" for k, v in counts.items() if v)
+        print(f"[stage6] 第{n}章标点归一化（{detail}）" if n
+              else f"[text_norm] 归一化（{detail}）")
 
 
 def _report_path(vol_index=None):
@@ -250,6 +269,9 @@ def _run_one_volume(client, task_dir, vol_index, proj, checked_dir, refined_dir,
     for n in vol_chapters:
         src = checked / f"{n:02d}.md"
         out = refined / f"{n:02d}.md"
+        # 中文标点归一化（2026-10-18）：润色模型同样会写出半角引号 / 直角引号。
+        # 必须在「±20% 字数铁律」比对**之前**做 —— 归一化会轻微改变字符数。
+        _norm(out, n)
         before = count_cn_words(read_text(src))
         out_text = read_text(out)
         after = count_cn_words(out_text)

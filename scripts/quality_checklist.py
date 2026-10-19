@@ -89,7 +89,17 @@ def check_consistency(text, chapter_no, setting):
 
 
 def check_word_count(text, chapter_no, project):
-    """检查4：字数达标。"""
+    """检查4：字数达标。
+
+    ## 两条判据（2026-10-18 补第二条）
+
+    1. **全书均摊的半数**（旧判据，保留）：按 book.target_words / chapters 算
+       每章均摊，低于它的一半判不足。
+    2. **配置的单章下限**（新增）：`system.yaml` 的 `chapter.target_words[0]`。
+       旧实现只看均摊值 —— 实测《雾港核心》book.target_words=9000 / chapters=3
+       → 均摊 3000、门槛 1500，于是 2033 字的章**直接过检**，用户判定
+       「一章两三千字根本不合格」。收尾闸门必须与写作阶段用的是**同一把尺**。
+    """
     issues = []
     if not project.exists():
         return []
@@ -100,6 +110,27 @@ def check_word_count(text, chapter_no, project):
     actual = count_cn_words(text)
     if actual < per_chapter * 0.5:
         issues.append(f"第{chapter_no}章字数不足（{actual}/{per_chapter}）")
+
+    # 判据 2：单章下限（读不到 system.yaml 时静默跳过 —— 收尾闸门不该因
+    # 「没有 system.yaml」而误报，但也**不因此放宽**：有值就必须过）。
+    sys_yaml = ROOT / "config" / "system.yaml"
+    if sys_yaml.exists():
+        try:
+            sys_cfg = load_config_yaml(sys_yaml) or {}
+            tw = ((sys_cfg.get("chapter") or {}).get("target_words")) or []
+            # 容错：老 bug 曾把 target_words 写成 dict（{low, high}）而非列表。
+            # 这里按形态分别取下限，坏形态一律跳过判据（不误报，也不假装有闸门）。
+            if isinstance(tw, dict):
+                low = int(tw.get("low") or 0)
+            elif isinstance(tw, (list, tuple)) and len(tw) >= 1:
+                low = int(tw[0])
+            else:
+                low = 0
+        except Exception:                                    # noqa: BLE001
+            low = 0
+        if low and actual < low:
+            issues.append(f"第{chapter_no}章字数低于配置下限（{actual}/{low}，"
+                          f"见 config/system.yaml 的 chapter.target_words）")
     return issues
 
 

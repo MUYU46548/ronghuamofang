@@ -155,9 +155,7 @@ chapter:
   # 结果一批端到端用例因夹具按"目标下限"生成长章而假红 —— 已撤回，
   # 夹具的循环复用问题在 utils/fake_client._words_para 里另修。
   # 确需单章 8000+ 也可以改（夹具已加固），但先确认这是你要的篇幅口径。
-  target_words:
-  - 2000
-  - 5500
+  target_words: [5000, 9000]
   summary_every: 15
   summary_window: 15
   batch_outline: 10

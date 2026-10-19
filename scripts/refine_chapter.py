@@ -30,10 +30,28 @@ from utils.llm_client import make_client
 from utils.file_io import read_text
 from utils.template_loader import load_template
 from utils.config_io import load_config_yaml
+from utils.text_norm import normalize_chapter_file
 
 HISTORY_DIR = Path("data/chapters/history")
 QUALITY_RE = re.compile(r"<!--\s*quality:\s*(\d+(?:\.\d+)?)")
 VERSION_RE = re.compile(r"^ch(\d{2})_v(\d+)\.md$")
+
+
+def _norm(path, chapter=None):
+    """就地归一化章节文件的中文标点。幂等、零 token；失败只打印不阻断。
+
+    与 stage4/stage6 的 `_norm` 同一实现（utils/text_norm），此处独立定义是因为
+    这几个脚本都是**可独立运行的 CLI**，不宜互相 import 业务函数。
+    """
+    try:
+        changed, counts = normalize_chapter_file(path)
+    except Exception as e:                                    # noqa: BLE001
+        print(f"[text_norm] 第{chapter}章标点归一化失败（不影响主流程）: "
+              f"{type(e).__name__}: {e}")
+        return
+    if changed:
+        detail = "、".join(f"{k}={v}" for k, v in counts.items() if v)
+        print(f"[refine_ch] 第{chapter}章标点归一化（{detail}）")
 
 
 def _pick_chapter_path(n):
@@ -185,6 +203,11 @@ def run_refine(cfg, proj, chapter, feedback, client=None, task_dir=None,
         return False, (f"精修子会话未产出任何修改（空转）—— 第 {chapter} 章与备份"
                        f"逐字节相同；已保留备份 {backup}。检查任务路径与子会话"
                        f"是否找到任务文件")
+
+    # 中文标点归一化（2026-10-18）：精修模型同样会写出半角引号 / 直角引号。
+    # 必须在「±20% 字数铁律」比对**之前**做 —— 归一化会轻微改变字符数，
+    # 且空转检测已先行（归一化只改标点，改不动「逐字节相同」这个判据的实质）。
+    _norm(chap_path, chapter)
 
     # 校验：字数 ±20% + quality 注释
     before = _count_cn(read_text(backup))

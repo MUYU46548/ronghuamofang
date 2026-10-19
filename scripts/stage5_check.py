@@ -18,6 +18,23 @@ from utils.cost_tracker import pause_detail as _pause_detail
 from utils.template_loader import load_template
 from utils.verify_chapter import is_usable_output
 from utils.config_io import load_config_yaml
+from utils.text_norm import normalize_chapter_file
+
+
+def _norm(path):
+    """就地归一化章节文件的中文标点。幂等、零 token；失败只打印不阻断。
+
+    与 stage4/stage6 的 `_norm` 同一实现（utils/text_norm）；这几个脚本都是
+    可独立运行的入口，各自薄包一层，避免互相 import 业务函数。
+    """
+    try:
+        changed, counts = normalize_chapter_file(path)
+    except Exception as e:                                    # noqa: BLE001
+        print(f"[text_norm] 标点归一化失败（不影响主流程）: {type(e).__name__}: {e}")
+        return
+    if changed:
+        detail = "、".join(f"{k}={v}" for k, v in counts.items() if v)
+        print(f"[stage5] {Path(path).name} 标点归一化（{detail}）")
 
 
 def build_check_task(proj, raw_dir, setting_path, checked_dir, batch_files, batch_index, total_batches):
@@ -126,6 +143,11 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         if missing:
             progress.set_stage(5, "failed", error=f"批 {bi} 缺修正文件: {missing[:3]}")
             return False, f"stage5 批 {bi} 缺修正文件: {missing[:3]}"
+        # 中文标点归一化（2026-10-18）：检查阶段的模型也会写出半角引号 / 直角引号。
+        # 兜底复制（上面 shutil.copy2）搬来的是 raw 的内容，raw 已在 stage4 归一化过，
+        # 再跑一次幂等、零成本；LLM 产出的 checked 则必须在这里清洗。
+        for f in batch:
+            _norm(checked_dir / f.name)
         print(f"[stage5] 批 {bi}/{total_batches} 完成（章节 {batch[0].stem}-{batch[-1].stem}）")
 
     if db and run_id:

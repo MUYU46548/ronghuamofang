@@ -259,6 +259,100 @@ def handle_config_token_limit_set(h, body):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+# 单章字数区间（chapter.target_words）的出厂预设与合法边界。
+#
+# 为什么出厂下限是 5000 而不是 2000（2026-10-18 用户取证）：
+# 旧默认 [2000, 5500] 让实测 2033 / 2439 字的章**直接过检**，用户判定
+# 「一章两三千字根本不合格」。用户既定口径是「单章 5000~15000、常态 ~8000」。
+# 注意：总量仍应由**章数**控制，抬高这里只是把单章篇幅拉到合格线。
+TARGET_WORDS_PRESET = [5000, 9000]
+TARGET_WORDS_BOUNDS = {"low": (500, 20000), "high": (500, 30000)}
+
+
+def _validate_target_words(body):
+    """校验单章字数区间。返回 (ok, msg, values)。
+
+    判据与 cost_tracker.validate_token_limit 同一取向：**越界一律拒绝并说清区间**
+    —— 手工把配置改坏（0 / 负数 / 上限小于下限）会让写作阶段的字数校验静默失效。
+    """
+    body = body or {}
+    if "low" not in body or "high" not in body:
+        return False, "缺少 low / high（需同时提供单章字数下限与上限）", {}
+    try:
+        low = int(body["low"])
+        high = int(body["high"])
+    except (TypeError, ValueError):
+        return False, "low / high 必须是整数", {}
+    lo_b, hi_b = TARGET_WORDS_BOUNDS["low"], TARGET_WORDS_BOUNDS["high"]
+    if not (lo_b[0] <= low <= lo_b[1]):
+        return False, "下限 %s 越界（合法区间 %d~%d）" % (low, lo_b[0], lo_b[1]), {}
+    if not (hi_b[0] <= high <= hi_b[1]):
+        return False, "上限 %s 越界（合法区间 %d~%d）" % (high, hi_b[0], hi_b[1]), {}
+    if low > high:
+        return False, "下限 %d 不能大于上限 %d" % (low, high), {}
+    return True, "", {"low": low, "high": high}
+
+
+def handle_config_target_words(h):
+    """读单章字数区间（chapter.target_words）+ 出厂预设 + 合法区间。
+
+    为什么要有这个读口：用户此前只能手改 system.yaml 才能调篇幅，
+    「绒花墨坊似乎没有显示设置每章字数要求的地方」—— 要能调就得先看得见。
+    """
+    try:
+        cfg = api.load_all()[0]
+        raw = ((cfg.get("chapter") or {}).get("target_words")) or []
+        # 容错：坏配置（dict / 非法形态）不炸读口，如实回显现状
+        cur = list(raw) if isinstance(raw, (list, tuple)) else ([] if isinstance(raw, dict)
+                                                                else [raw])
+        return 200, {
+            "ok": True,
+            "current": cur,
+            "preset": list(TARGET_WORDS_PRESET),
+            "bounds": {k: list(v) for k, v in TARGET_WORDS_BOUNDS.items()},
+            "path": "config/system.yaml",
+            "field": "chapter.target_words",
+            "note": ("单章篇幅区间（提示词按它约束，校验按它判定）。"
+                     "**全书总量请用章数控制**，不要靠抬高这里。"
+                     "改完对下一次运行生效。"),
+        }
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_config_target_words_set(h, body):
+    """写单章字数区间。合法性校验在本文件 `_validate_target_words`（判据唯一），
+    落盘走 `utils.config_io.set_section_scalars`（定向改写 + 备份 + 回读）。
+
+    不设 GUI-only：它是**创作决策**（篇幅口径），不是止烧/审批那类安全闸门。
+    Agent 可以代为设置，但越界值一律 400 拒绝 —— 与 token_limit 同一取向。
+    """
+    ok, msg, values = _validate_target_words(body)
+    if not ok:
+        return 400, {"ok": False, "error": msg}
+    # ⚠️ 必须落成**列表** `[low, high]`，不能落成 dict。
+    # 消费方全是 list 语义：stage4 的 `low, high = target[:2]`、
+    # quality_checklist 的 `tw[0]`、`build_chapter_task` 的 `*target_words` 解包、
+    # verify_chapter 的 `is_chapter_complete(path, *target_words)`。
+    # 落 dict 会全线 TypeError/KeyError —— 而且 key 顺序还可能反（low/high 由
+    # validate 返回的 dict 顺序决定），静默写错值。
+    tw_list = [values["low"], values["high"]]
+    try:
+        from utils.config_io import set_section_scalars
+        sys_yaml = api.ROOT / "config" / "system.yaml"
+        if not sys_yaml.exists():
+            return 400, {"ok": False, "error": "config/system.yaml 不存在"}
+        w_ok, w_msg = set_section_scalars(("chapter",), {"target_words": tw_list},
+                                          path=sys_yaml)
+        if not w_ok:
+            return 400, {"ok": False, "error": "写入失败：" + w_msg}
+        return 200, {"ok": True, "current": tw_list,
+                     "message": "已更新单章字数区间（" + w_msg + "）",
+                     "note": "对下一次运行生效；正在跑的一轮不受影响。"}
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 def handle_config_agent_mode(h):
     """读取当前 Agent 模式开关（config/system.yaml 的 gates.agent_mode）。"""
     try:
@@ -464,4 +558,6 @@ ROUTES = (
     ("POST", "/config/agent_mode", handle_config_agent_mode_set),
     ("GET", "/config/token_limit", handle_config_token_limit),
     ("POST", "/config/token_limit", handle_config_token_limit_set),
+    ("GET", "/config/target_words", handle_config_target_words),
+    ("POST", "/config/target_words", handle_config_target_words_set),
 )

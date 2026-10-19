@@ -26,6 +26,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from utils.file_io import read_text, write_text
 from utils.config_io import load_config_yaml
+from utils.text_norm import normalize_chinese_punctuation_with_counts
 
 HEADING_RE = re.compile(r"^(#{1,3})\s+(.*)$")
 LIST_ITEM_RE = re.compile(r"^\s*[-*]\s+(.*)$")
@@ -71,6 +72,13 @@ def merge_book(refined_dir, checked_dir, raw_dir, out_path, book_title="未命�
         parts.append(strip_protocol_markers(read_text(files[name])).strip())
         parts.append("")
     text = COMMENT_RE.sub("", "\n".join(parts))  # 去除质量/摘要注释
+    # 中文标点归一化兜底（2026-10-18）：前面各阶段的归一化只覆盖**新产出**的章，
+    # 历史遗留的脏章（修复前写下的）在合并这一步统一清洗 —— 成品 docx 永不带
+    # 半角引号 / 直角引号 / 单破折号。放在去注释之后：注释已剥离，不存在保护区误伤。
+    text, _counts = normalize_chinese_punctuation_with_counts(text)
+    if _counts:
+        detail = "、".join(f"{k}={v}" for k, v in _counts.items() if v)
+        print(f"[stage7] 合并时标点归一化（{detail}）")
     write_text(out_path, text.strip() + "\n")
     print(f"[stage7] 合并 {len(files)} 章 → {out_path}")
     return len(files)
@@ -142,15 +150,99 @@ def _set_font(run, name, size, bold=False, color=None):
         run.font.color.rgb = RGBColor(*color)
 
 
-def _add_paragraph_before(anchor, text, style=None):
-    """在 anchor 段前插入段落。style 不存在时回退 Normal。"""
+def _style_font_map(doc):
+    """styleId → eastAsia 字体名（沿 basedOn 链向上取第一个有 eastAsia 的）。
+
+    ## 为什么不能硬编码宋体（2026-10-18 用户点破）
+
+    用户原话：「正文 run 显式写确定不会炸吗？模板里可不是全是宋体。」
+    实测模板 `小说格式模板V1.3.dotx` 的样式表：正文 Normal=宋体、章标题
+    heading1-4=黑体、卷首诗/引用文本=楷体、书名=黑体 —— **三套字体并存**。
+    硬编码宋体会把章标题与引用段一起刷成宋体，等于用一个 bug 换另一个 bug。
+
+    所以此处只做一件事：把模板**自己**声明的字体读出来，供逐 run 沿用。
+    模板里没有 eastAsia 的样式（如 Quote）返回 None → 调用方不动该 run，
+    维持 Word 的原生继承，不会比修复前更糟。
+    """
+    raw, based = {}, {}
+    for st in doc.styles:
+        el = st.element
+        sid = el.get(qn("w:styleId"))
+        if not sid:
+            continue
+        f = None
+        rpr = el.find(qn("w:rPr"))
+        if rpr is not None:
+            rf = rpr.find(qn("w:rFonts"))
+            if rf is not None:
+                f = rf.get(qn("w:eastAsia"))
+        raw[sid] = f
+        b = el.find(qn("w:basedOn"))
+        based[sid] = b.get(qn("w:val")) if b is not None else None
+
+    memo = {}
+
+    def resolve(sid, depth=0):
+        if not sid or depth > 8 or sid not in raw:
+            return None
+        if sid in memo:
+            return memo[sid]
+        f = raw.get(sid) or resolve(based.get(sid), depth + 1)
+        memo[sid] = f
+        return f
+
+    return {sid: resolve(sid) for sid in raw}
+
+
+def _apply_cjk_font(run, font):
+    """把 run 的 ascii / hAnsi / eastAsia 三处都设为同一个中文字体，并加 hint。
+
+    ## 三处都要设的原因（这是「破折号不是宋体」的直接根因）
+
+    Word 对 U+2014（—）、U+201C/U+201D（“”）、U+2026（…）这类**通用标点**
+    按 ascii（西文）字体渲染。旧实现只靠样式继承，样式的 eastAsia=宋体 而
+    ascii=Times New Roman —— 于是汉字是宋体、破折号与引号是 Times New Roman，
+    视觉上就是用户看到的「破折号字体不对」。
+    `hint=eastAsia` 再兜一层：让 Word 对歧义字符优先按中文字体规则处理。
+    """
+    if not font:
+        return
+    run.font.name = font
+    rpr = run._element.get_or_add_rPr()
+    rf = rpr.find(qn("w:rFonts"))
+    if rf is None:
+        rf = OxmlElement("w:rFonts")
+        rpr.insert(0, rf)
+    rf.set(qn("w:ascii"), font)
+    rf.set(qn("w:hAnsi"), font)
+    rf.set(qn("w:eastAsia"), font)
+    rf.set(qn("w:hint"), "eastAsia")
+
+
+def _style_font(doc, style_name, font_map, fallback=None):
+    """按样式名取其 eastAsia 字体；取不到用 fallback（通常是 Normal 的宋体）。"""
+    try:
+        sid = doc.styles[style_name].style_id
+    except KeyError:
+        return fallback
+    return font_map.get(sid) or fallback
+
+
+def _add_paragraph_before(anchor, text, style=None, font=None):
+    """在 anchor 段前插入段落。style 不存在时回退 Normal。
+
+    font 给定时把该 run 的三处字体显式写死（见 `_apply_cjk_font`），
+    不给则完全维持模板继承（与修复前一致，零回归风险）。
+    """
     p = anchor.insert_paragraph_before()
     if style:
         try:
             p.style = style
         except KeyError:
             pass
-    p.add_run(text)
+    run = p.add_run(text)
+    if font:
+        _apply_cjk_font(run, font)
     return p
 
 
@@ -168,6 +260,13 @@ def md_to_docx(md_text, out_path, book_title="未命名", author="",
         style.element.rPr.rFonts.set(qn("w:eastAsia"), "宋体")
         style.font.size = Pt(12)
         doc.add_heading(book_title, level=0)
+
+    # 字体解析：模板自己声明什么字体就用什么（宋体正文 / 黑体标题 / 楷体引用）
+    font_map = _style_font_map(doc)
+    try:
+        body_font = font_map.get(doc.styles["Normal"].style_id) or "宋体"
+    except KeyError:
+        body_font = "宋体"
 
     # 模板占位符填充
     anchor = None
@@ -197,7 +296,7 @@ def md_to_docx(md_text, out_path, book_title="未命名", author="",
         for text, bullet in list_items:
             if use_template:
                 style = "List Bullet" if bullet else "List Number"
-                p = _add_paragraph_before(anchor, "", style=style)
+                p = _add_paragraph_before(anchor, "", style=style, font=body_font)
                 p.runs[0].text = text if p.runs else text
                 if not p.runs:
                     p.add_run(text)
@@ -259,7 +358,9 @@ def md_to_docx(md_text, out_path, book_title="未命名", author="",
                 # 正文中 ## 为章标题（Heading 1），### 为节标题（Heading 2）
                 level = hashes - 1
                 style_name = f"Heading {max(1, min(level, 3))}"
-                p = _add_paragraph_before(anchor, hm.group(2).strip(), style=style_name)
+                # 章标题沿用该标题样式自己的 eastAsia 字体（模板里是黑体）
+                p = _add_paragraph_before(anchor, hm.group(2).strip(), style=style_name,
+                                          font=_style_font(doc, style_name, font_map, body_font))
                 if hashes == 2 and page_break:
                     p.paragraph_format.page_break_before = True
             else:
@@ -284,11 +385,15 @@ def md_to_docx(md_text, out_path, book_title="未命名", author="",
             # 模板模式：**只写文本，段落格式全继承模板 Normal**（1.15 行距/首行缩进/两端对齐）。
             # 旧实现硬编码 space_after=6pt + line_spacing=1.5 直写每个段落 → 覆盖模板规格，
             # 违反件一验收线「样式继承自模板非硬编码」（2026-10-11 template_check 抓出）。
-            _add_paragraph_before(anchor, line.strip())
+            # 字体同理：段落格式继承模板，但 run 的三处 rFonts 显式写模板声明的 eastAsia
+            # 字体 —— 否则破折号/引号走样式里的西文字体（Times New Roman / Helvetica）。
+            _add_paragraph_before(anchor, line.strip(), font=body_font)
         else:
             p = doc.add_paragraph(line.strip())
             p.paragraph_format.space_after = Pt(6)
             p.paragraph_format.line_spacing = 1.5
+            for r in p.runs:
+                _apply_cjk_font(r, body_font)
     flush_list()
 
     doc.save(str(out_path))

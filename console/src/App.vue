@@ -285,6 +285,7 @@ function switchTab(t) {
     if (!promptFiles.value.length) loadPromptList();
     if (!styleNotesLoaded.value) loadStyleNotes();
     loadTokenLimit();          // 止烧阈值：每次进设置页都重读（可能在别处改过）
+    loadTargetWords();         // 单章字数区间：同上（可能在别处改过 / 配置被手改）
     loadAgentConnect();        // 接入其他 Agent：路径/MCP 状态每次重探（垫片可能刚代拉）
     loadKickoff();             // 启动提示词：项目根可能变，每次重读替换占位符
     loadDebugInfo();           // 诊断与调试：健康/路径/日志位置每次重探
@@ -2675,6 +2676,83 @@ const chapterThreshold = ref(6);
 const gateNotify = ref(gateNotifyEnabled());
 const agentMode = ref(false);
 
+/* ---------- 单章字数区间（chapter.target_words）----------
+ * 为什么要有入口（2026-10-18 用户取证）：「一章两三千字，根本不合格。而且绒花墨坊
+ * 似乎没有显示设置每章字数要求的地方。」此前只能手改 system.yaml 才能调篇幅。
+ * 校验在后端（nf_api_domains.project._validate_target_words）—— 前端只回显错误，
+ * 不自己写一份判据（否则两边必然漂移）。 */
+const targetWords = ref({
+  loading: true, busy: false, ok: true, msg: "",
+  bounds: {}, preset: [],
+  form: { low: 5000, high: 9000 },
+});
+async function loadTargetWords() {
+  targetWords.value.loading = true;
+  try {
+    const r = await api('/config/target_words', 'GET');
+    if (r.status === 200 && r.data.ok) {
+      targetWords.value.bounds = r.data.bounds || {};
+      targetWords.value.preset = r.data.preset || [];
+      const cur = Array.isArray(r.data.current) && r.data.current.length === 2
+        ? r.data.current : (r.data.preset || [5000, 9000]);
+      targetWords.value.form = { low: Number(cur[0]), high: Number(cur[1]) };
+      targetWords.value.msg = "";
+      targetWords.value.ok = true;
+    } else {
+      targetWords.value.msg = '读取失败: ' + (r.data.error || r.status);
+      targetWords.value.ok = false;
+    }
+  } catch (e) {
+    targetWords.value.msg = '读取失败: ' + (e.message || e);
+    targetWords.value.ok = false;
+  } finally {
+    targetWords.value.loading = false;
+  }
+}
+async function saveTargetWords() {
+  // 输入框给的是字符串，先转整数再送 —— 后端只收 int，传 "5000" 会被判非整数
+  const low = parseInt(targetWords.value.form.low, 10);
+  const high = parseInt(targetWords.value.form.high, 10);
+  targetWords.value.busy = true;
+  try {
+    const r = await api('/config/target_words', 'POST', { low, high });
+    targetWords.value.ok = !!(r.status === 200 && r.data.ok);
+    targetWords.value.msg = targetWords.value.ok
+      ? (r.data.message || '已保存')
+      : ('保存失败: ' + (r.data.error || r.status));
+    if (targetWords.value.ok && Array.isArray(r.data.current)) {
+      targetWords.value.form = { low: Number(r.data.current[0]),
+                                 high: Number(r.data.current[1]) };
+    }
+  } catch (e) {
+    targetWords.value.ok = false;
+    targetWords.value.msg = '保存失败: ' + (e.message || e);
+  } finally {
+    targetWords.value.busy = false;
+  }
+}
+async function resetTargetWords() {
+  const p = targetWords.value.preset || [];
+  if (!Array.isArray(p) || p.length !== 2) return;
+  targetWords.value.busy = true;
+  try {
+    const r = await api('/config/target_words', 'POST', { low: Number(p[0]), high: Number(p[1]) });
+    targetWords.value.ok = !!(r.status === 200 && r.data.ok);
+    targetWords.value.msg = targetWords.value.ok
+      ? ('已恢复出厂预设（单章 ' + p[0] + ' ~ ' + p[1] + ' 字）')
+      : ('恢复失败: ' + (r.data.error || r.status));
+    if (targetWords.value.ok && Array.isArray(r.data.current)) {
+      targetWords.value.form = { low: Number(r.data.current[0]),
+                                 high: Number(r.data.current[1]) };
+    }
+  } catch (e) {
+    targetWords.value.ok = false;
+    targetWords.value.msg = '恢复失败: ' + (e.message || e);
+  } finally {
+    targetWords.value.busy = false;
+  }
+}
+
 /* ---------- 止烧阈值（budget.token_limit）----------
  * 为什么放在设置页：hermes 下金额阈值恒不生效（订阅流量记账恒 0），
  * 止烧全靠这几个 token 上限；阈值要按实测调，看不见就只能猜。
@@ -4458,6 +4536,42 @@ onUnmounted(() => {
         <div v-if="tokenLimit.msg" class="meta tl-msg"
              :style="{ color: tokenLimit.ok ? 'var(--ok)' : 'var(--bad)', marginTop: '6px' }">
           {{ tokenLimit.msg }}
+        </div>
+      </template>
+
+      <!-- 单章字数区间（chapter.target_words）：写作阶段按它约束篇幅，校验按它判定 -->
+      <h4 style="margin-top: 20px;">单章字数（篇幅口径）</h4>
+      <div class="meta" style="line-height: 1.8; margin-bottom: 8px;">
+        写作提示词按它约束篇幅，章节校验与收尾闸门按它判定。
+        <b>全书总量请用章数控制</b>（如要 ≥20 万字就写 ≥40 章），不要靠抬高这里。
+        越界值会被拒绝。改动对<b>下一次运行</b>生效。
+      </div>
+      <div v-if="targetWords.loading" class="meta">读取中…</div>
+      <template v-else>
+        <div class="tw-grid">
+          <label class="tw-field">
+            <span class="label">单章下限（字）</span>
+            <input type="number" v-model="targetWords.form.low" />
+            <span class="meta">区间 {{ (targetWords.bounds.low || []).join(' ~ ') }}</span>
+          </label>
+          <label class="tw-field">
+            <span class="label">单章上限（字）</span>
+            <input type="number" v-model="targetWords.form.high" />
+            <span class="meta">区间 {{ (targetWords.bounds.high || []).join(' ~ ') }}</span>
+          </label>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center; margin-top: 10px;">
+          <button class="mini primary" :disabled="targetWords.busy" @click="saveTargetWords">
+            {{ targetWords.busy ? '保存中…' : '保存字数区间' }}
+          </button>
+          <button class="mini" :disabled="targetWords.busy" @click="resetTargetWords">恢复出厂预设</button>
+          <span class="meta" v-if="Array.isArray(targetWords.preset) && targetWords.preset.length === 2">
+            出厂预设：单章 {{ targetWords.preset[0] }} ~ {{ targetWords.preset[1] }} 字
+          </span>
+        </div>
+        <div v-if="targetWords.msg" class="meta tl-msg"
+             :style="{ color: targetWords.ok ? 'var(--ok)' : 'var(--bad)', marginTop: '6px' }">
+          {{ targetWords.msg }}
         </div>
       </template>
           </div><!-- /set-pane budget -->

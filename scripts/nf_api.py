@@ -1898,6 +1898,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/config/token_limit":
             # token 级熔断阈值读取（budget.token_limit）+ 出厂预设 + 合法区间。
             self._send(*_dom(dom_project.handle_config_token_limit(self)))
+        elif p == "/config/target_words":
+            # 单章字数区间读取（chapter.target_words）+ 出厂预设 + 合法区间。
+            self._send(*_dom(dom_project.handle_config_target_words(self)))
         elif p == "/materials/list":
             # 实现已迁至 nf_api_domains.materials（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_materials.handle_materials_list(self)))
@@ -2420,6 +2423,9 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/config/token_limit":
                 # 止烧阈值设置（仅 GUI：外部 Agent 不得抬高自己的闸门）。
                 self._send(*_dom(dom_project.handle_config_token_limit_set(self, body)))
+            elif p == "/config/target_words":
+                # 单章字数区间设置（创作决策，非安全闸门；越界值一律 400 拒绝）。
+                self._send(*_dom(dom_project.handle_config_target_words_set(self, body)))
             elif p == "/config/word_template":
                 # Word 成品模板选择/恢复默认（件五 GUI 入口，定向改写 project.yaml）。
                 self._send(*_dom(dom_project.handle_config_word_template_set(self, body)))

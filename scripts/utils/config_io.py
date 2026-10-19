@@ -140,16 +140,35 @@ def _indent_of(line):
 
 
 def _block_range(lines, idx, indent):
-    """以 lines[idx]（缩进 indent）为块首，返回块体范围 [lo, hi)。"""
+    """以 lines[idx]（缩进 indent）为块首，返回块体范围 [lo, hi)。
+
+    ⚠️ 两件事都必须做对（2026-10-18 实测各踩了一次）：
+
+    1. **必须容忍同缩进的序列项**：YAML 块序列里 `- 2000` 与所属键
+       `target_words:` 同缩进（不是更深一层）。只按「缩进 <= indent 即块结束」判，
+       块序列会被判成空块 → 替换首行后旧的 `- 2000` 残留成孤儿，
+       整份 YAML 解析失败。
+    2. **块尾的注释行不算块体**：范围用于 `_apply_one` 的 `del`，把块尾
+       （下一个同级键之前）的注释也算进去，就会连同**下一个键的说明注释**一起删掉。
+       实测：一次写 5 个键时 245 → 225 行，20 行说明文字被吞。
+       所以 hi 必须停在**最后一个非注释行之后**。
+    """
+    last_content = idx          # 最后一个属于本块的内容行（不含注释/空行）
     hi = len(lines)
     for i in range(idx + 1, len(lines)):
         ln = lines[i]
         if not ln.strip() or ln.lstrip().startswith("#"):
             continue
-        if _indent_of(ln) <= indent:
+        ind = _indent_of(ln)
+        if ind <= indent and not ln.lstrip().startswith("- "):
             hi = i
             break
-    return idx + 1, hi
+        if ind < indent:                       # 缩进更浅 → 一定不属于本块
+            hi = i
+            break
+        last_content = i
+    # 块尾回退：只保留到最后一个内容行，注释不进 del 范围
+    return idx + 1, min(hi, last_content + 1)
 
 
 def _find_key(lines, key, lo, hi, indent):
@@ -222,6 +241,18 @@ def _apply_one(lines, section_path, key, value, comment=None, allow_insert=True)
     if comment:
         line += "  # " + str(comment).replace("\n", " ")
     if idx >= 0:
+        # 替换既有键时，**连同旧值的续行一起删掉**。
+        #
+        # 为什么（2026-10-18 实测抓出）：把块序列
+        #     target_words:
+        #     - 2000
+        #     - 5500
+        # 改写成流式 `target_words: [5000, 9000]` 时，若只替换首行，旧的
+        # `- 2000` / `- 5500` 会残留成孤儿序列 → **整份 YAML 解析失败**。
+        # 写后回读能拦住（fail-closed），但文件此时已被写坏，只能靠备份回退
+        # —— 缺陷在本函数，不在回读校验。
+        _blo, _bhi = _block_range(lines, idx, indent + 2)
+        del lines[_blo:_bhi]
         lines[idx] = line
     else:
         pos = hi

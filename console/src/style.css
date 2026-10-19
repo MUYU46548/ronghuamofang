@@ -1515,6 +1515,28 @@ kbd {
 .tl-field input[type="number"]:focus { outline: 1px solid var(--accent); }
 .tl-field .meta { font-size: 11px; color: var(--muted); }
 
+/* ---- 单章字数区间（设置页，2026-10-18）----
+   与止烧面板同一套视觉，但用**独立类名**：e2e_ux_verify 断言 `.tl-grid` 恰好 1 个
+   （止烧面板），共用类名会让那条断言变成 2 个元素而假红。 */
+.tw-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px 16px;
+  padding: 10px 0;
+  border-bottom: 1px dashed var(--border);
+}
+.tw-field { display: flex; flex-direction: column; gap: 4px; }
+.tw-field .label { font-weight: 600; font-size: 13px; }
+.tw-field input[type="number"] {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+}
+.tw-field input[type="number"]:focus { outline: 1px solid var(--accent); }
+.tw-field .meta { font-size: 11px; color: var(--muted); }
+
 /* 全局"下一步"提示条 */
 .next-action-bar {
   display: flex;
