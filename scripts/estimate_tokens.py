@@ -246,7 +246,13 @@ def _heuristic_stage(stage, cfg, proj, calls, cpt, role):
     ch_outlines = dir_chars("data/outline/chapters", limit=INLINE_LIMIT)
     rolling = file_chars("data/summaries/rolling.md", limit=20000) or 4000
     style_ref_path = (book.get("style_reference") or "").strip()
-    style_ref = file_chars(style_ref_path, limit=6000) if style_ref_path else 0
+    # 与 stage4 的注入上限同源（book.style_reference_max_chars，默认 6000）
+    try:
+        style_limit = int(book.get("style_reference_max_chars") or 6000)
+    except (TypeError, ValueError):
+        style_limit = 6000
+    style_limit = max(1000, min(40000, style_limit))
+    style_ref = file_chars(style_ref_path, limit=style_limit) if style_ref_path else 0
     existing = (dir_chars("data/chapters/refined") or dir_chars("data/chapters/checked")
                 or dir_chars("data/chapters/raw")) or mid_words * n_chapters
 

@@ -32,6 +32,59 @@ from utils.text_norm import normalize_chapter_file
 
 SUMMARY_RE = re.compile(r"<!--\s*summary:\s*(.+?)\s*-->", re.IGNORECASE | re.S)
 
+# 范文注入上限（字）。6000 是**注入成本与收益的拐点**：few-shot 只抽 3 段/≤900 字，
+# 原文超出的部分只有 stage6 的统计用得上，而每条章节任务都要为它付 token。
+# 真实作品越写越长，所以从这里改成可配（book.style_reference_max_chars），
+# **且超长必须出声** —— 静默截断会让用户以为"整章都喂进去了"（2026-10-19）。
+STYLE_REF_LIMIT_DEFAULT = 6000
+STYLE_REF_LIMIT_MIN = 1000
+STYLE_REF_LIMIT_MAX = 40000
+STYLE_REF_PLACEHOLDER = "（未提供，请严格按下方文风要求写作）"
+
+
+def _style_ref_limit(book):
+    """读注入上限，越界夹到 [1000, 40000]，坏值回落默认。"""
+    raw = (book or {}).get("style_reference_max_chars", STYLE_REF_LIMIT_DEFAULT)
+    try:
+        n = int(raw)
+    except (TypeError, ValueError):
+        n = STYLE_REF_LIMIT_DEFAULT
+    return max(STYLE_REF_LIMIT_MIN, min(STYLE_REF_LIMIT_MAX, n))
+
+
+def build_style_reference_block(book):
+    """范文 → 注入文本。返回 (text, meta)。
+
+    两件事都必须**出声**（项目纪律：静默降级比没有更糟）：
+      1. 配了路径但文件不存在 → WARN，按"未提供"写作；
+      2. 原文超过注入上限 → WARN，写明原文字数 / 实际注入 / 被丢弃的字数。
+
+    meta 供自检与测试读：{configured, exists, chars, injected, limit, truncated}。
+    """
+    ref = str((book or {}).get("style_reference") or "").strip()
+    meta = {"configured": bool(ref), "exists": False, "chars": 0,
+            "injected": 0, "limit": _style_ref_limit(book), "truncated": 0}
+    if not ref:
+        return STYLE_REF_PLACEHOLDER, meta
+    if not Path(ref).exists():
+        print("[stage4] WARN style_reference 指向的文件不存在：%s —— 本次按「未提供范文」写作"
+              % ref)
+        return STYLE_REF_PLACEHOLDER, meta
+    text = read_text(ref).strip()
+    meta["exists"] = True
+    meta["chars"] = len(text)
+    limit = meta["limit"]
+    if len(text) > limit:
+        meta["truncated"] = len(text) - limit
+        print("[stage4] WARN 范文 %d 字，超过注入上限 %d 字，末尾 %d 字**不会注入**"
+              "（要全量注入就调 config/project.yaml 的 book.style_reference_max_chars，"
+              "范围 %d~%d）"
+              % (len(text), limit, meta["truncated"],
+                 STYLE_REF_LIMIT_MIN, STYLE_REF_LIMIT_MAX))
+        text = text[:limit]
+    meta["injected"] = len(text)
+    return text, meta
+
 
 def _norm(path, n=None):
     """就地归一化章节文件的中文标点（半角引号/直角引号/单破折号/省略号…）。
@@ -398,9 +451,9 @@ def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, p
     tail_section = "\n\n".join(prev_tail) if prev_tail else "（无上一章，本章为开篇）"
     book = proj.get("book", {})
 
-    # 风格注入
+    # 风格注入（超长截断/文件缺失都会 WARN，见 build_style_reference_block）
     style_ref = (book.get("style_reference") or "").strip()
-    style_text = read_text(style_ref).strip()[:6000] if style_ref and Path(style_ref).exists() else "（未提供，请严格按下方文风要求写作）"
+    style_text, _style_meta = build_style_reference_block(book)
     style_samples = ""
     if style_ref:
         current_text = "\n".join([tail_section, _safe_read(outline_path)])
