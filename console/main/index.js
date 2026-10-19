@@ -379,7 +379,7 @@ function getWorkspaceSource() {
 //   · 前端（asar，不走种子）：项目页出厂徽标 / 启动提示词剥离说明书 /
 //     阶段复制改任务简报（原样贴模板会被外部 Agent 按红线判「模板不是任务」停工）。
 // **先 bump 再 electron-builder**。
-const SEED_VERSION = 36;   // 0.6.18: 范文注入上限可配（book.style_reference_max_chars），截断不再静默
+const SEED_VERSION = 37;   // 0.6.19: 范文文件只有占位符时按「未提供」处理（不再把说明文字当范文）
 
 // 只播种/刷新**代码与提示词**目录。
 // 刻意不含 data/：那是用户产物（章节、设定、大纲），任何情况下都不能被覆盖。

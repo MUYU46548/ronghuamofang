@@ -125,6 +125,17 @@ def main():
                        "style_reference_max_chars": 1000})
     check("R8 与原文前缀逐字一致", text8 == long_text.strip()[:1000])
 
+    # ------------------------------------------------------------------ R9
+    print("\n[R9] 只有占位符的文件（作者还没粘正文）")
+    stub = root / "stub.md"
+    stub.write_text("# 范文一（可删）\n\n（把正文粘到这里，粘完删掉这一行）\n\n"
+                    "## 第二篇（可选）\n\n（把第二篇正文粘到这里）\n", encoding="utf-8")
+    text9, meta9, out9 = run({"style_reference": str(stub)})
+    check("R9 按「未提供」处理，不把占位说明当范文",
+          text9 == STYLE_REF_PLACEHOLDER and meta9["injected"] == 0, text9[:30])
+    check("R9 **必须 WARN**（提示去粘正文）",
+          "WARN" in out9 and "占位符" in out9, out9.strip()[:100])
+
     print("\n" + "=" * 64)
     print("  通过 %d / 失败 %d" % (len(PASS), len(FAIL)))
     for f in FAIL:

@@ -108,3 +108,6 @@ ci/fictional-map.txt
 config/project.yaml
 materials/vault_links.md
 deliverables/
+# 范文原文（book.style_reference 指向它）：是作者真实作品正文，含作品词，
+# 入库即泄露门红灯。换文件名时记得在下面再加一条（路径是单值，改一处即可）
+materials/style_sample.md
