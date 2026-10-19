@@ -520,6 +520,20 @@ if __name__ == "__main__":
   ⚠️ 钩子在 orchestrator 里被 `try/except` 包裹（失败不阻断流程）—— 若它失效
   只会打印「失败（不影响流程）」，故 `test_setting_refine_auto.py` 用
   `inspect.signature().bind()` 守签名，防止静默降级
+- **设定集 ↔ 大纲重合度（方案 C，2026-10-19）**：stage1 归并出设定集后，拿
+  `config/project.yaml` 的 `user_outline` **反查**设定集里的每个专名，算角色/地点/总命中率
+  （实现 `scripts/utils/coherence.py`，报告 `data/setting/coherence.json`）。
+  三态开关 `gates.setting_coherence`：`warn`（默认，打印横幅 + 挂 progress warning，
+  **不改流程**）/ `block`（角色或地点一个都对不上就让 stage1 判失败）/ `off`。
+  阈值 `gates.setting_coherence_min_ratio`（默认 0.15）。**为什么默认 warn**：
+  大纲可能写得很抽象（不点名主角），硬拦会卡死正常流程；但**绝不能静默**——
+  事故现场（设定集来自另一个宇宙、16 角色只有 2 个属于大纲）就是全程绿灯造成的。
+  判据回归 `tests/unit/test_setting_coherence.py`（17 断言，含真实事故快照回放）
+- **素材扫描的目录边界**：`scan_materials` 递归 `materials/raw/`，但**跳过以 `_` 或 `.`
+  开头的子目录** —— `_backup/` 装的是同名覆盖前的旧版本，误扫等于把同一张卡的新旧两版
+  一起喂给归并（还让素材指纹随备份抖动）。回归 `tests/unit/test_stage1_scan.py`（6 断言）
+- **素材归档**：清理工作区时把整批卡搬到 `materials/_archive/{日期}_{说明}/`（**可逆**，
+  附 `来源_sha256.txt`），`materials/_archive/` 已 gitignore。恢复方法写在该目录 README
 - **提示词调优**：直接改 `prompts/stageN_*.md`（模板与代码分离，无需改脚本）
 
 ## 能力边界（2026-09-21 实证，勿重复夸大）
