@@ -272,6 +272,14 @@ def _run_one_volume(client, task_dir, vol_index, proj, checked_dir, refined_dir,
         # 中文标点归一化（2026-10-18）：润色模型同样会写出半角引号 / 直角引号。
         # 必须在「±20% 字数铁律」比对**之前**做 —— 归一化会轻微改变字符数。
         _norm(out, n)
+        # 同质化/退化检测（P1，2026-10-19）：润色是最后一个能把好稿改平庸的环节
+        # （改得更顺、更整齐、更像"标准答案"），所以这里再测一次。
+        # 与 stage4 同一实现（utils/homogeneity），只差 log tag；只报不拦。
+        try:
+            from utils.homogeneity import report_to_console
+            report_to_console(out, n, Path("data/setting/setting.json").resolve(), tag="stage6")
+        except Exception as e:                                # noqa: BLE001
+            print(f"[homogeneity] 第{n}章检测失败（不影响主流程）: {type(e).__name__}: {e}")
         before = count_cn_words(read_text(src))
         out_text = read_text(out)
         after = count_cn_words(out_text)

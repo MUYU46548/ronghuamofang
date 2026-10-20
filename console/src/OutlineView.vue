@@ -24,6 +24,8 @@
           {{ saving ? "保存中…" : "保存" }}
         </button>
         <button class="mini" @click="openVersionDiff">版本对比</button>
+        <button class="mini" @click="openVariants"
+                title="动笔前先定故事走向：三张卡，每张写清代价">开局方案</button>
         <button class="mini" @click="openMulti">多方案</button>
         <button class="mini" :class="{ primary: adviseHot }" @click="openAdvise"
                 title="还差什么、接下来先做哪一步（确定性分析，不花 token）">
@@ -200,6 +202,46 @@
             <span v-else>{{ s.content }}</span>
           </div>
           <div v-if="diffData && !diffData.segments.length" class="empty">两个版本完全一致</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ 开局方案（动笔前定走向） ============ -->
+    <div v-if="varOpen" class="drawer-mask" @click.self="varOpen = false">
+      <div class="drawer drawer-xwide">
+        <div class="drawer-head">
+          <b>开局方案</b>
+          <span v-if="varChosen" class="pill st-gate">已选定</span>
+          <span class="spacer"></span>
+          <input v-model="varNote" class="import-split" placeholder="补充偏好（可空，如：想更冷一点）" />
+          <button class="mini" :disabled="varRunning" @click="runVariants">
+            {{ varRunning ? "生成中…" : "生成 3 个走向" }}</button>
+          <button class="mini danger" :disabled="!varChosen" @click="clearVariant">放弃已选</button>
+          <button class="mini" @click="varOpen = false">关闭</button>
+        </div>
+        <div class="meta" style="margin:6px 0 10px;">
+          动笔前先定故事走向。三张卡的 <b>结构必须不同</b>，每张都写了「代价」——
+          只写优点的方案等于没有选择。选定后 stage2 按它生成全书大纲；
+          不选就按 project.yaml 的 user_outline 走。
+        </div>
+        <div v-if="!variants.length" class="empty">
+          还没有方案 —— 点「生成 3 个走向」（几十秒，按当前模型计价）
+        </div>
+        <div v-else class="ov-multi">
+          <div v-for="v in variants" :key="v.id" class="ov-multi-col">
+            <div class="ov-multi-head">
+              <b>{{ v.title }}</b>
+            </div>
+            <div class="ov-var-body">
+              <p><span class="ov-var-k">第一画面</span>{{ v.hook }}</p>
+              <p><span class="ov-var-k">主线</span>{{ v.spine }}</p>
+              <p><span class="ov-var-k">冲突</span>{{ v.conflict }}</p>
+              <p><span class="ov-var-k">基调</span>{{ v.tone }}</p>
+              <p><span class="ov-var-k">前 3 章</span>{{ v.chapters_hint }}</p>
+              <p class="ov-var-risk"><span class="ov-var-k">代价</span>{{ v.risk }}</p>
+            </div>
+            <button class="mini primary" @click="pickVariant(v)">选这个</button>
+          </div>
         </div>
       </div>
     </div>
@@ -753,6 +795,57 @@ function exportDiff() {
   a.click();
   URL.revokeObjectURL(a.href);
   say("diff 已导出");
+}
+
+/* ---------- 开局方案（动笔前定走向） ----------
+   为什么比「多方案」更早出现：多方案是全书大纲已经生成后挑节点拼合，
+   而方向错的返工最贵 —— 那时全书大纲的钱已经烧完。这里在 stage2 之前给走向。 */
+const varOpen = ref(false);
+const variants = ref([]);
+const varChosen = ref(false);
+const varRunning = ref(false);
+const varNote = ref("");
+
+async function openVariants() {
+  varOpen.value = true;
+  await loadVariants();
+}
+async function loadVariants() {
+  const r = await props.api("/outline/variants");
+  if (r.status !== 200) { say("开局方案加载失败"); return; }
+  variants.value = r.data.variants || [];
+  varChosen.value = !!r.data.chosen;
+}
+async function runVariants() {
+  varRunning.value = true;
+  const r = await props.api("/outline/variants/generate", "POST", { note: varNote.value });
+  if (r.status !== 202) {
+    varRunning.value = false;
+    say("提交失败: " + (r.data.error || r.status));
+    return;
+  }
+  const jid = r.data.job_id;
+  const poll = setInterval(async () => {
+    const j = await props.api("/jobs/" + jid);
+    if (j.status !== 200 || j.data.state === "running") return;
+    clearInterval(poll);
+    varRunning.value = false;
+    await loadVariants();
+    say(j.data.state === "ok" ? "开局方案已生成" : "生成失败: " + (j.data.result || ""));
+  }, 2000);
+}
+async function pickVariant(v) {
+  const r = await props.api("/outline/variants/pick", "POST", { id: v.id });
+  if (r.status !== 200 || !r.data.ok) { say("选定失败: " + (r.data.error || r.status)); return; }
+  varChosen.value = true;
+  say(r.data.message || "已选定");
+}
+async function clearVariant() {
+  if (!window.confirm("放弃已选定的开局方案？stage2 会回到 project.yaml 的 user_outline。")) return;
+  const r = await props.api("/outline/variants/clear", "POST", {});
+  if (r.status !== 200) { say("取消失败: " + (r.data.error || r.status)); return; }
+  varChosen.value = false;
+  say(r.data.message || "已放弃");
 }
 
 /* ---------- 多方案（任务3） ---------- */

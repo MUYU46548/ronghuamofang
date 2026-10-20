@@ -17,6 +17,8 @@ temperature: 0.6
 为以下章节生成详细大纲，每章写入独立文件：
 {{listing}}
 
+{{volume_context}}
+
 ## 每章大纲格式（outline/chapters/NN.md）
 ## 第N章 章节名
 - 核心事件：本章发生的关键事件（2-4 条，含因果）

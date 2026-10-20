@@ -351,7 +351,46 @@ def _write_proofread_findings(text):
     return [], payload
 
 
-def _copy_raw_to_checked(_text):
+def _fake_quote(body):
+    """从正文里取一句真实原句当举证（**不编造** —— 编的会被 review_ledger 判未举证）。"""
+    for line in (body or "").splitlines():
+        s = line.strip()
+        if len(re.sub(r"[\s，。！？；：、“”‘’「」『』\"'（）()…—·,.!?;:]+", "", s)) >= 10:
+            return s[:60]
+    return (body or "").strip()[:60]
+
+
+def _write_review_ledger(text, name, raw_files):
+    """stage5：写本批的七维评审账本（data/review/batchN.json）。
+
+    为什么 fake 也要写：七维评审的判据是「举证必须出自原文」——夹具若绕过它，
+    这段校验在生产里就永远没跑过（本项目最忌讳的假绿）。所以 fake 拿**真实原句**
+    当举证，走的是与真实模型完全相同的校验路径。
+    """
+    from utils.review_ledger import DIM_CODES          # 单一事实源，别在夹具里另抄一份
+    m = re.search(r"batch(\d+)", name or "")
+    bi = int(m.group(1)) if m else 1
+    chapters = []
+    for f in raw_files:
+        try:
+            no = int(f.stem)
+        except (TypeError, ValueError):
+            continue
+        body = read_text(f)
+        quote = _fake_quote(body)
+        chapters.append({
+            "chapter": no,
+            "summary": "（fake）测试用评审",
+            "dims": [{"dim": c, "score": 9, "quote": quote, "note": "（fake）"}
+                     for c in DIM_CODES],
+        })
+    p = Path("data/review") / ("batch%d.json" % bi)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    write_text(p, json.dumps({"chapters": chapters}, ensure_ascii=False, indent=2))
+    return p
+
+
+def _copy_raw_to_checked(text, name=""):
     src, out = [], []
     raw = Path("data/chapters/raw")
     if raw.exists():
@@ -361,6 +400,16 @@ def _copy_raw_to_checked(_text):
             write_text(dst, read_text(f))
             src.append(f)
             out.append(dst)
+    # 本批章节（任务文本里是绝对路径列表行）；匹配不到就按全量算
+    batch = []
+    for m in re.finditer(r"^-\s+(\S+\.md)\s*$", text, re.M):
+        p = Path(m.group(1))
+        if p.exists() and p.parent.name == "raw":
+            batch.append(p)
+    if not batch:
+        batch = src
+    if batch:
+        _write_review_ledger(text, name, batch)
     report = Path("data/outline/check_report.md")
     report.parent.mkdir(parents=True, exist_ok=True)
     if not report.exists():
@@ -440,7 +489,7 @@ class FakeClient:
         elif name.startswith("stage5_proofread"):
             written, stdout_override = _write_proofread_findings(text)
         elif name.startswith("stage5"):
-            written = _copy_raw_to_checked(text)
+            written = _copy_raw_to_checked(text, name)
         elif name.startswith("stage6"):
             written = _copy_checked_to_refined(text)
         else:
@@ -481,7 +530,7 @@ class FakeClient:
         elif name.startswith("stage5_proofread"):
             written, _ = _write_proofread_findings(text)
         elif name.startswith("stage5"):
-            written = _copy_raw_to_checked(text)
+            written = _copy_raw_to_checked(text, name)
         elif name.startswith("stage6"):
             written = _copy_checked_to_refined(text)
         else:

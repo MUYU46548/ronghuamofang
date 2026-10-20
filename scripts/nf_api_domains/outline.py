@@ -181,6 +181,30 @@ def handle_outline_drafts(h):
         return 500, {"error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+def handle_open_variants_get(h):
+    """开局方案列表（POST 生成 / pick / clear 在 do_POST）。
+
+    返回 `chosen` 让前端能把"已选定"标出来 —— 只看 variants 列表的话，
+    用户会不知道自己上次选过没有，于是重复选。
+    """
+    try:
+        from utils import open_variants as ov
+        data = ov.load_variants(api.ROOT)
+        chosen = bool(ov.load_chosen(api.ROOT))
+        if not data:
+            return 200, {"ok": True, "variants": [], "chosen": chosen,
+                         "hint": "还没有开局方案 —— POST /outline/variants/generate"}
+        return 200, {
+            "ok": True,
+            "variants": data.get("variants") or [],
+            "generated_at": data.get("generated_at"),
+            "cost_yuan": data.get("cost_yuan"),
+            "chosen": chosen,
+        }
+    except Exception as e:                                     # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 def handle_chapters_list(h):
     """分章大纲列表（data/outline/chapters/*.md）。
 
@@ -232,6 +256,7 @@ ROUTES = (
     ("GET", "/outline/history", handle_outline_history),
     ("GET", "/outline/diff", handle_outline_diff),
     ("GET", "/outline/drafts", handle_outline_drafts),
+    ("GET", "/outline/variants", handle_open_variants_get),
     ("GET", "/outline/chapters/list", handle_chapters_list),
     ("GET", "/outline/chapters/get", handle_chapters_get),
     ("GET", "/outline/trend", handle_outline_trend),

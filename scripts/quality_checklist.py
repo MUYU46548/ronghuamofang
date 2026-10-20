@@ -72,8 +72,32 @@ def check_degeneration(text, chapter_no):
 
 
 def check_consistency(text, chapter_no, setting):
-    """检查3：角色一致性。"""
+    """检查3：角色一致性。
+
+    2026-10-19（P3）：优先读**一致性账本** `data/state/story_state.json`。
+    账本里有跨章累计的事件（死亡 / 物品 / 时间锚），能判"第 3 章又出现了第 2 章
+    已经死的人"这类硬伤 —— 旧实现只判"本章有没有提到任一已知角色"，
+    等于函数在、判据空。
+
+    账本不存在（没跑过带账本的 stage4）时**退回旧判据**：
+    不能让一堆老工作区因为没账本而突然全红。
+    """
     issues = []
+    ledger = ROOT / "data" / "state" / "story_state.json"
+    if ledger.exists():
+        try:
+            data = json.loads(ledger.read_text(encoding="utf-8"))
+            # 账本存在但**一条事件都没有** = 还没扫过章节（空壳），
+            # 这时不能接管 —— 否则旧判据被一个空账本静默架空。
+            if data.get("events"):
+                for c in data.get("conflicts") or []:
+                    if c.get("chapter") == chapter_no and c.get("level") == "conflict":
+                        issues.append("第%d章一致性冲突（%s）：%s"
+                                      % (chapter_no, c.get("code"), c.get("detail")))
+                return issues
+        except Exception:                                      # noqa: BLE001
+            pass                                               # 账本坏了退回旧判据
+
     if not setting.exists():
         return []
     data = json.loads(setting.read_text(encoding="utf-8"))

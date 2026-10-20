@@ -180,6 +180,157 @@ def build_setting_from_vault(vault_path=None, output_path=None):
     return setting
 
 
+def merge_setting_from_vault(vault_path=None, output_path="data/setting/setting.json",
+                             conflict_path="data/setting/vault_conflicts.json"):
+    """把 vault 词条**增量合并**进现有设定集（2026-10-20，台账三·「设定库闭环」）。
+
+    ## 与 build_setting_from_vault 的区别（这是它存在的全部理由）
+
+    `build_setting_from_vault` 是**整体替换**：characters 全换、plot_fragments 与
+    timeline 直接置空。跑一次就把 stage1 从素材归并的东西全丢掉（所以它必须先备份）。
+    结果是"设定库"永远只有两种状态：素材归并的，或 vault 的 —— 二者不能共存。
+
+    本函数只做**加法**，并且**只在安全的地方**加：
+
+    | 情况 | 处理 |
+    |---|---|
+    | vault 有、设定集没有 | 追加（带 `source` / `path` / `llm_inferred: false`） |
+    | 同名（含 `base_name` 归一）且字段**空着** | 补上空字段 |
+    | 同名但已有**非空**值 | **不动**，差异记进 `vault_conflicts.json` 等人裁决 |
+    | 条目 `locked: true` | **完全不碰**（locked 是硬约束，连空字段都不补） |
+    | `plot_fragments` / `timeline` | 原样保留（整体替换语义的反面） |
+
+    ## 为什么"有值就不覆盖"
+
+    vault 是作者的原始笔记（可能很旧），设定集是**已经过素材归并与人工审阅**的定稿。
+    让旧笔记悄悄盖掉定稿，等于把审阅工作作废 —— 而那正是闭环要防的事。
+    冲突进 `vault_conflicts.json`，再由 GUI「素材裁决」三态拍板（adopt/reject/uncertain）。
+
+    Returns: stats dict（added / filled / conflicts / skipped_locked / kept_fragments）
+    """
+    p = Path(output_path)
+    # **先读设定集，再扫 vault**（2026-10-20 实测）：反过来的话，设定集坏掉时
+    # 用户看到的却是"vault 未配置"—— 掩盖了真正的、必须先修的那个错。
+    setting = {}
+    if p.exists():
+        try:
+            setting = json.loads(read_text(p))
+        except Exception as e:                                 # noqa: BLE001
+            raise ValueError("设定集解析失败（先修好它再合并）: %r" % (e,))
+    if not isinstance(setting, dict):
+        raise ValueError("设定集顶层不是对象，拒绝合并（避免把文件写坏）")
+
+    chars = scan_vault_characters(vault_path)
+    world = scan_vault_worldbuilding(vault_path)
+
+    from utils.setting_schema import base_name, is_locked
+
+    def _key(name):
+        return base_name(str(name or "").strip())
+
+    stats = {"added": [], "filled": [], "conflicts": [], "skipped_locked": [],
+             "kept_fragments": 0, "vault_only_fields": 0}
+    conflicts = []
+
+    def _merge_into(bucket, incoming):
+        """把 incoming 条目合并进 bucket（list of dict）；返回是否新增。"""
+        index = {}
+        for it in bucket:
+            if isinstance(it, dict):
+                index.setdefault(_key(it.get("name")), it)
+        for inc in incoming:
+            if not isinstance(inc, dict) or not inc.get("name"):
+                continue
+            k = _key(inc["name"])
+            cur = index.get(k)
+            if cur is None:
+                bucket.append(inc)
+                index[k] = inc
+                stats["added"].append(inc["name"])
+                continue
+            if is_locked(cur):
+                stats["skipped_locked"].append(inc["name"])
+                continue
+            for field, val in inc.items():
+                if field in ("name", "path", "tags", "type", "source", "llm_inferred"):
+                    continue
+                mine = cur.get(field)
+                empty = (mine is None or mine == "" or mine == [] or mine == {})
+                if empty:
+                    cur[field] = val
+                    stats["filled"].append("%s.%s" % (inc["name"], field))
+                elif str(mine).strip() != str(val).strip():
+                    conflicts.append({
+                        "name": cur.get("name"),
+                        "field": field,
+                        "severity": "review",
+                        "values": [
+                            {"value": str(mine)[:400], "file": str(cur.get("source") or "setting.json")},
+                            {"value": str(val)[:400], "file": str(inc.get("source") or inc.get("path") or "vault")},
+                        ],
+                    })
+                else:
+                    stats["vault_only_fields"] += 1
+        return True
+
+    setting.setdefault("characters", [])
+    if not isinstance(setting["characters"], list):
+        setting["characters"] = []
+    _merge_into(setting["characters"], chars)
+
+    w = setting.get("world")
+    if not isinstance(w, dict):
+        w = {}
+        setting["world"] = w
+    for sub in ("locations", "factions", "concepts"):
+        if not isinstance(w.get(sub), list):
+            w[sub] = []
+        if sub == "locations":
+            picks = [e for e in world
+                     if "地点" in e.get("type", "") or "场景" in e.get("type", "")]
+        elif sub == "factions":
+            picks = [e for e in world
+                     if "势力" in e.get("type", "") or "组织" in e.get("type", "")]
+        else:
+            # 概念 = 既不是地点也不是势力（与 build_setting_from_vault 的口径一致）
+            picks = [e for e in world
+                     if not ("地点" in e.get("type", "") or "场景" in e.get("type", "")
+                             or "势力" in e.get("type", "") or "组织" in e.get("type", ""))]
+        _merge_into(w[sub], picks)
+
+    # 整体替换语义的反面：这两项**保留**
+    for k in ("plot_fragments", "timeline"):
+        if isinstance(setting.get(k), list):
+            stats["kept_fragments"] += len(setting[k])
+        else:
+            setting[k] = []
+
+    meta = setting.get("meta") if isinstance(setting.get("meta"), dict) else {}
+    meta.update({
+        "last_merge_at": datetime.now().isoformat(timespec="seconds"),
+        "last_merge_mode": "merge",
+        "last_merge_added": len(stats["added"]),
+        "last_merge_conflicts": len(conflicts),
+    })
+    setting["meta"] = meta
+
+    backup = _backup_setting_if_exists(output_path)
+    if backup:
+        print("[obsidian_integrate] 合并前已备份 → %s" % backup)
+    write_text(output_path, json.dumps(setting, ensure_ascii=False, indent=2))
+
+    if conflicts:
+        cp = Path(conflict_path)
+        cp.parent.mkdir(parents=True, exist_ok=True)
+        write_text(cp, json.dumps({"generated_at": datetime.now().isoformat(timespec="seconds"),
+                                   "conflicts": conflicts}, ensure_ascii=False, indent=2))
+        print("[obsidian_integrate] %d 处字段分歧**未自动改**，已记进 %s（去 GUI「素材裁决」拍板）"
+              % (len(conflicts), cp.as_posix()))
+    stats["conflicts"] = conflicts
+    stats["backup"] = str(backup) if backup else ""
+    return stats
+
+
 def extract_character_names_from_text(text):
     """从正文中提取可能的中文人名/地名（简单规则：2-4 字连续中文，排除停用词）。"""
     # 匹配 2-4 字中文词
@@ -299,6 +450,12 @@ if __name__ == "__main__":
                         help="vault 路径（留空则读 config/system.yaml）")
     p_scan.add_argument("--output", default="data/setting/setting.json", help="输出路径")
     
+    p_merge = sub.add_parser("merge", help="增量合并（保留既有条目与剧情碎片）")
+    p_merge.add_argument("--vault",
+                         default=str(_vp) if _vp is not None else "",
+                         help="vault 路径（留空则读 config/system.yaml）")
+    p_merge.add_argument("--output", default="data/setting/setting.json", help="设定集路径")
+
     p_sync = sub.add_parser("sync", help="同步章节出场记录")
     p_sync.add_argument("chapter_file", help="章节文件路径")
     p_sync.add_argument("--setting", default="data/setting/setting.json", help="设定集路径")
@@ -324,6 +481,20 @@ if __name__ == "__main__":
         print("[obsidian_integrate] ⚠ 注意：本命令是**整体替换**语义 —— "
               "vault 内容会覆盖现有设定集，原文件已备份到 data/setting/history/。")
     
+    elif args.cmd == "merge":
+        try:
+            st = merge_setting_from_vault(args.vault, args.output)
+        except ValueError as e:
+            print(f"[obsidian_integrate] 失败: {e}")
+            sys.exit(1)
+        print("合并完成：新增 %d 条 / 补空字段 %d 处 / 分歧 %d 处 / locked 跳过 %d 条"
+              % (len(st["added"]), len(st["filled"]), len(st["conflicts"]),
+                 len(st["skipped_locked"])))
+        if st["added"]:
+            print("  新增：" + "、".join(st["added"][:10]))
+        print("[obsidian_integrate] 剧情碎片/时间线**保留**（%d 条），与 scan 的整体替换不同。"
+              % st["kept_fragments"])
+
     elif args.cmd == "sync":
         text = read_text(args.chapter_file)
         chapter_no = int(re.search(r"第\s*(\d+)\s*章", text).group(1)) if re.search(r"第\s*(\d+)\s*章", text) else 0

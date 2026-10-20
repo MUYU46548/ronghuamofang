@@ -19,6 +19,9 @@ import DisclaimerDialog from "./DisclaimerDialog.vue";
 import { hasAckedDisclaimer, ackedDisclaimerAt } from "./disclaimer.js";
 import NewProjectWizard from "./NewProjectWizard.vue";
 import QualityTrend from "./QualityTrend.vue";
+import ConsistencyPanel from "./ConsistencyPanel.vue";
+import ReviewLedgerPanel from "./ReviewLedgerPanel.vue";
+import SettingClosurePanel from "./SettingClosurePanel.vue";
 
 // 审批门通知偏好
 const GATE_NOTIFY_KEY = "mofang_gate_notify";
@@ -3898,6 +3901,11 @@ onUnmounted(() => {
           <div v-for="w in (importResult.warnings || [])" :key="w" class="meta">提示：{{ w }}</div>
         </div>
       </details>
+      <!-- P3: 一致性账本（跨章事实：死亡/物品/时间锚）—— 放在质量趋势之前，
+           因为"第 3 章出现了第 2 章死的人"比"这章评分低"严重得多 -->
+      <ConsistencyPanel />
+      <!-- 七维评审账本（2026-10-20）：七维分数 + 原文举证；未举证的维度不计分 -->
+      <ReviewLedgerPanel />
       <!-- P2: 质量趋势图 -->
       <QualityTrend :chapters="Object.keys(chapterQuality).map(n => ({n: +n, quality: chapterQuality[n]}))"
                     :threshold="chapterThreshold" class="qt-wrap"
@@ -4007,6 +4015,12 @@ onUnmounted(() => {
           <button class="mini danger" @click.stop="removeSettingItem(settingTab, idx)">删除</button>
         </div>
       </div>
+    </section>
+
+    <!-- 设定库闭环（2026-10-20）：素材冲突三态拍板（采纳/否决/待定）。
+         端点早就有，GUI 一直缺 —— 没它等于"机器裁不了的分歧永远悬着"。 -->
+    <section v-if="tab === 'story'">
+      <SettingClosurePanel @say="say" />
     </section>
 
     <div v-if="settingEditor.open" class="drawer-mask" @click.self="settingEditor.open = false">

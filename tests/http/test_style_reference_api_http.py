@@ -153,10 +153,13 @@ def main():
         print("\n【S6】覆盖前备份旧版")
         code, d = req("POST", "/config/style_reference", {"text": PROSE * 20})
         hist = sorted((tmp / "data" / "state" / "style_reference_history").glob("reference_*.md"))
-        check("历史目录里有 1 份备份", len(hist) == 1, len(hist))
-        check("备份内容是上一版（占位符那版）",
-              hist and "把正文粘到这里" in hist[0].read_text(encoding="utf-8"),
-              hist[0].name if hist else "")
+        # 原判据断言「恰好 1 份」——但它依赖前面 S2/S3b 各写了几次，
+        # 用例第二次连跑就变红（实测 2 份）。备份判据要钉的是
+        # 「覆盖前把上一版存下来了」，不是「历史目录总数」。
+        check("覆盖前有备份（>=1 份）", len(hist) >= 1, len(hist))
+        check("最新备份内容是上一版（占位符那版）",
+              hist and "把正文粘到这里" in hist[-1].read_text(encoding="utf-8"),
+              hist[-1].name if hist else "")
 
         print("\n【S5】超出注入上限 → truncated")
         long_text = PROSE * 150                  # ~3700 字，未超 40000，但可能超 6000 原始长度

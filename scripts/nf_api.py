@@ -1221,6 +1221,73 @@ def act_field_submit(chapter, field, text, why, note):
                   "message": "提案已落盘待审：批准后才会写回第 %d 章的「%s」字段" % (chapter, field)}
 
 
+def act_open_variants(note=""):
+    """开局方案生成（2026-10-19，动笔前定走向）。
+
+    与「多方案对比」（大纲已出、挑节点拼合）的差别：这里在 stage2 **之前**，
+    给 N 个结构不同的走向让用户拍板 —— 方向错了的返工最贵，那时全书大纲的钱已烧完。
+    产物 `data/outline/open_variants.json` 只是候选，用户选定后才写
+    `open_variant_chosen.md`，stage2 会读它。
+    """
+    from utils import open_variants
+    cfg, proj = load_all()
+    db = RunDB(ROOT / "logs" / "runs.db")
+    try:
+        ok, err, payload = open_variants.generate(
+            proj, setting_path=str(ROOT / "data" / "setting" / "setting.json"),
+            note=note, client=_client_for_env(cfg, "outliner"),
+            cfg=cfg, db=db, root=str(ROOT))
+        return ok, (payload if ok else err)
+    finally:
+        db.close()
+
+
+def act_open_variants_pick(variant_id):
+    from utils import open_variants
+    ok, msg, rel = open_variants.pick(variant_id, root=str(ROOT))
+    return ok, ({"message": msg, "path": rel, "ok": True} if ok else msg)
+
+
+def act_open_variants_clear():
+    from utils import open_variants
+    removed = open_variants.clear_chosen(root=str(ROOT))
+    return True, {"message": "已放弃选定的开局方案（stage2 回到 user_outline）"
+                            if removed else "本来就没有选定方案",
+                  "removed": removed, "ok": True}
+
+
+def act_decompose_profile(path):
+    """拆解为结构画像（零 token、不存原文）。"""
+    from utils import style_profile as sp
+    out = str(ROOT / "materials" / "style_profile.json")
+    ok, msg, prof = sp.decompose(path, out_path=out)
+    if not ok:
+        return False, msg
+    return True, {"ok": True, "message": msg,
+                  "summary": (prof or {}).get("summary"),
+                  "guidance": (prof or {}).get("guidance")}
+
+
+def act_save_snippets(picks, source=None):
+    """保存用户勾选参考片段。声明门在 utils.style_profile.save_snippets 里（单源）。"""
+    from utils import style_profile as sp
+    ok, msg = sp.save_snippets(picks, root=str(ROOT), source=source or {})
+    return ok, ({"ok": True, "message": msg} if ok else msg)
+
+
+def act_clear_snippets():
+    from utils import style_profile as sp
+    removed = sp.clear_snippets(root=str(ROOT))
+    return True, {"ok": True, "removed": removed,
+                  "message": "已删除保存的参考片段" if removed else "本来就没有保存片段"}
+
+
+def act_set_consent(agreed):
+    from utils import style_profile as sp
+    st = sp.set_consent(root=str(ROOT), agreed=bool(agreed))
+    return True, dict({"ok": True}, **st)
+
+
 def act_branch_samples(chapter, kind, note):
     """分支样例生成（第 4 件 · 选项可视化）。
 
@@ -1809,6 +1876,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/outline/drafts":
             # 实现已迁至 nf_api_domains.outline（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_outline.handle_outline_drafts(self)))
+        elif p == "/outline/variants":
+            # 开局方案列表（2026-10-19）：动笔前定走向，选中后注入 stage2。
+            self._send(*_dom(dom_outline.handle_open_variants_get(self)))
         elif p == "/outline/diff":
             # 实现已迁至 nf_api_domains.outline（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_outline.handle_outline_diff(self)))
@@ -1980,6 +2050,19 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/book/pacing":
             # 实现已迁至 nf_api_domains.runtime（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_runtime.handle_book_pacing(self)))
+        elif p == "/homogeneity":
+            # P1 同质化报告（零 token 只读）：?chapter=N 取单章，否则汇总。
+            self._send(*_dom(dom_runtime.handle_homogeneity(self)))
+        elif p == "/story_state":
+            # P3 一致性账本（零 token 只读）：?chapter=N 只看那一章。
+            self._send(*_dom(dom_runtime.handle_story_state(self)))
+        elif p == "/review/ledger":
+            # 七维评审账本（2026-10-20，零 token 只读）：?chapter=N 取单章明细。
+            self._send(*_dom(dom_runtime.handle_review_ledger(self)))
+        elif p == "/decompose/consent":
+            self._send(*_dom(dom_runtime.handle_decompose_consent(self)))
+        elif p == "/decompose/snippets":
+            self._send(*_dom(dom_runtime.handle_decompose_snippets(self)))
         elif p == "/chapters/history":
             # 实现已迁至 nf_api_domains.runtime（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_runtime.handle_chapters_history(self)))
@@ -2297,6 +2380,47 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(200, {"ok": True, "n": n, "file": path.name})
                 except Exception as e:
                     self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
+            elif p == "/outline/variants/generate":
+                # 开局方案（动笔前定走向）：三张卡，每张带"代价"。
+                # 走 start_job（LLM 调用 30s+），前端轮询 /jobs/{id}。
+                try:
+                    cfg, _ = load_all()
+                    _client_for_env(cfg, "outliner")
+                    jid, err = start_job(
+                        "open_variants",
+                        lambda: act_open_variants(str(body.get("note") or "")))
+                    self._send(202 if not err else 409,
+                               {"error": err} if err else {"job_id": jid})
+                except Exception as e:
+                    self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
+            elif p == "/outline/variants/pick":
+                vid = body.get("id")
+                if vid in (None, ""):
+                    self._send(400, {"error": "id 必填（选哪个方案）", "ok": False})
+                    return
+                ok, payload = act_open_variants_pick(vid)
+                self._send(200 if ok else 400,
+                           payload if ok else {"error": payload, "ok": False})
+            elif p == "/outline/variants/clear":
+                ok, payload = act_open_variants_clear()
+                self._send(200, payload)
+            elif p == "/decompose/snippets/candidates":
+                # 只读、不落盘：候选只在响应里，勾选后才保存
+                self._send(*_dom(dom_runtime.handle_decompose_candidates(self, body)))
+            elif p == "/decompose/profile":
+                ok, payload = act_decompose_profile(str(body.get("path") or "").strip())
+                self._send(200 if ok else 400,
+                           payload if ok else {"ok": False, "error": payload})
+            elif p == "/decompose/snippets/save":
+                ok, payload = act_save_snippets(body.get("picks"), body.get("source"))
+                self._send(200 if ok else 400,
+                           payload if ok else {"ok": False, "error": payload})
+            elif p == "/decompose/snippets/clear":
+                ok, payload = act_clear_snippets()
+                self._send(200, payload)
+            elif p == "/decompose/consent":
+                ok, payload = act_set_consent(bool(body.get("agreed")))
+                self._send(200, payload)
             elif p == "/refine/outline/node":
                 # 实现已迁至 nf_api_domains.refine（P2 拆分）；此处只做转发。
                 self._send(*_dom(dom_refine.handle_refine_outline_node(self, body)))

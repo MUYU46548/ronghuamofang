@@ -67,9 +67,13 @@ temperature: 0.8
 ## 上一章末尾衔接段（用于语气与节奏衔接）
 {{prev_tail}}
 
+{{memory_block}}
+
 {{style_samples}}
 
 {{chapter_samples}}
+
+{{decompose_samples}}
 
 ## 知识库上下文（相关正典词条，写作时参考）
 {{kb_context}}

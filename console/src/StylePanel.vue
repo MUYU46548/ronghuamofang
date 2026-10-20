@@ -13,7 +13,7 @@
  * 量化指标全部来自 utils/style_analyzer（确定性、零 LLM），
  * 与 stage4/6 注入写作的真实特征同源，故面板所见即管线所用。
  */
-import { ref, computed, onMounted } from "vue";
+import { ref, computed, onMounted, watch, nextTick } from "vue";
 
 import { API } from "./apiBase.js";
 const emit = defineEmits(["say"]);
@@ -239,6 +239,160 @@ async function importBook() {
   }
 }
 
+/* ---------- 同质化检测（P1：确定性、零 token、只报不拦） ----------
+   数据源 GET /homogeneity（汇总）与 ?chapter=N（单章）。
+   报告由 stage4/stage6 落盘时写出，这里**只读不重算** —— 重算会把
+   "落盘那一刻"的结论换成"现在这版正文"的结论，诊断就失真了。 */
+const homo = ref(null);
+const homoPick = ref("");
+const homoDetail = ref(null);
+const homoBusy = ref(false);
+const homoErr = ref("");
+
+const HOMO_LABEL = {
+  shingle_repeat: "复读",
+  phrase_repeat: "短语反复",
+  dialogue_same_voice: "对话同腔",
+  sentence_monotony: "句式单调",
+  metaphor_density: "比喻堆砌",
+  sensory_lock: "感官锁死",
+};
+
+async function loadHomo() {
+  homoBusy.value = true;
+  homoErr.value = "";
+  try {
+    const r = await api("/homogeneity");
+    if (r.status === 200 && r.data.ok) {
+      homo.value = r.data;
+      const first = (r.data.chapters || [])[0];
+      const pick = homoPick.value && (r.data.chapters || []).some(
+        (c) => String(c.chapter) === String(homoPick.value)) ? homoPick.value : null;
+      if (pick) await pickHomo(pick);
+      else if (first) await pickHomo(first.chapter);
+      else homoDetail.value = null;
+    } else {
+      homo.value = null;
+      homoErr.value = r.data?.error || ("读取失败：HTTP " + r.status);
+    }
+  } catch (e) {
+    homoErr.value = String(e);
+  }
+  homoBusy.value = false;
+}
+
+async function pickHomo(chapter) {
+  homoPick.value = chapter;
+  homoDetail.value = null;
+  const r = await api("/homogeneity?chapter=" + encodeURIComponent(chapter));
+  if (r.status === 200 && r.data.ok) homoDetail.value = r.data.report;
+  else homoErr.value = r.data?.error || ("读取失败：HTTP " + r.status);
+}
+
+function homoFlag(c) {
+  if (c.error) return { text: "解析失败", cls: "bad" };
+  if (!c.enabled) return { text: "样本不足", cls: "muted" };
+  const n = (c.findings || []).length;
+  return n ? { text: n + " 项待看", cls: "warn" } : { text: "无异常", cls: "ok" };
+}
+
+/* ---------- 参考作品拆解（P2，可选功能） ----------
+   三条纪律落在界面上：
+   1) 没同意声明不能拆（按钮直接禁用，后端也会拒）；
+   2) 画像不含原文，片段候选默认一条都不勾；
+   3) 只有勾选的片段才落盘，且会随写作任务发给模型服务商（弹层里已写明）。 */
+const decConsent = ref(false);
+const decDeclOpen = ref(false);
+const decDeclEl = ref(null);
+// 打开即把焦点放到「我不同意」——默认焦点必须是最保守的那个选项。
+// 注意：模板里的 autofocus 对 v-if 动态插入的节点**不生效**，必须手动 focus，
+// 否则焦点停在上一个「阅读并同意声明」按钮上，连按回车就直接同意了。
+watch(decDeclOpen, async (v) => {
+  if (!v) return;
+  await nextTick();
+  decDeclEl.value?.querySelector(".dec-decl-foot .mini")?.focus();
+});
+const decPath = ref("");
+const decCands = ref([]);
+const decPicked = ref({});
+const decSaved = ref(null);
+const decBusy = ref(false);
+const decGuide = ref([]);
+
+async function loadDecompose() {
+  const [c, s] = await Promise.all([api("/decompose/consent"), api("/decompose/snippets")]);
+  if (c.status === 200) decConsent.value = !!c.data.agreed;
+  if (s.status === 200) decSaved.value = s.data.saved || null;
+}
+async function agreeDecompose() {
+  const r = await api("/decompose/consent", "POST", { agreed: true });
+  if (r.status === 200 && r.data.ok) {
+    decConsent.value = true;
+    decDeclOpen.value = false;
+    say("已同意，可以开始拆解");
+  } else {
+    say("记录同意失败: " + (r.data.error || r.status));
+  }
+}
+async function pickDecomposeFile() {
+  if (!window.mofangAPI?.openFileDialog) { say("文件选择需通过 Electron 启动"); return; }
+  const r = await window.mofangAPI.openFileDialog({
+    title: "选择要拆解的作品（.txt / .md）", properties: ["openFile"],
+  });
+  if (r.ok && r.paths?.length) decPath.value = r.paths[0];
+  else if (!r.ok) say(r.error || "选择文件失败");
+}
+async function runDecomposeProfile() {
+  if (!decPath.value.trim()) { say("先选一个文件"); return; }
+  decBusy.value = true;
+  const r = await api("/decompose/profile", "POST", { path: decPath.value.trim() });
+  decBusy.value = false;
+  if (r.status !== 200 || !r.data.ok) { say("拆解失败: " + (r.data.error || r.status)); return; }
+  decGuide.value = r.data.guidance || [];
+  say(r.data.message || "画像已生成");
+}
+async function runCandidates() {
+  if (!decPath.value.trim()) { say("先选一个文件"); return; }
+  decBusy.value = true;
+  const r = await api("/decompose/snippets/candidates", "POST", { path: decPath.value.trim() });
+  decBusy.value = false;
+  if (r.status !== 200 || !r.data.ok) { say("提取失败: " + (r.data.error || r.status)); return; }
+  decCands.value = r.data.candidates || [];
+  decPicked.value = {};                      // 默认一条都不选
+  say("抽到 " + decCands.value.length + " 条候选（默认未勾选）");
+}
+function togglePick(id) {
+  decPicked.value = { ...decPicked.value, [id]: !decPicked.value[id] };
+}
+const pickedCount = computed(() => Object.values(decPicked.value).filter(Boolean).length);
+async function savePicked() {
+  const picks = decCands.value
+    .filter((c) => decPicked.value[c.id])
+    .map((c) => ({ kind: c.kind, text: c.text }));
+  if (!picks.length) { say("一条都没勾选"); return; }
+  const name = decPath.value.split(/[\\/]/).pop() || "";
+  const r = await api("/decompose/snippets/save", "POST", { picks, source: { name } });
+  if (r.status !== 200 || !r.data.ok) { say("保存失败: " + (r.data.error || r.status)); return; }
+  say(r.data.message || "已保存");
+  decCands.value = [];
+  decPicked.value = {};
+  await loadDecompose();
+}
+async function clearSnippets() {
+  if (!window.confirm("删除已保存的参考片段？写作将不再注入这些片段。")) return;
+  const r = await api("/decompose/snippets/clear", "POST", {});
+  if (r.status === 200) { say(r.data.message || "已清空"); await loadDecompose(); }
+}
+
+const DECL_LINES = [
+  "本功能处理的是你本机上的文件：绒花墨坊不会上传你导入的作品，也不会保留其原文；",
+  "拆解结果只保存统计数据（章长、对话占比、句长分布、钩子比例），不保存任何原句；",
+  "如果你勾选「参考片段」，这些片段会随写作任务发给**你自己配置的大模型服务商**，",
+  "　该次调用适用其隐私保留与训练声明；绒花墨坊不介入、不担保；",
+  "你必须对导入作品拥有合法使用权，并自行承担由此产生的全部责任；",
+  "不同意以上任一条款，请勿使用本功能。",
+];
+
 const pacingBars = computed(() => {
   const p = pacing.value;
   if (!p?.chapters?.length) return [];
@@ -285,6 +439,7 @@ onMounted(() => {
   loadReference();
   analyze();
   loadPacing("current");
+  loadDecompose();
 });
 </script>
 
@@ -293,6 +448,7 @@ onMounted(() => {
     <div class="tabs-sub" style="margin-bottom: 12px;">
       <button :class="{ on: sub === 'style' }" @click="sub = 'style'">文风特征</button>
       <button :class="{ on: sub === 'pacing' }" @click="sub = 'pacing'">章节节奏</button>
+      <button :class="{ on: sub === 'homo' }" @click="sub = 'homo'; loadHomo()">同质化检测</button>
     </div>
 
     <!-- ================= 文风特征 ================= -->
@@ -326,6 +482,55 @@ onMounted(() => {
         <div class="meta ref-warn" v-else-if="refState && !refState.ok">
           读取失败：{{ refState.error }}
         </div>
+      </div>
+
+      <!-- 参考作品拆解（可选功能）：画像不存原文，片段默认不勾 -->
+      <div class="card">
+        <div class="card-head">
+          <h3>参考作品拆解</h3>
+          <span class="spacer"></span>
+          <span v-if="decConsent" class="meta">已同意声明</span>
+          <span v-else class="ref-warn">未同意声明，功能锁定</span>
+        </div>
+        <div class="meta">
+          可选功能：分析一部<b>你有权使用</b>的作品，提取结构与节奏，喂给写作阶段当数值约束。
+          <b>不保存原文</b>；片段只有勾选才落盘。
+        </div>
+        <div v-if="!decConsent" class="art-row" style="margin-top:8px;">
+          <button class="mini primary" @click="decDeclOpen = true">阅读并同意声明</button>
+        </div>
+        <template v-else>
+          <div class="art-row" style="margin-top:8px;">
+            <input v-model="decPath" class="text-input" placeholder="作品文件完整路径（.txt / .md）" />
+            <button class="mini" @click="pickDecomposeFile">浏览…</button>
+            <button class="mini" :disabled="decBusy" @click="runDecomposeProfile">拆解为画像</button>
+            <button class="mini" :disabled="decBusy" @click="runCandidates">提取候选片段</button>
+          </div>
+          <div class="meta" v-if="decGuide.length" style="margin-top:8px;">
+            <div v-for="(g, i) in decGuide" :key="i">· {{ g }}</div>
+          </div>
+          <div v-if="decCands.length" class="dec-cands">
+            <div class="meta" style="margin:8px 0 6px;">
+              候选 {{ decCands.length }} 条 · 已勾 <b>{{ pickedCount }}</b> 条
+              —— <b>默认一条都不选</b>，勾了才会保存并随写作任务发给模型服务商
+            </div>
+            <label v-for="c in decCands" :key="c.id" class="dec-cand">
+              <input type="checkbox" :checked="!!decPicked[c.id]" @change="togglePick(c.id)" />
+              <span class="dec-kind" :class="'k-' + c.kind">{{ c.kind }}</span>
+              <span class="dec-text">{{ c.text.slice(0, 90) }}{{ c.text.length > 90 ? "…" : "" }}</span>
+              <span class="meta">{{ c.chars }} 字</span>
+            </label>
+            <div class="art-row" style="margin-top:8px;">
+              <button class="mini primary" :disabled="!pickedCount" @click="savePicked">
+                保存勾选的 {{ pickedCount }} 条</button>
+              <button class="mini" @click="decCands = []; decPicked = {}">放弃候选</button>
+            </div>
+          </div>
+          <div class="meta" v-if="decSaved && decSaved.snippets" style="margin-top:8px;">
+            已保存 {{ decSaved.snippets.length }} 条片段（stage4 会注入）
+            <button class="mini" style="margin-left:8px;" @click="clearSnippets">清空</button>
+          </div>
+        </template>
       </div>
 
       <div class="card">
@@ -496,7 +701,9 @@ onMounted(() => {
     </template>
 
     <!-- ================= 章节节奏 ================= -->
-    <template v-else>
+    <!-- 必须是 v-else-if 而不是 v-else：加第三个子页签后，v-else 会把节奏区
+         也渲染到「同质化检测」下面（视觉验收实测到两块叠在一起）。 -->
+    <template v-else-if="sub === 'pacing'">
       <div class="card">
         <div class="card-head">
           <h3>章节节奏</h3>
@@ -582,10 +789,161 @@ onMounted(() => {
         </div>
       </template>
     </template>
+
+    <template v-if="sub === 'homo'">
+      <div class="card">
+        <div class="card-head">
+          <h3>同质化检测</h3>
+          <span class="spacer"></span>
+          <button class="mini" :disabled="homoBusy" @click="loadHomo">
+            {{ homoBusy ? "读取中…" : "刷新" }}</button>
+        </div>
+        <div class="meta">
+          确定性指标，<b>零 token、只报不拦</b>：复读、短语反复、对话同腔、句式单调、比喻堆砌、感官锁死。
+          stage4（初稿）与 stage6（润色）落盘后自动生成报告。
+          <b>告警不等于判废</b> —— 它只说"这里像机器在打转"，改不改由人定。
+        </div>
+        <div v-if="homoErr" class="empty" style="padding:14px 0;">{{ homoErr }}</div>
+        <div v-else-if="!homo || !(homo.chapters || []).length" class="meta" style="padding:10px 0;">
+          还没有报告 —— 跑过 stage4 之后每章自动生成；也可在命令行单独测一章：
+          <code>python scripts/utils/homogeneity.py 章节.md --names 角色1,角色2</code>
+        </div>
+        <table v-else class="cost-table homo-table">
+          <thead>
+            <tr><th>章</th><th>字数</th><th>状态</th><th>命中项</th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="c in homo.chapters" :key="c.chapter"
+                :class="{ 'homo-on': String(c.chapter) === String(homoPick) }"
+                @click="pickHomo(c.chapter)">
+              <td>{{ c.chapter }}</td>
+              <td>{{ c.chars }}</td>
+              <td :class="'homo-' + homoFlag(c).cls">{{ homoFlag(c).text }}</td>
+              <td class="meta">
+                {{ (c.findings || []).map((f) => HOMO_LABEL[f.code] || f.code).join("、") || "-" }}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card" v-if="homoDetail">
+        <h4>
+          第 {{ homoDetail.chapter ?? homoPick }} 章
+          <span class="meta">— {{ homoDetail.chars }} 字</span>
+        </h4>
+        <div v-if="!(homoDetail.findings || []).length" class="meta">
+          <span :class="homoDetail.enabled ? 'homo-ok' : 'meta'">
+            {{ homoDetail.enabled ? "未发现同质化迹象" : "样本不足 600 字，比率型指标未计算" }}</span>
+        </div>
+        <div v-for="f in homoDetail.findings" :key="f.code" class="homo-finding">
+          <div class="homo-f-head">
+            <b>{{ HOMO_LABEL[f.code] || f.code }}</b>
+            <span class="bad-val">{{ f.detail }}</span>
+          </div>
+          <div class="meta">实测 {{ f.value }} · 阈值 {{ f.threshold }}</div>
+        </div>
+        <div class="meta" v-if="(homoDetail.skipped || []).length">
+          跳过：{{ homoDetail.skipped.join("；") }}
+        </div>
+        <div class="meta homo-metrics" v-if="homoDetail.metrics">
+          指标原始值：
+          <code v-for="(v, k) in homoDetail.metrics" :key="k">{{ k }}={{ v }}</code>
+        </div>
+      </div>
+    </template>
+
+    <!-- 拆解功能声明弹层（2026-10-20 改）：**与 DisclaimerDialog 同构**的居中确认框，
+         不再用右侧抽屉（.drawer 是「浏览/编辑长内容」的容器，拿它装一纸声明既不像
+         确认框、底部按钮也贴在视口边缘）。形态照抄本应用既有范式：
+         drawer-mask（居中）→ dialog → card-head 标题 → 可滚动正文 → dialog-actions。
+         交互纪律不变：**不同意是默认焦点**，关掉弹层 = 不启用（不会静默同意）。 -->
+    <div v-if="decDeclOpen" class="drawer-mask dec-mask" @click.self="decDeclOpen = false"
+         @keydown.esc.stop.prevent="decDeclOpen = false">
+      <div class="dialog dec-decl" role="dialog" aria-modal="true"
+           aria-label="拆解功能版权与免责声明" ref="decDeclEl">
+        <div class="card-head">
+          <h3>拆解功能 · 版权与免责声明</h3>
+          <span class="meta">首次使用需确认</span>
+        </div>
+        <div class="dec-decl-body">
+          <p v-for="(l, i) in DECL_LINES" :key="i">{{ l }}</p>
+          <p class="meta">完整声明见项目文档 docs/拆解功能-版权与免责声明.md；本弹层是其摘要。</p>
+        </div>
+        <div class="dialog-actions dec-decl-foot">
+          <span class="meta dec-decl-hint">关闭本框 = 不启用该功能</span>
+          <span class="spacer"></span>
+          <button class="mini" autofocus @click="decDeclOpen = false">我不同意</button>
+          <button class="mini primary" @click="agreeDecompose">我同意，继续</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <style scoped>
+/* 参考作品拆解：候选列表 + 声明弹层 */
+.dec-cands { border-top: 1px dashed var(--border); margin-top: 10px; }
+.dec-cand { display: flex; gap: 8px; align-items: flex-start; padding: 6px 4px; border-radius: 6px; }
+.dec-cand:hover { background: var(--field-hover); }
+.dec-kind {
+  flex: none;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--field);
+  border: 1px solid var(--border);
+}
+.k-dialogue { color: var(--warn); border-color: var(--warn); }
+.k-action { color: var(--ok); border-color: var(--ok); }
+.k-scene { color: var(--bad); border-color: var(--bad); }
+.dec-text { flex: 1; font-size: 12.5px; line-height: 1.6; }
+/* 声明弹层（2026-10-20）：居中确认框，形态与免责声明弹窗一致。
+   要点：正文自带滚动区（长声明不把按钮顶出视口）、按钮永远可见。 */
+.dec-mask { z-index: 40; }
+.dec-decl {
+  width: min(620px, 92vw);
+  max-height: 84vh;
+  display: flex;
+  flex-direction: column;
+}
+.dec-decl .card-head { margin-bottom: 8px; }
+.dec-decl-body {
+  flex: 1;
+  min-height: 160px;
+  max-height: 52vh;
+  overflow-y: auto;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--field-inset, rgba(127, 127, 127, 0.06));
+  font-size: 13px;
+  line-height: 1.85;
+}
+.dec-decl-body p { margin: 0 0 9px; }
+.dec-decl-body p:last-child { margin-bottom: 0; }
+.dec-decl-foot { align-items: center; margin-top: 12px; }
+.dec-decl-hint { font-size: 12px; }
+
+/* 同质化检测：行可点，选中走 --field-on；状态色一律走主题变量（暗色下也要读得清） */
+.homo-table tbody tr { cursor: pointer; }
+.homo-table tbody tr:hover { background: var(--field-hover); }
+.homo-table tbody tr.homo-on { background: var(--field-on); }
+.homo-ok { color: var(--ok); }
+.homo-warn { color: var(--warn); }
+.homo-bad { color: var(--bad); }
+.homo-muted { opacity: 0.65; }
+.homo-finding { padding: 8px 0; border-bottom: 1px dashed var(--border); }
+.homo-finding:last-of-type { border-bottom: none; }
+.homo-f-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+.homo-metrics { margin-top: 8px; }
+.homo-metrics code {
+  margin-right: 10px;
+  background: var(--field-code);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
 /* 范文粘贴框：暗色主题下必须走 var(--field)，禁止硬编码白底 */
 .style-ref-input {
   width: 100%;

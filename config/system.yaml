@@ -161,6 +161,13 @@ chapter:
   batch_outline: 10
   quality_threshold: 6
   page_break: true
+  # 卷弧（2026-10-20，台账三）：一卷多少章 + 只详细规划最近几卷。
+  # rolling_volumes = 0 时回到「一次规划全书」（改动前的行为）。
+  # 为什么要滚：一次性规划 200 章，越靠后的章大纲越空泛（模型第 1 天不知道
+  # 第 190 章该发生什么，只会写"继续调查、遇到新阻力"）。现在近层（当前卷 +
+  # 后续 1 卷）出逐章目标，远层只留一句话方向，写到跟前再定。
+  volume_size: 20
+  rolling_volumes: 2
 gates:
   agent_mode: true                 # 外部 Agent 模式：开启后 HTTP API 开放给外部 Agent 调用，
                                    # 但禁止性操作（审批/打回/归档/恢复/项目创建）仍只允许 GUI 内手动执行
@@ -187,6 +194,12 @@ gates:
   # 为什么默认 warn：大纲可能写得很抽象（不点名主角），硬拦会卡死正常流程。
   setting_coherence: warn
   setting_coherence_min_ratio: 0.15
+  # 七维评审账本（2026-10-20）：stage5 逐维打分 + 原文举证，举证对不上原文的
+  # 那一维**不计分**（实现 scripts/utils/review_ledger.py）。
+  #   warn（默认）= 账本不完整只告警，stage5 照样完成；
+  #   block = 任一章不完整、或整轮没有账本 → 阶段判失败（审稿门 fail-closed）。
+  # 为什么默认 warn：真实模型的 JSON 合规率还没实测过，先报不拦。
+  review_ledger: warn
   review_after_stage4: true
   review_after_stage5: false
   proofread_after_polish: false  # stage 5.5：润色后校对（默认关）
@@ -207,6 +220,17 @@ gates:
                                    # 仅在**全流程**收尾生效；单阶段 --stage N 重跑不拦。
   stage8_export: true  # 阶段8：Markdown 分卷导出
   segment_approval: true  # 丙4 大纲分段审批：全部分段通过才放行阶段2（false=退回整本一次审）
+# 上下文记忆策略（2026-10-20，台账三）：stage4 每章注入 L2 滚动 + L3 四维召回。
+# 单位是**字符**（中文 1 字 ≈ 1 token 量级）。裁掉的内容都会在注入块里写明。
+context:
+  memory:
+    rolling_chars: 2600      # L2 预算：全书摘要 + 最近章节摘要
+    recall_chars: 2400       # L3 预算：四维召回（伏笔/角色/状态/关系）
+    rolling_window: 8        # L2 最多取最近几章
+    recall_top_k: 6          # L3 最多几条
+    recall_min_terms: 4      # 相关度门槛：重合 bigram 数（配合 recall_min_ratio）
+    recall_min_ratio: 0.2    # 相关度门槛：重合率
+
 obsidian:
   # vault path（只读）：用户自己的 Obsidian 知识库根目录
   # 留空则不启用 Obsidian 联动；首次使用请在 GUI「设置」页填写本地路径

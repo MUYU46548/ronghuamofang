@@ -32,6 +32,8 @@ token 预估、拆书产物、章节备份列表。没有一个是写操作，
 白名单只能有一个实现，否则两处会漂移。
 """
 import nf_api as api
+import json
+from pathlib import Path
 
 
 def _p(h):
@@ -225,6 +227,180 @@ def handle_book_pacing(h):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+def handle_homogeneity(h):
+    """同质化/退化报告（P1，零 token 只读）。
+
+    `GET /homogeneity`               → 汇总（每章字数、findings、跳过原因）
+    `GET /homogeneity?chapter=3`     → 第 3 章完整报告（含 metrics 与逐条 detail）
+
+    **不重算**：只读 stage4/stage6 落盘的 JSON。重算会把"落盘那一刻"的结论
+    换成"现在这版正文"的结论，而诊断的价值就在于它记的是当时那一版。
+    """
+    from utils import homogeneity as homo
+    try:
+        q = h._query()
+        chapter = (q.get("chapter") or [""])[0].strip()
+        if chapter:
+            rep = homo.load_report(api.ROOT, chapter)
+            if rep is None:
+                return 404, {
+                    "ok": False,
+                    "error": "没有第 %s 章的同质化报告" % chapter,
+                    "hint": "跑过 stage4（初稿）或 stage6（润色）之后才有；"
+                            "也可单独测: python scripts/utils/homogeneity.py <章节.md>",
+                }
+            return 200, {"ok": True, "chapter": chapter, "report": rep}
+        data = homo.collect_reports(api.ROOT)
+        return 200, dict({"ok": True}, **data)
+    except Exception as e:                                     # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_review_ledger(h):
+    """七维评审账本（2026-10-20，零 token 只读）。
+
+    `GET /review/ledger`           → 汇总 + 逐章一行（均分/完整与否/未举证维度）
+    `GET /review/ledger?chapter=3` → 单章七维明细（含举证原句与未举证原因）
+
+    数据来源是 stage5 落盘的 `data/review/`（`utils.review_ledger`），
+    本端点**只读不重算** —— 重算是模型行为，不该由看板触发。
+    """
+    from utils import review_ledger as rl
+    base = Path(api.ROOT) / "data" / "review"
+    try:
+        q = h._query()
+        chapter = (q.get("chapter") or [""])[0].strip()
+        if chapter:
+            try:
+                n = int(chapter)
+            except ValueError:
+                return 400, {"ok": False, "error": "chapter 必须是整数"}
+            p = base / ("%02d.json" % n)
+            if not p.exists():
+                return 404, {"ok": False, "error": "第 %d 章还没有七维评审" % n}
+            return 200, dict({"ok": True}, **json.loads(p.read_text(encoding="utf-8")))
+        rows = []
+        for p in sorted(base.glob("*.json")):
+            if p.name == "summary.json":
+                continue
+            try:
+                d = json.loads(p.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            rows.append({
+                "chapter": d.get("chapter"),
+                "mean": d.get("mean"),
+                "complete": bool(d.get("complete")),
+                "verified_count": d.get("verified_count"),
+                "unverified": d.get("unverified") or [],
+                "missing": d.get("missing") or [],
+                "scores": {k: v.get("score") for k, v in (d.get("dims") or {}).items()},
+            })
+        summary = {}
+        sp = base / "summary.json"
+        if sp.exists():
+            try:
+                summary = json.loads(sp.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                summary = {}
+        return 200, {
+            "ok": True,
+            "dimensions": [{"code": d["code"], "label": d["label"]} for d in rl.DIMENSIONS],
+            "summary": summary,
+            "chapters": rows,
+            "exists": bool(rows),
+        }
+    except Exception as e:                                     # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_story_state(h):
+    """一致性账本（P3，零 token 只读）。
+
+    `GET /story_state`          → 摘要 + 全部冲突
+    `GET /story_state?chapter=3`→ 只取第 3 章
+
+    账本由 stage4 逐章增量更新（`utils.story_state.update_chapter`），
+    本端点**只读不重算** —— 重算会覆盖掉"写到那一章时"的判定。
+    """
+    from utils import story_state as ss
+    try:
+        q = h._query()
+        chapter = (q.get("chapter") or [""])[0].strip()
+        state = ss.load_state(api.ROOT)
+        conflicts = state.get("conflicts") or []
+        if chapter:
+            try:
+                n = int(chapter)
+            except ValueError:
+                return 400, {"ok": False, "error": "chapter 必须是整数"}
+            mine = [c for c in conflicts if c.get("chapter") == n]
+            return 200, {"ok": True, "chapter": n, "summary": ss.summarize(state),
+                         "conflicts": mine}
+        return 200, {
+            "ok": True,
+            "summary": ss.summarize(state),
+            "events": len(state.get("events") or []),
+            "updated_at": state.get("updated_at"),
+            "conflicts": conflicts,
+        }
+    except Exception as e:                                     # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_decompose_consent(h):
+    """拆解功能的声明状态（GET）。没同意时前端必须挡住入口。"""
+    from utils import style_profile as sp
+    try:
+        return 200, dict({"ok": True}, **sp.consent_state(api.ROOT))
+    except Exception as e:                                     # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_decompose_snippets(h):
+    """已保存的参考片段（GET）。"""
+    from utils import style_profile as sp
+    try:
+        data = sp.load_snippets(api.ROOT)
+        return 200, {"ok": True, "saved": data}
+    except Exception as e:                                     # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_decompose_candidates(h, body):
+    """抽取候选片段（只读、**不落盘**）。
+
+    为什么候选不落盘：一旦写进工作区，它就会跟着快照、归档、打包走 ——
+    那是"复制"不是"参考"。用户勾选之后才由 /decompose/snippets/save 写入。
+    """
+    from utils import style_profile as sp
+    from utils.file_io import read_text
+    try:
+        p = str(body.get("path") or "").strip()
+        if not p:
+            return 400, {"ok": False, "error": "path 必填（要拆解的文件）"}
+        path = Path(p)
+        if not path.is_file():
+            return 404, {"ok": False, "error": "文件不存在: %s" % p}
+        if path.stat().st_size > 5 * 1024 * 1024:
+            return 400, {"ok": False, "error": "文件超过 5MB，请先分卷"}
+        text = read_text(path)
+        try:
+            per_kind = max(1, min(int(body.get("per_kind") or 2), 3))
+        except (TypeError, ValueError):
+            per_kind = 2
+        picks = sp.extract_snippets(text, per_kind=per_kind)
+        return 200, {
+            "ok": True,
+            "candidates": picks,
+            "count": len(picks),
+            "saved_default": [],
+            "note": "候选只在内存，未写入磁盘；勾选后才会保存（默认一条都不选）",
+        }
+    except Exception as e:                                     # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 def handle_chapters_history(h):
     """章节历史版本：?n=3 → 第 3 章的备份列表（新 → 旧）。
 
@@ -261,5 +437,10 @@ ROUTES = (
     ("GET", "/proofread/report", handle_proofread_report),
     ("GET", "/estimate", handle_estimate),
     ("GET", "/book/pacing", handle_book_pacing),
+    ("GET", "/homogeneity", handle_homogeneity),
+    ("GET", "/story_state", handle_story_state),
+    ("GET", "/review/ledger", handle_review_ledger),
+    ("GET", "/decompose/consent", handle_decompose_consent),
+    ("GET", "/decompose/snippets", handle_decompose_snippets),
     ("GET", "/chapters/history", handle_chapters_history),
 )

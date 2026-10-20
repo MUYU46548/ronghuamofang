@@ -19,6 +19,10 @@ from utils.template_loader import load_template
 from utils.verify_chapter import is_usable_output
 from utils.config_io import load_config_yaml
 from utils.text_norm import normalize_chapter_file
+from utils import review_ledger as rl
+
+
+REVIEW_DIR = Path("data/review")
 
 
 def _norm(path):
@@ -43,10 +47,60 @@ def build_check_task(proj, raw_dir, setting_path, checked_dir, batch_files, batc
         "path_setting": Path(setting_path).resolve(),
         "path_report": Path("data/outline/check_report.md").resolve(),
         "path_checked": Path(checked_dir).resolve(),
+        # 七维评审账本（2026-10-20）：每批一份，stage5 读回后按章拆成 data/review/NN.json。
+        # 路径必须是**绝对路径**——模板里的相对路径在 GUI/后台任务下按 CWD 解析，
+        # 而 CWD 不一定是仓库根（--root 打包态尤其如此）。
+        "path_review": (REVIEW_DIR / f"batch{batch_index}.json").resolve(),
         "batch_index": batch_index,
         "total_batches": total_batches,
     })
     return body
+
+
+def _chapter_no(path):
+    """从文件名取章号（`03.md` → 3）；取不到返回 None。"""
+    try:
+        return int(Path(path).stem)
+    except (TypeError, ValueError):
+        return None
+
+
+def _verify_ledger(batch, bi):
+    """读回本批七维评审 JSON 并校验。返回 (results, problems)。
+
+    **为什么必须是「读回文件」而不是「解析 stdout」**：stdout 尾部只留最后几百字，
+    而且模型随手说的 JSON 片段与真正落盘的产物不是一回事。只有落盘文件才是
+    下游能复用的那份账本。
+    """
+    p = REVIEW_DIR / f"batch{bi}.json"
+    if not p.exists():
+        return [], [f"批 {bi} 未产出七维评审（缺 {p.as_posix()}）"]
+    try:
+        text = read_text(p)
+    except Exception as e:                                    # noqa: BLE001
+        return [], [f"批 {bi} 七维评审读取失败：{type(e).__name__}"]
+    try:
+        payload = rl.load_payload(text)
+    except rl.LedgerError as e:
+        return [], [f"批 {bi} 七维评审不是可用 JSON（{e}）"]
+
+    texts = {}
+    for f in batch:
+        no = _chapter_no(f)
+        if no is None:
+            continue
+        try:
+            texts[no] = read_text(f)
+        except Exception:                                     # noqa: BLE001
+            texts[no] = ""
+    results, unknown = rl.validate_payload(payload, texts)
+    problems = []
+    miss = rl.missing_chapters(results, texts)
+    if miss:
+        problems.append(f"批 {bi} 有 {len(miss)} 章没有评审记录（{miss[:6]}）")
+    if unknown:
+        problems.append(f"批 {bi} 评审里出现本批不存在的章号 {unknown[:6]}（已忽略）")
+    return results, problems
 
 
 def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=None):
@@ -91,6 +145,8 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                 if not is_usable_output(raw_dir / f.name, checked_dir / f.name)]
 
     copied_all = []
+    ledger_all = []
+    ledger_problems = []
     for bi, batch in enumerate(batches, 1):
         # 件7（2026-09-29）：原先只写**裸文件名**（`- 01.md`），llm_client 的
         # `inline_inputs` 按 CWD 找不到 → 判 missing → **章节从未进入 prompt**，
@@ -148,6 +204,16 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         # 再跑一次幂等、零成本；LLM 产出的 checked 则必须在这里清洗。
         for f in batch:
             _norm(checked_dir / f.name)
+        # 七维评审账本（2026-10-20）：与修正稿同批判定。**校验的是 raw 原文**——
+        # 模型读到的就是 raw，拿 checked 去核对等于让它给自己改过的句子作证。
+        batch_results, batch_problems = _verify_ledger(batch, bi)
+        for r in batch_results:
+            rl.write_ledger(REVIEW_DIR, r)
+        ledger_all.extend(batch_results)
+        ledger_problems.extend(batch_problems)
+        if batch_results:
+            done = sum(1 for r in batch_results if r["complete"])
+            print(f"[stage5] 七维评审：本批 {len(batch_results)} 章，完整举证 {done} 章")
         print(f"[stage5] 批 {bi}/{total_batches} 完成（章节 {batch[0].stem}-{batch[-1].stem}）")
 
     if db and run_id:
@@ -170,6 +236,35 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     if len(report_text.strip()) < 20:
         warnings.append("检查报告 data/outline/check_report.md 缺失或为空 —— "
                         "本轮没有留下检查记录（章节产物仍可用，但别当「检查通过」）")
+
+    # 七维评审汇总（2026-10-20）：`data/review/` 是**可回归**的那份（JSON + 表格），
+    # check_report.md 仍是给人看的自由文本报告 —— 两者都留，不互相替代。
+    if ledger_all:
+        ledger_summary = rl.write_summary(REVIEW_DIR, ledger_all)
+        mean = ledger_summary["mean"]
+        print(f"[stage5] 七维评审账本：{ledger_summary['chapters']} 章，"
+              f"完整举证 {ledger_summary['complete']} 章，均分 "
+              f"{mean if mean is not None else '—'}")
+        print("[stage5] 账本: data/review/ledger.md（逐章 JSON 在 data/review/NN.json）")
+        incomplete = [r["chapter"] for r in ledger_all if not r["complete"]]
+        if incomplete:
+            warnings.append(f"{len(incomplete)} 章七维评审不完整（缺维或举证对不上原文）："
+                            + "、".join("第%d章" % n for n in incomplete[:10])
+                            + ("…" if len(incomplete) > 10 else ""))
+    else:
+        warnings.append("本轮没有可回归的七维评审（data/review/ 无账本）"
+                        "—— 检查结论仍只有自由文本，无法回归")
+    if ledger_problems:
+        warnings.extend(ledger_problems)
+
+    # gates.review_ledger（默认 warn）：只有显式写 block 才让账本问题判阶段失败。
+    # 为什么默认 warn：真实模型的 JSON 合规率还没实测过，先报不拦；等稳态再切 block。
+    _ledger_mode = str(((cfg or {}).get("gates") or {}).get("review_ledger", "warn")).lower()
+    if _ledger_mode == "block" and (not ledger_all or any(not r["complete"] for r in ledger_all)):
+        detail = "；".join(warnings) or "无账本"
+        progress.set_stage(5, "failed",
+                           error="七维评审未通过（gates.review_ledger=block）：" + detail)
+        return False, "stage5 失败：七维评审未通过（gates.review_ledger=block）"
 
     if warnings:
         print("[stage5] " + "=" * 58)

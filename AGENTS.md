@@ -162,6 +162,72 @@ stdout 被管道捕获时 Python 用 cp936，一行日志就能 `UnicodeEncodeEr
 确属还没写到那一章时用 `--allow-missing`，届时摘要必须写「**未经验收**」—— 跳过 ≠ 通过。
 `book.chapters = 0` 这类空集合也直接报错（vacuous truth 是门禁最阴的假绿）。
 
+## 长篇规模能力（2026-10-20，四项一次落地）
+
+四件事共用一条判据：**宁可明说"没有"，也不给假的**。每项都有确定性用例
+（`test_review_ledger.py` 48 · `test_memory_policy.py` 28 · `test_volume_arc.py` 51 ·
+`test_setting_closure.py` 41）。
+
+### 1. 七维评审账本（stage5，替代自由文本审稿）
+
+`utils/review_ledger.py` = 唯一实现。七维与 `prompts/stage5_check.md` 的七项检查
+**一一对应**（plot/timeline/space/reference/relation/persona/commonsense），
+每维必须给 `score`（0-10）+ `quote`（**本章原文里逐字存在的句子**）。
+
+- **举证对不上原文 → 该维 `score=None`（不计分，不是扣分）**；缺维不补默认分。
+- 匹配前 squash 掉标点/空白（`「」` vs `“”`、半角逗号都算同一句）；
+  含省略号的引用按 `…` 切段，**每段都要命中**（容纳省略，不放水）。
+- 举证 <8 个有效字符不算（"他点了点头"定位不到任何一处）。
+- 落盘 `data/review/NN.json` + `summary.json` + `ledger.md`；
+  `check_report.md` 仍保留（给人看的自由文本，两者不互相替代）。
+- 开关 `gates.review_ledger`：`warn`（默认，只告警）/ `block`（不完整即阶段失败）。
+- GUI：章节页签「七维评审账本」（`GET /review/ledger`，只读，不提供重算按钮）。
+
+### 2. 上下文记忆策略（stage4，三层）
+
+`utils/memory_policy.py`。L1 固定层（大纲/角色卡/上一章尾）**不裁**；
+L2 滚动层（全书摘要 + 最近 `rolling_window` 章）与 L3 召回层（四维：伏笔/角色/状态/关系）
+按 `context.memory.*` 的字符预算裁。
+
+- **裁掉什么必须写出来**：省略章号区间、丢掉的候选数都进注入块；
+  召回为 0 时写"没有与本章相关且够近的旧事"，不是静默留空。
+- 未来章节/事件**不召回**（那是剧透）。最近 3 章摘要不重复召回（由上一章尾巴覆盖）。
+- 相关度 = bigram 重合数 + 3×专名命中；**专名必须同时出现在候选与本章大纲里**，
+  否则设定集里每个带人名的碎片都会被无差别召回（实测踩到）。
+- 纯 bigram 门槛不够：要求重合数 ≥4 **且**重合率 ≥0.2（"都能含'没有'"不算相关）。
+
+### 3. 卷弧双层滚动规划
+
+`utils/volume_arc.py` + `scripts/volume_plan.py`。近层（当前卷 + 后续
+`rolling_volumes-1` 卷）出**逐章目标**；远层只留一句话方向。
+
+- stage3 只铺到 `horizon`（默认 2 卷），窗口外由 stage4 **按需补齐单章大纲**
+  （`stage3.generate_chapters`，与 stage3 共用一份实现）。
+- ⚠️ stage4 只补**文件不存在**的章大纲；**存在但字段不全绝不重写** ——
+  实测那样会把已审阅的大纲整批换成占位内容。
+- 卷纲判据：逐章目标**覆盖每一章** + 无占位符；不合格 → 重规划（修复），
+  合格 → **绝不覆盖**（`--force` 才动）。`data/outline/volumes/vNN.md` + `plan.json`。
+- `chapter.rolling_volumes: 0` = 关闭滚动，行为与改动前一致。
+
+### 4. 设定库闭环
+
+- **增量合并** `obsidian_integrate.merge_setting_from_vault`（CLI `merge`）：
+  只做加法 —— 新增追加、空字段补齐、**已有非空值不动**、`locked` 完全不碰、
+  `plot_fragments`/`timeline` **保留**。字段分歧写 `data/setting/vault_conflicts.json`
+  等人裁决，不自动选一边。（`scan` 仍是整体替换语义，勿混用。）
+- **大纲注入** `utils/setting_brief.py`：stage2 现在拿到的是**有预算的设定集摘要**
+  （角色/地点势力/伏笔/时间线 + vault 未归并词条），不再只是一个文件路径。
+  超预算截断会写明"另有 N 行未内联"。
+- **GUI 拍板**：设定页签「素材裁决」→ `GET /setting/conflicts` + `POST /setting/status`
+  三态（采纳/否决/待定）；否决**必须填原因**（写墓碑，按名字生效）。
+
+### 弹窗写法（暮雨 2026-10-19 点名"不会抄自己"）
+
+应用里已有范式，**不要手搓**：`drawer-mask`（居中）→ `dialog` → `card-head` 标题 →
+可滚动正文 → `dialog-actions`。参照 `DisclaimerDialog.vue`。
+`v-if` 动态插入时 `autofocus` **不生效**，必须 `watch + nextTick + focus()`；
+默认焦点放在**最保守的选项**上（"我不同意"）。
+
 ## 命令速查（常用）
 
 | 目的 | 命令（workdir=项目根，用 .venv python） |

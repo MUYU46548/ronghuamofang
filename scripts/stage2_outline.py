@@ -73,18 +73,52 @@ def build_task(cfg, proj):
     # A3：大纲阶段**只读 canon 快照**（approved 后冻结），不读活稿 ——
     # 否则改素材会悄悄扰动已经定稿的大纲。没有快照时退回 setting.json。
     from utils.material_state import canon_or_setting
+    # 开局方案（2026-10-19）：用户在大纲之前选定的走向，优先级高于 user_outline。
+    # 没选就留一句明确的"未选定"，而不是空字符串 —— 空节会让模型以为
+    # "这一节被裁掉了"，进而自己发挥。
+    from utils.open_variants import load_chosen
     book = proj.get("book", {})
     user_outline = (book.get("user_outline") or "").strip()
+    # 设定集摘要内联（2026-10-20，台账三·设定库闭环）：此前只给一个文件路径，
+    # 模型读多少不受控 —— 实测 69 KB 设定集里 model 通常只翻到前十几个角色，
+    # **伏笔与时间线从未进过大纲**。这里压成有预算的摘要直接内联。
+    from utils import setting_brief
+    canon_path = canon_or_setting()
+    _brief = setting_brief.build(canon_path, _vault_path_if_configured())
+    if _brief["error"]:
+        print("[stage2] 设定集摘要不可用：" + _brief["error"])
+    else:
+        print("[stage2] 设定集摘要内联：角色 %d / 地点势力 %d / 伏笔 %d / 时间线 %d / vault 补充 %d（%d 字）"
+              % (_brief["stats"]["characters"], _brief["stats"]["world"],
+                 _brief["stats"]["fragments"], _brief["stats"]["timeline"],
+                 _brief["stats"]["vault_extra"], _brief["stats"]["chars"]))
     _, body = load_template("stage2_global_outline.md", {
         "book_name": book.get("name", "未命名"),
         "target_words": book.get("target_words", 300000),
         "user_outline": user_outline or "（未提供，请基于设定集与素材清单自拟整体大纲）",
-        "path_setting": Path(canon_or_setting()).resolve(),
+        "variant_chosen": (load_chosen()
+                           or "（未选定开局方案 —— 按上面的「用户提供的大纲/构思」走）"),
+        "setting_brief": (_brief["block"]
+                          or "（设定集摘要不可用：%s。请从素材清单与用户构思出发）"
+                          % (_brief["error"] or "未生成")),
+        "path_setting": Path(canon_path).resolve(),
         "path_manifest": Path("data/setting/materials_manifest.json").resolve(),
         "path_project": Path("config/project.yaml").resolve(),
         "path_global_outline": Path("data/outline/global.md").resolve(),
     })
     return body
+
+
+def _vault_path_if_configured():
+    """vault 路径（未配置返回 None）—— 摘要里可以带上"尚未归并的词条"。"""
+    try:
+        from obsidian_bridge import is_vault_configured, _get_vault_path
+        if not is_vault_configured():
+            return None
+        p = _get_vault_path()
+        return str(p) if p else None
+    except Exception:                                          # noqa: BLE001
+        return None
 
 
 def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=None):

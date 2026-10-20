@@ -203,6 +203,17 @@ class Stub:
             Path("data/outline").mkdir(parents=True, exist_ok=True)
             Path("data/outline/check_report.md").write_text(
                 "# 逻辑检查报告\\n## 问题清单\\n- 无\\n", encoding="utf-8")
+            # 2026-10-20：七维评审账本是 stage5 的**产出契约**之一，替身也必须交。
+            # 举证用正文里真实存在的那句（BODY 里逐段重复的句子），不编造。
+            import json as _json
+            from utils.review_ledger import DIM_CODES
+            q = "他抬起头，风从窗口灌进来，吹动了桌上的纸。"
+            Path("data/review").mkdir(parents=True, exist_ok=True)
+            Path("data/review/batch1.json").write_text(_json.dumps({
+                "chapters": [{"chapter": 1, "summary": "（stub）",
+                              "dims": [{"dim": c, "score": 9, "quote": q, "note": ""}
+                                       for c in DIM_CODES]}]
+            }, ensure_ascii=False), encoding="utf-8")
         return {"exit_code": 0, "stdout_tail": "", "tokens": 0, "tokens_out": 0,
                 "cache_read": 0, "cost_yuan": 0.0}
 

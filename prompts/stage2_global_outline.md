@@ -9,15 +9,20 @@ temperature: 0.6
 你是资深长篇小说编辑兼世界观架构师。请严格按指示执行。
 
 ## 输入文件（用 read_file 读取）
-- 设定集: {{path_setting}}
+- 设定集: {{path_setting}}（**仅在需要核对细节时打开**；下面的摘要已经涵盖主要条目）
 - 素材清单: {{path_manifest}}
 - 项目配置: {{path_project}}
+
+{{setting_brief}}
 
 ## 任务
 为《{{book_name}}》生成全书整体大纲，写入文件: {{path_global_outline}}
 
 ## 用户提供的大纲/构思（最高优先级，必须严格遵循）
 {{user_outline}}
+
+## 作者已选定的开局方案（优先级高于上面的构思；两者冲突时以本节为准）
+{{variant_chosen}}
 
 ## 输出格式（global.md，必须严格遵循）
 # 《书名》整体大纲

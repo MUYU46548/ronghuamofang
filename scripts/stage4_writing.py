@@ -115,6 +115,49 @@ def _norm(path, n=None):
         print(f"[stage4] 第{n}章标点归一化 {total} 处（{detail}）" if n
               else f"[text_norm] 归一化 {total} 处（{detail}）")
 
+
+def _state_report(path, n=None):
+    """一致性账本增量更新（P3，2026-10-19）：确定性、零 token、只报不拦。
+
+    每章落盘后把这一章的事件并进 `data/state/story_state.json`，再打印
+    **本章**新增的冲突（死而复生 / 重复死亡 / 物品复现 / 时间倒退）。
+    账本是跨章累计的：判"第 3 章出现了第 2 章死的人"必须有前面章节的账，
+    单章看不出来。
+
+    只打印不阻断 —— 写作阶段的任务是"把稿写出来"，闸门在 quality_checklist。
+    增量而不是全量重扫：全量重扫 100 章会让每章落盘多花几秒，且对并发不友好。
+    """
+    try:
+        from utils import story_state as ss
+        state, mine = ss.update_chapter(
+            Path(".").resolve(), n, read_text(path),
+            Path("data/setting/setting.json").resolve())
+        if mine:
+            print(f"[stage4] 第{n}章一致性账本：{len(mine)} 条冲突")
+            for c in mine:
+                print(f"[stage4]   {c['detail']}")
+        else:
+            print(f"[stage4] 第{n}章一致性账本：无冲突（累计 {len(state['events'])} 条事件）")
+    except Exception as e:                                    # noqa: BLE001
+        print(f"[story_state] 第{n}章账本更新失败（不影响主流程）: {type(e).__name__}: {e}")
+
+
+def _homo_report(path, n=None):
+    """同质化/退化检测（P1，2026-10-19）：零 token、只报不拦。
+
+    为什么在这里而不是 stage5：stage5 是 LLM 审稿（要花钱、且它读不出"同质"——
+    模型看自己的产物只会说"结构完整"）。这项是确定性指标，放在落盘后第一时间出，
+    用户审稿时手上就有一份"哪里在打转"的清单。
+
+    判据实现全在 utils/homogeneity（stage6 也调同一份），这里只是带 tag 的薄包装；
+    失败只打印不阻断 —— 与 text_norm 同一条原则：检测器坏了不该拖垮写作。
+    """
+    try:
+        from utils.homogeneity import report_to_console
+        report_to_console(path, n, Path("data/setting/setting.json").resolve(), tag="stage4")
+    except Exception as e:                                    # noqa: BLE001
+        print(f"[homogeneity] 第{n}章检测失败（不影响主流程）: {type(e).__name__}: {e}")
+
 # 知识库注入的「一次性提示」开关。
 # `build_chapter_task` 每章调一次，逐章打印同一条提示会淹没日志；
 # 但**完全不提示**又是静默失败（用户以为 KB 生效了）。折中：每进程提示一次。
@@ -516,6 +559,30 @@ def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, p
     world_context = _extract_world_context(
         setting_path, outline_text_for_ctx, involved=_involved_names(outline_text_for_ctx))
 
+    # 记忆策略（2026-10-20，台账三·上下文 memory policy）：
+    # L1 固定层（大纲/角色卡/上一章尾/设定条目）由上面的块提供，**不裁**；
+    # 这里补 L2 滚动层（全书摘要 + 最近章节，按预算裁）与 L3 召回层
+    # （伏笔/角色/状态/关系四维，按相关度 top-K）。裁了什么、召回几条都写进块里，
+    # 不静默 —— 否则用户看到"有上下文"而其实早被裁光了。
+    memory_block = ""
+    try:
+        from utils.memory_policy import build_memory
+        _mem = build_memory(
+            n, outline_text_for_ctx, setting_path, rolling_path,
+            Path("data/state/story_state.json"), cfg)
+        memory_block = _mem["block"]
+        _st = _mem["stats"]
+        _by = _st["recall"]["by_dim"]
+        print("[stage4] 第%d章记忆：L2 %d 章（省略 %d 章）· L3 召回 %d 条"
+              "（伏笔%d/角色%d/状态%d/关系%d）"
+              % (n, len(_st["rolling"]["chapters"]), len(_st["rolling"]["omitted"]),
+                 _st["recall"]["recalled"], _by.get("foreshadow", 0),
+                 _by.get("character", 0), _by.get("state", 0), _by.get("relation", 0)))
+    except Exception as e:                              # noqa: BLE001
+        print(f"[stage4] 记忆上下文组装失败（本章退回固定层级）: "
+              f"{type(e).__name__}: {e}")
+        memory_block = ""
+
     # 分支样例锚点（第 4 件 · 选项可视化）：用户在章大纲里选定的「样例文本」
     # 注入成 few-shot 参照。读章大纲里的优化点锚点，只挑 kind=sample 的 ——
     # 讨论意见/字段改写类锚点是给**人**看的决策记录，混进去会污染写作模型。
@@ -530,6 +597,14 @@ def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, p
               f"{type(e).__name__}: {e}")
         chapter_samples_block = ""
 
+    try:
+        from utils.style_profile import load_snippets_block
+        decompose_samples = load_snippets_block()
+    except Exception as e:                              # noqa: BLE001
+        print(f"[stage4] 参考片段注入失败（本章将无片段参照）: "
+              f"{type(e).__name__}: {e}")
+        decompose_samples = ""
+
     _, body = load_template("stage4_writing.md", {
         "n": n,
         "book_name": book.get("name", "未命名"),
@@ -538,11 +613,13 @@ def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, p
         "path_rolling": Path(rolling_path).resolve(),
         "path_project": Path("config/project.yaml").resolve(),
         "prev_tail": tail_section,
+        "memory_block": memory_block,
         "style_reference": style_text,
         "style_samples": style_samples,
         "style_notes": style_notes,
         "kb_context": kb_context,
         "chapter_samples": chapter_samples_block,
+        "decompose_samples": decompose_samples,
         "character_cards": character_cards,
         "world_context": world_context,
         "min_words": target[0],
@@ -677,9 +754,32 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         chap_path = raw_dir / f"{n:02d}.md"
         prev_path = raw_dir / f"{n - 1:02d}.md"
         prev_tail = extract_prev_tail(prev_path, 4) if prev_path.exists() else []
+        # 章大纲按需补齐（2026-10-20，滚动规划）：stage3 只铺到"当前卷 + 下一卷"，
+        # 写到窗口外时这里补一章。缺大纲就写，等于让模型即兴编一整章的走向 ——
+        # 那是最贵的一种失败（写完才发现方向不对）。
+        outline_rel = f"data/outline/chapters/{n:02d}.md"
+        try:
+            from stage3_chapter_outline import outline_ok, generate_chapters
+            # ⚠️ 只在**文件不存在**时补齐。存在但字段不合格**绝不重写** ——
+            # 那是上游（stage3）该修的东西，在写作阶段静默覆盖既有大纲会
+            # 把已审阅过的产物换掉（实测踩到：夹具里少一个「功能」字段就触发了
+            # 全量重写，章大纲里的角色名整批被替成占位名）。
+            if not Path(outline_rel).exists():
+                print(f"[stage4] 第{n}章大纲不在滚动窗口内，按需补齐…")
+                _ok3, _msg3 = generate_chapters(cfg, proj, [n], client, task_dir, cost, run_id)
+                if not _ok3:
+                    if _fail(n, f"章大纲补齐失败：{_msg3}"):
+                        aborted = "systemic"
+                        break
+                    continue
+            elif not outline_ok(outline_rel):
+                print(f"[stage4] 提示：第{n}章大纲字段不全（缺核心事件/涉及角色/功能之一），"
+                      "按现状使用，不改写（该修的是 stage3）")
+        except Exception as e:                             # noqa: BLE001
+            print(f"[stage4] 章大纲补齐失败（将按缺失继续）: {type(e).__name__}: {e}")
         task = client.write_task(task_dir, f"stage4_ch{n:02d}.md",
                                  build_chapter_task(cfg, proj, n,
-                                                    f"data/outline/chapters/{n:02d}.md",
+                                                    outline_rel,
                                                     "data/setting/setting.json",
                                                     "data/summaries/rolling.md",
                                                     prev_tail))
@@ -707,6 +807,10 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         # 在**校验之前**修掉。实测《雾港核心》三章：76 个半角 "、67 对「」——
         # stage6 提示词写着「全角标点」也不管用，故改为确定性替换（utils/text_norm）。
         _norm(chap_path, n)
+        # 同质化/退化检测（P1）：零 token、写 data/state/homogeneity/<章>.json、只报不拦
+        _homo_report(chap_path, n)
+        # 一致性账本（P3）：把本章事件并进跨章账本，只报不拦
+        _state_report(chap_path, n)
         check = check_chapter(chap_path, low, high)
         # 字数不足的定向扩写（2026-10-17 第14次试跑修复）：正文写出来了但只差
         # 一点（>= 下限 60%）时，整章重写往往复现同样的短稿（同章 9 连败实证）；

@@ -17,6 +17,7 @@
     python scripts/nfctl.py status [--json]         # 一屏全景：项目/阶段/进度/成本/素材/产物
     python scripts/nfctl.py check  [--json]         # 环境自检：密钥/配置/端口/gates/重复键
     python scripts/nfctl.py doctor [--json]         # 数据一致性自检：产物完整性/孤儿文件/数据库
+    python scripts/nfctl.py homo   [--json]         # 同质化/退化报告（stage4 自动生成，零 token 只读）
     python scripts/nfctl.py serve  [--port 8766]    # 启动本地调试看板（零依赖）
     python scripts/nfctl.py api <GET路径> [--json]  # 只读转发到 nf_api（服务需在跑）
     python scripts/nfctl.py model-check [provider] [--live]
@@ -774,6 +775,43 @@ def render_doctor(d: dict) -> str:
     return "\n".join(lines)
 
 
+# ---------------------------------------------------------------- homogeneity
+def collect_homogeneity(root: Path) -> dict:
+    """汇总 stage4/stage6 落盘的同质化报告（只读，零 token）。
+
+    读取口径与 GUI 端点共用 `utils.homogeneity.collect_reports` —— 一处实现，
+    两处展示，避免"命令行说无异常、界面说有 3 项"这类分裂。
+    """
+    from utils.homogeneity import collect_reports
+    return collect_reports(root)
+
+
+def render_homogeneity(d: dict) -> str:
+    lines = []
+    if not d["chapters"]:
+        lines.append("同质化报告：暂无。")
+        lines.append("  跑过 stage4 之后每章自动生成（%s）。" % d["dir"])
+        lines.append("  也可单独测一章：python scripts/utils/homogeneity.py <章节.md> --names 角色1,角色2")
+        return "\n".join(lines)
+    lines.append("同质化报告：%d 章，%d 项待看（零 token，只报不拦）"
+                 % (len(d["chapters"]), d["findings"]))
+    for c in d["chapters"]:
+        if c.get("error"):
+            lines.append("  %-6s 解析失败" % c["chapter"])
+            continue
+        if not c.get("enabled"):
+            flag = "样本不足，跳过"
+        elif c["findings"]:
+            flag = "、".join((f.get("code") if isinstance(f, dict) else str(f))
+                            for f in c["findings"])
+        else:
+            flag = "无异常"
+        lines.append("  %-6s %5d 字  %s" % (c["chapter"], c.get("chars", 0), flag))
+    if d["findings"]:
+        lines.append("→ 这些是确定性指标的告警，不是判废；改不改由人定。")
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------- serve
 def start_serve(root: Path, port: int = 8766):
     """启动本地调试看板（零依赖，类似方寸的 tegula serve）。
@@ -1467,6 +1505,8 @@ def main(argv=None):
     sub.add_parser("status", parents=[common], help="一屏全景（离线，不需要 nf_api）")
     sub.add_parser("check", parents=[common], help="环境自检（含 YAML 重复键）")
     sub.add_parser("doctor", parents=[common], help="数据一致性自检（产物完整性/孤儿文件/数据库）")
+    sub.add_parser("homo", parents=[common],
+                   help="同质化/退化报告（stage4 落盘后自动生成；零 token 只读）")
     p_serve = sub.add_parser("serve", parents=[common], help="启动本地调试看板（零依赖）")
     p_serve.add_argument("--port", type=int, default=8766, help="端口（默认 8766）")
     p_test = sub.add_parser("test", parents=[common], help="统一测试运行器（跑 tests/ 下所有自定义测试）")
@@ -1516,6 +1556,12 @@ def main(argv=None):
     if args.cmd == "doctor":
         data = collect_doctor(root)
         print(json.dumps(data, ensure_ascii=False, indent=2) if as_json else render_doctor(data))
+        return 0
+
+    if args.cmd == "homo":
+        data = collect_homogeneity(root)
+        print(json.dumps(data, ensure_ascii=False, indent=2) if as_json
+              else render_homogeneity(data))
         return 0
 
     if args.cmd == "test":

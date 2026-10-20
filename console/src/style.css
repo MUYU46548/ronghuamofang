@@ -742,6 +742,11 @@ body {
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
 .ov-multi-col { border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; background: var(--field-inset); }
 .ov-multi-head { display: flex; align-items: center; gap: 8px; }
+/* 开局方案卡片：字段名 + 内容；「代价」单独用警示色左边线，让取舍一眼可见 */
+.ov-var-body { font-size: 13px; line-height: 1.72; margin: 8px 0 10px; }
+.ov-var-body p { margin: 0 0 6px; }
+.ov-var-k { display: inline-block; min-width: 4.6em; color: var(--muted); margin-right: 6px; }
+.ov-var-risk { border-left: 3px solid var(--warn); padding-left: 8px; }
 .ov-multi-score { font-size: 12px; color: var(--muted); margin: 4px 0 8px; }
 .ov-multi-act {
   display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted);
