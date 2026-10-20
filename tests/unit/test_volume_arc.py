@@ -75,7 +75,12 @@ class Stub:
 
     def __init__(self, volume_text=None, chapter_body=None):
         self.volume_text = volume_text
-        self.chapter_body = chapter_body or "## 第N章 名字\n- 核心事件：某事发生\n- 涉及角色：苏芷\n- 功能：推进\n"
+        # 六字段：stage3 对**新生成**的章大纲按 strict 校验（2026-10-20），
+        # 夹具少了「小目标」「悬念钩子」会让整个滚动用例假红。
+        self.chapter_body = chapter_body or (
+            "## 第N章 名字\n- 核心事件：某事发生并被挡住\n- 涉及角色：苏芷\n"
+            "- 小目标：拿到那份旧记录\n- 悬念钩子：记录上多出一个陌生名字\n"
+            "- 功能：推进\n")
         self.calls = []
 
     def write_task(self, task_dir, name, content):

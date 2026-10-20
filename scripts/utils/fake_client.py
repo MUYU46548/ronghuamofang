@@ -240,10 +240,15 @@ def _write_chapter_outlines(text):
     for n in sorted({int(x) for x in nums}):
         p = Path("data/outline/chapters") / (("%02d" % n) + ".md")
         p.parent.mkdir(parents=True, exist_ok=True)
+        # 六字段（2026-10-20）：stage3 对**新生成**的章大纲按 strict 校验，
+        # 夹具少一个字段整条 stage3 就会红 —— 所以这里必须按生产契约写全。
         write_text(p, ("# 第" + str(n) + "章 大纲（fake）\n\n"
-                       "- 核心事件：测试事件推进\n"
+                       "- 核心事件：测试主角想拿到第 " + str(n) + " 份记录，被守门人挡下，最终换了个法子进去\n"
                        "- 涉及角色：测试角色（主角）\n"
-                       "- 功能：承接上章，推进主线\n"))
+                       "- 小目标：拿到第 " + str(n) + " 份旧记录\n"
+                       "- 悬念钩子：那份记录上多出一个不认识的名字\n"
+                       "- 功能：承接上章，推进主线\n"
+                       "- 衔接：接上章结尾的雨夜\n"))
         out.append(p)
     return out
 

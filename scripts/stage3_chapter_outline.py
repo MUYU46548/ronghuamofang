@@ -17,14 +17,78 @@ from utils.template_loader import load_template
 from utils.config_io import load_config_yaml
 from utils import volume_arc as va
 
+# 硬字段（一直以来的契约，缺了就判废 —— 老项目的章大纲可能只有这三个）
 REQUIRED_FIELDS = ["核心事件", "涉及角色", "功能"]
+# 新增字段（2026-10-20，v0.7.2）：只对**新生成**的章大纲强制（strict=True），
+# 存量大纲不因此判废 —— 否则升级一次就把用户已写完的大纲全判成不合格。
+NEW_FIELDS = ["小目标", "悬念钩子"]
+# 字段值下限（有效字符）：太短等于没写（"小目标：继续调查" 就是没写）
+MIN_FIELD_CHARS = 6
+
+_FIELD_RE_CACHE = {}
 
 
-def check_chapter_outline(path):
-    """校验单章大纲字段。返回 (ok, errors)。"""
+def _field_re(name):
+    """匹配行首 `- 字段：值` / `字段: 值`（也接受 **加粗** 写法）。"""
+    import re as _re
+    key = name
+    if key not in _FIELD_RE_CACHE:
+        # ⚠️ 冒号后只能用 `[ \t]*`，不能写 `\s*`：`\s` 会把换行吃掉，
+        # 让「- 小目标：（空值）」匹配到**下一行整行**，空值于是被判成"有内容"
+        # （2026-10-20 实测：值取回来是下一行的「- 悬念钩子：…」）。
+        _FIELD_RE_CACHE[key] = _re.compile(
+            r"^[ \t]*(?:[-*+][ \t]+)?\**[ \t]*" + _re.escape(name)
+            + r"[ \t]*\**[ \t]*[：:][ \t]*(.*)$", _re.M)
+    return _FIELD_RE_CACHE[key]
+
+
+def field_value(text, name):
+    """取字段值（第一处）；没有该字段返回 None。多行只取第一行 —— 现有格式都是单行。"""
+    m = _field_re(name).search(text or "")
+    return m.group(1).strip() if m else None
+
+
+def has_field(text, name):
+    """字段存在且有值（空值不算有）。旧实现只判 `f in text`：
+    正文里出现"钩子"两个字就算有字段 —— 那是假判据。"""
+    v = field_value(text, name)
+    return bool(v)
+
+
+def parse_chapter_outline(path):
+    """把章大纲解析成 {字段名: 值}（六字段全试一遍，缺的就是 None）。
+
+    供 v0.9.3 伏笔台账与 GUI 复用 —— 它们不该各写一份正则。
+    """
+    try:
+        text = read_text(path)
+    except Exception:                                          # noqa: BLE001
+        return {}
+    return {f: field_value(text, f) for f in REQUIRED_FIELDS + NEW_FIELDS}
+
+
+def check_chapter_outline(path, strict=False):
+    """校验单章大纲字段。返回 (ok, errors)。
+
+    strict=False（默认，存量/GUI）：只要求三个硬字段存在且有值。
+    strict=True（stage3 **新生成**后）：再要求「小目标」「悬念钩子」存在，
+    且这两个字段的值至少 `MIN_FIELD_CHARS` 个有效字符。
+    """
     text = read_text(path)
-    missing = [f for f in REQUIRED_FIELDS if f not in text]
-    return (not missing, missing)
+    errors = []
+    for f in REQUIRED_FIELDS:
+        if not has_field(text, f):
+            errors.append(f"缺少字段或值为空: {f}")
+    if strict:
+        for f in NEW_FIELDS:
+            v = field_value(text, f)
+            if not v:
+                errors.append(f"缺少字段或值为空: {f}（新标准必填）")
+            elif len(v) < MIN_FIELD_CHARS:
+                errors.append(
+                    "字段「%s」只有 %d 字（下限 %d）：%s"
+                    % (f, len(v), MIN_FIELD_CHARS, v[:20]))
+    return (not errors, errors)
 
 
 def outline_ok(path):
@@ -38,7 +102,7 @@ def outline_ok(path):
     if not p.exists():
         return False
     try:
-        ok, _errs = check_chapter_outline(p)
+        ok, _errs = check_chapter_outline(p)      # 存量宽容：不查新字段
         return bool(ok)
     except Exception:                                         # noqa: BLE001
         return False
@@ -115,9 +179,11 @@ def generate_chapters(cfg, proj, chapters, client, task_dir="data/state/tasks",
             p = out_dir / f"{n:02d}.md"
             if not p.exists():
                 return False, f"stage3 第{n}章大纲未生成"
-            ok, missing = check_chapter_outline(p)
+            # 新生成的章大纲按**新标准**校验（六字段 + 值不能敷衍）；
+            # 存量章大纲走 outline_ok 的宽松判据，升级不会把它们判废。
+            ok, missing = check_chapter_outline(p, strict=True)
             if not ok:
-                return False, f"stage3 第{n}章大纲缺字段: {missing}"
+                return False, f"stage3 第{n}章大纲不合格: {missing}"
         print(f"[stage3] 批 {bi}/{len(groups)} 完成（章节 {chs[0]}-{chs[-1]}）")
     return True, "生成完成（%d 章）" % len(chapters)
 
