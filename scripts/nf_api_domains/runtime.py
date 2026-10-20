@@ -431,6 +431,139 @@ def handle_chapters_history(h):
 
 
 # 本模块负责的端点（供自检与文档）
+# ---------------------------------------------------------------- 残稿（2026-10-20）
+# 路径一律用 api.ROOT 绝对拼接：打包态的 CWD 不是工作区，相对路径会读错目录。
+def _trunc_store():
+    from utils import truncated_store as ts
+    ts.TRUNC_DIR = Path(api.ROOT) / "data" / "state" / "truncated"
+    ts.RAW_DIR = Path(api.ROOT) / "data" / "chapters" / "raw"
+    return ts
+
+
+def handle_truncated(h):
+    """残稿清单（零 token 只读）。
+
+    为什么要有：截断时我们**不落盘**（纪律正确），但人看不见那份 3000 字的开头，
+    只看到「失败」。书童把这类叫「失败恢复候选」，这里给同一件事一个可见入口。
+    """
+    try:
+        ts = _trunc_store()
+        items = ts.list_items()
+        return 200, {"ok": True, "items": items, "count": len(items),
+                     "adopted": {str(k): v for k, v in ts.adopted_marks().items()},
+                     "min_chars": ts.MIN_ADOPT_CHARS,
+                     "dir": "data/state/truncated"}
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_truncated_read(h):
+    """读一份残稿全文：`GET /truncated/item?name=xxx.txt`（只允许 basename）。"""
+    try:
+        q = h._query()
+        name = (q.get("name") or [""])[0]
+        ts = _trunc_store()
+        return 200, {"ok": True, "name": Path(name).name, "text": ts.read_item(name)}
+    except FileNotFoundError as e:
+        return 404, {"ok": False, "error": str(e)}
+    except Exception as e:                                  # noqa: BLE001
+        return 400, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_truncated_adopt(h, body):
+    """采纳为第 N 章草稿：`POST /truncated/adopt {name, chapter, replace?}`。
+
+    采纳**不等于完成**：写进 raw 的同时打侧车标记，`is_chapter_complete` 见到标记
+    仍判未完成（残稿就是残稿）。补齐后由用户点「已补齐」清标记。
+    """
+    try:
+        ts = _trunc_store()
+        ok, msg = ts.adopt((body or {}).get("name"), (body or {}).get("chapter"),
+                           replace=bool((body or {}).get("replace")))
+        return (200 if ok else 400), ({"ok": True, "message": msg} if ok
+                                      else {"ok": False, "error": msg})
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_truncated_clear(h, body):
+    """「已补齐」：清掉某章的自残稿标记，恢复正常完成判定。"""
+    try:
+        ts = _trunc_store()
+        ok = ts.clear_mark((body or {}).get("chapter"))
+        return (200 if ok else 404), (
+            {"ok": True, "message": "已清除第 %s 章的残稿标记" % (body or {}).get("chapter")}
+            if ok else {"ok": False, "error": "该章没有残稿标记"})
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+# ---------------------------------------------------------------- 伏笔台账（2026-10-20）
+def _foreshadow_mod():
+    from utils import foreshadow as fs
+    fs.OUTLINE_DIR = Path(api.ROOT) / "data" / "outline" / "chapters"
+    fs.STATUS_PATH = Path(api.ROOT) / "data" / "state" / "foreshadow_status.json"
+    return fs
+
+
+def _foreshadow_stale_after():
+    """阈值取 gates.foreshadow_stale（默认 30 章）；读不到就用默认。"""
+    try:
+        cfg = api.load_all()[0]
+        v = ((cfg or {}).get("gates") or {}).get("foreshadow_stale")
+        return int(v) if v is not None else None
+    except Exception:                                       # noqa: BLE001
+        return None
+
+
+def _latest_chapter_no():
+    """最新章节号（raw / checked / refined 里最大的）。台账用它算「闲置几章」。"""
+    best = 0
+    for sub in ("refined", "checked", "raw"):
+        d = Path(api.ROOT) / "data" / "chapters" / sub
+        if not d.exists():
+            continue
+        for f in d.glob("*.md"):
+            try:
+                best = max(best, int(f.stem))
+            except (TypeError, ValueError):
+                continue
+    return best or None
+
+
+def handle_foreshadow(h):
+    """伏笔台账（零 token 只读）：`GET /foreshadow`。
+
+    数据来源只有两个确定性入口：章大纲的「悬念钩子」+ 后续章的文本重合。
+    **回收不自动判定** —— 文本相似不等于解决了，自动判会让台账变谎话。
+    """
+    try:
+        fs = _foreshadow_mod()
+        data = fs.collect(stale_after=_foreshadow_stale_after(),
+                          latest_chapter=_latest_chapter_no())
+        return 200, {"ok": True, **data, "markdown": fs.render_markdown(data)}
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_foreshadow_status(h, body):
+    """人工拍板：`POST /foreshadow/status {id, status, reason}`。
+
+    closed / abandoned **必须写理由**：这是唯一能防止台账被随手清空的东西。
+    人工标记压过自动判定（与素材裁决同口径）。
+    """
+    try:
+        fs = _foreshadow_mod()
+        ok, msg = fs.set_status((body or {}).get("id"), (body or {}).get("status"),
+                                (body or {}).get("reason") or "",
+                                stale_after=_foreshadow_stale_after(),
+                                latest_chapter=_latest_chapter_no())
+        return (200 if ok else 400), ({"ok": True, "message": msg} if ok
+                                      else {"ok": False, "error": msg})
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 ROUTES = (
     ("GET", "/jobs/{id}", handle_jobs),
     ("GET", "/review/report", handle_review_report),
@@ -447,4 +580,12 @@ ROUTES = (
     ("GET", "/decompose/consent", handle_decompose_consent),
     ("GET", "/decompose/snippets", handle_decompose_snippets),
     ("GET", "/chapters/history", handle_chapters_history),
+    # 残稿可见可采纳（2026-10-20）
+    ("GET", "/truncated", handle_truncated),
+    ("GET", "/truncated/item", handle_truncated_read),
+    ("POST", "/truncated/adopt", handle_truncated_adopt),
+    ("POST", "/truncated/clear", handle_truncated_clear),
+    # 伏笔台账（2026-10-20）
+    ("GET", "/foreshadow", handle_foreshadow),
+    ("POST", "/foreshadow/status", handle_foreshadow_status),
 )

@@ -2062,6 +2062,15 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/review/ledger":
             # 七维评审账本（2026-10-20，零 token 只读）：?chapter=N 取单章明细。
             self._send(*_dom(dom_runtime.handle_review_ledger(self)))
+        elif p == "/truncated":
+            # 残稿清单（2026-10-20）：截断的正文一直隔离在盘上，但人看不见。
+            self._send(*_dom(dom_runtime.handle_truncated(self)))
+        elif p == "/truncated/item":
+            # 读一份残稿全文（?name=xxx.txt，只允许 basename）
+            self._send(*_dom(dom_runtime.handle_truncated_read(self)))
+        elif p == "/foreshadow":
+            # 伏笔台账（2026-10-20，零 token 只读）：从章大纲「悬念钩子」抽取。
+            self._send(*_dom(dom_runtime.handle_foreshadow(self)))
         elif p == "/decompose/consent":
             self._send(*_dom(dom_runtime.handle_decompose_consent(self)))
         elif p == "/decompose/snippets":
@@ -2776,6 +2785,16 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/config/form":
                 # 文体写入（book.form）：只允许 FORMS 里的值，写后回读校验。
                 self._send(*_dom(dom_project.handle_config_form_set(self, body)))
+            elif p == "/truncated/adopt":
+                # 采纳残稿为草稿（2026-10-20）：写进 raw 并打侧车标记，
+                # 完成判定仍为「未完成」——采纳不等于完成。
+                self._send(*_dom(dom_runtime.handle_truncated_adopt(self, body)))
+            elif p == "/truncated/clear":
+                # 「已补齐」：清掉该章残稿标记，恢复正常完成判定
+                self._send(*_dom(dom_runtime.handle_truncated_clear(self, body)))
+            elif p == "/foreshadow/status":
+                # 伏笔三态拍板（closed/abandoned 必须写理由）
+                self._send(*_dom(dom_runtime.handle_foreshadow_status(self, body)))
             elif p == "/review/comment":
                 # 给指定 finding 添加评论（GUI 审稿面板用；原先误挂在 do_GET 里，
                 # do_GET 没有 body → 必然 500，2026-09-15 移到 do_POST）

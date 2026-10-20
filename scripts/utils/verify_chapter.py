@@ -275,10 +275,20 @@ def is_chapter_complete(path, target_min=1200, target_max=3500, para_structure=T
 
     ⚠️ 退化判据的**严重项**也计入：否则断点续跑会把一坨复读文本
     当成「已完成」跳过，于是永远不重写（静默失败）。
+
+    ⚠️ **采纳自残稿的章一律判未完成**（2026-10-20）：截断点之后的剧情大概率整段
+    缺失，只是字数碰巧够。补上这条，否则"采纳残稿"会变成"绕过审稿"的后门。
+    用户补齐后点「已补齐」清标记，正常流程继续。
     """
     p = Path(path)
     if not p.exists():
         return False
+    try:
+        from utils.truncated_store import is_adopted
+        if is_adopted(p.stem):
+            return False
+    except Exception:                                        # noqa: BLE001
+        pass                                                 # 标记读不到不影响原判据
     try:
         text = read_text(path).strip()
     except Exception:

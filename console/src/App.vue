@@ -22,6 +22,8 @@ import QualityTrend from "./QualityTrend.vue";
 import ConsistencyPanel from "./ConsistencyPanel.vue";
 import ReviewLedgerPanel from "./ReviewLedgerPanel.vue";
 import SettingClosurePanel from "./SettingClosurePanel.vue";
+import TruncatedPanel from "./TruncatedPanel.vue";
+import ForeshadowPanel from "./ForeshadowPanel.vue";
 
 // 审批门通知偏好
 const GATE_NOTIFY_KEY = "mofang_gate_notify";
@@ -3972,6 +3974,11 @@ onUnmounted(() => {
         <button class="mini" :class="{ ghost: !(c.files.raw && c.files.refined) }" @click="openDiff('第' + c.n + '章 润色对比', c.files.raw, c.files.refined)">对比</button>
         <button class="mini" @click="openHistory(c.n)">历史</button>
       </div>
+
+      <!-- 残稿（2026-10-20）：截断的正文一直隔离在盘上，但人看不见 -->
+      <TruncatedPanel @say="say" />
+      <!-- 伏笔台账（2026-10-20）：从章大纲「悬念钩子」抽取，零额外 token -->
+      <ForeshadowPanel @say="say" />
     </section>
 
     <!-- 大纲（结构化视图 / 节点精修 / 版本对比 / 多方案） -->
