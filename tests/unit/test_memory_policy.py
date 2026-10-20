@@ -48,11 +48,11 @@ def check(name, cond, detail=""):
 def write_rolling(path, total_chapters, n_chapters=199):
     """造 1..n_chapters 章摘要（每章一句独一无二的话，便于断言"哪一章进来了"）。"""
     lines = ["# 滚动摘要", "## 全书摘要",
-             "全书总述：露汐在港城追查一批失踪的旧档案。", "", "## 近期章节"]
+             "全书总述：苏芷在河口追查一批失踪的旧档案。", "", "## 近期章节"]
     for i in range(1, n_chapters + 1):
-        # 每 3 章让露汐露一次面：角色维召回需要"摘要里提到本章角色"才成立，
+        # 每 3 章让苏芷露一次面：角色维召回需要"摘要里提到本章角色"才成立，
         # 全是"他"的摘要召回不出角色（这也是真实写作里会遇到的情况）。
-        who = "露汐在档案室翻看一批旧卷宗" if i % 3 == 0 else "他在码头等一个人"
+        who = "苏芷在档案室翻看一批旧卷宗" if i % 3 == 0 else "他在码头等一个人"
         lines += ["### 第%d章" % i,
                   "第%d章摘要：%s，雨下了一夜，那封信始终没有送到。" % (i, who)]
         lines.append("")
@@ -64,10 +64,10 @@ def scene(tmp, **over):
     """造一套最小工作区：设定集 / 滚动摘要 / 一致性账本。"""
     s = {
         "characters": [
-            {"id": "c001", "name": "露汐", "role": "档案室整理员",
-             "traits": ["记事极细"], "relations": {"凤鸣": "她欠他一个人情"}},
-            {"id": "c002", "name": "凤鸣", "role": "巡夜人",
-             "traits": ["沉默"], "relations": [{"name": "露汐", "desc": "师徒"}]},
+            {"id": "c001", "name": "苏芷", "role": "档案室整理员",
+             "traits": ["记事极细"], "relations": {"周砚清": "她欠他一个人情"}},
+            {"id": "c002", "name": "周砚清", "role": "巡夜人",
+             "traits": ["沉默"], "relations": [{"name": "苏芷", "desc": "师徒"}]},
             {"id": "c003", "name": "无相关的路人", "role": "路人"},
         ],
         "items": [{"name": "怀表"}],
@@ -75,7 +75,7 @@ def scene(tmp, **over):
             "怀表的来历始终没有交代，链子上刻着一个旧年号",
             "沙漠商队每年秋天经过北门，带着盐和铁器",
         ],
-        "world": {"地理": "港城分七区，外围是滩涂。"},
+        "world": {"地理": "河口分七区，外围是滩涂。"},
         "timeline": ["某年冬，封锁开始"],
     }
     s.update(over.get("setting") or {})
@@ -85,11 +85,11 @@ def scene(tmp, **over):
     st = {
         "version": 1,
         "events": [
-            {"chapter": 3, "type": "death", "who": "露汐", "evidence": "露汐倒在雨里，没再起来"},
-            {"chapter": 5, "type": "lose_item", "who": "凤鸣", "item": "怀表",
+            {"chapter": 3, "type": "death", "who": "苏芷", "evidence": "苏芷倒在雨里，没再起来"},
+            {"chapter": 5, "type": "lose_item", "who": "周砚清", "item": "怀表",
              "evidence": "他把怀表扔进河里"},
-            {"chapter": 12, "type": "act", "who": "凤鸣", "evidence": "凤鸣推门进来"},
-            {"chapter": 40, "type": "death", "who": "凤鸣", "evidence": "未来的事"},
+            {"chapter": 12, "type": "act", "who": "周砚清", "evidence": "周砚清推门进来"},
+            {"chapter": 40, "type": "death", "who": "周砚清", "evidence": "未来的事"},
         ],
         "conflicts": [],
     }
@@ -99,8 +99,8 @@ def scene(tmp, **over):
 
 
 OUTLINE = (
-    "核心事件：露汐在档案室翻到一只怀表，链子上刻着模糊的年号。\n"
-    "涉及角色：露汐、凤鸣\n功能：揭开旧案的第一层。"
+    "核心事件：苏芷在档案室翻到一只怀表，链子上刻着模糊的年号。\n"
+    "涉及角色：苏芷、周砚清\n功能：揭开旧案的第一层。"
 )
 
 
@@ -161,8 +161,8 @@ def case_recall_dims():
         check("P3 伏笔被召回（怀表碎片）", "foreshadow" in dims and "链子上刻着" in texts, texts)
         check("P3 无关碎片不召回（沙漠商队）", "沙漠商队" not in texts, texts)
         check("P3 状态被召回（扔怀表 / 第 3 章死亡）", "state" in dims, dims)
-        check("P3 关系被召回（露汐/凤鸣）", "relation" in dims, dims)
-        check("P3 角色被召回（滚动摘要里提到露汐的章）", "character" in dims, dims)
+        check("P3 关系被召回（苏芷/周砚清）", "relation" in dims, dims)
+        check("P3 角色被召回（滚动摘要里提到苏芷的章）", "character" in dims, dims)
         check("P3 每条都带标签 [伏笔]/[状态]/[关系]",
               "[伏笔]" in r["block"] and "[状态]" in r["block"], r["block"][-400:])
         check("P3 每条都写了为什么（命中：）",

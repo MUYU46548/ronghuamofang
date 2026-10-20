@@ -9,6 +9,50 @@ CHANGELOG」）。本文件从工程审查修复起正式启用。
 
 ## [Unreleased]
 
+## [v0.6.21] — 2026-10-20 长篇规模四项：七维评审 / 记忆策略 / 卷弧滚动 / 设定库闭环
+
+收口台账（`docs/收口台账-20261019.md`）二·三节一次清空。四件事共用一条判据：
+**宁可明说「没有」，也不给假的**。
+
+### 新增
+
+- **七维评审账本**（`utils/review_ledger.py`）：stage5 从自由文本审稿换成结构化判定。
+  七维与提示词七项检查一一对应，每维必须给分数 + **本章原文里逐字存在的句子**作举证；
+  举证对不上原文 → 该维 `score=None`（**不计分，不是扣分**），缺维不补默认分。
+  落盘 `data/review/NN.json` + `summary.json` + `ledger.md`；开关 `gates.review_ledger`
+  （`warn` 默认 / `block` 严格）。GUI：章节页签「七维评审账本」（`GET /review/ledger`）
+- **上下文记忆策略**（`utils/memory_policy.py`）：stage4 每章注入 L2 滚动层（全书摘要 +
+  最近 8 章）与 L3 四维召回（伏笔/角色/状态/关系）。**裁掉什么必须写出来**
+  （省略章号区间、丢掉候选数）；未来章节/事件不召回（剧透）
+- **卷弧双层滚动规划**（`utils/volume_arc.py` + `scripts/volume_plan.py`）：近层
+  （当前卷 + 后续 1 卷）出逐章目标，远层只留一句话方向；stage3 只铺到窗口，
+  stage4 按需补单章大纲。`chapter.rolling_volumes: 0` 可关回旧行为
+- **设定库闭环**：`merge_setting_from_vault` 增量合并（保留剧情碎片/时间线、`locked`
+  完全不碰、已有非空值不动、分歧进 `vault_conflicts.json`）；`utils/setting_brief.py`
+  给 stage2 内联设定摘要；GUI 设定页签「素材裁决」三态拍板（否决必须填原因）
+
+### 修复
+
+- **拆解声明弹层改回对话框范式**：此前用 `.drawer`（右侧抽屉）装一纸声明，按钮贴
+  视口边缘。改为 `dialog` 居中 + 可滚动正文 + 底部动作区，默认焦点在「我不同意」
+  （`autofocus` 对 `v-if` 新插入节点不生效，改 `watch + nextTick + focus()`）
+- **设定列表摘要回落到 `role`/`snippet`**：只认 `description` 时整列显示「（无描述）」，
+  看着像设定集是空的
+- **`leak_scan` 扫不到未跟踪文件**（高危假绿）：旧实现只跑 `git ls-files`，而
+  「提交前扫描」这个最常用时机新文件全是 untracked → 输出「零命中」。已改为
+  `ls-files -c -o --exclude-standard`
+
+### 测试
+
+- 新增 `test_review_ledger` 48 · `test_memory_policy` 28 · `test_volume_arc` 51 ·
+  `test_setting_closure` 41 断言；`nfctl test` 125/125
+- 新增真机视觉验收 `tests/e2e/e2e_ledger_panels.py`（24 断言，自起 nf_api + 静态服务）
+
+### 发布树
+
+- 夹具/预设里的专名一律换成虚构名（**禁止从 `Temp/`、`data/`、`materials/` 抄专名**
+  —— 那些就是真实素材）。`SEED_VERSION` 38 → 39，安装包待重打
+
 ## [v0.6.20] — 2026-10-19 范文窗口：面板里一键粘贴，跟着用户数据走
 
 用户原话：「为什么不在绒花墨坊里直接搞个窗口一键粘贴进去？而且它应该跟着用户数据走，

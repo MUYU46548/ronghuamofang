@@ -60,7 +60,7 @@ def check(name, cond, detail=""):
 
 
 # ---------------------------------------------------------------- fixture
-CARD_A = """# 角色：露汐
+CARD_A = """# 角色：苏芷
 
 ## 基本信息
 - 身份：档案室整理员
@@ -69,7 +69,7 @@ CARD_A = """# 角色：露汐
 > 来源：素材甲
 """
 
-CARD_B = """# 角色：露汐
+CARD_B = """# 角色：苏芷
 
 ## 基本信息
 - 身份：档案室的整理员（旧版笔记）
@@ -80,13 +80,13 @@ CARD_B = """# 角色：露汐
 
 SETTING = {
     "characters": [
-        {"id": "c001", "name": "露汐", "role": "档案室整理员",
-         "traits": ["记事极细"], "relations": {"凤鸣": "她欠他一个人情"},
+        {"id": "c001", "name": "苏芷", "role": "档案室整理员",
+         "traits": ["记事极细"], "relations": {"周砚清": "她欠他一个人情"},
          "source": "materials/raw/a.md"},
-        {"id": "c002", "name": "凤鸣", "role": "巡夜人", "traits": ["沉默"],
+        {"id": "c002", "name": "周砚清", "role": "巡夜人", "traits": ["沉默"],
          "source": "materials/raw/b.md"},
     ],
-    "world": {"地理": "港城分七区，外围是滩涂。"},
+    "world": {"地理": "河口分七区，外围是滩涂。"},
     "plot_fragments": ["怀表的来历始终没有交代，链子上刻着一个旧年号"],
     "timeline": ["某年冬，封锁开始"],
 }
@@ -185,7 +185,7 @@ def main():
               (one.get("dims") or {}).get("plot"))
         cf = api_get("/setting/conflicts")
         check("/setting/conflicts 已检查", cf.get("checked") is True, cf.get("reason"))
-        check("识别出「身份」字段分歧（露汐两份素材）",
+        check("识别出「身份」字段分歧（苏芷两份素材）",
               any(c.get("field") == "身份" for c in (cf.get("review_conflicts") or [])),
               cf.get("review_conflicts"))
 
@@ -227,7 +227,7 @@ def main():
                   "档案室整理员" in row.inner_text(), row.inner_text()[:80])
             body = sc.inner_text() if sc.count() else ""
             check("显示待裁决数量", "处待裁决" in body, body[:200])
-            check("列出冲突条目（露汐 / 身份）", "露汐" in body and "身份" in body, body[:400])
+            check("列出冲突条目（苏芷 / 身份）", "苏芷" in body and "身份" in body, body[:400])
             check("显示双方出处（素材甲 / 素材乙）",
                   "素材甲" in body or "素材乙" in body or "a.md" in body, body[:400])
             btn = sc.locator("button:has-text('否决该条目')").first

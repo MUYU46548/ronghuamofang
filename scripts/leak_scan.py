@@ -86,11 +86,25 @@ def tracked_files(root=".", use_git=True):
             # 转义成 `"examples/...\344\274\221..."` 这种带引号的形式，于是 Path() 找不到
             # 文件 → 扫描器**静默跳过**。中文文件名的素材/示例正好全是这一类
             # （2026-10-03 实测：examples/ 19 个中文名文件从未被扫过，门禁少报 ~60 处）。
-            out = subprocess.run(["git", "-c", "core.quotepath=false", "ls-files"],
-                                 cwd=str(root), capture_output=True, text=True,
-                                 encoding="utf-8", errors="replace", timeout=60)
+            #
+            # ⚠️ `-o --exclude-standard` 也不能省（2026-10-20 实测踩到）：只扫 `ls-files`
+            # = 只扫**已跟踪**文件。而"提交前扫描"这个最常用的时机，新文件恰好还全是
+            # untracked → **一个都扫不到**，输出"零命中"。本轮就是这样放行了 5 个文件、
+            # 36 处真实 IP 专名（扫描报绿，`git add` 之后立刻满屏命中）。
+            # 未跟踪但未被 .gitignore 忽略的文件，同样是要提交的内容，必须在扫描范围内。
+            out = subprocess.run(
+                ["git", "-c", "core.quotepath=false", "ls-files",
+                 "-c", "-o", "--exclude-standard"],
+                cwd=str(root), capture_output=True, text=True,
+                encoding="utf-8", errors="replace", timeout=60)
             if out.returncode == 0:
-                return [root / ln for ln in (out.stdout or "").splitlines() if ln.strip()], "git"
+                seen, files = set(), []
+                for ln in (out.stdout or "").splitlines():
+                    ln = ln.strip()
+                    if ln and ln not in seen:
+                        seen.add(ln)
+                        files.append(root / ln)
+                return files, "git(+untracked)"
         except Exception:                                     # noqa: BLE001
             pass
     files = [p for p in root.rglob("*")

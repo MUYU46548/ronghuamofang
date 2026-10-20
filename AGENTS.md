@@ -228,6 +228,28 @@ L2 滚动层（全书摘要 + 最近 `rolling_window` 章）与 L3 召回层（�
 `v-if` 动态插入时 `autofocus` **不生效**，必须 `watch + nextTick + focus()`；
 默认焦点放在**最保守的选项**上（"我不同意"）。
 
+## 发布树卫生：夹具/预设的专名只能取自虚构侧（2026-10-20 立规）
+
+**事故**：我（AI）为写测试夹具，从本机 `Temp/_archive_20261001/_probe_setting.json`
+（真实设定集的历史探针快照）里抄了角色名，写进 5 个发布树文件、共 69 处。
+`leak_scan` 当时报「零命中」—— 因为它只扫 `git ls-files`（已跟踪文件），
+而新文件在提交前全是 **untracked**。`git add` 之后立刻满屏命中。
+
+**两道修正（都已落地）**：
+
+1. `scripts/leak_scan.py` 改为 `git ls-files -c -o --exclude-standard`
+   —— 未跟踪但**未忽略**的文件同样会被提交，必须在扫描范围内。
+   教训：**"零命中"要先问"扫了几个文件"**（旧 421 / 新 491，差值就是盲区）。
+2. **专名来源白名单**（写夹具、写预设、写提示词例子时唯一允许的来源）：
+   - `ci/fictional-map.txt` 的**右侧**（虚构侧）；
+   - `examples/presets/*`、`examples/sample-book/*`（既有虚构宇宙）；
+   - 自己新造的、与任何真实素材无关的名字。
+   **禁止**从 `Temp/`、`data/`、`materials/`、`history/`、`deliverables/` 抄任何专名
+   —— 那几处就是作者的真实素材。文件名、注释里的例子也算。
+
+审稿口诀：**写夹具时问一句"这个名字我从哪看来的"** —— 答案是"本机某个数据文件"
+就停下换名字。
+
 ## 命令速查（常用）
 
 | 目的 | 命令（workdir=项目根，用 .venv python） |
@@ -237,7 +259,7 @@ L2 滚动层（全书摘要 + 最近 `rolling_window` 章）与 L3 召回层（�
 | 审批 / 打回 | `python scripts/approve.py --stage N`（`--revoke` 撤销；阶段 1 审批 = 冻结 canon）· `python scripts/reject.py --stage N "原因"` |
 | 换书 | `python scripts/switch_book.py --list` / `--archive` / `--restore "书名"`（均需 `--yes`；归档含 `config/` 与 `materials/`） |
 | **副产物管理** | `python scripts/artifacts.py`（看清楚）· `--export <id\|all> --to <目录>`（导出）· `--clean <id,…> --yes`（清理，默认 dry-run） |
-| **提交前门禁** | `python scripts/quality_gate.py`（未定义名/语法错零容忍）· `python scripts/leak_scan.py --list ci/blacklist.txt`（发布前/CI） |
+| **提交前门禁** | `python scripts/quality_gate.py`（未定义名/语法错零容忍）· `python scripts/leak_scan.py --list ci/blacklist.txt`（发布前/CI；**已含未跟踪文件**，提交前跑一次即可，不必先 `git add`） |
 
 > 其余 90+ 条命令（各阶段脚本、体检、精修、沙盒审核、成本、拆书、MCP 自检、各种自检用例…）
 > 见 **`docs/commands.md`**。

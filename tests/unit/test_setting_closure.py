@@ -13,7 +13,7 @@
 4. 同名条目**已有非空值不被覆盖**，差异记进 vault_conflicts.json
 5. `locked: true` 的条目**完全不碰**（连空字段也不补）
 6. 合并前备份到 history/
-7. `base_name` 归一：`露汐（档案室）` 与 `露汐` 视为同一人（不重复追加）
+7. `base_name` 归一：`苏芷（档案室）` 与 `苏芷` 视为同一人（不重复追加）
 
 **大纲注入（setting_brief.build）**
 8. 角色 / 地点势力 / 伏笔 / 时间线四段都在
@@ -49,25 +49,25 @@ def check(name, cond, detail=""):
 
 SETTING = {
     "characters": [
-        {"id": "c001", "name": "露汐", "role": "档案室整理员",
+        {"id": "c001", "name": "苏芷", "role": "档案室整理员",
          "traits": ["记事极细"], "source": "materials/raw/a.md"},
-        {"id": "c002", "name": "凤鸣", "role": "", "traits": [],
+        {"id": "c002", "name": "周砚清", "role": "", "traits": [],
          "source": "materials/raw/b.md"},
-        {"id": "c003", "name": "老周", "role": "巡夜人", "locked": True,
+        {"id": "c003", "name": "老赵", "role": "巡夜人", "locked": True,
          "source": "materials/raw/c.md"},
     ],
-    "world": {"locations": [{"name": "港城三区", "snippet": "旧库房所在"}]},
+    "world": {"locations": [{"name": "河口三区", "snippet": "旧库房所在"}]},
     "plot_fragments": ["怀表的来历没有交代", "北门的商队每年秋天来一次"],
     "timeline": ["某年冬，封锁开始"],
     "meta": {"source": "stage1"},
 }
 
 VAULT_CHARS = [
-    {"name": "露汐", "role": "档案室的整理员", "traits": ["冷静"], "path": "人物/露汐.md",
+    {"name": "苏芷", "role": "档案室的整理员", "traits": ["冷静"], "path": "人物/苏芷.md",
      "source": "vault"},
-    {"name": "露汐（档案室）", "role": "整理员", "path": "人物/露汐（档案室）.md", "source": "vault"},
-    {"name": "凤鸣", "role": "巡夜人", "path": "人物/凤鸣.md", "source": "vault"},
-    {"name": "老周", "role": "巡夜人（旧）", "traits": ["多疑"], "path": "人物/老周.md",
+    {"name": "苏芷（档案室）", "role": "整理员", "path": "人物/苏芷（档案室）.md", "source": "vault"},
+    {"name": "周砚清", "role": "巡夜人", "path": "人物/周砚清.md", "source": "vault"},
+    {"name": "老赵", "role": "巡夜人（旧）", "traits": ["多疑"], "path": "人物/老赵.md",
      "source": "vault"},
     {"name": "新角色·阿岚", "role": "码头记账的", "path": "人物/阿岚.md", "source": "vault"},
 ]
@@ -120,31 +120,31 @@ def case_merge():
 
         names = [c["name"] for c in data["characters"]]
         check("P1 新角色被追加", "新角色·阿岚" in names, names)
-        check("P1 base_name 归一：不重复追加「露汐（档案室）」",
-              names.count("露汐") == 1 and "露汐（档案室）" not in names, names)
+        check("P1 base_name 归一：不重复追加「苏芷（档案室）」",
+              names.count("苏芷") == 1 and "苏芷（档案室）" not in names, names)
         check("P1 地点被追加", any(w["name"] == "旧码头" for w in data["world"]["locations"]),
               data["world"]["locations"])
         check("P1 势力被追加", any(w["name"] == "盐帮" for w in data["world"]["factions"]),
               data["world"].get("factions"))
-        check("P1 原有地点仍在", any(w["name"] == "港城三区" for w in data["world"]["locations"]),
+        check("P1 原有地点仍在", any(w["name"] == "河口三区" for w in data["world"]["locations"]),
               data["world"]["locations"])
 
-        lu = next(c for c in data["characters"] if c["name"] == "露汐")
+        lu = next(c for c in data["characters"] if c["name"] == "苏芷")
         check("P1 已有非空字段**不被覆盖**（role 仍是素材归并那版）",
               lu["role"] == "档案室整理员", lu["role"])
         check("P1 已有非空 traits 不被覆盖", lu["traits"] == ["记事极细"], lu["traits"])
 
-        fm = next(c for c in data["characters"] if c["name"] == "凤鸣")
+        fm = next(c for c in data["characters"] if c["name"] == "周砚清")
         check("P1 空字段被补全（role 从 vault 补齐）", fm["role"] == "巡夜人", fm["role"])
 
-        zhou = next(c for c in data["characters"] if c["name"] == "老周")
+        zhou = next(c for c in data["characters"] if c["name"] == "老赵")
         check("P1 locked 条目完全不碰（role 未变）", zhou["role"] == "巡夜人", zhou["role"])
         check("P1 locked 条目的空字段也不补（traits 仍空）",
               zhou.get("traits") in ([], None), zhou.get("traits"))
-        check("P1 locked 跳过被统计", "老周" in st["skipped_locked"], st["skipped_locked"])
+        check("P1 locked 跳过被统计", "老赵" in st["skipped_locked"], st["skipped_locked"])
 
-        check("P1 分歧被记录（露汐 role 两个说法）",
-              any(c["name"] == "露汐" and c["field"] == "role" for c in st["conflicts"]),
+        check("P1 分歧被记录（苏芷 role 两个说法）",
+              any(c["name"] == "苏芷" and c["field"] == "role" for c in st["conflicts"]),
               st["conflicts"])
         cp = tmp / "data" / "setting" / "vault_conflicts.json"
         check("P1 vault_conflicts.json 落盘", cp.exists())
@@ -212,9 +212,9 @@ def case_brief():
         r = SB.build(str(sp))
         b = r["block"]
         check("P3 无错误", not r["error"], r["error"])
-        check("P3 角色段在", "### 角色" in b and "露汐" in b, b[:200])
+        check("P3 角色段在", "### 角色" in b and "苏芷" in b, b[:200])
         check("P3 性格被内联", "记事极细" in b, b[:400])
-        check("P3 地点势力段在", "### 地点 / 势力" in b and "港城三区" in b, b[:400])
+        check("P3 地点势力段在", "### 地点 / 势力" in b and "河口三区" in b, b[:400])
         check("P3 伏笔段在（大纲必须看到）", "### 伏笔" in b and "怀表的来历" in b, b[:600])
         check("P3 时间线段在", "### 时间线" in b and "封锁开始" in b, b[:600])
         check("P3 locked 有标记", "【locked】" in b, b[:300])
@@ -247,7 +247,7 @@ def case_brief_dedup():
             import obsidian_bridge
             old = obsidian_bridge.scan_vault
             obsidian_bridge.scan_vault = lambda vp=None: {
-                "characters": [{"name": "露汐", "snippet": "已在设定集里"},
+                "characters": [{"name": "苏芷", "snippet": "已在设定集里"},
                                {"name": "阿岚", "snippet": "码头记账的年轻人"}],
                 "world": [{"name": "旧码头", "snippet": "涨潮时淹掉半截", "type": "地点"}],
             }
@@ -257,8 +257,8 @@ def case_brief_dedup():
                 obsidian_bridge.scan_vault = old
         b = r["block"]
         check("P4 vault 补充段出现", "尚未归并" in b, b[-300:])
-        check("P4 已在设定集的名字不再列（露汐）",
-              b.count("露汐") == 1, [l for l in b.splitlines() if "露汐" in l])
+        check("P4 已在设定集的名字不再列（苏芷）",
+              b.count("苏芷") == 1, [l for l in b.splitlines() if "苏芷" in l])
         check("P4 新词条被列出（阿岚）", "阿岚" in b, b[-300:])
         check("P4 统计 vault 补充条数", r["stats"]["vault_extra"] >= 1, r["stats"])
     finally:

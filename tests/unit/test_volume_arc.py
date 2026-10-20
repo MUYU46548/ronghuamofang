@@ -57,13 +57,13 @@ def check(name, cond, detail=""):
 
 def volume_md(v, start, end, fill=True, placeholder=False):
     lines = ["# 第%d卷 门后的人（第 %d–%d 章）" % (v, start, end), "",
-             "## 本卷目标", "露汐把旧案的线头拉到自己身上，付出一个名字的代价。", "",
+             "## 本卷目标", "苏芷把旧案的线头拉到自己身上，付出一个名字的代价。", "",
              "## 关键转折", "- （第 %d 章附近）档案室被封" % start,
              "- （第 %d 章附近）父亲的名字出现在借阅卡上" % min(end, start + 5), "",
              "## 逐章目标"]
     for n in range(start, end + 1):
         if fill and not (placeholder and n == start + 1):
-            lines.append("第 %d 章：露汐在第 %d 区的旧库房里找到一份借阅卡。" % (n, n % 7 + 1))
+            lines.append("第 %d 章：苏芷在第 %d 区的旧库房里找到一份借阅卡。" % (n, n % 7 + 1))
         elif placeholder and n == start + 1:
             lines.append("第 %d 章：待补充" % n)
     lines += ["", "## 卷末交接", "下一卷从封条被撕开的那一夜开始。"]
@@ -75,7 +75,7 @@ class Stub:
 
     def __init__(self, volume_text=None, chapter_body=None):
         self.volume_text = volume_text
-        self.chapter_body = chapter_body or "## 第N章 名字\n- 核心事件：某事发生\n- 涉及角色：露汐\n- 功能：推进\n"
+        self.chapter_body = chapter_body or "## 第N章 名字\n- 核心事件：某事发生\n- 涉及角色：苏芷\n- 功能：推进\n"
         self.calls = []
 
     def write_task(self, task_dir, name, content):
@@ -107,7 +107,7 @@ class Sandbox:
         (self.root / "data" / "chapters" / "raw").mkdir(parents=True)
         (self.root / "data" / "setting").mkdir(parents=True)
         (self.root / "data" / "setting" / "setting.json").write_text(
-            json.dumps({"characters": [{"name": "露汐"}]}, ensure_ascii=False), encoding="utf-8")
+            json.dumps({"characters": [{"name": "苏芷"}]}, ensure_ascii=False), encoding="utf-8")
         (self.root / "data" / "outline" / "global.md").write_text(
             "# 全书大纲\n起承转合\n", encoding="utf-8")
         (self.root / "config").mkdir(parents=True)
@@ -166,7 +166,7 @@ def case_check_outline():
         check("P2 完整卷纲通过", ok, probs)
 
         no_ch = tmp / "no_ch.md"
-        no_ch.write_text(volume_md(2, 21, 40).replace("第 33 章：露汐", "第 33 章已删：露汐"),
+        no_ch.write_text(volume_md(2, 21, 40).replace("第 33 章：苏芷", "第 33 章已删：苏芷"),
                          encoding="utf-8")
         # 把第 33 行整行换掉，模拟"漏了一章"
         text = volume_md(2, 21, 40).splitlines()
@@ -215,11 +215,11 @@ def case_render():
 
         plan = VA.load_plan()
         VA.mark_outlined(plan, 3, 41, 60)
-        plan["volumes"]["3"]["goal"] = "露汐开始反查自己的来历。"
+        plan["volumes"]["3"]["goal"] = "苏芷开始反查自己的来历。"
         VA.save_plan(plan)
         r3 = VA.render_context(25, 200, {"chapter": {"volume_size": 20}}, {})
         check("P3 下一卷有计划时只给一句话方向",
-              "露汐开始反查自己的来历" in r3 and "逐章目标" not in r3, r3)
+              "苏芷开始反查自己的来历" in r3 and "逐章目标" not in r3, r3)
     finally:
         sb.close()
 
