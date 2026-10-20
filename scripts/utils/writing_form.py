@@ -188,6 +188,21 @@ def describe(spec):
 
 # ---------------------------------------------------------------- 写法指导
 
+def style_files_exist(form):
+    """该文体的写法指导文件是否**真的存在**（不看内容非空）。
+
+    ⚠️ 不能用 `style_blocks(form)[0] != ""` 判断（2026-10-20 实测踩到）：
+    `style_blocks` 对未接的文体**回落叙事**并返回叙事正文 → 非空 →
+    界面于是显示「已接入」，用户以为书信体有书信体的提示词。回落是回落，接入是接入。
+    """
+    from pathlib import Path as _P
+    code = form if form in FORMS else DEFAULT_FORM
+    for kind in ("style", "para"):
+        if not (_P("prompts/style") / ("%s_%s.md" % (code, kind))).exists():
+            return False
+    return True
+
+
 def style_blocks(form):
     """读该文体的「文风规则」「段落规则」两段 → (style, para, warning)。
 
@@ -217,3 +232,104 @@ def style_blocks(form):
     if got["style"] is None or got["para"] is None:
         return "", "", (warn or "写法指导文件缺失：prompts/style/%s_{style,para}.md" % code)
     return got["style"], got["para"], warn
+
+# ---------------------------------------------------------------- 评审提示词裁剪
+# 2026-10-20：stage5 的提示词原来硬写「七维 + 审美五问」，散文项目照样被要求
+# 逐条举证七维、还要给"对话区分度"作证。校验侧虽然标 N/A 不计分，但**token 已经花掉**，
+# 账本里还会留下模型为凑数硬编的证据。这里按文体把提示词本身裁掉。
+
+# 维度的「含义」说明（只用于提示词文案；判据真源仍是 review_ledger.DIMENSIONS）
+_DIM_HINT = {
+    "plot": ("情节连贯性", "主线支线是否咬合、转折是否有铺垫"),
+    "timeline": ("时序一致性", "时间线是否前后矛盾"),
+    "space": ("空间合理性", "地理与场景转换是否说得通"),
+    "reference": ("名词指代清晰", "指代是否产生歧义（他/她/它、绰号、代称）"),
+    "relation": ("人物关系自洽", "互动是否符合既有关系"),
+    "persona": ("人设统一", "行为与背景设定是否一致"),
+    "commonsense": ("常识与科学", "是否违背常识或本书世界观内的规则"),
+}
+_Q_HINT = {
+    "prose": ("描写质感", "有没有具体的感官细节，而不是形容词堆砌"),
+    "technique": ("叙事手法", "视角、节奏、信息给出的方式有没有讲究"),
+    "dialogue": ("对话区分度", "不同角色说话，能不能听出是谁"),
+    "diction": ("用词质量", "有没有用词重复、口头禅式表达、AI 腔"),
+    "impact": ("情感打动力", "读完这一段，读者会不会被推动一下"),
+}
+
+
+def review_scope(app, path_review):
+    """生成 stage5 的「评审账本」整块提示词（按文体裁剪维度与问题）。
+
+    app 来自 `applicability()`；path_review 是账本文件绝对路径。
+    返回的文本可直接替换模板里的 `{{review_scope}}`。
+    """
+    dims = [c for c in _DIM_HINT if c in (app.get("review_dims") or [])]
+    qs = [c for c in _Q_HINT if c in (app.get("aesthetic") or [])]
+    label = app.get("label") or form_spec(DEFAULT_FORM)["label"]
+    n_all_d, n_all_q = len(_DIM_HINT), len(_Q_HINT)
+
+    # 标题：叙事小说沿用「七维评审账本」这个既有名字；其它文体不说谎（散文只有 1 维）
+    title = ("## 七维评审账本（**必须**，结构化）" if len(dims) == n_all_d
+             else "## 评审账本（本文体 %d 维，**必须**，结构化）" % len(dims))
+    lines = [title, ""]
+    if len(dims) < n_all_d or len(qs) < n_all_q:
+        lines += ["本文体是**%s**。下面列出的维度/问题就是本次**全部**要评的，"
+                  "没列出来的（%s）**不要输出** —— 输出了也不计入。"
+                  % (label,
+                     "、".join(_DIM_HINT[c][0] for c in _DIM_HINT if c not in dims) or "无")]
+        lines.append("")
+
+    lines += ["对**每一章**逐维打分（0-10 整数），每维**必须**从本章原文里摘一句原句作举证：", ""]
+    lines += ["本次评 **%d** 维：如果本文体不是叙事小说，有些维度根本无从谈起"
+              "（散文没有主线情节、没有人物关系），那就**不要**硬凑。" % len(dims), ""]
+    lines += ["| dim | 维度 | 含义 |", "|---|---|---|"]
+    for c in dims:
+        lab, hint = _DIM_HINT[c]
+        lines.append("| `%s` | %s | %s |" % (c, lab, hint))
+    lines += ["", "举证纪律（**这些是硬要求，不是建议**）：", "",
+              "- `quote` 必须是本章原文里**逐字存在**的一句（可以截取一句，不要改写、不要拼接两处、",
+              "  不要翻译成更通顺的说法）。校验程序会拿本章全文逐字核对。",
+              "- 太短的引用不算（有效字符少于 8 个，例如「他点了点头」定位不到任何一处）。",
+              "- 单条引用不要超过 400 字——要引**句子**，不是整段。",
+              "- 一维只引一句就够：引**最能说明这一维问题或无恙**的那句。没把握就打低分，",
+              "  **不要编句子**——编的句子对不上原文，这一维**不计分**（不是扣分，是整维作废）。",
+              "- 本次 %d 维缺一不可，不要合并、不要加维度、不要用中文维度名代替 `dim` 代码。"
+              % len(dims), ""]
+
+    lines += ["## 审美五问（**必须**，另开一块，不塞进上面的逻辑维度）", "",
+              "逻辑维度管「有没有写错」，五问管「写得好看吗」。"
+              "对**每一章**各问一句，各引一句原文：", ""]
+    if len(qs) < n_all_q:
+        lines += ["本文体只评 **%d** 问（%s 不适用，不要输出）。" % (
+            len(qs), "、".join(_Q_HINT[c][0] for c in _Q_HINT if c not in qs)), ""]
+    lines += ["| q | 问什么 | 怎么才算答好 |", "|---|---|---|"]
+    for c in qs:
+        lab, hint = _Q_HINT[c]
+        lines.append("| `%s` | %s | %s |" % (c, lab, hint))
+    lines += ["", "举证纪律（比逻辑维度更严）：", "",
+              "- **一问一句，不许复用**：同一句原文不能给两问作证。重复的那一问**整问作废**",
+              "  （校验程序会按句子比对，第二问起判未举证）。",
+              "- 分数 0-10 整数；太短的引用不算（有效字符少于 8 个）；单条不超过 400 字。",
+              "- %d 问**缺一即整块作废** —— 写不出来就给低分，别瞎编。" % len(qs), ""]
+
+    # JSON 示例按**实际维度**生成：示例里出现七维，模型就会照着写七维
+    sample = {
+        "chapters": [{
+            "chapter": 1,
+            "summary": "一句话总评",
+            "dims": [{"dim": c, "score": 8, "quote": "本章原文里的一句", "note": "为什么给这个分"}
+                     for c in dims],
+            "aesthetic": [{"q": c, "score": 8,
+                           "quote": "一句与上面都不重复的原文", "note": "为什么给这个分"}
+                          for c in qs],
+        }]
+    }
+    import json as _json
+    lines += ["输出格式（**必须**写出这个 FILE 块，路径照抄）：", "",
+              "```", "===FILE: %s===" % path_review,
+              _json.dumps(sample, ensure_ascii=False, separators=(",", ":")),
+              "===END===", "```", "",
+              "**注意**：`aesthetic` 里的 quote 必须**两两不同**；同一句不能既给逻辑维度又给审美、"
+              "也不能给两问。校验程序会逐句比对，撞了就整问作废。", ""]
+    return "\n".join(lines)
+

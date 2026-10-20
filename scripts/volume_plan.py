@@ -72,6 +72,14 @@ def ensure_volume(v, cfg=None, proj=None, client=None, task_dir="data/state/task
     """
     cfg = cfg or {}
     proj = proj or {}
+    # 文体（2026-10-20）：散文 / 随笔集不做分卷 —— `writing_form` 里早写了 volume=False，
+    # 但一直没人读：配了不生效比没配更糟（用户以为关了，实际还在烧 token 生成卷纲）。
+    from utils import writing_form as _wf
+    _app = _wf.applicability(proj)
+    if not _app.get("volume", True):
+        msg = "本文体（%s）不做分卷规划，跳过" % _app.get("label", "")
+        log("[volume] " + msg)
+        return True, msg, False
     total = int(total if total is not None else (proj.get("book") or {}).get("chapters", 0) or 0)
     size = va.volume_size(cfg, proj)
     start, end = va.volume_range(v, size, total or size * v)
@@ -117,6 +125,13 @@ def ensure_window(cfg=None, proj=None, client=None, total=None, written=None,
     """确保「当前卷 + 后续 rolling_volumes-1 卷」都有合格卷纲。返回 (ok, messages, generated_n)。"""
     cfg = cfg or {}
     proj = proj or {}
+    # 文体（2026-10-20）：散文不做分卷 —— 入口早退，免得逐卷各打印一遍
+    from utils import writing_form as _wf
+    _app = _wf.applicability(proj)
+    if not _app.get("volume", True):
+        msg = "本文体（%s）不做分卷规划，跳过" % _app.get("label", "")
+        log("[volume] " + msg)
+        return True, [msg], 0
     total = int(total if total is not None else (proj.get("book") or {}).get("chapters", 0) or 0)
     size = va.volume_size(cfg, proj)
     roll = va.rolling_volumes(cfg)

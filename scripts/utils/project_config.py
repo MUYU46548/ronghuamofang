@@ -117,7 +117,7 @@ def get_style_notes():
 # book: 块里可由 GUI 定向改写的标量字段（含注释保留）
 BOOK_FIELDS = ("name", "genre", "chapters", "target_words", "style", "author",
                "language", "user_outline", "style_notes", "style_reference",
-               "word_template")
+               "word_template", "form")
 
 
 def _book_key_re(key):
@@ -179,6 +179,14 @@ def set_book_fields(fields):
         if not (1 <= n <= 999):
             return False, "章节数须在 1-999 之间"
         todo["chapters"] = n
+    if "form" in todo:
+        # 文体（2026-10-20）：取值只有 FORMS 里那几个。写错一个字母 → 整条流水线
+        # 退回叙事口径（而用户以为选了散文），所以这里必须**拒写**，不能回落。
+        from utils.writing_form import FORMS
+        v = str(todo["form"]).strip()
+        if v not in FORMS:
+            return False, "不支持的文体: %s（可选：%s）" % (v, "、".join(FORMS))
+        todo["form"] = v
 
     BACKUP_DIR.mkdir(parents=True, exist_ok=True)
     src = read_text(PROJECT_YAML)

@@ -167,6 +167,90 @@ def case_essay_wiring():
     shutil.rmtree(tmp2, ignore_errors=True)
 
 
+
+
+# ====================================================================== P9
+def case_scope_and_entry():
+    """提示词按文体裁剪 + 卷规划按文体关 + GUI 端点。"""
+    print("\n[P9] 评审提示词按文体裁剪（省 token，也让账本不留硬编证据）")
+    a_n = WF.applicability({"book": {"form": "narrative"}})
+    a_e = WF.applicability({"book": {"form": "essay"}})
+    t_n = WF.review_scope(a_n, "/abs/data/review/batch1.json")
+    t_e = WF.review_scope(a_e, "/abs/data/review/batch1.json")
+
+    check("P9 叙事：标题沿用「七维评审账本」", "七维评审账本" in t_n, t_n[:60])
+    check("P9 叙事：示例含 7 条维度", t_n.count('"dim"') == 7, t_n.count('"dim"'))
+    check("P9 叙事：示例含 5 问", t_n.count('"q"') == 5, t_n.count('"q"'))
+    check("P9 叙事：绝对路径照抄进示例", "/abs/data/review/batch1.json" in t_n)
+
+    check("P9 散文：标题**不**说七维", "七维" not in t_e, t_e[:60])
+    check("P9 散文：示例只 1 条维度", t_e.count('"dim"') == 1, t_e.count('"dim"'))
+    check("P9 散文：示例只 4 问", t_e.count('"q"') == 4, t_e.count('"q"'))
+    check("P9 散文：不出现 plot/timeline/relation 维度行", 
+          not any(("| `%s` |" % c) in t_e for c in ("plot", "timeline", "space",
+                                                   "reference", "relation", "persona")),
+          [l for l in t_e.splitlines() if l.startswith("| `")])
+    check("P9 散文：不出现对话区分度", "对话区分度" not in t_e.split("本文体只评")[0].split("| q |")[-1],
+          "对话区分度" in t_e)
+    check("P9 散文：明说不适用的不要输出", "不要输出" in t_e)
+    check("P9 散文：提示词比叙事短", len(t_e) < len(t_n), (len(t_e), len(t_n)))
+
+    # 真跑 stage5.build_check_task
+    print("\n[P9] stage5 任务文本真的按文体换")
+    import os
+    import shutil
+    import tempfile
+    tmp = Path(tempfile.mkdtemp(prefix="nf_scope_"))
+    cwd = os.getcwd()
+    try:
+        shutil.copytree(ROOT / "prompts", tmp / "prompts")
+        (tmp / "config").mkdir()
+        (tmp / "data" / "review").mkdir(parents=True)
+        (tmp / "data" / "chapters" / "raw").mkdir(parents=True)
+        (tmp / "data" / "chapters" / "raw" / "01.md").write_text("正文一句。", encoding="utf-8")
+        os.chdir(tmp)
+        import stage5_check as S5
+        b_e = S5.build_check_task({"book": {"form": "essay"}},
+                                  "data/chapters/raw", "data/setting/setting.json",
+                                  "data/chapters/checked", "- 01.md", 1, 2)
+        b_n = S5.build_check_task({"book": {"form": "narrative"}},
+                                  "data/chapters/raw", "data/setting/setting.json",
+                                  "data/chapters/checked", "- 01.md", 1, 2)
+        check("P9 stage5(essay) 任务里没有七维表", "| `plot` |" not in b_e)
+        check("P9 stage5(narrative) 任务里有七维表", "| `plot` |" in b_n)
+        check("P9 两者都由 review_scope 填充（无占位符）",
+              "{{review_scope}}" not in b_e and "{{review_scope}}" not in b_n)
+    finally:
+        os.chdir(cwd)
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    print("\n[P9] 卷规划按文体关（配了不生效 = 假功能）")
+    import volume_plan as VP
+    ok_e, msgs_e, gen_e = VP.ensure_window(cfg={}, proj={"book": {"form": "essay", "chapters": 40}},
+                                            log=lambda *_a: None)
+    check("P9 散文：卷规划直接跳过、不调模型", ok_e and gen_e == 0, (ok_e, msgs_e, gen_e))
+    check("P9 散文：明说「不做分卷规划」", any("不做分卷规划" in m for m in msgs_e), msgs_e)
+    check("P9 散文：返回成功（不是失败，否则流水线会判阶段失败）", ok_e is True)
+
+    print("\n[P9] 文体写入的校验（GUI 端点的后端）")
+    from utils import project_config as PC
+    check("P9 book.form 在可写字段里", "form" in PC.BOOK_FIELDS, PC.BOOK_FIELDS)
+    ok_bad, msg_bad = PC.set_book_fields({"form": "novel"})
+    check("P9 非法文体拒写（不让它静默回落叙事）", not ok_bad, msg_bad)
+    check("P9 拒写原因里列出可选值", "可选" in msg_bad, msg_bad)
+    ok_empty, _ = PC.set_book_fields({"form": "  "})
+    check("P9 空值拒写", not ok_empty)
+
+    print("\\n[P9] 「写法指导是否接入」不能靠回落正文判断（会假报已接入）")
+    check("P9 叙事：已接入", WF.style_files_exist("narrative") is True)
+    check("P9 散文：已接入", WF.style_files_exist("essay") is True)
+    check("P9 书信：**未**接入（尽管 style_blocks 会回落出非空正文）",
+          WF.style_files_exist("letter") is False, WF.style_files_exist("letter"))
+    check("P9 单元：未接入", WF.style_files_exist("episodic") is False)
+    st_l, _pa_l, _w_l = WF.style_blocks("letter")
+    check("P9 且回落时确实返回了非空正文（说明为什么不能拿非空当判据）",
+          len(st_l) > 0, len(st_l))
+
 def main():
     print("=" * 62)
     print("  文体与「不适用」判据自检")
@@ -282,6 +366,7 @@ def main():
           "不做叙事深化段" in d and "不做分卷滚动" in d, d)
 
     case_essay_wiring()
+    case_scope_and_entry()
 
     print("\n" + "=" * 62)
     print("  通过 %d / 失败 %d" % (len(PASS), len(FAIL)))

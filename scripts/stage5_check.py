@@ -42,15 +42,24 @@ def _norm(path):
 
 
 def build_check_task(proj, raw_dir, setting_path, checked_dir, batch_files, batch_index, total_batches):
+    # 评审账本（2026-10-20）：每批一份，stage5 读回后按章拆成 data/review/NN.json。
+    # 路径必须是**绝对路径**——模板里的相对路径在 GUI/后台任务下按 CWD 解析，
+    # 而 CWD 不一定是仓库根（--root 打包态尤其如此）。
+    path_review = (REVIEW_DIR / f"batch{batch_index}.json").resolve()
+
+    # 按文体裁剪评审范围（2026-10-20）：散文项目原先也被要求逐条举证七维 +
+    # 给"对话区分度"作证 —— 校验侧标 N/A 不计分，但 token 已经花掉，账本里
+    # 还会留下模型为凑数硬编的证据。提示词本身要裁。
+    from utils import writing_form as _wf
+    _scope = _wf.review_scope(_wf.applicability(proj), str(path_review))
+
     _, body = load_template("stage5_check.md", {
         "batch_files": batch_files,
         "path_setting": Path(setting_path).resolve(),
         "path_report": Path("data/outline/check_report.md").resolve(),
         "path_checked": Path(checked_dir).resolve(),
-        # 七维评审账本（2026-10-20）：每批一份，stage5 读回后按章拆成 data/review/NN.json。
-        # 路径必须是**绝对路径**——模板里的相对路径在 GUI/后台任务下按 CWD 解析，
-        # 而 CWD 不一定是仓库根（--root 打包态尤其如此）。
-        "path_review": (REVIEW_DIR / f"batch{batch_index}.json").resolve(),
+        "path_review": path_review,
+        "review_scope": _scope,
         "batch_index": batch_index,
         "total_batches": total_batches,
     })

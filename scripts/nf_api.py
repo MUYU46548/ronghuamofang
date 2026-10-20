@@ -1959,6 +1959,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/config/style_notes":
             # 实现已迁至 nf_api_domains.project（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_project.handle_config_style_notes(self)))
+        elif p == "/config/form":
+            # 文体（2026-10-20）：决定哪些判据适用。GUI 下拉的唯一数据源。
+            self._send(*_dom(dom_project.handle_config_form(self)))
         elif p == "/config/style_reference":
             # 范文正文（GUI 粘贴窗口的数据源）：路径取 book.style_reference，
             # 未配置时用默认 materials/style_sample.md。
@@ -2770,6 +2773,9 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 self._send(200 if ok else 400,
                            {"ok": ok, "message": msg} if ok else {"ok": False, "error": msg})
+            elif p == "/config/form":
+                # 文体写入（book.form）：只允许 FORMS 里的值，写后回读校验。
+                self._send(*_dom(dom_project.handle_config_form_set(self, body)))
             elif p == "/review/comment":
                 # 给指定 finding 添加评论（GUI 审稿面板用；原先误挂在 do_GET 里，
                 # do_GET 没有 body → 必然 500，2026-09-15 移到 do_POST）

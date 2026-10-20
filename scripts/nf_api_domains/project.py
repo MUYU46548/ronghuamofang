@@ -499,6 +499,71 @@ def handle_config_target_words_set(h, body):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+def handle_config_form(h):
+    """文体（config/project.yaml 的 book.form）读取 + 可选项。
+
+    为什么必须给 GUI 一个入口（2026-10-20）：文体决定**哪些判据适用** ——
+    散文项目不该被要求"情节连贯/人物关系"，也不该要求"小目标/悬念钩子"。
+    但此前只能在 yaml 里手写 `form: essay` —— 对不写代码的作者等于不存在。
+    """
+    try:
+        from utils import writing_form as wf
+        from utils.project_config import get_project_config
+        try:
+            cfg = get_project_config() or {}
+        except Exception:                                   # noqa: BLE001
+            cfg = {}
+        raw = str(((cfg.get("book") or {}).get("form") or "")).strip()
+        app = wf.applicability({"book": {"form": raw}}) if raw else wf.applicability({})
+        return 200, {
+            "ok": True,
+            "form": raw or None,
+            "effective": app["code"],
+            "default": wf.DEFAULT_FORM,
+            "path": "config/project.yaml",
+            "field": "book.form",
+            "options": [{"code": c,
+                         "label": wf.form_spec(c)["label"],
+                         "desc": wf.form_spec(c)["desc"],
+                         # 写法指导（stage4 文风块）是否已随文体切换
+                         # 用**文件存在**判断（回落叙事也会返回非空正文，见 style_files_exist）
+                         "style_wired": wf.style_files_exist(c),
+                         } for c in wf.FORMS],
+            "warning": app.get("warning") or None,
+            "describe": wf.describe(app),
+        }
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_config_form_set(h, body):
+    """写入文体 → 定向改写 project.yaml 的 book.form（保留注释，写前备份）。"""
+    val = body.get("form")
+    if val is None:
+        return 400, {"ok": False, "error": "缺少 form 字段"}
+    if not isinstance(val, str):
+        return 400, {"ok": False, "error": "form 必须为字符串"}
+    try:
+        from utils.project_config import set_book_fields
+        ok, msg = set_book_fields({"form": val.strip()})
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+    if not ok:
+        return 400, {"ok": False, "error": msg}
+    # 回读校验：写进去的东西必须能读回来（写坏就报错，不留半成品）
+    # ⚠️ 路径必须走 PC.PROJECT_YAML（ROOT 绝对拼接）：裸相对路径在打包态
+    # 按 CWD 解析，而 CWD 不是 ROOT（test_root_path_discipline 抓过这一条）。
+    try:
+        from utils import project_config as _pc
+        got = str(((_pc.load_project_yaml(_pc.PROJECT_YAML) or {})
+                   .get("book") or {}).get("form") or "").strip()
+    except Exception:                                       # noqa: BLE001
+        got = ""
+    if got != val.strip():
+        return 500, {"ok": False, "error": "写入后回读不一致（配置可能已损坏，见 config/history/ 备份）"}
+    return 200, {"ok": True, "form": got, "message": "文体已切换为 " + got}
+
+
 def handle_config_agent_mode(h):
     """读取当前 Agent 模式开关（config/system.yaml 的 gates.agent_mode）。"""
     try:

@@ -287,6 +287,7 @@ function switchTab(t) {
     if (!providers.value) refreshModels();
     if (!promptFiles.value.length) loadPromptList();
     if (!styleNotesLoaded.value) loadStyleNotes();
+    loadForm();                // 文体：可能在别处改过（外部 Agent 也能写）
     loadTokenLimit();          // 止烧阈值：每次进设置页都重读（可能在别处改过）
     loadTargetWords();         // 单章字数区间：同上（可能在别处改过 / 配置被手改）
     loadAgentConnect();        // 接入其他 Agent：路径/MCP 状态每次重探（垫片可能刚代拉）
@@ -796,6 +797,52 @@ async function openRefineDiffDlg() {
 
 /* ---------- diff 模式（润色逐章对比） ---------- */
 const diffMode = ref(false);
+
+/* ---------- 文体（config/project.yaml → book.form，2026-10-20） ----------
+   为什么要有这个下拉：文体决定**哪些判据适用** —— 散文不该被要求"情节连贯/人物关系"，
+   也不该要求"小目标/悬念钩子"；但此前只能在 yaml 里手写 `form: essay`，
+   对不写代码的作者等于不存在（判据改好了、用户用不上 = 没改）。 */
+const formPick = ref("");
+const formCurrent = ref("");
+const formOpts = ref([]);
+const formDescribe = ref("");
+const formWarn = ref("");
+
+async function loadForm() {
+  const r = await api("/config/form");
+  if (r.status !== 200 || !r.data.ok) {
+    formDescribe.value = "文体读取失败: " + (r.data.error || r.status);
+    return;
+  }
+  formOpts.value = r.data.options || [];
+  formCurrent.value = r.data.effective || "narrative";
+  formPick.value = formCurrent.value;
+  formDescribe.value = r.data.describe || "";
+  formWarn.value = r.data.warning || "";
+}
+
+async function saveForm() {
+  const next = formPick.value;
+  if (!next || next === formCurrent.value) return;
+  const opt = formOpts.value.find((o) => o.code === next) || {};
+  const warnLine = opt.style_wired === false
+    ? "\n\n注意：这个文体的**写法指导**还没接，写作提示词仍沿用叙事口径"
+      + "（检查项已按文体生效，但写出来的文风不会自动变）。"
+    : "";
+  if (!window.confirm(
+      "切换文体为「" + (opt.label || next) + "」？\n\n"
+      + "· 写入 config/project.yaml 的 book.form（旧版自动备份到 config/history/）\n"
+      + "· 影响：哪些检查项适用、写作时的文风要求\n"
+      + "· 已经写好的章节**不会**被重新判定，只影响之后运行的阶段"
+      + warnLine)) return;
+  const r = await api("/config/form", "POST", { form: next });
+  if (r.status !== 200 || !r.data.ok) {
+    say("文体切换失败: " + (r.data.error || r.status));
+    return;
+  }
+  say("文体已切换为「" + (opt.label || next) + "」，下次运行阶段生效");
+  await loadForm();
+}
 
 /* ---------- 用户风格笔记（config/project.yaml → book.style_notes） ---------- */
 const styleNotes = ref("");
@@ -4708,6 +4755,32 @@ onUnmounted(() => {
       </div><!-- /ac-block -->
           </div><!-- /set-pane agent -->
           <div class="set-pane" v-show="settingsTab === 'prompt'">
+
+      <!-- 文体（决定哪些判据适用） -->
+      <h4 style="margin-top: 16px;">文体（book.form）</h4>
+      <div class="meta" style="margin-bottom: 8px;">
+        决定<strong>哪些检查项适用</strong>：散文不会被要求「情节连贯 / 人物关系」，
+        也不会被要求「小目标 / 悬念钩子」；叙事小说按全套判据走。
+        只影响之后运行的阶段，已写好的章节不会被重新判定。
+      </div>
+      <div class="provider-row">
+        <select v-model="formPick" class="model-select" style="min-width: 260px;"
+                :title="formDescribe">
+          <option v-for="o in formOpts" :key="o.code" :value="o.code">
+            {{ o.label }} —— {{ o.desc }}
+          </option>
+        </select>
+        <button class="mini primary" :disabled="!formPick || formPick === formCurrent"
+                @click="saveForm">切换文体</button>
+        <span class="meta">{{ formDescribe }}</span>
+      </div>
+      <div v-if="formWarn" class="meta" style="color: var(--warn, #b8860b); margin-top: 4px;">
+        ⚠ {{ formWarn }}
+      </div>
+      <div v-if="formPick && formOpts.find(o => o.code === formPick && o.style_wired === false)"
+           class="meta" style="margin-top: 4px;">
+        注意：该文体的**写法指导**尚未接入 —— 检查项会按文体生效，但写作提示词仍用叙事口径。
+      </div>
 
       <!-- 用户风格笔记 -->
       <h4 style="margin-top: 16px;">用户风格笔记（book.style_notes）</h4>
