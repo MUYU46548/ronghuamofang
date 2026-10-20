@@ -67,7 +67,7 @@ def parse_chapter_outline(path):
     return {f: field_value(text, f) for f in REQUIRED_FIELDS + NEW_FIELDS}
 
 
-def check_chapter_outline(path, strict=False):
+def check_chapter_outline(path, strict=False, new_fields=None):
     """校验单章大纲字段。返回 (ok, errors)。
 
     strict=False（默认，存量/GUI）：只要求三个硬字段存在且有值。
@@ -80,7 +80,8 @@ def check_chapter_outline(path, strict=False):
         if not has_field(text, f):
             errors.append(f"缺少字段或值为空: {f}")
     if strict:
-        for f in NEW_FIELDS:
+        # 散文/随笔不要求「小目标/悬念钩子」（文体可裁，见 utils/writing_form.py）
+        for f in (NEW_FIELDS if new_fields is None else list(new_fields)):
             v = field_value(text, f)
             if not v:
                 errors.append(f"缺少字段或值为空: {f}（新标准必填）")
@@ -149,6 +150,10 @@ def generate_chapters(cfg, proj, chapters, client, task_dir="data/state/tasks",
     """
     total = int((proj.get("book") or {}).get("chapters", 10))
     batch = int(cfg.get("chapter", {}).get("batch_outline", 10))
+    # 文体（2026-10-20）：散文不要「小目标/悬念钩子」，strict 校验按文体取字段集
+    from utils import writing_form as _wf
+    _form_app = _wf.applicability(proj)
+    _new_fields = _form_app.get("chapter_new_fields", NEW_FIELDS)
     out_dir = Path("data/outline/chapters")
     out_dir.mkdir(parents=True, exist_ok=True)
     # A3：与 stage2 同源 —— 只读 canon 快照（无快照则退回活稿）
@@ -181,7 +186,7 @@ def generate_chapters(cfg, proj, chapters, client, task_dir="data/state/tasks",
                 return False, f"stage3 第{n}章大纲未生成"
             # 新生成的章大纲按**新标准**校验（六字段 + 值不能敷衍）；
             # 存量章大纲走 outline_ok 的宽松判据，升级不会把它们判废。
-            ok, missing = check_chapter_outline(p, strict=True)
+            ok, missing = check_chapter_outline(p, strict=True, new_fields=_new_fields)
             if not ok:
                 return False, f"stage3 第{n}章大纲不合格: {missing}"
         print(f"[stage3] 批 {bi}/{len(groups)} 完成（章节 {chs[0]}-{chs[-1]}）")

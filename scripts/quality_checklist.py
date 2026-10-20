@@ -71,7 +71,7 @@ def check_degeneration(text, chapter_no):
     return issues
 
 
-def check_consistency(text, chapter_no, setting):
+def check_consistency(text, chapter_no, setting, require_character=True):
     """检查3：角色一致性。
 
     2026-10-19（P3）：优先读**一致性账本** `data/state/story_state.json`。
@@ -105,7 +105,8 @@ def check_consistency(text, chapter_no, setting):
     # 检查是否提及了不存在的角色
     known_names = {c.get("name", "") for c in characters if c.get("name")}
     # 简单检查：如果设定集有角色，但章节一个都没提到
-    if known_names and len(known_names) > 2:
+    # 散文/散文集没有角色 —— 这条判据对它是误报（文体见 utils/writing_form.py）
+    if require_character and known_names and len(known_names) > 2:
         mentioned = sum(1 for name in known_names if name in text)
         if mentioned == 0 and len(text) > 500:
             issues.append(f"第{chapter_no}章未提及任何已知角色")
@@ -203,6 +204,15 @@ def main():
         print("ERROR: 没有可验收的章节（config/project.yaml 的 book.chapters 为 0？）")
         sys.exit(1)
 
+    # 文体（2026-10-20）：决定"未提角色"这条判据要不要跑
+    from utils import writing_form as _wf
+    _form_app = _wf.applicability(proj)
+    _require_character = _form_app.get("must_mention_character", True)
+    if _form_app.get("warning"):
+        print("[quality] " + _form_app["warning"])
+    if not _require_character:
+        print("[quality] 文体：%s —— 跳过「未提及角色」判据" % _form_app["label"])
+
     print(f"章节质量验收 checklist（共 {len(chapters)} 章）")
     print("=" * 60)
 
@@ -234,7 +244,8 @@ def main():
         issues = []
         issues.extend(check_structure(chapter_file, ch))
         issues.extend(check_degeneration(text, ch))
-        issues.extend(check_consistency(text, ch, SETTING))
+        issues.extend(check_consistency(text, ch, SETTING,
+                                        require_character=_require_character))
         issues.extend(check_word_count(text, ch, PROJECT))
         issues.extend(check_outline_alignment(text, ch))
 

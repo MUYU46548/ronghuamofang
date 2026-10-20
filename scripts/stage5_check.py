@@ -119,8 +119,11 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         progress.set_stage(5, "failed", error="无 raw 章节")
         return False, "stage5 失败：无 raw 章节"
     # 断点：checked 中已存在**且内容有效**的章节跳过（空壳要重跑，见 is_usable_output）
+    from utils import writing_form as _wf5
+    _para_ok = _wf5.applicability(proj).get("para_structure", True)
     pending = [f for f in raw_files
-               if not is_usable_output(raw_dir / f.name, checked_dir / f.name)]
+               if not is_usable_output(raw_dir / f.name, checked_dir / f.name,
+                                       para_structure=_para_ok)]
     stale = [f.name for f in raw_files
              if (checked_dir / f.name).exists()
              and not is_usable_output(raw_dir / f.name, checked_dir / f.name)]

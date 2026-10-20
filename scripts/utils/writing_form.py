@@ -184,3 +184,36 @@ def describe(spec):
     if not spec.get("foreshadow"):
         parts.append("不做伏笔台账")
     return "；".join(parts)
+
+
+# ---------------------------------------------------------------- 写法指导
+
+def style_blocks(form):
+    """读该文体的「文风规则」「段落规则」两段 → (style, para, warning)。
+
+    文件按 `load_template` 同一口径（CWD 相对 `prompts/style/`）。
+    没接的文体**回落叙事并告警** —— 绝不能让散文项目静默拿到叙事口吻的提示词。
+    """
+    from pathlib import Path as _P
+    from utils.file_io import read_text
+
+    code = form if form in FORMS else DEFAULT_FORM
+    warn = ""
+
+    def _read(c):
+        out = {}
+        for kind in ("style", "para"):
+            pth = _P("prompts/style") / ("%s_%s.md" % (c, kind))
+            out[kind] = read_text(pth).strip() if pth.exists() else None
+        return out
+
+    got = _read(code)
+    if code != DEFAULT_FORM and (got["style"] is None or got["para"] is None):
+        warn = ("文体「%s」的写法指导尚未接入（缺 prompts/style/%s_style.md 或 _para.md）"
+                "—— 本轮暂用「%s」的文风块" % (form_spec(code)["label"], code,
+                                              form_spec(DEFAULT_FORM)["label"]))
+        code = DEFAULT_FORM
+        got = _read(code)
+    if got["style"] is None or got["para"] is None:
+        return "", "", (warn or "写法指导文件缺失：prompts/style/%s_{style,para}.md" % code)
+    return got["style"], got["para"], warn

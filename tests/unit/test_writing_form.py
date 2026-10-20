@@ -61,6 +61,112 @@ def entry(dims=None, aes=None):
     return {"chapter": 1, "dims": dims or [], "aesthetic": aes or []}
 
 
+
+
+# ====================================================================== P7
+def case_essay_wiring():
+    """写法指导真的按文体换了（不是只有判据口径）。"""
+    import os
+    import json
+    import shutil
+    import tempfile
+
+    print("\n[P7] 写法指导按文体切换（stage4 文风块）")
+    st_n, pa_n, w_n = WF.style_blocks("narrative")
+    st_e, pa_e, w_e = WF.style_blocks("essay")
+    check("P7 叙事文风块含「客观叙事」", "客观叙事" in st_n, st_n[:60])
+    check("P7 散文文风块**不含**叙事口吻", "客观叙事" not in st_e, st_e[:80])
+    check("P7 散文文风块写的是观察与感受", "观察与感受" in st_e, st_e[:80])
+    check("P7 散文段落块允许一句一段", "一句一段是合法的" in pa_e, pa_e[:80])
+    check("P7 叙事段落块要求按情节单元", "情节单元" in pa_n, pa_n[:80])
+    check("P7 两者都不为空且 no warning", not w_n and not w_e and st_e and pa_e)
+    st_l, pa_l, w_l = WF.style_blocks("letter")
+    check("P7 未接的文体回落叙事并告警",
+          st_l == st_n and "尚未接入" in w_l, (len(st_l), w_l[:40]))
+
+    # 真跑一遍 stage4 的任务构造（essay vs narrative）
+    tmp = Path(tempfile.mkdtemp(prefix="nf_style_"))
+    cwd = os.getcwd()
+    try:
+        shutil.copytree(ROOT / "prompts", tmp / "prompts")
+        (tmp / "config").mkdir()
+        (tmp / "config" / "project.yaml").write_text(
+            json.dumps({"book": {"name": "文体测试", "chapters": 4, "form": "essay"}}),
+            encoding="utf-8")
+        shutil.copy2(ROOT / "config" / "system.yaml", tmp / "config" / "system.yaml")
+        (tmp / "data" / "setting").mkdir(parents=True)
+        (tmp / "data" / "setting" / "setting.json").write_text(json.dumps({
+            "characters": [{"name": "苏芷", "role": "整理员", "traits": ["细心"]}],
+            "world": {}, "plot_fragments": [], "timeline": [],
+        }, ensure_ascii=False), encoding="utf-8")
+        (tmp / "data" / "outline" / "chapters").mkdir(parents=True)
+        (tmp / "data" / "outline" / "chapters" / "01.md").write_text(
+            "## 第1章 旧屋\n- 核心事件：她把旧屋的窗推开\n- 涉及角色：苏芷\n- 功能：开篇\n",
+            encoding="utf-8")
+        (tmp / "data" / "summaries").mkdir(parents=True)
+        (tmp / "data" / "summaries" / "rolling.md").write_text(
+            "# 滚动摘要\n## 全书摘要\n\n## 近期章节\n", encoding="utf-8")
+        (tmp / "materials").mkdir()
+        os.chdir(tmp)
+        import yaml
+        cfg = yaml.safe_load((tmp / "config" / "system.yaml").read_text(encoding="utf-8"))
+        proj = yaml.safe_load((tmp / "config" / "project.yaml").read_text(encoding="utf-8"))
+        import stage4_writing as S4
+        body = S4.build_chapter_task(cfg, proj, 1, "data/outline/chapters/01.md",
+                                     "data/setting/setting.json",
+                                     "data/summaries/rolling.md", [])
+        check("P7 essay 项目的任务文本用散文文风",
+              "观察与感受" in body and "客观叙事" not in body,
+              [l for l in body.splitlines() if "客观" in l or "观察" in l][:3])
+        check("P7 任务文本无未替换占位符",
+              "{{style_rules}}" not in body and "{{para_rules}}" not in body)
+
+        (tmp / "config" / "project.yaml").write_text(
+            json.dumps({"book": {"name": "文体测试", "chapters": 4, "form": "narrative"}}),
+            encoding="utf-8")
+        proj2 = yaml.safe_load((tmp / "config" / "project.yaml").read_text(encoding="utf-8"))
+        body2 = S4.build_chapter_task(cfg, proj2, 1, "data/outline/chapters/01.md",
+                                      "data/setting/setting.json",
+                                      "data/summaries/rolling.md", [])
+        check("P7 narrative 项目的任务文本用叙事文风", "客观叙事" in body2)
+    finally:
+        os.chdir(cwd)
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    print("\n[P8] 三处判据按文体放宽")
+    # 单段长文：叙事判退化，散文不判
+    one_para = "他推开门。风把灯吹得忽明忽暗。院子里没有人，只有一条老狗趴在墙根。" * 20
+    d1, _ = __import__("utils.verify_chapter", fromlist=["x"]).check_degenerate(one_para, para_structure=True)
+    d2, _ = __import__("utils.verify_chapter", fromlist=["x"]).check_degenerate(one_para, para_structure=False)
+    check("P8 叙事：单段长文被判退化", any("单段" in x or "段落过少" in x for x in d1), d1)
+    check("P8 散文：同样文本不因段落结构判退化",
+          not any("单段" in x or "段落过少" in x for x in d2), d2)
+
+    import quality_checklist as QC
+    txt = "她把窗推开，风进来，桌上的纸动了一下。" * 30
+    setting = Path(tempfile.mkdtemp()) / "s.json"
+    import json as _json
+    setting.write_text(_json.dumps({"characters": [{"name": n} for n in ("甲", "乙", "丙")]},
+                                   ensure_ascii=False), encoding="utf-8")
+    q1 = QC.check_consistency(txt, 1, setting, require_character=True)
+    q2 = QC.check_consistency(txt, 1, setting, require_character=False)
+    check("P8 叙事：未提角色会报", any("未提及" in x for x in q1), q1)
+    check("P8 散文：不报「未提及角色」", not any("未提及" in x for x in q2), q2)
+
+    # stage3 strict：散文不要求小目标/钩子
+    import stage3_chapter_outline as S3
+    tmp2 = Path(tempfile.mkdtemp())
+    essay_outline = tmp2 / "01.md"
+    essay_outline.write_text(
+        "## 第1章 旧屋\n- 核心事件：她把窗推开，看见院子里的老狗\n"
+        "- 涉及角色：（无）\n- 功能：开篇\n", encoding="utf-8")
+    ok_n, err_n = S3.check_chapter_outline(essay_outline, strict=True)
+    ok_e, err_e = S3.check_chapter_outline(essay_outline, strict=True, new_fields=[])
+    check("P8 叙事 strict：缺小目标/钩子判不合格", not ok_n, err_n)
+    check("P8 散文 strict：同样文本通过（不要求这两项）", ok_e, err_e)
+    shutil.rmtree(tmp2, ignore_errors=True)
+
+
 def main():
     print("=" * 62)
     print("  文体与「不适用」判据自检")
@@ -174,6 +280,8 @@ def main():
     check("P6 describe 说明七维只有几项适用", "适用" in d, d)
     check("P6 describe 说明不做深化/分卷/伏笔",
           "不做叙事深化段" in d and "不做分卷滚动" in d, d)
+
+    case_essay_wiring()
 
     print("\n" + "=" * 62)
     print("  通过 %d / 失败 %d" % (len(PASS), len(FAIL)))

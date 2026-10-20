@@ -501,6 +501,20 @@ def _name_matches(nc, involved):
     return False
 
 
+_STYLE_WARNED = set()
+
+
+def _style_blocks(proj):
+    """文体对应的文风/段落规则（未接的文体回落叙事并告警一次）。"""
+    from utils import writing_form as _wf
+    app = _wf.applicability(proj)
+    style, para, warn = _wf.style_blocks(app["code"])
+    if warn and app["code"] not in _STYLE_WARNED:
+        _STYLE_WARNED.add(app["code"])
+        print("[stage4] " + warn)
+    return style, para, app
+
+
 def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, prev_tail):
     target = cfg.get("chapter", {}).get("target_words", [2000, 3000])
     tail_section = "\n\n".join(prev_tail) if prev_tail else "（无上一章，本章为开篇）"
@@ -605,8 +619,11 @@ def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, p
               f"{type(e).__name__}: {e}")
         decompose_samples = ""
 
+    style_rules, para_rules, _form_app = _style_blocks(proj)
     _, body = load_template("stage4_writing.md", {
         "n": n,
+        "style_rules": style_rules,
+        "para_rules": para_rules,
         "book_name": book.get("name", "未命名"),
         "path_outline": Path(outline_path).resolve(),
         "path_setting": Path(setting_path).resolve(),
@@ -696,7 +713,12 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
 
     completed = progress.completed_chapters(4)
     # 断点续跑：只保留文件真正完成的章节（防止半成品被跳过）
-    verified = [n for n in completed if is_chapter_complete(raw_dir / f"{n:02d}.md", *cfg.get("chapter", {}).get("target_words", [2000, 3000]))]
+    from utils import writing_form as _wf4
+    _para_ok = _wf4.applicability(proj).get("para_structure", True)
+    verified = [n for n in completed
+                if is_chapter_complete(raw_dir / f"{n:02d}.md",
+                                       *cfg.get("chapter", {}).get("target_words", [2000, 3000]),
+                                       para_structure=_para_ok)]
     skipped = set(completed) - set(verified)
     if skipped:
         print(f"[stage4] 半成品章节重跑（文件存在但校验未通过）: {sorted(skipped)}")

@@ -142,7 +142,7 @@ def _ratio_of_matches(text, patterns):
     return (len(hits) / len(body)), hits
 
 
-def check_degenerate(text):
+def check_degenerate(text, para_structure=True):
     """退化检测：返回 (问题列表, 指标 dict)。问题列表为空 = 健康。
 
     判据取「**宽松触发**」而非「严苛触发」——原因是这两类误判的代价不对称：
@@ -160,12 +160,12 @@ def check_degenerate(text):
     total = sum(len(x) for x in body)
     metrics["body_chars"] = total
 
-    # ---- 1 段落结构 ----
-    if len(body) < MIN_PARAGRAPHS:
+    # ---- 1 段落结构（文体可关：散文允许短篇/单段长文，诗更不用说）----
+    if para_structure and len(body) < MIN_PARAGRAPHS:
         problems.append(f"段落过少（{len(body)} 段，正常章节应 ≥{MIN_PARAGRAPHS} 段）")
     longest = max(len(x) for x in body)
     metrics["longest_para"] = longest
-    if total and longest / total > MAX_SINGLE_PARA_RATIO:
+    if para_structure and total and longest / total > MAX_SINGLE_PARA_RATIO:
         problems.append(f"单一超长段落占正文 {longest / total:.0%}"
                         f"（须 ≤{MAX_SINGLE_PARA_RATIO:.0%}，疑似丢换行）")
     if len(body):
@@ -267,7 +267,7 @@ def count_cn_words(text):
     return len(stripped)
 
 
-def is_chapter_complete(path, target_min=1200, target_max=3500):
+def is_chapter_complete(path, target_min=1200, target_max=3500, para_structure=True):
     """检查章节是否真正完成（非空、无截断、字数达标、无占位符、标题格式正确、**非退化**）。
 
     与 check_chapter() 互补：check_chapter 返回详细报告，
@@ -305,13 +305,13 @@ def is_chapter_complete(path, target_min=1200, target_max=3500):
     if not TITLE_RE.search(text):
         return False
     # 退化检测：严重项直接判未完成（避免断点续跑跳过垃圾章）
-    degen, _ = check_degenerate(text)
+    degen, _ = check_degenerate(text, para_structure=para_structure)
     if degen:
         return False
     return True
 
 
-def is_usable_output(src_path, out_path, min_ratio=0.3):
+def is_usable_output(src_path, out_path, min_ratio=0.3, para_structure=True):
     """断点续跑判据：`out_path` 存在**且内容是像样的产物**（不是空壳/残稿）。
 
     ## 为什么不能只判 exists()（2026-10-01）
