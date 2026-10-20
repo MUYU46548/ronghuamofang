@@ -379,7 +379,9 @@ function getWorkspaceSource() {
 //   · 前端（asar，不走种子）：项目页出厂徽标 / 启动提示词剥离说明书 /
 //     阶段复制改任务简报（原样贴模板会被外部 Agent 按红线判「模板不是任务」停工）。
 // **先 bump 再 electron-builder**。
-const SEED_VERSION = 38;   // 0.6.20: 范文 GUI 粘贴窗口（GET/POST /config/style_reference，随工作区数据）
+const SEED_VERSION = 39;   // 0.6.21: 长篇规模四项（七维评审账本 · 记忆策略 · 卷弧滚动 · 设定库闭环）
+//   · prompts/: stage5 加七维 JSON 契约、stage4 加记忆块、stage3 加卷弧块、stage2 加设定摘要、
+//     新增 volume_plan.md —— **payload 变了，不 bump 用户永远拿不到新提示词**。
 
 // 只播种/刷新**代码与提示词**目录。
 // 刻意不含 data/：那是用户产物（章节、设定、大纲），任何情况下都不能被覆盖。
