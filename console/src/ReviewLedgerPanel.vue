@@ -31,6 +31,7 @@ async function load() {
     const d = await r.json().catch(() => ({}));
     if (r.status === 200 && d.ok) {
       data.value = d;
+      aesQuestions.value = d.aesthetic_questions || [];
     } else {
       data.value = null;
       err.value = d.error || ("读取失败：HTTP " + r.status);
@@ -74,6 +75,17 @@ function dimRows() {
     .map((d) => ({ ...d, rec: (r.dims || {})[d.code] || {} }));
 }
 
+// 审美五问：整块来自 detail.aesthetic（老账本没有 → 返回空数组，界面不显示这块）
+const aesQuestions = ref([]);
+function aesRows() {
+  const r = detail.value;
+  const items = r?.aesthetic?.items || {};
+  const src = aesQuestions.value.length
+    ? aesQuestions.value
+    : Object.keys(items).map((k) => ({ code: k, label: items[k]?.label || k }));
+  return src.map((q) => ({ ...q, rec: items[q.code] || {} }));
+}
+
 onMounted(load);
 defineExpose({ load });
 </script>
@@ -105,7 +117,8 @@ defineExpose({ load });
           <tr>
             <th>章</th>
             <th v-for="d in dims" :key="d.code">{{ d.label }}</th>
-            <th>均分</th>
+            <th>逻辑均分</th>
+            <th>审美</th>
           </tr>
         </thead>
         <tbody>
@@ -117,6 +130,9 @@ defineExpose({ load });
                  ? "未举证" : (r.scores?.[d.code] ?? "—") }}
             </td>
             <td :class="scoreCls(r.mean)">{{ r.mean ?? "—" }}</td>
+            <td :class="scoreCls(r.aesthetic_mean)">
+              {{ r.aesthetic_mean != null ? r.aesthetic_mean : (r.aesthetic_complete ? "—" : "未评") }}
+            </td>
           </tr>
         </tbody>
       </table>
@@ -140,6 +156,27 @@ defineExpose({ load });
         <blockquote v-if="d.rec.quote" class="rl-quote">{{ d.rec.quote }}</blockquote>
         <div class="meta" v-if="d.rec.note">{{ d.rec.note }}</div>
       </div>
+
+      <!-- 审美五问（2026-10-20）：七维管"没写错"，五问管"写得好不好"。
+           另开一块、独立判据（一问一句，同一句只算第一处）；老账本没有这块 → 整块不显示。 -->
+      <template v-if="aesRows().length">
+        <div class="rl-aes-head">
+          <b>审美五问</b>
+          <span class="meta">
+            {{ detail.aesthetic_complete ? "五问齐全" : "有未举证的问题" }}
+            <template v-if="detail.aesthetic?.mean != null"> · 均分 {{ detail.aesthetic.mean }}</template>
+          </span>
+        </div>
+        <div v-for="q in aesRows()" :key="q.code" class="rl-dim" :class="scoreCls(q.rec.score)">
+          <div class="rl-dim-head">
+            <b>{{ q.rec.label || q.label }}</b>
+            <span class="rl-score">{{ q.rec.verified ? q.rec.score + " / 10" : "未计分" }}</span>
+            <span class="meta" v-if="!q.rec.verified">{{ q.rec.reason }}</span>
+          </div>
+          <blockquote v-if="q.rec.quote" class="rl-quote">{{ q.rec.quote }}</blockquote>
+          <div class="meta" v-if="q.rec.note">{{ q.rec.note }}</div>
+        </div>
+      </template>
     </div>
     <div v-else-if="detailErr" class="meta" style="padding:8px 0;">{{ detailErr }}</div>
   </div>
@@ -162,6 +199,10 @@ defineExpose({ load });
 .rl-unverified { color: var(--muted); opacity: 0.7; font-size: 11.5px; }
 
 .rl-detail { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 10px; }
+.rl-aes-head {
+  display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap;
+  margin: 14px 0 2px; padding-top: 10px; border-top: 1px dashed var(--border);
+}
 .rl-dim {
   border-left: 3px solid var(--border);
   padding: 7px 12px; margin: 7px 0;

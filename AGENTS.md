@@ -183,6 +183,15 @@ stdout 被管道捕获时 Python 用 cp936，一行日志就能 `UnicodeEncodeEr
 - 开关 `gates.review_ledger`：`warn`（默认，只告警）/ `block`（不完整即阶段失败）。
 - GUI：章节页签「七维评审账本」（`GET /review/ledger`，只读，不提供重算按钮）。
 
+**审美五问（2026-10-20，独立于七维）**：七维管"没写错"，五问管"写得好不好"——
+描写质感 / 叙事手法 / 对话区分度 / 用词质量 / 情感打动力（`review_ledger.AESTHETIC`）。
+
+- **不叫第八维、不动七维契约**：`dims` 一个字没改，审美是独立字段 `aesthetic`；
+  `complete` 仍只看七维，审美单独给 `aesthetic_complete`。老账本照常读，界面显示「未评」。
+- **一问一句**：同一句原文只算第一处 —— 重复给多问、或复用七维已引过的句子，一律判未举证
+  （`check_chapter` 把七维的 quote 作为 `reserved` 传进去，跨块复用也拦）。
+- 五问缺一即整块作废；低分进 findings 且 `kind=aesthetic`；**不参与 stage5 的 warnings**（只打印）。
+
 ### 2. 上下文记忆策略（stage4，三层）
 
 `utils/memory_policy.py`。L1 固定层（大纲/角色卡/上一章尾）**不裁**；

@@ -351,13 +351,36 @@ def _write_proofread_findings(text):
     return [], payload
 
 
-def _fake_quote(body):
-    """从正文里取一句真实原句当举证（**不编造** —— 编的会被 review_ledger 判未举证）。"""
+def _sq(s):
+    return re.sub(r"[\s，。！？；：、“”‘’「」『』\"'（）()…—·,.!?;:]+", "", s or "")
+
+
+def _fake_quotes(body, n=1):
+    """从正文里取 n 句**互不相同**的真实原句（不编造，也不复用）。
+
+    为什么不复用：审美五问有「一问一句」判据，同一句给两问作废。夹具如果用一句糊五问，
+    这条判据在生产里就永远没被走到 —— 假绿。
+    """
+    out = []
     for line in (body or "").splitlines():
         s = line.strip()
-        if len(re.sub(r"[\s，。！？；：、“”‘’「」『』\"'（）()…—·,.!?;:]+", "", s)) >= 10:
-            return s[:60]
-    return (body or "").strip()[:60]
+        if len(_sq(s)) >= 10 and s not in out:
+            out.append(s[:60])
+        if len(out) >= n:
+            return out
+    # 段落不够就按句切（正文可能只有两三段）
+    for seg in re.split(r"(?<=[。！？])", body or ""):
+        s = seg.strip()
+        if len(_sq(s)) >= 10 and s not in out:
+            out.append(s[:60])
+        if len(out) >= n:
+            break
+    return out or [(body or "").strip()[:60]]
+
+
+def _fake_quote(body):
+    """兼容旧调用点：取第一句。"""
+    return _fake_quotes(body, 1)[0]
 
 
 def _write_review_ledger(text, name, raw_files):
@@ -367,7 +390,7 @@ def _write_review_ledger(text, name, raw_files):
     这段校验在生产里就永远没跑过（本项目最忌讳的假绿）。所以 fake 拿**真实原句**
     当举证，走的是与真实模型完全相同的校验路径。
     """
-    from utils.review_ledger import DIM_CODES          # 单一事实源，别在夹具里另抄一份
+    from utils.review_ledger import DIM_CODES, AESTHETIC_CODES   # 单一事实源
     m = re.search(r"batch(\d+)", name or "")
     bi = int(m.group(1)) if m else 1
     chapters = []
@@ -377,12 +400,17 @@ def _write_review_ledger(text, name, raw_files):
         except (TypeError, ValueError):
             continue
         body = read_text(f)
-        quote = _fake_quote(body)
+        # 1 句给七维，后 5 句给审美（互不相同，避免撞「一问一句」判据）
+        quotes = _fake_quotes(body, 1 + len(AESTHETIC_CODES))
+        q7 = quotes[0]
+        aes = [{"q": code, "score": 9, "quote": q, "note": "（fake）"}
+               for code, q in zip(AESTHETIC_CODES, quotes[1:])]
         chapters.append({
             "chapter": no,
             "summary": "（fake）测试用评审",
-            "dims": [{"dim": c, "score": 9, "quote": quote, "note": "（fake）"}
+            "dims": [{"dim": c, "score": 9, "quote": q7, "note": "（fake）"}
                      for c in DIM_CODES],
+            "aesthetic": aes,
         })
     p = Path("data/review") / ("batch%d.json" % bi)
     p.parent.mkdir(parents=True, exist_ok=True)

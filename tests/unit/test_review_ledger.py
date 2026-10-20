@@ -18,6 +18,15 @@
 10. 模型编了本批不存在的章号 → 进 `unknown`，不进统计
 11. 同章重复记录 → 只认第一条（不合并、不猜）
 
+## 审美五问（2026-10-20 新增，独立于七维）
+
+13. 五问齐全 + 各引不同句 → `aesthetic_complete=True`，且**不影响** `complete`（七维）
+14. 同一句给多问 → 只认第一问，其余未举证且写明与哪一问撞了
+15. 与七维用同一句 → 同样判未举证（跨块复用也算偷懒）
+16. 缺一问 → 整块不完整，但七维 `complete` 仍为 True（两块互不牵连）
+17. 老账本没有 `aesthetic` 字段 → summarize / render 不崩，界面显示"未评"
+18. 审美低分进 findings 且 `kind=aesthetic`（与七维低分可区分）
+
 ## 为什么这些断言值得写
 
 旧 stage5 的判据是「check_report.md 有内容」——模型写满一屏漂亮话就通过了。
@@ -53,7 +62,10 @@ CHAPTER = (
     "## 第1章 锈锁\n\n"
     "他推开门的时候，屋檐上的水线正连成了串，地上积了一小滩暗色的水。\n\n"
     "“你迟到了。”老者没有抬头，手指在桌沿上慢慢摩挲。\n\n"
-    "院子里的老狗趴在墙根，尾巴动了一下，又沉下去。\n"
+    "院子里的老狗趴在墙根，尾巴动了一下，又沉下去。\n\n"
+    "灯芯爆了一下，屋里暗了半格。\n\n"
+    "他把湿透的袖口往腕上又卷了一道。\n\n"
+    "门轴响了一声，他没有回头。\n"
 )
 QUOTE_A = "他推开门的时候，屋檐上的水线正连成了串，地上积了一小滩暗色的水。"
 QUOTE_B = "“你迟到了。”老者没有抬头，手指在桌沿上慢慢摩挲。"
@@ -212,6 +224,101 @@ def case_parse_and_io():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+
+
+# ====================================================================== P6
+def aes(quotes=None, scores=None, items=None):
+    """造一条审美记录：默认五问齐全、各引不同句。"""
+    quotes = quotes or {}
+    scores = scores or {}
+    if items is not None:
+        return items
+    # ⚠️ 池子里不能放 QUOTE_A：`entry()` 默认拿它给七维全部举证，
+    # 审美的第一问再用它就会被「跨块复用」判据打掉（这是判据正确，不是夹具 bug 的挡箭牌）
+    pool = [QUOTE_B, QUOTE_C, "灯芯爆了一下，屋里暗了半格。",
+            "他把湿透的袖口往腕上又卷了一道。", "门轴响了一声，他没有回头。"]
+    return [{"q": c, "score": scores.get(c, 8),
+             "quote": quotes.get(c, pool[i % len(pool)]), "note": "（测试）"}
+            for i, c in enumerate(R.AESTHETIC_CODES)]
+
+
+def case_aesthetic():
+    print("\n[P6] 审美五问：独立字段、一问一句、不牵连七维")
+    r = R.check_chapter({**entry(1), "aesthetic": aes()}, CHAPTER, 1)
+    check("P6 五问齐全 → aesthetic_complete=True",
+          r["aesthetic_complete"] is True, r["aesthetic"]["unverified"])
+    check("P6 审美均分 = 五问平均", r["aesthetic"]["mean"] == 8.0, r["aesthetic"]["mean"])
+    check("P6 七维 complete 不受审美影响", r["complete"] is True)
+
+    # 同一句糊五问
+    dup = aes(quotes={c: QUOTE_B for c in R.AESTHETIC_CODES})
+    r2 = R.check_chapter({**entry(1), "aesthetic": dup}, CHAPTER, 1)
+    ok_count = sum(1 for v in r2["aesthetic"]["items"].values() if v["verified"])
+    check("P6 同一句给五问 → 只认第一问（1/5 有效）", ok_count == 1, ok_count)
+    check("P6 其余四问写明「用了同一句举证」",
+          sum(1 for v in r2["aesthetic"]["items"].values()
+              if "用了同一句举证" in v["reason"]) == 4,
+          [v["reason"] for v in r2["aesthetic"]["items"].values()])
+    check("P6 但不影响七维完整", r2["complete"] is True)
+    check("P6 审美整块不完整", r2["aesthetic_complete"] is False)
+
+    # 与七维共用同一句
+    r3 = R.check_chapter({**entry(1), "aesthetic": aes(quotes={"prose": QUOTE_A})}, CHAPTER, 1)
+    check("P6 与七维用同一句 → 判未举证",
+          r3["aesthetic"]["items"]["prose"]["verified"] is False,
+          r3["aesthetic"]["items"]["prose"])
+    check("P6 并点名是撞了七维",
+          "七维" in r3["aesthetic"]["items"]["prose"]["reason"],
+          r3["aesthetic"]["items"]["prose"]["reason"])
+
+    # 缺一问
+    partial = [x for x in aes() if x["q"] != "impact"]
+    r4 = R.check_chapter({**entry(1), "aesthetic": partial}, CHAPTER, 1)
+    check("P6 缺一问 → missing 记录", r4["aesthetic"]["missing"] == ["impact"],
+          r4["aesthetic"]["missing"])
+    check("P6 缺一问 → 整块不完整", r4["aesthetic_complete"] is False)
+    check("P6 缺一问仍不影响七维", r4["complete"] is True)
+
+    # 分数越界 / 太短
+    r5 = R.check_chapter({**entry(1), "aesthetic": aes(scores={"dialogue": 11})}, CHAPTER, 1)
+    check("P6 审美分越界 → 该问作废",
+          r5["aesthetic"]["items"]["dialogue"]["verified"] is False)
+    short = aes(quotes={"diction": "灯芯爆了"})
+    r6 = R.check_chapter({**entry(1), "aesthetic": short}, CHAPTER, 1)
+    check("P6 举证太短 → 该问作废",
+          r6["aesthetic"]["items"]["diction"]["verified"] is False)
+
+    # 低分进 findings，带 kind
+    r7 = R.check_chapter({**entry(1), "aesthetic": aes(scores={"impact": 3})}, CHAPTER, 1)
+    kinds = [f for f in r7["findings"] if f.get("kind") == "aesthetic"]
+    check("P6 审美低分进 findings 且 kind=aesthetic",
+          len(kinds) == 1 and kinds[0]["score"] == 3, r7["findings"])
+
+    # 老账本：没有 aesthetic 字段
+    old = R.check_chapter(entry(1), CHAPTER, 1)
+    check("P6 老账本无 aesthetic → 不崩，且 aesthetic_complete=False",
+          old["aesthetic"]["items"] and old["aesthetic_complete"] is False)
+    s_old = R.summarize([old])
+    check("P6 汇总里审美章节数 = 0（老账本全 None）",
+          s_old["aesthetic"]["chapters"] == 0, s_old["aesthetic"])
+    md_old = R.render_markdown([old], s_old)
+    check("P6 老账本渲染不崩且表格有「审美」列",
+          "审美" in md_old.splitlines()[0:12][-1] or "| 审美 |" in md_old, md_old[:300])
+    check("P6 老账本表格里该章审美显示「未评」", "未评" in md_old, md_old[:400])
+
+    # 汇总 + 人读版（有审美）
+    s2 = R.summarize([r])
+    check("P6 汇总审美章节数/均分", s2["aesthetic"]["chapters"] == 1
+          and s2["aesthetic"]["mean"] == 8.0, s2["aesthetic"])
+    check("P6 汇总按五问分别统计",
+          len(s2["aesthetic"]["items"]) == 5
+          and all(v["label"] for v in s2["aesthetic"]["items"].values()),
+          list(s2["aesthetic"]["items"]))
+    md = R.render_markdown([r], s2)
+    check("P6 人读版有「审美五问」小节", "## 审美五问" in md, md[-500:])
+    check("P6 人读版五问逐项列出", all(q["label"] in md for q in R.AESTHETIC), md[-400:])
+
+
 def main():
     print("=" * 62)
     print("  七维评审账本自检（docs/收口台账-20261019.md 二·七维评审）")
@@ -221,6 +328,7 @@ def main():
     case_fabrication()
     case_missing_and_dups()
     case_parse_and_io()
+    case_aesthetic()
     print("\n" + "=" * 62)
     print("  通过 %d / 失败 %d" % (len(PASS), len(FAIL)))
     for f in FAIL:

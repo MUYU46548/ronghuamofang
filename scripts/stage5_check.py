@@ -246,6 +246,16 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
               f"完整举证 {ledger_summary['complete']} 章，均分 "
               f"{mean if mean is not None else '—'}")
         print("[stage5] 账本: data/review/ledger.md（逐章 JSON 在 data/review/NN.json）")
+        # 审美五问（2026-10-20）：只打印不加入 warnings —— 它是"写得好看吗"，
+        # 不是"有没有写错"。审美缺失不该让 stage5 判失败（老账本也都没有这块）。
+        _aes = ledger_summary.get("aesthetic") or {}
+        if _aes.get("chapters"):
+            print("[stage5] 审美五问：%d 章已评，五问齐全 %d 章，均分 %s"
+                  % (_aes["chapters"], _aes["complete"],
+                     _aes["mean"] if _aes["mean"] is not None else "—"))
+        else:
+            print("[stage5] 审美五问：本轮未产出（不影响七维判定；"
+                  "需要时在 stage5 提示词里要求 aesthetic 字段）")
         incomplete = [r["chapter"] for r in ledger_all if not r["complete"]]
         if incomplete:
             warnings.append(f"{len(incomplete)} 章七维评审不完整（缺维或举证对不上原文）："

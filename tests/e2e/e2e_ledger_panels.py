@@ -95,7 +95,12 @@ CHAPTER = (
     "## 第1章 锈锁\n\n"
     "他推开门的时候，屋檐上的水线正连成了串，地上积了一小滩暗色的水。\n\n"
     "“你迟到了。”老者没有抬头，手指在桌沿上慢慢摩挲。\n\n"
-    "院子里的老狗趴在墙根，尾巴动了一下，又沉下去。\n"
+    "院子里的老狗趴在墙根，尾巴动了一下，又沉下去。\n\n"
+    "灯芯爆了一下，屋里暗了半格。\n\n"
+    "他把湿透的袖口往腕上又卷了一道。\n\n"
+    "门轴响了一声，他没有回头。\n\n"
+    "桌角压着一张被水浸过的纸，字迹已经散开。\n\n"
+    "“明天再来。”老者把灯往桌心推了推。\n"
 )
 
 
@@ -131,7 +136,15 @@ def build_workspace():
         {"dim": "persona", "score": 8, "quote": "他推开门的时候，屋檐上的水线正连成了串，地上积了一小滩暗色的水。", "note": "行为一致"},
         {"dim": "commonsense", "score": 9, "quote": "院子里的老狗趴在墙根，尾巴动了一下，又沉下去。", "note": "无违背常识"},
     ]
-    res = rl.check_chapter({"chapter": 1, "summary": "开篇：雨夜拜访", "dims": dims}, CHAPTER, 1)
+    aesthetic = [
+        {"q": "prose", "score": 8, "quote": "灯芯爆了一下，屋里暗了半格。", "note": "用一个光的变化写气氛"},
+        {"q": "technique", "score": 7, "quote": "他把湿透的袖口往腕上又卷了一道。", "note": "动作代替情绪说明"},
+        {"q": "dialogue", "score": 8, "quote": "“明天再来。”老者把灯往桌心推了推。", "note": "短句，能听出人物的性子"},
+        {"q": "diction", "score": 7, "quote": "桌角压着一张被水浸过的纸，字迹已经散开。", "note": "用词克制，没有形容词堆砌"},
+        {"q": "impact", "score": 8, "quote": "门轴响了一声，他没有回头。", "note": "收得干净，留了余味"},
+    ]
+    res = rl.check_chapter({"chapter": 1, "summary": "开篇：雨夜拜访", "dims": dims,
+                            "aesthetic": aesthetic}, CHAPTER, 1)
     rl.write_ledger(ws / "data" / "review", res)
     rl.write_summary(ws / "data" / "review", [res])
     return ws
@@ -203,17 +216,30 @@ def main():
             card = page.locator("div.card:has(.rl-table)")
             check("七维评审账本卡片渲染", card.count() >= 1, card.count())
             head = card.locator(".rl-table thead th").all_inner_texts() if card.count() else []
-            check("表头 7 个维度 + 章 + 均分", len(head) == 9, head)
+            check("表头 7 个维度 + 章 + 逻辑均分 + 审美", len(head) == 10, head)
             check("表头含「情节连贯性」", "情节连贯性" in head, head)
             check("未举证维度显示「未举证」", "未举证" in card.inner_text(), card.inner_text()[:200])
             card.locator(".rl-table tbody tr").first.click()
             page.wait_for_timeout(600)
-            check("点章节后出现七维明细", card.locator(".rl-dim").count() == 7,
+            # 七维 7 条 + 审美五问 5 条 = 12 条明细块
+            check("点章节后出现七维 + 审美共 12 条明细",
+                  card.locator(".rl-dim").count() == 12,
                   card.locator(".rl-dim").count())
             check("明细里有原文引用块", card.locator(".rl-quote").count() >= 5,
                   card.locator(".rl-quote").count())
             q = card.locator(".rl-quote").first.inner_text()
             check("引用块显示的是原文句子", "推开门" in q or "迟到" in q, q[:60])
+            # 审美五问（2026-10-20）：另开一块，五问各自举证
+            aes_head = card.locator(".rl-aes-head")
+            check("审美五问块渲染", aes_head.count() == 1)
+            check("审美块显示均分", "均分" in (aes_head.inner_text() if aes_head.count() else ""),
+                  aes_head.inner_text() if aes_head.count() else "")
+            aes_text = card.inner_text()
+            check("五问标签都在", all(k in aes_text for k in ("描写质感", "叙事手法", "对话区分度", "用词质量", "情感打动力")),
+                  aes_text[-300:])
+            check("审美也有原文引用（不是空口打分）",
+                  card.locator(".rl-dim .rl-quote").count() >= 10,
+                  card.locator(".rl-dim .rl-quote").count())
             UX.shot(page, "L1_review_ledger")
 
             print("\n=== C. 素材裁决面板（设定页签） ===")

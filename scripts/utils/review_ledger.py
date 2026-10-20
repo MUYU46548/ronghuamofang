@@ -55,6 +55,29 @@ DIMENSIONS = [
 DIM_CODES = [d["code"] for d in DIMENSIONS]
 DIM_LABEL = {d["code"]: d["label"] for d in DIMENSIONS}
 
+# ---------------------------------------------------------------------------
+# 审美五问（2026-10-20，抄 ainovel-cli 的审美细分）
+#
+# **为什么不叫「第八维」**：七维是既有契约（prompt / 测试 / GUI / 账本四处都按"七维齐全"
+# 判完整）。往里加一维会让**所有历史账本一夜之间变成"不完整"**，那是拿数据迁移换一句
+# 好听的话。所以另开一块独立字段 `aesthetic`，人话叫「审美五问」：
+#
+#   这章写得好看吗 —— 描写、手法、对话、用词、打动人心，各问一句，各引一句原文。
+#
+# 七维管"没写错"，五问管"写得好不好"。两者互不影响：
+#   complete            仍只看七维；
+#   aesthetic_complete  只看五问。
+# ---------------------------------------------------------------------------
+AESTHETIC = [
+    {"code": "prose",     "label": "描写质感",   "hint": "有没有具体的感官细节，而不是形容词堆砌"},
+    {"code": "technique", "label": "叙事手法",   "hint": "视角、节奏、信息给出的方式有没有讲究"},
+    {"code": "dialogue",  "label": "对话区分度", "hint": "不同角色说话，能不能听出是谁"},
+    {"code": "diction",   "label": "用词质量",   "hint": "有没有用词重复、口头禅式表达、AI 腔"},
+    {"code": "impact",    "label": "情感打动力", "hint": "读完这一段，读者会不会被推动一下"},
+]
+AESTHETIC_CODES = [q["code"] for q in AESTHETIC]
+AESTHETIC_LABEL = {q["code"]: q["label"] for q in AESTHETIC}
+
 MIN_QUOTE_CHARS = 8      # 举证下限（有效字符，标点空白不计）
 GOOD_SCORE = 8           # >= 视为无问题
 WARN_SCORE = 6           # >= 视为可接受；低于此进 findings
@@ -153,6 +176,101 @@ def _pick_dims(entry):
     return out
 
 
+def _pick_aesthetic(entry):
+    """把审美记录摊成 {code: raw_dict}（兼容 list / dict 两种写法）。"""
+    raw = entry.get("aesthetic") if isinstance(entry, dict) else None
+    out = {}
+    if isinstance(raw, dict):
+        for k, v in raw.items():
+            if isinstance(v, dict):
+                out[str(k)] = v
+            elif _as_int_score(v) is not None:
+                out[str(k)] = {"score": v}
+    elif isinstance(raw, list):
+        for it in raw:
+            if not isinstance(it, dict):
+                continue
+            code = str(it.get("q") or it.get("code") or it.get("key") or "").strip()
+            if code:
+                out[code] = it
+    return out
+
+
+def check_aesthetic(entry, chapter_text, chapter_no=0, reserved=None):
+    """校验「审美五问」。返回 {items, missing, unverified, complete, mean, findings}。
+
+    ## 两条硬判据
+
+    1. 五问缺一即整块作废（不算"部分完成"—— 只问了三问的评审等于没评审美）。
+    2. **一问一句，同一句原文只算第一问**。模型最爱偷懒：拿同一句"她哭了"给五个问题
+       各作一次证据。去重按 squash 后的字符串比对，第 2 次起判未举证并写明与哪一问撞了。
+       `reserved` 传「七维已经用过的句子」→ 同一句既给七维又给审美也算复用
+       （提示词里已经这么要求，这里必须真的判 —— 判据写两遍必然漂移）。
+
+    分数仍走 0-10；低于 `WARN_SCORE` 进 findings（给作者看"哪里不好看"），
+    不阻断 —— 审美是建议，不是闸门。
+    """
+    entry = entry if isinstance(entry, dict) else {}
+    raw = _pick_aesthetic(entry)
+    items, missing, unverified, findings = {}, [], [], []
+    used = dict(reserved or {})   # squash(quote) -> 已经用过它的地方（问 code / "七维·标签"）
+
+    for q in AESTHETIC:
+        code = q["code"]
+        d = raw.get(code)
+        if not isinstance(d, dict):
+            missing.append(code)
+            items[code] = {
+                "label": q["label"], "score": None, "quote": "", "note": "",
+                "verified": False, "verdict": "unverified", "reason": "该问缺失",
+            }
+            continue
+        score = _as_int_score(d.get("score", d.get("mark")))
+        quote = str(d.get("quote") or d.get("evidence") or "").strip()
+        ok, why = quote_ok(quote, chapter_text)
+        key = _squash(quote)
+        if ok and key in used:
+            ok = False
+            why = ("与「%s」用了同一句举证（一问一句，同一句只算第一处）"
+                   % AESTHETIC_LABEL.get(used[key], used[key]))
+        if score is None:
+            reason = "分数缺失或不在 0-10 区间" + ("；" + why if why else "")
+            ok = False
+        else:
+            reason = why
+        if ok:
+            used[key] = code
+        else:
+            unverified.append(code)
+        rec = {
+            "label": q["label"],
+            "score": score if ok else None,
+            "raw_score": score,
+            "quote": quote,
+            "note": str(d.get("note") or d.get("why") or "").strip(),
+            "verified": bool(ok),
+            "verdict": verdict_of(score if ok else None),
+            "reason": reason,
+        }
+        items[code] = rec
+        if ok and score < WARN_SCORE:
+            findings.append({
+                "chapter": chapter_no, "kind": "aesthetic", "dim": code,
+                "label": q["label"], "score": score, "quote": quote, "note": rec["note"],
+            })
+
+    scores = [r["score"] for r in items.values() if r["verified"]]
+    return {
+        "items": items,
+        "missing": missing,
+        "unverified": unverified,
+        "complete": not missing and not unverified,
+        "verified_count": len(scores),
+        "mean": round(sum(scores) / len(scores), 2) if scores else None,
+        "findings": findings,
+    }
+
+
 def check_chapter(entry, chapter_text, chapter_no=None):
     """校验一章的七维记录，返回规范化结果（纯 JSON 可序列化）。"""
     entry = entry if isinstance(entry, dict) else {}
@@ -207,6 +325,11 @@ def check_chapter(entry, chapter_text, chapter_no=None):
 
     verified_scores = [r["score"] for r in dims.values() if r["verified"]]
     mean = round(sum(verified_scores) / len(verified_scores), 2) if verified_scores else None
+    # 审美五问（独立字段，不影响 complete —— 见 AESTHETIC 的说明）
+    # 七维已经引过的句子不允许再审美的五问里复用（否则"引用原文"就成了套模板）
+    reserved = {_squash(r["quote"]): "七维·" + r["label"]
+                for r in dims.values() if r["verified"] and r["quote"]}
+    aes = check_aesthetic(entry, chapter_text, no, reserved)
     return {
         "chapter": no,
         "dims": dims,
@@ -215,7 +338,9 @@ def check_chapter(entry, chapter_text, chapter_no=None):
         "complete": not missing and not unverified,
         "verified_count": len(verified_scores),
         "mean": mean,
-        "findings": findings,
+        "aesthetic": aes,
+        "aesthetic_complete": aes["complete"],
+        "findings": findings + aes["findings"],
         "summary": str(entry.get("summary") or "").strip(),
     }
 
@@ -281,6 +406,29 @@ def summarize(results):
             "unverified": len(results) - len(scores),
             "low": bad,
         }
+    # 审美五问：独立统计（老账本没有这个字段 → 全是 None，不报错、不算作废）
+    aes_items = {}
+    for code in AESTHETIC_CODES:
+        vals = [r["aesthetic"]["items"][code]["score"] for r in results
+                if (r.get("aesthetic") or {}).get("items", {}).get(code, {}).get("verified")]
+        bad = [r["chapter"] for r in results
+               if (r.get("aesthetic") or {}).get("items", {}).get(code, {}).get("verified")
+               and r["aesthetic"]["items"][code]["score"] < WARN_SCORE]
+        aes_items[code] = {
+            "label": AESTHETIC_LABEL[code],
+            "mean": round(sum(vals) / len(vals), 2) if vals else None,
+            "verified": len(vals),
+            "unverified": len(results) - len(vals),
+            "low": bad,
+        }
+    aes_means = [r["aesthetic"]["mean"] for r in results
+                 if (r.get("aesthetic") or {}).get("mean") is not None]
+    aes = {
+        "chapters": len(aes_means),
+        "complete": sum(1 for r in results if (r.get("aesthetic") or {}).get("complete")),
+        "mean": round(sum(aes_means) / len(aes_means), 2) if aes_means else None,
+        "items": aes_items,
+    }
     complete = [r for r in results if r["complete"]]
     means = [r["mean"] for r in results if r["mean"] is not None]
     return {
@@ -289,6 +437,7 @@ def summarize(results):
         "incomplete": [r["chapter"] for r in results if not r["complete"]],
         "mean": round(sum(means) / len(means), 2) if means else None,
         "dims": per_dim,
+        "aesthetic": aes,
         "findings": [f for r in results for f in r["findings"]],
     }
 
@@ -322,15 +471,30 @@ def render_markdown(results, summary=None):
     lines.append(f"- 均分：{s['mean'] if s['mean'] is not None else '—'}")
     if s.get("incomplete"):
         lines.append(f"- 不完整：{'、'.join('第%d章' % n for n in s['incomplete'])}")
-    lines += ["", "| 章 | " + " | ".join(d["label"] for d in DIMENSIONS) + " | 均分 |",
-              "|---|" + "---|" * (len(DIMENSIONS) + 1)]
+    lines += ["", "| 章 | " + " | ".join(d["label"] for d in DIMENSIONS) + " | 逻辑均分 | 审美 |",
+              "|---|" + "---|" * (len(DIMENSIONS) + 2)]
     for r in results:
         cells = []
         for code in DIM_CODES:
             d = r["dims"][code]
             cells.append(str(d["score"]) if d["verified"] else "未举证")
         mean = r["mean"] if r["mean"] is not None else "—"
-        lines.append(f"| {r['chapter']} | " + " | ".join(cells) + f" | {mean} |")
+        aes_mean = (r.get("aesthetic") or {}).get("mean")
+        aes_cell = str(aes_mean) if aes_mean is not None else "未评"
+        lines.append(f"| {r['chapter']} | " + " | ".join(cells) + f" | {mean} | {aes_cell} |")
+    aes_sum = s.get("aesthetic") or {}
+    if aes_sum.get("chapters"):
+        lines += ["", "## 审美五问（另开一块，不影响逻辑七维的完整性）",
+                  "- 已评 %d 章，五问齐全 %d 章，均分 %s"
+                  % (aes_sum["chapters"], aes_sum["complete"],
+                     aes_sum["mean"] if aes_sum["mean"] is not None else "—")]
+        for code in AESTHETIC_CODES:
+            it = aes_sum["items"][code]
+            line = "- %s：%s" % (it["label"],
+                                 it["mean"] if it["mean"] is not None else "未举证")
+            if it["unverified"]:
+                line += "（%d 章未举证）" % it["unverified"]
+            lines.append(line)
     if s.get("findings"):
         lines += ["", "## 低分项（< %d）" % WARN_SCORE]
         for f in s["findings"]:

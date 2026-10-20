@@ -290,6 +290,9 @@ def handle_review_ledger(h):
             rows.append({
                 "chapter": d.get("chapter"),
                 "mean": d.get("mean"),
+                # 审美五问（2026-10-20）：独立字段，老账本没有 → None
+                "aesthetic_mean": (d.get("aesthetic") or {}).get("mean"),
+                "aesthetic_complete": bool(d.get("aesthetic_complete")),
                 "complete": bool(d.get("complete")),
                 "verified_count": d.get("verified_count"),
                 "unverified": d.get("unverified") or [],
@@ -306,6 +309,7 @@ def handle_review_ledger(h):
         return 200, {
             "ok": True,
             "dimensions": [{"code": d["code"], "label": d["label"]} for d in rl.DIMENSIONS],
+            "aesthetic_questions": [{"code": q["code"], "label": q["label"]} for q in rl.AESTHETIC],
             "summary": summary,
             "chapters": rows,
             "exists": bool(rows),

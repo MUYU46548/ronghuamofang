@@ -74,13 +74,34 @@ temperature: 0.3
   **不要编句子**——编的句子对不上原文，这一维**不计分**（不是扣分，是整维作废）。
 - 七维缺一不可，不要合并、不要加维度、不要用中文维度名代替 `dim` 代码。
 
+## 审美五问（**必须**，另开一块，不塞进上面的七维）
+
+七维管"有没有写错"，五问管"写得好看吗"。对**每一章**各问一句，各引一句原文：
+
+| q | 问什么 | 怎么才算答好 |
+|---|---|---|
+| `prose` | 描写质感 | 有没有具体的感官细节，而不是形容词堆砌 |
+| `technique` | 叙事手法 | 视角、节奏、信息给出的方式有没有讲究 |
+| `dialogue` | 对话区分度 | 不同角色说话，能不能听出是谁 |
+| `diction` | 用词质量 | 有没有用词重复、口头禅式表达、AI 腔 |
+| `impact` | 情感打动力 | 读完这一段，读者会不会被推动一下 |
+
+举证纪律（比七维更严）：
+
+- **一问一句，不许复用**：同一句原文不能给两问作证。重复的那一问**整问作废**
+  （校验程序会按句子比对，第二问起判未举证）。
+- 分数 0-10 整数；太短的引用不算（有效字符少于 8 个）；单条不超过 400 字。
+- 五问**缺一即整块作废** —— 只答三问的审美评审等于没评。写不出来就给低分，别瞎编。
+
 输出格式（**必须**写出这个 FILE 块，路径照抄）：
 
 ```
 ===FILE: {{path_review}}===
-{"chapters":[{"chapter":1,"summary":"一句话总评","dims":[{"dim":"plot","score":8,"quote":"本章原文里的一句","note":"为什么给这个分"},{"dim":"timeline","score":9,"quote":"另一句原文","note":"…"},{"dim":"space","score":8,"quote":"…","note":"…"},{"dim":"reference","score":9,"quote":"…","note":"…"},{"dim":"relation","score":8,"quote":"…","note":"…"},{"dim":"persona","score":8,"quote":"…","note":"…"},{"dim":"commonsense","score":9,"quote":"…","note":"…"}]}]}
+{"chapters":[{"chapter":1,"summary":"一句话总评","dims":[{"dim":"plot","score":8,"quote":"本章原文里的一句","note":"为什么给这个分"},{"dim":"timeline","score":9,"quote":"另一句原文","note":"…"},{"dim":"space","score":8,"quote":"…","note":"…"},{"dim":"reference","score":9,"quote":"…","note":"…"},{"dim":"relation","score":8,"quote":"…","note":"…"},{"dim":"persona","score":8,"quote":"…","note":"…"},{"dim":"commonsense","score":9,"quote":"…","note":"…"}],"aesthetic":[{"q":"prose","score":8,"quote":"一句与上面都不重复的原文","note":"描写具体，没有形容词堆砌"},{"q":"technique","score":7,"quote":"另一句原文","note":"…"},{"q":"dialogue","score":8,"quote":"再一句原文","note":"…"},{"q":"diction","score":8,"quote":"又一句原文","note":"…"},{"q":"impact","score":7,"quote":"最后一句原文","note":"…"}]}]}
 ===END===
 ```
+
+**审美**：`aesthetic` 里的五句 quote 必须**两两不同**；同一句不能既给七维又给审美、也不能给两问。校验程序会逐句比对，撞了就整问作废。
 
 本批有几章，`chapters` 数组就要有几条，`chapter` 用**章号整数**（从文件名取，如 `03.md` → 3）。
 
