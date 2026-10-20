@@ -4010,7 +4010,12 @@ onUnmounted(() => {
         <div v-if="!settingItems(settingTab).length" class="empty">暂无条目</div>
         <div v-for="(item, idx) in settingItems(settingTab)" :key="idx" class="setting-row" @click="openSettingEditor(settingTab, idx)">
           <div class="setting-row-name">{{ item.name || '未命名' }}</div>
-          <div class="setting-row-summary">{{ item.description?.slice(0, 60) || '（无描述）' }}</div>
+          <!-- 回落到 role / snippet（2026-10-20）：stage1 归并写的是 role、vault 导入带 snippet，
+               只有 description 是"第三种名字"。只认 description 会让整列显示"（无描述）"，
+               看起来像设定集是空的（实测截图如此）。 -->
+          <div class="setting-row-summary">
+            {{ (item.description || item.role || item.snippet || '').slice(0, 60) || '（无描述）' }}
+          </div>
           <span class="spacer"></span>
           <button class="mini danger" @click.stop="removeSettingItem(settingTab, idx)">删除</button>
         </div>

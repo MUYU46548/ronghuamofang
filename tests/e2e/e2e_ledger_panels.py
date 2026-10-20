@@ -46,6 +46,9 @@ SITE = "http://127.0.0.1:%d" % SITE_PORT
 UX.SITE = SITE
 OUT = ROOT / "Temp" / "gui_verify" / "ledger"
 OUT.mkdir(parents=True, exist_ok=True)
+# UX.shot 写的是它自己的 OUT（Temp/gui_verify/ux）。指过来，别让本轮截图
+# 混进别人那批里 —— 也免得看到空目录以为没截图。
+UX.OUT = OUT
 
 PASS, FAIL = [], []
 
@@ -218,6 +221,10 @@ def main():
             page.wait_for_timeout(1200)
             sc = page.locator("div.card:has(.sc-summary)")
             check("素材裁决卡片渲染", sc.count() >= 1, sc.count())
+            # 设定列表的摘要要能回落到 role（否则整列"（无描述）"，像设定集是空的）
+            row = page.locator(".setting-row").first
+            check("设定列表回落到 role/snippet 显示（不是一排「无描述」）",
+                  "档案室整理员" in row.inner_text(), row.inner_text()[:80])
             body = sc.inner_text() if sc.count() else ""
             check("显示待裁决数量", "处待裁决" in body, body[:200])
             check("列出冲突条目（露汐 / 身份）", "露汐" in body and "身份" in body, body[:400])
