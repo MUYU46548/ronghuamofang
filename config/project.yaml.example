@@ -14,6 +14,21 @@
 book:
   name: "示例书名（待填写）"        # 必填：成品文件名、合并稿标题都用它
   genre: "奇幻"
+  # ★ 文体（2026-10-20）：决定**哪些判据适用**。默认 narrative，行为与以前完全一致。
+  #   narrative = 叙事小说（主线/冲突/连续推进）
+  #   letter    = 书信 / 日记体（时间可跳跃，语气比情节重要）
+  #   episodic  = 单元 / 日常流（每章独立小事，弱主线）
+  #   essay     = 散文 / 随笔集（篇篇独立，没有主线人物）
+  # 不写 = narrative。写了不认识的值 → 回落 narrative 并在阶段入口**打印警告**（不静默）。
+  # ⚠️ 只有判据口径按文体生效；各家文体的"写法指导"（stage4 文风块）还没接，
+  #    散文/书信体目前能拿到正确的评分口径，但写作提示词仍是叙事口径。
+  form: narrative
+  # 需要微调判据适用范围时写这里（键可选：review_dims / aesthetic /
+  # chapter_new_fields / deepen / foreshadow / volume / must_mention_character /
+  # para_structure）。例如只要 5 维、不要深化段：
+  # form_overrides:
+  #   review_dims: [plot, reference, relation, persona, commonsense]
+  #   deepen: false
   target_words: 300000              # 全书目标字数（供大纲阶段参考）
   style: "冷峻、克制、侧重行动与选择"
   chapters: 40                      # 目标章数：**总量用章数控制**，

@@ -65,7 +65,7 @@ def _chapter_no(path):
         return None
 
 
-def _verify_ledger(batch, bi):
+def _verify_ledger(batch, bi, app=None):
     """读回本批七维评审 JSON 并校验。返回 (results, problems)。
 
     **为什么必须是「读回文件」而不是「解析 stdout」**：stdout 尾部只留最后几百字，
@@ -93,7 +93,11 @@ def _verify_ledger(batch, bi):
             texts[no] = read_text(f)
         except Exception:                                     # noqa: BLE001
             texts[no] = ""
-    results, unknown = rl.validate_payload(payload, texts)
+    # 文体（2026-10-20）：不适用的维度标 N/A —— 不计分、不算缺失、不进均值。
+    # 散文只有"常识"一维适用，硬按七维要求它永远不完整。
+    _dims = (app or {}).get("review_dims")
+    _qs = (app or {}).get("aesthetic")
+    results, unknown = rl.validate_payload(payload, texts, dims=_dims, questions=_qs)
     problems = []
     miss = rl.missing_chapters(results, texts)
     if miss:
@@ -143,6 +147,15 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         """
         return [f.name for f in batch
                 if not is_usable_output(raw_dir / f.name, checked_dir / f.name)]
+
+    # 文体（2026-10-20）：项目声明了 book.form 就按它的判据适用范围走
+    from utils import writing_form as _wf
+    _app = _wf.applicability(proj)
+    if _app.get("warning"):
+        print("[stage5] " + _app["warning"])
+    print("[stage5] " + _wf.describe(_app))
+    if not _app.get("style_prompt_wired"):
+        print("[stage5] 说明：本文件体的**写法指导**尚未接入 stage4（判据口径已按文体生效）")
 
     copied_all = []
     ledger_all = []
@@ -206,7 +219,7 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
             _norm(checked_dir / f.name)
         # 七维评审账本（2026-10-20）：与修正稿同批判定。**校验的是 raw 原文**——
         # 模型读到的就是 raw，拿 checked 去核对等于让它给自己改过的句子作证。
-        batch_results, batch_problems = _verify_ledger(batch, bi)
+        batch_results, batch_problems = _verify_ledger(batch, bi, _app)
         for r in batch_results:
             rl.write_ledger(REVIEW_DIR, r)
         ledger_all.extend(batch_results)
