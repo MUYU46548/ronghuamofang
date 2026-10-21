@@ -224,3 +224,29 @@ def render_markdown(data):
     for n in data.get("notes") or []:
         lines.append("> " + n)
     return "\n".join(lines) + "\n"
+
+
+def review_warnings(outline_dir=None, stale_after=None, latest_chapter=None):
+    """审稿联动（2026-10-21）：给 stage5 的确定性告警列表。零 token。
+
+    只报**悬空伏笔**：`status in (open, advanced)` 且在 `latest_chapter` 之前
+    （含）埋设、却一直没推进/没回收的钩子。故事已经走到后面、这条线还晾着，
+    是审稿该提示的**连续性风险**（读者会记得，作者忘了）。
+
+    刻意**只报不拦**：悬空不等于写错（有些钩子本就是留白、或跨卷才回收）。
+    stage5 把它并进"带警告完成"，与"兜底复制""七维不完整"同一档 —— 提示作者
+    去台账看一眼，不替他决定要不要现在回收。
+
+    返回 dict：`{"stale": [...], "summary": {...}}`，`stale` 每项含
+    id/text/planted/status/idle。台账为空（无章大纲）→ 返回空列表，不倒假数据。
+    """
+    data = collect(outline_dir=outline_dir, stale_after=stale_after,
+                   latest_chapter=latest_chapter)
+    dangling = [r for r in data.get("items", [])
+                if r.get("status") in ("open", "advanced")]
+    return {
+        "stale": dangling,
+        "summary": data.get("summary", {}),
+        "stale_after": data.get("stale_after", DEFAULT_STALE_AFTER),
+        "latest_chapter": data.get("latest_chapter"),
+    }

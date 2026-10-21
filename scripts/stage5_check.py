@@ -292,6 +292,22 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     if ledger_problems:
         warnings.extend(ledger_problems)
 
+    # 伏笔联动（2026-10-21）：悬空钩子（埋了没推进/没回收）并进"带警告完成"。
+    # 零 token、确定性；只报不拦 —— 悬空不等于写错，留给作者在台账里拍板。
+    try:
+        from utils import foreshadow as _fs
+        _fw = _fs.review_warnings()
+        _dang = _fw.get("stale") or []
+        if _dang:
+            warnings.append(
+                f"{len(_dang)} 条伏笔悬空（埋设后一直没推进/回收）："
+                + "、".join("`%s`(第%d章)" % (r["id"], r["planted"]) for r in _dang[:6])
+                + ("…" if len(_dang) > 6 else "")
+                + " —— 详见章节页签「伏笔台账」")
+    except Exception as _e:                                   # noqa: BLE001
+        # 告警是锦上添花，坏了不该拖垮检查主链路；但要出声，不静默。
+        print(f"[stage5] 伏笔联动告警组装失败（不影响检查结果）: {type(_e).__name__}: {_e}")
+
     # gates.review_ledger（默认 warn）：只有显式写 block 才让账本问题判阶段失败。
     # 为什么默认 warn：真实模型的 JSON 合规率还没实测过，先报不拦；等稳态再切 block。
     _ledger_mode = str(((cfg or {}).get("gates") or {}).get("review_ledger", "warn")).lower()

@@ -166,6 +166,22 @@ def main():
         md = FS.render_markdown(FS.collect(latest_chapter=40, stale_after=30))
         check("P9 有标题与计数", "# 伏笔台账" in md and "共 4 条" in md, md[:80])
         check("P9 逐条列出 id 与章号", "`ch01-1`" in md and "第 1 章" in md, md[:200])
+
+        print("\n[P10] 审稿联动：review_warnings 只报悬空钩子")
+        # 此刻台账里 ch01-1 / ch02-1 是 open（P8 末尾把 ch01-1 打回 open），
+        # ch03-1 / ch04-1 是 advanced（各有后续章推进）—— 四条都还没回收，
+        # 所以四条都算"悬空"（open+advanced，未 closed/abandoned）。
+        fw = FS.review_warnings(latest_chapter=40, stale_after=30)
+        ids = {r["id"] for r in fw["stale"]}
+        check("P10 open+advanced 都算悬空", ids == {"ch01-1", "ch02-1", "ch03-1", "ch04-1"}, ids)
+        check("P10 每项带 planted 与 text",
+              all("planted" in r and r["text"] for r in fw["stale"]), fw["stale"][:1])
+        check("P10 回收后不再报（ch01-1 标 closed）",
+              (FS.set_status("ch01-1", "closed", "已在第3章揭晓") and
+               "ch01-1" not in {r["id"] for r in FS.review_warnings(latest_chapter=40, stale_after=30)["stale"]}))
+        # 空台账（无大纲）→ 空列表，不倒假数据
+        fw_empty = FS.review_warnings(outline_dir=tmp / "nope")
+        check("P10 无大纲 → 空悬空列表", fw_empty["stale"] == [], fw_empty["stale"])
     finally:
         os.chdir(cwd)
         shutil.rmtree(tmp, ignore_errors=True)
