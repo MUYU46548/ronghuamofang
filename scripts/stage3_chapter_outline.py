@@ -128,6 +128,14 @@ def build_batch_task(cfg, proj, chapters, global_outline_path, setting_path):
     total = int((proj.get("book") or {}).get("chapters", 0) or max(chapters))
     # 卷弧（2026-10-20）：本批**首章所属卷**的卷纲。一批不跨卷（见 generate_chapters）。
     volume_context = va.render_context(chapters[0], total, cfg, proj)
+    # 指南针（2026-10-21）：没设终局方向时**明说**（静默省略会让长篇一路写偏而无人知）。
+    try:
+        from utils import compass as _cp
+        _note = _cp.missing_note()
+        if _note:
+            volume_context = (volume_context + "\n\n" + _note).strip()
+    except Exception:                                        # noqa: BLE001
+        pass
     _, body = load_template("stage3_chapter_outline.md", {
         "first": chapters[0],
         "last": chapters[-1],
