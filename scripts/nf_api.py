@@ -1981,6 +1981,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/config/target_words":
             # 单章字数区间读取（chapter.target_words）+ 出厂预设 + 合法区间。
             self._send(*_dom(dom_project.handle_config_target_words(self)))
+        elif p == "/config/writing_presets":
+            # 写作预设清单 + 当前生效值 + 切换历史（只读）。
+            self._send(*_dom(dom_project.handle_writing_presets_get(self)))
         elif p == "/materials/list":
             # 实现已迁至 nf_api_domains.materials（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_materials.handle_materials_list(self)))
@@ -2573,6 +2576,12 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/config/target_words":
                 # 单章字数区间设置（创作决策，非安全闸门；越界值一律 400 拒绝）。
                 self._send(*_dom(dom_project.handle_config_target_words_set(self, body)))
+            elif p == "/config/writing_presets/save":
+                # 保存/覆盖一套写作预设（创作决策；未知键一律 400 并列出可选键）。
+                self._send(*_dom(dom_project.handle_writing_presets_save(self, body)))
+            elif p == "/config/writing_presets/apply":
+                # 切换预设：校验 → 留 history → 定向写回 project.yaml（含备份+回读）。
+                self._send(*_dom(dom_project.handle_writing_presets_apply(self, body)))
             elif p == "/config/style_reference":
                 # 范文正文保存（创作决策，非安全闸门；空字符串 = 清空）。
                 self._send(*_dom(dom_project.handle_config_style_reference_set(self, body)))

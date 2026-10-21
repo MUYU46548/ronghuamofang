@@ -752,6 +752,50 @@ def handle_archive_delete(h, body):
         return 500, {"ok": False, "error": "删除失败: %s" % e}
 
 
+# ---------------------------------------------------------------- 写作预设（2026-10-21）
+def handle_writing_presets_get(h):
+    """`GET /config/writing_presets` —— 预设清单 + 当前生效值 + 切换历史。只读。"""
+    try:
+        from utils import writing_presets as wp
+        return 200, {"ok": True,
+                     "presets": wp.list_presets(api.ROOT),
+                     "current": wp.current_values(api.ROOT),
+                     "history": wp.history(api.ROOT),
+                     "keys": list(wp.PRESET_KEYS)}
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_writing_presets_save(h, body):
+    """`POST /config/writing_presets/save {id, data}` —— 保存/覆盖一套预设。
+
+    创作决策（存一套写作要求），非安全闸门，Agent 可代设；未知键/非法值一律 400。
+    """
+    try:
+        from utils import writing_presets as wp
+        body = body or {}
+        ok, msg = wp.save_preset(body.get("id"), body.get("data"), root=api.ROOT)
+        return (200 if ok else 400), ({"ok": True, "message": msg} if ok
+                                      else {"ok": False, "error": msg})
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_writing_presets_apply(h, body):
+    """`POST /config/writing_presets/apply {id}` —— 切换到某预设。
+
+    切换 = 校验 → 留 history → 写回 project.yaml（定向改写 + 备份 + 回读校验）。
+    与 target_words/style_reference 同口径：创作决策，Agent 可代设。
+    """
+    try:
+        from utils import writing_presets as wp
+        ok, msg = wp.apply_preset((body or {}).get("id"), root=api.ROOT)
+        return (200 if ok else 400), ({"ok": True, "message": msg} if ok
+                                      else {"ok": False, "error": msg})
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 # 本模块负责的端点（供自检与文档）
 ROUTES = (
     ("GET", "/health", handle_health),
@@ -773,4 +817,8 @@ ROUTES = (
     ("POST", "/config/token_limit", handle_config_token_limit_set),
     ("GET", "/config/target_words", handle_config_target_words),
     ("POST", "/config/target_words", handle_config_target_words_set),
+    # 写作预设（2026-10-21，v0.10.3）：多套写作要求存档与切换
+    ("GET", "/config/writing_presets", handle_writing_presets_get),
+    ("POST", "/config/writing_presets/save", handle_writing_presets_save),
+    ("POST", "/config/writing_presets/apply", handle_writing_presets_apply),
 )

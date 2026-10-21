@@ -25,6 +25,8 @@ import SettingClosurePanel from "./SettingClosurePanel.vue";
 import TruncatedPanel from "./TruncatedPanel.vue";
 import ForeshadowPanel from "./ForeshadowPanel.vue";
 import HandoffPanel from "./HandoffPanel.vue";
+import CompassPanel from "./CompassPanel.vue";
+import WritingPresetsPanel from "./WritingPresetsPanel.vue";
 
 // 审批门通知偏好
 const GATE_NOTIFY_KEY = "mofang_gate_notify";
@@ -3988,6 +3990,8 @@ onUnmounted(() => {
     <section v-if="tab === 'outline'">
       <OutlineView ref="outlineRef" :api="api" :is-busy="isRunning" :book-name="state ? state.book : ''"
                    @say="say" @structure-loaded="onStructureLoaded" />
+      <!-- 指南针（2026-10-21，roadmap 7.3）：全书终局锚点 -->
+      <CompassPanel @say="say" />
     </section>
 
     <!-- 审稿 -->
@@ -4808,6 +4812,9 @@ onUnmounted(() => {
         <button class="mini" @click="loadStyleNotes">重新读取</button>
         <button class="mini primary" :disabled="!styleNotesDirty" @click="saveStyleNotes">保存笔记</button>
       </div>
+
+      <!-- 写作预设（2026-10-21，roadmap 10.3）：多套写作要求存档与切换 -->
+      <WritingPresetsPanel @say="say" />
 
       <!-- 提示词模板编辑器 -->
       <h4 style="margin-top: 16px;">提示词模板（prompts/stage[1-7]_*.md）</h4>
