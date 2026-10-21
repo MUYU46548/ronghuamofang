@@ -620,6 +620,16 @@ def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, p
         decompose_samples = ""
 
     style_rules, para_rules, _form_app = _style_blocks(proj)
+    # 叙事深化（v0.7.2）：本章所在深化段的节奏形状。占位符在 --- 分隔线之后，
+    # 不碰前缀缓存区。存量卷纲/散文文体 → 空串（模板里那一行渲染成空行）。
+    try:
+        from utils import story_deepen as _sd
+        deepen_context = _sd.context_for(n, int(book.get("chapters") or 0) or 10,
+                                         cfg, proj)[1]
+    except Exception as e:                              # noqa: BLE001
+        print(f"[stage4] 叙事深化块组装失败（本章将无深化上下文）: "
+              f"{type(e).__name__}: {e}")
+        deepen_context = ""
     _, body = load_template("stage4_writing.md", {
         "n": n,
         "style_rules": style_rules,
@@ -630,6 +640,7 @@ def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, p
         "path_rolling": Path(rolling_path).resolve(),
         "path_project": Path("config/project.yaml").resolve(),
         "prev_tail": tail_section,
+        "deepen_context": deepen_context,
         "memory_block": memory_block,
         "style_reference": style_text,
         "style_samples": style_samples,

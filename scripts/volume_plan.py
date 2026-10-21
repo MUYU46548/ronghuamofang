@@ -51,6 +51,15 @@ def build_volume_task(cfg, proj, v, start, end, total, written, global_outline="
                         % written)
     else:
         written_note = "还没有开始写作（本卷是开篇卷）。"
+    # 叙事深化段数建议：按卷章数给模板里的区间（不足 6 章的卷只切 1 段，不硬凑）。
+    # 值写进模板只是给模型的建议区间；**判据在 story_deepen.check_deepen**（确定性）。
+    from utils import story_deepen as sd
+    span = int(end) - int(start) + 1
+    if span < sd.SMALL_VOLUME_CHAPTERS:
+        min_seg, max_seg = 1, 1
+    else:
+        min_seg, max_seg = sd.MIN_SEGMENTS, sd.MAX_SEGMENTS
+    mid = (int(start) + int(end)) // 2
     _, body = load_template("volume_plan.md", {
         "v": v,
         "start": start,
@@ -60,6 +69,12 @@ def build_volume_task(cfg, proj, v, start, end, total, written, global_outline="
         "path_setting": Path(setting_path).resolve(),
         "path_volume": va.volume_path(v).resolve(),
         "written_note": written_note,
+        "min_seg": min_seg,
+        "max_seg": max_seg,
+        # 示例用的两段切分点（仅格式示例，模型自己决定真实切法）
+        "seg1_end": mid,
+        "seg2_start": mid + 1,
+        "seg2_end": int(end),
     })
     return body
 
@@ -108,6 +123,20 @@ def ensure_volume(v, cfg=None, proj=None, client=None, task_dir="data/state/task
         # 不合格也把文件留在盘上（不删证据），但**不登记为已规划**
         return False, ("第 %d 卷卷纲不合格：%s（文件已留在 %s，可手工改）"
                        % (v, "；".join(problems), p.as_posix())), True
+
+    # 叙事深化：**只有新生成**的卷纲走严格校验（存量卷纲没有深化节是正常态，
+    # 不判废不重生成 —— 与章大纲六字段同纪律）。文体不做深化（essay/episodic）时早退。
+    if _app.get("deepen", True):
+        from utils import story_deepen as sd
+        segs, present = sd.load_segments(p)
+        if not present:
+            log("[volume] WARN 第 %d 卷卷纲缺「叙事深化」节 —— 本卷将没有节奏形状注入"
+                "（旧卷纲正常；要补切段就 --force 重规划）" % v)
+        else:
+            d_ok, d_problems = sd.check_deepen(segs, start, end)
+            if not d_ok:
+                return False, ("第 %d 卷叙事深化段不合格：%s（文件已留在 %s，可手工改）"
+                               % (v, "、".join(d_problems), p.as_posix())), True
 
     plan = va.load_plan()
     parsed = va.parse_volume_outline(read_text(p))

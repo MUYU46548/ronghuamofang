@@ -222,4 +222,16 @@ def render_context(n, total, cfg=None, proj=None, root="."):
     if far:
         lines.append("")
         lines.append("**下一卷（远层，只有方向）**：" + far)
+    # 叙事深化（2026-10-20，v0.7.2）：卷内的节奏形状。stage3 生成整批章大纲时
+    # 要看到全卷段表（否则各章平推、高潮均匀撒）。存量卷纲没有深化节 → 空白，
+    # 明确不注入（不给"暂无数据"占位）；essay/episodic 文体在 context_for 里早退。
+    try:
+        from utils import story_deepen as sd
+        _full, _ = sd.context_for(n, total, cfg, proj, root)
+        if _full:
+            lines.append("")
+            lines.append(_full)
+    except Exception as e:                                    # noqa: BLE001
+        print("[volume] 叙事深化块组装失败（本章将无深化上下文）: %s: %s"
+              % (type(e).__name__, e))
     return "\n".join(lines)

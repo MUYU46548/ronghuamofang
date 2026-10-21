@@ -55,6 +55,8 @@ temperature: 0.8
 ## 上一章末尾衔接段（用于语气与节奏衔接）
 {{prev_tail}}
 
+{{deepen_context}}
+
 {{memory_block}}
 
 {{style_samples}}
