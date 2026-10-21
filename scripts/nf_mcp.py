@@ -491,6 +491,26 @@ MCP_TOOLS = [
         },
         "_http": ("POST", "/setting/status", None),
     },
+    # ---- 导出（2026-10-21 补注册：nf_run_stage 的描述一直指向 nf_export_markdown，
+    #      但该工具从未进过 MCP_TOOLS —— Agent 照文档调必然 "unknown tool"。
+    #      端点 POST /export/markdown 本身早已存在且属 Agent 可调族，这里只是补登记。----
+    {
+        "name": "nf_export_markdown",
+        "description": "Markdown 分卷导出（阶段 8 的入口；不走 nf_run_stage）。"
+                       "只落导出物到 output/，不改书稿与进度。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "per_vol": {"type": "integer",
+                            "description": "每卷章数（默认 5）"},
+                "book_name": {"type": "string",
+                              "description": "书名（缺省取 project.yaml 的 book.name）"},
+                "include_frontmatter": {"type": "boolean",
+                                        "description": "是否带 YAML frontmatter（默认 false）"},
+            },
+        },
+        "_http": ("POST", "/export/markdown", None),
+    },
 ]
 
 
