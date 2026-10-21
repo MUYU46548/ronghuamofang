@@ -738,6 +738,30 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     failed_ns = {f["n"] for f in failed}
     todo = [n for n in range(1, total + 1) if n not in verified or n in failed_ns or n in skipped]
 
+    # 崩溃窗口恢复（step 级 checkpoint，2026-10-21）：**磁盘有合格正文、但 progress
+    # 没标 done** 的章 = 上轮在「写作落盘」之后、「标记完成」之前崩了（进程被杀 /
+    # 断电 / 熔断恰好落在中间）。这类章的正文是好的，重调 LLM 重写一遍纯属浪费，
+    # 还可能换来一版更差的。处理：走 _finalize 的幂等重放 —— 补摘要 + 补出场 +
+    # 补记账，再标完成，全程零 LLM 调用。
+    #
+    # 为什么摘要必须补而不是跳过：滚动摘要是**下一章的输入**。崩溃前它没写进
+    # rolling.md，下一章就会拿不到本章摘要。而 append_chapter_summary 是同章
+    # 覆盖语义 —— 这里补一次是安全的；真正会污染全局摘要的是「重调 LLM 重跑整章」
+    # （多压一行进 global_summary）。所以判据是：正文合格 → 只补账，不重写。
+    _tw = cfg.get("chapter", {}).get("target_words", [2000, 3000])[:2]
+    _raw_seen = {int(p.stem) for p in raw_dir.glob("*.md") if p.stem.isdigit()}
+    orphan_ns = sorted(
+        n for n in _raw_seen
+        if n not in completed and n not in failed_ns
+        and is_chapter_complete(raw_dir / f"{n:02d}.md", *_tw, para_structure=_para_ok))
+    if orphan_ns:
+        print(f"[stage4] 检测到 {len(orphan_ns)} 章「正文已在盘、账未记」"
+              f"（上轮崩溃遗留）：{orphan_ns} —— 幂等补账，不重调 LLM")
+        # 孤儿章必须进 todo：否则「全是孤儿」时下面的 not todo 会误判成
+        # 「跳过（已完成）」，崩溃恢复路径永远走不到。
+        todo = sorted(set(todo) | set(orphan_ns))
+    _orphan_set = set(orphan_ns)
+
     if not todo:
         progress.set_stage(4, "done")
         return True, "stage4 跳过（已完成）"
@@ -776,6 +800,49 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
 
     # B2：章间会话续接（默认关）—— 只有「引擎开了续接」且「上一章成功」时才传下去
     chapter_session = None
+    # ---- _finalize：写盘之后的全部收尾（摘要/出场/记账/标完成）----
+    # 抽成一处：主循环成功路径与崩溃恢复路径共用，避免两份同步逻辑漂移。
+    # 全程零 LLM 调用。result=None 表示「本轮没有新的 LLM 调用」（崩溃恢复重放），
+    # 此时不做熔断累加也不重复记账（上一轮已记过）。
+    def _finalize(n, chap_path, result, check):
+        text = read_text(chap_path)
+        sm = SUMMARY_RE.search(text)
+        summary = sm.group(1).strip() if sm else f"（第{n}章，未附摘要）"
+        # append_chapter_summary 是同章覆盖语义：重放不会污染 global_summary
+        # （重调 LLM 重写整章才会，那条路已被「正文合格就不重写」堵死）。
+        append_chapter_summary(rolling_path, n, summary, max_recent=max_recent)
+        sync_appearances_after_chapter(text, n, total)
+
+        needs_rewrite = check.quality is not None and check.quality < quality_threshold
+        status = "needs_rewrite" if needs_rewrite else "ok"
+        progress.mark_chapter_done(n, 4)
+        if needs_rewrite:
+            nr = progress.data["stages"]["4"].setdefault("needs_rewrite", [])
+            if n not in nr:
+                nr.append(n)
+            progress.save()
+
+        cost_est = 0.0
+        if result is not None and db and run_id:
+            cost_est = cost.estimate_cost_yuan(
+                result["tokens"], result["tokens_out"], model=result.get("model"),
+                provider=result.get("provider"), role=result.get("model_key"),
+                cache_read=result.get("cache_read", 0)) if cost else 0.0
+            db.log_chapter(run_id, 4, n, status, quality=check.quality, cost_yuan=cost_est)
+        if result is not None and cost:
+            # 章与章之间必须查熔断：orchestrator 只在阶段之间查，而一章就能烧掉几元，
+            # 不在这里拦，限额对「一次跑几十章」这种最该保护的场景恰好完全失效。
+            if cost.charge_cost(run_id, 4, n, result) == "pause":
+                _detail = _pause_detail(cost, run_id)
+                print(f"[stage4] 熔断停止[{_detail['reason']}]：{_detail['message']}"
+                      "—— 停止本阶段")
+                progress.data.setdefault("budget", {})["paused"] = True
+                progress.save()
+                return "budget"
+        print(f"[stage4] 第{n}章完成 {check.summary()}"
+              + ("（崩溃恢复：补账，未重调 LLM）" if result is None else ""))
+        return None
+
     for n in todo:
         # P0-4（2026-10-01）：章间检查停止请求 —— 不在这里查，按了「停止」
         # 也要跑完整个阶段（几十章）才轮到 orchestrator 的阶段边界检查。
@@ -785,6 +852,15 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
             aborted = "stopped"
             break
         chap_path = raw_dir / f"{n:02d}.md"
+        if n in _orphan_set:
+            # 崩溃恢复：正文已在盘且合格，跳过一切 LLM 准备与调用，直接补账。
+            _fin = _finalize(n, chap_path, None, check_chapter(chap_path, low, high))
+            if _fin == "budget":
+                aborted = "budget"
+                break
+            consec_fail = 0
+            done_this_round += 1
+            continue
         prev_path = raw_dir / f"{n - 1:02d}.md"
         prev_tail = extract_prev_tail(prev_path, 4) if prev_path.exists() else []
         # 章大纲按需补齐（2026-10-20，滚动规划）：stage3 只铺到"当前卷 + 下一卷"，
@@ -818,12 +894,6 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                                                     prev_tail))
         # B2：session_id 只在引擎开启续接时才有意义（direct 客户端收下但忽略）
         result = client.run_task(task, session_id=chapter_session)
-        cost_est = (cost.estimate_cost_yuan(result["tokens"], result["tokens_out"],
-                                            model=result.get("model"),
-                                            provider=result.get("provider"),
-                                            role=result.get("model_key"),
-                                            cache_read=result.get("cache_read", 0))
-                    if cost else 0)
         if result["exit_code"] != 0:
             if _fail(n, "子会话退出码非零", [f"[stage4] 第{n}章子会话失败"]):
                 aborted = "consecutive_failures"
@@ -896,46 +966,11 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         if result.get("session_id") and getattr(client, "session_continuation", False):
             chapter_session = result["session_id"]
 
-        # 摘要提取 + 滚动维护
-        text = read_text(chap_path)
-        sm = SUMMARY_RE.search(text)
-        summary = sm.group(1).strip() if sm else f"（第{n}章，未附摘要）"
-        res = append_chapter_summary(rolling_path, n, summary, max_recent=max_recent)
-
-        # quality 标记（P0 只标记不重写）
-        needs_rewrite = check.quality is not None and check.quality < quality_threshold
-        status = "needs_rewrite" if needs_rewrite else "ok"
-        progress.mark_chapter_done(n, 4)
-        if needs_rewrite:
-            progress.data["stages"]["4"].setdefault("needs_rewrite", [])
-            if n not in progress.data["stages"]["4"]["needs_rewrite"]:
-                progress.data["stages"]["4"]["needs_rewrite"].append(n)
-            progress.save()
-        if db and run_id:
-            db.log_chapter(run_id, 4, n, status, quality=check.quality, cost_yuan=cost_est)
-        if cost:
-            # ⚠️ 章与章之间必须查熔断：orchestrator 只在**阶段之间**检查预算，
-            # 而 stage4 一章就能烧掉几元 —— 不在这里拦，300 元限额对
-            # "一次跑 100 章"这种最需要保护的场景恰好**完全失效**。
-            state = cost.charge_cost(run_id, 4, n, result)
-            if state == "pause":
-                # 熔断原因由 CostTracker.status_detail 给出（金额 or token）——
-                # engine: hermes 下 ¥ 恒 0，真正会命中的是 token 累计，文案必须对上。
-                _detail = _pause_detail(cost, run_id)
-                # ⚠️ 本行不要 emoji：停机日志在「被捕获的 stdout」（GUI/后台任务）下是
-                # cp936，emoji 会 UnicodeEncodeError —— 恰好在熔断那一刻把阶段搞崩，
-                # 于是「干净地暂停」变成「崩溃 + runs 脏行」。
-                print(f"[stage4] 熔断停止[{_detail['reason']}]：{_detail['message']}"
-                      "—— 停止本阶段")
-                progress.data.setdefault("budget", {})["paused"] = True
-                progress.save()
-                aborted = "budget"
-                break
-
-        # 出场记录同步（P1.6：章节完成即更新 data/state/appearances.json；
-        # 失败只告警，绝不阻断写作主线）
-        sync_appearances_after_chapter(text, n, total)
-        print(f"[stage4] 第{n}章完成 {check.summary()}")
+        # 收尾（摘要/出场/记账/标完成）统一走 _finalize —— 与崩溃恢复路径共用，
+        # 避免两份同步逻辑漂移。
+        if _finalize(n, chap_path, result, check) == "budget":
+            aborted = "budget"
+            break
 
     if aborted:
         remaining_failed = progress.failed_chapters(4)
