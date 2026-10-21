@@ -1896,6 +1896,9 @@ class Handler(BaseHTTPRequestHandler):
             # 开工方向建议：候选方案 + 依据 + 可执行 next_step（确定性，零 token）。
             # trend 说「有没有进展」，advise 说「接下来能做什么」。
             self._send(*_dom(dom_outline.handle_outline_advise(self)))
+        elif p == "/outline/compass":
+            # 指南针读侧：全书终局方向 + 活跃长线（≤5）+ 规模估计。没设 → exists:false。
+            self._send(*_dom(dom_outline.handle_compass_get(self)))
         elif p == "/outline/segments":
             # 丙4 分段审阅（读侧）：分段清单 + 每段正文 + 放行判据回显。
             self._send(*_dom(dom_segments.handle_segments_get(self)))
@@ -2344,6 +2347,10 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/outline/segments/set":
                 # 丙4 分段审批标记（写侧）：GUI 双因子闸在域模块内，此处只转发。
                 self._send(*_dom(dom_segments.handle_segments_set(self, body)))
+            elif p == "/outline/compass":
+                # 指南针写侧：校验不过拒绝写入（长线>5/方向过短/规模非整数）；
+                # 终局方向变更自动留 history。创作决策非安全闸门，Agent 可代设。
+                self._send(*_dom(dom_outline.handle_compass_save(self, body)))
             # ---- 大纲结构化面板（任务1/2/3/4）----
             elif p == "/outline/save":
                 ok, res = act_outline_save(body.get("content"))

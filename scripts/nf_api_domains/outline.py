@@ -246,6 +246,68 @@ def handle_chapters_get(h):
         return 500, {"error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+# ---------------------------------------------------------------- 指南针（2026-10-21）
+def handle_compass_get(h):
+    """读指南针：`GET /outline/compass`。
+
+    全书的终局锚点：终局方向 + 活跃长线（≤5 条）+ 规模估计。
+    没设 → `exists:false`（调用方明说"未设"，不编造）。
+    """
+    try:
+        from utils import compass as cp
+        data = cp.load(api.ROOT)
+        total = None
+        try:
+            proj = api.load_all()[1]
+            total = int((proj.get("book") or {}).get("chapters") or 0) or None
+        except Exception:                                   # noqa: BLE001
+            pass
+        ok, problems, warnings = (cp.check(data, total) if data else (True, [], []))
+        return 200, {"ok": True, "exists": bool(data), "compass": data,
+                     "valid": ok, "problems": problems, "warnings": warnings,
+                     "history_note": "终局方向变更自动存 %s/compass_v*.json"
+                                     % cp.HISTORY_DIR_REL}
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_compass_save(h, body):
+    """写指南针：`POST /outline/compass {ending_direction, active_threads?, scale_estimate?, volume_at_update?}`。
+
+    校验不过拒绝写入（长线 >5 / 方向过短 / 规模非整数）；终局方向变更自动留
+    history。**创作决策不是安全闸门**（与 target_words/style_reference 同口径），
+    Agent 可代设；越界值一律 400 并说清区间。
+    """
+    try:
+        from utils import compass as cp
+        body = body or {}
+        compass = {
+            "ending_direction": str(body.get("ending_direction") or "").strip(),
+        }
+        if body.get("active_threads") is not None:
+            compass["active_threads"] = body["active_threads"]
+        if body.get("scale_estimate") is not None:
+            compass["scale_estimate"] = body["scale_estimate"]
+        if body.get("volume_at_update") is not None:
+            try:
+                compass["volume_at_update"] = int(body["volume_at_update"])
+            except (TypeError, ValueError):
+                return 400, {"ok": False, "error": "volume_at_update 必须是整数（卷号）"}
+        total = None
+        try:
+            proj = api.load_all()[1]
+            total = int((proj.get("book") or {}).get("chapters") or 0) or None
+        except Exception:                                   # noqa: BLE001
+            pass
+        ok, msg, warnings = cp.save(compass, root=api.ROOT, total_chapters=total)
+        if not ok:
+            return 400, {"ok": False, "error": msg}
+        return 200, {"ok": True, "message": msg, "warnings": warnings,
+                     "compass": cp.load(api.ROOT)}
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 # 本模块负责的端点（供自检与文档）
 #
 # 注：`/sandbox/review`（写侧）不在本模块 —— 它住在 `nf_api_domains/sandbox.py`。
@@ -262,4 +324,6 @@ ROUTES = (
     ("GET", "/outline/trend", handle_outline_trend),
     ("GET", "/outline/advise", handle_outline_advise),
     ("GET", "/sandbox/queue", handle_sandbox_queue),
+    ("GET", "/outline/compass", handle_compass_get),
+    ("POST", "/outline/compass", handle_compass_save),
 )

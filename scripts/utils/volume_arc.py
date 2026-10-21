@@ -234,4 +234,15 @@ def render_context(n, total, cfg=None, proj=None, root="."):
     except Exception as e:                                    # noqa: BLE001
         print("[volume] 叙事深化块组装失败（本章将无深化上下文）: %s: %s"
               % (type(e).__name__, e))
+    # 指南针（2026-10-21，roadmap 7.3）：全书终局方向 + 活跃长线。没设 → 空白
+    # （模板显示"未设终局方向"提示行）；设了 → 注入锚点 + 跨卷未更新提示。
+    try:
+        from utils import compass as _cp
+        _cblock = _cp.render_context(n, total, cfg, proj, root)
+        if _cblock:
+            lines.append("")
+            lines.append(_cblock)
+    except Exception as e:                                    # noqa: BLE001
+        print("[volume] 指南针块组装失败（本章将无终局锚）: %s: %s"
+              % (type(e).__name__, e))
     return "\n".join(lines)
