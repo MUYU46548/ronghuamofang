@@ -1984,6 +1984,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/config/writing_presets":
             # 写作预设清单 + 当前生效值 + 切换历史（只读）。
             self._send(*_dom(dom_project.handle_writing_presets_get(self)))
+        elif p == "/factory/presets":
+            # 出厂预设清单（只读）：首跑向导「选预设」用。
+            self._send(*_dom(dom_project.handle_factory_presets_list(self)))
         elif p == "/materials/list":
             # 实现已迁至 nf_api_domains.materials（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_materials.handle_materials_list(self)))
@@ -2582,6 +2585,9 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/config/writing_presets/apply":
                 # 切换预设：校验 → 留 history → 定向写回 project.yaml（含备份+回读）。
                 self._send(*_dom(dom_project.handle_writing_presets_apply(self, body)))
+            elif p == "/factory/preset/apply":
+                # 铺设出厂预设（破坏性，会归档当前项目）：GUI 双因子，Agent 拒。
+                self._send(*_dom(dom_project.handle_factory_preset_apply(self, body)))
             elif p == "/config/style_reference":
                 # 范文正文保存（创作决策，非安全闸门；空字符串 = 清空）。
                 self._send(*_dom(dom_project.handle_config_style_reference_set(self, body)))

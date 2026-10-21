@@ -796,6 +796,53 @@ def handle_writing_presets_apply(h, body):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+# ---------------------------------------------------------------- 出厂预设（2026-10-21）
+def handle_factory_presets_list(h):
+    """`GET /factory/presets` —— 列出出厂预设（只读）。首跑向导的「选预设」用。"""
+    try:
+        import preset_apply as pa
+        pdir = pa.find_presets_dir(api.ROOT)
+        if not pdir:
+            return 200, {"ok": True, "presets": [],
+                         "note": "找不到 examples/presets/（打包态应由 payload 注入）"}
+        rows = [r for r in pa.list_presets(pdir) if not r.get("hidden") and not r.get("error")]
+        return 200, {"ok": True, "presets": rows}
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_factory_preset_apply(h, body):
+    """`POST /factory/preset/apply {id, name?, archive_current?}` —— 铺设出厂预设。
+
+    ⚠️ **破坏性**（与 /project/create 同族）：会快照 → 归档当前项目 → 铺素材
+    + 写 project.yaml。故：①列入 FORBIDDEN_IN_AGENT_MODE（Agent 不得自铺，
+    否则一条命令就能搬空用户工作区）；②端点自身再要 GUI 来源头（双因子）。
+    """
+    # 双因子复用 _gui_only（不自调 is_trusted_gui）：判据只许有一份，
+    # 否则与 do_POST 的禁用名单各自漂移就重新裂出后门。
+    refused = _gui_only(h, "铺设出厂预设")
+    if refused:
+        return refused
+    try:
+        import preset_apply as pa
+        pid = str((body or {}).get("id") or "").strip()
+        if not pid:
+            return 400, {"ok": False, "error": "缺少 id"}
+        import io as _io
+        import contextlib as _ctx
+        buf = _io.StringIO()
+        with _ctx.redirect_stdout(buf):
+            rc = pa.apply(pid, api.ROOT,
+                           new_name=(body or {}).get("name") or None,
+                           replace=bool((body or {}).get("archive_current", True)))
+        tail = "\n".join(buf.getvalue().splitlines()[-12:])
+        if rc != 0:
+            return 400, {"ok": False, "error": "铺设失败（退出码 %s）" % rc, "log": tail}
+        return 200, {"ok": True, "message": "预设「%s」已铺设" % pid, "log": tail}
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 # 本模块负责的端点（供自检与文档）
 ROUTES = (
     ("GET", "/health", handle_health),
@@ -821,4 +868,7 @@ ROUTES = (
     ("GET", "/config/writing_presets", handle_writing_presets_get),
     ("POST", "/config/writing_presets/save", handle_writing_presets_save),
     ("POST", "/config/writing_presets/apply", handle_writing_presets_apply),
+    # 出厂预设（2026-10-21）：首跑向导「选预设」；apply 是破坏性动作（GUI 双因子）
+    ("GET", "/factory/presets", handle_factory_presets_list),
+    ("POST", "/factory/preset/apply", handle_factory_preset_apply),
 )

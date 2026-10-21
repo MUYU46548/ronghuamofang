@@ -326,6 +326,42 @@ stage4 单章顺序是「LLM 写盘 → 归一化 → 质检 → 摘要 → 出�
 - 自检 `tests/unit/test_stage4_crash_recovery.py`（12 断言）：幸存章不重写、
   补账后 done + 摘要进 rolling.md、半成品仍重写、正常路径不受影响。
 
+### 交接稿 / 指南针 / 写作预设 / 首跑向导（2026-10-21，roadmap 10.1 / 7.3 / 10.3 / v0.20）
+
+**交接稿**（`utils/handoff.py`，roadmap 10.1）：把「写到哪了 + 接下来写什么」
+拼成一份可粘给**任何模型**的 markdown —— 换模型/换会话不再靠重跑。六段拼装
+（身份/写作要求/设定摘要/未回收伏笔/最近章节/下一章大纲全文内联），零 token。
+- 缺料**明说不编造**：下一章大纲没生成就写明「尚未生成 + 怎么补」，绝不拿空段糊过去。
+- 绝对路径不出稿：所有输入先过 `strip_protocol_markers`，输出再过绝对路径扫描
+  —— 交接稿要去别人家，不能带门牌号。
+- 入口：`nfctl handoff [--chapter N] [--print]` · `POST /handoff/export` ·
+  章节页签「交接稿」面板（复制全文 / 打开文件）。自检 30 断言。
+
+**指南针**（`utils/compass.py`，roadmap 7.3）：`global.md` 是第 1 天定的全书大纲，
+写到第 100 章时早改得面目全非 —— 指南针是「全书往哪去」的单一锚点：
+终局方向一句话 + 活跃长线（≤5 条）+ 规模估计。
+- 活跃长线 **>5 条拒绝写入**（长线太多等于没有主线）；规模与实际章数偏离 >30% 告警不阻断。
+- 终局方向变更自动留 `data/outline/history/compass_v*.json`（切回有据）。
+- 没设时 stage3 明说「未设终局方向」——**静默省略会让长篇一路写偏而无人知**。
+- 入口：大纲页签「指南针」面板 · `GET/POST /outline/compass`。自检 21 断言。
+
+**写作预设**（`utils/writing_presets.py`，roadmap 10.3）：多套写作要求存档与一键切换。
+- **只收写作要求**（style/style_notes/target_words/form/language/genre）；
+  书名/章数/作者是**作品身份**，不进预设 —— 身份字段混进来，切换会把 A 书改成 B 书。
+- 切换 = 校验 → 留 `data/presets/writing/history.jsonl` → `set_book_fields` 定向写回
+  （含备份 + 回读校验）。未知键一律拒绝并列出可选键。
+- ⚠️ `set_book_fields` 按**脚本位置**定位 project.yaml 与备份目录（模块级常量）——
+  root ≠ 仓库根时会写错书、备份落进真实仓库，故用完还原（同 foreshadow 的坑）。
+- 入口：设置 → 风格与提示词 → 「写作预设」面板 · `GET/POST /config/writing_presets{,/save,/apply}`。
+  自检 25 断言。
+
+**首跑向导**（roadmap v0.20）：新建项目向导加「选出厂预设」一步 ——
+选中即铺配套素材 + 配置，**否则首跑是空跑**。
+- `GET /factory/presets`（只读清单，Agent 可调）· `POST /factory/preset/apply`
+  （**破坏性**：快照 → 归档当前项目 → 铺素材 → 写配置）。
+- 铺设列入 `FORBIDDEN_IN_AGENT_MODE` + 端点自身 `_gui_only` 双因子（与 `/project/create`
+  完全同族）。Agent 可盘点、不能动手。自检 17 断言（含伪造来源头的红队路径）。
+
 ### 弹窗写法（暮雨 2026-10-19 点名"不会抄自己"）
 
 应用里已有范式，**不要手搓**：`drawer-mask`（居中）→ `dialog` → `card-head` 标题 →
@@ -531,6 +567,9 @@ stage4 单章顺序是「LLM 写盘 → 归一化 → 质检 → 摘要 → 出�
 - `GET /prompts/list`、`/prompts/get`
 - `GET /project/list`、`/project/status`、`/project/archive/tree`、`/project/archive/file`
   （归档**只读**查看：清单 + 单文件预览，越界/超大/二进制有闸）
+- `GET /outline/compass`（指南针读取 + 校验结果；没设 → `exists:false`）
+- `GET /config/writing_presets`（写作预设清单 + 当前生效值 + 切换历史）
+- `GET /factory/presets`（出厂预设清单，只读；铺设走下面的禁用项）
 
 **✅ 可调用**（写入沙盒/草稿类，产物自动进入待审）：
 - `POST /outline/save`、`POST /outline/chapters/save`
@@ -541,6 +580,12 @@ stage4 单章顺序是「LLM 写盘 → 归一化 → 质检 → 摘要 → 出�
 - `POST /export/markdown`、`POST /export/word`（导出成品副本到 output/；只落导出物，不改书稿与进度）
 - `POST /config/target_words`（单章字数区间：**创作决策不是安全闸门**，故不设 GUI-only；
   越界值一律 400 拒收并说清合法区间；落盘必须是列表 `[low, high]`）
+- `POST /handoff/export`（导出交接稿到 `data/handoff/第N章后.md`；只落导出物，不改书稿与进度）
+- `POST /outline/compass`（指南针：**创作决策**，Agent 可代设；活跃长线 >5 / 终局方向过短
+  一律 400 拒收并说清判据，方向变更自动留 history）
+- `POST /config/writing_presets/save`、`POST /config/writing_presets/apply`
+  （写作预设：**创作决策**，Agent 可代设；未知键一律 400 并列出可选键 ——
+  静默忽略等于用户以为存了其实没存）
 
 **🚫 禁止调用**（返回 403）：
 - `POST /approve`、`/reject`
@@ -548,6 +593,9 @@ stage4 单章顺序是「LLM 写盘 → 归一化 → 质检 → 摘要 → 出�
 - `POST /project/archive/delete`（删归档，默认进回收站；GUI 来源头 + 逐字书名确认双闸）
 - `POST /config/agent_mode`（Agent 不得自行切换模式）
 - `POST /factory/clean`（出厂样例清理：移动用户工作区素材；只读 `GET /factory/list` 可用）
+- `POST /factory/preset/apply`（铺设出厂预设 = 快照 → **归档当前项目** → 铺素材 → 写配置，
+  与 `/project/create` 完全同族；列入 `FORBIDDEN_IN_AGENT_MODE` + 端点自身 `_gui_only`
+  双因子。只读 `GET /factory/presets` 可用 —— Agent 可盘点，不能动手）
 - `POST /outline/segments/set`（大纲分段审批标记 —— 勾一段 = 替用户读一段，归用户在 GUI 分段审阅面板里点；Agent 可读不可勾）
 - `POST /stage/skip`（跳过阶段 = 人工拍板放行管线（approved 真写进 progress.json），与审批同族；2026-10-16 补入名单）
 

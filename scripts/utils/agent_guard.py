@@ -67,6 +67,10 @@ FORBIDDEN_IN_AGENT_MODE = frozenset({
     "/approve",              # 审批
     "/reject",               # 打回
     "/project/create",       # 新建项目
+    # 铺设出厂预设（2026-10-21）：与 /project/create 完全同族 —— 快照 →
+    # 归档当前项目 → 铺素材 + 写 project.yaml。Agent 一条命令就能搬空用户
+    # 工作区，故与新建/归档同档。端点自身还要求 GUI 来源头（双因子）。
+    "/factory/preset/apply",
     "/project/archive",      # 归档
     "/project/restore",      # 恢复
     "/project/init",         # 首启初始化
