@@ -2795,6 +2795,9 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/foreshadow/status":
                 # 伏笔三态拍板（closed/abandoned 必须写理由）
                 self._send(*_dom(dom_runtime.handle_foreshadow_status(self, body)))
+            elif p == "/handoff/export":
+                # 交接稿导出（确定性拼装，零 token，只写 data/handoff/）
+                self._send(*_dom(dom_runtime.handle_handoff_export(self, body)))
             elif p == "/review/comment":
                 # 给指定 finding 添加评论（GUI 审稿面板用；原先误挂在 do_GET 里，
                 # do_GET 没有 body → 必然 500，2026-09-15 移到 do_POST）

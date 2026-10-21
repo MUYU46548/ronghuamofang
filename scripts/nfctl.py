@@ -1521,6 +1521,12 @@ def main(argv=None):
                       help="只检查某个 provider（省略则检查全部）")
     p_mc.add_argument("--live", action="store_true",
                       help="额外对每个在用模型发一次最小请求（默认不发，零 token）")
+    p_ho = sub.add_parser("handoff", parents=[common],
+                          help="导出交接稿（第N章后；确定性拼装，零 token，可直接粘给任何模型）")
+    p_ho.add_argument("--chapter", type=int, default=None,
+                      help="「第几章之后」（默认取已写最大章号；0 = 开局稿）")
+    p_ho.add_argument("--print", dest="print_body", action="store_true",
+                      help="把交接稿正文也打到 stdout（默认只报路径与缺料）")
     p_rel = sub.add_parser("release-check", parents=[common],
                            help="发版前必跑：质量门 + 全量测试 + MCP 真机握手 + e2e 视觉验收 + 产物核验")
     p_rel.add_argument("--skip-e2e", action="store_true",
@@ -1562,6 +1568,27 @@ def main(argv=None):
         data = collect_homogeneity(root)
         print(json.dumps(data, ensure_ascii=False, indent=2) if as_json
               else render_homogeneity(data))
+        return 0
+
+    if args.cmd == "handoff":
+        from utils import handoff as _ho
+        data = _ho.export(chapter=args.chapter, root=root)
+        if as_json:
+            payload = {k: v for k, v in data.items() if k != "text"}
+            print(json.dumps(payload, ensure_ascii=False, indent=2))
+        else:
+            print("[handoff] 已导出：%s" % data["path"])
+            print("[handoff] 交接给下一棒：第 %d 章（已写到第 %d 章）"
+                  % (data["next_chapter"], data["chapter"]))
+            if data["problems"]:
+                print("[handoff] 缺料（接手方会看到明说的空段，不是编造的内容）：")
+                for p in data["problems"]:
+                    print("  - %s" % p)
+            else:
+                print("[handoff] 数据齐全（设定/伏笔/摘要/下一章大纲都在稿）")
+            if args.print_body:
+                print("\n" + "=" * 62)
+                print(data["text"])
         return 0
 
     if args.cmd == "test":

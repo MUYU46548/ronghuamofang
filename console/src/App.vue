@@ -24,6 +24,7 @@ import ReviewLedgerPanel from "./ReviewLedgerPanel.vue";
 import SettingClosurePanel from "./SettingClosurePanel.vue";
 import TruncatedPanel from "./TruncatedPanel.vue";
 import ForeshadowPanel from "./ForeshadowPanel.vue";
+import HandoffPanel from "./HandoffPanel.vue";
 
 // 审批门通知偏好
 const GATE_NOTIFY_KEY = "mofang_gate_notify";
@@ -3979,6 +3980,8 @@ onUnmounted(() => {
       <TruncatedPanel @say="say" />
       <!-- 伏笔台账（2026-10-20）：从章大纲「悬念钩子」抽取，零额外 token -->
       <ForeshadowPanel @say="say" />
+      <!-- 交接稿（2026-10-20，v0.10）：换模型/换会话的可携带形态 -->
+      <HandoffPanel @say="say" />
     </section>
 
     <!-- 大纲（结构化视图 / 节点精修 / 版本对比 / 多方案） -->

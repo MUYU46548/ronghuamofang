@@ -564,6 +564,26 @@ def handle_foreshadow_status(h, body):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+# ---------------------------------------------------------------- 交接稿（2026-10-20）
+def handle_handoff_export(h, body):
+    """导出交接稿：`POST /handoff/export {chapter?}` → `data/handoff/第N章后.md`。
+
+    v0.10「可带走」：把「写到哪了 + 接下来写什么」压成一份可粘给任何模型的
+    markdown。纯确定性拼装（零 token），只写导出物，不改书稿与进度 ——
+    与 `/export/markdown` 同族，故 Agent 可调。
+    """
+    try:
+        from utils import handoff as ho
+        chapter = (body or {}).get("chapter")
+        data = ho.export(chapter=int(chapter) if chapter is not None else None,
+                         root=Path(api.ROOT))
+        return 200, {"ok": True, "path": data["path"], "chapter": data["chapter"],
+                     "next_chapter": data["next_chapter"],
+                     "problems": data["problems"], "text": data["text"]}
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 ROUTES = (
     ("GET", "/jobs/{id}", handle_jobs),
     ("GET", "/review/report", handle_review_report),
@@ -588,4 +608,6 @@ ROUTES = (
     # 伏笔台账（2026-10-20）
     ("GET", "/foreshadow", handle_foreshadow),
     ("POST", "/foreshadow/status", handle_foreshadow_status),
+    # 交接稿（2026-10-20，v0.10）
+    ("POST", "/handoff/export", handle_handoff_export),
 )
