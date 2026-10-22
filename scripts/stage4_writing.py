@@ -196,6 +196,34 @@ def _safe_read(path, budget=20000):
         return ""
 
 
+def _run_task_safe(client, task, **kw):
+    """client.run_task 的异常兜底（第一波防御 · 任务二，2026-10-22）。
+
+    断网 / 503 风暴 / DNS 挂了这类**网络级故障**：llm_client 内部重试
+    （providers.*.retries，默认 5 次，指数退避）耗尽后会 raise RuntimeError ——
+    异常若穿透 run_stage，整个 run 会被 orchestrator 的 finally 收敛成
+    `crashed`，而不是「挂起当前章、保存进度、等恢复后续跑」。
+
+    现在统一在这里转成 `exit_code=1` 的失败结果：走的就是既有的
+    「子会话失败 → mark_chapter_failed → 连败止损」路径 —— 已完成章节
+    的 progress 逐章落盘，重启后断点续跑不重做它们。
+
+    ⚠️ 只兜「客户端调用」这一步：任务构造（write_task/build_chapter_task）
+    的异常仍要穿透 —— 那是代码/输入缺陷，吞掉只会让每章都悄悄失败。
+    """
+    try:
+        return client.run_task(task, **kw)
+    except Exception as e:                                    # noqa: BLE001
+        print(f"[stage4] ⚠ 子会话调用异常（已按失败处理，进度保留）: "
+              f"{type(e).__name__}: {str(e)[:200]}")
+        return {"exit_code": 1, "stdout_tail": "", "tokens": 0, "tokens_out": 0,
+                "cost_yuan": 0.0, "estimated": True,
+                "provider": getattr(client, "provider", "unknown"),
+                "model": getattr(client, "model", "unknown"),
+                "requests": 0, "error": f"{type(e).__name__}: {e}",
+                "transport_error": True}
+
+
 def sync_appearances_after_chapter(chapter_text, chapter_no, total_chapters=None):
     """章节完成后同步出场记录（确定性，零 LLM）。
 
@@ -770,6 +798,9 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     low, high = cfg.get("chapter", {}).get("target_words", [2000, 3000])[:2]
     # 连续失败止损阈值（0 = 关闭）。见 _fail 的说明。
     max_consec_fail = int(cfg.get("gates", {}).get("stage4_max_consecutive_failures", 3))
+    # 打回重生成上限（第一波防御 · 任务一）。0 = 关闭打回（行为退回本改动之前：
+    # 校验不过直接判失败章）。
+    regen_max = int(cfg.get("gates", {}).get("hard_validate_regen_rounds", 2))
     consec_fail = 0
     expanded = set()   # 本轮已扩写过的章节（每章至多一次，防空转）
     aborted = ""
@@ -829,9 +860,11 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                 provider=result.get("provider"), role=result.get("model_key"),
                 cache_read=result.get("cache_read", 0)) if cost else 0.0
             db.log_chapter(run_id, 4, n, status, quality=check.quality, cost_yuan=cost_est)
-        if result is not None and cost:
+        if result is not None and cost and not result.get("already_charged"):
             # 章与章之间必须查熔断：orchestrator 只在阶段之间查，而一章就能烧掉几元，
             # 不在这里拦，限额对「一次跑几十章」这种最该保护的场景恰好完全失效。
+            # 加强模式例外：段群调用已逐群 charge 过（_group_run），这里再 charge
+            # 会把一章记两遍账 —— 熔断检查也已在群间做过。
             if cost.charge_cost(run_id, 4, n, result) == "pause":
                 _detail = _pause_detail(cost, run_id)
                 print(f"[stage4] 熔断停止[{_detail['reason']}]：{_detail['message']}"
@@ -892,10 +925,50 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                                                     "data/setting/setting.json",
                                                     "data/summaries/rolling.md",
                                                     prev_tail))
-        # B2：session_id 只在引擎开启续接时才有意义（direct 客户端收下但忽略）
-        result = client.run_task(task, session_id=chapter_session)
+        # ---- 加强模式（第一波防御 · 任务三，2026-10-22）----
+        # chapter.enhanced_mode=true 时本章改为「拆段落群 → 逐群生成 → 拼装」，
+        # 每群立即落盘 data/chapters/_parts/（段群级断点续跑，与任务二的
+        # "已完成段落落盘"是同一件事）。默认 false = 走下面的整章单发，零影响。
+        enhanced = bool(cfg.get("chapter", {}).get("enhanced_mode", False))
+        if enhanced:
+            from utils.enhanced_chapter import write_chapter_groups
+            _bstate = {"paused": False}
+
+            def _group_run(tp):
+                """段群调用：异常兜底 + 逐群记账 + 逐群查熔断（一章多群，
+                不在群间查，限额对加强模式恰好失效）。"""
+                r = _run_task_safe(client, tp)
+                if cost and cost.charge_cost(run_id, 4, n, r) == "pause":
+                    _bstate["paused"] = True
+                    r = dict(r)
+                    r["exit_code"] = 98          # 非零哨兵：write_chapter_groups 即停
+                return r
+
+            print(f"[stage4] 第{n}章加强模式：拆段落群生成（chapter.enhanced_mode=true）")
+            result = write_chapter_groups(cfg, proj, n, client, task_dir,
+                                          outline_rel, prev_tail,
+                                          run_hook=_group_run)
+            # 段群调用已在 _group_run 里逐群记账 —— _finalize 只补 log，
+            # 不再重复 charge（否则一章记两遍账）。
+            result["already_charged"] = True
+            if _bstate["paused"]:
+                _detail = _pause_detail(cost, run_id)
+                print(f"[stage4] 熔断停止[{_detail['reason']}]：{_detail['message']}"
+                      "—— 停止本阶段（加强模式段群调用后）")
+                progress.data.setdefault("budget", {})["paused"] = True
+                progress.save()
+                aborted = "budget"
+                break
+        else:
+            # B2：session_id 只在引擎开启续接时才有意义（direct 客户端收下但忽略）
+            result = _run_task_safe(client, task, session_id=chapter_session)
         if result["exit_code"] != 0:
-            if _fail(n, "子会话退出码非零", [f"[stage4] 第{n}章子会话失败"]):
+            # 传输类异常（断网/503 耗尽）要说清自己 —— 否则用户按「子会话退出码
+            # 非零」去查提示词/产物，而真因是网络（任务二排障口径）。
+            _why = ("网络/传输异常（内部重试已耗尽）—— 检查网络与服务商状态后"
+                    "重跑即从断点续跑" if result.get("transport_error")
+                    else "子会话退出码非零")
+            if _fail(n, _why, [f"[stage4] 第{n}章子会话失败：{_why}"]):
                 aborted = "consecutive_failures"
                 break
             continue
@@ -915,43 +988,99 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         # 一致性账本（P3）：把本章事件并进跨章账本，只报不拦
         _state_report(chap_path, n)
         check = check_chapter(chap_path, low, high)
-        # 字数不足的定向扩写（2026-10-17 第14次试跑修复）：正文写出来了但只差
-        # 一点（>= 下限 60%）时，整章重写往往复现同样的短稿（同章 9 连败实证）；
-        # 换成"读原稿、只补量"的扩写任务。每章每轮至多一次，防扩写本身空转。
-        if (not check.ok and not check.degenerate
-                and check.word_count < low
-                and check.word_count >= int(low * 0.6)
-                and n not in expanded):
-            expanded.add(n)
-            print(f"[stage4] 第{n}章字数 {check.word_count} < {low}"
-                  " —— 定向扩写重试（读原稿补量，不整章重写）")
-            etask = client.write_task(task_dir, f"stage4_ch{n:02d}_expand.md",
-                                      build_expand_task(cfg, proj, n,
-                                                        check.word_count, low, high))
-            eres = client.run_task(etask)
+        # ---- 打回重生成循环（第一波防御 · 任务一，2026-10-22）----
+        # 校验不过关 → 自动打回重生成，上限 gates.hard_validate_regen_rounds（默认 2）。
+        # 每轮策略：字数只差一点（>= 下限 60%）→ 定向扩写（读原稿补量，实证比整章
+        # 重写有效）；其余（差太多 / 退化 / 标点不过关）→ 整章重生成，并把上一轮
+        # 的问题清单写进任务反馈，让模型知道要修什么。
+        # 仍不过关 → 停在「待人工」，绝不混入合格品（_fail 记失败章）。
+        # 每轮调用都记账 + 查熔断（与扩写同口径：一章多轮调用同样可能烧穿限额）。
+        regen_rounds = 0
+        regen_actions = []
+        while not check.ok and not aborted and regen_rounds < regen_max:
+            regen_rounds += 1
+            can_expand = (not check.degenerate
+                          and check.word_count < low
+                          and check.word_count >= int(low * 0.6)
+                          and n not in expanded)
+            if can_expand:
+                expanded.add(n)
+                action = f"扩写第{regen_rounds}轮"
+                print(f"[stage4] 第{n}章校验不过（字数 {check.word_count} < {low}）"
+                      f" —— 打回：定向扩写（第 {regen_rounds}/{regen_max} 轮）")
+                gtask = client.write_task(task_dir, f"stage4_ch{n:02d}_expand.md",
+                                          build_expand_task(cfg, proj, n,
+                                                            check.word_count, low, high))
+            else:
+                action = f"重生成第{regen_rounds}轮"
+                print(f"[stage4] 第{n}章校验不过（{check.errors[:2]}）"
+                      f" —— 打回：整章重生成（第 {regen_rounds}/{regen_max} 轮）")
+                _fb = ("\n\n## 上一轮校验反馈（本轮必须逐条修复）\n"
+                       + "".join(f"- {e}\n" for e in check.errors[:5]))
+                if enhanced:
+                    # 加强模式：整章打回也走拆群 —— 单发重写会绕开拆群语义，
+                    # 而旧段群缓存必须作废（否则 part_ok 会把不过关的群当断点复用）。
+                    from utils.enhanced_chapter import write_chapter_groups, clear_parts
+                    clear_parts(n)
+                    gres = write_chapter_groups(
+                        cfg, proj, n, client, task_dir, outline_rel, prev_tail,
+                        run_hook=_group_run, chapter_feedback=_fb.strip())
+                    gres["already_charged"] = True
+                    regen_actions.append(action)
+                    if _bstate["paused"]:
+                        aborted = "budget"
+                        break
+                    if gres.get("exit_code") != 0 and not chap_path.exists():
+                        break
+                    _norm(chap_path, n)
+                    check = check_chapter(chap_path, low, high)
+                    continue
+                gtask = client.write_task(task_dir, f"stage4_ch{n:02d}.md",
+                                          build_chapter_task(cfg, proj, n,
+                                                             outline_rel,
+                                                             "data/setting/setting.json",
+                                                             "data/summaries/rolling.md",
+                                                             prev_tail) + _fb)
+            regen_actions.append(action)
+            gres = _run_task_safe(client, gtask)
             if cost:
-                if cost.charge_cost(run_id, 4, n, eres) == "pause":
+                if cost.charge_cost(run_id, 4, n, gres) == "pause":
                     _detail = _pause_detail(cost, run_id)
                     print(f"[stage4] 熔断停止[{_detail['reason']}]：{_detail['message']}"
-                          "—— 停止本阶段（扩写调用后）")
+                          "—— 停止本阶段（打回重生成调用后）")
                     progress.data.setdefault("budget", {})["paused"] = True
                     progress.save()
                     aborted = "budget"
                     break
-            if eres["exit_code"] == 0 and chap_path.exists():
+            if gres["exit_code"] == 0 and chap_path.exists():
+                _norm(chap_path, n)
                 check = check_chapter(chap_path, low, high)
+        if aborted == "budget":
+            # 中途熔断：本章处置无意义（下轮续跑会重打回），不落留痕定论
+            break
+        # 留痕（任务一）：字数、问题清单、处置（通过/重生成后通过/待人工）
+        from utils.validation_log import log_chapter_validation
+        if check.ok:
+            log_chapter_validation(n, check, "passed",
+                                   regen_rounds=regen_rounds, actions=regen_actions)
+        else:
+            log_chapter_validation(n, check, "regenerated",
+                                   regen_rounds=regen_rounds, actions=regen_actions)
         if not check.ok:
             # 退化（正文够长但内容是垃圾）单独标注：这类失败与「字数不足」
             # 的处置不同 —— 重试往往没用，多半是模型/提示词层面出了问题。
+            _manual = (f"（已打回重生成 {regen_rounds} 轮仍未过关，停在**待人工**；"
+                       "留痕见 data/state/validation/）" if regen_rounds
+                       else "")
             if check.degenerate:
                 detail = "正文退化: " + "; ".join(check.degenerate)
                 extra = [f"[stage4] 第{n}章正文退化（字数 {check.word_count} 达标但内容无效）:"]
                 extra += [f"          - {d}" for d in check.degenerate]
                 extra.append(f"          指标: {check.degen_metrics}")
-                hit = _fail(n, detail, extra)
+                hit = _fail(n, detail + _manual, extra)
             else:
-                hit = _fail(n, "校验失败: " + "; ".join(check.errors),
-                            [f"[stage4] 第{n}章校验失败: {check.errors[:2]}"])
+                hit = _fail(n, "校验失败: " + "; ".join(check.errors) + _manual,
+                            [f"[stage4] 第{n}章校验失败: {check.errors[:2]}{_manual}"])
             if hit:
                 aborted = "consecutive_failures"
                 break

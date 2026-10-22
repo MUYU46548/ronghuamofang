@@ -406,7 +406,7 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     book_name = book.get("name", "未命名")
     author = book.get("author", "") or ""
     tmpl = (book.get("word_template") or "").strip()
-    template_path = Path(tmpl) if tmpl and Path(tmpl).exists() else None
+    template_path = Path(tmpl) if tmpl else None
     page_break = bool((cfg or {}).get("chapter", {}).get("page_break", True))
 
     out_dir = Path("output")
@@ -416,8 +416,48 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
 
     n = merge_book(Path("data/chapters/refined"), Path("data/chapters/checked"),
                    Path("data/chapters/raw"), book_md, book_name)
-    md_to_docx(read_text(book_md), book_docx, book_title=book_name, author=author,
+
+    # ---- 导出前校验（第一波防御 · 任务四）：不过关不出文件 ----
+    from utils.export_check import check_merged_md, check_template, check_docx_output
+    expect = int((proj or {}).get("book", {}).get("chapters", 0) or 0) or None
+    md_text = read_text(book_md)
+    md_errs, md_warns = check_merged_md(md_text, expect_chapters=expect)
+    tmpl_errs, tmpl_warns = ([], [])
+    if template_path is not None:
+        tmpl_errs, tmpl_warns = check_template(template_path)
+    for w in md_warns + tmpl_warns:
+        print(f"[stage7] 导出警告：{w}")
+    all_errs = md_errs + tmpl_errs
+    if all_errs:
+        progress.set_stage(7, "failed", error="；".join(all_errs[:3]))
+        print("[stage7] 导出前校验未通过 —— 不出文件：")
+        for e in all_errs:
+            print(f"  · {e}")
+        # 失败消息必须**点名**具体问题（只报"N 项未通过"等于让人去翻 stdout
+        # 才知道拦了什么 —— orchestrator 日志/GUI 只拿到这条消息）。
+        _named = "；".join(all_errs[:3]) + ("…" if len(all_errs) > 3 else "")
+        return False, (f"stage7 导出前校验未通过（{len(all_errs)} 项）—— "
+                       f"已按「校验不过不出文件」拦下：{_named}")
+
+    md_to_docx(md_text, book_docx, book_title=book_name, author=author,
                template_path=template_path, page_break=page_break)
+
+    # ---- 导出后校验（成品层）：不过就删文件 ----
+    out_errs, out_warns = check_docx_output(book_docx, md_text=md_text)
+    for w in out_warns:
+        print(f"[stage7] 成品警告：{w}")
+    if out_errs:
+        try:
+            book_docx.unlink()
+        except Exception:                                    # noqa: BLE001
+            pass
+        progress.set_stage(7, "failed", error="；".join(out_errs[:3]))
+        print("[stage7] 成品校验未通过 —— 文件已删除：")
+        for e in out_errs:
+            print(f"  · {e}")
+        _named = "；".join(out_errs[:3]) + ("…" if len(out_errs) > 3 else "")
+        return False, (f"stage7 成品校验未通过（{len(out_errs)} 项）—— "
+                       f"残次成品已删除：{_named}")
 
     if not book_docx.exists() or book_docx.stat().st_size == 0:
         progress.set_stage(7, "failed", error="docx 未生成或为空")
@@ -425,7 +465,6 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
 
     # 章数校验（2026-10-01）：只判 docx 非空不够 —— **缺章的书也是"非空 docx"**。
     # 而 stage7 一旦 mark_done，断点续跑就再也不会补它：状态显示完成，成品是残卷。
-    expect = int(((proj or {}).get("book") or {}).get("chapters", 0) or 0)
     if expect and n < expect:
         progress.set_stage(7, "failed", error=f"合并 {n} 章 < 计划 {expect} 章")
         return False, (f"stage7 失败：只合并到 {n} 章，计划 {expect} 章 —— "

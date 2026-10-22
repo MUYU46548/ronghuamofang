@@ -295,6 +295,7 @@ function switchTab(t) {
     loadForm();                // 文体：可能在别处改过（外部 Agent 也能写）
     loadTokenLimit();          // 止烧阈值：每次进设置页都重读（可能在别处改过）
     loadTargetWords();         // 单章字数区间：同上（可能在别处改过 / 配置被手改）
+    loadEnhancedMode();        // 加强模式开关：同上
     loadAgentConnect();        // 接入其他 Agent：路径/MCP 状态每次重探（垫片可能刚代拉）
     loadKickoff();             // 启动提示词：项目根可能变，每次重读替换占位符
     loadDebugInfo();           // 诊断与调试：健康/路径/日志位置每次重探
@@ -2808,6 +2809,66 @@ async function resetTargetWords() {
   }
 }
 
+/* ---------- 加强模式（chapter.enhanced_mode，第一波防御 · 任务三）----------
+ * 单章拆段落群生成：逐群生成、每群落盘、拼装成章后走同一套校验。
+ * 默认关（施工单口径「只手动开启」）；开启后单章字数达标率更高，
+ * 代价是每章多次调用（成本也更高）。校验在后端（_validate_enhanced_mode）。 */
+const enhancedMode = ref({
+  loading: true, busy: false, ok: true, msg: "",
+  enabled: false, groupWords: 1500, confirmArm: false,
+});
+async function loadEnhancedMode() {
+  enhancedMode.value.loading = true;
+  try {
+    const r = await api('/config/enhanced_mode', 'GET');
+    if (r.status === 200 && r.data.ok) {
+      enhancedMode.value.enabled = !!r.data.enabled;
+      enhancedMode.value.groupWords = Number(r.data.group_words || 1500);
+      enhancedMode.value.msg = "";
+      enhancedMode.value.ok = true;
+    } else {
+      enhancedMode.value.msg = '读取失败: ' + (r.data.error || r.status);
+      enhancedMode.value.ok = false;
+    }
+  } catch (e) {
+    enhancedMode.value.msg = '读取失败: ' + (e.message || e);
+    enhancedMode.value.ok = false;
+  } finally {
+    enhancedMode.value.loading = false;
+  }
+}
+async function setEnhancedMode(next) {
+  enhancedMode.value.busy = true;
+  try {
+    const r = await api('/config/enhanced_mode', 'POST', { enabled: next });
+    enhancedMode.value.ok = !!(r.status === 200 && r.data.ok);
+    enhancedMode.value.msg = enhancedMode.value.ok
+      ? (r.data.message || '已保存')
+      : ('保存失败: ' + (r.data.error || r.status));
+    if (enhancedMode.value.ok) enhancedMode.value.enabled = !!r.data.enabled;
+  } catch (e) {
+    enhancedMode.value.ok = false;
+    enhancedMode.value.msg = '保存失败: ' + (e.message || e);
+  } finally {
+    enhancedMode.value.busy = false;
+    enhancedMode.value.confirmArm = false;
+  }
+}
+function toggleEnhancedMode() {
+  // 应用内两步确认（GUI 纪律：不用 window.confirm）：
+  // 开启是"成本变高"方向 → 先武装确认条，再点一次才真发；关闭直接生效。
+  if (enhancedMode.value.enabled) {
+    setEnhancedMode(false);
+    return;
+  }
+  if (!enhancedMode.value.confirmArm) {
+    enhancedMode.value.confirmArm = true;
+    enhancedMode.value.msg = "";
+    return;
+  }
+  setEnhancedMode(true);
+}
+
 /* ---------- 止烧阈值（budget.token_limit）----------
  * 为什么放在设置页：hermes 下金额阈值恒不生效（订阅流量记账恒 0），
  * 止烧全靠这几个 token 上限；阈值要按实测调，看不见就只能猜。
@@ -4652,6 +4713,37 @@ onUnmounted(() => {
         <div v-if="targetWords.msg" class="meta tl-msg"
              :style="{ color: targetWords.ok ? 'var(--ok)' : 'var(--bad)', marginTop: '6px' }">
           {{ targetWords.msg }}
+        </div>
+      </template>
+
+      <!-- 加强模式（chapter.enhanced_mode）：单章拆段落群生成，默认关 -->
+      <h4 style="margin-top: 20px;">加强模式（单章拆段落群生成）</h4>
+      <div class="meta" style="line-height: 1.8; margin-bottom: 8px;">
+        开启后单章改为「章 → 段落群」分批生成（每群约 {{ enhancedMode.groupWords }} 字）：
+        逐群生成、每群立即落盘（段群级断点续跑）、拼装成章后走同一套校验。
+        <b>字数达标率更高，但每章调用次数与成本也更高</b>。关闭时整章单发（默认）。
+        改动对<b>下一次运行</b>生效。
+      </div>
+      <div v-if="enhancedMode.loading" class="meta">读取中…</div>
+      <template v-else>
+        <div class="gate-notify-row">
+          <div>
+            <div class="label">加强模式（当前：{{ enhancedMode.enabled ? '已开启' : '已关闭' }}）</div>
+            <div class="meta" v-if="enhancedMode.confirmArm">
+              再点一次「{{ enhancedMode.enabled ? '关闭加强模式' : '确认开启' }}」才会生效 ——
+              开启后每章多次调用，成本更高。
+            </div>
+          </div>
+          <button class="mini" :class="{ primary: enhancedMode.enabled }"
+                  :disabled="enhancedMode.busy" @click="toggleEnhancedMode">
+            {{ enhancedMode.busy ? '保存中…'
+              : (enhancedMode.enabled ? '关闭加强模式'
+                : (enhancedMode.confirmArm ? '确认开启' : '开启（需二次确认）')) }}
+          </button>
+        </div>
+        <div v-if="enhancedMode.msg" class="meta tl-msg"
+             :style="{ color: enhancedMode.ok ? 'var(--ok)' : 'var(--bad)', marginTop: '6px' }">
+          {{ enhancedMode.msg }}
         </div>
       </template>
           </div><!-- /set-pane budget -->

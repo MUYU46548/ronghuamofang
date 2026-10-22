@@ -499,6 +499,72 @@ def handle_config_target_words_set(h, body):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+ENHANCED_MODE_DEFAULT = False
+
+
+def _validate_enhanced_mode(body):
+    """校验加强模式开关入参。返回 (ok, msg, value)。
+
+    只收严格布尔（true/false）：`"true"` / `1` 这类松散形态一律拒绝 ——
+    开关类字段静默把字符串当真值，会让用户以为关了其实开着（烧钱翻倍）。
+    """
+    body = body or {}
+    if "enabled" not in body:
+        return False, "缺少 enabled（布尔：true 开 / false 关）", None
+    v = body["enabled"]
+    if not isinstance(v, bool):
+        return False, "enabled 必须是布尔值 true/false（收到 %s）" % type(v).__name__, None
+    return True, "", v
+
+
+def handle_config_enhanced_mode(h):
+    """读加强模式开关（chapter.enhanced_mode）。
+
+    加强模式 = 单章拆段落群生成（utils/enhanced_chapter.py）：逐群生成、
+    每群落盘、拼装成章后走同一套校验。默认关 —— 施工单口径「只手动开启」。
+    """
+    try:
+        cfg = api.load_all()[0]
+        cur = bool((cfg.get("chapter") or {}).get("enhanced_mode",
+                                                  ENHANCED_MODE_DEFAULT))
+        gw = int((cfg.get("chapter") or {}).get("enhanced_group_words", 1500))
+        return 200, {
+            "ok": True,
+            "enabled": cur,
+            "group_words": gw,
+            "path": "config/system.yaml",
+            "field": "chapter.enhanced_mode",
+            "note": ("加强模式：单章拆段落群生成（每群约 %d 字），"
+                     "段群级断点续跑。关闭时整章单发（默认）。"
+                     "对下一次运行生效。" % gw),
+        }
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_config_enhanced_mode_set(h, body):
+    """写加强模式开关。不设 GUI-only（与 target_words 同口径：创作决策，
+    Agent 可代设）；严格布尔校验，非法值 400 拒绝。
+    """
+    ok, msg, value = _validate_enhanced_mode(body)
+    if not ok:
+        return 400, {"ok": False, "error": msg}
+    try:
+        from utils.config_io import set_section_scalars
+        sys_yaml = api.ROOT / "config" / "system.yaml"
+        if not sys_yaml.exists():
+            return 400, {"ok": False, "error": "config/system.yaml 不存在"}
+        w_ok, w_msg = set_section_scalars(("chapter",), {"enhanced_mode": value},
+                                          path=sys_yaml)
+        if not w_ok:
+            return 400, {"ok": False, "error": "写入失败：" + w_msg}
+        return 200, {"ok": True, "enabled": value,
+                     "message": "加强模式已" + ("开启" if value else "关闭") + "（" + w_msg + "）",
+                     "note": "对下一次运行生效；正在跑的一轮不受影响。"}
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 def handle_config_form(h):
     """文体（config/project.yaml 的 book.form）读取 + 可选项。
 
@@ -864,6 +930,9 @@ ROUTES = (
     ("POST", "/config/token_limit", handle_config_token_limit_set),
     ("GET", "/config/target_words", handle_config_target_words),
     ("POST", "/config/target_words", handle_config_target_words_set),
+    # 加强模式（第一波防御 · 任务三，2026-10-22）：单章拆段落群生成开关
+    ("GET", "/config/enhanced_mode", handle_config_enhanced_mode),
+    ("POST", "/config/enhanced_mode", handle_config_enhanced_mode_set),
     # 写作预设（2026-10-21，v0.10.3）：多套写作要求存档与切换
     ("GET", "/config/writing_presets", handle_writing_presets_get),
     ("POST", "/config/writing_presets/save", handle_writing_presets_save),

@@ -156,6 +156,12 @@ chapter:
   # 夹具的循环复用问题在 utils/fake_client._words_para 里另修。
   # 确需单章 8000+ 也可以改（夹具已加固），但先确认这是你要的篇幅口径。
   target_words: [5000, 9000]
+  # 加强模式（第一波防御 · 任务三，2026-10-22）：true 时单章生成改为
+  # 「章 → 段落群」拆分生成（utils/enhanced_chapter.py）：逐群生成、每群立即
+  # 落盘 data/chapters/_parts/（段群级断点续跑）、拼装成章后走同一套校验。
+  # 默认 false = 整章单发（改动前行为，零影响）。GUI「设置」页有开关。
+  enhanced_mode: false
+  enhanced_group_words: 1500   # 单群目标字数（决定一章拆几群；仅加强模式生效）
   summary_every: 15
   summary_window: 15
   batch_outline: 10
@@ -211,6 +217,11 @@ gates:
   # （模型不可用 / 提示词被改坏 / 输入构造出错）并**提前停止**，避免"坏掉了还一路
   # 跑完 100 章"在盘上留下满盘废稿。0 = 关闭本保护。
   stage4_max_consecutive_failures: 3
+  # 打回重生成（第一波防御 · 任务一，2026-10-22）：章节校验（字数/标点/退化）不过关
+  # 时自动打回重生成的**上限**（不含首写）。字数只差一点走定向扩写，其余整章重生成
+  # 并回带上一轮问题清单。0 = 关闭打回（校验不过直接判失败章，改动前的行为）。
+  # 仍不过关的章停在「待人工」，留痕 data/state/validation/NN.json。
+  hard_validate_regen_rounds: 2
   auto_retry: true                # 阶段失败后自动重试（默认开）
   auto_retry_max_rounds: 2        # 最大自动重试轮次（不含首次）
   auto_retry_delay_seconds: 3      # 重试前等待（秒），给 LLM 限流/超时恢复时间

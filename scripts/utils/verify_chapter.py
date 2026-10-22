@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from utils.file_io import read_text
+from utils.punct_check import check_punctuation
 
 TITLE_RE = re.compile(r"^##?\s*第\s*(\d+)\s*章.*$", re.MULTILINE)
 QUALITY_RE = re.compile(r"<!--\s*quality:\s*(\d{1,2})\s*/\s*10\s*-->", re.IGNORECASE)
@@ -251,6 +252,9 @@ class ChapterCheck:
     quality: int = None
     degenerate: list = field(default_factory=list)
     degen_metrics: dict = field(default_factory=dict)
+    punct_errors: list = field(default_factory=list)
+    punct_warnings: list = field(default_factory=list)
+    punct_metrics: dict = field(default_factory=dict)
 
     def summary(self):
         extra = (f" 退化={len(self.degenerate)}" if self.degenerate else "")
@@ -318,6 +322,11 @@ def is_chapter_complete(path, target_min=1200, target_max=3500, para_structure=T
     degen, _ = check_degenerate(text, para_structure=para_structure)
     if degen:
         return False
+    # ⚠️ 标点规范**刻意不进本判据**（2026-10-22 第一波防御工程）：
+    # 本函数是断点续跑的"已完成"闸 —— 旧章（标点校验上线前写的）成对配对
+    # 不规范是常态，把它算进 incomplete 会让断点续跑把**存量书稿整批判为
+    # 未完成并全部重写**（白烧一遍 + 新版往往更差）。标点硬拦只挂在
+    # `check_chapter`（stage4 新写章的落盘闸），新生效、不溯及既往。
     return True
 
 
@@ -396,6 +405,16 @@ def check_chapter(path, min_words=2000, max_words=3000):
     result.degen_metrics = degen_metrics
     for p in degen:
         result.errors.append(f"退化：{p}")
+
+    # 标点规范硬校验（第一波防御工程 · 任务一，2026-10-22）：
+    # 归一化（text_norm）修完之后**仍不规范**的形态在这里拦。errors 进 errors
+    # （不过关 → 打回重生成），warnings 只留痕（跨段引语/句末留白是合法写法）。
+    p_err, p_warn, p_metrics = check_punctuation(text)
+    result.punct_errors = list(p_err)
+    result.punct_warnings = list(p_warn)
+    result.punct_metrics = p_metrics
+    for p in p_err:
+        result.errors.append(f"标点：{p}")
 
     result.ok = not result.errors
     return result
