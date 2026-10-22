@@ -1,4 +1,4 @@
-engine: direct
+engine: hermes
 
 # Hermes 子会话（engine: hermes 时生效；此时 model.* 被忽略 —— 用 agent 内部模型）
 hermes:
