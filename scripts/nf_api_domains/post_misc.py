@@ -53,6 +53,8 @@ def handle_export_word(h, body):
         import stage7_convert as s7
         from utils.config_io import load_config_yaml
         from utils.project_config import get_project_config
+        from utils.export_check import (check_merged_md, check_template,
+                                        check_docx_output)
 
         proj = get_project_config() or {}
         book = proj.get("book", {})
@@ -61,7 +63,9 @@ def handle_export_word(h, body):
         page_break = bool(((load_config_yaml(str(api.ROOT / "config" / "system.yaml"))
                             or {}).get("chapter") or {}).get("page_break", True))
         tmpl = (book.get("word_template") or "").strip()
-        template_path = api.ROOT / tmpl if tmpl and (api.ROOT / tmpl).exists() else None
+        # 与 stage7.run_stage 同口径：配置了模板就按存在性校验（缺失 = 错误，
+        # 不再静默降级成硬编码样式 —— 用户以为用了模板其实没有）
+        template_path = (api.ROOT / tmpl) if tmpl else None
 
         out_dir = api.ROOT / "output"
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -70,14 +74,48 @@ def handle_export_word(h, body):
                           api.ROOT / "data" / "chapters" / "checked",
                           api.ROOT / "data" / "chapters" / "raw",
                           book_md, book_name)
+
+        # ---- 导出前校验（与流水线 stage7 同一套判据）：不过关不出文件 ----
+        # 导出面板这条路以前直连 merge+docx，绕过了 stage7.run_stage 里挂的
+        # 三层校验 —— 界面导出的成品不经任何拦截（2026-10-23 抓出）。
+        # 修法：同一份 utils/export_check 判据在这里再挂一遍，不另写判据。
+        expect = int(book.get("chapters", 0) or 0) or None
+        md_text = read_text(book_md)
+        md_errs, md_warns = check_merged_md(md_text, expect_chapters=expect)
+        tmpl_errs, tmpl_warns = ([], [])
+        if template_path is not None:
+            tmpl_errs, tmpl_warns = check_template(template_path)
+        for w in md_warns + tmpl_warns:
+            print(f"[export/word] 导出警告：{w}")
+        all_errs = md_errs + tmpl_errs
+        if all_errs:
+            _named = "；".join(all_errs[:3]) + ("…" if len(all_errs) > 3 else "")
+            return 400, {"ok": False,
+                         "error": f"导出前校验未通过（{len(all_errs)} 项）—— 未出文件：{_named}",
+                         "details": all_errs}
+
         # dotx→docx 转换缓存目录钉到项目根（stage7 里是 CWD 相对路径，API 进程 CWD 不一定是项目根）
         s7.TEMPLATE_CACHE = api.ROOT / "data" / "tmp" / "template_cache"
         docx_path = out_dir / f"{book_name}_完整版.docx"
-        s7.md_to_docx(read_text(book_md), docx_path, book_title=book_name,
+        s7.md_to_docx(md_text, docx_path, book_title=book_name,
                       author=author, template_path=str(template_path) if template_path else None,
                       page_break=page_break)
         if not docx_path.exists() or docx_path.stat().st_size == 0:
             return 500, {"ok": False, "error": "docx 未生成或为空"}
+
+        # ---- 导出后校验（成品层）：不过就删文件 ----
+        out_errs, out_warns = check_docx_output(docx_path, md_text=md_text)
+        for w in out_warns:
+            print(f"[export/word] 成品警告：{w}")
+        if out_errs:
+            try:
+                docx_path.unlink()
+            except Exception:                                # noqa: BLE001
+                pass
+            _named = "；".join(out_errs[:3]) + ("…" if len(out_errs) > 3 else "")
+            return 400, {"ok": False,
+                         "error": f"成品校验未通过（{len(out_errs)} 项）—— 残次品已删除：{_named}",
+                         "details": out_errs}
         return 200, {"ok": True, "message": f"已导出 {n} 章 → {docx_path}",
                      "path": str(docx_path), "chapters": n}
     except FileNotFoundError as e:                          # 章节目录不存在/为空 = 业务结果

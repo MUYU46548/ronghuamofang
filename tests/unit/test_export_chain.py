@@ -261,10 +261,46 @@ def case_units():
     check("占位模板（V1.3）过样式校验 —— 挂账模板即插即用", errs == [], errs)
 
 
+def case_api_path_guarded():
+    print("\n【5】GUI 导出路（POST /export/word）也被校验拦 —— 防旁路回归")
+    import importlib
+    import nf_api as api_mod
+    import nf_api_domains.post_misc as post_misc
+    from utils import project_config as pc
+    tmp = build_workspace(total=2)
+    origin = os.getcwd()
+    orig_py = pc.PROJECT_YAML
+    try:
+        # 把 handler 的配置族钉到本夹具根
+        pc.PROJECT_YAML = tmp / "config" / "project.yaml"
+        api_mod._set_root(tmp)
+        os.chdir(tmp)
+        # 坏数据：第 2 章带 XXX 占位符
+        (tmp / "data/chapters/raw/02.md").write_text(
+            "## 第2章 测试章\n\n此处待补充正文 XXX。\n", encoding="utf-8")
+        status, payload = post_misc.handle_export_word(None, {})
+        docx = tmp / "output" / "导出链测试书_完整版.docx"
+        check("GUI 路坏数据 → 400 且点名占位符",
+              status == 400 and "占位符" in str(payload.get("error", "")),
+              (status, str(payload.get("error", ""))[:120]))
+        check("GUI 路坏数据 → 文件未产出", not docx.exists())
+        # 好数据 → 200 照常出文件（新校验不误伤正常导出）
+        (tmp / "data/chapters/raw/02.md").write_text(_chapter(2), encoding="utf-8")
+        status2, payload2 = post_misc.handle_export_word(None, {})
+        check("GUI 路好数据 → 200 正常导出（不误伤）",
+              status2 == 200 and docx.exists(), (status2, str(payload2)[:100]))
+    finally:
+        pc.PROJECT_YAML = orig_py
+        api_mod._set_root(ROOT)
+        os.chdir(origin)
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def main():
     t0 = time.time()
     for fn in (case_units, case_three_good_exports,
-               case_bad_data_blocked, case_post_check_deletes):
+               case_bad_data_blocked, case_post_check_deletes,
+               case_api_path_guarded):
         fn()
     print("\n==== 结果: PASS %d / FAIL %d （%.1fs）===="
           % (len(PASS), len(FAIL), time.time() - t0))

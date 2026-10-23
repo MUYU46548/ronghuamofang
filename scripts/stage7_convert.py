@@ -287,7 +287,10 @@ def md_to_docx(md_text, out_path, book_title="未命名", author="",
 
     in_code = False
     list_items = []
-    skip_first_h1 = use_template  # 模板已有书名页，跳过正文开头的 # 书名
+    skip_first_h1 = True  # 书名已由 add_heading(title, level=0) 落过（Title 样式），
+                          # 正文开头的 # 书名在两种模式下都是重复 —— 模板模式原本就跳，
+                          # 无模板兜底以前不跳，docx 里书名出现两遍（2026-10-23 新成品
+                          # 校验抓出）。书名页归 Title/模板页，章标题归 Heading 1。
 
     def flush_list():
         nonlocal list_items
@@ -364,7 +367,11 @@ def md_to_docx(md_text, out_path, book_title="未命名", author="",
                 if hashes == 2 and page_break:
                     p.paragraph_format.page_break_before = True
             else:
-                level = min(hashes, 3)
+                # 无模板兜底与模板模式同构：## 章标题 → Heading 1、### 节标题 →
+                # Heading 2（此前是 min(hashes,3)，## 落成 Heading 2 —— 同一本
+                # 书有无模板导出结构不一致，成品校验的 Heading 1 计数契约只在
+                # 模板模式成立）。字号仍按级别取。
+                level = max(1, min(hashes - 1, 3))
                 p = doc.add_heading(level=level)
                 run = p.add_run(hm.group(2).strip())
                 _set_font(run, "黑体", 16 - level * 2, bold=True, color=(0x1F, 0x3B, 0x57))

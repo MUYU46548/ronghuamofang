@@ -114,8 +114,8 @@ def _write_fixture_book():
     raw.mkdir(parents=True, exist_ok=True)
     for f in raw.glob("*.md"):
         f.unlink()
-    (raw / "01.md").write_text("# 第一章 起点\n\n测试正文一，若干字。\n", encoding="utf-8")
-    (raw / "02.md").write_text("# 第二章 转折\n\n测试正文二，若干字。\n", encoding="utf-8")
+    (raw / "01.md").write_text("## 第1章 起点\n\n测试正文一，若干字。\n", encoding="utf-8")
+    (raw / "02.md").write_text("## 第2章 转折\n\n测试正文二，若干字。\n", encoding="utf-8")
 
 
 def test_export_markdown_fallback():
