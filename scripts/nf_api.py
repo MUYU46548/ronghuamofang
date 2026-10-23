@@ -1987,6 +1987,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/factory/presets":
             # 出厂预设清单（只读）：首跑向导「选预设」用。
             self._send(*_dom(dom_project.handle_factory_presets_list(self)))
+        elif p == "/factory/project":
+            # 当前工作区是否出厂测试项目 + 一键还原预览（只读）。
+            self._send(*_dom(dom_factory.handle_factory_project(self)))
         elif p == "/materials/list":
             # 实现已迁至 nf_api_domains.materials（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_materials.handle_materials_list(self)))
@@ -2659,6 +2662,9 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/factory/clean":
                 # 清理出厂样例（confirm 护栏 + 服务端重新检测 + 只动 materials/）。
                 self._send(*_dom(dom_factory.handle_factory_clean(self, body)))
+            elif p == "/factory/project/reset":
+                # 出厂测试项目一键还原（GUI 双因子 + confirm + 三重自检）。
+                self._send(*_dom(dom_factory.handle_factory_project_reset(self, body)))
             elif p == "/plan/propose":
                 # 规划四态状态机（丙0）提案（agent 可提案，不可自选）
                 self._send(*_dom(dom_plan.handle_propose(self, body)))

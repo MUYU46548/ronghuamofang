@@ -221,6 +221,15 @@ def apply(preset_id, root, new_name=None, replace=False, dry_run=False, hidden_o
         return 1
     notes.append(msg)
 
+    # 出厂测试项目标记：这本从此可「一键还原」（utils/factory_reset）。
+    # 换书/归档时由 switch_book 清除 —— 标记与书名绑定，惰性不误伤真书。
+    try:
+        from utils import factory_reset as fr
+        fr.write_marker(root, "preset", preset_id, books)
+        notes.append("已记出厂标记（可在界面一键还原到刚铺好的状态）")
+    except Exception as e:                                     # 标记失败不阻断铺设
+        notes.append("出厂标记写入失败(不阻断): %s" % str(e)[:50])
+
     print("")
     for n in notes:
         print("  · %s" % n)

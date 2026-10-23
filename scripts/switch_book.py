@@ -270,6 +270,13 @@ def archive(book_name=None, yes=False, force=False, guard_snapshot=True):
             shutil.rmtree(tmp_dest)
         extra = ("，含 " + "、".join(root_moved)) if root_moved else ""
         keep_note = ("；应用级配置已复制回工作区（" + "、".join(kept) + "）") if kept else ""
+        # 出厂标记随书走或清掉：工作区换书后，还原按钮不得指向已归档的那本
+        # （data/state 一般已整体搬走，这里的显式清除是兜底，幂等无害）。
+        try:
+            from utils import factory_reset as fr
+            fr.clear_marker(PROJECT_ROOT)
+        except Exception:                                 # noqa: BLE001
+            pass
         return True, f"已归档「{name}」→ {dest}（{len(moved)} 项{extra}）{keep_note}{note}"
     except Exception as e:
         # 失败：先把已挪进书档的 config/ materials/ 并回工作区，再恢复旧归档
@@ -330,6 +337,12 @@ def init_empty():
         (DATA_DIR / d).mkdir(parents=True, exist_ok=True)
     # config/ 同理要保证存在（新建书要写 project.yaml；system.yaml 由归档/模板提供）
     (PROJECT_ROOT / "config").mkdir(parents=True, exist_ok=True)
+    # 出厂标记清除：空工作区 = 新书开始，还原按钮不得指向刚被初始化掉的旧书
+    try:
+        from utils import factory_reset as fr
+        fr.clear_marker(PROJECT_ROOT)
+    except Exception:                                       # noqa: BLE001
+        pass
     return True, "空工作区骨架已初始化"
 
 

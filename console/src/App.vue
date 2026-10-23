@@ -964,6 +964,42 @@ async function loadProjects(quiet = false) {
   // 真正逐文件算 sha 的盘点部分本来就在这个端点里，诊断页复用同一个 ref。
   // 拉失败不影响项目页任何功能 —— 徽标是加分项，不能反过来拖垮主流程。
   loadFactory();
+  // 出厂测试项目还原预览（0.6.22）：只读；is_factory=false 时面板整个不渲染。
+  loadFactoryProject();
+}
+
+/* ---------- 出厂测试项目一键还原（0.6.22） ---------- */
+// 预设/样例跑过一轮后工作区堆满测试进度，此前没有「回到刚铺好状态」的入口。
+// 边界（用户定调）：**仅出厂测试项目**可还原 —— 真书没有出厂标记，
+// 这条路在服务端三重自检（标记/书名/出厂源）下天然碰不到它。
+// 交互用两步确认（armed 态），不用 window.confirm（GUI 纪律）。
+const factoryProject = ref(null);          // GET /factory/project 响应体
+const factoryResetArmed = ref(false);      // 第一步已点（armed）；按钮此时变「确认还原」
+let factoryResetTimer = null;              // armed 自动解除（8 秒，防误留待发态）
+async function loadFactoryProject() {
+  try {
+    const r = await api("/factory/project");
+    factoryProject.value = (r.status === 200 && r.data) ? r.data : null;
+  } catch (e) { factoryProject.value = null; }
+}
+function armFactoryReset() {
+  factoryResetArmed.value = true;
+  say("再点一次「确认还原」执行：将清掉本书全部测试进度并铺回出厂素材（先自动快照）");
+  clearTimeout(factoryResetTimer);
+  factoryResetTimer = setTimeout(() => { factoryResetArmed.value = false; }, 8000);
+}
+async function resetFactoryProject() {
+  clearTimeout(factoryResetTimer);
+  factoryResetArmed.value = false;
+  const r = await api("/factory/project/reset", "POST", { confirm: true });
+  if (r.status === 200 && r.data && r.data.ok) {
+    say("已还原到出厂状态：" + (r.data.actions || []).join("；"));
+  } else {
+    say("还原失败: " + ((r.data && (r.data.error || r.data.message)) || r.status));
+  }
+  loadFactoryProject();
+  loadProjects(true);
+  refresh();
 }
 
 async function archiveCurrent() {
@@ -5330,6 +5366,27 @@ onUnmounted(() => {
         <input v-model="archiveName" class="text-input" placeholder="留空使用当前书名" />
         <span class="spacer"></span>
         <button class="mini" @click="archiveCurrent">归档</button>
+      </div>
+      <!-- 出厂测试项目一键还原（0.6.22）：只对带出厂标记的测试项目渲染；
+           两步确认（armed 变色），服务端三重自检兜底 —— 真书永远看不到这块。 -->
+      <div v-if="factoryProject?.is_factory" class="art-row"
+           style="margin-top: 10px; border: 1px solid var(--warn); border-radius: 8px; padding: 8px 10px;">
+        <span class="art-label" title="这本是预设/样例铺设的出厂测试项目，可一键回到刚铺好的状态">
+          出厂测试项目
+        </span>
+        <span class="meta">
+          {{ factoryProject.wipe_plan
+             ? `将清掉 ${factoryProject.wipe_plan.chapters_done} 章测试进度与评审记录，素材回到 ${factoryProject.wipe_plan.cards_factory} 张（当前 ${factoryProject.wipe_plan.cards_now} 张）；先自动快照`
+             : '将清掉本书测试进度并铺回出厂素材；先自动快照' }}
+        </span>
+        <span class="spacer"></span>
+        <button v-if="!factoryResetArmed" class="mini" @click="armFactoryReset"
+                title="仅还原这本出厂测试项目；他书归档、写作预设、日志与导出成品都不动">
+          一键还原
+        </button>
+        <button v-else class="mini danger" @click="resetFactoryProject">
+          确认还原（再点一次）
+        </button>
       </div>
       <div v-if="projects.archived.length" style="margin-top: 14px;">
         <h4>已归档项目</h4>

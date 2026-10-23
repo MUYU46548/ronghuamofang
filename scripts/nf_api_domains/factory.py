@@ -176,7 +176,48 @@ def handle_factory_clean(h, body):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+def handle_factory_project(h):
+    """`GET /factory/project` —— 当前工作区是否出厂测试项目 + 还原预览。
+
+    **零副作用**（只读）。回答三件事：能不能还原（`is_factory` + `reason`）、
+    源还在不在（`source_ok`）、还原会动什么（`wipe_plan`）。GUI 据此决定
+    是否显示「一键还原」按钮与确认框内容；外部 Agent 可盘点，不能动手。
+    """
+    try:
+        import utils.factory_reset as fr
+        return 200, {"ok": True, **fr.describe(api.ROOT)}
+    except Exception as e:                                    # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_factory_project_reset(h, body):
+    """`POST /factory/project/reset {confirm: true}` —— 出厂测试项目一键还原。
+
+    三重护栏（与铺设端点同族，列入 FORBIDDEN_IN_AGENT_MODE + 端点双因子）：
+    ① GUI 来源头（`h.is_trusted_gui`，伪造头不算）；② `confirm: true`；
+    ③ `factory_reset.reset()` 自身的标记/书名/出厂源三重自检 —— 任一不过
+    **一个字节都不动**。真书没有标记，天然不可被这条路碰到。
+    """
+    body = body if isinstance(body, dict) else {}
+    if not h.is_trusted_gui():
+        return 403, {"ok": False,
+                     "error": "还原出厂测试项目是破坏性操作，仅允许在桌面客户端内执行"}
+    if body.get("confirm") is not True:
+        return 400, {"ok": False,
+                     "error": "还原出厂测试项目是破坏性操作，必须二次确认"
+                              "（请求体需 confirm: true）"}
+    try:
+        import utils.factory_reset as fr
+        ok, report = fr.reset(api.ROOT)
+        status = 200 if ok else 400
+        return status, {"ok": ok, **report}
+    except Exception as e:                                    # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 ROUTES = (
     ("GET", "/factory/list", handle_factory_list),
     ("POST", "/factory/clean", handle_factory_clean),
+    ("GET", "/factory/project", handle_factory_project),
+    ("POST", "/factory/project/reset", handle_factory_project_reset),
 )
