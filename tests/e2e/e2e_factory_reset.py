@@ -42,19 +42,18 @@ def build_scratch():
     raw = SCRATCH / "materials" / "raw"
     raw.mkdir(parents=True)
     (SCRATCH / "config").mkdir(parents=True)
-    # system.yaml：真实工作区必有（seedWorkspace 保证）；不放的话 /models /state
-    # 等通用端点会在稀疏夹具上 500 —— 那不是本功能的问题，但会污染验收信号。
     shutil.copy2(ROOT / "config" / "system.yaml", SCRATCH / "config" / "system.yaml")
     (SCRATCH / "config" / "project.yaml").write_text(
-        "book:\n  name: 单测预设书\n  genre: 悬疑\n  chapters: 3\n", encoding="utf-8")
-    src = SCRATCH / "examples" / "presets" / "unit-preset"
-    (src / "materials" / "raw").mkdir(parents=True)
-    (src / "preset.yaml").write_text(
-        "id: unit-preset\nname: 单测预设书\ngenre: 悬疑\nchapters: 3\nverify:\n  min_cards: 1\n",
-        encoding="utf-8")
+        "book:\n  name: 雾港核心\n  genre: 悬疑\n  chapters: 3\n", encoding="utf-8")
+    # 样例源（用户实际路径：随包样例书直接跑出来的项目，**没有铺设标记**，
+    # 靠书名 == 样例名认身份）。样例布局：卡在 materials/ 直下（无 raw/ 层）。
+    sample = SCRATCH / "_sample" / "sample-book"
+    (sample / "materials").mkdir(parents=True)
+    (sample / "project.yaml").write_text(
+        "book:\n  name: 雾港核心\n  genre: 悬疑\n  chapters: 3\n", encoding="utf-8")
     for i in range(1, 4):
-        (src / "materials" / "raw" / ("出厂卡%d.md" % i)).write_text("# 出厂卡%d\n" % i,
-                                                                     encoding="utf-8")
+        (sample / "materials" / ("出厂卡%d.md" % i)).write_text("# 出厂卡%d\n" % i,
+                                                                encoding="utf-8")
         (raw / ("测试脏卡%d.md" % i)).write_text("# 测试脏卡%d\n" % i, encoding="utf-8")
     for rel, content in (("data/chapters/raw/01.md", "## 第1章\n\n测试进度。\n"),
                          ("data/outline/global.md", "# 大纲\n"),
@@ -65,8 +64,7 @@ def build_scratch():
         p.write_text(content, encoding="utf-8")
     (SCRATCH / "data" / "books" / "别的书").mkdir(parents=True)
     (SCRATCH / "data" / "books" / "别的书" / "_meta.json").write_text("{}", encoding="utf-8")
-    from utils import factory_reset as fr
-    fr.write_marker(SCRATCH, "preset", "unit-preset", "单测预设书")
+    # 刻意不写出厂标记 —— 本验收走的就是隐式样例身份（用户实况）
 
 
 def main():
@@ -76,7 +74,10 @@ def main():
     # （裸浏览器没有 Electron IPC，不注入的话 reset 会被 is_trusted_gui 正确拒 403 ——
     #  那验的是闸门不是功能；两者都要，先验闸再验功能）。
     TOKEN = "e2e-fact-reset-token"
-    env = dict(os.environ, NF_GUI_TOKEN=TOKEN)
+    # NF_SAMPLE_ROOT：打包态主进程就这么注入（样例源在安装目录，工作区里没有）；
+    # 夹具把样例放在 _sample/ 下，同一根注入路 —— 顺带把这条环境变量链也验了。
+    env = dict(os.environ, NF_GUI_TOKEN=TOKEN,
+               NF_SAMPLE_ROOT=str(SCRATCH / "_sample"))
     srv = subprocess.Popen(
         [str(ROOT / ".venv" / "Scripts" / "python.exe"),
          str(ROOT / "scripts" / "nf_api.py"), "--port", str(PORT), "--root", str(SCRATCH)],

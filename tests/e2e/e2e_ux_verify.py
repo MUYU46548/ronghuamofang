@@ -621,14 +621,14 @@ def test_about_project(browser, mock_proc=None):
         check("项目页显示「与出厂样例同名」徽标（书名 == 样例书名但无铺设标记）",
               badge.count() >= 1, badge.count())
         tip = badge.first.get_attribute("title") if badge.count() else ""
-        check("徽标悬浮说明含「名字撞了」与「一键还原」边界",
-              bool(tip) and "名字撞了" in tip and "一键还原" in tip, (tip or "")[:160])
+        check("徽标悬浮说明含「自检没过」与「一键还原」边界",
+              bool(tip) and "自检没过" in tip and "一键还原" in tip, (tip or "")[:160])
         if badge.count():
             badge.first.click()
             page.wait_for_timeout(300)
             t = page.locator(".toast")
             toast = t.inner_text() if t.count() else ""
-            check("点徽标也能弹出说明（不只依赖悬浮）", "名字撞了" in toast, toast[:160])
+            check("点徽标也能弹出说明（不只依赖悬浮）", "自检没过" in toast, toast[:160])
         shot(page, "D2_project_tab")
 
         print("  --- 新建项目向导三步 ---")

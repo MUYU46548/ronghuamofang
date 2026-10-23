@@ -1393,10 +1393,10 @@ const projects = ref({ current: "", archived: [] });
 const factorySampleTip = computed(() => {
   const c = factory.value && factory.value.current;
   const t = (c && c.sample_title) || "示例书";
-  return `当前书名与随包样例书《${t}》相同 —— 但这只是名字撞了。`
-    + "随包样例只是出厂试跑素材；你工作区里的这本书是你的实际书稿（有你自己的素材与章节）。\n"
-    + "它不带「一键还原」：真书不设一键抹除入口。只有经「新建向导 → 选出厂预设」"
-    + "铺设的测试项目才可一键还原。";
+  return `当前书名与随包样例书《${t}》相同，但还原自检没过（出厂源缺失或不完整），`
+    + "本次不提供一键还原。\n"
+    + "若这本就是拿样例跑出来的测试项目：安装包重装可恢复 examples/sample-book 源，"
+    + "届时项目页会重新出现「一键还原」面板。";
 });
 const archiveName = ref("");
 
@@ -5353,11 +5353,12 @@ onUnmounted(() => {
       </div>
       <div class="meta" style="margin-bottom: 12px;">
         当前项目：<b>{{ projects.current || "（未初始化）" }}</b>
-        <!-- 真出厂项目（有铺设标记）才叫「出厂测试项目」；仅书名与随包样例
-             撞名的（样例书就叫《雾港核心》）只提示同名 —— 拿名字比对冒充
-             出厂身份会让真书看起来像可一键抹掉的测试品（2026-10-23 用户实测被误导）。 -->
+        <!-- 出厂身份两条路（2026-10-23 重定义）：铺设标记（向导铺的预设）或
+             书名 == 随包样例名（样例书直接跑出来的测试项目）—— 命中即有还原
+             面板；两条都不命中的（真书）永远看不到。自检不过时退到「同名」提示。 -->
         <span v-if="factoryProject?.is_factory" class="pill st-warn"
-              style="cursor: help;" title="这本由出厂预设铺设，下方有「一键还原」面板"
+              style="cursor: help;"
+              :title="factoryProject.kind === 'preset' ? '这本由出厂预设铺设，下方有「一键还原」面板' : '这本是随包样例书直接跑出来的测试项目，下方有「一键还原」面板'"
               @click="say('出厂测试项目：可在下方「出厂测试项目」面板一键还原到刚铺好的状态')">
           出厂测试项目
         </span>

@@ -302,6 +302,59 @@ def case_hooks_present():
     check("switch_book.init_empty 清标记", "clear_marker" in inspect.getsource(sb.init_empty))
 
 
+def case_implicit_sample(tmp):
+    print("\n[8] 隐式样例：书名 == 随包样例名（无标记也算出厂测试项目）")
+    # 用户实况（2026-10-23 纠正）：《雾港核心》就是随包样例书直接跑完的
+    # 测试项目，没有铺设标记 —— 书名与样例一致即可认出。
+    sample = tmp / "examples" / "sample-book"
+    (sample / "materials").mkdir(parents=True)   # 样例布局：卡在 materials/ 直下
+    (sample / "project.yaml").write_text(
+        "book:\n  name: 雾港核心\n  genre: 悬疑\n  chapters: 2\n", encoding="utf-8")
+    for i in range(1, 4):
+        (sample / "materials" / ("样例卡%d.md" % i)).write_text(
+            "# 样例卡%d\n" % i, encoding="utf-8")
+    # 样例源钉到夹具（同打包态主进程注入 NF_SAMPLE_ROOT 的路，防回落真仓库样例）
+    os.environ["NF_SAMPLE_ROOT"] = str(sample)
+    ws = tmp / "ws_implicit"
+    raw = ws / "materials" / "raw"
+    raw.mkdir(parents=True)
+    (ws / "config").mkdir(parents=True)
+    (ws / "config" / "project.yaml").write_text(
+        "book:\n  name: 雾港核心\n  genre: 悬疑\n  chapters: 2\n", encoding="utf-8")
+    for i in range(1, 6):
+        (raw / ("跑过的卡%d.md" % i)).write_text("# 跑过的卡%d\n" % i, encoding="utf-8")
+    for rel, content in (("data/chapters/raw/01.md", "## 第1章\n\n跑完的进度。\n"),
+                         ("data/outline/global.md", "# 大纲\n"),
+                         ("data/state/progress.json",
+                          json.dumps({"stages": {"4": {"status": "done"}}}))):
+        p = ws / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content, encoding="utf-8")
+    d = fr.describe(ws)
+    check("无标记但书名==样例名 → is_factory=true", d["is_factory"] is True, d)
+    check("身份= sample（隐式样例）", d.get("kind") == "sample", d.get("kind"))
+    check("wipe_plan 章数/卡数对",
+          d["wipe_plan"]["chapters_done"] == 1 and d["wipe_plan"]["cards_now"] == 5
+          and d["wipe_plan"]["cards_factory"] == 3, d["wipe_plan"])
+    restore, snap_state = _pin_modules(ws)
+    try:
+        ok, rep = fr.reset(ws)
+        check("还原成功", ok is True, rep.get("error"))
+        cards = sorted(p.name for p in raw.glob("*.md"))
+        check("素材回到样例 3 张", cards == ["样例卡1.md", "样例卡2.md", "样例卡3.md"], cards)
+        check("跑完的进度清掉",
+              not (ws / "data/chapters/raw/01.md").exists()
+              and not (ws / "data/state/progress.json").exists())
+        check("旧素材有备份", bool(list((ws / "data/state/preset_backup").rglob("跑过的卡1.md"))))
+    finally:
+        restore()
+    # 书名不同 → 不认
+    ws2 = tmp / "ws_implicit_other"
+    (ws2 / "config").mkdir(parents=True)
+    (ws2 / "config" / "project.yaml").write_text("book:\n  name: 别的书\n", encoding="utf-8")
+    check("书名不同 → 不认", fr.describe(ws2)["is_factory"] is False)
+
+
 def main():
     tmp = Path(tempfile.mkdtemp(prefix="factreset_"))
     try:
@@ -312,8 +365,10 @@ def main():
         case_snapshot_gate(tmp)
         case_endpoint_guards(tmp)
         case_hooks_present()
+        case_implicit_sample(tmp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+        os.environ.pop("NF_SAMPLE_ROOT", None)
     print("\n==== 结果: PASS %d / FAIL %d ====" % (len(PASS), len(FAIL)))
     return 1 if FAIL else 0
 

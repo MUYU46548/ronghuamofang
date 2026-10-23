@@ -89,6 +89,21 @@ def _count_cards(raw_dir):
     return len([p for p in d.iterdir() if p.is_file() and p.suffix == ".md"])
 
 
+def _cards_dir(src):
+    """出厂源的素材卡目录（两种布局都认）：
+
+    - 预设：`<src>/materials/raw/*.md`（铺设时也是从这里取）
+    - 随包样例书：`<src>/materials/*.md` 直下（没有 raw/ 层 —— 实勘
+      payload/examples/sample-book 19 张卡就在直下层，写死 raw/ 会数出 0 张
+      把合法样例判成"源不完整"）
+    """
+    src = Path(src)
+    for cand in (src / "materials" / "raw", src / "materials"):
+        if _count_cards(cand) > 0:
+            return cand
+    return src / "materials" / "raw"
+
+
 def _current_book_name(root):
     """读当前书名（严格 loader：重复键抛 ConfigError → 返回 None = 自检不过）。
 
@@ -103,6 +118,40 @@ def _current_book_name(root):
     except Exception:                                          # noqa: BLE001
         # 文件不存在/坏配置/重复键 —— 还原必须知道当前是谁，
         # 拿不到名字 = 自检不过，不静默放行。
+        return None
+
+
+def _sample_dir(root):
+    """随包样例书目录（与 factory 域同一条候选链）：env → 打包态 → 源码态 → 代码根。
+
+    返回样例书目录（含 project.yaml 的那层）或 None。
+    """
+    import os
+    cands = []
+    env = os.environ.get("NF_SAMPLE_ROOT")
+    if env:
+        cands.append(Path(env))
+    cands.append(Path(root) / "payload" / "examples")
+    cands.append(Path(root) / "examples")
+    try:
+        import nf_api  # noqa: F401  仅用于定位代码根；源码态下 root 即仓库根
+        cands.append(Path(nf_api.__file__).resolve().parents[1] / "examples")
+    except Exception:                                          # noqa: BLE001
+        pass
+    for c in cands:
+        for sub in (Path(c) / "sample-book", Path(c)):
+            if (sub / "project.yaml").is_file():
+                return sub
+    return None
+
+
+def _book_title_of(path):
+    """严格读 project.yaml 的 book.name；缺失/坏文件/重复键返回 None。"""
+    from utils.project_config import load_project_yaml
+    try:
+        data = load_project_yaml(Path(path)) or {}
+        return (((data.get("book") or {}).get("name")) or "").strip() or None
+    except Exception:                                          # noqa: BLE001
         return None
 
 
@@ -127,29 +176,24 @@ def resolve_source(root, marker):
         min_cards = int((meta.get("verify") or {}).get("min_cards") or 1)
         return src, min_cards, "预设 %s" % source_id
     if kind == "sample":
-        # 样例书源：与 factory 域同一套候选链（环境变量 → 打包态 → 源码态 → 代码根）
-        import os
-        cands = []
-        env = os.environ.get("NF_SAMPLE_ROOT")
-        if env:
-            cands.append(Path(env))
-        cands.append(Path(root) / "payload" / "examples")
-        cands.append(Path(root) / "examples")
-        try:
-            import nf_api  # noqa: F401  仅用于定位代码根；源码态下 root 即仓库根
-            cands.append(Path(nf_api.__file__).resolve().parents[1] / "examples")
-        except Exception:                                       # noqa: BLE001
-            pass
-        for c in cands:
-            for sub in (Path(c) / "sample-book", Path(c)):
-                if (sub / "project.yaml").is_file():
-                    return sub, 1, "出厂样例书"
-        return None, 0, "样例出厂源不在（examples/sample-book 缺失）"
+        sub = _sample_dir(root)
+        if sub is None:
+            return None, 0, "样例出厂源不在（examples/sample-book 缺失）"
+        return sub, 1, "出厂样例书"
     return None, 0, "未知标记类型：%s" % kind
 
 
 def describe(root):
-    """只读预览：当前工作区是不是出厂测试项目 + 还原会动什么。"""
+    """只读预览：当前工作区是不是出厂测试项目 + 还原会动什么。
+
+    身份两条路（任一命中 + 完整性自检通过 = 出厂测试项目）：
+      A. **铺设标记**（preset_apply 写的）—— 向导铺的预设项目；
+      B. **隐式样例**—— 书名与随包样例书一致。随包样例（就叫《雾港核心》）
+         是装机就有的测试项目，用户直接拿它跑完过全流程，没有铺设标记 ——
+         这类**同样是一键还原的对象**（用户 2026-10-23 纠正：他工作区里
+         跑完的《雾港核心》不是"真书"，是测试项目，还原功能就是为它做的）。
+         名字是唯一能认出它的身份 —— 内容早被跑出来的进度覆盖，指纹认不出。
+    """
     root = Path(root)
     marker = read_marker(root)
     cur_name = _current_book_name(root)
@@ -157,23 +201,41 @@ def describe(root):
            "book_name": cur_name, "marker_book_name": None,
            "source_ok": False, "source": None, "reason": None,
            "wipe_plan": None}
-    if not marker:
-        out["reason"] = "当前工作区没有出厂标记（不是出厂测试项目，不可一键还原）"
-        return out
-    out["marker_book_name"] = (marker.get("book_name") or "").strip()
-    out["kind"], out["id"] = marker.get("kind"), marker.get("id")
     if cur_name is None:
         out["reason"] = "当前配置无法解析（拿不到书名），自检不过"
         return out
-    if out["marker_book_name"] != cur_name:
-        out["reason"] = ("工作区书名（%s）与出厂标记（%s）不一致 —— "
-                         "换过书后标记失效，不误伤" % (cur_name, out["marker_book_name"]))
+    out["marker_book_name"] = (marker.get("book_name") or "").strip() if marker else None
+
+    reasons = []
+    eff, src, min_cards, info = None, None, 0, None
+    # A. 铺设标记（与当前书名绑定；换过书 = 标记失效，不误伤）
+    if marker and out["marker_book_name"] == cur_name:
+        src, min_cards, info = resolve_source(root, marker)
+        if src is not None:
+            eff = marker
+        else:
+            reasons.append(info)
+    elif marker:
+        reasons.append("当前书《%s》与出厂标记《%s》不符"
+                       % (cur_name, out["marker_book_name"] or "?"))
+    else:
+        reasons.append("无出厂标记")
+    # B. 隐式样例：书名 == 随包样例书名
+    if eff is None:
+        sdir = _sample_dir(root)
+        stitle = _book_title_of(Path(sdir) / "project.yaml") if sdir else None
+        if sdir and stitle and stitle == cur_name:
+            if _count_cards(_cards_dir(sdir)) >= 1:
+                eff = {"kind": "sample", "id": "sample-book"}
+                src, min_cards, info = sdir, 1, "随包样例书（书名一致）"
+            else:
+                reasons.append("随包样例源不完整（0 张素材卡）")
+        elif not sdir:
+            reasons.append("随包样例源不在（examples/sample-book 缺失）")
+    if eff is None:
+        out["reason"] = "；".join(r for r in reasons if r) or "不是出厂测试项目"
         return out
-    src, min_cards, info = resolve_source(root, marker)
-    if src is None:
-        out["reason"] = info
-        return out
-    n_src = _count_cards(Path(src) / "materials" / "raw")
+    n_src = _count_cards(_cards_dir(src))
     if n_src < min_cards:
         out["reason"] = "出厂源不完整：%s 只有 %d 张卡 < 要求 %d" % (info, n_src, min_cards)
         return out
@@ -191,6 +253,7 @@ def describe(root):
         except Exception:                                       # noqa: BLE001
             stages = ["(progress.json 无法解析)"]
     out.update(is_factory=True, source_ok=True, source=str(src),
+               kind=eff.get("kind"), id=eff.get("id"),
                wipe_plan={"chapters_done": n_ch, "cards_now": cur_cards,
                           "cards_factory": n_src, "stages": stages})
     return out
@@ -245,10 +308,14 @@ def reset(root, dry_run=False):
             f.unlink()
             report["actions"].append("已清 %s" % rel)
 
-    # 铺回出厂源
-    marker = read_marker(root) or {}
-    src, _, _info = resolve_source(root, marker)
-    raw_src = Path(src) / "materials" / "raw"
+    # 铺回出厂源 —— 身份以 describe 命中的为准（隐式样例没有标记，
+    # 再读一次 marker 会解析失败）。
+    src_eff = {"kind": info.get("kind"), "id": info.get("id")}
+    src, _, _info = resolve_source(root, src_eff)
+    if src is None:
+        report["error"] = "还原中途发现出厂源消失，已中止（素材已备份、书状态已清）：%s" % _info
+        return False, report
+    raw_src = _cards_dir(src)
     raw.mkdir(parents=True, exist_ok=True)
     n = 0
     for p in sorted(raw_src.glob("*.md")):
@@ -259,10 +326,11 @@ def reset(root, dry_run=False):
     # 配置写回：走 set_book_fields（定向改写 + 备份 + 回读校验）；
     # sample 源直接覆盖 project.yaml（它本来就是出厂整份，无用户改动可保）。
     from utils.project_config import set_book_fields
-    if marker.get("kind") == "preset":
+    if src_eff.get("kind") == "preset":
         from utils.config_io import load_config_yaml
         meta = load_config_yaml(str(Path(src) / "preset.yaml")) or {}
-        fields = {"name": marker.get("book_name") or meta.get("name")}
+        # 书名以 describe 时确认的当前名为准（那一刻它 == 标记书名）
+        fields = {"name": info.get("book_name") or meta.get("name")}
         for k in ("genre", "chapters"):
             if meta.get(k) is not None:
                 fields[k] = meta[k]
@@ -272,8 +340,13 @@ def reset(root, dry_run=False):
         ok, msg = set_book_fields(fields)
     else:
         try:
-            shutil.copy2(Path(src) / "project.yaml", root / "config" / "project.yaml")
-            ok, msg = True, "project.yaml 已按出厂源覆盖"
+            bak_dir = root / "data" / "state" / "preset_backup" / stamp
+            bak_dir.mkdir(parents=True, exist_ok=True)
+            cur_proj = root / "config" / "project.yaml"
+            if cur_proj.exists():
+                shutil.copy2(cur_proj, bak_dir / "project.yaml")
+            shutil.copy2(Path(src) / "project.yaml", cur_proj)
+            ok, msg = True, "project.yaml 已按出厂源覆盖（旧份已备份）"
         except OSError as e:
             ok, msg = False, str(e)[:80]
     if not ok:
