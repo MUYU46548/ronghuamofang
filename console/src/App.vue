@@ -1393,10 +1393,10 @@ const projects = ref({ current: "", archived: [] });
 const factorySampleTip = computed(() => {
   const c = factory.value && factory.value.current;
   const t = (c && c.sample_title) || "示例书";
-  return `此为出厂自带的测试项目（随包样例书《${t}》，素材来自 examples/sample-book），`
-    + "用于试跑流水线与验收界面，不是你新建的书。\n"
-    + "删除或归档它不会影响程序运行，也不会动其他项目；样例源文件仍随安装包保留。\n"
-    + "⚠ 若你在这本书里写过自己的内容，删除前请先「查看」确认（删除默认进回收站，可捞回）。";
+  return `当前书名与随包样例书《${t}》相同 —— 但这只是名字撞了。`
+    + "随包样例只是出厂试跑素材；你工作区里的这本书是你的实际书稿（有你自己的素材与章节）。\n"
+    + "它不带「一键还原」：真书不设一键抹除入口。只有经「新建向导 → 选出厂预设」"
+    + "铺设的测试项目才可一键还原。";
 });
 const archiveName = ref("");
 
@@ -5353,10 +5353,18 @@ onUnmounted(() => {
       </div>
       <div class="meta" style="margin-bottom: 12px;">
         当前项目：<b>{{ projects.current || "（未初始化）" }}</b>
-        <span v-if="factory?.current?.is_sample" class="pill st-warn"
+        <!-- 真出厂项目（有铺设标记）才叫「出厂测试项目」；仅书名与随包样例
+             撞名的（样例书就叫《雾港核心》）只提示同名 —— 拿名字比对冒充
+             出厂身份会让真书看起来像可一键抹掉的测试品（2026-10-23 用户实测被误导）。 -->
+        <span v-if="factoryProject?.is_factory" class="pill st-warn"
+              style="cursor: help;" title="这本由出厂预设铺设，下方有「一键还原」面板"
+              @click="say('出厂测试项目：可在下方「出厂测试项目」面板一键还原到刚铺好的状态')">
+          出厂测试项目
+        </span>
+        <span v-else-if="factory?.current?.is_sample" class="pill"
               style="cursor: help;" :title="factorySampleTip"
               @click="say(factorySampleTip.replace(/\n/g, ' '))">
-          出厂测试项目<span style="margin-left: 4px; font-weight: 700;">?</span>
+          与出厂样例同名
         </span>
         <span v-if="state?.has_work" class="pill st-gate">工作区有数据</span>
         <span v-else class="pill">工作区为空</span>

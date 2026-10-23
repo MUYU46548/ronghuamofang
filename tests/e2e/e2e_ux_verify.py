@@ -615,19 +615,20 @@ def test_about_project(browser, mock_proc=None):
         check("项目页签显示工作区状态徽标",
               page.locator("text=工作区有数据").count() >= 1 or page.locator("text=工作区为空").count() >= 1)
         # 出厂样例徽标（2026-10-11 用户需求「当前项目没有任何显示标识」）：
-        # mock 的书名与样例书名相同 → 徽标必须亮，且说明文要说清「删了会怎样」。
-        badge = page.locator(".pill:has-text('出厂测试项目')")
-        check("项目页显示「出厂测试项目」徽标（书名 == 样例书名时）",
+        # mock 的书名与样例书名相同 → 提示「同名」而非「出厂项目」（2026-10-23 改：
+        # 名字比对冒充出厂身份，在真书上误导过用户），说明文要说清"只是撞名"。
+        badge = page.locator(".pill:has-text('与出厂样例同名')")
+        check("项目页显示「与出厂样例同名」徽标（书名 == 样例书名但无铺设标记）",
               badge.count() >= 1, badge.count())
         tip = badge.first.get_attribute("title") if badge.count() else ""
-        check("徽标悬浮说明含「出厂自带」与删除后果",
-              bool(tip) and "出厂自带" in tip and "删除" in tip, (tip or "")[:160])
+        check("徽标悬浮说明含「名字撞了」与「一键还原」边界",
+              bool(tip) and "名字撞了" in tip and "一键还原" in tip, (tip or "")[:160])
         if badge.count():
             badge.first.click()
             page.wait_for_timeout(300)
             t = page.locator(".toast")
             toast = t.inner_text() if t.count() else ""
-            check("点徽标也能弹出说明（不只依赖悬浮）", "出厂自带" in toast, toast[:160])
+            check("点徽标也能弹出说明（不只依赖悬浮）", "名字撞了" in toast, toast[:160])
         shot(page, "D2_project_tab")
 
         print("  --- 新建项目向导三步 ---")
