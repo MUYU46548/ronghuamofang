@@ -379,7 +379,7 @@ function getWorkspaceSource() {
 //   · 前端（asar，不走种子）：项目页出厂徽标 / 启动提示词剥离说明书 /
 //     阶段复制改任务简报（原样贴模板会被外部 Agent 按红线判「模板不是任务」停工）。
 // **先 bump 再 electron-builder**。
-const SEED_VERSION = 40;   // 0.6.22: 第一波防御工程（标点硬校验 · 打回重生成 · 断网自愈 · 加强模式 · 导出校验）
+const SEED_VERSION = 41;   // 0.6.22: 防御四件 + 导出双路校验 + 出厂测试项目一键还原
 //   · prompts/: stage5 加七维 JSON 契约、stage4 加记忆块、stage3 加卷弧块、stage2 加设定摘要、
 //     新增 volume_plan.md —— **payload 变了，不 bump 用户永远拿不到新提示词**。
 
