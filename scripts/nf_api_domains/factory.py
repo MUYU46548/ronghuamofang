@@ -194,14 +194,16 @@ def handle_factory_project_reset(h, body):
     """`POST /factory/project/reset {confirm: true}` —— 出厂测试项目一键还原。
 
     三重护栏（与铺设端点同族，列入 FORBIDDEN_IN_AGENT_MODE + 端点双因子）：
-    ① GUI 来源头（`h.is_trusted_gui`，伪造头不算）；② `confirm: true`；
+    ① GUI 来源头 —— 复用 `project._gui_only`（唯一实现 `agent_guard.
+    is_trusted_gui`，与 do_POST 禁用名单同一份，伪造头不算）；② `confirm: true`；
     ③ `factory_reset.reset()` 自身的标记/书名/出厂源三重自检 —— 任一不过
     **一个字节都不动**。真书没有标记，天然不可被这条路碰到。
     """
     body = body if isinstance(body, dict) else {}
-    if not h.is_trusted_gui():
-        return 403, {"ok": False,
-                     "error": "还原出厂测试项目是破坏性操作，仅允许在桌面客户端内执行"}
+    from nf_api_domains.project import _gui_only
+    guard = _gui_only(h, "还原出厂测试项目")
+    if guard is not None:
+        return guard
     if body.get("confirm") is not True:
         return 400, {"ok": False,
                      "error": "还原出厂测试项目是破坏性操作，必须二次确认"

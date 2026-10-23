@@ -246,6 +246,7 @@ def case_endpoint_guards(tmp):
     import nf_api_domains.factory as dom
     from utils import agent_guard
 
+    TOKEN = "unit-test-gui-token"
     ws = _build_workspace(tmp / "ws_api")
     orig_py = None
     import utils.project_config as pc
@@ -254,10 +255,12 @@ def case_endpoint_guards(tmp):
     api_mod._set_root(ws)
 
     class FakeH:
+        """双因子经 headers + 环境 token（与 _gui_only → agent_guard 同一条路）。"""
         def __init__(self, trusted):
-            self._t = trusted
-        def is_trusted_gui(self):
-            return self._t
+            self.headers = {}
+            if trusted:
+                self.headers = {"X-Mofang-Source": "gui", "X-Mofang-Token": TOKEN}
+    os.environ["NF_GUI_TOKEN"] = TOKEN
     try:
         # 只读盘点：GET 可用（agent 允许）
         st, payload = dom.handle_factory_project(FakeH(False))
@@ -287,6 +290,7 @@ def case_endpoint_guards(tmp):
     finally:
         pc.PROJECT_YAML = orig_py
         api_mod._set_root(ROOT)
+        os.environ.pop("NF_GUI_TOKEN", None)
 
 
 def case_hooks_present():
