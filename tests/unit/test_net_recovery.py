@@ -44,8 +44,10 @@ PASS, FAIL = [], []
 
 def check(name, cond, detail=""):
     (PASS if cond else FAIL).append(name)
+    # 900 而不是 220：强杀用例的详情要装下「驱动日志探针 + 管子输出」两段证据，
+    # 220 会把排在后面的探针挤掉 —— CI 上就靠它定位「管子为什么一个字节都收不到」。
     print("  [%s] %s%s" % ("PASS" if cond else "FAIL", name,
-                           ("  → " + str(detail)[:220]) if detail else ""))
+                           ("  → " + str(detail)[:900]) if detail else ""))
 
 
 SETTING = {
@@ -204,6 +206,17 @@ def print(*a, **k):
 def _hook(t, v, tb):
     _LOG.write("EXC " + "".join(traceback.format_exception(t, v, tb))); _LOG.flush()
 sys.excepthook = _hook
+# 探针：管子在 CI 上一个字节都收不到（2026-10-24），先自证 fd1 到底通不通
+try:
+    _LOG.write("PROBE exe=%s stdout=%r fd1=%r\n"
+               % (sys.executable, sys.stdout, os.fstat(1)))
+except Exception as _e:
+    _LOG.write("PROBE-STAT-ERR %r\n" % (_e,))
+try:
+    _n = os.write(1, b"RAWFD1-OK\n")
+    _LOG.write("PROBE os.write(1) -> %r\n" % (_n,))
+except Exception as _e:
+    _LOG.write("PROBE os.write(1) EXC %r\n" % (_e,))
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 sys.path.insert(0, {scripts!r})
 os.chdir({cwd!r})
@@ -278,13 +291,20 @@ def case_kill_resume():
         # 详情必须压成**单行**：run_tests 的失败摘录只取 [FAIL] 那一行，多行 detail
         # （子进程 traceback 恰好以换行结尾时）会被整段丢掉 —— CI 上曾因此只看到
         # 「KILLPOINT 不在输出里」，却看不到子进程到底炸在哪（红了一天无从下手）。
-        flat = " | ".join(out.splitlines()[-6:])[-400:]
+        flat = " | ".join(out.splitlines()[-4:])[-180:]
         # 管子输出可能整段丢失（CI 实测 rc=1 却一个字节都没有）→ 回读驱动写的日志文件
         logf = tmp / "_kill_out.log"
-        flog = " | ".join(logf.read_text(encoding="utf-8").splitlines()[-8:])[-500:] \
-            if logf.exists() else "(驱动没写出日志文件)"
+        if logf.exists():
+            _ls = logf.read_text(encoding="utf-8").splitlines()
+            # 两头都要：文件开头的探针/异常 + 结尾的强杀行，中间 stage4 流水可弃。
+            # 分段截断（不能整体 [-700:]，否则开头探针会被尾巴挤掉）。
+            _head = " || ".join([l for l in _ls if l.startswith(("PROBE", "EXC"))][-4:])[:380]
+            _tail = " | ".join(_ls[-3:])[:300]
+            flog = _head + " ~~ " + _tail
+        else:
+            flog = "(驱动没写出日志文件)"
         check("子进程确实走到强杀点", "KILLPOINT" in out,
-              "rc=%s · pipe=[%s] · file=[%s]" % (r.returncode, flat, flog))
+              "rc=%s · file=[%s] · pipe=[%s]" % (r.returncode, flog, flat))
         check("子进程未走完（无 UNREACHABLE）", "UNREACHABLE" not in out)
 
         raw = tmp / "data" / "chapters" / "raw"
