@@ -191,7 +191,19 @@ def case_offline_no_crash():
 
 # ---------------------------------------------------------------- 强杀（子进程）
 _KILL_DRIVER = r'''
-import io, json, os, re, sys, random
+import io, json, os, re, sys, random, traceback
+# 证据双写：CI 上子进程 rc=1 却 stdout/stderr 一个字节都没有（2026-10-24 实测），
+# 管子这条路带不回根因 —— 日志文件不经过管道，谁也丢不掉。
+_LOG = io.open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "_kill_out.log"),
+               "w", encoding="utf-8")
+_real_print = print
+def print(*a, **k):
+    _LOG.write(" ".join(str(x) for x in a) + "\n"); _LOG.flush()   # 先落文件再打管子
+    k.pop("file", None)
+    _real_print(*a, **k)
+def _hook(t, v, tb):
+    _LOG.write("EXC " + "".join(traceback.format_exception(t, v, tb))); _LOG.flush()
+sys.excepthook = _hook
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 sys.path.insert(0, {scripts!r})
 os.chdir({cwd!r})
@@ -267,8 +279,12 @@ def case_kill_resume():
         # （子进程 traceback 恰好以换行结尾时）会被整段丢掉 —— CI 上曾因此只看到
         # 「KILLPOINT 不在输出里」，却看不到子进程到底炸在哪（红了一天无从下手）。
         flat = " | ".join(out.splitlines()[-6:])[-400:]
+        # 管子输出可能整段丢失（CI 实测 rc=1 却一个字节都没有）→ 回读驱动写的日志文件
+        logf = tmp / "_kill_out.log"
+        flog = " | ".join(logf.read_text(encoding="utf-8").splitlines()[-8:])[-500:] \
+            if logf.exists() else "(驱动没写出日志文件)"
         check("子进程确实走到强杀点", "KILLPOINT" in out,
-              "rc=%s · %s" % (r.returncode, flat))
+              "rc=%s · pipe=[%s] · file=[%s]" % (r.returncode, flat, flog))
         check("子进程未走完（无 UNREACHABLE）", "UNREACHABLE" not in out)
 
         raw = tmp / "data" / "chapters" / "raw"
