@@ -105,6 +105,13 @@ def build_project():
                     ignore=shutil.ignore_patterns("__pycache__"))
     shutil.copytree(ROOT / "config", tmp / "config",
                     ignore=shutil.ignore_patterns("history"))
+    # ⚠ config/project.yaml **不随仓库分发**（CI 干净检出没有，本机才有）——
+    # 铺设要走 set_book_fields 定向改写它，缺文件 = FileNotFoundError → 500
+    # （2026-10-23 起 CI 连红的其中一条就是这么来的；同坑见 test_factory_api_http）。
+    # 本地验证 CI 形态：NF_TEST_USE_EXAMPLE_CONFIG=1 强制走这条兜底。
+    if os.environ.get("NF_TEST_USE_EXAMPLE_CONFIG") or not (tmp / "config" / "project.yaml").exists():
+        shutil.copy2(ROOT / "config" / "project.yaml.example",
+                     tmp / "config" / "project.yaml")
     shutil.copytree(ROOT / "prompts", tmp / "prompts",
                     ignore=shutil.ignore_patterns("history", "reference"))
     # 出厂预设在 examples/presets/（打包态由 payload 注入）——夹具必须带上，

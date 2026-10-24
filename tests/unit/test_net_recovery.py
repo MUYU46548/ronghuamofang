@@ -263,7 +263,12 @@ def case_kill_resume():
         r = subprocess.run([sys.executable, str(driver)], capture_output=True,
                            text=True, timeout=120, cwd=str(tmp))
         out = (r.stdout or "") + (r.stderr or "")
-        check("子进程确实走到强杀点", "KILLPOINT" in out, out[-200:])
+        # 详情必须压成**单行**：run_tests 的失败摘录只取 [FAIL] 那一行，多行 detail
+        # （子进程 traceback 恰好以换行结尾时）会被整段丢掉 —— CI 上曾因此只看到
+        # 「KILLPOINT 不在输出里」，却看不到子进程到底炸在哪（红了一天无从下手）。
+        flat = " | ".join(out.splitlines()[-6:])[-400:]
+        check("子进程确实走到强杀点", "KILLPOINT" in out,
+              "rc=%s · %s" % (r.returncode, flat))
         check("子进程未走完（无 UNREACHABLE）", "UNREACHABLE" not in out)
 
         raw = tmp / "data" / "chapters" / "raw"
