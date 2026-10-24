@@ -47,11 +47,30 @@ CARD_SUFFIXES = ("角色卡", "场景卡", "物品卡", "概念卡", "组织卡"
 
 
 def find_presets_dir(root):
-    """预设可能在 workspace 外（打包态位于 payload）。优先 root，回落到脚本项目。"""
+    """预设可能在 workspace 外（打包态位于 payload）。解析链：
+
+    ① 环境变量 `NF_SAMPLE_ROOT`（打包态主进程注入 `resources/payload/examples`，
+       取其 `presets/`）—— **打包态唯一能命中的候选**：主进程把 nf_api 起在
+       **工作区播种的 scripts 副本**上（`ws/scripts/nf_api.py`），DEFAULT_ROOT
+       因此落在工作区，而播种只带 scripts/prompts/templates、不带 examples/；
+       2026-10-24 实测：装机版向导「选预设」恒空报「找不到 examples/presets/」，
+       预设功能在安装包里整体失效（源码态 DEFAULT_ROOT=仓库根，测不出来）。
+    ② root/examples/presets（源码态 --root 指仓库根时命中）
+    ③ 脚本位置兜底（DEFAULT_ROOT）
+    """
+    import os
+    cands = []
+    env = os.environ.get("NF_SAMPLE_ROOT")
+    if env:
+        cands.append(Path(env) / "presets")
     for base in (Path(root), DEFAULT_ROOT):
-        p = base / "examples" / "presets"
-        if p.is_dir():
-            return p
+        cands.append(base / "examples" / "presets")
+    for p in cands:
+        try:
+            if p.is_dir():
+                return p
+        except OSError:
+            continue
     return None
 
 

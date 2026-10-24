@@ -379,7 +379,7 @@ function getWorkspaceSource() {
 //   · 前端（asar，不走种子）：项目页出厂徽标 / 启动提示词剥离说明书 /
 //     阶段复制改任务简报（原样贴模板会被外部 Agent 按红线判「模板不是任务」停工）。
 // **先 bump 再 electron-builder**。
-const SEED_VERSION = 43;   // 0.7.0: 还原按钮脏判据置灰 + 确认改弹窗滑条（factory_reset.py 实质变更，SEED+1 强刷）
+const SEED_VERSION = 44;   // 0.7.1: 预设解析链补 NF_SAMPLE_ROOT（装机版向导选预设恒空的修复，preset_apply.py 实质变更）
 //   · prompts/: stage5 加七维 JSON 契约、stage4 加记忆块、stage3 加卷弧块、stage2 加设定摘要、
 //     新增 volume_plan.md —— **payload 变了，不 bump 用户永远拿不到新提示词**。
 
