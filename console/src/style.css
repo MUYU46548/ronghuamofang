@@ -1662,6 +1662,40 @@ kbd {
 .set-panes { flex: 1 1 auto; min-width: 0; }
 .set-pane { min-width: 0; }
 .set-pane > h4:first-child { margin-top: 0; }
+
+/* ---------- 知识库扫描面（2026-10-24）----------
+ * 全部走主题变量：硬编码色值在暗色主题下会看不清（GUI 交互纪律③）。 */
+.vault-dir-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+.vault-dir-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 2px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.vault-dir-row:hover { background: var(--card); }
+.vault-dir-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 已排除的目录：淡出 + 删除线 —— 让"这条不进检索"一眼可见 */
+.vault-dir-row.is-excluded .vault-dir-name {
+  opacity: 0.55;
+  text-decoration: line-through;
+}
 /* 窄窗口兜底：侧栏放不下时换行到上方，绝不压扁右侧内容 */
 @media (max-width: 760px) {
   .set-layout { flex-wrap: wrap; }

@@ -281,6 +281,14 @@ def _set_root(path):
         _ct.CUSTOM_RATES_PATH = ROOT / "data" / "state" / "cost_rates.json"
     except Exception:                                  # noqa: BLE001
         pass
+    try:
+        # obsidian 配置读取有缓存，且其相对路径带 CWD→config_io.ROOT 兜底
+        # （见 setting_schema._read_yaml_config）—— 根一变缓存即作废。
+        # 不清的话 `--root` 启动后仍用导入期读到的那份（可能来自 CWD）。
+        from utils.setting_schema import reset_obsidian_config_cache
+        reset_obsidian_config_cache()
+    except Exception:                                  # noqa: BLE001
+        pass
 
 
 _set_root(_resolve_root())
@@ -2000,6 +2008,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/config/target_words":
             # 单章字数区间读取（chapter.target_words）+ 出厂预设 + 合法区间。
             self._send(*_dom(dom_project.handle_config_target_words(self)))
+        elif p == "/config/vault_scan":
+            # 知识库扫描面（顶层目录 + 篇数 + 是否排除）—— 目录名取自用户库本身。
+            self._send(*_dom(dom_project.handle_config_vault_scan(self)))
         elif p == "/config/writing_presets":
             # 写作预设清单 + 当前生效值 + 切换历史（只读）。
             self._send(*_dom(dom_project.handle_writing_presets_get(self)))
@@ -2608,6 +2619,9 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/config/target_words":
                 # 单章字数区间设置（创作决策，非安全闸门；越界值一律 400 拒绝）。
                 self._send(*_dom(dom_project.handle_config_target_words_set(self, body)))
+            elif p == "/config/vault_skip_dirs":
+                # 扫描排除项设置（创作决策：哪些目录算正典）；只写 system.local.yaml。
+                self._send(*_dom(dom_project.handle_config_vault_skip_dirs(self, body)))
             elif p == "/config/writing_presets/save":
                 # 保存/覆盖一套写作预设（创作决策；未知键一律 400 并列出可选键）。
                 self._send(*_dom(dom_project.handle_writing_presets_save(self, body)))

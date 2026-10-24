@@ -37,6 +37,7 @@
 | `/config/project` | project.yaml 回显 |
 | `/config/style_notes` | 用户风格笔记 |
 | `/config/word_template` | Word 成品模板：`templates/` 下 .dotx/.docx 清单 + 当前值 + 出厂默认（`current_exists` 标当前值指向的文件是否还在） |
+| `/config/vault_scan` | 知识库扫描面：顶层目录名（**取自用户库本身**，不写死任何目录名）+ 各自篇数 + 是否被排除 + `user_skip_dirs`/`default_skip_dirs` 分列 + 进入检索的篇数 |
 | `/config/agent_mode` | Agent 模式开关当前值 |
 | `/env/open` | 打开 .env 所在位置（本机动作） |
 | `/logs/tail` | `?lines=200` nf_api + orchestrator 输出尾部（排障用） |
@@ -161,6 +162,7 @@
 | `/config/project` | project.yaml 定向写入 |
 | `/config/style_notes` | 风格笔记写入 |
 | `/config/word_template` | `{template}` 选模板 / `{reset: true}` 回出厂（只收 `templates/` 里真实存在的文件名，穿越/不存在/非模板扩展 400 零改动；写 `book.word_template` + 备份到 `config/history/`） |
+| `/config/vault_skip_dirs` | `{exclude: [目录名...]}` 整体替换排除项。**只收目录名**（含 `/` `\` `..` 一律 400）；只写 `config/system.local.yaml`（私有库目录名不进 Git）；回传最新扫描面 |
 | `/config/provider` | provider 配置 |
 | `/prompts/save` | `{name, content}`（白名单 `prompts/stage[1-7]_*.md`，备份到 `prompts/history/`） |
 | `/models/add` / `/models/switch` | 模型缓存 / 切换（**换模型需用户确认**） |

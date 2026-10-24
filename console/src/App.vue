@@ -334,6 +334,8 @@ function selectSettingsTab(id) {
   if (id === "diag") loadFactory();
   // Word 模板清单每次进都要重扫磁盘（用户可能刚往 templates/ 里放了新模板）
   if (id === "word") loadWordTemplate();
+  // 知识库扫描面：每次进都重扫（用户可能刚改过库目录）
+  if (id === "prompt") loadVaultScan();
 }
 
 const THEMES = [
@@ -3044,6 +3046,70 @@ async function resetTargetWords() {
   }
 }
 
+/* ---------- 知识库扫描面（/config/vault_scan + /config/vault_skip_dirs）----------
+ * 为什么要有入口（2026-10-24 用户点名）：「扫描必须通用化且用户可配置，不要老是拿
+ * 我自己的独一无二的私例当通例。」此前"哪些目录算正典"只能手改 system.local.yaml
+ * —— 不懂开发的用户根本改不了，于是每个 AI 都要把当前这个库的目录名当通例写进代码。
+ *
+ * 这里的通用性来自**目录名取自用户库本身**：界面列出库里真实存在的顶层目录与篇数，
+ * 用户勾掉不要的即可，代码里不出现任何具体目录名。
+ *
+ * exclude 是**完整列表语义**（勾选的全部 = 要排除的全部），后端整体替换写入。
+ * 校验在后端（_validate_skip_dirs）—— 前端只回显错误，不自己写判据。 */
+const vaultScan = ref({ loading: false, busy: false, ok: true, msg: "", data: null, exclude: [] });
+
+async function loadVaultScan() {
+  vaultScan.value.loading = true;
+  try {
+    const r = await api('/config/vault_scan', 'GET');
+    if (r.status === 200 && r.data.ok) {
+      vaultScan.value.data = r.data;
+      // 勾选态 = 当前**被排除**的目录；保存时把整个勾选列表提交（整体替换）
+      vaultScan.value.exclude = (r.data.top_dirs || [])
+        .filter((d) => d.excluded).map((d) => d.name);
+      vaultScan.value.ok = true;
+      vaultScan.value.msg = "";
+    } else {
+      vaultScan.value.ok = false;
+      vaultScan.value.msg = '读取失败: ' + (r.data.error || r.status);
+    }
+  } catch (e) {
+    vaultScan.value.ok = false;
+    vaultScan.value.msg = '读取失败: ' + (e.message || e);
+  } finally {
+    vaultScan.value.loading = false;
+  }
+}
+
+function isVaultDefaultSkipped(name) {
+  // 区分"随包默认排除"与"用户自己排除"——不区分的话，用户会以为 .obsidian 是自己设的
+  const d = vaultScan.value.data;
+  return !!(d && (d.default_skip_dirs || []).includes(name));
+}
+
+async function saveVaultSkip() {
+  vaultScan.value.busy = true;
+  try {
+    const r = await api('/config/vault_skip_dirs', 'POST',
+                        { exclude: vaultScan.value.exclude });
+    vaultScan.value.ok = !!(r.status === 200 && r.data.ok);
+    vaultScan.value.msg = vaultScan.value.ok
+      ? (r.data.message || '已保存')
+      : ('保存失败: ' + (r.data.error || r.status));
+    if (vaultScan.value.ok && r.data.scan) {
+      // 后端回传最新扫描面 —— 用户立刻看到改动效果，不用自己点刷新
+      vaultScan.value.data = r.data.scan;
+      vaultScan.value.exclude = (r.data.scan.top_dirs || [])
+        .filter((d) => d.excluded).map((d) => d.name);
+    }
+  } catch (e) {
+    vaultScan.value.ok = false;
+    vaultScan.value.msg = '保存失败: ' + (e.message || e);
+  } finally {
+    vaultScan.value.busy = false;
+  }
+}
+
 /* ---------- 加强模式（chapter.enhanced_mode，第一波防御 · 任务三）----------
  * 单章拆段落群生成：逐群生成、每群落盘、拼装成章后走同一套校验。
  * 默认关（施工单口径「只手动开启」）；开启后单章字数达标率更高，
@@ -5274,6 +5340,46 @@ onUnmounted(() => {
           </div>
         </div>
       </div>
+      <!-- 知识库扫描面（2026-10-24）：目录名取自用户库本身，勾选排除 ——
+           代码不猜任何库结构（曾因把某个真实库的目录名当通例写进代码而返工） -->
+      <h4 style="margin-top: 16px;">知识库扫描（哪些内容进正典检索）</h4>
+      <div class="meta" style="margin-bottom: 8px;">
+        写作时的正典检索会读你知识库里的笔记。下面列出库里扫到的目录 ——
+        <b>勾掉的目录不进检索</b>（比如参考作品、草稿区）。目录名取自你的库本身，
+        不需要改任何配置文件。
+      </div>
+      <div v-if="vaultScan.loading" class="meta">读取中…</div>
+      <div v-else-if="!vaultScan.data || !vaultScan.data.configured" class="meta">
+        未配置知识库路径 —— 填好路径后这里会列出扫描面。
+        <button class="mini" @click="loadVaultScan" style="margin-left: 8px;">重新读取</button>
+      </div>
+      <template v-else>
+        <div class="meta" style="margin-bottom: 6px;">
+          共 <b>{{ vaultScan.data.total }}</b> 篇，其中
+          <b>{{ vaultScan.data.scanned }}</b> 篇进入正典检索
+          <span v-if="vaultScan.data.root_files">
+            （另有 {{ vaultScan.data.root_files }} 篇在库根目录，不在任何子目录下）</span>
+        </div>
+        <div class="vault-dir-list">
+          <label v-for="d in vaultScan.data.top_dirs" :key="d.name" class="vault-dir-row"
+                 :class="{ 'is-excluded': d.excluded }">
+            <input type="checkbox" :value="d.name" v-model="vaultScan.exclude" />
+            <span class="vault-dir-name">{{ d.name }}</span>
+            <span class="meta">{{ d.files }} 篇</span>
+            <span class="meta" v-if="isVaultDefaultSkipped(d.name)">· 系统默认排除</span>
+            <span class="meta" v-else-if="d.excluded">· 你已排除</span>
+          </label>
+          <div v-if="!vaultScan.data.top_dirs || !vaultScan.data.top_dirs.length"
+               class="meta">（库里没有子目录，只有根目录下的散页）</div>
+        </div>
+        <div style="display: flex; gap: 8px; margin-top: 8px; align-items: center; flex-wrap: wrap;">
+          <button class="mini primary" :disabled="vaultScan.busy" @click="saveVaultSkip">
+            保存排除项</button>
+          <button class="mini" :disabled="vaultScan.busy" @click="loadVaultScan">重新扫描</button>
+          <span class="meta tl-msg" :class="vaultScan.ok ? 'ok' : 'bad'"
+                v-if="vaultScan.msg">{{ vaultScan.msg }}</span>
+        </div>
+      </template>
           </div><!-- /set-pane prompt -->
           <div class="set-pane" v-show="settingsTab === 'word'">
 

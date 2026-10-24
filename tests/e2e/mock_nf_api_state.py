@@ -161,6 +161,31 @@ COLD = False   # --cold：全新工作区（所有阶段 pending + has_work=fals
 # 这样「选模板 → 应用 → 下拉回读新值」在视觉验收里是真链路而不是静态截图。
 DEFAULT_WT = "templates/小说格式模板V1.3.dotx"
 WT = {"current": DEFAULT_WT}
+
+# 知识库扫描面（2026-10-24）：**有状态** mock —— 「勾掉目录 → 保存 → 列表状态变化」
+# 必须是真链路。排除态由 exclude 现算（与真后端同构），不写死在条目里，
+# 否则保存后界面不变，视觉验收看到的是假绿。
+VAULT_DIRS = [
+    {"name": "设定集", "files": 12},
+    {"name": "参考书架", "files": 5},
+    {"name": "草稿箱", "files": 3},
+]
+VAULT = {"exclude": ["草稿箱"], "defaults": [".obsidian"]}
+
+
+def vault_scan_payload():
+    skip = set(VAULT["defaults"]) | set(VAULT["exclude"])
+    dirs = [dict(d, excluded=(d["name"] in skip)) for d in VAULT_DIRS]
+    total = sum(d["files"] for d in dirs)
+    scanned = sum(d["files"] for d in dirs if not d["excluded"])
+    return {
+        "ok": True, "configured": True, "vault_path": "C:/fake/知识库",
+        "top_dirs": dirs, "root_files": 1,
+        "scanned": scanned, "total": total,
+        "skip_dirs": sorted(skip),
+        "user_skip_dirs": sorted(VAULT["exclude"]),
+        "default_skip_dirs": sorted(VAULT["defaults"]),
+    }
 # 第 3 件（C 兜底定向改写）：候选生成走 job 轮询（与真后端同构）。
 # 这里按 job_id 记住候选，/jobs/<id> 才能回 state=ok + result ——
 # mock 的 /jobs/ 默认恒回 failed，会让候选流程走失败分支。
@@ -342,6 +367,11 @@ class Handler(BaseHTTPRequestHandler):
                 "current": {"title": "验收用书", "sample_title": "验收用书",
                             "is_sample": True},
             })
+        if p == "/config/vault_scan":
+            # 知识库扫描面（设置 → 风格与提示词）：目录名取自用户库本身，
+            # 排除态现算 —— 保存后必须看到列表变化，否则视觉验收是假绿。
+            return self._send(200, vault_scan_payload())
+
         if p == "/config/word_template":
             # Word 成品模板面板（设置 → Word 模板，件五）：确定性清单，
             # 让视觉验收能真读到「下拉有几项 / 当前是哪份 / 默认是哪份」。
@@ -565,6 +595,23 @@ class Handler(BaseHTTPRequestHandler):
                             % int(body.get("chapter") or 1),
                 "message": "方向样例已落盘待审 —— 去「审核」页签批准后才会进"
                            "第 %d 章的写作参照" % int(body.get("chapter") or 1)})
+
+        if p == "/config/vault_skip_dirs":
+            # 扫描排除项：判据与真后端 _validate_skip_dirs 同构 ——
+            # 只收目录名，路径穿越一律 400（前端只回显错误，不自己写判据）
+            raw = body.get("exclude")
+            if not isinstance(raw, list):
+                return self._send(400, {"ok": False, "error": "exclude 必须是目录名列表（数组）"})
+            bad = [str(s) for s in raw
+                   if any(c in str(s) for c in ("/", "\\", ".."))]
+            if bad:
+                return self._send(400, {"ok": False,
+                                        "error": "只接受目录名、不接受路径（收到 %r）" % bad[0]})
+            VAULT["exclude"] = sorted({str(s).strip() for s in raw if str(s).strip()})
+            return self._send(200, {"ok": True, "exclude": VAULT["exclude"],
+                                    "message": "已更新扫描排除项",
+                                    "scan": vault_scan_payload(),
+                                    "note": "对下一次检索生效。"})
 
         if p == "/config/word_template":
             # Word 模板面板（件五）：**有状态** mock —— 选完再读必须能看到新值，

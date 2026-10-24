@@ -70,7 +70,11 @@ def main():
         for f in p.rglob("*"):
             if not f.is_file():
                 continue
-            if any(x in f.parts for x in ("node_modules", "__pycache__", "dist")):
+            # history/ 是运行时备份（gitignored，由快照承担版本职责）——
+            # 端点测试每次跑都会在里面留下含本机路径的备份，扫它等于每次红，
+            # 而它根本不是"源码/配置"。判据要守的是**会随仓库分发的文件**。
+            if any(x in f.parts for x in
+                   ("node_modules", "__pycache__", "dist", "history")):
                 continue
             if f.suffix not in (".py", ".yaml", ".yml", ".md", ".js", ".vue", ".json"):
                 continue

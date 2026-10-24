@@ -37,7 +37,7 @@ from utils.file_io import read_text, write_text
 # obsidian 节配置读取（含 system.local.yaml 本地覆盖，拍板③「手动指定」载体）
 # 也**单源**在 setting_schema——本文件不自持副本，防两处漂移（A1 修复）。
 from utils.setting_schema import (
-    base_name, is_locked, is_character,
+    base_name, is_locked, is_character, is_uninjectable,
     load_obsidian_config, get_vault_dirs, get_skip_dirs,
     reset_obsidian_config_cache,
 )
@@ -86,6 +86,74 @@ def get_sandbox_dir():
 def is_vault_configured():
     """vault 是否已配置（联动功能的总开关）。"""
     return get_vault_path() is not None
+
+
+def scan_vault_preview(vault_path=None):
+    """扫描面预览：vault 顶层目录清单 + 各自 .md 数 + 是否被排除。
+
+    给 GUI「知识库扫描」用 —— 用户看到自己的库长什么样、哪些被排除了，
+    勾掉不要的再保存。
+
+    **通用性铁律（2026-10-24 定）**：本函数只回答"你库里有哪些目录、各多少篇、
+    哪些没被收进检索"，**代码里不出现任何具体目录名**。曾经的错误做法是把某个
+    真实库的目录结构（编号前缀 / 沙盒名 / 索引页约定）当成"典型结构"写进代码与
+    测试 —— 那只对一个用户成立，换个库全部失效且没有任何报错。
+
+    Returns:
+        dict: {
+            "vault_path": str | None, "configured": bool,
+            "top_dirs": [{"name", "files", "excluded"}...],  # 按文件数降序
+            "root_files": int,        # 直接躺在 vault 根下的 .md
+            "scanned": int,           # 未被排除的篇数（真进检索的）
+            "total": int,             # 全部（含被排除）
+            "skip_dirs": [...],       # 当前生效的完整跳过集合
+            "user_skip_dirs": [...],  # 用户自己追加的（区别于随包默认项）
+        }
+    """
+    from utils.setting_schema import _DEFAULT_SKIP_DIRS
+    skip = get_skip_dirs()
+    cfg_skip = load_obsidian_config().get("skip_dirs") or []
+    user_skip = sorted({str(s).strip() for s in cfg_skip if str(s).strip()})
+
+    vault = Path(vault_path) if vault_path else _get_vault_path()
+    if vault is None or not vault.exists():
+        # 未配置也要把**默认项**给出去：GUI 要区分"谁排除的"，
+        # 否则用户看到 .obsidian 被排除会以为是自己设的
+        return {"vault_path": None, "configured": False, "top_dirs": [],
+                "root_files": 0, "scanned": 0, "total": 0,
+                "skip_dirs": sorted(skip), "user_skip_dirs": user_skip,
+                "default_skip_dirs": sorted(set(_DEFAULT_SKIP_DIRS))}
+
+    counts, root_files, scanned, total = {}, 0, 0, 0
+    for md in vault.rglob("*.md"):
+        try:
+            rel = md.relative_to(vault)
+        except ValueError:
+            continue
+        total += 1
+        excluded = any(part in skip for part in rel.parts)
+        if not excluded:
+            scanned += 1
+        if len(rel.parts) == 1:
+            root_files += 1
+            continue
+        top = rel.parts[0]
+        d = counts.setdefault(top, {"files": 0, "excluded": excluded})
+        d["files"] += 1
+        d["excluded"] = d["excluded"] or excluded   # 子路径被排除也算
+
+    top_dirs = [{"name": k, "files": v["files"], "excluded": v["excluded"]}
+                for k, v in sorted(counts.items(), key=lambda x: -x[1]["files"])]
+    return {
+        "vault_path": str(vault.resolve()), "configured": True,
+        "top_dirs": top_dirs, "root_files": root_files,
+        "scanned": scanned, "total": total,
+        "skip_dirs": sorted(skip),
+        "user_skip_dirs": user_skip,
+        # 随包默认项（不是用户配的）：GUI 要能区分"谁排除的"，否则用户看到
+        # ".obsidian 被排除"会以为是自己设的
+        "default_skip_dirs": sorted(set(_DEFAULT_SKIP_DIRS)),
+    }
 
 
 # 延迟初始化（避免导入时读取配置文件）
@@ -260,14 +328,17 @@ def scan_vault(vault_path=None):
                         else char_dir.glob("*.md")):
             if any(part in _skip_dirs for part in md_file.relative_to(vault).parts):
                 continue
-            if "索引" in md_file.name or "模板" in md_file.name:
-                continue
             try:
                 text = md_file.read_text(encoding='utf-8', errors='ignore')
             except Exception:
                 continue
             fm, body_start = _parse_frontmatter(text)
             body = text[body_start:]
+            # 空骨架页（模板占位 / 空文件）没有可注入的内容 —— 通用判据，
+            # 不依赖任何目录名或文件名（旧版按「文件名含索引/模板」猜，
+            # 实测会误杀 13 个真设定词条）
+            if is_uninjectable(body):
+                continue
             name = ""
             for k in NAME_KEYS:
                 v = fm.get(k)
@@ -336,14 +407,17 @@ def scan_vault(vault_path=None):
                         else world_dir.glob("*.md")):
             if any(part in _skip_dirs for part in md_file.relative_to(vault).parts):
                 continue
-            if "索引" in md_file.name or "模板" in md_file.name:
-                continue
             try:
                 text = md_file.read_text(encoding='utf-8', errors='ignore')
             except Exception:
                 continue
             fm, body_start = _parse_frontmatter(text)
             body = text[body_start:]
+            # 空骨架页（模板占位 / 空文件）没有可注入的内容 —— 通用判据，
+            # 不依赖任何目录名或文件名（旧版按「文件名含索引/模板」猜，
+            # 实测会误杀 13 个真设定词条）
+            if is_uninjectable(body):
+                continue
             name = ""
             for k in NAME_KEYS:
                 v = fm.get(k)
@@ -384,14 +458,17 @@ def scan_vault(vault_path=None):
         for md_file in timeline_dir.rglob("*.md"):
             if any(part in _skip_dirs for part in md_file.relative_to(vault).parts):
                 continue
-            if "索引" in md_file.name or "模板" in md_file.name:
-                continue
             try:
                 text = md_file.read_text(encoding='utf-8', errors='ignore')
             except Exception:
                 continue
             fm, body_start = _parse_frontmatter(text)
             body = text[body_start:]
+            # 空骨架页（模板占位 / 空文件）没有可注入的内容 —— 通用判据，
+            # 不依赖任何目录名或文件名（旧版按「文件名含索引/模板」猜，
+            # 实测会误杀 13 个真设定词条）
+            if is_uninjectable(body):
+                continue
             name = ""
             for k in NAME_KEYS:
                 v = fm.get(k)

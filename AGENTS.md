@@ -202,6 +202,37 @@ stdout 被管道捕获时 Python 用 cp936，一行日志就能 `UnicodeEncodeEr
 文风块换成"观察与感受"版（允许第一人称/抒情/一句一段，禁止空泛与总结主题）。
 书信（letter）与单元（episodic）目前**只有判据口径**，写法指导仍回落叙事并在 stage4 打印告警。
 
+## 知识库扫描通用化（2026-10-24，用户点名「不要拿私例当通例」）
+
+**判据：任何"用户的库长什么样"的假设，都不许写进代码、提示词或测试夹具。**
+Obsidian 的通用保证只有一个 —— 一个装着 `.md` 的目录。目录名 / frontmatter / `[[]]`
+都是**加分项**，永远不是准入条件。
+
+- **收集**：`kb_index.build_index` 走 `vault.rglob("*.md")`（不看目录名、不要求 frontmatter），
+  索引 name + **正文全文**（中文 2-4gram + IDF）。老通道 `scan_vault` 仍靠目录名准入
+  （非标准布局实测扫 0 条），stage4 里与它**并联**：A 的 locked 语义原样保留，
+  B 只补 A 的盲区，B 出错不连坐 A。
+- **排除**：`obsidian.skip_dirs`（追加语义，默认四项恒生效；系统自己的沙盒目录恒并入）。
+  **GUI 入口 = 设置 → 风格与提示词 →「知识库扫描」**：列出库里真实存在的顶层目录 + 篇数
+  + 勾选排除。目录名从用户库里读、用户在界面上勾 —— 这是"用户可配置"的唯一诚实形态。
+  排除项只写 `config/system.local.yaml`（私有库目录名不进 Git）。
+- **词条名**：frontmatter `name/title/id` > **文件名** > H1。H1 只在**单 H1** 且不像
+  通用小节名时才用 —— ≥2 个 H1 说明是分节结构，第一个只是小节（实测某库 417 篇的 H1
+  全是「一、概念定义」「基本信息」，照取会让注入的词条名全是同一个串）。
+- **空骨架页**（`setting_schema.is_uninjectable`，两收集器单源）：HTML 注释 /
+  `{{变量}}` / wikilink **整体去掉**后一个字不剩。判据只看内容、不看名字，阈值 1 ——
+  调高会误杀真实短词条，而误杀是不可逆的。
+
+**本轮实测踩到的三次（全部已修，勿重蹈）**：① 按文件名含「索引/模板」排除 →
+**误杀 13 个真设定词条**；② `_GENERIC_H1` 里塞某个库见过的小节标题（「哲学内核」）；
+③ 测试夹具直接抄私有库的目录名/人名 → 被 `leak_scan` 抓。**夹具专名一律走
+`ci/fictional-map.txt` 右侧（虚构宇宙），或自己新造。**
+
+**配置读取必须跟 `--root`**：`setting_schema._read_yaml_config` 用 **ROOT 优先、CWD 兜底**。
+生产里两者相同（Electron spawn 时 cwd=工作区 且 `--root` 工作区）；从别的目录起进程时
+读 CWD 会**静默读到另一个项目**（用户填的 vault 路径不生效且无任何报错）——
+这是本仓"派生路径没跟 ROOT"的第四处（前三处见 `nf_api._set_root` 注释）。
+
 ## 长篇规模能力（2026-10-20，四项一次落地）
 
 四件事共用一条判据：**宁可明说"没有"，也不给假的**。每项都有确定性用例
@@ -557,6 +588,8 @@ stage4 单章顺序是「LLM 写盘 → 归一化 → 质检 → 摘要 → 出�
 - `GET /models`、`/models/available`、`/models/cache`、`/models/fetched`
 - `GET /config/project`、`/config/style_notes`、`/config/agent_mode`、`/config/target_words`
   （单章字数区间：当前值 + 出厂预设 + 合法区间）
+- `GET /config/vault_scan`（知识库扫描面：**顶层目录名取自用户库本身** + 各自篇数 +
+  是否被排除 + 用户排除项/默认项分列。目录名一律不写进代码 —— 见「知识库扫描通用化」）
 - `GET /outline/structure`、`/outline/trend`、`/outline/advise`、`/outline/history`、`/outline/diff`
 - `GET /outline/segments`（丙4 分段审阅：分段清单 + 每段正文 + 放行判据回显；**读侧不设闸**）
 - `GET /sandbox/queue`、`/sandbox/file`
@@ -580,6 +613,8 @@ stage4 单章顺序是「LLM 写盘 → 归一化 → 质检 → 摘要 → 出�
 - `POST /export/markdown`、`POST /export/word`（导出成品副本到 output/；只落导出物，不改书稿与进度）
 - `POST /config/target_words`（单章字数区间：**创作决策不是安全闸门**，故不设 GUI-only；
   越界值一律 400 拒收并说清合法区间；落盘必须是列表 `[low, high]`）
+- `POST /config/vault_skip_dirs`（扫描排除项：**只收目录名**，含 `/` `\` `..` 一律 400；
+  只写 `config/system.local.yaml`（私有库目录名不进 Git）；同属创作决策故不设 GUI-only）
 - `POST /handoff/export`（导出交接稿到 `data/handoff/第N章后.md`；只落导出物，不改书稿与进度）
 - `POST /outline/compass`（指南针：**创作决策**，Agent 可代设；活跃长线 >5 / 终局方向过短
   一律 400 拒收并说清判据，方向变更自动留 history）

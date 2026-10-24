@@ -499,6 +499,93 @@ def handle_config_target_words_set(h, body):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+def handle_config_vault_scan(h):
+    """读知识库扫描面：顶层目录 + 各自篇数 + 是否被排除。
+
+    给 GUI「知识库扫描」用。**通用性是这里的第一要求**：本端点只报告"你的库里
+    有哪些目录、各多少篇、哪些没进检索"，代码里不出现任何具体目录名 —— 用户的
+    库怎么组织由用户说了算，界面上看得到、勾得掉，不需要改配置文件。
+    """
+    try:
+        from obsidian_bridge import scan_vault_preview
+        prev = scan_vault_preview()
+        prev["ok"] = True
+        return 200, prev
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+# system.local.yaml 可能从来没被创建过（用户没改过本地覆盖）——写入前先补骨架。
+# 抬头注释要说明"这里的目录名是私人的"，否则用户会以为可以随便放进 system.yaml。
+_VAULT_LOCAL_SKELETON = (
+    "# 本地配置覆盖（不进 Git）\n"
+    "# 模型选择、API Key 路径、本地沙盒目录等个人配置放这里。\n"
+    "# 你个人知识库的目录名也写在这里 —— 它们是你的私人结构，不该进公开仓库。\n"
+)
+
+
+def _validate_skip_dirs(body):
+    """校验排除目录入参。返回 (ok, msg, names)。
+
+    只收**目录名**（不含路径分隔符 / `..`）：判据是「拿名字去比对路径的每一段」，
+    收路径既无意义又给路径穿越留口子。长度上限防把整段路径粘进来。
+    """
+    body = body or {}
+    raw = body.get("exclude")
+    if not isinstance(raw, list):
+        return False, "exclude 必须是目录名列表（数组）", None
+    out = []
+    for item in raw:
+        s = str(item).strip()
+        if not s:
+            continue
+        if any(ch in s for ch in ("/", "\\", "..")):
+            return False, ("只接受目录名、不接受路径（收到 %r）——"
+                           "请从扫描面里选目录" % s), None
+        if len(s) > 100:
+            return False, "目录名过长（%d 字符 > 100），可能是把整段路径粘进来了" % len(s), None
+        out.append(s)
+    return True, "", sorted(set(out))
+
+
+def handle_config_vault_skip_dirs(h, body):
+    """写排除目录（`obsidian.skip_dirs`）。
+
+    落 **system.local.yaml** 而不是 system.yaml：里面是用户的私有库目录名，
+    跟着 system.yaml 进 Git 等于把私人库结构推上公开仓（本项目已有红线）。
+    备份落 config/history/，该目录已被 .gitignore 的 `history/` 规则覆盖。
+
+    不设 GUI-only：它决定"哪些内容算正典"，与 target_words / style_reference
+    同属**创作决策**，不是止烧/审批那类安全闸门 —— Agent 可以代配，
+    但代配同样只写 local，永不触碰进 Git 的配置。
+    """
+    ok, msg, names = _validate_skip_dirs(body)
+    if not ok:
+        return 400, {"ok": False, "error": msg}
+    try:
+        from utils.config_io import set_section_scalar
+        from utils.setting_schema import reset_obsidian_config_cache
+        local_yaml = api.ROOT / "config" / "system.local.yaml"
+        if not local_yaml.exists():
+            local_yaml.parent.mkdir(parents=True, exist_ok=True)
+            local_yaml.write_text(_VAULT_LOCAL_SKELETON, encoding="utf-8")
+        w_ok, w_msg = set_section_scalar("obsidian", "skip_dirs", names,
+                                         path=local_yaml)
+        if not w_ok:
+            return 400, {"ok": False, "error": "写入失败：" + w_msg}
+        # config_io 自身不缓存（每次读文件）；要清的是 setting_schema 的配置缓存，
+        # 否则下一次 get_skip_dirs() 读到的还是旧值（用户改完界面上没变化）
+        reset_obsidian_config_cache()
+        from obsidian_bridge import scan_vault_preview
+        prev = scan_vault_preview()
+        return 200, {"ok": True, "exclude": names,
+                     "message": "已更新扫描排除项（%s）" % w_msg,
+                     "scan": prev,
+                     "note": "对下一次检索生效；正在跑的一轮不受影响。"}
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 ENHANCED_MODE_DEFAULT = False
 
 
@@ -1014,6 +1101,10 @@ ROUTES = (
     ("POST", "/config/token_limit", handle_config_token_limit_set),
     ("GET", "/config/target_words", handle_config_target_words),
     ("POST", "/config/target_words", handle_config_target_words_set),
+    # 知识库扫描面（2026-10-24）：目录名从用户库里读、界面上勾选排除 ——
+    # 代码不猜任何库结构（曾因把某个真实库的目录名当通例写进代码而返工）
+    ("GET", "/config/vault_scan", handle_config_vault_scan),
+    ("POST", "/config/vault_skip_dirs", handle_config_vault_skip_dirs),
     # 加强模式（第一波防御 · 任务三，2026-10-22）：单章拆段落群生成开关
     ("GET", "/config/enhanced_mode", handle_config_enhanced_mode),
     ("POST", "/config/enhanced_mode", handle_config_enhanced_mode_set),

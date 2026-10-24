@@ -34,6 +34,7 @@
 同义字段对齐，并如实区分「有值 / 无值」——判断留给 `material_review`。
 """
 import re
+from pathlib import Path
 
 # stage1 schema → 内部语义
 _ROLE_KEYS = ("role", "type", "kind", "identity", "定位")
@@ -192,7 +193,21 @@ def _read_yaml_config(rel_path, required=False):
     try:
         import yaml
         from utils.file_io import read_text
-        return yaml.safe_load(read_text(rel_path)) or {}
+        from utils import config_io as _cio
+        # **ROOT 优先，CWD 兜底**。为什么不反过来：`--root` 是用户显式指定的项目，
+        # 必须压过隐式的进程 CWD —— 生产里两者相同（Electron spawn 时 cwd=工作区
+        # 且 --root 工作区），只有从别的目录起进程时才分叉，此时读 CWD 就会
+        # **静默读到另一个项目的配置**（用户填的 vault 路径不生效且无任何报错）。
+        # 本仓"派生路径没跟 ROOT"的第四处（前三处见 nf_api._set_root 注释）。
+        root = getattr(_cio, "ROOT", None)
+        cand = (Path(root) / rel_path) if root else None
+        if cand is not None and cand.is_file():
+            p = cand
+        elif Path(rel_path).is_file():
+            p = Path(rel_path)
+        else:
+            p = cand or Path(rel_path)      # 都不在：交给下面的 FileNotFoundError 分支告警
+        return yaml.safe_load(read_text(p)) or {}
     except FileNotFoundError:
         if required:
             print("[setting_schema] WARN 读不到 " + rel_path +
@@ -208,6 +223,41 @@ def reset_obsidian_config_cache():
     """清配置缓存（测试 fixture / 配置热更调用）。"""
     global _obsidian_cfg_cache
     _obsidian_cfg_cache = None
+
+
+# 空骨架页判据：正文去掉标记/空白/占位符后一个字都不剩 → 没有可注入的内容。
+#
+# 阈值为什么是 1 而不是更高：本判据的职责是挡**无内容**（空文件 / `{{title}}` /
+# 纯注释 / 纯链接导航页），不是挡"短"。调高会误杀**真实存在的短词条**（实测
+# 「硬约束。」这类 3 字正文就被 20 的阈值吃掉过，导致既有用例扫空），而误杀是
+# 不可逆的信息损失 —— 模型再也看不到这条设定；多注入一点短文本只是轻微预算浪费。
+# 两者不对称，取保守侧。
+UNINJECTABLE_MIN_CHARS = 1
+
+
+def is_uninjectable(body):
+    """空骨架页判据：**通用，不依赖任何目录名或文件名**。
+
+    住在这里（setting_schema）是因为两个收集器都要用：`obsidian_bridge.scan_vault`
+    与 `utils.kb_index.build_index` —— 后者是 utils 层，不能反向 import 上层模块，
+    判据就必须下沉到双方共同依赖的本模块（与 `get_skip_dirs` 单源同理）。
+
+    2026-10-24 换掉旧判据。旧版写的是「文件名含『索引』或『模板』就跳过」——
+    那是把某个真实库的组织习惯当成通例，实测它在真实库里**误杀 13 个带「索引」
+    的真设定词条**（词条名就叫「地理系统索引」之类）。这类错误对任何换了库的
+    用户静默生效：不报错，只是词条凭空消失。
+
+    新判据只看**内容本身**，且三个"不算内容"的形态对任何库都成立：
+    - HTML 注释、`{{模板变量}}`（模板骨架的全部构成）
+    - **wikilink 整体去掉**（不是取链接文字）：纯导航页全是 `[[A]]、[[B]]`，
+      取文字会让它看起来"有内容"；而正常词条去掉几个链接后仍有正文，不受影响
+    - 去掉上述后再无字符 → 这一页确实没有可注入的东西
+    """
+    s = re.sub(r'<!--.*?-->', '', body or '', flags=re.S)
+    s = re.sub(r'\{\{.*?\}\}', '', s)
+    s = re.sub(r'!?\[\[[^\]]*\]\]', '', s)
+    s = re.sub(r'[#*`>\-\s\[\]{}（）()【】：:、,，.。]', '', s)
+    return len(s) < UNINJECTABLE_MIN_CHARS
 
 
 def get_vault_dirs():

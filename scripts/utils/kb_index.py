@@ -18,7 +18,7 @@ from datetime import datetime
 
 # 跳过目录与 obsidian_bridge **同一配置源**（A1 修复：本处原是第二份写死清单，
 # 且与 bridge 漂移——本处少跳过了一个目录，模板目录会被索引进倒排库、污染检索）。
-from utils.setting_schema import get_skip_dirs
+from utils.setting_schema import get_skip_dirs, is_uninjectable
 
 # 需要忽略的停用词（中文常见虚词 + 超长无意义词）
 STOP_WORDS = set(
@@ -66,28 +66,47 @@ def extract_terms(text):
     return terms
 
 
-# 通用小节标题（2026-10-24 实测定）：这些 H1 **不是主题名**，只是笔记内部的小节。
-# 某真实库 417 篇设定实测：frontmatter 普遍没有 name/title 键，而 H1 全是
-# 「一、概念定义」「基本信息」「行星概述」这类结构标记 —— 照单取 H1 会让注入给
-# 写作模型的词条名全是无辨识度的串（两条都叫「一、概念定义」，模型无法区分）。
+# 通用小节标题兜底词（2026-10-24）：**只在结构判据失效时用**。
+#
+# 主判据是下面的 `_h1_is_topic` 里的**结构信号**（看这一页有几个 H1）—— 零词汇、
+# 对任何库都成立。词表只是第二道保险，所以这里只留跨库通用的中文/英文小节名。
+# ⚠️ **不许再往这个集合里塞"在某个真实库里见过的小节标题"**（上一版就塞了
+# 「哲学内核」「选址与结构」，那是把一个库的写作习惯当通例 —— 本文件的
+# 通用性判据是"换个库照样成立"，不是"在我这个库上跑通了"）。
 _GENERIC_H1 = {
-    # 中文
-    "概述", "简述", "简介", "简介与背景", "背景", "基本信息", "基本信息与参数",
-    "概念定义", "定义", "设定", "设定集", "自然概况", "概况", "人文概况",
-    "历史沿革", "历史", "政治与治理", "治理", "事件简述", "事件", "经过",
-    "获取", "用途", "参数", "数据", "规格", "目录", "参考", "注释", "说明",
-    "分析", "影响", "结局", "评价", "相关", "其他", "补充", "附录", "总览",
-    "结构", "选址与结构", "哲学内核", "特征", "特点", "能力", "关系",
-    # 英文
+    "概述", "简述", "简介", "背景", "基本信息", "定义", "设定",
+    "历史", "经过", "事件", "参数", "数据", "规格", "目录", "参考",
+    "注释", "说明", "分析", "影响", "结局", "评价", "其他", "附录",
+    "总览", "结构", "特征", "特点", "能力", "关系",
     "overview", "introduction", "background", "details", "parameters",
-    "specifications", "history", "notes", "references", "appendix",
+    "history", "notes", "references", "appendix",
 }
 
 
-def _looks_like_topic(name):
-    """H1 去掉序号前缀后是否像**主题名**（而不是笔记内部的小节标题）。"""
+def _strip_ordinals(name):
+    """去掉「一、」「1.」「22 」这类序号前缀，用于词表比对。"""
     s = re.sub(r'^[一二三四五六七八九十百]+[、.．]\s*', '', str(name or '').strip())
     s = re.sub(r'^\d+[.、．)）]?\s*', '', s).strip().strip('*_`')
+    return s
+
+
+def _h1_is_topic(h1s, candidate):
+    """候选 H1 是否像**主题名**（而不是笔记内部的小节标题）。
+
+    两条判据，任一成立即否决 —— 宁可用文件名，也别给模型一个无辨识度的名字：
+
+    ① **结构判据（主，零词汇）**：这一页有 ≥2 个 H1 → H1 是**分节结构**，
+       第一个只是某一小节，绝不是主题名。这个事实与库怎么组织无关。
+    ② **词表判据（兜底）**：去序号后命中通用小节名（概述/基本信息…）。
+       只在单 H1 时才用到。
+
+    实测依据：某真实库 417 篇设定的 frontmatter 普遍没有 name/title 键、
+    H1 全是「一、概念定义」「基本信息」，照单取 H1 会让注入的词条名全是同一个串，
+    模型无法区分两条不同的词条。
+    """
+    if len(h1s) >= 2:
+        return False
+    s = _strip_ordinals(candidate)
     return bool(s) and s.lower() not in _GENERIC_H1
 
 
@@ -148,11 +167,11 @@ def build_index(vault_path, out_path=None, progress=None, persist=True):
                 name = m.group(1).strip().strip('"').strip("'")
                 break
         if not name:
-            m = re.search(r'^#\s+(.+)', body, re.M)
-            # 只有当 H1 像主题名时才用它 —— 小节标题（「基本信息」「一、概念定义」）
-            # 取来会让词条名毫无辨识度，此时回退文件名（见 _GENERIC_H1 的实测依据）
-            if m and _looks_like_topic(m.group(1)):
-                name = m.group(1).strip().strip('*_`')
+            # 结构判据要这一页的**所有** H1（≥2 个 → H1 是分节结构，
+            # 第一个只是某一小节，不是主题名）。单 H1 时才走词表兜底。
+            h1s = re.findall(r'^#\s+(.+)', body, re.M)
+            if h1s and _h1_is_topic(h1s, h1s[0]):
+                name = h1s[0].strip().strip('*_`')
         if not name:
             name = f.stem
 
@@ -165,6 +184,10 @@ def build_index(vault_path, out_path=None, progress=None, persist=True):
                 # 解析 YAML list 或逗号分隔
                 tags = [t.strip().strip('"').strip("'") for t in re.split(r'[,，\[\]]', raw) if t.strip()]
                 break
+
+        # 空骨架页不进索引（与 scan_vault 同一判据，单源在 setting_schema）
+        if is_uninjectable(body):
+            continue
 
         # 提取摘要（正文前 300 字）
         plain = re.sub(r'[#*`\[\]]', '', body).strip()
@@ -261,9 +284,6 @@ def search(query, index=None, top_k=5, vault_path=None):
     vault = Path(vault_path) if vault_path else Path(index.get("vault_path", "") or ".")
 
     for path, score in ranked:
-        # 跳过索引页/报告页（导航性质，非正典内容）
-        if "\\01 索引\\" in path or "索引\\" in path or "报告" in path or "消歧义" in path:
-            continue
         entry = index["entries"].get(path, {})
         # 尝试重新读取 snippet（保持最新）
         full_path = vault / path
