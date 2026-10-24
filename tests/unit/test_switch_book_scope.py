@@ -96,6 +96,34 @@ def run_switch_from(root, cwd, *args):
     return p.returncode, (p.stdout or "") + (p.stderr or "")
 
 
+def build_skeleton_root(prefix="nf_sb_skel_"):
+    """归档后的**空工作区**形态：占位骨架 project.yaml + 空数据目录 + 工作区级文件。
+
+    这是新建项目向导每次创建后留下的形态 —— 2026-10-24 用户实测它会被判成
+    「有数据」，于是铺设/创建各多归档一次，往归档列表里塞「示例书名（待填写）」空壳。
+    """
+    root = Path(tempfile.mkdtemp(prefix=prefix))
+    (root / "scripts").mkdir(parents=True)
+    for f in ("switch_book.py", "snapshot.py"):
+        shutil.copy2(REPO / "scripts" / f, root / "scripts" / f)
+    shutil.copytree(REPO / "scripts" / "utils", root / "scripts" / "utils",
+                    ignore=shutil.ignore_patterns("__pycache__"), dirs_exist_ok=True)
+    (root / "config").mkdir()
+    (root / "config" / "system.yaml").write_text("engine: direct\n", encoding="utf-8")
+    (root / "config" / "system.local.yaml").write_text("vault_path: ''\n", encoding="utf-8")
+    (root / "config" / "project.yaml").write_text(
+        "book:\n  name: 示例书名（待填写）\n  genre: ''\n  chapters: 3\n", encoding="utf-8")
+    for d in ("data/state", "data/state/tasks", "data/setting", "data/outline/chapters",
+              "data/chapters/raw", "data/chapters/checked", "data/chapters/refined",
+              "data/summaries", "data/merged"):
+        (root / d).mkdir(parents=True, exist_ok=True)
+    # 工作区级文件（全新工作区就存在）：不许把空工作区撑成「有数据」
+    (root / "data" / "state" / "agent_audit.jsonl").write_text("{}\n", encoding="utf-8")
+    (root / "data" / "state" / "workspace_schema.json").write_text("{}\n", encoding="utf-8")
+    (root / "materials" / "raw").mkdir(parents=True, exist_ok=True)
+    return root
+
+
 def main():
     print("=" * 62)
     print("  多书归档范围自检（离线，临时项目根）")
@@ -211,6 +239,48 @@ def main():
         check("当前书的 project.yaml 被自动归档收进书档（不是被静默丢掉）",
               (root / "data" / "books" / "测试书" / "config" / "project.yaml").exists(),
               "自动归档没有把当前书的 project.yaml 收进书档")
+    finally:
+        shutil.rmtree(root, ignore_errors=True)
+
+    # ---------------- 5. 占位骨架：不是书，不许堆空壳归档 ----------------
+    print("\n【5】占位骨架：空工作区不算有数据，且不许建「示例书名（待填写）」空壳")
+    root = build_skeleton_root()
+    try:
+        sys.path.insert(0, str(root / "scripts"))
+        try:
+            import switch_book as sbx          # 模块级 PROJECT_ROOT = 这个临时根
+            check("空骨架 + 工作区级文件 → has_work() 为假",
+                  sbx.has_work() is False, sbx.has_work())
+            probe = root / "data" / "chapters" / "raw" / "01.md"
+            probe.write_text("# 第一章\n正文\n", encoding="utf-8")
+            check("放进真实书稿文件 → has_work() 为真", sbx.has_work() is True)
+            probe.unlink()
+            check("撤掉书稿文件 → 又变回假（判据跟内容走，不跟目录结构走）",
+                  sbx.has_work() is False)
+
+            ok, msg = sbx.init_empty()
+            books = root / "data" / "books"
+            check("init_empty 成功", ok is True, msg)
+            check("**没有**建出空壳归档「示例书名（待填写）」",
+                  not (books / "示例书名（待填写）").exists(),
+                  sorted(p.name for p in books.iterdir()) if books.exists() else None)
+
+            ok, msg = sbx.archive(sbx.PLACEHOLDER_BOOK, yes=True, force=True)
+            check("占位骨架归档 → 判「无需归档」且返回成功",
+                  ok is True and "无需归档" in msg, (ok, msg))
+            check("归档后 books/ 仍无空壳条目",
+                  not (books / "示例书名（待填写）").exists(),
+                  sorted(p.name for p in books.iterdir()) if books.exists() else None)
+
+            # 反证：占位名但**有素材** → 照常归档（名字再怪也不能丢要保的东西）
+            (root / "materials" / "raw" / "手放卡.md").write_text("素材\n", encoding="utf-8")
+            ok, msg = sbx.archive(sbx.PLACEHOLDER_BOOK, yes=True, force=True)
+            kept = root / "data" / "books" / "示例书名（待填写）" / "materials" / "raw" / "手放卡.md"
+            check("占位名 + 有素材 → 仍归档（素材进书档，不许静默丢）",
+                  ok is True and kept.exists(), (ok, msg, str(kept)))
+        finally:
+            if str(root / "scripts") in sys.path:
+                sys.path.remove(str(root / "scripts"))
     finally:
         shutil.rmtree(root, ignore_errors=True)
 

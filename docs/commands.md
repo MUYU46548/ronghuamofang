@@ -81,7 +81,7 @@
 | **沙盒审核 + 回写 + 开工建议自检** | `python tests/unit/test_sandbox_review_and_advisor.py`（临时项目根，零 LLM：登记/通过/驳回/未登记报错 · **改过的文件必须重新审核**（sha256）· 孤儿检测 · `write_sandbox` 自动登记 · 审核队列 CLI · 导出审核包（3 份待审 + **global.md 未被改动**）· 重复导出保留审核状态 · 建议方案池与优先级 · entry_id 可执行 · 零 token 保证，78 断言，含 8 组反向验证） |
 | **obsidian 联动 + 大纲精修完整性** | `python tests/unit/test_obsidian_integrity.py`（临时项目根，零 LLM：扫描无跨类目污染/无重复 / 导入前自动备份 / 返回类型一致 / KB 注入不静默 / `check_consistency` 诚实化 + 召回修复 / **`locked_violations` 已实现**（从 unimplemented 移入 implemented）/ **大纲精修不在体检 FAIL 时假成功**，44 断言，含 7 组反向验证） |
 | **locked 违例检查自检** | `python tests/unit/test_locked_violations.py`（零 LLM：`missing`/`lock_lost`/`renamed` 三判据各自**正反例** + `locked: "true"` 字符串不误报 + 别名形态不算改名 + **未生效时必须回报 `checked=false`**（不许把没查伪装成通过），14 断言） |
-| **多书归档范围自检** | `python tests/unit/test_switch_book_scope.py`（**临时项目根真实归档/恢复**：`config/` 与 `materials/` 随书走 · 应用级配置留在工作区 · `project.yaml` 重置为骨架 · **老格式归档恢复不得删掉工作区配置**（逐项合并而非整体替换），21 断言） |
+| **多书归档范围自检** | `python tests/unit/test_switch_book_scope.py`（**临时项目根真实归档/恢复**：`config/` 与 `materials/` 随书走 · 应用级配置留在工作区 · `project.yaml` 重置为骨架 · **老格式归档恢复不得删掉工作区配置**（逐项合并而非整体替换）· **占位骨架不算有数据、init_empty 不建「示例书名（待填写）」空壳归档**（占位名+有素材时仍照常归档，不许静默丢素材），34 断言） |
 | **模型/供应商切换通道自检** | `python scripts/nfctl.py model-check [provider]`（离线：base_url/key 完整性（**Key 只输出前 3 后 4**）、各角色模型是否在该 provider 清单内、fallback 是否跨供应商、白名单覆盖面；`--live` 才发最小请求） |
 | **stage4 长跑止损自检** | `python tests/unit/test_stage4_stoploss.py`（纯 fake：连续失败 3 章即停（**只跑 3 章不是 10 章**）· 阈值 0 = 关闭 · **章间预算熔断**真的在阶段内生效 · 反证：正常路径不受影响，16 断言） |
 | **续跑产物有效性判据自检** | `python tests/unit/test_resume_output_judgement.py`（13 断言：空壳必须判不可用、正常产物不误杀、阈值边界；并断言 **stage5/6 的调用点真的用了 `is_usable_output`**，防退回裸 `exists()` —— "修好了又漂回去"光测函数测不到） |

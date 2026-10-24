@@ -11,6 +11,16 @@
   命令就能搬空用户工作区）②端点自身再要 GUI 双因子；
 - **清单只读**：GET 只列非隐藏预设，不写任何字节。
 
+覆盖：
+  GET  /factory/presets       清单只读、只列非隐藏
+  POST /factory/preset/apply  双因子闸 + 真铺设（素材落盘 + 配置写入）
+  POST /project/create        **铺设后创建（preset_applied）不得把刚铺的素材归档走**
+                              —— 2026-10-24 用户实测：向导铺设→创建→试跑 9 秒即败
+                              （materials/raw 被归档进书档，阶段1 报「无素材」）
+  POST /project/create        空骨架工作区创建后**不得**堆出空壳归档
+                              「示例书名（待填写）」（占位名不是一本书）
+  POST /project/create        冷启动（占位名 + 手放素材 + 无数据）创建 → 素材留在工作区
+
 **不碰真实仓库**：复制 scripts/config/prompts/examples 到临时根起 nf_api。
 
 用法：python tests/http/test_factory_preset_api_http.py
@@ -18,6 +28,7 @@
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -66,6 +77,28 @@ def req(method, path, body=None, timeout=60, gui=False, source=None, token=None)
         return e.code, payload
 
 
+def _force_agent_mode_off(system_yaml: Path):
+    """把临时根的 gates.agent_mode 改为 false（按行定向替换，保留注释）。
+
+    本仓 system.yaml 默认 agent_mode=true（用户实机开着），HTTP 测试的裸请求
+    （无 GUI 双因子）会被 Agent 守卫 403 —— 那时测的是守卫，不是被测流程。
+    """
+    p = Path(system_yaml)
+    if not p.exists():
+        return
+    lines = p.read_text(encoding="utf-8").splitlines()
+    out, replaced = [], False
+    for ln in lines:
+        if ln.strip().startswith("agent_mode:"):
+            indent = ln[:len(ln) - len(ln.lstrip())]
+            out.append(indent + "agent_mode: false   # 测试环境强制标准模式")
+            replaced = True
+        else:
+            out.append(ln)
+    if replaced:
+        p.write_text("\n".join(out) + "\n", encoding="utf-8")
+
+
 def build_project():
     tmp = Path(tempfile.mkdtemp(prefix="nf_fpreset_"))
     shutil.copytree(ROOT / "scripts", tmp / "scripts",
@@ -78,6 +111,7 @@ def build_project():
     # 否则 GET 返回空清单，「试跑有素材可写」这条判据无从验起。
     shutil.copytree(ROOT / "examples", tmp / "examples",
                     ignore=shutil.ignore_patterns("__pycache__"))
+    _force_agent_mode_off(tmp / "config" / "system.yaml")
     for d in ("data/state", "data/outline", "materials/raw"):
         (tmp / d).mkdir(parents=True, exist_ok=True)
     return tmp
@@ -162,6 +196,91 @@ def main():
         print("\n【6】不存在的预设 id → 400（不许静默铺个空的）")
         code, d = req("POST", "/factory/preset/apply", {"id": "no-such-preset"}, gui=True)
         check("未知 id → 400", code == 400, (code, d))
+
+        # ------------------------------------------------------------------
+        # 【7】铺设 → 创建（preset_applied）：刚铺的素材必须原样保留
+        # 事故现场（2026-10-24 用户实测）：向导第 0 步铺设、第 3 步创建，
+        # /project/create 把 materials/（归档根项）连同刚铺的素材一起归档走，
+        # 新书阶段 1 9 秒即败：「materials/raw 无素材且无既有设定集」。
+        # ------------------------------------------------------------------
+        print("\n【7】铺设后创建（preset_applied=true）：素材保留 + 不新增归档 + 阶段1预检非空")
+        import yaml
+        preset_mats = files_of(tmp / "materials" / "raw")
+        check("前置：铺设后 materials/raw 有素材", len(preset_mats) > 0, preset_mats)
+        books_dir = tmp / "data" / "books"
+        books_before = sorted(p.name for p in books_dir.iterdir()) if books_dir.exists() else []
+        code, d = req("POST", "/project/create", {
+            "name": "预设新书", "genre": "悬疑", "chapters": 8,
+            "archive_current": False, "preset_applied": True,
+        })
+        check("创建 200（铺设时已归档过旧项目，archive_current=false 不该被拦）",
+              code == 200 and d.get("ok"), (code, d))
+        check("materials/raw 素材一个没少（事故现场：被归档进书档 → 阶段1 必败）",
+              files_of(tmp / "materials" / "raw") == preset_mats,
+              (preset_mats, files_of(tmp / "materials" / "raw")))
+        books_after = sorted(p.name for p in books_dir.iterdir()) if books_dir.exists() else []
+        check("没有新增任何归档条目（工作区本身就是新项目）",
+              books_after == books_before, (books_before, books_after))
+        book = (yaml.safe_load((tmp / "config" / "project.yaml").read_text(encoding="utf-8"))
+                or {}).get("book") or {}
+        check("书名/章数改写落地（只改 config，不动工作区）",
+              book.get("name") == "预设新书" and book.get("chapters") == 8, book)
+        check("出厂标记仍在（init_empty 会清它 → preset_applied 必须跳过 init_empty）",
+              (tmp / "data" / "state" / "factory_project.json").exists())
+        # 阶段 1 的失败判据就是「scan_materials 空 + 无既有设定集」——直接打这条判据
+        from stage1_consolidate import scan_materials
+        manifest = scan_materials(tmp / "materials" / "raw",
+                                  tmp / "data" / "setting" / "normalized")
+        check("阶段1 预检输入非空（scan_materials 命中素材卡，不再「无素材」必败）",
+              len(manifest) > 0, len(manifest))
+
+        print("\n【8】preset_applied 不绕过参数护栏（非法输入仍 400 且零改动）")
+        code, d = req("POST", "/project/create", {
+            "name": "坏书", "chapters": 0, "preset_applied": True, "archive_current": False,
+        })
+        check("章数 0 → 400", code == 400 and not d.get("ok"), (code, d))
+        check("素材与书名零改动",
+              files_of(tmp / "materials" / "raw") == preset_mats
+              and (yaml.safe_load((tmp / "config" / "project.yaml").read_text(encoding="utf-8"))
+                   or {}).get("book", {}).get("name") == "预设新书")
+
+        print("\n【9】对照：不带 preset_applied 的正常归档路径仍然完好（真书照归档）")
+        code, d = req("POST", "/project/create", {
+            "name": "对照书", "chapters": 5, "archive_current": True,
+        })
+        check("创建 200", code == 200 and d.get("ok"), (code, d))
+        arch = books_dir / "预设新书"
+        check("预设项目按真书名归档（含素材）",
+              (arch / "materials" / "raw").is_dir()
+              and len(files_of(arch / "materials" / "raw")) == len(preset_mats),
+              files_of(arch / "materials" / "raw") if (arch / "materials" / "raw").exists() else None)
+        check("**没有**堆出空壳归档「示例书名（待填写）」",
+              not (books_dir / "示例书名（待填写）").exists(),
+              sorted(p.name for p in books_dir.iterdir()) if books_dir.exists() else None)
+
+        print("\n【10】冷启动：占位书名 + 手放素材 + 无数据 → 素材必须留在工作区")
+        # 把工作区摆成「全新安装、用户只放了素材、还没起过书名」的形态
+        proj = tmp / "config" / "project.yaml"
+        proj.write_text(re.sub(r'(?m)^(\s*name:\s*).*$',
+                               r'\1"示例书名（待填写）"',
+                               proj.read_text(encoding="utf-8"), count=1),
+                        encoding="utf-8")
+        (tmp / "materials" / "raw").mkdir(parents=True, exist_ok=True)
+        (tmp / "materials" / "raw" / "手放卡.md").write_text("# 手放的素材卡\n正文\n",
+                                                             encoding="utf-8")
+        code, d = req("POST", "/project/create", {
+            "name": "真名书", "chapters": 4, "archive_current": False,
+        })
+        check("创建 200（工作区没有数据，不该被归档护栏拦下）",
+              code == 200 and d.get("ok"), (code, d))
+        check("手放的素材留在工作区（占位名不是书，不许被自动归档搬走）",
+              (tmp / "materials" / "raw" / "手放卡.md").exists(),
+              files_of(tmp / "materials" / "raw"))
+        check("仍然没有空壳归档「示例书名（待填写）」",
+              not (books_dir / "示例书名（待填写）").exists(),
+              sorted(p.name for p in books_dir.iterdir()) if books_dir.exists() else None)
+        book = (yaml.safe_load(proj.read_text(encoding="utf-8")) or {}).get("book") or {}
+        check("新书名落地", book.get("name") == "真名书", book.get("name"))
     finally:
         proc.terminate()
         try:

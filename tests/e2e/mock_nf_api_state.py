@@ -197,6 +197,15 @@ class Handler(BaseHTTPRequestHandler):
                 "config": {"name": "验收用书", "chapters": 12},
                 "repo": "https://github.com/MYU46548/ronghuamofang",
             })
+        if p == "/factory/presets":
+            # 首跑向导「选预设」（v0.20）：回两套可见预设，让第 0 步有真卡片可点。
+            # 与真实端点同构：hidden 用例不出现在清单里。
+            return self._send(200, {"ok": True, "presets": [
+                {"id": "rail-end", "name": "铁轨尽头", "genre": "悬疑", "chapters": 6,
+                 "summary": "巡道工与一块还在走的怀表", "caps": [], "hidden": False},
+                {"id": "salt-town", "name": "盐镇纪事", "genre": "奇幻", "chapters": 10,
+                 "summary": "mock 第二套预设", "caps": [], "hidden": False},
+            ], "note": ""})
         if p == "/project/list":
             return self._send(200, {"current": "验收用书",
                                     "archived": [{"name": "旧书", "display_name": "旧书",
@@ -484,7 +493,21 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"ok": True,
                                     "message": "阶段%d 已标记完成（人工跳过，未生成产物）" % body.get("stage", 0),
                                     "missing": ["data/outline/chapters"]})
+        if p == "/factory/preset/apply":
+            # 向导第 0 步「铺设」：真端点会快照→归档→铺素材→写配置；mock 只回
+            # 确定性成功，让视觉验收能走到「已铺设 → 第 2 步不再要求勾归档」这条链。
+            if not body.get("id"):
+                return self._send(400, {"ok": False, "error": "缺少 id"})
+            return self._send(200, {"ok": True,
+                                    "message": "预设「%s」已铺设" % body.get("id"),
+                                    "log": "· 已快照\n· 已归档\n· 素材 6 张已铺入"})
         if p == "/project/create":
+            # preset_applied=true（向导第 0 步已铺设预设）→ 真后端会跳过归档/初始化、
+            # 保住刚铺的素材；mock 回同款文案，视觉验收据此断言前端真的带上了这个标志。
+            if body.get("preset_applied"):
+                return self._send(200, {
+                    "ok": True,
+                    "message": "沿用已铺设的预设工作区（素材保留）；已更新 name、genre、chapters"})
             return self._send(200, {"ok": True,
                                     "message": "已快照 current；已归档「验收用书」；空工作区骨架已初始化；"
                                                "已更新 name、genre、chapters"})

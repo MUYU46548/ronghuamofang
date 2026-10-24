@@ -57,7 +57,21 @@ ROOT_ITEMS = ["config", "materials"]
 # 不复制的话，归档动作一完成工作区就缺 config/system.yaml，界面直接起不来。
 APP_LEVEL_KEEP = ("system.yaml", "system.local.yaml")
 
+# `data/state/` 下的**工作区级**文件：随工作区走、不随书走（API 审计台账 /
+# 数据迁移版本戳 / 模型列表缓存 / 出厂标记）。全新工作区里它们就已存在 ——
+# 若参与 has_work 判定，空工作区会被判成「有数据」：新建项目逼用户勾归档、
+# 铺设与创建各多归档一次，堆出空壳归档条目（2026-10-24 实测）。书稿进度看
+# `data/state/progress.json` 与 `data/state/tasks/`，它们不在此名单内。
+STATE_APP_FILES = frozenset({"agent_audit.jsonl", "workspace_schema.json",
+                             "fetched_models.json", "factory_project.json"})
+
 UNSAFE = re.compile(r"[\\/:*?\"<>|]")
+
+# 占位书名：归档后工作区骨架 project.yaml 的 book.name 就是它（见 _archive_root_items）。
+# 它的含义是「还没有书」，不是一本书 —— init_empty 等自动路径若拿它当归档对象，
+# 每次操作都会多出一个空壳归档条目「示例书名（待填写）」（2026-10-24 用户实测：
+# 新建项目后归档列表凭空多出这一项，且同一次操作在 import_guard 台账里记两条 archive）。
+PLACEHOLDER_BOOK = "示例书名（待填写）"
 
 
 def sanitize(name):
@@ -112,8 +126,30 @@ def _list_dir_items(root):
     return [p for p in Path(root).iterdir() if p.name in ITEMS]
 
 
+def _item_files(root):
+    """ITEMS 项里**实际存在的书稿内容文件**（空目录与工作区级文件不算）。"""
+    files = []
+    for p in _list_dir_items(root):
+        if p.is_file():
+            files.append(p)
+        elif p.is_dir():
+            for f in p.rglob("*"):
+                if not f.is_file():
+                    continue
+                if p.name == "state" and f.name in STATE_APP_FILES:
+                    continue
+                files.append(f)
+    return files
+
+
 def has_work(root=None):
-    """工作区是否有数据。"""
+    """工作区是否有**实际内容**（只有空目录不算有数据）。
+
+    2026-10-24 改判据：此前只看 ITEMS 目录存在与否，而 `init_empty()` 刚建出来的
+    骨架全是空目录 —— 于是「全新工作区」被判成「有数据」：新建项目向导第 2 步显示
+    「工作区有数据」、逼用户勾归档（不勾创建就被拒），还会触发一次纯属空转的
+    快照 + 归档。空目录里没有任何可丢的东西，那不是数据。
+    """
     if root is None:
         root = DATA_DIR
     if not Path(root).exists():
@@ -121,7 +157,7 @@ def has_work(root=None):
         # 这里抛 FileNotFoundError 会让 GET /state 直接 500 —— 而「工作区有没有
         # 数据」恰恰是新建项目向导在**最空的时刻**要问的问题（2026-10-10 CI 实测）。
         return False
-    return bool(_list_dir_items(root))
+    return bool(_item_files(root))
 
 
 def _move_items(src_root, dest_root):
@@ -136,6 +172,12 @@ def _move_items(src_root, dest_root):
             shutil.move(str(s), str(d))
             moved.append(item)
     return moved
+
+
+def _materials_have_files():
+    """materials/ 里是否有文件（素材是「要保的东西」，归档判据要看它）。"""
+    d = PROJECT_ROOT / "materials"
+    return d.is_dir() and any(x.is_file() for x in d.rglob("*"))
 
 
 def _has_root_items():
@@ -187,7 +229,7 @@ def _archive_root_items(dest):
             from utils import project_config as pcfg
             # 结构留、**书内容字段清空**；技术参数（word_template / target_words /
             # language / style_reference）不动 —— 那些描述"怎么写"，不是"写哪本"。
-            pcfg.set_book_fields({"name": "示例书名（待填写）", "genre": "",
+            pcfg.set_book_fields({"name": PLACEHOLDER_BOOK, "genre": "",
                                   "chapters": 3, "author": "", "user_outline": "",
                                   "style_notes": "", "style": ""})
             kept.append("project.yaml（骨架：book 值已清空）")
@@ -236,6 +278,12 @@ def archive(book_name=None, yes=False, force=False, guard_snapshot=True):
         return False, "无法确定当前书名（progress.json 与 project.yaml 均无）"
     if not has_work() and not _has_root_items():
         return True, "工作区无数据，无需归档"
+    # 占位名 + 零内容 = 没有可归档的书：归档后骨架 project.yaml 的 book.name 恒为
+    # PLACEHOLDER_BOOK，拿它当书名建目录只会往归档列表里塞空壳条目
+    # （2026-10-24 用户实测：新建项目后多出「示例书名（待填写）」，items=[]）。
+    # 有书稿内容或有素材时照常归档 —— 那是要保的东西，名字再怪也不能丢。
+    if name == PLACEHOLDER_BOOK and not has_work() and not _materials_have_files():
+        return True, "工作区只有占位骨架（未起过书名），无需归档"
     # 丙3 before-import 契约：data/ 一旦被搬走，工作区就不再自洽 ——
     # 必须**先**留下可回退点。放在任何 shutil.move 之前（含下面的同名归档临时改名）。
     note = ""
@@ -325,9 +373,13 @@ def init_empty():
     """初始化空工作区（保留 data/tmp 缓存）。返回 (success: bool, message: str)。"""
     if has_work():
         return False, "工作区有数据，请先 --archive"
-    # 自动归档当前工作区（防止误操作丢失）
+    # 自动归档当前工作区（防止误操作丢失）。
+    # ⚠️ 占位名（PLACEHOLDER_BOOK）不是一本书：归档后骨架 project.yaml 的 book.name
+    # 就是它，拿它再归档一次只会堆出空壳归档条目（且把 materials/ 里用户为新书
+    # 准备的素材搬走 → 新书阶段1 必报「materials/raw 无素材」）。没有书就没有可
+    # 归档的归属，根项留在工作区原地。
     cur = current_book_name()
-    if cur:
+    if cur and cur != PLACEHOLDER_BOOK:
         print(f"[switch_book] 自动归档当前工作区「{cur}」")
         ok, msg = archive(cur, yes=True, force=True)
         if not ok:

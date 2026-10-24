@@ -69,8 +69,11 @@ POST /models/switch       {role, model} → 切换模型
 POST /export/markdown     {per_vol?, book_name?, include_frontmatter?} → Markdown 分卷导出
 POST /export/word         {book_name?} → Word 成品导出（复用 stage7 转换；不写进度）
 POST /project/init        首次向导：初始化空工作区 + 写 project.yaml 基本信息（书名/类型/章数）
-POST /project/create      {name, genre?, chapters?, style_notes?, archive_current?}
-                          一键新建项目：归档当前 → 初始化空工作区 → 写 project.yaml
+POST /project/create      {name, genre?, chapters?, style_notes?, archive_current?,
+                           preset_applied?}
+                           一键新建项目：归档当前 → 初始化空工作区 → 写 project.yaml；
+                           preset_applied=true（向导已铺设出厂预设）→ 跳过归档/初始化，
+                           只改写 project.yaml，保住刚铺的 materials/
 GET  /about               版本 / 运行环境 / 路径（GUI「关于」弹窗数据）
 GET  /config/style_notes  book.style_notes 读取（GUI 设置页签）
 GET  /config/word_template Word 成品模板清单（templates/ 下 .dotx/.docx）+ 当前值
@@ -1038,7 +1041,8 @@ def act_skip_stage(stage, reason=""):
 
 
 def act_project_create(name, genre=None, chapters=None, style_notes=None,
-                       author=None, archive_current=True, force=False):
+                       author=None, archive_current=True, force=False,
+                       preset_applied=False):
     """新建项目：归档当前工作区 → 初始化空工作区 → 写入 project.yaml 基本信息。
 
     这是「一键新建项目」的完整语义（此前必须手工改 project.yaml + 手动归档）。
@@ -1047,6 +1051,12 @@ def act_project_create(name, genre=None, chapters=None, style_notes=None,
       · 当前工作区有内容且 archive_current=False 时**拒绝执行**（绝不静默清空书稿）
       · 动手前先 snapshot，归档沿用 switch_book.archive（先移后删，失败可回滚）
     返回 (ok, message)。
+
+    `preset_applied=True`（新建项目向导在第 0 步已铺设出厂预设）时**跳过
+    快照/归档/初始化**，只定向改写 project.yaml：工作区本身就是新项目（预设素材
+    刚铺进去），再走一遍归档会把 `materials/`（归档根项）连同刚铺的素材一起搬进
+    书档 → 新书阶段 1 必报「materials/raw 无素材且无既有设定集」（2026-10-24
+    用户实测：铺设→创建→试跑 9 秒即败）。旧项目的归档已在铺设时完成（replace）。
     """
     name = (name or "").strip()
     if not name:
@@ -1060,39 +1070,44 @@ def act_project_create(name, genre=None, chapters=None, style_notes=None,
     if n_ch is not None and not (1 <= n_ch <= 999):
         return False, "章节数须在 1-999 之间"
 
-    cur = None
-    try:
-        cur = sb_mod.current_book_name()
-    except Exception:
-        cur = None
-    has_work = False
-    try:
-        has_work = sb_mod.has_work()
-    except Exception:
-        has_work = False
-
     notes = []
-    if has_work:
-        if not archive_current and not force:
-            return False, ("当前工作区还有「%s」的数据。新建项目会清空工作区，"
-                           "请先勾选「归档当前项目」，或用「项目」页签手动归档。"
-                           % (cur or "未命名"))
-        # 破坏性操作前先快照（与 /project/init 同口径），失败只记一笔不阻断
+    if preset_applied:
+        # 预设工作区原样保留：不快照（没有破坏动作）、不归档（素材就是新书的输入）、
+        # 不 init_empty（骨架已在铺设时建好，且它会清出厂标记）。
+        notes.append("沿用已铺设的预设工作区（素材保留）")
+    else:
+        cur = None
         try:
-            snap_mod.snapshot("project_create")
-            notes.append("已快照 current")
-        except Exception as e:
-            notes.append("快照失败（不阻断）: " + str(e)[:60])
-        target = cur or name
-        ok, msg = sb_mod.archive(target, yes=True, force=True)
-        if not ok:
-            return False, "归档当前项目失败，已中止（未做任何改动）: " + str(msg)
-        notes.append("已归档「%s」" % target)
+            cur = sb_mod.current_book_name()
+        except Exception:
+            cur = None
+        has_work = False
+        try:
+            has_work = sb_mod.has_work()
+        except Exception:
+            has_work = False
 
-    ok, msg = sb_mod.init_empty()
-    if not ok:
-        return False, "初始化空工作区失败: " + str(msg)
-    notes.append(msg)
+        if has_work:
+            if not archive_current and not force:
+                return False, ("当前工作区还有「%s」的数据。新建项目会清空工作区，"
+                               "请先勾选「归档当前项目」，或用「项目」页签手动归档。"
+                               % (cur or "未命名"))
+            # 破坏性操作前先快照（与 /project/init 同口径），失败只记一笔不阻断
+            try:
+                snap_mod.snapshot("project_create")
+                notes.append("已快照 current")
+            except Exception as e:
+                notes.append("快照失败（不阻断）: " + str(e)[:60])
+            target = cur or name
+            ok, msg = sb_mod.archive(target, yes=True, force=True)
+            if not ok:
+                return False, "归档当前项目失败，已中止（未做任何改动）: " + str(msg)
+            notes.append("已归档「%s」" % target)
+
+        ok, msg = sb_mod.init_empty()
+        if not ok:
+            return False, "初始化空工作区失败: " + str(msg)
+        notes.append(msg)
 
     ok2, msg2 = pc_set_book({
         "name": name,
@@ -2693,6 +2708,8 @@ class Handler(BaseHTTPRequestHandler):
                     body.get("author"),
                     archive_current=bool(body.get("archive_current", True)),
                     force=bool(body.get("force")),
+                    # 向导第 0 步已铺设预设 → 工作区就是新项目，别再归档清空
+                    preset_applied=bool(body.get("preset_applied")),
                 )
                 self._send(200 if ok else 400, {"ok": ok, "message": msg}
                            if ok else {"ok": False, "error": msg})

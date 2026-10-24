@@ -659,8 +659,11 @@ def test_about_project(browser, mock_proc=None):
               page.locator(".wiz-warn").count() == 1
               and "拒绝" in page.locator(".wiz-warn").inner_text(),
               page.locator(".wiz-warn").inner_text()[:60])
+        check("未勾选归档时「下一步」直接置灰（不许走到确认创建再被后端弹回）",
+              nxt.is_disabled())
         page.locator(".wiz-check input[type=checkbox]").check()
         page.wait_for_timeout(200)
+        check("勾选归档后「下一步」恢复可用", not nxt.is_disabled())
         page.locator(".dialog button:has-text('下一步')").click()
         page.wait_for_timeout(300)
         check("进入第 3 步（确认摘要）", "3 确认创建" in page.locator(".wiz-step.on").inner_text())
@@ -677,6 +680,47 @@ def test_about_project(browser, mock_proc=None):
         check("创建后回到流水线页签",
               "流水线" in page.locator(".tabs button.active").first.inner_text())
         shot(page, "D5_after_create")
+
+        print("  --- 预设流程：铺设 → 第 2 步不再要求勾归档（创建带 preset_applied）---")
+        page.locator(".tabs button:has-text('项目')").first.click()
+        page.wait_for_timeout(300)
+        page.locator("button:has-text('＋ 新建项目')").first.click()
+        page.wait_for_timeout(600)
+        cards = page.locator(".dialog .wiz-preset")
+        check("第 0 步列出出厂预设卡片", cards.count() >= 1, cards.count())
+        cards.first.click()
+        page.wait_for_timeout(200)
+        page.locator(".dialog .wiz-preset-act button").click()   # 「铺设「…」」
+        page.wait_for_timeout(600)
+        check("铺设成功 → 显示「已铺设」",
+              page.locator(".dialog .pill.st-done").filter(has_text="已铺设").count() == 1,
+              page.locator(".dialog").inner_text()[:120])
+        nxt2 = page.locator(".dialog button:has-text('下一步')")
+        check("铺设后第 0 步「下一步」可用", not nxt2.is_disabled())
+        nxt2.click()
+        page.wait_for_timeout(300)
+        check("书名从预设带出（第 1 步可直接过）", not nxt2.is_disabled())
+        nxt2.click()
+        page.wait_for_timeout(300)
+        check("预设流程第 2 步：不显示归档勾选框（工作区就是新项目）",
+              page.locator(".dialog .wiz-check").count() == 0)
+        check("第 2 步说明素材保留 / 原项目已在铺设时归档",
+              "已铺设" in page.locator(".dialog").inner_text()
+              and "不会动素材" in page.locator(".dialog").inner_text(),
+              page.locator(".dialog").inner_text()[:200])
+        check("第 2 步「下一步」可用（无需勾归档）", not nxt2.is_disabled())
+        shot(page, "D6_wizard_preset_step2")
+        nxt2.click()
+        page.wait_for_timeout(300)
+        check("确认摘要标明「素材保留」",
+              "素材保留" in page.locator(".dialog .cost-table").inner_text(),
+              page.locator(".dialog .cost-table").inner_text().replace("\n", " | ")[:120])
+        page.locator(".dialog button:has-text('确认创建')").click()
+        page.wait_for_timeout(1500)
+        toast2 = page.locator(".toast").inner_text() if page.locator(".toast").count() else ""
+        check("预设流程创建成功，toast 说明素材保留（= 前端带上了 preset_applied）",
+              "新项目已创建" in toast2 and "素材保留" in toast2, toast2)
+        shot(page, "D7_after_preset_create")
 
         print("  --- 命令面板里的新入口 ---")
         page.keyboard.press("Control+k")
