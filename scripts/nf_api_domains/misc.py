@@ -298,22 +298,28 @@ def handle_about(h):
 
     try:
         # 版本属于**应用**，不属于当前打开的书档。
-        # 只按 ROOT 找的后果（2026-09-29 实测）：`--root` 指向别的项目（如验收夹具）时
-        # 那边没有 console/package.json → 关于弹窗显示 "vdev"。
-        # 因此「ROOT 优先 → 代码所在仓库兜底」两处找。
-        # （打包态 Electron 走主进程的 app.getVersion()，本字段只在浏览器上下文里兜底。）
+        # 优先级（0.7.0 定）：环境变量 NF_APP_VERSION（打包态主进程 spawn 时注入
+        # app.getVersion()）→ ROOT 的 console/package.json → 代码仓库兜底。
+        # 为什么必须有 env 这层（2026-10-24 实测取证）：打包态 nf_api 的 ROOT 被
+        # --root 指向工作区（没有 console/package.json），脚本又住在
+        # resources/payload 下（parents[2] 也不是 console/）→ /about 恒报 "dev"，
+        # 外部探查装机版本只能靠猜，「装的是哪一版」成了不可观测量。
+        # （旧注释称"打包态走 app.getVersion"指的是 GUI 关于弹窗的 IPC 通道，
+        #   本端点从未拿到过该值 —— 探查走的是 HTTP /about，不是弹窗。）
+        import os as _os
         from pathlib import Path as _Path
-        ver = "dev"
-        for pkg in (api.ROOT / "console" / "package.json",
-                    _Path(__file__).resolve().parents[2] / "console" / "package.json"):
-            if not pkg.exists():
-                continue
-            try:
-                ver = api.json.loads(pkg.read_text(encoding="utf-8")).get("version", "dev")
-            except Exception:                               # noqa: BLE001
-                ver = "dev"
-            if ver != "dev":
-                break
+        ver = _os.environ.get("NF_APP_VERSION") or "dev"
+        if ver == "dev":
+            for pkg in (api.ROOT / "console" / "package.json",
+                        _Path(__file__).resolve().parents[2] / "console" / "package.json"):
+                if not pkg.exists():
+                    continue
+                try:
+                    ver = api.json.loads(pkg.read_text(encoding="utf-8")).get("version", "dev")
+                except Exception:                               # noqa: BLE001
+                    ver = "dev"
+                if ver != "dev":
+                    break
         cfg = {}
         try:
             cfg = api.pc_get_config() or {}

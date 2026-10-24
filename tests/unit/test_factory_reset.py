@@ -355,6 +355,35 @@ def case_implicit_sample(tmp):
     check("书名不同 → 不认", fr.describe(ws2)["is_factory"] is False)
 
 
+def case_dirty_flag(tmp):
+    print("\n[9] 脏判据（0.7.0）：有东西可清才可点；出厂状态按钮该置灰")
+    ws = _build_workspace(tmp / "ws_dirty")
+    wp = (fr.describe(ws).get("wipe_plan") or {})
+    check("带测试进度 → dirty=True", wp.get("dirty") is True, wp)
+    check("dirty_items 点名进度落点（data/ 前缀）",
+          any(str(s).startswith("data/") for s in wp.get("dirty_items") or []),
+          wp.get("dirty_items"))
+    check("旧键向后兼容（chapters_done/cards_now/cards_factory/stages 仍在）",
+          {"chapters_done", "cards_now", "cards_factory", "stages"} <= set(wp), wp)
+    # 素材卡数不齐也算脏（用户多放/删过卡）
+    ws2 = _build_workspace(tmp / "ws_dirty_cards")
+    (ws2 / "materials" / "raw" / "多出来的卡.md").write_text("# 多\n", encoding="utf-8")
+    wp2 = (fr.describe(ws2).get("wipe_plan") or {})
+    check("素材卡数不齐 → dirty=True 且点名素材卡",
+          wp2.get("dirty") is True
+          and any("素材卡" in str(s) for s in wp2.get("dirty_items") or []), wp2)
+    # 还原之后 → 干净（这就是「已清理完按钮置灰」的判据；用户 2026-10-24 点名场景）
+    ws3 = _build_workspace(tmp / "ws_dirty_after")
+    restore, _snap = _pin_modules(ws3)
+    try:
+        ok, rep = fr.reset(ws3)
+        wp3 = (fr.describe(ws3).get("wipe_plan") or {})
+        check("还原成功", ok is True, rep.get("error"))
+        check("还原后 → dirty=False（按钮置灰）", wp3.get("dirty") is False, wp3)
+    finally:
+        restore()
+
+
 def main():
     tmp = Path(tempfile.mkdtemp(prefix="factreset_"))
     try:
@@ -366,6 +395,7 @@ def main():
         case_endpoint_guards(tmp)
         case_hooks_present()
         case_implicit_sample(tmp)
+        case_dirty_flag(tmp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
         os.environ.pop("NF_SAMPLE_ROOT", None)

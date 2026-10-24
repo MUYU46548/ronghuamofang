@@ -379,7 +379,7 @@ function getWorkspaceSource() {
 //   · 前端（asar，不走种子）：项目页出厂徽标 / 启动提示词剥离说明书 /
 //     阶段复制改任务简报（原样贴模板会被外部 Agent 按红线判「模板不是任务」停工）。
 // **先 bump 再 electron-builder**。
-const SEED_VERSION = 42;   // 0.6.22b: 隐式样例判据（SEED 41 两个包撞号导致工作区没刷新，42 强刷）
+const SEED_VERSION = 43;   // 0.7.0: 还原按钮脏判据置灰 + 确认改弹窗滑条（factory_reset.py 实质变更，SEED+1 强刷）
 //   · prompts/: stage5 加七维 JSON 契约、stage4 加记忆块、stage3 加卷弧块、stage2 加设定摘要、
 //     新增 volume_plan.md —— **payload 变了，不 bump 用户永远拿不到新提示词**。
 
@@ -719,8 +719,10 @@ function startApi(attempt) {
       // 源码态 ROOT 就是仓库根，无需注入（注入了也无害：按存在性取）。
       env: isPackaged
         ? { ...process.env, NF_GUI_TOKEN: guiToken,
-            NF_SAMPLE_ROOT: path.join(process.resourcesPath, "payload", "examples") }
-        : { ...process.env, NF_GUI_TOKEN: guiToken },
+            NF_SAMPLE_ROOT: path.join(process.resourcesPath, "payload", "examples"),
+            NF_APP_VERSION: app.getVersion() }
+        : { ...process.env, NF_GUI_TOKEN: guiToken,
+            NF_APP_VERSION: app.getVersion() },
     });
     console.log("[console] nf_api child started pid=", apiProc.pid, "log ->", logPath);
     apiProc.on("error", (e) => console.error("[console] nf_api spawn failed:", e));

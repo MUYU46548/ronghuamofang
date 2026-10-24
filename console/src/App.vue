@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from "vue";
+import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { diffParagraphs } from "./diff.js";
 import { copyToClipboard } from "./clipboard.js";
 import ReviewConsole from "./ReviewConsole.vue";
@@ -972,31 +972,85 @@ async function loadProjects(quiet = false) {
 // 预设/样例跑过一轮后工作区堆满测试进度，此前没有「回到刚铺好状态」的入口。
 // 边界（用户定调）：**仅出厂测试项目**可还原 —— 真书没有出厂标记，
 // 这条路在服务端三重自检（标记/书名/出厂源）下天然碰不到它。
-// 交互用两步确认（armed 态），不用 window.confirm（GUI 纪律）。
+// 交互（0.7.0）：已是出厂状态按钮置灰；确认走弹窗 + 滑条解锁，不用 window.confirm（GUI 纪律）。
 const factoryProject = ref(null);          // GET /factory/project 响应体
-const factoryResetArmed = ref(false);      // 第一步已点（armed）；按钮此时变「确认还原」
-let factoryResetTimer = null;              // armed 自动解除（8 秒，防误留待发态）
+/* 脏判据（0.7.0）：wipe_plan.dirty 由后端按擦除白名单算出 —— 已是出厂状态时按钮置灰。
+   判据放后端不放前端：白名单（WIPE_DIRS/…）只有后端知道，前端自己数目录会两边漂移。 */
+const factoryResetDirty = computed(() =>
+  !!(factoryProject.value && factoryProject.value.wipe_plan
+     && factoryProject.value.wipe_plan.dirty));
 async function loadFactoryProject() {
   try {
     const r = await api("/factory/project");
     factoryProject.value = (r.status === 200 && r.data) ? r.data : null;
   } catch (e) { factoryProject.value = null; }
 }
-function armFactoryReset() {
-  factoryResetArmed.value = true;
-  say("再点一次「确认还原」执行：将清掉本书全部测试进度并铺回出厂素材（先自动快照）");
-  clearTimeout(factoryResetTimer);
-  factoryResetTimer = setTimeout(() => { factoryResetArmed.value = false; }, 8000);
+
+/* 确认弹窗 + 滑条解锁（0.7.0）。旧交互「同位置点两次」被用户点名垃圾
+   （2026-10-24：「放在同一个位置让人点两次什么意思」）—— 现在是两个动作、两个位置：
+   弹窗列出将清除什么 → 按住滑块拖到最右解锁 → 点「开始还原」。中途松手弹回起点。 */
+const factoryResetDialog = ref(false);
+const factoryResetSlid = ref(false);
+const factoryResetSlideX = ref(0);
+const factoryResetTrack = ref(null);
+const factoryResetCancel = ref(null);
+let factoryResetSliding = false;
+
+function factoryResetMax() {
+  const el = factoryResetTrack.value;
+  if (!el) return 0;
+  const knob = el.querySelector(".slider-knob");
+  const kw = knob ? knob.offsetWidth : 56;
+  return Math.max(el.clientWidth - kw - 6, 0);   // 6 = 滑块两侧留白各 3px
+}
+async function openFactoryResetDialog() {
+  if (!factoryResetDirty.value) return;
+  factoryResetSlid.value = false;
+  factoryResetSlideX.value = 0;
+  factoryResetDialog.value = true;
+  await nextTick();
+  if (factoryResetCancel.value) factoryResetCancel.value.focus();   // 默认焦点给最保守选项
+}
+function closeFactoryResetDialog() {
+  factoryResetDialog.value = false;
+  factoryResetSliding = false;
+  factoryResetSlid.value = false;
+  factoryResetSlideX.value = 0;
+}
+function factoryResetSlideStart(e) {
+  if (factoryResetSlid.value) return;
+  factoryResetSliding = true;
+  try { e.currentTarget.setPointerCapture(e.pointerId); } catch (err) { /* 捕获失败仍可拖（范围受限）*/ }
+}
+function factoryResetSlideMove(e) {
+  if (!factoryResetSliding) return;
+  const el = factoryResetTrack.value;
+  if (!el) return;
+  const max = factoryResetMax();
+  const knob = el.querySelector(".slider-knob");
+  const half = (knob ? knob.offsetWidth : 56) / 2;   // 指针按在滑块中间跟手
+  const x = Math.min(Math.max(e.clientX - el.getBoundingClientRect().left - half, 0), max);
+  factoryResetSlideX.value = x;
+  if (max > 0 && x >= max - 1) {
+    factoryResetSliding = false;
+    factoryResetSlid.value = true;
+  }
+}
+function factoryResetSlideEnd() {
+  if (factoryResetSliding) {   // 没拖到底就松手 → 弹回起点，不给半解锁态
+    factoryResetSliding = false;
+    factoryResetSlideX.value = 0;
+  }
 }
 async function resetFactoryProject() {
-  clearTimeout(factoryResetTimer);
-  factoryResetArmed.value = false;
+  if (!factoryResetSlid.value) return;   // 滑条没解锁不发请求（前端兜底，服务端仍要 confirm）
   const r = await api("/factory/project/reset", "POST", { confirm: true });
   if (r.status === 200 && r.data && r.data.ok) {
     say("已还原到出厂状态：" + (r.data.actions || []).join("；"));
   } else {
     say("还原失败: " + ((r.data && (r.data.error || r.data.message)) || r.status));
   }
+  closeFactoryResetDialog();
   loadFactoryProject();
   loadProjects(true);
   refresh();
@@ -5376,25 +5430,30 @@ onUnmounted(() => {
         <span class="spacer"></span>
         <button class="mini" @click="archiveCurrent">归档</button>
       </div>
-      <!-- 出厂测试项目一键还原（0.6.22）：只对带出厂标记的测试项目渲染；
-           两步确认（armed 变色），服务端三重自检兜底 —— 真书永远看不到这块。 -->
+      <!-- 出厂测试项目一键还原（0.6.22 建，0.7.0 重做）：只对出厂测试项目渲染；
+           **已是出厂状态时按钮置灰**（没有可清内容就不该摆着等人点，2026-10-24 用户点名
+           「已经清理完了按钮还在，很蠢」）；确认改弹窗滑条，不再同位置点两次；
+           服务端三重自检兜底 —— 真书永远看不到这块。 -->
       <div v-if="factoryProject?.is_factory" class="art-row"
            style="margin-top: 10px; border: 1px solid var(--warn); border-radius: 8px; padding: 8px 10px;">
         <span class="art-label" title="这本是预设/样例铺设的出厂测试项目，可一键回到刚铺好的状态">
           出厂测试项目
         </span>
-        <span class="meta">
+        <span v-if="!factoryResetDirty" class="meta">
+          已是出厂状态（素材 {{ factoryProject.wipe_plan?.cards_now ?? '?' }} 张、无测试进度），
+          无可还原内容
+        </span>
+        <span v-else class="meta">
           {{ factoryProject.wipe_plan
              ? `将清掉 ${factoryProject.wipe_plan.chapters_done} 章测试进度与评审记录，素材回到 ${factoryProject.wipe_plan.cards_factory} 张（当前 ${factoryProject.wipe_plan.cards_now} 张）；先自动快照`
              : '将清掉本书测试进度并铺回出厂素材；先自动快照' }}
         </span>
         <span class="spacer"></span>
-        <button v-if="!factoryResetArmed" class="mini" @click="armFactoryReset"
-                title="仅还原这本出厂测试项目；他书归档、写作预设、日志与导出成品都不动">
+        <button class="mini" :disabled="!factoryResetDirty" @click="openFactoryResetDialog"
+                :title="factoryResetDirty
+                  ? '仅还原这本出厂测试项目；他书归档、写作预设、日志与导出成品都不动'
+                  : '当前已是出厂状态，没有可还原的内容'">
           一键还原
-        </button>
-        <button v-else class="mini danger" @click="resetFactoryProject">
-          确认还原（再点一次）
         </button>
       </div>
       <div v-if="projects.archived.length" style="margin-top: 14px;">
@@ -5418,6 +5477,34 @@ onUnmounted(() => {
       </div>
     </section>
   </main>
+
+  <!-- 出厂测试项目还原确认（0.7.0）：弹窗 + 滑条解锁。破坏性操作多步确认；
+       旧「同位置点两次」被用户点名垃圾（2026-10-24），改为两个动作两个位置。
+       默认焦点给「取消」（最保守选项）；ESC / 点遮罩可退出；滑条中途松手弹回。 -->
+  <div v-if="factoryResetDialog" class="drawer-mask" @click.self="closeFactoryResetDialog">
+    <div class="dialog" @keydown.esc="closeFactoryResetDialog">
+      <h3>还原出厂测试项目《{{ factoryProject?.book_name || '（当前项目）' }}》</h3>
+      <div class="meta" style="margin: 4px 0 2px;">将清除：</div>
+      <ul v-if="factoryProject?.wipe_plan?.dirty_items?.length" class="factory-reset-list">
+        <li v-for="it in factoryProject.wipe_plan.dirty_items" :key="it">{{ it }}</li>
+      </ul>
+      <div class="meta" style="margin-top: 8px; line-height: 1.8;">
+        他书归档、写作预设、快照、日志、导出成品都不动；动手前先自动快照（history/ 可回退）。
+      </div>
+      <div class="slider-confirm" :class="{ done: factoryResetSlid }" ref="factoryResetTrack"
+           @pointerdown="factoryResetSlideStart" @pointermove="factoryResetSlideMove"
+           @pointerup="factoryResetSlideEnd" @pointercancel="factoryResetSlideEnd">
+        <div class="slider-hint">{{ factoryResetSlid ? '已解锁，点「开始还原」执行' : '按住滑块，拖到最右 →' }}</div>
+        <div class="slider-knob" :style="{ left: factoryResetSlideX + 'px' }">
+          {{ factoryResetSlid ? '✓' : '→' }}
+        </div>
+      </div>
+      <div class="dialog-actions">
+        <button class="mini" ref="factoryResetCancel" @click="closeFactoryResetDialog">取消</button>
+        <button class="mini danger" :disabled="!factoryResetSlid" @click="resetFactoryProject">开始还原</button>
+      </div>
+    </div>
+  </div>
 
   <!-- 素材编辑抽屉 -->
 

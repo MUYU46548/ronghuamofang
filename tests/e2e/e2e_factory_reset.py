@@ -2,8 +2,10 @@
 """出厂测试项目一键还原 —— 真机视觉验收（针对本功能，替代卡壳的全量脚本）。
 
 起 scratch 工作区（带出厂标记 + 测试进度）+ nf_api --root，Playwright 真浏览器：
-项目页出现还原面板 → 点「一键还原」→ armed 态变「确认还原」→ 再点 → toast 报成功
-→ 磁盘验证：进度清掉、素材铺回出厂。截图存 Temp/gui_verify/factory_reset/。
+项目页出现还原面板（按钮可用）→ 点「一键还原」→ 弹窗列出将清除项 → 滑条中途松手
+弹回不解锁 → 拖到最右解锁 → 点「开始还原」→ toast 报成功 → 面板按钮置灰
+（已是出厂状态）→ 磁盘验证：进度清掉、素材铺回出厂。
+截图存 Temp/gui_verify/factory_reset/。
 """
 import io
 import json
@@ -122,23 +124,55 @@ def main():
             page.wait_for_timeout(1200)
             panel = page.locator("button", has_text="一键还原")
             check("项目页出现「一键还原」按钮（出厂项目）", panel.count() > 0)
-            page.screenshot(path=str(SHOT / "1_project_panel.png"))
-            # 第一步：armed
-            panel.first.click()
-            page.wait_for_timeout(400)
-            armed = page.locator("button", has_text="确认还原（再点一次）")
-            check("点一次 → armed 态「确认还原（再点一次）」", armed.count() > 0)
+            check("有测试进度 → 按钮可用（未置灰）",
+                  panel.count() > 0 and panel.first.is_enabled())
             check("面板带擦除计划说明",
                   "将清掉" in (page.locator("div.art-row", has_text="出厂测试项目").first
                             .inner_text() if page.locator(
                               "div.art-row", has_text="出厂测试项目").count() else ""))
-            page.screenshot(path=str(SHOT / "2_armed.png"))
-            # 第二步：执行
-            armed.first.click()
+            page.screenshot(path=str(SHOT / "1_project_panel.png"))
+            # 第一步：点开确认弹窗（0.7.0 —— 不再是同位置点两次的 armed 态）
+            panel.first.click()
+            page.wait_for_timeout(400)
+            slider = page.locator(".dialog .slider-confirm")
+            check("确认弹窗出现（列出将清除项 + 滑条）",
+                  slider.count() > 0 and "将清除" in page.locator(".dialog").first.inner_text())
+            start_btn = page.locator(".dialog button", has_text="开始还原")
+            check("「开始还原」默认禁用（未滑条不解锁）",
+                  start_btn.count() > 0 and not start_btn.first.is_enabled())
+            page.screenshot(path=str(SHOT / "2_dialog.png"))
+            # 第二步：滑条解锁 —— 先拖一半松手验证弹回，再拖到底解锁
+            box = slider.bounding_box()
+            check("滑条可定位", bool(box), box)
+            knob_w, pad = 56, 3
+            cy = box["y"] + box["height"] / 2
+            x0 = box["x"] + pad + knob_w / 2
+            max_dx = box["width"] - knob_w - pad * 2
+            page.mouse.move(x0, cy)
+            page.mouse.down()
+            for frac in (0.3, 0.6):
+                page.mouse.move(x0 + max_dx * frac, cy)
+                page.wait_for_timeout(60)
+            page.mouse.up()
+            page.wait_for_timeout(150)
+            check("中途松手 → 弹回不解锁", not start_btn.first.is_enabled())
+            page.mouse.move(x0, cy)
+            page.mouse.down()
+            for frac in (0.3, 0.6, 0.9, 1.0):
+                page.mouse.move(x0 + max_dx * frac, cy)
+                page.wait_for_timeout(60)
+            page.mouse.up()
+            page.wait_for_timeout(150)
+            check("拖到最右 → 解锁「开始还原」", start_btn.first.is_enabled())
+            page.screenshot(path=str(SHOT / "3_slid.png"))
+            # 第三步：执行
+            start_btn.first.click()
             page.wait_for_timeout(2500)
             body = page.inner_text("body")
             check("toast 报「已还原到出厂状态」", "已还原到出厂状态" in body)
-            page.screenshot(path=str(SHOT / "3_done.png"))
+            check("还原后面板按钮置灰（已是出厂状态，2026-10-24 用户点名场景）",
+                  panel.count() > 0 and panel.first.is_disabled())
+            page.screenshot(path=str(SHOT / "4_done.png"))
             check("无前端 console 报错", not errs, (errs[:3] + ["|http:"] + bad[:5]))
             ctx.close()
             b.close()

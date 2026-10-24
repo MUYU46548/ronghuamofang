@@ -89,6 +89,14 @@ def _count_cards(raw_dir):
     return len([p for p in d.iterdir() if p.is_file() and p.suffix == ".md"])
 
 
+def _tree_count(d):
+    """目录里有几个文件（不存在/空目录 = 0）。脏判据用：白名单目录非空才算「有东西可清」。"""
+    d = Path(d)
+    if not d.is_dir():
+        return 0
+    return sum(1 for p in d.rglob("*") if p.is_file())
+
+
 def _cards_dir(src):
     """出厂源的素材卡目录（两种布局都认）：
 
@@ -252,10 +260,27 @@ def describe(root):
                               or {}).get("stages") or {}).keys())
         except Exception:                                       # noqa: BLE001
             stages = ["(progress.json 无法解析)"]
+    # 脏判据（0.7.0，用户 2026-10-24 点名「已经清理完了按钮还在，很蠢」）：
+    # 还原白名单里**还有东西**才算「有可还原内容」。已是出厂状态时 GUI 按钮置灰 ——
+    # 一个没有可清内容的「一键还原」是摆在那等人误点的坑，不是功能。
+    # 判据与 reset() 的擦除白名单同源（WIPE_DIRS/WIPE_SUBDIRS/WIPE_FILES + 素材卡数），
+    # 白名单加项这里自动跟上，不会两边漂移。
+    dirty_items = []
+    if cur_cards != n_src:
+        dirty_items.append("素材卡 %d 张（出厂 %d 张）" % (cur_cards, n_src))
+    for _rel in WIPE_DIRS + WIPE_SUBDIRS:
+        n = _tree_count(root / _rel)
+        if n:
+            dirty_items.append("%s（%d 个文件）" % (_rel, n))
+    for _rel in WIPE_FILES:
+        if (root / _rel).exists():
+            dirty_items.append(_rel)
     out.update(is_factory=True, source_ok=True, source=str(src),
                kind=eff.get("kind"), id=eff.get("id"),
                wipe_plan={"chapters_done": n_ch, "cards_now": cur_cards,
-                          "cards_factory": n_src, "stages": stages})
+                          "cards_factory": n_src, "stages": stages,
+                          "dirty": bool(dirty_items),
+                          "dirty_items": dirty_items})
     return out
 
 

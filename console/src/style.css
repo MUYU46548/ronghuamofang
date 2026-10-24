@@ -1736,3 +1736,29 @@ kbd {
   background: var(--border);
   margin: 24px 0;
 }
+
+/* 出厂还原：滑动确认条（0.7.0）—— 破坏性操作的多步确认，替代「同位置点两次」
+   （2026-10-24 用户点名）。拖到底解锁「开始还原」；中途松手弹回；完成后轨道转 ok 色。 */
+.slider-confirm {
+  position: relative; height: 42px; margin-top: 14px;
+  border: 1px solid var(--border); border-radius: 21px;
+  background: var(--field-inset); overflow: hidden;
+  user-select: none; -webkit-user-select: none; touch-action: none;
+}
+.slider-confirm .slider-hint {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  font-size: 12px; color: var(--muted); pointer-events: none;
+}
+.slider-confirm .slider-knob {
+  position: absolute; left: 3px; top: 3px; width: 56px; height: 34px;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 17px; background: var(--accent); color: #fff;
+  font-size: 15px; cursor: grab; z-index: 1;
+}
+.slider-confirm .slider-knob:active { cursor: grabbing; }
+.slider-confirm.done { border-color: var(--ok); }
+.slider-confirm.done .slider-knob { background: var(--ok); }
+.factory-reset-list {
+  margin: 4px 0 0; padding-left: 20px;
+  font-size: 12.5px; color: var(--ink); line-height: 1.9;
+}
