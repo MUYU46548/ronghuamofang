@@ -6,7 +6,10 @@
 
 ## 组成
 
-- `materials/` — 19 张结构化素材卡（应与 `materials/raw/` 逐字节一致）
+- `materials/raw/` — 19 张结构化素材卡。
+  **就放在 `raw/` 层**（2026-10-24 修正）：`scan_materials` 只递归 `materials/raw/`，
+  卡直接躺 `materials/` 根时 stage1 一张都扫不到 —— 拿样例试跑会归并出空设定集。
+  出厂预设（`examples/presets/*/materials/raw/`）一直是这个层级，只有最老的样例没跟上。
 - `project.yaml` — 预设项目配置（书名 / 类型 / 章数 / user_outline，快照于 2026-10-06）
 
 ## ⚠️ 大纲与素材必须配套（2026-10-18 补）

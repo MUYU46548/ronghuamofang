@@ -74,12 +74,20 @@ def main():
     check("user_outline 非空", bool(outline))
     print("\n  user_outline: %s" % outline[:120])
 
+    # 素材卡住在 `materials/raw/` —— 与 stage1 的 `scan_materials` 消费路径**同一层**。
+    # 曾经卡直接躺 `materials/` 根，于是「拿样例书直接试跑」stage1 扫到 0 张卡、
+    # 归并出空设定集，而样例自洽性判据全绿（它自己读 materials/*.md，与消费路径不是同一条）。
     mat = os.path.join(SAMPLE, "materials")
-    check("样例 materials/ 存在", os.path.isdir(mat), mat)
-    files = sorted(f for f in os.listdir(mat) if f.endswith(".md")) if os.path.isdir(mat) else []
+    raw = os.path.join(mat, "raw")
+    check("样例 materials/raw/ 存在（stage1 只扫这一层）", os.path.isdir(raw), raw)
+    files = sorted(f for f in os.listdir(raw) if f.endswith(".md")) if os.path.isdir(raw) else []
     check("样例卡仍是 19 张", len(files) == 19, len(files))
 
-    corpus = "".join(_read(os.path.join(mat, f)) for f in files)
+    # 判据 1b：卡不许落在 materials/ 直下（放错层级 = 静默扫零，比缺失更难查）
+    stray = sorted(f for f in os.listdir(mat) if f.endswith(".md")) if os.path.isdir(mat) else []
+    check("卡不在 materials/ 直下（否则 stage1 一张都扫不到）", not stray, stray)
+
+    corpus = "".join(_read(os.path.join(raw, f)) for f in files)
 
     # ---- 判据 2：大纲实体必须都有素材落点 ----
     required = ["沈砚", "程砧", "祝鹤川", "雾港核心", "雾港遗址", "机关术",
@@ -97,22 +105,22 @@ def main():
     check("旧宇宙词已清空（虚构化不得只换一半）", not leaked, leaked)
 
     # ---- 判据 4：脱敏声明 ----
-    nohdr = [f for f in files if "非真实作品" not in _read(os.path.join(mat, f))]
+    nohdr = [f for f in files if "非真实作品" not in _read(os.path.join(raw, f))]
     check("每张卡都带「非真实作品」脱敏声明", not nohdr, nohdr)
 
     # ---- 判据 5：首行合法标题 ----
     bad = []
     for f in files:
-        first = _read(os.path.join(mat, f)).split("\n", 1)[0].strip()
+        first = _read(os.path.join(raw, f)).split("\n", 1)[0].strip()
         if not (first.startswith("# ") or first.startswith("## ")):
             bad.append((f, first[:40]))
     check("每张卡首行是合法标题", not bad, bad)
 
     # ---- 判据 6：无本机绝对路径 ----
     badpath = [f for f in files
-               if re.search(r"[A-Za-z]:\\", _read(os.path.join(mat, f)))
-               or "/home/" in _read(os.path.join(mat, f))
-               or "/Users/" in _read(os.path.join(mat, f))]
+               if re.search(r"[A-Za-z]:\\", _read(os.path.join(raw, f)))
+               or "/home/" in _read(os.path.join(raw, f))
+               or "/Users/" in _read(os.path.join(raw, f))]
     check("卡内无本机绝对路径", not badpath, badpath)
 
     print("\n" + "=" * 62)

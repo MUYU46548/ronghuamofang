@@ -66,7 +66,7 @@ TOKENHUB_API_KEY=你的密钥
 **快速体验**：复制示例书素材：
 
 ```bash
-copy examples\sample-book\materials\* materials\raw\
+copy examples\sample-book\materials\raw\* materials\raw\
 ```
 
 ## 第四步：跑流水线

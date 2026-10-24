@@ -5705,7 +5705,7 @@ onUnmounted(() => {
 
 - 角色A：关系说明</pre>
         </div>
-        <div class="meta">快速体验：复制 examples/sample-book/materials/* 到 materials/raw/</div>
+        <div class="meta">快速体验：复制 examples/sample-book/materials/raw/* 到 materials/raw/</div>
       </div>
       <table v-if="materials.length" class="cost-table">
         <thead>

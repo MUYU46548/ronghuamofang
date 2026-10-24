@@ -110,10 +110,11 @@ def build_project():
                     ignore=shutil.ignore_patterns("history", "reference"))
     _force_agent_mode_off(tmp / "config" / "system.yaml")
 
-    # 样例随包（检测的比对真源）：ROOT/examples/sample-book/materials/*.md
-    w(tmp / "examples" / "sample-book" / "materials" / "潮神_角色卡.md", SMP_A)
-    w(tmp / "examples" / "sample-book" / "materials" / "回声_角色卡.md", SMP_B)
-    w(tmp / "examples" / "sample-book" / "materials" / "潮崩_概念卡.md", SMP_C)
+    # 样例随包（检测的比对真源）：ROOT/examples/sample-book/materials/raw/*.md
+    # 层级与真实样例保持同构（2026-10-24 起卡住 materials/raw/，stage1 只扫这一层）
+    w(tmp / "examples" / "sample-book" / "materials" / "raw" / "潮神_角色卡.md", SMP_A)
+    w(tmp / "examples" / "sample-book" / "materials" / "raw" / "回声_角色卡.md", SMP_B)
+    w(tmp / "examples" / "sample-book" / "materials" / "raw" / "潮崩_概念卡.md", SMP_C)
     w(tmp / "examples" / "sample-book" / "project.yaml", "book:\n  name: 雾港核心\n")
 
     # 工作区素材：2 张逐字节一致 + 1 张改过 + 1 张无关

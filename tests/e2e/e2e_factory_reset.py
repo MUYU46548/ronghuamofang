@@ -48,7 +48,8 @@ def build_scratch():
     (SCRATCH / "config" / "project.yaml").write_text(
         "book:\n  name: 雾港核心\n  genre: 悬疑\n  chapters: 3\n", encoding="utf-8")
     # 样例源（用户实际路径：随包样例书直接跑出来的项目，**没有铺设标记**，
-    # 靠书名 == 样例名认身份）。样例布局：卡在 materials/ 直下（无 raw/ 层）。
+    # 靠书名 == 样例名认身份）。真实样例布局：卡在 materials/raw/（stage1 只扫这一层）；
+    # 本夹具只测书名比对认身份，不读卡内容，故层级不影响本用例。
     sample = SCRATCH / "_sample" / "sample-book"
     (sample / "materials").mkdir(parents=True)
     (sample / "project.yaml").write_text(
