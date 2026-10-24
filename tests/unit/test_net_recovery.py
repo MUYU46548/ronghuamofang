@@ -292,20 +292,22 @@ def case_kill_resume():
         # （子进程 traceback 恰好以换行结尾时）会被整段丢掉 —— CI 上曾因此只看到
         # 「KILLPOINT 不在输出里」，却看不到子进程到底炸在哪（红了一天无从下手）。
         flat = " | ".join(out.splitlines()[-4:])[-180:]
-        # 管子输出可能整段丢失（CI 实测 rc=1 却一个字节都没有）→ 回读驱动写的日志文件
+        # ⚠ CI 已知异常（2026-10-24 探针定位）：子进程 os.write(1) 返回 10 = 写成功，
+        #   父进程管道却一个字节都收不到 —— **管子这条通道在 CI 上不可信**。
+        #   判据因此改以驱动落的日志文件为准（文件通道本地与 CI 双双可靠）；
+        #   文件也没有 = 驱动压根没跑起来，照样判失败（不是放水）。
         logf = tmp / "_kill_out.log"
-        if logf.exists():
-            _ls = logf.read_text(encoding="utf-8").splitlines()
-            # 两头都要：文件开头的探针/异常 + 结尾的强杀行，中间 stage4 流水可弃。
-            # 分段截断（不能整体 [-700:]，否则开头探针会被尾巴挤掉）。
-            _head = " || ".join([l for l in _ls if l.startswith(("PROBE", "EXC"))][-4:])[:380]
-            _tail = " | ".join(_ls[-3:])[:300]
-            flog = _head + " ~~ " + _tail
-        else:
-            flog = "(驱动没写出日志文件)"
-        check("子进程确实走到强杀点", "KILLPOINT" in out,
+        ftxt = logf.read_text(encoding="utf-8") if logf.exists() else ""
+        evidence = out + "\n" + ftxt
+        if ftxt and "RAWFD1-OK" in ftxt and "RAWFD1-OK" not in out:
+            print("  [INFO] 子进程 fd1 写入未回到父进程管道（CI 已知异常）→ 判据以日志文件为准")
+        _ls = ftxt.splitlines()
+        _head = " || ".join([l for l in _ls if l.startswith(("PROBE", "EXC"))][-3:])[:300]
+        _tail = " | ".join(_ls[-3:])[:300]
+        flog = (_head + " ~~ " + _tail) if _ls else "(驱动没写出日志文件)"
+        check("子进程确实走到强杀点", "KILLPOINT" in evidence,
               "rc=%s · file=[%s] · pipe=[%s]" % (r.returncode, flog, flat))
-        check("子进程未走完（无 UNREACHABLE）", "UNREACHABLE" not in out)
+        check("子进程未走完（无 UNREACHABLE）", "UNREACHABLE" not in evidence)
 
         raw = tmp / "data" / "chapters" / "raw"
         check("强杀后 1、2 章文件在盘（写盘先于记账）",
