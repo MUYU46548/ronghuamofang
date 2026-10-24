@@ -631,20 +631,27 @@ def test_about_project(browser, mock_proc=None):
             check("点徽标也能弹出说明（不只依赖悬浮）", "自检没过" in toast, toast[:160])
         shot(page, "D2_project_tab")
 
-        print("  --- 新建项目向导三步 ---")
+        print("  --- 新建项目向导四步（v0.20 起：0 选预设 → 1 基本信息 → 2 当前工作区 → 3 确认创建）---")
         page.locator("button:has-text('＋ 新建项目')").first.click()
         page.wait_for_timeout(500)
-        check("向导打开且停在第 1 步", page.locator(".wiz-steps").count() == 1
-              and "1 基本信息" in page.locator(".wiz-steps").inner_text())
+        # 旧断言按三步布局写（首屏即基本信息），v0.20 插入预设步后整段长期失真 ——
+        # 2026-10-24 改按真实四步走；活跃步用 .wiz-step.on 判（全量文本恒含所有步名，
+        # 拿 inner_text 判断等于不断言）。
+        check("向导打开且停在第 0 步（选预设）", page.locator(".wiz-steps").count() == 1
+              and "0 选预设" in page.locator(".wiz-step.on").inner_text())
         nxt = page.locator(".dialog button:has-text('下一步')")
+        check("未选预设时「下一步」可用（手工流程不被堵在预设屏）", not nxt.is_disabled())
+        shot(page, "D3_wizard_step0")
+        nxt.click()
+        page.wait_for_timeout(300)
+        check("进入第 1 步（基本信息）", "1 基本信息" in page.locator(".wiz-step.on").inner_text())
         check("空书名时「下一步」禁用（前置校验）", nxt.is_disabled())
-        shot(page, "D3_wizard_step1")
         page.locator(".dialog input.text-input").first.fill("验收新书")
         page.wait_for_timeout(200)
         check("填了书名后「下一步」可用", not nxt.is_disabled())
         nxt.click()
         page.wait_for_timeout(300)
-        check("进入第 2 步（当前工作区）", "2 当前工作区" in page.locator(".wiz-steps").inner_text())
+        check("进入第 2 步（当前工作区）", "2 当前工作区" in page.locator(".wiz-step.on").inner_text())
         check("有数据时显示归档勾选框", page.locator(".wiz-check input[type=checkbox]").count() == 1)
         page.locator(".wiz-check input[type=checkbox]").uncheck()
         page.wait_for_timeout(250)
@@ -656,7 +663,7 @@ def test_about_project(browser, mock_proc=None):
         page.wait_for_timeout(200)
         page.locator(".dialog button:has-text('下一步')").click()
         page.wait_for_timeout(300)
-        check("进入第 3 步（确认摘要）", "3 确认创建" in page.locator(".wiz-steps").inner_text())
+        check("进入第 3 步（确认摘要）", "3 确认创建" in page.locator(".wiz-step.on").inner_text())
         summary = page.locator(".dialog .cost-table").inner_text()
         check("摘要含书名/类型/章数/归档说明",
               "验收新书" in summary and "归档为" in summary, summary.replace("\n", " | ")[:90])
