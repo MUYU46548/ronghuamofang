@@ -226,7 +226,7 @@ def _load_vault_dirs_raw():
 
 
 def get_skip_dirs():
-    """跳过目录集合（非正典内容）= **默认四项 ∪ 用户追加项**。
+    """跳过目录集合（非正典内容）= **默认四项 ∪ 用户追加项 ∪ 沙盒目录名**。
 
     语义是**追加不是替换**（2026-10-02 修正）：用户在 system.local.yaml 的
     `obsidian.skip_dirs` 里只写自己额外要跳过的目录即可，默认四项
@@ -235,11 +235,23 @@ def get_skip_dirs():
     为什么改：旧实现是「local 有值就整体顶掉默认」，而 system.yaml 的注释却写着
     「覆盖/追加」—— 用户按注释只写一项想追加，实际把 `.git` 放进了扫描面
     （脚枪）。**取消**某个默认项本键做不到（刻意：删默认通常是想错了）。
+
+    **沙盒目录恒并入（2026-10-24）**：`obsidian.sandbox_dir` 是系统唯一可写位置，
+    扫描/索引若把它收进来，读到的就是我们自己写回沙盒的产物 —— 自指污染
+    （实测某真实 vault 里沙盒 148 篇全在收集面内）。这里按**目录名段**并入
+    （与既有 `part in skip_dirs` 的匹配粒度一致），用户把沙盒配在 vault 内外
+    都能拦住；沙盒配在项目内（默认 `data/state/obsidian_sandbox`）时并入的
+    目录名不在任何 vault 里，无副作用。
     """
     out = set(_DEFAULT_SKIP_DIRS)
     raw = load_obsidian_config().get("skip_dirs")
     if isinstance(raw, (list, tuple)):
         out |= {str(s).strip() for s in raw if str(s).strip()}
+    sbx = str(load_obsidian_config().get("sandbox_dir") or "").strip()
+    if sbx:
+        base = re.split(r"[/\\]", sbx.rstrip("/\\"))[-1].strip()
+        if base and base not in (".", ".."):
+            out.add(base)
     return out
 
 

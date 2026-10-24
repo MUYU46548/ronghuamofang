@@ -667,6 +667,89 @@ def handle_config_agent_mode_set(h, body):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+# Agent 模式下各操作族的**人话说明**。键 = 端点路径前缀；判据唯一来源仍是
+# utils.agent_guard.is_forbidden_in_agent_mode —— 这里只补「为什么」，不改判据。
+# ⚠️ 判据绝不能在这里复述一份：两份名单必然漂移（前端锁了后端没锁 / 反过来），
+#    而漂移的表现正是用户 2026-10-24 抱怨的「客户端里分不清哪些走 Agent 哪些走内部」。
+_AGENT_PATH_NOTES = {
+    "/approve": "审批放行 —— 判定权归用户，Agent 不得代批",
+    "/reject": "打回重跑 —— 同审批族，会清下游产物",
+    "/project/create": "新建项目 —— 会归档当前项目并清空工作区",
+    "/project/archive": "归档当前项目 —— 搬空工作区到书库",
+    "/project/restore": "恢复归档书 —— 覆盖当前工作区",
+    "/project/init": "首启初始化 —— 写入工作区骨架",
+    "/project/archive/delete": "删除归档 —— 抹掉成书数据（进回收站）",
+    "/config/agent_mode": "切换 Agent 模式本身 —— Agent 不得开关自己的模式",
+    "/config/token_limit": "止烧阈值 —— Agent 不得抬高烧钱上限",
+    "/factory/clean": "清理出厂样例 —— 移动用户素材文件",
+    "/factory/preset/apply": "铺设出厂预设 —— 快照+归档+铺素材，同新建项目",
+    "/factory/project/reset": "出厂项目还原 —— 清书状态+重铺素材",
+    "/stage/skip": "跳过阶段 —— 会把 approved 真写进 progress.json",
+    "/import/docx": "导入整本 Word 稿 —— 批量覆盖章节文件",
+    "/outline/segments/set": "分段审批标记 —— 勾一段等于替用户读一段",
+    "/outline/discussion/review": "讨论提案审批 —— 会写回章大纲",
+    "/plan/select": "规划拍板四态 —— AI 可提案，拍板归用户",
+    "/plan/write": "规划拍板四态 —— 同上",
+    "/plan/drop": "规划拍板四态 —— 同上",
+    "/plan/revive": "规划拍板四态 —— 同上",
+}
+
+
+def _agent_path_note(path):
+    """给某个端点路径配一句人话（最长前缀优先；无匹配返回 None）。"""
+    best, note = 0, None
+    for prefix, txt in _AGENT_PATH_NOTES.items():
+        if str(path).startswith(prefix) and len(prefix) > best:
+            best, note = len(prefix), txt
+    return note
+
+
+def handle_agent_permissions(h):
+    """Agent 模式权限清单（只读）：`GET /agent/permissions`。
+
+    为什么要有：Agent 模式下 GUI 锁哪些按钮，此前是**前端各处硬编码**，而判据的
+    唯一真源是 utils.agent_guard.FORBIDDEN_IN_AGENT_MODE —— 两边没有共享通道。
+    用户 2026-10-24 的原话：「在客户端内根本分不清哪些会走 agent 哪些直接走内部
+    配置 API，很混乱」。这里把权威名单 + 人话说明一次性交给前端渲染，前端不再
+    自己维护第二份名单（两份名单必然漂移，漂移 = 这次抱怨的根因）。
+
+    返回三类，让界面能画出明确分界：
+      - forbidden：Agent 模式下**外部 Agent 调用会被 403** 的端点（判定权归用户）
+      - internal：GUI 内部直连 API 的常规功能（不受 Agent 模式影响）
+      - run_locked：Agent 模式下 GUI **运行按钮**锁定（防双跑，非权限拦截）
+    """
+    try:
+        from utils import agent_guard
+        forbidden = []
+        for path in sorted(agent_guard.FORBIDDEN_IN_AGENT_MODE):
+            forbidden.append({"path": path, "why": _agent_path_note(path)
+                              or "用户拍板类操作"})
+        return 200, {
+            "ok": True,
+            "agent_mode_enabled": api.load_all()[0].get("gates", {}).get(
+                "agent_mode", False),
+            "forbidden": forbidden,
+            "internal": [
+                {"path": "/stage/{n}/run", "why": "跑阶段 —— 生成类，Agent 可驱动"},
+                {"path": "/outline/save", "why": "保存大纲 —— 落草稿/沙盒，可回退"},
+                {"path": "/refine/*", "why": "AI 精修 —— 改前自动备份 + 可撤销"},
+                {"path": "/setting/current", "why": "读设定集 —— 只读"},
+                {"path": "/costs/*", "why": "成本查询 —— 只读"},
+            ],
+            "run_locked": [
+                {"what": "全自动 / 流式全自动 / Word 成品 / 快速运行",
+                 "why": "运行入口统一锁：Agent 模式下运行由外部 Agent 驱动，"
+                        "GUI 再点一次会双跑（两条流水线各烧一倍 token）"},
+                {"what": "审批 / 打回 / 停止 / 跳过",
+                 "why": "不受影响 —— 这几件事本来就只归桌面端"},
+            ],
+            "note": "判据唯一来源 utils.agent_guard.FORBIDDEN_IN_AGENT_MODE；"
+                    "本端点只做展示，不改判据。",
+        }
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 # ---------------------------------------------------------------- 归档查看 / 删除
 # 为什么在「项目」域：/project/list 已在此，归档的「看」与「删」是它的自然延伸 ——
 # 此前 GUI 每行只有「恢复」，既看不了内容也删不掉，归档变成死胡同。
@@ -926,6 +1009,7 @@ ROUTES = (
     ("POST", "/config/word_template", handle_config_word_template_set),
     ("GET", "/config/agent_mode", handle_config_agent_mode),
     ("POST", "/config/agent_mode", handle_config_agent_mode_set),
+    ("GET", "/agent/permissions", handle_agent_permissions),
     ("GET", "/config/token_limit", handle_config_token_limit),
     ("POST", "/config/token_limit", handle_config_token_limit_set),
     ("GET", "/config/target_words", handle_config_target_words),

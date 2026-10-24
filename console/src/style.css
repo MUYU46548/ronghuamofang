@@ -26,6 +26,9 @@
   --field-head: #f6f6fa;     /* 表头 */
   --field-code: #f4f4f8;     /* 行内代码底 */
   --topbar: rgba(255, 255, 255, 0.72);
+  /* 顶栏实测高度（App.vue 的 syncTopbarHeight 会用真实测量值覆盖它）。
+     兜底值取顶栏的常见高度，JS 未跑时抽屉遮罩至少不会从视口顶开始。 */
+  --topbar-h: 103px;
   /* 多处样式引用 --muted-foreground，但它**从未被定义过** → 颜色静默失效、
      退回继承色（层级丢失）。这里补上别名，暗色主题会自动跟随 --muted。 */
   --muted-foreground: var(--muted);
@@ -460,6 +463,22 @@ body {
 .gate-head { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
 .gate-files { margin-top: 9px; display: flex; gap: 6px; }
 
+/* Agent 模式权限面板（2026-10-24）：三类边界并排，code 用等宽好对齐路径 */
+.perm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 6px; }
+.perm-grid h4 { margin: 0 0 6px; font-size: 13px; }
+.perm-row { display: flex; gap: 8px; align-items: baseline; padding: 3px 0; }
+.perm-row code {
+  font-family: Consolas, "Microsoft YaHei", monospace; font-size: 11.5px; white-space: nowrap;
+  background: rgba(155, 143, 196, 0.12); border-radius: 5px; padding: 1px 6px;
+}
+/* 界面与后端名单对不上 = 界面在说假话。用 error 色，且不折叠 —— 假话必须刺眼 */
+.error-strip {
+  background: rgba(196, 127, 127, 0.16); color: var(--bad);
+  border: 1px solid rgba(196, 127, 127, 0.5); border-radius: 8px;
+  padding: 8px 11px; margin-top: 8px; font-size: 12.5px;
+}
+@media (max-width: 860px) { .perm-grid { grid-template-columns: 1fr; } }
+
 /* 成本表 */
 .cost-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .cost-table th, .cost-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); }
@@ -524,15 +543,19 @@ body {
 .dialog textarea:focus { outline: none; border-color: var(--accent); }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
 
-/* 抽屉 */
+/* 抽屉避让顶栏（2026-10-24）：顶栏是 sticky 流内元素，抽屉遮罩原来 inset:0
+   从视口顶起，drawer-head 正好压在它下方 —— 关闭按钮点不到（Playwright 实测
+   「topbar intercepts pointer events」）。
+   高度不写死数字：让遮罩从 topbar 下沿开始、抽屉 height:100% 自然填满，
+   顶栏将来改字号/加徽标也不会再错位。 */
 .drawer-mask {
-  position: fixed; inset: 0; z-index: 20;
+  position: fixed; inset: var(--topbar-h, 103px) 0 0 0; z-index: 20;
   background: rgba(60, 65, 80, 0.32);
   display: flex; justify-content: flex-end;
 }
 .drawer-mask:has(.dialog) { justify-content: center; align-items: center; }
 .drawer {
-  width: min(720px, 92vw); height: 100%;
+  width: min(720px, 92vw); align-self: stretch;
   background: var(--card); box-shadow: -12px 0 40px rgba(90, 90, 130, 0.25);
   display: flex; flex-direction: column;
 }

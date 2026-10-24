@@ -321,6 +321,44 @@ _ticket(vd=get_vault_dirs(), sd=sorted(get_skip_dirs()))
     shutil.rmtree(root, ignore_errors=True)
 
 
+# ====================================================================== G8
+
+def case_sandbox_dir_excluded_from_kb():
+    print("\n[G8] 沙盒目录恒被跳过（自指污染：全域收集器扫到自己写回的产物）")
+    root = build_sandbox()
+    v = root / "MyVault"
+    (v / "world").mkdir(parents=True)
+    (v / "obsidian_sandbox").mkdir(parents=True)
+    (v / "world" / "甲.md").write_text("# 甲\n正典词条", encoding="utf-8")
+    (v / "obsidian_sandbox" / "乙.md").write_text("# 乙\n系统写回的产物", encoding="utf-8")
+    # 沙盒配在 vault 内（真实形态：用户把沙盒放在自己库里）
+    _write_local(root, "obsidian:\n  sandbox_dir: 'obsidian_sandbox'\n")
+    code = PRELUDE + '''
+import os
+from utils import kb_index
+from utils.setting_schema import get_skip_dirs
+idx = kb_index.build_index(
+    os.environ["V"],
+    os.path.join(os.getcwd(), "data", "state", "kb_index.pkl"))
+_ticket(entries=sorted(idx["entries"].keys()), sd=sorted(get_skip_dirs()))
+'''
+    p, out, err = run_py(root, code, {"V": str(v)})
+    _reset_local(root)
+    if p is None:
+        check("G8 子进程产出结果", False, f"{out[-300:]} {err[-300:]}")
+        shutil.rmtree(root, ignore_errors=True)
+        return
+    check("G8 沙盒目录名进了 skip_dirs（与 kb_index 同一配置源）",
+          "obsidian_sandbox" in p["sd"], f"→ {p['sd']}")
+    check("G8 沙盒内文件不进 kb 索引（否则检索到的是自己写回的产物）",
+          not any("obsidian_sandbox" in e for e in p["entries"]),
+          f"→ {p['entries']}")
+    check("G8 正典文件照常进索引（过滤没有误伤）",
+          any(e.endswith("甲.md") for e in p["entries"]),
+          f"→ {p['entries']}")
+    shutil.rmtree(root, ignore_errors=True)
+
+
 def main():
     print("=" * 70)
     print("vault 目录配置化（A1）回归 —— 不依赖 history 快照")
@@ -332,6 +370,7 @@ def main():
     case_path_kind_multi_anchor()
     case_missing_dir_warns()
     case_broken_local_yaml_warns()
+    case_sandbox_dir_excluded_from_kb()
     print("\n" + "=" * 70)
     print(f"合计: {len(PASS)} 通过 / {len(FAIL)} 失败")
     print("=" * 70)

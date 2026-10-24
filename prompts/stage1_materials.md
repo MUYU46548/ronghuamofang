@@ -38,7 +38,7 @@ temperature: 0.3
 
 ## 输出格式（setting.json，JSON 文件）
 {
-  "characters": [{"id": "...", "name": "...", "role": "...", "traits": [...], "relations": [...]}],
+  "characters": [{"id": "...", "name": "...", "role": "...", "traits": [...], "relations": [...], "records": ["..."]}],
   "world": {"locations": [], "factions": [], "magic_system": [], "items": []},
   "plot_fragments": [{"id": "f001", "source": "素材名", "summary": "...", "status": "unused"}],
   "timeline": [{"event": "...", "year": null, "locked": false}],
@@ -49,3 +49,9 @@ temperature: 0.3
 - 四个顶层键必须全部存在（characters/world/plot_fragments/timeline）
 - 每条目保留 source 溯源字段
 - locked=true 表示硬约束（后续写作不可违逆），仅对明确的设定库条目使用
+- **证词体原文逐字保留**（2026-10-24 OB34 素材实测后补）：素材里以「记录1 /
+  记录2 / ——某某」形式出现的多视角证词、他人评述、宇宙内文献，是**风格与
+  人物侧面的原始载体**。归并时把每条完整原文放进该角色的 `records` 数组
+  （一条一段，不合并、不摘要、不改写标点）。不得为了"精简"把它们压进
+  traits/experience —— 那等于把四段证词砍成一句话，信息就此永久丢失。
+  records 为空数组是正常的（不是所有角色都有证词），但**有就必须留全**。

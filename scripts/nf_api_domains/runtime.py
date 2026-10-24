@@ -470,6 +470,27 @@ def handle_truncated_read(h):
         return 400, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+def handle_gate_artifacts(h):
+    """审批门产物概况（零 token 只读）：`GET /gate/artifacts?stage=N`。
+
+    为什么要有：收件箱每个门要显示「这个阶段到底产出了什么」。stage 1/2/6 的产物
+    是文件，前端 readPreview 还能数行；stage 3/4/7 的产物是**目录**，前端数不出来 ——
+    于是收件箱那一行「产物概况」永远空白（2026-10-24 用户复现：「产物概况依旧是空
+    的，不显示东西」）。行数/章节数/字数在后端按确定性规则数（utils.stage_artifacts
+    单源），这里只做接线。
+    """
+    try:
+        raw = (h._query().get("stage") or [""])[0]
+        if not str(raw).isdigit() or not (1 <= int(raw) <= 8):
+            return 400, {"ok": False, "error": "stage 须为 1-8"}
+        stage = int(raw)
+        from utils.stage_artifacts import summarize_artifacts
+        items = summarize_artifacts(stage, api.ROOT)
+        return 200, {"ok": True, "stage": stage, "artifacts": items}
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 def handle_truncated_adopt(h, body):
     """采纳为第 N 章草稿：`POST /truncated/adopt {name, chapter, replace?}`。
 
@@ -602,6 +623,7 @@ ROUTES = (
     ("GET", "/chapters/history", handle_chapters_history),
     # 残稿可见可采纳（2026-10-20）
     ("GET", "/truncated", handle_truncated),
+    ("GET", "/gate/artifacts", handle_gate_artifacts),
     ("GET", "/truncated/item", handle_truncated_read),
     ("POST", "/truncated/adopt", handle_truncated_adopt),
     ("POST", "/truncated/clear", handle_truncated_clear),

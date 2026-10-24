@@ -570,23 +570,54 @@ def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, p
     #   - 抛异常         → **失败**，必须打印，不能吞
     kb_context = ""
     try:
-        from obsidian_bridge import scan_vault, inject_context, is_vault_configured
+        from obsidian_bridge import (
+            scan_vault, inject_context, is_vault_configured, get_vault_path)
         if not is_vault_configured():
             _kb_notice_once(
                 "[stage4] 提示：未配置 obsidian.vault_path，本次写作**未启用**知识库"
                 "词条注入（属未启用，非失败）。配置后可在 GUI「设置」页填写本地路径。")
         else:
-            vault_data = scan_vault()
             outline_text = _safe_read(outline_path, budget=8000)
             rm = re.search(r"涉及角色[：:]\s*(.+)", outline_text)
             query = rm.group(1)[:100] if rm else outline_text[:100]
-            kb_context = inject_context(query, vault_data=vault_data, top_k=5)
+
+            # 通道A（既有）：name/tags 精确匹配 —— 标准布局下快、带 locked 语义
+            ctx_a = inject_context(query, vault_data=scan_vault(), top_k=5)
+
+            # 通道B（2026-10-24）：**全文倒排召回** —— 扫描准入靠目录名的老通道
+            # 对非标准布局的 vault 一条都扫不到（实测某真实库 scan_vault = 0 条），
+            # 而正文里的关键词本该命中。这里索引 name + 正文全文，不看目录名、
+            # 不要求 frontmatter。
+            # 并联而非替换：A 的 locked 语义与既定行为原样保留，B 只补 A 的盲区。
+            # 独立降级：B 出任何问题都不许连坐 A（真正的加法不改法）。
+            ctx_b = ""
+            try:
+                from utils import kb_index
+                hits = kb_index.recall(query, get_vault_path(),
+                                       top_k=5, max_chars=600)
+                b_parts = []
+                for _p, name, snip, score in hits:
+                    if name and name in ctx_a:      # A 已覆盖的不重复注入
+                        continue
+                    # 上一级目录名（如「行星」「01 武器装备」）帮模型分辨类别；
+                    # 分数只留 1 位小数 —— 原样打 29.014470149006385 是噪声。
+                    folder = Path(_p).parent.name
+                    where = f"{folder}／" if folder and folder != "." else ""
+                    b_parts.append(f"### {name}（{where}全文检索命中 {score:.1f}）\n{snip}\n")
+                ctx_b = "\n".join(b_parts)
+            except Exception as be:                          # noqa: BLE001
+                _kb_notice_once(
+                    f"[stage4] 提示：全文检索通道不可用（不影响正典词条注入）: "
+                    f"{type(be).__name__}: {be}")
+
+            kb_context = (ctx_a + "\n" + ctx_b).strip()
             if kb_context:
                 kb_context = "### 相关正典词条（写作时参考，locked 条目不可违逆）\n\n" + kb_context
             else:
                 _kb_notice_once(
-                    "[stage4] 提示：vault 已配置但未匹配到相关词条 —— 未注入 KB 上下文"
-                    "（可能是章节「涉及角色」行缺失，或词条名与角色名不一致）。")
+                    "[stage4] 提示：vault 已配置但两条检索通道（词条名精确匹配 + "
+                    "正文全文检索）都未匹配到相关词条 —— 未注入 KB 上下文"
+                    "（可能是章节「涉及角色」行缺失，或本章内容与正典词条无交集）。")
     except Exception as e:                       # noqa: BLE001
         print(f"[stage4] ⚠ 知识库注入失败（本章将无 KB 正典上下文）: "
               f"{type(e).__name__}: {e}")
@@ -639,6 +670,9 @@ def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, p
               f"{type(e).__name__}: {e}")
         chapter_samples_block = ""
 
+    # 参考片段（decompose_samples）：原有功能，2026-10-24 我插引用块时曾把它
+    # 整块顶掉，导致 build_chapter_task 抛 NameError（全量回归 test_stage4_appearances
+    # 抓出）。两个 try 块各自独立 —— 任一失败只清各自的变量，互不牵连。
     try:
         from utils.style_profile import load_snippets_block
         decompose_samples = load_snippets_block()
@@ -646,6 +680,26 @@ def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, p
         print(f"[stage4] 参考片段注入失败（本章将无片段参照）: "
               f"{type(e).__name__}: {e}")
         decompose_samples = ""
+
+    # 大纲点名的素材原文（2026-10-24 OB34 素材实测后补）：用户在大纲里写
+    # 「（碎片2026-4-8）」是**取材指令**，此前没有任何机械通道保证它进上下文
+    # （bigram 召回只看字面重合，点名不等于命中）。这里逐章解析并内联原文。
+    # 纪律同 kb_context：解析失败不阻断写作，但必须打印 —— 静默丢弃等于让
+    # 取材指令失效而无人知。
+    try:
+        from utils.citations import resolve_citations, build_citation_block
+        _cites = resolve_citations(
+            outline_text_for_ctx,
+            roots=["materials/original_scraps", "materials/raw"])
+        citations_block = build_citation_block(_cites)
+        if _cites:
+            _hit = sum(1 for c in _cites if c.get("found"))
+            print("[stage4] 第%d章大纲点名素材 %d 张（命中 %d，缺 %d）"
+                  % (n, len(_cites), _hit, len(_cites) - _hit))
+    except Exception as e:                              # noqa: BLE001
+        print(f"[stage4] ⚠ 大纲引用解析失败（本章将不注入点名素材）: "
+              f"{type(e).__name__}: {e}")
+        citations_block = ""
 
     style_rules, para_rules, _form_app = _style_blocks(proj)
     # 叙事深化（v0.7.2）：本章所在深化段的节奏形状。占位符在 --- 分隔线之后，
@@ -674,6 +728,7 @@ def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, p
         "style_samples": style_samples,
         "style_notes": style_notes,
         "kb_context": kb_context,
+        "citations_block": citations_block,
         "chapter_samples": chapter_samples_block,
         "decompose_samples": decompose_samples,
         "character_cards": character_cards,

@@ -1990,6 +1990,10 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/config/agent_mode":
             # Agent 模式开关读取（config/system.yaml 的 gates.agent_mode）。
             self._send(*_dom(dom_project.handle_config_agent_mode(self)))
+        elif p == "/agent/permissions":
+            # Agent 模式权限清单（只读）：把后端权威名单 FORBIDDEN_IN_AGENT_MODE
+            # 交给前端渲染，消除「客户端里分不清哪些走 Agent」的混乱（2026-10-24）。
+            self._send(*_dom(dom_project.handle_agent_permissions(self)))
         elif p == "/config/token_limit":
             # token 级熔断阈值读取（budget.token_limit）+ 出厂预设 + 合法区间。
             self._send(*_dom(dom_project.handle_config_token_limit(self)))
@@ -2092,6 +2096,12 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/truncated":
             # 残稿清单（2026-10-20）：截断的正文一直隔离在盘上，但人看不见。
             self._send(*_dom(dom_runtime.handle_truncated(self)))
+        elif p == "/gate/artifacts":
+            # 审批门产物概况（2026-10-24，零 token 只读）：?stage=N。收件箱每个门
+            # 要显示「这个阶段产出了什么」；stage 3/4/7 的产物是目录，前端
+            # readPreview 只读单文件、数不出章节数/字数 —— 判据在 utils.stage_artifacts
+            # 单源，这里只做转发。
+            self._send(*_dom(dom_runtime.handle_gate_artifacts(self)))
         elif p == "/truncated/item":
             # 读一份残稿全文（?name=xxx.txt，只允许 basename）
             self._send(*_dom(dom_runtime.handle_truncated_read(self)))
@@ -2147,6 +2157,7 @@ class Handler(BaseHTTPRequestHandler):
                                       "/materials/* /scraps/* /setting/current /outline/chapters/* "
                                       "/kb/search /kb/build /auto_rewrite/run /review/* "
                                       "/proofread/report /estimate /book/pacing "
+                                      "/gate/artifacts "
                                       "/chapters/history /chapters/quality /costs/streaming "
                                       "/logs/tail /stage/skip /about /project/create）"})
 

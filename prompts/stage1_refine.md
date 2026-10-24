@@ -22,7 +22,11 @@
    顶层新增角色条目同样带 `llm_inferred: true`，且 `source` 指向素材文件名。
 4. **locked 条目不动**：已有 `"locked": true` 的字段禁止任何修改。
 5. **不得删除现有条目**：只能新增字段、新增条目、补强描述。
-6. 输出仍然是合法的 JSON 文件（四顶层键 characters/world/plot_fragments/timeline 完整），
+6. **`records` 数组原样保留**（2026-10-24 OB34 素材实测后补）：角色的
+   `records` 是证词体**原文**（多视角证词、他人评述）。修订时逐字照抄，不得
+   摘要、合并、截断或搬进 traits/experience —— 精简它等于永久丢失原始语气与
+   人物侧面。没有 records 字段的角色照常处理。
+7. 输出仍然是合法的 JSON 文件（四顶层键 characters/world/plot_fragments/timeline 完整），
    直接写入 `{{path_setting}}`，**只写 JSON，不要输出解释文字到该文件**。
 
 ## 检查清单（完成后自查）

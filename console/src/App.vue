@@ -553,32 +553,98 @@ async function loadSetting() {
   }
 }
 
-const settingEditor = ref({ open: false, key: '', idx: -1, item: null });
+const settingEditor = ref({ open: false, key: '', idx: -1, item: null, group: '' });
 
 function openSettingEditor(key, idx) {
-  const item = settingData.value?.[key]?.[idx];
+  // world tab 的条目来自 settingItems() 拼接出的**副本**（带 _group 标记），
+  // 直接按 settingData[key][idx] 取会取错对象，必须回列表里按身份找原件。
+  let item;
+  if (key === 'world') {
+    const src = settingItems('world')[idx];
+    if (!src) return;
+    // 浅拷贝 + 解析出真实归属组：写回时按 (group, name) 定位，不凭 idx
+    const { _group, ...rest } = src;
+    item = { ...rest, _worldGroup: _group || 'locations' };
+  } else {
+    item = settingData.value?.[key]?.[idx];
+  }
   if (!item) return;
   const copy = { ...item };
-  // 初始化标签输入框（数组 → 逗号分隔字符串）
+  // 初始化输入框：数组 → 换行/逗号分隔字符串（存回去时再解析回数组）
   if (key === 'characters' || key === 'world') {
     const tags = copy.tags;
     copy._tagsInput = Array.isArray(tags) ? tags.join(',') : (tags || '');
   }
-  settingEditor.value = { open: true, key, idx, item: copy };
+  if (key === 'characters') {
+    copy._traitsInput = Array.isArray(copy.traits) ? copy.traits.join('\n') : (copy.traits || '');
+    copy._relationsInput = Array.isArray(copy.relations)
+      ? copy.relations.map(r => [r.target, r.type, r.note].filter(Boolean).join(' | ')).join('\n')
+      : '';
+    // records（2026-10-24 OB34 素材）：证词体**多行原文**，用空行分条。
+    // 不能用 traits 那种「每行一条」——一条证词本身就含多行，会被切碎。
+    copy._recordsInput = Array.isArray(copy.records)
+      ? copy.records.map(r => String(r).trim()).filter(Boolean).join('\n\n')
+      : '';
+  }
+  if (key === 'world') {
+    copy._factsInput = Array.isArray(copy.locked_facts) ? copy.locked_facts.join('\n') : '';
+  }
+  settingEditor.value = { open: true, key, idx, item: copy,
+                          group: copy._worldGroup || '' };
 }
 
 function closeSettingEditor() {
   const { key, idx, item } = settingEditor.value;
-  if (key && idx >= 0 && item && settingData.value?.[key]) {
-    // 保存前将 _tagsInput 转回数组
-    if (key === 'characters' || key === 'world') {
-      const tagsStr = (item._tagsInput || '').trim();
-      item.tags = tagsStr ? tagsStr.split(',').map(t => t.trim()).filter(Boolean) : [];
-      delete item._tagsInput;
-    }
+  if (!key || !item) {
+    settingEditor.value = { open: false, key: '', idx: -1, item: null, group: '' };
+    return;
+  }
+  // 解析回数组：空行丢弃，避免保存后多出一堆 "" 让下游判据把条目判成非空
+  if (key === 'characters' || key === 'world') {
+    const tagsStr = (item._tagsInput || '').trim();
+    item.tags = tagsStr ? tagsStr.split(',').map(t => t.trim()).filter(Boolean) : [];
+    delete item._tagsInput;
+  }
+  if (key === 'characters') {
+    item.traits = (item._traitsInput || '').split('\n').map(s => s.trim()).filter(Boolean);
+    delete item._traitsInput;
+    item.relations = (item._relationsInput || '').split('\n').map(line => {
+      const [target, type, ...rest] = line.split('|').map(s => s.trim());
+      return target ? { target, type: type || '', note: rest.join(' | ').trim() } : null;
+    }).filter(Boolean);
+    delete item._relationsInput;
+    // records：空行分条 → 数组（2026-10-24 OB34 素材）。逐字保留原文，
+    // 只 trim 每条首尾空白，不动内部换行/标点 —— 证词的语气就活在这些细节里。
+    const recsRaw = (item._recordsInput || '').trim();
+    item.records = recsRaw
+      ? recsRaw.split(/\n\s*\n/).map(s => s.trim()).filter(Boolean)
+      : [];
+    delete item._recordsInput;
+    // 空 relations / records 存 [] 而不是 undefined：JSON 里不留 undefined，也不写 null
+    if (!item.relations.length) delete item.relations;
+    if (!item.records.length) delete item.records;
+  }
+  if (key === 'world') {
+    item.locked_facts = (item._factsInput || '').split('\n').map(s => s.trim()).filter(Boolean);
+    delete item._factsInput;
+    if (!item.locked_facts.length) delete item.locked_facts;
+  }
+  delete item._worldGroup;
+
+  if (key === 'world') {
+    // 按真实归属组写回：副本没有原数组指针，靠 openSettingEditor 记下的组名定位。
+    // 组名取不到（异常路径）时回落 locations，不静默丢条目。
+    const w = settingData.value.world || (settingData.value.world = {});
+    const grpName = settingEditor.value.group || 'locations';
+    const grp = Array.isArray(w[grpName]) ? w[grpName] : (w[grpName] = []);
+    const i = grp.findIndex(o => o.name === item.name);
+    if (i >= 0) grp[i] = { ...item };
+    else grp.push(item);
+  } else if (settingData.value?.[key]) {
     settingData.value[key][idx] = { ...item };
   }
-  settingEditor.value = { open: false, key: '', idx: -1, item: null };
+  settingDirty.value = true;
+  settingEditor.value = { open: false, key: '', idx: -1, item: null, group: '' };
 }
 
 function addSettingItem(key) {
@@ -620,19 +686,42 @@ async function saveSetting() {
   }
 }
 
+// 顶层键里只有这三类是「条目列表」；_meta / appearances 是元数据与统计，
+// addSettingItem 若把它们当列表 push，会污染 setting.json 的结构。
+const SETTING_LIST_KEYS = ['characters', 'plot_fragments', 'timeline'];
+
 function settingItems(key) {
   if (!settingData.value) return [];
   if (key === 'concepts') {
     return settingData.value.world?.concepts || [];
   }
   if (key === 'world') {
-    return settingData.value.world?.all || [];
+    // 聚合真实分组（2026-10-24 修）：原实现读 world?.all —— 但 all 是**无人写入的
+    // 死键**（全仓 grep 确认仅 setting_brief.py 读它、从不写），导致世界观 tab 恒显示
+    // 「暂无条目」，而磁盘上明明有 locations / items / factions / magic_system。
+    // 现按真实分组拼接，并把 _group 记在条目副本上：条目要按组写回，不能凭名字猜
+    // （重名时会写错组）。副本是浅拷贝，saveSetting 发的是 settingData，改动照常生效。
+    const w = settingData.value.world || {};
+    const out = [];
+    for (const [group, list] of Object.entries(w)) {
+      if (!Array.isArray(list)) continue;
+      for (const it of list) out.push({ ...it, _group: group });
+    }
+    return out;
   }
   return settingData.value[key] || [];
 }
 
 function countItems(key) {
   return settingItems(key).length;
+}
+
+// 世界观分组的中文标签：setting.json 里是英文键（stage1 归并写入），
+// 直接把英文键当徽标会让人以为是程序内部残留。
+function worldGroupLabel(group) {
+  const map = { locations: '地点', items: '物品', factions: '势力',
+                concepts: '概念', magic_system: '力量体系' };
+  return map[group] || group;
 }
 
 /* ---------- 角色关系图（方向2） ---------- */
@@ -2008,8 +2097,14 @@ const estimatedRemainingCost = computed(() => {
   const stages = state.value.stages || [];
   const doneStages = stages.filter(s => s.status === "done");
   if (!doneStages.length) return null;
-  const avgCostPerStage = costSummary.value.total_yuan / doneStages.length;
+  // 真源是 costSummary.totals.cost_yuan（/costs/summary 的 totals 子对象）。
+  // 2026-10-24 修：原写 costSummary.value.total_yuan（字段不存在 → undefined），
+  // 除法得 NaN → 流水线条渲染成「预计剩余 ¥NaN」。现在守卫到有限数才显示。
+  const spentYuan = Number(costSummary.value?.totals?.cost_yuan);
+  if (!isFinite(spentYuan)) return null;
+  const avgCostPerStage = spentYuan / doneStages.length;
   const remaining = stages.filter(s => s.status !== "done").length;
+  if (!remaining) return null;
   return (avgCostPerStage * remaining).toFixed(2);
 });
 const allDone = computed(() => {
@@ -2324,36 +2419,40 @@ const nextPopupDismissed = ref(localStorage.getItem("mofang_flow_popup") === "0"
 const gateJustHit = ref(false); // 刚刚撞门（从非审批门状态跳到审批门）
 let wasRunning = false;
 let hadGate = false;
-const gateArtifacts = ref({}); // {stage: [{path, lines}]}
+const gateArtifacts = ref({}); // {stage: [{path, kind, lines, files, chars, exists}]}
 
-// 加载审批门的产物概况（行数/是否为空）
+// 加载审批门的产物概况（行数/章节数/字数/是否为空）。
+// 2026-10-24 修：原先这里硬编码只有 stage 1/2/6 三个分支，其余阶段（含 trial book
+// 实际停着的 stage 4）拿到空 paths → 产物概况那一行永远空白。现在统一走后端
+// `GET /gate/artifacts?stage=N`（判据在 utils.stage_artifacts 单源，能数目录里的
+// 章节数/字数 —— 前端 readPreview 只读单文件，数不了目录）。旧版后端没有该端点时
+// 回落到 readPreview，只对已知是文件的阶段有意义。
 async function loadGateArtifacts() {
   // 分段审阅面板跟着 stage2 门一起加载：不加载的话用户点「确认放行」
   // 只会吃到一个 409，看不到「还差哪几段」—— 哑闸。
   if (pendingGates.value.some((g) => g.stage === 2)) await loadSegReview();
   else segReview.value = null;
+  const agentGenerated = await isAgentModeConfigured();
   for (const g of pendingGates.value) {
-    // 每个门看自己的审批对象（2026-10-11 工单 P0-1：原三元只有 stage2 分支，
-    // stage 1 门错抓 polish_report.md → 产物概况恒显示 0 行）
-    let paths = [];
-    if (g.stage === 2) {
-      paths = ["data/outline/global.md", "data/outline/review_report.md"];
-    } else if (g.stage === 1) {
-      paths = ["data/setting/setting.json", "data/setting/material_review.md"];
-    } else if (g.stage === 6) {
-      paths = ["data/outline/polish_report.md"];
-    }
-    const info = [];
-    for (const p of paths) {
-      const r = await window.mofangAPI.readPreview(p);
-      if (r.ok) {
-        // 是否处于 Agent 模式（不读审计日志，见 isAgentModeConfigured）
-        const agentGenerated = await isAgentModeConfigured();
-        info.push({ path: p, lines: r.content.split("\n").length, agent: agentGenerated });
+    let items = null;
+    try {
+      const r = await api("/gate/artifacts?stage=" + g.stage);
+      if (r.status === 200 && r.data && r.data.ok) items = r.data.artifacts || [];
+    } catch (e) { items = null; }
+    if (!items) {
+      // 回落（旧后端）：只对产物是单文件的阶段给行数，目录阶段给空。
+      const paths = { 1: ["data/setting/setting.json"], 2: ["data/outline/global.md"],
+                      6: ["data/outline/polish_report.md"] }[g.stage] || [];
+      items = [];
+      for (const p of paths) {
+        const r = await window.mofangAPI.readPreview(p);
+        items.push({ path: p, kind: "file", exists: r.ok,
+                     lines: r.ok ? r.content.split("\n").length : 0, files: 0, chars: 0 });
       }
-      else info.push({ path: p, lines: 0, agent: false });
     }
-    gateArtifacts.value[g.stage] = info;
+    // ⚠️ 必须无条件赋值：否则端点报错时该 stage 永远是 undefined，
+    // 下面「读取中…」的分支会永久卡住（读取中 ≠ 一直读取中）。空数组 = 「没有可展示的产物」。
+    gateArtifacts.value[g.stage] = items.map((a) => ({ ...a, agent: agentGenerated }));
   }
 }
 
@@ -2821,6 +2920,52 @@ const chapterQuality = ref({});  // {1: 7.5, 2: null, ...}
 const chapterThreshold = ref(6);
 const gateNotify = ref(gateNotifyEnabled());
 const agentMode = ref(false);
+
+/* Agent 模式权限清单（2026-10-24）。
+ * 用户原话：「在客户端内根本分不清哪些会走 agent 哪些直接走内部配置 API，很混乱」。
+ * 病根是说明文字硬编码在模板里（agent-bar 那行），而后端判据是
+ * utils/agent_guard.FORBIDDEN_IN_AGENT_MODE —— 两处一旦漂移，界面就在说谎。
+ * 这里改成读后端权威名单渲染，并在渲染时用后端给的 forbidden 集合**就地校验**
+ * 硬编码那句话：对不上就当场告警，不等用户踩到才发现。 */
+const agentPerms = ref(null);
+const agentPermErr = ref('');
+const agentPermOpen = ref(false);
+const AGENT_BAR_CLAIM = {
+  forbidden: ['/approve', '/reject', '/project/create', '/project/archive',
+               '/project/restore', '/config/agent_mode'],
+};
+
+async function loadAgentPermissions() {
+  try {
+    const r = await api('/agent/permissions');
+    if (r.status === 200 && r.data && r.data.ok) {
+      agentPerms.value = r.data;
+      agentPermErr.value = '';
+      checkAgentBarClaim();
+    } else {
+      agentPermErr.value = (r.data && r.data.error) || ('HTTP ' + r.status);
+    }
+  } catch (e) {
+    agentPermErr.value = '无法连接后端';
+  }
+}
+
+// 就地校验：硬编码在 agent-bar 的那句话必须与后端名单一致。
+// 不一致 = 界面在对用户说假话，必须当场暴露而不是等用户踩坑。
+function checkAgentBarClaim() {
+  const backend = new Set((agentPerms.value?.forbidden || []).map(f => f.path));
+  const missing = AGENT_BAR_CLAIM.forbidden.filter(p => !backend.has(p));
+  if (missing.length) {
+    agentPermErr.value = '后端名单缺少界面承诺的条目（界面在说假话）：' + missing.join('、');
+  }
+}
+
+watch(agentPermOpen, (on) => { if (on && !agentPerms.value) loadAgentPermissions(); });
+
+function agentPermWhy(path) {
+  const hit = (agentPerms.value?.forbidden || []).find(f => f.path === path);
+  return hit ? hit.why : '';
+}
 
 /* ---------- 单章字数区间（chapter.target_words）----------
  * 为什么要有入口（2026-10-18 用户取证）：「一章两三千字，根本不合格。而且绒花墨坊
@@ -3540,8 +3685,24 @@ function openReleases() {
 }
 
 
+/* 顶栏实测高度 → CSS 变量（2026-10-24）。
+   抽屉遮罩要从顶栏下沿开始，否则 drawer-head 压在顶栏下、「关闭」按钮点不到。
+   高度不能写死：顶栏是 sticky 流内元素，实测 103px，且随页面缩放变化
+   （zoom 0.9 → 92px）。写死数字迟早漂移，所以这里实测并回写。 */
+const topbarRef = ref(null);
+
+function syncTopbarHeight() {
+  const el = topbarRef.value;
+  if (!el) return;
+  const h = Math.round(el.getBoundingClientRect().height);
+  if (h > 0) document.documentElement.style.setProperty("--topbar-h", h + "px");
+}
+
 onMounted(() => {
   refresh();
+  // 顶栏高度先同步一次：遮罩用它避让，晚一帧就会闪一下错位
+  nextTick(syncTopbarHeight);
+  window.addEventListener("resize", syncTopbarHeight);
   timer = setInterval(refresh, 2500);
   // 上次停在「Word 模板」页签时（localStorage 记住的），进来就把清单拉上，
   // 否则页面停在「读取中/空下拉」，得点一下别的再点回来才有数据
@@ -3637,6 +3798,7 @@ async function checkMaterialsEmpty() {
 onUnmounted(() => {
   clearInterval(timer);
   window.removeEventListener("keydown", onGlobalKey);
+  window.removeEventListener("resize", syncTopbarHeight);
   if (typeof updaterCleanup === 'function') updaterCleanup();
 });
 </script>
@@ -3647,7 +3809,7 @@ onUnmounted(() => {
     <div class="blob blob-b"></div>
   </div>
 
-  <header class="topbar">
+  <header class="topbar" ref="topbarRef">
     <div class="brand">
       <!-- LOGO + 应用名 → 关于（版本/环境/数据位置/许可）；书名 → 项目页签 -->
       <button class="brand-btn" @click="openAbout" title="关于绒花墨坊：版本 / 运行环境 / 数据位置 / 开源许可">
@@ -3857,10 +4019,46 @@ onUnmounted(() => {
         <template v-else>已关闭 —— 外部 Agent 无法调用本机 API</template>
       </span>
       <span class="spacer"></span>
+      <button class="mini" @click="agentPermOpen = !agentPermOpen">
+        {{ agentPermOpen ? '收起权限' : '查看权限' }}
+      </button>
       <button class="mini" :class="{ primary: agentMode }" @click="toggleAgentMode">
         {{ agentMode ? '关闭' : '开启' }}
       </button>
     </div>
+
+    <!-- 权限清单面板（2026-10-24）：分三类讲清边界，数据来自后端权威名单。
+         就地校验失败（agentPermErr）时**明说界面在说假话**，不静默降级成好看的空态。 -->
+    <section v-if="tab === 'pipeline' && agentPermOpen" class="card" style="margin-top: 10px;">
+      <div class="card-head"><h3>Agent 模式权限边界</h3>
+        <span class="spacer"></span>
+        <span class="meta">名单来源：后端 utils/agent_guard.py</span>
+      </div>
+      <div v-if="agentPermErr" class="error-strip">{{ agentPermErr }}</div>
+      <div v-else-if="!agentPerms" class="meta">读取中…</div>
+      <template v-else>
+        <div class="perm-grid">
+          <div>
+            <h4>🚫 Agent 不可代劳（后端直接 403）</h4>
+            <div v-for="f in agentPerms.forbidden" :key="f.path" class="perm-row">
+              <code>{{ f.path }}</code><span class="meta">{{ f.why }}</span>
+            </div>
+          </div>
+          <div>
+            <h4>⚡ Agent 可驱动（经 HTTP API）</h4>
+            <div v-for="i in agentPerms.internal" :key="i.path" class="perm-row">
+              <code>{{ i.path }}</code><span class="meta">{{ i.why }}</span>
+            </div>
+          </div>
+        </div>
+        <div v-if="agentPerms.run_locked" class="meta" style="margin-top: 10px;">
+          <b>当前运行锁：</b>
+          <span v-for="(rl, i) in agentPerms.run_locked" :key="i">
+            {{ rl.what }}（{{ rl.why }}）<span v-if="i < agentPerms.run_locked.length - 1">；</span>
+          </span>
+        </div>
+      </template>
+    </section>
 
     <!-- 流水线状态卡片：当前状态 + 下一步 + 实时进度 -->
     <section v-if="tab === 'pipeline' && state" class="card pipeline-status">
@@ -4221,12 +4419,17 @@ onUnmounted(() => {
 
         <div v-if="!settingItems(settingTab).length" class="empty">暂无条目</div>
         <div v-for="(item, idx) in settingItems(settingTab)" :key="idx" class="setting-row" @click="openSettingEditor(settingTab, idx)">
-          <div class="setting-row-name">{{ item.name || '未命名' }}</div>
+          <div class="setting-row-name">{{ item.name || '未命名' }}
+            <!-- 世界观 tab 是多分组拼接（locations/items/factions/…），不标分组
+                 会让人以为它们是同一批东西，也无法判断自己在改哪一类 -->
+            <span v-if="settingTab === 'world' && item._group" class="pill"
+                  style="margin-left: 6px; font-weight: 400;">{{ worldGroupLabel(item._group) }}</span>
+          </div>
           <!-- 回落到 role / snippet（2026-10-20）：stage1 归并写的是 role、vault 导入带 snippet，
                只有 description 是"第三种名字"。只认 description 会让整列显示"（无描述）"，
                看起来像设定集是空的（实测截图如此）。 -->
           <div class="setting-row-summary">
-            {{ (item.description || item.role || item.snippet || '').slice(0, 60) || '（无描述）' }}
+            {{ (item.description || item.detail || item.experience || item.role || item.snippet || '').slice(0, 60) || '（无描述）' }}
           </div>
           <span class="spacer"></span>
           <button class="mini danger" @click.stop="removeSettingItem(settingTab, idx)">删除</button>
@@ -4252,16 +4455,22 @@ onUnmounted(() => {
           <input v-model="settingEditor.item.name" class="text-input" style="width: 100%; margin-bottom: 12px;" placeholder="条目名称" @input="settingDirty = true" />
 
           <template v-if="settingEditor.key === 'characters'">
+            <label>身份 / 职业</label>
+            <input v-model="settingEditor.item.role" class="text-input" style="width: 100%; margin-bottom: 12px;" placeholder="如：青石站巡道工（主角线索人物）" @input="settingDirty = true" />
             <label>类型</label>
             <input v-model="settingEditor.item.type" class="text-input" style="width: 100%; margin-bottom: 12px;" placeholder="如：主角 / 反派 / 配角" @input="settingDirty = true" />
-            <label>标签（逗号分隔）</label>
-            <input v-model="settingEditor.item._tagsInput" class="text-input" style="width: 100%; margin-bottom: 12px;" placeholder="如：人类,火属性,主角方" @input="settingDirty = true" />
             <label style="display: flex; gap: 6px; align-items: center; margin-bottom: 12px;">
               <input type="checkbox" v-model="settingEditor.item.locked" @change="settingDirty = true" />
               <span>locked（不可违逆）</span>
             </label>
-            <label>简介</label>
-            <textarea v-model="settingEditor.item.snippet" class="prompt-text" style="width: 100%; min-height: 150px;" placeholder="角色简介..." @input="settingDirty = true"></textarea>
+            <label>性格要点（每行一条）</label>
+            <textarea v-model="settingEditor.item._traitsInput" class="prompt-text" style="width: 100%; min-height: 96px; margin-bottom: 12px;" placeholder="每行一条，如：&#10;不多问也不多答&#10;认刻度不认人" @input="settingDirty = true"></textarea>
+            <label>经历 / 背景</label>
+            <textarea v-model="settingEditor.item.experience" class="prompt-text" style="width: 100%; min-height: 120px; margin-bottom: 12px;" placeholder="年龄、经历、能力、习惯…" @input="settingDirty = true"></textarea>
+            <label>关系（每行：目标 | 类型 | 备注）</label>
+            <textarea v-model="settingEditor.item._relationsInput" class="prompt-text" style="width: 100%; min-height: 88px; margin-bottom: 12px;" placeholder="如：&#10;韩拙 | 上下级 | 知道他有事瞒我&#10;林小满 | 同盟 | 因同一件旧事站到一边" @input="settingDirty = true"></textarea>
+            <label>证词 / 他人评述（原文逐字保留，空行分条）</label>
+            <textarea v-model="settingEditor.item._recordsInput" class="prompt-text" style="width: 100%; min-height: 110px; margin-bottom: 12px;" placeholder="素材里的多视角证词、他人评述、宇宙内文献。&#10;一条一段，条与条之间空一行。&#10;原文照抄，不要摘要 —— 语气和人物侧面就活在这些细节里。" @input="settingDirty = true"></textarea>
           </template>
 
           <template v-else-if="settingEditor.key === 'world'">
@@ -4269,9 +4478,27 @@ onUnmounted(() => {
             <input v-model="settingEditor.item.type" class="text-input" style="width: 100%; margin-bottom: 12px;" placeholder="如：地点 / 势力 / 概念 / 物品" @input="settingDirty = true" />
             <label>标签（逗号分隔）</label>
             <input v-model="settingEditor.item._tagsInput" class="text-input" style="width: 100%; margin-bottom: 12px;" placeholder="如：人类,科技,都市" @input="settingDirty = true" />
-            <label>简介</label>
-            <textarea v-model="settingEditor.item.snippet" class="prompt-text" style="width: 100%; min-height: 150px;" placeholder="世界观条目简介..." @input="settingDirty = true"></textarea>
+            <label style="display: flex; gap: 6px; align-items: center; margin-bottom: 12px;">
+              <input type="checkbox" v-model="settingEditor.item.locked" @change="settingDirty = true" />
+              <span>locked（不可违逆）</span>
+            </label>
+            <label>详述</label>
+            <textarea v-model="settingEditor.item.detail" class="prompt-text" style="width: 100%; min-height: 150px; margin-bottom: 12px;" placeholder="世界观条目详述..." @input="settingDirty = true"></textarea>
+            <label>不可违逆的事实（每行一条）</label>
+            <textarea v-model="settingEditor.item._factsInput" class="prompt-text" style="width: 100%; min-height: 72px;" placeholder="如：&#10;二站台已封闭&#10;铁栏杆锈死" @input="settingDirty = true"></textarea>
           </template>
+
+          <!-- 只读溯源（stage1 归并写入，人不改；显示出来是为了让人知道来源与状态，
+               而不是让人以为这些字段丢了） -->
+          <div v-if="settingEditor.item.status || settingEditor.item.source" class="meta"
+               style="margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border);">
+            <template v-if="settingEditor.item.status">
+              <span class="pill" :class="settingEditor.item.status === 'adopted' ? 'st-done' : 'st-warn'">
+                {{ settingEditor.item.status === 'adopted' ? '已采纳' : settingEditor.item.status }}</span>
+              <span v-if="settingEditor.item.status_reason"> {{ settingEditor.item.status_reason }}</span>
+            </template>
+            <template v-if="settingEditor.item.source"> · 来源：{{ settingEditor.item.source }}</template>
+          </div>
 
           <template v-else>
             <label>描述</label>
@@ -4330,14 +4557,16 @@ onUnmounted(() => {
           <button class="mini" v-if="s.stage === 2" @click="preview('data/outline/review_report.md')">体检报告</button>
           <button class="mini" v-if="s.stage === 6" @click="preview('data/outline/polish_report.md')">润色体检报告</button>
         </div>
-        <!-- 产物摘要 -->
-        <div v-if="gateArtifacts[s.stage]" class="gate-artifacts">
+        <!-- 产物摘要（2026-10-24：改读后端 /gate/artifacts，目录阶段也给得出章节数/字数） -->
+        <div v-if="gateArtifacts[s.stage] && gateArtifacts[s.stage].length" class="gate-artifacts">
           <span class="meta">产物概况：</span>
-          <span v-for="a in gateArtifacts[s.stage]" :key="a.path" class="gate-artifact-pill">
-            {{ a.path.split('/').slice(-1)[0] }} ({{ a.lines }} 行)
+          <span v-for="a in gateArtifacts[s.stage]" :key="a.path" class="gate-artifact-pill"
+                :title="a.path + (a.exists ? '' : '（缺失）')">
+            {{ a.path.split('/').slice(-1)[0] }}<template v-if="!a.exists">（缺失）</template><span v-else-if="a.kind === 'dir'"> ({{ a.files }} 篇 · {{ fmtTok(a.chars) }} 字)</span><span v-else> ({{ a.lines }} 行)</span>
             <span v-if="a.agent" class="agent-tag" title="此产物由外部 Agent 生成">⚡Agent</span>
           </span>
         </div>
+        <div v-else-if="gateArtifacts[s.stage] === undefined" class="meta">产物概况：读取中…</div>
         <!-- Stage 2: 大纲体检评分 -->
         <div v-if="s.stage === 2 && outlineSummary" class="gate-score">
           <span class="score-label">大纲评分:</span>

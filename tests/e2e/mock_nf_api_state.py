@@ -18,6 +18,91 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 
+# Agent 模式开关的 mock 回显（权限面板会显示当前开关状态）
+AGENT_MODE = True
+
+# ---- Agent 权限面板：名单直接消费后端真源，不再手打 ----
+# 为什么这么做：此前 mock 手列 6 条 forbidden，而真源是 20 条 —— 就地校验当场
+# 抓到「界面承诺 /project/restore 不许 Agent 碰，后端名单却查无此项」的真漂移。
+# 手打 mock 必然与真源分叉（改一处漏一处），所以这里从 utils.agent_guard 取全量，
+# 人话表（AGENT_WHY）只负责**展示文案**，缺项给通用兜底。真源加条目 → mock 自动跟上。
+from utils.agent_guard import FORBIDDEN_IN_AGENT_MODE  # noqa: E402
+
+# 展示文案：只列需要解释"为什么归用户"的条目；真源新增条目走下方通用兜底，
+# 不会因为这里漏写就消失（消失才是事故，文案平庸不是）。
+AGENT_WHY = {
+    "/approve": "审批放行 —— 判定权归用户，Agent 不得代批",
+    "/reject": "打回重跑 —— 同审批族，会清下游产物",
+    "/project/create": "新建项目 —— 会归档当前项目并清空工作区",
+    "/project/archive": "归档当前项目 —— 搬空工作区到书库",
+    "/project/restore": "恢复归档书 —— 覆盖当前工作区",
+    "/project/init": "首启初始化 —— 写入工作区骨架",
+    "/project/archive/delete": "删除归档 —— 抹掉成书数据（进回收站）",
+    "/config/agent_mode": "Agent 不得开关自己的模式",
+    "/config/token_limit": "止烧阈值 —— Agent 不得抬高烧钱上限",
+    "/factory/clean": "清理出厂样例 —— 移动用户素材文件",
+    "/factory/preset/apply": "铺设出厂预设 —— 快照+归档+铺素材，同新建项目",
+    "/factory/project/reset": "出厂项目还原 —— 清书状态+重铺素材",
+    "/stage/skip": "跳过阶段 —— 会把 approved 真写进 progress.json",
+    "/import/docx": "导入整本 Word 稿 —— 批量覆盖章节文件",
+    "/outline/segments/set": "分段审批标记 —— 勾一段等于替用户读一段",
+    "/outline/discussion/review": "讨论提案审批 —— 会写回章大纲",
+    "/plan/select": "规划拍板四态 —— AI 可提案，拍板归用户",
+    "/plan/write": "规划拍板四态 —— 同上",
+    "/plan/drop": "规划拍板四态 —— 同上",
+    "/plan/revive": "规划拍板四态 —— 同上",
+}
+
+
+def agent_forbidden():
+    """[{path, why}]：全量取自真源，文案查 AGENT_WHY，缺项兜底。"""
+    return [{"path": p, "why": AGENT_WHY.get(p, "用户拍板类操作 —— 判定权归用户")}
+            for p in sorted(FORBIDDEN_IN_AGENT_MODE)]
+
+# 设定集 mock：**必须用真实字段结构**，否则这两处修复等于没验：
+#   1. 角色真实字段是 traits[]/relations[]/experience，不是 snippet；
+#   2. 世界观众是 locations/items 等**分组数组**，真书的 world 下**没有 all 键** ——
+#      旧前端读 world.all 会恒显示「暂无条目」（用户截图里那本 2 地点 3 物品全看不见）。
+MOCK_SETTING = {
+    "characters": [
+        {
+            "id": "c_zhou_yanqing", "name": "周砚清",
+            "role": "青石站巡道工（主角线索人物）",
+            "traits": ["不多问也不多答", "认刻度不认人", "对「补写」有执念"],
+            "relations": [
+                {"target": "韩拙", "type": "上下级", "note": "知道韩拙有事瞒他，二十年没问"},
+                {"target": "林小满", "type": "陌生到同盟", "note": "因同一件旧事站到一边"},
+            ],
+            "experience": "四十五岁（2018年），工龄十七年。不带手机，带一块停了的表。"
+                          "能凭听觉判断轨距偏差（误差半毫米以内）。",
+            # records（2026-10-24）：多行证词体，验空行分条不切碎内部换行
+            "records": [
+                "我到现在也没搞懂，一首诗怎么就能变成安防指令。\n但自从他接手，"
+                "青石站再没丢过一卷巡查簿。",
+                "那个小姑娘看上去很乖。\n——不愿透露姓名的老站工",
+            ],
+            "source": "周砚清_角色卡", "status": "adopted", "status_reason": "无分歧",
+        },
+    ],
+    "world": {
+        "locations": [
+            {"id": "loc_qingshizhan", "name": "青石站", "type": "四等小站",
+             "detail": "县城往北十二公里。两站台，一条地下通道，候车室冬天烧煤炉。",
+             "locked": True,
+             "locked_facts": ["站牌是水泥的", "二站台已封闭", "铁栏杆锈死"],
+             "source": "青石站_场景卡", "status": "adopted", "status_reason": "无分歧"},
+        ],
+        "items": [
+            {"id": "item_watch", "name": "停了的怀表", "detail": "事故后被登记为遗失物品。",
+             "locked": False, "source": "1998年调车事故_概念卡",
+             "status": "adopted", "status_reason": "无分歧"},
+        ],
+        "factions": [],
+    },
+    "plot_fragments": [],
+    "timeline": [],
+}
+
 STATE = {
     "book": "验收用书",
     "form": "source",
@@ -147,7 +232,11 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/costs":
             return self._send(200, {"entries": []})
         if p == "/costs/summary":
-            return self._send(200, {"by_stage": [], "by_model": [], "totals": {}})
+            # totals 必须带真实字段：前端 estimatedRemainingCost 读 totals.cost_yuan，
+            # 空 totals 会让它走「数据缺失不显示」分支 —— 那样 NaN 修复等于没被验到。
+            return self._send(200, {"by_stage": [], "by_model": [], "totals": {
+                "cost_yuan": 3.75, "tokens_in": 128000, "tokens_out": 41000,
+                "calls": 26, "run_id": 20261024}})
         if p == "/costs/rates":
             # 定价编辑器需要这个端点；空表 = 全部走源码刊例价
             return self._send(200, {"rates": {}, "source": "mock"})
@@ -180,6 +269,26 @@ class Handler(BaseHTTPRequestHandler):
                 {"n": 9, "quality": 7.0}, {"n": 10, "quality": 6.0},
                 {"n": 11, "quality": 4.5}, {"n": 12, "quality": 8.0},
             ]})
+        if p == "/gate/artifacts":
+            # 审批门产物概况（2026-10-24 加，配 utils.stage_artifacts.summarize_artifacts）。
+            # 故意喂**混合形态**：stage 6 的产物是目录（润色稿），必须走 kind="dir"
+            # 的渲染分支显示「N 篇 · M 字」—— 若 mock 只给文件，验收就永远看不到
+            # 目录分支，等于没验（前端正是因目录数不出来才加的这个端点）。
+            stage = str((self._query().get("stage") or ["6"])[0])
+            table = {
+                "1": [{"path": "data/setting/setting.json", "exists": True,
+                       "kind": "file", "lines": 214, "files": 0, "chars": 8932}],
+                "2": [{"path": "data/outline/global.md", "exists": True,
+                       "kind": "file", "lines": 388, "files": 0, "chars": 15204},
+                      {"path": "data/outline/review_report.md", "exists": True,
+                       "kind": "file", "lines": 96, "files": 0, "chars": 3120}],
+                "6": [{"path": "data/chapters/refined", "exists": True,
+                       "kind": "dir", "lines": 0, "files": 12, "chars": 148930}],
+            }
+            if stage not in table:
+                return self._send(400, {"ok": False, "error": "stage 须为 1-8"})
+            return self._send(200, {"ok": True, "stage": int(stage),
+                                    "artifacts": table[stage]})
         if p == "/materials/list":
             return self._send(200, {"count": 3, "items": [], "dir": "materials/raw"})
         if p == "/sandbox/queue":
@@ -269,13 +378,35 @@ class Handler(BaseHTTPRequestHandler):
                 "status": str((self._query().get("status") or ["pending"])[0]),
                 "stats": DISCUSS["stats"],
             })
+        if p == "/agent/permissions":
+            # Agent 模式权限面板（2026-10-24）：mock 回一份**与后端真源同形状**的
+            # 数据，让视觉验收能真渲染两列 + 运行锁说明，而不是只看到"读取中"。
+            return self._send(200, {
+                "ok": True,
+                "agent_mode_enabled": AGENT_MODE,
+                # 名单 = 后端真源全量（agent_forbidden()），不是手打子集
+                "forbidden": agent_forbidden(),
+                "internal": [
+                    {"path": "/stage/{n}/run", "why": "跑阶段 —— 生成类，Agent 可驱动"},
+                    {"path": "/outline/save", "why": "保存大纲 —— 落草稿/沙盒，可回退"},
+                    {"path": "/refine/*", "why": "AI 精修 —— 改前自动备份 + 可撤销"},
+                ],
+                "run_locked": [
+                    {"what": "全自动 / 流式全自动 / Word 成品 / 快速运行",
+                     "why": "运行入口统一锁：Agent 模式下运行由外部 Agent 驱动，"
+                            "GUI 再点一次会双跑（两条流水线各烧一倍 token）"},
+                    {"what": "审批 / 打回 / 停止 / 跳过",
+                     "why": "不受影响 —— 这几件事本来就只归桌面端"},
+                ],
+                "note": "判据唯一来源 utils.agent_guard.FORBIDDEN_IN_AGENT_MODE；"
+                        "本端点只做展示，不改判据。",
+            })
         if p == "/setting/current":
-            # 分章页签的蓝图编辑器会读设定集摘要；mock 喂空骨架，只为消掉 404
-            # （console error 断言会把任何 404 计入，包括 mock 未实现的路由）。
-            return self._send(200, {"ok": True,
-                                    "setting": {"characters": [], "world": {},
-                                                "plot_fragments": [], "timeline": []},
-                                    "path": "data/setting/setting.json"})
+            # 喂**真实字段结构**（2026-10-24）：角色用 traits/relations/experience，
+            # 世界观用 locations.items 等**分组数组**（真书的 world 下没有 all 键，
+            # 旧前端读 world.all 会恒显示"暂无条目"）。空骨架验不到这两个修复。
+            return self._send(200, {"ok": True, "path": "data/setting/setting.json",
+                                    "setting": MOCK_SETTING})
         if p == "/outline/chapters/list":
             # 分章页签（章节蓝图编辑器）的章节清单：喂两章，让视觉验收能真选中
             # 一章再点「讨论此章」（currentN 为空时 openDiscuss 直接 return）。

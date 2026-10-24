@@ -130,3 +130,52 @@ def missing_inputs(stage, root, will_produce=None):
             problems.append({"path": rel, "produced_by": producer,
                              "kind": "any", "group": group})
     return problems
+
+
+# ------------------------------------------------ 产物概况（GUI 收件箱「产物概况」行）
+# 为什么在后端算：收件箱里 stage 3/4/7 的产物是**目录**（data/outline/chapters/、
+# data/chapters/raw/、output/），而 Electron 的 readPreview 只读单个文件 —— 目录
+# 里的章节数/字数前端根本数不出来。实测后果：trial book 停在 stage 4 审批门时，
+# 收件箱那一行「产物概况」永远空白（2026-10-24 用户复现）。行数/字数在后端按
+# 确定性规则数，前端只负责渲染。
+
+
+def summarize_artifacts(stage, root):
+    """返回该阶段产物的概况（确定性，零 LLM）。每项：
+
+    `{path, exists, kind, lines, files, chars}`
+
+    - 文件：`kind="file"`，`lines`=行数；缺失/空文件 `lines=0`。
+    - 目录：`kind="dir"`，`files`=条目数、`chars`=文本文件总字符数（docx 只计数）。
+    - 缺失：`exists=False`，其余计数为 0。
+    """
+    out = []
+    for rel in STAGE_ARTIFACTS.get(stage, []):
+        p = Path(root) / rel
+        item = {"path": rel, "exists": p.exists(), "kind": "file",
+                "lines": 0, "files": 0, "chars": 0}
+        if not p.exists():
+            out.append(item)
+            continue
+        if p.is_dir():
+            item["kind"] = "dir"
+            for f in p.iterdir():
+                if not f.is_file():
+                    continue
+                item["files"] += 1
+                if f.suffix.lower() == ".docx":
+                    continue                      # 二进制：只计数不读字符
+                try:
+                    txt = f.read_text(encoding="utf-8", errors="replace")
+                except OSError:
+                    continue
+                item["chars"] += len(txt)
+        else:
+            try:
+                txt = p.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                txt = ""
+            item["lines"] = txt.count("\n") + 1 if txt else 0
+            item["chars"] = len(txt)
+        out.append(item)
+    return out

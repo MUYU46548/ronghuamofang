@@ -66,13 +66,40 @@ def extract_terms(text):
     return terms
 
 
-def build_index(vault_path, out_path=None, progress=None):
+# 通用小节标题（2026-10-24 实测定）：这些 H1 **不是主题名**，只是笔记内部的小节。
+# 某真实库 417 篇设定实测：frontmatter 普遍没有 name/title 键，而 H1 全是
+# 「一、概念定义」「基本信息」「行星概述」这类结构标记 —— 照单取 H1 会让注入给
+# 写作模型的词条名全是无辨识度的串（两条都叫「一、概念定义」，模型无法区分）。
+_GENERIC_H1 = {
+    # 中文
+    "概述", "简述", "简介", "简介与背景", "背景", "基本信息", "基本信息与参数",
+    "概念定义", "定义", "设定", "设定集", "自然概况", "概况", "人文概况",
+    "历史沿革", "历史", "政治与治理", "治理", "事件简述", "事件", "经过",
+    "获取", "用途", "参数", "数据", "规格", "目录", "参考", "注释", "说明",
+    "分析", "影响", "结局", "评价", "相关", "其他", "补充", "附录", "总览",
+    "结构", "选址与结构", "哲学内核", "特征", "特点", "能力", "关系",
+    # 英文
+    "overview", "introduction", "background", "details", "parameters",
+    "specifications", "history", "notes", "references", "appendix",
+}
+
+
+def _looks_like_topic(name):
+    """H1 去掉序号前缀后是否像**主题名**（而不是笔记内部的小节标题）。"""
+    s = re.sub(r'^[一二三四五六七八九十百]+[、.．]\s*', '', str(name or '').strip())
+    s = re.sub(r'^\d+[.、．)）]?\s*', '', s).strip().strip('*_`')
+    return bool(s) and s.lower() not in _GENERIC_H1
+
+
+def build_index(vault_path, out_path=None, progress=None, persist=True):
     """构建知识库倒排索引。
 
         Args:
             vault_path: vault 根目录
         out_path: 索引输出路径（默认 data/state/kb_index.pkl）
         progress: 可选进度回调 (current, total, filename)
+        persist: 是否落盘 pkl（默认 True）。stage4 逐章召回用**内存索引**，
+            传 False —— 每章往 data/state 写一次 pkl 既无必要又引入陈旧问题。
 
     Returns:
         index dict
@@ -110,13 +137,22 @@ def build_index(vault_path, out_path=None, progress=None):
         fm_text = fm_match.group(1) if fm_match else ""
         body = text[fm_match.end():] if fm_match else text
 
-        # 提取名称（优先 frontmatter，否则文件名）
+        # 提取名称（优先 frontmatter，其次正文首个一级标题，最后文件名）
+        # H1 这一档（2026-10-24）：Obsidian 笔记可以没有 YAML 头，此时**正文标题
+        # 才是这条笔记在讲什么**。只取文件名会让注入给模型的名字变成「随便写的
+        # 文件名」这种零信息量的串 —— 实测非标准布局库里这种情况是常态。
         name = ""
         for k in NAME_KEYS:
             m = re.search(rf'^{k}\s*:\s*(.+)', fm_text, re.M)
             if m:
                 name = m.group(1).strip().strip('"').strip("'")
                 break
+        if not name:
+            m = re.search(r'^#\s+(.+)', body, re.M)
+            # 只有当 H1 像主题名时才用它 —— 小节标题（「基本信息」「一、概念定义」）
+            # 取来会让词条名毫无辨识度，此时回退文件名（见 _GENERIC_H1 的实测依据）
+            if m and _looks_like_topic(m.group(1)):
+                name = m.group(1).strip().strip('*_`')
         if not name:
             name = f.stem
 
@@ -161,11 +197,12 @@ def build_index(vault_path, out_path=None, progress=None):
             "term_count": len(terms),
         }
 
-    # 保存
-    out = Path(out_path) if out_path else Path("data/state/kb_index.pkl")
-    out.parent.mkdir(parents=True, exist_ok=True)
-    with open(out, 'wb') as fp:
-        pickle.dump(index, fp)
+    # 落盘（persist=False 时跳过：stage4 逐章召回只用内存索引）
+    if persist:
+        out = Path(out_path) if out_path else Path("data/state/kb_index.pkl")
+        out.parent.mkdir(parents=True, exist_ok=True)
+        with open(out, 'wb') as fp:
+            pickle.dump(index, fp)
 
     return index
 
@@ -244,6 +281,81 @@ def search(query, index=None, top_k=5, vault_path=None):
         results.append((path, entry.get("name", ""), snippet, score))
 
     return results
+
+
+# ------------------------------------------------- stage4 通道（2026-10-24）
+
+# 进程内索引缓存：同一 run 逐章写作时只建一次索引（实测千篇 vault 建索引需数秒，
+# 逐章重建会把这部分开销乘以章数）。失效判据是 vault 指纹而不是 TTL —— mtime 变了
+# 就重建，避免「改了库但索引还是旧的」这类静默陈旧。
+_MEM_CACHE = {"key": None, "index": None}
+
+
+def _vault_fingerprint(vault):
+    """vault 指纹：根路径 + 可索引文件数 + 最新 mtime。
+
+    收集判据与 `build_index` 完全同源（都走 `get_skip_dirs`），指纹对不上就说明
+    收集面变了（文件增删 / 改名 / 用户改了 skip_dirs 配置），必须重建索引。
+    """
+    vault = Path(vault)
+    md = [f for f in vault.rglob("*.md")
+          if not any(p in get_skip_dirs() for p in f.relative_to(vault).parts)]
+    newest = max((f.stat().st_mtime for f in md if f.exists()), default=0.0)
+    return (str(vault.resolve()), len(md), round(newest, 3))
+
+
+def recall(query, vault_path, top_k=5, max_chars=600):
+    """全文倒排召回：为**任意布局**的 vault 提供检索（stage4 写作注入通道）。
+
+    与 `obsidian_bridge.inject_context` 的分工（两路**并联**，不是替换）：
+
+    - `inject_context` 只精确匹配 name/tags —— 标准布局下快、且带 locked 语义；
+      但扫描准入靠目录名，布局对不上时**一条都扫不到**。
+    - 本函数索引 name + **正文全文**（中文 2-4 gram + IDF）—— 不看目录名、
+      不要求 frontmatter、用户写任何文件名都能被正文里的词命中。
+
+    Args:
+        query: 查询文本（stage4 传章大纲的「涉及角色」行或大纲开头）
+        vault_path: vault 根（**必填**，由调用方从配置解析后传入 —— utils 层
+            不反向依赖上层模块，避免重蹈路径常量固化那类坑）
+        top_k: 命中条数
+        max_chars: 注入正文的总字符预算（按分数从高到低累加，超出即停）
+
+    Returns:
+        [(path, name, snippet, score), ...]；无命中 / 索引失败 → **[]**
+        （召回是增益，失败不许拖垮写作主链路 —— 异常在此吞掉并由调用方决定
+        是否提示，与 stage4 注入块的三态纪律一致）
+    """
+    if not query or not str(query).strip() or not vault_path:
+        return []
+    vault = Path(vault_path)
+    if not vault.exists():
+        return []
+
+    try:
+        key = _vault_fingerprint(vault)
+        if _MEM_CACHE["key"] != key:
+            _MEM_CACHE["index"] = build_index(str(vault), persist=False)
+            _MEM_CACHE["key"] = key
+        idx = _MEM_CACHE["index"]
+        hits = search(query, index=idx, top_k=top_k, vault_path=str(vault))
+    except Exception:                                          # noqa: BLE001
+        return []
+
+    out, used = [], 0
+    for path, name, snippet, score in hits:
+        if used >= max_chars:
+            break
+        s = (snippet or "").strip()
+        if not s:
+            continue
+        limit = max_chars - used
+        if len(s) > limit:
+            # 省略号本身占一个字符，必须算进预算（否则实测总长会超 1 字）
+            s = (s[:limit - 1].rstrip() if limit > 1 else "") + "…"
+        out.append((path, name, s, score))
+        used += len(s)
+    return out
 
 
 def get_snippet(entry_path, vault_path=None, max_chars=500):

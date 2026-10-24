@@ -65,6 +65,64 @@ def normalize_plain(path, out_dir):
     return out
 
 
+def _is_meta_file(path):
+    """判断素材文件是否为「元文件」（描述素材的登记表，而非素材本身）。
+
+    判据（确定性，零 LLM）：文件名**或**正文前 2000 字里出现登记/说明/计划类
+    标题词。为什么按内容判而不是只看文件名：用户随手命名（如 `碎片填充计划.md`
+    正文是「已使用的碎片在此登记」）无法靠文件名穷举，标题词才稳。
+
+    ⚠️ 这是**保守**判据：只认明确的登记类词，不猜"看起来像索引"的东西。
+       宁可漏跳一张元文件（归并时会被 LLM 当成噪声，代价小），也不能误跳
+       一张真素材（那张卡就永远进不了设定集，代价大）。
+    """
+    try:
+        head = path.read_text(encoding="utf-8", errors="replace")[:2000]
+    except OSError:
+        return False
+    probe = (path.stem + "\n" + head).lower()
+    # 「填充计划」「变更日志」「登记列表」「索引」「说明」等元文件信号词。
+    # 「说明」单独出现太宽（真卡也可能写"说明"），只在**标题行**匹配（行首 # 或开头）。
+    # 跳过 YAML frontmatter：设定库 真设定文件（如 `地理系统索引.md`）以
+    # `---` 包裹 tags，里面有 `- 索引` 这种 **tag 行**。我第一版把 `#`/`-`
+    # 开头的行都当标题扫，结果 6 个真设定被判成元文件（2026-10-24 反向验证
+    # 抓出）。frontmatter 只描述元数据，不是标题，必须先剥掉。
+    lines = head.splitlines()
+    body = lines
+    if lines and lines[0].strip() == "---":
+        for j in range(1, min(len(lines), 40)):
+            if lines[j].strip() == "---":
+                body = lines[j + 1:]
+                break
+
+    # 「XX索引」类标题：**只跳自动生成的聚类清单**，不碰真设定。
+    # 2026-10-24 反向验证抓出的坑：设定库 `01 索引/` 下 13 个真设定文件
+    # 标题是「世界索引」「历史事件」「幻境」「角色池」，文件名也带「索引」
+    # —— 我第一版按"标题尾部是索引"判元，把它们全误伤了。真设定的标题
+    # 讲的是**世界里的东西**，元文件的标题讲的是**这批素材本身**（聚类/
+    # 收束/总览/未改动源文件）。所以只认后者，且必须同时命中「自动生成」
+    # 或「收束/聚类/总览」这类自我指涉的词。
+    for line in body[:12]:
+        s = line.strip().lstrip("#").strip().lower()
+        if not s:
+            continue
+        if s in ("说明", "登记列表", "索引", "目录", "变更日志",
+                 "碎片填充计划", "使用说明", "读我", "readme"):
+            return True
+        if s.endswith(("索引", "索引 v2", "索引 v1", "清单", "目录总览")) \
+                and any(k in s for k in ("收束", "聚类", "总览", "维度")):
+            return True
+    # probe 只认**自我指涉**的元信号：这些短语只可能出现在"描述这批素材"
+    # 的文件里。⚠️ `本索引` 已删除（2026-10-24 反向验证抓出）：设定库 真设定
+    # `地理系统索引.md` 的正文首句就是「**本索引**遵循的层级划分规则为：」——
+    # 我为了跳索引加的这个词，恰好把真设定的正文首句当成了元信号。跳索引
+    # 靠标题判据（上方收束/聚类/总览），不靠正文词。
+    return any(k in probe for k in ("已使用的碎片在此登记", "变更日志",
+                                    "目录清单",
+                                    "自动生成，未改动任何源文件",
+                                    "按 9 维聚类", "反推世界支柱"))
+
+
 def scan_materials(materials_dir, normalized_dir):
     """扫描并归一化素材，返回清单 list[dict]。PDF 警告跳过。"""
     materials_dir = Path(materials_dir)
@@ -82,6 +140,13 @@ def scan_materials(materials_dir, normalized_dir):
         # 既费 token 又让「素材指纹」随备份变化而抖动。
         rel_parts = path.relative_to(materials_dir).parts[:-1]
         if any(part.startswith(("_", ".")) for part in rel_parts):
+            continue
+        # 跳过**元文件**（2026-10-24 OB34 素材实测后补）：素材根目录里常混着
+        # 「碎片填充计划」「变更日志」这类登记表，它们描述素材而不是素材本身。
+        # 喂进归并等于把索引当成设定，污染设定集。判据 = 正文里出现登记/说明类
+        # 标题词（确定性，零 LLM）。跳过时打印，不静默 —— 用户要知道哪些没被吃。
+        if _is_meta_file(path):
+            print(f"[SKIP] 元文件（登记/说明类，不进归并）: {path.name}")
             continue
         try:
             if path.suffix.lower() == ".docx":

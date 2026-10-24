@@ -59,6 +59,8 @@ temperature: 0.8
 
 {{memory_block}}
 
+{{citations_block}}
+
 {{style_samples}}
 
 {{chapter_samples}}
