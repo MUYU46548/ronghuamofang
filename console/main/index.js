@@ -379,7 +379,7 @@ function getWorkspaceSource() {
 //   · 前端（asar，不走种子）：项目页出厂徽标 / 启动提示词剥离说明书 /
 //     阶段复制改任务简报（原样贴模板会被外部 Agent 按红线判「模板不是任务」停工）。
 // **先 bump 再 electron-builder**。
-const SEED_VERSION = 45;   // 0.7.2: 新建项目向导三修（铺设后创建不再归档走素材 / 占位名不再堆空壳归档 / 第2步未勾归档置灰），switch_book.py 与 nf_api.py 实质变更
+const SEED_VERSION = 46;   // 0.7.3: 知识库扫描通用化（setting_schema / kb_index / obsidian_bridge 实质变更：全文检索通道、空骨架判据、删私例硬编码、配置读取跟 --root）+ 样例书素材卡移进 materials/raw/
 //   · prompts/: stage5 加七维 JSON 契约、stage4 加记忆块、stage3 加卷弧块、stage2 加设定摘要、
 //     新增 volume_plan.md —— **payload 变了，不 bump 用户永远拿不到新提示词**。
 
