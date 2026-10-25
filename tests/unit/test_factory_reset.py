@@ -13,6 +13,9 @@
  5. reset 自检：书名不符拒动、源缺失拒动、源不完整拒动（都零写入）
  6. 快照失败即中止（无回退点不动手）
  7. 端点护栏：403 非 GUI / 400 无 confirm / 名单在 FORBIDDEN_IN_AGENT_MODE
+ 8. 隐式样例（书名 == 随包样例名，无标记）
+ 9. 脏判据（有东西可清才可点；出厂状态置灰）
+10. 隐式预设（书名 == 预设名 + 素材逐字节一致；标记被归档带走后仍认得出）
 """
 import inspect
 import json
@@ -384,6 +387,80 @@ def case_dirty_flag(tmp):
         restore()
 
 
+def case_implicit_preset(tmp):
+    print("\n[10] 隐式预设：标记随归档走掉后（同名重建）仍认得出")
+    # 用户实况（2026-10-25）：10:08 铺 rail-end（标记写进工作区），10:09 用
+    # 「＋ 新建项目」同名重建 —— 归档把标记连旧书一起搬走，此后还原按钮消失。
+    # 判据：书名 == 预设名 + 素材卡与预设源逐字节一致（文件名集合 + sha256）。
+    os.environ.pop("NF_SAMPLE_ROOT", None)   # 本用例自建预设源，不吃上一用例的注入
+
+    def _laid_ws(tag, mutate=None):
+        """铺好但**没有标记**的预设工作区（铺设 = copy2，素材逐字节同源）。"""
+        ws = tmp / ("ws_imp_" + tag)
+        src = _build_preset_src(ws)
+        raw = ws / "materials" / "raw"
+        raw.mkdir(parents=True)
+        for p in (src / "materials" / "raw").glob("*.md"):
+            shutil.copy2(p, raw / p.name)
+        (ws / "config").mkdir(parents=True)
+        (ws / "config" / "project.yaml").write_text(
+            "book:\n  name: 单测预设书\n  genre: 悬疑\n  chapters: 3\n", encoding="utf-8")
+        for rel, content in (("data/chapters/raw/01.md", "## 第1章\n\n跑过一轮。\n"),
+                             ("data/outline/global.md", "# 大纲\n"),
+                             ("data/state/progress.json",
+                              json.dumps({"stages": {"4": {"status": "done"}}}))):
+            p = ws / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(content, encoding="utf-8")
+        if mutate:
+            mutate(ws)
+        return ws, src
+
+    # 正例：无标记也认得出（这就是按钮消失那天的工作区）
+    ws, _src = _laid_ws("ok")
+    check("铺好时确实没有标记（前置）", fr.read_marker(ws) is None)
+    d = fr.describe(ws)
+    check("无标记 + 书名/素材同预设 → is_factory=true", d["is_factory"] is True, d)
+    check("身份 = preset（隐式预设）+ id 对", d.get("kind") == "preset"
+          and d.get("id") == "unit-preset", (d.get("kind"), d.get("id")))
+    check("wipe_plan 章数/卡数对",
+          d["wipe_plan"]["chapters_done"] == 1 and d["wipe_plan"]["cards_now"] == 3
+          and d["wipe_plan"]["cards_factory"] == 3, d["wipe_plan"])
+    check("describe 零副作用（不补写标记）", fr.read_marker(ws) is None)
+    # 还原全流程照样走得通（身份由 describe 命中的预设源铺回）
+    restore, _snap = _pin_modules(ws)
+    try:
+        ok, rep = fr.reset(ws)
+        check("隐式身份也能一键还原成功", ok is True, rep.get("error"))
+        cards = sorted(p.name for p in (ws / "materials" / "raw").glob("*.md"))
+        check("素材铺回预设 3 张", cards == ["卡1.md", "卡2.md", "卡3.md"], cards)
+        check("测试进度清掉", not (ws / "data/chapters/raw/01.md").exists()
+              and not (ws / "data/state/progress.json").exists())
+    finally:
+        restore()
+    # 从严判据：改一个字 / 多一张卡 / 书名不符 / 源不完整，一律不认
+    ws2, _ = _laid_ws("edited", mutate=lambda w: (
+        (w / "materials/raw/卡1.md").write_text("# 卡1\n\n用户改过一个字。\n", encoding="utf-8")))
+    d2 = fr.describe(ws2)
+    check("改过任何一张卡 → 不认（reason 点名不一致）",
+          d2["is_factory"] is False and "不一致" in (d2["reason"] or ""), d2["reason"])
+    ws3, _ = _laid_ws("extra", mutate=lambda w: (
+        (w / "materials/raw/用户自写的卡.md").write_text("# 我的卡\n", encoding="utf-8")))
+    check("多一张卡（混入用户素材）→ 不认", fr.describe(ws3)["is_factory"] is False)
+    ws4, _ = _laid_ws("rename")
+    (ws4 / "config" / "project.yaml").write_text("book:\n  name: 别的书\n", encoding="utf-8")
+    check("书名不同 → 不认", fr.describe(ws4)["is_factory"] is False)
+    ws5, _ = _laid_ws("thin")
+    (ws5 / "examples/presets/unit-preset/preset.yaml").write_text(
+        "id: unit-preset\nname: 单测预设书\nverify:\n  min_cards: 9\n", encoding="utf-8")
+    check("预设源不完整（卡数 < min_cards）→ 不认", fr.describe(ws5)["is_factory"] is False)
+    # 陈旧标记（指向已归档的他书）不该挡隐式识别
+    ws6, _ = _laid_ws("stale")
+    fr.write_marker(ws6, "preset", "unit-preset", "已归档的旧书")
+    check("标记指向他书时，同名+素材一致仍认得出",
+          fr.describe(ws6)["is_factory"] is True, fr.describe(ws6).get("reason"))
+
+
 def main():
     tmp = Path(tempfile.mkdtemp(prefix="factreset_"))
     try:
@@ -396,6 +473,7 @@ def main():
         case_hooks_present()
         case_implicit_sample(tmp)
         case_dirty_flag(tmp)
+        case_implicit_preset(tmp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
         os.environ.pop("NF_SAMPLE_ROOT", None)

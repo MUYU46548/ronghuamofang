@@ -15,6 +15,12 @@ progress、评审账本……），但既没有「回到出厂原样」的入口
 - **标记** `data/state/factory_project.json`：
   `preset_apply.apply()` 铺设成功时写入 `{kind, id, book_name, applied_at}`；
   `switch_book.archive()` / `init_empty()`（换书/归档）时清除。
+- **隐式身份（标记丢失也能认出，describe 的 B/C 两条路）**：标记经不起
+  「归档 → 同名重建」这类正常操作（标记随书走）。B：书名 == 随包样例书名；
+  C：书名 == 某预设名 **且** `materials/raw` 与该预设源逐字节一致（文件名集合
+  + 每个 sha256，多一张/少一张/改一个字都不认 —— 误杀方向是「按钮不出现」，
+  绝不是给真书摆还原入口）。用户 2026-10-25 实况：10:08 铺 rail-end、
+  10:09 同名新建项目把标记归档走，此后还原按钮消失 —— C 路就是为它补的。
 - **三重自检**（任一不过 = 不动任何文件）：
   ① 标记存在；② 当前工作区书名 == 标记书名（换过书 = 标记失效，惰性不误伤）；
   ③ 出厂源还在且完整（预设目录 / 样例目录 + 卡数下限）。
@@ -31,6 +37,7 @@ progress、评审账本……），但既没有「回到出厂原样」的入口
 `POST /factory/project/reset` 列入 FORBIDDEN_IN_AGENT_MODE ——
 Agent 可盘点（`GET /factory/project` 只读），不能动手。
 """
+import hashlib
 import json
 import shutil
 from datetime import datetime
@@ -163,6 +170,57 @@ def _book_title_of(path):
         return None
 
 
+def _sha256_file(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _preset_source_by_name(root, cur_name):
+    """按书名找同名随包预设。返回 `(id|None, src|None, min_cards, 说明)`。
+
+    describe 路径 C 用。预设目录解析与 `resolve_source` 同一条链
+    （`preset_apply.find_presets_dir`：NF_SAMPLE_ROOT → root → 代码根），
+    读 preset.yaml 走严格 loader（重复键抛错 → 跳过该预设，不静默取后值）。
+    """
+    import preset_apply as pa
+    pdir = pa.find_presets_dir(root)
+    if not pdir:
+        return None, None, 0, None
+    for d in sorted(Path(pdir).iterdir()):
+        meta_path = d / "preset.yaml"
+        if not meta_path.is_file():
+            continue
+        try:
+            from utils.config_io import load_config_yaml
+            meta = load_config_yaml(str(meta_path)) or {}
+        except Exception:                                     # noqa: BLE001
+            continue
+        if ((meta.get("name") or "").strip()) != cur_name:
+            continue
+        min_cards = int((meta.get("verify") or {}).get("min_cards") or 1)
+        return d.name, d, min_cards, "随包预设 %s（书名一致）" % d.name
+    return None, None, 0, None
+
+
+def _cards_match_source(root, src_raw):
+    """当前 `materials/raw` 与出厂源是否逐字节一致（文件名集合 + 每个 sha256）。
+
+    刻意从严：多一张、少一张、改一个字都判不一致。误杀方向是「按钮不出现」，
+    不是「真书被摆上还原入口」—— 与 `factory_manifest.detect_sample_matches`
+    对样例书同一口径（逐字节一致才算出厂）。
+    """
+    cur = Path(root) / "materials" / "raw"
+    cur_files = {p.name: p for p in cur.glob("*.md")} if cur.is_dir() else {}
+    src_files = {p.name: p for p in Path(src_raw).glob("*.md")}
+    if not src_files or set(cur_files) != set(src_files):
+        return False
+    return all(_sha256_file(cur_files[n]) == _sha256_file(src_files[n])
+               for n in cur_files)
+
+
 def resolve_source(root, marker):
     """按标记找出厂源。返回 `(src|None, min_cards, 说明)`。"""
     kind = (marker or {}).get("kind")
@@ -194,13 +252,17 @@ def resolve_source(root, marker):
 def describe(root):
     """只读预览：当前工作区是不是出厂测试项目 + 还原会动什么。
 
-    身份两条路（任一命中 + 完整性自检通过 = 出厂测试项目）：
+    身份三条路（任一命中 + 完整性自检通过 = 出厂测试项目）：
       A. **铺设标记**（preset_apply 写的）—— 向导铺的预设项目；
       B. **隐式样例**—— 书名与随包样例书一致。随包样例（就叫《雾港核心》）
          是装机就有的测试项目，用户直接拿它跑完过全流程，没有铺设标记 ——
          这类**同样是一键还原的对象**（用户 2026-10-23 纠正：他工作区里
          跑完的《雾港核心》不是"真书"，是测试项目，还原功能就是为它做的）。
          名字是唯一能认出它的身份 —— 内容早被跑出来的进度覆盖，指纹认不出。
+      C. **隐式预设**—— 书名与某预设名一致 **且** 素材卡与预设源逐字节一致。
+         标记经不起「归档 → 同名重建」（标记随书走，2026-10-25 实测按钮消失）；
+         而素材逐字节一致证明这套卡就是预设铺的、一个字没动过（详见 `_cards_
+         match_source` 的从严判据）。
     """
     root = Path(root)
     marker = read_marker(root)
@@ -240,6 +302,23 @@ def describe(root):
                 reasons.append("随包样例源不完整（0 张素材卡）")
         elif not sdir:
             reasons.append("随包样例源不在（examples/sample-book 缺失）")
+    # C. 隐式预设：书名 == 随包某预设名 **且** 素材卡与该预设源逐字节一致。
+    # 标记经不起「归档 → 同名重建」这类正常操作（标记随书走；用户 2026-10-25
+    # 实测 10:08 铺 rail-end、10:09 同名新建项目把标记归档走，按钮从此消失）。
+    # 两条一起才认：书名可以撞，逐字节一致的素材证明「这套卡一个字没动过」——
+    # 改过任何一张卡都不认（误杀方向 = 按钮不出现，绝不是给真书摆还原入口）。
+    if eff is None:
+        pid, psrc, pmin, pnote = _preset_source_by_name(root, cur_name)
+        if pid:
+            n_psrc = _count_cards(_cards_dir(psrc))
+            if n_psrc < pmin:
+                reasons.append("%s 不完整（%d 张卡 < 要求 %d）" % (pnote, n_psrc, pmin))
+            elif _cards_match_source(root, _cards_dir(psrc)):
+                eff = {"kind": "preset", "id": pid}
+                src, min_cards, info = psrc, pmin, "%s（素材逐字节一致）" % pnote
+            else:
+                reasons.append("书名与预设 %s 相同，但素材卡与出厂源不一致"
+                               "（改动过 = 用户数据）" % pid)
     if eff is None:
         out["reason"] = "；".join(r for r in reasons if r) or "不是出厂测试项目"
         return out
