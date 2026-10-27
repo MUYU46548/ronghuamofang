@@ -9,6 +9,8 @@ CHANGELOG」）。本文件从工程审查修复起正式启用。
 
 ## [Unreleased]
 
+## [v0.7.12] — 2026-10-27 重写失败自动恢复旧稿 + 手改正文收回 GUI
+
 ### 修 1：重写失败自动把旧稿放回（数据安全网，P0）
 
 `_prepare_chapter_rewrite` 把 `raw/NN.md` **移走**（必须移，否则 stage4 判该章已完成、根本不重写）；
@@ -48,6 +50,8 @@ kb-scan / long-form / prompt-prefix / key-paths / operations），主文件留�
   按 2026-10-27 事实核对同步。
 - 方寸账本三条任务已销账：v0.7 收尾、v0.10 可带走 → **完成**；发版前重打包 → 只剩「出厂预设真机跑」。
 - `git tag v0.7.11` 已建并 push（`origin/main` 与本地同步）。
+
+- `SEED_VERSION` 54 → 55（后端脚本改了，必须随包播种才会进用户工作区）；`nfctl test` **155/155**。
 
 ## [v0.7.11] — 2026-10-27 重写接流式 + hermes 文件进度/停止
 

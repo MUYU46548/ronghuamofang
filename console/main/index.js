@@ -379,7 +379,9 @@ function getWorkspaceSource() {
 //   · 前端（asar，不走种子）：项目页出厂徽标 / 启动提示词剥离说明书 /
 //     阶段复制改任务简报（原样贴模板会被外部 Agent 按红线判「模板不是任务」停工）。
 // **先 bump 再 electron-builder**。
-const SEED_VERSION = 54;   // 0.7.11: 重写接 SSE（token + 文件尾）+ hermes 文件进度/心跳；
+const SEED_VERSION = 55;   // 0.7.12: 重写失败自动恢复旧稿（_rewrite_job_result）；/chapters/save
+                            // 改 GUI-only（双因子 + 禁用名单）；AGENTS 拆成 docs/agents/
+                            // 0.7.11: 重写接 SSE（token + 文件尾）+ hermes 文件进度/心跳；
                             // 加强模式停止传播；MCP nf_rewrite_chapter
                             // 0.7.10: 阶段 8 可放行（VALID_STAGES 收口）+ 单章重写
                             // 进度按「本章/段群」报，不再恒 99%；/chapters/content 报
