@@ -257,6 +257,32 @@ def main():
         else:
             print(f"\n第{ch}章: [PASS]")
 
+    # 病灶词（⑦，2026-10-27 从 SP-1024 吃书工具箱集成）：**只报告、不阻断**。
+    # 为什么不做成门禁：词表命中 ≠ 写坏（"微微一笑"一章出现一次很正常），
+    # 做成硬门只会误伤合格稿；密度与排行交给人看。
+    try:
+        from utils.cliche_scan import scan_chapter, top_hits
+        print("\n病灶词扫描（只报告，不阻断验收）")
+        any_hit = False
+        for ch in chapters:
+            if ch in missing:
+                continue
+            try:
+                rep = scan_chapter(ch, root=ROOT)
+            except Exception:                                 # noqa: BLE001
+                continue
+            hits = top_hits(rep, 3)
+            if not hits:
+                continue
+            any_hit = True
+            top = "、".join("%s×%d" % (w, c) for w, c in hits)
+            print("  第%d章：%d 次 · %s/千字 · %s"
+                  % (ch, rep["总命中次数"], rep["平均密度每千字"], top))
+        if not any_hit:
+            print("  （无命中）")
+    except Exception as e:                                      # noqa: BLE001
+        print("[quality] 病灶词扫描跳过：%s: %s" % (type(e).__name__, e))
+
     print("\n" + "=" * 60)
     if all_pass:
         if missing:

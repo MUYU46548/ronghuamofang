@@ -9,6 +9,23 @@ CHANGELOG」）。本文件从工程审查修复起正式启用。
 
 ## [Unreleased]
 
+### 集成：吃书（移植 SP-1024 吃书工具箱）+ 病灶词扫描
+
+本仓此前只有「素材卡 → 设定集」；**已经写完的一本书 → 正典四表**是空白。
+把沙盒 `SP-1024` 的七件套移植进来（提示词逐字保留），改成进程内一条命令：
+
+- `scripts/utils/eatbook/`：② 摘要 / ③ 角色卡 / ⑥ 伏笔台账 / ⑧ 时间线 / ⑨ 设定卡 /
+  ① 一致性 / ⑦ 病灶词 + `runner` 编排 + `llm` 适配（走 `client._post_chat`，截断即失败）。
+- `scripts/eat_book.py`：`init / run / status / merge` 四个子命令；`--dry-run` 零 token 预演。
+- **断点续跑**：摘要落盘即算完成，失败章重跑只补它；**并库只增不改**：同名角色一个字不动，
+  写前备份 `data/setting/history/`。
+- `scripts/utils/cliche_scan.py` + `nfctl cliche`：零 token 词表扫描（词表优先级
+  `--wordlist` > `quality.cliche_wordlist` > 内置 20 条）；`quality_checklist` 末尾
+  追加**只报告不阻断**的逐章密度。
+- 判据：`test_eat_book`（33）· `test_cliche_scan`（21）。
+- 评估报告：`docs/集成评估-SP1024-SP1026-20261027.md`（逐模块「值得移植 / 不如现有 / 暂缓」）。
+- 未移植：SP-1026 的交互模块（本仓已有更强或等价实现）、SP-1024 的 ④⑤ 与 campaign 人机通道。
+
 ## [v0.7.12] — 2026-10-27 重写失败自动恢复旧稿 + 手改正文收回 GUI
 
 ### 修 1：重写失败自动把旧稿放回（数据安全网，P0）

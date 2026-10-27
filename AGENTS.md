@@ -40,6 +40,7 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 | 提示词前缀纪律（改 stage*.md 前必读） | `docs/agents/prompt-prefix.md` |
 | 关键路径（数据与产物的真源） | `docs/agents/key-paths.md` |
 | 运维场景（失败/熔断/打回/升级） | `docs/agents/operations.md` |
+| 吃书（写完的书 → 正典四表 + 病灶词） | `docs/agents/eat-book.md` |
 
 ## 启用流程（用户说"运行 NovelForge"时）
 
@@ -155,6 +156,17 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 > ⚠️ 为什么搬走（2026-10-03）：那张表 30 KB，把本手册顶到了 **64 KB 的指令加载预算**之上，
 > 超限部分会被**静默截断** → 后面的《硬性约束》《能力边界》对自动加载的助手**不可见**，
 > 等于手册失效且没有任何报错。现在本文件只留常用入口，完整表在 `docs/commands.md` 里照样可查。
+
+## 吃书（把写完的书变成正典，2026-10-27 集成自 SP-1024）
+
+素材卡 → 设定集走阶段 1；**已经写完的一本书 → 正典四表**走吃书：
+`python scripts/eat_book.py init <书.txt> --name X` → `run X --dry-run`（零 token 预演）→
+`run X` → `status X` → `merge X --yes`。产物在 `data/eatbook/X/`（摘要/角色/设定/时间线/
+伏笔/冲突/病灶/报告/成本）；**断点续跑**（摘要落盘即算完成，失败章重跑只补它）、
+**并库只增不改**（同名角色一个字都不动，写前备份 `data/setting/history/`）、
+**零 token 可预演**。需要 `engine: direct`（走 `client._post_chat`），Hermes 子会话下只能预演。
+病灶词扫描另有零 token 出口：`python scripts/nfctl.py cliche [--chapter N]`
+（`quality_checklist` 末尾也只报告、不阻断验收）。细节 → `docs/agents/eat-book.md`。
 
 ## 外部 Agent 接入（Hermes skill + nfctl）
 

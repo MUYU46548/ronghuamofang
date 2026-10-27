@@ -18,6 +18,8 @@
     python scripts/nfctl.py check  [--json]         # 环境自检：密钥/配置/端口/gates/重复键
     python scripts/nfctl.py doctor [--json]         # 数据一致性自检：产物完整性/孤儿文件/数据库
     python scripts/nfctl.py homo   [--json]         # 同质化/退化报告（stage4 自动生成，零 token 只读）
+    python scripts/nfctl.py cliche [--chapter N|--file F] [--wordlist W]
+                                     # 病灶词扫描（吃书⑦，零 token 只读；默认全书逐章）
     python scripts/nfctl.py serve  [--port 8766]    # 启动本地调试看板（零依赖）
     python scripts/nfctl.py api <GET路径> [--json]  # 只读转发到 nf_api（服务需在跑）
     python scripts/nfctl.py model-check [provider] [--live]
@@ -775,6 +777,59 @@ def render_doctor(d: dict) -> str:
     return "\n".join(lines)
 
 
+# ---------------------------------------------------------------- 病灶词（⑦）
+def collect_cliche(root: Path, chapter=None, file=None, wordlist=None) -> dict:
+    """病灶词扫描（2026-10-27 集成自 SP-1024 吃书工具箱；零 token、只读）。
+
+    口径与 `utils/cliche_scan` 一份实现：词表优先级 = 显式路径 >
+    `quality.cliche_wordlist` > 内置 20 条；章节按 refined > checked > raw 取。
+    """
+    from utils.cliche_scan import scan_chapter, scan_text
+    if file:
+        p = Path(file)
+        if not p.is_absolute():
+            p = root / file
+        rep = scan_text(p.read_text(encoding="utf-8"), wordlist)
+        rep["file"] = str(p)
+        return rep
+    if chapter:
+        return scan_chapter(int(chapter), root=root, wordlist_path=wordlist)
+    stems = set()
+    for rel in ("data/chapters/refined", "data/chapters/checked", "data/chapters/raw"):
+        d = root / rel
+        if d.is_dir():
+            stems.update(int(f.stem) for f in d.glob("*.md") if f.stem.isdigit())
+    reps = []
+    for n in sorted(stems):
+        try:
+            rep = scan_chapter(n, root=root, wordlist_path=wordlist)
+            rep["chapter"] = n
+            reps.append(rep)
+        except Exception as e:                                 # noqa: BLE001
+            reps.append({"chapter": n, "error": "%s: %s" % (type(e).__name__, e)})
+    return {"chapters": reps,
+            "total_hits": sum(int(r.get("总命中次数") or 0) for r in reps)}
+
+
+def render_cliche(d: dict) -> str:
+    if "chapters" not in d:
+        from utils.cliche_scan import format_report
+        return format_report(d)
+    lines = ["病灶词扫描：%d 章，命中 %d 次（零 token，只报不拦）"
+             % (len(d["chapters"]), d["total_hits"])]
+    for r in d["chapters"]:
+        if r.get("error"):
+            lines.append("  第%s章：%s" % (r.get("chapter"), r["error"]))
+            continue
+        top = "、".join("%s×%d" % (w, c) for w, c in (r.get("排行") or [])[:5]) or "（无命中）"
+        lines.append("  第%-3s %4d 次 · %5s/千字 · %s"
+                     % (r.get("chapter"), r.get("总命中次数", 0),
+                        r.get("平均密度每千字", 0), top))
+    if not d["chapters"]:
+        lines.append("  （没有章节产物：先跑阶段 4）")
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------- homogeneity
 def collect_homogeneity(root: Path) -> dict:
     """汇总 stage4/stage6 落盘的同质化报告（只读，零 token）。
@@ -1507,6 +1562,12 @@ def main(argv=None):
     sub.add_parser("doctor", parents=[common], help="数据一致性自检（产物完整性/孤儿文件/数据库）")
     sub.add_parser("homo", parents=[common],
                    help="同质化/退化报告（stage4 落盘后自动生成；零 token 只读）")
+    p_cl = sub.add_parser("cliche", parents=[common],
+                          help="病灶词扫描（零 token 只读；默认全书逐章）")
+    p_cl.add_argument("--chapter", type=int, default=None, help="只扫第 N 章")
+    p_cl.add_argument("--file", default=None, help="扫指定正文文件（相对项目根或绝对路径）")
+    p_cl.add_argument("--wordlist", default=None,
+                      help="自定义词表（一行一词，# 注释，regex: 前缀支持正则）")
     p_serve = sub.add_parser("serve", parents=[common], help="启动本地调试看板（零依赖）")
     p_serve.add_argument("--port", type=int, default=8766, help="端口（默认 8766）")
     p_test = sub.add_parser("test", parents=[common], help="统一测试运行器（跑 tests/ 下所有自定义测试）")
@@ -1568,6 +1629,13 @@ def main(argv=None):
         data = collect_homogeneity(root)
         print(json.dumps(data, ensure_ascii=False, indent=2) if as_json
               else render_homogeneity(data))
+        return 0
+
+    if args.cmd == "cliche":
+        data = collect_cliche(root, chapter=args.chapter, file=args.file,
+                              wordlist=args.wordlist)
+        print(json.dumps(data, ensure_ascii=False, indent=2) if as_json
+              else render_cliche(data))
         return 0
 
     if args.cmd == "handoff":
