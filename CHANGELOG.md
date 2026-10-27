@@ -9,6 +9,46 @@ CHANGELOG」）。本文件从工程审查修复起正式启用。
 
 ## [Unreleased]
 
+### 修 1：重写失败自动把旧稿放回（数据安全网，P0）
+
+`_prepare_chapter_rewrite` 把 `raw/NN.md` **移走**（必须移，否则 stage4 判该章已完成、根本不重写）；
+模型连续三次「未生成章节文件」后 stage4 失败，**没有人负责把旧稿放回** —— 实测《潮汐档案》第 3 章
+`raw/03.md` 缺失、stage4 变 failed、`completed_chapters` 少一章，旧稿只剩在 `rewrite_backup/`。
+
+- job 收尾统一走 `_rewrite_job_result`：失败且新稿未落盘 → 把该章最新备份 `copy2` 回 raw
+  （备份保留）、补回完成标记、清失败留痕与失败那轮 `started_at/finished_at`；
+  全书齐 → `done`，不齐 → `pending`（不虚报）。异常穿透路径同样先恢复再抛。
+- 判据：`tests/unit/test_rewrite_restore.py`（32 断言：复制非移动 / 不覆盖新稿 / 无备份不造文件 /
+  done-pending / 两条 job 路径 + 异常穿透）。
+
+### 修 2：`/chapters/save` 改 GUI-only（双因子 + 禁用名单双闸）
+
+手改正文是**零 token 直接覆盖** raw/checked/refined，与「重写（花 token、有 stage 记录与备份）」
+不是一回事：此前 `agent_mode=true` 下外部 Agent 一条 POST 就能静默改稿、且不留任何模型痕迹。
+
+- `handle_chapters_save` 首行 `_gui_only`（来源头 + 主进程签发 token），**与 agent_mode 无关也拦**；
+  同时列入 `agent_guard.FORBIDDEN_IN_AGENT_MODE`。读侧 `/chapters/layers|content` 不拦。
+- `project._gui_only` 容忍无 headers 调用（None → fail-closed 403，不崩 500）。
+- 判据：`test_chapter_editor`（54，含三路 403 + 拒文零通道名）。
+
+### 修 3：AGENTS.md 拆到 35 KB（原 76 KB 超指令预算被静默截断）
+
+主文件 76,326 → 36,183 字节；7 篇细节逐字拆到 `docs/agents/`（text-norm / writing-forms /
+kb-scan / long-form / prompt-prefix / key-paths / operations），主文件留同名标题 + 「为什么」+ 指向。
+顺手同步事实：MCP 工具 25 → 27；`/chapters/save` 进 Agent 禁用名单。
+
+### 修 4：重写实时面板补真机 e2e
+
+`tests/e2e/e2e_rewrite_panel.py`（17 断言）：SSE 代理喂脚本化流，验证「面板出现 → 文件尾带字数/字节
+→ 中断真 POST /stop → done 后完成」，零 token 不落稿。
+
+### 文档与台账
+
+- `docs/roadmap-2026Q4.md` / `docs/开发预警-20261020.md` / `docs/收口台账-20261019.md`
+  按 2026-10-27 事实核对同步。
+- 方寸账本三条任务已销账：v0.7 收尾、v0.10 可带走 → **完成**；发版前重打包 → 只剩「出厂预设真机跑」。
+- `git tag v0.7.11` 已建并 push（`origin/main` 与本地同步）。
+
 ## [v0.7.11] — 2026-10-27 重写接流式 + hermes 文件进度/停止
 
 **用户实测原话**：「几百秒无新字是什么鬼？而且不是很早就提了做流式输出吗？

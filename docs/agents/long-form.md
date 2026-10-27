@@ -162,7 +162,7 @@ stage4 单章顺序是「LLM 写盘 → 归一化 → 质检 → 摘要 → 出�
 - 铺设列入 `FORBIDDEN_IN_AGENT_MODE` + 端点自身 `_gui_only` 双因子（与 `/project/create`
   完全同族）。Agent 可盘点、不能动手。自检 17 断言（含伪造来源头的红队路径）。
 
-### 弹窗写法（暮雨 2026-10-19 点名"不会抄自己"）
+### 弹窗写法（用户 2026-10-19 点名"不会抄自己"）
 
 应用里已有范式，**不要手搓**：`drawer-mask`（居中）→ `dialog` → `card-head` 标题 →
 可滚动正文 → `dialog-actions`。参照 `DisclaimerDialog.vue`。
