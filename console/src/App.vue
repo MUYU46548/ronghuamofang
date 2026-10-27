@@ -2495,6 +2495,117 @@ function importPayload(extra) {
   }, extra || {});
 }
 
+/* 吃书（0.7.13，集成自 SP-1024）：把一本**写完的书**抽成正典四表。
+   两段式：预演（零 token、不写盘）→ 开始吃（后台 job）→ 合并预览 → 确认并进设定集。
+   为什么不是一键：吃书要花 token 且会读出几十张卡，用户得先看见规模再决定。 */
+const eatPath = ref("");
+const eatName = ref("");
+const eatPreview = ref(null);
+const eatBusy = ref(false);
+const eatStatus = ref(null);   // {text, detail, bad}
+const eatCamp = ref("");       // 已建目录名（非空 = 同一本不再重复建）
+const eatMerge = ref(null);    // 合并预演/结果
+let eatTimer = null;
+
+async function pickEatBook() {
+  try {
+    const dlg = window.mofangAPI && window.mofangAPI.openFileDialog;
+    if (!dlg) return say("这个环境没有系统文件对话框 —— 请在输入框里直接粘 .txt 路径");
+    const r = await dlg({ title: "选择要吃的书稿", properties: ["openFile"],
+                          filters: [{ name: "文本", extensions: ["txt", "md"] }] });
+    if (!r || r.canceled) return;
+    if (r.filePaths && r.filePaths[0]) {
+      eatPath.value = r.filePaths[0];
+      eatPreview.value = null;
+      eatCamp.value = "";
+      eatMerge.value = null;
+    }
+  } catch (e) {
+    say("文件对话框不可用：" + (e && e.message ? e.message : e) + " —— 请直接粘路径");
+  }
+}
+
+async function previewEatBook() {
+  const p = eatPath.value.trim();
+  if (!p) return say("先选择或粘贴书稿路径");
+  eatBusy.value = true;
+  eatPreview.value = null;
+  eatCamp.value = "";
+  eatMerge.value = null;
+  const r = await api("/eatbook/preview", "POST", { path: p });
+  eatBusy.value = false;
+  if (r.status !== 200 || !r.data.ok) {
+    return say("预演失败：" + ((r.data && r.data.error) || r.status));
+  }
+  eatPreview.value = r.data;
+  if (!r.data.ok) say("预演提示：" + (r.data.hint || "章节数不够"));
+}
+
+async function startEatBook() {
+  const p = eatPath.value.trim();
+  if (!p) return;
+  eatBusy.value = true;
+  eatMerge.value = null;
+  const init = await api("/eatbook/init", "POST",
+                         { path: p, name: eatName.value.trim() || undefined });
+  if (init.status !== 200 || !init.data.ok) {
+    eatBusy.value = false;
+    return say("建目录失败：" + ((init.data && init.data.error) || init.status));
+  }
+  const name = init.data.name;
+  eatCamp.value = name;
+  const run = await api("/eatbook/run", "POST", { name });
+  eatBusy.value = false;
+  if (run.status !== 202) {
+    return say("启动失败：" + ((run.data && run.data.error) || run.status));
+  }
+  eatStatus.value = { text: "吃书中…（" + name + "）",
+                      detail: "后台跑，关掉面板也不影响；完成后回来点“合并预览”", bad: false };
+  pollEat(name);
+}
+
+function pollEat(name) {
+  if (eatTimer) clearTimeout(eatTimer);
+  eatTimer = setTimeout(async () => {
+    const r = await api("/eatbook/status?name=" + encodeURIComponent(name));
+    if (r.status !== 200 || !r.data.ok) {
+      eatStatus.value = { text: "读不到吃书进度", detail: (r.data && r.data.error) || String(r.status), bad: true };
+      return;
+    }
+    const st = r.data.state || {};
+    const done = r.data.summarized || 0;
+    const total = r.data.chapters || 0;
+    if (st.state === "running") {
+      eatStatus.value = { text: "吃书中 … " + (st.stage_name || "") +
+                                "（摘要 " + done + "/" + total + "）",
+                          detail: "失败章重跑只补那一章，已完成的不会重烧", bad: false };
+      pollEat(name);
+      return;
+    }
+    if (st.state === "failed") {
+      eatStatus.value = { text: "吃书失败", detail: st.error || "（没有更详细的原因）", bad: true };
+      return;
+    }
+    eatStatus.value = { text: "吃书完成：摘要 " + done + "/" + total,
+                        detail: "点“合并预览”看看能并进设定集什么", bad: false };
+  }, 2500);
+}
+
+async function previewEatMerge() {
+  if (!eatCamp.value) return say("先吃一本书");
+  const r = await api("/eatbook/merge", "POST", { name: eatCamp.value });
+  if (r.status !== 200) return say("合并预览失败：" + ((r.data && r.data.error) || r.status));
+  eatMerge.value = r.data;
+}
+
+async function confirmEatMerge() {
+  if (!eatCamp.value) return;
+  const r = await api("/eatbook/merge", "POST", { name: eatCamp.value, yes: true });
+  if (r.status !== 200) return say("合并失败：" + ((r.data && r.data.error) || r.status));
+  eatMerge.value = r.data;
+  say("已并进设定集（同名条目一个字没动，写前已备份到 data/setting/history/）");
+}
+
 async function pickImportDocx() {
   try {
     const dlg = window.mofangAPI && window.mofangAPI.openFileDialog;
@@ -4819,6 +4930,46 @@ onUnmounted(() => {
           </div>
           <div v-if="importResult.doctor && importResult.doctor.note" class="meta">体检：{{ importResult.doctor.note }}</div>
           <div v-for="w in (importResult.warnings || [])" :key="w" class="meta">提示：{{ w }}</div>
+        </div>
+      </details>
+      <!-- 吃书（0.7.13，集成自 SP-1024）：写完的书 → 正典四表。两段式：预演 → 后台跑 → 合并预览 -->
+      <details class="import-box" :open="!!eatPath || !!eatPreview || !!eatStatus">
+        <summary>吃书（把一本写完的书抽成正典：角色 / 设定 / 时间线 / 伏笔 / 病情）</summary>
+        <div class="import-row">
+          <input v-model="eatPath" class="import-path"
+                 placeholder="把书稿 .txt 的完整路径粘在这里（或点“浏览…”挑文件）" />
+          <button class="mini" @click="pickEatBook" title="用系统对话框挑文件">浏览…</button>
+          <input v-model="eatName" class="import-split" placeholder="目录名（可空，默认文件名）" />
+          <button class="mini" :disabled="eatBusy || !eatPath.trim()" @click="previewEatBook">预演（零 token）</button>
+          <button class="mini primary" :disabled="eatBusy || !eatPreview || !eatPreview.ok || !!eatCamp"
+                  @click="startEatBook">开始吃</button>
+        </div>
+        <div v-if="eatPreview" class="import-preview">
+          <div class="meta">
+            共 {{ eatPreview.chapter_count }} 章 / {{ eatPreview.total_chars }} 字 ·
+            预计 {{ eatPreview.est_calls }} 次模型调用 · 预演没有写任何文件
+          </div>
+          <div v-if="eatPreview.hint" class="import-sugg">{{ eatPreview.hint }}</div>
+        </div>
+        <div v-if="eatStatus" class="import-result" :class="{ bad: eatStatus.bad }">
+          <div>{{ eatStatus.text }}</div>
+          <div class="meta">{{ eatStatus.detail }}</div>
+        </div>
+        <div v-if="eatCamp" class="import-row">
+          <button class="mini" @click="previewEatMerge">合并预览（不写盘）</button>
+          <button v-if="eatMerge && !eatMerge.written" class="mini primary" @click="confirmEatMerge">
+            确认并进设定集
+          </button>
+        </div>
+        <div v-if="eatMerge" class="import-preview">
+          <div class="meta">
+            新角色 {{ (eatMerge.added_characters || []).length }} ·
+            新设定 {{ (eatMerge.added_world || []).length }} ·
+            新伏笔 {{ (eatMerge.added_fragments || []).length }} ·
+            新时间线 {{ eatMerge.added_timeline }} ·
+            {{ eatMerge.written ? "已写入（写前已备份）" : "还没写" }}
+          </div>
+          <pre class="import-list">{{ (eatMerge.added_characters || []).join("、") || "（没有新角色）" }}</pre>
         </div>
       </details>
       <!-- P3: 一致性账本（跨章事实：死亡/物品/时间锚）—— 放在质量趋势之前，

@@ -159,7 +159,8 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 
 ## 吃书（把写完的书变成正典，2026-10-27 集成自 SP-1024）
 
-素材卡 → 设定集走阶段 1；**已经写完的一本书 → 正典四表**走吃书：
+素材卡 → 设定集走阶段 1；**已经写完的一本书 → 正典四表**走吃书。
+GUI：章节页签「吃书」折叠块（预演 → 后台跑 → 合并预览 → 确认）；CLI 同源：
 `python scripts/eat_book.py init <书.txt> --name X` → `run X --dry-run`（零 token 预演）→
 `run X` → `status X` → `merge X --yes`。产物在 `data/eatbook/X/`（摘要/角色/设定/时间线/
 伏笔/冲突/病灶/报告/成本）；**断点续跑**（摘要落盘即算完成，失败章重跑只补它）、
@@ -219,7 +220,7 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 ## 架构：API 层的域模块拆分（P2）
 
 `scripts/nf_api.py` 原本是 2,872 行的 God Object（91 个端点全挤在
-`do_GET`/`do_POST` 两条 elif 链里）。现已拆为 **2686 行的分发器 + 11 个域模块**，
+`do_GET`/`do_POST` 两条 elif 链里）。现已拆为 **分发器 + 12 个域模块**，
 端点实现住在 `scripts/nf_api_domains/`。
 
 **改 API 时请遵守三条纪律**（全部由 `tests/unit/test_api_domains.py` 守护）：
@@ -252,6 +253,7 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 | `refine.py` | 大纲精修/节点精修/撤销/章节精修 | 4 |
 | `setting_state.py` | 设定集冲突/canon/状态回写 | 3 |
 | `factory.py` | 出厂清单盘点 / 出厂样例一键归档（0.6.7） | 2 |
+| `eatbook.py` | 吃书：预演 / 建目录 / 后台跑 / 并库（0.7.13） | 6 |
 
 ### Agent 模式（外部 Agent 控制，P1 新增）
 

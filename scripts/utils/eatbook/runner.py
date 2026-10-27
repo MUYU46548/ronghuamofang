@@ -116,6 +116,56 @@ def resolve_camp(name_or_path: str) -> Path:
     return Path(EATBOOK_ROOT) / name_or_path
 
 
+def preview_book(book_path: str | Path, pattern: str = "",
+                 max_chapters: int = 0, batch_size: int = 30) -> Dict[str, Any]:
+    """**零写盘**预演：只数标题、字数与预计调用数（GUI「预演」按钮用）。
+
+    为什么单独写：`split_book` 会真的建目录，而用户点「预演」时不该在盘上留下任何东西。
+    """
+    src = Path(book_path)
+    if not src.exists():
+        raise FileNotFoundError("书稿不存在：%s" % src)
+    text = _read_book(src)
+    heading = re.compile(pattern or DEFAULT_SPLIT_PATTERN)
+    heads = [ln.strip() for ln in text.splitlines() if heading.match(ln)]
+    if max_chapters:
+        heads = heads[:max_chapters]
+    n = len(heads)
+    batches = max(1, (n + max(1, batch_size) - 1) // max(1, batch_size)) if n else 0
+    # ② n 次 + ③⑧⑨ 3×批 + ⑥ 1 次 + ① 后 1/3 + ⑦ 0 次
+    est = n + 3 * batches + (1 if n else 0) + (max(1, n // 3) if n else 0)
+    return {"path": str(src.resolve()), "chapter_count": n,
+            "total_chars": len(text), "pattern": pattern or DEFAULT_SPLIT_PATTERN,
+            "titles": heads[:10], "est_calls": est, "ok": n >= 2,
+            "hint": "" if n >= 2 else
+                    "只找到 %d 个章回标题（至少 2 个才拆）—— 是不是分章正则不对？" % n}
+
+
+def state_path(camp: str | Path) -> Path:
+    return Path(camp) / "run_state.json"
+
+
+def read_state(camp: str | Path) -> Dict[str, Any]:
+    p = state_path(camp)
+    if not p.exists():
+        return {}
+    try:
+        return json.loads(read_text(p))
+    except Exception:                                          # noqa: BLE001
+        return {}
+
+
+def _state(camp: Path, **kw) -> None:
+    """写运行态（GUI 轮询用）。失败不抛：进度显示坏了不该拖垮吃书。"""
+    data = read_state(camp)
+    data.update(kw)
+    data["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    try:
+        write_text(state_path(camp), json.dumps(data, ensure_ascii=False, indent=2))
+    except Exception:                                          # noqa: BLE001
+        pass
+
+
 # ---------------------------------------------------------------- 工具
 
 def _log(msg: str) -> None:
@@ -124,13 +174,17 @@ def _log(msg: str) -> None:
 
 def _summaries(camp: Path, manifest: Dict[str, Any], *, force: bool,
                call: Callable[[str], str], stats: Dict[str, Any],
-               log=_log) -> Dict[str, Any]:
+               log=_log, on_chapter: Optional[Callable[[int, int], None]] = None
+               ) -> Dict[str, Any]:
     """② 逐章摘要（断点：已有 JSON 就跳过）。返回 {"done": n, "failed": [(seq, err)]}。"""
     done, failed = 0, []
+    total = len(manifest["chapters"])
     for ch in manifest["chapters"]:
         out = camp / ch["summary"]
         if out.exists() and not force:
             done += 1
+            if on_chapter:
+                on_chapter(done, total)
             continue
         text = read_text(camp / ch["file"])
         try:
@@ -142,6 +196,8 @@ def _summaries(camp: Path, manifest: Dict[str, Any], *, force: bool,
         write_text(out, json.dumps(data, ensure_ascii=False, indent=2))
         ch["status"] = "summary"
         done += 1
+        if on_chapter:
+            on_chapter(done, total)
         log("  [②] 第 %d 章 %s" % (ch["seq"], ch.get("title", "")))
     save_manifest(camp, manifest)
     return {"done": done, "failed": failed}
@@ -378,39 +434,61 @@ def run(camp: str | Path, call: Callable[[str], str], *,
     manifest = load_manifest(camp)
     stages = list(stages or STAGES)
     result: Dict[str, Any] = {"name": manifest.get("name"), "failed": [], "stages": {}}
+    total_chapters = len(manifest["chapters"])
+    _state(camp, state="running", stage=0, stage_name="开始",
+           done=0, total=total_chapters, error="")
 
-    if 2 in stages:
-        log("[②] 章节摘要（%d 章）" % len(manifest["chapters"]))
-        s = _summaries(camp, manifest, force=force, call=call,
-                       stats=stats or {}, log=log)
-        result["stages"]["2"] = s
-        result["failed"] += ["② 第 %d 章：%s" % (seq, err) for seq, err in s["failed"]]
+    def _mark(stage_no: int, done: int = 0, total: int = 0) -> None:
+        _state(camp, state="running", stage=stage_no,
+               stage_name=STAGE_NAMES.get(stage_no, ""), done=done, total=total)
 
-    if any(x in stages for x in (3, 8, 9)):
-        log("[③⑧⑨] 聚合角色 / 时间线 / 设定")
-        a = _aggregate(camp, manifest, call=call, batch_size=batch_size, log=log)
-        result["stages"]["3/8/9"] = a
-        result["failed"] += a.get("failed", [])
+    try:
+        if 2 in stages:
+            log("[②] 章节摘要（%d 章）" % total_chapters)
+            _mark(2, 0, total_chapters)
+            s = _summaries(camp, manifest, force=force, call=call,
+                           stats=stats or {}, log=log,
+                           on_chapter=lambda d, t: _mark(2, d, t))
+            result["stages"]["2"] = s
+            result["failed"] += ["② 第 %d 章：%s" % (seq, err) for seq, err in s["failed"]]
 
-    if 6 in stages:
-        log("[⑥] 伏笔台账")
-        result["stages"]["6"] = _foreshadow(camp, manifest, call=call, log=log)
+        if any(x in stages for x in (3, 8, 9)):
+            log("[③⑧⑨] 聚合角色 / 时间线 / 设定")
+            _mark(3)
+            a = _aggregate(camp, manifest, call=call, batch_size=batch_size, log=log)
+            result["stages"]["3/8/9"] = a
+            result["failed"] += a.get("failed", [])
 
-    if 1 in stages:
-        log("[①] 一致性检查")
-        result["stages"]["1"] = _consistency(camp, manifest, call=call,
-                                             tail=consistency_tail, log=log)
+        if 6 in stages:
+            log("[⑥] 伏笔台账")
+            _mark(6)
+            result["stages"]["6"] = _foreshadow(camp, manifest, call=call, log=log)
 
-    if 7 in stages:
-        log("[⑦] 病灶词扫描（零 token）")
-        result["stages"]["7"] = _cliche(camp, manifest,
-                                        wordlist_path=wordlist_path, log=log)
+        if 1 in stages:
+            log("[①] 一致性检查")
+            _mark(1)
+            result["stages"]["1"] = _consistency(camp, manifest, call=call,
+                                                 tail=consistency_tail, log=log)
 
-    if stats is not None:
-        write_text(camp / "cost.json",
-                   json.dumps(stats, ensure_ascii=False, indent=2))
-    result["report"] = str(_report(camp, manifest, result))
-    return result
+        if 7 in stages:
+            log("[⑦] 病灶词扫描（零 token）")
+            _mark(7)
+            result["stages"]["7"] = _cliche(camp, manifest,
+                                            wordlist_path=wordlist_path, log=log)
+
+        if stats is not None:
+            write_text(camp / "cost.json",
+                       json.dumps(stats, ensure_ascii=False, indent=2))
+        result["report"] = str(_report(camp, manifest, result))
+        _state(camp, state="done" if not result["failed"] else "partial",
+               stage=99, stage_name="完成", done=total_chapters,
+               total=total_chapters,
+               error=";" .join(result["failed"][:3]))
+        return result
+    except BaseException as e:                                 # noqa: BLE001
+        _state(camp, state="failed", stage=99, stage_name="失败",
+               error="%s: %s" % (type(e).__name__, e))
+        raise
 
 
 # ---------------------------------------------------------------- 并库
