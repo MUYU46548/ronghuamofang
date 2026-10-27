@@ -250,13 +250,26 @@ def handle_chapters_save(h, body):
     这是用户第 1 条的正解：不经过任何模型，把编辑器里的字存回去。
 
     四个护栏：
+    - **只允许可信 GUI 来源（双因子）**：见下方 2026-10-27 说明。
     - `expected_mtime`：编辑器开着时流水线可能正好重跑完这章。带了就比对，
       不一致返回 409（**不覆盖别人刚写的**），前端提示"重新加载"。
     - 缺章标题自动补：用户常常只贴正文，缺 `## 第N章` 会被下游校验判失败。
       补的时候按 `chapter.title_format` 渲染，与流水线同一套口径。
     - 标点归一化：落盘前跑 `utils/text_norm`（幂等），成品不留半角引号。
     - 写前备份旧稿到 `data/chapters/history/chNN_vM.md`。
+
+    ## 为什么手改正文是 GUI-only（2026-10-27）
+
+    重写/跑流水线是「花 token 的生成」，出问题有 stage 记录、有备份、失败还会自动
+    恢复旧稿；而这里**零 token 直接覆盖** raw/checked/refined —— 外部 Agent 一条
+    POST 就能静默改写用户已审阅的稿子，且不留下任何"模型写的"痕迹。两者不是一回事。
+    故与止烧阈值/Agent 模式同档：`_gui_only` 双因子（来源头 + 主进程签发 token），
+    与 `gates.agent_mode` 无关也拦；agent_mode 下另有 `FORBIDDEN_IN_AGENT_MODE` 第二道闸。
     """
+    from nf_api_domains.project import _gui_only
+    guard = _gui_only(h, "手改章节正文")
+    if guard:
+        return guard
     try:
         body = body or {}
         raw_n = body.get("n")

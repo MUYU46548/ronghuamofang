@@ -14,13 +14,15 @@
 
 A. `GET /chapters/layers`：三层各自存在性/字数/标题/mtime，并指出「当前稿」是哪层。
 B. `GET /chapters/content`：读指定层全文；不存在的层 404（不返空串冒充成功）。
-C. `POST /chapters/save` 的四道护栏：
+C. `POST /chapters/save` 的护栏：
    - 写前**备份**旧稿到 `history/chNN_vM.md`（保存本身可回退）
    - 缺 `## 第N章` **自动补**（用户常只贴正文；缺标题会让下游判失败）
    - 落盘前**标点归一化**（与流水线同一实现，幂等）
    - `expected_mtime` 不一致 → **409**，绝不覆盖流水线刚写的那一版
 D. 拒绝路径：空内容 / 超长 / 非法 layer / 非法章号 —— 一律 400 且说清原因。
 E. **手改不改 progress**：progress.json 一个字节都不动（阶段状态只归 orchestrator）。
+F. **手改正文 GUI-only**（2026-10-27）：双因子（来源头 + token）缺一即 403；
+   无请求头的通道（nfctl api / 外部 Agent）同样 403 —— 零 token 覆盖正文不是"跑流水线"。
 
 全程离线、零 LLM、零费用。
 用法：python tests/unit/test_chapter_editor.py
@@ -40,6 +42,9 @@ os.environ.pop("NF_ROOT", None)
 
 PASS, FAIL = [], []
 
+# 测试态的「主进程签发 token」：is_trusted_gui 读环境变量，测试自己铸一个并带上。
+GUI_TOKEN = "unit-test-gui-token"
+
 
 def check(name, cond, detail=""):
     (PASS if cond else FAIL).append(name)
@@ -48,10 +53,12 @@ def check(name, cond, detail=""):
 
 
 class FakeHandler:
-    """只提供域模块需要的那一个方法（_query）。"""
+    """只提供域模块需要的那几个属性（_query；2026-10-27 起还要 headers）。"""
 
-    def __init__(self, query=""):
+    def __init__(self, query="", headers=None):
         self.path = "/chapters/x" + (("?" + query) if query else "")
+        self.headers = headers if headers is not None else {
+            "X-Mofang-Source": "gui", "X-Mofang-Token": GUI_TOKEN}
 
     def _query(self):
         from urllib.parse import parse_qs
@@ -83,6 +90,8 @@ def main():
     print("【A】三层现状（layers）")
     tmp = Path(tempfile.mkdtemp(prefix="nf_editor_"))
     nf_api._set_root(tmp)
+    prev_token = os.environ.get("NF_GUI_TOKEN")
+    os.environ["NF_GUI_TOKEN"] = GUI_TOKEN
     try:
         _seed(tmp)
         code, p = dom.handle_chapters_layers(FakeHandler("n=2"))
@@ -111,6 +120,25 @@ def main():
         check("不存在的章 → 404（不返空串冒充成功）", code == 404, p)
         code, p = dom.handle_chapters_content(FakeHandler("n=1&layer=bogus"))
         check("非法 layer → 400", code == 400 and "layer" in p.get("error", ""), p)
+
+        print("\n【C0】手改正文 GUI-only（双因子；2026-10-27）")
+        c0_body = {"n": 1, "layer": "refined",
+                   "content": "## 第1章 手改\n\n正文。\n"}
+        code, p = dom.handle_chapters_save(
+            FakeHandler(headers={"X-Mofang-Source": "gui"}), c0_body)
+        check("只有来源头、没有 token → 403", code == 403, (code, p.get("error")))
+        code, p = dom.handle_chapters_save(
+            FakeHandler(headers={"X-Mofang-Token": GUI_TOKEN}), c0_body)
+        check("只有 token、没有来源头 → 403", code == 403)
+        code, p = dom.handle_chapters_save(None, c0_body)
+        check("完全没有请求头（nfctl api 一类通道）→ 403", code == 403)
+        check("拒文不教绕行（零通道名）",
+              "X-Mofang" not in (p.get("error") or ""), p.get("error"))
+        from utils import agent_guard
+        check("agent_mode 下还有第二道闸（禁用名单）",
+              "/chapters/save" in agent_guard.FORBIDDEN_IN_AGENT_MODE)
+        code, p = dom.handle_chapters_save(FakeHandler(), c0_body)
+        check("真 GUI 双因子 → 200", code == 200 and p.get("ok"), p.get("error"))
 
         print("\n【C】保存（save）的四道护栏")
         # 记录 progress 原始字节，后面断言"手改不动 progress"
@@ -187,6 +215,10 @@ def main():
               p.get("warning"))
     finally:
         nf_api._set_root(ROOT)
+        if prev_token is None:
+            os.environ.pop("NF_GUI_TOKEN", None)
+        else:
+            os.environ["NF_GUI_TOKEN"] = prev_token
 
     print("\n【F】前端接线（防回潮）")
     app_vue = (ROOT / "console" / "src" / "App.vue").read_text(encoding="utf-8")

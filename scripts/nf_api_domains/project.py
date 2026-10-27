@@ -345,7 +345,10 @@ def _gui_only(h, what):
     拒文**零通道名**（V5）：不提缺哪个头、该填什么值 —— 拒文本身是攻击面。
     """
     from utils import agent_guard
-    if agent_guard.is_trusted_gui(h.headers):
+    # 传 None / 无 headers 的调用方一律按「非 GUI」fail-closed（不 AttributeError 崩成 500）：
+    # 这些端点本就不该由无请求头的通道调用。
+    headers = getattr(h, "headers", None) or {}
+    if agent_guard.is_trusted_gui(headers):
         return None
     return 403, {"ok": False,
                  "error": "%s 仅允许用户本人在桌面端手动修改；本次调用不是可信的 "

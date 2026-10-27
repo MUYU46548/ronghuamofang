@@ -112,6 +112,11 @@ FORBIDDEN_IN_AGENT_MODE = frozenset({
     # 章大纲**（data/outline/chapters/NN.md）—— 与审批同族。提案提交
     # （/outline/discussion/apply）只落草稿区，不在名单里（agent 可提案不可自批）。
     "/outline/discussion/review",
+    # 手改章节正文（2026-10-27）：零 token 直接覆盖 raw/checked/refined —— 与
+    # 「重写（花 token 生成、有 stage 记录与备份）」不是一回事。端点自身另要
+    # 双因子 GUI 来源（与止烧阈值/Agent 模式同档），这里是 mode=true 下的第二道闸。
+    # 读侧 GET /chapters/layers|content 不拦（Agent 可读，不能替用户改稿）。
+    "/chapters/save",
 })
 
 # 人工来源的标记值（HTTP 头 / 环境变量通用）
