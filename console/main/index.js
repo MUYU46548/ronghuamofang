@@ -379,7 +379,12 @@ function getWorkspaceSource() {
 //   · 前端（asar，不走种子）：项目页出厂徽标 / 启动提示词剥离说明书 /
 //     阶段复制改任务简报（原样贴模板会被外部 Agent 按红线判「模板不是任务」停工）。
 // **先 bump 再 electron-builder**。
-const SEED_VERSION = 47;   // 0.7.4: 出厂测试项目隐式识别扩到预设（factory_reset describe 新增 C 路：书名==预设名 + 素材逐字节一致 —— 标记经不起「归档→同名重建」）
+const SEED_VERSION = 53;   // 0.7.10: 阶段 8 可放行（VALID_STAGES 收口）+ 单章重写
+                            // 进度按「本章/段群」报，不再恒 99%；/chapters/content 报
+                            // 群字数与整章字节
+                            // 0.7.9: GUI「重写本章」—— 旧稿备份到 rewrite_backup/、NF_STAGE4_ONLY 只写指定章   // 0.7.8: 弱模型写不长 → 自动转加强模式补量（字数不足优先拆群，
+                            // 不再整章重生成白烧输入）；配置补 chapter.enhanced_mode；
+                            // 设置页把「篇幅 5000+ 却没开拆群」说破
 //   · prompts/: stage5 加七维 JSON 契约、stage4 加记忆块、stage3 加卷弧块、stage2 加设定摘要、
 //     新增 volume_plan.md —— **payload 变了，不 bump 用户永远拿不到新提示词**。
 
@@ -447,6 +452,100 @@ function recordFactoryManifest(ws, relPaths) {
 //   ① 全新安装（无 .seeded）      → 全量播种
 //   ② 老版本升级（.seed-version 落后）→ 刷新代码目录（force 覆盖），保留 data/
 //   ③ 已是最新版本                → 只补缺失目录（幂等，不改任何已有文件）
+// 出厂配置的**键级升级**（2026-10-26，用户第 13 条「每章只有两千多字」）。
+//
+// 为什么必须做：上面的 config 播种是「只补缺、绝不覆盖」—— 老用户升到新版，
+// system.yaml 仍是**首装那一版**。实测：安装态工作区（seed v47，已是最新安装包）
+// 的 chapter.target_words 还是 [2000, 5500]，而当前出厂是 [5000, 9000]。
+// 于是 2500 字一章就落在区间内 → 校验绿灯 → 扩写永不触发 → 整本书偏短，
+// 而全程没有任何告警（用户看到的是「体检 PASS=14」）。
+//
+// 纪律：**只改用户没动过的键**。判据 = 当前值逐项等于**旧出厂值**；
+// 用户自己调过（哪怕调小了）就一个字不动 —— 那是他的创作决策。
+const SEED_CONFIG_MIGRATIONS = [
+  {
+    rel: "system.yaml",
+    why: "单章字数下限从 2000 提到 5000（旧默认让 2500 字的章直接过检）",
+    // 行内列表写法：target_words: [2000, 5500]
+    // ⚠ 一律用 [ \t]，不用 \s：\s 会吃换行，跨行匹配可能删掉相邻配置行。
+    // 捕获组只到冒号（不含尾随空白），替换时统一补一个空格 —— 块列表形式
+    // 冒号后本来就没有空格，若按「原样保留」替换会写出 `target_words:[5000, 9000]`
+    // （YAML 仍合法，但格式变了，且用户会以为被别的工具改过）。
+    inline: /^([ \t]*target_words:)[ \t]*\[[ \t]*2000[ \t]*,[ \t]*5500[ \t]*\]/m,
+    // 块列表写法：
+    //   target_words:
+    //   - 2000
+    //   - 5500
+    block: /^([ \t]*target_words:)[ \t]*\r?\n([ \t]*-[ \t]*2000[ \t]*\r?\n[ \t]*-[ \t]*5500[ \t]*\r?\n)/m,
+    to: "[5000, 9000]",
+  },
+];
+
+function migrateConfigKeys(ws) {
+  for (const m of SEED_CONFIG_MIGRATIONS) {
+    const file = path.join(ws, SEED_CONFIG_DIR, m.rel);
+    if (!fs.existsSync(file)) continue;
+    let text;
+    try {
+      text = fs.readFileSync(file, "utf8");
+    } catch (e) {
+      console.log(`[console] seedWorkspace: 读 ${m.rel} 失败，跳过配置升级: ${e.message}`);
+      continue;
+    }
+    const before = text;
+    if (m.inline && m.inline.test(text)) {
+      text = text.replace(m.inline, "$1 " + m.to);
+    } else if (m.block && m.block.test(text)) {
+      text = text.replace(m.block, "$1 " + m.to + "\n");
+    }
+    if (text === before) continue;      // 用户改过 / 已是新值 → 不动
+    try {
+      fs.writeFileSync(file, text, "utf8");
+      console.log(`[console] seedWorkspace: 配置升级 ${m.rel} → ${m.to}（${m.why}）`);
+    } catch (e) {
+      console.log(`[console] seedWorkspace: 写 ${m.rel} 失败，配置升级未生效: ${e.message}`);
+    }
+  }
+}
+
+// 目标字数与生成方式的**联动补键**（2026-10-26）。
+//
+// 为什么必须单独一条：target_words 已经被上面那条迁移提到 [5000, 9000]，而
+// chapter.enhanced_mode 是**后加的键** —— 老工作区的 system.yaml 里根本没有它，
+// 于是实际行为是「5000 字标准 + 整章单发」。
+// 用户原话：「有些弱模型无论怎么骂就是写不长，像后台有个看不见的开关拧死了一样。
+// 所以才需要那个加强模式来强行拼凑。」
+// 那个"看不见的开关"就是这里：配置里没有这个键，代码默认 false。
+//
+// 纪律：**用户显式设置过就不碰**（哪怕设成 false）。只在键完全缺失时补 true，
+// 并写清"可以在设置里关掉"。
+function ensureEnhancedMode(ws) {
+  const file = path.join(ws, SEED_CONFIG_DIR, "system.yaml");
+  if (!fs.existsSync(file)) return;
+  let text;
+  try {
+    text = fs.readFileSync(file, "utf8");
+  } catch (e) {
+    console.log(`[console] seedWorkspace: 读 system.yaml 失败，跳过加强模式补键: ${e.message}`);
+    return;
+  }
+  if (/^[ \t]*enhanced_mode:/m.test(text)) return;      // 用户已显式设置 → 一个字不动
+  const m = /^chapter:[ \t]*\r?\n/m.exec(text);
+  if (!m) return;                                        // 没有 chapter 段 → 不猜结构
+  const pos = m.index + m[0].length;
+  const add = "  # 2026-10-26 自动补充：单章字数下限已提到 5000，整章单发对弱模型\n"
+    + "  # 常常只写两三千字就收尾；改为拆段落群逐群生成（可在「设置 → 加强模式」关掉）\n"
+    + "  enhanced_mode: true\n";
+  text = text.slice(0, pos) + add + text.slice(pos);
+  try {
+    fs.writeFileSync(file, text, "utf8");
+    console.log("[console] seedWorkspace: 配置补充 chapter.enhanced_mode=true"
+                + "（篇幅口径 5000+ 需要拆群生成；用户显式设过则不会走到这里）");
+  } catch (e) {
+    console.log(`[console] seedWorkspace: 写 system.yaml 失败，加强模式未补上: ${e.message}`);
+  }
+}
+
 function seedWorkspace() {
   const ws = getWorkspaceDir();
 
@@ -528,6 +627,11 @@ function seedWorkspace() {
       }
     }
   }
+
+  // config 键级升级：只动「仍是旧出厂值」的键（用户改过的一律不碰）
+  migrateConfigKeys(ws);
+  // 篇幅口径与生成方式的联动：目标字数已提到 5000 → 补上拆群开关（缺失才补）
+  ensureEnhancedMode(ws);
 
   // 出厂清单：把本次真正落盘的文件记进 data/state/factory_manifest.json（合并写）
   recordFactoryManifest(ws, seededRels);
