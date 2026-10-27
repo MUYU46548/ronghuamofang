@@ -395,13 +395,13 @@ def handle_chapters_rewrite(h, body):
                     api.STREAMERS[jid] = api.STREAMERS.pop(preview)
             return 202, {"ok": True, "job_id": jid, "chapter": n, "stream": True,
                          "message": "已开始流式重写第 %d 章（旧稿已备份到 "
-                                    "data/chapters/rewrite_backup/）" % n}
+                                    "data/chapters/rewrite_backup/；重写失败会自动放回）" % n}
         jid, err = api.start_job("rewrite_ch%d" % n, api.act_rewrite_chapter(cfg, n))
         if err:
             return 409, {"ok": False, "error": err}
         return 202, {"ok": True, "job_id": jid, "chapter": n,
                      "message": "已开始重写第 %d 章（旧稿已备份到 "
-                                "data/chapters/rewrite_backup/）" % n}
+                                "data/chapters/rewrite_backup/；重写失败会自动放回）" % n}
     except Exception as e:                                   # noqa: BLE001
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 

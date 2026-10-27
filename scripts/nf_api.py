@@ -1215,6 +1215,97 @@ def _prepare_chapter_rewrite(n):
     return bak_rel
 
 
+def _book_total_chapters():
+    """总章数（恢复旧稿后判断 stage4 该不该回到 done）。读不到就返回 0。"""
+    try:
+        _, proj = load_all()
+        return int((proj.get("book") or {}).get("chapters") or 0)
+    except Exception as e:                                   # noqa: BLE001
+        print(f"[rewrite] 读总章数失败（不影响旧稿恢复）: {type(e).__name__}: {e}")
+        return 0
+
+
+def _latest_chapter_backup(n):
+    """该章最新一份重写备份。文件名带时间戳（NN_YYYYmmdd_HHMMSS.md），
+    按名字排序即按时间排序 —— 不依赖文件系统 mtime（复制/解压会打乱它）。"""
+    bak_dir = ROOT / "data" / "chapters" / "rewrite_backup"
+    if not bak_dir.is_dir():
+        return None
+    hits = sorted(p for p in bak_dir.glob("%02d_*.md" % n) if p.is_file())
+    return hits[-1] if hits else None
+
+
+def _restore_chapter_after_failed_rewrite(n):
+    """重写失败后把旧稿放回 raw/（数据安全网）。返回备份相对路径；没动手则 None。
+
+    ## 为什么必须自动做（2026-10-27 实测事故）
+
+    `_prepare_chapter_rewrite` 是**移动**旧稿而不是复制（原位置必须不存在，否则
+    stage4 判该章已完成、根本不重写）。可重写一旦失败，**没有任何人负责把它放回**：
+    实测《潮汐档案》第 3 章模型连续三次「未生成章节文件」→ raw/03.md 缺失、
+    stage4 变 failed、completed_chapters 少一章，界面看起来「章节凭空消失」，
+    旧稿只剩在 rewrite_backup/ 里。这是数据安全网，不是新功能。
+
+    ## 判据（三条都不可松）
+
+    - **只在 raw/NN.md 不存在时动手**：已有新稿（哪怕半成品）一律不覆盖 ——
+      覆盖会把「用户中途停止后想续写」变成「旧稿盖掉新稿」。
+    - **复制而不是移动**：备份留在原处，这次恢复本身也可反悔。
+    - **不虚报完成**：只补这一章的完成标记；阶段状态按「全书章是否都齐」定，
+      不齐就回 pending，并把失败那轮的 started_at/finished_at 清掉
+      （否则界面显示「阶段刚跑过并失败」，而事实是「已回到重写前」）。
+    """
+    raw = ROOT / "data" / "chapters" / "raw" / ("%02d.md" % n)
+    if raw.exists():
+        return None
+    src = _latest_chapter_backup(n)
+    if src is None:
+        print(f"[rewrite] 第{n}章重写失败，且 rewrite_backup/ 里没有该章备份可恢复")
+        return None
+    try:
+        raw.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(str(src), str(raw))
+    except OSError as e:
+        print(f"[rewrite] 第{n}章旧稿恢复失败: {type(e).__name__}: {e}")
+        return None
+    rel = src.relative_to(ROOT).as_posix()
+    print(f"[rewrite] 第{n}章重写未生成新稿 —— 已把旧稿从 {rel} 复制回 raw（备份保留）")
+    try:
+        prog = ProgressManager(ROOT / "data" / "state" / "progress.json")
+        prog.mark_chapter_done(n)          # 顺带清掉该章的 failed_chapters 留痕
+        st = prog.data.setdefault("stages", {}).setdefault("4", {})
+        for _k in ("started_at", "finished_at", "failed_count"):
+            st.pop(_k, None)
+        total = _book_total_chapters()
+        done = set(prog.completed_chapters(4))
+        if total and all(i in done for i in range(1, total + 1)):
+            prog.set_stage(4, "done")
+        else:
+            prog.set_stage(4, "pending")
+    except Exception as e:                                   # noqa: BLE001
+        print(f"[rewrite] 第{n}章旧稿已放回，但进度状态回写失败（不影响正文）: "
+              f"{type(e).__name__}: {e}")
+    return rel
+
+
+def _rewrite_job_result(n, ok, detail, had_old_draft):
+    """重写 job 的统一收尾：失败且新稿没落盘 → 恢复旧稿并改写结果文案。
+
+    文案要能让用户知道**两条事实**：① 这次重写失败了（不是成功）；
+    ② 旧稿还在（没有丢数据）。含糊其辞会让人以为章节被弄坏了。
+    """
+    if ok:
+        return ok, detail
+    restored = _restore_chapter_after_failed_rewrite(n)
+    if restored:
+        return False, ("重写第 %d 章失败，**旧稿已自动恢复**（%s）—— raw/ 回到重写前"
+                       "状态，可排查模型/网络后重试" % (n, restored))
+    if had_old_draft:
+        return False, (detail + "；旧稿未恢复到 raw/ —— 请从 "
+                       "data/chapters/rewrite_backup/ 手工捞回")
+    return ok, detail
+
+
 def act_rewrite_chapter(cfg, n):
     """重写单章（2026-10-26，GUI「重写本章」）。
 
@@ -1235,9 +1326,16 @@ def act_rewrite_chapter(cfg, n):
 
     `orch_run` 的签名被四条路径共用，为一个 GUI 动作改公共签名不划算；
     `start_job` 保证同一时刻只有一个 job（互斥），不会互抢。
+
+    ## 失败必须把旧稿放回（2026-10-27 数据安全网）
+
+    「移走」是没有后悔药的动作：模型连续几次「未生成章节文件」后 stage4 判失败，
+    旧稿就只剩在 rewrite_backup/ 里，界面看着像章节被删了。所以 job 收尾统一走
+    `_rewrite_job_result` —— 失败且新稿未落盘时自动复制备份回 raw/ 并补回完成
+    标记；异常穿透路径同样先恢复再抛。
     """
     def _fn():
-        _prepare_chapter_rewrite(n)
+        bak = _prepare_chapter_rewrite(n)
         os.environ["NF_STAGE4_ONLY"] = str(n)
         # 单章重写只写稿：不跑 review_after_stage4 等后置钩子（否则一次重写
         # 还要顺带审全章，十几分钟变半小时+，用户没要求）。
@@ -1246,10 +1344,16 @@ def act_rewrite_chapter(cfg, n):
             # 复用现有的阶段运行动作工厂（不另写一份 orch_run 调用）：
             # 退出码翻译、客户端构造、流式/非流式差异都只有那一份实现。
             # 顺带满足“S2 回归护栏”：那条护栏禁止在工厂之外裸传阶段号参数。
-            return act_run_stage(cfg, 4, 4)()
+            ok, detail = act_run_stage(cfg, 4, 4)()
+        except BaseException:
+            # 异常穿透也要把旧稿放回：旧稿已被 _prepare 移走，一次崩溃
+            # 不该留下一本缺章的书（2026-10-27 数据安全网）。
+            _restore_chapter_after_failed_rewrite(n)
+            raise
         finally:
             os.environ.pop("NF_STAGE4_ONLY", None)
             os.environ.pop("NF_SKIP_POST_STAGE", None)
+        return _rewrite_job_result(n, ok, detail, bool(bak))
     return _fn
 
 
@@ -1304,19 +1408,23 @@ def act_rewrite_chapter_streamed(cfg, n, preview_job_id, stream_q, stop_ev):
       推 SSE `{type:"file"}`，让界面看得见「写到哪里」。
     """
     def _fn():
-        _prepare_chapter_rewrite(n)
+        bak = _prepare_chapter_rewrite(n)
         os.environ["NF_STAGE4_ONLY"] = str(n)
         os.environ["NF_SKIP_POST_STAGE"] = "1"
         tail_stop = threading.Event()
         threading.Thread(target=_rewrite_file_tail,
                          args=(n, stream_q, tail_stop), daemon=True).start()
         try:
-            return act_run_stage_streamed(cfg, 4, 4, preview_job_id,
-                                          stream_q, stop_ev)()
+            ok, detail = act_run_stage_streamed(cfg, 4, 4, preview_job_id,
+                                                stream_q, stop_ev)()
+        except BaseException:
+            _restore_chapter_after_failed_rewrite(n)
+            raise
         finally:
             tail_stop.set()
             os.environ.pop("NF_STAGE4_ONLY", None)
             os.environ.pop("NF_SKIP_POST_STAGE", None)
+        return _rewrite_job_result(n, ok, detail, bool(bak))
     return _fn
 
 
