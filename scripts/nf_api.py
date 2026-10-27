@@ -393,10 +393,20 @@ def _vault_ready(handler):
 
 
 def _wrap_client_for_streaming(client, job_id):
-    """包装客户端：将 run_task 重定向到 run_task_stream，通过队列推送 token。
+    """包装客户端：把 run_task / run_task_stream 的 token 推进 SSE 队列。
+
     Hermes 引擎自 2026-10-01 起为真流式（stream-json 的 text 事件逐段回放，
     stop_flag 可直接杀子进程）；无 run_task_stream 的客户端才走整块回放兜底。
-    支持 pause/resume：通过 streamer["pause"] 事件控制。"""
+    支持 pause/resume：通过 streamer["pause"] 事件控制。
+
+    ## 为什么**两个方法都要包**（2026-10-27）
+
+    原先只替换了 `client.run_task`，而 stage4 的 `_run_task_safe` 会优先调用
+    `client.run_task_stream` —— 于是「流式运行」在最长的那一站（写作）反而
+    绕过了包装器：SSE 队列里一个 token 都没有。用户原话「点了流式运行，连写到
+    哪里都看不到」。这里把 `run_task_stream` 也包上，并**串联**调用方自己的
+    on_piece/stop_flag（stage4 的进度与停止不能因为要推 SSE 就丢掉）。
+    """
     orig_run_task = client.run_task
     orig_run_task_stream = getattr(client, "run_task_stream", None)
 
@@ -407,35 +417,23 @@ def _wrap_client_for_streaming(client, job_id):
     q = streamer["queue"]
     stop = streamer["stop"]
 
-    def wrapped_run_task(*args, **kwargs):
-        def on_piece(piece):
-            # 检查暂停
-            pause = streamer.get("pause")
-            if pause and pause.is_set():
-                # 等待恢复或停止
-                while pause.is_set() and not stop.is_set():
-                    time.sleep(0.2)
-                if stop.is_set():
-                    return
-            try:
-                q.put_nowait({"type": "token", "text": piece})
-            except queue.Full:
-                pass
+    def _push(piece):
+        # 检查暂停
+        pause = streamer.get("pause")
+        if pause and pause.is_set():
+            # 等待恢复或停止
+            while pause.is_set() and not stop.is_set():
+                time.sleep(0.2)
+            if stop.is_set():
+                return
+        try:
+            q.put_nowait({"type": "token", "text": piece})
+        except queue.Full:
+            pass
 
-        if orig_run_task_stream:
-            result = orig_run_task_stream(
-                *args, **kwargs,
-                on_piece=on_piece,
-                stop_flag=stop.is_set
-            )
-        else:
-            # Hermes 降级
-            result = orig_run_task(*args, **kwargs)
-            if result.get("exit_code") == 0 and result.get("stdout_tail"):
-                for ch in result["stdout_tail"]:
-                    on_piece(ch)
-
-        status = "stopped" if (stop.is_set() and result.get("stopped")) else ("ok" if result.get("exit_code") == 0 else "error")
+    def _emit_done(result):
+        status = ("stopped" if (stop.is_set() and result.get("stopped"))
+                  else ("ok" if result.get("exit_code") == 0 else "error"))
         try:
             q.put_nowait({
                 "type": "done",
@@ -446,9 +444,72 @@ def _wrap_client_for_streaming(client, job_id):
             })
         except queue.Full:
             pass
+
+    def wrapped_run_task(*args, **kwargs):
+        user_on_piece = kwargs.pop("on_piece", None)
+
+        def on_piece(piece):
+            if piece:
+                _push(piece)
+            if user_on_piece:
+                try:
+                    user_on_piece(piece)
+                except Exception:                       # noqa: BLE001
+                    pass
+
+        if orig_run_task_stream:
+            result = orig_run_task_stream(
+                *args, **kwargs,
+                on_piece=on_piece,
+                stop_flag=stop.is_set,
+            )
+        else:
+            # 无流式实现的客户端：整块回放兜底
+            result = orig_run_task(*args, **kwargs)
+            if result.get("exit_code") == 0 and result.get("stdout_tail"):
+                for ch in result["stdout_tail"]:
+                    on_piece(ch)
+        # done 由 start_job 在**整个 job**结束时推一次；这里只记最后一次调用结果
+        streamer["last_result"] = result
+        return result
+
+    def wrapped_run_task_stream(task_file, on_piece=None, stop_flag=None, **kwargs):
+        """stage4 走的那条路：既要推 SSE，也要保留它自己的进度/停止回调。"""
+        if orig_run_task_stream is None:
+            # 远端实现没有流式：退化为整块调用，保持签名兼容。
+            result = orig_run_task(task_file, **kwargs)
+            if on_piece:
+                try:
+                    on_piece("")
+                except Exception:                       # noqa: BLE001
+                    pass
+            streamer["last_result"] = result
+            return result
+
+        def _on_piece(piece):
+            if piece:
+                _push(piece)
+            if on_piece:
+                try:
+                    on_piece(piece)
+                except Exception:                       # noqa: BLE001
+                    pass
+
+        def _stop():
+            try:
+                if stop_flag and stop_flag():
+                    return True
+            except Exception:                           # noqa: BLE001
+                pass
+            return stop.is_set()
+
+        result = orig_run_task_stream(task_file, _on_piece, _stop, **kwargs)
+        streamer["last_result"] = result
         return result
 
     client.run_task = wrapped_run_task
+    if orig_run_task_stream is not None:
+        client.run_task_stream = wrapped_run_task_stream
     return client
 
 
@@ -807,10 +868,13 @@ def stage_status(progress, n, total_chapters=None):
             out["current_chars"] = cur_chars
     # 段群级进度（2026-10-27，加强模式）：用户看到「已写 1 字」时分不清是刚起步
     # 还是卡死。给出「第 g/G 群 · 本群 X/Y 字」+「最后更新时间」，界面才有真话可说。
-    for _k in ("current_group", "total_groups", "current_group_quota"):
+    for _k in ("current_group", "total_groups", "current_group_quota",
+               "current_group_words", "current_group_bytes", "current_text_chars"):
         _v = st.get(_k)
         if isinstance(_v, int) and _v > 0:
             out[_k] = _v
+    if isinstance(st.get("current_chars_source"), str) and st["current_chars_source"]:
+        out["current_chars_source"] = st["current_chars_source"]
     if isinstance(st.get("current_chars_at"), str) and st["current_chars_at"]:
         out["current_chars_at"] = st["current_chars_at"]
     done = st.get("completed_chapters") or []
@@ -1010,6 +1074,36 @@ def build_streaming_cost():
     return out
 
 
+def _notify_stream_done(job_id, state, detail):
+    """job **真正结束**时推唯一一条 SSE done（2026-10-27）。
+
+    为什么不能由客户端包装器推：stage4 加强模式一章要调 k 次
+    `run_task_stream`（逐群）。包装器若每次调用都推 done，SSE 在**第一群**
+    就关闭 —— 后面的群、文件尾、最终结果全看不见（本轮 FakeClient 实测：
+    93 个 token 后就 done，raw 根本没写）。
+
+    一个 job 只结束一次，所以 done 只能由 `start_job` 的 worker 推。
+    """
+    with STREAMERS_LOCK:
+        st = STREAMERS.get(job_id)
+    if not st:
+        return
+    last = st.get("last_result") or {}
+    stopped = bool(last.get("stopped"))
+    payload = {
+        "type": "done",
+        "status": ("stopped" if (stopped and state == "ok") else state),
+        "result": detail,
+        "model": last.get("model", ""),
+        "cost_yuan": last.get("cost_yuan", 0),
+        "exit_code": last.get("exit_code", 0 if state == "ok" else -1),
+    }
+    try:
+        st["queue"].put_nowait(payload)
+    except queue.Full:
+        pass
+
+
 def start_job(kind, fn):
     """创建并启动一个后台 job。返回 (job_id, error)。"""
     with LOCK:
@@ -1027,25 +1121,22 @@ def start_job(kind, fn):
         CURRENT["id"] = job_id
 
     def _worker():
+        state, detail = "failed", ""
         try:
-            result = fn()
-            ok, detail = result
-            with LOCK:
-                JOBS[job_id]["state"] = "ok" if ok else "failed"
-                JOBS[job_id]["finished_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
-                JOBS[job_id]["result"] = detail
+            ok, detail = fn()
+            state = "ok" if ok else "failed"
         except SystemExit as e:
-            with LOCK:
-                JOBS[job_id]["state"] = "failed"
-                JOBS[job_id]["result"] = str(e)
-        except Exception as e:
-            with LOCK:
-                JOBS[job_id]["state"] = "failed"
-                JOBS[job_id]["result"] = type(e).__name__ + ": " + str(e)[:300]
+            detail = str(e)
+        except Exception as e:                               # noqa: BLE001
+            detail = type(e).__name__ + ": " + str(e)[:300]
         finally:
             with LOCK:
+                JOBS[job_id]["state"] = state
+                JOBS[job_id]["finished_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+                JOBS[job_id]["result"] = detail
                 if CURRENT["id"] == job_id:
                     CURRENT["id"] = None
+            _notify_stream_done(job_id, state, detail)
             clear_stop(job_id)
 
     threading.Thread(target=_worker, daemon=True).start()
@@ -1148,6 +1239,9 @@ def act_rewrite_chapter(cfg, n):
     def _fn():
         _prepare_chapter_rewrite(n)
         os.environ["NF_STAGE4_ONLY"] = str(n)
+        # 单章重写只写稿：不跑 review_after_stage4 等后置钩子（否则一次重写
+        # 还要顺带审全章，十几分钟变半小时+，用户没要求）。
+        os.environ["NF_SKIP_POST_STAGE"] = "1"
         try:
             # 复用现有的阶段运行动作工厂（不另写一份 orch_run 调用）：
             # 退出码翻译、客户端构造、流式/非流式差异都只有那一份实现。
@@ -1155,6 +1249,74 @@ def act_rewrite_chapter(cfg, n):
             return act_run_stage(cfg, 4, 4)()
         finally:
             os.environ.pop("NF_STAGE4_ONLY", None)
+            os.environ.pop("NF_SKIP_POST_STAGE", None)
+    return _fn
+
+
+def _rewrite_file_tail(n, q, stop_ev):
+    """把正在写的第 n 章文件尾部推进 SSE 队列（2026-10-27）。
+
+    为什么需要：hermes / 外部 agent 用 `write_file` 写正文，stream-json 的 text
+    事件里没有正文。用户「连写到哪里都看不到」——文件尾部才是可核对的事实。
+    同时推 `words/bytes`，前端不必自己数。
+    """
+    from utils.verify_chapter import count_cn_words
+    parts = ROOT / "data" / "chapters" / "_parts" / ("%02d" % n)
+    raw = ROOT / "data" / "chapters" / "raw" / ("%02d.md" % n)
+    last = {}
+    while not stop_ev.is_set():
+        targets = sorted(parts.glob("g*.md")) if parts.is_dir() else []
+        if raw.exists():
+            targets.append(raw)
+        for p in targets:
+            try:
+                size = p.stat().st_size
+            except OSError:
+                continue
+            key = str(p)
+            if last.get(key) == size:
+                continue
+            last[key] = size
+            try:
+                text = nf_read_text(p)
+            except OSError:
+                continue
+            try:
+                q.put_nowait({
+                    "type": "file",
+                    "chapter": n,
+                    "name": p.name,
+                    "text": text[-1200:],
+                    "bytes": size,
+                    "words": count_cn_words(text),
+                })
+            except queue.Full:
+                pass
+        stop_ev.wait(2.0)
+
+
+def act_rewrite_chapter_streamed(cfg, n, preview_job_id, stream_q, stop_ev):
+    """重写单章的流式路径：与 act_rewrite_chapter 同一套准备，差别只在外层。
+
+    - 复用 `act_run_stage_streamed`（客户端包装 / 退出码翻译 / STREAMERS 注册
+      都只有那一份实现）；
+    - 额外起一个「文件尾」看门狗：正文写进 `_parts/NN/gK.md` / `raw/NN.md` 时
+      推 SSE `{type:"file"}`，让界面看得见「写到哪里」。
+    """
+    def _fn():
+        _prepare_chapter_rewrite(n)
+        os.environ["NF_STAGE4_ONLY"] = str(n)
+        os.environ["NF_SKIP_POST_STAGE"] = "1"
+        tail_stop = threading.Event()
+        threading.Thread(target=_rewrite_file_tail,
+                         args=(n, stream_q, tail_stop), daemon=True).start()
+        try:
+            return act_run_stage_streamed(cfg, 4, 4, preview_job_id,
+                                          stream_q, stop_ev)()
+        finally:
+            tail_stop.set()
+            os.environ.pop("NF_STAGE4_ONLY", None)
+            os.environ.pop("NF_SKIP_POST_STAGE", None)
     return _fn
 
 

@@ -340,10 +340,60 @@ def case_api_endpoint():
     check("整数 1 拒绝（严格布尔）", ok is False)
 
 
+def case_file_progress_and_stop():
+    print("\n【7】文件进度 + 停止传播（2026-10-27：hermes 写文件时界面不再瞎）")
+    tmp = build_workspace(total=1, enhanced=True, low=2000, high=3000)
+    origin = os.getcwd()
+    try:
+        os.chdir(tmp)
+        import yaml
+        cfg = yaml.safe_load((tmp / "config" / "system.yaml").read_text(encoding="utf-8"))
+        proj = yaml.safe_load((tmp / "config" / "project.yaml").read_text(encoding="utf-8"))
+        from utils.enhanced_chapter import write_chapter_groups
+
+        # 1) 每群产出后回调真实字数/字节（hermes 的 text 事件不是正文）
+        c = _Base()
+        seen = []
+        write_chapter_groups(cfg, proj, 1, c, str(tmp / "data" / "state" / "tasks"),
+                             "data/outline/chapters/01.md", [],
+                             on_file_progress=lambda w, b, g: seen.append((w, b, g["idx"])))
+        check("每群产出后回报文件字数/字节", seen and all(w > 0 and b > 0 for w, b, _ in seen),
+              seen[:4])
+        want = [g["idx"] for g in plan_groups(2000, 3000, 1500)]
+        check("回报覆盖实际拆群（序号齐全）", sorted({i for _, _, i in seen}) == want, seen)
+
+        # 2) stopped 必须原样传出去，且不再重试/开下一群
+        class _StopClient(_Base):
+            def run_task(self, task_path, **kw):
+                self.calls.append(Path(task_path).name)
+                return {"exit_code": 0, "tokens": 1, "tokens_out": 1,
+                        "stopped": True, "model": "fake"}
+
+        clear_parts(1)
+        c2 = _StopClient()
+        agg = write_chapter_groups(cfg, proj, 1, c2, str(tmp / "data" / "state" / "tasks"),
+                                   "data/outline/chapters/01.md", [])
+        check("段群 stopped 原样传出", agg.get("stopped") is True, agg)
+        check("停止后只调 1 次（不重试、不跑下一群）", len(c2.calls) == 1, c2.calls)
+
+        # 3) 群与群之间也认停止（should_stop）
+        clear_parts(1)
+        c3 = _Base()
+        agg2 = write_chapter_groups(
+            cfg, proj, 1, c3, str(tmp / "data" / "state" / "tasks"),
+            "data/outline/chapters/01.md", [], should_stop=lambda: True)
+        check("should_stop 在群间生效（一次都不调）", agg2.get("stopped") is True and c3.calls == [],
+              c3.calls)
+    finally:
+        os.chdir(origin)
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def main():
     t0 = time.time()
     for fn in (case_plan_groups, case_off_zero_impact, case_on_assembly,
-               case_pass_rate_comparison, case_group_checkpoint, case_api_endpoint):
+               case_pass_rate_comparison, case_group_checkpoint, case_api_endpoint,
+               case_file_progress_and_stop):
         fn()
     print("\n==== 结果: PASS %d / FAIL %d （%.1fs）===="
           % (len(PASS), len(FAIL), time.time() - t0))

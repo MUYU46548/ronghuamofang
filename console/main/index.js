@@ -379,7 +379,9 @@ function getWorkspaceSource() {
 //   · 前端（asar，不走种子）：项目页出厂徽标 / 启动提示词剥离说明书 /
 //     阶段复制改任务简报（原样贴模板会被外部 Agent 按红线判「模板不是任务」停工）。
 // **先 bump 再 electron-builder**。
-const SEED_VERSION = 53;   // 0.7.10: 阶段 8 可放行（VALID_STAGES 收口）+ 单章重写
+const SEED_VERSION = 54;   // 0.7.11: 重写接 SSE（token + 文件尾）+ hermes 文件进度/心跳；
+                            // 加强模式停止传播；MCP nf_rewrite_chapter
+                            // 0.7.10: 阶段 8 可放行（VALID_STAGES 收口）+ 单章重写
                             // 进度按「本章/段群」报，不再恒 99%；/chapters/content 报
                             // 群字数与整章字节
                             // 0.7.9: GUI「重写本章」—— 旧稿备份到 rewrite_backup/、NF_STAGE4_ONLY 只写指定章   // 0.7.8: 弱模型写不长 → 自动转加强模式补量（字数不足优先拆群，

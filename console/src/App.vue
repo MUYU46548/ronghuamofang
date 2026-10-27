@@ -1344,6 +1344,8 @@ async function doRunPipelineStreamFull() {
     say("已提交流式全流程运行");
     if (streamSource) streamSource.close();
     streamText.value = "";
+    streamFileText.value = "";
+    streamFileInfo.value = "";
     streamJob.value = r.data.job_id;
     streamModel.value = "";
     streamCost.value = 0;
@@ -1428,6 +1430,8 @@ async function submitRefine() {
 
 /* ---------- 实时流式输出 ---------- */
 const streamText = ref("");
+const streamFileText = ref("");   // hermes/agent 用文件工具写正文：文件尾部才是“写到哪里”
+const streamFileInfo = ref("");
 const streamJob = ref(null);
 const streamConnected = ref(false);
 const streamModel = ref("");
@@ -1487,6 +1491,8 @@ async function runStageStream(n) {
   // 断开旧流
   if (streamSource) streamSource.close();
   streamText.value = "";
+  streamFileText.value = "";
+  streamFileInfo.value = "";
   streamJob.value = r.data.job_id;
   streamModel.value = "";
   streamCost.value = 0;
@@ -2177,16 +2183,28 @@ function stageDetail(s) {
   else if (s.current_chapter) bits.push("第 " + s.current_chapter + " 章");
   const groups = Number(s.total_groups) || 0;
   const curGroup = Number(s.current_group) || 0;
+  const isFile = s.current_chars_source === "file";
+  const fileWords = Number(s.current_group_words || s.current_chars) || 0;
+  const fileBytes = Number(s.current_group_bytes) || 0;
+  const textChars = Number(s.current_text_chars || s.current_chars) || 0;
   if (groups > 0 && curGroup > 0) {
     let g = "第 " + curGroup + "/" + groups + " 群";
-    const quota = Number(s.current_group_quota) || 0;
-    if (quota > 0) g += " · 本群 " + (Number(s.current_chars) || 0) + "/" + quota + " 字";
+    if (isFile) {
+      // 正文写在文件里（hermes/agent 的 write_file）：报盘上事实，不报文本流。
+      g += " · 本群约 " + fileWords + " 字";
+      if (fileBytes > 0) g += " / " + fileBytes + " 字节";
+    } else {
+      const quota = Number(s.current_group_quota) || 0;
+      if (quota > 0) g += " · 文本流 " + textChars + "/" + quota + " 字";
+    }
     bits.push(g);
-  } else if (Number(s.current_chars) > 0) {
-    bits.push("已写 " + s.current_chars + " 字");
+  } else if (isFile) {
+    bits.push("正文约 " + fileWords + " 字" + (fileBytes ? " / " + fileBytes + " 字节" : ""));
+  } else if (textChars > 0) {
+    bits.push("文本流 " + textChars + " 字");
   }
   const idle = _idleSeconds(s.current_chars_at);
-  if (idle >= 45) bits.push(Math.floor(idle) + " 秒无新字");
+  if (idle >= 45) bits.push(Math.floor(idle) + " 秒无活动");
   return bits.join(" · ");
 }
 const runningStageLabel = computed(() => {
@@ -3806,64 +3824,165 @@ async function onChapterSaved(n) {
    后端做的事（/chapters/rewrite）：旧稿移到 rewrite_backup/ → 只跑阶段 4 的
    这一章。stage4 本身不备份，所以那个备份是用户唯一的后悔药。 */
 const rewriting = ref(null);        // 正在重写的章号（null = 没在重写）
+
+/* 重写完成后的统一收尾（SSE 与轮询两条路共用，避免两份逻辑漂移）。 */
+async function _reportRewrite(n, state, result) {
+  rewriting.value = null;
+  await onChapterSaved(n);
+  loadChapterQuality();
+  if (state !== "ok") {
+    say("第 " + n + " 章重写失败：" + (result || "未知错误"));
+    refresh();
+    return;
+  }
+  // 重写完成 → 报**盘上事实**：整章字数/字节 + 每群字数。
+  // 用户明确要求过“run 完一章后把群字数和整章字节数发给我”——用来判断
+  // enhanced_group_words（默认 1500）该不该调。这些数字本来就在盘上。
+  let detail = "";
+  try {
+    const r = await api("/chapters/content?n=" + n + "&layer=raw");
+    if (r.status === 200 && r.data) {
+      const d = r.data;
+      detail = "（" + d.words + " 字 / " + d.bytes + " 字节";
+      const ps = d.parts || [];
+      if (ps.length) {
+        detail += "；" + ps.map((p) => "g" + p.idx + " " + p.words + " 字").join(" · ");
+      }
+      detail += "）";
+    }
+  } catch (e) { /* 只影响提示文案，不影响重写结果 */ }
+  say("第 " + n + " 章重写完成" + detail);
+  refresh();
+}
+
+/* 非流式/SSE 断开时的兜底轮询（旧行为，保留）。 */
+function _pollRewrite(n, jobId) {
+  let polls = 0;
+  const timer = setInterval(async () => {
+    polls += 1;
+    if (polls > 900) {           // 30 分钟兜底，绝不无限转圈
+      clearInterval(timer);
+      rewriting.value = null;
+      say("重写等待超时（30 分钟）—— 请查看“📋 日志”");
+      return;
+    }
+    let j;
+    try {
+      j = await api("/jobs/" + jobId);
+    } catch (e) {
+      return;                    // 单次抖动不终止
+    }
+    if (!j || j.status !== 200 || (j.data && j.data.state === "running")) return;
+    clearInterval(timer);
+    streamStatus.value = j.data.state;
+    _reportRewrite(n, j.data.state, j.data.result);
+  }, 2500);
+}
+
+/* 重写的实时面板：token 是模型聊天，file 是**正在写的本章文件尾部**。
+   hermes/agent 用 write_file 写正文，text 事件里没有正文 —— 文件尾部才是
+   “写到哪里”的可核对事实（2026-10-27）。 */
+function _openRewriteStream(n, jobId) {
+  if (streamSource) streamSource.close();
+  streamText.value = "";
+  streamFileText.value = "";
+  streamFileInfo.value = "";
+  streamJob.value = jobId;
+  streamModel.value = "";
+  streamCost.value = 0;
+  streamStatus.value = "running";
+  streamConnected.value = true;
+  streamOpen.value = true;
+
+  const es = new EventSource(API + "/stream/" + jobId);
+  streamSource = es;
+  let settled = false;
+  const close = () => {
+    try { es.close(); } catch (e) { /* ignore */ }
+    if (streamSource === es) streamSource = null;
+    streamConnected.value = false;
+  };
+  const done = (state, result) => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(guard);
+    close();
+    streamStatus.value = state;
+    _reportRewrite(n, state, result);
+  };
+  const guard = setTimeout(() => {
+    if (settled) return;
+    say("重写实时输出超时（30 分钟）");
+    done("failed", "30 分钟无完成事件");
+  }, 30 * 60 * 1000);
+
+  es.onmessage = (ev) => {
+    let msg;
+    try { msg = JSON.parse(ev.data); } catch (e) { return; }
+    if (msg.type === "token") {
+      streamText.value += msg.text || "";
+    } else if (msg.type === "file") {
+      streamFileText.value = msg.text || "";
+      streamFileInfo.value = (msg.name || "") + " · " + (msg.words || 0)
+        + " 字 / " + (msg.bytes || 0) + " 字节";
+    } else if (msg.type === "done") {
+      done(msg.status || "ok", "");
+    }
+  };
+  es.onerror = () => {
+    if (settled) return;
+    // SSE 断了不代表任务失败：退回轮询，别把正常 job 判死。
+    settled = true;
+    clearTimeout(guard);
+    close();
+    _pollRewrite(n, jobId);
+  };
+}
+
+/* 外部 Agent 的任务简报：说清“调什么工具/端点”，不复制模板正文。
+   注意**不要出现成对花括号**：外部 Agent 会把模板当任务（见 AGENTS 的简报纪律）。 */
+function copyRewriteBrief(n) {
+  const root = (state.value && state.value.project_dir) || "（以控制台显示的项目根为准）";
+  const nn = String(n).padStart(2, "0");
+  const text = [
+    "重写第 " + n + " 章（外部 Agent 任务简报）",
+    "",
+    "项目根：" + root,
+    "执行入口（二选一，优先 MCP）：",
+    "1) MCP 工具 nf_rewrite_chapter，参数 n=" + n,
+    "2) HTTP POST /chapters/rewrite，body 里 n=" + n + "（可选 stream 为 true）",
+    "",
+    "预期：旧稿移到 data/chapters/rewrite_backup/；完成后 data/chapters/raw/" + nn + ".md 更新。",
+    "状态：GET /state 看 stage 4；或 GET /jobs/任务号。",
+    "禁止：不要用 write_file 直接覆盖 data/chapters/raw 或 checked 或 refined —— 会绕过拼装、校验与备份。",
+    "说明：重写只改 raw；要出成品需再跑阶段 5、6、7。",
+  ].join("\n");
+  copyText(text, "重写任务简报已复制（第 " + n + " 章）");
+}
+
 async function rewriteChapter(n) {
+  if (agentRunGuard()) return;
   const ok = window.confirm(
     "重写第 " + n + " 章？\n\n"
     + "· 会调用模型重新写整章（花 token，按当前字数口径与加强模式走）\n"
     + "· 旧稿先移到 data/chapters/rewrite_backup/，不满意可以捞回\n"
-    + "· 检查稿与润色稿不会动；要看成品需重跑阶段 5/6/7");
+    + "· 检查稿与润色稿不会动；要看成品需重跑阶段 5/6/7\n"
+    + "· 会打开实时输出面板：模型聊天 + 本章正文（文件尾部）");
   if (!ok) return;
   rewriting.value = n;
   try {
-    const r = await api("/chapters/rewrite", "POST", { n });
+    const r = await api("/chapters/rewrite", "POST", { n, stream: true });
     if (r.status !== 202) {
       say("重写提交失败：" + ((r.data && r.data.error) || r.status));
       rewriting.value = null;
       return;
     }
-    say("已开始重写第 " + n + " 章（job " + r.data.job_id + "）—— 进度见顶栏");
-    let polls = 0;
-    const timer = setInterval(async () => {
-      polls += 1;
-      if (polls > 900) {           // 30 分钟兜底，绝不无限转圈
-        clearInterval(timer);
-        rewriting.value = null;
-        say("重写等待超时（30 分钟）—— 请查看“📋 日志”");
-        return;
-      }
-      let j;
-      try {
-        j = await api("/jobs/" + r.data.job_id);
-      } catch (e) {
-        return;                    // 单次抖动不终止
-      }
-      if (!j || j.status !== 200 || (j.data && j.data.state === "running")) return;
-      clearInterval(timer);
-      rewriting.value = null;
-      await onChapterSaved(n);
-      loadChapterQuality();
-      if (j.data.state !== "ok") {
-        say("第 " + n + " 章重写失败：" + ((j.data && j.data.result) || "未知错误"));
-        return;
-      }
-      // 重写完成 → 报**盘上事实**：整章字数/字节 + 每群字数。
-      // 用户明确要求过“run 完一章后把群字数和整章字节数发给我”——用来判断
-      // enhanced_group_words（默认 1500）该不该调。这些数字本来就在盘上。
-      let detail = "";
-      try {
-        const r = await api("/chapters/content?n=" + n + "&layer=raw");
-        if (r.status === 200 && r.data) {
-          const d = r.data;
-          detail = "（" + d.words + " 字 / " + d.bytes + " 字节";
-          const ps = d.parts || [];
-          if (ps.length) {
-            detail += "；" + ps.map((p) => "g" + p.idx + " " + p.words + " 字").join(" · ");
-          }
-          detail += "）";
-        }
-      } catch (e) { /* 只影响提示文案，不影响重写结果 */ }
-      say("第 " + n + " 章重写完成" + detail);
-    }, 2500);
+    say("已开始重写第 " + n + " 章（job " + r.data.job_id + "）—— 实时输出见下方面板");
+    if (r.data.stream) {
+      _openRewriteStream(n, r.data.job_id);
+    } else {
+      _pollRewrite(n, r.data.job_id);
+    }
   } catch (e) {
     rewriting.value = null;
     say("重写出错：" + (e && e.message ? e.message : e));
@@ -4294,6 +4413,13 @@ onUnmounted(() => {
       <textarea v-model="streamPromptOverride" class="prompt-text" style="width: 100%; min-height: 80px;" placeholder="输入修改后的提示词（追加到任务末尾）..."></textarea>
     </div>
     <pre class="stream-body">{{ streamText || "等待输出…" }}</pre>
+    <!-- hermes/agent 用 write_file 写正文：模型聊天里没有正文，文件尾部才是“写到哪里”。 -->
+    <div v-if="streamFileText" class="stream-file">
+      <div class="stream-file-head">
+        本章正文（文件实时）<span class="meta">{{ streamFileInfo }}</span>
+      </div>
+      <pre class="stream-body">{{ streamFileText }}</pre>
+    </div>
   </div>
 
   <main class="content">
@@ -4718,11 +4844,15 @@ onUnmounted(() => {
                 title="就地编辑 / 段落批改（自带编辑器，写前自动备份）"
                 @click="openEditor(c.n)">编辑</button>
         <!-- 重写本章：走阶段 4 重写整章（会花 token）。旧稿先备份到 rewrite_backup/ -->
-        <button class="mini" :disabled="rewriting === c.n || isRunning"
-                :title="isRunning ? '流水线正在跑，等它结束再重写' : '重写整章（走阶段 4；旧稿先备份）'"
+        <button class="mini" :disabled="rewriting === c.n || isRunning || agentRunLocked"
+                :title="agentRunLocked ? AGENT_LOCK_HINT : (isRunning ? '流水线正在跑，等它结束再重写' : '重写整章（走阶段 4；旧稿先备份；会开实时输出）')"
                 @click="rewriteChapter(c.n)">
           {{ rewriting === c.n ? "重写中…" : "重写" }}
         </button>
+        <!-- 外部 Agent 的入口：复制**任务简报**（说清调哪个工具/端点、产物在哪、禁止直接写文件）。
+             Agent 模式下 GUI 的运行类按钮会锁，但这份简报仍可复制（只读操作）。 -->
+        <button v-if="agentMode" class="mini" @click="copyRewriteBrief(c.n)"
+                title="复制给外部 Agent 的重写任务简报（含 MCP 工具 / HTTP 端点 / 禁止项）">复制重写任务</button>
         <button class="mini" :class="{ ghost: !c.files.raw }" @click="openDoc('第' + c.n + '章 原稿', c.files.raw)">原稿</button>
         <button class="mini" :class="{ ghost: !c.files.checked }" @click="openDoc('第' + c.n + '章 检查稿', c.files.checked)">检查稿</button>
         <button class="mini" :class="{ ghost: !c.files.refined }" @click="openDoc('第' + c.n + '章 润色稿', c.files.refined)">润色稿</button>

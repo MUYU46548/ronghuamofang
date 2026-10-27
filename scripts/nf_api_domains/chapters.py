@@ -30,7 +30,9 @@
    改完 stage 6 仍是 done（产物还在），但下游成品需要重跑阶段 7。
 3. **落盘前备份旧稿 + 归一化标点**，与流水线同一套 `utils/text_norm`（幂等）。
 """
+import queue
 import re
+import threading
 import time
 
 import nf_api as api
@@ -368,6 +370,32 @@ def handle_chapters_rewrite(h, body):
         if n < 1:
             return 400, {"ok": False, "error": "n 必填且为正整数（章号）"}
         cfg, _ = api.load_all()
+        if bool(body.get("stream")):
+            # 与 /stage/{n}/run 同一条流式协议（STREAMERS + SSE）：
+            # 先建 preview 占位 → 起 job → 把 preview 关联到真实 job_id。
+            preview = time.strftime("%Y%m%d_%H%M%S_") + "pending"
+            stream_q = queue.Queue(maxsize=10000)
+            stop_ev = threading.Event()
+            with api.STREAMERS_LOCK:
+                api.STREAMERS[preview] = {
+                    "queue": stream_q,
+                    "stop": stop_ev,
+                    "text": [],
+                }
+            jid, err = api.start_job(
+                "rewrite_ch%d" % n,
+                api.act_rewrite_chapter_streamed(cfg, n, preview,
+                                                 stream_q, stop_ev))
+            if err:
+                with api.STREAMERS_LOCK:
+                    api.STREAMERS.pop(preview, None)
+                return 409, {"ok": False, "error": err}
+            with api.STREAMERS_LOCK:
+                if jid not in api.STREAMERS and preview in api.STREAMERS:
+                    api.STREAMERS[jid] = api.STREAMERS.pop(preview)
+            return 202, {"ok": True, "job_id": jid, "chapter": n, "stream": True,
+                         "message": "已开始流式重写第 %d 章（旧稿已备份到 "
+                                    "data/chapters/rewrite_backup/）" % n}
         jid, err = api.start_job("rewrite_ch%d" % n, api.act_rewrite_chapter(cfg, n))
         if err:
             return 409, {"ok": False, "error": err}

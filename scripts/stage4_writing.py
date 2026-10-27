@@ -10,6 +10,7 @@
 import argparse
 import json
 import re
+import threading
 import time
 from pathlib import Path
 
@@ -35,6 +36,11 @@ from utils.config_io import load_config_yaml
 from utils.text_norm import normalize_chapter_file
 
 SUMMARY_RE = re.compile(r"<!--\s*summary:\s*(.+?)\s*-->", re.IGNORECASE | re.S)
+
+# progress.json 的写入锁（2026-10-27）：文件进度看门狗是**独立线程**，与
+# stream 回调 `_on_piece` 可能同时 save()。不加锁会两个线程各写整份 JSON，
+# 轻则丢一次更新，重则写出半截文件。粒度只包住「改字段 + save」。
+_PROGRESS_LOCK = threading.Lock()
 
 # 范文注入上限（字）。6000 是**注入成本与收益的拐点**：few-shot 只抽 3 段/≤900 字，
 # 原文超出的部分只有 stage6 的统计用得上，而每条章节任务都要为它付 token。
@@ -927,29 +933,77 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     _ch_state = {"chars": 0, "last_write": 0.0}
 
     def _piece_progress(chapter_no):
-        """流式回调：累计已生成字数，**节流**写进 progress（约 1.5 秒一次）。
+        """流式回调：累计模型**文本**输出，并兼任「活动心跳」。
 
-        为什么不每个 token 都写盘：一章几千个 token = 几千次 JSON 落盘，
-        IO 反而拖慢写作本身。1.5 秒粒度足够前端 2.5 秒刷新一次看到变化。
-        写失败只忽略 —— 进度观测坏了不该拖垮出稿。
+        为什么不是字数真相：hermes 用 `write_file` 写正文，它回放的 text 事件
+        只有助手自己的几句话（实测 8 个字），而 `gK.md` 已经几 KB。正文进度由
+        `_file_progress` 按产物文件回报；这里只负责：
+          ① 记录 `current_text_chars`（文本流，排障用）；
+          ② 任何事件都刷新 `current_chars_at` 心跳（工具事件也会 on_piece("")）。
+        `current_chars` 只在还没拿到文件进度时才用文本值，避免把文件字数覆盖掉。
         """
         def _on_piece(piece):
-            _ch_state["chars"] += len(piece)
+            if piece:
+                _ch_state["chars"] += len(piece)
             now = time.time()
             if now - _ch_state["last_write"] < 1.5:
                 return
             _ch_state["last_write"] = now
             try:
-                st = progress.data.setdefault("stages", {}).setdefault("4", {})
-                st["current_chapter"] = chapter_no
-                st["current_chars"] = _ch_state["chars"]
-                # 最后更新时间（2026-10-27）：只说「已写 1 字」用户分不清是刚起步
-                # 还是模型思考/网络卡住。前端据此显示「N 秒前有更新」。
-                st["current_chars_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
-                progress.save()
+                with _PROGRESS_LOCK:
+                    st = progress.data.setdefault("stages", {}).setdefault("4", {})
+                    st["current_chapter"] = chapter_no
+                    st["current_text_chars"] = _ch_state["chars"]
+                    if st.get("current_chars_source") != "file":
+                        st["current_chars"] = _ch_state["chars"]
+                        st["current_chars_source"] = "text"
+                    # 最后更新时间（2026-10-27）：只说「已写 1 字」用户分不清是刚起步
+                    # 还是模型思考/网络卡住。前端据此显示「N 秒无活动」。
+                    st["current_chars_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+                    progress.save()
             except Exception:                                # noqa: BLE001
                 pass
         return _on_piece
+
+    def _file_progress(chapter_no):
+        """产物文件进度回调：`current_chars` 用**文件里真实字数**。
+
+        hermes / 外部 agent 用文件工具写正文时，text 事件不是正文；文件才是。
+        这个回调由两处喂：
+          · 加强模式：`write_chapter_groups` 的看门狗按 `_parts/NN/gK.md`；
+          · 整章单发：`_poll_file(chap_path)` 按 `raw/NN.md`（写盘后才会有）。
+        """
+        def _on_file(words, size, group=None):
+            try:
+                with _PROGRESS_LOCK:
+                    st = progress.data.setdefault("stages", {}).setdefault("4", {})
+                    st["current_chapter"] = chapter_no
+                    st["current_chars"] = int(words)
+                    st["current_group_words"] = int(words)
+                    st["current_group_bytes"] = int(size)
+                    st["current_chars_source"] = "file"
+                    st["current_chars_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+                    if group is not None:
+                        st["current_group"] = int(group.get("idx") or 0) or st.get("current_group")
+                    progress.save()
+            except Exception:                                # noqa: BLE001
+                pass
+        return _on_file
+
+    def _poll_file(path, cb, stop_ev):
+        """整章单发时轮询 `raw/NN.md`：文件一出现/一长大就回报真实字数。"""
+        last = None
+        while not stop_ev.wait(2.0):
+            try:
+                if not path.exists():
+                    continue
+                size = path.stat().st_size
+                if size == last:
+                    continue
+                last = size
+                cb(count_cn_words(read_text(path)), size)
+            except Exception:                                # noqa: BLE001
+                pass
 
     def _group_progress(chapter_no):
         """段群开始回调（2026-10-27，加强模式）：把「第几群 / 本群配额」写进进度。
@@ -963,14 +1017,19 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
             _ch_state["last_write"] = 0.0
             _ch_state["group"] = group["idx"]
             try:
-                st = progress.data.setdefault("stages", {}).setdefault("4", {})
-                st["current_chapter"] = chapter_no
-                st["current_group"] = int(group["idx"])
-                st["total_groups"] = int(total_groups)
-                st["current_group_quota"] = int(group["quota"])
-                st["current_chars"] = 0
-                st["current_chars_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
-                progress.save()
+                with _PROGRESS_LOCK:
+                    st = progress.data.setdefault("stages", {}).setdefault("4", {})
+                    st["current_chapter"] = chapter_no
+                    st["current_group"] = int(group["idx"])
+                    st["total_groups"] = int(total_groups)
+                    st["current_group_quota"] = int(group["quota"])
+                    st["current_chars"] = 0
+                    st["current_group_words"] = 0
+                    st["current_group_bytes"] = 0
+                    st["current_text_chars"] = 0
+                    st["current_chars_source"] = "pending"
+                    st["current_chars_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+                    progress.save()
             except Exception:                                # noqa: BLE001
                 pass
         return _on_group
@@ -1069,7 +1128,8 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
             # 清掉上一章/上一轮遗留的段群字段：整章单发模式下它们没有意义，
             # 留着会让界面把「第 2/5 群」显示到下一章头上。
             for _k in ("current_group", "total_groups", "current_group_quota",
-                       "current_chars", "current_chars_at"):
+                       "current_chars", "current_chars_at", "current_chars_source",
+                       "current_group_words", "current_group_bytes", "current_text_chars"):
                 _st4.pop(_k, None)
             progress.save()
         except Exception as e:                               # noqa: BLE001
@@ -1144,7 +1204,9 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
             result = write_chapter_groups(cfg, proj, n, client, task_dir,
                                           outline_rel, prev_tail,
                                           run_hook=_group_run,
-                                          on_group=_group_progress(n))
+                                          on_group=_group_progress(n),
+                                          on_file_progress=_file_progress(n),
+                                          should_stop=_stop_requested)
             # 段群调用已在 _group_run 里逐群记账 —— _finalize 只补 log，
             # 不再重复 charge（否则一章记两遍账）。
             result["already_charged"] = True
@@ -1158,9 +1220,17 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                 break
         else:
             # B2：session_id 只在引擎开启续接时才有意义（direct 客户端收下但忽略）
-            result = _run_task_safe(client, task,
-                                    on_piece=_piece_progress(n),
-                                    session_id=chapter_session)
+            # 整章单发也要看文件：hermes 用 write_file 写 raw/NN.md，text 事件不是正文。
+            _fp_stop = threading.Event()
+            threading.Thread(target=_poll_file,
+                             args=(chap_path, _file_progress(n), _fp_stop),
+                             daemon=True).start()
+            try:
+                result = _run_task_safe(client, task,
+                                        on_piece=_piece_progress(n),
+                                        session_id=chapter_session)
+            finally:
+                _fp_stop.set()
         # 用户主动中断（2026-10-26）：半截正文不落盘（llm_client 的 _apply_ops 已被
         # stop 跳过）。这**不是**失败 —— 记成失败会触发连败止损，把"你按了停止"
         # 误报成"系统性问题"，还可能让后续章节全部停摆。
@@ -1228,7 +1298,9 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                                                     clear_parts as _cp)
                 _cp(n)
                 gres = _wcg(cfg, proj, n, client, task_dir, outline_rel, prev_tail,
-                            run_hook=_group_run, on_group=_group_progress(n))
+                            run_hook=_group_run, on_group=_group_progress(n),
+                            on_file_progress=_file_progress(n),
+                            should_stop=_stop_requested)
                 gres["already_charged"] = True
                 regen_actions.append(action)
                 if _bstate["paused"]:
@@ -1267,7 +1339,9 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                     gres = write_chapter_groups(
                         cfg, proj, n, client, task_dir, outline_rel, prev_tail,
                         run_hook=_group_run, chapter_feedback=_fb.strip(),
-                        on_group=_group_progress(n))
+                        on_group=_group_progress(n),
+                        on_file_progress=_file_progress(n),
+                        should_stop=_stop_requested)
                     gres["already_charged"] = True
                     regen_actions.append(action)
                     if _bstate["paused"]:
@@ -1285,7 +1359,14 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                                                              "data/summaries/rolling.md",
                                                              prev_tail) + _fb)
             regen_actions.append(action)
-            gres = _run_task_safe(client, gtask)
+            _fp_stop = threading.Event()
+            threading.Thread(target=_poll_file,
+                             args=(chap_path, _file_progress(n), _fp_stop),
+                             daemon=True).start()
+            try:
+                gres = _run_task_safe(client, gtask)
+            finally:
+                _fp_stop.set()
             if cost:
                 if cost.charge_cost(run_id, 4, n, gres) == "pause":
                     _detail = _pause_detail(cost, run_id)
@@ -1350,6 +1431,8 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         _st4 = progress.data.get("stages", {}).get("4", {})
         for _k in ("current_chapter", "current_chars", "current_chars_at",
                    "current_group", "total_groups", "current_group_quota",
+                   "current_chars_source", "current_group_words",
+                   "current_group_bytes", "current_text_chars",
                    "rewrite_chapter"):
             _st4.pop(_k, None)
         # 显式落盘：下面的 set_stage 各分支都会 save，但把「观测字段清理」

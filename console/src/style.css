@@ -612,6 +612,13 @@ body {
   font-family: Consolas, "Microsoft YaHei", monospace;
   background: var(--field-inset);
 }
+/* 文件实时区（重写本章）：模型正文在文件里，不在聊天流里 —— 单独一块，带字数/字节。 */
+.stream-file { border-top: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0; }
+.stream-file-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 16px; font-size: 12px; font-weight: 600;
+  background: rgba(155, 143, 196, 0.08); color: var(--ink-accent);
+}
 
 /* 提示词模板编辑器 */
 .prompt-editor { display: flex; gap: 12px; margin-top: 4px; align-items: stretch; }

@@ -1500,11 +1500,18 @@ class HermesClient:
                 continue
             if isinstance(ev, dict) and ev.get("type") == "text":
                 piece = ev.get("text") or ""
-                if piece:
-                    try:
-                        on_piece(piece)
-                    except Exception:                       # noqa: BLE001
-                        pass   # 回调失败绝不打断执行
+                try:
+                    on_piece(piece)
+                except Exception:                       # noqa: BLE001
+                    pass   # 回调失败绝不打断执行
+            else:
+                # 任何非 text 事件（工具调用 / init / result）都算**活动心跳**：
+                # hermes 用 write_file 写正文时可能几分钟没有一个 text 事件，
+                # 只按 text 计心跳会把「正在写文件」误报成「卡死」（2026-10-27）。
+                try:
+                    on_piece("")
+                except Exception:                       # noqa: BLE001
+                    pass
 
         def _kill():
             # 杀整棵进程树：只杀直接子进程会让 hermes.exe 的 python 孙进程

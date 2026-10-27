@@ -136,8 +136,16 @@ def main():
     check("导出记录读盘上事实（/exports/history）", "/exports/history" in app_vue)
     # 2026-10-27：单章重写显示「本章 %」+ 段群明细，禁止退回「整体 99% 不动」。
     check("前端按「本章内进度」计算（stageFraction）", "function stageFraction" in app_vue)
-    check("前端显示段群进度（第 g/G 群 · 本群 X/Y 字）",
-          "本群 " in app_vue and "current_group_quota" in app_vue)
+    check("前端显示段群进度（第 g/G 群 · 本群约 X 字）",
+          "本群约 " in app_vue and "current_group_quota" in app_vue)
+    # 2026-10-27 二次修复：hermes 用 write_file 写正文，text 事件不是正文字数。
+    check("前端区分「文件字数」与「文本流」（current_chars_source）",
+          "current_chars_source" in app_vue and "current_text_chars" in app_vue)
+    check("前端不再把「无 text 事件」说成「无新字」",
+          "秒无活动" in app_vue and "秒无新字" not in app_vue)
+    check("重写走 SSE 且显示本章文件尾部",
+          "streamFileText" in app_vue and '"file"' in app_vue
+          and "_openRewriteStream" in app_vue)
     check("单章重写显示「本章 %」而不是全书百分比",
           "scopeChapterPct" in app_vue and "本章 " in app_vue)
     check("重写完成提示带字节数与群字数（/chapters/content 的 bytes/parts）",
@@ -222,6 +230,8 @@ def main():
             "current_chapter": 5, "current_chars": 800,
             "current_group": 2, "total_groups": 5,
             "current_group_quota": 1400,
+            "current_group_words": 800, "current_group_bytes": 2400,
+            "current_chars_source": "file", "current_text_chars": 8,
             "current_chars_at": "2026-10-27T15:00:00",
             "started_at": "2026-10-27T14:59:00"}})
         nf_api._set_root(Path(tmp5))
@@ -237,6 +247,12 @@ def main():
         check("透出本群配额（1400）与最后更新时间",
               st.get("current_group_quota") == 1400
               and st.get("current_chars_at") == "2026-10-27T15:00:00", st)
+        check("透出文件进度来源与真实字数/字节（hermes 工具型写作）",
+              st.get("current_chars_source") == "file"
+              and st.get("current_group_words") == 800
+              and st.get("current_group_bytes") == 2400, st)
+        check("文本流字数单独透出（不再冒充正文）",
+              st.get("current_text_chars") == 8, st)
         state5 = nf_api.build_state()
         check("build_state 透出 chapter_target_words（前端算本章 %）",
               state5.get("chapter_target_words") == [5000, 9000],

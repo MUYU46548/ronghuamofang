@@ -383,6 +383,13 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
             流水线直接冲进 stage5/6，用户根本没机会看那几十章的审查结果。
             而 `auto_retry` 默认开，首次失败是常见路径，不是边角情况。
             """
+            # 单章重写（GUI「重写本章」/ Agent 的 nf_rewrite_chapter）只写稿，
+            # 不跑后置审稿/自动重写：那些是「跑完整个阶段」的动作，会把一次
+            # 十几分钟的重写拖成半小时以上，而且用户没要求。
+            if os.environ.get("NF_SKIP_POST_STAGE") == "1":
+                print("[orchestrator] NF_SKIP_POST_STAGE=1：跳过阶段后置钩子"
+                      "（单章重写只写稿；审稿请单独跑阶段 5）")
+                return None
             # 重跑成功 → 清除打回标记
             st_now = progress.data["stages"].get(str(n), {})
             if st_now.pop("rejected", None) is not None:

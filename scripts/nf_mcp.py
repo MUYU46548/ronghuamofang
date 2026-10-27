@@ -108,6 +108,29 @@ MCP_TOOLS = [
         "_http": ("GET", "/chapters/quality", None),
     },
     {
+        "name": "nf_rewrite_chapter",
+        # 2026-10-27 用户裁定：重写算 Agent 可执行（与「跑阶段 4」同族）。
+        # 走 HTTP 的 /chapters/rewrite（_http 的 POST 会把参数原样当 body）。
+        # 不要自己用 write_file 覆盖 raw/checked/refined —— 那会绕过拼装、
+        # 校验、备份与进度。
+        "description": "重写指定章节（阶段 4 整章重写；旧稿备份到 "
+                       "data/chapters/rewrite_backup/）。返回 job_id，用 "
+                       "nf_get_stream_status 查询；只改 raw，成品需再跑 5/6/7。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "n": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 999,
+                    "description": "章号（从 1 开始）",
+                },
+            },
+            "required": ["n"],
+        },
+        "_http": ("POST", "/chapters/rewrite", None),
+    },
+    {
         "name": "nf_run_stage",
         # ⚠️ 只能是 1-7：后端 `/stage/{n}/run` 显式校验 `1 <= n <= 7`，
         # 传 8 必被 400 拒绝。阶段 8（Markdown 分卷导出）的入口是

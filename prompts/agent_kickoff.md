@@ -52,11 +52,16 @@
 
 - **HTTP（首选）**：`http://127.0.0.1:8765`（GUI 或垫片代拉时已在跑）。
   跑阶段 `POST /stage/<n>/run`、查状态 `GET /state`；
+  **单章重写** `POST /chapters/rewrite`（body 里 `n`；可加 `stream: true`），
+  或 MCP 工具 `nf_rewrite_chapter`。只走这两条 —— **不要用 write_file 直接覆盖
+  `data/chapters/raw|checked|refined`**（会绕过拼装、校验、备份与进度）。
+  重写只改 raw；成品仍需用户放行阶段 5/6/7。
   `gates.agent_mode=true` 下审批族端点 403 是设计，不是故障。
 - **CLI（仅当后端没起）**：解释器用源码态 `.venv` 的 python / 安装态自带 runtime 的
   python（GUI 日志 `spawn nf_api:` 行可查）——**绝不用裸 `python`**；
   命令 `scripts/nfctl.py status / check`、`scripts/orchestrator.py`。
-- **MCP**：`scripts/nf_mcp_stdio_bridge.py`（标准 MCP 客户端接入，25 个 `nf_*` 只读白名单工具）。
+- **MCP**：`scripts/nf_mcp_stdio_bridge.py`（标准 MCP 客户端接入，工具数量以
+  `nf_mcp.MCP_TOOLS` 为准）。
 
 ### 权限红线（违反即失败，无例外）
 

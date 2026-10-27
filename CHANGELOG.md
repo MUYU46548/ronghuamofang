@@ -9,6 +9,53 @@ CHANGELOG」）。本文件从工程审查修复起正式启用。
 
 ## [Unreleased]
 
+## [v0.7.11] — 2026-10-27 重写接流式 + hermes 文件进度/停止
+
+**用户实测原话**：「几百秒无新字是什么鬼？而且不是很早就提了做流式输出吗？
+连写到哪里都看不到。难道根本没做？」——流式做了，但重写这条新路径没接；
+而且 hermes 用 `write_file` 写正文，`text` 事件里没有正文，字数统计只数到了
+助手说的话（实测 8 字，而 `gK.md` 已 4.5 KB）。
+
+### 修 1：进度改看**产物文件**，不再看模型聊天
+
+- `stage4` 在群调用期间每 2 秒 stat `data/chapters/_parts/NN/gK.md`（整章单发则看
+  `raw/NN.md`），用 `count_cn_words` 写 `current_chars` / `current_group_words` /
+  `current_group_bytes`，`current_chars_source=file`；`text` 事件只记
+  `current_text_chars` 与心跳，不再冒充正文字数。
+- 前端：`本群约 1,100 字 / 4,500 字节`；45 秒没有活动时写「N 秒无活动」，
+  不再把「没有 text 事件」说成「无新字」。
+- hermes 的 `run_task_stream` 对**任何**非 text 事件（工具/init/result）都发心跳。
+
+### 修 2：重写本章接 SSE，且能看见「写到哪里」
+
+- `POST /chapters/rewrite` 支持 `stream: true`：与 `/stage/{n}/run` 同一套
+  `STREAMERS` + SSE；GUI 打开实时面板。
+- 新增文件尾事件 `{type:"file", name, text, words, bytes}`：把正在写的
+  `_parts/NN/gK.md` / `raw/NN.md` 尾部每 2 秒推进面板。
+- 修了一个一直潜伏的断点：`_wrap_client_for_streaming` 原先只包 `run_task`，
+  而 stage4 走 `run_task_stream` —— 「流式运行」在最长的一站反而没有 token。
+  现在两个方法都包，并串联 stage4 自己的 on_piece/stop_flag。
+
+### 修 3：加强模式「停止」不再被吞
+
+- `write_chapter_groups` 现在把 `stopped` 原样传出，且群与群之间检查
+  `should_stop`；此前只杀当前子进程，下一群照样开新会话（用户「点停止停不下来」）。
+
+### 修 4：Agent 可执行重写
+
+- MCP 新增 `nf_rewrite_chapter`（参数 n → `POST /chapters/rewrite`），
+  并在 `skills/nf-write` 标准动线里写明「作者点名才重写、不要 write_file 覆盖」。
+- Agent 模式下 GUI 的「重写」按钮与「运行」同一把锁；外部 Agent 走 MCP/HTTP。
+- 章节行新增「复制重写任务」简报（项目根 + MCP/HTTP 入口 + 禁止项），
+  供只能靠提示词驱动的 Agent 使用。
+- 段群缓存语义保持：有旧稿=新一轮重写；无旧稿=上次崩了，保留群断点续跑。
+- **重写不再触发后置审稿**：`NF_SKIP_POST_STAGE=1`，只写 raw；否则一次重写会被
+  `review_after_stage4` 拖成半小时以上（实测第 3 章 17:52 写完、18:12 还在审）。
+
+- 判据：`test_rewrite_stream.py`（13）· `test_enhanced_mode.py`（39，含文件进度/
+  stopped/群间停止）· `test_progress_visibility.py`（51）· `test_phase_skills.py`（26）
+- `SEED_VERSION` 53 → 54。
+
 ## [v0.7.10] — 2026-10-27 阶段 8 可放行 + 单章重写进度说真话
 
 **用户实测原话（10-26 / 10-27）**：「重写中，已写1字，但是进度99%，过于割裂。

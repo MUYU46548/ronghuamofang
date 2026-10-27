@@ -32,9 +32,12 @@ metadata:
 5. 完成后 `nf_get_chapters_quality` —— 看逐章质量分。
 6. 低分章处理顺序：`nf_run_auto_rewrite`（dry_run 默认 true，先预演）→
    作者同意后 dry_run=false 真改 → 仍不达标转 `nf_refine_chapter` 带**作者意见**定向精修。
-7. 阶段 5：`nf_get_review_report` 看审稿报告 + 七维账本；有决策项 →
+7. **单章重写**（作者点名“重写第 N 章”时才做）：`nf_rewrite_chapter`（参数 n）——
+   旧稿自动备份到 `data/chapters/rewrite_backup/`，只改 raw；**不要用 write_file
+   直接覆盖 raw/checked/refined**（绕过拼装、校验与备份）。完成后仍要等 5/6/7。
+8. 阶段 5：`nf_get_review_report` 看审稿报告 + 七维账本；有决策项 →
    `nf_save_review_decisions`（**逐条意见来自作者**，Agent 不代拍）。
-8. 阶段 6 完成 = 润色稿就绪 → **等作者审批**（exit=3 正常态）。
+9. 阶段 6 完成 = 润色稿就绪 → **等作者审批**（exit=3 正常态）。
 
 ## 判据（跑完怎么算完）
 

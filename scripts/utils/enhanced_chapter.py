@@ -29,6 +29,7 @@
 """
 import math
 import re
+import threading
 from pathlib import Path
 
 from utils.file_io import read_text, write_text
@@ -166,9 +167,44 @@ def assemble(n, out_path):
     return head.strip(), bool(titles) and bool(comments)
 
 
+def _report_part(pp, group, on_file_progress):
+    """把某群产物文件的**实际字数/字节**报给调用方（零 token）。
+
+    为什么需要：hermes/agent 类引擎用 `write_file` 写正文，它回放的 text 事件
+    只有助手自己的几句话（实测 8 个字），而 `gK.md` 已经几 KB —— 界面若只盯
+    text 事件，会一直显示「已写 8 字」，用户以为卡死。文件才是正文的真相。
+    """
+    if on_file_progress is None:
+        return
+    try:
+        if not pp.exists():
+            return
+        text = read_text(pp)
+        on_file_progress(count_cn_words(text), pp.stat().st_size, group)
+    except Exception:                                        # noqa: BLE001
+        pass                    # 进度观测坏了不该拖垮写作
+
+
+def _poll_part_while_running(pp, group, stop_ev, on_file_progress):
+    """段群调用期间的看门狗：每 2 秒看一次产物文件是否长大。"""
+    last = None
+    while not stop_ev.wait(2.0):
+        try:
+            if not pp.exists():
+                continue
+            size = pp.stat().st_size
+            if size == last:
+                continue
+            last = size
+            _report_part(pp, group, on_file_progress)
+        except Exception:                                    # noqa: BLE001
+            pass
+
+
 def write_chapter_groups(cfg, proj, n, client, task_dir,
                          outline_path, prev_tail, run_hook=None,
-                         chapter_feedback=None, on_group=None):
+                         chapter_feedback=None, on_group=None,
+                         on_file_progress=None, should_stop=None):
     """加强模式写一章：逐段群生成 → 立即落盘 → 拼装。
 
     run_hook(task_path) -> result dict：由调用方注入（stage4 在里面做
@@ -178,6 +214,9 @@ def write_chapter_groups(cfg, proj, n, client, task_dir,
     下传给**每个**段群任务 —— 整章不过关时往往每群都有份。
     on_group(group, total_groups)：段群开始前的回调（stage4 用来写
     「第 g/G 群 · 本群配额」进度；缺省 None = 不观测，测试行为不变）。
+    on_file_progress(words, bytes, group)：段群调用期间按**产物文件**回报
+    真实进度（hermes 工具型写作不看 text 事件；见 `_report_part`）。
+    should_stop()：群与群之间的停止判据（缺省不查；stage4 传 _stop_requested）。
     """
     book_cfg = cfg.get("chapter", {})
     low, high = book_cfg.get("target_words", [2000, 3000])[:2]
@@ -191,6 +230,11 @@ def write_chapter_groups(cfg, proj, n, client, task_dir,
     run = run_hook or (lambda p: client.run_task(p))
 
     for group in groups:
+        if should_stop is not None and should_stop():
+            # 群与群之间也要认「停止」：只在群里杀子进程，下一群照样开新会话，
+            # 用户看到的就是「点了停止还在跑」。
+            agg["stopped"] = True
+            return agg
         if on_group is not None:
             try:
                 on_group(group, len(groups))
@@ -199,6 +243,7 @@ def write_chapter_groups(cfg, proj, n, client, task_dir,
         pp = part_path(n, group["idx"])
         if part_ok(pp, group["quota"]):
             # 段群级断点续跑：上一轮已落盘且合格的群不重调（零重复零丢失）
+            _report_part(pp, group, on_file_progress)
             print(f"[enhanced] 第{n}章 群{group['idx']}/{len(groups)}"
                   f" 已在盘且合格，跳过重调")
             continue
@@ -210,10 +255,24 @@ def write_chapter_groups(cfg, proj, n, client, task_dir,
                 build_group_task(cfg, proj, n, group, groups, prev_tail,
                                  outline_path,
                                  feedback="\n".join(_fb_parts) or None))
-            result = run(task)
+            _watch_stop = threading.Event()
+            if on_file_progress is not None:
+                threading.Thread(target=_poll_part_while_running,
+                                 args=(pp, group, _watch_stop, on_file_progress),
+                                 daemon=True).start()
+            try:
+                result = run(task)
+            finally:
+                _watch_stop.set()
+            _report_part(pp, group, on_file_progress)
             agg["tokens"] += int(result.get("tokens") or 0)
             agg["tokens_out"] += int(result.get("tokens_out") or 0)
             agg["requests"] += int(result.get("requests") or 1)
+            if result.get("stopped"):
+                # 把「用户停了」原样传出去：只杀进程、不传标志的话，调用方会
+                # 把这群当失败去重试/继续下一群 —— 停止形同虚设（2026-10-27）。
+                agg["stopped"] = True
+                return agg
             if result.get("exit_code") != 0:
                 agg["exit_code"] = result["exit_code"]
                 agg["error"] = ("段群 %d 生成失败（已落盘的群保留，"

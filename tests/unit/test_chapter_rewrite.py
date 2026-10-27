@@ -196,6 +196,19 @@ def main():
         src = (ROOT / "scripts" / "stage4_writing.py").read_text(encoding="utf-8")
         check("stage4 认 NF_STAGE4_ONLY",
               "NF_STAGE4_ONLY" in src and "只写指定章" in src)
+        # 2026-10-27：单章重写只写稿 —— 不再顺带跑 review_after_stage4，
+        # 否则一次重写会被后置审稿拖成半小时以上（用户实测）。
+        api_src = (ROOT / "scripts" / "nf_api.py").read_text(encoding="utf-8")
+        orc_src = (ROOT / "scripts" / "orchestrator.py").read_text(encoding="utf-8")
+        check("重写设置 NF_SKIP_POST_STAGE",
+              "NF_SKIP_POST_STAGE" in api_src)
+        check("orchestrator 认 NF_SKIP_POST_STAGE（跳过审稿后置钩子）",
+              "NF_SKIP_POST_STAGE" in orc_src and "跳过阶段后置钩子" in orc_src)
+        # 2026-10-27 实测：`if (agentRunGuard()) return;  const ok = ...` 写在同一行，
+        # 重写函数**刚进去就返回**（死代码被压缩器整段丢掉，按钮点了没反应）。
+        check("重写在 agent guard 之后没有提前 return（不是死代码）",
+              "if (agentRunGuard()) return;\n  const ok" in app_vue,
+              app_vue[app_vue.find("async function rewriteChapter"):][:120])
     finally:
         os.chdir(origin)
         shutil.rmtree(tmp, ignore_errors=True)
