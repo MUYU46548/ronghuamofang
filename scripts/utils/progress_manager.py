@@ -109,6 +109,13 @@ class ProgressManager:
     def set_stage(self, stage, status, **extra):
         st = self._ensure_stage(stage)
         st["status"] = status
+        # 阶段开始时刻（2026-10-26）：外部只能看到「running」，看不到「跑了多久」。
+        # 每次转入 running 都重置一次 —— 断点续跑 / 重试是新的一轮，耗时应重算。
+        # 只在转入 running 时写，其它状态保留上一次的值（便于事后看「这阶段跑了多久」）。
+        if status == "running":
+            st["started_at"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+        elif status in ("done", "failed"):
+            st["finished_at"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
         st.update(extra)
         self.save()
 

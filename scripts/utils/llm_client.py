@@ -1050,9 +1050,14 @@ class OpenAICompatClient:
             "finish_reasons": finishes,
         }
 
-    def run_task_stream(self, task_file, on_piece, stop_flag, workdir=None, model=None, dry_run=False):
+    def run_task_stream(self, task_file, on_piece, stop_flag, workdir=None, model=None,
+                        dry_run=False, session_id=None):
         """流式执行自包含任务文件。on_piece(text) 逐 token 回调。
-        stop_flag: callable，返回 True 时中止流。返回 dict 同 run_task。"""
+        stop_flag: callable，返回 True 时中止流。返回 dict 同 run_task。
+
+        `session_id` 只为**签名同构**而收（与 run_task 一致）：直连是无状态单次
+        请求，续接没有意义；带上它才能让 stage4 用同一套调用代码走两条通道。
+        """
         if model and model != self.model:
             print("[llm_client] WARN run_task_stream(model=" + str(model) + ") 与配置模型 " +
                   self.model + " 不同，按配置执行")
@@ -1433,10 +1438,13 @@ class HermesClient:
         write_text(path, content)
         return path
 
-    def run_task_stream(self, task_file, on_piece, stop_flag, workdir=None, model=None):
+    def run_task_stream(self, task_file, on_piece, stop_flag, workdir=None, model=None,
+                        session_id=None):
         """真流式（P2）：逐 text 事件回放；stop_flag 置位即杀子进程（P0-4）。
 
         stderr 并入 stdout 读取（防管道填满死锁）；非 JSON 行由解析层忽略。
+        `session_id` 签名同构用（本实现靠自己拉起的子进程，续接走 _build_cmd 的
+        --resume；当前 stage4 不把 hermes 送进流式路径，故收下不拼）。
         """
         import subprocess
         import threading

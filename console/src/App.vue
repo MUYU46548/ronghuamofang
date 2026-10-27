@@ -6,6 +6,8 @@ import ReviewConsole from "./ReviewConsole.vue";
 import SandboxQueue from "./SandboxQueue.vue";
 import DiscussionQueue from "./DiscussionQueue.vue";
 import ParagraphRefinePanel from "./ParagraphRefinePanel.vue";
+import ChapterEditor from "./ChapterEditor.vue";
+import ChapterDesk from "./ChapterDesk.vue";
 import FieldRefinePanel from "./FieldRefinePanel.vue";
 import OutlineView from "./OutlineView.vue";
 import ScrapsPanel from "./ScrapsPanel.vue";
@@ -72,9 +74,9 @@ const tab = ref("pipeline");
 const state = ref(null);
 const models = ref(null);
 const modelOptions = ref([]); // 动态从 /models/available 加载（**全量**，供搜索框计数）
-// 模型下拉**按角色所在的 provider 过滤**。此前只取 providers 里的「第一个」的
+// 模型下拉**按角色所在的 provider 过滤**。此前只取 providers 里的“第一个”的
 // available_models，于是**新增一个供应商后，它的模型根本不进下拉** ——
-// 换模型时表现为「明明加了 provider 却选不到模型」（2026-10-01 修）。
+// 换模型时表现为“明明加了 provider 却选不到模型”（2026-10-01 修）。
 const modelsByProvider = ref({});   // {providerId: [模型名]}
 const manualModels = ref([]);       // 手动添加的模型（全局可见，任何 provider 的下拉都列出）
 const costs = ref([]);
@@ -126,7 +128,7 @@ async function refresh() {
     }
     if (m.status === 200) models.value = m.data;
     if (j && j.status === 200) lastJob.value = j.data;
-    // 成本页可见时同步刷新「当前运行」实时花费（与 state 同频 2.5s）
+    // 成本页可见时同步刷新“当前运行”实时花费（与 state 同频 2.5s）
     if (tab.value === "cost") await refreshStreamingCost();
   } catch (e) {
     online.value = false;
@@ -165,7 +167,7 @@ async function refreshAgentRuns() {
 const remedyResult = ref(null);
 const remedyOpen = ref(false);
 /* 一键补救建议此前只能逐条手抄（2026-10-17 用户反馈）—— 这里拼成一段
-   可直接贴给外部 Agent / 存档的纯文本：每条一行「问题 → 建议（命令）」。 */
+   可直接贴给外部 Agent / 存档的纯文本：每条一行“问题 → 建议（命令）”。 */
 function remedyAsText() {
   const rr = remedyResult.value;
   if (!rr) return "";
@@ -295,6 +297,7 @@ function switchTab(t) {
     loadForm();                // 文体：可能在别处改过（外部 Agent 也能写）
     loadTokenLimit();          // 止烧阈值：每次进设置页都重读（可能在别处改过）
     loadTargetWords();         // 单章字数区间：同上（可能在别处改过 / 配置被手改）
+    loadTitleFormat();         // 章标题格式：同上
     loadEnhancedMode();        // 加强模式开关：同上
     loadAgentConnect();        // 接入其他 Agent：路径/MCP 状态每次重探（垫片可能刚代拉）
     loadKickoff();             // 启动提示词：项目根可能变，每次重读替换占位符
@@ -313,7 +316,7 @@ const theme = ref(localStorage.getItem("mofang_theme") || "purple");
 const fontSize = ref(parseInt(localStorage.getItem("mofang_font_size") || "14"));
 
 /* ---------- 设置页分类（2026-10-06 对齐方寸设置页：侧边栏页签分类） ----------
-   用户原话「设置项不该挤在一条长名单里，要像各大软件那样用侧边栏页签分类」；
+   用户原话“设置项不该挤在一条长名单里，要像各大软件那样用侧边栏页签分类”；
    方寸实测：折叠解决的是"太长"，侧边栏解决的是"找不到"。当前分类记进 localStorage。 */
 const SETTINGS_TABS = [
   { id: "model", name: "引擎与模型" },
@@ -329,7 +332,7 @@ const settingsTab = ref(localStorage.getItem("mofang_settings_tab") || "model");
 function selectSettingsTab(id) {
   settingsTab.value = id;
   localStorage.setItem("mofang_settings_tab", id);
-  // 出厂内容盘点只在进「诊断与调试」时拉：/factory/list 要逐文件算 sha256，
+  // 出厂内容盘点只在进“诊断与调试”时拉：/factory/list 要逐文件算 sha256，
   // 没必要每次进设置页都跑一遍
   if (id === "diag") loadFactory();
   // Word 模板清单每次进都要重扫磁盘（用户可能刚往 templates/ 里放了新模板）
@@ -381,15 +384,15 @@ setFontSize(fontSize.value);
 
 /* ---------- 退出确认（2026-10-03 重做：不再用 window.beforeunload） ----------
  *
- * 旧实现把确认挂在 `window.beforeunload` 上，触发条件包含「有 stage 是 done 但未审批」
+ * 旧实现把确认挂在 `window.beforeunload` 上，触发条件包含“有 stage 是 done 但未审批”
  * —— 那是审批门的**长期正常状态**（可持续数天）。于是每次关窗都弹 Chromium **原生**确认框：
- * 它无法自绘、可能跑到窗口后面、或被 Esc/取消吃掉 → 用户看到的就是「点了 X 没反应、
- * 关不掉、原因不明」，还会连带卡住「重启安装」。
+ * 它无法自绘、可能跑到窗口后面、或被 Esc/取消吃掉 → 用户看到的就是“点了 X 没反应、
+ * 关不掉、原因不明”，还会连带卡住“重启安装”。
  *
  * 现在按项目既有 GUI 纪律（破坏性操作走**应用内**确认框，不用原生对话框）改成：
  *   ① 渲染进程只 `setQuitBusy(hasUnfinishedJob)` 上报状态；
  *   ② 主进程在关窗时按需 `app:close-requested` 问过来；
- *   ③ 这里弹应用内对话框（复用「跳过阶段」那套抽屉 + 勾选护栏）；
+ *   ③ 这里弹应用内对话框（复用“跳过阶段”那套抽屉 + 勾选护栏）；
  *   ④ 主进程有 5s 看门狗：本进程若挂了/没应答，它会强制退出，**绝不把用户关在应用里**。
  */
 const hasUnfinishedJob = computed(() => {
@@ -406,12 +409,12 @@ function setupExitGuard() {
   watch(hasUnfinishedJob, (v) => {
     try { window.mofangAPI?.setQuitBusy?.(!!v); } catch (e) { /* 非 Electron 环境忽略 */ }
   }, { immediate: true });
-  // ② 主进程问「确认退出吗」→ 弹应用内对话框（忙碌时才问；不忙主进程会直接放行）
+  // ② 主进程问“确认退出吗”→ 弹应用内对话框（忙碌时才问；不忙主进程会直接放行）
   try {
     window.mofangAPI?.onCloseRequested?.(() => {
       if (!hasUnfinishedJob.value && !confirmOnExit.value) { window.mofangAPI.confirmQuit(); return; }
-      // busy 决定文案与护栏（2026-10-07）：旧版无条件写「有流水线/待审批」，
-      // 空闲时也这么说 = 误导；空闲仅因「退出必确认」而弹 → 免勾选、直接确认。
+      // busy 决定文案与护栏（2026-10-07）：旧版无条件写“有流水线/待审批”，
+      // 空闲时也这么说 = 误导；空闲仅因“退出必确认”而弹 → 免勾选、直接确认。
       const busy = hasUnfinishedJob.value;
       quitDlg.value = { open: true, agreed: !busy, busy };
     });
@@ -440,7 +443,7 @@ function toggleConfirmOnExit() {
   try { window.mofangAPI?.setConfirmOnExit?.(confirmOnExit.value); } catch (e) { /* ignore */ }
 }
 
-// 免责声明确认回调（2026-10-07）：首启强制模式点「同意」后，接着跑被延后的
+// 免责声明确认回调（2026-10-07）：首启强制模式点“同意”后，接着跑被延后的
 // 引导/向导 —— 新手检查严格放在免责声明之后，不与免责弹窗叠层。
 function onDisclaimerAck() {
   disclaimerOpen.value = false;
@@ -457,6 +460,12 @@ const exportCfg = ref({ format: "both", volSize: 5, includeFrontmatter: true });
 const exporting = ref(false);
 const exportMsg = ref("");
 const exportHistory = ref([]);
+/* 最新 Word 成品（顶栏“📕 成品”按钮）：exportHistory 按 mtime 倒序取第一条 word。
+   没有就返回空串 → 按钮不出现（不给一个点了报错的死按钮）。 */
+const latestDocx = computed(() => {
+  const it = (exportHistory.value || []).find((x) => x.kind === "word");
+  return it ? (it.rel || it.path) : "";
+});
 
 async function runExport() {
   if (exporting.value) return;
@@ -492,13 +501,8 @@ async function runExport() {
     }
     exportMsg.value = msgs.join("；");
     if (okAll) {
-      exportHistory.value.unshift({
-        time: new Date().toLocaleString("zh-CN"),
-        volumes: "",
-        chapters: "",
-        format: fmt,
-        path: lastPath,
-      });
+      // 记录不自己造 —— 重新扫 output/（本次导出已落盘，自然会出现）
+      await refreshExportState();
       say("导出完成");
     }
   } catch (e) {
@@ -508,7 +512,15 @@ async function runExport() {
   }
 }
 
-async function refreshExportState() {}
+/* 最近导出 = **盘上事实**（2026-10-26，用户第 10 条“阶段8已经跑完了，暂无导出记录”）。
+   原实现是前端内存 ref，只在“点了导出按钮”时 unshift —— orchestrator 跑阶段 7/8、
+   Agent 走 CLI、刷新页面，三种情况都会让面板变空。现在直接读 output/ 里有什么。 */
+async function refreshExportState() {
+  const r = await api("/exports/history");
+  if (r.status === 200 && r.data && r.data.ok) {
+    exportHistory.value = r.data.items || [];
+  }
+}
 
 function openExportDir(path) {
   if (window.mofangAPI?.openArtifact) {
@@ -583,7 +595,7 @@ function openSettingEditor(key, idx) {
       ? copy.relations.map(r => [r.target, r.type, r.note].filter(Boolean).join(' | ')).join('\n')
       : '';
     // records（2026-10-24 OB34 素材）：证词体**多行原文**，用空行分条。
-    // 不能用 traits 那种「每行一条」——一条证词本身就含多行，会被切碎。
+    // 不能用 traits 那种“每行一条”——一条证词本身就含多行，会被切碎。
     copy._recordsInput = Array.isArray(copy.records)
       ? copy.records.map(r => String(r).trim()).filter(Boolean).join('\n\n')
       : '';
@@ -688,7 +700,7 @@ async function saveSetting() {
   }
 }
 
-// 顶层键里只有这三类是「条目列表」；_meta / appearances 是元数据与统计，
+// 顶层键里只有这三类是“条目列表”；_meta / appearances 是元数据与统计，
 // addSettingItem 若把它们当列表 push，会污染 setting.json 的结构。
 const SETTING_LIST_KEYS = ['characters', 'plot_fragments', 'timeline'];
 
@@ -700,7 +712,7 @@ function settingItems(key) {
   if (key === 'world') {
     // 聚合真实分组（2026-10-24 修）：原实现读 world?.all —— 但 all 是**无人写入的
     // 死键**（全仓 grep 确认仅 setting_brief.py 读它、从不写），导致世界观 tab 恒显示
-    // 「暂无条目」，而磁盘上明明有 locations / items / factions / magic_system。
+    // “暂无条目”，而磁盘上明明有 locations / items / factions / magic_system。
     // 现按真实分组拼接，并把 _group 记在条目副本上：条目要按组写回，不能凭名字猜
     // （重名时会写错组）。副本是浅拷贝，saveSetting 发的是 settingData，改动照常生效。
     const w = settingData.value.world || {};
@@ -802,16 +814,16 @@ function onStructureLoaded(s) {
   outlineSummary.value = s;
 }
 
-/* ---------- 审核队列（「审核」页签：沙盒产物 + 讨论提案两个队列） ----------
+/* ---------- 审核队列（“审核”页签：沙盒产物 + 讨论提案两个队列） ----------
    徽标数 = 两类待审计数之和（沙盒产物 + 讨论提案）。刻意**独立于页签是否打开**
    去轮询（节流 60s）：沙盒产物是后台写入时自动登记的，讨论提案是 agent 提交的，
-   用户在别的页签干活时也可能新增，徽标不刷新就成了「有活等你但你看不见」。
+   用户在别的页签干活时也可能新增，徽标不刷新就成了“有活等你但你看不见”。
    只在首页加载时拉一次 + 每次切到该页签刷新，避免无谓请求。 */
 const sandboxRef = ref(null);
 const discussionRef = ref(null);
 const sandboxPending = ref(0);
 const discussionPending = ref(0);
-/** 顶部徽标显示两类待审之和（讨论提案也是「等你拍板」的活）。 */
+/** 顶部徽标显示两类待审之和（讨论提案也是“等你拍板”的活）。 */
 const reviewPending = computed(() => sandboxPending.value + discussionPending.value);
 async function loadSandboxQueue() {
   if (sandboxRef.value) sandboxRef.value.load(false);
@@ -927,7 +939,7 @@ async function saveForm() {
       + "（检查项已按文体生效，但写出来的文风不会自动变）。"
     : "";
   if (!window.confirm(
-      "切换文体为「" + (opt.label || next) + "」？\n\n"
+      "切换文体为“" + (opt.label || next) + "”？\n\n"
       + "· 写入 config/project.yaml 的 book.form（旧版自动备份到 config/history/）\n"
       + "· 影响：哪些检查项适用、写作时的文风要求\n"
       + "· 已经写好的章节**不会**被重新判定，只影响之后运行的阶段"
@@ -937,7 +949,7 @@ async function saveForm() {
     say("文体切换失败: " + (r.data.error || r.status));
     return;
   }
-  say("文体已切换为「" + (opt.label || next) + "」，下次运行阶段生效");
+  say("文体已切换为“" + (opt.label || next) + "”，下次运行阶段生效");
   await loadForm();
 }
 
@@ -979,7 +991,7 @@ async function saveStyleNotes() {
 }
 
 /* ---------- Word 成品模板（config/project.yaml → book.word_template，件五） ----------
-   面向用户的唯一入口（2026-10-10 拍板：「用户永远不会用终端」——面向用户的入口一律 GUI）：
+   面向用户的唯一入口（2026-10-10 拍板：“用户永远不会用终端”——面向用户的入口一律 GUI）：
    下拉选 templates/ 里的 .dotx/.docx + 打开模板目录 + 恢复默认，写入走
    后端 project_config 定向改写（保留注释 + 写前备份 + 写后回读）。 */
 const wordTpl = ref({ files: [], current: "", default: "", current_exists: true });
@@ -1008,7 +1020,7 @@ async function loadWordTemplate() {
 
 async function applyWordTemplate() {
   if (!wordTplPick.value) {
-    wordTplMsg.value = "未选择模板（要回到出厂模板请点「恢复默认」）";
+    wordTplMsg.value = "未选择模板（要回到出厂模板请点“恢复默认”）";
     return;
   }
   const r = await api("/config/word_template", "POST", { template: wordTplPick.value });
@@ -1060,7 +1072,7 @@ async function loadProjects(quiet = false) {
 }
 
 /* ---------- 出厂测试项目一键还原（0.6.22） ---------- */
-// 预设/样例跑过一轮后工作区堆满测试进度，此前没有「回到刚铺好状态」的入口。
+// 预设/样例跑过一轮后工作区堆满测试进度，此前没有“回到刚铺好状态”的入口。
 // 边界（用户定调）：**仅出厂测试项目**可还原 —— 真书没有出厂标记，
 // 这条路在服务端三重自检（标记/书名/出厂源）下天然碰不到它。
 // 交互（0.7.0）：已是出厂状态按钮置灰；确认走弹窗 + 滑条解锁，不用 window.confirm（GUI 纪律）。
@@ -1077,9 +1089,9 @@ async function loadFactoryProject() {
   } catch (e) { factoryProject.value = null; }
 }
 
-/* 确认弹窗 + 滑条解锁（0.7.0）。旧交互「同位置点两次」被用户点名垃圾
-   （2026-10-24：「放在同一个位置让人点两次什么意思」）—— 现在是两个动作、两个位置：
-   弹窗列出将清除什么 → 按住滑块拖到最右解锁 → 点「开始还原」。中途松手弹回起点。 */
+/* 确认弹窗 + 滑条解锁（0.7.0）。旧交互“同位置点两次”被用户点名垃圾
+   （2026-10-24：“放在同一个位置让人点两次什么意思”）—— 现在是两个动作、两个位置：
+   弹窗列出将清除什么 → 按住滑块拖到最右解锁 → 点“开始还原”。中途松手弹回起点。 */
 const factoryResetDialog = ref(false);
 const factoryResetSlid = ref(false);
 const factoryResetSlideX = ref(0);
@@ -1153,7 +1165,7 @@ async function archiveCurrent() {
     return;
   }
   const finalName = archiveName.value.trim() || projects.value.current;
-  if (!window.confirm(`确定归档当前项目为「${finalName}」？\n\n归档后当前工作区数据将移至 data/books/${finalName}/，工作区清空。`)) return;
+  if (!window.confirm(`确定归档当前项目为“${finalName}”？\n\n归档后当前工作区数据将移至 data/books/${finalName}/，工作区清空。`)) return;
   const r = await api("/project/archive", "POST", { name: finalName, yes: true });
   if (r.status === 200 && r.data.ok) {
     say("已归档: " + finalName);
@@ -1166,7 +1178,7 @@ async function archiveCurrent() {
 }
 
 async function restoreProject(name) {
-  if (!window.confirm(`确定恢复项目「${name}」？\n\n当前工作区数据将先自动归档，然后替换为 ${name} 的数据。`)) return;
+  if (!window.confirm(`确定恢复项目“${name}”？\n\n当前工作区数据将先自动归档，然后替换为 ${name} 的数据。`)) return;
   const r = await api("/project/restore", "POST", { name, yes: true });
   if (r.status === 200 && r.data.ok) {
     say("已恢复: " + name);
@@ -1178,10 +1190,10 @@ async function restoreProject(name) {
 }
 
 /* ---------- 归档：查看 / 删除（2026-10-06 补） ----------
-   此前已归档项目每行只有「恢复」：想先看看里面有什么 → 只能整个恢复出来；
+   此前已归档项目每行只有“恢复”：想先看看里面有什么 → 只能整个恢复出来；
    想清掉 → 没有入口（switch_book.py 连删除函数都没有）。归档成了死胡同。
    现在：查看 = 只读列树 + 单文件预览；删除 = 应用内确认框 + 勾选护栏，
-   默认进回收站（data/books/_trash），勾了「彻底删除」才真删。 */
+   默认进回收站（data/books/_trash），勾了“彻底删除”才真删。 */
 const archViewer = ref({ open: false, name: "", root: "", entries: [], count: 0, total: 0,
                         truncated: false, loading: false, error: "",
                         current: "", content: "", contentLoading: false, contentError: "" });
@@ -1236,7 +1248,7 @@ async function submitDeleteArchive() {
   const d = archDelete.value;
   if (!d.agreed || d.busy) return;
   if (d.confirm.trim() !== d.name) {
-    d.warn = "请输入归档名「" + d.name + "」以确认（必须逐字一致）";
+    d.warn = "请输入归档名“" + d.name + "”以确认（必须逐字一致）";
     return;
   }
   d.busy = true;
@@ -1256,7 +1268,7 @@ async function submitDeleteArchive() {
 
 /* ---------- 生成前 token / 费用预估确认 ---------- */
 const estDialog = ref({ open: false, loading: false, data: null, title: "", confirm: null });
-const estSkipSession = ref(false);   // 「本次会话不再提示」
+const estSkipSession = ref(false);   // “本次会话不再提示”
 
 function fmtTok(v) { return Number(v || 0).toLocaleString("zh-CN"); }
 
@@ -1312,7 +1324,7 @@ async function runPipelineFull() {
 async function doRunPipelineFull() {
   // ⚠️ 必须显式传 `only_stage: false`：后端把 URL 里的阶段号默认当成"只跑这一阶段"
   // （`only = int(rest)`），只有显式声明 false 才走 `from_stage` 起跑全程。
-  // 漏传的后果是：点「全自动」实际只跑了阶段 1，界面却提示"已提交全流程运行"。
+  // 漏传的后果是：点“全自动”实际只跑了阶段 1，界面却提示"已提交全流程运行"。
   const r = await api("/stage/1/run", "POST", { from_stage: 1, only_stage: false });
   if (r.status === 202) say("已提交全流程运行，进度见顶栏");
   else say("提交失败: " + (r.data.error || r.status));
@@ -1524,7 +1536,9 @@ async function stopJob() {
   if (!jobId) return;
   const r = await api("/stop", "POST", { job_id: jobId });
   if (r.status === 200) {
-    say("已发送停止请求，当前阶段完成后停止");
+    // 2026-10-26：写作阶段改走流式，停止会在几秒内真正中断当前章（半截不落盘）。
+    // 说清"会发生什么"，而不是一句含糊的"当前阶段完成后停止"。
+    say("已发送停止 —— 正在写的这一章会尽快中断（半截不入稿），已完成的章不受影响");
   } else {
     say(`停止失败: ${r.data?.error || r.status}`);
   }
@@ -1532,16 +1546,16 @@ async function stopJob() {
 
 /* ---------- 其他 ---------- */
 const projects = ref({ current: "", archived: [] });
-/* 出厂样例书徽标（2026-10-11 用户需求：「雾港核心工作区有数据，但没有任何显示标识」）。
+/* 出厂样例书徽标（2026-10-11 用户需求：“雾港核心工作区有数据，但没有任何显示标识”）。
    判据在后端 nf_api_domains/factory.py 的 current_sample_view()（当前书名 == 随包样例书名），
-   前端只负责把结论摆出来 + 说清「删了会怎样」。 */
+   前端只负责把结论摆出来 + 说清“删了会怎样”。 */
 const factorySampleTip = computed(() => {
   const c = factory.value && factory.value.current;
   const t = (c && c.sample_title) || "示例书";
   return `当前书名与随包样例书《${t}》相同，但还原自检没过（出厂源缺失或不完整），`
     + "本次不提供一键还原。\n"
     + "若这本就是拿样例跑出来的测试项目：安装包重装可恢复 examples/sample-book 源，"
-    + "届时项目页会重新出现「一键还原」面板。";
+    + "届时项目页会重新出现“一键还原”面板。";
 });
 const archiveName = ref("");
 
@@ -1659,7 +1673,7 @@ async function openMaterialEdit(name) {
 async function saveMaterialEdit() {
   if (!materialEdit.value) return;
   if (!window.confirm(
-      "确定保存「" + materialEdit.value.name + "」？\\n\\n修改立即生效。")) return;
+      "确定保存“" + materialEdit.value.name + "”？\\n\\n修改立即生效。")) return;
   const a = await api("/materials/save", "POST", {
     name: materialEdit.value.name,
     content: materialEdit.value.content,
@@ -1675,7 +1689,7 @@ async function saveMaterialEdit() {
 
 async function deleteMaterial(name) {
   if (!window.confirm(
-      "确定删除「" + name + "」？\\n\\n仅删除 raw/ 副本，不影响设定集。history/ 快照保留。")) return;
+      "确定删除“" + name + "”？\\n\\n仅删除 raw/ 副本，不影响设定集。history/ 快照保留。")) return;
   const a = await api("/materials/delete", "POST", { name });
   if (a.status === 200 && a.data.ok) {
     say("已删除: " + a.data.name);
@@ -1715,7 +1729,7 @@ async function refreshModels() {
   const r = await api("/models/available");
   if (r.status === 200) {
     providers.value = r.data.providers;
-    // 逐 provider 收模型列表（不再「只取第一个 provider」—— 那是换供应商后
+    // 逐 provider 收模型列表（不再“只取第一个 provider”—— 那是换供应商后
     // 下拉里看不到新模型的根因）
     const byProv = {};
     for (const [pid, p] of Object.entries(r.data.providers || {})) {
@@ -1741,7 +1755,7 @@ async function refreshFetchedModels() {
     const r = await api("/models/fetched");
     if (r.status === 200 && r.data.providers) {
       // 逐 provider 汇总。⚠️ 旧实现**硬编码 tokenhub**，并且顺手把 providerOptions
-      // 重置成「只剩 tokenhub 一项」—— 切到别的供应商后下拉里就再也选不回来了。
+      // 重置成“只剩 tokenhub 一项”—— 切到别的供应商后下拉里就再也选不回来了。
       // 现在：谁成功就更新谁，**绝不重建 providerOptions**（那只该由 refreshModels 负责）。
       const merged = { ...modelsByProvider.value };
       const parts = [];
@@ -1792,7 +1806,7 @@ async function switchProvider(role, newProvider) {
     const avail = modelsByProvider.value[newProvider] || [];
     let msg = `已切换 ${role} → ${newProvider}`;
     if (curModel && avail.length && !avail.includes(curModel)) {
-      msg += `，但模型「${curModel}」不在其清单内 —— 请同时把模型改为 ${avail.slice(0, 3).join(" / ")} 之一`;
+      msg += `，但模型“${curModel}”不在其清单内 —— 请同时把模型改为 ${avail.slice(0, 3).join(" / ")} 之一`;
     }
     if (r.data?.warning) msg += `；${r.data.warning}`;
     say(msg);
@@ -1813,7 +1827,7 @@ const filteredModelOptions = computed(() => {
 });
 
 // 某角色所在供应商的模型清单（含手动添加项与当前值）。
-// 当前值必须始终在列表里：否则下拉会显示为空白，看起来像「模型配置丢了」。
+// 当前值必须始终在列表里：否则下拉会显示为空白，看起来像“模型配置丢了”。
 function providerModelOptions(pid, current) {
   const base = (modelsByProvider.value[pid] || []).concat(manualModels.value);
   const all = Array.from(new Set(base.filter(Boolean)));
@@ -1845,13 +1859,13 @@ async function addManualModel() {
 }
 
 // ---------- API Key 写入（GUI 内置；不再借助外部编辑器）----------
-// 为什么不是「打开 .env」：主进程按 2026-09-19 审查 S7 把 .env 排除在外部打开
+// 为什么不是“打开 .env”：主进程按 2026-09-19 审查 S7 把 .env 排除在外部打开
 // 白名单外（程序不该代为用外部编辑器打开明文密钥），但当时只砍了出口、没给入口 ——
-// 界面留着那个按钮，点下去必然「路径不在白名单」，用户卡在"怎么填 Key"。
+// 界面留着那个按钮，点下去必然“路径不在白名单”，用户卡在"怎么填 Key"。
 // 现在改由后端写盘（键名白名单 + 值校验 + 写前备份），前端只传键与值。
 const envEditing = ref("");   // 正在编辑哪个 provider 的 Key（空 = 都不在编辑）
 const envValue = ref("");     // 新 Key 明文（仅存在于内存，不回显已存值）
-const envConfirmOpen = ref(false); // 「在文件夹中显示 .env」前的知情确认（明文密钥风险，2026-10-01）
+const envConfirmOpen = ref(false); // “在文件夹中显示 .env”前的知情确认（明文密钥风险，2026-10-01）
 
 function startEnvEdit(pid) {
   envEditing.value = pid;
@@ -1894,8 +1908,8 @@ async function revealEnvInFolder() {
     return;
   }
   const res = await window.mofangAPI.revealInFolder(".env");
-  // 必须看返回值：此前不管成功与否都提示「已在文件夹中定位」——
-  // 定位失败被吞掉，用户只看到「点了没反应」，还以为是自己电脑的问题。
+  // 必须看返回值：此前不管成功与否都提示“已在文件夹中定位”——
+  // 定位失败被吞掉，用户只看到“点了没反应”，还以为是自己电脑的问题。
   if (res && res.ok) {
     say("已在文件夹中定位 .env");
   } else {
@@ -2059,7 +2073,13 @@ async function savePrompt() {
   loadPromptList();
 }
 
-const STAGE_NAMES = { 1: "素材→设定集", 2: "整体大纲", 3: "逐章大纲", 4: "逐章写作", 5: "逻辑检查", 6: "润色", 7: "Word 成品" };
+/* ⚠️ 这张表必须与后端 STAGE_NAMES / orchestrator.STAGES 同步 —— 漏一个阶段，
+   界面上那个阶段就"不存在"（用户 2026-10-26 第 9 条：“阶段 8 在客户端内直接不存在，
+   只能靠 agent 提示的隐藏模式”）。后端真源：scripts/utils/stage_artifacts.py。 */
+const STAGE_NAMES = {
+  1: "素材→设定集", 2: "整体大纲", 3: "逐章大纲", 4: "逐章写作",
+  5: "逻辑检查", 6: "润色", 7: "Word 成品", 8: "Markdown 导出",
+};
 const stageList = computed(() => {
   if (!state.value) return [];
   return state.value.stages.map((s) => ({ ...s, name: STAGE_NAMES[s.stage] || "" }));
@@ -2069,29 +2089,122 @@ const pendingGates = computed(() => {
   return state.value.stages.filter((s) => s.status === "done" && !s.approved);
 });
 const isRunning = computed(() => !!state.value?.current_job);
+/* 当前在跑的阶段（没有则 null）。页面里多处要“现在在干嘛”，统一从这里取。 */
+const runningStage = computed(() =>
+  (state.value?.stages || []).find((s) => s.status === "running") || null);
+/* 章级进度是否真的存在。
+   2026-10-26 用户反馈“永恒 29%”：running 阶段没有 chapters_done/total_chapters
+   时，旧的 progressPct 把它恒算成 0 增量 —— 于是 2 个阶段 done 之后进度条
+   永远停在 2/8≈25%（旧版 7 阶段时是 2/7≈29%）不再动。
+   现在分两种展示：有章级进度 → 显示百分比；没有 → 显示“阶段 N · 进行中（已 X 分）”
+   这个**真话**，而不是一个不动的假数字。
+
+   2026-10-27 再修一层：**当前这一章写到哪**也要算进去。
+   用户原话“重写中，已写1字，但是进度99%……卡了很久”——重写单章时分母仍是
+   全书章数，9/10 恒定 → 整体 99% 一动不动。stageFraction 给的是本章内进度
+   （加强模式按段群 + 本群字数/配额；整章单发按字数/目标下限），拿不到就不假装。 */
+function stageFraction(s) {
+  if (!s) return 0;
+  const chars = Number(s.current_chars) || 0;
+  const groups = Number(s.total_groups) || 0;
+  const curGroup = Number(s.current_group) || 0;
+  if (groups > 0 && curGroup > 0) {
+    // 已完成群 + 本群已写比例。卡在 0.99 而非 1：这一章没落盘/没标完成前
+    // 不能宣称 100%（否则就是另一个“假绿灯”）。
+    const doneGroups = Math.min(Math.max(curGroup - 1, 0), groups);
+    const quota = Number(s.current_group_quota) || 0;
+    const cur = quota > 0 ? Math.min(chars / quota, 1) : 0;
+    return Math.min((doneGroups + cur) / groups, 0.99);
+  }
+  const low = Number((state.value?.chapter_target_words || [])[0]) || 0;
+  if (low > 0 && chars > 0) return Math.min(chars / low, 0.99);
+  return 0;
+}
+const hasStageFraction = computed(() => {
+  const s = runningStage.value;
+  if (!s) return false;
+  if (stageFraction(s) > 0) return true;
+  return (s.total_chapters || 0) > 0 && (s.chapters_done || 0) > 0;
+});
 const progressPct = computed(() => {
   if (!state.value) return 0;
   const stages = state.value.stages || [];
   if (!stages.length) return 0;
-  // 阶段内进度：当前运行阶段按章节数细分
   let total = 0;
   let done = 0;
   for (const s of stages) {
-    if (s.status === "done") {
-      total += 1;
-      done += 1;
-    } else if (s.status === "running") {
-      total += 1;
-      // 阶段内进度：当前阶段完成的章节数 / 总章节数
-      const chapters = s.chapters_done || 0;
-      const totalChapters = s.total_chapters || 1;
-      done += Math.min(chapters / Math.max(totalChapters, 1), 0.99);
-    } else {
-      total += 1;
-    }
+    total += 1;
+    if (s.status === "done" || s.status === "skipped") { done += 1; continue; }
+    if (s.status !== "running") continue;
+    const tc = s.total_chapters || 0;
+    const cd = s.chapters_done || 0;
+    const frac = stageFraction(s);
+    // 有真实章级进度才画部分进度；没有就**不假装**（见 hasStageFraction）
+    if (tc > 0 && (cd > 0 || frac > 0)) done += Math.min((cd + frac) / tc, 0.99);
   }
   return total > 0 ? Math.round((done / total) * 100) : 0;
 });
+/* 单章重写的“本章 %”（不拿全书进度冒充） */
+const scopeChapterPct = computed(() => {
+  const s = runningStage.value;
+  if (!s || !s.rewrite_chapter) return null;
+  return Math.round(stageFraction(s) * 100);
+});
+/* “已跑多久”：state 每 2.5s 刷新一次（引用变化），computed 因此会重算，
+   不必单独开定时器。 */
+function _elapsedText(startedAt) {
+  if (!startedAt) return "";
+  const t0 = new Date(String(startedAt).replace(" ", "T")).getTime();
+  if (!isFinite(t0)) return "";
+  const sec = Math.max(0, Math.floor((Date.now() - t0) / 1000));
+  if (sec < 60) return sec + " 秒";
+  const m = Math.floor(sec / 60);
+  if (m < 60) return m + " 分";
+  return Math.floor(m / 60) + " 小时 " + (m % 60) + " 分";
+}
+function _idleSeconds(iso) {
+  if (!iso) return 0;
+  const t = new Date(String(iso).replace(" ", "T")).getTime();
+  if (!isFinite(t)) return 0;
+  return Math.max(0, Math.floor((Date.now() - t) / 1000));
+}
+/* 进行中阶段的**具体事实**：第几章 / 第几群 / 本群多少字 / 多久没新字。
+   比一个百分比更能回答“它是在推进还是卡住”（用户 2026-10-26/27 反复提的点）。 */
+function stageDetail(s) {
+  if (!s || s.status !== "running") return "";
+  const bits = [];
+  if (s.rewrite_chapter) bits.push("重写第 " + s.rewrite_chapter + " 章");
+  else if (s.current_chapter) bits.push("第 " + s.current_chapter + " 章");
+  const groups = Number(s.total_groups) || 0;
+  const curGroup = Number(s.current_group) || 0;
+  if (groups > 0 && curGroup > 0) {
+    let g = "第 " + curGroup + "/" + groups + " 群";
+    const quota = Number(s.current_group_quota) || 0;
+    if (quota > 0) g += " · 本群 " + (Number(s.current_chars) || 0) + "/" + quota + " 字";
+    bits.push(g);
+  } else if (Number(s.current_chars) > 0) {
+    bits.push("已写 " + s.current_chars + " 字");
+  }
+  const idle = _idleSeconds(s.current_chars_at);
+  if (idle >= 45) bits.push(Math.floor(idle) + " 秒无新字");
+  return bits.join(" · ");
+}
+const runningStageLabel = computed(() => {
+  const s = runningStage.value;
+  if (!s) return state.value?.current_job ? "正在启动…" : "";
+  const name = "阶段 " + s.stage + " " + (STAGE_NAMES[s.stage] || "");
+  const detail = stageDetail(s);
+  if (detail) return name + " · " + detail;
+  const total = s.total_chapters || 0;
+  const done = s.chapters_done || 0;
+  if (total > 0 && done > 0) return name + " · 已完成 " + done + "/" + total + " 章";
+  const el = _elapsedText(s.started_at);
+  return name + " · 进行中" + (el ? "（已 " + el + "）" : "");
+});
+/* 阶段名（含 8）。流水线卡片、收件箱等处复用它，避免各处再写一张表。 */
+function stageNameOf(n) {
+  return STAGE_NAMES[n] || "";
+}
 
 // 预计剩余成本（基于已完成阶段的平均成本）
 const estimatedRemainingCost = computed(() => {
@@ -2101,7 +2214,7 @@ const estimatedRemainingCost = computed(() => {
   if (!doneStages.length) return null;
   // 真源是 costSummary.totals.cost_yuan（/costs/summary 的 totals 子对象）。
   // 2026-10-24 修：原写 costSummary.value.total_yuan（字段不存在 → undefined），
-  // 除法得 NaN → 流水线条渲染成「预计剩余 ¥NaN」。现在守卫到有限数才显示。
+  // 除法得 NaN → 流水线条渲染成“预计剩余 ¥NaN”。现在守卫到有限数才显示。
   const spentYuan = Number(costSummary.value?.totals?.cost_yuan);
   if (!isFinite(spentYuan)) return null;
   const avgCostPerStage = spentYuan / doneStages.length;
@@ -2151,7 +2264,7 @@ function fmtTime(iso) { return (iso || "").replace("T", " "); }
    ============================================================ */
 
 /* ---------- ① 一键工作流 ---------- */
-// 页签注册表：数字键直接跳页签（13 个页签就是这套「工作阶段」导航）
+// 页签注册表：数字键直接跳页签（13 个页签就是这套“工作阶段”导航）
 const TAB_ORDER = [
   { t: "pipeline", name: "流水线", key: "1" },
   { t: "chapters", name: "章节", key: "2" },
@@ -2200,13 +2313,13 @@ function saveCombo() {
                        { name, stages }];
   persistCombos();
   comboName.value = "";
-  say("已保存组合「" + name + "」：" + stages.join(","));
+  say("已保存组合“" + name + "”：" + stages.join(","));
 }
 function applyCombo() {
   const c = stageCombos.value.find((x) => x.name === comboPick.value);
   if (!c) return;
   quickStages.value = [...c.stages];
-  say("已回填组合「" + c.name + "」：" + c.stages.join(","));
+  say("已回填组合“" + c.name + "”：" + c.stages.join(","));
 }
 function removeCombo() {
   if (!comboPick.value) return say("先选要删除的组合");
@@ -2343,8 +2456,8 @@ async function doRunStages(stages) {
 }
 
 // ---- 活二 Word 导入（外部稿进墨坊）----
-// 两段式：先「预检」拿切分清单（不落盘）→ 用户看过再「确认导入」。
-// 后端不给 yes 就只出清单，红线「预检未过不落盘」在服务端也成立，不靠前端自觉。
+// 两段式：先“预检”拿切分清单（不落盘）→ 用户看过再“确认导入”。
+// 后端不给 yes 就只出清单，红线“预检未过不落盘”在服务端也成立，不靠前端自觉。
 const importPath = ref("");
 const importTier = ref("raw");
 const importSingle = ref(false);
@@ -2399,12 +2512,12 @@ async function previewDocxImport() {
 }
 
 async function confirmDocxImport() {
-  if (!importPreview.value) return say("先点「预检」看切分结果");
+  if (!importPreview.value) return say("先点“预检”看切分结果");
   docxBusy.value = true;
   const r = await api("/import/docx", "POST", importPayload({ yes: true }));
   docxBusy.value = false;
   if (r.status !== 200) {
-    // conflict（同名章节已存在）不改走自动覆盖 —— 必须用户显式勾「允许覆盖」
+    // conflict（同名章节已存在）不改走自动覆盖 —— 必须用户显式勾“允许覆盖”
     importResult.value = r.data;
     return say(r.data.error || ("导入失败 HTTP " + r.status));
   }
@@ -2415,7 +2528,7 @@ async function confirmDocxImport() {
   loadChapters();
 }
 
-// 跑完自动提示下一步（②"完成后自动跳转"）：检测 job 从「有」到「无」的跳变
+// 跑完自动提示下一步（②"完成后自动跳转"）：检测 job 从“有”到“无”的跳变
 const nextPopup = ref(false);
 const nextPopupDismissed = ref(localStorage.getItem("mofang_flow_popup") === "0");
 const gateJustHit = ref(false); // 刚刚撞门（从非审批门状态跳到审批门）
@@ -2430,8 +2543,8 @@ const gateArtifacts = ref({}); // {stage: [{path, kind, lines, files, chars, exi
 // 章节数/字数 —— 前端 readPreview 只读单文件，数不了目录）。旧版后端没有该端点时
 // 回落到 readPreview，只对已知是文件的阶段有意义。
 async function loadGateArtifacts() {
-  // 分段审阅面板跟着 stage2 门一起加载：不加载的话用户点「确认放行」
-  // 只会吃到一个 409，看不到「还差哪几段」—— 哑闸。
+  // 分段审阅面板跟着 stage2 门一起加载：不加载的话用户点“确认放行”
+  // 只会吃到一个 409，看不到“还差哪几段”—— 哑闸。
   if (pendingGates.value.some((g) => g.stage === 2)) await loadSegReview();
   else segReview.value = null;
   const agentGenerated = await isAgentModeConfigured();
@@ -2453,7 +2566,7 @@ async function loadGateArtifacts() {
       }
     }
     // ⚠️ 必须无条件赋值：否则端点报错时该 stage 永远是 undefined，
-    // 下面「读取中…」的分支会永久卡住（读取中 ≠ 一直读取中）。空数组 = 「没有可展示的产物」。
+    // 下面“读取中…”的分支会永久卡住（读取中 ≠ 一直读取中）。空数组 = “没有可展示的产物”。
     gateArtifacts.value[g.stage] = items.map((a) => ({ ...a, agent: agentGenerated }));
   }
 }
@@ -2472,7 +2585,7 @@ async function isAgentModeConfigured() {
 }
 
 // —— 丙4 分段审阅（收件箱 stage2 门内）——
-// 一次读 5 万字的通读负担被拆成「逐段读」，但**放行门槛一分没松**：
+// 一次读 5 万字的通读负担被拆成“逐段读”，但**放行门槛一分没松**：
 // 全部分段通过才允许 approve stage2。勾一段 = 确认自己读过那一段。
 // 判据单源在 utils.outline_segments.gate_status，这里只做展示与提交。
 const segReview = ref(null);   // GET /outline/segments 的回显（null = 没开分段审批）
@@ -2505,7 +2618,7 @@ watch(pendingGates, loadGateArtifacts, { immediate: true });
 // 撞门通知：当审批门出现时弹通知。
 //
 // 主路径 = **主进程系统通知**（mofangAPI.notifyGate → Electron new Notification().show()）：
-// OS 级、无需授权，也就不存在「点了没反应」的权限死按钮。
+// OS 级、无需授权，也就不存在“点了没反应”的权限死按钮。
 // 浏览器预览模式（没有 mofangAPI）才回退到渲染进程的 Notification —— 那条老路
 // 正是 2026-10-06 修掉的死按钮：requestPermission 只在 permission === "default"
 // 时才动作，而打包态通常已是 granted/denied，点了什么都不发生，且结果从不回显。
@@ -2532,7 +2645,7 @@ function notifyGate(stage) {
   }
 }
 
-// 通知通道说明（收件箱按钮旁的副文案）—— 说清「为什么不需要授权」
+// 通知通道说明（收件箱按钮旁的副文案）—— 说清“为什么不需要授权”
 function notifyChannelLabel() {
   const api = window.mofangAPI;
   if (api && typeof api.notifyGate === "function") return "系统级通知，无需授权";
@@ -2569,7 +2682,7 @@ function noteJobTransition(snap) {
   hadGate = !!newGate;
   if (wasRunning && !nowRunning) {
     lastFinishedKind = (lastJob.value?.kind || snap?.last_job?.kind || "") + "";
-    // 跑完自动把「快速运行」的选择器推进到下一个未完成阶段
+    // 跑完自动把“快速运行”的选择器推进到下一个未完成阶段
     const a = nextAction.value;
     if (a && a.kind === "run") quickStages.value = [a.stage];
     if (!nextPopupDismissed.value) nextPopup.value = true;
@@ -2579,7 +2692,7 @@ function noteJobTransition(snap) {
 
 const stage4Done = computed(() => state.value?.stages?.[3]?.status === "done");
 
-// 状态首次加载后，把快速运行面板对齐到「下一个未完成阶段」
+// 状态首次加载后，把快速运行面板对齐到“下一个未完成阶段”
 watch(state, () => {
   if (!quickStages.value.length && nextAction.value?.kind === "run") {
     quickStages.value = [nextAction.value.stage];
@@ -2603,7 +2716,7 @@ function dismissNextPopupForever() {
 function reenableNextPopup() {
   nextPopupDismissed.value = false;
   localStorage.setItem("mofang_flow_popup", "1");
-  say("已开启「跑完自动提示下一步」");
+  say("已开启“跑完自动提示下一步”");
 }
 
 /* ---------- ① 手动快照 ---------- */
@@ -2750,7 +2863,7 @@ async function checkColdStartStatus() {
       coldStartStatus.value.bookName = { name: c.data.config?.book?.name || "", checked: true };
     }
   } catch (e) { /* ignore */ }
-  // 外部 Agent 接入状态（仅 Electron 有 IPC；浏览器验收态保持「未检查」）
+  // 外部 Agent 接入状态（仅 Electron 有 IPC；浏览器验收态保持“未检查”）
   try {
     if (window.mofangAPI?.agentConnectInfo && !agentConnect.value) {
       await loadAgentConnect();
@@ -2869,7 +2982,7 @@ const commands = computed(() => {
   cs.push({ id: "refresh", group: "诊断", label: "刷新状态", hint: "R", keywords: "refresh 刷新" });
   cs.push({ id: "help", group: "诊断", label: "快捷键说明", hint: "?", keywords: "help 快捷键" });
   cs.push({ id: nextPopupDismissed.value ? "popup.on" : "popup.off", group: "诊断",
-            label: nextPopupDismissed.value ? "开启「跑完自动提示下一步」" : "关闭「跑完自动提示下一步」",
+            label: nextPopupDismissed.value ? "开启“跑完自动提示下一步”" : "关闭“跑完自动提示下一步”",
             keywords: "popup 提示 自动" });
   for (const th of THEMES) {
     cs.push({ id: "theme:" + th.id, group: "外观", label: "切换到主题：" + th.name,
@@ -2924,7 +3037,7 @@ const gateNotify = ref(gateNotifyEnabled());
 const agentMode = ref(false);
 
 /* Agent 模式权限清单（2026-10-24）。
- * 用户原话：「在客户端内根本分不清哪些会走 agent 哪些直接走内部配置 API，很混乱」。
+ * 用户原话：“在客户端内根本分不清哪些会走 agent 哪些直接走内部配置 API，很混乱”。
  * 病根是说明文字硬编码在模板里（agent-bar 那行），而后端判据是
  * utils/agent_guard.FORBIDDEN_IN_AGENT_MODE —— 两处一旦漂移，界面就在说谎。
  * 这里改成读后端权威名单渲染，并在渲染时用后端给的 forbidden 集合**就地校验**
@@ -2970,8 +3083,8 @@ function agentPermWhy(path) {
 }
 
 /* ---------- 单章字数区间（chapter.target_words）----------
- * 为什么要有入口（2026-10-18 用户取证）：「一章两三千字，根本不合格。而且绒花墨坊
- * 似乎没有显示设置每章字数要求的地方。」此前只能手改 system.yaml 才能调篇幅。
+ * 为什么要有入口（2026-10-18 用户取证）：“一章两三千字，根本不合格。而且绒花墨坊
+ * 似乎没有显示设置每章字数要求的地方。”此前只能手改 system.yaml 才能调篇幅。
  * 校验在后端（nf_api_domains.project._validate_target_words）—— 前端只回显错误，
  * 不自己写一份判据（否则两边必然漂移）。 */
 const targetWords = ref({
@@ -3046,9 +3159,68 @@ async function resetTargetWords() {
   }
 }
 
+/* ---------- 章标题格式（chapter.title_format）----------
+ * 用户 2026-10-26 第 12 条：“用户期望第X章 XXX，实际上是第10章潜七十二，中间没有空格，
+ * 是完全粘连的。做个章节名格式自定义不难吧？”
+ * 判据在后端 nf_api_domains.project（必须含 {n}）；前端只回显，不另写一份。 */
+const titleFormat = ref({
+  loading: true, busy: false, ok: true, msg: "",
+  preset: "第{n}章 {title}",
+  placeholders: { "{n}": "章号（必需）", "{title}": "章名（可省略）" },
+  form: "第{n}章 {title}",
+});
+const titleFormatPreview = computed(() => {
+  const f = titleFormat.value.form || "";
+  if (!f) return "";
+  return f.replace("{n}", "10").replace("{title}", "潜七十二");
+});
+async function loadTitleFormat() {
+  titleFormat.value.loading = true;
+  try {
+    const r = await api('/config/title_format', 'GET');
+    if (r.status === 200 && r.data.ok) {
+      titleFormat.value.preset = r.data.preset || "第{n}章 {title}";
+      titleFormat.value.placeholders = r.data.placeholders || titleFormat.value.placeholders;
+      titleFormat.value.form = r.data.current || titleFormat.value.preset;
+      titleFormat.value.msg = "";
+      titleFormat.value.ok = true;
+    } else {
+      titleFormat.value.msg = '读取失败: ' + (r.data.error || r.status);
+      titleFormat.value.ok = false;
+    }
+  } catch (e) {
+    titleFormat.value.msg = '读取失败: ' + (e.message || e);
+    titleFormat.value.ok = false;
+  } finally {
+    titleFormat.value.loading = false;
+  }
+}
+async function saveTitleFormat() {
+  titleFormat.value.busy = true;
+  try {
+    const r = await api('/config/title_format', 'POST', { format: titleFormat.value.form });
+    titleFormat.value.ok = !!(r.status === 200 && r.data.ok);
+    titleFormat.value.msg = titleFormat.value.ok
+      ? (r.data.message || '已保存')
+      : ('保存失败: ' + (r.data.error || r.status));
+    if (titleFormat.value.ok && r.data.current) {
+      titleFormat.value.form = r.data.current;
+    }
+  } catch (e) {
+    titleFormat.value.ok = false;
+    titleFormat.value.msg = '保存失败: ' + (e.message || e);
+  } finally {
+    titleFormat.value.busy = false;
+  }
+}
+async function resetTitleFormat() {
+  titleFormat.value.form = titleFormat.value.preset || "第{n}章 {title}";
+  await saveTitleFormat();
+}
+
 /* ---------- 知识库扫描面（/config/vault_scan + /config/vault_skip_dirs）----------
- * 为什么要有入口（2026-10-24 用户点名）：「扫描必须通用化且用户可配置，不要老是拿
- * 我自己的独一无二的私例当通例。」此前"哪些目录算正典"只能手改 system.local.yaml
+ * 为什么要有入口（2026-10-24 用户点名）：“扫描必须通用化且用户可配置，不要老是拿
+ * 我自己的独一无二的私例当通例。”此前"哪些目录算正典"只能手改 system.local.yaml
  * —— 不懂开发的用户根本改不了，于是每个 AI 都要把当前这个库的目录名当通例写进代码。
  *
  * 这里的通用性来自**目录名取自用户库本身**：界面列出库里真实存在的顶层目录与篇数，
@@ -3112,11 +3284,17 @@ async function saveVaultSkip() {
 
 /* ---------- 加强模式（chapter.enhanced_mode，第一波防御 · 任务三）----------
  * 单章拆段落群生成：逐群生成、每群落盘、拼装成章后走同一套校验。
- * 默认关（施工单口径「只手动开启」）；开启后单章字数达标率更高，
+ * 默认关（施工单口径“只手动开启”）；开启后单章字数达标率更高，
  * 代价是每章多次调用（成本也更高）。校验在后端（_validate_enhanced_mode）。 */
 const enhancedMode = ref({
   loading: true, busy: false, ok: true, msg: "",
   enabled: false, groupWords: 1500, confirmArm: false,
+});
+/* 篇幅口径已经要求 5000+，加强模式却关着 → 设置页要把它说破。
+   弱模型整章单发写不长不是"提示词没骂够"，是单次生成能力就到那儿了。 */
+const enhancedRecommend = computed(() => {
+  const low = Number((targetWords.value.form && targetWords.value.form.low) || 0);
+  return low >= 4000 && !enhancedMode.value.enabled;
 });
 async function loadEnhancedMode() {
   enhancedMode.value.loading = true;
@@ -3259,12 +3437,12 @@ async function toggleAgentMode() {
 
 /* ---------- Agent 模式运行锁（2026-10-17） ----------
  * Agent 模式 = 运行由外部 Agent 经 HTTP 驱动；GUI 的常规运行入口此时全部锁死，
- * 防「人点一下、Agent 跑一半」的双跑（两个 job 各烧一倍 token）。
+ * 防“人点一下、Agent 跑一半”的双跑（两个 job 各烧一倍 token）。
  * 审批 / 打回 / 跳过 / 停止不受影响 —— 那几件事本来就只归桌面端。
  * 双保险：按钮 :disabled（可见锁）+ 这里的函数级守卫（命令面板 / Space / 下一步
  * 提示条 / 失败重试等所有调用路径都汇到这几个入口，模板之外也锁得住）。 */
 const agentRunLocked = computed(() => !!agentMode.value);
-// 「下一步」的 run / publish 是运行类要锁；approve / tab 不锁
+// “下一步”的 run / publish 是运行类要锁；approve / tab 不锁
 const nextRunLocked = computed(() =>
   !!agentMode.value && (nextAction.value?.kind === "run" || nextAction.value?.kind === "publish"));
 const AGENT_LOCK_HINT =
@@ -3275,7 +3453,7 @@ function agentRunGuard() {
   return true;
 }
 
-/* ---------- 接入其他 Agent（2026-10-06 对齐方寸「接入页」） ---------- */
+/* ---------- 接入其他 Agent（2026-10-06 对齐方寸“接入页”） ---------- */
 // 配置段在主进程按安装态/源码态生成真实路径；这里只展示、复制、打开目标文件。
 const agentConnect = ref(null);
 const acTab = ref('hermes');
@@ -3292,7 +3470,7 @@ async function loadKickoff() {
     const r = await window.mofangAPI.readPreview('prompts/agent_kickoff.md');
     if (r && r.ok) {
       const root = (state.value && state.value.project_dir) || '';
-      // 展示与复制**同源同截**（所见即所贴）：只留「提示词正文」标题之后的内容，
+      // 展示与复制**同源同截**（所见即所贴）：只留“提示词正文”标题之后的内容，
       // 标题之前的用法说明是写给人看的，进文本框就等于进剪贴板。
       acKickoff.value = kickoffBody(String(r.content || '')
         .replace(/\{\{PROJECT_ROOT\}\}/g, root));
@@ -3320,7 +3498,12 @@ const STAGE_MAIN_PROMPT = {
   4: "stage4_writing.md",
   5: "stage5_check.md",
   6: "stage6_polish.md",
+  // 7（Word）与 8（Markdown 导出）是**确定性步骤，没有 LLM 调用、没有提示词模板**。
+  // 以前这里写 "" 且按钮用 `v-if="STAGE_MAIN_PROMPT[stage]"` 判存在 —— 空串是 falsy，
+  // 于是阶段 7 连“复制任务”都没有（用户 2026-10-26 第 7 条：“阶段7不能复制任务，
+  // 只能用不稳定的临时口头发令”）。判据改为 STAGE_TASK_INFO 是否有条目。
   7: "",
+  8: "",
 };
 // 给外部 Agent 的任务简报用：阶段叫什么、跑完该看到什么产物
 const STAGE_TASK_INFO = {
@@ -3330,20 +3513,21 @@ const STAGE_TASK_INFO = {
   4: { name: "逐章写作", out: "data/chapters/raw/NN.md" },
   5: { name: "逻辑检查", out: "data/chapters/checked/NN.md" },
   6: { name: "润色", out: "data/chapters/refined/NN.md（审批门）" },
+  7: { name: "Word 成品", out: "output/{书名}_完整版.docx", det: true },
+  8: { name: "Markdown 分卷导出", out: "output/{书名}_markdown/", det: true },
 };
 
 /* 一键复制给外部 Agent 的是**任务简报**，不是提示词原文（2026-10-11 实测改道）。
    为什么改：原实现把 prompts/stageN_*.md 全文原样塞进剪贴板，里面的花括号占位符
-   只有流水线渲染时才填 —— 外部 Agent 拿到手第一件事就是按红线「这是模板不是任务，
-   立即停下报告」，试跑一步没走就炸（用户原话：还没跑起来就炸了）。按钮的本意是
-   「让 Agent 知道接下来干什么」，那么给它的就该是**可执行的任务**：跑哪条命令、
+   只有流水线渲染时才填 —— 外部 Agent 拿到手第一件事就是按红线“这是模板不是任务，
+   立即停下报告”，试跑一步没走就炸（用户原话：还没跑起来就炸了）。按钮的本意是
+   “让 Agent 知道接下来干什么”，那么给它的就该是**可执行的任务**：跑哪条命令、
    产物落哪、退出码怎么读；模板留给它自己按需读，作为背景而不是任务书。
    ⚠ 简报里**不得出现成对花括号** —— 那正是外部 Agent 的停下判据，写了等于白改。 */
 function stageTaskBrief(stage) {
   const root = (state.value && state.value.project_dir) || "（当前项目根）";
   const info = STAGE_TASK_INFO[stage] || { name: "阶段 " + stage, out: "见 AGENTS.md 关键路径" };
-  const tpl = STAGE_MAIN_PROMPT[stage];
-  // 通道指引按执行形态给（2026-10-17）：安装态工作区没有 .venv、宿主 python 缺
+  const tpl = STAGE_MAIN_PROMPT[stage];  // 通道指引按执行形态给（2026-10-17）：安装态工作区没有 .venv、宿主 python 缺
   // PyYAML —— 原简报的裸 `python` CLI 行是条死路，是 13 次试跑指引层的根因之一。
   // runtime_python = 后端 /state 自报的解释器（安装态=自带 runtime，源码态=.venv）。
   const py = (state.value && state.value.runtime_python) || "";
@@ -3353,6 +3537,16 @@ function stageTaskBrief(stage) {
       + "（在项目根下执行；勿用裸 python —— 它多半缺 PyYAML 会被解释器守卫拦下）"
     : "  · CLI：用自带 runtime 或 .venv 的 python 跑 scripts\\orchestrator.py --stage " + stage
       + "（勿用裸 python）";
+  const bg = tpl
+    ? [
+        "背景（只读参考，不是本任务）：",
+        "本阶段提示词模板在 prompts/" + tpl + "。其中的花括号占位符由流水线渲染，",
+        "读它可以了解任务细节，但**不要**手工填充占位符、不要把模板原文当任务执行；",
+      ]
+    : [
+        "说明：本阶段是**确定性步骤**（无 LLM 调用、无提示词模板），",
+        "它只把盘上已有章节做格式转换 —— 跑完直接核对“预期产物”是否生成即可。",
+      ];
   return [
     "# 任务：执行绒花墨坊 阶段 " + stage + " —— " + info.name,
     "",
@@ -3360,31 +3554,30 @@ function stageTaskBrief(stage) {
     "- 执行（按推荐顺序任选其一）：",
     "  · HTTP（推荐，桌面客户端在跑即可用）：POST http://127.0.0.1:8765/stage/" + stage + "/run （agent_mode 已开时）",
     cliLine,
-    "  · GUI：流水线页签 → 阶段 " + stage + " →「运行」（Agent 模式下已锁定，请用前两条）",
+    "  · GUI：流水线页签 → 阶段 " + stage + " →“运行”（Agent 模式下已锁定，请用前两条）",
     "- 预期产物：" + info.out,
     "- 退出码：0=完成 · 1=阶段失败 · 2=预算熔断 · 3=等审批（报告后停下等用户） · 4=被中断",
     "",
-    "背景（只读参考，不是本任务）：",
-    "本阶段提示词模板在 prompts/" + tpl + "。其中的花括号占位符由流水线渲染，",
-    "读它可以了解任务细节，但**不要**手工填充占位符、不要把模板原文当任务执行；",
+    ...bg,
     "管线状态文件（progress.json / runs.db / data/outline / data/chapters …）只有",
     "orchestrator 能写，手写产物 = 试跑不合格；审批与打回归用户（approve/reject 不碰）。",
   ].join("\n");
 }
 
 async function copyStagePrompt(stage) {
-  const name = STAGE_MAIN_PROMPT[stage];
-  if (!name) {
-    say("该阶段无提示词模板");
+  // 判据从“有没有提示词模板”改成“有没有这个阶段”：阶段 7/8 无模板但**有任务**，
+  // 它们同样需要能复制给外部 Agent（用户第 7 条）。
+  if (!STAGE_TASK_INFO[stage]) {
+    say("未知阶段 " + stage);
     return;
   }
   copyText(stageTaskBrief(stage),
-    "阶段 " + stage + " 任务简报已复制（命令 + 产物 + 退出码；模板原文请在「风格与提示词」页查看）");
+    "阶段 " + stage + " 任务简报已复制（命令 + 产物 + 退出码）");
 }
-/* 人机分界：`## 提示词正文` 之前的「用法」引言是写给**人**看的（从哪复制、
+/* 人机分界：`## 提示词正文` 之前的“用法”引言是写给**人**看的（从哪复制、
    占位符怎么换），不是任务开场白的一部分。展示（文本框）与复制都走这一个函数，
    保证所见即所贴；标题被改没了就回退全文 —— 宁可多贴三行说明，也不能贴出空串。
-   ⚠ 必须**整行锚定**匹配：说明文字里也会引用「## 提示词正文」这几个字，
+   ⚠ 必须**整行锚定**匹配：说明文字里也会引用“## 提示词正文”这几个字，
    不锚定就会在说明句子中间下刀，把一半说明当成正文发出去（2026-10-11 自查抓到）。 */
 const KICKOFF_MARKER = "## 提示词正文";
 const KICKOFF_MARKER_RE = /^[ \t]*## 提示词正文[ \t]*$/m;
@@ -3406,7 +3599,7 @@ async function openAgentCfg(target) {
   else say('打开失败: ' + ((r && r.error) || '未知错误'));
 }
 
-/* ---------- 让它自装（2026-10-06 对齐方寸「🤖 让它自装」· A 路线第三渠道） ----------
+/* ---------- 让它自装（2026-10-06 对齐方寸“🤖 让它自装”· A 路线第三渠道） ----------
    方寸同款零写入：只生成一段贴给目标 agent 的指令（目标配置文件 + 按它家格式生成的
    配置段 + 技能卡 + 自检步骤），写配置、重启、验证全由对方自己动手 —— 现地操作不盲猜。 */
 const acSelfTarget = ref('hermes');
@@ -3430,7 +3623,7 @@ const acSelfText = computed(() => {
     : (root ? root + '/skills/worldbuilding/ronghuamofang/SKILL.md（源码版才有）'
             : '（技能路径未取到，从绒花墨坊仓库 skills/ 目录取）');
   return [
-    '你是 ' + m.name + '。请自行完成「绒花墨坊」的 MCP 接入 —— 由你现地操作，比外部盲写更可靠：',
+    '你是 ' + m.name + '。请自行完成“绒花墨坊”的 MCP 接入 —— 由你现地操作，比外部盲写更可靠：',
     '',
     '1）配置 MCP 服务（配置段已按你家格式 ' + m.fmt + ' 生成，可直接使用）：',
     '   目标配置文件：' + cfg,
@@ -3456,7 +3649,7 @@ function copySelfInstall() {
   copyText(acSelfText.value, '自装指令已复制 —— 粘贴给目标 Agent，让它自己装');
 }
 
-/* ---------- 诊断与调试（2026-10-06 对齐方寸「🩺 诊断」） ---------- */
+/* ---------- 诊断与调试（2026-10-06 对齐方寸“🩺 诊断”） ---------- */
 const dbg = ref(null);
 async function loadDebugInfo() {
   if (!window.mofangAPI || !window.mofangAPI.debugInfo) return;
@@ -3480,7 +3673,7 @@ async function restartBackend() {
   say('正在重启后端…');
   const r = await window.mofangAPI.debugRestartApi();
   if (r && r.ok) { say('后端已重启，/health 正常'); refresh(); }
-  else say('后端重启后未就绪 —— 用「查看运行日志」排查');
+  else say('后端重启后未就绪 —— 用“查看运行日志”排查');
   loadDebugInfo();
 }
 function copyDiagnostics() {
@@ -3498,8 +3691,8 @@ function copyDiagnostics() {
 }
 
 /* ---------- 出厂内容（0.6.7 出厂/用户数据分治） ----------
-   为什么放在「诊断与调试」：这条数据回答的正是「工作区里哪些东西不是我写的」——
-   典型排障场景就是用户问「素材怎么多了几张卡」。盘点只读（GET /factory/list），
+   为什么放在“诊断与调试”：这条数据回答的正是“工作区里哪些东西不是我写的”——
+   典型排障场景就是用户问“素材怎么多了几张卡”。盘点只读（GET /factory/list），
    归档是破坏性操作 → 走应用内确认框 + 勾选护栏（与跳过阶段同一套纪律，
    不用 window.confirm：Electron 原生对话框不可靠）。 */
 const factory = ref(null);                       // GET /factory/list 的响应体
@@ -3530,7 +3723,7 @@ async function submitFactoryClean() {
   try {
     const r = await api("/factory/clean", "POST", { confirm: true });
     if (r.status === 200 && r.data.ok) {
-      // toast 必须带回收站路径：用户下一步就是「能不能捞回来」
+      // toast 必须带回收站路径：用户下一步就是“能不能捞回来”
       say(r.data.message || ("已归档 " + (r.data.count || 0) + " 个文件到 "
                              + (r.data.trash_dir || "回收站")));
       facDlg.value = { open: false, agreed: false, busy: false, warn: "" };
@@ -3575,6 +3768,108 @@ async function loadChapters() {
   // 加载质量评分
   loadChapterQuality();
 }
+/* ---------- 章节编辑器（2026-10-26，用户第 1 条“没有自带编辑器”） ---------- */
+const editorN = ref(null);
+/* 章节页签的两个视图：list（原有列表）/ desk（三栏审阅台）。
+   默认列表 —— 不给老用户换掉他熟悉的界面；想审阅时再切。 */
+const chapterView = ref("list");
+function toggleChapterView() {
+  chapterView.value = chapterView.value === "desk" ? "list" : "desk";
+  // 进审阅台时确保章节列表已加载（否则左栏空着，用户以为坏了）
+  if (chapterView.value === "desk" && !chaptersLoaded.value) loadChapters();
+}
+function openEditor(n) {
+  editorN.value = n;
+}
+/* 保存后只重载这一章的三层（loadChapters 会把全书 3×N 个文件全读一遍，
+   40 章就是 120 次 IPC —— 改一个字刷新整本书的列表太重）。 */
+async function onChapterSaved(n) {
+  const nn = String(n).padStart(2, "0");
+  const cur = chapters.value.find((c) => c.n === n);
+  if (!cur) return;
+  for (const [k, rel] of Object.entries({
+    raw: "data/chapters/raw/" + nn + ".md",
+    checked: "data/chapters/checked/" + nn + ".md",
+    refined: "data/chapters/refined/" + nn + ".md",
+  })) {
+    const r = await window.mofangAPI.readPreview(rel);
+    cur.files[k] = r.ok ? r.content : null;
+  }
+  loadChapterQuality();
+}
+
+/* ---- 重写本章（2026-10-26，用户：“如何整章重写？我想随便找一章跑”） ----
+   为什么不是点“编辑”里的“让 AI 只改这一段”：那是**段落精修**，只在旧稿上
+   改一段，不会触发加强模式、不会重算字数。要验证“拆群能不能写长”，必须让
+   阶段 4 真的重写整章。
+
+   后端做的事（/chapters/rewrite）：旧稿移到 rewrite_backup/ → 只跑阶段 4 的
+   这一章。stage4 本身不备份，所以那个备份是用户唯一的后悔药。 */
+const rewriting = ref(null);        // 正在重写的章号（null = 没在重写）
+async function rewriteChapter(n) {
+  const ok = window.confirm(
+    "重写第 " + n + " 章？\n\n"
+    + "· 会调用模型重新写整章（花 token，按当前字数口径与加强模式走）\n"
+    + "· 旧稿先移到 data/chapters/rewrite_backup/，不满意可以捞回\n"
+    + "· 检查稿与润色稿不会动；要看成品需重跑阶段 5/6/7");
+  if (!ok) return;
+  rewriting.value = n;
+  try {
+    const r = await api("/chapters/rewrite", "POST", { n });
+    if (r.status !== 202) {
+      say("重写提交失败：" + ((r.data && r.data.error) || r.status));
+      rewriting.value = null;
+      return;
+    }
+    say("已开始重写第 " + n + " 章（job " + r.data.job_id + "）—— 进度见顶栏");
+    let polls = 0;
+    const timer = setInterval(async () => {
+      polls += 1;
+      if (polls > 900) {           // 30 分钟兜底，绝不无限转圈
+        clearInterval(timer);
+        rewriting.value = null;
+        say("重写等待超时（30 分钟）—— 请查看“📋 日志”");
+        return;
+      }
+      let j;
+      try {
+        j = await api("/jobs/" + r.data.job_id);
+      } catch (e) {
+        return;                    // 单次抖动不终止
+      }
+      if (!j || j.status !== 200 || (j.data && j.data.state === "running")) return;
+      clearInterval(timer);
+      rewriting.value = null;
+      await onChapterSaved(n);
+      loadChapterQuality();
+      if (j.data.state !== "ok") {
+        say("第 " + n + " 章重写失败：" + ((j.data && j.data.result) || "未知错误"));
+        return;
+      }
+      // 重写完成 → 报**盘上事实**：整章字数/字节 + 每群字数。
+      // 用户明确要求过“run 完一章后把群字数和整章字节数发给我”——用来判断
+      // enhanced_group_words（默认 1500）该不该调。这些数字本来就在盘上。
+      let detail = "";
+      try {
+        const r = await api("/chapters/content?n=" + n + "&layer=raw");
+        if (r.status === 200 && r.data) {
+          const d = r.data;
+          detail = "（" + d.words + " 字 / " + d.bytes + " 字节";
+          const ps = d.parts || [];
+          if (ps.length) {
+            detail += "；" + ps.map((p) => "g" + p.idx + " " + p.words + " 字").join(" · ");
+          }
+          detail += "）";
+        }
+      } catch (e) { /* 只影响提示文案，不影响重写结果 */ }
+      say("第 " + n + " 章重写完成" + detail);
+    }, 2500);
+  } catch (e) {
+    rewriting.value = null;
+    say("重写出错：" + (e && e.message ? e.message : e));
+  }
+}
+
 async function loadChapterQuality() {
   try {
     const r = await api("/chapters/quality");
@@ -3651,7 +3946,7 @@ async function restoreChapterVersion(v) {
   }
 }
 
-/* ---------- 实时花费（成本页「当前运行」） ---------- */
+/* ---------- 实时花费（成本页“当前运行”） ---------- */
 const streamingCost = ref(null);
 
 async function refreshStreamingCost() {
@@ -3710,7 +4005,7 @@ async function checkForUpdates() {
       return;
     }
     if (status && status.initialized === false) {
-      updateStatus.value = "本机未启用自动更新，请用「下载新版本」";
+      updateStatus.value = "本机未启用自动更新，请用“下载新版本”";
       return;
     }
     checkingUpdate.value = true;
@@ -3729,7 +4024,7 @@ async function checkForUpdates() {
     }
   } catch (e) {
     // IPC 自身抛错（例如返回值不可序列化）也必须让按钮恢复可用 ——
-    // 否则它会永远停在「检查中…」并保持 disabled，看起来就像功能消失了。
+    // 否则它会永远停在“检查中…”并保持 disabled，看起来就像功能消失了。
     updateStatus.value = "检查失败：" + String((e && e.message) || e);
   } finally {
     checkingUpdate.value = false;
@@ -3742,7 +4037,7 @@ async function quitAndInstall() {
   }
 }
 
-// 「下载新版本」的手动兜底入口：自动更新在便携版 / 开发模式下不可用，
+// “下载新版本”的手动兜底入口：自动更新在便携版 / 开发模式下不可用，
 // 但用户永远需要一条能拿到新版本的路径（此前只在 dev 模式下显示，等于藏起来了）。
 const RELEASES_URL = "https://github.com/MUYU46548/ronghuamofang/releases";
 function openReleases() {
@@ -3752,7 +4047,7 @@ function openReleases() {
 
 
 /* 顶栏实测高度 → CSS 变量（2026-10-24）。
-   抽屉遮罩要从顶栏下沿开始，否则 drawer-head 压在顶栏下、「关闭」按钮点不到。
+   抽屉遮罩要从顶栏下沿开始，否则 drawer-head 压在顶栏下、“关闭”按钮点不到。
    高度不能写死：顶栏是 sticky 流内元素，实测 103px，且随页面缩放变化
    （zoom 0.9 → 92px）。写死数字迟早漂移，所以这里实测并回写。 */
 const topbarRef = ref(null);
@@ -3766,12 +4061,16 @@ function syncTopbarHeight() {
 
 onMounted(() => {
   refresh();
+  // 导出面板读盘（2026-10-26）：进页面就有内容，且切到导出页签时重扫一次
+  // —— 阶段 7/8 刚跑完的产物**刷新即见**，不再需要"点过导出按钮"才记账。
+  refreshExportState();
+  watch(tab, (t) => { if (t === "export") refreshExportState(); });
   // 顶栏高度先同步一次：遮罩用它避让，晚一帧就会闪一下错位
   nextTick(syncTopbarHeight);
   window.addEventListener("resize", syncTopbarHeight);
   timer = setInterval(refresh, 2500);
-  // 上次停在「Word 模板」页签时（localStorage 记住的），进来就把清单拉上，
-  // 否则页面停在「读取中/空下拉」，得点一下别的再点回来才有数据
+  // 上次停在“Word 模板”页签时（localStorage 记住的），进来就把清单拉上，
+  // 否则页面停在“读取中/空下拉”，得点一下别的再点回来才有数据
   if (settingsTab.value === "word") loadWordTemplate();
   // 首屏拉一次待审数：沙盒产物是后台写入时自动登记的，不主动刷就看不见徽标
   refreshSandboxBadge();
@@ -3783,8 +4082,8 @@ onMounted(() => {
       if (updaterDev.value) {
         updateStatus.value = "开发模式（仅安装版支持自动更新）";
       } else if (!updaterInitialized.value) {
-        // 便携版 / updater 初始化失败：别让用户以为「点了没反应」
-        updateStatus.value = "本机未启用自动更新，请用「下载新版本」";
+        // 便携版 / updater 初始化失败：别让用户以为“点了没反应”
+        updateStatus.value = "本机未启用自动更新，请用“下载新版本”";
       } else {
         updateStatus.value = `当前 v${s?.version || "?"} · 可检查更新`;
       }
@@ -3911,6 +4210,11 @@ onUnmounted(() => {
     </nav>
     <div class="conn" :class="{ on: online }">{{ online ? "已连接" : "离线" }}</div>
     <button class="mini global-refresh-btn" @click="globalRefresh" title="全局刷新（所有页签数据）">↻</button>
+    <!-- 打开成品（2026-10-26，用户第 11 条：“连个打开成品的按钮都没有，还好有命令面板
+         救了你”）。原来的入口埋在“流水线 → 产物速览”卡片底部，用户找不到。
+         只在 output/ 里真有 docx 时出现 —— 没有成品就不给一个点了报错的按钮。 -->
+    <button v-if="latestDocx" class="mini" @click="openArtifact(latestDocx)"
+            :title="'用系统默认程序打开最新 Word 成品：' + latestDocx">📕 成品</button>
     <button class="mini" @click="runRemedy" title="一键补救：检测问题并给出修复建议">🩹 补救</button>
     <button class="mini" @click="openRunLog" title="运行日志（nf_api / 流水线输出尾部）—— 排障第一入口">📋 日志</button>
     <div v-if="agentMode" class="agent-mode-badge" title="Agent 模式已开启 —— 外部 Agent 可通过 HTTP API 调用">⚡ Agent</div>
@@ -3954,11 +4258,15 @@ onUnmounted(() => {
   <!-- 运行进度条（全局） -->
   <div v-if="isRunning" class="runbar">
     <span class="run-dot"></span>
-    <span>任务执行中：{{ state.current_job }}（{{ lastJob?.result || "运行中…" }}）</span>
+    <!-- 说人话：以前这里打的是 job_id + "运行中…"，用户原话“用户依旧不知道跑到哪一步”。
+         现在给阶段名 + 第几章 / 已跑多久；job_id 挪到 title 里（排障时仍能拿到）。 -->
+    <span :title="'job ' + (state.current_job || '')">{{ runningStageLabel || "任务执行中" }}</span>
     <span v-if="estimatedRemainingCost" class="run-cost">预计剩余 ¥{{ estimatedRemainingCost }}</span>
     <span class="spacer"></span>
     <button class="mini danger" @click="stopJob">停止</button>
-    <span class="run-pct">{{ progressPct }}%</span>
+    <!-- 单章重写只报“本章 %”，不拿全书进度冒充；没有真实进度就什么都不报 -->
+    <span v-if="scopeChapterPct !== null" class="run-pct">本章 {{ scopeChapterPct }}%</span>
+    <span v-else-if="hasStageFraction" class="run-pct">{{ progressPct }}%</span>
   </div>
 
   <!-- 实时流式输出面板 -->
@@ -4034,7 +4342,7 @@ onUnmounted(() => {
           <span class="cs-no">3</span>
           <div>
             <b>跑流水线</b>
-            <div class="meta">下面「一键工作流 → 执行下一步」；审批门在「收件箱」</div>
+            <div class="meta">下面“一键工作流 → 执行下一步”；审批门在“收件箱”</div>
           </div>
           <span v-if="coldStartStatus.apiKey.checked && coldStartStatus.apiKey.has_key" class="pill st-done">✓ API 已配置</span>
           <span v-else-if="coldStartStatus.apiKey.checked" class="pill st-warn">API 未配置</span>
@@ -4052,16 +4360,16 @@ onUnmounted(() => {
           <span class="cs-no">5</span>
           <div>
             <b>接外部 Agent（可选）</b>
-            <div class="meta">设置 → 接入其他 Agent：MCP 配置段 / 「让它自装」指令，配好后外部 Agent 可代管流水线</div>
+            <div class="meta">设置 → 接入其他 Agent：MCP 配置段 / “让它自装”指令，配好后外部 Agent 可代管流水线</div>
           </div>
           <span v-if="agentConnect && agentConnect.mcpListening" class="pill st-done">✓ MCP 监听中</span>
           <span v-else-if="agentConnect" class="pill st-warn">MCP 未监听</span>
           <button class="mini" @click="switchTab('settings')">去接入</button>
         </div>
       </div>
-      <!-- 状态全绿时显示「开始运行」按钮 -->
+      <!-- 状态全绿时显示“开始运行”按钮 -->
       <div v-if="coldStartReady" class="cs-ready">
-        <span class="meta">三项准备就绪：素材 {{ coldStartStatus.materials.count }} 张 · API 已配置 · 项目「{{ coldStartStatus.bookName.name }}」</span>
+        <span class="meta">三项准备就绪：素材 {{ coldStartStatus.materials.count }} 张 · API 已配置 · 项目“{{ coldStartStatus.bookName.name }}”</span>
         <button class="mini primary" @click="runNextAction">开始运行流水线</button>
       </div>
       <!-- 状态未全绿时显示提示 -->
@@ -4075,7 +4383,7 @@ onUnmounted(() => {
       <button class="mini" @click="reopenGuide" title="重新查看上手引导">📖 重看引导</button>
     </div>
 
-    <!-- Agent 模式开关（从「设置」提到首页）：高频 + 影响权限语义，
+    <!-- Agent 模式开关（从“设置”提到首页）：高频 + 影响权限语义，
          藏在设置页里等于没有 —— 用户会忘了自己到底开着还是关着。 -->
     <div v-if="tab === 'pipeline'" class="agent-bar" :class="{ on: agentMode }">
       <span class="agent-bar-dot"></span>
@@ -4264,6 +4572,11 @@ onUnmounted(() => {
             <span class="stage-no" :class="{ lit: s.status === 'done', run: s.status === 'running' }">{{ s.stage }}</span>
             <span class="stage-name">{{ s.name }}</span>
             <span class="pill" :class="'st-' + s.status">{{ statusBadge(s.status) }}</span>
+            <!-- 2026-10-27：进程被杀/重启后 progress.json 仍留 running，界面会一直
+                 “运行中” + 一个不动的百分比（用户就是因此以为卡死）。GUI 内存里
+                 没有任务时明说这是残留状态，并给出唯一正确动作（运行 = 断点续跑）。 -->
+            <span v-if="s.status === 'running' && !isRunning" class="pill st-rej"
+                  title="GUI 没有后台任务在跑。若你是在命令行跑流水线，请忽略；否则这是上次异常中断留下的状态 —— 点“运行”续跑（已完成章节不会重写），或“打回”重来。">状态残留</span>
             <span v-if="s.status === 'done' && !s.approved" class="pill st-gate">待审批</span>
             <span v-if="s.skipped" class="pill st-skip" title="人工跳过，未生成产物">已跳过</span>
             <span v-if="s.rejected" class="pill st-rej" :title="s.rejected">打回: {{ s.rejected.slice(0, 12) }}</span>
@@ -4271,11 +4584,14 @@ onUnmounted(() => {
                   :title="'未达质量线的章节：' + s.needs_rewrite.join('、')">
               待重写 {{ s.needs_rewrite.length }} 章
             </span>
+            <!-- 2026-10-27：进行中阶段把“第几群 / 本群多少字”摆在行内。
+                 只给百分比时，用户无法判断 99% 是快完了还是卡死了。 -->
+            <span v-if="stageDetail(s)" class="stage-sub">{{ stageDetail(s) }}</span>
           </div>
           <div class="stage-actions">
             <button class="mini" :disabled="isRunning || agentRunLocked" :title="agentRunLocked ? AGENT_LOCK_HINT : ''" @click="runStage(s.stage)">运行</button>
             <button class="mini" :disabled="isRunning" @click="runStageStream(s.stage)" title="实时流式输出，可随时中断">流式运行</button>
-            <button v-if="agentMode && STAGE_MAIN_PROMPT[s.stage]" class="mini" @click="copyStagePrompt(s.stage)" title="复制「执行本阶段」的任务简报给外部 Agent（项目根 + 命令 + 产物 + 退出码）。复制是只读操作，运行中也可用。阶段提示词是模板，占位符由流水线渲染，不再原样复制 —— 否则对方按红线当成「模板不是任务」直接停工">复制任务</button>
+            <button v-if="agentMode && STAGE_TASK_INFO[s.stage]" class="mini" @click="copyStagePrompt(s.stage)" title="复制“执行本阶段”的任务简报给外部 Agent（项目根 + 命令 + 产物 + 退出码）。复制是只读操作，运行中也可用。阶段 7/8 是确定性步骤、无提示词模板，但同样可以复制任务。">复制任务</button>
             <button v-if="s.status === 'done' && !s.approved" class="mini primary" @click="approve(s.stage)">确认</button>
             <button v-else-if="s.approved" class="mini" @click="approve(s.stage, true)">撤销</button>
             <!-- 2026-10-11 #9 收口：stage1 陪跑闸是合法审批点，后端 /reject 本就收 1-7，
@@ -4323,15 +4639,26 @@ onUnmounted(() => {
     <section v-if="tab === 'chapters'" class="card">
       <div class="card-head">
         <h3>章节产物（raw → checked → refined）</h3>
+        <!-- 审阅台（2026-10-26，用户第 2 条）：左章列表 / 中正文编辑 / 右大纲+七维，
+             把“适合审阅、精修、讨论的形态”放进同一屏。列表视图保持原样。 -->
+        <button class="mini" :class="{ primary: chapterView === 'desk' }"
+                title="三栏审阅台：章列表 + 正文编辑/批注 + 本章大纲与七维评审"
+                @click="toggleChapterView">
+          {{ chapterView === "desk" ? "回到列表" : "审阅台" }}
+        </button>
         <button class="mini" @click="loadChapters">重新探测</button>
         <button class="mini" @click="loadChapterQuality" title="刷新质量评分">质量</button>
       </div>
+
+      <ChapterDesk v-if="chapterView === 'desk'" :api="api" :chapters="chapters"
+                   :quality="chapterQuality" @say="say" />
+      <template v-else>
       <!-- 活二 Word 导入：外部稿 → 当作"已写好的章节"。两段式：预检（不落盘）→ 确认 -->
       <details class="import-box" :open="!!importPath || !!importPreview || !!importResult">
         <summary>导入 Word 稿（外部稿件 → raw / checked / refined）</summary>
         <div class="import-row">
           <input v-model="importPath" class="import-path"
-                 placeholder="把 .docx 的完整路径粘在这里（或点「浏览…」挑文件）"
+                 placeholder="把 .docx 的完整路径粘在这里（或点“浏览…”挑文件）"
                  @keyup.enter="previewDocxImport" />
           <button class="mini" @click="pickImportDocx" title="用系统对话框挑文件">浏览…</button>
           <select v-model="importTier" class="model-select" title="落位档 = 起点：导入到哪一层，就从哪道工序开始用">
@@ -4386,6 +4713,16 @@ onUnmounted(() => {
         </span>
         <span v-else-if="c.files.raw" class="pill st-pending">未评分</span>
         <span class="spacer"></span>
+        <!-- 编辑（2026-10-26，用户第 1 条）：此前只有只读预览，改一个字都要开外部编辑器 -->
+        <button class="mini primary" :class="{ ghost: !(c.files.raw || c.files.checked || c.files.refined) }"
+                title="就地编辑 / 段落批改（自带编辑器，写前自动备份）"
+                @click="openEditor(c.n)">编辑</button>
+        <!-- 重写本章：走阶段 4 重写整章（会花 token）。旧稿先备份到 rewrite_backup/ -->
+        <button class="mini" :disabled="rewriting === c.n || isRunning"
+                :title="isRunning ? '流水线正在跑，等它结束再重写' : '重写整章（走阶段 4；旧稿先备份）'"
+                @click="rewriteChapter(c.n)">
+          {{ rewriting === c.n ? "重写中…" : "重写" }}
+        </button>
         <button class="mini" :class="{ ghost: !c.files.raw }" @click="openDoc('第' + c.n + '章 原稿', c.files.raw)">原稿</button>
         <button class="mini" :class="{ ghost: !c.files.checked }" @click="openDoc('第' + c.n + '章 检查稿', c.files.checked)">检查稿</button>
         <button class="mini" :class="{ ghost: !c.files.refined }" @click="openDoc('第' + c.n + '章 润色稿', c.files.refined)">润色稿</button>
@@ -4395,10 +4732,16 @@ onUnmounted(() => {
 
       <!-- 残稿（2026-10-20）：截断的正文一直隔离在盘上，但人看不见 -->
       <TruncatedPanel @say="say" />
-      <!-- 伏笔台账（2026-10-20）：从章大纲「悬念钩子」抽取，零额外 token -->
+      <!-- 伏笔台账（2026-10-20）：从章大纲“悬念钩子”抽取，零额外 token -->
       <ForeshadowPanel @say="say" />
       <!-- 交接稿（2026-10-20，v0.10）：换模型/换会话的可携带形态 -->
       <HandoffPanel @say="say" />
+      </template>
+
+      <!-- 章节编辑器（2026-10-26）：就地编辑 + 段落批改，写前自动备份。
+           放在 template 外 —— 列表视图与审阅台都要能随时打开它。 -->
+      <ChapterEditor v-if="editorN" :api="api" :n="editorN"
+                     @say="say" @close="editorN = null" @saved="onChapterSaved" />
     </section>
 
     <!-- 大纲（结构化视图 / 节点精修 / 版本对比 / 多方案） -->
@@ -4595,14 +4938,14 @@ onUnmounted(() => {
         </button>
         <span class="meta">{{ notifyChannelLabel() }} · 撞门自动跳转收件箱</span>
       </div>
-      <div v-if="!pendingGates.length" class="empty">暂无待审项 —— 审批门只在阶段 2（大纲）和 6（润色）设置；阶段 3（逐章大纲）不设审批门，产物在「大纲 / 分章」页签查看；阶段跑完后想复核可去「章节」页签</div>
+      <div v-if="!pendingGates.length" class="empty">暂无待审项 —— 审批门只在阶段 2（大纲）和 6（润色）设置；阶段 3（逐章大纲）不设审批门，产物在“大纲 / 分章”页签查看；阶段跑完后想复核可去“章节”页签</div>
       <div v-for="s in pendingGates" :key="s.stage" class="gate-card">
         <div class="gate-head">
           <span class="stage-no">{{ s.stage }}</span>
           <b>{{ STAGE_NAMES[s.stage] }}</b>
           <span class="pill st-done">完成</span>
-          <!-- 分段未全过时，「完成」只说明**跑完了**、不等于可以放行 ——
-               徽标直接写清还差几段，免得绿「完成」和满屏「未通过」自相矛盾 -->
+          <!-- 分段未全过时，“完成”只说明**跑完了**、不等于可以放行 ——
+               徽标直接写清还差几段，免得绿“完成”和满屏“未通过”自相矛盾 -->
           <span v-if="s.stage === 2 && segReview && segReview.enabled && !segReview.all_approved"
                 class="pill st-gate" title="阶段跑完了，但分段还没读完：全过才放行">
             分段 {{ segReview.approved }}/{{ segReview.total }}
@@ -4843,7 +5186,7 @@ onUnmounted(() => {
         <!-- 批量导入：粘贴整张价格表 → 解析预览 → 确认（只覆盖同名条目） -->
         <div v-if="importOpen" class="rate-import">
           <div class="meta" style="margin-bottom: 6px;">
-            粘贴整张价格表：每行「模型 输入价 输出价 [缓存价]」（分隔符任意），
+            粘贴整张价格表：每行“模型 输入价 输出价 [缓存价]”（分隔符任意），
             也支持 JSON 或直接从 <code>RATES</code> 复制的字面量。
             <b>先解析预览，确认无误再导入</b> —— 只覆盖同名条目，不会删除其他定价。
           </div>
@@ -4943,7 +5286,7 @@ onUnmounted(() => {
         改模型：下拉切换后立即写入 config/system.yaml，下次运行阶段时生效。
         <br>architect=设定/世界观 | outliner=大纲 | writer=写作 | checker=检查 | reviewer=审核 | polisher=润色
         <br>⚠️ **换供应商后请顺手确认模型**：模型名不通用（换了 provider 却留着旧模型名 → 运行时直接 404）。
-        下拉里的候选项来自该供应商的 <code>available_models</code>；清单里没有的模型可先「手动添加」。
+        下拉里的候选项来自该供应商的 <code>available_models</code>；清单里没有的模型可先“手动添加”。
       </div>
 
       <!-- 服务商与密钥状态 -->
@@ -4975,9 +5318,9 @@ onUnmounted(() => {
         <button class="mini" @click="envConfirmOpen = true" title="在资源管理器中定位 .env（只定位，不代为打开；点击后需确认）">在文件夹中显示</button>
       </div>
       <div class="meta" style="margin-top: 4px;">
-        <b>配置 Key 只需点上面的「填入 Key」</b>，不必手动编辑文件。.env 含明文密钥，
-        故刻意不提供「用外部编辑器一键打开」（编辑器插件 / AI 工具可能读取）；
-        确需手动编辑时，用「在文件夹中显示」定位后自行打开。
+        <b>配置 Key 只需点上面的“填入 Key”</b>，不必手动编辑文件。.env 含明文密钥，
+        故刻意不提供“用外部编辑器一键打开”（编辑器插件 / AI 工具可能读取）；
+        确需手动编辑时，用“在文件夹中显示”定位后自行打开。
       </div>
       <div class="art-row" style="margin-top: 10px;">
         <span class="pill st-done">免责声明</span>
@@ -5101,13 +5444,53 @@ onUnmounted(() => {
         </div>
       </template>
 
-      <!-- 加强模式（chapter.enhanced_mode）：单章拆段落群生成，默认关 -->
+      <!-- 章标题格式（chapter.title_format）：用户 2026-10-26 第 12 条要求“格式自定义” -->
+      <h4 style="margin-top: 20px;">章标题格式</h4>
+      <div class="meta" style="line-height: 1.8; margin-bottom: 8px;">
+        只影响<b>章标题行</b>（如“第10章潜七十二”→“第10章 潜七十二”），不改正文。
+        <code>{n}</code> = 章号（必需，缺了会拒绝保存），<code>{title}</code> = 章名（可省略）。
+        改动对<b>下一次落盘 / 合并</b>生效；已生成的 docx 需重跑阶段 7。
+      </div>
+      <div v-if="titleFormat.loading" class="meta">读取中…</div>
+      <template v-else>
+        <div class="tw-grid">
+          <label class="tw-field">
+            <span class="label">格式</span>
+            <input type="text" v-model="titleFormat.form" placeholder="第{n}章 {title}" />
+            <span class="meta">效果预览：{{ titleFormatPreview || "（空）" }}</span>
+          </label>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center; margin-top: 10px;">
+          <button class="mini primary" :disabled="titleFormat.busy" @click="saveTitleFormat">
+            {{ titleFormat.busy ? '保存中…' : '保存格式' }}
+          </button>
+          <button class="mini" :disabled="titleFormat.busy" @click="resetTitleFormat">恢复默认</button>
+        </div>
+        <div v-if="titleFormat.msg" class="meta tl-msg"
+             :style="{ color: titleFormat.ok ? 'var(--ok)' : 'var(--bad)', marginTop: '6px' }">
+          {{ titleFormat.msg }}
+        </div>
+      </template>
+
+      <!-- 加强模式（chapter.enhanced_mode）：单章拆段落群生成 -->
       <h4 style="margin-top: 20px;">加强模式（单章拆段落群生成）</h4>
       <div class="meta" style="line-height: 1.8; margin-bottom: 8px;">
-        开启后单章改为「章 → 段落群」分批生成（每群约 {{ enhancedMode.groupWords }} 字）：
+        开启后单章改为“章 → 段落群”分批生成（每群约 {{ enhancedMode.groupWords }} 字）：
         逐群生成、每群立即落盘（段群级断点续跑）、拼装成章后走同一套校验。
-        <b>字数达标率更高，但每章调用次数与成本也更高</b>。关闭时整章单发（默认）。
+        <b>字数达标率更高，但每章调用次数与成本也更高</b>。关闭时整章单发。
         改动对<b>下一次运行</b>生效。
+      </div>
+      <!-- 联动提示（2026-10-26）：弱模型整章单发就是写不长，这是个"看不见的开关"。
+           当篇幅口径已经要求 5000+ 而加强模式还关着时，必须在这里说破。 -->
+      <div v-if="enhancedRecommend" class="meta"
+           style="margin-bottom: 8px; padding: 8px 10px; line-height: 1.8;
+                  border-left: 2px solid var(--warn, #b8860b);
+                  background: rgba(184, 134, 11, 0.08);">
+        当前篇幅口径是单章 {{ targetWords.form.low }}–{{ targetWords.form.high }} 字，
+        但加强模式关着。弱模型整章单发常常写到两三千字就收尾，再怎么重试也一样长
+        （同一个模型、同一个目标，只会再短一次）。建议开启 —— 拆群后每群只背
+        {{ enhancedMode.groupWords }} 字，拼起来才够。
+        <br />不开启也能跑：出现字数不足时，阶段 4 会自动兜底转加强模式重试一次。
       </div>
       <div v-if="enhancedMode.loading" class="meta">读取中…</div>
       <template v-else>
@@ -5115,7 +5498,7 @@ onUnmounted(() => {
           <div>
             <div class="label">加强模式（当前：{{ enhancedMode.enabled ? '已开启' : '已关闭' }}）</div>
             <div class="meta" v-if="enhancedMode.confirmArm">
-              再点一次「{{ enhancedMode.enabled ? '关闭加强模式' : '确认开启' }}」才会生效 ——
+              再点一次“{{ enhancedMode.enabled ? '关闭加强模式' : '确认开启' }}”才会生效 ——
               开启后每章多次调用，成本更高。
             </div>
           </div>
@@ -5164,7 +5547,7 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- 接入其他 Agent（2026-10-06 对齐方寸「接入页」）：MCP 配置段 + kickoff -->
+      <!-- 接入其他 Agent（2026-10-06 对齐方寸“接入页”）：MCP 配置段 + kickoff -->
       <h4 style="margin-top: 16px;">接入其他 Agent（MCP 配置生成）</h4>
       <div class="meta" style="margin-bottom: 8px;">
         标准 MCP 客户端（Hermes / Claude Code / Cline / Cursor）配置一次即可接入；
@@ -5211,7 +5594,7 @@ onUnmounted(() => {
           <div class="meta">
             单一事实源 <code>prompts/agent_kickoff.md</code>；复制时自动把
             <code>&#123;&#123;PROJECT_ROOT&#125;&#125;</code> 占位符替换为项目根。
-            防「AI 从头重建本项目 / 擅自绕过审批守卫」的第一道闸。
+            防“AI 从头重建本项目 / 擅自绕过审批守卫”的第一道闸。
           </div>
           <textarea class="prompt-text" style="min-height: 150px; margin-top: 6px;"
                     :value="acKickoff" readonly spellcheck="false"
@@ -5223,7 +5606,7 @@ onUnmounted(() => {
           </div>
         </div>
 
-        <!-- 让它自装（2026-10-06 对齐方寸「🤖 让它自装」· A 路线第三渠道）：指令贴给目标 Agent，由它自己动手 -->
+        <!-- 让它自装（2026-10-06 对齐方寸“🤖 让它自装”· A 路线第三渠道）：指令贴给目标 Agent，由它自己动手 -->
         <div class="ac-selfinstall">
           <div class="label" style="margin-top: 12px;">🤖 让它自装 —— 复制一段指令贴给目标 Agent，由它自己写配置并自检</div>
           <div class="ac-actions" style="margin-top: 6px;">
@@ -5250,8 +5633,8 @@ onUnmounted(() => {
       <!-- 文体（决定哪些判据适用） -->
       <h4 style="margin-top: 16px;">文体（book.form）</h4>
       <div class="meta" style="margin-bottom: 8px;">
-        决定<strong>哪些检查项适用</strong>：散文不会被要求「情节连贯 / 人物关系」，
-        也不会被要求「小目标 / 悬念钩子」；叙事小说按全套判据走。
+        决定<strong>哪些检查项适用</strong>：散文不会被要求“情节连贯 / 人物关系”，
+        也不会被要求“小目标 / 悬念钩子”；叙事小说按全套判据走。
         只影响之后运行的阶段，已写好的章节不会被重新判定。
       </div>
       <div class="provider-row">
@@ -5383,12 +5766,12 @@ onUnmounted(() => {
           </div><!-- /set-pane prompt -->
           <div class="set-pane" v-show="settingsTab === 'word'">
 
-      <!-- Word 成品模板（件五 GUI 入口，立项契约修订 1：「用户永远不会用终端」） -->
+      <!-- Word 成品模板（件五 GUI 入口，立项契约修订 1：“用户永远不会用终端”） -->
       <h4 style="margin-top: 16px;">Word 成品模板（templates/*.dotx）</h4>
       <div class="meta" style="margin-bottom: 8px;">
         阶段7 用它生成成品 docx —— 换模板就是换整本书的版式（页面 / 标题层级 /
         字体行距 / 目录域）。把 <code>.dotx</code> 或 <code>.docx</code> 放进模板目录，
-        这里点「重新读取」即可选到；改动写入 config/project.yaml 的
+        这里点“重新读取”即可选到；改动写入 config/project.yaml 的
         <code>book.word_template</code>（旧版自动备份到 config/history/），下次跑阶段7 生效。
       </div>
       <div class="bp-field">
@@ -5498,10 +5881,10 @@ onUnmounted(() => {
       </div>
       <div v-if="updaterDev || !updaterInitialized" class="meta" style="margin-top: 4px; opacity: 0.75;">
         本机不支持自动更新（{{ updaterDev ? "开发模式" : "便携版 / updater 未初始化" }}）；
-        请用「下载新版本」手动更新 —— 数据都在本机工作区，覆盖安装不会丢。
+        请用“下载新版本”手动更新 —— 数据都在本机工作区，覆盖安装不会丢。
       </div>
       <div v-else-if="!updateReady" class="meta" style="margin-top: 4px; opacity: 0.75;">
-        自动更新走 GitHub Releases：检查到新版本会自动下载，完成后这里出现「重启安装」。
+        自动更新走 GitHub Releases：检查到新版本会自动下载，完成后这里出现“重启安装”。
       </div>
       <div v-if="updateProgress > 0 && updateProgress < 100" class="meta" style="margin-top: 4px;">
         下载进度: {{ updateProgress.toFixed(1) }}%
@@ -5509,7 +5892,7 @@ onUnmounted(() => {
           </div><!-- /set-pane general -->
           <div class="set-pane" v-show="settingsTab === 'diag'">
 
-      <!-- 诊断与调试（2026-10-06 对齐方寸「🩺 诊断」—— 像样的调试入口） -->
+      <!-- 诊断与调试（2026-10-06 对齐方寸“🩺 诊断”—— 像样的调试入口） -->
       <h4 style="margin-top: 16px;">诊断与调试</h4>
       <div class="meta" style="line-height: 1.8; margin-bottom: 8px;">
         运行形态：{{ dbg ? (dbg.packaged ? '安装版' : '源码版') + ' v' + dbg.version : '读取中…' }}
@@ -5537,12 +5920,12 @@ onUnmounted(() => {
         </button>
       </div>
       <div class="meta" style="margin-top: 4px; opacity: 0.75;">
-        排障顺序：先「查看运行日志」→ 拿「复制诊断信息」贴给协助者 →
-        仍不行再「重启后端 API」。DevTools 看渲染层（前端报错、网络请求）。
+        排障顺序：先“查看运行日志”→ 拿“复制诊断信息”贴给协助者 →
+        仍不行再“重启后端 API”。DevTools 看渲染层（前端报错、网络请求）。
       </div>
 
       <!-- 出厂内容（0.6.7 出厂/用户数据分治）：样例书曾被试跑搬进真实工作区，
-           与用户自写的素材卡无标记可分辨 —— 这里把「机器发的」摊出来给用户看。 -->
+           与用户自写的素材卡无标记可分辨 —— 这里把“机器发的”摊出来给用户看。 -->
       <h4 style="margin-top: 16px;">出厂内容</h4>
       <div class="meta" style="line-height: 1.8; margin-bottom: 8px;">
         <template v-if="factory && !factory._error">
@@ -5628,14 +6011,19 @@ onUnmounted(() => {
           <div v-if="exportMsg" class="meta" style="margin-top: 8px;">{{ exportMsg }}</div>
         </div>
 
-        <!-- 最近导出 -->
+        <!-- 最近导出：读 output/ 的实际内容（含 orchestrator 跑阶段 7/8 的产物） -->
         <div class="export-panel">
-          <h4>最近导出</h4>
-          <div v-if="!exportHistory.length" class="bp-empty">暂无导出记录</div>
-          <div v-for="h in exportHistory" :key="h.time" class="export-history-item">
-            <span class="export-time">{{ h.time }}</span>
-            <span class="export-meta">{{ h.volumes }} 卷 / {{ h.chapters }} 章 · {{ h.format }}</span>
-            <button class="mini" @click="openExportDir(h.path)">打开目录</button>
+          <h4>最近导出 <span class="meta">（output/ 实际内容，与谁触发的无关）</span></h4>
+          <div v-if="!exportHistory.length" class="bp-empty">
+            output/ 里还没有成品 —— 跑阶段 7（Word）或阶段 8（Markdown），或点上面的“开始导出”
+          </div>
+          <div v-for="h in exportHistory" :key="h.rel || h.path" class="export-history-item">
+            <span class="export-time">{{ h.mtime_text }}</span>
+            <span class="export-meta">
+              {{ h.kind === 'word' ? 'Word 成品' : ('Markdown · ' + (h.files || 0) + ' 个分卷文件') }}
+              · {{ h.name }}
+            </span>
+            <button class="mini" @click="openExportDir(h.rel || h.path)">打开目录</button>
           </div>
         </div>
       </div>
@@ -5744,11 +6132,11 @@ onUnmounted(() => {
         当前项目：<b>{{ projects.current || "（未初始化）" }}</b>
         <!-- 出厂身份两条路（2026-10-23 重定义）：铺设标记（向导铺的预设）或
              书名 == 随包样例名（样例书直接跑出来的测试项目）—— 命中即有还原
-             面板；两条都不命中的（真书）永远看不到。自检不过时退到「同名」提示。 -->
+             面板；两条都不命中的（真书）永远看不到。自检不过时退到“同名”提示。 -->
         <span v-if="factoryProject?.is_factory" class="pill st-warn"
               style="cursor: help;"
-              :title="factoryProject.kind === 'preset' ? '这本由出厂预设铺设，下方有「一键还原」面板' : '这本是随包样例书直接跑出来的测试项目，下方有「一键还原」面板'"
-              @click="say('出厂测试项目：可在下方「出厂测试项目」面板一键还原到刚铺好的状态')">
+              :title="factoryProject.kind === 'preset' ? '这本由出厂预设铺设，下方有“一键还原”面板' : '这本是随包样例书直接跑出来的测试项目，下方有“一键还原”面板'"
+              @click="say('出厂测试项目：可在下方“出厂测试项目”面板一键还原到刚铺好的状态')">
           出厂测试项目
         </span>
         <span v-else-if="factory?.current?.is_sample" class="pill"
@@ -5767,7 +6155,7 @@ onUnmounted(() => {
       </div>
       <!-- 出厂测试项目一键还原（0.6.22 建，0.7.0 重做）：只对出厂测试项目渲染；
            **已是出厂状态时按钮置灰**（没有可清内容就不该摆着等人点，2026-10-24 用户点名
-           「已经清理完了按钮还在，很蠢」）；确认改弹窗滑条，不再同位置点两次；
+           “已经清理完了按钮还在，很蠢”）；确认改弹窗滑条，不再同位置点两次；
            服务端三重自检兜底 —— 真书永远看不到这块。 -->
       <div v-if="factoryProject?.is_factory" class="art-row"
            style="margin-top: 10px; border: 1px solid var(--warn); border-radius: 8px; padding: 8px 10px;">
@@ -5806,7 +6194,7 @@ onUnmounted(() => {
       </div>
       <div v-else class="empty">暂无归档项目</div>
       <div class="meta" style="margin-top: 14px; line-height: 1.9;">
-        <b>新建项目</b>：点右上角「＋ 新建项目」，填书名/类型/章数即可 ——
+        <b>新建项目</b>：点右上角“＋ 新建项目”，填书名/类型/章数即可 ——
         系统会自动快照、归档当前项目、建好空工作区并写好 <code>config/project.yaml</code>。<br>
         也可以手工改 <code>config/project.yaml</code> 的 <code>book.name</code>（高级用法，不推荐）。
       </div>
@@ -5814,8 +6202,8 @@ onUnmounted(() => {
   </main>
 
   <!-- 出厂测试项目还原确认（0.7.0）：弹窗 + 滑条解锁。破坏性操作多步确认；
-       旧「同位置点两次」被用户点名垃圾（2026-10-24），改为两个动作两个位置。
-       默认焦点给「取消」（最保守选项）；ESC / 点遮罩可退出；滑条中途松手弹回。 -->
+       旧“同位置点两次”被用户点名垃圾（2026-10-24），改为两个动作两个位置。
+       默认焦点给“取消”（最保守选项）；ESC / 点遮罩可退出；滑条中途松手弹回。 -->
   <div v-if="factoryResetDialog" class="drawer-mask" @click.self="closeFactoryResetDialog">
     <div class="dialog" @keydown.esc="closeFactoryResetDialog">
       <h3>还原出厂测试项目《{{ factoryProject?.book_name || '（当前项目）' }}》</h3>
@@ -5829,7 +6217,7 @@ onUnmounted(() => {
       <div class="slider-confirm" :class="{ done: factoryResetSlid }" ref="factoryResetTrack"
            @pointerdown="factoryResetSlideStart" @pointermove="factoryResetSlideMove"
            @pointerup="factoryResetSlideEnd" @pointercancel="factoryResetSlideEnd">
-        <div class="slider-hint">{{ factoryResetSlid ? '已解锁，点「开始还原」执行' : '按住滑块，拖到最右 →' }}</div>
+        <div class="slider-hint">{{ factoryResetSlid ? '已解锁，点“开始还原”执行' : '按住滑块，拖到最右 →' }}</div>
         <div class="slider-knob" :style="{ left: factoryResetSlideX + 'px' }">
           {{ factoryResetSlid ? '✓' : '→' }}
         </div>
@@ -5990,7 +6378,7 @@ onUnmounted(() => {
 
         <label class="est-skip">
           <input type="checkbox" v-model="estSkipSession" />
-          本次会话不再提示（仍然可在「成本」页随时查看实际用量）
+          本次会话不再提示（仍然可在“成本”页随时查看实际用量）
         </label>
       </template>
 
@@ -6038,7 +6426,7 @@ onUnmounted(() => {
         （<b>不代为打开</b>），随后你自行打开时请注意：<br>
         · 不要截图，也不要把内容粘贴到聊天、工单等第三方场景；<br>
         · 编辑器插件 / AI 工具可能读取该文件，改完请尽快关闭；<br>
-        · 日常配置 Key 建议优先用上方「填入 Key」输入框（后端直写，不经外部编辑器）。
+        · 日常配置 Key 建议优先用上方“填入 Key”输入框（后端直写，不经外部编辑器）。
       </div>
       <div class="dialog-actions">
         <button class="mini" @click="envConfirmOpen = false">取消</button>
@@ -6089,7 +6477,7 @@ onUnmounted(() => {
       </div>
       <div class="dialog-actions">
         <button class="mini" @click="!nextPopupDismissed ? dismissNextPopupForever() : reenableNextPopup()">
-          {{ nextPopupDismissed ? '开启「跑完自动提示下一步」' : '关闭「跑完自动提示下一步」' }}
+          {{ nextPopupDismissed ? '开启“跑完自动提示下一步”' : '关闭“跑完自动提示下一步”' }}
         </button>
         <span class="spacer"></span>
         <button class="mini primary" @click="helpOpen = false">知道了</button>
@@ -6133,7 +6521,7 @@ onUnmounted(() => {
       </div>
       <div v-else class="meta" style="line-height: 1.8; margin-bottom: 10px;">
         当前没有运行中的流水线，也没有待审批阶段，退出不会中断任何工作。<br>
-        （「退出必确认」默认开启，可在设置页关闭）
+        （“退出必确认”默认开启，可在设置页关闭）
       </div>
       <label v-if="quitDlg.busy" style="display: flex; gap: 8px; align-items: flex-start; margin-bottom: 10px;">
         <input type="checkbox" v-model="quitDlg.agreed" />
@@ -6150,9 +6538,9 @@ onUnmounted(() => {
   <div v-if="skipDlg.open" class="drawer-mask" @click.self="skipDlg.open = false">    <div class="dialog" style="width: min(560px, 92vw);">
       <h3>跳过阶段 {{ skipDlg.stage }} · {{ STAGE_NAMES[skipDlg.stage] }}</h3>
       <div class="meta" style="line-height: 1.8; margin-bottom: 10px;">
-        跳过只会把该阶段标记为「已完成 + 已审批」，<b>不会生成任何产物</b>：<br>
+        跳过只会把该阶段标记为“已完成 + 已审批”，<b>不会生成任何产物</b>：<br>
         · 该阶段应有的产物若缺失，后续阶段可能直接失败<br>
-        · progress.json 里会记下 skipped 标记，之后仍可用「打回」回到原状态
+        · progress.json 里会记下 skipped 标记，之后仍可用“打回”回到原状态
       </div>
       <label style="display: flex; gap: 8px; align-items: flex-start; margin-bottom: 10px;">
         <input type="checkbox" v-model="skipDlg.agreed" />
@@ -6288,7 +6676,7 @@ onUnmounted(() => {
       </div>
       <div v-if="histLoading" class="empty">读取中…</div>
       <div v-else-if="!histVersions.length" class="empty">
-        暂无历史版本 —— 每次用「精修」改稿前会自动备份一版
+        暂无历史版本 —— 每次用“精修”改稿前会自动备份一版
       </div>
       <div v-else style="overflow:auto;">
         <table class="cost-table">
@@ -6323,7 +6711,7 @@ onUnmounted(() => {
     <div class="dialog" style="width: min(560px, 92vw);">
       <h3>项目初始化向导</h3>
       <div class="meta" style="margin-bottom: 12px;">
-        首次使用绒花墨坊，请先配置书籍基本信息。所有设置后续可在「设置」页修改。
+        首次使用绒花墨坊，请先配置书籍基本信息。所有设置后续可在“设置”页修改。
       </div>
       <div class="art-row" style="margin: 8px 0;">
         <span class="art-label">书名 *</span>
@@ -6356,7 +6744,7 @@ onUnmounted(() => {
     </div>
   </div>
 
-  <!-- ⑤ 归档查看（只读）：内容清单 + 单文件预览 —— 不用「先恢复才能看」 -->
+  <!-- ⑤ 归档查看（只读）：内容清单 + 单文件预览 —— 不用“先恢复才能看” -->
   <div v-if="archViewer.open" class="drawer-mask" @click.self="archViewer.open = false">
     <div class="dialog" style="width: min(960px, 96vw); max-height: min(86vh, 760px); display: flex; flex-direction: column;">
       <div style="display:flex; align-items:center; margin-bottom:8px; gap:8px;">
@@ -6367,7 +6755,7 @@ onUnmounted(() => {
         <button class="mini" @click="archViewer.open = false">关闭</button>
       </div>
       <div class="meta" style="margin-bottom:8px;">
-        {{ archViewer.root }} —— 只读预览，不改动任何数据；要动它请先「恢复」
+        {{ archViewer.root }} —— 只读预览，不改动任何数据；要动它请先“恢复”
       </div>
       <div v-if="archViewer.loading" class="empty">读取中…</div>
       <div v-else-if="archViewer.error" class="empty" style="color: var(--bad);">{{ archViewer.error }}</div>
@@ -6399,7 +6787,7 @@ onUnmounted(() => {
       <h3>删除归档 · {{ archDelete.name }}</h3>
       <div class="meta" style="line-height: 1.9; margin-bottom: 10px;">
         · 默认移入回收站 <code>data/books/_trash/</code> —— 列表里不再显示，需要时可手工找回<br>
-        · 勾选「彻底删除」则直接抹掉目录，<b style="color: var(--bad);">不可恢复</b><br>
+        · 勾选“彻底删除”则直接抹掉目录，<b style="color: var(--bad);">不可恢复</b><br>
         · 只影响这份归档，不动当前工作区
       </div>
       <label style="display: flex; gap: 8px; align-items: flex-start; margin-bottom: 10px;">
@@ -6408,7 +6796,7 @@ onUnmounted(() => {
       </label>
       <label style="display: flex; gap: 8px; align-items: flex-start; margin-bottom: 10px;">
         <input type="checkbox" v-model="archDelete.agreed" />
-        <span>我确认删除归档「{{ archDelete.name }}」</span>
+        <span>我确认删除归档“{{ archDelete.name }}”</span>
       </label>
       <label class="meta">输入归档名以确认</label>
       <input v-model="archDelete.confirm" class="text-input" :placeholder="archDelete.name" />

@@ -150,7 +150,9 @@ class FailingClient(FakeClient):
         # 这样「只在 stage4 失败」的用例里 stage1~3 依然能产出可校验的产物。
         return super().run_task(task_file, workdir=workdir, model=model)
 
-    def run_task_stream(self, task_file, on_piece, stop_flag, workdir=None, model=None):
+    def run_task_stream(self, task_file, on_piece, stop_flag, workdir=None, model=None,
+                        session_id=None):
+        """流式失败注入。`session_id` 与 run_task 签名同构（stage4 两条通道用同一套调用）。"""
         name = Path(task_file).name
         stage = _stage_of(name)
         # 停止优先：真实场景里用户点停止后，子会话即便"会失败"也应表现为 stopped。

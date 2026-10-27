@@ -291,13 +291,21 @@ def case_group_checkpoint():
 
         # ---- 重启续跑：合格群跳过，只补缺的群 ----
         before = set(c.calls)
+        seen_groups = []
         agg = write_chapter_groups(cfg, proj, 1, c, str(tmp / "data/state/tasks"),
-                                   "data/outline/chapters/01.md", [])
+                                   "data/outline/chapters/01.md", [],
+                                   on_group=lambda g, total: seen_groups.append(
+                                       (g["idx"], total, g["quota"])))
         new_calls = [x for x in c.calls if x not in before]
         total_groups = len(groups)
         check("续跑只调用缺失的群（零重复）",
               len(new_calls) == total_groups - 2, (new_calls, total_groups))
         check("整章拼装落盘", (tmp / "data/chapters/raw/01.md").exists())
+        # 2026-10-27：GUI 进度条要「第 g/G 群 · 本群配额」。回调必须每群都发
+        # （包括已在盘、被跳过的群 —— 否则续跑时界面从 0 开始，看不出进度）。
+        check("on_group 每群回调（序号/总数/配额齐全）",
+              seen_groups == [(g["idx"], total_groups, g["quota"]) for g in groups],
+              seen_groups)
     finally:
         os.chdir(origin)
         shutil.rmtree(tmp, ignore_errors=True)

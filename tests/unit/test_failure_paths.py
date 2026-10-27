@@ -589,13 +589,20 @@ def case_f7():
     # 否则探针里 ReferenceError（函数未定义）→ __RESULT__ 永远不出现，
     # 表现成「F7 node 探测产出结果」失败（2026-10-07 实测）。
     helper_src = []
-    for hname in ("function listFilesUnder(", "function recordFactoryManifest("):
+    for hname in ("function listFilesUnder(", "function recordFactoryManifest(",
+                  "function migrateConfigKeys(", "function ensureEnhancedMode("):
         hs = src.find(hname)
         he = src.find("\n}", hs)
         check(hs > 0 and he > hs, "F7 能抽取 seedWorkspace 的辅助函数 " + hname,
               "未找到 " + hname)
         if hs > 0 and he > hs:
             helper_src.append(src[hs:he + 2])
+    # 配置键级升级（2026-10-26）依赖同文件的常量表 —— 只抽函数不抽常量，
+    # 探针里会 ReferenceError: SEED_CONFIG_MIGRATIONS is not defined。
+    mig = re.search(r"const SEED_CONFIG_MIGRATIONS = \[.*?\n\];", src, re.S)
+    check(mig is not None, "F7 能抽取 SEED_CONFIG_MIGRATIONS 常量表")
+    if mig:
+        helper_src.append(mig.group(0))
     helper_body = "\n".join(helper_src) + "\n"
 
     probe = Path(tempfile.mkdtemp(prefix="nf_seed_"))
@@ -834,13 +841,16 @@ def case_f9():
     必须成立——setting.json/canon.json 若残留，stage1 的增量判据
     （_pending_material_paths 读两者判「还有哪些素材没定稿」）重跑恒判无待归并。
     """
-    print("\n【F9】reject stage1（#9：打回范围 2-7 → 1-7）")
+    print("\n【F9】reject 范围（2-7 → 1-7；2026-10-27 补阶段 8）")
     sys.path.insert(0, str(REPO / "scripts"))
     import reject as R
 
-    check(set(R.DOWNSTREAM_ARTIFACTS) == {1, 2, 3, 4, 5, 6, 7},
-          "F9 DOWNSTREAM_ARTIFACTS 覆盖 1-7 全阶段",
+    check(set(R.DOWNSTREAM_ARTIFACTS) == {1, 2, 3, 4, 5, 6, 7, 8},
+          "F9 DOWNSTREAM_ARTIFACTS 覆盖 1-8 全阶段",
           sorted(R.DOWNSTREAM_ARTIFACTS))
+    check(R.DOWNSTREAM_ARTIFACTS[8] == ["output/*_markdown", "output/*_markdown.bak"],
+          "F9 打回阶段 8 只作废 Markdown 导出（不删 Word 成品）",
+          R.DOWNSTREAM_ARTIFACTS.get(8))
     own1 = R.DOWNSTREAM_ARTIFACTS[1]
     check("data/setting/setting.json" in own1 and "data/setting/canon.json" in own1,
           "F9 stage1 清单含 setting.json + canon.json（否则重跑判「无待归并」空跑）",
@@ -850,12 +860,14 @@ def case_f9():
     check(not any("history" in p for p in own1),
           "F9 不清 history 备份（打回留退路）", own1)
     api_src = (REPO / "scripts" / "nf_api.py").read_text(encoding="utf-8")
-    check("stage 须为 1-7" in api_src and "stage 须为 2-7" not in api_src,
-          "F9 HTTP /reject 报错口径同步为 1-7")
+    # 报错口径由 utils.stage_artifacts.VALID_STAGES 生成（单一真源），不再写死字面量；
+    # 这里钉住「用同一份 format 且旧字面量已消失」，防有人改回 1-7。
+    check("stage 须为 %d-%d" in api_src and "stage 须为 1-7" not in api_src,
+          "F9 HTTP /reject 报错口径同步为合法阶段集（1-8）")
     # 越界阶段：范围校验先于一切写操作，pm 传 None 也不会被用到
     ok_bad, msgs_bad = R.reject_stage(None, 99, "")
-    check(ok_bad is False and any("1-7" in m for m in msgs_bad),
-          "F9 越界阶段仍被拒且提示 1-7", msgs_bad)
+    check(ok_bad is False and any("1-8" in m for m in msgs_bad),
+          "F9 越界阶段仍被拒且提示 1-8", msgs_bad)
 
     # ---- 行为面：沙盒里真打回 stage1 ----
     root = build_sandbox("nf_f9_")

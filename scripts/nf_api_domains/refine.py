@@ -268,16 +268,29 @@ def handle_paragraph_restore(h, body):
 
 
 def handle_chapters_paragraphs(h):
-    """获取章节的段落列表（带索引）"""
+    """获取章节的段落列表（带索引）。
+
+    `layer`（可选，2026-10-26）：raw / checked / refined。
+    不传时保持旧行为（refined > checked > raw 逐层回退）。
+    为什么要加：章节编辑器里用户**看得见哪一层**，批注就必须作用在同一层上 ——
+    否则他打开原稿、批注第 3 段，后端却去改润色稿的第 3 段（三层段落数常常不同，
+    错位是必然的）。带 layer 时**只认那一层**，不存在就 404，不悄悄回退。
+    """
     from urllib.parse import parse_qs
     qs = parse_qs(h.path.split("?", 1)[1] if "?" in h.path else "")
     ch = int(qs.get("n", ["0"])[0])
     if ch < 1:
         return 400, {"error": "n 必填且为章节号"}
+    layer = (qs.get("layer") or [""])[0]
     try:
-        cfg, _ = api.load_all()
-        for d in ("data/chapters/refined", "data/chapters/checked", "data/chapters/raw"):
-            p = api.ROOT / d / f"{ch:02d}.md"
+        if layer:
+            if layer not in ("raw", "checked", "refined"):
+                return 400, {"error": "layer 须为 raw / checked / refined"}
+            candidates = [layer]
+        else:
+            candidates = ["refined", "checked", "raw"]
+        for d in candidates:
+            p = api.ROOT / "data" / "chapters" / d / f"{ch:02d}.md"
             if p.exists():
                 text = p.read_text(encoding="utf-8")
                 import refine_paragraph
@@ -285,13 +298,14 @@ def handle_chapters_paragraphs(h):
                 return 200, {
                     "ok": True,
                     "chapter": ch,
+                    "layer": d,
                     "count": len(paras),
                     "paragraphs": [
-                        {"index": i, "text": p, "chars": len(p)}
-                        for i, p in enumerate(paras)
+                        {"index": i, "text": t, "chars": len(t)}
+                        for i, t in enumerate(paras)
                     ]
                 }
-        return 404, {"error": f"第 {ch} 章不存在"}
+        return 404, {"error": f"第 {ch} 章不存在" + (f"（{layer} 层）" if layer else "")}
     except Exception as e:
         return 500, {"error": type(e).__name__ + ": " + str(e)[:200]}
 

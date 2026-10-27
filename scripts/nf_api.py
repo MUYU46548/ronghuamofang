@@ -147,6 +147,9 @@ import book_split as book_split_mod  # noqa: E402
 # do_POST 是一个巨型函数，在它内部裸 import 会让该名变成整个函数的局部名。
 import import_docx as import_docx_mod  # noqa: E402
 from utils.stage_select import parse_stages, preflight_lines  # noqa: E402
+# 合法阶段号的唯一真源（含阶段 8）：审批/跳过/运行/打回四处共用这一份判据，
+# 不再各写 `1 <= n <= 7`（用户实测「阶段8无法放行，代码打架」）。
+from utils.stage_artifacts import VALID_STAGES as _VALID_STAGES  # noqa: E402
 import refine_chapter as refine_ch_mod  # noqa: E402
 from utils.verify_chapter import is_chapter_complete  # noqa: E402
 # 模型准入登记处（白名单纪律的唯一实现点，2026-09-19 审查 S8 修复）
@@ -165,6 +168,7 @@ from utils.file_io import read_text as nf_read_text, write_text as nf_write_text
 # `_dom()` 是容错包装：域模块导入失败（老 workspace 未被 seedWorkspace 刷到
 # 新包时）绝不能整站 500 —— 退化为可行动 500 而不是崩在 import 期。
 try:
+    from nf_api_domains import chapters as dom_chapters        # noqa: E402 (章节正文读写：编辑器后端)
     from nf_api_domains import materials as dom_materials  # noqa: E402
     from nf_api_domains import misc as dom_misc            # noqa: E402
     from nf_api_domains import models as dom_models        # noqa: E402
@@ -180,6 +184,7 @@ try:
     from nf_api_domains import segments as dom_segments    # noqa: E402 (丙4 分段审批读写)
     from nf_api_domains import discuss as dom_discuss      # noqa: E402 (讨论落地协议)
 except Exception as _dom_err:                            # noqa: BLE001
+    dom_chapters = None
     dom_materials = None
     dom_misc = None
     dom_models = None
@@ -732,15 +737,90 @@ def promote_to_card(card_name, card_type, points, open_questions=(), sources=(),
     return str(target.relative_to(ROOT)).replace("\\", "/"), backup
 
 
-def stage_status(progress, n):
+def stage_status(progress, n, total_chapters=None):
+    """单个阶段的公开状态（/state 的 stages[] 元素）。
+
+    ## 为什么带章级字段（2026-10-26，用户「永恒 29%」）
+
+    前端 `progressPct` 早就写了「running 阶段按 chapters_done / total_chapters
+    细分」的逻辑，但**后端从来没返回过这两个键** —— 于是 `s.chapters_done`
+    恒 `undefined` → running 阶段对进度的贡献恒为 0。7 个阶段里前 2 个 done 时
+    进度 = 2/7 = 28.6% → 界面四舍五入成 **29%**，此后整个 stage4（几十分钟）
+    数字一动不 动。用户原话：「我受不了那个永恒的 29%」。
+
+    修法不是改前端公式（公式本来是对的），而是把它要的数据给它。
+    `completed_chapters` 是 stage4/5/6 已有的真相（ProgressManager 维护）；
+    `current_chapter` 由 stage4 每章开始时写入，用来回答「现在写到第几章」。
+    """
     st = progress.data.get("stages", {}).get(str(n), {})
+    # 章级进度的第二来源：**盘上的产物文件数**。
+    # 为什么不能只信 progress：阶段 5/6 根本不写 completed_chapters（它们只写
+    # review_status / polish 报告），阶段 3 也不写 —— 光看进度键的话这三个阶段
+    # 的 chapters_done 恒 0，前端又退化成"数字不动"。
+    # 盘上事实在「哪一层已写完」这件事上比进度标记更准：checked/ 里存在的
+    # 就是检查完了的章。取两者较大值（断点续跑可能已落盘但标记还没补）。
+    _stage_dir = {
+        3: "data/outline/chapters",
+        4: "data/chapters/raw",
+        5: "data/chapters/checked",
+        6: "data/chapters/refined",
+    }.get(n)
+    _from_disk = 0
+    if _stage_dir:
+        _p = ROOT / _stage_dir
+        if _p.is_dir():
+            try:
+                _from_disk = sum(1 for f in _p.iterdir()
+                                 if f.is_file() and f.suffix.lower() == ".md")
+            except OSError:
+                _from_disk = 0
+    _marker_done = len(st.get("completed_chapters") or [])
+    # 单章重写（GUI「重写本章」）：分母**不是全书章数**，而是这一章。
+    # 否则「重写第 5 章」在 10 章的书里恒显示 9/10 → 整体 99% 卡住不动
+    # （用户原话：「重写中，已写1字，但是进度99%……卡了很久」）。
+    _rewrite_ch = st.get("rewrite_chapter")
+    _is_rewrite = isinstance(_rewrite_ch, int) and _rewrite_ch > 0
+    if _is_rewrite:
+        _rp = ROOT / "data" / "chapters" / "raw" / ("%02d.md" % _rewrite_ch)
+        _rewrite_done = 1 if _rp.exists() else 0
     out = {
         "stage": n,
         "status": st.get("status", "pending"),
         "approved": st.get("approved"),
         "rejected": st.get("rejected"),
         "rejected_at": st.get("rejected_at"),
+        # 章级进度：前端据此把 running 阶段画成连续进度，而不是卡死在阶段计数上
+        "chapters_done": (_rewrite_done if _is_rewrite
+                          else max(_marker_done, _from_disk)),
+        "total_chapters": (1 if _is_rewrite else int(total_chapters or 0)),
     }
+    if _is_rewrite:
+        out["rewrite_chapter"] = _rewrite_ch
+    # 「正在写第 N 章」（stage4 每章开头写；阶段结束后应清掉，否则会显示成僵值）
+    cur_ch = st.get("current_chapter")
+    if isinstance(cur_ch, int) and cur_ch > 0:
+        out["current_chapter"] = cur_ch
+        # 流式写作的实时字数（2026-10-26）：没有它，界面只能说"正在写第 6 章"，
+        # 说不出"已经写了多少"——用户分不清是在推进还是卡住。
+        cur_chars = st.get("current_chars")
+        if isinstance(cur_chars, int) and cur_chars > 0:
+            out["current_chars"] = cur_chars
+    # 段群级进度（2026-10-27，加强模式）：用户看到「已写 1 字」时分不清是刚起步
+    # 还是卡死。给出「第 g/G 群 · 本群 X/Y 字」+「最后更新时间」，界面才有真话可说。
+    for _k in ("current_group", "total_groups", "current_group_quota"):
+        _v = st.get(_k)
+        if isinstance(_v, int) and _v > 0:
+            out[_k] = _v
+    if isinstance(st.get("current_chars_at"), str) and st["current_chars_at"]:
+        out["current_chars_at"] = st["current_chars_at"]
+    done = st.get("completed_chapters") or []
+    if done:
+        out["last_chapter_done"] = max(done)
+    # 「这个阶段已经跑了多久」—— 前端用它替代一个假百分比（见 stageElapsedText）
+    if st.get("started_at"):
+        out["started_at"] = st["started_at"]
+    if st.get("finished_at"):
+        out["finished_at"] = st["finished_at"]
     if "skipped" in st:
         out["skipped"] = st["skipped"]
     if st.get("skip_reason"):
@@ -763,14 +843,33 @@ def runtime_form():
         else "installed"
 
 
+def _chapter_target_words(cfg):
+    """单章字数区间（整数二元组，读坏了一律回落出厂 [5000, 9000]）。
+
+    只在 /state 里给前端当「本章进度」的分母，不参与写作判定 —— 写作侧的真源
+    仍是 config 的 chapter.target_words（stage4 自己读）。
+    """
+    try:
+        tw = (cfg or {}).get("chapter", {}).get("target_words") or [5000, 9000]
+        return [int(tw[0]), int(tw[1])]
+    except (TypeError, ValueError, IndexError, KeyError):
+        return [5000, 9000]
+
+
 def build_state():
-    # 2026-09-29：这里原写死相对路径 "data/state/progress.json" —— 依赖进程 CWD。
-    # `--root` 场景（自动化验收 / 多书隔离）下 CWD 仍是发起进程的目录，
+    # 2026-09-29：这里原写死相对路径 "data/state/progress.json" —— 依赖进程 CWD。    # `--root` 场景（自动化验收 / 多书隔离）下 CWD 仍是发起进程的目录，
     # 于是 /state 会**静默读到另一个项目的 progress.json**：返回 200、内容却是别人的，
     # 不报错、很难发现（这正是「一律经 ROOT」那条纪律要防的事）。
     progress = ProgressManager(ROOT / "data" / "state" / "progress.json")
-    stages = [stage_status(progress, n) for n in range(1, 8)]
-    gates = load_all()[0].get("gates", {})
+    # 阶段 8（Markdown 导出）此前被**整个排除**在 /state 之外：范围写死 range(1, 8)，
+    # 前端 STAGE_NAMES 也只到 7。后果是用户「阶段 8 在客户端内直接不存在，只能靠
+    # agent 提示的隐藏模式」——而 orchestrator 的 STAGES 本来就有 8。真源取
+    # utils.stage_artifacts.STAGE_NAMES（已含 8），不再各写一份。
+    from utils.stage_artifacts import STAGE_NAMES as _STAGE_NAMES
+    _cfg, _proj = load_all()
+    _total_ch = int((_proj or {}).get("book", {}).get("chapters") or 0) or None
+    stages = [stage_status(progress, n, _total_ch) for n in sorted(_STAGE_NAMES)]
+    gates = (_cfg or {}).get("gates", {})
     cost_spent, calls, est = 0.0, 0, 0
     tokens_used, tokens_run = 0, None
     db_path = ROOT / "logs" / "runs.db"
@@ -800,6 +899,9 @@ def build_state():
         archived = []
     return {
         "book": (load_all()[1] or {}).get("book", {}).get("name", ""),
+        # 单章目标字数：前端算「本章写到哪」的分母（拿不到 chapter 里的值就回落
+        # 出厂下限 5000）。2026-10-27：没有它，单章重写只能显示一个假百分比。
+        "chapter_target_words": _chapter_target_words(_cfg),
         "project_dir": str(ROOT),
         # 执行形态 + 能跑管线的解释器（2026-10-17）：Electron 两种形态下都用
         # 「能跑管线的那份 python」拉起 nf_api（安装态=自带 runtime，源码态=.venv），
@@ -973,6 +1075,86 @@ def act_run_stage(cfg, only_stage, from_stage):
     def _fn():
         return _rc_to_result(orch_run(from_stage=from_stage,
                                       only_stage=only_stage, client=client))
+    return _fn
+
+
+def _prepare_chapter_rewrite(n):
+    """重写前的准备：把旧稿移走 + 备份 + 清完成标记。返回备份相对路径（无旧稿则 None）。
+
+    单独抽出来是**为了可单测**：这部分的三条正确性比"能不能跑 orchestrator"更值得
+    钉住 —— 移走而不是删除（stage4 不备份，这是唯一后悔药）、备份必须落在
+    rewrite_backup/、完成标记必须清掉（否则中途状态自相矛盾）。
+    """
+    raw = ROOT / "data" / "chapters" / "raw" / ("%02d.md" % n)
+    bak_rel = None
+    had_raw = raw.exists()
+    if had_raw:
+        bak_dir = ROOT / "data" / "chapters" / "rewrite_backup"
+        bak_dir.mkdir(parents=True, exist_ok=True)
+        ts = time.strftime("%Y%m%d_%H%M%S")
+        dst = bak_dir / ("%02d_%s.md" % (n, ts))
+        shutil.move(str(raw), str(dst))
+        bak_rel = dst.relative_to(ROOT).as_posix()
+        print(f"[rewrite] 第{n}章旧稿已移到 {bak_rel}（不满意可从那里捞回）")
+    # 段群缓存（加强模式）：只有在**旧稿存在**时才作废 —— 那代表"对一章已完成
+    # 的稿子发起新一轮重写"，复用旧群等于没重写（用户点了重写却拿到原文，静默）。
+    # 旧稿**不存在** = 上一次重写中途崩了/被杀了，这时保留已完成群正是断点续跑的
+    # 价值（本轮实测：5 群都在盘上，重启后零 token 拼装即可）。两种语义靠这一条
+    # 判据分开，不额外引入状态标记。
+    if had_raw:
+        try:
+            # 直接用 ROOT 拼路径，不复用 enhanced_chapter.clear_parts —— 那是相对
+            # 路径常量（依赖 CWD），`--root` 与 CWD 不同时会删到另一个项目。
+            parts = ROOT / "data" / "chapters" / "_parts" / ("%02d" % n)
+            if parts.exists():
+                shutil.rmtree(parts, ignore_errors=True)
+            print(f"[rewrite] 第{n}章旧段群缓存已作废（新一轮重写，不复用旧群）")
+        except Exception as e:                               # noqa: BLE001
+            print(f"[rewrite] 清理段群缓存失败（不影响重写）: {type(e).__name__}: {e}")
+    try:
+        prog = ProgressManager(ROOT / "data" / "state" / "progress.json")
+        st = prog.data.setdefault("stages", {}).setdefault("4", {})
+        cc = list(st.get("completed_chapters") or [])
+        if n in cc:
+            st["completed_chapters"] = [x for x in cc if x != n]
+            prog.save()
+            print(f"[rewrite] 第{n}章完成标记已清除（重写后会重新记上）")
+    except Exception as e:                                   # noqa: BLE001
+        print(f"[rewrite] 清完成标记失败（不影响重写）: {type(e).__name__}: {e}")
+    return bak_rel
+
+
+def act_rewrite_chapter(cfg, n):
+    """重写单章（2026-10-26，GUI「重写本章」）。
+
+    ## 为什么必须"移走文件"，不能只清进度标记
+
+    `stage4` 决定"这一章要不要写"看的是**盘上文件的合格性**，不是 progress：
+
+        todo = [n for n in range(1, total+1) if n not in verified ...]
+
+    而 `verified` 由 `is_chapter_complete(raw/NN.md)` 逐章重判。所以：
+    - 只清 `completed_chapters` → 文件还在且合格 → 仍判已完成，不写
+    - 文件合格但标记缺失 → 被当"孤儿章"**只补账、不重调 LLM**（更隐蔽）
+
+    两种都不重写。唯一可靠的做法是让第 N 章在盘上**不存在**（见
+    `_prepare_chapter_rewrite`）。
+
+    ## 为什么用环境变量
+
+    `orch_run` 的签名被四条路径共用，为一个 GUI 动作改公共签名不划算；
+    `start_job` 保证同一时刻只有一个 job（互斥），不会互抢。
+    """
+    def _fn():
+        _prepare_chapter_rewrite(n)
+        os.environ["NF_STAGE4_ONLY"] = str(n)
+        try:
+            # 复用现有的阶段运行动作工厂（不另写一份 orch_run 调用）：
+            # 退出码翻译、客户端构造、流式/非流式差异都只有那一份实现。
+            # 顺带满足“S2 回归护栏”：那条护栏禁止在工厂之外裸传阶段号参数。
+            return act_run_stage(cfg, 4, 4)()
+        finally:
+            os.environ.pop("NF_STAGE4_ONLY", None)
     return _fn
 
 
@@ -2008,12 +2190,19 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/config/target_words":
             # 单章字数区间读取（chapter.target_words）+ 出厂预设 + 合法区间。
             self._send(*_dom(dom_project.handle_config_target_words(self)))
+        elif p == "/config/title_format":
+            # 章标题格式读取（chapter.title_format）。用户第 12 条要求格式可自定义。
+            self._send(*_dom(dom_project.handle_config_title_format(self)))
         elif p == "/config/vault_scan":
             # 知识库扫描面（顶层目录 + 篇数 + 是否排除）—— 目录名取自用户库本身。
             self._send(*_dom(dom_project.handle_config_vault_scan(self)))
         elif p == "/config/writing_presets":
             # 写作预设清单 + 当前生效值 + 切换历史（只读）。
             self._send(*_dom(dom_project.handle_writing_presets_get(self)))
+        elif p == "/exports/history":
+            # 最近导出（盘上事实：output/ 里实际有什么）—— 2026-10-26 用户第 10 条：
+            # 阶段 8 由 orchestrator 跑、不经导出面板，前端内存记录永远空。
+            self._send(*_dom(dom_post_misc.handle_exports_history(self)))
         elif p == "/factory/presets":
             # 出厂预设清单（只读）：首跑向导「选预设」用。
             self._send(*_dom(dom_project.handle_factory_presets_list(self)))
@@ -2126,6 +2315,12 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/chapters/history":
             # 实现已迁至 nf_api_domains.runtime（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_runtime.handle_chapters_history(self)))
+        elif p == "/chapters/layers":
+            # 三层正文现状（编辑器打开时先看这个）—— nf_api_domains.chapters
+            self._send(*_dom(dom_chapters.handle_chapters_layers(self)))
+        elif p == "/chapters/content":
+            # 单章单层正文全文（编辑器读取）—— nf_api_domains.chapters
+            self._send(*_dom(dom_chapters.handle_chapters_content(self)))
         elif p == "/chapters/paragraphs":
             # 段落级读取（P0 精修轴）
             self._send(*_dom(dom_refine.handle_chapters_paragraphs(self)))
@@ -2211,8 +2406,9 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if p.startswith("/stage/") and p.endswith("/run"):
                 rest = p[len("/stage/"):-len("/run")]
-                if not rest.isdigit() or not (1 <= int(rest) <= 7):
-                    self._send(400, {"error": "阶段号须为 1-7"})
+                if not rest.isdigit() or int(rest) not in _VALID_STAGES:
+                    self._send(400, {"error": "阶段号须为 %d-%d" % (_VALID_STAGES[0],
+                                                                   _VALID_STAGES[-1])})
                     return
                 cfg, _ = load_all()
                 _client_for_env(cfg, "default")  # 测试模式预检（真实模式构造仅告警）
@@ -2361,15 +2557,19 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(404, {"error": "stream not found: " + job_id})
             elif p == "/approve":
                 stage = int(body.get("stage") or 0)
-                if not (1 <= stage <= 7):
-                    self._send(400, {"error": "stage 须为 1-7"})
+                # 阶段 8（Markdown 导出）同样是可审批的阶段：它出现在 /state，
+                # GUI 会给它「确认」按钮 —— 校验若只收到 7 就是自相矛盾的死路。
+                if stage not in _VALID_STAGES:
+                    self._send(400, {"error": "stage 须为 %d-%d" % (_VALID_STAGES[0],
+                                                                    _VALID_STAGES[-1])})
                     return
                 ok, msg = act_approve(stage, bool(body.get("revoke")))
                 self._send(200 if ok else 409, {"ok": ok, "message": msg})
             elif p == "/reject":
                 stage = int(body.get("stage") or 0)
                 if stage not in reject_mod.DOWNSTREAM_ARTIFACTS:
-                    self._send(400, {"error": "stage 须为 1-7"})
+                    _lo, _hi = min(reject_mod.DOWNSTREAM_ARTIFACTS), max(reject_mod.DOWNSTREAM_ARTIFACTS)
+                    self._send(400, {"error": "stage 须为 %d-%d" % (_lo, _hi)})
                     return
                 ok, msg = act_reject(stage, str(body.get("reason") or ""),
                                      dry_run=bool(body.get("dry_run")))
@@ -2378,8 +2578,9 @@ class Handler(BaseHTTPRequestHandler):
                 # 人工跳过阶段（GUI 错误恢复一级入口用）。必须显式 confirm:true，
                 # 避免误点把整条管线放行。
                 stage = int(body.get("stage") or 0)
-                if not (1 <= stage <= 7):
-                    self._send(400, {"error": "stage 须为 1-7"})
+                if stage not in _VALID_STAGES:
+                    self._send(400, {"error": "stage 须为 %d-%d" % (_VALID_STAGES[0],
+                                                                    _VALID_STAGES[-1])})
                     return
                 if not body.get("confirm"):
                     self._send(400, {"error": "缺少 confirm:true（跳过阶段会标记为已完成，需显式确认）"})
@@ -2592,6 +2793,13 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(*_dom(dom_refine.handle_paragraph_restore(self, body)))
             elif p == "/style/drift":
                 self._send(*_dom(dom_refine.handle_style_drift_post(self, body)))
+            elif p == "/chapters/save":
+                # 用户手改正文落盘（零 token）。护栏：备份旧稿 / 补标题 /
+                # 标点归一化 / expected_mtime 并发保护 —— 见 nf_api_domains.chapters
+                self._send(*_dom(dom_chapters.handle_chapters_save(self, body)))
+            elif p == "/chapters/rewrite":
+                # 重写整章（走阶段 4，花 token）：旧稿先备份，只跑这一章
+                self._send(*_dom(dom_chapters.handle_chapters_rewrite(self, body)))
             elif p == "/chapters/restore":
                 # 章节回退：body {n, version} → 从 data/chapters/history/ 恢复
                 # 确定性文件操作，同 /outline/restore，同步返回。
@@ -2619,6 +2827,9 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/config/target_words":
                 # 单章字数区间设置（创作决策，非安全闸门；越界值一律 400 拒绝）。
                 self._send(*_dom(dom_project.handle_config_target_words_set(self, body)))
+            elif p == "/config/title_format":
+                # 章标题格式设置（创作决策；必须含 {n}，否则 400）。
+                self._send(*_dom(dom_project.handle_config_title_format_set(self, body)))
             elif p == "/config/vault_skip_dirs":
                 # 扫描排除项设置（创作决策：哪些目录算正典）；只写 system.local.yaml。
                 self._send(*_dom(dom_project.handle_config_vault_skip_dirs(self, body)))

@@ -16,8 +16,10 @@
 用法：python tests/unit/test_resume_output_judgement.py
 """
 import io
+import os
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
@@ -65,6 +67,17 @@ def case_judgement():
     # 源不存在时退化为「目标非空即可用」
     check("原稿缺失但目标非空 → 可用（不因缺源而误杀）",
           is_usable_output(d / "no_src.md", _w(d / "t2.md", "正文内容" * 80)) is True)
+    # 2026-10-27：重写单章后 raw 比 checked 新 —— 旧 checked 可能仍有 33% 字数，
+    # 光看比例会判「可用」，重跑 stage5 直接跳过（用户实测踩到）。必须按 mtime 判过期。
+    fresh_src = _w(d / "fresh_src.md", "重写后的新正文" * 200)
+    stale_out = _w(d / "stale_out.md", "上一轮的旧正文" * 200)
+    old = time.time() - 3600
+    os.utime(stale_out, (old, old))          # 下游产物是 1 小时前写的
+    check("下游产物比上游旧 → 不可用（重写/手改后必须重跑）",
+          is_usable_output(fresh_src, stale_out) is False)
+    os.utime(stale_out, None)                # 下游更新
+    check("下游不旧于上游 → 可用（不误杀正常续跑）",
+          is_usable_output(fresh_src, stale_out) is True)
     print(f"  （临时目录 {d.name}）")
 
 

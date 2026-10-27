@@ -138,10 +138,10 @@ def case_stage4_wiring():
     src = (REPO / "scripts" / "stage4_writing.py").read_text(encoding="utf-8")
     # 2026-10-22 第一波防御：run_task 外面包了 _run_task_safe（断网异常兜底），
     # session_id 经 **kw 透传 —— 判据认两种形态（透传成立即算接线在）。
-    check("K7 stage4 调 run_task 时传了 session_id",
-          ("client.run_task(task, session_id=chapter_session)" in src
-           or "_run_task_safe(client, task, session_id=chapter_session)" in src),
-          "")
+    # 2026-10-26：写作改走流式后，这一行变成多行调用（多一个 on_piece 参数），
+    # 不再能整句匹配；判据退成「参数确实传进去了」，不绑定换行与缩进。
+    check("K7 stage4 传了 session_id（hermes 续接靠它）",
+          "session_id=chapter_session" in src, "")
     check("K7 有 chapter_session 初始化", "chapter_session = None" in src, "")
     # 更新语句必须落在「本章成功」分支内（consec_fail = 0 之后），而不是失败分支
     tree = ast.parse(src)

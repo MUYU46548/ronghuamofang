@@ -114,16 +114,28 @@ def make_survivor(tmp, total, n=1):
 
 
 class CountingClient(FakeClient):
-    """记录 stage4 写作调用次数（只数真正落盘的写作任务）。"""
+    """记录 stage4 写作调用次数（只数真正落盘的写作任务）。
+
+    ⚠️ 2026-10-26 起 stage4 走**流式**（为了停止能真中断），所以必须同时数
+    `run_task_stream` —— 只覆盖 `run_task` 会让计数恒为 0，用例就会误报
+    「幸存章被重写」。数的是"写作调用了多少次"，与走哪条通道无关。
+    """
 
     def __init__(self):
         self.write_calls = 0
 
-    def run_task(self, task_file, **kw):
+    def _count(self, task_file):
         name = Path(task_file).name
         if name.startswith("stage4_ch") and "_expand" not in name:
             self.write_calls += 1
+
+    def run_task(self, task_file, **kw):
+        self._count(task_file)
         return super().run_task(task_file, **kw)
+
+    def run_task_stream(self, task_file, on_piece, stop_flag, **kw):
+        self._count(task_file)
+        return super().run_task_stream(task_file, on_piece, stop_flag, **kw)
 
 
 def case_survivor_not_rewritten():

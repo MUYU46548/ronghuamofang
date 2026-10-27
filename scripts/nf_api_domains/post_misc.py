@@ -19,7 +19,77 @@
 导出模块不该关心自己是被 HTTP 调的还是被 CLI 调的。
 """
 import nf_api as api
+from datetime import datetime
 from utils.file_io import read_text
+
+
+def _export_history_items():
+    """扫 output/ 得出「导出过什么」（零 token、只读盘上事实）。
+
+    ## 为什么不能靠"谁调用了导出端点"来记（2026-10-26，用户第 10 条）
+
+    用户原话：「阶段8已经跑完了，暂无导出记录，过于幽默。由此可见整个 GUI 和
+    程序本体是极度割裂的」。真实原因是导出记录只存在于前端内存 ref，且只在
+    **走导出面板**时 unshift —— orchestrator 跑阶段 8、Agent 调 CLI、重开页面，
+    三种情况都会让它变空。界面于是对着一个装满产物的 output/ 说"暂无记录"。
+
+    判据改成：**output/ 里有什么就说什么** —— 不管是谁、从哪条通道产出的。
+    """
+    out_dir = api.ROOT / "output"
+    items = []
+    if not out_dir.is_dir():
+        return items
+    for p in sorted(out_dir.iterdir()):
+        try:
+            st = p.stat()
+        except OSError:
+            continue
+        item = {
+            "name": p.name,
+            "path": str(p),
+            "mtime": st.st_mtime,
+            "mtime_text": datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M"),
+        }
+        # 相对 ROOT 的路径：Electron 的 open-artifact 走白名单校验 + resolveExisting，
+        # 传相对路径最稳（绝对路径在 --root 场景下可能落在白名单外被拒）。
+        try:
+            item["rel"] = str(p.relative_to(api.ROOT)).replace("\\", "/")
+        except ValueError:
+            item["rel"] = p.name
+        if p.is_dir() and p.name.lower().endswith("_markdown"):
+            try:
+                vols = [q for q in p.iterdir() if q.is_file()
+                        and q.name.lower().endswith(".md")]
+            except OSError:
+                vols = []
+            item.update({"kind": "markdown", "files": len(vols),
+                         "chars": 0})
+            items.append(item)
+        elif p.suffix.lower() == ".docx":
+            item.update({"kind": "word", "files": 1,
+                         "chars": 0, "size": st.st_size})
+            items.append(item)
+    items.sort(key=lambda x: x.get("mtime") or 0, reverse=True)
+    return items
+
+
+def handle_exports_history(h):
+    """`GET /exports/history` —— 最近导出（**盘上事实**，不依赖谁调用过导出）。
+
+    对应用户第 10 条：「阶段8已经跑完了，暂无导出记录」。阶段 8 由 orchestrator
+    跑，不经过导出面板，所以前端那份内存记录永远是空的。这里直接扫 output/。
+    """
+    try:
+        items = _export_history_items()
+        return 200, {
+            "ok": True,
+            "items": items,
+            "count": len(items),
+            "note": ("读的是 output/ 目录的实际内容（含 orchestrator 跑阶段 7/8 的产物），"
+                     "与「本次会话里点过导出按钮」无关。"),
+        }
+    except Exception as e:                                   # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
 def handle_export_markdown(h, body):
@@ -126,6 +196,7 @@ def handle_export_word(h, body):
 
 # 本模块负责的端点（供自检与文档）
 ROUTES = (
+    ("GET", "/exports/history", handle_exports_history),
     ("POST", "/export/markdown", handle_export_markdown),
     ("POST", "/export/word", handle_export_word),
 )

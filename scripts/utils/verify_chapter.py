@@ -346,6 +346,16 @@ def is_usable_output(src_path, out_path, min_ratio=0.3, para_structure=True):
 
     **判据只有这一份**：stage5 的 `checked`、stage6 的 `refined` 都调它，
     避免"同一判据写两遍、只修一处"。
+
+    ## 为什么还要比 mtime（2026-10-27）
+
+    用户「重写本章」后实测：raw/05 变成 7173 字，而 checked/05 还是上一轮的
+    2427 字（**33.8%**，刚好越过 30% 阈值）→ 重跑 stage5 判「已存在且内容有效」
+    直接跳过，下游永远是旧稿。界面上还会说「重跑 5/6/7 即可」——那是**假话**。
+
+    判据补一条：下游产物比上游**旧** = 上游改过（重写/手改/扩写），必须重跑。
+    断点续跑的本意是"别重做已经反映最新上游的产物"，mtime 正是这件事的直接证据。
+    只判 `<`（相等算可用）：同一秒内写完的夹具/批量拷贝不会被误判成过期。
     """
     out = Path(out_path)
     if not out.exists():
@@ -354,9 +364,13 @@ def is_usable_output(src_path, out_path, min_ratio=0.3, para_structure=True):
         n_out = count_cn_words(read_text(out))
         src = Path(src_path)
         n_src = count_cn_words(read_text(src)) if src.exists() else 0
+        _out_mtime = out.stat().st_mtime
+        _src_mtime = src.stat().st_mtime if src.exists() else 0
     except Exception:                                        # noqa: BLE001
         return False
     if n_out <= 0:
+        return False
+    if _src_mtime and _out_mtime < _src_mtime:
         return False
     return not (n_src > 0 and n_out < n_src * min_ratio)
 

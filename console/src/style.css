@@ -372,6 +372,9 @@ body {
   display: grid; place-items: center; font-size: 13px;
 }
 .stage-name { font-weight: 600; }
+/* 进行中阶段的具体事实（第 g/G 群 · 本群 X/Y 字）—— 2026-10-27：
+   用户要的是「它到底在干嘛」，不是又一个百分比。独占一行，不挤按钮。 */
+.stage-sub { flex-basis: 100%; font-size: 11px; color: var(--muted); padding-left: 36px; }
 .stage-actions { display: flex; gap: 8px; flex: none; }
 .running-hint {
   margin-top: 10px; font-size: 12px; color: var(--accent);

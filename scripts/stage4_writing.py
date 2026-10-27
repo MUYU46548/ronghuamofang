@@ -10,6 +10,7 @@
 import argparse
 import json
 import re
+import time
 from pathlib import Path
 
 import sys
@@ -196,22 +197,38 @@ def _safe_read(path, budget=20000):
         return ""
 
 
-def _run_task_safe(client, task, **kw):
+def _run_task_safe(client, task, on_piece=None, **kw):
     """client.run_task 的异常兜底（第一波防御 · 任务二，2026-10-22）。
 
-    断网 / 503 风暴 / DNS 挂了这类**网络级故障**：llm_client 内部重试
-    （providers.*.retries，默认 5 次，指数退避）耗尽后会 raise RuntimeError ——
-    异常若穿透 run_stage，整个 run 会被 orchestrator 的 finally 收敛成
-    `crashed`，而不是「挂起当前章、保存进度、等恢复后续跑」。
+    ## 为什么优先走流式（2026-10-26，用户第 6 条「点停止停不下来」）
 
-    现在统一在这里转成 `exit_code=1` 的失败结果：走的就是既有的
-    「子会话失败 → mark_chapter_failed → 连败止损」路径 —— 已完成章节
-    的 progress 逐章落盘，重启后断点续跑不重做它们。
+    非流式 `run_task` 要等**整章**返回才可能检查停止标志 —— 一章几千字，等十几分钟，
+    用户点了「停止」界面毫无动静（原话：「依旧点停止停不下来，绝了」）。
+    `run_task_stream` 每读一小块就查一次 `stop_flag`，中断能在几秒内收手，
+    而且半截正文**不落盘**（`_apply_ops` 被 stop 跳过），断点续跑不会捡到废稿。
+
+    顺带解决「进度颗粒度为零」：`on_piece` 让我们能拿到已生成字数，
+    顶栏于是能显示「正在写第 6 章 · 已 1200 字」，而不是一个不动的百分比。
+
+    ⚠️ hermes 引擎不走这条分支：它的会话续接（B2 `--resume`）只接在
+    `run_task` 签名上，改动面比收益大；它自己的 `run_task_stream` 会杀子进程，
+    停止语义已在别处覆盖。
 
     ⚠️ 只兜「客户端调用」这一步：任务构造（write_task/build_chapter_task）
     的异常仍要穿透 —— 那是代码/输入缺陷，吞掉只会让每章都悄悄失败。
     """
+    stream_ok = (
+        on_piece is not None
+        and hasattr(client, "run_task_stream")
+        and getattr(client, "provider", "direct") != "hermes"
+        and not kw.get("dry_run")
+    )
     try:
+        if stream_ok:
+            # 三个客户端的 run_task_stream 都补了 `session_id`（签名同构），
+            # 所以这里照原样传即可 —— 不"悄悄 pop 掉"：真要是有实现漏了参数，
+            # 应该当场 TypeError 暴露，而不是静默丢上下文。
+            return client.run_task_stream(task, on_piece, _stop_requested, **kw)
         return client.run_task(task, **kw)
     except Exception as e:                                    # noqa: BLE001
         print(f"[stage4] ⚠ 子会话调用异常（已按失败处理，进度保留）: "
@@ -845,12 +862,55 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         todo = sorted(set(todo) | set(orphan_ns))
     _orphan_set = set(orphan_ns)
 
+    # 「只写指定章」（2026-10-26，GUI「重写本章」）：GUI 那边已经把这章的
+    # raw 文件移走并清了完成标记，这里再把 todo 收窄到指定章。
+    # 为什么用环境变量而不是加参数：orch_run 的签名是四个阶段路径共用的，
+    # 为一个 GUI 动作改公共签名不划算；而 start_job 保证同一时刻只有一个 job
+    # 在跑（互斥），不存在两个 stage4 抢同一个变量。
+    _only_env = os.environ.get("NF_STAGE4_ONLY", "").strip()
+    if _only_env:
+        try:
+            _only_ns = {int(x) for x in _only_env.split(",") if x.strip().isdigit()}
+        except ValueError:
+            _only_ns = set()
+        if _only_ns:
+            before = list(todo)
+            todo = [x for x in todo if x in _only_ns]
+            print(f"[stage4] 只写指定章：{sorted(_only_ns)}"
+                  f"（原本待写 {before}，收窄为 {todo}）")
+            if not todo:
+                print(f"[stage4] 指定章 {sorted(_only_ns)} 不在待写列表里"
+                      "（盘上已有合格正文且标记完整）—— 无需重写")
+            if len(_only_ns) == 1:
+                # 单章重写标记：/state 据此把分母从「全书章数」换成「这一章」，
+                # 前端才不会把「重写第 5 章」画成永恒的 99%（见 stage_status）。
+                try:
+                    _st4 = progress.data.setdefault("stages", {}).setdefault("4", {})
+                    _st4["rewrite_chapter"] = next(iter(_only_ns))
+                    progress.save()
+                except Exception as e:                       # noqa: BLE001
+                    print(f"[stage4] 写入 rewrite_chapter 失败（不影响写作）: "
+                          f"{type(e).__name__}: {e}")
+
     if not todo:
+        # 这里可能刚写过 rewrite_chapter（指定章已合格、无需重写）—— 一并清掉，
+        # 否则 /state 会一直以为"正在重写第 N 章"。
+        try:
+            progress.data.get("stages", {}).get("4", {}).pop("rewrite_chapter", None)
+        except Exception:                                    # noqa: BLE001
+            pass
         progress.set_stage(4, "done")
         return True, "stage4 跳过（已完成）"
 
     progress.set_stage(4, "running")
     low, high = cfg.get("chapter", {}).get("target_words", [2000, 3000])[:2]
+    # 篇幅口径与生成方式的匹配告警（2026-10-26，用户：「弱模型无论怎么骂就是写不长
+    # ……所以才需要加强模式来强行拼凑」）。不阻断，只说清楚"你可能需要它"。
+    if low >= 4000 and not bool(cfg.get("chapter", {}).get("enhanced_mode", False)):
+        print(f"[stage4] 提示：目标字数下限 {low} 字，但加强模式未开启"
+              "（chapter.enhanced_mode=false）。"
+              "弱模型整章单发常在两三千字就收尾；出现这类失败时本阶段会自动兜底"
+              "转加强模式，也可以在「设置 → 加强模式」里预先开启。")
     # 连续失败止损阈值（0 = 关闭）。见 _fail 的说明。
     max_consec_fail = int(cfg.get("gates", {}).get("stage4_max_consecutive_failures", 3))
     # 打回重生成上限（第一波防御 · 任务一）。0 = 关闭打回（行为退回本改动之前：
@@ -860,6 +920,60 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     expanded = set()   # 本轮已扩写过的章节（每章至多一次，防空转）
     aborted = ""
     done_this_round = 0
+
+    # ---- 流式写作的字数回传（2026-10-26，用户第 3/4/6 条）----
+    # 用户原话：「job 状态一直 running，我无法知道内部进度」「卡在 29% 让人觉得坏了」。
+    # 有了流式回调，界面可以显示「正在写第 6 章 · 已 1200 字」，而不是一个死数字。
+    _ch_state = {"chars": 0, "last_write": 0.0}
+
+    def _piece_progress(chapter_no):
+        """流式回调：累计已生成字数，**节流**写进 progress（约 1.5 秒一次）。
+
+        为什么不每个 token 都写盘：一章几千个 token = 几千次 JSON 落盘，
+        IO 反而拖慢写作本身。1.5 秒粒度足够前端 2.5 秒刷新一次看到变化。
+        写失败只忽略 —— 进度观测坏了不该拖垮出稿。
+        """
+        def _on_piece(piece):
+            _ch_state["chars"] += len(piece)
+            now = time.time()
+            if now - _ch_state["last_write"] < 1.5:
+                return
+            _ch_state["last_write"] = now
+            try:
+                st = progress.data.setdefault("stages", {}).setdefault("4", {})
+                st["current_chapter"] = chapter_no
+                st["current_chars"] = _ch_state["chars"]
+                # 最后更新时间（2026-10-27）：只说「已写 1 字」用户分不清是刚起步
+                # 还是模型思考/网络卡住。前端据此显示「N 秒前有更新」。
+                st["current_chars_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+                progress.save()
+            except Exception:                                # noqa: BLE001
+                pass
+        return _on_piece
+
+    def _group_progress(chapter_no):
+        """段群开始回调（2026-10-27，加强模式）：把「第几群 / 本群配额」写进进度。
+
+        为什么需要：整章 5 群、每群十几分钟，只报整章字数的话，用户看到
+        「已写 1 字」无法判断是在第 1 群刚起步还是第 3 群卡住。按群归零后，
+        界面能说「第 2/5 群 · 本群 800/1400 字」——这是可核对的事实。
+        """
+        def _on_group(group, total_groups):
+            _ch_state["chars"] = 0
+            _ch_state["last_write"] = 0.0
+            _ch_state["group"] = group["idx"]
+            try:
+                st = progress.data.setdefault("stages", {}).setdefault("4", {})
+                st["current_chapter"] = chapter_no
+                st["current_group"] = int(group["idx"])
+                st["total_groups"] = int(total_groups)
+                st["current_group_quota"] = int(group["quota"])
+                st["current_chars"] = 0
+                st["current_chars_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+                progress.save()
+            except Exception:                                # noqa: BLE001
+                pass
+        return _on_group
 
     def _fail(n, reason, extra=()):
         """记一次章节失败；连续失败达上限 → 返回 True（要求提前止损）。
@@ -939,6 +1053,27 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                   "（已完成章节保留，断点续跑不重写）")
             aborted = "stopped"
             break
+        # 「正在写第 N 章」（2026-10-26，用户「永恒 29%」/「Agent 跑起来完全看不见」）：
+        # 这一行进 progress.json 后，/state 的 stages[4].current_chapter 就能回答
+        # 「现在写到第几章、总共几章」。此前 progress 只在**章写完之后**才动，
+        # 一章写十几分钟期间外部只看到 state=running、别的什么都没有。
+        # 失败不影响写作主链路（进度观测坏了不该拖垮出稿）。
+        # 顺带重置流式字数（2026-10-26）：整章单发与拆群生成共用同一个计数，
+        # 放在章开头统一重置，两种模式都不会把上一章的字数带进来。
+        _ch_state["chars"] = 0
+        _ch_state["last_write"] = 0.0
+        _ch_state["group"] = 0
+        try:
+            _st4 = progress.data.setdefault("stages", {}).setdefault("4", {})
+            _st4["current_chapter"] = n
+            # 清掉上一章/上一轮遗留的段群字段：整章单发模式下它们没有意义，
+            # 留着会让界面把「第 2/5 群」显示到下一章头上。
+            for _k in ("current_group", "total_groups", "current_group_quota",
+                       "current_chars", "current_chars_at"):
+                _st4.pop(_k, None)
+            progress.save()
+        except Exception as e:                               # noqa: BLE001
+            print(f"[stage4] 写入 current_chapter 失败（不影响写作）: {type(e).__name__}: {e}")
         chap_path = raw_dir / f"{n:02d}.md"
         if n in _orphan_set:
             # 崩溃恢复：正文已在盘且合格，跳过一切 LLM 准备与调用，直接补账。
@@ -985,24 +1120,31 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         # 每群立即落盘 data/chapters/_parts/（段群级断点续跑，与任务二的
         # "已完成段落落盘"是同一件事）。默认 false = 走下面的整章单发，零影响。
         enhanced = bool(cfg.get("chapter", {}).get("enhanced_mode", False))
+        # 段群调用 hook（2026-10-26 提前到这里）：整章单发与拆群生成共用一个，
+        # 因为「字数不够时自动转加强模式」也要用它。
+        _bstate = {"paused": False}
+
+        def _group_run(tp):
+            """段群调用：异常兜底 + 逐群记账 + 逐群查熔断（一章多群，
+            不在群间查，限额对加强模式恰好失效）。
+
+            ⚠️ `on_piece` 必须传：加强模式是长章的主路径，不传就等于
+            「拆群时点停止没反应」——恰好在最需要停的时候失效。
+            """
+            r = _run_task_safe(client, tp, on_piece=_piece_progress(n))
+            if cost and cost.charge_cost(run_id, 4, n, r) == "pause":
+                _bstate["paused"] = True
+                r = dict(r)
+                r["exit_code"] = 98          # 非零哨兵：write_chapter_groups 即停
+            return r
+
         if enhanced:
             from utils.enhanced_chapter import write_chapter_groups
-            _bstate = {"paused": False}
-
-            def _group_run(tp):
-                """段群调用：异常兜底 + 逐群记账 + 逐群查熔断（一章多群，
-                不在群间查，限额对加强模式恰好失效）。"""
-                r = _run_task_safe(client, tp)
-                if cost and cost.charge_cost(run_id, 4, n, r) == "pause":
-                    _bstate["paused"] = True
-                    r = dict(r)
-                    r["exit_code"] = 98          # 非零哨兵：write_chapter_groups 即停
-                return r
-
             print(f"[stage4] 第{n}章加强模式：拆段落群生成（chapter.enhanced_mode=true）")
             result = write_chapter_groups(cfg, proj, n, client, task_dir,
                                           outline_rel, prev_tail,
-                                          run_hook=_group_run)
+                                          run_hook=_group_run,
+                                          on_group=_group_progress(n))
             # 段群调用已在 _group_run 里逐群记账 —— _finalize 只补 log，
             # 不再重复 charge（否则一章记两遍账）。
             result["already_charged"] = True
@@ -1016,7 +1158,16 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                 break
         else:
             # B2：session_id 只在引擎开启续接时才有意义（direct 客户端收下但忽略）
-            result = _run_task_safe(client, task, session_id=chapter_session)
+            result = _run_task_safe(client, task,
+                                    on_piece=_piece_progress(n),
+                                    session_id=chapter_session)
+        # 用户主动中断（2026-10-26）：半截正文不落盘（llm_client 的 _apply_ops 已被
+        # stop 跳过）。这**不是**失败 —— 记成失败会触发连败止损，把"你按了停止"
+        # 误报成"系统性问题"，还可能让后续章节全部停摆。
+        if result.get("stopped"):
+            print(f"[stage4] 第{n}章写作被用户中断（半截不落盘；断点续跑会重写这一章）")
+            aborted = "stopped"
+            break
         if result["exit_code"] != 0:
             # 传输类异常（断网/503 耗尽）要说清自己 —— 否则用户按「子会话退出码
             # 非零」去查提示词/产物，而真因是网络（任务二排障口径）。
@@ -1052,8 +1203,44 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         # 每轮调用都记账 + 查熔断（与扩写同口径：一章多轮调用同样可能烧穿限额）。
         regen_rounds = 0
         regen_actions = []
+        auto_enhanced = False      # 本章是否已自动兜底过一次（防无限拆群）
         while not check.ok and not aborted and regen_rounds < regen_max:
             regen_rounds += 1
+            # ---- 字数差太多 → 用加强模式补量（2026-10-26）----
+            # 用户原话：「有些弱模型无论怎么骂就是写不长，像后台有个看不见的开关
+            # 拧死了一样。所以才需要那个加强模式来强行拼凑。」
+            #
+            # 对这类失败，「整章重生成」是**无效**的：同一个模型、同一个目标、
+            # 同一套提示词，只会再短一次（白烧一遍输入）。拆段落群才解得开 ——
+            # 每群只背 1500 字配额，弱模型也做得到，拼起来才够长。
+            #
+            # ⚠️ 但这招比「定向扩写」贵（拆 k 群 = k 次调用），所以**只在差太多时**
+            # 用：字数已到下限 60% 时先试扩写（1 次），扩写补不上再拆群。
+            # 判据与 can_expand 同一个阈值，两个分支不会互相打架。
+            if ((not check.degenerate) and check.word_count < low
+                    and check.word_count < int(low * 0.6)
+                    and not enhanced and not auto_enhanced):
+                auto_enhanced = True
+                action = "加强模式补量"
+                print(f"[stage4] 第{n}章字数 {check.word_count} < {low}，"
+                      "整章重生成对弱模型无效 —— 自动转加强模式（拆段落群逐群补足）")
+                from utils.enhanced_chapter import (write_chapter_groups as _wcg,
+                                                    clear_parts as _cp)
+                _cp(n)
+                gres = _wcg(cfg, proj, n, client, task_dir, outline_rel, prev_tail,
+                            run_hook=_group_run, on_group=_group_progress(n))
+                gres["already_charged"] = True
+                regen_actions.append(action)
+                if _bstate["paused"]:
+                    aborted = "budget"
+                    break
+                if gres.get("stopped"):
+                    aborted = "stopped"
+                    break
+                if chap_path.exists():
+                    _norm(chap_path, n)
+                    check = check_chapter(chap_path, low, high)
+                continue
             can_expand = (not check.degenerate
                           and check.word_count < low
                           and check.word_count >= int(low * 0.6)
@@ -1079,7 +1266,8 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                     clear_parts(n)
                     gres = write_chapter_groups(
                         cfg, proj, n, client, task_dir, outline_rel, prev_tail,
-                        run_hook=_group_run, chapter_feedback=_fb.strip())
+                        run_hook=_group_run, chapter_feedback=_fb.strip(),
+                        on_group=_group_progress(n))
                     gres["already_charged"] = True
                     regen_actions.append(action)
                     if _bstate["paused"]:
@@ -1156,13 +1344,30 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
             aborted = "budget"
             break
 
+    # 阶段结束（无论 done/failed/中断）都清掉「正在写第 N 章」——
+    # 否则断点续跑前 /state 会一直显示上一轮停在的那个章号，看起来像卡住了。
+    try:
+        _st4 = progress.data.get("stages", {}).get("4", {})
+        for _k in ("current_chapter", "current_chars", "current_chars_at",
+                   "current_group", "total_groups", "current_group_quota",
+                   "rewrite_chapter"):
+            _st4.pop(_k, None)
+        # 显式落盘：下面的 set_stage 各分支都会 save，但把「观测字段清理」
+        # 依赖后续调用保存，等于让下次加分支的人踩同一个坑。
+        progress.save()
+    except Exception:                                        # noqa: BLE001
+        pass
     if aborted:
         remaining_failed = progress.failed_chapters(4)
-        progress.set_stage(4, "failed", failed_count=len(remaining_failed))
         if aborted == "stopped":
-            # 用户主动中断 ≠ 章节失败：只报中断事实（连败止损文案不适用）
+            # 用户主动中断 ≠ 章节失败（2026-10-26）：状态回到 pending，**不标 failed**。
+            # 标 failed 会让界面显示「阶段 4 失败」，用户以为自己把东西弄坏了；
+            # 而且 failed 语义是"跑过但没成功"，中断语义是"还没跑完"，两回事。
+            progress.set_stage(4, "pending")
             return False, ("stage4 被**用户中断**（本轮完成 %d 章）—— "
-                           "断点续跑不会重写已完成章节" % done_this_round)
+                           "当前章半截不入稿；断点续跑不会重写已完成章节"
+                           % done_this_round)
+        progress.set_stage(4, "failed", failed_count=len(remaining_failed))
         if aborted == "budget":
             return False, ("stage4 因**预算熔断**停止（本轮完成 %d 章，累计失败 %d 章）。"
                            "调大 config/system.yaml 的 budget.token_limit.max_total_tokens"

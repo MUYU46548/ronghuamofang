@@ -168,7 +168,7 @@ def assemble(n, out_path):
 
 def write_chapter_groups(cfg, proj, n, client, task_dir,
                          outline_path, prev_tail, run_hook=None,
-                         chapter_feedback=None):
+                         chapter_feedback=None, on_group=None):
     """加强模式写一章：逐段群生成 → 立即落盘 → 拼装。
 
     run_hook(task_path) -> result dict：由调用方注入（stage4 在里面做
@@ -176,6 +176,8 @@ def write_chapter_groups(cfg, proj, n, client, task_dir,
     缺省直接 client.run_task（测试/独立调用用）。
     chapter_feedback：整章级打回反馈（stage4 的重生成循环注入），
     下传给**每个**段群任务 —— 整章不过关时往往每群都有份。
+    on_group(group, total_groups)：段群开始前的回调（stage4 用来写
+    「第 g/G 群 · 本群配额」进度；缺省 None = 不观测，测试行为不变）。
     """
     book_cfg = cfg.get("chapter", {})
     low, high = book_cfg.get("target_words", [2000, 3000])[:2]
@@ -189,6 +191,11 @@ def write_chapter_groups(cfg, proj, n, client, task_dir,
     run = run_hook or (lambda p: client.run_task(p))
 
     for group in groups:
+        if on_group is not None:
+            try:
+                on_group(group, len(groups))
+            except Exception:                              # noqa: BLE001
+                pass       # 进度观测坏了不该拖垮写作
         pp = part_path(n, group["idx"])
         if part_ok(pp, group["quota"]):
             # 段群级断点续跑：上一轮已落盘且合格的群不重调（零重复零丢失）

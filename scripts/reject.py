@@ -61,6 +61,10 @@ DOWNSTREAM_ARTIFACTS = {
     5: ["data/chapters/checked", "data/chapters/refined", "data/merged", "output"],
     6: ["data/chapters/refined", "data/merged", "output"],
     7: ["data/merged", "output"],
+    # 阶段 8（Markdown 分卷导出）：产物只落在 output/{书名}_markdown/。
+    # 不能整目录清 output/ —— 那会把阶段 7 的 Word 成品一起删掉（打回 8 只该
+    # 作废 Markdown 导出）。故按 glob 精确到 markdown 子目录及其 .bak 备份。
+    8: ["output/*_markdown", "output/*_markdown.bak"],
 }
 
 # 阶段 1 = 自己的产物 + 全部下游（下游清单与 stage2 逐字同源，避免两处漂移）。
@@ -74,19 +78,37 @@ DOWNSTREAM_ARTIFACTS[1] = (
 
 STAGE_LABEL = {
     1: "Materials", 2: "Global Outline", 3: "Chapter Outlines", 4: "Writing",
-    5: "Check", 6: "Polish", 7: "Word",
+    5: "Check", 6: "Polish", 7: "Word", 8: "Markdown",
 }
 
 
-def collect_artifacts(stage):
-    """Collect artifact paths to clean when rejecting stage N."""
+def _root_from_progress(pm):
+    """从 progress.json 的路径反推项目根（data/state/progress.json → 根）。
+
+    为什么不再用 CWD（2026-10-27）：`--root` / 测试临时工作区场景下 CWD 可能
+    是另一个项目，`Path().glob(...)` 会在**错误的地方**找产物 —— 打回变成
+    静默空操作（阶段 8 的 markdown 实测就没被清掉）。progress 的路径本身就是
+    唯一可靠的项目根锚点：生产里 CWD == ROOT，两者结果一致，行为不变。
+    """
+    try:
+        return Path(pm.path).resolve().parents[2]
+    except Exception:                                        # noqa: BLE001
+        return Path.cwd()
+
+
+def collect_artifacts(stage, root=None):
+    """Collect artifact paths to clean when rejecting stage N.
+
+    root 缺省为当前目录（老调用语义）；显式传入时按该根解析，避免读错项目。
+    """
+    base = Path(root) if root is not None else Path()
     paths = []
     for rel in DOWNSTREAM_ARTIFACTS.get(stage, []):
         if any(ch in rel for ch in "*?["):
             # 含通配（如 scraps_merge*.json 分批产物）→ 展开全部命中，不命中即空
-            paths.extend(sorted(Path().glob(rel)))
+            paths.extend(sorted(base.glob(rel)))
             continue
-        p = Path(rel)
+        p = base / rel
         if p.exists():
             paths.append(p)
     return paths
@@ -97,7 +119,10 @@ def reject_stage(pm, stage, reason="", dry_run=False):
     msgs = []
 
     if stage not in DOWNSTREAM_ARTIFACTS:
-        return False, [f"Unsupported stage: {stage} (valid: 1-7)"]
+        lo, hi = min(DOWNSTREAM_ARTIFACTS), max(DOWNSTREAM_ARTIFACTS)
+        return False, [f"Unsupported stage: {stage} (valid: {lo}-{hi})"]
+
+    root = _root_from_progress(pm) if pm is not None else Path.cwd()
 
     # Safety: 丙3 before-import 契约 —— 打回要清产物，**先快照，备份不了就不许动**。
     # 原实现是 fail-open（快照失败只 append 一行 "Snapshot failed (continuing)"
@@ -105,7 +130,7 @@ def reject_stage(pm, stage, reason="", dry_run=False):
     if not dry_run:
         from utils.import_guard import ImportGuardError, preimport
         try:
-            entry = preimport(f"reject.stage{stage}", root=Path.cwd())
+            entry = preimport(f"reject.stage{stage}", root=root)
         except ImportGuardError as e:
             return False, [str(e)]
         msgs.append(f"Snapshot saved: {entry.get('snapshot_path')}")
@@ -126,7 +151,7 @@ def reject_stage(pm, stage, reason="", dry_run=False):
         pm.save()
 
     # Clean artifacts
-    artifacts = collect_artifacts(stage)
+    artifacts = collect_artifacts(stage, root)
     for p in artifacts:
         msgs.append(f"Clean: {p}")
         if not dry_run:
@@ -162,7 +187,7 @@ def reject_stage(pm, stage, reason="", dry_run=False):
 def main():
     parser = argparse.ArgumentParser(description="NovelForge reject/rerun normalization")
     parser.add_argument("--stage", type=int, required=True,
-                        help="Stage to reject (1-7; self + downstream artifacts cleaned)")
+                        help="Stage to reject (1-8; self + downstream artifacts cleaned)")
     parser.add_argument("--reason", default="", help="Rejection reason (recorded in progress.json)")
     parser.add_argument("--dry-run", action="store_true",
                         help="Show what would be cleaned without executing")

@@ -540,8 +540,12 @@ class FakeClient:
             "requests": 1,
         }
 
-    def run_task_stream(self, task_file, on_piece, stop_flag, workdir=None, model=None):
-        """Fake 流式：模拟逐字符输出。"""
+    def run_task_stream(self, task_file, on_piece, stop_flag, workdir=None, model=None,
+                        session_id=None):
+        """Fake 流式：模拟逐字符输出。
+
+        `session_id` 签名同构用（假客户端没有会话概念）。
+        """
         import time
         path = Path(task_file)
         text = read_text(path)

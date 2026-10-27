@@ -27,6 +27,11 @@ STAGE_ARTIFACTS = {
     5: ["data/chapters/checked"],
     6: ["data/chapters/refined"],
     7: ["output"],
+    # 阶段 8（Markdown 分卷导出）此前**不在表里** → `missing_artifacts(8)` 恒返空，
+    # 等于"永远算有产物"。它的真实产物是 output/{书名}_markdown/（路径含书名，
+    # 无法写成静态相对路径），故与阶段 7 同判 output/ 非空 —— 粗粒度但不会再真空过。
+    # 精确到分卷目录需要动态路径，留给 summarize_artifacts 的目录展开去做。
+    8: ["output"],
 }
 
 
@@ -62,6 +67,14 @@ STAGE_NAMES = {
     1: "素材归并", 2: "大纲", 3: "分章大纲",
     4: "写作", 5: "检查", 6: "润色", 7: "Word", 8: "Markdown导出",
 }
+
+# 合法阶段号的**唯一真源**（2026-10-27）。
+# 为什么要有：阶段 8 早已在 orchestrator（STAGES/range(from,9)）、progress_manager
+# （STAGE_KEYS）、/state（build_state）里生效，但 GUI 侧的几个写端点仍写死
+# `1 <= stage <= 7` —— 于是阶段 8 显示「待审批」，点确认得到 400「stage 须为 1-7」。
+# 用户原话：「阶段8无法放行（提示stage须为1-7，代码打架）」。判据只留这一份，
+# 新增阶段时改 STAGE_NAMES 一处即可，不再各写一份数字字面量。
+VALID_STAGES = tuple(sorted(STAGE_NAMES))
 
 # 各阶段「开工前要吃」的**上游**产物 —— 与 STAGE_ARTIFACTS 的方向相反：
 # 后者是"这阶段该留下什么"（完成判定用），这里是"这阶段开工前必须已有什么"
@@ -140,6 +153,35 @@ def missing_inputs(stage, root, will_produce=None):
 # 确定性规则数，前端只负责渲染。
 
 
+def _docx_chars(path):
+    """docx 正文字符数（段落 + 表格单元格）。
+
+    ## 为什么必须真读（2026-10-26，用户第 8 条）
+
+    旧实现遇到 `.docx` 直接 `continue`（注释写「二进制：只计数不读字符」），
+    而阶段 7 的产物 `output/` 里**只有 docx** —— 于是 files=1、chars=0，
+    界面显示「output (1 篇 · 0 字)」。用户原话：「阶段7 output (1 篇 · 0 字)，
+    疑似GUI 统计字数的方式有问题」。产物明明 56KB、10 章齐全、体检全过，
+    界面上却像空的 —— 这是把"我们没数"谎报成"里面没有"。
+
+    缺 python-docx 或文件损坏时**返回 0 并让调用方标注**（不静默当成 0 字）。
+    """
+    try:
+        import docx
+    except Exception:                                        # noqa: BLE001
+        return 0
+    try:
+        d = docx.Document(str(path))
+        n = sum(len(p.text) for p in d.paragraphs)
+        for t in d.tables:
+            for row in t.rows:
+                for cell in row.cells:
+                    n += len(cell.text)
+        return n
+    except Exception:                                        # noqa: BLE001
+        return 0
+
+
 def summarize_artifacts(stage, root):
     """返回该阶段产物的概况（确定性，零 LLM）。每项：
 
@@ -164,7 +206,9 @@ def summarize_artifacts(stage, root):
                     continue
                 item["files"] += 1
                 if f.suffix.lower() == ".docx":
-                    continue                      # 二进制：只计数不读字符
+                    # docx 也是**有正文的产物**：不数它，阶段 7 就显示「0 字」
+                    item["chars"] += _docx_chars(f)
+                    continue
                 try:
                     txt = f.read_text(encoding="utf-8", errors="replace")
                 except OSError:

@@ -67,8 +67,15 @@ def main():
           missing_artifacts(3, tmp))
     rel("data", "outline", "chapters", "01.md").write_text("# 第1章", encoding="utf-8")
     check("有货目录 → 放行", missing_artifacts(3, tmp) == [], missing_artifacts(3, tmp))
-    check("未登记阶段（如 8）→ 空列表", missing_artifacts(8, tmp) == [], missing_artifacts(8, tmp))
-    check("产物表覆盖 1-7 阶段", set(STAGE_ARTIFACTS) == set(range(1, 8)), sorted(STAGE_ARTIFACTS))
+    # 阶段 8（Markdown 导出）自 2026-10-26 起**在表内**（此前漏登记 = 产物校验真空过，
+    # /state 也整个不返回它，用户「阶段 8 在客户端内直接不存在」）。故空列表改用
+    # 真正未登记的阶段号 99 来验。
+    check("未登记阶段（如 99）→ 空列表", missing_artifacts(99, tmp) == [],
+          missing_artifacts(99, tmp))
+    check("产物表覆盖 1-8 阶段", set(STAGE_ARTIFACTS) == set(range(1, 9)),
+          sorted(STAGE_ARTIFACTS))
+    check("阶段 8 的产物判据是 output/（与阶段 7 同域）",
+          missing_artifacts(8, tmp) == ["output"], missing_artifacts(8, tmp))
 
     print("【B】nf_api 包装：判定跟 ROOT 走")
     import nf_api
