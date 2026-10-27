@@ -1,5 +1,5 @@
 <!--
-  OutlineView.vue — 「大纲」页签（任务 1/2/3/4 的 UI 宿主）
+  OutlineView.vue — “大纲”页签（任务 1/2/3/4 的 UI 宿主）
 
   布局：
     顶部工具栏：刷新 / 保存 / 版本对比 / 更多方案
@@ -127,7 +127,7 @@
           <div class="ov-field ov-ai">
             <label>AI 精修（只修订此条，不动其他内容）</label>
             <button class="mini primary" :disabled="aiLoading || isBusy" @click="aiOpen = true">
-              {{ aiLoading ? "修订中…" : "AI 修订此节点" }}
+              {{ aiLoading ? ("修订中… 已 " + _fmtElapsed(aiElapsed)) : "AI 修订此节点" }}
             </button>
             <button class="mini" :disabled="aiLoading || isBusy" @click="undoRefine">撤销上次修订</button>
           </div>
@@ -153,7 +153,7 @@
     <!-- ============ AI 修订意见对话框 ============ -->
     <div v-if="aiOpen" class="drawer-mask" @click.self="aiOpen = false">
       <div class="dialog">
-        <h3>AI 修订「{{ sel && sel.title }}」</h3>
+        <h3>AI 修订“{{ sel && sel.title }}”</h3>
         <div class="meta">只重写这一条（保留事件核心），不影响其他节点与四节结构；修订前自动备份到 data/outline/history/。</div>
         <textarea v-model="aiFeedback" rows="4"
                   placeholder="例如：侧重主角；结尾留悬念"></textarea>
@@ -220,12 +220,12 @@
           <button class="mini" @click="varOpen = false">关闭</button>
         </div>
         <div class="meta" style="margin:6px 0 10px;">
-          动笔前先定故事走向。三张卡的 <b>结构必须不同</b>，每张都写了「代价」——
+          动笔前先定故事走向。三张卡的 <b>结构必须不同</b>，每张都写了“代价”——
           只写优点的方案等于没有选择。选定后 stage2 按它生成全书大纲；
           不选就按 project.yaml 的 user_outline 走。
         </div>
         <div v-if="!variants.length" class="empty">
-          还没有方案 —— 点「生成 3 个走向」（几十秒，按当前模型计价）
+          还没有方案 —— 点“生成 3 个走向”（几十秒，按当前模型计价）
         </div>
         <div v-else class="ov-multi">
           <div v-for="v in variants" :key="v.id" class="ov-multi-col">
@@ -254,13 +254,13 @@
           <span v-if="drafts.length" class="meta">{{ drafts.length }} 份方案</span>
           <span class="spacer"></span>
           <button class="mini" :disabled="multiRunning" @click="runMulti">
-            {{ multiRunning ? "生成中…" : "生成 3 版" }}
+            {{ multiRunning ? ("生成中… 已 " + _fmtElapsed(multiElapsed)) : "生成 3 版" }}
           </button>
           <button class="mini" :disabled="!drafts.length" @click="compose">拼合为最终版</button>
           <button class="mini danger" :disabled="!drafts.length" @click="discardDrafts">放弃并清理</button>
           <button class="mini" @click="closeMulti">关闭</button>
         </div>
-        <div v-if="!drafts.length" class="empty">尚无方案 —— 点击「生成 3 版」串行生成（约需数分钟）</div>
+        <div v-if="!drafts.length" class="empty">尚无方案 —— 点击“生成 3 版”串行生成（约需数分钟）</div>
         <div v-else class="ov-multi">
           <div v-for="d in drafts" :key="d.id" class="ov-multi-col">
             <div class="ov-multi-head">
@@ -296,8 +296,8 @@
 
     <!-- ============ 趋势 / 建议（本轮新增） ============
          回答两个问题：
-           「还要不要再迭代一轮？」→ 迭代趋势（每轮指标序列 + 收敛判定）
-           「接下来先做哪一步？」  → 开工方向建议（按严重度排序的候选方案）
+           “还要不要再迭代一轮？”→ 迭代趋势（每轮指标序列 + 收敛判定）
+           “接下来先做哪一步？”  → 开工方向建议（按严重度排序的候选方案）
          两者都是**确定性分析、零 token**，所以可以随手点，不必心疼成本。
          建议项若带 next_step，可一键执行（提交节点精修任务）。 -->
     <div v-if="advOpen" class="drawer-mask" @click.self="advOpen = false">
@@ -635,7 +635,7 @@ function onInlineEdit({ id, text }) {
   raw.value = newRaw;
   if (selId.value === id) { propText.value = text; propDirty.value = false; }
   refreshStructureOnly();
-  say("已内联修改（点「保存」写盘）");
+  say("已内联修改（点“保存”写盘）");
 }
 
 function escapeRe(s) {
@@ -652,7 +652,7 @@ function saveEntry() {
   raw.value = newRaw;
   propDirty.value = false;
   refreshStructureOnly();
-  say("已更新此条（点「保存」写盘）");
+  say("已更新此条（点“保存”写盘）");
 }
 function revertEntry() {
   propText.value = sel.value ? sel.value.text : "";
@@ -700,34 +700,76 @@ async function save() {
 const aiOpen = ref(false);
 const aiFeedback = ref("");
 const aiLoading = ref(false);
+const aiElapsed = ref(0);          // 已等待秒数
+let aiTimer = null;
 const aiResult = ref(null);
 const aiCharDiff = computed(() => {
   if (!aiResult.value) return [];
   return charDiff(aiResult.value.old_text || "", aiResult.value.new_text || "");
 });
+
+function _stopAiTimer() {
+  if (aiTimer) { clearInterval(aiTimer); aiTimer = null; }
+}
+
+/* 提交后统一走这里：说清“走哪条路、在哪看、已等多久”。
+   用户 2026-10-26 第 3 条原话：“Agent 模式下点大纲修订，走的是哪条路径？
+   一点提示都没有。我姑且当作是 Agent 路径了，虽然我在 Hermes 里完全没看到
+   任何后台任务。经常卡在 29%，让人觉得坏了，想点停止。”
+   —— 它不是 Hermes 任务，是项目自身的 LLM 调用（job 跑在 nf_api 进程内）。 */
 async function submitAi() {
-  if (!sel.value) return;
+  if (!sel.value || aiLoading.value) return;
   aiOpen.value = false;
+  aiFeedback.value = "";
   aiLoading.value = true;
-  const r = await props.api("/refine/outline/node", "POST",
-                            { node_id: sel.value.id, feedback: aiFeedback.value });
-  if (r.status !== 202) { aiLoading.value = false; say("提交失败: " + (r.data.error || r.status)); return; }
-  const jid = r.data.job_id;
-  const poll = setInterval(async () => {
-    const j = await props.api("/jobs/" + jid);
-    if (j.status !== 200) return;
-    if (j.data.state === "running") return;
-    clearInterval(poll);
-    aiLoading.value = false;
-    if (j.data.state === "ok" && j.data.result && typeof j.data.result === "object") {
-      aiResult.value = j.data.result;
-      aiFeedback.value = "";
-      await load(false);
-      say("已修订「" + (j.data.result.entry_id || "") + "」（v" + j.data.result.version + "）");
-    } else {
-      say("修订失败: " + (j.data.result || "未知错误"));
+  aiElapsed.value = 0;
+  _stopAiTimer();
+  aiTimer = setInterval(() => { aiElapsed.value += 1; }, 1000);
+  try {
+    const r = await props.api("/refine/outline/node", "POST",
+                              { node_id: sel.value.id, feedback: aiFeedback.value });
+    if (r.status !== 202) {
+      say("提交失败: " + ((r.data && r.data.error) || r.status));
+      return;
     }
-  }, 1500);
+    const jid = r.data.job_id;
+    say("已提交节点修订（job " + jid + "）—— 由本项目引擎直接调用模型，"
+        + "不是 Hermes 后台任务；进度看右侧按钮上的计时");
+    let polls = 0;
+    await new Promise((resolve) => {
+      const poll = setInterval(async () => {
+        polls += 1;
+        if (polls > 600) {           // 10 分钟兜底
+          clearInterval(poll);
+          say("修订等待超时（10 分钟）—— 请查看“📋 日志”，或稍后用“撤销上次修订”回滚");
+          resolve();
+          return;
+        }
+        let j;
+        try {
+          j = await props.api("/jobs/" + jid);
+        } catch (e) {
+          return;                    // 单次抖动不终止
+        }
+        if (!j || j.status !== 200 || (j.data && j.data.state === "running")) return;
+        clearInterval(poll);
+        const st = j.data && j.data.state;
+        if (st === "ok" && j.data.result && typeof j.data.result === "object") {
+          aiResult.value = j.data.result;
+          say("已修订“" + (j.data.result.entry_id || "") + "”（v" + j.data.result.version + "）");
+        } else {
+          say("修订失败: " + ((j.data && j.data.result) || "未知错误"));
+        }
+        resolve();
+      }, 1500);
+    });
+    await load(false);
+  } catch (e) {
+    say("修订出错：" + (e && e.message ? e.message : e));
+  } finally {
+    _stopAiTimer();
+    aiLoading.value = false;
+  }
 }
 async function undoRefine() {
   if (!window.confirm("撤销上次节点修订？将从 history 恢复上一版大纲。")) return;
@@ -798,7 +840,7 @@ function exportDiff() {
 }
 
 /* ---------- 开局方案（动笔前定走向） ----------
-   为什么比「多方案」更早出现：多方案是全书大纲已经生成后挑节点拼合，
+   为什么比“多方案”更早出现：多方案是全书大纲已经生成后挑节点拼合，
    而方向错的返工最贵 —— 那时全书大纲的钱已经烧完。这里在 stage2 之前给走向。 */
 const varOpen = ref(false);
 const variants = ref([]);
@@ -853,15 +895,35 @@ const multiOpen = ref(false);
 const drafts = ref([]);
 const actSource = ref(1);
 const multiRunning = ref(false);
+const multiElapsed = ref(0);       // 已等待秒数（用户要看“还在动”）
+let multiTimer = null;
 const checked = ref({});
+
+function _fmtElapsed(sec) {
+  const s = Math.max(0, Math.floor(sec || 0));
+  if (s < 60) return s + " 秒";
+  const m = Math.floor(s / 60);
+  return m + " 分 " + (s % 60) + " 秒";
+}
+
 async function openMulti() {
   multiOpen.value = true;
   await loadDrafts();
 }
+
 async function loadDrafts() {
   const r = await props.api("/outline/drafts");
-  if (r.status !== 200) { say("方案加载失败"); return; }
-  drafts.value = r.data.drafts || [];
+  if (r.status !== 200) { say("方案加载失败：" + (r.data && r.data.error ? r.data.error : r.status)); return; }
+  const raw = r.data.drafts || [];
+  // 结构校验（2026-10-26）：模板对 d.nodes / d.plan 做 v-for，若后端给了非数组
+  // （解析失败的方案文件、或字段缺失），Vue 会把字符串逐字符迭代 → 屏幕上炸出
+  // 一大片密集勾选框/代码感的东西。宁可显示"方案格式异常"也不要渲染垃圾。
+  const bad = raw.filter((d) => !Array.isArray(d.nodes) || !Array.isArray(d.plan));
+  if (bad.length) {
+    say("方案文件格式异常（nodes/plan 不是列表）：" + bad.map((d) => d.name).join("、")
+        + " —— 建议“放弃并清理”后重新生成");
+  }
+  drafts.value = raw.filter((d) => Array.isArray(d.nodes) && Array.isArray(d.plan));
   if (drafts.value.length) actSource.value = drafts.value[0].id;
   const c = {};
   drafts.value.forEach((d) => {
@@ -870,19 +932,58 @@ async function loadDrafts() {
   });
   checked.value = c;
 }
+
+function _stopMultiTimer() {
+  if (multiTimer) { clearInterval(multiTimer); multiTimer = null; }
+}
+
 async function runMulti() {
+  if (multiRunning.value) return;
   multiRunning.value = true;
-  const r = await props.api("/stage/2/run-multi", "POST", { count: 3 });
-  if (r.status !== 202) { multiRunning.value = false; say("提交失败: " + (r.data.error || r.status)); return; }
-  const jid = r.data.job_id;
-  const poll = setInterval(async () => {
-    const j = await props.api("/jobs/" + jid);
-    if (j.status !== 200 || j.data.state === "running") return;
-    clearInterval(poll);
-    multiRunning.value = false;
+  multiElapsed.value = 0;
+  // 串行生成 3 份，通常 3~8 分钟，期间后端只给 state=running —— 没有这个计时器，
+  // 用户看到的就是一个不动的“生成中…”，然后开始怀疑坏了（第 3/4 条原话：
+  // “经常卡在29%，让人觉得坏了，想点停止”）。先回答"还在动、动了多久"。
+  _stopMultiTimer();
+  multiTimer = setInterval(() => { multiElapsed.value += 1; }, 1000);
+  try {
+    const r = await props.api("/stage/2/run-multi", "POST", { count: 3 });
+    if (r.status !== 202) {
+      say("提交失败: " + ((r.data && r.data.error) || r.status));
+      return;
+    }
+    const jid = r.data.job_id;
+    let polls = 0;
+    await new Promise((resolve) => {
+      const poll = setInterval(async () => {
+        polls += 1;
+        // 30 分钟兜底：job 丢了（后端重启）/ 轮询本身坏了时，绝不能无限转圈
+        if (polls > 900) {
+          clearInterval(poll);
+          say("等待超时（30 分钟）—— 任务可能已中断，请查看“📋 日志”或用“停止”后重试");
+          resolve();
+          return;
+        }
+        let j;
+        try {
+          j = await props.api("/jobs/" + jid);
+        } catch (e) {
+          return;                        // 单次网络抖动不终止，下一轮再试
+        }
+        if (!j || j.status !== 200 || (j.data && j.data.state === "running")) return;
+        clearInterval(poll);
+        const state = j.data && j.data.state;
+        say(state === "ok" ? "方案生成完成" : ("生成失败: " + ((j.data && j.data.result) || "")));
+        resolve();
+      }, 2000);
+    });
     await loadDrafts();
-    say(j.data.state === "ok" ? "方案生成完成" : "生成失败: " + (j.data.result || ""));
-  }, 2000);
+  } catch (e) {
+    say("生成三版出错：" + (e && e.message ? e.message : e));
+  } finally {
+    _stopMultiTimer();
+    multiRunning.value = false;
+  }
 }
 async function compose() {
   const sels = [];
@@ -917,14 +1018,14 @@ function closeMulti() {
    两个端点都是确定性分析、零 token：
      GET /outline/trend   每轮指标序列 + 收敛判定 + 与上一版对比
      GET /outline/advise  按严重度排序的候选方案（含逐条可执行动作）
-   合并到一个抽屉里，因为用户的心智是同一个问题：「我接下来干嘛」。 */
+   合并到一个抽屉里，因为用户的心智是同一个问题：“我接下来干嘛”。 */
 const advOpen = ref(false);
 const advLoading = ref(false);
 const advise = ref(null);
 const trend = ref(null);
 const advBusy = ref("");
 
-/** 顶部按钮是否高亮：有结构性硬问题或有碎片条目时提示「这里有事要做」。 */
+/** 顶部按钮是否高亮：有结构性硬问题或有碎片条目时提示“这里有事要做”。 */
 const adviseHot = computed(() => {
   const s = structure.value && structure.value.summary;
   if (!s) return false;
@@ -981,10 +1082,10 @@ function actKindLabel(k) { return ACT_KIND_LABEL[k] || k || "手动"; }
  * 为什么用 `entry_id` + `suggested_feedback` 而不是解析 `next_step` 字符串：
  * 后端 `outline_advisor` 的 `next_step` 是**给人看的命令描述**
  * （如 `POST /refine/outline/node {"node_id":"node1",...}`），
- * 解析它等于把「展示格式」当接口用 —— 后端改一次措辞前端就崩。
+ * 解析它等于把“展示格式”当接口用 —— 后端改一次措辞前端就崩。
  * 结构化字段（entry_id / suggested_feedback）才是稳定契约。
  *
- * `next_step` 为「无法定位条目 id」时 `entry_id` 为 null，按钮不显示，
+ * `next_step` 为“无法定位条目 id”时 `entry_id` 为 null，按钮不显示，
  * 这里也就不会被调到 —— 宁可不给按钮，也不给一个点了报错的按钮。
  */
 async function runNextStep(action) {
@@ -992,11 +1093,11 @@ async function runNextStep(action) {
   if (!eid) return;
   const fb = action.suggested_feedback
     || "按体检缺失维度补全信息（加具体事件、冲突或场景）";
-  if (!window.confirm("对「" + (action.target || eid) + "」提交 AI 精修？\n\n"
+  if (!window.confirm("对“" + (action.target || eid) + "”提交 AI 精修？\n\n"
       + "修订意见：" + fb + "\n\n"
       + "· 只改这一条，不动其他内容\n"
       + "· 修订前自动备份到 data/outline/history/\n"
-      + "· 可用右侧「撤销上次修订」回滚")) return;
+      + "· 可用右侧“撤销上次修订”回滚")) return;
   advBusy.value = eid;
   const r = await props.api("/refine/outline/node", "POST",
                             { node_id: eid, feedback: fb });
@@ -1015,7 +1116,7 @@ async function runNextStep(action) {
       aiResult.value = (j.data.result && typeof j.data.result === "object") ? j.data.result : aiResult.value;
       await load(false);
       await loadAdvise(false);   // 修订完立刻重算：指标应该变化，让用户看到结果
-      say("已修订「" + eid + "」（v" + (j.data.result && j.data.result.version) + "）");
+      say("已修订“" + eid + "”（v" + (j.data.result && j.data.result.version) + "）");
     } else {
       say("修订失败: " + (j.data.result || "未知错误"));
     }
