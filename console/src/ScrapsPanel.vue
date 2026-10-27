@@ -187,7 +187,7 @@ async function promote() {
 }
 
 async function del(name) {
-  if (!window.confirm(`确定删除碎片「${name}」？\n\n删除前会先做一次项目快照，并另存一份到 materials/original_scraps/_backup/。`)) return;
+  if (!window.confirm(`确定删除碎片“${name}”？\n\n删除前会先做一次项目快照，并另存一份到 materials/original_scraps/_backup/。`)) return;
   const r = await api("/scraps/delete", "POST", { name, confirm: true });
   if (r.status !== 200 || !r.data.ok) { say("删除失败：" + (r.data.error || r.status)); return; }
   say(`已删除 ${name}（备份：${r.data.backup || "无"}）`);

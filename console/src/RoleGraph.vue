@@ -5,7 +5,7 @@
 // - 纯展示组件：取数在父级 App.vue，props 收 `setting` / `appearances` / `alias`；
 // - 数据装配全部委托 roleGraphData.js（可在 Node 里断言）；
 // - SVG 由 d3 直接持有（命令式），不用 Vue 渲染每次 tick —— 60fps 下 Vue 重渲染不值当；
-//   只有「选中角色详情」走 Vue 响应式。
+//   只有“选中角色详情”走 Vue 响应式。
 // - 浅色主题硬编码色值（不依赖未实现的 c-* 类）。
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 import {
@@ -207,7 +207,7 @@ function build() {
     })
     .on("end", (ev, d) => {
       if (!ev.active) sim.alphaTarget(0);
-      // 拖拽固定：保留 fx/fy，方便用户手工布局；「重新布局」按钮释放
+      // 拖拽固定：保留 fx/fy，方便用户手工布局；“重新布局”按钮释放
     });
   nodeSel.call(dragBeh);
 
@@ -224,7 +224,7 @@ function build() {
   });
 
   // 力导向：先**离线收敛**到稳定布局（确定性、可断言），再一次性绘制并适配视口。
-  // 直接靠计时器跑会「第一次打开时节点乱飞 + 挤在一角」，离线 320 tick 后布局稳定。
+  // 直接靠计时器跑会“第一次打开时节点乱飞 + 挤在一角”，离线 320 tick 后布局稳定。
   const draw = () => {
     linkSel
       .attr("x1", (d) => d.source.x).attr("y1", (d) => d.source.y)
@@ -337,13 +337,13 @@ const levelLegend = [
       <template v-else>
         <div class="meta">
           {{ unmatchedGroups.length }} 个对端名没在设定集里找到同名角色（共
-          {{ stats.unmatchedCount }} 条关系），已画成灰色虚线「未入册」节点（不可拖拽）。
+          {{ stats.unmatchedCount }} 条关系），已画成灰色虚线“未入册”节点（不可拖拽）。
           若其实是别名，可在 <code>data/setting/alias.json</code> 里写
           <code>{ "未匹配名": "正式角色名" }</code> 后刷新。
         </div>
         <div v-for="g in unmatchedGroups" :key="g.name" class="rg-unmatched-row">
           <b>{{ g.name }}</b>
-          <span class="meta">← 出现在「{{ g.from.join("、") }}」的关系里</span>
+          <span class="meta">← 出现在“{{ g.from.join("、") }}”的关系里</span>
         </div>
       </template>
     </div>

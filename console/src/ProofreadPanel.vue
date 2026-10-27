@@ -100,7 +100,7 @@ async function loadReport(silent = false) {
     if (!silent) say("校对报告已加载");
   } else if (r.status === 404) {
     report.value = null;
-    if (!silent) say("暂无校对报告 —— 点击「运行校对」开始检查");
+    if (!silent) say("暂无校对报告 —— 点击“运行校对”开始检查");
   } else {
     say("报告读取失败: " + (r.data.error || r.status));
   }
@@ -130,7 +130,7 @@ async function runProofread() {
         return;
       }
     }
-    say("校对仍在运行，可稍后点「刷新报告」查看");
+    say("校对仍在运行，可稍后点“刷新报告”查看");
   } catch (e) {
     say("错误: " + (e.message || e));
   } finally {
@@ -200,7 +200,7 @@ onMounted(() => loadReport(true));
     </div>
 
     <div v-if="!report" class="card empty">
-      暂无校对报告 —— 点击「运行校对」开始检查（不会改动任何稿件）
+      暂无校对报告 —— 点击“运行校对”开始检查（不会改动任何稿件）
     </div>
 
     <template v-else>
@@ -305,7 +305,7 @@ onMounted(() => loadReport(true));
       <div class="card meta">
         报告文件：data/outline/proofread_report.json / .md ·
         确定性部分完全离线，不消耗 token ·
-        「按建议精修」走既有章节精修链路（自动备份 + ±20% 字数铁律）
+        “按建议精修”走既有章节精修链路（自动备份 + ±20% 字数铁律）
       </div>
     </template>
   </div>

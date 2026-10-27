@@ -1,10 +1,10 @@
 <!--
-  SandboxQueue.vue — 「审核」页签：沙盒产物的审核队列
+  SandboxQueue.vue — “审核”页签：沙盒产物的审核队列
 
   ## 它解决什么
 
   沙盒（data/state/obsidian_sandbox/，可指向你的 Obsidian 库内目录）是
-  「准备粘贴进 vault」的中转区。产物写进来时自动登记为**待审**，但此前
+  “准备粘贴进 vault”的中转区。产物写进来时自动登记为**待审**，但此前
   GUI 里看不到队列，也没有通过/驳回的动作 —— 用户只能开终端敲 CLI。
 
   本页签把这条链路补全：看得见队列 → 点得出结论 → 状态就地刷新。
@@ -13,15 +13,15 @@
 
   1. **只贴标签，不动文件**：通过/驳回只改
      data/state/sandbox_manifest.json，不写不删沙盒里的 .md，更不碰 vault。
-     审错了点「退回待审」即可无损撤回。
-  2. **不覆盖 vault**：本页签**没有**任何「写入 Obsidian」的按钮。
+     审错了点“退回待审”即可无损撤回。
+  2. **不覆盖 vault**：本页签**没有**任何“写入 Obsidian”的按钮。
      真正的入库动作永远由你手工完成 —— 决策权在你手里。
   3. **改过的文件要重审**：产物内容变了（sha256 变），状态自动回到待审，
      防止旧审核为新内容背书。
 
   ## 孤儿文件
 
-  手工拷进沙盒、或换过沙盒目录时，会出现「文件在、状态库没有」的文件。
+  手工拷进沙盒、或换过沙盒目录时，会出现“文件在、状态库没有”的文件。
   它们不在队列里，是审核盲区 —— 所以单独用一块醒目区列出，而不是静默吞掉。
 -->
 <template>
@@ -49,7 +49,7 @@
       </div>
       <div class="meta" style="margin-top: 6px;">
         通过 / 驳回<strong>只改审核状态</strong>，不动沙盒里的文件，也<strong>不会写入 Obsidian</strong>。
-        粘贴进 vault 的动作始终由你手工完成；审错了点「退回待审」可无损撤回。
+        粘贴进 vault 的动作始终由你手工完成；审错了点“退回待审”可无损撤回。
       </div>
       <div class="sb-stats">
         <span class="pill st-gate">待审 {{ stats.pending || 0 }}</span>
@@ -74,7 +74,7 @@
         </li>
       </ul>
       <div class="meta">
-        要纳入审核：用导出的方式重新写一遍（如大纲页签的「提交审核包」），或直接用
+        要纳入审核：用导出的方式重新写一遍（如大纲页签的“提交审核包”），或直接用
         <code>sandbox_review.py --list</code> 查看。
       </div>
     </div>
@@ -118,7 +118,7 @@
     <!-- ============ 驳回原因对话框 ============ -->
     <div v-if="rejectOpen" class="drawer-mask" @click.self="rejectOpen = false">
       <div class="dialog">
-        <h3>驳回「{{ rejectTarget && rejectTarget.path }}」</h3>
+        <h3>驳回“{{ rejectTarget && rejectTarget.path }}”</h3>
         <div class="meta">驳回原因会记进审核状态库（不进产物文件），你自己回头也看得懂。</div>
         <textarea v-model="rejectNote" rows="3"
                   placeholder="例如：第二节与设定冲突 / 人物称谓不统一"></textarea>
@@ -202,7 +202,7 @@ async function load(showMsg = false) {
 
 /**
  * 审核动作。后端只改状态库（不碰文件），所以这里**不需要**二次确认弹窗 ——
- * 逐条确认会把「快速过一遍队列」变成折磨，且动作本身无损（有「退回待审」兜底）。
+ * 逐条确认会把“快速过一遍队列”变成折磨，且动作本身无损（有“退回待审”兜底）。
  * 唯一例外是驳回：必须填原因，走对话框。
  */
 async function act(it, action) {
@@ -276,7 +276,7 @@ const viewContent = ref("");
 async function view(it) {
   // 复用 /outline/chapters/get 不合适；沙盒产物走 /sandbox/queue 的路径，
   // 这里用 /kb 无关的通用读接口会引入耦合 —— 改为直接读沙盒文件的既有端点。
-  // 若无通用读端点，则退化为「只展示元信息 + 提示用编辑器打开」。
+  // 若无通用读端点，则退化为“只展示元信息 + 提示用编辑器打开”。
   viewPath.value = it.path;
   viewContent.value = "";
   viewOpen.value = true;

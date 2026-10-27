@@ -102,7 +102,7 @@ const punctuationRows = computed(() => {
 /* ---------- 范文正文（GUI 粘贴窗口，2026-10-19） ----------
  * 存的是工作区里的文件（默认 materials/style_sample.md，随书档归档），
  * 不是 config 里的字符串 —— 范文可达数万字，塞 yaml 会让读配置变慢且易被手改坏。
- * 字数口径由后端算（prose_char_count，与 stage4 判「是否只有占位符」同源）。
+ * 字数口径由后端算（prose_char_count，与 stage4 判“是否只有占位符”同源）。
  */
 const refState = ref(null);      // GET /config/style_reference
 const refText = ref("");
@@ -153,14 +153,14 @@ async function analyze(autoFallback = true) {
   loading.value = true;
   try {
     const r = await api("/style/analyze", "POST", body);
-    // 未配置范文时不留在空面板：自动改用「项目章节」跑一次（依次试前 3 章）
+    // 未配置范文时不留在空面板：自动改用“项目章节”跑一次（依次试前 3 章）
     if (autoFallback && !r.data.ok && r.data.configured === false
         && source.value === "reference") {
       source.value = "chapter";
       for (const n of [1, 2, 3]) {
         chapN.value = n;
-        note.value = "未配置 book.style_reference —— 已自动改用「第 " + n + " 章」做分析；"
-          + "想分析范文请在 config/project.yaml 配置，或切到「指定文件」。";
+        note.value = "未配置 book.style_reference —— 已自动改用“第 " + n + " 章”做分析；"
+          + "想分析范文请在 config/project.yaml 配置，或切到“指定文件”。";
         const r2 = await api("/style/analyze", "POST",
                              { source: "chapter", n, compare: compareOn.value ? { n } : undefined });
         if (r2.data.ok) {
@@ -212,7 +212,7 @@ async function loadPacing(sourceKind = pacingSource.value) {
     pacing.value.origin = sourceKind;
   } else {
     pacing.value = null;
-    if (r.status === 404) say("尚无拆书结果 —— 可用「导入参考书」分析外部文本");
+    if (r.status === 404) say("尚无拆书结果 —— 可用“导入参考书”分析外部文本");
     else say("节奏数据读取失败: " + (r.data?.error || r.status));
   }
   pacingLoading.value = false;
@@ -304,9 +304,9 @@ function homoFlag(c) {
 const decConsent = ref(false);
 const decDeclOpen = ref(false);
 const decDeclEl = ref(null);
-// 打开即把焦点放到「我不同意」——默认焦点必须是最保守的那个选项。
+// 打开即把焦点放到“我不同意”——默认焦点必须是最保守的那个选项。
 // 注意：模板里的 autofocus 对 v-if 动态插入的节点**不生效**，必须手动 focus，
-// 否则焦点停在上一个「阅读并同意声明」按钮上，连按回车就直接同意了。
+// 否则焦点停在上一个“阅读并同意声明”按钮上，连按回车就直接同意了。
 watch(decDeclOpen, async (v) => {
   if (!v) return;
   await nextTick();
@@ -387,7 +387,7 @@ async function clearSnippets() {
 const DECL_LINES = [
   "本功能处理的是你本机上的文件：绒花墨坊不会上传你导入的作品，也不会保留其原文；",
   "拆解结果只保存统计数据（章长、对话占比、句长分布、钩子比例），不保存任何原句；",
-  "如果你勾选「参考片段」，这些片段会随写作任务发给**你自己配置的大模型服务商**，",
+  "如果你勾选“参考片段”，这些片段会随写作任务发给**你自己配置的大模型服务商**，",
   "　该次调用适用其隐私保留与训练声明；绒花墨坊不介入、不担保；",
   "你必须对导入作品拥有合法使用权，并自行承担由此产生的全部责任；",
   "不同意以上任一条款，请勿使用本功能。",
@@ -465,7 +465,7 @@ onMounted(() => {
         </div>
         <div class="meta">
           写作时模仿它的节奏、用词与句式。<b>给 2~3 个场景切片</b>（对白 / 动作 / 内省各一）
-          比给一整章更有效 —— 系统只抽 3 段做 few-shot。粘贴后点「保存」即可，无需改配置。
+          比给一整章更有效 —— 系统只抽 3 段做 few-shot。粘贴后点“保存”即可，无需改配置。
         </div>
         <textarea v-model="refText" class="style-ref-input" rows="12"
                   placeholder="在这里粘贴正文（Ctrl+V）…"
@@ -566,8 +566,8 @@ onMounted(() => {
           </label>
         </div>
         <div v-else class="meta">
-          取 config/project.yaml 的 <b>book.style_reference</b>；未配置可在「设置」页写入风格笔记，
-          或改用「指定文件」。<b>未配置时自动回退为分析项目章节</b>。
+          取 config/project.yaml 的 <b>book.style_reference</b>；未配置可在“设置”页写入风格笔记，
+          或改用“指定文件”。<b>未配置时自动回退为分析项目章节</b>。
         </div>
 
         <div v-if="note" class="note">{{ note }}</div>
@@ -702,7 +702,7 @@ onMounted(() => {
 
     <!-- ================= 章节节奏 ================= -->
     <!-- 必须是 v-else-if 而不是 v-else：加第三个子页签后，v-else 会把节奏区
-         也渲染到「同质化检测」下面（视觉验收实测到两块叠在一起）。 -->
+         也渲染到“同质化检测”下面（视觉验收实测到两块叠在一起）。 -->
     <template v-else-if="sub === 'pacing'">
       <div class="card">
         <div class="card-head">
@@ -724,7 +724,7 @@ onMounted(() => {
 
       <div v-if="pacingLoading" class="card empty">读取中…</div>
       <div v-else-if="!pacing" class="card empty">
-        暂无节奏数据 —— 先跑 chapter 阶段，或点「导入参考书…」拆一本外部文本
+        暂无节奏数据 —— 先跑 chapter 阶段，或点“导入参考书…”拆一本外部文本
       </div>
 
       <template v-else>
@@ -854,7 +854,7 @@ onMounted(() => {
     </template>
 
     <!-- 拆解功能声明弹层（2026-10-20 改）：**与 DisclaimerDialog 同构**的居中确认框，
-         不再用右侧抽屉（.drawer 是「浏览/编辑长内容」的容器，拿它装一纸声明既不像
+         不再用右侧抽屉（.drawer 是“浏览/编辑长内容”的容器，拿它装一纸声明既不像
          确认框、底部按钮也贴在视口边缘）。形态照抄本应用既有范式：
          drawer-mask（居中）→ dialog → card-head 标题 → 可滚动正文 → dialog-actions。
          交互纪律不变：**不同意是默认焦点**，关掉弹层 = 不启用（不会静默同意）。 -->

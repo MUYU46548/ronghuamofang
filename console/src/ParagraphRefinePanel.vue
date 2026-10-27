@@ -435,7 +435,7 @@ onMounted(() => {
             @mouseleave="hideFloatBtnDelayed"
           >
             ✏ 精修选中文段
-            <span class="float-snippet" v-if="selectedTextSnippet">「{{ selectedTextSnippet }}」</span>
+            <span class="float-snippet" v-if="selectedTextSnippet">“{{ selectedTextSnippet }}”</span>
           </button>
         </div>
       </div>

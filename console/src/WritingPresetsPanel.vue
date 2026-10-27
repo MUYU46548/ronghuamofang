@@ -138,7 +138,7 @@ defineExpose({ load });
       </tbody>
     </table>
     <div v-else-if="!busy" class="meta wpp-empty">
-      还没有存过预设。点「存当前为新预设」把此刻的写作要求存下来，
+      还没有存过预设。点“存当前为新预设”把此刻的写作要求存下来，
       以后换风格一键切回。
     </div>
 
@@ -156,7 +156,7 @@ defineExpose({ load });
     <div v-if="history.length" class="wpp-hist">
       <div class="meta"><b>最近切换</b>（切回旧值有据）</div>
       <div v-for="(h, i) in history.slice().reverse().slice(0, 5)" :key="i" class="meta">
-        · {{ (h.at || "").replace("T", " ").slice(0, 19) }} → 「{{ h.preset }}」
+        · {{ (h.at || "").replace("T", " ").slice(0, 19) }} → “{{ h.preset }}”
         <span v-if="h.prev && h.prev.style">（原 style：{{ fmtVal(h.prev.style) }}）</span>
       </div>
     </div>

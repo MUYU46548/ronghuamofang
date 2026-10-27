@@ -38,7 +38,7 @@
             </label>
             <button
               class="mini"
-              title="同章生成 2-3 个方向明显不同的开头，并排对比后选一个当写作参照。不直接写稿，提交后进「审核」页签待审"
+              title="同章生成 2-3 个方向明显不同的开头，并排对比后选一个当写作参照。不直接写稿，提交后进“审核”页签待审"
               @click="sampleOpen = !sampleOpen"
             >
               {{ sampleOpen ? "收起方向" : "选写作方向" }}
@@ -177,7 +177,7 @@
         <div class="meta">
           打包本章讨论任务书到剪贴板（含章大纲 + 相关角色设定 + 上一章末尾 +
           本章初稿 + 滚动摘要 + 提交端点与红线），粘贴给你的 Agent 即可开聊。
-          结论会以提案落回「审核」页签，<strong>你批准才写回大纲</strong>。
+          结论会以提案落回“审核”页签，<strong>你批准才写回大纲</strong>。
         </div>
         <textarea v-model="discussNote" rows="3"
                   placeholder="想讨论什么？（留空 = 让 Agent 先自己提可讨论的问题）"></textarea>
@@ -436,7 +436,7 @@ async function discussThisChapter() {
     await copyToClipboard(r.data.brief);
     discussOpen.value = false;
     say(`已复制第 ${currentN.value} 章讨论任务书（${r.data.chars} 字）—— `
-      + '粘贴给你的 Agent 即可开聊；结论会落回「审核」页签待你批准');
+      + '粘贴给你的 Agent 即可开聊；结论会落回“审核”页签待你批准');
   } catch (e) {
     say('打包失败: ' + (e.message || e));
   } finally {
@@ -450,8 +450,8 @@ async function save() {
   let content;
   if (rawMode.value) {
     content = rawContent.value;
-    if (!content.includes('核心事件')) return say('缺少「核心事件」字段');
-    if (!content.includes('涉及角色')) return say('缺少「涉及角色」字段');
+    if (!content.includes('核心事件')) return say('缺少“核心事件”字段');
+    if (!content.includes('涉及角色')) return say('缺少“涉及角色”字段');
   } else {
     if (!form.value.title.trim()) return say('章节名不能为空');
     if (!form.value.events.length) return say('至少一条核心事件');
@@ -485,10 +485,10 @@ function say(msg) {
 
 function onSampleEvent(kind) {
   // 分支样例面板事件（第 4 件）：提交落提案后，这一章的大纲**没有**变（要等
-  // 你在「审核」页签批准），所以这里只提示，不重载当前章 —— 重载会把你正在
+  // 你在“审核”页签批准），所以这里只提示，不重载当前章 —— 重载会把你正在
   // 编辑的未保存内容冲掉。
   if (kind === "sample_submitted") {
-    say("方向样例已落提案 —— 去「审核」页签批准后生效");
+    say("方向样例已落提案 —— 去“审核”页签批准后生效");
   }
 }
 

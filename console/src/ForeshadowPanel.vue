@@ -3,11 +3,11 @@
  * 伏笔台账面板（2026-10-20，预警 P1 / roadmap v0.9.3）。
  *
  * 数据源：GET /foreshadow（只读盘，零额外 token）。
- * 逐条来自**章大纲的「悬念钩子」字段**（v0.7.2 起强制），
- * 「推进」由后续章文本重合判定（bigram 交集 + 覆盖率双达标）。
+ * 逐条来自**章大纲的“悬念钩子”字段**（v0.7.2 起强制），
+ * “推进”由后续章文本重合判定（bigram 交集 + 覆盖率双达标）。
  *
  * 关键取舍：**回收不自动判定**。文本相似不等于"解决了"，自动判会让台账变成谎话。
- * 所以「已回收 / 已放弃」只能人点，而且**必须写理由** —— 这是唯一能防止台账被
+ * 所以“已回收 / 已放弃”只能人点，而且**必须写理由** —— 这是唯一能防止台账被
  * 随手清空的东西。人工标记压过机器判定（与素材裁决同口径）。
  */
 import { ref, computed, onMounted } from "vue";
@@ -57,14 +57,14 @@ async function mark(it, status) {
   let reason = "";
   if (status !== "open") {
     const v = window.prompt(
-      `标记「${it.id}」为${label}。\n\n请写一句理由（必填）：\n`
+      `标记“${it.id}”为${label}。\n\n请写一句理由（必填）：\n`
       + `· 已回收：在哪一章、怎么解决的\n`
       + `· 已放弃：为什么这条不要了`,
       "");
     if (v === null) return;
     reason = String(v).trim();
     if (!reason) {
-      emit("say", "「" + label + "」必须写理由 —— 否则以后没人知道为什么");
+      emit("say", "“" + label + "”必须写理由 —— 否则以后没人知道为什么");
       return;
     }
   }
@@ -106,7 +106,7 @@ defineExpose({ load });
     <div v-if="err" class="meta err-line">{{ err }}</div>
 
     <div v-else-if="data && !items.length" class="meta fsp-empty">
-      还没有可抽取的伏笔。台账来自**章大纲的「悬念钩子」**（阶段 3 每章一条），
+      还没有可抽取的伏笔。台账来自**章大纲的“悬念钩子”**（阶段 3 每章一条），
       跑过阶段 3 之后这里会列出每章埋下的线。
     </div>
 

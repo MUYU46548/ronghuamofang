@@ -171,7 +171,7 @@ async function pollJob(jobId, tries = 300) {
       return;
     }
   }
-  say("任务仍在运行（轮询超时，可点「刷新报告」查看）");
+  say("任务仍在运行（轮询超时，可点“刷新报告”查看）");
 }
 
 async function loadReport() {
@@ -194,7 +194,7 @@ async function loadReport() {
     savedRevision.value = 0;
   } else if (r.status === 404) {
     report.value = null;
-    say("暂无审查报告 —— 点击「运行审查」开始分析章节");
+    say("暂无审查报告 —— 点击“运行审查”开始分析章节");
   } else {
     say("审查报告读取失败: " + (r.data.error || r.status));
   }
@@ -249,7 +249,7 @@ async function saveDecisions(silent = false) {
 
 async function runBatchRefine() {
   if (!report.value) { say("暂无审查报告，先运行审查"); return; }
-  if (!hasDecision.value) { say("请先「接受」至少一条审查发现"); return; }
+  if (!hasDecision.value) { say("请先“接受”至少一条审查发现"); return; }
   running.value = true;
   batchProgress.value = null;
   try {

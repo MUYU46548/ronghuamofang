@@ -1,6 +1,6 @@
 <script setup>
-// 「关于」弹窗（发布级必备）：版本 / 运行环境 / 数据位置 / 快速上手 / 许可与链接。
-// 入口：左上角 LOGO 或应用名点击；命令面板「关于绒花墨坊」。
+// “关于”弹窗（发布级必备）：版本 / 运行环境 / 数据位置 / 快速上手 / 许可与链接。
+// 入口：左上角 LOGO 或应用名点击；命令面板“关于绒花墨坊”。
 import { ref, watch } from "vue";
 
 const props = defineProps({
@@ -51,7 +51,7 @@ function openExternal(url) {
 }
 
 // ---------- 版本更新（与设置页共用主进程 IPC，判定口径只有一处） ----------
-// 以前「关于」里只有「下载新版本」外链 —— 用户找不到「检查更新」，
+// 以前“关于”里只有“下载新版本”外链 —— 用户找不到“检查更新”，
 // 会以为这功能被砍了。这里补上，并把失败原因说清楚（不再只显示一行错误码）。
 const updStatus = ref("");
 const updChecking = ref(false);
@@ -71,7 +71,7 @@ async function checkUpdate() {
       return;
     }
     if (st && st.initialized === false) {
-      updStatus.value = "本机未启用自动更新，请用「下载新版本」";
+      updStatus.value = "本机未启用自动更新，请用“下载新版本”";
       return;
     }
     updChecking.value = true;
@@ -96,8 +96,8 @@ async function checkUpdate() {
 
 const STEPS = [
   { t: "放素材", d: "设定卡进 materials/raw/；随手写的碎片进 materials/original_scraps/" },
-  { t: "建项目", d: "「项目」页签 →「＋ 新建项目」（书名/类型/章数，自动归档旧项目）" },
-  { t: "跑流水线", d: "「流水线」→「执行下一步」（Space）；审批门在「收件箱」" },
+  { t: "建项目", d: "“项目”页签 →“＋ 新建项目”（书名/类型/章数，自动归档旧项目）" },
+  { t: "跑流水线", d: "“流水线”→“执行下一步”（Space）；审批门在“收件箱”" },
   { t: "验收交付", d: "审稿逐条决策 → 校对体检 → 导出 Word 成品" },
 ];
 </script>

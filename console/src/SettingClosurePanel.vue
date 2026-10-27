@@ -1,6 +1,6 @@
 <script setup>
 /**
- * 设定库闭环 · 素材裁决面板（2026-10-20，台账三·「设定库闭环」）。
+ * 设定库闭环 · 素材裁决面板（2026-10-20，台账三·“设定库闭环”）。
  *
  * 数据源：GET /setting/conflicts（零 token，`utils.material_state.audit`）
  * 写操作：POST /setting/status {name, action: adopt|reject|uncertain, reason?}
@@ -151,9 +151,9 @@ defineExpose({ load });
       </div>
 
       <div v-if="rejecting" class="sc-reject">
-        <div class="meta">否决「{{ rejecting.name }}」——原因会写进墓碑，以后自己能看懂：</div>
+        <div class="meta">否决“{{ rejecting.name }}”——原因会写进墓碑，以后自己能看懂：</div>
         <input v-model="rejecting.reason" class="sc-input"
-               placeholder="例：与第 3 章定稿的设定冲突，取『档案室整理员』那一版" />
+               placeholder="例：与第 3 章定稿的设定冲突，取‘档案室整理员’那一版" />
         <div class="sc-reject-actions">
           <button class="mini" @click="rejecting = null">取消</button>
           <button class="mini danger" :disabled="!rejecting.reason.trim()" @click="confirmReject">确认否决</button>

@@ -101,7 +101,7 @@ const step1Ok = computed(() => !nameErr.value && !chErr.value);
 // 选了预设但还没铺设 → 不能进下一步（否则书名/章数是空的）
 const step0Ok = computed(() => !pickedPreset.value || presetApplied.value);
 // 第 2 步：有数据却没勾归档 → 创建必被后端 400 拒（绝不静默清空书稿），
-// 所以按钮直接置灰，不让用户走到「确认创建」再被弹回来（2026-10-24 用户点名）。
+// 所以按钮直接置灰，不让用户走到“确认创建”再被弹回来（2026-10-24 用户点名）。
 // 已铺设预设的例外：旧项目在铺设时就归档过了，工作区本身就是新项目，无需再勾。
 const step2Ok = computed(() =>
   presetApplied.value || !props.hasWork || form.value.archive_current);
@@ -132,7 +132,7 @@ async function submit() {
     emit("created", r.data.message || "项目已创建");
   } else {
     err.value = r.data?.error || r.data?.message || ("HTTP " + r.status);
-    step.value = 2;   // 回退到「当前工作区」这一步，多半是没勾归档/归档失败
+    step.value = 2;   // 回退到“当前工作区”这一步，多半是没勾归档/归档失败
   }
 }
 </script>
@@ -179,7 +179,7 @@ async function submit() {
         <div v-if="pickedPreset" class="wiz-preset-act">
           <template v-if="!presetApplied">
             <button class="mini primary" :disabled="presetBusy" @click="applyPicked">
-              {{ presetBusy ? "铺设中…" : "铺设「" + (pickedPreset.name || pickedPreset.id) + "」" }}
+              {{ presetBusy ? "铺设中…" : "铺设“" + (pickedPreset.name || pickedPreset.id) + "”" }}
             </button>
             <span class="meta">会快照并归档当前项目，再铺入素材 + 写配置</span>
           </template>
@@ -219,7 +219,7 @@ async function submit() {
         <label class="wiz-label">风格笔记（可选，写入 config/project.yaml 的 book.style_notes）</label>
         <textarea v-model="form.style_notes" rows="3" class="prompt-text" style="width:100%;"
                   placeholder="如：多用短句，少用形容词；对白带方言味。留空则完全不注入。"></textarea>
-        <div class="meta" style="margin-top:6px;">创建后仍可在「设置」页签随时修改。</div>
+        <div class="meta" style="margin-top:6px;">创建后仍可在“设置”页签随时修改。</div>
       </template>
 
       <!-- 步骤 2：当前工作区 -->
@@ -234,7 +234,7 @@ async function submit() {
         <!-- 已铺设预设：旧项目在铺设时就归档过了，工作区本身就是新项目 -->
         <template v-if="presetApplied">
           <div class="meta" style="line-height:1.9;">
-            出厂预设「<b>{{ (pickedPreset && (pickedPreset.name || pickedPreset.id)) || "" }}</b>」已铺设：
+            出厂预设“<b>{{ (pickedPreset && (pickedPreset.name || pickedPreset.id)) || "" }}</b>”已铺设：
             素材与配置都在工作区里，<b>原项目已在铺设时归档</b>。
             本次创建<b>只改写书名/章数等信息，不会动素材</b>，直接下一步即可。
           </div>
@@ -243,8 +243,8 @@ async function submit() {
         <template v-else-if="hasWork">
           <label class="wiz-check">
             <input type="checkbox" v-model="form.archive_current" />
-            <span>把当前项目归档为「<b>{{ current || form.name }}</b>」再新建
-              <span class="meta">（推荐：书稿完整保留在 data/books/，可随时在「项目」页签恢复）</span>
+            <span>把当前项目归档为“<b>{{ current || form.name }}</b>”再新建
+              <span class="meta">（推荐：书稿完整保留在 data/books/，可随时在“项目”页签恢复）</span>
             </span>
           </label>
           <div v-if="!form.archive_current" class="wiz-warn">
@@ -272,7 +272,7 @@ async function submit() {
             <tr><td>风格笔记</td><td>{{ form.style_notes.trim() || "（不注入）" }}</td></tr>
             <tr><td>当前项目</td><td>
               {{ presetApplied ? "已铺设预设（原项目已归档），素材保留"
-                 : hasWork ? (form.archive_current ? "归档为「" + (current || form.name) + "」" : "不归档（会被拒绝）")
+                 : hasWork ? (form.archive_current ? "归档为“" + (current || form.name) + "”" : "不归档（会被拒绝）")
                          : "空工作区，无需处理" }}
             </td></tr>
           </tbody>
@@ -281,15 +281,15 @@ async function submit() {
           {{ presetApplied
              ? "确认后将执行：只改写 config/project.yaml（工作区与素材原样保留）。"
              : "确认后将执行：快照 → 归档当前项目（如勾选）→ 初始化空工作区 → 写入 config/project.yaml。" }}
-          之后到「流水线」页签点「执行下一步」即可开跑。
+          之后到“流水线”页签点“执行下一步”即可开跑。
         </div>
         <div v-if="err" class="wiz-warn" style="margin-top:8px;">{{ err }}</div>
       </template>
 
       <div class="dialog-actions">
-        <span v-if="step === 0 && !step0Ok" class="meta">已选预设 → 先点「铺设」才能继续（或取消选择走手工）</span>
+        <span v-if="step === 0 && !step0Ok" class="meta">已选预设 → 先点“铺设”才能继续（或取消选择走手工）</span>
         <span v-else-if="step === 1 && !step1Ok" class="meta">填写书名（1-999 章）后才能继续</span>
-        <span v-else-if="step === 2 && !step2Ok" class="meta">勾选「归档当前项目」后才能继续（不勾选创建会被拒绝）</span>
+        <span v-else-if="step === 2 && !step2Ok" class="meta">勾选“归档当前项目”后才能继续（不勾选创建会被拒绝）</span>
         <button class="mini" v-if="step > 0" :disabled="busy" @click="prev">上一步</button>
         <span class="spacer"></span>
         <button class="mini primary" v-if="step < 3"

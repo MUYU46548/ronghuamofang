@@ -113,7 +113,7 @@ defineExpose({ load });
       <label class="meta">终局方向（一句话：这本书最终要落在哪）</label>
       <textarea v-model="direction" rows="2" placeholder="例：主角放弃封印，让核心的力量流散到世间各处去"></textarea>
 
-      <label class="meta">活跃长线（每行一条；可写「线索（埋于第N章）」）</label>
+      <label class="meta">活跃长线（每行一条；可写“线索（埋于第N章）”）</label>
       <textarea v-model="threadsText" rows="4" placeholder="例：&#10;沈砚与程砧的信任裂痕（埋于第2章）&#10;暗卫的真实目的"></textarea>
 
       <div class="cnp-row">
