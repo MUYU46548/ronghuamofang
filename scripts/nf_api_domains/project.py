@@ -499,6 +499,62 @@ def handle_config_target_words_set(h, body):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+TITLE_FORMAT_DEFAULT = "第{n}章 {title}"
+
+
+def handle_config_title_format(h):
+    """读章标题格式（chapter.title_format）+ 出厂默认。
+
+    用户 2026-10-26 第 12 条：「做个章节名格式自定义不难吧？」——
+    格式本身是**创作决策**（有人喜欢 `第10章 潜七十二`，有人喜欢 `第十章 潜七十二`），
+    所以给读口和写口，判据只有一条：必须含 `{n}`（不带章号的格式没法保证章号不丢）。
+    """
+    try:
+        cfg = api.load_all()[0]
+        raw = ((cfg.get("chapter") or {}).get("title_format") or "").strip()
+        return 200, {
+            "ok": True,
+            "current": raw or TITLE_FORMAT_DEFAULT,
+            "preset": TITLE_FORMAT_DEFAULT,
+            "path": "config/system.yaml",
+            "field": "chapter.title_format",
+            "placeholders": {"{n}": "章号（必需）", "{title}": "章名（可省略）"},
+            "note": ("只影响章标题行的渲染（流水线落盘后与 stage7 合并时归一化），"
+                     "不改正文。留空回落默认。改完对下一次落盘/合并生效。"),
+        }
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_config_title_format_set(h, body):
+    """写章标题格式。与 target_words 同口径：创作决策，Agent 可代设，越界 400。"""
+    fmt = str((body or {}).get("format") or "").strip()
+    if not fmt:
+        return 400, {"ok": False, "error": "format 不能为空（留空请传 preset 默认值）"}
+    if "{n}" not in fmt:
+        return 400, {"ok": False,
+                     "error": "format 必须含占位符 {n}（否则章号会丢失）。"
+                              "例：第{n}章 {title}"}
+    if "\n" in fmt or "\r" in fmt:
+        return 400, {"ok": False, "error": "format 必须是单行"}
+    if len(fmt) > 40:
+        return 400, {"ok": False, "error": "format 过长（上限 40 字符）"}
+    try:
+        from utils.config_io import set_section_scalars
+        sys_yaml = api.ROOT / "config" / "system.yaml"
+        if not sys_yaml.exists():
+            return 400, {"ok": False, "error": "config/system.yaml 不存在"}
+        w_ok, w_msg = set_section_scalars(("chapter",), {"title_format": fmt},
+                                          path=sys_yaml)
+        if not w_ok:
+            return 400, {"ok": False, "error": "写入失败：" + w_msg}
+        return 200, {"ok": True, "current": fmt,
+                     "message": "已更新章标题格式（" + w_msg + "）",
+                     "note": "对下一次落盘/合并生效；已生成的 docx 需重跑阶段 7。"}
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 def handle_config_vault_scan(h):
     """读知识库扫描面：顶层目录 + 各自篇数 + 是否被排除。
 
@@ -1101,6 +1157,9 @@ ROUTES = (
     ("POST", "/config/token_limit", handle_config_token_limit_set),
     ("GET", "/config/target_words", handle_config_target_words),
     ("POST", "/config/target_words", handle_config_target_words_set),
+    # 章标题格式（2026-10-26，用户第 12 条）：创作决策，Agent 可代设
+    ("GET", "/config/title_format", handle_config_title_format),
+    ("POST", "/config/title_format", handle_config_title_format_set),
     # 知识库扫描面（2026-10-24）：目录名从用户库里读、界面上勾选排除 ——
     # 代码不猜任何库结构（曾因把某个真实库的目录名当通例写进代码而返工）
     ("GET", "/config/vault_scan", handle_config_vault_scan),

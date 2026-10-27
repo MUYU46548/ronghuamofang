@@ -156,6 +156,12 @@ chapter:
   # 夹具的循环复用问题在 utils/fake_client._words_para 里另修。
   # 确需单章 8000+ 也可以改（夹具已加固），但先确认这是你要的篇幅口径。
   target_words: [5000, 9000]
+  # 章标题格式（2026-10-26，用户第 12 条：「第10章潜七十二」章号章名粘连，
+  # 期望 `第X章 XXX`、并要求格式可自定义）。
+  # 占位符：{n} = 章号，{title} = 章名。**必须含 {n}**，否则回退默认。
+  # 归一化在 stage4/5/6/refine 落盘后与 stage7 合并时执行（utils/text_norm.
+  # normalize_chapter_title），只改标题行，正文里的「第10章」不动。
+  title_format: "第{n}章 {title}"
   # 加强模式（第一波防御 · 任务三，2026-10-22）：true 时单章生成改为
   # 「章 → 段落群」拆分生成（utils/enhanced_chapter.py）：逐群生成、每群立即
   # 落盘 data/chapters/_parts/（段群级断点续跑）、拼装成章后走同一套校验。

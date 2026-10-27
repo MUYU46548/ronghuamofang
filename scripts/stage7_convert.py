@@ -79,6 +79,13 @@ def merge_book(refined_dir, checked_dir, raw_dir, out_path, book_title="未命�
     if _counts:
         detail = "、".join(f"{k}={v}" for k, v in _counts.items() if v)
         print(f"[stage7] 合并时标点归一化（{detail}）")
+    # 章标题格式兜底（2026-10-26）：`## 第10章潜七十二` 这种章号章名粘连是**形态**
+    # 问题，前面的标点归一化不管它，verify_chapter 的 TITLE_RE 又对「章」后内容全宽容
+    # —— 不在这里统一，它就原样进 Word 成品（用户实测 10 章全粘）。
+    from utils.text_norm import normalize_chapter_title
+    text, _title_fixed = normalize_chapter_title(text)
+    if _title_fixed:
+        print(f"[stage7] 合并时章标题格式归一化（{_title_fixed} 处）")
     write_text(out_path, text.strip() + "\n")
     print(f"[stage7] 合并 {len(files)} 章 → {out_path}")
     return len(files)

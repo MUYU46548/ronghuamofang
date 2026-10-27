@@ -188,6 +188,65 @@ COMMENT_BLOCK = re.compile("(<!--.*?-->)", re.S)
 FENCE_BLOCK = re.compile("(^```.*?^```)", re.S | re.M)
 
 
+# ---------------------------------------------------------------- 章标题格式（2026-10-26）
+# 用户第 12 条：「章节名可能有问题，用户期望 `第X章 XXX`，实际上是 `第10章潜七十二`，
+# 中间没有空格，是完全粘连的。做个章节名格式自定义不难吧？」
+#
+# 为什么不能靠提示词：stage4 模板里写的是 `## 第{{n}}章 章节名`（带空格），
+# 模型照样会输出 `## 第10章潜七十二` —— 而且 verify_chapter 的 TITLE_RE
+# (`^##?\s*第\s*(\d+)\s*章.*$`) 对「章」后的任何东西都宽容，所以这类粘连
+# **一路绿灯进成品**。形态问题只能靠确定性归一化治理，与标点同一条纪律。
+TITLE_LINE_RE = re.compile(r"^(#{1,6})[ \t]*第[ \t]*(\d+)[ \t]*章[ \t]*(.*)$", re.M)
+DEFAULT_TITLE_FORMAT = "第{n}章 {title}"
+
+
+def load_chapter_title_format():
+    """读 `chapter.title_format`（缺省 = `第{n}章 {title}`）。
+
+    只认含 `{n}` 的字符串 —— 不含章号的格式没法保证章号不丢，宁可回退默认。
+    配置坏了不抛异常：标题格式是显示问题，不该让整条流水线停下。
+    """
+    try:
+        from utils.config_io import load_config_yaml
+        cfg = load_config_yaml("config/system.yaml") or {}
+        cand = ((cfg.get("chapter") or {}).get("title_format") or "").strip()
+        if cand and "{n}" in cand:
+            return cand
+    except Exception:                                        # noqa: BLE001
+        pass
+    return DEFAULT_TITLE_FORMAT
+
+
+def _render_title_line(fmt, n, title):
+    title = (title or "").strip()
+    if not title:
+        # 没有章名：把 {title} 连同它前面的分隔符一起去掉，不留尾随空格
+        s = fmt.replace("{title}", "").replace("{n}", str(n))
+        return s.rstrip(" \t·—-—:：")
+    return fmt.replace("{n}", str(n)).replace("{title}", title)
+
+
+def normalize_chapter_title(text, fmt=None):
+    """把章标题行统一成 `fmt`（默认 `第N章 章名`，中间有空格）。
+
+    只动**标题行**（`#`~`######` 开头、含 `第N章`），正文里的「第10章」不动。
+    幂等：已经是目标格式的标题原样返回。返回 `(新文本, 改动处数)`。
+    """
+    if not text:
+        return text, 0
+    fmt = fmt or load_chapter_title_format()
+    changed = [0]
+
+    def repl(m):
+        hashes, n, rest = m.group(1), m.group(2), m.group(3)
+        new = hashes + " " + _render_title_line(fmt, n, rest)
+        if new != m.group(0):
+            changed[0] += 1
+        return new
+
+    return TITLE_LINE_RE.sub(repl, text), changed[0]
+
+
 def normalize_chinese_punctuation(text):
     """归一化整篇正文：注释块与代码围栏整块跳过，其余按规则处理。
 
@@ -220,8 +279,13 @@ def normalize_chapter_file(path):
         text = read_text(p)
     except Exception:                                        # noqa: BLE001
         return False, {}
+    # 章标题先归一（`第10章潜七十二` → `第10章 潜七十二`），再洗标点 ——
+    # 标题行里的标点同样需要洗，顺序不影响结果。
+    text, title_changed = normalize_chapter_title(text)
     new, counts = normalize_chinese_punctuation_with_counts(text)
-    if new == text:
+    if title_changed:
+        counts["title"] = counts.get("title", 0) + title_changed
+    if new == text and not title_changed:
         return False, counts
     write_text(p, new)
     return True, counts
