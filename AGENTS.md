@@ -24,6 +24,23 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 思考成本只能从 `completion_tokens` 总额侧面反映。
 **换供应商只改 `config/system.yaml` 的这两个键，不要改代码、不要在 `llm_client.py` 里硬编码模型名。**
 
+## 细节文档（docs/agents/）—— 按需读取，别当不存在
+
+本手册只留**动手前必须知道的**；细节按主题拆在 `docs/agents/` 下。
+**为什么拆**：旧版 76,326 字节，超过 65,536 字节的指令加载预算时系统会**静默截断**，
+实测截掉的正是靠后的《能力边界》《硬性约束》—— 手册失效且没有任何报错。
+现在主文件 35 KB（原 76 KB），**读全本也很便宜**；下面这些在动到对应模块时读。
+
+| 主题 | 文件 |
+|---|---|
+| 中文标点归一化（幂等/保守/保护区） | `docs/agents/text-norm.md` |
+| 文体（form）与判据适用范围 | `docs/agents/writing-forms.md` |
+| 知识库扫描通用化（禁私例当通例） | `docs/agents/kb-scan.md` |
+| 长篇规模能力（评审账本/记忆/卷弧/伏笔/残稿） | `docs/agents/long-form.md` |
+| 提示词前缀纪律（改 stage*.md 前必读） | `docs/agents/prompt-prefix.md` |
+| 关键路径（数据与产物的真源） | `docs/agents/key-paths.md` |
+| 运维场景（失败/熔断/打回/升级） | `docs/agents/operations.md` |
+
 ## 启用流程（用户说"运行 NovelForge"时）
 
 1. 前置检查：
@@ -85,320 +102,19 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 
 ## 中文标点归一化（2026-10-18，确定性、零 token）
 
-**为什么必须是代码不是提示词**：提示词里早就写着「所有标点使用全角中文标点」，产物照旧
-（实测《雾港核心》refined 稿 76 个半角 `"`、67 对 `「」`，成品 docx 里 `“` 出现 0 次）。
-形态错误只能靠确定性替换治理——可单测、可幂等、可事后验收。
-
-**唯一实现** `scripts/utils/text_norm.py`（`normalize_chinese_punctuation` /
-`normalize_chapter_file`）。判据：半角 `" `按**行内开合交替**转 `“”`（偶数个严格交替、
-奇数个保留最后一个为孤儿不硬造配对）；`「」`→`“”`、`『』`→`‘’`；单 `—`/`--`→`——`；
-`...`/`。。。`/单 `…`→`……`；汉字间半角 `,;:!?`→全角；括号内含汉字→全角。
-
-三条护栏（每条都是实测踩出来的）：
-- **幂等** —— 挂载点有 7 处，重复跑是常态；`f(f(x)) == f(x)` 由用例断言。
-- **保守** —— 英文语境一律不动（`--flag`、`3-5`、`don't`）；破折号只在汉字/中文标点
-  语境下转换。孤儿引号保持原样 —— 宁可留脏，不可把正文改错。
-- **保护区** —— `<!-- -->` 注释块与 ``` 代码围栏**整块跳过**（注释里全是 ASCII，
-  归一化它会把 `<!-- quality: 8/10 -->` 改坏 → 下游 `QUALITY_RE` 再也匹配不上）。
-
-挂载点（都在 LLM 落盘后、下游校验前）：stage4 / stage5 / stage6 / `refine_chapter` /
-`refine_paragraph` 各自落盘后，外加 stage7 `merge_book()` 合并时**兜底**——
-前面各阶段只覆盖新产出的章，**修复前写下的历史脏章**只有合并这一步才洗得到，
-所以成品 docx 永不带脏标点。失败只打印不阻断主链路（标点是清洁工作，它坏了不该拖垮写作）。
-
-**误开 `gates.auto_rewrite` = 双倍烧**（审稿前先跑一轮重写）。本机默认 `false`；
-orchestrator 启动横幅会打印生效值（`gates: auto_rewrite=… auto_refine=… review_after_stage4=…`），别靠翻 YAML 猜。
-
-**审稿 JSON 断裂**：解析统一走 `utils.validator.parse_llm_json`（含括号配对补全）；
-仍失败 → 按 `gates.review_retries`（默认 1）重试 → 仍败则**原文隔离** `data/state/review_raw/` +
-可行动报错 + 审稿门 fail-closed（不放行 stage5/6）。调用本身失败（退出码非零）**不重试**（同一上限只会再截断一次）。
-
-**截断类失败不自动重试**（2026-10-03）：`finish_reason == "length"` 时除了隔离残缺稿，
-还会写机器可读标记 `data/state/truncated/last.json`（判据 = `utils/truncation`，
-写 `mark()` / 读 `after(阶段开始时刻)`）。orchestrator 的 `auto_retry`（默认开、默认 2 轮）
-**先过 `should_auto_retry()`**：截断 → 一票否决并打印「同一上限只会再截断一次，白烧一倍输入 +
-该调 `budget.token_limit.per_request_max_tokens`」。自检 `tests/unit/test_truncation_no_retry.py`（28 断言）。
-
-**输入段格式**：任务「输入文件」段每条路径必须是**列表行**（`- 名称: <路径>`）。
-格式不符（含目录引用指向不存在的目录）→ `InputSectionFormatError`（行号 + 原文 + 正确写法），
-**不再静默返空** —— stage5 空稿事故的同类根因。
-
-**Agent 模式守卫（CLI 侧，2026-10-15 方案A；2026-10-16 扩族 P2）**：`gates.agent_mode=true` 时，
-`approve.py` / `reject.py` / `segment_cli.py`（勾段与撤销）对 CLI 审批**无条件拒绝**，
-且 `plan_cli.py`（select/write/drop/revive 四态拍板）、`switch_book.py`（--archive/--restore/--init）、
-`import_docx.py`（非 --preview 落盘）三个拍板/破坏性写入家族同日补闸 —— HTTP 侧早在这张禁用名单里、
-CLI 侧此前**零守卫**（Agent 一条命令即可拍板/搬空工作区/整本盖稿）。propose（可提案不可自选）、
-只读命令、`--preview`、`--list` 不受限。判据唯一实现
-`utils/agent_guard.cli_approval_gate()`（恒拒；策略原因 + 原证据进 `agent_audit.jsonl` 台账）。
-用户拍板原话「都用桌面端了，没人会用 CLI」，**审批唯一入口 = 桌面端 GUI 双因子**。
-原正路「真实交互终端」（双端 `isatty` 快筛 + 祖先进程链取证）废止但机制保留：`cli_human_evidence`
-仍是唯一证据实现（**正判 ≠ 放行**），链须落在用户终端锚点、不得经自动化宿主、取证失败或链截断
-= fail-closed 拒（2026-10-15 红队修复：深度上限截断同样打 `?`）；`--human` / `MOFANG_SOURCE=gui`
-只当声明留痕，不参与放行（V1/V2）。拒绝文案零通道名，只说「停手并报告用户」（V5，拒文不教绕行）。
-只读命令（`segment_cli list/status` 等）不受方案A限制（Agent 可读）。⚠️ 这不是沙箱，别对外宣称更强。
-
-**控制台输出纪律**：`print` 里**不要**写非 GBK 字符（`¥`/`⚠️`/`✅`/emoji）——
-stdout 被管道捕获时 Python 用 cp936，一行日志就能 `UnicodeEncodeError` 打死长跑
-（实测：hermes 横幅把 orchestrator 启动搞崩、`quality_gate` 通过却退 1 假红）。
-入口已统一调 `utils.console.ensure_utf8_stdout()` 兜底，但新代码请仍按此纪律写。
-
-**project.yaml**：读写都必须走**带重复键检测**的 loader（`utils.project_config`）。
-裸 `yaml.safe_load` 对重复键静默取后值 → 换书可能把数据归档到**错误书名**下。
-`switch_book.py` 配置坏时**拒绝执行**（含 `--list`），改完再换书。
-⚠️ 它的 `PROJECT_ROOT` 取自**脚本位置**（不是 CWD）：从别的目录敲
-`python <某路径>/scripts/switch_book.py --archive`，动的是**脚本所在的那个仓库**
-（本轮就因此归档过一次真实工作区，已恢复）。现它会在任何写操作前打印
-「将操作的项目根」，CWD 不同还会显式提示 —— 别忽略那两行。
-
-**配置类 YAML 一律经 `utils/config_io`（2026-10-03 收口）**：`load_config_yaml` 严格
-（重复键/语法错 → `ConfigError` 带**行号 + 危害 + 体检入口**）、`load_pipeline_config`
-（system ← local 深合并 + project，三份全严格）、`set_section_scalar(s)`
-（**定向改写**保留注释 + 备份 + 写后按值回读；嵌套段路径如 `("budget","token_limit")`）。
-**结构性护栏**在 `tests/unit/test_config_io.py` 第 5 节：`scripts/**` 出现裸 `yaml.safe_load(`
-即 FAIL，豁免名单（模板 frontmatter / nfctl 只读诊断 / 设定集数据文件）**每条都要写理由**。
-
-**收尾质量闸门（`quality_checklist.py`）**：**产物缺失 = 失败**（`all_pass=False` + 指出
-`data/chapters/{refined,raw}/NN.md` 两个候选路径 + 说明「跑过但没落盘」的含义）。
-确属还没写到那一章时用 `--allow-missing`，届时摘要必须写「**未经验收**」—— 跳过 ≠ 通过。
-`book.chapters = 0` 这类空集合也直接报错（vacuous truth 是门禁最阴的假绿）。
+> 详见 **`docs/agents/text-norm.md`**。留在手册里的只有「为什么」：形态错误只能靠确定性替换治理（提示词里早就写着全角标点，产物照旧）；唯一实现 `scripts/utils/text_norm.py`，7 处挂载点 + 幂等/保守/保护区三条护栏。
 
 ## 文体（form）—— 决定哪些判据适用（2026-10-20）
 
-用户问过一句「如果根本不是传统叙事小说，会不会炸」——**会**。整条流水线的判据默认叙事小说，
-而且是硬编码：散文集按七维要求「情节连贯 / 人物关系」，永远不完整；散文没有对话，
-审美里的「对话区分度」永远拿不到；一首诗会被 `verify_chapter` 的「段数 <6」判成退化。
-
-**现状分层（说清楚哪些已生效、哪些还没）**：
-
-| 层 | 状态 |
-|---|---|
-| `config/project.yaml` 的 `book.form`（narrative / letter / episodic / essay） | ✅ 已生效 |
-| `book.form_overrides` 微调判据适用范围（未知键/未知值**抛错**，不静默） | ✅ 已生效 |
-| 七维/审美五问按文体标 **N/A**（不计分、不算缺失、不进均值） | ✅ 已生效（`review_ledger`） |
-| stage5 入口打印「文体：X；七维里只有 N 项适用」 | ✅ 已生效 |
-| GUI 入口（设置 → 提示词 →「文体」下拉；`GET/POST /config/form`） | ✅ 已生效 |
-| stage5 评审提示词按文体裁剪（`writing_form.review_scope`） | ✅ 已生效（散文只评 1 维 + 4 问，示例同步裁） |
-| 卷规划按文体关（`volume_plan.ensure_window` 早退） | ✅ 已生效（散文不分卷、不调模型） |
-| stage4 文风块按文体切换（`prompts/style/{form}_{style,para}.md`） | ✅ 叙事 / 散文已写；书信、单元暂回落叙事并**告警** |
-| stage3 章大纲新字段按文体取（散文不要「小目标/钩子」） | ✅ 已生效 |
-| `verify_chapter` 段落结构判据按文体放宽（`para_structure`） | ✅ 已生效 |
-| `quality_checklist` 未提角色名判据（散文跳过） | ✅ 已生效 |
-
-**纪律**：不适应显式标 N/A，**不许给 0 分或满分**。默认 `narrative`，不写 form 的老项目
-行为与改动前逐字一致（`test_writing_form.py` 39 断言钉住）。
-**三条「配了不生效」的教训（2026-10-20 自查抓出）**：
-
-1. `writing_form` 里写了 `volume: False`，但 `volume_plan` 从没读过它 —— 散文照样分卷、
-   照样调模型生成卷纲。**配了不生效比没配更糟**：`describe()` 还会打印"不做分卷滚动"，
-   用户以为关掉了。判据：新增配置键必须同时接上消费方，否则不算做完。
-2. stage5 提示词硬写七维 + 五问：校验侧标了 N/A 不计分，但**token 已经花掉**，
-   账本里还留下模型为凑数硬编的证据。提示词本身必须裁（`review_scope`）。
-3. 「写法指导是否接入」曾用「`style_blocks()` 返回非空」判断 —— 未接的文体**回落叙事**
-   也返回非空正文，于是界面把书信/单元显示成"已接入"。改判**文件是否存在**
-   （`style_files_exist`）。回落是回落，接入是接入。
-
-**散文（essay）已经打通全链**：判据只留「常识与科学」一维 + 审美四问（无对话区分度）、
-不要求小目标/钩子、不做深化/分卷/伏笔、段落结构判据关闭、不查"未提及角色"、
-文风块换成"观察与感受"版（允许第一人称/抒情/一句一段，禁止空泛与总结主题）。
-书信（letter）与单元（episodic）目前**只有判据口径**，写法指导仍回落叙事并在 stage4 打印告警。
+> 详见 **`docs/agents/writing-forms.md`**。留在手册里的只有「为什么」：`book.form` 决定哪些判据适用（叙事/散文/书信/单元）；不适应要显式标 N/A，不许给 0 分或满分。书信/单元的写法指导仍未接入（回落叙事并告警）。
 
 ## 知识库扫描通用化（2026-10-24，用户点名「不要拿私例当通例」）
 
-**判据：任何"用户的库长什么样"的假设，都不许写进代码、提示词或测试夹具。**
-Obsidian 的通用保证只有一个 —— 一个装着 `.md` 的目录。目录名 / frontmatter / `[[]]`
-都是**加分项**，永远不是准入条件。
-
-- **收集**：`kb_index.build_index` 走 `vault.rglob("*.md")`（不看目录名、不要求 frontmatter），
-  索引 name + **正文全文**（中文 2-4gram + IDF）。老通道 `scan_vault` 仍靠目录名准入
-  （非标准布局实测扫 0 条），stage4 里与它**并联**：A 的 locked 语义原样保留，
-  B 只补 A 的盲区，B 出错不连坐 A。
-- **排除**：`obsidian.skip_dirs`（追加语义，默认四项恒生效；系统自己的沙盒目录恒并入）。
-  **GUI 入口 = 设置 → 风格与提示词 →「知识库扫描」**：列出库里真实存在的顶层目录 + 篇数
-  + 勾选排除。目录名从用户库里读、用户在界面上勾 —— 这是"用户可配置"的唯一诚实形态。
-  排除项只写 `config/system.local.yaml`（私有库目录名不进 Git）。
-- **词条名**：frontmatter `name/title/id` > **文件名** > H1。H1 只在**单 H1** 且不像
-  通用小节名时才用 —— ≥2 个 H1 说明是分节结构，第一个只是小节（实测某库 417 篇的 H1
-  全是「一、概念定义」「基本信息」，照取会让注入的词条名全是同一个串）。
-- **空骨架页**（`setting_schema.is_uninjectable`，两收集器单源）：HTML 注释 /
-  `{{变量}}` / wikilink **整体去掉**后一个字不剩。判据只看内容、不看名字，阈值 1 ——
-  调高会误杀真实短词条，而误杀是不可逆的。
-
-**本轮实测踩到的三次（全部已修，勿重蹈）**：① 按文件名含「索引/模板」排除 →
-**误杀 13 个真设定词条**；② `_GENERIC_H1` 里塞某个库见过的小节标题（「哲学内核」）；
-③ 测试夹具直接抄私有库的目录名/人名 → 被 `leak_scan` 抓。**夹具专名一律走
-`ci/fictional-map.txt` 右侧（虚构宇宙），或自己新造。**
-
-**配置读取必须跟 `--root`**：`setting_schema._read_yaml_config` 用 **ROOT 优先、CWD 兜底**。
-生产里两者相同（Electron spawn 时 cwd=工作区 且 `--root` 工作区）；从别的目录起进程时
-读 CWD 会**静默读到另一个项目**（用户填的 vault 路径不生效且无任何报错）——
-这是本仓"派生路径没跟 ROOT"的第四处（前三处见 `nf_api._set_root` 注释）。
+> 详见 **`docs/agents/kb-scan.md`**。留在手册里的只有「为什么」：任何「用户的库长什么样」的假设都不许写进代码/提示词/测试夹具；收集走 `vault.rglob("*.md")`，排除项由用户在 GUI 勾（只写 system.local.yaml）。
 
 ## 长篇规模能力（2026-10-20，四项一次落地）
 
-四件事共用一条判据：**宁可明说"没有"，也不给假的**。每项都有确定性用例
-（`test_review_ledger.py` 48 · `test_memory_policy.py` 28 · `test_volume_arc.py` 51 ·
-`test_setting_closure.py` 41）。
-
-### 1. 七维评审账本（stage5，替代自由文本审稿）
-
-`utils/review_ledger.py` = 唯一实现。七维与 `prompts/stage5_check.md` 的七项检查
-**一一对应**（plot/timeline/space/reference/relation/persona/commonsense），
-每维必须给 `score`（0-10）+ `quote`（**本章原文里逐字存在的句子**）。
-
-- **举证对不上原文 → 该维 `score=None`（不计分，不是扣分）**；缺维不补默认分。
-- 匹配前 squash 掉标点/空白（`「」` vs `“”`、半角逗号都算同一句）；
-  含省略号的引用按 `…` 切段，**每段都要命中**（容纳省略，不放水）。
-- 举证 <8 个有效字符不算（"他点了点头"定位不到任何一处）。
-- 落盘 `data/review/NN.json` + `summary.json` + `ledger.md`；
-  `check_report.md` 仍保留（给人看的自由文本，两者不互相替代）。
-- 开关 `gates.review_ledger`：`warn`（默认，只告警）/ `block`（不完整即阶段失败）。
-- GUI：章节页签「七维评审账本」（`GET /review/ledger`，只读，不提供重算按钮）。
-
-**审美五问（2026-10-20，独立于七维）**：七维管"没写错"，五问管"写得好不好"——
-描写质感 / 叙事手法 / 对话区分度 / 用词质量 / 情感打动力（`review_ledger.AESTHETIC`）。
-
-- **不叫第八维、不动七维契约**：`dims` 一个字没改，审美是独立字段 `aesthetic`；
-  `complete` 仍只看七维，审美单独给 `aesthetic_complete`。老账本照常读，界面显示「未评」。
-- **一问一句**：同一句原文只算第一处 —— 重复给多问、或复用七维已引过的句子，一律判未举证
-  （`check_chapter` 把七维的 quote 作为 `reserved` 传进去，跨块复用也拦）。
-- 五问缺一即整块作废；低分进 findings 且 `kind=aesthetic`；**不参与 stage5 的 warnings**（只打印）。
-
-### 2. 上下文记忆策略（stage4，三层）
-
-`utils/memory_policy.py`。L1 固定层（大纲/角色卡/上一章尾）**不裁**；
-L2 滚动层（全书摘要 + 最近 `rolling_window` 章）与 L3 召回层（四维：伏笔/角色/状态/关系）
-按 `context.memory.*` 的字符预算裁。
-
-- **裁掉什么必须写出来**：省略章号区间、丢掉的候选数都进注入块；
-  召回为 0 时写"没有与本章相关且够近的旧事"，不是静默留空。
-- 未来章节/事件**不召回**（那是剧透）。最近 3 章摘要不重复召回（由上一章尾巴覆盖）。
-- 相关度 = bigram 重合数 + 3×专名命中；**专名必须同时出现在候选与本章大纲里**，
-  否则设定集里每个带人名的碎片都会被无差别召回（实测踩到）。
-- 纯 bigram 门槛不够：要求重合数 ≥4 **且**重合率 ≥0.2（"都能含'没有'"不算相关）。
-
-### 3. 卷弧双层滚动规划
-
-`utils/volume_arc.py` + `scripts/volume_plan.py`。近层（当前卷 + 后续
-`rolling_volumes-1` 卷）出**逐章目标**；远层只留一句话方向。
-
-- stage3 只铺到 `horizon`（默认 2 卷），窗口外由 stage4 **按需补齐单章大纲**
-  （`stage3.generate_chapters`，与 stage3 共用一份实现）。
-
-**章大纲六字段（2026-10-20，v0.7.2）**：核心事件 / 涉及角色 / **小目标** / **悬念钩子** /
-功能 / 衔接。新增的两项是写作时的实际抓手，也是 v0.9.3 伏笔台账的唯一确定性数据源。
-
-- **生成侧严格、存量宽容**：`check_chapter_outline(path, strict=True)` 用于 stage3
-  **新生成**后校验（六字段 + 新字段值 ≥ `MIN_FIELD_CHARS`=6 字）；`outline_ok`（断点判据）
-  仍用宽松模式，只查三个硬字段 —— 否则升级一次就把用户已写完的大纲全判废。
-- **空值不算有字段**：旧实现只判 `f in text`，正文里出现"钩子"两字就算通过（假绿）。
-  现按行首 `字段：值` 匹配，值为空即判缺。
-- ⚠️ 正则里冒号后只能 `[ \t]*`，不能 `\s*`：`\s` 会吃换行，把「小目标：（空）」
-  取成下一行整行（实测踩到，`test_chapter_outline_fields.py` 里钉住）。
-- ⚠️ stage4 只补**文件不存在**的章大纲；**存在但字段不全绝不重写** ——
-  实测那样会把已审阅的大纲整批换成占位内容。
-- 卷纲判据：逐章目标**覆盖每一章** + 无占位符；不合格 → 重规划（修复），
-  合格 → **绝不覆盖**（`--force` 才动）。`data/outline/volumes/vNN.md` + `plan.json`。
-- `chapter.rolling_volumes: 0` = 关闭滚动，行为与改动前一致。
-
-### 3-B. 残稿可见可采纳（v0.8.5，2026-10-20）
-
-`utils/truncated_store.py` + `GET /truncated`、`POST /truncated/adopt|clear`。
-章节页签「残稿」面板。
-
-- 截断时我们**不落盘**（纪律正确），但残缺文本一直隔离在 `data/state/truncated/`，
-  **人看不见** —— 失败之后用户只看到「失败」，不知道模型其实写了 3000 字。
-- **采纳 ≠ 完成**：写进 `raw/NN.md` 的同时在 `adopted.json` 打侧车标记，
-  `is_chapter_complete` 见到标记**仍判未完成**。否则采纳就是绕过审稿的后门。
-- 用户补齐后点「已补齐」清标记，恢复正常判定。
-- 采纳时**自动补 `## 第N章` 标题**：残稿是正文没有标题，不补的话补齐后仍过不了
-  标题判据（实测踩到，用户会以为"点坏了"）。
-- 太短（< 300 字）不给采纳，并说明"多半刚开始就断了，重写更省"。
-- 侧车标记不写进正文：正文加注释会污染导出与字数统计。
-
-### 3-C. 伏笔台账（v0.9.3 前半，2026-10-20）
-
-`utils/foreshadow.py` + `GET /foreshadow`、`POST /foreshadow/status`。章节页签「伏笔台账」。
-
-- **数据来源只有两个确定性入口**（不额外烧 token）：章大纲的「悬念钩子」（v0.7.2 起强制）
-  + 后续章的「核心事件/小目标/功能」文本。
-- 推进判据：bigram **交集 ≥2 且覆盖率 ≥0.15**。只用交集数会"短钩子太松、长钩子太严"；
-  只用覆盖率短句随便撞一个就 20%。两者一起才稳。
-- **回收不自动判定**：文本相似不等于"解决了"。`closed`/`abandoned` 只能人点，
-  且**必须写理由**（唯一能防止台账被随手清空的东西），人工标记压过自动判定。
-- 超期告警：`open|advanced` 且闲置 > `gates.foreshadow_stale`（默认 30 章）。
-- 没有章大纲 → 返回空 + 明确说明"无从抽取"，**不倒假数据**。
-
-### 4. 设定库闭环
-
-- **增量合并** `obsidian_integrate.merge_setting_from_vault`（CLI `merge`）：
-  只做加法 —— 新增追加、空字段补齐、**已有非空值不动**、`locked` 完全不碰、
-  `plot_fragments`/`timeline` **保留**。字段分歧写 `data/setting/vault_conflicts.json`
-  等人裁决，不自动选一边。（`scan` 仍是整体替换语义，勿混用。）
-- **大纲注入** `utils/setting_brief.py`：stage2 现在拿到的是**有预算的设定集摘要**
-  （角色/地点势力/伏笔/时间线 + vault 未归并词条），不再只是一个文件路径。
-  超预算截断会写明"另有 N 行未内联"。
-- **GUI 拍板**：设定页签「素材裁决」→ `GET /setting/conflicts` + `POST /setting/status`
-  三态（采纳/否决/待定）；否决**必须填原因**（写墓碑，按名字生效）。
-
-### 3-D. step 级 checkpoint：崩溃窗口恢复（stage4，2026-10-21）
-
-stage4 单章顺序是「LLM 写盘 → 归一化 → 质检 → 摘要 → 出场 → 记账 → 标完成」。
-进程在「写盘之后、标完成之前」崩掉（kill / 断电 / 熔断恰好落中间）时，
-盘上留着**一份合格正文**而 progress 没标 done。修复前断点续跑把它当"没写过"→
-**重调 LLM 重写一遍**（一章几千 token，100 章的书崩一次白烧一遍，新一版往往还更差）。
-
-- **判据**：`raw/NN.md` 合格但没标 done 的章 → 走 `_finalize` 幂等补账
-  （摘要/出场/标完成），**零 LLM 调用**；半成品（字数不足）**不许**捞起，必须重写。
-- `_finalize` 是**唯一**的"写盘后收尾"实现（主循环成功路径与崩溃恢复路径共用）——
-  两份同步逻辑必然漂移（这是把内联尾巴抽出来的唯一理由，不是重构洁癖）。
-- 关键：`append_chapter_summary` 是**同章覆盖**语义 → 补账不会污染 `global_summary`；
-  会污染的是"重调 LLM 重写整章"（再走一次全流程 = 摘要重复压一行），
-  那条路已被"正文合格就不重写"堵死。
-- 自检 `tests/unit/test_stage4_crash_recovery.py`（12 断言）：幸存章不重写、
-  补账后 done + 摘要进 rolling.md、半成品仍重写、正常路径不受影响。
-
-### 交接稿 / 指南针 / 写作预设 / 首跑向导（2026-10-21，roadmap 10.1 / 7.3 / 10.3 / v0.20）
-
-**交接稿**（`utils/handoff.py`，roadmap 10.1）：把「写到哪了 + 接下来写什么」
-拼成一份可粘给**任何模型**的 markdown —— 换模型/换会话不再靠重跑。六段拼装
-（身份/写作要求/设定摘要/未回收伏笔/最近章节/下一章大纲全文内联），零 token。
-- 缺料**明说不编造**：下一章大纲没生成就写明「尚未生成 + 怎么补」，绝不拿空段糊过去。
-- 绝对路径不出稿：所有输入先过 `strip_protocol_markers`，输出再过绝对路径扫描
-  —— 交接稿要去别人家，不能带门牌号。
-- 入口：`nfctl handoff [--chapter N] [--print]` · `POST /handoff/export` ·
-  章节页签「交接稿」面板（复制全文 / 打开文件）。自检 30 断言。
-
-**指南针**（`utils/compass.py`，roadmap 7.3）：`global.md` 是第 1 天定的全书大纲，
-写到第 100 章时早改得面目全非 —— 指南针是「全书往哪去」的单一锚点：
-终局方向一句话 + 活跃长线（≤5 条）+ 规模估计。
-- 活跃长线 **>5 条拒绝写入**（长线太多等于没有主线）；规模与实际章数偏离 >30% 告警不阻断。
-- 终局方向变更自动留 `data/outline/history/compass_v*.json`（切回有据）。
-- 没设时 stage3 明说「未设终局方向」——**静默省略会让长篇一路写偏而无人知**。
-- 入口：大纲页签「指南针」面板 · `GET/POST /outline/compass`。自检 21 断言。
-
-**写作预设**（`utils/writing_presets.py`，roadmap 10.3）：多套写作要求存档与一键切换。
-- **只收写作要求**（style/style_notes/target_words/form/language/genre）；
-  书名/章数/作者是**作品身份**，不进预设 —— 身份字段混进来，切换会把 A 书改成 B 书。
-- 切换 = 校验 → 留 `data/presets/writing/history.jsonl` → `set_book_fields` 定向写回
-  （含备份 + 回读校验）。未知键一律拒绝并列出可选键。
-- ⚠️ `set_book_fields` 按**脚本位置**定位 project.yaml 与备份目录（模块级常量）——
-  root ≠ 仓库根时会写错书、备份落进真实仓库，故用完还原（同 foreshadow 的坑）。
-- 入口：设置 → 风格与提示词 → 「写作预设」面板 · `GET/POST /config/writing_presets{,/save,/apply}`。
-  自检 25 断言。
-
-**首跑向导**（roadmap v0.20）：新建项目向导加「选出厂预设」一步 ——
-选中即铺配套素材 + 配置，**否则首跑是空跑**。
-- `GET /factory/presets`（只读清单，Agent 可调）· `POST /factory/preset/apply`
-  （**破坏性**：快照 → 归档当前项目 → 铺素材 → 写配置）。
-- 铺设列入 `FORBIDDEN_IN_AGENT_MODE` + 端点自身 `_gui_only` 双因子（与 `/project/create`
-  完全同族）。Agent 可盘点、不能动手。自检 17 断言（含伪造来源头的红队路径）。
-
-### 弹窗写法（暮雨 2026-10-19 点名"不会抄自己"）
-
-应用里已有范式，**不要手搓**：`drawer-mask`（居中）→ `dialog` → `card-head` 标题 →
-可滚动正文 → `dialog-actions`。参照 `DisclaimerDialog.vue`。
-`v-if` 动态插入时 `autofocus` **不生效**，必须 `watch + nextTick + focus()`；
-默认焦点放在**最保守的选项**上（"我不同意"）。
+> 详见 **`docs/agents/long-form.md`**。留在手册里的只有「为什么」：七维评审账本 / 审美五问 / 三层记忆 / 卷弧滚动 / 残稿采纳 / 伏笔台账 / step 级 checkpoint / 设定库闭环 —— 每项的判据与踩过的坑。
 
 ## 发布树卫生：夹具/预设的专名只能取自虚构侧（2026-10-20 立规）
 
@@ -449,7 +165,7 @@ stage4 单章顺序是「LLM 写盘 → 归一化 → 质检 → 摘要 → 出�
 2. **HTTP**（`nf_api` on `127.0.0.1:8765`）：只在需要「正在跑的那个任务」的状态、
    流式 token、SSE 时才用。只读转发用 `nfctl.py api <GET路径>`。
 3. **MCP**：`nf_mcp.py` 在 **TCP 127.0.0.1:8766** 暴露白名单工具（`tools/list` 返回
-   **25 个**：23 个 HTTP loopback + 2 个 LOCAL 直调 —— ⚠️ **数量勿写死**，以
+   **27 个**：25 个 HTTP loopback + 2 个 LOCAL 直调 —— ⚠️ **数量勿写死**，以
    `nf_mcp.MCP_TOOLS` 为唯一事实来源），`tools/call` 经 HTTP loopback 复用
    现有域模块。审批类/项目类/模式切换端点**永不**暴露给 MCP。
    **垫片自启动（2026-10-06）**：`nf_mcp_stdio_bridge.py` 起来时若 8765 `/health` 不通
@@ -474,42 +190,19 @@ stage4 单章顺序是「LLM 写盘 → 归一化 → 质检 → 摘要 → 出�
 主进程签发 token，光带头子不算）调用 `/approve`、`/reject`、`/project/create|archive|restore|init`、
 `/config/agent_mode`、**`/config/token_limit`**（止烧阈值：Agent 不得抬高自己的闸门）、
 **`/factory/clean`**（出厂样例清理：Agent 可用只读 `/factory/list` 盘点，不得动手搬素材）、
-**`/stage/skip`**（跳过阶段 = 标 done+已审批，与审批同族，2026-10-16 补入名单）
+**`/stage/skip`**（跳过阶段 = 标 done+已审批，与审批同族，2026-10-16 补入名单）、
+**`/chapters/save`**（手改正文：零 token 直接覆盖三层稿 —— 与「重写（花 token 生成、有备份与
+自动恢复）」不是一回事，2026-10-27 补入名单）
 返回 **403**。含义是：**外部 Agent 可读、可跑流水线，但不能代替用户审批** —— 这是设计，不是 bug。
-另外设置类写入（`/config/agent_mode`、`/config/token_limit`）**无论模式如何都要求 GUI 来源头**。
+另外设置类写入（`/config/agent_mode`、`/config/token_limit`）**无论模式如何都要求 GUI 来源头**；
+`/chapters/save` 同档（与 agent_mode 无关也要求双因子 GUI 来源）。
 双因子的边界如实声明（2026-10-16 红队 A11）：同机攻击者可自起一份 nf_api 并自铸 `NF_GUI_TOKEN`
 整体穿透本名单 —— 但这不比「直接手改 `data/state/*.json`」多出任何能力，同属已声明残余
 （防线语义 = 拦住照文档跑命令的 Agent，**不是沙箱**）。
 
 ## 提示词前缀纪律（2026-09-23 定，改 `prompts/stage*.md` 前必读）
 
-模型的**前缀缓存**按「请求开头逐字相同」命中，而写作阶段的输入量远大于输出量，
-所以**提示词里内容的先后顺序直接决定成本**。
-
-**约束**：`prompts/stage4_writing.md` 的 body 中，`---` 分隔线**之前**的内容必须逐章逐字不变；
-凡含 `{{n}}`（章节号）或每次都会变的内容（前文衔接 / 风格样本 / 角色卡），一律排在分隔线之后。
-
-**依据（实测）**：原模板正文第 1 行就是 `# 阶段 4 任务：写作第 {{n}} 章`，分叉点落在第 15 个字符，
-其后 55 行的写作要求/文风要求/硬性禁止**全部落在缓存分叉点之后**，前缀命中率上限只有 1.2%；
-按本条重排后为 **77.6%**，真请求实测 deepseek-v4-flash 命中 57.9%。
-
-**说明文字写 frontmatter，不要写进 body** —— frontmatter 不进任务文本（`load_template` 只取 body），
-写进 body 会变成逐章变化的内容，反而破坏前缀（这个坑已踩过一次）。
-
-**frontmatter 里没有任何键会被代码当参数用**（2026-10-06 实证：20 个 `load_template()`
-调用点无一读取 `meta`；模型/温度/上限的真源是 `config/system.yaml` 的 `model.*` 按角色取）。
-原先 15 个模板里的 `model: hy3` 因此被判死字段并从**三份副本**（源码树 / 桌面工作区 /
-安装包 payload）一并清除 —— 它的危害在**误导**：GUI 提示词编辑器显示它、「复制提示词」
-把它连正文一起塞进剪贴板，读的人（和外部 Agent）会以为模板在挑模型。
-复制按钮现已剥掉 frontmatter 只给正文；防回潮见 `tests/unit/test_prompt_frontmatter.py`。
-**2026-10-11 改道**：流水线页签的按钮不再复制模板正文，改复制**任务简报**
-（项目根 + 执行命令 + 预期产物 + 退出码 + 模板位置）—— 模板正文里的 `{{...}}`
-只有流水线渲染时才填，原样贴给外部 Agent 会被它按 kickoff 红线判成「模板不是任务」
-当场停工（用户实测：试跑一步没走就炸）。简报里**不得出现成对花括号**，
-否则等于把同一个坑再挖一遍；模板本身由 Agent 自己按需 `read_file` 当背景读。
-
-**另注**：`qwen3.5-flash` 在 TokenHub 上**完全不缓存**（同前缀连发 3 次 cached 恒为 0），
-而当前 7 个角色（含 writer）全用它 —— 即上述优化要变现需换到支持缓存的模型（见 `cost_tracker.RATES` 的 cache_read）。
+> 详见 **`docs/agents/prompt-prefix.md`**。留在手册里的只有「为什么」：改 `prompts/stage*.md` 前必读：body 里 `---` 之前必须逐章逐字不变，否则前缀缓存命中率从 77.6% 崩到 1.2%。
 
 ## 架构：API 层的域模块拆分（P2）
 
@@ -633,6 +326,9 @@ stage4 单章顺序是「LLM 写盘 → 归一化 → 质检 → 摘要 → 出�
   双因子。只读 `GET /factory/presets` 可用 —— Agent 可盘点，不能动手）
 - `POST /outline/segments/set`（大纲分段审批标记 —— 勾一段 = 替用户读一段，归用户在 GUI 分段审阅面板里点；Agent 可读不可勾）
 - `POST /stage/skip`（跳过阶段 = 人工拍板放行管线（approved 真写进 progress.json），与审批同族；2026-10-16 补入名单）
+- `POST /chapters/save`（手改正文 = 用户本人动作：零 token 直接覆盖 raw/checked/refined，会**静默改写**
+  已审阅的稿子且不留模型痕迹；端点另要求双因子 GUI 来源，**与 agent_mode 无关也拦**。
+  读侧 `GET /chapters/layers|content` 不拦；整章重写走 `/chapters/rewrite`（Agent 可用，见 MCP `nf_rewrite_chapter`））
 
 CLI 侧同族守卫（2026-10-16 P2，判据同源 `cli_approval_gate`）：`plan_cli.py` 的 select/write/drop/revive、
 `switch_book.py` 的 --archive/--restore/--init、`import_docx.py` 的非 --preview 落盘在 agent_mode=true 下
@@ -672,158 +368,11 @@ if __name__ == "__main__":
 
 ## 关键路径
 
-- 设定集：`data/setting/setting.json`（四顶层键 characters/world/plot_fragments/timeline）
-- 整体大纲：`data/outline/global.md`（审批门对象）
-- 大纲体检报告：`data/outline/review_report.md`（outline_review.py 生成）
-- 素材体检报告：`data/setting/material_review.md`（material_review.py 生成，stage1 后自动）
-- 设定补全历史：`data/setting/history/`（setting_refine.py 每次补全自动备份 setting_vN.json）
-- 角色出场统计：`data/state/appearances.json`（appearances.py / `refresh_appearances()` 生成，**stage4 每章通过校验后自动刷新**，obsidian_postprocess 自动调用；同章重复同步不重复计数）
-- 风格偏差报告：追加在 `data/outline/polish_report.md` 末尾（分卷模式先写 `polish_report_volN.md`，
-  stage6 收尾自动**合并覆盖**成 `polish_report.md`——GUI 产物概况与「润色体检报告」按钮只认汇总名，2026-10-17 修），
-  stage6 每卷润色后自动写入；配置 `book.style_reference` 才生成，阈值 30%，仅供参考不阻断流程
-- 大纲修订历史：`data/outline/history/`（每次精修自动备份 global_vN.md，可回退）
-- 用户大纲输入：`config/project.yaml` 的 `book.user_outline`（可选；提供后 stage2/精修优先遵循）
-- Word 成品模板：`templates/*.dotx`（config 的 `book.word_template` 指定；.dotx 自动转换；替换 [书籍标题]/[作者]/[目录占位符]/[请输入文本] 占位符；更换模板只改配置或覆盖 templates/）
-  - **GUI 入口（件五，2026-10-11）**：设置 →「Word 模板」= 下拉列 `templates/` 下 .dotx/.docx + 打开模板目录 + 恢复默认；写入走 `POST /config/word_template {template|reset}`（`project_config.set_book_fields` 定向改写 + 备份 + 回读校验），读取走 `GET /config/word_template`（清单 + 当前值 + 出厂默认）。**面向用户的入口一律 GUI**（暮雨 2026-10-10：「用户永远不会用终端」），CLI 直改该键仍是 agent 通道
-- 项目快照：`history/{时间戳}_{标签}/`（每阶段成功后自动生成，保留最近 10 份；data/ 不进 git，快照承担版本职责）
-  - **恢复**：`python scripts/snapshot.py --restore <ID> --yes`。默认 dry-run；
-    恢复前自动存 `pre_restore` 快照作折返点；快照外的文件默认保留。
-- 多书归档：`data/books/{书名}/`（switch_book.py 归档/恢复；切换前 orchestrator 会提示书名不一致）
-  - **查看 / 删除**：`GET /project/archive/tree|file`（只读）、`POST /project/archive/delete`
-    （GUI 来源头 + 逐字书名确认；默认移入下条的回收站，`purge=true` 才真删）
-  - 归档回收站：`data/books/_trash/{书名}__{时间戳}/`（删除的默认落点，要彻底清除手工删该目录；
-    `list_books()` 跳过它，不会以「一本叫 _trash 的书」出现在列表里）
-  - **出厂样例回收站**：`data/books/_trash/factory__{时间戳}/`（`POST /factory/clean` 的落点，
-    保留原相对路径、可手工捞回；同上不会出现在书列表）
-- 出厂清单：`data/state/factory_manifest.json`（seedWorkspace 实际复制文件后写，合并语义：
-  `{seed_version, generated_at, files:{相对路径: sha256}}`）；盘点/清理端点 `GET /factory/list`
-  （零副作用）与 `POST /factory/clean {confirm:true}`，GUI 入口在「设置 → 诊断与调试 → 出厂内容」，
-  比对真源是随包 `examples/`（源码态 `ROOT/examples`，打包态 `NF_SAMPLE_ROOT` 注入）
-- **样例书的大纲与素材必须配套**（2026-10-18）：`examples/sample-book/` 的 `user_outline`
-  讲沈砚/程砧/机关术，`materials/` 的 19 张卡讲**同一套设定**。改其中任一侧后跑
-  `tests/unit/test_sample_book_coherence.py`（判据：大纲专有名词在卡里都有落点、
-  旧宇宙词不残留、脱敏声明不丢）。⚠️ 历史教训：2026-10-03 虚构化把素材卡整套换成
-  另一个宇宙而 `user_outline` 未同步 → 拿样例书试跑时设定集 87% 与大纲无关，
-  成品崩坏而**全程绿灯**（此前无任何判据检查二者配套）
-- **二号测试用例**（2026-10-19）：`tests/fixtures/sample-book-2/`（《炭城纪》）是
-  **第三个虚构宇宙**的完整素材集（19 张卡 + `project.yaml`），与出厂样例并列但
-  **不进安装包、不进 GUI**。判据 `tests/unit/test_sample_book_2_coherence.py`（11 断言：
-  卡数 / 大纲实体落点 / 前两个宇宙零词重叠 / 脱敏声明 / 文件名与专名一致）。
-  它存在的意义是**换一整套专名，判据照样成立** —— 一套夹具证明不了流水线不过拟合
-- 章节修订历史：`data/chapters/history/`（refine_chapter.py 每次精修备份 chNN_vM.md）
-- 单章字数区间：`config/system.yaml` 的 `chapter.target_words`（**列表** `[low, high]`，出厂 [5000,9000]；
-  `GET/POST /config/target_words` 读写，GUI 设置页同源。判据与边界见「止烧与安全闸门」节）
-- 中文标点归一化：唯一实现 `scripts/utils/text_norm.py`，7 处挂载点（stage4/5/6 落盘后、
-  refine_chapter / refine_paragraph 落盘后、stage7 合并兜底）。判据与护栏见专节
-- 校对报告：`data/outline/proofread_report.json` + `.md`（proofread.py / `POST /proofread/run` 产出；
-  **schema 与 review_report 对齐**：finding 带 `id/type/severity/detail/suggested_action`，
-  故审稿 UI 与 batch_refine 决策链路可直接复用。`rhythm` 字段含逐章节奏与离群判定）
-- 拆书节奏：`data/state/book_pacing.json`（book_split.py 产出；`GET /book/pacing` 读它，
-  `GET /book/pacing?source=current` 则实时算本书、不落盘）
-- 拆书切分正文：`data/state/book_split/<书名>/NN_标题.md`（仅 `--emit` / `{"emit":true}` 时生成）
-- 生成前预估：`GET /estimate`（无落盘；GUI 运行前确认框用它，**dry-run 性质，不产生副作用**）
-- 自动重写报告：`data/outline/auto_rewrite_report.md`（人可读，每次运行追加）
-  / `data/outline/auto_rewrite_report.json`（机器可读，`latest` + `runs` 最近 50 次）
-- 自动重写状态：`data/state/progress.json` → `stages["4"].auto_rewritten`（`{章号: 已用轮次}`，
-  幂等依据；轮次用尽后保留 `needs_rewrite` 转人工）。开关 `gates.auto_rewrite`（默认 false）
-  / `gates.auto_rewrite_max_rounds`（默认 1）
-- **长跑保护**（2026-10-01）：`gates.stage4_max_consecutive_failures`（默认 3，0=关）——
-  stage4 **连续** N 章失败即判定系统性问题（模型挂了/提示词改坏/输入构造错）并**提前停止**，
-  避免"坏掉了还一路跑完 100 章"在 `data/chapters/raw/` 铺满废稿；已完成的章节不受影响。
-  另：stage4/5/6 现在**在阶段内部**也查预算熔断（此前只在阶段之间查 —— 而一章就能烧掉几元，
-  限额对"一次跑几十章"这种最该保护的情形恰好失效）
-- 控制台触发：`POST /auto_rewrite/run {threshold?, max_rounds?, chapters?, dry_run?}`
-  （**dry_run 默认 true**，须显式 `dry_run:false` 才真正改稿；`GET /state` 可只读查看上述状态）
-- 设定库引用索引：`materials/vault_links.md`（stage1 归并后自动生成，素材→设定条目溯源）
-- 原始创作碎片：`materials/original_scraps/`（**用户私人数据，自由命名、不进 Git**；与 `materials/raw/`
-  分工：raw=管线消费的结构化卡片，original_scraps=人类乱写的原始碎片，只在 stage1 归并时作为额外输入）
-- 碎片聚类索引：`data/setting/scraps_index.json`（scrap_cluster.py 生成；聚类结果 + 时间轴 + 前瞻备忘，
-  内容一并进 stage1 素材指纹，改碎片会触发设定集重新归并）
-- 碎片归并产物：`data/setting/scraps_merge.json`（stage1 `--scraps` 时由 LLM 产出，信息点/冲突/待确认项）
-- 碎片→卡片备份：`materials/original_scraps/_backup/`（碎片改写前）、`materials/raw/_backup/`（同名卡片覆盖前）
-- 风格参考：`config/project.yaml` 的 `book.style_reference`（可选，写作阶段注入范文）
-  - 配置后 stage4/stage6 额外注入**范文片段（few-shot）**：`style_analyzer.extract_style_samples()`
-    从范文抽取 ≤3 段代表性原文，按空行分段、按"长度适中/含对白/含修辞/节奏有起伏"打分，
-    自动剔除与当前内容字面重叠（3-gram 重叠率 > 0.30）的段落，并标注来源（第 N 段，字符 X-Y）
-  - 未配置 `style_reference` 时不注入任何片段与风格指令，逻辑与旧版一致
-- 用户风格笔记：`config/project.yaml` 的 `book.style_notes`（可选，手动补充的风格要求）
-  - 与自动分析结论叠加注入 stage4/stage6，冲突时以笔记为准；留空则完全不注入
-  - GUI 编辑：控制台「设置」页签「用户风格笔记」→ IPC（`style-notes:get/save`）→
-    nf_api `/config/style_notes` → `utils/project_config.set_style_notes()`
-    （按行定向改写 project.yaml 保留注释，写入前备份 `config/history/`，写后回读校验）
-- 提示词模板备份：`prompts/history/{模板名}_{时间戳}.md`（GUI 保存前自动备份，每模板留最近 50 份）
-- 逐章大纲：`data/outline/chapters/NN.md`
-- 章节：`data/chapters/raw`（原稿）/ `checked`（检查后）/ `refined`（润色后）
-- 滚动摘要：`data/summaries/rolling.md`（全书摘要 + 近 5 章）
-- 进度：`data/state/progress.json`；运行记录：`logs/runs.db`
-- 最终成品：`output/{书名}_完整版.docx`
+> 详见 **`docs/agents/key-paths.md`**。留在手册里的只有「为什么」：所有数据/产物路径与它们的真源（设定集、大纲、章节三层、快照、归档、模板、备份……）。
 
 ## 运维场景
 
-- **阶段失败（exit=1）**：读 orchestrator 输出定位失败阶段 → 检查原因（校验失败/子会话异常）→ 修 `prompts/` 模板或素材 → 重跑 `--from N`
-- **熔断暂停（exit=2）**：先看 orchestrator 打出的 `熔断暂停[原因]`——
-  `原因=tokens_total` → 调 `config/system.yaml` 的 `budget.token_limit.max_total_tokens`；
-  `原因=yuan` → 查 `SELECT SUM(cost_yuan) FROM cost_log` 并与用户确认是否调高 `budget.limit_yuan`
-  （**engine: hermes 下金额恒 0，不可能命中**）。改完清 `data/state/progress.json` 的
-  `budget.paused` → `orchestrator.py --from N` 续跑（已完成阶段不重跑）。
-- **用户打回**：`python scripts/reject.py --stage N "原因"`（记录原因、清理 N 及下游产物、重置状态、撤销审批；history/ 备份保留可回退）→ `--from N` 重跑。打回 2 用精修通道（refine_outline）而非 reject
-- **GUI 排障（2026-10-06 对齐方寸）**：顶栏「📋 日志」常驻；设置 → 诊断与调试
-  （运行形态/健康态/代码根/数据根/日志路径 + 查看日志/打开日志文件/复制诊断信息/
-  DevTools 开关（Ctrl+Shift+I 或 F12）/重启后端 API；重启在流水线运行中禁用）。
-- **素材更新**：新增素材后 `--from 1` 重跑（已有章节文件自动跳过，不会重写）
-- **跨版本升级 / 书稿迁移（C3，2026-10-14）**：三样东西三个版本 —— 程序本体（安装包版本）、
-  代码与提示词（`SEED_VERSION` ↔ 工作区 `.seed-version`，`seedWorkspace` 启动时 force 刷新，
-  `config/` 只补缺不覆盖）、书稿数据（`DATA_SCHEMA` ↔ `data/state/workspace_schema.json`，
-  `utils/workspace_migrate` 启动时对齐）。数据侧六条契约：判据只有一份（CLI / nf_api /
-  orchestrator 都调 `ensure()`）· **数据比代码新 = 拒绝运行** · 先快照后动手（丙3，快照失败
-  一个字节不动）· **只自动跑 safe 步骤**（会改写用户文件结构的要 CLI `--run --yes`）·
-  无戳的既有书稿记基线 v1、不碰数据 · 失败**不推进版本戳**。拒绝时退出码 **5**
-  （2 已被「预算熔断」占用，共用会让日志里的失败原因无法分辨）。
-  改数据结构 = `DATA_SCHEMA` +1 + `MIGRATIONS` 加 `Step` + 加回归，两处不同步 `status()`
-  会大声拒绝而不是静默跳过。CLI：`python scripts/data_migrate.py`（`--dry-run` / `--run [--yes]`）；
-  承诺与边界 → `docs/upgrade.md`。
-- **低分章自动重写（方向3）**：默认关闭。开启：`config/system.yaml` 的 `gates.auto_rewrite: true`
-  → stage4 后自动重写 `quality < chapter.quality_threshold` 的章节（排在审稿分支之前）。
-  手动跑：`python scripts/auto_rewrite.py`（先 `--dry-run` 预演）。批次报告见
-  `data/outline/auto_rewrite_report.md`；重写后仍不达标的章保留 `needs_rewrite` 转人工，
-  用 `batch_refine.py` 处理。**开启前须与用户确认**（会产生 LLM 费用）
-- **设定自动补全（auto-thin 闭环）**：默认关闭。开启：`config/system.yaml` 的
-  `gates.setting_refine_auto: true` → stage1 归并+体检后自动跑一轮定向补全
-  （点名 THIN 角色 + 各自缺失维度 → 子会话补全 → 复评）。
-  三条止损：**达标即停**（THIN=0 零调用短路）/ **无进展即停**（THIN 未降）/
-  **轮次上限**（`gates.setting_refine_max_rounds`，默认 1，建议 ≤2）。
-  手动跑：`python scripts/setting_refine.py --auto-thin --dry-run` 先预演。
-  ⚠️ 钩子在 orchestrator 里被 `try/except` 包裹（失败不阻断流程）—— 若它失效
-  只会打印「失败（不影响流程）」，故 `test_setting_refine_auto.py` 用
-  `inspect.signature().bind()` 守签名，防止静默降级
-- **设定集 ↔ 大纲重合度（方案 C，2026-10-19）**：stage1 归并出设定集后，拿
-  `config/project.yaml` 的 `user_outline` **反查**设定集里的每个专名，算角色/地点/总命中率
-  （实现 `scripts/utils/coherence.py`，报告 `data/setting/coherence.json`）。
-  三态开关 `gates.setting_coherence`：`warn`（默认，打印横幅 + 挂 progress warning，
-  **不改流程**）/ `block`（角色或地点一个都对不上就让 stage1 判失败）/ `off`。
-  阈值 `gates.setting_coherence_min_ratio`（默认 0.15）。**为什么默认 warn**：
-  大纲可能写得很抽象（不点名主角），硬拦会卡死正常流程；但**绝不能静默**——
-  事故现场（设定集来自另一个宇宙、16 角色只有 2 个属于大纲）就是全程绿灯造成的。
-  判据回归 `tests/unit/test_setting_coherence.py`（17 断言，含真实事故快照回放）
-- **素材扫描的目录边界**：`scan_materials` 递归 `materials/raw/`，但**跳过以 `_` 或 `.`
-  开头的子目录** —— `_backup/` 装的是同名覆盖前的旧版本，误扫等于把同一张卡的新旧两版
-  一起喂给归并（还让素材指纹随备份抖动）。回归 `tests/unit/test_stage1_scan.py`（6 断言）
-- **素材归档**：清理工作区时把整批卡搬到 `materials/_archive/{日期}_{说明}/`（**可逆**，
-  附 `来源_sha256.txt`），`materials/_archive/` 已 gitignore。恢复方法写在该目录 README
-- **范文（`book.style_reference`）的给法**：**一个**纯文本文件（`.md` / `.txt`，UTF-8 或 GBK，
-  编码有回退链），多篇合并进同一文件（路径是单值）。stage4 每章注入原文
-  ≤`book.style_reference_max_chars`（默认 **6000**，范围 1000~40000）+ 3 段 few-shot（≤900 字，
-  自动避开与本章大纲/上一章相似度 >30% 的段落）；stage6 用同一份文件做量化特征比对。
-  **给「场景切片」而不是整章**：2~3 个不同场景各 1500~2500 字，比一整章 8000 字更有效
-  —— few-shot 只抽 3 段，场景越分散覆盖的语感越全。超长与「配了路径但文件不存在」
-  都会 WARN（2026-10-19 之前是静默截断，会让人误判成「模型学不像」）
-- **范文有 GUI 入口**（2026-10-19）：文风特征页签「范文正文」框 = 粘贴 + 保存/清空，
-  端点是 `GET/POST /config/style_reference`。保存时**自动**把 `book.style_reference`
-  指向该文件（用户不用碰 yaml）；旧版备份到 `data/state/style_reference_history/`
-  （保留 20 份）；单次 ≤40000 字；路径必须落在**工作区内**（越界一律 400）。
-  正文存文件而非塞 yaml —— 范文可数万字。**不设 GUI-only**：创作决策，Agent 可代写
-  （与 `target_words` 同口径；`token_limit` 那类成本/安全闸门才限 GUI）
-- **提示词调优**：直接改 `prompts/stageN_*.md`（模板与代码分离，无需改脚本）
+> 详见 **`docs/agents/operations.md`**。留在手册里的只有「为什么」：阶段失败 / 熔断 / 用户打回 / GUI 排障 / 素材更新 / 跨版本升级的标准处置与退出码。
 
 ## 能力边界（2026-09-21 实证，勿重复夸大）
 
