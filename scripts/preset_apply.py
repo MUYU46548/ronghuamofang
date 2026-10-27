@@ -57,6 +57,13 @@ def find_presets_dir(root):
        预设功能在安装包里整体失效（源码态 DEFAULT_ROOT=仓库根，测不出来）。
     ② root/examples/presets（源码态 --root 指仓库根时命中）
     ③ 脚本位置兜底（DEFAULT_ROOT）
+    ④ **随包位置反推**（`utils.app_paths`）：从解释器位置往上层找
+       `resources/payload/examples`。2026-10-25 量出第二种形态 —— 活的 nf_api
+       （Electron 起的，带 env）`GET /factory/presets` 正常返回预设，而同一台
+       机器上在终端里跑本脚本的同一条解析链却报「找不到 examples/presets/」，
+       因为 env 只存在于主进程 spawn 那一条路。预设不是 GUI 专属能力：
+       CLI / MCP 垫片代拉 / 排障脚本都得能解析 —— 候选表里必须有一条
+       **不依赖运行环境**的位置判据。
     """
     import os
     cands = []
@@ -65,6 +72,12 @@ def find_presets_dir(root):
         cands.append(Path(env) / "presets")
     for base in (Path(root), DEFAULT_ROOT):
         cands.append(base / "examples" / "presets")
+    try:
+        from utils.app_paths import payload_example_dirs
+        for c in payload_example_dirs():
+            cands.append(Path(c) / "presets")
+    except Exception:                                          # noqa: BLE001
+        pass                        # 定位兜底自己坏掉，不该拖垮整条解析链
     for p in cands:
         try:
             if p.is_dir():

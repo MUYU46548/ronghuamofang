@@ -58,6 +58,11 @@ def resolve_sample_root():
         cands.append(Path(api.__file__).resolve().parents[1] / "examples")   # 代码根兜底
     except Exception:                                          # noqa: BLE001
         pass
+    try:                                                       # 随包位置反推
+        from utils.app_paths import payload_example_dirs       # （不依赖 NF_SAMPLE_ROOT）
+        cands.extend(payload_example_dirs())
+    except Exception:                                          # noqa: BLE001
+        pass
     for c in cands:
         try:
             if c.is_dir():

@@ -327,15 +327,27 @@ def archive(book_name=None, yes=False, force=False, guard_snapshot=True):
             pass
         return True, f"已归档「{name}」→ {dest}（{len(moved)} 项{extra}）{keep_note}{note}"
     except Exception as e:
-        # 失败：先把已挪进书档的 config/ materials/ 并回工作区，再恢复旧归档
+        # 失败：先把已挪进书档的 config/ materials/ 并回工作区，再恢复旧归档。
+        #
+        # ⚠️ 回退本身失败时**绝不许删 dest**（2026-10-25 加固）：materials/ 已经被
+        # `_archive_root_items` 搬进 dest 了，若 `_restore_root_items` 半路抛错，
+        # 原来的 `shutil.rmtree(dest)` 会把用户的素材卡连同书档一起删掉 ——
+        # 「归档失败」不该以「素材消失」收场。留下 dest 并明说放在哪，人还能捞回来。
+        restored = True
+        restore_err = None
         try:
             _restore_root_items(dest)
-        except Exception:                                 # noqa: BLE001
-            pass
-        if tmp_dest and tmp_dest.exists() and dest.exists():
-            shutil.rmtree(dest)
-            shutil.move(str(tmp_dest), str(dest))
-        return False, f"归档失败（已尽力回退）{note}: {e}"
+        except Exception as e2:                                # noqa: BLE001
+            restored, restore_err = False, e2
+        if restored:
+            if tmp_dest and tmp_dest.exists() and dest.exists():
+                shutil.rmtree(dest)
+                shutil.move(str(tmp_dest), str(dest))
+            return False, f"归档失败（已尽力回退）{note}: {e}"
+        return False, (
+            "归档失败，且**回退未能完成** —— 已保留 %s 未删除（config/ 与 materials/ "
+            "可能在它下面，请先人工确认再处理）；归档错误: %s；回退错误: %s"
+            % (dest, e, restore_err))
 
 
 def restore(book_name, yes=False):

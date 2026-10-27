@@ -153,6 +153,11 @@ def _sample_dir(root):
         cands.append(Path(nf_api.__file__).resolve().parents[1] / "examples")
     except Exception:                                          # noqa: BLE001
         pass
+    try:                                                       # 随包位置反推
+        from utils.app_paths import payload_example_dirs       # （不依赖 NF_SAMPLE_ROOT）
+        cands.extend(payload_example_dirs())
+    except Exception:                                          # noqa: BLE001
+        pass
     for c in cands:
         for sub in (Path(c) / "sample-book", Path(c)):
             if (sub / "project.yaml").is_file():

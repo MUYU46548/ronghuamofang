@@ -19,6 +19,12 @@ scripts/prompts/templates、**不带 examples/**。旧实现只查
  2. env 指向空处 → 落回 root / DEFAULT_ROOT（不许因为 env 写错就整体消失）
  3. 无 env 的源码态行为与旧版一致（root 优先，DEFAULT_ROOT 兜底）
  4. 事故现场回放：工作区无 examples + env 指 payload → 必须找到
+ 5. **随包位置反推**（2026-10-25 补）：无 env 时从解释器位置
+    （`<install>/resources/runtime/python/python.exe`）反推出
+    `<install>/resources/payload/examples/presets` —— 环境变量只在
+    「Electron 主进程 spawn nf_api」这一条路上有，CLI / MCP 垫片代拉 /
+    排障脚本都没有；实测活的 nf_api 能列 4 套预设，而终端里同一函数报
+    「找不到 examples/presets/」。这条锁保证「env 断开 ≠ 预设功能整体失效」。
 
 用法：python tests/unit/test_preset_resolve.py
 """
@@ -35,6 +41,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import preset_apply as pa                                            # noqa: E402
+from utils import app_paths as apath                                 # noqa: E402
 
 PASS, FAIL = [], []
 
@@ -95,6 +102,53 @@ def main():
         check("装机形态 → 找到 2 套预设的目录", got6 == want2, got6)
         check("list_presets 能列出（端到端不只 is_dir）",
               len(pa.list_presets(got6)) == 2, pa.list_presets(got6))
+
+        print("[6] 随包位置反推：无 env + 装机布局 → 从解释器反推出 payload（2026-10-25）")
+        os.environ.pop("NF_SAMPLE_ROOT", None)
+        inst = tmp / "inst3"
+        payload3 = inst / "resources" / "payload" / "examples"
+        want3 = _mk_presets(payload3, n=3)
+        fake_py = inst / "resources" / "runtime" / "python" / "python.exe"
+        fake_py.parent.mkdir(parents=True, exist_ok=True)
+        fake_py.write_bytes(b"")
+        old_exe, old_default = sys.executable, pa.DEFAULT_ROOT
+        try:
+            sys.executable = str(fake_py)
+            # 装机态的真实形态：脚本住在工作区，DEFAULT_ROOT 也落在工作区（那里没有 examples）
+            pa.DEFAULT_ROOT = ws
+            got7 = pa.find_presets_dir(ws)          # env 无 + root 无 + DEFAULT_ROOT 无
+        finally:
+            sys.executable = old_exe
+            pa.DEFAULT_ROOT = old_default
+        check("无 env 装机形态 → 反推到 resources/payload/examples/presets",
+              got7 == want3, got7)
+        check("反推命中的目录 list_presets 也能列（端到端不只 is_dir）",
+              bool(got7) and len(pa.list_presets(got7)) == 3, got7)
+
+        print("[7] 反推落空 → 行为与旧版一致（不抛错、不返回不存在的路径）")
+        try:
+            sys.executable = str(tmp / "bare" / "python.exe")   # 祖先链上无 payload
+            got8 = pa.find_presets_dir(ws)
+        finally:
+            sys.executable = old_exe
+        check("反推落空 → 仍走 DEFAULT_ROOT（仓库 examples/presets）", got8 == ROOT / "examples" / "presets", got8)
+
+        print("[8] app_paths 单元：两种拼法都认 / 候选去重 / 源码态不抢优先级")
+        dirs = apath.payload_example_dirs(exe=str(fake_py),
+                                         src=str(ROOT / "scripts" / "utils" / "app_paths.py"))
+        check("含 <install>/resources/payload/examples", payload3 in dirs, dirs[:4])
+        inst_root = tmp / "inst_flat"               # 另一种布局：payload 就在安装根下
+        payload4 = inst_root / "payload" / "examples"
+        _mk_presets(payload4, n=1)
+        flat_py = inst_root / "runtime" / "python" / "python.exe"
+        flat_py.parent.mkdir(parents=True, exist_ok=True)
+        flat_py.write_bytes(b"")
+        dirs2 = apath.payload_example_dirs(exe=str(flat_py), src=str(ROOT / "scripts" / "utils" / "app_paths.py"))
+        check("含 <install>/payload/examples（扁平布局）", payload4 in dirs2, dirs2[:4])
+        check("候选无重复", len(dirs2) == len(set(map(str, dirs2))), len(dirs2))
+        repo_cands = [d for d in dirs2 if str(d).startswith(str(ROOT))]
+        check("源码态祖先链上的 payload 候选都不存在（④ 抢不走 ②/③ 的优先级）",
+              bool(repo_cands) and all(not d.is_dir() for d in repo_cands), repo_cands)
     finally:
         if old_env is None:
             os.environ.pop("NF_SAMPLE_ROOT", None)
