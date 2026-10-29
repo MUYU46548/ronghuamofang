@@ -17,6 +17,8 @@ const view = ref("report");          // report | detail | caliber
 const report = ref(null);
 const detail = ref(null);
 const caliber = ref(null);
+const artifact = ref(null);
+const preview = ref(null);
 const busy = ref(false);
 const err = ref("");
 const openDefect = ref(null);        // 展开的缺陷条目 id
@@ -40,8 +42,38 @@ async function loadReport() {
   busy.value = true; err.value = "";
   try {
     report.value = await call("GET", "/judge/report");
+    artifact.value = await call("GET", "/judge/artifact");
   } catch (e) { err.value = String(e.message || e); }
   busy.value = false;
+}
+
+async function exportList() {
+  busy.value = true; err.value = "";
+  try {
+    const d = await call("POST", "/judge/export", {});
+    emit("say", "已导出：" + d.path);
+  } catch (e) { err.value = String(e.message || e); }
+  busy.value = false;
+}
+
+function caliberChanges() {
+  const set = {};
+  (caliber.value?.criteria || []).forEach((c) => {
+    const v = calEdit.value[c.id];
+    if (v !== undefined && String(v) !== String(c.value)) set[c.id] = v;
+  });
+  return set;
+}
+
+let previewTimer = null;
+function onCalChange() {
+  if (previewTimer) clearTimeout(previewTimer);
+  previewTimer = setTimeout(async () => {
+    const set = caliberChanges();
+    if (!Object.keys(set).length) { preview.value = null; return; }
+    try { preview.value = await call("POST", "/judge/caliber/preview", { set }); }
+    catch (e) { preview.value = null; }
+  }, 400);
 }
 
 async function runBacktest() {
@@ -186,8 +218,19 @@ onMounted(loadReport);
         <button class="mini primary" :disabled="busy" @click="runBacktest">
           {{ report && report.exists ? "重跑判定" : "开始回测" }}</button>
         <button class="mini" :disabled="busy" @click="openCaliber">改标准</button>
+        <button class="mini" :disabled="busy || !report || !report.exists"
+                @click="exportList">导出清单</button>
       </div>
       <div class="judge-notice">{{ noticeA }} · {{ noticeB }}</div>
+      <!-- R07 成品过期横幅：必须给两项凭据（字数 + 时间），只给徽标 = 未实现 -->
+      <div v-if="artifact && artifact.exists && artifact.stale" class="judge-artifact">
+        <b>⚠ 成品已过期</b>：{{ artifact.name }}（{{ artifact.built_at }} 出的）
+        <div v-for="(e, i) in artifact.evidence" :key="i" class="meta">{{ e }}</div>
+        <div class="meta">这一期只标注，不自动重出 —— 重出要真跑评审与润色（会花钱）。</div>
+      </div>
+      <div v-else-if="artifact && artifact.exists" class="meta">
+        成品 {{ artifact.name }} 与源稿一致（{{ artifact.built_at }}）
+      </div>
       <div v-if="err" class="judge-err">{{ err }}</div>
 
       <div v-if="!report || !report.exists" class="meta judge-empty">
@@ -300,6 +343,17 @@ onMounted(loadReport);
         <button class="mini primary" :disabled="busy" @click="saveCaliber">保存（产新版本）</button>
       </div>
       <div class="judge-notice">改标准会产新版本，旧结论保留为历史；改完要在报告页点“重跑判定”。</div>
+      <!-- R06 影响面预览：改数字立刻算，但点“保存”之前一个字都不写 -->
+      <div v-if="preview" class="judge-preview">
+        <b>影响面预览（还没生效）</b>
+        <div>受影响 <b>{{ preview.affected_count }}</b> 章 ·
+          预计转不合格 <b>{{ preview.to_fail_count }}</b> 章 ·
+          需你重录 <b>{{ preview.manual_count }}</b> 条</div>
+        <div class="meta">{{ preview.message }}</div>
+        <div v-for="a in (preview.affected || []).slice(0, 6)" :key="a.chapter" class="meta">
+          第 {{ a.chapter }} 章：{{ a.before }} → {{ a.after }}
+        </div>
+      </div>
       <div v-if="err" class="judge-err">{{ err }}</div>
       <table class="judge-table">
         <thead><tr><th>判据</th><th>值</th><th>类型</th><th>谁在读（消费方）</th></tr></thead>
@@ -307,7 +361,8 @@ onMounted(loadReport);
           <tr v-for="c in caliber.criteria" :key="c.id">
             <td>{{ c.id }} · {{ c.name }}</td>
             <td>
-              <input v-if="c.auto" v-model="calEdit[c.id]" class="judge-cal-input" />
+              <input v-if="c.auto" v-model="calEdit[c.id]" class="judge-cal-input"
+                     @input="onCalChange" />
               <span v-else class="meta">由你勾选（系统不测）</span>
             </td>
             <td>{{ c.kind }}</td>
@@ -331,6 +386,8 @@ onMounted(loadReport);
 .judge-err { font-size: 12px; color: var(--bad); margin: 6px 0; }
 .judge-empty { line-height: 1.7; padding: 8px 0; }
 .judge-stale { font-size: 12px; color: var(--warn); }
+.judge-artifact { border: 1px solid var(--warn); border-radius: 8px; padding: 6px 10px; margin: 6px 0; font-size: 13px; color: var(--warn); }
+.judge-preview { border: 1px dashed var(--accent); border-radius: 8px; padding: 6px 10px; margin: 6px 0; font-size: 13px; }
 .judge-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .judge-table th { text-align: left; font-weight: 600; color: var(--muted); padding: 6px 4px; }
 .judge-table td { padding: 6px 4px; border-top: 1px solid var(--border); vertical-align: top; }

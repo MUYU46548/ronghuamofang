@@ -27,6 +27,8 @@ RAW_DIR = "data/chapters/raw"
 CHECKED_DIR = "data/chapters/checked"
 REFINED_DIR = "data/chapters/refined"
 OUTLINE_DIR = "data/outline/chapters"
+# R19 基准集（作者自选的"好稿"样本）：存在才算"不误报"有依据
+BENCHMARK_REL = "data/judge/benchmark"
 
 NOTICE_BACKTEST = "存量回测判定，非新跑拦截"
 NOTICE_NO_ARTIFACT = "本报告不改变现有成品文件"
@@ -117,6 +119,71 @@ def _matrix_row(res):
     return {"chapter": res["chapter"], "cells": vals}
 
 
+def judge_all(root=".", cal_values=None, records_doc=None):
+    """对全部可回测章跑一遍判定（不写盘）。`preview` 靠它算影响面。"""
+    vals = cal_values if cal_values is not None else C.values(C.load(root))
+    recs = records_doc if records_doc is not None else R.load(root)
+    return [judge_chapter(root, n, None, vals, recs) for n in discover(root)]
+
+
+def preview(root=".", changes=None):
+    """R06 改口径的影响面预览（**一个字都不写**）。
+
+    返回三行分列：受影响章数 / 预计转不合格章数 / 不可重算判据需作者重录条数。
+    """
+    root = Path(root)
+    cal_doc = C.load(root)
+    ok, why = C.require_ready(cal_doc)
+    if not ok:
+        return {"ok": False, "error": why}
+    changes = changes or {}
+    cur_vals = C.values(cal_doc)
+    # 界面传来的是字符串（"0.30"）——先按原判据类型归一，否则规则里 int() 直接炸
+    proposed = {}
+    crit = {c["id"]: c for c in cal_doc.get("criteria") or []}
+    for k, v in changes.items():
+        if k not in crit:
+            continue
+        try:
+            proposed[k] = C.coerce_value(crit[k].get("value"), v)
+        except (TypeError, ValueError):
+            continue
+    new_vals = dict(cur_vals)
+    new_vals.update(proposed)
+    cur = {r["chapter"]: r["verdict"] for r in judge_all(root, cur_vals)}
+    new = {r["chapter"]: r["verdict"] for r in judge_all(root, new_vals)}
+    if not cur:
+        return {"ok": False, "error": "没有可回测的稿"}
+
+    affected, to_fail = [], []
+    for n in sorted(cur):
+        c, x = cur[n], new[n]
+        changed = (c.get("verdict") != x.get("verdict")
+                   or c.get("status") != x.get("status"))
+        if changed:
+            affected.append({"chapter": n, "before": c.get("verdict") or c.get("status"),
+                             "after": x.get("verdict") or x.get("status")})
+        if (x.get("verdict") in (V.VERDICT_SPOT, V.VERDICT_REWRITE)
+                and c.get("verdict") not in (V.VERDICT_SPOT, V.VERDICT_REWRITE)):
+            to_fail.append(n)
+    manual = [{"id": c["id"], "name": c["name"]}
+              for c in cal_doc.get("criteria") or []
+              if c["id"] in proposed and c.get("kind") == "不可自动判定"]
+    return {
+        "ok": True, "changed": bool(changes),
+        "affected_count": len(affected), "affected": affected,
+        "to_fail_count": len(to_fail), "to_fail": to_fail,
+        "manual_count": len(manual), "manual": manual,
+        "caliber": {"current_version": cal_doc.get("version"),
+                    "current_fingerprint": cal_doc.get("fingerprint"),
+                    "next_fingerprint": C.fingerprint(
+                        [dict(c, value=new_vals.get(c["id"], c["value"]))
+                         for c in cal_doc.get("criteria") or []])},
+        "message": ("受影响 %d 章：%d 章将转为不合格；%d 条不可重算判据需你重录"
+                    % (len(affected), len(to_fail), len(manual))),
+    }
+
+
 def run(root=".", book_name="", by="作者"):
     """跑一次全量回测：判定 + 汇总 + 落记录（唯一写点）。返回报告 payload。"""
     root = Path(root)
@@ -131,9 +198,15 @@ def run(root=".", book_name="", by="作者"):
         return {"ok": False, "error": "没有可回测的稿：%s 下没有 NN.md" % RAW_DIR,
                 "caliber": {"version": cal_doc.get("version")}}
 
+    prev_run = R.latest_run(recs)
+    prev_fp = {}
+    for x in (prev_run or {}).get("chapters") or []:
+        prev_fp[int(x.get("chapter") or 0)] = ((x.get("object") or {}).get("raw_fp"))
+
     results = [judge_chapter(root, n, cal_doc, cal_values, recs) for n in nums]
     chapters = []
     total_defects = 0
+    object_changed = []
     for r in results:
         v = r["verdict"]
         defects = r["analysis"]["defects"]
@@ -143,6 +216,11 @@ def run(root=".", book_name="", by="作者"):
              "rule_id": d["rule_id"], "rule_name": d["rule_name"], "count": d["count"]}
             for d in defects if int(d.get("paragraph_index") or 0) > 0
         ][:3]
+        # R08：对象指纹变了 → 这一章上一次的结论作废（只标出来，不删除历史）
+        changed = bool(prev_fp.get(r["chapter"])
+                       and prev_fp[r["chapter"]] != r["object"]["raw_fp"])
+        if changed:
+            object_changed.append(r["chapter"])
         chapters.append({
             "chapter": r["chapter"],
             "verdict": v.get("verdict"),
@@ -156,6 +234,7 @@ def run(root=".", book_name="", by="作者"):
             "top_defects": top,
             "words": r["analysis"]["metrics"]["words"],
             "object": r["object"],
+            "object_changed": changed,
             "author": r["author"],
             "destroy": {"compressed_twice": r["destroy"].get("compressed_twice"),
                         "shrink": r["destroy"].get("shrink")},
@@ -169,10 +248,10 @@ def run(root=".", book_name="", by="作者"):
         "undecided": sum(1 for c in chapters if c["verdict"] is None),
         "defects": total_defects,
     }
+    has_bench = (root / BENCHMARK_REL).is_dir()
     report = {
         "ok": True,
-        "kind": "backtest",
-        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "kind": "backtest",        "generated_at": datetime.now().isoformat(timespec="seconds"),
         "book": book_name,
         "caliber": {
             "version": cal_doc.get("version"),
@@ -185,9 +264,25 @@ def run(root=".", book_name="", by="作者"):
         "chapters": chapters,
         "matrix": [_matrix_row(r) for r in results],
         "zero_token": True,
+        "object_changed": object_changed,
+        "object_changed_note": (
+            ("第 %s 章的稿在两次判定之间被改过 —— 上一版结论作废，以本次为准"
+             % "、".join(str(x) for x in object_changed)) if object_changed else ""),
+        # R18 证据分级：**能力证据**要基准集；**demo 证据**只是流程演示。
+        # 两区必须分开显示，勾 1 章不得出现在能力区（AC-18-2）。
         "evidence": {
-            "capability": [],
-            "demo": [],
+            "capability": {
+                "verified": has_bench,
+                "note": ("基准集已配置：不误报以基准集为准" if has_bench
+                         else "不误报未验证：没有基准集（R19），能力证据区为空"),
+                "items": [],
+            },
+            "demo": {
+                "note": "流程验证，不构成能力证明",
+                "items": [c["chapter"] for c in chapters
+                          if (c.get("author") or {}).get("checked")]
+                or "还没有勾选任何章（demo 区为空）",
+            },
         },
     }
     run_rec = {

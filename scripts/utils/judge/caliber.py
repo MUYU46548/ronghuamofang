@@ -128,6 +128,24 @@ def empty_criteria(doc):
     return bad
 
 
+def coerce_value(current, new):
+    """把界面传来的字符串转回判据本来的类型（否则 `int("0.30")` 会直接炸）。
+
+    规则：
+    - 原值是整数 → 收数字/数字串（"0.30" → 0；"5000" → 5000）
+    - 原值是浮点 → 收 float
+    - 原值是字符串（结构类）→ 原样
+    转不了就抛 ValueError，由调用方报 400。
+    """
+    if isinstance(current, bool):
+        return bool(new)
+    if isinstance(current, int):
+        return int(float(new))
+    if isinstance(current, float):
+        return float(new)
+    return new
+
+
 def update(root, changes, by="作者"):
     """改口径：只接受已登记的 id；改值即产新版本，旧版本进 history（只读）。
 
@@ -141,6 +159,13 @@ def update(root, changes, by="作者"):
     unknown = [k for k in (changes or {}) if k not in by_id]
     if unknown:
         return False, {"error": "未登记的判据 id：%s（先登记再改值）" % "、".join(unknown)}
+    clean = {}
+    for k, v in (changes or {}).items():
+        try:
+            clean[k] = coerce_value(by_id[k].get("value"), v)
+        except (TypeError, ValueError):
+            return False, {"error": "判据 %s 的值必须是数字（收到 %r）" % (k, v)}
+    changes = clean
     new = []
     for c in doc.get("criteria") or []:
         c2 = dict(c)

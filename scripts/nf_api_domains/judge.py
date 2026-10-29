@@ -227,6 +227,37 @@ def handle_judge_destroy(h):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+def handle_judge_caliber_preview(h, body):
+    """R06：改口径前的影响面预览（受影响章数 / 预计转不合格 / 需重录条数）。"""
+    try:
+        changes = (body or {}).get("set") or {}
+        return 200, B.preview(api.ROOT, changes)
+    except Exception as e:                                     # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_judge_artifact(h):
+    """R07：成品 docx 与源稿一致性（字数 + 时间两项凭据）。"""
+    try:
+        from utils.judge import artifact as A
+        return 200, dict({"ok": True}, **A.status(api.ROOT))
+    except Exception as e:                                     # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_judge_export(h, body):
+    """导出缺陷单（显式动作）：重跑一次判定并落 output/judge_report.md。"""
+    try:
+        rep = B.run(api.ROOT, book_name=_book_name())
+        if not rep.get("ok"):
+            return 400, {"ok": False, "error": rep.get("error")}
+        out = B.export_markdown(rep, api.ROOT)
+        rel = str(out.relative_to(api.ROOT)).replace("\\", "/")
+        return 200, {"ok": True, "path": rel, "run_id": rep.get("run_id")}
+    except Exception as e:                                     # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 ROUTES = [
     ("GET", "/judge/report", handle_judge_report),
     ("POST", "/judge/run", handle_judge_run),
@@ -236,5 +267,8 @@ ROUTES = [
     ("POST", "/judge/sentence", handle_judge_sentence),
     ("GET", "/judge/caliber", handle_judge_caliber),
     ("POST", "/judge/caliber", handle_judge_caliber_set),
+    ("POST", "/judge/caliber/preview", handle_judge_caliber_preview),
     ("GET", "/judge/destroy", handle_judge_destroy),
+    ("GET", "/judge/artifact", handle_judge_artifact),
+    ("POST", "/judge/export", handle_judge_export),
 ]

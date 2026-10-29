@@ -49,10 +49,21 @@ GUI：**章节页签顶部「判定」摘要条** → 整本一页（档位表�
 
 ## 端点（零 token）
 
-`GET /judge/report|chapter|events|caliber|destroy`、
-`POST /judge/run|events|sentence|caliber`。
-`/judge/events` 与 `/judge/sentence` 列进 `FORBIDDEN_IN_AGENT_MODE`：**事件勾选与逐句裁定
-是作者的判断**，外部 Agent 可读不可代替签字。
+`GET /judge/report|chapter|events|caliber|destroy|artifact`、
+`POST /judge/run|events|sentence|caliber|caliber/preview|export`。
+- `/judge/caliber/preview`（R06）：改口径**前**算影响面 —— 受影响章数 / 预计转不合格 /
+  需你重录条数三行分列，**一个字都不写**。
+- `/judge/artifact`（R07）：成品 docx 与源稿比对，过期必须给**两项凭据**（字数 + 时间）；
+  没成品时是「未生成」，语义不同于「已过期」。
+- `/judge/export`：显式导出 `output/judge_report.md`。
+- `/judge/events` 与 `/judge/sentence` 列进 `FORBIDDEN_IN_AGENT_MODE`：**事件勾选与逐句裁定
+  是作者的判断**，外部 Agent 可读不可代替签字。
+
+## 证据分级（R18）
+
+报告带两个区，**不许混**：
+- `capability`：要基准集（`data/judge/benchmark/`）才算数；没有就写「不误报未验证」。
+- `demo`：勾了几章只是**流程验证，不构成能力证明**。
 
 ## 已知边界（P0 不做）
 

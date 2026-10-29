@@ -259,6 +259,79 @@ def main():
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
+    print("\n=== J. R06 影响面预览 + R07 成品过期 ===")
+    tmp = Path(tempfile.mkdtemp(prefix="nf_judge_more_"))
+    try:
+        raw_dir = tmp / "data" / "chapters" / "raw"
+        out_dir = tmp / "data" / "outline" / "chapters"
+        raw_dir.mkdir(parents=True)
+        out_dir.mkdir(parents=True)
+        for n in range(1, 4):
+            (raw_dir / ("%02d.md" % n)).write_text(BODY, encoding="utf-8")
+            (out_dir / ("%02d.md" % n)).write_text(
+                OUTLINE.replace("第1章", "第%d章" % n), encoding="utf-8")
+        for n in range(1, 4):
+            R.set_events(tmp, n, [0, 1], {"0": "关系"}, "")
+        rep = B.run(tmp, book_name="预览夹具")
+        cur = rep["summary"]
+        pv = B.preview(tmp, {"J10": 0.99})
+        check("预览返回三行分列（受影响/转不合格/需重录）",
+              all(k in pv for k in ("affected_count", "to_fail_count", "manual_count")), pv)
+        check("放宽阈值 → 有章结论会变", pv["affected_count"] >= 1, pv["affected"][:2])
+        pv2 = B.preview(tmp, {"J12": 3})
+        check("改不可自动判定判据 → 提示需作者重录",
+              pv2["manual_count"] == 1, pv2.get("manual"))
+        before = (tmp / "data" / "judge" / "records.json").read_text(encoding="utf-8")
+        B.preview(tmp, {"J10": 0.5})
+        after = (tmp / "data" / "judge" / "records.json").read_text(encoding="utf-8")
+        check("预览不写盘（records.json 一字未变）", before == after)
+
+        from utils.judge import artifact as A
+        st0 = A.status(tmp)
+        check("没有成品 → 状态是「未生成」而不是「已过期」",
+              st0["exists"] is False and st0["status"] == "未生成", st0.get("status"))
+        try:
+            import docx
+            d = docx.Document()
+            d.add_paragraph("第1章")
+            d.add_paragraph("短。")
+            d.add_paragraph("第2章")
+            d.add_paragraph("也短。")
+            (tmp / "output").mkdir(exist_ok=True)
+            d.save(str(tmp / "output" / "成品.docx"))
+            st = A.status(tmp)
+            check("成品与源稿字数对不上 → 标已过期", st["stale"] is True, st.get("stale_chapters"))
+            check("过期必须给字数凭据",
+                  any("字数对不上" in e for e in st["evidence"]), st["evidence"][:2])
+        except ImportError:
+            print("  [SKIP] 没有 python-docx，跳过成品比对")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    print("\n=== K. R18 证据分级 ===")
+    tmp = Path(tempfile.mkdtemp(prefix="nf_judge_ev_"))
+    try:
+        raw_dir = tmp / "data" / "chapters" / "raw"
+        out_dir = tmp / "data" / "outline" / "chapters"
+        raw_dir.mkdir(parents=True)
+        out_dir.mkdir(parents=True)
+        (raw_dir / "01.md").write_text(BODY, encoding="utf-8")
+        (out_dir / "01.md").write_text(OUTLINE, encoding="utf-8")
+        rep = B.run(tmp, book_name="证据夹具")
+        check("能力区不带 demo（未勾选时不混入）",
+              rep["evidence"]["capability"]["items"] == [], rep["evidence"]["capability"])
+        check("无基准集时能力区明说「不误报未验证」",
+              "未验证" in rep["evidence"]["capability"]["note"],
+              rep["evidence"]["capability"]["note"])
+        R.set_events(tmp, 1, [0], {"0": "关系"}, "")
+        rep2 = B.run(tmp, book_name="证据夹具")
+        check("勾了一章 → 只进 demo 区且标明不构成能力证明",
+              rep2["evidence"]["demo"]["items"] == [1]
+              and "不构成能力证明" in rep2["evidence"]["demo"]["note"],
+              rep2["evidence"]["demo"])
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
     print("\n" + "=" * 66)
     print("  通过 %d / 失败 %d" % (len(PASS), len(FAIL)))
     for n in FAIL:

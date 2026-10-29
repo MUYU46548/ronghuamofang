@@ -201,6 +201,23 @@ def main():
         check("200 且缺版语义", code == 200 and d["destroy"]["present"]["checked"] is False
               and d["destroy"]["words"]["checked"] is None, d.get("destroy", {}).get("present"))
 
+        print("\n【J9】改口径影响面预览（一个字都不写）")
+        code, pv = req("POST", "/judge/caliber/preview", {"set": {"J10": 0.99}})
+        check("200 且三行分列", code == 200 and pv.get("ok")
+              and all(k in pv for k in ("affected_count", "to_fail_count", "manual_count")), pv)
+        code, pv2 = req("POST", "/judge/caliber/preview", {"set": {"J12": 3}})
+        check("改不可自动判定判据 → 需你重录 1 条", pv2.get("manual_count") == 1, pv2)
+
+        print("\n【J10】成品过期检测（没成品 → 未生成，不是已过期）")
+        code, art = req("GET", "/judge/artifact")
+        check("200 且 status=未生成", code == 200 and art.get("exists") is False
+              and art.get("status") == "未生成", art)
+
+        print("\n【J11】导出清单（显式动作）")
+        code, ex = req("POST", "/judge/export", {})
+        check("导出 200 且文件落盘",
+              code == 200 and (tmp / "output" / "judge_report.md").exists(), ex)
+
         print("\n【J8】零 token：端点源码不含模型客户端")
         src = (tmp / "scripts" / "nf_api_domains" / "judge.py").read_text(encoding="utf-8")
         check("judge 域不 import 模型客户端",

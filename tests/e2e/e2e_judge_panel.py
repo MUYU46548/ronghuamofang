@@ -201,9 +201,14 @@ def main():
                       page.locator("body").inner_text()[-120:])
                 UX.shot(page, "JD1_detail")
 
-            print("\n=== G. 改标准 ===")
+            print("\n=== G. 改标准 + 影响面预览 ===")
             panel.locator("button:has-text('回整本')").click()
             page.wait_for_timeout(500)
+            panel.locator("button:has-text('导出清单')").click()
+            page.wait_for_timeout(1200)
+            check("导出清单有回执",
+                  "已导出" in page.locator("body").inner_text(),
+                  page.locator("body").inner_text()[-120:])
             panel.locator("button:has-text('改标准')").click()
             page.wait_for_timeout(900)
             cal = panel.inner_text()
@@ -212,6 +217,9 @@ def main():
             inp = panel.locator("input.judge-cal-input").first
             if inp.count():
                 inp.fill("0.30")
+                page.wait_for_timeout(1400)
+                check("改数字后出现「影响面预览（还没生效）」",
+                      "影响面预览" in panel.inner_text(), panel.inner_text()[:200])
                 panel.locator("button:has-text('保存（产新版本）')").click()
                 page.wait_for_timeout(1000)
                 check("改阈值后版本变化", "第 2 版" in panel.inner_text(),

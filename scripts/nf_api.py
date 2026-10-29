@@ -2619,6 +2619,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/judge/destroy":
             # 三稿对照：哪一步把 6000 字削到 2000
             self._send(*_dom(dom_judge.handle_judge_destroy(self)))
+        elif p == "/judge/artifact":
+            # 成品与源稿一致性（R07）：字数 + 时间两项凭据，不做自动重出
+            self._send(*_dom(dom_judge.handle_judge_artifact(self)))
         elif p == "/chapters/paragraphs":
             # 段落级读取（P0 精修轴）
             self._send(*_dom(dom_refine.handle_chapters_paragraphs(self)))
@@ -3122,6 +3125,12 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/judge/caliber":
                 # 改口径（R04/F08）：改值即产新版本，旧版进 history
                 self._send(*_dom(dom_judge.handle_judge_caliber_set(self, body)))
+            elif p == "/judge/caliber/preview":
+                # 改口径前的影响面预览（R06）：一个字都不写
+                self._send(*_dom(dom_judge.handle_judge_caliber_preview(self, body)))
+            elif p == "/judge/export":
+                # 导出缺陷单（显式动作）
+                self._send(*_dom(dom_judge.handle_judge_export(self, body)))
             elif p == "/chapters/restore":
                 # 章节回退：body {n, version} → 从 data/chapters/history/ 恢复
                 # 确定性文件操作，同 /outline/restore，同步返回。
