@@ -11,7 +11,7 @@
 A. 章节页签里有「成书提炼」折叠块
 B. 预演：填路径 → 点预演 → 显示「3 章 / 字数 / 预计 N 次调用」，**盘上没有 data/book_extract**
 C. 开始提炼：后台启动 → 状态条出现「提炼中」
-D. 引擎是 hermes（或 fake）→ 任务失败，界面明说「需要 direct / 用预演」，不是转圈
+D. 引擎是 hermes（或 fake）→ 任务失败，界面明说「改直连 / 用预演」，不是转圈
 E. 目录已建（manifest 落盘），且没有 console error / 4xx
 
 零 token（失败发生在调用模型之前）。用法：python tests/e2e/e2e_book_extract_panel.py
@@ -154,8 +154,8 @@ def main():
                     status = text
                     break
             check("状态条进入终态（不是一直转圈）", bool(status), status[:160])
-            check("失败原因说清要 direct / 预演",
-                  ("direct" in status) or ("_post_chat" in status), status[-200:])
+            check("失败原因说清怎么办（改用直连 / 先预演）",
+                  ("直连" in status) or ("预演" in status), status[-200:])
             check("目录已建（manifest 落盘）",
                   (ws / "data" / "book_extract" / "成书提炼面板验收书" / "manifest.json").exists()
                   or (ws / "data" / "book_extract" / "old" / "manifest.json").exists(),

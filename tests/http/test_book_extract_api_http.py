@@ -8,7 +8,7 @@ B. 建目录：同名已存在 → 409（不覆盖用户上一次的战役）；
 C. 状态：章数/已摘要/各表条数/运行态（GUI 轮询靠它）
 D. 并库：默认只预演（setting.json 一个字节不动）；`yes:true` 才写 + 留备份
 E. 引擎护栏：`engine: hermes`（或 fake 客户端）下 `/run` 启动即失败，
-   错误里明确说「需要 direct / 用 --dry-run」，**不静默空跑**
+   错误里明确说「改用直连 / 先预演」，**不静默空跑**
 F. 目录名越界（`../`）一律 400
 
 全程离线、零 token（A–D 不调模型；E 走 FakeClient，启动即失败）。
@@ -196,9 +196,9 @@ def main():
         check("失败原因写进 run_state（GUI 能看见）",
               (st.get("state") or {}).get("state") == "failed",
               st.get("state"))
-        check("失败原因说清要 direct / 预演",
-              ("direct" in ((st.get("state") or {}).get("error") or ""))
-              or ("_post_chat" in ((st.get("state") or {}).get("error") or "")),
+        check("失败原因说清怎么办（改用直连 / 先预演）",
+              ("直连" in ((st.get("state") or {}).get("error") or ""))
+              or ("预演" in ((st.get("state") or {}).get("error") or "")),
               (st.get("state") or {}).get("error"))
     finally:
         try:

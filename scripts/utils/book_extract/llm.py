@@ -47,12 +47,13 @@ def make_call(client: Any, *, max_tokens: Optional[int] = None,
 
     `client` 必须提供 `_post_chat(messages, temperature=, max_tokens=)`
     （直连引擎的 `OpenAICompatClient` 有；Hermes 子会话没有 —— 那种引擎下
-    请改用 `book_extract.py --dry-run` 出提示词，或先切 `engine: direct`）。
+    请改用 `book_extract.py --dry-run` 出提示词，或先切直连引擎）。
     """
     if not hasattr(client, "_post_chat"):
         raise LLMCallError(
-            "当前引擎的客户端不支持任意提示词调用（没有 _post_chat）。"
-            "成书提炼需要 engine: direct；Hermes 子会话请用 --dry-run 出提示词。")
+            "当前引擎不支持这种「一次把整段书稿交给模型」的用法。"
+            "请到「设置 → 引擎与模型」里改用直连模型后再试；"
+            "命令行也可以先用 --dry-run 预演（不花 token）。")
 
     def call(prompt: str) -> str:
         text, usage, model, finish = client._post_chat(

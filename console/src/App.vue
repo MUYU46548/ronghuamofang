@@ -2603,7 +2603,7 @@ async function confirmExtractMerge() {
   const r = await api("/book_extract/merge", "POST", { name: extractCamp.value, yes: true });
   if (r.status !== 200) return say("合并失败：" + ((r.data && r.data.error) || r.status));
   extractMerge.value = r.data;
-  say("已并进设定集（同名条目一个字没动，写前已备份到 data/setting/history/）");
+  say("已并进设定集（同名条目一个字没动；写前已自动备份旧设定，出问题可还原）");
 }
 
 async function pickImportDocx() {
@@ -5535,7 +5535,7 @@ onUnmounted(() => {
       <!-- 模型使用免责声明（2026-10-04 用户指定文案，原样照录，静态展示，勿改写） -->
       <div class="model-disclaimer">若您的AI订阅仅可在编程工具（如 OpenClaw、OpenCode 等）中使用，请务必开启绒花墨坊的Agent模式，使用外部Agent调用绒花墨坊。否则您可能因以API调用的形式用于自动化脚本、自定义应用程序后端等被AI提供商封禁。因此造成的一切损失与绒花墨坊无关。若您继续使用绒花墨坊，则代表您已知悉并同意以上内容。</div>
       <div class="meta">
-        engine: {{ models.engine }} · 下拉来源：{{ modelSource === 'fetched' ? '服务商动态拉取' : 'config 手写列表' }}
+        engine: {{ models.engine === 'hermes' ? 'Hermes 子会话（走订阅）' : '直连模型（按量计费）' }} · 下拉来源：{{ modelSource === 'fetched' ? '服务商动态拉取' : 'config 手写列表' }}
         <button class="mini" style="margin-left: 8px;" @click="refreshModels" title="从 config/system.yaml 重载">刷新</button>
         <button class="mini" style="margin-left: 8px;" @click="refreshFetchedModels" :disabled="fetchingModels">
           {{ fetchingModels ? '同步中…' : '↻ 同步服务商模型' }}
