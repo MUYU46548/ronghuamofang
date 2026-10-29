@@ -379,7 +379,8 @@ function getWorkspaceSource() {
 //   · 前端（asar，不走种子）：项目页出厂徽标 / 启动提示词剥离说明书 /
 //     阶段复制改任务简报（原样贴模板会被外部 Agent 按红线判「模板不是任务」停工）。
 // **先 bump 再 electron-builder**。
-const SEED_VERSION = 60;   // 0.7.17: 判定引擎（utils/judge + judge.py + /judge/*）+ 三处拆锁 + 预算联动
+const SEED_VERSION = 61;   // 0.7.18: 判定引擎吃用户行内大纲形态 + 骨架解析不再崩
+                            // 0.7.17: 判定引擎（utils/judge + judge.py + /judge/*）+ 三处拆锁 + 预算联动
                             // 0.7.16: 样例稿（范文）使用声明门（/style/sample_consent + 403 need_consent）
                             // 0.7.15: 失败文案去术语（不再露内部函数名与引擎配置键）
                             // 0.7.14: 统一命名（成书提炼 / book_extract），端点与数据目录同步改名

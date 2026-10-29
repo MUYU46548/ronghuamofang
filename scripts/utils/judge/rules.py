@@ -217,8 +217,17 @@ def skeleton_of(sentence):
     if not unit_txt:
         return None
     rest = after[unit_txt.end():]
+    tail_m = None
+    for cand in (INNER_TAIL, REMAIN_TAIL):
+        m = re.search(cand, rest)
+        if m:
+            tail_m = m
+            break
+    if not tail_m:
+        # 尾巴出现在单位之前（如「余量留三次」）——骨架抽不出来就放弃，别拿半截当骨架
+        return None
     return {"head": head.strip(), "unit": unit_txt.group(0).strip(),
-            "tail": re.search(tail, rest).group(0),
+            "tail": tail_m.group(0),
             "pattern": (head + "N" + unit_txt.group(0) + rest).strip()}
 
 
@@ -260,22 +269,34 @@ def _replace_num(sentence):
 
 # --------------------------------------------------------------------- F04
 def outline_events(outline_text):
-    """从章节大纲解析「核心事件」列表（复用 chapter_blueprint 的格式）。"""
+    """从章节大纲解析「核心事件」列表。
+
+    两种真实形态都要吃（2026-10-29 实测踩到）：
+    - 换行编号（stage3 出厂）：`- 核心事件：\\n  1. …`
+    - **行内编号**（用户手写大纲）：`- 核心事件：1. … 2. … 3. …` 全在一行
+    """
     try:
         from utils.chapter_blueprint import parse_chapter
         d = parse_chapter(outline_text or "")
-        return [str(e).strip() for e in d.get("events") or [] if str(e).strip()]
+        events = [str(e).strip() for e in d.get("events") or [] if str(e).strip()]
+        if events:
+            return events
     except Exception:                                          # noqa: BLE001
-        return [str(e).strip() for e in parse_events_fallback(outline_text)
-                if str(e).strip()]
+        pass
+    return [str(e).strip() for e in parse_events_fallback(outline_text) if str(e).strip()]
 
 
 def parse_events_fallback(text):
-    m = re.search(r"-\s*核心事件[：:]\s*\n((?:\s*\d+[.、].+\n?)*)", text or "")
+    """行内/换行两种编号形态的兜底解析（只在结构化解析拿不到事件时用）。"""
+    m = re.search(r"-\s*核心事件[：:]\s*([\s\S]*?)(?=\n\s*-\s*[^\s]|$)", text or "")
     if not m:
         return []
-    return [re.sub(r"^\s*\d+[.、]\s*", "", ln).strip() for ln in m.group(1).splitlines()
-            if ln.strip()]
+    block = m.group(1).strip()
+    parts = [p.strip() for p in re.split(r"(?:^|\s)\d{1,2}[.、]\s*", block) if p.strip()]
+    if len(parts) <= 1:
+        parts = [re.sub(r"^\s*\d+[.、]\s*", "", ln).strip()
+                 for ln in block.splitlines() if ln.strip()]
+    return [p for p in parts if p]
 
 
 def _bigrams(text):

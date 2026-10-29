@@ -106,6 +106,11 @@ def main():
     print("\n=== D. F04/F05 章纲（AC-11 / AC-12 / 约束 2） ===")
     ev4 = RU.outline_events(OUTLINE)
     check("章纲解析出 4 条事件", len(ev4) == 4, ev4)
+    inline = ("## 第2章 规程\n\n- 核心事件：1. 她盖章。 2. 她核对回执。 "
+              "3. 她在日志上划改。 4. 她发现一张字条。\n- 涉及角色：沈澜\n")
+    ev_inline = RU.outline_events(inline)
+    check("行内编号形态也能解析（用户手写大纲的真实形态）",
+          len(ev_inline) == 4, ev_inline)
     dens = RU.outline_density(ev4, CAL)
     check("原稿：章纲密度虚高（3 条连续动作）", dens["flagged"] is True, dens.get("reason"))
     ev_del = [ev4[0], ev4[1], ev4[3]]          # 删掉「日志划改」这条连续动作
