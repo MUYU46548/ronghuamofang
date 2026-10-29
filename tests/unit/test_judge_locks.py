@@ -101,6 +101,21 @@ def main():
           and by_id["J14"]["consumer"] == "budget.guard",
           (by_id["J13"]["consumer"], by_id["J14"]["consumer"]))
 
+    print("\n=== G. R22：默认不注入风格规格（真正的拆锁③） ===")
+    from utils import writing_form as WF
+    d = WF.style_blocks("narrative")
+    check("空选择 → 三个空串（不注入）", d == ("", "", ""), d)
+    chosen = WF.style_blocks("narrative", chosen="narrative")
+    check("显式选择叙事 → 注入那七条", "客观叙事" in chosen[0], chosen[0][:40])
+    s4src = (ROOT / "scripts" / "stage4_writing.py").read_text(encoding="utf-8")
+    check("stage4 从 book.style_rule 取选择（不再无条件注入）",
+          "style_rule" in s4src and "chosen=chosen" in s4src)
+    check("项目配置里没有 style_rule 时默认空",
+          'style_rule: ""' in (ROOT / "config" / "project.yaml.example").read_text(
+              encoding="utf-8")
+          or "style_rule" in (ROOT / "config" / "project.yaml.example").read_text(
+              encoding="utf-8"))
+
     print("\n" + "=" * 66)
     print("  通过 %d / 失败 %d" % (len(PASS), len(FAIL)))
     for n in FAIL:

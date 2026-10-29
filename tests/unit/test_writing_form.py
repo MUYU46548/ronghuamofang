@@ -72,15 +72,19 @@ def case_essay_wiring():
     import tempfile
 
     print("\n[P7] 写法指导按文体切换（stage4 文风块）")
-    st_n, pa_n, w_n = WF.style_blocks("narrative")
-    st_e, pa_e, w_e = WF.style_blocks("essay")
+    # 2026-10-29 拆锁（R22）：默认**不注入** —— 只有显式 chosen 才返回块
+    st_d, pa_d, w_d = WF.style_blocks("narrative")
+    check("P7 默认不注入任何风格块（R22/AC-22-2）",
+          st_d == "" and pa_d == "" and w_d == "", (st_d[:20], pa_d[:20], w_d[:20]))
+    st_n, pa_n, w_n = WF.style_blocks("narrative", chosen="narrative")
+    st_e, pa_e, w_e = WF.style_blocks("essay", chosen="essay")
     check("P7 叙事文风块含「客观叙事」", "客观叙事" in st_n, st_n[:60])
     check("P7 散文文风块**不含**叙事口吻", "客观叙事" not in st_e, st_e[:80])
     check("P7 散文文风块写的是观察与感受", "观察与感受" in st_e, st_e[:80])
     check("P7 散文段落块允许一句一段", "一句一段是合法的" in pa_e, pa_e[:80])
     check("P7 叙事段落块要求按情节单元", "情节单元" in pa_n, pa_n[:80])
     check("P7 两者都不为空且 no warning", not w_n and not w_e and st_e and pa_e)
-    st_l, pa_l, w_l = WF.style_blocks("letter")
+    st_l, pa_l, w_l = WF.style_blocks("letter", chosen="letter")
     check("P7 未接的文体回落叙事并告警",
           st_l == st_n and "尚未接入" in w_l, (len(st_l), w_l[:40]))
 
@@ -91,7 +95,8 @@ def case_essay_wiring():
         shutil.copytree(ROOT / "prompts", tmp / "prompts")
         (tmp / "config").mkdir()
         (tmp / "config" / "project.yaml").write_text(
-            json.dumps({"book": {"name": "文体测试", "chapters": 4, "form": "essay"}}),
+            json.dumps({"book": {"name": "文体测试", "chapters": 4, "form": "essay",
+                                 "style_rule": "essay"}}),
             encoding="utf-8")
         shutil.copy2(ROOT / "config" / "system.yaml", tmp / "config" / "system.yaml")
         (tmp / "data" / "setting").mkdir(parents=True)
@@ -122,7 +127,8 @@ def case_essay_wiring():
               "{{style_rules}}" not in body and "{{para_rules}}" not in body)
 
         (tmp / "config" / "project.yaml").write_text(
-            json.dumps({"book": {"name": "文体测试", "chapters": 4, "form": "narrative"}}),
+            json.dumps({"book": {"name": "文体测试", "chapters": 4, "form": "narrative",
+                                 "style_rule": "narrative"}}),
             encoding="utf-8")
         proj2 = yaml.safe_load((tmp / "config" / "project.yaml").read_text(encoding="utf-8"))
         body2 = S4.build_chapter_task(cfg, proj2, 1, "data/outline/chapters/01.md",
@@ -247,7 +253,7 @@ def case_scope_and_entry():
     check("P9 书信：**未**接入（尽管 style_blocks 会回落出非空正文）",
           WF.style_files_exist("letter") is False, WF.style_files_exist("letter"))
     check("P9 单元：未接入", WF.style_files_exist("episodic") is False)
-    st_l, _pa_l, _w_l = WF.style_blocks("letter")
+    st_l, _pa_l, _w_l = WF.style_blocks("letter", chosen="letter")
     check("P9 且回落时确实返回了非空正文（说明为什么不能拿非空当判据）",
           len(st_l) > 0, len(st_l))
 

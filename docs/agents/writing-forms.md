@@ -19,7 +19,7 @@
 | GUI 入口（设置 → 提示词 →「文体」下拉；`GET/POST /config/form`） | ✅ 已生效 |
 | stage5 评审提示词按文体裁剪（`writing_form.review_scope`） | ✅ 已生效（散文只评 1 维 + 4 问，示例同步裁） |
 | 卷规划按文体关（`volume_plan.ensure_window` 早退） | ✅ 已生效（散文不分卷、不调模型） |
-| stage4 文风块按文体切换（`prompts/style/{form}_{style,para}.md`） | ✅ 叙事 / 散文已写；书信、单元暂回落叙事并**告警** |
+| stage4 文风块按文体切换（`prompts/style/{form}_{style,para}.md`） | ✅ 2026-10-29 起**默认不注入**，由 `book.style_rule` 显式选择（见下） |
 | stage3 章大纲新字段按文体取（散文不要「小目标/钩子」） | ✅ 已生效 |
 | `verify_chapter` 段落结构判据按文体放宽（`para_structure`） | ✅ 已生效 |
 | `quality_checklist` 未提角色名判据（散文跳过） | ✅ 已生效 |
@@ -41,3 +41,22 @@
 不要求小目标/钩子、不做深化/分卷/伏笔、段落结构判据关闭、不查"未提及角色"、
 文风块换成"观察与感受"版（允许第一人称/抒情/一句一段，禁止空泛与总结主题）。
 书信（letter）与单元（episodic）目前**只有判据口径**，写法指导仍回落叙事并在 stage4 打印告警。
+
+## 文风规格默认关闭（R22 拆锁，2026-10-29）
+
+**作者没选，系统不替他定腔调。** `prompts/style/narrative_style.md` 那七条
+（不渲染情绪 / 不解释人物心理 / 严格客观叙事……）此前是**所有叙事项目必注入**的默认值 ——
+`style: ""` 就等于拿到这套极简派规格。10-28 复盘认定它正是"伪具体"（
+「十次呼吸之内落不了章」那类）的配方。
+
+现在的口径：
+
+| 项 | 行为 |
+|---|---|
+| 默认 | `book.style_rule: ""` → `style_blocks()` 返回三个空串，stage4 的 `{{style_rules}}` 渲染为空 |
+| 显式选择 | `narrative / essay / letter / episodic`（GUI 文风页签「文风规格」下拉；`GET/POST /config/style_rule`） |
+| 文件 | 全部保留，选谁读谁；没接的文体（letter/episodic）仍回落叙事并告警 |
+| 未选时的日志 | `[stage4] 未选文风规格（book.style_rule 为空）—— 本轮不注入任何默认风格块` |
+
+判据：`test_writing_form` P7 改为「默认空 + 显式选择才注入」；`test_judge_locks` 三条
+（空选择 → 空串 / 显式叙事 → 注入那七条 / stage4 从 `style_rule` 取值）。

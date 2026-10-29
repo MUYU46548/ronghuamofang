@@ -49,6 +49,9 @@ book:
   #   章节高度相似的段落，并标注来源位置）。留空则按模板文风要求。
   #   支持 .md / .txt；多篇请放在同一个文件里（路径是单值）。
   style_reference: ""
+  # 文风规格（R22 拆锁，2026-10-29）：默认空 = 不注入任何风格块；
+  # 可选 narrative / essay / letter / episodic（选了才注入 prompts/style/*_style.md）
+  style_rule: ""
   # 范文注入上限（字，默认 6000，范围 1000~40000）。stage4 每章都要贴一遍，
   #   所以是每章都付的 token；超长时控制台 WARN 并写明丢弃字数（不再静默截断）。
   # style_reference_max_chars: 6000

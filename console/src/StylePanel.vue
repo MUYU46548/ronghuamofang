@@ -474,8 +474,28 @@ const pacingTrend = computed(() => {
   };
 });
 
+/* ---------- 文风规格（R22 拆锁，2026-10-29） ----------
+   默认不注入任何风格规格；作者显式选一个文体代码才注入。
+   为什么：narrative_style.md 那七条此前是所有叙事项目必注入的默认值 —— 作者
+   从没选过，系统却替他定了腔调（10-28 复盘：那套规格正是"伪具体"的配方）。 */
+const styleRule = ref({ value: "", options: [], note: "" });
+async function loadStyleRule() {
+  const r = await api("/config/style_rule");
+  if (r.data && r.data.ok) styleRule.value = r.data;
+}
+async function saveStyleRule() {
+  const r = await api("/config/style_rule", "POST", { value: styleRule.value.value || "" });
+  if (r.data?.ok) {
+    say(r.data.message || "已保存");
+    await loadStyleRule();
+  } else {
+    say(r.data?.error || ("保存失败 HTTP " + r.status));
+  }
+}
+
 onMounted(() => {
   loadReference();
+  loadStyleRule();
   analyze();
   loadPacing("current");
   loadDecompose();
@@ -492,6 +512,22 @@ onMounted(() => {
 
     <!-- ================= 文风特征 ================= -->
     <template v-if="sub === 'style'">
+      <!-- 文风规格（R22 拆锁）：默认不注入；选了才注入 -->
+      <div class="card">
+        <div class="card-head">
+          <h3>文风规格</h3>
+          <span class="spacer"></span>
+          <button class="mini" @click="saveStyleRule">保存</button>
+        </div>
+        <div class="meta">
+          默认<b>不注入</b>任何风格规格。选了才把对应文风块写进写作提示词
+          —— 作者没选，系统不替你定腔调。
+        </div>
+        <select v-model="styleRule.value" class="style-rule-select">
+          <option v-for="o in styleRule.options" :key="o.code" :value="o.code">
+            {{ o.label }}</option>
+        </select>
+      </div>
       <!-- 范文正文：一键粘贴。属于用户数据（工作区文件，随书档归档） -->
       <div class="card">
         <div class="card-head">
@@ -949,6 +985,7 @@ onMounted(() => {
 
 <style scoped>
 /* 范文（样例稿）声明行（2026-10-29）：状态 + 查看声明按钮，不挤占输入区 */
+.style-rule-select { margin-top: 6px; background: var(--field); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; }
 .ref-consent-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .ref-consent-btn { flex: none; }
 /* 参考作品拆解：候选列表 + 声明弹层 */

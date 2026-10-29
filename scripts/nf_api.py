@@ -2451,6 +2451,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/style/sample_consent":
             # 样例稿使用声明的同意状态（2026-10-29）：范文框据此决定是否先弹声明。
             self._send(*_dom(dom_project.handle_style_sample_consent(self)))
+        elif p == "/config/style_rule":
+            # 文风规格（R22 拆锁）：默认不注入，作者显式选才注入
+            self._send(*_dom(dom_project.handle_config_style_rule(self)))
         elif p == "/config/word_template":
             # Word 成品模板清单 + 当前值（件五 GUI 入口）。
             self._send(*_dom(dom_project.handle_config_word_template(self)))
@@ -3179,6 +3182,9 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/style/sample_consent":
                 # 记录/撤回样例稿使用声明（2026-10-29）：撤回后保存重新被拦。
                 self._send(*_dom(dom_project.handle_style_sample_consent_set(self, body)))
+            elif p == "/config/style_rule":
+                # 选文风规格（R22 拆锁）：空 = 不注入
+                self._send(*_dom(dom_project.handle_config_style_rule_set(self, body)))
             elif p == "/config/word_template":
                 # Word 成品模板选择/恢复默认（件五 GUI 入口，定向改写 project.yaml）。
                 self._send(*_dom(dom_project.handle_config_word_template_set(self, body)))

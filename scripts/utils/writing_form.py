@@ -203,16 +203,24 @@ def style_files_exist(form):
     return True
 
 
-def style_blocks(form):
-    """读该文体的「文风规则」「段落规则」两段 → (style, para, warning)。
+def style_blocks(form, chosen=None):
+    """读「文风规则」「段落规则」两段 → (style, para, warning)。
 
-    文件按 `load_template` 同一口径（CWD 相对 `prompts/style/`）。
-    没接的文体**回落叙事并告警** —— 绝不能让散文项目静默拿到叙事口吻的提示词。
+    **2026-10-29 拆锁（R22 / AC-22）：默认不注入任何风格规格。**
+    为什么：`prompts/style/narrative_style.md` 那七条（不渲染情绪 / 不解释心理 /
+    严格客观叙事……）此前是**所有叙事项目必注入**的默认值 —— 作者从没选过，
+    系统却替他定了腔调。10-28 复盘认定这套规格正是"伪具体"的配方。
+    现在只有 `book.style_rule` 显式填了文体代码才注入（文件仍在，可选，不默认）。
+
+    `chosen` 为空 → 返回空串（stage4 的 `{{style_rules}}` 渲染为空，AC-22-1）。
     """
     from pathlib import Path as _P
     from utils.file_io import read_text
 
-    code = form if form in FORMS else DEFAULT_FORM
+    if not chosen:
+        return "", "", ""
+
+    code = chosen if chosen in FORMS else DEFAULT_FORM
     warn = ""
 
     def _read(c):

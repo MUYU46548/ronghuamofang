@@ -9,6 +9,22 @@ CHANGELOG」）。本文件从工程审查修复起正式启用。
 
 ## [Unreleased]
 
+## [v0.7.20] — 2026-10-29 拆锁③落地：默认不注入任何风格规格
+
+10-28 复盘里最重的一条终于落地：**系统不再替作者定腔调**。
+
+- `prompts/style/narrative_style.md` 那七条（不渲染情绪 / 不解释心理 / 严格客观叙事……）
+  此前是**所有叙事项目必注入**的默认值 —— 作者 `style: ""`，系统就默认给了这套极简派规格。
+  现在：`writing_form.style_blocks(form, chosen=...)` 只有 `book.style_rule` **显式选了**才返回内容，
+  否则三个空串，stage4 的 `{{style_rules}}` 渲染为空（AC-22-1）。
+- 文件保留、可选择（AC-22-2）：`narrative / essay / letter / episodic`，
+  GUI 文风页签新增「文风规格」下拉（默认「不注入（推荐默认）」）+ `GET/POST /config/style_rule`。
+- stage4 在未选时打印一次 `未选文风规格（book.style_rule 为空）—— 本轮不注入任何默认风格块`，
+  不静默降级、也不静默继承旧默认。
+- `config/project.yaml.example` 补 `book.style_rule: ""` 与说明。
+- 判据：`test_writing_form` P7 改为「默认空 + 显式选择才注入」；`test_judge_locks` 新增 R22 三条
+  （空选择 → 空串 / 显式叙事 → 注入那七条 / stage4 从 style_rule 取值）。
+
 ## [v0.7.19] — 2026-10-29 判定引擎收口：影响面预览 / 成品过期 / 证据分级
 
 补齐 P0 验收线里剩下的三块：

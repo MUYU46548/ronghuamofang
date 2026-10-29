@@ -556,10 +556,17 @@ _STYLE_WARNED = set()
 
 
 def _style_blocks(proj):
-    """文体对应的文风/段落规则（未接的文体回落叙事并告警一次）。"""
+    """文风/段落规则：**只有 `book.style_rule` 显式选了才注入**（R22 拆锁）。
+
+    默认空 → `{{style_rules}}` 渲染为空。作者没选，就不许系统替他定腔调。
+    """
     from utils import writing_form as _wf
     app = _wf.applicability(proj)
-    style, para, warn = _wf.style_blocks(app["code"])
+    chosen = str(((proj or {}).get("book") or {}).get("style_rule") or "").strip()
+    style, para, warn = _wf.style_blocks(app["code"], chosen=chosen)
+    if not chosen and app["code"] not in _STYLE_WARNED:
+        _STYLE_WARNED.add(app["code"])
+        print("[stage4] 未选文风规格（book.style_rule 为空）—— 本轮不注入任何默认风格块")
     if warn and app["code"] not in _STYLE_WARNED:
         _STYLE_WARNED.add(app["code"])
         print("[stage4] " + warn)

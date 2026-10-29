@@ -144,6 +144,50 @@ def handle_style_sample_consent(h):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+# ---------------------------------------------------------------- 文风规格（R22 拆锁）
+# 2026-10-29：默认**不注入**任何风格规格；作者显式选一个文体代码才注入。
+STYLE_RULE_OPTIONS = [
+    {"code": "", "label": "不注入（推荐默认）"},
+    {"code": "narrative", "label": "叙事（极简客观派）"},
+    {"code": "essay", "label": "散文"},
+    {"code": "letter", "label": "书信"},
+    {"code": "episodic", "label": "单元"},
+]
+
+
+def _style_rule_value():
+    from utils.project_config import get_project_config
+    try:
+        cfg = get_project_config() or {}
+    except Exception:                                       # noqa: BLE001
+        cfg = {}
+    return str(((cfg.get("book") or {}).get("style_rule") or "")).strip()
+
+
+def handle_config_style_rule(h):
+    return 200, {"ok": True, "value": _style_rule_value(),
+                 "options": STYLE_RULE_OPTIONS,
+                 "note": "空 = 不注入任何风格规格（默认）；选了才把对应文风块写进 stage4"}
+
+
+def handle_config_style_rule_set(h, body):
+    value = str((body or {}).get("value") or "").strip()
+    allowed = [o["code"] for o in STYLE_RULE_OPTIONS]
+    if value not in allowed:
+        return 400, {"ok": False,
+                     "error": "未知的文风规格：%r（可选：%s）"
+                              % (value, "、".join(x or "不注入" for x in allowed))}
+    from utils.project_config import set_book_fields
+    ok, msg = set_book_fields({"style_rule": value})
+    if not ok:
+        return 400, {"ok": False, "error": msg}
+    return 200, {"ok": True, "value": value,
+                 "message": ("已改为不注入" if not value
+                             else "已选择「%s」—— 下一章写作开始注入"
+                                  % next(o["label"] for o in STYLE_RULE_OPTIONS
+                                         if o["code"] == value))}
+
+
 def handle_style_sample_consent_set(h, body):
     """记录/撤回样例稿声明（POST {agreed: true|false}）。撤回后保存重新被拦。"""
     try:
