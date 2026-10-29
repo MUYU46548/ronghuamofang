@@ -18,6 +18,8 @@ glob 计数）。两者刻意不合并：`stages` 是「流程走到哪」，exi
 该端点曾经**只有 POST 分支、没有 GET 分支**，而 GUI 用的是 GET → 一律 404
 → 初始化向导与「素材为空」提醒永远不触发。读操作必须挂在 do_GET 上。
 """
+import json
+
 import nf_api as api
 
 
@@ -109,6 +111,46 @@ DEFAULT_STYLE_REF_PATH = "materials/style_sample.md"
 STYLE_REF_HISTORY_DIR = "data/state/style_reference_history"
 STYLE_REF_HISTORY_KEEP = 20
 STYLE_REF_MAX_CHARS = 40000          # 与 stage4 的注入上限上限一致（STYLE_REF_LIMIT_MAX）
+# 范文（样例稿）使用声明：同意记录与拆解声明分开存 —— 两者事实不同：
+# 拆解「不存原文」，范文「必须存盘」（否则写作阶段没法注入）。一份声明不能盖两件事。
+SAMPLE_CONSENT_REL = "data/state/style_sample_consent.json"
+
+
+def _sample_consent():
+    p = api.ROOT / SAMPLE_CONSENT_REL
+    if not p.exists():
+        return {"agreed": False, "at": None}
+    try:
+        d = json.loads(p.read_text(encoding="utf-8"))
+        return {"agreed": bool(d.get("agreed")), "at": d.get("at")}
+    except Exception:                                       # noqa: BLE001
+        return {"agreed": False, "at": None}
+
+
+def _set_sample_consent(agreed):
+    p = api.ROOT / SAMPLE_CONSENT_REL
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps({"agreed": bool(agreed),
+                             "at": api.datetime.now().isoformat(timespec="seconds")},
+                            ensure_ascii=False, indent=2), encoding="utf-8")
+    return _sample_consent()
+
+
+def handle_style_sample_consent(h):
+    """样例稿使用声明的同意状态（GET）。范文框据此决定「保存」要不要先弹声明。"""
+    try:
+        return 200, dict({"ok": True}, **_sample_consent())
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_style_sample_consent_set(h, body):
+    """记录/撤回样例稿声明（POST {agreed: true|false}）。撤回后保存重新被拦。"""
+    try:
+        agreed = bool((body or {}).get("agreed"))
+        return 200, dict({"ok": True}, **_set_sample_consent(agreed))
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
 def _style_ref_target():
@@ -161,6 +203,7 @@ def _style_ref_payload(text, rel, configured):
         "effective": prose >= MIN_TEXT_LEN,
         # 超出注入上限的部分 stage4 不会用（那里会 WARN），这里先让用户看见
         "truncated": max(0, len(text) - limit),
+        "consent": _sample_consent(),
     }
 
 
@@ -188,6 +231,13 @@ def handle_config_style_reference_set(h, body):
     if "text" not in body:
         return 400, {"ok": False, "error": "缺少 text 字段（清空请传空字符串）"}
     text = str(body.get("text") or "").replace("\r\n", "\n").replace("\r", "\n")
+    # 声明门（2026-10-29）：写正文前先确认「样例稿由你提供、片段会随任务发给模型服务商」。
+    # 为什么拦在后端而不是只做前端弹层：外部 Agent 也调这个端点，声明不能只靠 GUI 自觉。
+    # 清空（空串）不拦 —— 那是撤回，不该再被声明挡一次。
+    if text.strip() and not _sample_consent().get("agreed"):
+        return 403, {"ok": False, "need_consent": True,
+                     "error": "保存范文前需先确认「样例稿使用声明」："
+                              "正文会保存在本机工作区，其中的片段会随写作任务发给模型服务商。"}
     if len(text) > STYLE_REF_MAX_CHARS:
         return 400, {"ok": False,
                      "error": "范文过长（%d 字 > 上限 %d）—— 建议给 2~3 个场景切片，"

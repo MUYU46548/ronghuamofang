@@ -78,6 +78,9 @@
     从范文抽取 ≤3 段代表性原文，按空行分段、按"长度适中/含对白/含修辞/节奏有起伏"打分，
     自动剔除与当前内容字面重叠（3-gram 重叠率 > 0.30）的段落，并标注来源（第 N 段，字符 X-Y）
   - 未配置 `style_reference` 时不注入任何片段与风格指令，逻辑与旧版一致
+  - 范文是**用户自带的版权材料**：写入前必须确认「样例稿使用声明」，同意记录在
+    `data/state/style_sample_consent.json`（后端 403 `need_consent` 拦，不只是前端弹层）；
+    范文本体存工作区（默认 `materials/style_sample.md`），片段会随写作任务发给模型服务商
 - 用户风格笔记：`config/project.yaml` 的 `book.style_notes`（可选，手动补充的风格要求）
   - 与自动分析结论叠加注入 stage4/stage6，冲突时以笔记为准；留空则完全不注入
   - GUI 编辑：控制台「设置」页签「用户风格笔记」→ IPC（`style-notes:get/save`）→

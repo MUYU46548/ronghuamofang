@@ -2446,6 +2446,9 @@ class Handler(BaseHTTPRequestHandler):
             # 范文正文（GUI 粘贴窗口的数据源）：路径取 book.style_reference，
             # 未配置时用默认 materials/style_sample.md。
             self._send(*_dom(dom_project.handle_config_style_reference(self)))
+        elif p == "/style/sample_consent":
+            # 样例稿使用声明的同意状态（2026-10-29）：范文框据此决定是否先弹声明。
+            self._send(*_dom(dom_project.handle_style_sample_consent(self)))
         elif p == "/config/word_template":
             # Word 成品模板清单 + 当前值（件五 GUI 入口）。
             self._send(*_dom(dom_project.handle_config_word_template(self)))
@@ -3135,6 +3138,9 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/config/style_reference":
                 # 范文正文保存（创作决策，非安全闸门；空字符串 = 清空）。
                 self._send(*_dom(dom_project.handle_config_style_reference_set(self, body)))
+            elif p == "/style/sample_consent":
+                # 记录/撤回样例稿使用声明（2026-10-29）：撤回后保存重新被拦。
+                self._send(*_dom(dom_project.handle_style_sample_consent_set(self, body)))
             elif p == "/config/word_template":
                 # Word 成品模板选择/恢复默认（件五 GUI 入口，定向改写 project.yaml）。
                 self._send(*_dom(dom_project.handle_config_word_template_set(self, body)))

@@ -10,6 +10,7 @@
 
 | 编号 | 钉什么 |
 |---|---|
+| S0 | **样例稿声明门**（2026-10-29）：没同意 → 保存 403 + 一个字节不写；同意后可写 |
 | S1 | 未配置时回默认路径 `materials/style_sample.md`，且 configured=false |
 | S2 | 保存后**文件落盘 + 配置自动指向它**（用户不用改 yaml） |
 | S3 | 有效正文字数的口径与 stage4 同源（`prose_char_count`），不足 100 → 明确「暂不生效」 |
@@ -20,6 +21,7 @@
 | S8 | **路径必须落在工作区内**：`../evil.md` 一律 400，且工作区外不落盘 |
 | S9 | 缺 `text` 字段 → 400（不许默认清空） |
 | S10 | 外部 Agent **可以写**（创作决策，不是成本/安全闸门）——与 token_limit 相反 |
+| S11 | **撤回声明**后保存重新 403；清空不受声明门限制（那是在撤回） |
 
 **不碰真实仓库**：复制 scripts/config/prompts 到临时根起 nf_api。
 
@@ -47,6 +49,7 @@ BASE = "http://127.0.0.1:%d" % PORT
 PASS, FAIL = [], []
 
 PROSE = "他把刀放下，说了句「走吧」，然后转身走进雨里。"
+short_probe = PROSE * 8
 MIN_YAML = """book:
   name: "范文测试书"
   genre: "奇幻"
@@ -117,6 +120,19 @@ def main():
         check("nf_api 起来了", ready)
         if not ready:
             return 1
+
+        print("\n【S0】样例稿声明门（2026-10-29）：没同意不许写正文")
+        code, d = req("GET", "/style/sample_consent")
+        check("GET 200 且默认未同意", code == 200 and d.get("ok")
+              and d.get("agreed") is False, d)
+        code, d = req("POST", "/config/style_reference", {"text": short_probe})
+        check("未同意时保存 403", code == 403 and d.get("need_consent") is True,
+              (code, (d.get("error") or "")[:80]))
+        check("403 时一个字节都没写", not (tmp / "materials" / "style_sample.md").exists())
+        code, d = req("POST", "/style/sample_consent", {"agreed": True})
+        check("同意后 agreed=true", code == 200 and d.get("agreed") is True, d)
+        check("同意记录落在工作区（换书后仍有效）",
+              (tmp / "data" / "state" / "style_sample_consent.json").exists())
 
         print("\n【S1】未配置时的默认回显")
         code, d = req("GET", "/config/style_reference")
@@ -190,6 +206,15 @@ def main():
         print("\n【S10】外部 Agent 可以写（创作决策，非安全闸门）")
         code, d = req("POST", "/config/style_reference", {"text": PROSE * 10})
         check("无 GUI 头也能写（与 token_limit 的 GUI-only 相反）", code == 200, code)
+
+        print("\n【S11】撤回声明后保存重新被拦（清空不受限）")
+        code, d = req("POST", "/style/sample_consent", {"agreed": False})
+        check("撤回 200 且 agreed=false", code == 200 and d.get("agreed") is False, d)
+        code, d = req("POST", "/config/style_reference", {"text": short_probe})
+        check("撤回后保存 403（不是静默同意）",
+              code == 403 and d.get("need_consent") is True, code)
+        code, d = req("POST", "/config/style_reference", {"text": ""})
+        check("清空不受声明门限制（那是在撤回）", code == 200, code)
 
         print("\n【S7】清空")
         code, d = req("POST", "/config/style_reference", {"text": ""})

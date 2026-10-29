@@ -108,6 +108,24 @@ const refState = ref(null);      // GET /config/style_reference
 const refText = ref("");
 const refDirty = ref(false);
 const refSaving = ref(false);
+/* 样例稿使用声明（2026-10-29）：范文是**用户自带的版权材料**，且片段会随写作任务
+   发给模型服务商 —— 保存前必须先确认。同意记录存工作区（data/state/…），换书后仍有效；
+   撤回后保存会重新被后端拦（403 need_consent）。 */
+const refConsent = ref({ agreed: false, at: null });
+const refNoticeOpen = ref(false);
+const refNoticeEl = ref(null);
+const REF_DECL_LINES = [
+  "范文（样例稿）由你自行提供，用于让写作阶段模仿它的节奏、用词与句式。",
+  "· 只保存在本机工作区（默认 materials/style_sample.md），随书档一起归档；不会上传到绒花墨坊的服务器。",
+  "· 写作时系统会从其中摘出 3 段随任务发给**你配置的模型服务商**，适用该服务商的数据条款。",
+  "· 请只放入你有权使用的文本 —— 版权与合规责任由你承担。",
+  "· 绒花墨坊不保证生成结果可用，也不对由此产生的后果负责。",
+];
+watch(refNoticeOpen, async (v) => {
+  if (!v) return;
+  await nextTick();
+  refNoticeEl.value?.querySelector(".dec-decl-foot .mini")?.focus();
+});
 
 async function loadReference() {
   const r = await api("/config/style_reference");
@@ -115,6 +133,7 @@ async function loadReference() {
     refState.value = r.data;
     refText.value = r.data.text || "";
     refDirty.value = false;
+    refConsent.value = r.data.consent || { agreed: false, at: null };
   } else {
     refState.value = { ok: false, error: r.data?.error || ("HTTP " + r.status) };
   }
@@ -123,16 +142,36 @@ async function loadReference() {
 async function saveReference(clear = false) {
   if (clear && !window.confirm(
     "清空范文？\n\n· 写作阶段将不再注入范文\n· 旧内容已自动备份到 data/state/style_reference_history/")) return;
+  // 声明门：只有在真要写正文时才拦（清空是撤回，不该被声明挡一次）。
+  if (!clear && refText.value.trim() && !refConsent.value.agreed) {
+    refNoticeOpen.value = true;
+    return;
+  }
   refSaving.value = true;
   const r = await api("/config/style_reference", "POST", { text: clear ? "" : refText.value });
   refSaving.value = false;
   if (r.data?.ok) {
     refState.value = r.data;
+    if (r.data.consent) refConsent.value = r.data.consent;
     if (clear) { refText.value = ""; }
     refDirty.value = false;
     say(r.data.message || "已保存");
+  } else if (r.data?.need_consent) {
+    refNoticeOpen.value = true;          // 后端也拦：前端状态过期时补弹一次
   } else {
     say(r.data?.error || ("保存失败 HTTP " + r.status));
+  }
+}
+
+async function agreeSampleConsent() {
+  const r = await api("/style/sample_consent", "POST", { agreed: true });
+  if (r.status === 200 && r.data?.ok) {
+    refConsent.value = { agreed: !!r.data.agreed, at: r.data.at };
+    refNoticeOpen.value = false;
+    say("已同意声明，正在保存范文…");
+    await saveReference(false);
+  } else {
+    say("记录同意失败：" + (r.data?.error || r.status));
   }
 }
 
@@ -466,6 +505,11 @@ onMounted(() => {
         <div class="meta">
           写作时模仿它的节奏、用词与句式。<b>给 2~3 个场景切片</b>（对白 / 动作 / 内省各一）
           比给一整章更有效 —— 系统只抽 3 段做 few-shot。粘贴后点“保存”即可，无需改配置。
+        </div>
+        <div class="meta ref-consent-line">
+          <span v-if="refConsent.agreed" class="ref-ok">已同意样例稿使用声明</span>
+          <span v-else class="ref-warn">保存前需确认样稿使用声明（只放你有权使用的文本）</span>
+          <button class="mini ref-consent-btn" @click="refNoticeOpen = true">查看声明</button>
         </div>
         <textarea v-model="refText" class="style-ref-input" rows="12"
                   placeholder="在这里粘贴正文（Ctrl+V）…"
@@ -853,6 +897,28 @@ onMounted(() => {
       </div>
     </template>
 
+    <!-- 样例稿使用声明（2026-10-29）：与拆解声明同构。默认焦点在“我不同意”，
+         关掉弹层 = 不保存 —— 绝不让一次误按回车等于替用户签字。 -->
+    <div v-if="refNoticeOpen" class="drawer-mask dec-mask" @click.self="refNoticeOpen = false"
+         @keydown.esc.stop.prevent="refNoticeOpen = false">
+      <div class="dialog dec-decl" role="dialog" aria-modal="true"
+           aria-label="样例稿使用声明" ref="refNoticeEl">
+        <div class="card-head">
+          <h3>范文（样例稿）· 使用声明</h3>
+          <span class="meta">首次保存需确认</span>
+        </div>
+        <div class="dec-decl-body">
+          <p v-for="(l, i) in REF_DECL_LINES" :key="i">{{ l }}</p>
+        </div>
+        <div class="dialog-actions dec-decl-foot">
+          <span class="meta dec-decl-hint">关闭本框 = 不保存</span>
+          <span class="spacer"></span>
+          <button class="mini" autofocus @click="refNoticeOpen = false">我不同意</button>
+          <button class="mini primary" @click="agreeSampleConsent">我同意并保存</button>
+        </div>
+      </div>
+    </div>
+
     <!-- 拆解功能声明弹层（2026-10-20 改）：**与 DisclaimerDialog 同构**的居中确认框，
          不再用右侧抽屉（.drawer 是“浏览/编辑长内容”的容器，拿它装一纸声明既不像
          确认框、底部按钮也贴在视口边缘）。形态照抄本应用既有范式：
@@ -882,6 +948,9 @@ onMounted(() => {
 </template>
 
 <style scoped>
+/* 范文（样例稿）声明行（2026-10-29）：状态 + 查看声明按钮，不挤占输入区 */
+.ref-consent-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ref-consent-btn { flex: none; }
 /* 参考作品拆解：候选列表 + 声明弹层 */
 .dec-cands { border-top: 1px dashed var(--border); margin-top: 10px; }
 .dec-cand { display: flex; gap: 8px; align-items: flex-start; padding: 6px 4px; border-radius: 6px; }
