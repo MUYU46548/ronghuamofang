@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-"""病灶词扫描（吃书⑦）在绒花墨坊侧的入口 —— 零 token、确定性、只检测不改写。
+"""病灶词扫描（成书提炼⑦）在绒花墨坊侧的入口 —— 零 token、确定性、只检测不改写。
 
 ## 为什么单独开一层
 
-实现本体是 `utils/eatbook/cliche_scanner.py`（移植自 SP-1024）。本模块只解决
+实现本体是 `utils/book_extract/cliche_scanner.py`（移植自 SP-1024）。本模块只解决
 **在本仓里怎么找到正文与词表**：
 
 - 词表优先级：显式路径 > `config/system.yaml` 的 `quality.cliche_wordlist`
@@ -22,8 +22,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from utils.eatbook import cliche_scanner as _scanner
-from utils.eatbook.wordlist import load_wordlist
+from utils.book_extract import cliche_scanner as _scanner
+from utils.book_extract.wordlist import load_wordlist
 
 LAYER_DIRS = ("data/chapters/refined", "data/chapters/checked", "data/chapters/raw")
 

@@ -9,7 +9,27 @@ CHANGELOG」）。本文件从工程审查修复起正式启用。
 
 ## [Unreleased]
 
+### 改名：吃书 → 成书提炼（客户端零残留，内部标识一起改）
+
+用户判定「吃书」这个叫法不该出现在客户端任何一处，且要求连内部标识一起改（不保留别名）。
+
+- **文案**：GUI 折叠块标题 / 状态条 / 按钮、CLI 子命令帮助与输出、API 报错、报告标题
+  全部改成「成书提炼」；状态条收短为「提炼中…」「提炼完成」「提炼失败」。
+  顺手修掉标题里的错字：「病情」→「病灶词」。
+- **标识**：`scripts/eat_book.py` → `book_extract.py`；`utils/eatbook/` → `utils/book_extract/`；
+  域模块 `nf_api_domains/eatbook.py` → `book_extract.py`；端点 `/eatbook/*` → `/book_extract/*`；
+  产物目录 `data/eatbook/` → `data/book_extract/`；后台任务名 `book_extract_<目录>`。
+- **判据**：`test_eat_book` → `test_book_extract`、`test_eatbook_api_http` →
+  `test_book_extract_api_http`、`e2e_eatbook_panel` → `e2e_book_extract_panel`
+  （断言同步改成「开始提炼」「提炼中」，选择器跟着改）。
+- **文档**：`docs/agents/eat-book.md` → `book-extract.md`；AGENTS.md / commands.md 同步。
+  历史记录（下面 v0.7.13 条目、2026-10-27 评估报告）保留原文，另加一行「旧称」说明。
+- `SEED_VERSION` 56 → 57（改的是随包脚本与前端，必须随包播种才生效）。
+
 ## [v0.7.13] — 2026-10-27 吃书（SP-1024 集成）+ 病灶词扫描
+
+> 2026-10-29 注：本节及以下历史条目里的「吃书」是当时的名字，客户端现已统一为
+> **成书提炼**（代码标识 `book_extract`）；新代码里不存在旧名，详见 [Unreleased]。
 
 本仓此前只有「素材卡 → 设定集」；**已经写完的一本书 → 正典四表**是空白。
 把沙盒 `SP-1024` 的七件套移植进来（提示词逐字保留），改成进程内一条命令：

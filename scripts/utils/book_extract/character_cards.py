@@ -1,4 +1,4 @@
-"""模块③ 角色状态卡抽取（吃②）。
+"""模块③ 角色状态卡抽取（读②）。
 
 出门版提示卡见 ``prompts/03_角色状态卡抽取.md``；结构契约见
 ``schemas/character_card.schema.json``。

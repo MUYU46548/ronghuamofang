@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
-"""吃书管线（移植自 SP-1024 `chishu/`，2026-10-27 集成进绒花墨坊）。
+"""成书提炼管线（移植自 SP-1024 `chishu/`，2026-10-27 集成进绒花墨坊）。
 
 ## 这是什么
 
-把**一本已经写完的书**（旧稿 / 参考作品 / 自己的前作）吃成一套结构化正典：
+把**一本已经写完的书**（旧稿 / 参考作品 / 自己的前作）提炼成一套结构化正典：
 章节摘要 ② → 角色卡 ③ / 伏笔台账 ⑥ / 时间线 ⑧ / 世界观设定 ⑨ → 一致性检查 ①，
-外加纯本地的病灶词扫描 ⑦。产物是 `data/eatbook/<书名>/` 下的 JSON，
-`eat_book.py merge` 可按「只增不改」并进 `data/setting/setting.json`。
+外加纯本地的病灶词扫描 ⑦。产物是 `data/book_extract/<书名>/` 下的 JSON，
+`book_extract.py merge` 可按「只增不改」并进 `data/setting/setting.json`。
 
 ## 与沙盒原版的差异（为什么不照搬）
 
@@ -16,13 +16,13 @@
 
 1. 保留全部 `build_prompt / parse_response / run(call=...)` 三件套（**提示词逐字未改**，
    与 `SP-1024/prompts/*.md` 仍一一对应）；
-2. 去掉文件搬运（emit/ingest），改由 `utils.eatbook.runner` 在进程内分批调用；
+2. 去掉文件搬运（emit/ingest），改由 `utils.book_extract.runner` 在进程内分批调用；
 3. **保留断点语义**：每章摘要落盘后即算完成，重跑自动跳过（`--force` 才重做）。
 
 ## 红线
 
 `chishu` 原版不含任何网络代码，这里同样不含 —— 真正的 HTTP 只在
-`utils/eatbook/llm.py` 的适配器里，且只在调用方显式构造客户端时发生。
+`utils/book_extract/llm.py` 的适配器里，且只在调用方显式构造客户端时发生。
 """
 
 __version__ = "1.0.0+nf"

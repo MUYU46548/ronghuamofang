@@ -19,7 +19,7 @@
     python scripts/nfctl.py doctor [--json]         # 数据一致性自检：产物完整性/孤儿文件/数据库
     python scripts/nfctl.py homo   [--json]         # 同质化/退化报告（stage4 自动生成，零 token 只读）
     python scripts/nfctl.py cliche [--chapter N|--file F] [--wordlist W]
-                                     # 病灶词扫描（吃书⑦，零 token 只读；默认全书逐章）
+                                     # 病灶词扫描（成书提炼⑦，零 token 只读；默认全书逐章）
     python scripts/nfctl.py serve  [--port 8766]    # 启动本地调试看板（零依赖）
     python scripts/nfctl.py api <GET路径> [--json]  # 只读转发到 nf_api（服务需在跑）
     python scripts/nfctl.py model-check [provider] [--live]
@@ -779,7 +779,7 @@ def render_doctor(d: dict) -> str:
 
 # ---------------------------------------------------------------- 病灶词（⑦）
 def collect_cliche(root: Path, chapter=None, file=None, wordlist=None) -> dict:
-    """病灶词扫描（2026-10-27 集成自 SP-1024 吃书工具箱；零 token、只读）。
+    """病灶词扫描（2026-10-27 集成自 SP-1024 成书提炼工具箱；零 token、只读）。
 
     口径与 `utils/cliche_scan` 一份实现：词表优先级 = 显式路径 >
     `quality.cliche_wordlist` > 内置 20 条；章节按 refined > checked > raw 取。

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""吃书端点 HTTP 自检（0.7.13）：预演/建目录/状态/并库 + 花钱那一步的引擎护栏。
+"""成书提炼端点 HTTP 自检（0.7.13）：预演/建目录/状态/并库 + 花钱那一步的引擎护栏。
 
 ## 判据
 
@@ -12,7 +12,7 @@ E. 引擎护栏：`engine: hermes`（或 fake 客户端）下 `/run` 启动即�
 F. 目录名越界（`../`）一律 400
 
 全程离线、零 token（A–D 不调模型；E 走 FakeClient，启动即失败）。
-用法：python tests/http/test_eatbook_api_http.py
+用法：python tests/http/test_book_extract_api_http.py
 """
 import io
 import json
@@ -69,7 +69,7 @@ def req(method, path, body=None, timeout=60):
 
 
 def build_project():
-    tmp = Path(tempfile.mkdtemp(prefix="nf_eathttp_"))
+    tmp = Path(tempfile.mkdtemp(prefix="nf_bookextract_http_"))
     shutil.copytree(ROOT / "scripts", tmp / "scripts",
                     ignore=shutil.ignore_patterns("__pycache__"))
     shutil.copytree(ROOT / "config", tmp / "config",
@@ -79,7 +79,7 @@ def build_project():
     for d in ("data/state", "data/setting", "data/chapters/raw", "materials/raw"):
         (tmp / d).mkdir(parents=True, exist_ok=True)
     (tmp / "config" / "project.yaml").write_text(
-        'book:\n  name: "吃书接口验收书"\n  chapters: 3\n', encoding="utf-8")
+        'book:\n  name: "成书提炼验收书"\n  chapters: 3\n', encoding="utf-8")
     (tmp / "old.txt").write_text(BOOK, encoding="utf-8")
     (tmp / "data" / "setting" / "setting.json").write_text(json.dumps({
         "characters": [{"name": "苏芷", "role": "（用户自己写的身份）"}],
@@ -114,47 +114,47 @@ def main():
             return 1
 
         print("\n【A】预演：不写盘")
-        code, d = req("POST", "/eatbook/preview", {"path": "old.txt"})
+        code, d = req("POST", "/book_extract/preview", {"path": "old.txt"})
         check("预演 200", code == 200 and d.get("ok"), (code, d.get("error")))
         check("数出 3 章", d.get("chapter_count") == 3, d.get("chapter_count"))
         check("给出预计调用数", int(d.get("est_calls") or 0) >= 3, d.get("est_calls"))
-        check("预演之后 data/eatbook 还不存在（一个文件都不写）",
-              not (tmp / "data" / "eatbook").exists())
-        code, d = req("POST", "/eatbook/preview", {"path": "nope.txt"})
+        check("预演之后 data/book_extract 还不存在（一个文件都不写）",
+              not (tmp / "data" / "book_extract").exists())
+        code, d = req("POST", "/book_extract/preview", {"path": "nope.txt"})
         check("书稿不存在 → 404", code == 404, (code, d.get("error")))
 
         print("\n【B】建目录：拒绝同名、拒绝拆不动")
-        code, d = req("POST", "/eatbook/init", {"path": "old.txt", "name": "probe"})
+        code, d = req("POST", "/book_extract/init", {"path": "old.txt", "name": "probe"})
         check("建目录 200", code == 200 and d.get("ok"), (code, d.get("error")))
         check("目录与 manifest 真实存在",
-              (tmp / "data" / "eatbook" / "probe" / "manifest.json").exists())
+              (tmp / "data" / "book_extract" / "probe" / "manifest.json").exists())
         check("章文件按序落盘",
-              (tmp / "data" / "eatbook" / "probe" / "chapters" / "0001.txt").exists())
-        code, d = req("POST", "/eatbook/init", {"path": "old.txt", "name": "probe"})
+              (tmp / "data" / "book_extract" / "probe" / "chapters" / "0001.txt").exists())
+        code, d = req("POST", "/book_extract/init", {"path": "old.txt", "name": "probe"})
         check("同名再建 → 409（不覆盖）", code == 409, (code, d.get("error")))
         (tmp / "bad.txt").write_text("只有一行\n", encoding="utf-8")
-        code, d = req("POST", "/eatbook/init", {"path": "bad.txt", "name": "bad"})
+        code, d = req("POST", "/book_extract/init", {"path": "bad.txt", "name": "bad"})
         check("标题不足 → 400 且说清正则", code == 400 and "正则" in d.get("error", ""),
               (code, d.get("error")))
-        code, d = req("POST", "/eatbook/init", {"path": "old.txt", "name": "../evil"})
+        code, d = req("POST", "/book_extract/init", {"path": "old.txt", "name": "../evil"})
         check("目录名越界 → 400", code == 400, (code, d.get("error")))
 
         print("\n【C】状态：GUI 轮询靠它")
-        code, d = req("GET", "/eatbook/status?name=probe")
+        code, d = req("GET", "/book_extract/status?name=probe")
         check("状态 200", code == 200 and d.get("ok"), (code, d.get("error")))
         check("章数 3 / 已摘要 0", d.get("chapters") == 3 and d.get("summarized") == 0, d)
         check("各表条数键都在", set(d.get("counts") or {}) >=
               {"characters.json", "settings.json", "timeline.json", "foreshadow.json"}, d.get("counts"))
-        code, d = req("GET", "/eatbook/status?name=nope")
+        code, d = req("GET", "/book_extract/status?name=nope")
         check("没有的目录 → 404", code == 404, code)
-        code, d = req("GET", "/eatbook/list")
+        code, d = req("GET", "/book_extract/list")
         check("清单里有 probe", any(i.get("name") == "probe" for i in d.get("items") or []),
               d.get("items"))
 
         print("\n【D】并库：默认只预演，yes 才写且留备份")
-        camp = tmp / "data" / "eatbook" / "probe"
+        camp = tmp / "data" / "book_extract" / "probe"
         (camp / "characters.json").write_text(json.dumps([{
-            "名字": "苏芷", "身份": "吃书抽的身份", "性格特质": ["冷静"],
+            "名字": "苏芷", "身份": "提炼抽的身份", "性格特质": ["冷静"],
             "当前关系": [{"对象": "周砚清", "关系": "旧识", "依据章节": "第一回"}],
             "当前状态": "在查信", "出场章节": ["第一回"], "未决线": "信的另一半",
             "矛盾清单": []}], ensure_ascii=False), encoding="utf-8")
@@ -164,12 +164,12 @@ def main():
             encoding="utf-8")
         setting_p = tmp / "data" / "setting" / "setting.json"
         before = setting_p.read_text(encoding="utf-8")
-        code, d = req("POST", "/eatbook/merge", {"name": "probe"})
+        code, d = req("POST", "/book_extract/merge", {"name": "probe"})
         check("预演 200", code == 200 and d.get("written") is False, (code, d))
         check("预演不动 setting.json", setting_p.read_text(encoding="utf-8") == before)
         check("预演也如实报新增（同名苏芷不该被算新增）",
               d.get("added_characters") == [] and "客栈" in (d.get("added_world") or []), d)
-        code, d = req("POST", "/eatbook/merge", {"name": "probe", "yes": True})
+        code, d = req("POST", "/book_extract/merge", {"name": "probe", "yes": True})
         check("确认合并 200 且 written=true", code == 200 and d.get("written") is True, (code, d))
         after = json.loads(setting_p.read_text(encoding="utf-8"))
         check("同名角色一个字都没动",
@@ -181,7 +181,7 @@ def main():
               list(hist.glob("*")) if hist.is_dir() else None)
 
         print("\n【E】花钱那一步的引擎护栏（FakeClient 启动即失败，零 token）")
-        code, d = req("POST", "/eatbook/run", {"name": "probe", "stages": [2]})
+        code, d = req("POST", "/book_extract/run", {"name": "probe", "stages": [2]})
         check("启动返回 202", code == 202 and d.get("job_id"), (code, d))
         jid = d.get("job_id")
         state = {}
@@ -192,7 +192,7 @@ def main():
                 state = j
                 break
         check("任务结束且判失败（不静默空跑）", state.get("state") == "failed", state)
-        code, st = req("GET", "/eatbook/status?name=probe")
+        code, st = req("GET", "/book_extract/status?name=probe")
         check("失败原因写进 run_state（GUI 能看见）",
               (st.get("state") or {}).get("state") == "failed",
               st.get("state"))

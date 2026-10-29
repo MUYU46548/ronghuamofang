@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""吃书面板真机验收（0.7.13）：预演零写盘 → 开始吃（后台）→ 失败可见。
+"""成书提炼面板真机验收（0.7.13）：预演零写盘 → 开始提炼（后台）→ 失败可见。
 
 ## 为什么单独写一个
 
@@ -8,13 +8,13 @@
 
 ## 判据
 
-A. 章节页签里有「吃书」折叠块
-B. 预演：填路径 → 点预演 → 显示「3 章 / 字数 / 预计 N 次调用」，**盘上没有 data/eatbook**
-C. 开始吃：后台启动 → 状态条出现「吃书中」
+A. 章节页签里有「成书提炼」折叠块
+B. 预演：填路径 → 点预演 → 显示「3 章 / 字数 / 预计 N 次调用」，**盘上没有 data/book_extract**
+C. 开始提炼：后台启动 → 状态条出现「提炼中」
 D. 引擎是 hermes（或 fake）→ 任务失败，界面明说「需要 direct / 用预演」，不是转圈
 E. 目录已建（manifest 落盘），且没有 console error / 4xx
 
-零 token（失败发生在调用模型之前）。用法：python tests/e2e/e2e_eatbook_panel.py
+零 token（失败发生在调用模型之前）。用法：python tests/e2e/e2e_book_extract_panel.py
 """
 import json
 import os
@@ -43,7 +43,7 @@ SITE_PORT = 8094
 API = "http://127.0.0.1:%d" % API_PORT
 SITE = "http://127.0.0.1:%d" % SITE_PORT
 UX.SITE = SITE
-OUT = ROOT / "Temp" / "gui_verify" / "eatbook"
+OUT = ROOT / "Temp" / "gui_verify" / "book_extract"
 OUT.mkdir(parents=True, exist_ok=True)
 UX.OUT = OUT
 
@@ -68,14 +68,14 @@ BOOK = """第一回 夜雨
 
 
 def build_workspace():
-    ws = Path(tempfile.mkdtemp(prefix="nf_eat_e2e_"))
+    ws = Path(tempfile.mkdtemp(prefix="nf_bookextract_e2e_"))
     shutil.copytree(ROOT / "config", ws / "config",
                     ignore=shutil.ignore_patterns("history"))
     (ws / "data" / "chapters" / "raw").mkdir(parents=True, exist_ok=True)
     (ws / "data" / "setting").mkdir(parents=True, exist_ok=True)
     (ws / "data" / "state").mkdir(parents=True, exist_ok=True)
     (ws / "config" / "project.yaml").write_text(
-        'book:\n  name: "吃书面板验收书"\n  chapters: 3\n', encoding="utf-8")
+        'book:\n  name: "成书提炼面板验收书"\n  chapters: 3\n', encoding="utf-8")
     for i in range(1, 4):
         (ws / "data" / "chapters" / "raw" / ("%02d.md" % i)).write_text(
             "## 第%d章\n\n" % i + "他推门进来，屋檐上的水线连成了串。" * 30,
@@ -118,13 +118,13 @@ def main():
 
         with sync_playwright() as p:
             browser = p.chromium.launch()
-            ctx, page, errs, bad = UX.new_page(browser, API, "eatbook")
+            ctx, page, errs, bad = UX.new_page(browser, API, "book_extract")
             page.locator("nav.tabs button:has-text('章节')").click()
             page.wait_for_timeout(1500)
 
             print("\n=== A. 面板存在 ===")
-            box = page.locator("details.import-box").filter(has_text="吃书")
-            check("章节页签里有「吃书」折叠块", box.count() == 1, box.count())
+            box = page.locator("details.import-box").filter(has_text="成书提炼")
+            check("章节页签里有「成书提炼」折叠块", box.count() == 1, box.count())
             if box.count() == 0:
                 ctx.close()
                 browser.close()
@@ -139,31 +139,31 @@ def main():
             text = box.inner_text()
             check("预演结果显示章数", "3 章" in text, text[:200])
             check("显示预计调用数", "次模型调用" in text, text[:200])
-            check("预演之后盘上没有 data/eatbook（一个文件都不写）",
-                  not (ws / "data" / "eatbook").exists())
-            UX.shot(page, "EAT1_preview")
+            check("预演之后盘上没有 data/book_extract（一个文件都不写）",
+                  not (ws / "data" / "book_extract").exists())
+            UX.shot(page, "EX1_preview")
 
-            print("\n=== C/D. 开始吃：后台启动 → 失败可见（引擎护栏） ===")
-            box.locator("button:has-text('开始吃')").click()
+            print("\n=== C/D. 开始提炼：后台启动 → 失败可见（引擎护栏） ===")
+            box.locator("button:has-text('开始提炼')").click()
             # 轮询到「失败」或 15 秒
             status = ""
             for _ in range(30):
                 page.wait_for_timeout(700)
                 text = box.inner_text()
-                if "吃书失败" in text or "吃书完成" in text:
+                if "提炼失败" in text or "提炼完成" in text:
                     status = text
                     break
             check("状态条进入终态（不是一直转圈）", bool(status), status[:160])
             check("失败原因说清要 direct / 预演",
                   ("direct" in status) or ("_post_chat" in status), status[-200:])
             check("目录已建（manifest 落盘）",
-                  (ws / "data" / "eatbook" / "吃书面板验收书" / "manifest.json").exists()
-                  or (ws / "data" / "eatbook" / "old" / "manifest.json").exists(),
-                  sorted(p.name for p in (ws / "data" / "eatbook").glob("*"))
-                  if (ws / "data" / "eatbook").is_dir() else None)
+                  (ws / "data" / "book_extract" / "成书提炼面板验收书" / "manifest.json").exists()
+                  or (ws / "data" / "book_extract" / "old" / "manifest.json").exists(),
+                  sorted(p.name for p in (ws / "data" / "book_extract").glob("*"))
+                  if (ws / "data" / "book_extract").is_dir() else None)
             check("出现「合并预览」入口（说明目录名已记住）",
                   box.locator("button:has-text('合并预览')").count() == 1)
-            UX.shot(page, "EAT2_failed")
+            UX.shot(page, "EX2_failed")
 
             print("\n=== E. 干净度 ===")
             real_errs = [e for e in errs if "requestfailed" not in e]

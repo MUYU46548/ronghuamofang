@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
-"""LLM 适配器：把绒花墨坊的客户端包成吃书管线要的 ``call(prompt) -> str``。
+"""LLM 适配器：把绒花墨坊的客户端包成成书提炼管线要的 ``call(prompt) -> str``。
 
 ## 为什么需要这一层
 
 沙盒原版（SP-1024）刻意**不含网络代码**，LLM 调用由集成方注入。本仓的客户端有
 两条路径：`run_task(任务文件)` 与更底层的 `_post_chat(messages)`。前者按
-「===FILE:」协议落盘、只回 `stdout_tail`（截断到 2000 字）—— 吃书要的是**整段
+「===FILE:」协议落盘、只回 `stdout_tail`（截断到 2000 字）—— 成书提炼要的是**整段
 JSON 正文**，所以必须走 `_post_chat`。本仓已有三处同样用法
 （`branch_samples` / `field_refine` / `open_variants`），不是新开的口子。
 
@@ -30,7 +30,7 @@ SYSTEM_PROMPT = (
 
 
 class LLMCallError(RuntimeError):
-    """吃书过程中的模型调用失败（截断 / 客户端不支持 / 空输出）。"""
+    """成书提炼过程中的模型调用失败（截断 / 客户端不支持 / 空输出）。"""
 
 
 def new_stats() -> Dict[str, Any]:
@@ -47,12 +47,12 @@ def make_call(client: Any, *, max_tokens: Optional[int] = None,
 
     `client` 必须提供 `_post_chat(messages, temperature=, max_tokens=)`
     （直连引擎的 `OpenAICompatClient` 有；Hermes 子会话没有 —— 那种引擎下
-    请改用 `eat_book.py --dry-run` 出提示词，或先切 `engine: direct`）。
+    请改用 `book_extract.py --dry-run` 出提示词，或先切 `engine: direct`）。
     """
     if not hasattr(client, "_post_chat"):
         raise LLMCallError(
             "当前引擎的客户端不支持任意提示词调用（没有 _post_chat）。"
-            "吃书需要 engine: direct；Hermes 子会话请用 --dry-run 出提示词。")
+            "成书提炼需要 engine: direct；Hermes 子会话请用 --dry-run 出提示词。")
 
     def call(prompt: str) -> str:
         text, usage, model, finish = client._post_chat(

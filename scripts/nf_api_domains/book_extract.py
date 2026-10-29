@@ -1,35 +1,35 @@
 # -*- coding: utf-8 -*-
-"""吃书域：把一本写完的书抽成正典四表（GUI 入口；2026-10-27 集成自 SP-1024）。
+"""成书提炼域：把一本写完的书抽成正典四表（GUI 入口；2026-10-27 集成自 SP-1024）。
 
 ## 五个端点
 
 | 端点 | 作用 | 会不会花钱 |
 |---|---|---|
-| `GET /eatbook/list` | 已建的吃书目录（章数/已摘要/运行态/花费） | 否 |
-| `GET /eatbook/status?name=` | 单个目录的进度与各表条数（GUI 轮询） | 否 |
-| `POST /eatbook/preview` | 只数标题/字数/预计调用数，**不写盘** | 否 |
-| `POST /eatbook/init` | 拆章建目录（同名已存在 → 409，不覆盖） | 否 |
-| `POST /eatbook/run` | 后台跑管线（`start_job`，与其他任务互斥） | **是** |
-| `POST /eatbook/merge` | 并进 setting.json：默认只预演，`yes:true` 才写（写前备份） | 否 |
+| `GET /book_extract/list` | 已建的提炼目录（章数/已摘要/运行态/花费） | 否 |
+| `GET /book_extract/status?name=` | 单个目录的进度与各表条数（GUI 轮询） | 否 |
+| `POST /book_extract/preview` | 只数标题/字数/预计调用数，**不写盘** | 否 |
+| `POST /book_extract/init` | 拆章建目录（同名已存在 → 409，不覆盖） | 否 |
+| `POST /book_extract/run` | 后台跑管线（`start_job`，与其他任务互斥） | **是** |
+| `POST /book_extract/merge` | 并进 setting.json：默认只预演，`yes:true` 才写（写前备份） | 否 |
 
 ## 三条纪律（与域模块同源）
 
 1. 只 `return (status, payload)`，响应由 `nf_api._send` 发出；
-2. 路径一律 `api.ROOT / ...`：吃书目录、setting.json、词表都按 ROOT 解析，
+2. 路径一律 `api.ROOT / ...`：提炼目录、setting.json、词表都按 ROOT 解析，
    `--root` 场景下不会静默读写另一个项目；
 3. 花钱的那一步（`/run`）必须进 `start_job`：与流水线共用一把锁，
-   不会出现「一边吃书一边 stage4」两个任务抢 `data/`。
+   不会出现「一边成书提炼一边 stage4」两个任务抢 `data/`。
 """
 import json
 from pathlib import Path
 
 import nf_api as api
-from utils.eatbook import runner as E
-from utils.eatbook.llm import LLMCallError, make_call, new_stats
+from utils.book_extract import runner as E
+from utils.book_extract.llm import LLMCallError, make_call, new_stats
 
 
-def _eatbook_root() -> Path:
-    return api.ROOT / "data" / "eatbook"
+def _book_extract_root() -> Path:
+    return api.ROOT / "data" / "book_extract"
 
 
 def _safe_name(name: str) -> str:
@@ -40,7 +40,7 @@ def _safe_name(name: str) -> str:
 
 
 def _camp(name: str) -> Path:
-    return _eatbook_root() / _safe_name(name)
+    return _book_extract_root() / _safe_name(name)
 
 
 def _summary(camp: Path) -> dict:
@@ -70,8 +70,8 @@ def _summary(camp: Path) -> dict:
             "report_exists": (camp / "report.md").exists()}
 
 
-def handle_eatbook_list(h):
-    root = _eatbook_root()
+def handle_book_extract_list(h):
+    root = _book_extract_root()
     items = []
     if root.is_dir():
         for d in sorted(root.iterdir()):
@@ -81,21 +81,21 @@ def handle_eatbook_list(h):
                 items.append(_summary(d))
             except Exception as e:                             # noqa: BLE001
                 items.append({"name": d.name, "error": "%s: %s" % (type(e).__name__, e)})
-    return 200, {"ok": True, "root": "data/eatbook", "items": items}
+    return 200, {"ok": True, "root": "data/book_extract", "items": items}
 
 
-def handle_eatbook_status(h):
+def handle_book_extract_status(h):
     q = h._query() if hasattr(h, "_query") else {}
     name = (q.get("name") or [""])[0]
     if not name:
         return 400, {"ok": False, "error": "name 必填"}
     camp = _camp(name)
     if not (camp / "manifest.json").exists():
-        return 404, {"ok": False, "error": "没有这个吃书目录：%s" % name}
+        return 404, {"ok": False, "error": "没有这个提炼目录：%s" % name}
     return 200, {"ok": True, **_summary(camp)}
 
 
-def handle_eatbook_preview(h, body):
+def handle_book_extract_preview(h, body):
     try:
         body = body or {}
         path = str(body.get("path") or "").strip()
@@ -114,7 +114,7 @@ def handle_eatbook_preview(h, body):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
-def handle_eatbook_init(h, body):
+def handle_book_extract_init(h, body):
     try:
         body = body or {}
         path = str(body.get("path") or "").strip()
@@ -128,15 +128,15 @@ def handle_eatbook_init(h, body):
             name = _safe_name(name)
         # 同名已存在单独判 409：让前端能说「换个名字或先删」，而不是笼统 400
         effective = name or Path(p).stem
-        if (_eatbook_root() / effective / "manifest.json").exists():
+        if (_book_extract_root() / effective / "manifest.json").exists():
             return 409, {"ok": False,
-                         "error": "吃书目录已存在：data/eatbook/%s（换名字或先删掉）"
+                         "error": "提炼目录已存在：data/book_extract/%s（换名字或先删掉）"
                                   % effective}
         camp = E.split_book(p, name=name, pattern=str(body.get("pattern") or ""),
                             max_chapters=int(body.get("max_chapters") or 0),
-                            root=_eatbook_root())
+                            root=_book_extract_root())
         return 200, {"ok": True, **_summary(camp),
-                     "message": "已拆章 → data/eatbook/%s" % camp.name}
+                     "message": "已拆章 → data/book_extract/%s" % camp.name}
     except FileExistsError as e:
         return 409, {"ok": False, "error": str(e)}
     except ValueError as e:
@@ -145,14 +145,14 @@ def handle_eatbook_init(h, body):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
-def handle_eatbook_run(h, body):
-    """后台跑吃书管线。**会花 token**，与流水线共用 `start_job` 互斥。"""
+def handle_book_extract_run(h, body):
+    """后台跑成书提炼管线。**会花 token**，与流水线共用 `start_job` 互斥。"""
     try:
         body = body or {}
         name = _safe_name(body.get("name"))
         camp = _camp(name)
         if not (camp / "manifest.json").exists():
-            return 404, {"ok": False, "error": "没有这个吃书目录：%s" % name}
+            return 404, {"ok": False, "error": "没有这个提炼目录：%s" % name}
         stages = body.get("stages")
         if isinstance(stages, str):
             stages = [int(x) for x in stages.replace("，", ",").split(",") if x.strip()]
@@ -179,7 +179,7 @@ def handle_eatbook_run(h, body):
                             wordlist_path=wordlist, stats=stats)
             except Exception as e:                             # noqa: BLE001
                 return False, "%s: %s" % (type(e).__name__, e)
-            detail = ("吃书完成：%d 章；角色 %s · 设定 %s · 时间线 %s · 伏笔 %s；"
+            detail = ("成书提炼完成：%d 章；角色 %s · 设定 %s · 时间线 %s · 伏笔 %s；"
                       "花费 %.4f 元（%d 次调用）"
                       % (res.get("stages", {}).get("2", {}).get("done", 0),
                          (camp / "characters.json").exists()
@@ -195,24 +195,24 @@ def handle_eatbook_run(h, body):
                 return False, detail + "；%d 项失败（详见报告）" % len(res["failed"])
             return True, detail
 
-        jid, err = api.start_job("eatbook_%s" % name, _fn)
+        jid, err = api.start_job("book_extract_%s" % name, _fn)
         if err:
             return 409, {"ok": False, "error": err}
         return 202, {"ok": True, "job_id": jid, "name": name,
-                     "message": "已开始吃书（后台跑，进度看 /eatbook/status）"}
+                     "message": "已开始提炼（后台跑，进度看 /book_extract/status）"}
     except ValueError as e:
         return 400, {"ok": False, "error": str(e)}
     except Exception as e:                                     # noqa: BLE001
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
-def handle_eatbook_merge(h, body):
+def handle_book_extract_merge(h, body):
     try:
         body = body or {}
         name = _safe_name(body.get("name"))
         camp = _camp(name)
         if not (camp / "manifest.json").exists():
-            return 404, {"ok": False, "error": "没有这个吃书目录：%s" % name}
+            return 404, {"ok": False, "error": "没有这个提炼目录：%s" % name}
         yes = bool(body.get("yes"))
         setting = api.ROOT / "data" / "setting" / "setting.json"
         report = E.merge_into_setting(camp, setting, dry_run=not yes)
@@ -224,10 +224,10 @@ def handle_eatbook_merge(h, body):
 
 
 ROUTES = (
-    ("GET", "/eatbook/list", handle_eatbook_list),
-    ("GET", "/eatbook/status", handle_eatbook_status),
-    ("POST", "/eatbook/preview", handle_eatbook_preview),
-    ("POST", "/eatbook/init", handle_eatbook_init),
-    ("POST", "/eatbook/run", handle_eatbook_run),
-    ("POST", "/eatbook/merge", handle_eatbook_merge),
+    ("GET", "/book_extract/list", handle_book_extract_list),
+    ("GET", "/book_extract/status", handle_book_extract_status),
+    ("POST", "/book_extract/preview", handle_book_extract_preview),
+    ("POST", "/book_extract/init", handle_book_extract_init),
+    ("POST", "/book_extract/run", handle_book_extract_run),
+    ("POST", "/book_extract/merge", handle_book_extract_merge),
 )

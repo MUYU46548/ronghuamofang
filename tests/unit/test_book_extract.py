@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-"""吃书管线（SP-1024 移植）的确定性判据 —— 全程离线、零 token。
+"""成书提炼管线（SP-1024 移植）的确定性判据 —— 全程离线、零 token。
 
 ## 为什么这批断言长这样
 
-吃书的每一段都是「模型产出 → 宽容解析 → 落盘 → 可续跑 → 只增不改并库」。
+成书提炼的每一段都是「模型产出 → 宽容解析 → 落盘 → 可续跑 → 只增不改并库」。
 模型那头不可控，所以判据全部钉在**确定性半边**：
 拆章正则、断点跳过、解析容错、合并语义、并库不覆盖、预演不动盘。
 
@@ -15,7 +15,7 @@ C. 解析容错：代码围栏 / 前后废话 / `{"角色": [...]}` 包裹都能
 D. 聚合：角色按名字合并、设定按设定名合并、时间线重排且不重复
 E. 并库：只增不改（同名角色一个字都不动）、写前备份、dry-run 不落盘
 F. 报告与成本：report.md 列章状态；cost.json 记 calls/tokens
-用法：python tests/unit/test_eat_book.py
+用法：python tests/unit/test_book_extract.py
 """
 import io
 import json
@@ -29,7 +29,7 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from utils.eatbook import core, runner                     # noqa: E402
+from utils.book_extract import core, runner                     # noqa: E402
 
 PASS, FAIL = [], []
 
@@ -81,11 +81,11 @@ def fake_call(prompt):
 def build_camp(tmp: Path) -> Path:
     book = tmp / "old.txt"
     book.write_text(BOOK, encoding="utf-8")
-    return runner.split_book(book, name="old", root=tmp / "eatbook")
+    return runner.split_book(book, name="old", root=tmp / "book_extract")
 
 
 def main():
-    tmp = Path(tempfile.mkdtemp(prefix="nf_eatbook_"))
+    tmp = Path(tempfile.mkdtemp(prefix="nf_book_extract_"))
     try:
         print("\n【A】拆章")
         camp = build_camp(tmp)
@@ -99,7 +99,7 @@ def main():
               "屋檐上的水线" in (camp / man["chapters"][0]["file"]).read_text(encoding="utf-8"))
         dup = False
         try:
-            runner.split_book(tmp / "old.txt", name="old", root=tmp / "eatbook")
+            runner.split_book(tmp / "old.txt", name="old", root=tmp / "book_extract")
         except ValueError:
             dup = True
         check("同名目录已存在时拒绝（不覆盖）", dup)
@@ -107,7 +107,7 @@ def main():
         nearly.write_text("只有一行\n", encoding="utf-8")
         few = False
         try:
-            runner.split_book(nearly, name="nearly", root=tmp / "eatbook")
+            runner.split_book(nearly, name="nearly", root=tmp / "book_extract")
         except ValueError:
             few = True
         check("标题不足 2 个 → 拒绝（不把整本当一章）", few)
@@ -147,9 +147,9 @@ def main():
         data = core.extract_json('前面有话\n```json\n{"a": 1}\n```\n后面还有话')
         check("围栏 + 前后废话可解析", data == {"a": 1}, data)
         wrapped = fake_call("角色状态卡")
-        parsed = __import__("utils.eatbook.character_cards", fromlist=["x"]).parse_response(wrapped)
+        parsed = __import__("utils.book_extract.character_cards", fromlist=["x"]).parse_response(wrapped)
         check("③ 容忍「前面有话」+ 数组", parsed and parsed[0]["名字"] == "苏芷", parsed)
-        wv = __import__("utils.eatbook.worldview", fromlist=["x"]).parse_response(
+        wv = __import__("utils.book_extract.worldview", fromlist=["x"]).parse_response(
             fake_call("世界观设定卡"))
         check("⑨ 容忍 {\"设定卡\": [...]} 包裹", wv[0]["设定名"] == "客栈", wv)
 
@@ -206,12 +206,12 @@ def main():
 
         print("\n【G】CLI 预演零 token")
         sys.path.insert(0, str(ROOT / "scripts"))
-        import eat_book
-        code = eat_book.main(["run", str(camp), "--dry-run"])
+        import book_extract
+        code = book_extract.main(["run", str(camp), "--dry-run"])
         check("--dry-run 退 0", code == 0, code)
-        code = eat_book.main(["status", str(camp)])
+        code = book_extract.main(["status", str(camp)])
         check("status 退 0", code == 0, code)
-        code = eat_book.main(["merge", str(camp)])
+        code = book_extract.main(["merge", str(camp)])
         check("merge 预演退 0（不带 --yes 不写盘）", code == 0, code)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

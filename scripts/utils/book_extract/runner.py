@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""吃书编排层：拆章 → ② 摘要 → ③⑥⑧⑨ 聚合 → ① 一致性 → ⑦ 病灶 → 报告 / 并库。
+"""成书提炼编排层：拆章 → ② 摘要 → ③⑥⑧⑨ 聚合 → ① 一致性 → ⑦ 病灶 → 报告 / 并库。
 
 ## 为什么自己写一层（不照搬 campaign.py）
 
@@ -10,15 +10,15 @@ SP-1024 的 `campaign.py` 是**人机通道**：出提示词 → 人工贴到外
 ## 保留了什么
 
 - **分章正则**（`第X回/章/卷`）与 UTF-8 → GB18030 回退读法：老电子书常见的坑；
-- **分批**（③⑧⑨ 一次吃 30 章摘要，别把整本塞进一个请求）；
+- **分批**（③⑧⑨ 一次读 30 章摘要，别把整本塞进一个请求）；
 - **断点**：每章摘要落盘即算完成，重跑跳过（`force=True` 才重做）——
-  这是「报错自愈断点续跑」那条纪律在吃书上的落地；
+  这是「报错自愈断点续跑」那条纪律在成书提炼上的落地；
 - **只增不改**的并库语义（与 `obsidian_integrate.merge_setting_from_vault` 同一条）。
 
 ## 不做什么
 
 - 不改写原文、不评价文笔（⑦ 只检测）；
-- 不把「吃出来的卡」直接写进正典：`merge` 是显式动作，且带备份 + 回读。
+- 不把「提炼出来的卡」直接写进正典：`merge` 是显式动作，且带备份 + 回读。
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ from . import (character_cards, cliche_scanner, consistency, foreshadow,
                summarizer, timeline, worldview)
 
 DEFAULT_SPLIT_PATTERN = r"^\s*第[0-9０-９零一二两三四五六七八九十百千万]+\s*[回章节卷]"
-EATBOOK_ROOT = "data/eatbook"
+BOOK_EXTRACT_ROOT = "data/book_extract"
 STAGES = (2, 3, 6, 8, 9, 1, 7)
 STAGE_NAMES = {2: "章节摘要", 3: "角色状态卡", 6: "伏笔台账", 8: "时间线",
                9: "世界观设定", 1: "一致性检查", 7: "病灶词扫描"}
@@ -53,8 +53,8 @@ def _read_book(path: Path) -> str:
 
 
 def split_book(book_path: str | Path, name: str = "", pattern: str = "",
-               max_chapters: int = 0, root: str | Path = EATBOOK_ROOT) -> Path:
-    """按章回标题拆书，建 `data/eatbook/<name>/`；返回目录。
+               max_chapters: int = 0, root: str | Path = BOOK_EXTRACT_ROOT) -> Path:
+    """按章回标题拆书，建 `data/book_extract/<name>/`；返回目录。
 
     - 至少找到 2 个标题才拆（只有 1 个多半是正则不对，硬拆等于把整本当一章）；
     - 同名目录已存在直接报错（不静默覆盖用户上一次的战役）。
@@ -73,7 +73,7 @@ def split_book(book_path: str | Path, name: str = "", pattern: str = "",
     name = (name or src.stem).strip()
     camp = Path(root) / name
     if (camp / "manifest.json").exists():
-        raise ValueError("吃书目录已存在：%s（换 --name，或先删掉）" % camp)
+        raise ValueError("提炼目录已存在：%s（换 --name，或先删掉）" % camp)
     if max_chapters:
         heads = heads[:max_chapters]
     (camp / "chapters").mkdir(parents=True, exist_ok=True)
@@ -98,7 +98,7 @@ def split_book(book_path: str | Path, name: str = "", pattern: str = "",
 def load_manifest(camp: str | Path) -> Dict[str, Any]:
     p = Path(camp) / "manifest.json"
     if not p.exists():
-        raise FileNotFoundError("不是吃书目录（缺 manifest.json）：%s" % camp)
+        raise FileNotFoundError("不是提炼目录（缺 manifest.json）：%s" % camp)
     return json.loads(read_text(p))
 
 
@@ -113,7 +113,7 @@ def resolve_camp(name_or_path: str) -> Path:
     p = Path(name_or_path)
     if (p / "manifest.json").exists():
         return p
-    return Path(EATBOOK_ROOT) / name_or_path
+    return Path(BOOK_EXTRACT_ROOT) / name_or_path
 
 
 def preview_book(book_path: str | Path, pattern: str = "",
@@ -156,7 +156,7 @@ def read_state(camp: str | Path) -> Dict[str, Any]:
 
 
 def _state(camp: Path, **kw) -> None:
-    """写运行态（GUI 轮询用）。失败不抛：进度显示坏了不该拖垮吃书。"""
+    """写运行态（GUI 轮询用）。失败不抛：进度显示坏了不该拖垮成书提炼。"""
     data = read_state(camp)
     data.update(kw)
     data["updated_at"] = datetime.now().isoformat(timespec="seconds")
@@ -389,7 +389,7 @@ def _cliche(camp: Path, manifest: Dict[str, Any], *, wordlist_path: Optional[str
 
 def _report(camp: Path, manifest: Dict[str, Any], result: Dict[str, Any]) -> Path:
     """人可读汇总：每章状态 + 各表条数 + 冲突/病灶 Top。"""
-    lines = ["# 吃书报告 · %s" % manifest.get("name", ""), "",
+    lines = ["# 成书提炼报告 · %s" % manifest.get("name", ""), "",
              "来源：`%s` ｜ 章数：%d" % (manifest.get("source", ""),
                                         len(manifest.get("chapters", []))), ""]
     for ch in manifest["chapters"]:
@@ -416,7 +416,7 @@ def _report(camp: Path, manifest: Dict[str, Any], result: Dict[str, Any]) -> Pat
             lines.append("- %s" % item)
         lines.append("")
     lines.append("## 并库")
-    lines.append("`python scripts/eat_book.py merge <name> --yes` —— 只增不改，"
+    lines.append("`python scripts/book_extract.py merge <name> --yes` —— 只增不改，"
                  "写前备份到 `data/setting/history/`。")
     out = camp / "report.md"
     write_text(out, "\n".join(lines) + "\n")
@@ -429,7 +429,7 @@ def run(camp: str | Path, call: Callable[[str], str], *,
         wordlist_path: Optional[str] = None,
         stats: Optional[Dict[str, Any]] = None,
         log=_log) -> Dict[str, Any]:
-    """跑整条吃书管线（默认 2→3→6→8→9→1→7）。返回汇总 dict。"""
+    """跑整条成书提炼管线（默认 2→3→6→8→9→1→7）。返回汇总 dict。"""
     camp = Path(camp)
     manifest = load_manifest(camp)
     stages = list(stages or STAGES)
@@ -507,13 +507,13 @@ def _character_entry(card: Dict[str, Any], book: str, idx: int) -> Dict[str, Any
     for item in card.get("矛盾清单") or []:
         notes.append("矛盾：" + str(item))
     return {
-        "id": "eat-%03d" % idx,
+        "id": "extract-%03d" % idx,
         "name": card.get("名字", ""),
         "role": card.get("身份", ""),
         "traits": list(card.get("性格特质") or []),
         "relations": relations,
         "records": notes,
-        "source": "吃书:%s" % book,
+        "source": "成书提炼:%s" % book,
     }
 
 
@@ -533,7 +533,7 @@ def _setting_lines(cards: List[Dict[str, Any]]) -> Dict[str, List[str]]:
 
 def merge_into_setting(camp: str | Path, setting_path: str | Path = "data/setting/setting.json",
                        *, dry_run: bool = True) -> Dict[str, Any]:
-    """把吃出来的卡**只增不改**并进 setting.json。
+    """把提炼出来的卡**只增不改**并进 setting.json。
 
     规则（与设定库增量合并同源）：
     - 角色按 `name` 去重：已存在的一律不动（用户/素材写的那份永远优先）；
@@ -595,8 +595,8 @@ def merge_into_setting(camp: str | Path, setting_path: str | Path = "data/settin
             if summary in have:
                 continue
             setting.setdefault("plot_fragments", []).append({
-                "id": "eat-f%03d" % (len(setting["plot_fragments"]) + 1),
-                "source": "吃书:%s" % book, "summary": summary, "status": "unused"})
+                "id": "extract-f%03d" % (len(setting["plot_fragments"]) + 1),
+                "source": "成书提炼:%s" % book, "summary": summary, "status": "unused"})
             have.add(summary)
             added_frag.append(row.get("伏笔", ""))
 
@@ -627,7 +627,7 @@ def merge_into_setting(camp: str | Path, setting_path: str | Path = "data/settin
         stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         write_text(hist / ("setting_v%s.json" % stamp), read_text(sp))
     setting.setdefault("_meta", {})
-    setting["_meta"]["eatbook"] = book
+    setting["_meta"]["book_extract"] = book
     sp.parent.mkdir(parents=True, exist_ok=True)
     write_text(sp, json.dumps(setting, ensure_ascii=False, indent=2))
     return report

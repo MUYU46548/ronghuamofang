@@ -1,30 +1,30 @@
 # -*- coding: utf-8 -*-
-"""吃书：把一本已写完的书吃成结构化正典（移植自 SP-1024 七件套，2026-10-27）。
+"""成书提炼：把一本已写完的书提炼成结构化正典（移植自 SP-1024 七件套，2026-10-27）。
 
 ## 为什么需要它
 
 绒花墨坊此前的设定集只有一个来路：`materials/` 里的素材卡。可作者手里常常已经有
 **一本写完的书**（旧稿 / 前作 / 想借鉴的参照作品），要接着写就得先把它的角色、
-伏笔、时间线、设定抽出来 —— 这正是「吃书」。原实现活在 `SP-1024` 沙盒里，
+伏笔、时间线、设定抽出来 —— 这正是「成书提炼」。原实现活在 `SP-1024` 沙盒里，
 用「出提示词 → 人工贴外部平台 → 回收」跑，本仓有模型客户端，改成一条命令。
 
 ## 用法
 
-    python scripts/eat_book.py init 旧稿.txt --name old-book      # 拆章（第X回/章/卷）
-    python scripts/eat_book.py run  old-book --dry-run            # 零 token：只报规模
-    python scripts/eat_book.py run  old-book                      # 真跑（花钱，走 config 的模型）
-    python scripts/eat_book.py status old-book
-    python scripts/eat_book.py merge old-book                     # 预演并库（只增不改）
-    python scripts/eat_book.py merge old-book --yes               # 真写 setting.json（先备份）
+    python scripts/book_extract.py init 旧稿.txt --name old-book      # 拆章（第X回/章/卷）
+    python scripts/book_extract.py run  old-book --dry-run            # 零 token：只报规模
+    python scripts/book_extract.py run  old-book                      # 真跑（花钱，走 config 的模型）
+    python scripts/book_extract.py status old-book
+    python scripts/book_extract.py merge old-book                     # 预演并库（只增不改）
+    python scripts/book_extract.py merge old-book --yes               # 真写 setting.json（先备份）
 
-产物在 `data/eatbook/<name>/`：`chapters/` `summaries/` `characters.json`
+产物在 `data/book_extract/<name>/`：`chapters/` `summaries/` `characters.json`
 `settings.json` `timeline.json` `foreshadow.json` `conflicts.json` `cliche.json`
 `report.md` `cost.json`。
 
 ## 三条纪律
 
 - **断点续跑**：每章摘要落盘即算完成；重跑跳过（`--force` 才重做）。
-  这是「报错自愈」在吃书上的落地 —— 一章失败不该让整本重烧。
+  这是「报错自愈」在成书提炼上的落地 —— 一章失败不该让整本重烧。
 - **零 token 可预演**：`--dry-run` 只拆章、报章数与预计调用数，不发任何请求。
 - **并库只增不改**：`merge` 不覆盖用户已有的角色/设定，写前备份到
   `data/setting/history/`；默认是预演，要 `--yes` 才落盘。
@@ -41,13 +41,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from utils.interp_guard import ensure_working_python, missing_yaml_hint  # noqa: E402
 
-if not ensure_working_python("scripts/eat_book.py"):
-    sys.stderr.write("[eat_book] 启动被解释器守卫拦下：" + missing_yaml_hint() + "\n")
+if not ensure_working_python("scripts/book_extract.py"):
+    sys.stderr.write("[book_extract] 启动被解释器守卫拦下：" + missing_yaml_hint() + "\n")
     raise SystemExit(1)
 
 from utils.config_io import load_config_yaml          # noqa: E402
-from utils.eatbook import runner                      # noqa: E402
-from utils.eatbook.llm import LLMCallError, make_call, new_stats  # noqa: E402
+from utils.book_extract import runner                      # noqa: E402
+from utils.book_extract.llm import LLMCallError, make_call, new_stats  # noqa: E402
 
 
 def _parse_stages(raw: str):
@@ -73,22 +73,22 @@ def cmd_init(args) -> int:
                                  pattern=args.pattern,
                                  max_chapters=args.max_chapters)
     except (OSError, ValueError) as e:
-        print("[eat_book] 拆章失败：%s" % e)
+        print("[book_extract] 拆章失败：%s" % e)
         return 1
     manifest = runner.load_manifest(camp)
-    print("[eat_book] 已拆 %d 章 → %s" % (len(manifest["chapters"]), camp))
-    print("下一步：python scripts/eat_book.py run %s --dry-run" % manifest["name"])
+    print("[book_extract] 已拆 %d 章 → %s" % (len(manifest["chapters"]), camp))
+    print("下一步：python scripts/book_extract.py run %s --dry-run" % manifest["name"])
     return 0
 
 
 def _load_camp_or_exit(name: str):
-    """取吃书目录；不存在时给人话（不是 traceback）。"""
+    """取提炼目录；不存在时给人话（不是 traceback）。"""
     camp = runner.resolve_camp(name)
     try:
         return camp, runner.load_manifest(camp)
     except FileNotFoundError:
-        print("[eat_book] 找不到吃书目录：%s" % camp)
-        print("          先建：python scripts/eat_book.py init <书稿.txt> --name %s" % name)
+        print("[book_extract] 找不到提炼目录：%s" % camp)
+        print("          先建：python scripts/book_extract.py init <书稿.txt> --name %s" % name)
         return None, None
 
 
@@ -100,7 +100,7 @@ def cmd_run(args) -> int:
 
     if args.dry_run:
         n = len(manifest["chapters"])
-        print("[eat_book] 预演（零 token）：%s" % manifest.get("name"))
+        print("[book_extract] 预演（零 token）：%s" % manifest.get("name"))
         print("  章数 %d ｜ 阶段 %s" % (n, ",".join(str(s) for s in stages)))
         if 2 in stages:
             print("  ② 摘要：%d 次调用（已有摘要会跳过）" % n)
@@ -123,10 +123,10 @@ def cmd_run(args) -> int:
     try:
         call = make_call(client, max_tokens=args.max_tokens, stats=stats)
     except LLMCallError as e:
-        print("[eat_book] %s" % e)
+        print("[book_extract] %s" % e)
         return 1
 
-    print("[eat_book] 开跑：%s（模型 %s）"
+    print("[book_extract] 开跑：%s（模型 %s）"
           % (manifest.get("name"), getattr(client, "model", "?")))
     try:
         result = runner.run(camp, call, stages=stages, force=args.force,
@@ -134,14 +134,14 @@ def cmd_run(args) -> int:
                             consistency_tail=args.tail,
                             wordlist_path=args.wordlist, stats=stats)
     except KeyboardInterrupt:
-        print("\n[eat_book] 用户中断 —— 已完成的摘要不会丢，重跑即续")
+        print("\n[book_extract] 用户中断 —— 已完成的摘要不会丢，重跑即续")
         return 4
-    print("\n[eat_book] 完成：%s" % result.get("report"))
-    print("[eat_book] 花费：%d 次调用 · 输入 %d / 输出 %d token · 约 %.4f 元"
+    print("\n[book_extract] 完成：%s" % result.get("report"))
+    print("[book_extract] 花费：%d 次调用 · 输入 %d / 输出 %d token · 约 %.4f 元"
           % (stats["calls"], stats["tokens_in"], stats["tokens_out"],
              stats["cost_yuan"]))
     if result.get("failed"):
-        print("[eat_book] %d 项失败（详见报告；重跑只补没做的）："
+        print("[book_extract] %d 项失败（详见报告；重跑只补没做的）："
               % len(result["failed"]))
         for item in result["failed"][:5]:
             print("  - %s" % item)
@@ -155,7 +155,7 @@ def cmd_status(args) -> int:
         return 1
     chapters = manifest["chapters"]
     done = sum(1 for c in chapters if (camp / c.get("summary", "")).exists())
-    print("吃书 · %s" % manifest.get("name"))
+    print("成书提炼 · %s" % manifest.get("name"))
     print("  目录：%s" % camp)
     print("  来源：%s" % manifest.get("source"))
     print("  章节：%d ｜ 已摘要：%d" % (len(chapters), done))
@@ -186,7 +186,7 @@ def cmd_merge(args) -> int:
     if camp is None:
         return 1
     report = runner.merge_into_setting(camp, dry_run=not args.yes)
-    print("[eat_book] 并库%s：%s" % ("预演" if not args.yes else "已写入",
+    print("[book_extract] 并库%s：%s" % ("预演" if not args.yes else "已写入",
                                   report["setting"]))
     print("  新角色 %d：%s" % (len(report["added_characters"]),
                               "、".join(report["added_characters"][:10]) or "（无）"))
@@ -201,12 +201,12 @@ def cmd_merge(args) -> int:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(
-        description="吃书：把一本写完的书抽成正典四表（摘要/角色/时间线/设定）+ 伏笔台账")
+        description="成书提炼：把一本写完的书抽成正典四表（摘要/角色/时间线/设定）+ 伏笔台账")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     p_init = sub.add_parser("init", help="拆章建目录")
     p_init.add_argument("book", help="书稿路径（.txt，UTF-8 或 GB18030）")
-    p_init.add_argument("--name", default="", help="吃书目录名（默认取文件名）")
+    p_init.add_argument("--name", default="", help="提炼目录名（默认取文件名）")
     p_init.add_argument("--pattern", default="",
                         help=r"分章正则（默认 ^\s*第[0-9零一二三…]+\s*[回章节卷]）")
     p_init.add_argument("--max-chapters", type=int, default=0,
@@ -214,7 +214,7 @@ def main(argv=None) -> int:
     p_init.set_defaults(func=cmd_init)
 
     p_run = sub.add_parser("run", help="跑管线（默认 2→3→6→8→9→1→7）")
-    p_run.add_argument("name", help="吃书目录名或路径")
+    p_run.add_argument("name", help="提炼目录名或路径")
     p_run.add_argument("--stages", default="", help="只跑这些阶段，如 2,7")
     p_run.add_argument("--dry-run", action="store_true", help="零 token 预演")
     p_run.add_argument("--force", action="store_true", help="重做已有摘要")
@@ -228,7 +228,7 @@ def main(argv=None) -> int:
     p_st.add_argument("name")
     p_st.set_defaults(func=cmd_status)
 
-    p_mg = sub.add_parser("merge", help="把吃出来的卡并进 setting.json（只增不改）")
+    p_mg = sub.add_parser("merge", help="把提炼出来的卡并进 setting.json（只增不改）")
     p_mg.add_argument("name")
     p_mg.add_argument("--yes", action="store_true", help="真的写盘（默认只预演）")
     p_mg.set_defaults(func=cmd_merge)

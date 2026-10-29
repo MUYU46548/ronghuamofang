@@ -180,7 +180,7 @@ try:
     from nf_api_domains import sandbox as dom_sandbox      # noqa: E402
     from nf_api_domains import setting_state as dom_setting_state  # noqa: E402
     from nf_api_domains import factory as dom_factory      # noqa: E402 (0.6.7 出厂/用户数据分治)
-    from nf_api_domains import eatbook as dom_eatbook      # noqa: E402 (0.7.13 吃书：书 → 正典)
+    from nf_api_domains import book_extract as dom_book_extract      # noqa: E402 (0.7.13 成书提炼：书 → 正典)
     from nf_api_domains import plan as dom_plan            # noqa: E402 (丙0 规划四态状态机)
     from nf_api_domains import segments as dom_segments    # noqa: E402 (丙4 分段审批读写)
     from nf_api_domains import discuss as dom_discuss      # noqa: E402 (讨论落地协议)
@@ -197,7 +197,7 @@ except Exception as _dom_err:                            # noqa: BLE001
     dom_setting_state = None
     dom_refine = None
     dom_factory = None
-    dom_eatbook = None
+    dom_book_extract = None
     dom_plan = None
     dom_segments = None
     dom_discuss = None
@@ -2593,12 +2593,12 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/chapters/content":
             # 单章单层正文全文（编辑器读取）—— nf_api_domains.chapters
             self._send(*_dom(dom_chapters.handle_chapters_content(self)))
-        elif p == "/eatbook/list":
-            # 吃书目录盘点（0.7.13）：章数/已摘要/运行态/花费 —— nf_api_domains.eatbook
-            self._send(*_dom(dom_eatbook.handle_eatbook_list(self)))
-        elif p == "/eatbook/status":
-            # 单个吃书目录的进度（GUI 轮询；零 token）
-            self._send(*_dom(dom_eatbook.handle_eatbook_status(self)))
+        elif p == "/book_extract/list":
+            # 提炼目录盘点（0.7.13）：章数/已摘要/运行态/花费 —— nf_api_domains.book_extract
+            self._send(*_dom(dom_book_extract.handle_book_extract_list(self)))
+        elif p == "/book_extract/status":
+            # 单个提炼目录的进度（GUI 轮询；零 token）
+            self._send(*_dom(dom_book_extract.handle_book_extract_status(self)))
         elif p == "/chapters/paragraphs":
             # 段落级读取（P0 精修轴）
             self._send(*_dom(dom_refine.handle_chapters_paragraphs(self)))
@@ -3078,18 +3078,18 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/chapters/rewrite":
                 # 重写整章（走阶段 4，花 token）：旧稿先备份，只跑这一章
                 self._send(*_dom(dom_chapters.handle_chapters_rewrite(self, body)))
-            elif p == "/eatbook/preview":
-                # 吃书预演：只数标题/字数/预计调用数，**不写盘、不调模型**
-                self._send(*_dom(dom_eatbook.handle_eatbook_preview(self, body)))
-            elif p == "/eatbook/init":
+            elif p == "/book_extract/preview":
+                # 成书提炼预演：只数标题/字数/预计调用数，**不写盘、不调模型**
+                self._send(*_dom(dom_book_extract.handle_book_extract_preview(self, body)))
+            elif p == "/book_extract/init":
                 # 拆章建目录（同名已存在 → 409，不覆盖）
-                self._send(*_dom(dom_eatbook.handle_eatbook_init(self, body)))
-            elif p == "/eatbook/run":
-                # 后台跑吃书管线（花 token；与流水线共用一把锁）
-                self._send(*_dom(dom_eatbook.handle_eatbook_run(self, body)))
-            elif p == "/eatbook/merge":
+                self._send(*_dom(dom_book_extract.handle_book_extract_init(self, body)))
+            elif p == "/book_extract/run":
+                # 后台跑成书提炼管线（花 token；与流水线共用一把锁）
+                self._send(*_dom(dom_book_extract.handle_book_extract_run(self, body)))
+            elif p == "/book_extract/merge":
                 # 并进 setting.json：默认只预演，yes=true 才写（写前备份）
-                self._send(*_dom(dom_eatbook.handle_eatbook_merge(self, body)))
+                self._send(*_dom(dom_book_extract.handle_book_extract_merge(self, body)))
             elif p == "/chapters/restore":
                 # 章节回退：body {n, version} → 从 data/chapters/history/ 恢复
                 # 确定性文件操作，同 /outline/restore，同步返回。
