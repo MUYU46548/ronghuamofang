@@ -608,7 +608,39 @@ function seedWorkspace() {
     }
   }
 
-  // config：只在**缺失**时补，绝不覆盖（承载用户的书名/路径/模型选择）
+  // 0.7.14：入口改名（吃书 → 成书提炼），工作区里的旧文件按清单删掉。
+  // 为什么必须删：上面只做「覆盖 + 补缺」，已移除的文件会原地留着 —— 旧 eat_book.py
+  // 与 utils/eatbook/ 会和新代码并存，用户在终端里仍会看到旧名（seed 不负责删除）。
+  // 只删确切知道的这几条路径，不做目录级猜测；任何一条失败都不阻断启动。
+  if (stale && !firstRun) {
+    for (const rel of ["scripts/eat_book.py",
+                       "scripts/nf_api_domains/eatbook.py",
+                       path.join("scripts", "utils", "eatbook")]) {
+      const target = path.join(ws, rel);
+      try {
+        if (fs.existsSync(target)) {
+          fs.rmSync(target, { recursive: true, force: true });
+          console.log("[console] seedWorkspace: 已移除改名前的旧文件 " + rel);
+        }
+      } catch (e) {
+        console.warn("[console] seedWorkspace: 旧文件移除失败（不影响启动）:", rel,
+                     e && e.message);
+      }
+    }
+    // 旧产物目录同理改名（0.7.13 只有这一个来路，直接搬，不合并）
+    try {
+      const oldDir = path.join(ws, "data", "eatbook");
+      const newDir = path.join(ws, "data", "book_extract");
+      if (fs.existsSync(oldDir) && !fs.existsSync(newDir)) {
+        fs.renameSync(oldDir, newDir);
+        console.log("[console] seedWorkspace: data/eatbook → data/book_extract");
+      }
+    } catch (e) {
+      console.warn("[console] seedWorkspace: 产物目录改名失败（不影响启动）:",
+                   e && e.message);
+    }
+  }
+
   const cfgSrc = path.join(payloadRoot, SEED_CONFIG_DIR);
   const cfgDst = path.join(ws, SEED_CONFIG_DIR);
   if (fs.existsSync(cfgSrc)) {
