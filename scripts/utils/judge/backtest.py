@@ -291,6 +291,8 @@ def run(root=".", book_name="", by="作者"):
         "caliber_version": report["caliber"]["version"],
         "caliber_fingerprint": report["caliber"]["fingerprint"],
         "summary": summary,
+        "evidence": report["evidence"],
+        "object_changed": object_changed,
         "chapters": [
             {"chapter": c["chapter"], "verdict": c["verdict"],
              "status": c["status"], "reason_code": c["reason_code"],

@@ -178,6 +178,13 @@ const summaryLine = computed(() => {
 
 const rows = computed(() => (report.value && report.value.run && report.value.run.chapters) || []);
 
+const demoText = computed(() => {
+  const d = report.value && report.value.evidence && report.value.evidence.demo;
+  if (!d) return "";
+  const items = Array.isArray(d.items) ? d.items : [];
+  return items.length ? ("第 " + items.join("、") + " 章（" + d.note + "）") : String(d.note || "");
+});
+
 function verdictText(c) {
   if (!c) return "";
   if (c.verdict === "可开始逐字改") return "✓ 可以开始逐字改";
@@ -222,6 +229,11 @@ onMounted(loadReport);
                 @click="exportList">导出清单</button>
       </div>
       <div class="judge-notice">{{ noticeA }} · {{ noticeB }}</div>
+      <!-- R18 证据分级：能力证据 / demo 证据必须分开说，不许混 -->
+      <div v-if="report && report.exists && report.evidence" class="meta judge-evidence">
+        能力证据：{{ (report.evidence.capability || {}).note }} ·
+        demo 证据：{{ demoText }}
+      </div>
       <!-- R07 成品过期横幅：必须给两项凭据（字数 + 时间），只给徽标 = 未实现 -->
       <div v-if="artifact && artifact.exists && artifact.stale" class="judge-artifact">
         <b>⚠ 成品已过期</b>：{{ artifact.name }}（{{ artifact.built_at }} 出的）
@@ -388,6 +400,7 @@ onMounted(loadReport);
 .judge-stale { font-size: 12px; color: var(--warn); }
 .judge-artifact { border: 1px solid var(--warn); border-radius: 8px; padding: 6px 10px; margin: 6px 0; font-size: 13px; color: var(--warn); }
 .judge-preview { border: 1px dashed var(--accent); border-radius: 8px; padding: 6px 10px; margin: 6px 0; font-size: 13px; }
+.judge-evidence { color: var(--muted); }
 .judge-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .judge-table th { text-align: left; font-weight: 600; color: var(--muted); padding: 6px 4px; }
 .judge-table td { padding: 6px 4px; border-top: 1px solid var(--border); vertical-align: top; }

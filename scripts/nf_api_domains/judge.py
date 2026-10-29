@@ -64,6 +64,8 @@ def handle_judge_report(h):
         return 200, {
             "ok": True, "exists": True, "run": run, "caliber": cal_info,
             "notices": [B.NOTICE_BACKTEST, B.NOTICE_NO_ARTIFACT],
+            "evidence": run.get("evidence") or {},
+            "object_changed": run.get("object_changed") or [],
             "author_events": (doc.get("author") or {}).get("events") or {},
             "stale": bool(run.get("caliber_fingerprint")
                           and cal_info["fingerprint"]

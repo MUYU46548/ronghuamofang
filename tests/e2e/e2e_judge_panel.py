@@ -159,6 +159,8 @@ def main():
                   first[:120])
             check("不出现分数（无「分」结尾的评分字样）",
                   "quality" not in body.lower() and "评分" not in body)
+            check("证据分级上屏（能力区注明未验证）",
+                  "能力证据" in body and "未验证" in body, body[:200])
 
             print("\n=== D. 单章详情 ===")
             rows.first.locator("button:has-text('看这章')").click()

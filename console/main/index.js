@@ -379,7 +379,8 @@ function getWorkspaceSource() {
 //   · 前端（asar，不走种子）：项目页出厂徽标 / 启动提示词剥离说明书 /
 //     阶段复制改任务简报（原样贴模板会被外部 Agent 按红线判「模板不是任务」停工）。
 // **先 bump 再 electron-builder**。
-const SEED_VERSION = 63;   // 0.7.20: 拆锁③——默认不注入风格规格（book.style_rule 显式选择才注入）
+const SEED_VERSION = 64;   // 0.7.21: 判定报告上屏证据分级（能力区 / demo 区）
+                            // 0.7.20: 拆锁③——默认不注入风格规格（book.style_rule 显式选择才注入）
                             // 0.7.19: 判定引擎收口（影响面预览 / 成品过期 / 证据分级）
                             // 0.7.18: 判定引擎吃用户行内大纲形态 + 骨架解析不再崩
                             // 0.7.17: 判定引擎（utils/judge + judge.py + /judge/*）+ 三处拆锁 + 预算联动

@@ -152,6 +152,14 @@ def main():
                   for c in d.get("matrix") or []) and bool(d.get("matrix")),
               (d.get("matrix") or [{}])[0])
 
+        print("\n【J2b】报告带证据分级（R18）")
+        code, rp = req("GET", "/judge/report")
+        ev = rp.get("evidence") or {}
+        check("能力区有说明且注明未验证", "未验证" in (ev.get("capability") or {}).get("note", ""),
+              ev.get("capability"))
+        check("demo 区标明不构成能力证明",
+              "不构成能力证明" in (ev.get("demo") or {}).get("note", ""), ev.get("demo"))
+
         print("\n【J3】单章详情：缺陷五项齐备")
         code, ch = req("GET", "/judge/chapter?n=1")
         check("200 且带原文分段", code == 200 and len(ch.get("paragraphs") or []) >= 1,
