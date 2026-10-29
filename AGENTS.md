@@ -41,6 +41,7 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 | 关键路径（数据与产物的真源） | `docs/agents/key-paths.md` |
 | 运维场景（失败/熔断/打回/升级） | `docs/agents/operations.md` |
 | 成书提炼（写完的书 → 正典四表 + 病灶词） | `docs/agents/book-extract.md` |
+| 判定引擎（三档结论 / 缺陷单 / 回测 / 口径） | `docs/agents/judge-engine.md` |
 
 ## 启用流程（用户说"运行 NovelForge"时）
 
@@ -168,6 +169,18 @@ GUI：章节页签「成书提炼」折叠块（预演 → 后台跑 → 合并�
 **零 token 可预演**。需要 `engine: direct`（走 `client._post_chat`），Hermes 子会话下只能预演。
 病灶词扫描另有零 token 出口：`python scripts/nfctl.py cliche [--chapter N]`
 （`quality_checklist` 末尾也只报告、不阻断验收）。细节 → `docs/agents/book-extract.md`。
+
+## 判定引擎（P0，2026-10-29）
+
+**一句话**：确定性规则产依据 → 作者勾事件 → 三档结论 → 单一记录；**零 token、断网可跑、没有分数**。
+GUI：章节页签顶部「判定」摘要条 → 整本一页 → 单章（缺陷卡 + 事件勾选）→ 改标准。
+CLI：`python scripts/judge.py run` → `report` / `chapter N` / `destroy N` / `events` / `sentence` / `caliber`。
+产物：口径 `data/judge/caliber.json`、判定记录 `data/judge/records.json`（**只有这一个写点**）。
+三条界：① 规则只产依据，档位只在 `verdict.decide`；② 阈值只在口径表（代码里硬编码 = 造空判据）；
+③ 事件勾选与逐句裁定是**作者本人**动作（`/judge/events`、`/judge/sentence` 对 Agent 403）。
+同时拆了三处锁：stage4 的「擅长克制叙事」「不得新增关键情节」、无范文的「中立克制」兜底；
+stage5/6 的 `max_tokens` 抬到 25000/15000，并在开跑前做**预算—篇幅联动校验**（装不下不发请求）。
+细节 → `docs/agents/judge-engine.md`。
 
 ## 外部 Agent 接入（Hermes skill + nfctl）
 

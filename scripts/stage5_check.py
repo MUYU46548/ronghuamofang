@@ -149,6 +149,19 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     total_batches = len(batches)
     print(f"[stage5] 待检查 {len(pending)} 章，分 {total_batches} 批")
 
+    # R01 预算—篇幅联动（0.7.17）：先算装不装得下。装不下就**一个请求都不发** ——
+    # 否则模型会为了塞进 max_tokens 自己删内容（实测 5967 → 2186，finish_reason 还是 stop）。
+    from utils.judge.budget import check_capacity
+    from utils.verify_chapter import count_cn_words as _cwords
+    _max_words5 = max((_cwords(f.read_text(encoding="utf-8")) for f in pending), default=0)
+    _ok_cap, _why_cap, _cap = check_capacity(proj, 5, words=_max_words5)
+    if not _ok_cap:
+        print("[stage5] " + _why_cap)
+        progress.set_stage(5, "failed", error=_why_cap)
+        return False, _why_cap
+    print("[stage5] 预算校验通过：max_tokens=%s，目标 %s 字（需要 ≥%s）"
+          % (_cap.get("max_tokens"), _cap.get("target_words"), _cap.get("needed")))
+
     def _bad_checked(batch):
         """本批中「修正文件缺失**或为空壳**」的章节名。
 

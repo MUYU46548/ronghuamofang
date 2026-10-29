@@ -757,8 +757,9 @@ def build_style_instruction(features):
             L.append("  - 请用词克制、留白多于直说，避免突然明亮的转折")
         elif tone in ("积极明快", "略偏积极"):
             L.append("  - 请保持明亮温润的用色，避免无谓的阴郁铺陈")
-        else:
-            L.append("  - 请保持情绪的中立克制，让事实自己说话")
+        # F17 拆锁（2026-10-29）：无明确情感倾向时**不再注入"中立克制"** ——
+        # 那句默认风格是 2026-10-28 复盘里"伪具体"的头号来源：系统没问过作者，
+        # 就给所有叙事定了极简派规格。没倾向 = 不写指令。
 
     mod = g("modality") or {}
     if mod.get("count"):
@@ -806,7 +807,9 @@ def build_style_instruction(features):
             extra = f"（其中 {speech['unquoted_lines']} 处为无引号对白，多用“某某说：……”式引导）"
         L.append(f"- **对话**：对白占比 {spoken*100:.0f}%{extra}，请以对话推动叙事")
     elif spoken < 0.1:
-        L.append(f"- **对话**：对白占比低（{spoken*100:.0f}%），请保持内敛克制的叙事")
+        # F17 拆锁（2026-10-29）：对白少不再追加"保持内敛克制"的风格指令 ——
+        # 只报读数，不替作者定腔调（作者没选，就不许系统选）。
+        L.append(f"- **对话**：对白占比低（{spoken*100:.0f}%）")
     elif speech.get("quoted_ratio", 0) != spoken:
         L.append(f"- **对话**：引号对白 {speech.get('quoted_ratio', 0)*100:.0f}%，"
                  f"含引导式对白共 {spoken*100:.0f}%，请保持这一配比")

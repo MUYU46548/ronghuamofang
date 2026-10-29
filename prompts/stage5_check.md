@@ -1,7 +1,7 @@
 ---
 stage: 5
 name: stage5_check
-max_tokens: 8000
+max_tokens: 25000
 temperature: 0.3
 ---
 # 阶段 5 任务：全书逻辑检查与修正（分批 {{batch_index}}/{{total_batches}}）

@@ -184,6 +184,7 @@ try:
     from nf_api_domains import plan as dom_plan            # noqa: E402 (丙0 规划四态状态机)
     from nf_api_domains import segments as dom_segments    # noqa: E402 (丙4 分段审批读写)
     from nf_api_domains import discuss as dom_discuss      # noqa: E402 (讨论落地协议)
+    from nf_api_domains import judge as dom_judge          # noqa: E402 (0.7.17 判定引擎：零 token)
 except Exception as _dom_err:                            # noqa: BLE001
     dom_chapters = None
     dom_materials = None
@@ -201,6 +202,7 @@ except Exception as _dom_err:                            # noqa: BLE001
     dom_plan = None
     dom_segments = None
     dom_discuss = None
+    dom_judge = None
     print("[nf_api] 域模块加载失败（端点将返回可行动错误）: " + str(_dom_err))
 
 
@@ -2602,6 +2604,21 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/book_extract/status":
             # 单个提炼目录的进度（GUI 轮询；零 token）
             self._send(*_dom(dom_book_extract.handle_book_extract_status(self)))
+        elif p == "/judge/report":
+            # 判定总账（0.7.17，零 token）：读最近一次回测记录，不重跑、不写盘
+            self._send(*_dom(dom_judge.handle_judge_report(self)))
+        elif p == "/judge/chapter":
+            # 单章缺陷单 + 原文 + 档位 + 三稿对照
+            self._send(*_dom(dom_judge.handle_judge_chapter(self)))
+        elif p == "/judge/events":
+            # 作者勾选记录（读侧不设闸）
+            self._send(*_dom(dom_judge.handle_judge_events_get(self)))
+        elif p == "/judge/caliber":
+            # 口径登记表 + 版本 + 消费方
+            self._send(*_dom(dom_judge.handle_judge_caliber(self)))
+        elif p == "/judge/destroy":
+            # 三稿对照：哪一步把 6000 字削到 2000
+            self._send(*_dom(dom_judge.handle_judge_destroy(self)))
         elif p == "/chapters/paragraphs":
             # 段落级读取（P0 精修轴）
             self._send(*_dom(dom_refine.handle_chapters_paragraphs(self)))
@@ -3093,6 +3110,18 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/book_extract/merge":
                 # 并进 setting.json：默认只预演，yes=true 才写（写前备份）
                 self._send(*_dom(dom_book_extract.handle_book_extract_merge(self, body)))
+            elif p == "/judge/run":
+                # 全量回测（零 token）：只读 raw，跑完只写 records.json
+                self._send(*_dom(dom_judge.handle_judge_run(self, body)))
+            elif p == "/judge/events":
+                # 作者勾「这章发生了几件事」（F03b 唯一硬门；GUI-only 由 agent_guard 拦）
+                self._send(*_dom(dom_judge.handle_judge_events_set(self, body)))
+            elif p == "/judge/sentence":
+                # 逐句裁定（F12）：二值 + 理由必填
+                self._send(*_dom(dom_judge.handle_judge_sentence(self, body)))
+            elif p == "/judge/caliber":
+                # 改口径（R04/F08）：改值即产新版本，旧版进 history
+                self._send(*_dom(dom_judge.handle_judge_caliber_set(self, body)))
             elif p == "/chapters/restore":
                 # 章节回退：body {n, version} → 从 data/chapters/history/ 恢复
                 # 确定性文件操作，同 /outline/restore，同步返回。

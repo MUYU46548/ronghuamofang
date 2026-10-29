@@ -22,6 +22,7 @@ import { hasAckedDisclaimer, ackedDisclaimerAt } from "./disclaimer.js";
 import NewProjectWizard from "./NewProjectWizard.vue";
 import QualityTrend from "./QualityTrend.vue";
 import ConsistencyPanel from "./ConsistencyPanel.vue";
+import JudgePanel from "./JudgePanel.vue";
 import ReviewLedgerPanel from "./ReviewLedgerPanel.vue";
 import SettingClosurePanel from "./SettingClosurePanel.vue";
 import TruncatedPanel from "./TruncatedPanel.vue";
@@ -4890,6 +4891,9 @@ onUnmounted(() => {
       <ChapterDesk v-if="chapterView === 'desk'" :api="api" :chapters="chapters"
                    :quality="chapterQuality" @say="say" />
       <template v-else>
+      <!-- 判定报告（P0，0.7.17）：整本一页 → 单章详情 → 合格标准。
+           放在章节页签顶部（产品定义 04 §2.1：不新增顶层页签）。 -->
+      <JudgePanel @say="say" />
       <!-- 活二 Word 导入：外部稿 → 当作"已写好的章节"。两段式：预检（不落盘）→ 确认 -->
       <details class="import-box" :open="!!importPath || !!importPreview || !!importResult">
         <summary>导入 Word 稿（外部稿件 → raw / checked / refined）</summary>

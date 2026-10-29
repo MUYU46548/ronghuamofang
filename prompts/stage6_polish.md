@@ -1,7 +1,7 @@
 ---
 stage: 6
 name: stage6_polish
-max_tokens: 4000
+max_tokens: 15000
 temperature: 0.4
 ---
 # 阶段 6 任务：润色升级

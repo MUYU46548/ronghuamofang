@@ -117,6 +117,11 @@ FORBIDDEN_IN_AGENT_MODE = frozenset({
     # 双因子 GUI 来源（与止烧阈值/Agent 模式同档），这里是 mode=true 下的第二道闸。
     # 读侧 GET /chapters/layers|content 不拦（Agent 可读，不能替用户改稿）。
     "/chapters/save",
+    # 判定引擎（0.7.17）：事件勾选与逐句裁定都是**作者的判断**，不是系统能代劳的事。
+    # Agent 替作者勾「这章算几件事」= 直接改写判定结论（F03b 是唯一硬门）。
+    # 读侧 GET /judge/* 不拦（Agent 可看报告，不能替作者签字）。
+    "/judge/events",
+    "/judge/sentence",
 })
 
 # 人工来源的标记值（HTTP 头 / 环境变量通用）

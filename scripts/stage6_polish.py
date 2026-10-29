@@ -327,6 +327,19 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         return True, "stage6 跳过（refined 已存在且内容有效）"
 
     chapters = [int(f.stem) for f in pending]
+
+    # R01 预算—篇幅联动（0.7.17）：润色阶段要求"全文写入"，装不下就会自己删。
+    # 装不下 → 拒绝执行、一个请求都不发（实测 4000 token ≈ 1400–1800 字）。
+    from utils.judge.budget import check_capacity
+    from utils.verify_chapter import count_cn_words as _cwords
+    _max_words6 = max((_cwords(f.read_text(encoding="utf-8")) for f in pending), default=0)
+    _ok_cap, _why_cap, _cap = check_capacity(proj, 6, words=_max_words6)
+    if not _ok_cap:
+        print("[stage6] " + _why_cap)
+        progress.set_stage(6, "failed", error=_why_cap)
+        return False, _why_cap
+    print("[stage6] 预算校验通过：max_tokens=%s，目标 %s 字（需要 ≥%s）"
+          % (_cap.get("max_tokens"), _cap.get("target_words"), _cap.get("needed")))
     # 分卷：并发数 = parallelism.polish（默认 3）， ceil 均分
     polish = max(1, int((cfg or {}).get("parallelism", {}).get("polish", 3)))
     vols = [chapters[i::polish] for i in range(polish) if chapters[i::polish]]
