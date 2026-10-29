@@ -379,7 +379,7 @@ function getWorkspaceSource() {
 //   · 前端（asar，不走种子）：项目页出厂徽标 / 启动提示词剥离说明书 /
 //     阶段复制改任务简报（原样贴模板会被外部 Agent 按红线判「模板不是任务」停工）。
 // **先 bump 再 electron-builder**。
-const SEED_VERSION = 58;   // 0.7.15: 失败文案去术语（不再露 _post_chat / engine: direct）
+const SEED_VERSION = 58;   // 0.7.15: 失败文案去术语（不再露内部函数名与引擎配置键）
                             // 0.7.14: 统一命名（成书提炼 / book_extract），端点与数据目录同步改名
                             // 0.7.13: 成书提炼管线（utils/book_extract + book_extract.py）+ 病灶词扫描
                             // （nfctl cliche / quality_checklist 只报告）
