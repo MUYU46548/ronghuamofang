@@ -236,8 +236,14 @@ def _apply_one(lines, section_path, key, value, comment=None, allow_insert=True)
         lines[pos:pos] = new_lines
         return True, rendered
 
-    idx = _find_key(lines, key, lo, hi, indent + 2)
-    line = " " * (indent + 2) + key + ": " + rendered
+    # 顶层键（`section_path` 为空）：缩进是 0，不是 `indent+2`。
+    # 2026-10-31 实测教训：这里原本恒用 `indent + 2`，而空 section_path 时
+    # indent = -1 → 写出 " engine: direct"（**前导 1 空格**），整份 YAML 从此
+    # 解析失败（expected '<document start>'）。当时靠"写后回读校验"拦住并留了备份，
+    # 但缺陷在渲染，不在校验 —— 校验只是最后一道网，不该经常接住自己人。
+    want_indent = indent + 2 if indent >= 0 else 0
+    idx = _find_key(lines, key, lo, hi, want_indent)
+    line = " " * want_indent + key + ": " + rendered
     if comment:
         line += "  # " + str(comment).replace("\n", " ")
     if idx >= 0:

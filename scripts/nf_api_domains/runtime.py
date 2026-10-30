@@ -167,6 +167,88 @@ def handle_prompts_restore(h, body):
                  "detail": msg}
 
 
+def _factory_dir():
+    """出厂副本目录（`prompts/factory/`）。
+
+    与 `api.PROMPTS_DIR` 同根：工厂默认随包发布，用户日常保存**不碰**它。
+    内容由 `scripts/prompt_factory.py --sync --yes` 在发版时固化 —— 这里只读。
+    """
+    return api.PROMPTS_DIR / "factory"
+
+
+def _factory_diff(name):
+    """当前模板与出厂版的差异（行数口径，给人看的）。缺任一侧返回 None。"""
+    cur = api.PROMPTS_DIR / name
+    fac = _factory_dir() / name
+    if not cur.is_file() or not fac.is_file():
+        return None
+    try:
+        c = api.nf_read_text(cur).splitlines()
+        f = api.nf_read_text(fac).splitlines()
+    except Exception:                                       # noqa: BLE001
+        return None
+    return {"current_lines": len(c), "factory_lines": len(f),
+            "identical": c == f}
+
+
+def handle_prompts_factory_restore(h, body):
+    """把模板还原成**出厂默认**：`{name}`。
+
+    ## 为什么单开一个端点，不复用 /prompts/restore
+
+    `/prompts/restore` 的 `backup` 只能取 `prompts/history/` 里的文件名 ——
+    而 history 是**用户的改动记录**，不是出厂版（详见 scripts/prompt_factory.py
+    模块头：滚动淘汰 / 手改不留痕 / 升级覆盖，三种情况下 history 里都没有出厂版）。
+
+    本端点读 `prompts/factory/`（只由发版流程写入），仍走 `api.save_prompt` 落盘
+    —— 于是「还原」这个动作本身也进备份链：还原前的（改坏的）版本可以在 history
+    里找到，判断"到底改坏了什么"时有对照物。
+    """
+    name = api.prompt_name_ok(str(body.get("name") or "").strip())
+    if not name:
+        return 400, {"ok": False,
+                     "error": "模板名不在白名单（须匹配 prompts/stage[1-7]_*.md）"}
+    fac = _factory_dir() / name
+    if not fac.is_file():
+        return 404, {"ok": False, "name": name,
+                     "error": "该模板没有出厂副本：" + name,
+                     "hint": ("出厂副本由发版流程固化（scripts/prompt_factory.py "
+                              "--sync --yes）；这只说明随包版本里缺这一份，"
+                              "不代表你的模板坏了。")}
+    try:
+        content = api.nf_read_text(fac)
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": "读取出厂副本失败: " + str(e)[:120]}
+    diff = _factory_diff(name)
+    ok, msg = api.save_prompt(name, content)
+    if not ok:
+        return 400, {"ok": False, "error": msg}
+    return 200, {"ok": True, "name": name, "restored_from": "factory",
+                 "diff": diff,
+                 "message": "已还原 " + name + " 为出厂默认"
+                            "（还原前的版本已存入 prompts/history/，可再退回）",
+                 "detail": msg}
+
+
+def handle_prompts_factory_info(h):
+    """出厂副本盘点：哪些模板有出厂版、与当前是否一致。
+
+    给界面用 —— 用户要能看见「保底在不在」，而不是点到按钮才发现没有。
+    """
+    fac_dir = _factory_dir()
+    items = []
+    for p in sorted(api.PROMPTS_DIR.glob("*.md")):
+        if not api.PROMPT_NAME_RE.match(p.name):
+            continue
+        items.append({"name": p.name,
+                      "has_factory": (fac_dir / p.name).is_file(),
+                      "diff": _factory_diff(p.name)})
+    return 200, {"ok": True, "dir": "prompts/factory",
+                 "factory_exists": fac_dir.is_dir(),
+                 "items": items,
+                 "missing": [i["name"] for i in items if not i["has_factory"]]}
+
+
 def handle_proofread_report(h):
     """校对报告（stage 5.5）。
 
@@ -612,6 +694,8 @@ ROUTES = (
     ("GET", "/prompts/list", handle_prompts_list),
     ("GET", "/prompts/get", handle_prompts_get),
     ("POST", "/prompts/restore", handle_prompts_restore),
+    ("GET", "/prompts/factory", handle_prompts_factory_info),
+    ("POST", "/prompts/factory_restore", handle_prompts_factory_restore),
     ("GET", "/proofread/report", handle_proofread_report),
     ("GET", "/estimate", handle_estimate),
     ("GET", "/book/pacing", handle_book_pacing),

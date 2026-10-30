@@ -239,6 +239,12 @@ def _resolve_root():
     computed = Path(__file__).resolve().parents[1]
     return computed
 
+
+# **代码区**根：打包态 = resources/payload（只读），源码态 = 仓库根（与 ROOT 相同）。
+# 与 ROOT 分开的理由：ROOT 可以被子进程用 --root 指到用户工作区，而代码区恒定。
+# 目前只有一个消费者 —— `_set_root` 里 prompts/ 的兜底（见那里的注释）。
+_CODE_ROOT = Path(__file__).resolve().parents[1]
+
 def _set_root(path):
     """改写数据根，并**同步刷新所有派生路径常量**。
 
@@ -248,10 +254,22 @@ def _set_root(path):
     （第一次是 `build_state()` 里写死相对的 `data/state/progress.json`）。
     **以后新增导出路径常量，必须在这里一并刷新**，否则又是一个静默错项目。
     """
-    global ROOT, GLOBAL, HISTORY_DIR
+    global ROOT, GLOBAL, HISTORY_DIR, PROMPTS_DIR, PROMPTS_HISTORY_DIR
     ROOT = Path(path).resolve()                 # 相对路径必须 resolve，否则 ROOT 随 CWD 漂移
     GLOBAL = str(ROOT / "data" / "outline" / "global.md")
     HISTORY_DIR = str(ROOT / "data" / "outline" / "history")
+    # 提示词模板（2026-10-31，第四次踩同一个坑）：GUI 的编辑器（本模块）与流水线的
+    # 模板加载器（utils/template_loader.py，**cwd 相对** `prompts/`）必须同源。
+    #   · 源码态：ROOT == 仓库根 == cwd 的父级 → 两处本就相同；
+    #   · 打包态：ROOT = --root workspace，cwd = workspace，而代码在 resources/payload。
+    # 以 ROOT/prompts 为准（与 cwd 相对在两种形态下都对齐）；极端情形（老安装包
+    # 的 workspace 里没有 prompts/）回落**代码区**那份，宁可读只读副本也不空目录 ——
+    # 空目录会让「提示词」页签列出 0 个模板，比报错更难诊断。
+    _p = ROOT / "prompts"
+    if not _p.is_dir() and (_CODE_ROOT / "prompts").is_dir():
+        _p = _CODE_ROOT / "prompts"
+    PROMPTS_DIR = _p.resolve()
+    PROMPTS_HISTORY_DIR = PROMPTS_DIR / "history"
     # switch_book 的三个常量（PROJECT_ROOT / DATA_DIR / BOOKS_DIR）在**导入时**
     # 按「脚本所在目录」固化。`--root` 指向别处时它们与 ROOT 分叉 →
     # `/project/list` 列出的是**另一个项目**的归档，而归档查看/删除按 ROOT 走 ——
@@ -526,8 +544,16 @@ def _snapshot_state():
 
 # ---- 提示词模板（prompts/）读写 ----
 # 白名单：仅允许 prompts/ 下的一级文件 stage[1-7]_*.md
-PROMPTS_DIR = (ROOT / "prompts").resolve()
-PROMPTS_HISTORY_DIR = PROMPTS_DIR / "history"
+#
+# ⚠️ `PROMPTS_DIR` / `PROMPTS_HISTORY_DIR` 由 `_set_root()` **派生并刷新**
+# （见那里的 `global` 列表），此处刻意不再二次赋值 —— 硬赋值会把 `--root`
+# 的结果覆盖回去。2026-10-31 修的真实缺陷：
+#   打包态 nf_api 以 `--root <workspace>` 启动、且 cwd=workspace，
+#   而 `load_template()` 读的是 **cwd 相对**的 `prompts/`（= workspace/prompts）。
+#   旧代码这里写死 `ROOT/prompts`（ROOT 在 import 期= resources/payload）→
+#   **GUI 里保存的提示词写进 payload，流水线读的却是 workspace**：
+#   界面说「下次运行生效」，实际永远不生效；随包升级又把 workspace 那份覆盖回去。
+#   同一个功能读一套、写另一套 = 本仓最忌的静默失败。
 PROMPT_NAME_RE = re.compile(r'^stage[1-7]_.*\.md$')
 PROMPT_MAX_BYTES = 1024 * 1024          # 单文件 1MB 上限
 PROMPT_HISTORY_KEEP = 50                # 每个模板保留的备份份数
@@ -2435,6 +2461,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/prompts/list":
             # 实现已迁至 nf_api_domains.runtime（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_runtime.handle_prompts_list(self)))
+        elif p == "/prompts/factory":
+            # 出厂副本盘点（哪些模板有保底、与当前是否一致）；只读。
+            self._send(*_dom(dom_runtime.handle_prompts_factory_info(self)))
         elif p == "/config/project":
             # 实现已迁至 nf_api_domains.project（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_project.handle_config_project(self)))
@@ -3192,6 +3221,47 @@ class Handler(BaseHTTPRequestHandler):
                 # 把 API Key 写进 .env（GUI 内置入口，替代「用外部编辑器打开 .env」）。
                 # 键名白名单/值校验/备份都在域模块里（判据只有一份）。
                 self._send(*_dom(dom_misc.handle_env_set(self, body)))
+            elif p == "/config/engine":
+                # 切换执行引擎（config/system.yaml 的顶层键 `engine`）。
+                # 2026-10-31 新增：此前**只有读没有写** —— 设置页把 engine 当只读文字显示，
+                # 用户想从「直连」换到「Agent 子会话」（或反过来）只能手改 YAML，
+                # 而界面上那行字还写着「引擎与模型」，看起来能点。
+                eng = str(body.get("engine") or "").strip().lower()
+                if eng not in ("direct", "hermes"):
+                    self._send(400, {"ok": False, "error":
+                        "engine 只能是 direct（直连模型，按量计费）或 hermes"
+                        "（Agent 子会话，走订阅）——收到 %r" % (body.get("engine"),)})
+                    return
+                try:
+                    from utils.config_io import set_section_scalar
+                    sys_yaml = ROOT / "config" / "system.yaml"
+                    if not sys_yaml.exists():
+                        self._send(400, {"ok": False, "error": "config/system.yaml 不存在"})
+                        return
+                    # 定向改写：**只动 engine 那一行**，其余注释与配置原样保留
+                    # （旧的两处模型写入用的是 yaml.dump 整份重写 → 注释全丢）
+                    w_ok, w_msg = set_section_scalar((), "engine", eng, path=sys_yaml)
+                    if not w_ok:
+                        self._send(400, {"ok": False, "error": "写入失败：" + w_msg})
+                        return
+                    cur_cfg, _ = load_all()
+                    self._send(200, {
+                        "ok": True, "engine": eng,
+                        "message": "已切换引擎 → " + ("Agent 子会话（走订阅）"
+                                                    if eng == "hermes"
+                                                    else "直连模型（按量计费）"),
+                        "note": ("对下一次运行生效（不需要重启客户端）。"
+                                 "agent 模式下 config 的 model.* 不参与运行，"
+                                 "模型由外部 Agent 决定。"
+                                 if eng == "hermes" else
+                                 "对下一次运行生效（不需要重启客户端）。"
+                                 "直连按量计费，注意 system.yaml 的 "
+                                 "budget.token_limit 止烧阈值。"),
+                        "providers_count": len(cur_cfg.get("providers") or {}),
+                    })
+                except Exception as e:                      # noqa: BLE001
+                    self._send(500, {"ok": False,
+                                     "error": type(e).__name__ + ": " + str(e)[:200]})
             elif p == "/config/provider":
                 # 切换某阶段的 provider
                 role = str(body.get("role") or "")
@@ -3208,8 +3278,20 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(400, {"error": f"provider {new_provider} 不存在于 config/system.yaml"})
                     return
                 cfg["model"][role]["provider"] = new_provider
-                (ROOT / "config" / "system.yaml").write_text(
-                    yaml.dump(cfg, allow_unicode=True, sort_keys=False), encoding="utf-8")
+                # 定向改写（2026-10-31）：原实现用 `yaml.dump(整份 cfg)` 覆盖写，
+                # **system.yaml 里的全部注释随之消失** —— 那些注释承载着止烧口径、
+                # 模型白名单原因、provider 注意事项。用户点一下下拉就把说明书删了，
+                # 而且没有任何提示。同族缺陷也见于 /models/switch。
+                try:
+                    from utils.config_io import set_section_scalars
+                    w_ok, w_msg = set_section_scalars(
+                        ("model", role), {"provider": new_provider},
+                        path=ROOT / "config" / "system.yaml")
+                except Exception as e:                      # noqa: BLE001
+                    w_ok, w_msg = False, type(e).__name__ + ": " + str(e)[:160]
+                if not w_ok:
+                    self._send(400, {"ok": False, "error": "写入失败：" + w_msg})
+                    return
                 # 换了供应商、模型名未必跟着换 —— 模型名跨供应商**不通用**，
                 # 而本项目对 400/404 是 raise、**不走 fallback**（见 llm_client._post_chat），
                 # 留着旧模型名等于该角色直接哑火。这里**不阻断**（available_models 未必全），
@@ -3383,6 +3465,9 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/prompts/restore":
                 # 从 prompts/history/ 回滚模板（复用 save_prompt，备份链保持连续）
                 self._send(*_dom(dom_runtime.handle_prompts_restore(self, body)))
+            elif p == "/prompts/factory_restore":
+                # 还原出厂默认（读 prompts/factory/，仍经 save_prompt 落盘 → 也进备份链）
+                self._send(*_dom(dom_runtime.handle_prompts_factory_restore(self, body)))
             elif p == "/config/style_notes":
                 # 保存用户风格笔记：定向改写 project.yaml（保留注释），写入前备份
                 content = body.get("content")

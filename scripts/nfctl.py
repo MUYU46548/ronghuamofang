@@ -571,7 +571,8 @@ def collect_check(root: Path) -> dict:
     # API Key（只看有无）。engine=hermes 时 LLM 走 agent 子会话（订阅流量），
     # 直连 Key 根本不参与运行 → 空 Key 阻塞是假红（2026-10-12 安装态实测：hermes 工作区
     # 被这条恒拦成「有阻塞项不要开跑」）。direct 引擎照旧阻塞，语义不变。
-    engine = str((sysconf or {}).get("engine") or "direct").lower()
+    from utils.engine import resolve_engine
+    engine = resolve_engine(sysconf or {})
     key_state, wanted = _env_key_state(root)
     key_detail = "；".join("%s=%s" % (k, "有" if v else "空") for k, v in key_state.items())
     if engine == "hermes":
@@ -1253,6 +1254,33 @@ def _e2e_step(root, python_exe):
                 pass
 
 
+def _check_prompt_factory(root, python_exe):
+    """出厂提示词副本完整性（`prompts/factory/`）。
+
+    判据分层，别把两件事混成一个红灯：
+    - **缺副本**（某模板有、factory 里没有）→ FAIL：用户改坏后真的没得还原；
+    - **内容不一致** → WARN 语义的 PASS：本地改过模板时这是正常的，
+      发版前跑 `python scripts/prompt_factory.py --sync --yes` 更新即可。
+    """
+    script = root / "scripts" / "prompt_factory.py"
+    if not script.exists():
+        return {"name": "出厂提示词副本", "status": "SKIP",
+                "tail": "scripts/prompt_factory.py 不存在"}
+    import subprocess
+    try:
+        p = subprocess.run([str(python_exe), str(script), "--check"],
+                           cwd=str(root), capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=120)
+        out = (p.stdout or "").strip().splitlines()
+        tail = out[-1] if out else "(无输出)"
+    except Exception as e:                                  # noqa: BLE001
+        return {"name": "出厂提示词副本", "status": "SKIP",
+                "tail": "执行失败: " + type(e).__name__}
+    missing = "没有出厂副本" in "\n".join(out)
+    return {"name": "出厂提示词副本", "status": "FAIL" if missing else "PASS",
+            "tail": tail}
+
+
 def _dist_step(root):
     """核对「装出来的包」是否仍与工作区一致 —— 抓「改了代码但没重打包」。"""
     import hashlib
@@ -1312,6 +1340,10 @@ def release_check(root: Path, skip_e2e: bool = False) -> dict:
     steps.append(_run_step("MCP 真机握手（官方 SDK → 垫片 → 8766 → 8765）",
                            [str(python_exe), str(root / "scripts" / "nf_mcp_handshake_check.py")],
                            root, 300))
+
+    # 出厂提示词副本（2026-10-31）：缺了就是「用户改坏后没保底」。判据只报不拦
+    # —— 本地改过模板时差异是正常的，真正的失败是**缺副本**（那才无法还原）。
+    steps.append(_check_prompt_factory(root, python_exe))
 
     if skip_e2e:
         steps.append({"name": "e2e 视觉验收", "status": "SKIP", "tail": "--skip-e2e 指定跳过"})

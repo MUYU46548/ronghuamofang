@@ -199,8 +199,14 @@ def handle_models_switch(h, body):
         old = models[role].get("id")
         models[role]["id"] = model_id
         cfg["model"] = models
-        api.nf_write_text(cfg_path,
-                          api.yaml.safe_dump(cfg, allow_unicode=True, sort_keys=False))
+        # 定向改写（2026-10-31）：原实现 `yaml.safe_dump(整份 cfg)` 覆盖写 →
+        # system.yaml 的**注释全部消失**（止烧口径、白名单理由都在注释里）。
+        # 用户切一次模型 = 悄悄删掉配置说明书，且无任何提示。
+        from utils.config_io import set_section_scalars
+        w_ok, w_msg = set_section_scalars(("model", role), {"id": model_id},
+                                          path=cfg_path)
+        if not w_ok:
+            return 400, {"ok": False, "error": "写入失败：" + w_msg}
         return 200, {"ok": True, "role": role, "model": model_id,
                      "previous": old,
                      "whitelist_checked": chk["checked"],
