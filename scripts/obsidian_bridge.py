@@ -177,18 +177,24 @@ def _get_sandbox_dir():
 
 def _reload_config():
     """重新加载配置（测试/配置变更时调用）。"""
-    global _vault_path, _sandbox_dir, _skip_dirs
+    global _vault_path, _sandbox_dir
     reset_obsidian_config_cache()
     _vault_path = get_vault_path()
     _sandbox_dir = get_sandbox_dir()
-    _skip_dirs = get_skip_dirs()
 
 
 # 跳过目录（非正典内容）——A1 配置化：常量已删，改由 utils.setting_schema
 # 的 get_skip_dirs() 提供（默认通用四项：.obsidian/.git/.hermes/.agent_context）。
 # 私人项（数字前缀模板目录、其他项目目录等）由用户在 system.local.yaml 的
 # obsidian.skip_dirs 里追加——发布物零私人痕迹（拍板③）。
-_skip_dirs = get_skip_dirs()
+#
+# ⚠️ 2026-10-31：这里**刻意不再缓存**（原来 `_skip_dirs = get_skip_dirs()` 在
+# import 时求值一次）。那个模块级快照造成了「界面显示已排除、实际仍被检索」：
+#   · `scan_vault_preview` 每次调 get_skip_dirs() → 用户一点保存，预览面立刻变小；
+#   · `scan_vault`（设定集导入的真源）用模块级快照 → 进程不重启就一直是旧集合。
+# 用户 2026-10-30 的原话是「不确定是否真的生效」—— 他的怀疑是对的，且**不是**配置写错。
+# 判据：凡「用户改了配置要立刻生效」的读取点，都必须在**调用时**取值
+# （与 utils/kb_index.py 同源同口径：那边一直是实时读，从未出过这个毛病）。
 
 # frontmatter 键
 NAME_KEYS = ["name", "title", "id"]
@@ -284,6 +290,11 @@ def scan_vault(vault_path=None):
     world_entries = []
     timeline_entries = []
 
+    # 排除集合**在调用时取**（不是 import 时的模块级快照）——
+    # 用户在 GUI 勾掉一个目录后，下一次 scan_vault 就必须跟着变。
+    # 见上方 `_skip_dirs` 变量处的说明（2026-10-31 修「界面已排除、实际仍收」）。
+    skip = get_skip_dirs()
+
     # 角色目录。⚠️ 2026-09-21 修复**跨类目污染与重复**：
     # 原写法把**父目录**（设定根）也放进列表并配 `rglob`，于是它递归扫到了
     # 地点/概念等兄弟类目，把地点名、法规名这类条目也当成角色，
@@ -326,7 +337,7 @@ def scan_vault(vault_path=None):
             continue
         for md_file in (char_dir.rglob("*.md") if recursive
                         else char_dir.glob("*.md")):
-            if any(part in _skip_dirs for part in md_file.relative_to(vault).parts):
+            if any(part in skip for part in md_file.relative_to(vault).parts):
                 continue
             try:
                 text = md_file.read_text(encoding='utf-8', errors='ignore')
@@ -405,7 +416,7 @@ def scan_vault(vault_path=None):
             continue  # 类目/兜底缺失不告警（根缺失时 characters 已告警过一次）
         for md_file in (world_dir.rglob("*.md") if recursive
                         else world_dir.glob("*.md")):
-            if any(part in _skip_dirs for part in md_file.relative_to(vault).parts):
+            if any(part in skip for part in md_file.relative_to(vault).parts):
                 continue
             try:
                 text = md_file.read_text(encoding='utf-8', errors='ignore')
@@ -456,7 +467,7 @@ def scan_vault(vault_path=None):
         _warn_missing(timeline_dir, "timeline", vd["timeline"])
     if timeline_dir.exists():
         for md_file in timeline_dir.rglob("*.md"):
-            if any(part in _skip_dirs for part in md_file.relative_to(vault).parts):
+            if any(part in skip for part in md_file.relative_to(vault).parts):
                 continue
             try:
                 text = md_file.read_text(encoding='utf-8', errors='ignore')

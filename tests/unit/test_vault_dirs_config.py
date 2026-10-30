@@ -206,7 +206,7 @@ from utils import setting_schema as ss
 from utils import kb_index as kb
 _ticket(has_const=hasattr(ob, "SKIP_DIRS"),
         same_kb=kb.get_skip_dirs is ss.get_skip_dirs,
-        same_bridge=set(getattr(ob, "_skip_dirs", ())) == set(ss.get_skip_dirs()))
+        has_snapshot=hasattr(ob, "_skip_dirs"))
 '''
     p, out, err = run_py(root, code)
     if p is None:
@@ -217,8 +217,10 @@ _ticket(has_const=hasattr(ob, "SKIP_DIRS"),
           p["has_const"] is False, f"→ {p}")
     check("G4 kb_index 与 setting_schema 用同一个 get_skip_dirs 函数",
           p["same_kb"] is True, f"→ {p}")
-    check("G4 bridge 实际生效的 _skip_dirs 与单源一致",
-          p["same_bridge"] is True, f"→ {p}")
+    # 2026-10-31 改为断言「没有模块级快照」：原断言是「快照==实时值」，
+    # 而它只在 import 那一刻成立 —— 用户改配置后快照就陈旧了（G9 的场景）。
+    check("G4 bridge 不持模块级 skip_dirs 快照（快照=改了配置不生效的根因）",
+          p["has_snapshot"] is False, f"→ {p}")
     shutil.rmtree(root, ignore_errors=True)
 
 
@@ -359,6 +361,65 @@ _ticket(entries=sorted(idx["entries"].keys()), sd=sorted(get_skip_dirs()))
     shutil.rmtree(root, ignore_errors=True)
 
 
+def case_skip_dirs_hot_reload():
+    """G9：运行期改排除项，scan_vault 必须**立刻**跟随（不重启进程）。
+
+    用户 2026-10-30 的原话：「第一次点了知识库扫描功能，发现可以手动排除文件夹。
+    这是一个好设计，但我不确定是否真的生效。」
+
+    他的怀疑是对的。根因是 `obsidian_bridge._skip_dirs` 在 **import 时**求值一次：
+      · `scan_vault_preview`（界面预览）每次实时读 → 一保存，数字立刻变小；
+      · `scan_vault`（设定集导入的真源）读模块级快照 → 进程不重启就是旧集合。
+    表现为「界面说已排除 N 篇，导入时那 N 篇照样进来」，且没有任何报错。
+
+    反证（会变红）：把 `_skip_dirs = get_skip_dirs()` 加回模块级、三处循环改回
+    读快照 → 本用例的 after 会重新出现「乙」。
+    """
+    print("\n[G9] 排除项热更：同一进程内改 config，scan_vault 立刻跟随")
+    root = build_sandbox()
+    v = root / "Vault9"
+    (v / "设定" / "人物" / "正稿").mkdir(parents=True)
+    (v / "设定" / "人物" / "旧稿").mkdir(parents=True)
+    (v / "设定" / "人物" / "正稿" / "甲.md").write_text(
+        "---\nname: 甲\n---\n正稿角色。\n", encoding="utf-8")
+    (v / "设定" / "人物" / "旧稿" / "乙.md").write_text(
+        "---\nname: 乙\n---\n草稿角色。\n", encoding="utf-8")
+    # vault_path 写进 system.yaml（测试夹具的私有库路径，不进发布物）
+    sy = root / "config" / "system.yaml"
+    sy.write_text(sy.read_text(encoding="utf-8").replace(
+        'vault_path: ""', 'vault_path: "%s"' % v.as_posix()), encoding="utf-8")
+
+    code = PRELUDE + '''
+import os
+import obsidian_bridge as ob
+from utils.setting_schema import reset_obsidian_config_cache
+
+before = sorted(c["name"] for c in ob.scan_vault()["characters"])
+# 完全复刻 GUI 保存动作：写 local 覆盖 + 清配置缓存（handle_config_vault_skip_dirs）
+with open(os.path.join("config", "system.local.yaml"), "w", encoding="utf-8") as f:
+    f.write('obsidian:\\n  skip_dirs: ["旧稿"]\\n')
+reset_obsidian_config_cache()
+after = sorted(c["name"] for c in ob.scan_vault()["characters"])
+prev = ob.scan_vault_preview()
+_ticket(before=before, after=after,
+        preview_scanned=prev["scanned"],
+        preview_skip=[s for s in prev["skip_dirs"] if not s.startswith(".")])
+'''
+    p, out, err = run_py(root, code)
+    _reset_local(root)
+    if p is None:
+        check("G9 子进程产出结果", False, f"{out[-300:]} {err[-300:]}")
+        shutil.rmtree(root, ignore_errors=True)
+        return
+    check("G9 改前两个角色都在（夹具自证：旧稿确实在扫描面内）",
+          p["before"] == ["乙", "甲"], f"→ {p['before']}")
+    check("G9 改后 scan_vault **立刻**不再收「旧稿」下的角色（不必重启 nf_api）",
+          p["after"] == ["甲"], f"→ {p['after']}（旧实现此处仍是 ['乙','甲']）")
+    check("G9 界面预览与真实扫描口径一致（曾是「预览 1 篇 / 实际 2 篇」）",
+          len(p["after"]) == p["preview_scanned"], f"→ {p}")
+    shutil.rmtree(root, ignore_errors=True)
+
+
 def main():
     print("=" * 70)
     print("vault 目录配置化（A1）回归 —— 不依赖 history 快照")
@@ -371,6 +432,7 @@ def main():
     case_missing_dir_warns()
     case_broken_local_yaml_warns()
     case_sandbox_dir_excluded_from_kb()
+    case_skip_dirs_hot_reload()
     print("\n" + "=" * 70)
     print(f"合计: {len(PASS)} 通过 / {len(FAIL)} 失败")
     print("=" * 70)
