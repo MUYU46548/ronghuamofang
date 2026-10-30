@@ -9,6 +9,45 @@ CHANGELOG」）。本文件从工程审查修复起正式启用。
 
 ## [Unreleased]
 
+## [v0.7.22] — 2026-10-31 提示词出厂保底 · 引擎可切换 · 配置写入不再吃注释
+
+### 用户提的三件事
+
+1. **「不确定知识库排除是否真的生效」** —— 他的怀疑是对的，而且不是配置写错：
+   `obsidian_bridge` 的排除集合是 **import 时求值**的模块级快照，而界面预览每次实时读。
+   于是「预览说已排除 N 篇，导入时那 N 篇照样进来」，进程不重启就一直错。
+   现在 `scan_vault()` 每次调用取实时值（与 `kb_index` 同源），加 G9 热更用例
+   —— 把快照加回去，该用例立刻变红。
+2. **「提示词能不能一键还原默认」** —— 原来只有 history 回滚，它救不了三种事故：
+   滚动淘汰（每模板只留 50 份）、外部编辑器手改（不留痕）、升级覆盖。
+   新增 `prompts/factory/`（16 份出厂副本，只由 `scripts/prompt_factory.py --sync --yes`
+   在发版时固化）+ `GET /prompts/factory`（盘点保底在不在）+ `POST /prompts/factory_restore`
+   （还原也进 history，可再退回）。界面按钮在「有副本且未被改动」时禁用。
+3. **「引擎与模型的界面很丑」** —— 不只是丑：
+   - `engine` **只能读不能写**，设置页把它当一行只读文字显示，标题却写着「引擎与模型」；
+   - 点一次模型下拉 = `yaml.dump(整份 cfg)` 覆盖写 → **system.yaml 的 172 行注释全消失**
+     （止烧口径、白名单理由、provider 注意事项全在里面），且无任何提示；
+   - 角色模型是六行 `art-row` + 原生 select，供应商下拉**根本没有样式定义**，暗色下是白底。
+   现在：两块引擎卡可点切换（`POST /config/engine`，只认 direct/hermes、非法值 400 且不动文件）、
+   角色模型改表格（角色 / 用途 / 供应商 / 模型）、服务商改卡片、合规提示独立成块；
+   三处配置写入全改 `config_io` 定向改写（注释一行不少，用例 C1–C5 锁死）。
+
+### 顺带修掉的两个静默失败
+
+- **打包态提示词读写不同源**：GUI 写 `ROOT/prompts`（= `resources/payload`），
+  流水线 `load_template` 读 **cwd 相对**的 `prompts/`（= workspace）——
+  界面说「下次运行生效」，实际永远不生效。现在 `PROMPTS_DIR` 随 `--root` 派生
+  （workspace 优先、代码区兜底），`test_prompt_factory_http` 的 P5 用
+  「代码区与工作区分离」的夹具锁住（反证：改回写死 → P5 与后续全线红）。
+- **`config_io` 顶层键写出前导空格**：空 `section_path` 时缩进按 `indent+2` 算成 1，
+  写出 `" engine: direct"` → 整份 YAML 解析失败。靠写后回读校验兜住并留了备份，
+  但缺陷在渲染层，已修 + C5 用例。
+
+### 判据
+
+`nfctl test` **164/164**（新增 `test_prompt_factory_http` 17、`test_config_writes_http` 20、
+`test_engine_settings_ui` 15；`test_vault_dirs_config` 28）。每处修复都带会变红的反证。
+
 ## [v0.7.21] — 2026-10-29 判定报告上屏证据分级
 
 - `GET /judge/report` 带上 `evidence`（能力区 / demo 区）与 `object_changed`；

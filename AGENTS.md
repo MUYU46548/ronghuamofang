@@ -179,7 +179,12 @@ CLI：`python scripts/judge.py run` → `report` / `chapter N` / `destroy N` / `
 三条界：① 规则只产依据，档位只在 `verdict.decide`；② 阈值只在口径表（代码里硬编码 = 造空判据）；
 ③ 事件勾选与逐句裁定是**作者本人**动作（`/judge/events`、`/judge/sentence` 对 Agent 403）。
 同时拆了三处锁：stage4 的「擅长克制叙事」「不得新增关键情节」、无范文的「中立克制」兜底；
-stage5/6 的 `max_tokens` 抬到 25000/15000，并在开跑前做**预算—篇幅联动校验**（装不下不发请求）。
+stage5/6 的 `max_tokens` 抬到 **40000/25000**，并在开跑前做**预算—篇幅联动校验**（装不下不发请求）。
+**容量口径（2026-10-30 修）**：判据一律按**本次请求实际要产出的总字数**算，不是单章最大字数 ——
+stage5 的批大小由「装得下几章」反推（`judge.budget.items_per_request`），stage6 改成**一章一次请求**
+（旧实现整卷一次发，40 章要一口气回 13 章全文，任何 max_tokens 都装不下）；实际上限取
+`min(提示词声明, config 的 per_request_max_tokens)`（`judge.budget.effective_max_tokens`）；
+stage4 也补了同一道校验（此前是唯一既不设上限、也不校验的阶段）。
 细节 → `docs/agents/judge-engine.md`。
 
 ## 外部 Agent 接入（Hermes skill + nfctl）
@@ -229,6 +234,27 @@ stage5/6 的 `max_tokens` 抬到 25000/15000，并在开跑前做**预算—篇�
 ## 提示词前缀纪律（2026-09-23 定，改 `prompts/stage*.md` 前必读）
 
 > 详见 **`docs/agents/prompt-prefix.md`**。留在手册里的只有「为什么」：改 `prompts/stage*.md` 前必读：body 里 `---` 之前必须逐章逐字不变，否则前缀缓存命中率从 77.6% 崩到 1.2%。
+
+## 提示词的两条保底纪律（2026-10-31）
+
+**① 出厂副本是唯一真保底，history 不是。** `prompts/history/` 存的是**用户的改动**，
+救不了三种事故：滚动淘汰（每模板只留 50 份）、外部编辑器手改（不留痕）、升级覆盖。
+`prompts/factory/` 是出厂版独立副本，**只由发版流程写入**：
+改完 `prompts/stage*.md` → `python scripts/prompt_factory.py --sync --yes` → 提交 factory 变更。
+⚠️ **不许把 `--sync` 挂进自动流程**（打包脚本顺手跑一次，就会把用户改坏的样子固化成保底）。
+`nfctl release-check` 会查：缺副本 = FAIL（真的没得还原），内容不一致 = 只报告。
+
+**② 三个配置写入口必须保注释。** `/config/engine`、`/config/provider`、`/models/switch`
+一律走 `utils.config_io.set_section_scalars`（定向改写 + 备份 + 回读校验）。
+历史上后两个用 `yaml.dump(整份 cfg)` 覆盖写 —— **system.yaml 的 172 行注释随之消失**
+（止烧口径、白名单理由、provider 注意事项都在注释里），用户点一次下拉就没了，且无提示。
+`config_io` 支持空 `section_path` 写**顶层键**（`engine` 就是顶层），缩进按 0 算 ——
+曾经按 `indent+2` 写出 `" engine: direct"`，整份 YAML 解析失败。
+
+**③ 打包态 `prompts/` 只有一份真源。** `PROMPTS_DIR` 由 `_set_root()` 随 `--root` 派生
+（workspace 优先、代码区兜底），与流水线 `load_template` 的 cwd 相对读取同源。
+此前 GUI 写 `resources/payload/prompts`、运行时读 `workspace/prompts` ——
+界面说「下次运行生效」，实际永远不生效。**新增任何路径常量都要在 `_set_root` 里刷新。**
 
 ## 架构：API 层的域模块拆分（P2）
 

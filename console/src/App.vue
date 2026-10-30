@@ -1747,7 +1747,9 @@ async function refreshModels() {
     // 构建服务商选项列表
     providerOptions.value = Object.entries(r.data.providers).map(([pid, p]) => ({
       id: pid,
-      name: pid + (p.has_key ? " ✓" : " ✗"),
+      // 只给“缺失”加后缀：✓ 满屏都是的时候，反而看不出哪家真有问题
+      // （新界面下方服务商卡片已经在显示密钥状态，这里只保留警示信息）
+      name: pid + (p.has_key ? "" : "（缺 Key）"),
       has_key: p.has_key,
     }));
     say("已刷新");
@@ -1793,6 +1795,36 @@ async function refreshFetchedModels() {
     say(`同步失败: ${e.message}（检查 nf_api 是否在线）`);
   } finally {
     fetchingModels.value = false;
+  }
+}
+
+// 角色的用途说明（设置页“角色模型”表格用）。键必须与 config/system.yaml
+// 的 model.* 一致 —— 多出/缺少的角色在表格里会露出英文键名，那本身就是提示。
+const ROLE_USE = {
+  default: "兜底（未单独指定的调用）",
+  architect: "设定 / 世界观",
+  outliner: "大纲",
+  writer: "正文写作",
+  checker: "逻辑检查",
+  reviewer: "审稿",
+  polisher: "润色",
+};
+
+// 切换执行引擎。2026-10-31 之前界面上只有一行只读文字，切引擎必须手改 YAML。
+const engBusy = ref(false);
+async function switchEngine(eng) {
+  if (!models.value || models.value.engine === eng || engBusy.value) return;
+  engBusy.value = true;
+  try {
+    const r = await api("/config/engine", "POST", { engine: eng });
+    if (r.status === 200) {
+      models.value.engine = r.data.engine;
+      say(r.data.message || "已切换引擎");
+    } else {
+      say("切换失败: " + (r.data?.error || r.status));
+    }
+  } finally {
+    engBusy.value = false;
   }
 }
 
@@ -2008,6 +2040,27 @@ const promptBackups = ref([]);
 const promptBackupSel = ref("");   // 选中的历史备份（待回滚）
 const promptDirty = ref(false);
 const promptLoading = ref(false);
+// 出厂副本盘点：{name: {has_factory, diff:{current_lines, factory_lines, identical}}}
+// 用户 2026-10-31：“如果被用户改坏了却不能还原默认提示词，就失去了最后的保底”——
+// 保底在不在必须**看得见**，而不是点一下按钮才发现没有。
+const promptFactory = ref({});
+
+async function loadPromptFactory() {
+  const r = await api("/prompts/factory", "GET");
+  if (r.status !== 200 || !r.data?.items) return;
+  const m = {};
+  for (const it of r.data.items) m[it.name] = it;
+  promptFactory.value = m;
+}
+
+function hasFactory(name) {
+  return !!(name && promptFactory.value[name]?.has_factory);
+}
+
+// 当前模板是否已经等于出厂版（一致就没必要给"还原"按钮，避免误点覆盖自己刚改的）
+function factoryIdentical(name) {
+  return !!promptFactory.value[name]?.diff?.identical;
+}
 
 async function loadPromptList() {
   if (!window.mofangAPI?.promptsList) {
@@ -2020,6 +2073,7 @@ async function loadPromptList() {
     return;
   }
   promptFiles.value = r.items || [];
+  loadPromptFactory();
   if (!promptName.value && promptFiles.value.length) {
     openPrompt(promptFiles.value[0].name);
   }
@@ -2060,6 +2114,28 @@ async function restorePrompt(backup) {
     loadPromptList();
   } else {
     say("回滚失败: " + (r.data?.error || r.status));
+  }
+}
+
+// 还原**出厂默认**（读 prompts/factory/，与 history 回滚是两件事）。
+// history 存的是“你改过的版本”，它救不了三种事故：滚动淘汰（只留最近 50 份）、
+// 用外部编辑器手改（history 里什么都没记）、升级覆盖。出厂副本只由发版流程写入。
+async function restorePromptFactory() {
+  if (!promptName.value) return;
+  const d = promptFactory.value[promptName.value]?.diff || {};
+  if (!window.confirm(
+      "把 " + promptName.value + " 还原成出厂默认？\n\n"
+      + "· 出厂版：" + (d.factory_lines ?? "?") + " 行；你现在的版本："
+      + (d.current_lines ?? "?") + " 行\n"
+      + "· 你现在的版本会先存入 prompts/history/（还原本身也可撤销）\n"
+      + "· 还原后编辑器会重新载入")) return;
+  const r = await api("/prompts/factory_restore", "POST", { name: promptName.value });
+  if (r.status === 200) {
+    say(r.data?.message || "已还原出厂默认");
+    await openPrompt(promptName.value);
+    loadPromptList();
+  } else {
+    say("还原失败: " + (r.data?.error || r.status));
   }
 }
 
@@ -5536,82 +5612,140 @@ onUnmounted(() => {
         <div class="set-panes">
           <div class="set-pane" v-show="settingsTab === 'model'">
       <h4>引擎与模型（config/system.yaml）</h4>
-      <!-- 模型使用免责声明（2026-10-04 用户指定文案，原样照录，静态展示，勿改写） -->
-      <div class="model-disclaimer">若您的AI订阅仅可在编程工具（如 OpenClaw、OpenCode 等）中使用，请务必开启绒花墨坊的Agent模式，使用外部Agent调用绒花墨坊。否则您可能因以API调用的形式用于自动化脚本、自定义应用程序后端等被AI提供商封禁。因此造成的一切损失与绒花墨坊无关。若您继续使用绒花墨坊，则代表您已知悉并同意以上内容。</div>
-      <div class="meta">
-        engine: {{ models.engine === 'hermes' ? 'Hermes 子会话（走订阅）' : '直连模型（按量计费）' }} · 下拉来源：{{ modelSource === 'fetched' ? '服务商动态拉取' : 'config 手写列表' }}
-        <button class="mini" style="margin-left: 8px;" @click="refreshModels" title="从 config/system.yaml 重载">刷新</button>
-        <button class="mini" style="margin-left: 8px;" @click="refreshFetchedModels" :disabled="fetchingModels">
-          {{ fetchingModels ? '同步中…' : '↻ 同步服务商模型' }}
-        </button>
-      </div>
-      <div v-for="(m, role) in models.model" :key="role" class="art-row">
-        <span class="pill st-done">{{ role }}</span>
-        <span class="art-path">{{ m.provider }} / {{ m.id }}</span>
-        <span class="spacer"></span>
-        <select :value="m.id" @change="switchModel(role, $event.target.value)" class="model-select">
-          <option v-for="opt in providerModelOptions(m.provider, m.id)" :key="opt" :value="opt">{{ opt }}</option>
-        </select>
-        <select v-model="m.provider" @change="switchProvider(role, m.provider)" class="provider-select">
-          <option v-for="p in providerOptions" :key="p.id" :value="p.id">{{ p.name }}</option>
-        </select>
-      </div>
-      <div class="art-row" style="margin-top: 8px;">
-        <span class="pill st-done">搜索模型</span>
-        <input v-model="modelSearch" placeholder="输入关键词过滤..." class="model-input" />
-        <button class="mini" @click="modelSearch = ''" v-if="modelSearch">×</button>
-        <span class="meta" style="margin-left: auto;">全部 {{ modelOptions.length }} 个（下拉按该角色的供应商过滤）</span>
-      </div>
-      <div class="art-row" style="margin-top: 8px;">
-        <span class="pill st-done">手动添加</span>
-        <input v-model="newModelName" placeholder="输入模型名（如 kimi-k2.5）" class="model-input" />
-        <button class="mini" @click="addManualModel">+ 添加</button>
-      </div>
-      <div class="meta" style="margin-top: 12px;">
-        改模型：下拉切换后立即写入 config/system.yaml，下次运行阶段时生效。
-        <br>architect=设定/世界观 | outliner=大纲 | writer=写作 | checker=检查 | reviewer=审核 | polisher=润色
-        <br>⚠️ **换供应商后请顺手确认模型**：模型名不通用（换了 provider 却留着旧模型名 → 运行时直接 404）。
-        下拉里的候选项来自该供应商的 <code>available_models</code>；清单里没有的模型可先“手动添加”。
+
+      <!-- ① 运行引擎（2026-10-31 之前只有一行只读文字，用户只能手改 YAML） -->
+      <div class="eng-block">
+        <div class="eng-head">
+          <span class="eng-label">运行引擎</span>
+          <span class="meta">对下一次运行生效，不需要重启客户端</span>
+        </div>
+        <div class="eng-cards">
+          <button class="eng-card" :class="{ on: models.engine === 'direct' }"
+                  :disabled="engBusy" @click="switchEngine('direct')">
+            <div class="eng-card-top">
+              <span class="eng-name">直连模型</span>
+              <span v-if="models.engine === 'direct'" class="eng-badge">使用中</span>
+            </div>
+            <div class="eng-desc">程序自己调 API 接口，按用量计费。需要先备好 API Key。</div>
+            <div class="eng-tags"><span>按 token 计费</span><span>止烧阈值有效</span></div>
+          </button>
+          <button class="eng-card" :class="{ on: models.engine === 'hermes' }"
+                  :disabled="engBusy" @click="switchEngine('hermes')">
+            <div class="eng-card-top">
+              <span class="eng-name">Agent 子会话</span>
+              <span v-if="models.engine === 'hermes'" class="eng-badge">使用中</span>
+            </div>
+            <div class="eng-desc">由外部 Agent（编程工具里的助手）驱动，走你的订阅额度。</div>
+            <div class="eng-tags"><span>走订阅</span><span>右下的角色模型不参与</span></div>
+          </button>
+        </div>
+        <div class="meta eng-note" v-if="models.engine === 'hermes'">
+          agent 模式下 model.* 不参与运行 —— 模型由外部 Agent 决定；止烧改看“预算与止烧”的 token 上限。
+        </div>
+        <div class="meta eng-note" v-else>
+          直连模式下每个角色按下面的表格各取一个模型；<b>换供应商后请顺手确认模型</b>
+          （模型名不通用，换了 provider 却留着旧模型名会直接 404）。
+        </div>
       </div>
 
-      <!-- 服务商与密钥状态 -->
-      <h4 style="margin-top: 16px;">服务商与 API Key</h4>
-      <div v-if="providers" v-for="(p, pid) in providers" :key="pid" class="provider-row">
-        <span class="pill st-done">{{ pid }}</span>
-        <span class="art-path">{{ p.base_url }}</span>
-        <span class="spacer"></span>
-        <span v-if="p.has_key" class="key-status ok">✓ 已配置 ({{ p.key_mask }})</span>
-        <span v-else class="key-status bad">✗ 缺失 ({{ p.api_key_env }})</span>
-        <button class="mini" v-if="!p.has_key" @click="startEnvEdit(pid)">填入 Key</button>
-        <template v-else>
-          <button class="mini" @click="startEnvEdit(pid)">替换</button>
-          <button class="mini" @click="saveEnvKey(pid, true)" title="删除 .env 里这一行">清除</button>
-        </template>
+      <!-- ② 角色模型 -->
+      <div class="eng-block">
+        <div class="eng-head">
+          <span class="eng-label">角色模型</span>
+          <span v-if="models.engine === 'hermes'" class="pill st-gate"
+                title="agent 模式下模型由外部 Agent 决定，这张表只在直连模式生效">agent 模式下不参与</span>
+          <span class="meta">下拉只列该角色当前供应商的清单 · 来源：{{ modelSource === 'fetched' ? '服务商动态拉取' : 'config 手写列表' }}</span>
+        </div>
+        <div class="rm-toolbar">
+          <input v-model="modelSearch" class="rm-search" placeholder="按名字过滤（下面每个下拉同时生效）" />
+          <button class="mini" v-if="modelSearch" @click="modelSearch = ''">清空过滤</button>
+          <span class="spacer"></span>
+          <span class="meta">{{ modelOptions.length }} 个可选</span>
+          <button class="mini" @click="refreshModels" title="从 config/system.yaml 重载">刷新</button>
+          <button class="mini" @click="refreshFetchedModels" :disabled="fetchingModels">
+            {{ fetchingModels ? '同步中…' : '↻ 同步服务商模型' }}
+          </button>
+        </div>
+        <div class="rm-table" :class="{ 'rm-inactive': models.engine === 'hermes' }">
+          <div class="rm-head">
+            <span>角色</span><span>用途</span><span>供应商</span><span>模型</span>
+          </div>
+          <div v-for="(m, role) in models.model" :key="role" class="rm-row">
+            <span class="rm-role">{{ role }}</span>
+            <span class="rm-use">{{ ROLE_USE[role] || '' }}</span>
+            <select class="provider-select" v-model="m.provider"
+                    @change="switchProvider(role, m.provider)">
+              <option v-for="p in providerOptions" :key="p.id" :value="p.id">{{ p.name }}</option>
+            </select>
+            <select class="model-select" :value="m.id"
+                    @change="switchModel(role, $event.target.value)">
+              <option v-for="opt in providerModelOptions(m.provider, m.id)" :key="opt" :value="opt">{{ opt }}</option>
+            </select>
+          </div>
+          <div v-if="!models.model || !Object.keys(models.model).length" class="empty">
+            配置里还没有角色模型条目
+          </div>
+        </div>
+        <div class="rm-foot">
+          <span class="meta">清单里没有的模型可以先手动加：</span>
+          <input v-model="newModelName" placeholder="模型名，如 kimi-k2.5" class="rm-search" />
+          <button class="mini" @click="addManualModel">+ 添加</button>
+        </div>
       </div>
-      <div v-if="envEditing" class="art-row" style="margin-top: 8px;">
-        <span class="pill st-done">写入 {{ (providers && providers[envEditing] && providers[envEditing].api_key_env) || '' }}</span>
-        <input type="password" v-model="envValue" placeholder="粘贴 API Key（不回显已存值）"
-               class="model-input" style="max-width: 320px;"
-               @keyup.enter="saveEnvKey(envEditing)" />
-        <button class="mini primary" @click="saveEnvKey(envEditing)">保存</button>
-        <button class="mini" @click="cancelEnvEdit">取消</button>
+
+      <!-- ③ 服务商与密钥 -->
+      <div class="eng-block">
+        <div class="eng-head">
+          <span class="eng-label">服务商与 API Key</span>
+          <span class="meta">Key 写入项目 <code>.env</code>（不进 git、界面从不回显明文）</span>
+        </div>
+        <div class="prov-grid">
+          <div v-for="(p, pid) in providers" :key="pid" class="prov-card">
+            <div class="prov-top">
+              <b>{{ pid }}</b>
+              <span v-if="p.has_key" class="prov-key ok">已配置 {{ p.key_mask }}</span>
+              <span v-else class="prov-key bad">缺 Key</span>
+            </div>
+            <div class="prov-url">{{ p.base_url }}</div>
+            <div class="prov-env">密钥变量 <code>{{ p.api_key_env }}</code></div>
+            <div class="prov-actions">
+              <button v-if="!p.has_key" class="mini primary" @click="startEnvEdit(pid)">填入 Key</button>
+              <template v-else>
+                <button class="mini" @click="startEnvEdit(pid)">替换</button>
+                <button class="mini" @click="saveEnvKey(pid, true)" title="删除 .env 里这一行">清除</button>
+              </template>
+            </div>
+          </div>
+          <div v-if="!providers || !Object.keys(providers).length" class="empty">
+            配置里还没有服务商
+          </div>
+        </div>
+        <div v-if="envEditing" class="art-row" style="margin-top: 10px;">
+          <span class="pill st-done">写入 {{ (providers && providers[envEditing] && providers[envEditing].api_key_env) || '' }}</span>
+          <input type="password" v-model="envValue" placeholder="粘贴 API Key（不回显已存值）"
+                 class="model-input" style="max-width: 320px;"
+                 @keyup.enter="saveEnvKey(envEditing)" />
+          <button class="mini primary" @click="saveEnvKey(envEditing)">保存</button>
+          <button class="mini" @click="cancelEnvEdit">取消</button>
+        </div>
+        <div class="meta" style="margin-top: 8px;">
+          保存后<b>立即生效、无需重启</b>；已存值只显示前几位与后几位。
+          <b>配置 Key 只需点上面的“填入 Key”</b>，不必手动编辑文件。.env 含明文密钥，
+          故刻意不提供“用外部编辑器一键打开”（编辑器插件 / AI 工具可能读取）。
+          <button class="mini" style="margin-left: 8px;" @click="envConfirmOpen = true"
+                  title="在资源管理器中定位 .env（只定位，不代为打开；点击后需确认）">在文件夹中显示</button>
+        </div>
       </div>
-      <div class="meta" style="margin-top: 8px;">
-        Key 写入项目 <code>.env</code>（不进 git、界面内从不回显明文）；保存后<b>立即生效、无需重启</b>；已存值只显示前后各几位。
-      </div>
-      <div style="display: flex; gap: 8px; margin-top: 8px; align-items: center;">
-        <button class="mini" @click="envConfirmOpen = true" title="在资源管理器中定位 .env（只定位，不代为打开；点击后需确认）">在文件夹中显示</button>
-      </div>
-      <div class="meta" style="margin-top: 4px;">
-        <b>配置 Key 只需点上面的“填入 Key”</b>，不必手动编辑文件。.env 含明文密钥，
-        故刻意不提供“用外部编辑器一键打开”（编辑器插件 / AI 工具可能读取）；
-        确需手动编辑时，用“在文件夹中显示”定位后自行打开。
-      </div>
-      <div class="art-row" style="margin-top: 10px;">
-        <span class="pill st-done">免责声明</span>
-        <span class="meta">AI 订阅合规 · 内容权属 · 风险自担 · 首次使用需确认</span>
-        <span class="spacer"></span>
-        <button class="mini" @click="openDisclaimer('view')">查看完整声明</button>
+
+      <!-- ④ 合规提示（2026-10-04 用户指定文案，原样照录，静态展示，勿改写） -->
+      <div class="eng-block">
+        <div class="eng-head">
+          <span class="eng-label">合规提示</span>
+          <span class="pill st-gate">免责声明</span>
+          <span class="spacer"></span>
+          <button class="mini" @click="openDisclaimer('view')">查看完整声明</button>
+        </div>
+        <div class="model-disclaimer">若您的AI订阅仅可在编程工具（如 OpenClaw、OpenCode 等）中使用，请务必开启绒花墨坊的Agent模式，使用外部Agent调用绒花墨坊。否则您可能因以API调用的形式用于自动化脚本、自定义应用程序后端等被AI提供商封禁。因此造成的一切损失与绒花墨坊无关。若您继续使用绒花墨坊，则代表您已知悉并同意以上内容。</div>
       </div>
           </div><!-- /set-pane model -->
           <div class="set-pane" v-show="settingsTab === 'notify'">
@@ -5965,6 +6099,9 @@ onUnmounted(() => {
       <h4 style="margin-top: 16px;">提示词模板（prompts/stage[1-7]_*.md）</h4>
       <div class="meta" style="margin-bottom: 8px;">
         直接编辑阶段提示词；保存前自动备份旧版到 prompts/history/，下次运行对应阶段生效。
+        <br>改坏了可以两步退回去：<b>回滚到此版本</b>（取你自己的历史备份）或
+        <b>还原出厂默认</b>（取随包固化、你改不到的出厂版；只有它能在
+        “history 被滚动淘汰 / 用外部编辑器手改 / 升级覆盖”之后救回来）。
       </div>
       <div class="prompt-editor">
         <div class="prompt-list">
@@ -5988,6 +6125,9 @@ onUnmounted(() => {
             <span class="spacer"></span>
             <button class="mini" :disabled="!promptName || promptLoading" @click="loadPromptList">刷新列表</button>
             <button class="mini" :disabled="!promptName || promptLoading" @click="openPrompt(promptName)">放弃修改</button>
+            <button class="mini" :disabled="!promptName || !hasFactory(promptName) || factoryIdentical(promptName)"
+                    :title="!hasFactory(promptName) ? '随包版本里没有这一份的出厂副本' : (factoryIdentical(promptName) ? '当前已与出厂默认一致' : '用随包的出厂版覆盖当前内容（当前版会先存进 history）')"
+                    @click="restorePromptFactory">还原出厂默认</button>
             <button class="mini primary" :disabled="!promptName || !promptDirty" @click="savePrompt">保存</button>
           </div>
           <textarea class="prompt-text" v-model="promptContent" @input="promptDirty = true"
@@ -5995,6 +6135,18 @@ onUnmounted(() => {
                     placeholder="从左侧列表选择一个模板文件…"></textarea>
           <div class="meta" style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
             <span>共 {{ promptContent.length }} 字符</span>
+            <!-- 保底状态（2026-10-31）：改坏之前就要知道"能不能还原" -->
+            <template v-if="promptName">
+              <span v-if="!hasFactory(promptName)" class="pill st-gate"
+                    title="随包版本里没有这一份的出厂副本——别把它改坏，history 只在你保存过之后才有留档">
+                无出厂副本
+              </span>
+              <span v-else-if="factoryIdentical(promptName)" class="pill st-done">= 出厂默认</span>
+              <span v-else class="pill st-running"
+                    :title="'出厂 ' + (promptFactory[promptName]?.diff?.factory_lines ?? '?') + ' 行 / 当前 ' + (promptFactory[promptName]?.diff?.current_lines ?? '?') + ' 行'">
+                已被修改（有出厂保底）
+              </span>
+            </template>
             <template v-if="promptBackups.length">
               <span>· 历史备份 {{ promptBackups.length }} 份（最多留 50 份）</span>
               <select v-model="promptBackupSel" class="model-select" style="max-width: 260px;">

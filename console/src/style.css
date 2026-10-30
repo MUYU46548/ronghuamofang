@@ -497,8 +497,26 @@ body {
 .stat-label { font-size: 12px; color: var(--muted); }
 .stat-val { font-size: 22px; font-weight: 700; color: var(--ink); margin: 4px 0; }
 .stat-sub { font-size: 11px; color: var(--muted); }
-.model-select { border: 1px solid var(--border); border-radius: 8px; padding: 4px 8px; font-size: 12.5px; color: var(--ink); background: var(--field); cursor: pointer; }
-.model-select:focus { outline: none; border-color: var(--accent); }
+/* 所有原生下拉/输入框共用同一组外观变量。
+   为什么列这么长（2026-10-31 实测）：`.provider-select / .bp-select /
+   .style-rule-select / .judge-ev-class / .fr-select / .bs-select` **六个类名
+   都没有自己的样式定义** —— 暗色主题下它们是浏览器原生白底白框，在深色面板上
+   刺眼，而亮色主题下又和周围圆角/边距不一致。同一个缺陷散在六个面板里，
+   谁改自己那一页就只修一处（正是「判据写 N 份」的老毛病）。
+   现在**一处定义、按类名列出**：以后新增下拉请把类名加进这两条选择器，
+   不要另写一份 background/border。 */
+.model-select, .provider-select, .bp-select, .style-rule-select,
+.judge-ev-class, .fr-select, .bs-select {
+  border: 1px solid var(--border); border-radius: 8px; padding: 4px 8px;
+  font-size: 12.5px; color: var(--ink); background: var(--field); cursor: pointer;
+}
+.model-select:focus, .provider-select:focus, .bp-select:focus,
+.style-rule-select:focus, .judge-ev-class:focus, .fr-select:focus,
+.bs-select:focus { outline: none; border-color: var(--accent); }
+/* 展开后的原生下拉面板也要上色：不设的话暗色主题里展开是一整片白，与面板断层 */
+.model-select option, .provider-select option, .bp-select option,
+.style-rule-select option, .judge-ev-class option, .fr-select option,
+.bs-select option { background: var(--field); color: var(--ink); }
 .text-input { flex: 1; min-width: 120px; border: 1px solid var(--border); border-radius: 8px; padding: 5px 9px; font-size: 12.5px; color: var(--ink); background: var(--field); }
 .text-input:focus { outline: none; border-color: var(--accent); }
 
@@ -1829,3 +1847,163 @@ kbd {
   margin: 4px 0 0; padding-left: 20px;
   font-size: 12.5px; color: var(--ink); line-height: 1.9;
 }
+
+/* ==========================================================================
+   引擎与模型（设置页 · 2026-10-31 重做）
+   之前是「一行只读的 engine 文字 + 六行原生 select 堆在 art-row 里」，
+   而且 engine **根本改不了**（只能手改 YAML）。现在分四块：
+     ① 运行引擎（可点选的两张卡）② 角色模型（表格式）③ 服务商与密钥 ④ 合规提示
+   所有颜色只取主题变量 —— 硬编码色值在暗色/粉色主题下会瞎眼（GUI 纪律③）。
+   ========================================================================== */
+.eng-block {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--field);
+  padding: 12px 14px 14px;
+  margin: 12px 0;
+}
+.eng-head {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.eng-label { font-weight: 600; font-size: 13.5px; color: var(--ink); }
+.eng-note { margin-top: 10px; line-height: 1.7; }
+
+/* ① 引擎卡片 */
+.eng-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+}
+.eng-card {
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--field-inset);
+  padding: 12px 14px;
+  cursor: pointer;
+  transition: border-color .15s, background .15s, box-shadow .15s;
+  display: flex; flex-direction: column; gap: 6px;
+  font: inherit; color: var(--ink);
+}
+.eng-card:hover:not(:disabled) { background: var(--field-hover); }
+.eng-card.on {
+  border-color: var(--accent);
+  background: var(--field-on);
+  box-shadow: inset 0 0 0 1px var(--accent-soft);
+}
+.eng-card:disabled { opacity: .6; cursor: progress; }
+.eng-card-top { display: flex; align-items: center; gap: 8px; }
+.eng-name { font-weight: 600; font-size: 13.5px; }
+.eng-badge {
+  margin-left: auto;
+  font-size: 11px; font-weight: 600;
+  color: var(--ink-accent);
+  background: var(--accent-soft);
+  border-radius: 999px;
+  padding: 2px 9px;
+}
+.eng-desc { font-size: 12.5px; color: var(--muted); line-height: 1.65; }
+.eng-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
+.eng-tags span {
+  font-size: 11px;
+  color: var(--ink-mute);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 8px;
+  background: var(--field-dim);
+}
+
+/* ② 角色模型表 */
+.rm-toolbar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+.rm-search {
+  flex: 0 1 260px;
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--card);
+  color: var(--ink);
+  font-size: 12.5px;
+}
+.rm-search:focus { outline: 1px solid var(--accent); }
+.rm-table {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.rm-head, .rm-row {
+  display: grid;
+  grid-template-columns: 92px minmax(110px, 1fr) 150px minmax(170px, 1.5fr);
+  gap: 10px;
+  align-items: center;
+  padding: 8px 12px;
+}
+.rm-head {
+  background: var(--field-head);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: .02em;
+}
+.rm-row { border-top: 1px solid var(--border); }
+.rm-row:hover { background: var(--field-hover); }
+.rm-role {
+  font-size: 12.5px; font-weight: 600; color: var(--ink);
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+}
+.rm-use { font-size: 12px; color: var(--muted); }
+.rm-row .model-select, .rm-row .provider-select { width: 100%; }
+.rm-foot {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+/* ③ 服务商卡片 */
+.prov-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+}
+.prov-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--field-inset);
+  padding: 10px 12px 12px;
+  display: flex; flex-direction: column; gap: 5px;
+}
+.prov-top { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.prov-key {
+  margin-left: auto;
+  font-size: 11px; font-weight: 600;
+  border-radius: 999px; padding: 2px 9px;
+  border: 1px solid var(--border);
+}
+.prov-key.ok { color: var(--ink-ok); background: var(--field-dim); }
+.prov-key.bad { color: var(--ink-bad); background: var(--field-dim); }
+.prov-url {
+  font-size: 11.5px; color: var(--muted);
+  word-break: break-all;
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+}
+.prov-env { font-size: 11.5px; color: var(--muted); }
+.prov-actions { display: flex; gap: 6px; margin-top: 4px; }
+
+/* 窄窗口：角色表退化为两行（角色/用途一行，两个下拉一行），不让下拉被压成 30px */
+@media (max-width: 720px) {
+  .rm-head { display: none; }
+  .rm-row {
+    grid-template-columns: 92px 1fr;
+    row-gap: 6px;
+  }
+  .rm-row .provider-select, .rm-row .model-select { grid-column: span 1; }
+}
+
+/* agent 模式下角色模型表不生效 —— 视觉上退后一档（可点、可改，但不再抢注意力） */
+.rm-table.rm-inactive { opacity: .62; }
+.rm-table.rm-inactive .rm-row:hover { background: transparent; }
+
+/* （下拉框外观已统一到文件上方那条多类名选择器 —— 六类共用一处定义，
+   不要再在这里加第二份 background/border。） */

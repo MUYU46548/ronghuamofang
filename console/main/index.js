@@ -379,7 +379,14 @@ function getWorkspaceSource() {
 //   · 前端（asar，不走种子）：项目页出厂徽标 / 启动提示词剥离说明书 /
 //     阶段复制改任务简报（原样贴模板会被外部 Agent 按红线判「模板不是任务」停工）。
 // **先 bump 再 electron-builder**。
-const SEED_VERSION = 64;   // 0.7.21: 判定报告上屏证据分级（能力区 / demo 区）
+const SEED_VERSION = 65;   // 0.7.22: 提示词出厂保底 + 引擎可切换 + 配置写入不再吃注释
+                            //   · scripts/prompts 变更：新增 scripts/prompt_factory.py、
+                            //     新增 prompts/factory/（16 份出厂副本，**不 seed 用户就拿不到保底**）、
+                            //     obsidian_bridge 排除项热更、nf_api 的 PROMPTS_DIR 改为随 --root 派生
+                            //     （此前打包态「界面写 payload、运行时读 workspace」）、
+                            //     config_io 支持顶层键、/config/engine 新增、配置写入改定向改写
+                            //   · 前端（asar，不走种子）：设置页「引擎与模型」重做
+                            // 0.7.21: 判定报告上屏证据分级（能力区 / demo 区）
                             // 0.7.20: 拆锁③——默认不注入风格规格（book.style_rule 显式选择才注入）
                             // 0.7.19: 判定引擎收口（影响面预览 / 成品过期 / 证据分级）
                             // 0.7.18: 判定引擎吃用户行内大纲形态 + 骨架解析不再崩
