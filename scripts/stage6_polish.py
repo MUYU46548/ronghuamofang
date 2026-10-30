@@ -159,10 +159,12 @@ def _load_reference_features(style_ref):
     return feats
 
 
-def build_polish_task(proj, checked_dir, refined_dir, chapters, vol_index=None):
+def build_polish_task(proj, checked_dir, refined_dir, chapters, vol_index=None,
+                      report_path=None):
     checked = Path(checked_dir).resolve()
     listing = "\n".join(f"- 第{n}章: {checked / f'{n:02d}.md'}" for n in chapters)
-    report_path = _report_path(vol_index)
+    report_path = (Path(report_path).resolve() if report_path
+                   else _report_path(vol_index))
 
     # 加载文风参考：量化风格指令 + 范文原文片段（few-shot）+ 用户手写的风格笔记
     book = proj.get("book", {})
@@ -238,28 +240,60 @@ def _append_drift_report(report_path, sections):
 
 
 def _run_one_volume(client, task_dir, vol_index, proj, checked_dir, refined_dir, vol_chapters, run_id, cost):
-    """执行单个润色卷，返回 (ok, msg, vol_chapters)。"""
+    """执行单个润色卷，返回 (ok, msg, vol_chapters)。
+
+    ## 为什么一卷拆成逐章请求（2026-10-30）
+
+    旧实现是「整卷一次 run_task」：40 章、`parallelism.polish=3` → 一次要回 13 章
+    全文（≈10 万字）。任何 max_tokens 都装不下：direct 下必截断（不落盘、退出码 2）；
+    agent 子会话没有 max_tokens 旋钮，模型会自己删内容或只写回前几章 → `missing`
+    把整卷判失败 —— 卷越大越必然失败。容量校验也因此只能拿**单章**字数去比
+    max_tokens，低估一个数量级。
+
+    现在：一次请求只润**一章**（请求单元 == 容量校验单元），卷内逐章记账、逐章查
+    熔断、逐章判产物是否可用；卷内已合格的章支持断点续跑（重跑只补缺的章）。
+    并发仍是「卷 × parallelism.polish」，整体时延不变。
+    """
     checked = Path(checked_dir).resolve()
     refined = Path(refined_dir).resolve()
-    content = build_polish_task(proj, checked, refined, vol_chapters, vol_index=vol_index)
-    task_path = client.write_task(task_dir, f"stage6_polish_vol{vol_index}.md", content)
-    result = client.run_task(task_path)
-    if cost and run_id:
-        # 卷间熔断（2026-10-01）：同 stage5 —— 阶段内不查预算的话，
-        # 限额对"一轮润完几十万字"这种最需要保护的情形恰好失效。
-        state = cost.charge_cost(run_id, 6, vol_chapters[0] if vol_chapters else 0, result)
-        if state == "pause":
-            # 熔断口径见 CostTracker.status_detail（金额 or token —— hermes 下只有 token）
-            _detail = _pause_detail(cost, run_id)
-            return False, (f"stage6 熔断停止[{_detail['reason']}]：{_detail['message']}"
-                           "（累计 token=%d）—— 调大 budget.token_limit.max_total_tokens "
-                           "后重跑；已完成的卷保留"
-                           % _detail["tokens"]), vol_chapters
-    if result["exit_code"] != 0:
-        return False, f"stage6 卷{vol_index} 子会话失败", vol_chapters
+    vol_report = _report_path(vol_index)
+    done = 0
+    for n in vol_chapters:
+        if is_usable_output(checked / f"{n:02d}.md", refined / f"{n:02d}.md"):
+            continue
+        # 本章「修改清单」先写临时文件，成功后再追加进卷报告 —— 逐章请求若都写同一个
+        # 报告路径，FILE 协议是**覆盖**语义，后一章会把前一章的清单冲掉。
+        tmp_report = (Path("data/outline") / f".polish_ch{n:02d}.md").resolve()
+        tmp_report.parent.mkdir(parents=True, exist_ok=True)
+        content = build_polish_task(proj, checked, refined, [n], vol_index=vol_index,
+                                   report_path=tmp_report)
+        task_path = client.write_task(
+            task_dir, f"stage6_polish_vol{vol_index}_ch{n:02d}.md", content)
+        result = client.run_task(task_path)
+        if cost and run_id:
+            # 章间熔断（2026-10-01 口径不变）：一卷十几章，卷间才查等于没查。
+            state = cost.charge_cost(run_id, 6, n, result)
+            if state == "pause":
+                _detail = _pause_detail(cost, run_id)
+                return False, (f"stage6 熔断停止[{_detail['reason']}]：{_detail['message']}"
+                               "（累计 token=%d）—— 调大 budget.token_limit.max_total_tokens "
+                               "后重跑；已完成的章保留"
+                               % _detail["tokens"]), vol_chapters
+        if result["exit_code"] != 0:
+            return False, (f"stage6 卷{vol_index} 第{n}章子会话失败"
+                           f"（退出码 {result['exit_code']}）"), vol_chapters
+        try:
+            if tmp_report.exists() and tmp_report.stat().st_size > 0:
+                append_text(vol_report, "\n" + read_text(tmp_report).strip() + "\n")
+                tmp_report.unlink()
+        except Exception as e:                                # noqa: BLE001
+            print(f"[stage6] 第{n}章修改清单归并失败（不影响润色稿）: "
+                  f"{type(e).__name__}: {e}")
+        done += 1
+        print(f"[stage6] 卷{vol_index} 第{n}章润色完成（{done} 章）")
 
     missing = [f"{n:02d}.md" for n in vol_chapters
-               if not (refined / f"{n:02d}.md").exists()]
+               if not is_usable_output(checked / f"{n:02d}.md", refined / f"{n:02d}.md")]
     if missing:
         return False, f"stage6 卷{vol_index} 缺润色文件: {missing}", vol_chapters
 
@@ -328,17 +362,21 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
 
     chapters = [int(f.stem) for f in pending]
 
-    # R01 预算—篇幅联动（0.7.17）：润色阶段要求"全文写入"，装不下就会自己删。
-    # 装不下 → 拒绝执行、一个请求都不发（实测 4000 token ≈ 1400–1800 字）。
-    from utils.judge.budget import check_capacity
+    # R01 预算—篇幅联动（0.7.17；口径 2026-10-30 修正）：请求单元是**一章**，
+    # 所以拿「单章最大字数」比 max_tokens 是对的 —— 前提是每章单独发请求
+    # （见 _run_one_volume 的 docstring：整卷一次发时这里低估一个数量级）。
+    # 装不下 → 拒绝执行、一个请求都不发（否则模型会为了塞进窗口自己删内容）。
+    from utils.judge.budget import check_capacity, effective_max_tokens
     from utils.verify_chapter import count_cn_words as _cwords
     _max_words6 = max((_cwords(f.read_text(encoding="utf-8")) for f in pending), default=0)
-    _ok_cap, _why_cap, _cap = check_capacity(proj, 6, words=_max_words6)
+    _limit6 = effective_max_tokens(cfg, 6)
+    _ok_cap, _why_cap, _cap = check_capacity(proj, 6, max_tokens=_limit6,
+                                             words=_max_words6)
     if not _ok_cap:
         print("[stage6] " + _why_cap)
         progress.set_stage(6, "failed", error=_why_cap)
         return False, _why_cap
-    print("[stage6] 预算校验通过：max_tokens=%s，目标 %s 字（需要 ≥%s）"
+    print("[stage6] 预算校验通过：max_tokens=%s，单章最大 %s 字（需要 ≥%s）"
           % (_cap.get("max_tokens"), _cap.get("target_words"), _cap.get("needed")))
     # 分卷：并发数 = parallelism.polish（默认 3）， ceil 均分
     polish = max(1, int((cfg or {}).get("parallelism", {}).get("polish", 3)))

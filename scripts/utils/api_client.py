@@ -1,16 +1,24 @@
 # -*- coding: utf-8 -*-
-"""子会话执行层封装（外部 CLI 工具调用）。
+"""子会话输出的 **usage 解析 / token 估算**工具（不再执行任何子会话）。
 
-设计要点（架构文档 v2 2.3/2.4）：
-- 任务说明写入自包含 task 文件（data/state/tasks/），子会话用工具读取并执行，
-  规避 Windows 命令行长度限制；
-- 子会话为全新独立会话，任务文件必须自包含全部上下文。
+## 历史（2026-10-30 收敛）
+
+本模块原有一个独立的 `HermesClient` 实现（自己拼 `hermes chat -q`、自己透传 `-m`）。
+它和 `utils.llm_client.HermesClient` 是**两份会各自漂移的同一件事**：
+两者命令行参数不同（一个带 `--format stream-json` + `-t file` + `--max-turns`，
+一个都不带）、停止语义不同、usage 解析也不同。全仓无一处 import 它，纯死代码 ——
+谁照着旧文档用上，就会得到一套没有超时结构化失败、没有工具白名单、
+没有 stream-json 的「另一个引擎」。
+
+现在执行子会话**只有一个实现**：`utils.llm_client.HermesClient`。
+本模块只保留两件纯函数（无进程、无 IO 副作用）：
+- `parse_usage(stdout)`：从自由文本里正则捞 token（历史兜底口径）；
+- `estimate_tokens(task_path)`：解析不到 usage 时按任务文件大小保守估算。
+
+⚠️ 不要在这里重新加执行逻辑 —— 引擎选择只有一个入口：`make_client()`。
 """
 import re
-import subprocess
 from pathlib import Path
-
-from utils.file_io import write_text
 
 TOKEN_IN_RE = re.compile(
     r"(?:tokens_in|prompt_tokens|input_tokens|input)[\s:=]+([\d,]+)", re.IGNORECASE)
@@ -63,49 +71,3 @@ def estimate_tokens(task_path):
     tokens_in = max(1000, int(size * 0.4))
     tokens_out = max(500, tokens_in // 3)
     return tokens_in, tokens_out
-
-
-class HermesClient:
-    def __init__(self, hermes_bin="hermes", timeout=900, model=None):
-        self.hermes_bin = hermes_bin
-        self.timeout = timeout
-        self.model = model  # 阶段模型路由（-m 参数）；None = 用 Hermes 默认
-
-    def run_task(self, task_file, workdir=None, model=None, session_id=None):
-        """运行一个自包含任务文件。
-
-        返回 dict: {exit_code, stdout_tail, tokens, cost_yuan, estimated}
-        tokens/cost 优先从 stdout 解析；解析不到时按任务文件大小保守估算，
-        estimated=True 标记（避免假 0 让预算熔断失效）。
-        """
-        task_path = Path(task_file)
-        cmd = [
-            self.hermes_bin, "chat", "-q",
-            f"阅读并严格按 {task_path} 中的指示执行全部步骤。完成后简要汇报：产物路径、校验结果、遇到的问题。",
-        ]
-        eff_model = model or self.model
-        if eff_model:
-            cmd += ["-m", eff_model]
-        proc = subprocess.run(cmd, capture_output=True, text=True,
-                              timeout=self.timeout, cwd=workdir)
-        stdout = proc.stdout or ""
-        tokens_in, tokens_out, cost_yuan, estimated = parse_usage(stdout)
-        if estimated:
-            est_in, est_out = estimate_tokens(task_path)
-            tokens_in, tokens_out = est_in, est_out
-        return {
-            "exit_code": proc.returncode,
-            "stdout_tail": stdout[-2000:],
-            "tokens": tokens_in,
-            "tokens_out": tokens_out,
-            "cost_yuan": cost_yuan,
-            "estimated": estimated,
-        }
-
-    def write_task(self, task_dir, name, content):
-        """写入任务文件并返回路径。"""
-        task_dir = Path(task_dir)
-        task_dir.mkdir(parents=True, exist_ok=True)
-        path = task_dir / name
-        write_text(path, content)
-        return path

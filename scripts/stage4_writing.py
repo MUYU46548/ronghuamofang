@@ -213,12 +213,22 @@ def _run_task_safe(client, task, on_piece=None, **kw):
     `run_task_stream` 每读一小块就查一次 `stop_flag`，中断能在几秒内收手，
     而且半截正文**不落盘**（`_apply_ops` 被 stop 跳过），断点续跑不会捡到废稿。
 
-    顺带解决「进度颗粒度为零」：`on_piece` 让我们能拿到已生成字数，
-    顶栏于是能显示「正在写第 6 章 · 已 1200 字」，而不是一个不动的百分比。
+    ## 2026-10-30：hermes（agent 模式）也走这条分支
 
-    ⚠️ hermes 引擎不走这条分支：它的会话续接（B2 `--resume`）只接在
-    `run_task` 签名上，改动面比收益大；它自己的 `run_task_stream` 会杀子进程，
-    停止语义已在别处覆盖。
+    以前这里写着 `provider != "hermes"` —— 理由是「它的会话续接只接在 run_task 上」。
+    实际代价是：**在 agent 模式下按停止，要等这一章跑完（最长 `hermes.timeout`=900 秒）**，
+    因为 `run_task` 是 `communicate(timeout=900)` 一把阻塞，中途根本没有检查点。
+    而 `HermesClient.run_task_stream` 早就实现了「逐行读 stream-json + stop 即杀进程树」，
+    只是没被接进来（会话续接在流式里传 session_id 即可，`_build_cmd` 会拼 --resume）。
+
+    所以现在所有引擎统一走流式；`session_id` 照原样透传（不悄悄 pop：
+    实现若漏参数应当场 TypeError，而不是静默丢上下文）。
+
+    ## 越权写盘检测（同批）
+
+    `client.writes_files` 为真（hermes / 任何用文件工具写正文的子会话）时，
+    调用前后各做一次快照比对，把「写了 data/** 之外的文件」变成事实打印出来。
+    这是**检测不是沙箱**（真边界在 hermes 自己的权限设置里，见 utils/write_guard）。
 
     ⚠️ 只兜「客户端调用」这一步：任务构造（write_task/build_chapter_task）
     的异常仍要穿透 —— 那是代码/输入缺陷，吞掉只会让每章都悄悄失败。
@@ -226,16 +236,23 @@ def _run_task_safe(client, task, on_piece=None, **kw):
     stream_ok = (
         on_piece is not None
         and hasattr(client, "run_task_stream")
-        and getattr(client, "provider", "direct") != "hermes"
         and not kw.get("dry_run")
     )
+    # 写盘边界快照（只对「子会话自己写文件」的引擎；direct 的写入经 allowed_paths 白名单）
+    _wg_before = None
+    if getattr(client, "writes_files", False) and not kw.get("dry_run"):
+        try:
+            from utils import write_guard
+            _wg_before = write_guard.snapshot()
+        except Exception as e:                                # noqa: BLE001
+            print(f"[write_guard] 快照失败（本次不做越权写盘检测）: "
+                  f"{type(e).__name__}: {e}")
+            _wg_before = None
     try:
         if stream_ok:
-            # 三个客户端的 run_task_stream 都补了 `session_id`（签名同构），
-            # 所以这里照原样传即可 —— 不"悄悄 pop 掉"：真要是有实现漏了参数，
-            # 应该当场 TypeError 暴露，而不是静默丢上下文。
-            return client.run_task_stream(task, on_piece, _stop_requested, **kw)
-        return client.run_task(task, **kw)
+            res = client.run_task_stream(task, on_piece, _stop_requested, **kw)
+        else:
+            res = client.run_task(task, **kw)
     except Exception as e:                                    # noqa: BLE001
         print(f"[stage4] ⚠ 子会话调用异常（已按失败处理，进度保留）: "
               f"{type(e).__name__}: {str(e)[:200]}")
@@ -245,6 +262,19 @@ def _run_task_safe(client, task, on_piece=None, **kw):
                 "model": getattr(client, "model", "unknown"),
                 "requests": 0, "error": f"{type(e).__name__}: {e}",
                 "transport_error": True}
+    if _wg_before is not None:
+        try:
+            from utils import write_guard
+            _viol = write_guard.diff(_wg_before)
+            if _viol:
+                write_guard.report(_viol, task_name=str(getattr(task, "name", task)))
+                if isinstance(res, dict):
+                    res = dict(res)
+                    res["write_violations"] = _viol
+        except Exception as e:                                # noqa: BLE001
+            print(f"[write_guard] WARN 越权写盘检测失败（不影响写作）: "
+                  f"{type(e).__name__}: {e}")
+    return res
 
 
 def sync_appearances_after_chapter(chapter_text, chapter_no, total_chapters=None):
@@ -917,6 +947,20 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
 
     progress.set_stage(4, "running")
     low, high = cfg.get("chapter", {}).get("target_words", [2000, 3000])[:2]
+    # R01 预算—篇幅联动（2026-10-30 补齐）：stage4 此前是唯一**既没有容量校验、
+    # 也从不设 max_tokens** 的阶段（提示词里的 25000 无人读取）。装不下时模型会
+    # 自己删内容，表现为「每章都短一截」，而 finish_reason 还是 stop —— 既有那道
+    # 「截断即失败」的防线**看不见**（与 stage5 实测 5967→2186 同一机制）。
+    # 这里至少拦住「目标字数根本装不进本阶段输出上限」的配置，并把实际生效值打出来。
+    from utils.judge.budget import check_capacity, effective_max_tokens
+    _limit4 = effective_max_tokens(cfg, 4)
+    _ok4, _why4, _cap4 = check_capacity(proj, 4, max_tokens=_limit4, words=int(high))
+    if not _ok4:
+        print("[stage4] " + _why4)
+        progress.set_stage(4, "failed", error=_why4)
+        return False, _why4
+    print(f"[stage4] 篇幅预算校验通过：输出上限 {_limit4}，单章目标 {low}-{high} 字"
+          f"（需要 ≥{_cap4.get('needed')} token）")
     # 篇幅口径与生成方式的匹配告警（2026-10-26，用户：「弱模型无论怎么骂就是写不长
     # ……所以才需要加强模式来强行拼凑」）。不阻断，只说清楚"你可能需要它"。
     if low >= 4000 and not bool(cfg.get("chapter", {}).get("enhanced_mode", False)):
@@ -938,16 +982,22 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     # 用户原话：「job 状态一直 running，我无法知道内部进度」「卡在 29% 让人觉得坏了」。
     # 有了流式回调，界面可以显示「正在写第 6 章 · 已 1200 字」，而不是一个死数字。
     _ch_state = {"chars": 0, "last_write": 0.0}
+    # 文本流是不是正文？（2026-10-30）
+    #   direct：正文随流产出 → text 就是进度；
+    #   hermes/agent：正文由子会话 write_file 落盘，text 只是助手碎念
+    #   （"我先读取任务文件…"），把它当字数 = 界面显示「已写 1200 字」而正文 0 字。
+    _text_is_prose = not bool(getattr(client, "writes_files", False))
 
-    def _piece_progress(chapter_no):
-        """流式回调：累计模型**文本**输出，并兼任「活动心跳」。
+    def _piece_progress(chapter_no, text_is_prose=True):
+        """流式回调：累计文本流，并兼任「活动心跳」。
 
-        为什么不是字数真相：hermes 用 `write_file` 写正文，它回放的 text 事件
-        只有助手自己的几句话（实测 8 个字），而 `gK.md` 已经几 KB。正文进度由
-        `_file_progress` 按产物文件回报；这里只负责：
-          ① 记录 `current_text_chars`（文本流，排障用）；
-          ② 任何事件都刷新 `current_chars_at` 心跳（工具事件也会 on_piece("")）。
-        `current_chars` 只在还没拿到文件进度时才用文本值，避免把文件字数覆盖掉。
+        分工（2026-10-30 定）：
+          · `current_text_chars`：永远是原始文本流长度，排障用；
+          · `current_chars`：**只在文本流就是正文时**才用它（直连引擎）；
+            agent 模式下由 `_file_progress` 按产物文件回报真实字数 ——
+            宁可显示 0 字也不许把碎念当正文（那是在骗用户）。
+          · `current_chars_at`：任何事件（含工具事件）都刷新，前端据此显示
+            「N 秒无活动」，用来区分「正在写文件」与「卡死」。
         """
         def _on_piece(piece):
             if piece:
@@ -961,7 +1011,7 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                     st = progress.data.setdefault("stages", {}).setdefault("4", {})
                     st["current_chapter"] = chapter_no
                     st["current_text_chars"] = _ch_state["chars"]
-                    if st.get("current_chars_source") != "file":
+                    if text_is_prose and st.get("current_chars_source") != "file":
                         st["current_chars"] = _ch_state["chars"]
                         st["current_chars_source"] = "text"
                     # 最后更新时间（2026-10-27）：只说「已写 1 字」用户分不清是刚起步
@@ -1198,7 +1248,8 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
             ⚠️ `on_piece` 必须传：加强模式是长章的主路径，不传就等于
             「拆群时点停止没反应」——恰好在最需要停的时候失效。
             """
-            r = _run_task_safe(client, tp, on_piece=_piece_progress(n))
+            r = _run_task_safe(client, tp,
+                               on_piece=_piece_progress(n, _text_is_prose))
             if cost and cost.charge_cost(run_id, 4, n, r) == "pause":
                 _bstate["paused"] = True
                 r = dict(r)
@@ -1234,7 +1285,7 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                              daemon=True).start()
             try:
                 result = _run_task_safe(client, task,
-                                        on_piece=_piece_progress(n),
+                                        on_piece=_piece_progress(n, _text_is_prose),
                                         session_id=chapter_session)
             finally:
                 _fp_stop.set()
@@ -1371,7 +1422,10 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                              args=(chap_path, _file_progress(n), _fp_stop),
                              daemon=True).start()
             try:
-                gres = _run_task_safe(client, gtask)
+                # 打回/扩写同样走流式（2026-10-30）：不带 on_piece 就退回阻塞式
+                # run_task，「停止」在重试轮里会再失灵一次 —— 而重试恰恰是最长的路径。
+                gres = _run_task_safe(client, gtask,
+                                      on_piece=_piece_progress(n, _text_is_prose))
             finally:
                 _fp_stop.set()
             if cost:

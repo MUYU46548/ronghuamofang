@@ -95,7 +95,69 @@ def check_capacity(proj, stage, root=".", max_tokens=None, words=None):
     return True, "", detail
 
 
+def effective_max_tokens(cfg, stage, root="."):
+    """本阶段**实际**的输出上限 = min(提示词声明, config 的单请求上限)。
+
+    为什么必须取小（2026-10-30）：direct 引擎真正设进 `payload.max_tokens` 的是
+    config 的 `budget.token_limit.per_request_max_tokens`，提示词 frontmatter 只
+    参与容量校验。两个数字各写一份时，提示词写 40000、config 写 20000 → 校验放行
+    一个注定被截断的请求（半截正文不落盘、退出码 2，白烧一遍输入）。
+    `enabled: false` 时不设上限（老行为），返回提示词声明值。
+    """
+    declared = stage_max_tokens(stage, root)
+    tl = ((cfg or {}).get("budget") or {}).get("token_limit") or {}
+    if not isinstance(tl, dict) or not tl.get("enabled"):
+        return declared
+    try:
+        cap = int(tl.get("per_request_max_tokens") or 0)
+    except (TypeError, ValueError):
+        cap = 0
+    if cap <= 0:
+        return declared
+    return min(declared, cap) if declared else cap
+
+
 def guard_capacity(proj, stage, root=".", words=None):
     """阶段入口用的一行版本：装不下就返回 (False, 人话)。"""
     ok, msg, _detail = check_capacity(proj, stage, root, words=words)
     return ok, msg
+
+
+def words_capacity(max_tokens, root=".", coeff=None, safety=None):
+    """`needed_tokens` 的反函数：**max_tokens 装得下多少字**。
+
+    为什么需要（2026-10-30）：批/卷的尺寸本该由「装得下多少」决定，而旧实现是
+    写死 `batch_size = 5`（stage5）与「整卷一次发」（stage6），容量校验再拿
+    **单章**字数去比 —— 两个数字各说各话，批一多就低估 5 倍、卷一大就低估一个
+    数量级。有了这个反函数，「批多大」与「装得下」就只有一处判据。
+    """
+    c, s, _ = _factors(root)
+    if coeff is not None:
+        c = float(coeff)
+    if safety is not None:
+        s = float(safety)
+    try:
+        limit = int(max_tokens or 0)
+    except (TypeError, ValueError):
+        return 0
+    if limit <= 0 or c <= 0 or s <= 0:
+        return 0
+    return int(limit / (c * s))
+
+
+def items_per_request(max_tokens, words_per_item, root=".", maximum=None):
+    """一次请求最多装几个「字数为 words_per_item」的条目（章）。
+
+    返回值**恒 ≥ 1**：连一页都装不下时也返回 1，让 `check_capacity` 去拒绝并
+    说清「差多少」—— 在这里返回 0 会把调用方变成「一个都不发」且**没有任何
+    报错**（静默空转，正是本项目最忌讳的失败形态）。
+    """
+    cap = words_capacity(max_tokens, root)
+    try:
+        per = int(words_per_item or 0)
+    except (TypeError, ValueError):
+        per = 0
+    k = 1 if per <= 0 or cap <= 0 else max(1, cap // per)
+    if maximum:
+        k = min(k, max(1, int(maximum)))
+    return k

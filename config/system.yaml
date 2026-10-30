@@ -30,12 +30,13 @@ providers:
     - deepseek-v4-pro
     - kimi-k2.6
     - kimi-k3
-    fallback:
-    # ⚠️ fallback 链里不得放**已下线/即将下线**的模型：`_post_chat` 对 400/401/403/404
-    # 直接 raise，死模型一跳就会吃掉链上后续所有兜底（2026-10-09 glm-5 下线 → 已摘除）。
-    - kimi-k2.6
-    - minimax-m2.7
-    - glm-5-turbo
+    fallback: []
+    # ⚠️ 刻意留空（2026-10-30）：原来第一条是 kimi-k2.6（已接近下线）。本链**只在
+    #   engine: direct 下参与运行**，而链上放一个将死的模型 = 第一次 404 就把整条链
+    #   吃掉（2026-10-09 glm-5 下线的同款事故，见上一条注释）。
+    #   要用直连时，按你本地套餐补一条**在役**模型；跨供应商的模型名不能混进来
+    #   （fallback 复用当前 provider 的端点与 Key → 换家的模型名必 404）。
+    #   之所以不替你填：换模型是付费决策，项目纪律是未经用户确认不得指定付费模型。
     disable_thinking_models:
     - minimax-m2.7   # 2026-09-23 实测：默认进思考（reasoning 388 字 / 正文 54 字，输出 token 翻 3 倍）
                      # 注入 payload[0] `thinking:{type:disabled}` 有效（总输出 129→58）；
@@ -78,6 +79,12 @@ providers:
                              #   放 tokenhub 的模型名进来 → 404 → 直接 raise，吃掉整条链）
     # disable_thinking_models 暂不预设：LongCat-2.x 是否默认进思考模式**未实测**。
     # 若实测正文为空/进 reasoning_content，把模型名加进来即可（无需改代码）。
+# ⚠️ 本段**只对 engine: direct 生效**。engine: hermes（agent 模式）下
+#   make_client 硬性不传 -m，一律用 agent 内部配置的模型（见
+#   utils/llm_client.py 的 HermesClient docstring）—— 这里的 id 写了也不参与运行。
+# 当前值 kimi-k2.6 已接近下线：**切 direct 前必须改**成你自己套餐里的在役模型。
+# 之所以留着旧值而不是替你换：更换模型是付费决策（项目纪律：未经用户确认
+# 不得指定/更换付费模型）。可选的在役型号见上面 providers.tokenhub.available_models。
 model:
   default:
     provider: tokenhub

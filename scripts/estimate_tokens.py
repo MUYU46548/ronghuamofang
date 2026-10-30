@@ -36,6 +36,7 @@ sys.path.insert(0, str(SCRIPT_DIR))
 from utils.file_io import read_text                       # noqa: E402
 from utils.cost_tracker import RATES, estimate_cost_yuan  # noqa: E402
 from utils.config_io import load_config_yaml
+from utils.engine import resolve_engine                   # noqa: E402
 
 DEFAULT_CHARS_PER_TOKEN = 1.5
 # 与直连引擎「目录内联」一致的总量上限（超限只 WARN 且静默丢文件）
@@ -170,7 +171,7 @@ def history_stats(stage, db_path="logs/runs.db"):
 
 def _mk_stage(stage, calls, t_in, t_out, cfg, role):
     provider, model = model_for(cfg, role)
-    if (cfg.get("engine") or "direct") == "hermes":
+    if resolve_engine(cfg) == "hermes":
         # engine=hermes：LLM 走 agent 子会话（订阅流量）→ ¥ 预估恒 0（token 预估
         # 保留，真实 usage 照记）。provider 标 hermes 让 cost_tracker 短路、
         # rate_known 与报告口径一致（2026-10-01 排雷 P0-1 配套）。
@@ -354,7 +355,7 @@ def estimate(stages=None, cfg=None, proj=None, use_history=True):
     spent = current_spent()
     total_cost = round(sum(r["cost_yuan"] for r in rows), 4)
     hist_stages = [r["stage"] for r in rows if r.get("source") == "history"]
-    engine = (cfg.get("engine") or "direct")
+    engine = resolve_engine(cfg)
     # token 闸门对照（2026-10-03）：hermes 下 ¥ 预估恒 0，"会不会撞闸门"只能看 token。
     # 判据（预设/归一/边界）在 cost_tracker，这里只做对照与提示。
     from utils.cost_tracker import normalize_token_limit

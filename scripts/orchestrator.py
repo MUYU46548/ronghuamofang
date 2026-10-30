@@ -44,6 +44,7 @@ from utils.stage_select import (mutual_exclusion_error, parse_stages,
 from utils.db import RunDB
 from utils.cost_tracker import CostTracker
 from utils.config_io import load_pipeline_config
+from utils.engine import resolve_engine
 
 import stage1_consolidate as s1
 import stage2_outline as s2
@@ -237,7 +238,7 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
     cfg, proj = load_config()
     _warn_rewrite_conflict(cfg)
     _tl = (cfg.get("budget", {}) or {}).get("token_limit") or {}
-    _engine = cfg.get("engine")
+    _engine = resolve_engine(cfg)
     if _engine == "hermes":
         # 刻意不用 U+00A5 的 ¥：它不在 GBK 里（管道 stdout 下必崩）。￥（全角）安全。
         print("[orchestrator] engine=hermes：LLM 走 agent 子会话（订阅流量，model.* 不适用）；"

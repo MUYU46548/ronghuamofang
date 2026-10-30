@@ -143,23 +143,42 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         progress.mark_stage_done(5)
         return True, "stage5 跳过（checked 已存在且内容有效）"
 
-    # 分批：每批最多 5 章
-    batch_size = 5
+    # R01 预算—篇幅联动（0.7.17；口径 2026-10-30 修正）
+    #
+    # ⚠️ 旧口径的缺陷：一次请求要回**整批**章节的全文，而容量校验拿的是
+    # 「单章最大字数」——批 5 章就低估 5 倍。direct 下必被 max_tokens 截断
+    # （不落盘、退出码 2）；agent 子会话下没有 max_tokens 旋钮，模型会为了
+    # 塞进自己的输出窗口**自己删内容**（实测 5967 → 2186，finish_reason 还是 stop）。
+    #
+    # 现在两件事一起做：
+    #   ① 批大小由「本次 max_tokens 装得下几章」反推（装不下 2 章就 1 章一批），
+    #   ② 容量校验用**本批总字数**（不是单章最大字数）。
+    # 这样「批大小」与「容量判据」永远同步，改 target_words / max_tokens 不会各说各话。
+    from utils.judge.budget import (check_capacity, effective_max_tokens,
+                                    items_per_request)
+    from utils.verify_chapter import count_cn_words as _cwords
+    _words5 = {f.name: _cwords(f.read_text(encoding="utf-8")) for f in pending}
+    _max_words5 = max(_words5.values(), default=0)
+    # 实际可用上限取「提示词声明」与「config 单请求上限」的较小者 —— 只认后者才是
+    # direct 引擎真正设进 payload 的值（见 effective_max_tokens 的 docstring）。
+    _limit5 = effective_max_tokens(cfg, 5)
+    batch_size = min(5, items_per_request(_limit5, _max_words5, maximum=5))
     batches = [pending[i:i + batch_size] for i in range(0, len(pending), batch_size)]
     total_batches = len(batches)
-    print(f"[stage5] 待检查 {len(pending)} 章，分 {total_batches} 批")
+    _batch_words5 = max(
+        (sum(_words5.get(f.name, 0) for f in b) for b in batches), default=0)
+    print(f"[stage5] 待检查 {len(pending)} 章，分 {total_batches} 批"
+          f"（每批 ≤{batch_size} 章；单章最大 {_max_words5} 字，"
+          f"本批最大 {_batch_words5} 字；输出上限 {_limit5}）")
 
-    # R01 预算—篇幅联动（0.7.17）：先算装不装得下。装不下就**一个请求都不发** ——
-    # 否则模型会为了塞进 max_tokens 自己删内容（实测 5967 → 2186，finish_reason 还是 stop）。
-    from utils.judge.budget import check_capacity
-    from utils.verify_chapter import count_cn_words as _cwords
-    _max_words5 = max((_cwords(f.read_text(encoding="utf-8")) for f in pending), default=0)
-    _ok_cap, _why_cap, _cap = check_capacity(proj, 5, words=_max_words5)
+    # 装不下就**一个请求都不发**（拒绝执行，而不是让它自己删）。
+    _ok_cap, _why_cap, _cap = check_capacity(proj, 5, max_tokens=_limit5,
+                                             words=_batch_words5)
     if not _ok_cap:
         print("[stage5] " + _why_cap)
         progress.set_stage(5, "failed", error=_why_cap)
         return False, _why_cap
-    print("[stage5] 预算校验通过：max_tokens=%s，目标 %s 字（需要 ≥%s）"
+    print("[stage5] 预算校验通过：max_tokens=%s，本批最多 %s 字（需要 ≥%s）"
           % (_cap.get("max_tokens"), _cap.get("target_words"), _cap.get("needed")))
 
     def _bad_checked(batch):

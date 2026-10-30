@@ -171,7 +171,12 @@ def main():
         check("stopped 判定在 exit_code 判定之前（顺序即生命线）",
               0 < i_stopped < i_exit, (i_stopped, i_exit))
         check("写作回调传了 on_piece（实时字数要能上来）",
-              "on_piece=_piece_progress(n)" in src)
+              "on_piece=_piece_progress(n" in src)
+        # 2026-10-30：回调多了「文本流是不是正文」这一个入参 —— agent 模式下 text 事件
+        # 是助手碎念，不许当字数（判据来自 client.writes_files）。
+        check("文本流是否正文由客户端类型决定（agent 不把碎念当字数）",
+              "_text_is_prose" in src
+              and 'getattr(client, "writes_files", False)' in src)
         check("字数回写有节流（不是每个 token 都落盘）",
               "_ch_state[\"last_write\"]" in src and "1.5" in src)
     finally:

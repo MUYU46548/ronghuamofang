@@ -243,9 +243,12 @@ def main():
         check("回测只读 raw（checked/refined 不存在时标缺稿语义）",
               rep["chapters"][0]["destroy"]["shrink"].get("raw->checked") is None,
               rep["chapters"][0]["destroy"])
-        after = {p: p.stat().st_mtime for p in (tmp / "data").rglob("*.json")}
+        # ⚠️ 用 st_mtime_ns：st_mtime 只有秒级精度，两次回测落在同一秒内 →
+        # `changed` 恒为空 → 这条用例会**随机红**（2026-10-30 全量跑时实测复现，
+        # 单跑两次全绿）。判据本是「除 records.json 外没有别的写点」，不该被时钟精度绑架。
+        after = {p: p.stat().st_mtime_ns for p in (tmp / "data").rglob("*.json")}
         B.run(tmp, book_name="回测夹具书")
-        after2 = {p: p.stat().st_mtime for p in (tmp / "data").rglob("*.json")}
+        after2 = {p: p.stat().st_mtime_ns for p in (tmp / "data").rglob("*.json")}
         changed = [str(p) for p in after2 if after.get(p) != after2[p]]
         check("跑一次只动 records.json（F13 单一出口）",
               changed and all(x.endswith("records.json") for x in changed), changed)

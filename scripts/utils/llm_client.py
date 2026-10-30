@@ -40,6 +40,9 @@ from pathlib import Path
 from utils.file_io import read_text, write_text
 from utils import cost_tracker
 from utils.console import ensure_utf8_stdout
+# 引擎缺省值只有一处判据（2026-10-30）：改前 make_client 缺省 hermes、
+# estimate_tokens/nfctl 缺省 direct —— 同一份缺键配置预估与实际跑在两个引擎上。
+from utils.engine import resolve_engine
 # 解析层容错（件2）：`<think>` 内嵌剥离 + 从思考里捞可解析的 JSON 文档。
 # 同包内复用，避免「同一判据写两遍、只修一处」（见 TESTS.md 的复制实现教训）。
 from utils.validator import strip_think, extract_json
@@ -434,7 +437,13 @@ class OpenAICompatClient:
     """OpenAI 兼容 Chat Completions 直连客户端。
 
     run_task 签名与 HermesClient 兼容：调用点零改动切换引擎。
+
+    `writes_files = False`：正文由本进程按 `===FILE:` 协议落盘（走 allowed_paths
+    白名单）。stage4 据此决定「进度取文本流还是取产物文件」，以及是否需要
+    对子会话做**越权写盘检测**（见 utils/write_guard）。
     """
+
+    writes_files = False
 
     def __init__(self, model, base_url, api_key, timeout=600, retries=3,
                  provider="openai-compat", model_key=None, fallback_models=None,
@@ -1188,6 +1197,12 @@ class HermesClient:
     # toolset 名（非工具名）：file = patch/read_file/search_files/write_file 四件套
     DEFAULT_TOOLSETS = "file"
 
+    # 正文由**子会话自己**用 write_file 落盘（不经过本进程的 allowed_paths 白名单）。
+    # stage4 据此：① 进度只认产物文件字数（text 事件是助手碎念，不是正文）；
+    # ② 每次调用前后做越权写盘检测（utils/write_guard）—— 这是**检测**不是沙箱，
+    # 真正的边界仍由 hermes 自身的权限设置承担。
+    writes_files = True
+
     def __init__(self, hermes_bin="hermes", timeout=900, model=None,
                  max_turns=60, toolsets=None, session_continuation=False,
                  request_max_tokens=None):
@@ -1443,15 +1458,16 @@ class HermesClient:
         """真流式（P2）：逐 text 事件回放；stop_flag 置位即杀子进程（P0-4）。
 
         stderr 并入 stdout 读取（防管道填满死锁）；非 JSON 行由解析层忽略。
-        `session_id` 签名同构用（本实现靠自己拉起的子进程，续接走 _build_cmd 的
-        --resume；当前 stage4 不把 hermes 送进流式路径，故收下不拼）。
+        `session_id` 非空且开了会话续接时由 `_build_cmd` 拼 `--resume`（B2）——
+        与 `run_task` 同一判据，这里不再"收下不拼"：stage4 自 2026-10-30 起
+        **所有引擎都走流式**，续接若只接在 run_task 上就会静默失效。
         """
         import subprocess
         import threading
         import time
         import queue as _queue
         task_path = Path(task_file)
-        cmd = self._build_cmd(task_path, model)
+        cmd = self._build_cmd(task_path, model, session_id)
         try:
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
                                     stderr=subprocess.STDOUT, text=True,
@@ -1614,7 +1630,7 @@ def _request_max_tokens_from_cfg(cfg):
 def make_client(cfg, model_key="default", verbose=True):
     """按 config/system.yaml 构建客户端。model_key: default/architect/outliner/writer/checker/reviewer/polisher。"""
     _load_env_file()
-    engine = (cfg or {}).get("engine", "hermes")
+    engine = resolve_engine(cfg)
     mspec = ((cfg or {}).get("model") or {}).get(model_key) or {}
     if isinstance(mspec, str):
         mspec = {"provider": "hermes", "id": mspec}
