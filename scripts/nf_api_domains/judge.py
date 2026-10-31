@@ -278,11 +278,17 @@ def handle_judge_destroy(h):
         cp = root / B.CHECKED_DIR / ("%02d.md" % n)
         rp = root / B.REFINED_DIR / ("%02d.md" % n)
         cal = C.load(root)
-        d = D.compare(raw_p.read_text(encoding="utf-8"),
-                      cp.read_text(encoding="utf-8") if cp.exists() else None,
-                      rp.read_text(encoding="utf-8") if rp.exists() else None,
-                      C.values(cal) if cal else {})
-        return 200, {"ok": True, "chapter": n, "destroy": d}
+        raw_text = raw_p.read_text(encoding="utf-8")
+        chk_text = cp.read_text(encoding="utf-8") if cp.exists() else None
+        ref_text = rp.read_text(encoding="utf-8") if rp.exists() else None
+        d = D.compare(raw_text, chk_text, ref_text, C.values(cal) if cal else {})
+        out = {"ok": True, "chapter": n, "destroy": d}
+        # I6 三栏对照（2026-10-31）：只有 `text=1` 才回正文全文。
+        # 默认不带：一页三份 6000 字正文 ≈ 18000 字符，而绝大多数调用只想知道
+        # "删了多少字"（`shrink` 那几个数）。要正文的界面才付这份体积。
+        if str((q.get("text") or ["0"])[0]).lower() in ("1", "true", "yes"):
+            out["texts"] = {"raw": raw_text, "checked": chk_text, "refined": ref_text}
+        return 200, out
     except Exception as e:                                     # noqa: BLE001
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 

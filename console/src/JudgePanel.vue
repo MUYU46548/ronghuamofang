@@ -30,6 +30,7 @@ const calEdit = ref({});             // 口径编辑（id -> 新值）
 const rejectReason = ref("");        // B2 整本否掉的理由（必填 ≥8 字）
 const rejectBusy = ref(false);
 const archiveBusy = ref(false);      // 一键归档
+const compareData = ref(null);       // I6 三稿对照（含三份正文）
 
 // R05：这条判据在**这本书**里的一个真实例子（取自正文切句，不是人编的）
 function refFor(rid) {
@@ -159,6 +160,55 @@ async function openChapter(n) {
   } catch (e) { err.value = String(e.message || e); }
   busy.value = false;
 }
+
+// I6 三稿对照：原文 / 检查稿 / 润色稿并排。
+//
+// 数据现成（`/judge/destroy` 早就在算缩水率与删句），缺的是**正文本身** ——
+// 所以这里带 `text=1` 取三份全文；默认不带（一页 1.8 万字符，多数调用不需要）。
+//
+// 刻意**不做逐行对齐**：段数一变（删段/合段）行就对不齐，看着整齐其实是错位，
+// 比不对齐更误导。三栏各自滚动，只靠段号对应。
+async function openCompare() {
+  if (!detail.value) return;
+  const n = detail.value.chapter;
+  try {
+    const d = await call("GET", "/judge/destroy?n=" + n + "&text=1");
+    compareData.value = d;
+    view.value = "compare";
+  } catch (e) { err.value = String(e.message || e); }
+}
+
+// 三列的参数（缺哪一版就明说缺，不显示空栏冒充"没变化"）
+const compareCols = computed(() => {
+  const d = compareData.value;
+  if (!d) return [];
+  const texts = d.texts || {};
+  const words = (d.destroy && d.destroy.words) || {};
+  const why = { checked: "没跑过检查阶段（stage5）", refined: "没跑过润色阶段（stage6）" };
+  return [
+    { key: "raw", title: "原文（stage4 落盘）", only: false },
+    { key: "checked", title: "检查稿（stage5）", only: true },
+    { key: "refined", title: "润色稿（stage6）", only: true },
+  ].map((c) => {
+    const t = texts[c.key];
+    const present = typeof t === "string" && t.trim().length > 0;
+    return {
+      ...c, present, words: words[c.key],
+      paras: present
+        ? t.replace(/\r\n/g, "\n").split(/\n{2,}/).map((x) => x.trim())
+            .filter(Boolean).map((x, i) => {
+              // 章标题（`## 第1章 …`）不该和正文一个样子 —— 三栏并排时
+              // 它退化成一段普通文字，读者会以为那是正文第一段。
+              // 井号在这里只是 markdown 记号，显示时去掉（保留"第1章 夜雨"本身）。
+              const heading = /^#{1,3}\s/.test(x);
+              return { i: i + 1, heading,
+                       text: heading ? x.replace(/^#{1,3}\s+/, "") : x };
+            })
+        : [],
+      missingWhy: why[c.key] || "文件不存在",
+    };
+  });
+});
 
 // 勾选保存后要**重新拉一次单章**：事件数变了，档位与理由也跟着变
 // （界面若不刷新，用户会看到"勾了 3 件"却仍是"待作者勾选"）。
@@ -368,6 +418,8 @@ onMounted(loadReport);
       <div class="judge-bar">
         <button class="mini" @click="view = 'report'">← 回整本</button>
         <b>第 {{ detail.chapter }} 章</b>
+        <button class="mini" @click="openCompare" title="原文 / 检查稿 / 润色稿并排">
+          三稿对照</button>
         <span :class="verdictClass(detail.verdict)">{{ verdictText(detail.verdict) }}</span>
         <span class="meta">这章有 {{ detail.defect_count }} 处要改</span>
         <span class="spacer"></span>
@@ -412,6 +464,50 @@ onMounted(loadReport);
         <div class="judge-body">
           <div v-for="p in detail.paragraphs" :key="p.paragraph_index" class="judge-para-body">
             <span class="judge-para-no">{{ p.paragraph_index }}</span>{{ p.text }}
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <!-- I6 三稿对照：原文 / 检查稿 / 润色稿 -->
+    <template v-else-if="view === 'compare' && compareData">
+      <div class="judge-bar">
+        <button class="mini" @click="view = 'detail'">← 回单章</button>
+        <b>第 {{ compareData.chapter }} 章 · 三稿对照</b>
+        <span class="meta" v-if="compareData.destroy && compareData.destroy.shrink">
+          缩减：原→检
+          {{ Math.round(((compareData.destroy.shrink['raw->checked'] || 0) * 100)) }}%
+          · 检→润
+          {{ Math.round(((compareData.destroy.shrink['checked->refined'] || 0) * 100)) }}%
+        </span>
+        <span class="spacer"></span>
+        <span class="meta">阈值 {{ Math.round((compareData.destroy.threshold || 0) * 100) }}%
+          <template v-if="compareData.destroy.destroyed"> · 越过阈值（疑似整章重生成）</template>
+        </span>
+      </div>
+      <div class="judge-notice">
+        三栏<b>各自滚动，不做逐行对齐</b> —— 段数一变行就错位，那样看着整齐、实际更误导。
+        用段号横向找同一段。缺的那一版会明说“不存在”，而不是显示空栏冒充“没变化”。
+      </div>
+      <div class="jc-wrap">
+        <div v-for="col in compareCols" :key="col.key" class="jc-col"
+             :class="{ 'jc-absent': !col.present }">
+          <div class="jc-head">
+            <b>{{ col.title }}</b>
+            <span class="meta" v-if="col.present">{{ col.words }} 字 · {{ col.paras.length }} 段</span>
+            <span class="meta" v-else>不存在</span>
+          </div>
+          <div class="jc-body">
+            <template v-if="col.present">
+              <div v-for="p in col.paras" :key="p.i" class="jc-para"
+                   :class="{ 'jc-h': p.heading }">
+                <span class="jc-no">{{ p.i }}</span>{{ p.text }}
+              </div>
+            </template>
+            <div v-else class="jc-missing">
+              这一版不存在：{{ col.missingWhy }}。<br>
+              <span class="meta">不是“和原文一样”，是根本没生成过。</span>
+            </div>
           </div>
         </div>
       </div>

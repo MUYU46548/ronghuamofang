@@ -2298,3 +2298,74 @@ kbd {
   font-family: var(--mono);
 }
 .vault-path-input:focus { outline: 1px solid var(--accent); }
+
+/* ==========================================================================
+   I6 三稿对照（原文 / 检查稿 / 润色稿，2026-10-31）
+   三栏各自滚动，不做逐行对齐 —— 段数一变行就错位，看着整齐反而更误导。
+   ========================================================================== */
+.jc-wrap {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  align-items: stretch;
+}
+.jc-col {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--field);
+  display: flex;
+  flex-direction: column;
+  min-height: 320px;
+  max-height: 62vh;
+}
+.jc-col.jc-absent { opacity: .72; border-style: dashed; }
+.jc-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--field-head);
+  border-radius: 10px 10px 0 0;
+}
+.jc-head b { font-size: 12.5px; color: var(--ink); }
+.jc-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 12px 12px;
+}
+.jc-para {
+  font-size: 12.5px;
+  line-height: 1.85;
+  color: var(--ink);
+  margin-bottom: 8px;
+  word-break: break-word;
+}
+.jc-no {
+  display: inline-block;
+  min-width: 18px;
+  margin-right: 6px;
+  font-size: 10.5px;
+  color: var(--ink-mute);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.jc-missing {
+  font-size: 12.5px;
+  line-height: 1.9;
+  color: var(--muted);
+  padding: 10px 2px;
+}
+@media (max-width: 900px) {
+  .jc-wrap { grid-template-columns: 1fr; }
+  .jc-col { max-height: none; }
+}
+
+/* 三稿对照里的章标题：与正文区分（并排时容易被当成正文第一段） */
+.jc-para.jc-h {
+  font-weight: 600;
+  color: var(--ink-accent);
+  font-size: 12px;
+  margin-bottom: 6px;
+}

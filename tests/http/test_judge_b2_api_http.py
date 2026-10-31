@@ -206,6 +206,45 @@ def main():
 
         check("/judge/book_archive 在 FORBIDDEN_IN_AGENT_MODE 里（Agent 不得搬空工作区）",
               "/judge/book_archive" in AG.FORBIDDEN_IN_AGENT_MODE)
+
+        # ---------------------------------------------------------------- A6
+        # I6 三稿对照（2026-10-31）：正文全文只在 text=1 时回。
+        print("\n【A6】三稿对照：默认不带正文，text=1 才带")
+        code, d = req("GET", "/judge/destroy?n=1")
+        check("200 且 ok", code == 200 and d.get("ok") is True, d)
+        check("默认**不**带正文（省 1.8 万字符的体积）", "texts" not in d,
+              list(d.keys()))
+        check("统计仍在（shrink / present）",
+              isinstance(d.get("destroy", {}).get("shrink"), dict),
+              d.get("destroy", {}).get("shrink"))
+
+        code, d = req("GET", "/judge/destroy?n=1&text=1")
+        texts = d.get("texts") or {}
+        check("text=1 带回 raw 全文",
+              isinstance(texts.get("raw"), str) and "档案室盖章" in texts["raw"],
+              (texts.get("raw") or "")[:40])
+        check("没有检查稿 → checked 为 null（不是空字符串）",
+              texts.get("checked") is None, texts.get("checked"))
+        check("没有润色稿 → refined 为 null", texts.get("refined") is None)
+        check("present 如实为 false，不冒充“没变化”",
+              d["destroy"]["present"] == {"raw": True, "checked": False,
+                                          "refined": False},
+              d["destroy"]["present"])
+
+        # 造一份检查稿：证据是「真的读第二份文件」，而不是把 raw 复制一份充数
+        (tmp / "data" / "chapters" / "checked").mkdir(parents=True, exist_ok=True)
+        (tmp / "data" / "chapters" / "checked" / "01.md").write_text(
+            "## 第1章 夜雨\n\n他在档案室盖章。\n\n他核对编号。\n", encoding="utf-8")
+        code, d2 = req("GET", "/judge/destroy?n=1&text=1")
+        t2 = d2.get("texts") or {}
+        check("有了检查稿 → 带回它自己的正文",
+              isinstance(t2.get("checked"), str) and "核对编号" in t2["checked"],
+              (t2.get("checked") or "")[:40])
+        check("raw 没被覆盖（三份是各自的文件）",
+              "核对回执" in (t2.get("raw") or ""), (t2.get("raw") or "")[:40])
+        check("缩水率算出来了（raw→checked 有值）",
+              isinstance(d2["destroy"]["shrink"].get("raw->checked"), (int, float)),
+              d2["destroy"]["shrink"])
     finally:
         if proc:
             try:
