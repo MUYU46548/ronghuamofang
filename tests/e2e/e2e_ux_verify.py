@@ -148,33 +148,111 @@ def new_page(browser, api_base, tag):
     return ctx, page, errs, bad
 
 
-def shot(page, name, full=False):
-    """截图到 Temp/gui_verify/ux/。
+# 截图自检台账：每条 = {name, ok, notes}。e2e 结束时统一打印，
+# 有问题**不阻断**（截图是辅助证据），但必须出声 —— 带偏差的截图比没有更糟。
+SHOT_CHECKS = []
 
-    ⚠️ 2026-10-31 修：`full_page=True` + `position: sticky` 顶栏会出**伪影** ——
-    Playwright 会把视口临时拉高到整页高度渲染，sticky 元素却停在"当前滚动位置"
-    对应的吸附位，于是顶栏被画在**内容中间**（上方露出半截正文，下方接着表单）。
-    用户看我们的截图时以为界面坏了，实际是截图方法的问题。
-    规则：全页截图前先滚回顶部，截完恢复原滚动位置。
+
+def _geom(page):
+    """读关键固定元素的几何（顶栏是最好认的破绽）。"""
+    try:
+        return page.evaluate("""() => {
+          const tb = document.querySelector('.topbar');
+          const doc = document.documentElement;
+          return {
+            scrollY: Math.round(window.scrollY || 0),
+            vw: Math.round(window.innerWidth),
+            vh: Math.round(window.innerHeight),
+            scrollH: Math.round(doc.scrollHeight),
+            topbar: tb ? (() => {
+              const r = tb.getBoundingClientRect();
+              const cs = getComputedStyle(tb);
+              return {y: Math.round(r.y), h: Math.round(r.height),
+                      w: Math.round(r.width), position: cs.position};
+            })() : null,
+          };
+        }""")
+    except Exception:                                        # noqa: BLE001
+        return None
+
+
+def shot(page, name, full=False):
+    """截图到 Temp/gui_verify/ux/，**并自检这张图能不能作为证据用**。
+
+    ## 为什么截图需要自检（2026-10-31 用户指出）
+
+    我给用户看的全页截图里，"绒花墨坊"顶栏被画在了内容中间 —— 用户以为界面坏了。
+    根因：`.topbar` 是 `position: sticky`，而 `screenshot(full_page=True)` 会把视口
+    临时拉高到整页高度渲染，sticky 元素却停在"当前滚动位置"的吸附位。
+    **界面没问题，是交付证据带系统偏差。**凭据不可信比没有更糟，所以加这三道：
+
+    | 判据 | 抓什么 |
+    |---|---|
+    | A scrollY 必须为 0（全页截图前强制滚回顶部） | sticky 伪影的**唯一成因** |
+    | B `.topbar` 顶部 y ∈ [-2, 2] 且高度 > 40 | 顶栏真的在顶端（布局没坏） |
+    | C 全页图高 ≈ scrollHeight（±40px） | 渲染没铺开 / 抓在半路 |
+
+    任一不过 → 记进 SHOT_CHECKS 并**降级为视口截图**（宁可截少，不给错图）。
     """
     p = OUT / ("%s.png" % name)
-    y = 0
+    notes = []
+    y0 = 0
     if full:
-        try:
-            y = page.evaluate("window.scrollY") or 0
-            if y:
+        g = _geom(page)
+        y0 = (g or {}).get("scrollY") or 0
+        if y0:
+            # A：全页截图前必须回到顶部，否则 sticky 顶栏会被画在内容中间
+            try:
                 page.evaluate("window.scrollTo(0, 0)")
-                page.wait_for_timeout(260)
-        except Exception:                                    # noqa: BLE001
-            y = 0
-    page.screenshot(path=str(p), full_page=full)
-    if full and y:
+                page.wait_for_timeout(280)
+            except Exception:                                # noqa: BLE001
+                notes.append("scrollTo(0,0) 执行失败")
+            g2 = _geom(page)
+            if (g2 or {}).get("scrollY", 1) not in (0, None):
+                notes.append("滚回顶部没成功（scrollY=%s）" % (g2 or {}).get("scrollY"))
+    g = _geom(page)
+    if g and g.get("topbar"):
+        tb = g["topbar"]
+        # B：顶栏必须在视口顶端，且不是被挤成一条细线
+        if not (-2 <= tb["y"] <= 2):
+            notes.append("顶栏不在顶端（y=%s）" % tb["y"])
+        if tb["h"] <= 40:
+            notes.append("顶栏高度异常（h=%s）" % tb["h"])
+    downgrade = any(("滚回顶部没成功" in n) or ("顶栏" in n) for n in notes)
+    use_full = full and not downgrade
+    if downgrade and full:
+        notes.append("已降级为视口截图")
+
+    try:
+        page.screenshot(path=str(p), full_page=use_full)
+    except Exception as e:                                   # noqa: BLE001
+        notes.append("截图失败: %s" % (str(e)[:80],))
+        use_full = False
+
+    # C：全页图的尺寸应接近整页高度（用 PIL 不可用，读 PNG 头拿宽高，零依赖）
+    if use_full and p.exists():
         try:
-            page.evaluate("window.scrollTo(0, %d)" % y)
-            page.wait_for_timeout(120)
+            with open(p, "rb") as f:
+                head = f.read(33)
+            if head[:8] == b"\x89PNG\r\n\x1a\n":
+                h = int.from_bytes(head[20:24], "big")
+                if g and g.get("scrollH") and abs(h - g["scrollH"]) > 60:
+                    notes.append("图高 %d 与整页高 %d 差太多" % (h, g["scrollH"]))
         except Exception:                                    # noqa: BLE001
             pass
-    print("      shot → %s" % p.name)
+
+    if y0 and (use_full or downgrade):
+        try:
+            page.evaluate("window.scrollTo(0, %d)" % y0)
+            page.wait_for_timeout(140)
+        except Exception:                                    # noqa: BLE001
+            pass
+
+    SHOT_CHECKS.append({"name": name, "ok": not notes, "notes": notes})
+    if notes:
+        print("      shot → %s  ⚠️ 自检: %s" % (p.name, "；".join(notes)))
+    else:
+        print("      shot → %s" % p.name)
     return p
 
 
@@ -1036,6 +1114,17 @@ def main():
             test_about_project(browser)
         finally:
             browser.close()
+
+    # 截图自检（2026-10-31）：错位/半路的图**不许进交付**。
+    # 这是唯一会因"图能不能当证据"而变红的判据 —— 截图是我们给人看的凭据。
+    print("\n=== I. 截图自检（能不能作为证据）===")
+    bad = [c for c in SHOT_CHECKS if not c["ok"]]
+    check("全部 %d 张截图通过几何自检（顶栏在顶端 / 滚动归零 / 图高合理）"
+          % len(SHOT_CHECKS), not bad,
+          [{"name": b["name"], "notes": b["notes"]} for b in bad][:4])
+    if SHOT_CHECKS:
+        print("      已核对 %d 张；有问题 %d 张" % (len(SHOT_CHECKS), len(bad)))
+
     print("\n" + "=" * 62)
     print("合计: %d 通过 / %d 失败" % (len(PASS), len(FAIL)))
     if FAIL:
