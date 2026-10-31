@@ -167,6 +167,13 @@
             />
           </div>
         </div>
+
+        <!-- 这一章发生了几件事（你来定）—— I3 的规定位置：章纲卡片下方。
+             与“章节 → 判定详情”用的是同一个组件（JudgeEvents.vue），
+             两处各写一份必然漂移。 -->
+        <JudgeEvents :chapter="currentN" :events="judgeEvents" :hint="judgeHint"
+                     :event-min="judgeMin"
+                     @say="say" @saved="() => loadJudgeEvents(currentN)" />
       </div>
     </div>
 
@@ -199,6 +206,9 @@ import { ref, computed, onMounted, watch } from 'vue';
 import { API } from "./apiBase.js";
 import { copyToClipboard } from "./clipboard.js";
 import BranchSamplePanel from "./BranchSamplePanel.vue";
+import JudgeEvents from "./JudgeEvents.vue";
+
+const emit = defineEmits(["toast"]);
 const FUNC_CHOICES = ['铺垫', '推进', '转折', '高潮', '收束', 'transition'];
 
 // ---- 状态 ----
@@ -211,6 +221,13 @@ const sampleOpen = ref(false);    // 分支样例选向面板（第 4 件 · 选
 const isDirty = ref(false);
 const saving = ref(false);
 const dirty = ref({});           // {n: true} 各章节脏状态
+
+// “这一章发生了几件事（你来定）”—— I3 的原定位置就在分章页（04-交互定义）。
+// 只读 /judge/events?outline=1（轻读：解析章纲 + 作者记录），**不跑** /judge/chapter
+// 那套完整分析（三稿对照、骨架命中），分章页不需要。
+const judgeEvents = ref([]);
+const judgeHint = ref("");
+const judgeMin = ref(2);
 
 // 表单
 const form = ref({
@@ -269,6 +286,22 @@ async function loadCurrent() {
     rawContent.value = r.data.content;
     parseContent(r.data.content);
     isDirty.value = false;
+  }
+  await loadJudgeEvents(n);
+}
+
+// 章纲事件 + 作者已勾记录（轻读）。章纲刚存过就要重拉：事件列表可能变了。
+async function loadJudgeEvents(n) {
+  if (!n) { judgeEvents.value = []; judgeHint.value = ""; return; }
+  const r = await api(`/judge/events?chapter=${n}&outline=1`);
+  if (r.status === 200 && r.data.ok) {
+    judgeEvents.value = r.data.outline_events || [];
+    judgeHint.value = r.data.event_hint || "";
+    judgeMin.value = r.data.event_min || 2;
+  } else {
+    // 判定引擎不可用（例如还没跑过回测）不该让人以为"这章没有事件"
+    judgeEvents.value = [];
+    judgeHint.value = "";
   }
 }
 
@@ -468,6 +501,8 @@ async function save() {
       dirty.value[currentN.value] = false;
       // 刷新列表（标题可能变了）
       await loadList();
+      // 章纲改了 → 核心事件可能增删 → 勾选区要跟着变
+      await loadJudgeEvents(currentN.value);
     } else {
       say('保存失败: ' + (r.data.error || r.status));
     }
@@ -478,9 +513,11 @@ async function save() {
   }
 }
 
+// 提示通道（2026-10-31 修）：App.vue 监听的是 `@toast="say"`，但这里一直往
+// `window._bpToast` 写 —— 而那个全局**从未被赋值**。结果“已保存 / 保存失败 /
+// 缺少核心事件”全部静默：用户点了保存看着没反应（其实存了）。
 function say(msg) {
-  // 简单 toast
-  if (window._bpToast) window._bpToast(msg);
+  emit("toast", msg);
 }
 
 function onSampleEvent(kind) {
@@ -522,7 +559,7 @@ watch(rawMode, (v) => {
   flex-shrink: 0;
   border: 1px solid var(--border, #3a3a4a);
   border-radius: 6px;
-  background: rgba(255,255,255,0.02);
+  background: var(--field-dim);
   display: flex;
   flex-direction: column;
 }
@@ -552,11 +589,11 @@ watch(rawMode, (v) => {
   transition: background 0.15s;
 }
 .bp-chapter-item:hover {
-  background: rgba(255,255,255,0.05);
+  background: var(--field);
 }
 .bp-chapter-item.active {
   background: rgba(124, 92, 200, 0.2);
-  border-left: 2px solid #7c5cc8;
+  border-left: 2px solid var(--accent);
 }
 .bp-no {
   font-family: monospace;
@@ -571,7 +608,7 @@ watch(rawMode, (v) => {
   white-space: nowrap;
 }
 .bp-dirty-mark {
-  color: #f0a020;
+  color: var(--warn);
   font-size: 8px;
 }
 
@@ -629,26 +666,26 @@ watch(rawMode, (v) => {
   font-size: 11px;
 }
 .bp-input {
-  background: rgba(255,255,255,0.04);
-  border: 1px solid var(--border, #444);
+  background: var(--field);
+  border: 1px solid var(--border);
   border-radius: 4px;
   padding: 6px 8px;
-  color: var(--foreground, #eee);
+  color: var(--ink);
   font-size: 13px;
   width: 100%;
   box-sizing: border-box;
 }
 .bp-input:focus {
   outline: none;
-  border-color: #7c5cc8;
-  box-shadow: 0 0 0 1px rgba(124, 92, 200, 0.3);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent-soft);
 }
 .bp-select {
-  background: rgba(255,255,255,0.04);
-  border: 1px solid var(--border, #444);
+  background: var(--field);
+  border: 1px solid var(--border);
   border-radius: 4px;
   padding: 6px 8px;
-  color: var(--foreground, #eee);
+  color: var(--ink);
   font-size: 13px;
 }
 
@@ -678,8 +715,8 @@ watch(rawMode, (v) => {
   flex-wrap: wrap;
   gap: 4px;
   padding: 6px;
-  background: rgba(255,255,255,0.03);
-  border: 1px solid var(--border, #444);
+  background: var(--field-dim);
+  border: 1px solid var(--border);
   border-radius: 4px;
   min-height: 34px;
 }
@@ -702,13 +739,13 @@ watch(rawMode, (v) => {
   font-size: 14px;
   line-height: 1;
 }
-.bp-tag-remove:hover { color: #f06; }
+.bp-tag-remove:hover { color: var(--bad); }
 .bp-role-input {
   flex: 1;
   min-width: 80px;
   background: transparent;
   border: none;
-  color: var(--foreground, #eee);
+  color: var(--ink);
   font-size: 12px;
   padding: 2px 4px;
   outline: none;
@@ -733,10 +770,10 @@ watch(rawMode, (v) => {
   width: 100%;
   height: 100%;
   background: rgba(0,0,0,0.2);
-  border: 1px solid var(--border, #444);
+  border: 1px solid var(--border);
   border-radius: 4px;
   padding: 10px;
-  color: var(--foreground, #eee);
+  color: var(--ink);
   font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
   font-size: 13px;
   resize: none;

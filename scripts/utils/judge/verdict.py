@@ -21,6 +21,22 @@ VERDICT_UNDECIDED = "不可判定"
 SYMBOL = {VERDICT_OK: "✓", VERDICT_SPOT: "⚠", VERDICT_REWRITE: "✕", VERDICT_UNDECIDED: "？"}
 
 
+def _unproven_note(n_events, n_counted):
+    """勾了但没举证的条数，写进理由里 —— 否则用户看到「只有 1 件事」会以为系统漏数。
+
+    R24 AC-24-2：类别有、证据句空 → 落「无举证」、**不计入下限**。
+    所以「勾了 3 条 / 计入 1 条」必须说清楚，不能只报一个数（AC-24-7 同一精神：
+    作者认定与系统读数分区，不合并成单一数字）。
+    """
+    try:
+        ne, nc = int(n_events), int(n_counted)
+    except (TypeError, ValueError):
+        return ""
+    if ne > nc:
+        return "（勾了 %d 条，其中 %d 条没填证据句不算数）" % (ne, ne - nc)
+    return ""
+
+
 def _reason(rule_id, text, **kw):
     d = {"rule_id": rule_id, "text": text}
     d.update(kw)
@@ -76,6 +92,16 @@ def decide(analysis, destroy_info=None, author=None, cal=None, conflicts=None):
     # 3) 作者还没勾事件：结论为 null（F03b 硬约束，不猜）
     chosen = (author or {}).get("chosen")
     n_events = (author or {}).get("events")
+    # `counted_events` = 勾了 + 分了类 + 有证据句 的条数（R24 AC-24-2 的口径）。
+    # **只用于展示，不参与判档**（2026-10-31 决定，理由见下）：
+    #   R24 要求「无举证不计入下限」，但它同时承认「证据句强制会让人退化成随便点个类别」。
+    #   把闸门直接绑到 counted，等于对**所有历史记录**（没有逐事件证据的）判不过 ——
+    #   那是用规格去惩罚用户，不是实现规格。
+    #   落地顺序：先让界面能逐条填证据、报告里把两个数分区展示（AC-24-7），
+    #   等作者看到「勾了 3 条 / 计入 1 条」的差别、确认要收紧，再把判据切过去。
+    n_counted = (author or {}).get("counted_events")
+    base["events"] = n_events
+    base["counted_events"] = (n_events if n_counted is None else n_counted)
     if not chosen:
         return dict(base, verdict=None, status="待作者勾选",
                     reason_code="A",
@@ -114,7 +140,10 @@ def decide(analysis, destroy_info=None, author=None, cal=None, conflicts=None):
     if n_events is not None and int(n_events) < events_min:
         return dict(base, verdict=VERDICT_REWRITE, status=VERDICT_REWRITE, reason_code=None,
                     reasons=[_reason("author.events",
-                                     "作者认定只有 %s 件事（口径要求 ≥%d）" % (n_events, events_min))])
+                                     "作者认定只有 %s 件事%s（口径要求 ≥%d）"
+                                     % (n_events,
+                                        _unproven_note(n_events, n_counted),
+                                        events_min))])
 
     return dict(base, verdict=VERDICT_OK, status=VERDICT_OK, reason_code=None,
                 reasons=[_reason("none", "无章级依据；缺陷段 %d/%d 未超阈值"

@@ -32,6 +32,9 @@
   /* 多处样式引用 --muted-foreground，但它**从未被定义过** → 颜色静默失效、
      退回继承色（层级丢失）。这里补上别名，暗色主题会自动跟随 --muted。 */
   --muted-foreground: var(--muted);
+  /* 等宽字体（代码块 / 提示词编辑器）。此前 App.vue 直接写 `var(--mono)`，
+     该变量从未定义 → 声明无效、退回默认比例字体（代码块看着不齐也算"丑"）。 */
+  --mono: ui-monospace, "Cascadia Code", "Consolas", "Source Han Sans SC", monospace;
   --ink-ok: #4e7d5e;
   --ink-bad: #9e4f4f;
   --ink-warn: #8f6b33;
@@ -504,19 +507,19 @@ body {
    刺眼，而亮色主题下又和周围圆角/边距不一致。同一个缺陷散在六个面板里，
    谁改自己那一页就只修一处（正是「判据写 N 份」的老毛病）。
    现在**一处定义、按类名列出**：以后新增下拉请把类名加进这两条选择器，
-   不要另写一份 background/border。 */
+   不要另写一份 background/border。
+   （其中 `.judge-ev-class` 在同日的 JudgeEvents 改造中退役 —— 事件分类改成了按钮，
+   不再用 select。上面的"六个"是当时的实测数字，保留作历史记录。） */
 .model-select, .provider-select, .bp-select, .style-rule-select,
-.judge-ev-class, .fr-select, .bs-select {
+.fr-select, .bs-select {
   border: 1px solid var(--border); border-radius: 8px; padding: 4px 8px;
   font-size: 12.5px; color: var(--ink); background: var(--field); cursor: pointer;
 }
 .model-select:focus, .provider-select:focus, .bp-select:focus,
-.style-rule-select:focus, .judge-ev-class:focus, .fr-select:focus,
-.bs-select:focus { outline: none; border-color: var(--accent); }
+.style-rule-select:focus, .fr-select:focus, .bs-select:focus { outline: none; border-color: var(--accent); }
 /* 展开后的原生下拉面板也要上色：不设的话暗色主题里展开是一整片白，与面板断层 */
 .model-select option, .provider-select option, .bp-select option,
-.style-rule-select option, .judge-ev-class option, .fr-select option,
-.bs-select option { background: var(--field); color: var(--ink); }
+.style-rule-select option, .fr-select option, .bs-select option { background: var(--field); color: var(--ink); }
 .text-input { flex: 1; min-width: 120px; border: 1px solid var(--border); border-radius: 8px; padding: 5px 9px; font-size: 12.5px; color: var(--ink); background: var(--field); }
 .text-input:focus { outline: none; border-color: var(--accent); }
 
@@ -947,7 +950,7 @@ body {
 }
 .tabs-sub button.on {
   background: var(--card);
-  color: var(--foreground);
+  color: var(--ink);
   border-color: var(--border);
   font-weight: 600;
 }
@@ -1604,7 +1607,7 @@ kbd {
   cursor: pointer;
   transition: background 0.2s;
 }
-.next-action-bar:hover { background: var(--accent-soft-hover); }
+.next-action-bar:hover { background: var(--field-hover); }
 .next-action-bar .na-icon { color: var(--accent); font-size: 14px; }
 .next-action-bar .na-label { font-weight: 600; font-size: 13px; }
 .next-action-bar .na-hint { color: var(--muted-foreground); font-size: 12px; }
@@ -1645,7 +1648,7 @@ kbd {
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--card);
-  color: var(--foreground);
+  color: var(--ink);
   font-size: 12px;
   line-height: 1.6;
   white-space: pre-wrap;
@@ -2007,3 +2010,90 @@ kbd {
 
 /* （下拉框外观已统一到文件上方那条多类名选择器 —— 六类共用一处定义，
    不要再在这里加第二份 background/border。） */
+
+/* ==========================================================================
+   事件勾选（F03b / I3）—— 分章页章纲卡下方 + 章节页判定详情，同一个组件
+   （console/src/JudgeEvents.vue）。颜色只用主题变量。
+   ========================================================================== */
+.je-events {
+  margin-top: 14px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  padding: 10px 12px 12px;
+  background: var(--field-inset);
+}
+.je-head {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.je-head b { font-size: 13px; color: var(--ink); }
+.je-empty {
+  font-size: 12.5px; color: var(--muted); line-height: 1.8;
+  padding: 6px 2px;
+}
+.je-row {
+  border-top: 1px solid var(--border);
+  padding: 7px 0;
+}
+.je-row:first-of-type { border-top: none; }
+.je-line { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; }
+.je-line input[type="checkbox"] { margin-top: 3px; }
+.je-no {
+  flex: 0 0 auto;
+  font-size: 11px; color: var(--muted);
+  min-width: 16px; text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.je-text { font-size: 13px; color: var(--ink); line-height: 1.65; }
+.je-row.on .je-text { color: var(--ink); font-weight: 500; }
+.je-detail {
+  margin: 7px 0 2px 32px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.je-classes { display: flex; gap: 6px; flex-wrap: wrap; }
+.je-class {
+  font-size: 11.5px;
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--field);
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  transition: background .12s, color .12s, border-color .12s;
+}
+.je-class:hover { background: var(--field-hover); color: var(--ink); }
+.je-class.on {
+  background: var(--field-on);
+  border-color: var(--accent);
+  color: var(--ink-accent);
+  font-weight: 600;
+}
+.je-evidence {
+  width: 100%;
+  padding: 5px 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--card);
+  color: var(--ink);
+  font-size: 12.5px;
+}
+.je-evidence:focus { outline: 1px solid var(--accent); }
+.je-warn { font-size: 11.5px; color: var(--ink-warn); }
+.je-hint {
+  margin-top: 8px;
+  font-size: 11.5px;
+  line-height: 1.75;
+  color: var(--ink-warn);
+  background: var(--field-dim);
+  border-left: 3px solid var(--warn);
+  border-radius: 0 6px 6px 0;
+  padding: 6px 10px;
+}
+.je-err { margin-top: 8px; font-size: 12px; color: var(--ink-bad); }
+
+/* 展开区与所属事件的关系：加一条细竖线，避免"这些按钮属于哪一条"看不清 */
+.je-detail {
+  border-left: 2px solid var(--accent-soft);
+  padding-left: 10px;
+}

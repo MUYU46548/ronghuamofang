@@ -985,7 +985,7 @@ onMounted(() => {
 
 <style scoped>
 /* 范文（样例稿）声明行（2026-10-29）：状态 + 查看声明按钮，不挤占输入区 */
-.style-rule-select { margin-top: 6px; background: var(--field); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; }
+.style-rule-select { margin-top: 6px; background: var(--field); color: var(--ink); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; }
 .ref-consent-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .ref-consent-btn { flex: none; }
 /* 参考作品拆解：候选列表 + 声明弹层 */

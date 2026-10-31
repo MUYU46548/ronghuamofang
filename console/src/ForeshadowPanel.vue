@@ -156,7 +156,7 @@ defineExpose({ load });
 .fsp { margin-top: 14px; padding-top: 10px; border-top: 1px dashed var(--border); }
 .fsp-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; }
 .fsp-empty { padding: 4px 0 2px; }
-.err-line { color: var(--danger, #c0392b); }
+.err-line { color: var(--bad); }
 .fsp-table { width: 100%; border-collapse: collapse; font-size: 12px; }
 .fsp-table th, .fsp-table td {
   text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--border); vertical-align: top;

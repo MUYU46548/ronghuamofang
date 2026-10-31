@@ -114,8 +114,10 @@ def main():
           ".provider-select" in css)
     # 2026-10-31 实测：全项目有 6 个 select 类名**从来没写过样式**（暗色下是原生白框）。
     # 现在统一在一条多类名选择器里定义；新加下拉必须登记进这条，否则又裸奔。
+    # 2026-10-31：judge-ev-class 随 JudgeEvents 组件改造退役（分类改成按钮），
+    # 从这条清单里移出 —— 清单里的每个类都必须真的有消费者，否则断言会保护死代码。
     ui_selects = ["model-select", "provider-select", "bp-select",
-                  "style-rule-select", "judge-ev-class", "fr-select", "bs-select"]
+                  "style-rule-select", "fr-select", "bs-select"]
     group = re.search(r"(\.model-select[^{]*)\{[^}]*background:\s*var\(--field\)",
                       css)
     group_txt = group.group(1) if group else ""

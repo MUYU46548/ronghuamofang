@@ -115,15 +115,24 @@ def handle_judge_chapter(h):
         paras = [{"paragraph_index": i + 1, "text": t}
                  for i, t in enumerate(RU.T.paragraphs(body_text))]
         events = analysis["outline"]["events"]
+        _a_checked = set((author or {}).get("checked") or [])
+        _a_cls = (author or {}).get("classes") or {}
+        _a_ev = (author or {}).get("evidences") or {}
         ev_rows = []
         for i, ev in enumerate(events):
             ev_rows.append({"n": i + 1, "text": ev,
-                            "checked": bool(author and (i in (author.get("checked") or []))),
-                            "class": ((author or {}).get("classes") or {}).get(str(i))})
+                            "checked": bool(i in _a_checked),
+                            "class": _a_cls.get(str(i)),
+                            "evidence": _a_ev.get(str(i)) or "",
+                            # 计入下限 = 勾了 + 分了类 + 有证据句（R24 AC-24-2）
+                            "counted": bool(i in _a_checked and _a_cls.get(str(i))
+                                            and _a_ev.get(str(i)))})
         return 200, {
             "ok": True, "chapter": n, "verdict": verdict, "author": author,
             "defects": analysis["defects"], "counts": analysis["counts"],
             "metrics": analysis["metrics"], "outline_events": ev_rows,
+            "event_hint": RU.similar_events_hint(events),
+            "event_min": int(vals.get("J12", 2)),
             "density": analysis["outline"]["density"],
             "landing": analysis["outline"]["landing"],
             "destroy": d, "paragraphs": paras,
@@ -137,12 +146,41 @@ def handle_judge_chapter(h):
 
 
 def handle_judge_events_get(h):
+    """作者勾选记录。`?chapter=n` 单章；`?chapter=n&outline=1` 附带**章纲事件**（给分章页用）。
+
+    ## 为什么要 `outline=1`
+
+    分章页（`ChapterBlueprint`）只想知道「这章章纲有哪几条事件、我勾了没」，
+    不该为此跑一遍完整分析（`/judge/chapter` 会算三稿对照、骨架命中、缺陷单）。
+    所以这里给一条**轻读**：解析章纲 + 读作者记录，零分析。
+    """
     try:
         q = _query(h)
         ch = (q.get("chapter") or [None])[0]
+        want_outline = str((q.get("outline") or ["0"])[0]).strip() in ("1", "true", "yes")
         if ch:
-            return 200, {"ok": True, "chapter": int(ch),
-                         "events": R.get_events(api.ROOT, int(ch))}
+            n = int(ch)
+            payload = {"ok": True, "chapter": n,
+                       "events": R.get_events(api.ROOT, n)}
+            if want_outline:
+                outline_p = api.ROOT / B.OUTLINE_DIR / ("%02d.md" % n)
+                text = outline_p.read_text(encoding="utf-8") if outline_p.exists() \
+                    else ""
+                evs = RU.outline_events(text)
+                author = payload["events"] or {}
+                checked = set(author.get("checked") or [])
+                cls = author.get("classes") or {}
+                evd = author.get("evidences") or {}
+                payload["outline_events"] = [
+                    {"n": i + 1, "text": e, "checked": i in checked,
+                     "class": cls.get(str(i)), "evidence": evd.get(str(i)) or "",
+                     "counted": bool(i in checked and cls.get(str(i))
+                                     and evd.get(str(i)))}
+                    for i, e in enumerate(evs)]
+                payload["event_hint"] = RU.similar_events_hint(evs)
+                payload["event_min"] = int(
+                    C.values(C.load(api.ROOT)).get("J12", 2))
+            return 200, payload
         return 200, {"ok": True,
                      "events": (R.load(api.ROOT).get("author") or {}).get("events") or {}}
     except Exception as e:                                     # noqa: BLE001
@@ -158,7 +196,8 @@ def handle_judge_events_set(h, body):
         checked = (body or {}).get("checked") or []
         classes = (body or {}).get("classes") or {}
         ev = R.set_events(api.ROOT, ch, checked, classes,
-                          (body or {}).get("evidence") or "")
+                          (body or {}).get("evidence") or "",
+                          (body or {}).get("evidences") or {})
         return 200, {"ok": True, "events": ev}
     except Exception as e:                                     # noqa: BLE001
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}

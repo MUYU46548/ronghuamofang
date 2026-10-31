@@ -282,6 +282,46 @@ def test_G_functional_path_resolution():
         shutil.rmtree(probe, ignore_errors=True)
 
 
+# ---------------------------------------------------------------- F
+def test_F_no_undefined_theme_vars():
+    """判据 F：`var(--x)` 里的 `--x` 必须真有定义（2026-10-31）。
+
+    ## 为什么要这条
+
+    分章页的输入框曾经是 `background: rgba(255,255,255,0.04)` +
+    `color: var(--foreground, #eee)` —— 这个项目**从来没定义过 `--foreground`**
+    （那是另一套设计系统的变量名）。于是亮色主题下：白底、近白字，
+    章纲内容几乎看不见；暗色主题下倒是"碰巧能看"，所以一直没被发现。
+
+    同类残留一共 8 个变量、11 个文件（`--foreground` / `--danger` / `--text` /
+    `--line` / `--mono` / `--accent-soft-hover` / `--app-font-size` / `--ov-tree-w`）。
+    前六个已映射到本项目变量；后两个**由 JS 在运行时写入**，属合法白名单。
+
+    判据：全量扫，未定义且不在白名单 → 红。这比"逐个人眼看 CSS"可靠 ——
+    写的人以为是标准变量名，看的人以为对方定义过。
+    """
+    print("\n【F】主题变量引用必须真有定义")
+    src = ROOT / "console" / "src"
+    css = (src / "style.css").read_text(encoding="utf-8")
+    defined = set(re.findall(r"(--[a-zA-Z0-9_-]+)\s*:", css))
+    # 运行时由 JS 注入（App.vue 的 setProperty / OutlineView 拖宽），CSS 里只有 fallback
+    runtime_injected = {"--app-font-size", "--ov-tree-w"}
+    missing = {}
+    for p in sorted(list(src.glob("*.vue")) + [src / "style.css"]):
+        for m in re.finditer(r"var\((--[a-zA-Z0-9_-]+)",
+                             p.read_text(encoding="utf-8")):
+            name = m.group(1)
+            if name not in defined and name not in runtime_injected:
+                missing.setdefault(name, set()).add(p.name)
+    check("没有引用未定义的主题变量（%d 个已定义，白名单 %d）"
+          % (len(defined), len(runtime_injected)), not missing,
+          {k: sorted(v)[:3] for k, v in missing.items()})
+    check("白名单里的两个变量确实由 JS 写入（不是拿来糊弄判据）",
+          "setProperty(\"--app-font-size\"" in
+          (src / "App.vue").read_text(encoding="utf-8")
+          and "--ov-tree-w" in (src / "OutlineView.vue").read_text(encoding="utf-8"))
+
+
 def main():
     print("=" * 62)
     print("  GUI 暗色主题可读性 + 文件打开路径护栏（离线）")
@@ -291,7 +331,8 @@ def main():
                test_C_is_dark_override,
                test_D_contrast_wcag,
                test_E_path_resolution_and_ipc,
-               test_G_functional_path_resolution):
+               test_G_functional_path_resolution,
+               test_F_no_undefined_theme_vars):
         fn()
     print("\n" + "=" * 62)
     print("  通过 %d / 失败 %d" % (len(PASS), len(FAIL)))

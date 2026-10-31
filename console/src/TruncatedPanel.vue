@@ -164,7 +164,7 @@ defineExpose({ load });
 .tsp { margin-top: 14px; padding-top: 10px; border-top: 1px dashed var(--border); }
 .tsp-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; }
 .tsp-empty { padding: 4px 0 2px; }
-.err-line { color: var(--danger, #c0392b); }
+.err-line { color: var(--bad); }
 .tsp-table { width: 100%; border-collapse: collapse; font-size: 12px; }
 .tsp-table th, .tsp-table td {
   text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--border); vertical-align: top;
@@ -177,7 +177,7 @@ defineExpose({ load });
 .tsp-adopt { display: flex; gap: 6px; align-items: center; }
 .tsp-ch {
   width: 62px; padding: 3px 6px; font-size: 12px;
-  background: var(--field); color: var(--text);
+  background: var(--field); color: var(--ink);
   border: 1px solid var(--border); border-radius: 4px;
 }
 .warn-text { color: var(--warn, #b8860b); }

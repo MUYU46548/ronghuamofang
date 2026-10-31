@@ -433,7 +433,7 @@ onUnmounted(() => {
 .ce-wordbadge.ok { color: var(--ok, #2e8b57); }
 .ce-dirty { margin-left: 8px; font-size: 12px; color: var(--warn, #b8860b); }
 .ce-empty, .ce-err { padding: 24px; }
-.ce-err { color: var(--danger, #c0392b); }
+.ce-err { color: var(--bad); }
 
 .ce-body { flex: 1; display: flex; min-height: 0; gap: 12px; padding: 10px 12px 12px; }
 .ce-main { flex: 1; min-width: 0; display: flex; }
@@ -443,7 +443,7 @@ onUnmounted(() => {
   font-family: "Source Han Serif SC", "Noto Serif SC", "Songti SC", serif;
   font-size: 15px; line-height: 1.9;
   border: 1px solid var(--border); border-radius: 8px;
-  background: var(--field-inset, #fff); color: var(--foreground);
+  background: var(--field-inset, #fff); color: var(--ink);
 }
 .ce-paras {
   flex: 1; overflow: auto; border: 1px solid var(--border); border-radius: 8px;
@@ -478,7 +478,7 @@ onUnmounted(() => {
   width: 100%; height: 96px; margin-top: 8px; padding: 8px 10px; resize: vertical;
   font-size: 13px; line-height: 1.7;
   border: 1px solid var(--border); border-radius: 6px;
-  background: var(--field-inset, #fff); color: var(--foreground);
+  background: var(--field-inset, #fff); color: var(--ink);
 }
 .ce-batch-btn { margin-top: 8px; width: 100%; }
 .ce-ok {

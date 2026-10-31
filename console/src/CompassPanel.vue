@@ -142,12 +142,12 @@ defineExpose({ load });
 <style scoped>
 .cnp { margin-top: 14px; padding-top: 10px; border-top: 1px dashed var(--border); }
 .cnp-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; }
-.err-line { color: var(--danger, #c0392b); }
+.err-line { color: var(--bad); }
 .cnp-form { display: flex; flex-direction: column; gap: 6px; }
 .cnp-form textarea, .cnp-form input {
   font-size: 12px; line-height: 1.6; padding: 6px 8px; resize: vertical;
   border: 1px solid var(--border); border-radius: 6px;
-  background: var(--field-inset, transparent); color: var(--foreground);
+  background: var(--field-inset, transparent); color: var(--ink);
 }
 .cnp-row { display: flex; align-items: center; gap: 8px; }
 .cnp-num { width: 90px; }

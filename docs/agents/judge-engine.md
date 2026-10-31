@@ -44,8 +44,15 @@ python scripts/judge.py sentence 3 --paragraph 5 --text "…" --feeling 打中�
 python scripts/judge.py caliber --set J10=0.25
 ```
 
-GUI：**章节页签顶部「判定」摘要条** → 整本一页（档位表）→ 单章（缺陷卡 + 事件勾选 + 原文）
-→ 「改标准」（合格标准表，带消费方）。
+GUI 两个入口，勾选那块是**同一个组件**（`console/src/JudgeEvents.vue`）：
+
+- **分章页**（I3 的规定位置）：选中一章 → 章纲卡片下方「这一章发生了几件事（你来定）」。
+  走 `GET /judge/events?chapter=n&outline=1` 这条**轻读**路径（只解析章纲 + 读作者记录），
+  不跑完整分析 —— 分章页不需要三档与三稿对照。
+- **章节页签顶部「判定」摘要条** → 整本一页（档位表）→ 单章（缺陷卡 + 事件勾选 + 原文）
+  → 「改标准」（合格标准表，带消费方）。
+
+⚠️ 两处各写一份必然漂移（本项目在「判据写两遍」上栽过多次），改勾选交互只改那个组件。
 
 ## 端点（零 token）
 
@@ -58,6 +65,10 @@ GUI：**章节页签顶部「判定」摘要条** → 整本一页（档位表�
 - `/judge/export`：显式导出 `output/judge_report.md`。
 - `/judge/events` 与 `/judge/sentence` 列进 `FORBIDDEN_IN_AGENT_MODE`：**事件勾选与逐句裁定
   是作者的判断**，外部 Agent 可读不可代替签字。
+- `/judge/events?chapter=n&outline=1`（2026-10-31 加）：附带章纲事件列表 + 已勾状态 +
+  `event_hint`（字面重合提示）。**两个计数别混**：`events` = 勾了几条，
+  `counted_events` = 勾了 + 分了类 + 有证据句（R24 AC-24-2 的「不计入下限」）。
+  **判档目前按 `events`**，切到 `counted_events` 是有意留给人拍板的一次改动（见 verdict.py 注释）。
 
 ## 证据分级（R18）
 

@@ -10,6 +10,7 @@
  */
 import { ref, computed, onMounted } from "vue";
 import { API } from "./apiBase.js";
+import JudgeEvents from "./JudgeEvents.vue";
 
 const emit = defineEmits(["say"]);
 
@@ -24,9 +25,6 @@ const err = ref("");
 const openDefect = ref(null);        // 展开的缺陷条目 id
 const note = ref("");                // 裁定理由输入
 const feel = ref("");                // 打中了 / 没打中 / 拿不准
-const evChecked = ref({});           // 事件勾选（临时，未保存）
-const evClass = ref({});             // 事件分类
-const evEvidence = ref("");
 const calEdit = ref({});             // 口径编辑（id -> 新值）
 
 async function call(method, path, body) {
@@ -90,35 +88,18 @@ async function openChapter(n) {
   busy.value = true; err.value = ""; openDefect.value = null;
   try {
     detail.value = await call("GET", "/judge/chapter?n=" + n);
-    const a = detail.value.author || {};
-    const ck = {};
-    (a.checked || []).forEach((i) => { ck[i] = true; });
-    evChecked.value = ck;
-    evClass.value = Object.assign({}, a.classes || {});
-    evEvidence.value = a.evidence_sentence || "";
     view.value = "detail";
   } catch (e) { err.value = String(e.message || e); }
   busy.value = false;
 }
 
-async function saveEvents() {
-  busy.value = true; err.value = "";
+// 勾选保存后要**重新拉一次单章**：事件数变了，档位与理由也跟着变
+// （界面若不刷新，用户会看到"勾了 3 件"却仍是"待作者勾选"）。
+async function onEventsSaved() {
+  if (!detail.value) return;
   try {
-    const checked = Object.keys(evChecked.value).filter((k) => evChecked.value[k]).map(Number);
-    const missing = checked.filter((i) => !evClass.value[i]);
-    if (missing.length) {
-      busy.value = false;
-      emit("say", "勾了的事件要选一类（人物处境 / 信息占有 / 关系 / 目标）—— 四选一是硬门");
-      return;
-    }
-    await call("POST", "/judge/events", {
-      chapter: detail.value.chapter, checked,
-      classes: evClass.value, evidence: evEvidence.value,
-    });
-    await openChapter(detail.value.chapter);
-    emit("say", "已记：这章算 " + checked.length + " 件事");
+    detail.value = await call("GET", "/judge/chapter?n=" + detail.value.chapter);
   } catch (e) { err.value = String(e.message || e); }
-  busy.value = false;
 }
 
 async function saveSentence(d) {
@@ -284,34 +265,14 @@ onMounted(loadReport);
       <div class="judge-notice">{{ noticeA }}</div>
       <div v-if="err" class="judge-err">{{ err }}</div>
 
-      <!-- 事件勾选（F03b）：唯一硬门，系统不替作者数 -->
-      <div class="judge-events">
-        <div class="judge-events-head">
-          <b>这一章发生了几件事（你勾）</b>
-          <span class="meta">章纲写了 {{ detail.outline_events.length }} 条 ·
-            你勾了 {{ (detail.verdict && detail.author) ? (detail.author.events || 0) : 0 }} 件</span>
-          <span class="spacer"></span>
-          <button class="mini primary" :disabled="busy" @click="saveEvents">保存勾选</button>
-        </div>
-        <div v-for="ev in detail.outline_events" :key="ev.n" class="judge-event">
-          <label>
-            <input type="checkbox" v-model="evChecked[ev.n - 1]" />
-            <span class="judge-ev-text">{{ ev.text }}</span>
-          </label>
-          <select v-model="evClass[ev.n - 1]" class="judge-ev-class">
-            <option value="">（选一类）</option>
-            <option>人物处境</option>
-            <option>信息占有</option>
-            <option>关系</option>
-            <option>目标</option>
-          </select>
-        </div>
-        <div v-if="detail.density && detail.density.flagged" class="meta judge-hint">
-          系统提示（只提示、不改档）：{{ detail.density.reason }}
-        </div>
-        <input v-model="evEvidence" class="judge-evidence"
-               placeholder="哪句话能看出来（可以不填）" />
-      </div>
+      <!-- 事件勾选（F03b）：唯一硬门，系统不替作者数。
+           2026-10-31 抽成 JudgeEvents 组件 —— 分章页（I3 的原位置）用的是同一份实现。 -->
+      <JudgeEvents :chapter="detail.chapter" :events="detail.outline_events"
+                   :hint="detail.event_hint || ''"
+                   :event-min="detail.event_min || 2"
+                   :density-note="detail.density && detail.density.flagged ? detail.density.reason : ''"
+                   @say="(m) => emit('say', m)"
+                   @saved="onEventsSaved" />
 
       <div class="judge-cols">
         <div class="judge-defects">
@@ -416,9 +377,9 @@ onMounted(loadReport);
 .judge-event { display: flex; align-items: center; gap: 10px; padding: 3px 0; }
 .judge-event label { display: flex; align-items: center; gap: 6px; }
 .judge-ev-text { font-size: 13px; }
-.judge-ev-class { background: var(--field); color: var(--text); border: 1px solid var(--border); border-radius: 6px; }
+.judge-ev-class { background: var(--field); color: var(--ink); border: 1px solid var(--border); border-radius: 6px; }
 .judge-hint { color: var(--warn); margin-top: 4px; }
-.judge-evidence { width: 100%; margin-top: 6px; background: var(--field); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; }
+.judge-evidence { width: 100%; margin-top: 6px; background: var(--field); color: var(--ink); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; }
 .judge-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 8px; }
 @media (max-width: 1200px) { .judge-cols { grid-template-columns: 1fr; } }
 .judge-defects { max-height: 460px; overflow: auto; }
@@ -430,9 +391,9 @@ onMounted(loadReport);
 .judge-quote { flex: 1; }
 .judge-card { padding: 6px 2px 10px; font-size: 13px; line-height: 1.8; }
 .judge-do { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 4px; }
-.judge-reason { flex: 1; min-width: 160px; background: var(--field); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 3px 8px; }
+.judge-reason { flex: 1; min-width: 160px; background: var(--field); color: var(--ink); border: 1px solid var(--border); border-radius: 6px; padding: 3px 8px; }
 .judge-body { max-height: 460px; overflow: auto; font-size: 13px; line-height: 1.9; }
 .judge-para-body { margin-bottom: 8px; }
 .judge-para-no { color: var(--muted); font-size: 11px; margin-right: 6px; }
-.judge-cal-input { width: 120px; background: var(--field); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 2px 6px; }
+.judge-cal-input { width: 120px; background: var(--field); color: var(--ink); border: 1px solid var(--border); border-radius: 6px; padding: 2px 6px; }
 </style>

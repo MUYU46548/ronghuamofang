@@ -166,7 +166,7 @@ defineExpose({ load });
 <style scoped>
 .wpp { margin-top: 14px; padding-top: 10px; border-top: 1px dashed var(--border); }
 .wpp-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; }
-.err-line { color: var(--danger, #c0392b); }
+.err-line { color: var(--bad); }
 .wpp-current { margin-bottom: 8px; }
 .wpp-chip {
   display: inline-block; margin-right: 6px; padding: 1px 6px;
@@ -184,12 +184,12 @@ defineExpose({ load });
 .wpp-id {
   width: 160px; font-size: 12px; padding: 4px 8px;
   border: 1px solid var(--border); border-radius: 6px;
-  background: var(--field-inset, transparent); color: var(--foreground);
+  background: var(--field-inset, transparent); color: var(--ink);
 }
 .wpp-json {
   font-size: 12px; line-height: 1.6; padding: 6px 8px; resize: vertical;
   border: 1px solid var(--border); border-radius: 6px;
-  background: var(--field-inset, transparent); color: var(--foreground);
+  background: var(--field-inset, transparent); color: var(--ink);
 }
 .wpp-hist {
   margin-top: 10px; padding: 6px 8px;

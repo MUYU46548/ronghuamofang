@@ -68,17 +68,36 @@ def append_run(root, run):
     return run
 
 
-def set_events(root, chapter, checked, classes=None, evidence=""):
-    """F03b：作者勾选「这一章发生了几件事」。**唯一硬门**，系统不代勾。"""
+def set_events(root, chapter, checked, classes=None, evidence="", evidences=None):
+    """F03b：作者勾选「这一章发生了几件事」。**唯一硬门**，系统不代勾。
+
+    ## 两个计数，别混用（R24）
+
+    - `events` = **勾了几条**（作者的动作）；
+    - `counted_events` = **能计入下限的几条** = 勾了 + 分了类 + 有证据句。
+      R24 的 AC-24-2：类别有、证据句空 → 可提交，落「无举证」，**计入条数少 1**。
+
+    所以「≥2 条才好判」这条下限看的是 `counted_events`，不是 `events`。
+    旧记录没有这个字段 → 调用方按 `events` 兜底（历史行为不变）。
+
+    `evidence`（全章一句）保留兼容：早期界面只有一个输入框。逐事件证据在
+    `evidences`（`{事件序号: 句子}`）。
+    """
     doc = load(root)
     checked = [int(x) for x in (checked or [])]
     classes = {str(k): v for k, v in (classes or {}).items()
                if v in EVENT_CLASSES}
+    evidences = {str(k): str(v).strip() for k, v in (evidences or {}).items()
+                 if str(v).strip()}
+    counted = [i for i in checked if classes.get(str(i)) and evidences.get(str(i))]
     doc["author"]["events"][str(int(chapter))] = {
         "chapter": int(chapter),
         "checked": checked,
         "classes": classes,
+        "evidences": evidences,
         "events": len(checked),
+        "counted_events": len(counted),
+        "unproven": [i for i in checked if not evidences.get(str(i))],
         "chosen": (classes.get(str(checked[0])) if checked else None),
         "evidence_sentence": str(evidence or ""),
         "at": _now(),

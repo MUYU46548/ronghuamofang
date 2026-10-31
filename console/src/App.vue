@@ -6376,7 +6376,7 @@ onUnmounted(() => {
           <span v-if="!(factory.match_count || 0)">（未检出与出厂示例一致的文件）</span>
           <div v-if="(factory.match_count || 0)"
                style="max-height: 168px; overflow: auto; margin-top: 4px; padding: 6px 8px;
-                      border: 1px solid var(--line, rgba(128,128,128,.35)); border-radius: 6px;">
+                      border: 1px solid var(--border)); border-radius: 6px;">
             <div v-for="m in (factory.matches || []).slice(0, 20)" :key="m.path"
                  style="display: flex; gap: 8px; justify-content: space-between;">
               <code>{{ m.path }}</code>

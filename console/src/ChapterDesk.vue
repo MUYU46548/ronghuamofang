@@ -224,7 +224,7 @@ onMounted(() => {
   display: flex; align-items: center; gap: 8px; width: 100%;
   padding: 6px 10px; text-align: left; cursor: pointer;
   background: transparent; border: 0; border-bottom: 1px solid var(--border);
-  color: var(--foreground); font-size: 13px;
+  color: var(--ink); font-size: 13px;
 }
 .desk-chap:hover { background: rgba(107, 138, 253, 0.08); }
 .desk-chap.on { background: rgba(107, 138, 253, 0.16); font-weight: 600; }
@@ -256,6 +256,6 @@ onMounted(() => {
 .desk-dims-note { margin-top: 8px; line-height: 1.6; }
 .st-done { color: var(--ok, #2e8b57); }
 .st-warn { color: var(--warn, #b8860b); }
-.st-failed { color: var(--danger, #c0392b); }
+.st-failed { color: var(--bad); }
 .st-pending { color: var(--muted, #888); }
 </style>

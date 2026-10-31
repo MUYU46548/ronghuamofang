@@ -107,7 +107,7 @@ onMounted(() => {});
 .hnp { margin-top: 14px; padding-top: 10px; border-top: 1px dashed var(--border); }
 .hnp-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; }
 .hnp-head .mini { margin-left: 4px; }
-.err-line { color: var(--danger, #c0392b); }
+.err-line { color: var(--bad); }
 .hnp-meta { margin-bottom: 6px; }
 .hnp-problems {
   margin-bottom: 8px; padding: 6px 8px;
@@ -119,6 +119,6 @@ onMounted(() => {});
   max-height: 320px; overflow: auto; padding: 10px 12px;
   font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-word;
   border: 1px solid var(--border); border-radius: 6px;
-  background: var(--field-inset, transparent); color: var(--foreground);
+  background: var(--field-inset, transparent); color: var(--ink);
 }
 </style>

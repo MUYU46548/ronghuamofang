@@ -459,3 +459,87 @@ def analyze_chapter(body, outline_text=None, chapter=0, cal=None):
             "total": len(defects) + (1 if density.get("flagged") else 0),
         },
     }
+
+
+# --------------------------------------------------------------------- F03b 提示
+# 「这几条读起来像同一场戏的连续动作」——**只提示，不入三档映射**。
+#
+# 为什么需要：作者容易把「盖章 → 核对回执 → 划改日志」拆成 3 条事件交上来，
+# 条数够了但实质是 1 件事（R24 的 AC-24-5 就卡在这儿：4 条按口径只算 1 条）。
+# 系统**不得替作者合并、不得改档位**，只能提示一句让他自己判断。
+#
+# 判据刻意做成确定性、零 token 的两条并集：
+#   ① 最长公共子串 ≥ 4 字（中文 4 字连续重复，多半是同一件事换了说法）；
+#   ② 2-gram Jaccard ≥ 0.35（短句里共享的片段占比高）。
+# 宁可少报：这是提示，误报会让作者烦，漏报只是少一句话。
+SIMILAR_LCS_MIN = 4
+SIMILAR_JACCARD_MIN = 0.35
+
+
+def _lcs_len(a, b):
+    """最长公共子串长度。事件文本都很短（< 60 字），O(n*m) 够用。"""
+    if not a or not b:
+        return 0
+    best = 0
+    prev = [0] * (len(b) + 1)
+    for i in range(1, len(a) + 1):
+        cur = [0] * (len(b) + 1)
+        for j in range(1, len(b) + 1):
+            if a[i - 1] == b[j - 1]:
+                cur[j] = prev[j - 1] + 1
+                if cur[j] > best:
+                    best = cur[j]
+        prev = cur
+    return best
+
+
+def _bigrams(s):
+    s = re.sub(r"[\s，。、；：！？,.;:!?\"'“”‘’（）()《》\[\]]", "", s or "")
+    return {s[i:i + 2] for i in range(len(s) - 1)} if len(s) >= 2 else set()
+
+
+def similar_event_pairs(events):
+    """两两比较，返回疑似「同一场戏」的对：`[{"a": 1, "b": 2, "why": "共享「盖章」"}]`。
+
+    下标与调用方一致（**从 1 开始**，与界面上的编号对应）。
+    """
+    items = [(i + 1, str(e or "").strip()) for i, e in enumerate(events or [])]
+    items = [(i, t) for i, t in items if t]
+    out = []
+    for x in range(len(items)):
+        for y in range(x + 1, len(items)):
+            (ia, ta), (ib, tb) = items[x], items[y]
+            lcs = _lcs_len(ta, tb)
+            ga, gb = _bigrams(ta), _bigrams(tb)
+            jac = (len(ga & gb) / len(ga | gb)) if (ga and gb) else 0.0
+            if lcs >= SIMILAR_LCS_MIN or jac >= SIMILAR_JACCARD_MIN:
+                why = ("共享「%s」" % _common_sub(ta, tb, lcs)) if lcs >= SIMILAR_LCS_MIN \
+                    else "用词重合 %.0f%%" % (jac * 100)
+                out.append({"a": ia, "b": ib, "lcs": lcs,
+                            "jaccard": round(jac, 3), "why": why})
+    return out
+
+
+def _common_sub(a, b, want):
+    """取一条长度 = want 的公共子串（给提示语引用，不用最优，够说明问题）。"""
+    if want <= 0:
+        return ""
+    for i in range(len(a) - want + 1):
+        seg = a[i:i + want]
+        if seg in b:
+            return seg
+    return ""
+
+
+def similar_events_hint(events):
+    """把疑似对组装成**一句**人话；没有则返回空串（界面据此决定是否显示）。"""
+    pairs = similar_event_pairs(events)
+    if not pairs:
+        return ""
+    # 同一批里可能有多对，取涉及条数最多的那组，避免刷屏
+    involved = sorted({p["a"] for p in pairs} | {p["b"] for p in pairs})
+    if len(involved) < 2:
+        return ""
+    names = "、".join("第 %d 条" % i for i in involved)
+    return ("其中%s读起来像同一场戏里的连续动作（%s）—— 算几件事由你定，"
+            "系统不替你合并。" % (names, "；".join(p["why"] for p in pairs[:2])))

@@ -172,14 +172,25 @@ def main():
                   ("第 " in det and "段" in det) or "没命中任何规则" in det)
 
             print("\n=== E. 勾事件 → 档位出现 ===")
-            boxes = panel.locator(".judge-event input[type=checkbox]")
+            # 2026-10-31：勾选区抽成 JudgeEvents 组件（分章页与判定详情共用一份），
+            # 类名从 judge-event 改为 je-row；分类从 select 改成四选一按钮。
+            boxes = panel.locator(".je-row input[type=checkbox]")
             check("事件行有勾选框", boxes.count() >= 1, boxes.count())
             if boxes.count():
                 boxes.nth(0).check()
+                page.wait_for_timeout(200)
                 boxes.nth(1).check()
-                sel = panel.locator("select.judge-ev-class")
-                sel.nth(0).select_option("信息占有")
-                sel.nth(1).select_option("关系")
+                page.wait_for_timeout(300)
+                # 每个勾选行展开一组四类按钮：取每行第一个"人物处境"
+                cls = panel.locator(".je-row .je-detail .je-class")
+                check("勾选后展开四类按钮（人物处境/信息占有/关系/目标）",
+                      cls.count() >= 4, cls.count())
+                if cls.count() >= 4:
+                    cls.nth(0).click()
+                    page.wait_for_timeout(150)
+                    # 第二行：人物处境 + 信息占有 + 关系 + 目标 依次（4 个一组）
+                    cls.nth(4).click() if cls.count() >= 8 else None
+                    page.wait_for_timeout(150)
             panel.locator("button:has-text('保存勾选')").click()
             page.wait_for_timeout(1200)
             det2 = panel.inner_text()

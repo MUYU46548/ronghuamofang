@@ -379,7 +379,12 @@ function getWorkspaceSource() {
 //   · 前端（asar，不走种子）：项目页出厂徽标 / 启动提示词剥离说明书 /
 //     阶段复制改任务简报（原样贴模板会被外部 Agent 按红线判「模板不是任务」停工）。
 // **先 bump 再 electron-builder**。
-const SEED_VERSION = 65;   // 0.7.22: 提示词出厂保底 + 引擎可切换 + 配置写入不再吃注释
+const SEED_VERSION = 66;   // 0.7.23: I3 事件勾选落到分章页 + 逐事件证据 + 主题变量收口
+                            //   · payload 内 scripts/ 变更：judge/records.py（evidences/counted_events）、
+                            //     judge/verdict.py（两个计数）、judge/rules.py（字面重合提示）、
+                            //     nf_api_domains/judge.py（/judge/events?outline=1 轻读）
+                            //   · 前端（asar）：JudgeEvents.vue、分章页接线、8 个未定义主题变量收口
+                            // 0.7.22: 提示词出厂保底 + 引擎可切换 + 配置写入不再吃注释
                             //   · scripts/prompts 变更：新增 scripts/prompt_factory.py、
                             //     新增 prompts/factory/（16 份出厂副本，**不 seed 用户就拿不到保底**）、
                             //     obsidian_bridge 排除项热更、nf_api 的 PROMPTS_DIR 改为随 --root 派生
