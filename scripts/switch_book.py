@@ -264,12 +264,17 @@ def _restore_root_items(src):
     return moved
 
 
-def archive(book_name=None, yes=False, force=False, guard_snapshot=True):
+def archive(book_name=None, yes=False, force=False, guard_snapshot=True, reason=""):
     """归档当前工作区。返回 (success: bool, message: str)。
 
     force=True 时覆盖同名归档（用于 restore 路径的自动归档）。
     guard_snapshot=False 仅供**已经打过 before-import 快照**的上层调用方
     （restore）使用 —— 契约要求"操作前一次快照"，不是"每层都来一次"。
+    reason=归档原因（2026-10-31 加）：写进 `_meta.json` 的 `why`。
+        从「整本否掉」一键归档时传作者的理由，半年后翻归档列表能看见
+        「这本当初为什么被放进来」，而不是只有一个书名和日期。
+        ⚠️ 参数名**不能叫 note**：函数体里 `note` 已被用来存快照提示
+        （`；回退点 xxx`），同名会被覆盖 —— 第一版就这么把"理由"写成了回退点。
     """
     if not yes:
         return False, "归档将移动 data/ 下产物与 config/、materials/ 到 data/books/，确认请加 --yes"
@@ -312,6 +317,8 @@ def archive(book_name=None, yes=False, force=False, guard_snapshot=True):
         meta = {"book": name, "archived_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "items": moved, "root_items": root_moved,
                 "kept_in_workspace": kept, "format": 2}
+        if str(reason or "").strip():
+            meta["why"] = str(reason).strip()[:500]
         (dest / "_meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
         # 成功后再删旧归档
         if tmp_dest and tmp_dest.exists():

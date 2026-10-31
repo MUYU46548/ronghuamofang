@@ -332,6 +332,55 @@ def handle_book_reject_clear(h, body):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+def handle_book_archive(h, body):
+    """B2 延伸（2026-10-31）：「整本否掉」之后的一键**归档** —— 不是一键清除。
+
+    ## 为什么是归档而不是清理
+
+    用户原话：「直接一键清理产物风险太高。归档之后是用户自己的事情，
+    我们已经做到了保护措施。」——完全同意，而且这个仓库里早有同样的教训
+    （方寸那次：把\"清 release 目录\"顺手改成搬出工作区，理由是\"顺手治本\"）。
+
+    所以这里只做一件事：把当前工作区整本搬进 `data/books/<书名>/`
+    （复用 `switch_book.archive`：先打 before-import 快照 → 搬 → 失败可回退），
+    工作区变空。**不删任何东西**。想彻底删掉，是作者在「项目」页对某份归档
+    自己点删除（那条路径还进系统回收站）。归档之后怎么办是人的决定。
+
+    归档原因写进 `_meta.json` 的 `why`：优先取本次传入的理由，
+    其次取 `records.json` 里「整本否掉」的那条理由 —— 半年后翻归档列表时，
+    看得见「这本当初为什么被放进来」，而不是只有一个书名和日期。
+    """
+    try:
+        body = body or {}
+        # 归档会搬空工作区（含 config/ 与 materials/），必须显式确认。
+        # 这不是"确认弹窗的形式主义"：漏了它，任何一次误点都会让工作区看着"全没了"。
+        if not body.get("confirm"):
+            return 400, {"ok": False,
+                         "error": "归档会搬空当前工作区，需带 confirm=true"}
+        import switch_book as sb
+        name = str(body.get("name") or "").strip() or _book_name()
+        if not name:
+            return 400, {"ok": False,
+                         "error": "无法确定书名（project.yaml 的 book.name 为空）"}
+        why = str(body.get("reason") or "").strip()
+        if not why:
+            br = R.get_book_reject(api.ROOT) or {}
+            why = str(br.get("reason") or "").strip()
+        if not why:
+            why = "作者在判定页一键归档"
+        ok, msg = sb.archive(name, yes=True,
+                             force=bool(body.get("force")), reason=why)
+        rel = "data/books/" + sb.sanitize(name)
+        if not ok:
+            return 400, {"ok": False, "error": msg}
+        return 200, {"ok": True, "name": name, "path": rel, "why": why,
+                     "message": msg,
+                     "next": "工作区已清空。这本书是「搬走」不是「删掉」——"
+                             "在「项目」页可以恢复，或由你决定是否删除归档。"}
+    except Exception as e:                                     # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 def handle_judge_export(h, body):
     """导出缺陷单（显式动作）：重跑一次判定并落 output/judge_report.md。"""
     try:
@@ -360,4 +409,5 @@ ROUTES = [
     ("POST", "/judge/export", handle_judge_export),
     ("POST", "/judge/book_reject", handle_book_reject_set),
     ("POST", "/judge/book_reject/clear", handle_book_reject_clear),
+    ("POST", "/judge/book_archive", handle_book_archive),
 ]

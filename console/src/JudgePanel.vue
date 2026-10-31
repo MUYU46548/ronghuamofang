@@ -12,7 +12,8 @@ import { ref, computed, onMounted } from "vue";
 import { API } from "./apiBase.js";
 import JudgeEvents from "./JudgeEvents.vue";
 
-const emit = defineEmits(["say"]);
+// archived：归档搬空了工作区 —— 外层要重载项目列表/阶段/章节（2026-10-31）
+const emit = defineEmits(["say", "archived"]);
 
 const view = ref("report");          // report | detail | caliber
 const report = ref(null);
@@ -28,6 +29,7 @@ const feel = ref("");                // 打中了 / 没打中 / 拿不准
 const calEdit = ref({});             // 口径编辑（id -> 新值）
 const rejectReason = ref("");        // B2 整本否掉的理由（必填 ≥8 字）
 const rejectBusy = ref(false);
+const archiveBusy = ref(false);      // 一键归档
 
 // R05：这条判据在**这本书**里的一个真实例子（取自正文切句，不是人编的）
 function refFor(rid) {
@@ -55,6 +57,31 @@ async function submitBookReject() {
     emit("say", "已记下：整本否掉");
   } catch (e) { err.value = String(e.message || e); }
   rejectBusy.value = false;
+}
+
+// B2 延伸（2026-10-31）：一键**归档**整本 —— 不是一键清除。
+//
+// 用户原话：“直接一键清理产物风险太高。归档之后是用户自己的事情，
+// 我们已经做到了保护措施。”所以这里只搬到 data/books/<书名>/，
+// 不删任何东西；之后要不要彻底删，是人在“项目”页自己点（那条还进回收站）。
+async function archiveBook() {
+  const why = rejectReason.value.trim()
+    || (bookReject.value && bookReject.value.reason) || "";
+  if (!window.confirm(
+    "归档这本书？\n\n"
+    + "· 整本搬到 data/books/（稿子、素材、配置一起搬）\n"
+    + "· 当前工作区会变空\n"
+    + "· 什么都没删：之后在“项目”页可以恢复，也可以由你自己删除归档\n"
+    + "· 搬之前会自动打一个回退点（快照）")) return;
+  archiveBusy.value = true;
+  err.value = "";
+  try {
+    const d = await call("POST", "/judge/book_archive", { confirm: true, reason: why });
+    emit("say", "已归档 → " + (d.path || d.name)
+      + "（工作区已清空，可在“项目”页恢复或删除）");
+    emit("archived", d);
+  } catch (e) { err.value = String(e.message || e); }
+  archiveBusy.value = false;
 }
 
 async function clearBookReject() {
@@ -260,7 +287,11 @@ onMounted(loadReport);
         <b>你已否掉整本</b>：{{ bookReject.reason }}
         <span class="meta">（{{ bookReject.at }}）</span>
         <button class="mini" :disabled="rejectBusy" @click="clearBookReject">撤销</button>
-        <div class="meta">这是一条判断记录，不会删除或改动任何稿件。</div>
+        <button class="mini" :disabled="archiveBusy" @click="archiveBook">
+          {{ archiveBusy ? "归档中…" : "归档这本书" }}
+        </button>
+        <div class="meta">这是一条判断记录，不会删除或改动任何稿件。
+          归档 = 整本搬进 data/books/（同样不删），之后由你决定恢复还是删除。</div>
       </div>
 
       <!-- R1 判据失效告警（评审高危项）：命中骤降时出声，不判档 -->
@@ -322,6 +353,13 @@ onMounted(loadReport);
         </div>
         <div class="meta">只落一条记录（理由 + 时间），<b>不会删除或改动任何稿件</b>。
           之后可以撤销，旧记录留在历史里。</div>
+        <div class="judge-archive-row">
+          <span class="meta">不再改这本了 →</span>
+          <button class="mini" :disabled="archiveBusy" @click="archiveBook">
+            {{ archiveBusy ? "归档中…" : "归档这本书" }}
+          </button>
+          <span class="meta">搬到 data/books/，<b>不删任何东西</b>；之后恢复或删除都由你决定。</span>
+        </div>
       </div>
     </template>
 

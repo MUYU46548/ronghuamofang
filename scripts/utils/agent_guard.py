@@ -97,6 +97,10 @@ FORBIDDEN_IN_AGENT_MODE = frozenset({
     # 外部 Agent 可以读（/judge/report 里带 book_reject），不可以代替作者签字。
     "/judge/book_reject",
     "/judge/book_reject/clear",
+    # 归档整本（搬家，不是删除）：同样是**作者的判断**，且它会搬空工作区。
+    # 外部 Agent 想归档自己的产物，走 /project/archive（明确指定书名），
+    # 不能借用判定页这条「按当前书名、连素材一起搬」的快捷通道。
+    "/judge/book_archive",
     # Word 稿导入（活二，2026-10-13）：一次性把**整本外部稿**写进
     # data/chapters/{raw,checked,refined}/，且 --overwrite 能盖掉已有章节
     # —— 与归档/恢复同档的批量写入，归用户点。预览走同一端点（GUI 一体），

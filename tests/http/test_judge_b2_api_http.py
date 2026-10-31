@@ -153,6 +153,59 @@ def main():
               "/judge/book_reject/clear" in AG.FORBIDDEN_IN_AGENT_MODE)
         check("只读的 /judge/report 不在名单里（Agent 可以读作者判断）",
               "/judge/report" not in AG.FORBIDDEN_IN_AGENT_MODE)
+
+        # ---------------------------------------------------------------- A5
+        # 2026-10-31 用户追加：「整本否掉帮我加个一键归档的快捷按钮，
+        # 直接一键清理产物风险太高。归档之后是用户自己的事情。」
+        # 所以这里钉的是「搬走」而不是「删掉」—— 而且搬完还能原样恢复。
+        print("\n【A5】一键归档：搬家，不是删除")
+        code, d = req("POST", "/judge/book_archive", {})
+        check("缺 confirm → 400（防误点搬空工作区）", code == 400,
+              (code, d.get("error")))
+
+        code, d = req("POST", "/judge/book_archive", {"confirm": True, "reason": "测过一遍，先收起来"})
+        check("归档 200 且 ok", code == 200 and d.get("ok") is True, d)
+        check("回执写明搬去哪（data/books/书名）",
+              d.get("path") == "data/books/B2端点验收", d.get("path"))
+        check("回执明说「是搬走不是删掉」",
+              "搬走" in (d.get("next") or "") and "删除归档" in (d.get("next") or ""),
+              d.get("next"))
+
+        arch = tmp / "data" / "books" / "B2端点验收"
+        check("归档目录建立", arch.is_dir())
+        check("正文进了归档（没被删）",
+              (arch / "chapters" / "raw" / "01.md").is_file())
+        check("config 跟着书走（恢复后还是这本书的配置）",
+              (arch / "config" / "project.yaml").is_file())
+        check("materials 跟着书走", (arch / "materials").is_dir())
+        check("工作区里已经没有那一章（确实搬空了）",
+              not (tmp / "data" / "chapters" / "raw" / "01.md").is_file())
+
+        meta_p = arch / "_meta.json"
+        meta = json.loads(meta_p.read_text(encoding="utf-8")) if meta_p.is_file() else {}
+        check("_meta.json 记了归档原因（半年后还看得懂）",
+              meta.get("why") == "测过一遍，先收起来", meta.get("why"))
+        check("_meta.json 记了书名与时间",
+              meta.get("book") == "B2端点验收" and bool(meta.get("archived_at")), meta)
+
+        code, d2 = req("POST", "/judge/book_archive", {"confirm": True})
+        check("工作区已空时再点 → 明确说「无需归档」，不报错也不覆盖",
+              code == 200 and "无需归档" in (d2.get("message") or ""),
+              (code, d2.get("message") or d2.get("error")))
+        check("原归档没被这次点击动过（meta 还在）",
+              (arch / "_meta.json").is_file())
+
+        code, lst = req("GET", "/project/list")
+        names = [x.get("name") for x in (lst.get("archived") or [])]
+        check("/project/list 能看见这份归档", "B2端点验收" in names, names)
+
+        code, d3 = req("POST", "/project/restore", {"name": "B2端点验收", "yes": True})
+        check("可以恢复回来（归档不是终点）", code == 200 and d3.get("ok") is True, d3)
+        check("恢复后正文回到工作区",
+              (tmp / "data" / "chapters" / "raw" / "01.md").is_file())
+
+        check("/judge/book_archive 在 FORBIDDEN_IN_AGENT_MODE 里（Agent 不得搬空工作区）",
+              "/judge/book_archive" in AG.FORBIDDEN_IN_AGENT_MODE)
     finally:
         if proc:
             try:
