@@ -844,10 +844,245 @@ def handle_config_vault_set(h, body):
         warn = ""
         if not (p / ".obsidian").is_dir():
             warn = "这个目录没有 .obsidian（不像是 Obsidian 库）—— 如果是有 markdown 的普通文件夹，照样能用。"
+        # 保存 = 设定当前库，同时登记进书签列表（用户换回来时不用重找路径）
+        try:
+            _doc = _load_vaults_doc()
+            if not any(_same_path(x.get("path"), p.as_posix()) for x in _doc["items"]):
+                _doc["items"].append({
+                    "path": p.as_posix(), "name": p.name, "skip_dirs": _user_skip_dirs(),
+                    "added_at": __import__("datetime").datetime.now()
+                        .strftime("%Y-%m-%d %H:%M:%S"),
+                })
+                _save_vaults_doc(_doc)
+        except Exception as e:                               # noqa: BLE001
+            # 登记失败不影响"路径已保存"这件事本身，但**必须出声** ——
+            # 静默吞掉会让"保存了却不在列表里"变成又一个界面骗人的 bug。
+            print("[vault] 登记库书签失败（路径已保存）:", type(e).__name__, e)
         return 200, dict(info, ok=True, warning=warn,
                          message="已保存库路径；下次扫描立刻生效（无需重启）")
     except Exception as e:                                   # noqa: BLE001
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+# ---------------------------------------------------------------- 多库（A 模型，2026-10-31）
+# 用户拍板选 A：**一次只有一个库生效**，界面上快速切换（Obsidian 式）。
+#
+# ## 为什么这个模型
+#
+# 三家成熟产品（Obsidian / Joplin / DEVONthink）的调研写在 roadmap 附录。选 A 的理由：
+# 本项目导入设定集是**整体替换**语义。同时挂多个库、同名条目并存，会让"沈砚"出现两次，
+# 一次误合并就覆盖掉用户手写的条目 —— 那是改用户的设定，不是功能。
+# A 只把"换库"做顺，风险为零。
+#
+# ## 存哪、谁是权威
+#
+# - **当前库只有一个真源**：`config/system.local.yaml` 的 `obsidian.vault_path`
+#   （既有语义不变，`scan_vault` / `get_vault_path` 一个字节都不用改）；
+# - `data/state/vaults.json` 只存**书签**（已知库列表）与**每库的排除项**。
+#   为什么不学 Obsidian 把配置放进库内（`.obsidian/`）：**我们从不写用户的库**
+#   （既有红线），所以库级配置只能存在我们自己的工作区里。
+#
+# ## 切换时做什么
+#
+# ① 把当前库的排除项回写到它的书签；② 写 `vault_path` = 目标库；
+# ③ 把目标库的排除项写回 `system.local.yaml`；④ 清配置缓存（否则下一次扫描读旧值）。
+VAULTS_STATE_REL = "data/state/vaults.json"
+
+
+def _vaults_file():
+    return api.ROOT / VAULTS_STATE_REL
+
+
+def _same_path(a, b):
+    """路径相等判断（Windows 大小写不敏感 + 正反斜杠混用）。"""
+    na = str(a or "").replace("\\", "/").rstrip("/").lower()
+    nb = str(b or "").replace("\\", "/").rstrip("/").lower()
+    return bool(na) and na == nb
+
+
+def _load_vaults_doc():
+    """读书签列表。**坏文件不抛**：库列表丢了只是不方便，不该让整个设置页 500。"""
+    fp = _vaults_file()
+    if not fp.is_file():
+        return {"items": []}
+    try:
+        d = json.loads(fp.read_text(encoding="utf-8"))
+        if not isinstance(d, dict) or not isinstance(d.get("items"), list):
+            return {"items": []}
+        d["items"] = [x for x in d["items"] if isinstance(x, dict) and x.get("path")]
+        return d
+    except Exception:                                        # noqa: BLE001
+        return {"items": []}
+
+
+def _save_vaults_doc(doc):
+    fp = _vaults_file()
+    fp.parent.mkdir(parents=True, exist_ok=True)
+    fp.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _current_vault_path():
+    from obsidian_bridge import get_vault_path
+    p = get_vault_path()
+    return p.as_posix() if p else ""
+
+
+def _user_skip_dirs():
+    """当前生效的排除项里，**除掉默认四项**之后的部分（= 用户自己勾的那几个）。
+
+    为什么要减默认项：`get_skip_dirs()` 是「默认 + local 追加」，把整份存进书签
+    再套到另一个库上，等于把`.obsidian` 之类也当成"用户选择"带来带去。
+    """
+    from obsidian_bridge import get_skip_dirs
+    # 默认项的正主在 setting_schema（obsidian_bridge 只是转手）——
+    # 第一版从 obsidian_bridge 导 `_DEFAULT_SKIP_DIRS`，它没有这个名字，
+    # 而调用点包在 try/except 里 → **登记静默失败**，列表永远是空的。
+    from utils.setting_schema import _DEFAULT_SKIP_DIRS
+    defaults = set(_DEFAULT_SKIP_DIRS)
+    return [x for x in get_skip_dirs() if x not in defaults]
+
+
+def _apply_vault(path, skip_dirs):
+    """把「当前库」切到 path，并把 skip_dirs 写进 local（空列表 = 清掉用户项）。"""
+    from utils.config_io import set_section_scalars
+    from utils.setting_schema import reset_obsidian_config_cache
+    ok, msg = set_section_scalars(("obsidian",),
+                                  {"vault_path": path, "skip_dirs": list(skip_dirs or [])},
+                                  path=_ensure_local_yaml())
+    if not ok:
+        return False, msg
+    reset_obsidian_config_cache()
+    return True, msg
+
+
+def _vaults_public():
+    """给界面看的列表：当前库 + 每项是否还在盘上。"""
+    doc = _load_vaults_doc()
+    cur = _current_vault_path()
+    items = []
+    for it in doc["items"]:
+        from pathlib import Path as _P
+        p = _P(it["path"])
+        items.append({
+            "path": it["path"],
+            "name": it.get("name") or p.name,
+            "exists": p.is_dir(),
+            "looks_like_obsidian": (p / ".obsidian").is_dir() if p.is_dir() else False,
+            "skip_dirs": it.get("skip_dirs") or [],
+            "current": _same_path(it["path"], cur),
+            "added_at": it.get("added_at"),
+        })
+    return {"ok": True, "current": cur, "items": items,
+            "count": len(items),
+            "model": "single",      # 一次只有一个库生效（A 模型）
+            "note": ("同一时刻只有一个库生效；切换会保留每个库自己的排除项。"
+                     "换库不影响任何笔记文件。")}
+
+
+def handle_config_vaults_get(h):
+    """`GET /config/vaults` —— 已知库列表 + 当前是哪个。"""
+    try:
+        return 200, _vaults_public()
+    except Exception as e:                                   # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_config_vaults_add(h, body):
+    """`POST /config/vaults/add {path, name?}` —— 只登记，不切换。"""
+    body = body or {}
+    raw = str(body.get("path") or "").strip()
+    if not raw:
+        return 400, {"ok": False, "error": "path 必填"}
+    from pathlib import Path as _P
+    p = _P(raw).expanduser()
+    if not p.is_absolute():
+        return 400, {"ok": False, "error": "请填绝对路径"}
+    try:
+        p = p.resolve()
+    except OSError:
+        pass
+    if not p.is_dir():
+        return 400, {"ok": False, "error": "目录不存在或不是目录：%s" % p}
+    doc = _load_vaults_doc()
+    for it in doc["items"]:
+        if _same_path(it["path"], p.as_posix()):
+            return 200, dict(_vaults_public(), message="这个库已经在列表里了")
+    doc["items"].append({
+        "path": p.as_posix(),
+        "name": str(body.get("name") or "").strip() or p.name,
+        "skip_dirs": [],
+        "added_at": __import__("datetime").datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+    })
+    _save_vaults_doc(doc)
+    return 200, dict(_vaults_public(), message="已加入库列表（还没切换）")
+
+
+def handle_config_vaults_switch(h, body):
+    """`POST /config/vaults/switch {path}` —— 换库（A 模型的唯一动作）。
+
+    顺序有意：**先回写当前库的排除项，再切** —— 反过来的话当前库的排除项会丢。
+    """
+    body = body or {}
+    raw = str(body.get("path") or "").strip()
+    if not raw:
+        return 400, {"ok": False, "error": "path 必填"}
+    doc = _load_vaults_doc()
+    item = None
+    for it in doc["items"]:
+        if _same_path(it["path"], raw):
+            item = it
+            break
+    if item is None:
+        return 400, {"ok": False,
+                     "error": "这个库不在列表里（先「加入列表」，或直接用路径输入框保存）"}
+    from pathlib import Path as _P
+    if not _P(item["path"]).is_dir():
+        return 400, {"ok": False,
+                     "error": "库目录不见了：%s（可能被移动或删除）" % item["path"]}
+    cur = _current_vault_path()
+    if _same_path(cur, item["path"]):
+        return 200, dict(_vaults_public(), message="已经是这个库了")
+    # ① 当前库的排除项回写书签
+    if cur:
+        cur_item = None
+        for it in doc["items"]:
+            if _same_path(it["path"], cur):
+                cur_item = it
+                break
+        if cur_item is not None:
+            cur_item["skip_dirs"] = _user_skip_dirs()
+    # ②③ 切换 + 套用目标库的排除项
+    ok, msg = _apply_vault(item["path"], item.get("skip_dirs") or [])
+    if not ok:
+        return 400, {"ok": False, "error": "切换失败：" + msg}
+    _save_vaults_doc(doc)
+    return 200, dict(_vaults_public(),
+                     message="已切到「%s」" % (item.get("name") or item["path"]),
+                     scan=None)
+
+
+def handle_config_vaults_remove(h, body):
+    """`POST /config/vaults/remove {path}` —— 从列表移出。
+
+    **只删书签，不动笔记文件**；当前库不许直接移出（先切走），
+    否则界面上会出现"当前库不在列表里"的怪状态。
+    """
+    body = body or {}
+    raw = str(body.get("path") or "").strip()
+    if not raw:
+        return 400, {"ok": False, "error": "path 必填"}
+    doc = _load_vaults_doc()
+    cur = _current_vault_path()
+    if _same_path(raw, cur):
+        return 400, {"ok": False,
+                     "error": "这是当前正在用的库 —— 先切到别的库，再把它移出列表"}
+    before = len(doc["items"])
+    doc["items"] = [it for it in doc["items"] if not _same_path(it["path"], raw)]
+    if len(doc["items"]) == before:
+        return 400, {"ok": False, "error": "列表里没有这个库"}
+    _save_vaults_doc(doc)
+    return 200, dict(_vaults_public(),
+                     message="已从列表移出（笔记文件一个都没动）")
 
 
 # system.local.yaml 可能从来没被创建过（用户没改过本地覆盖）——写入前先补骨架。
@@ -1445,6 +1680,10 @@ ROUTES = (
     ("POST", "/config/vault_skip_dirs", handle_config_vault_skip_dirs),
     ("GET", "/config/vault", handle_config_vault_get),
     ("POST", "/config/vault", handle_config_vault_set),
+    ("GET", "/config/vaults", handle_config_vaults_get),
+    ("POST", "/config/vaults/add", handle_config_vaults_add),
+    ("POST", "/config/vaults/switch", handle_config_vaults_switch),
+    ("POST", "/config/vaults/remove", handle_config_vaults_remove),
     # 加强模式（第一波防御 · 任务三，2026-10-22）：单章拆段落群生成开关
     ("GET", "/config/enhanced_mode", handle_config_enhanced_mode),
     ("POST", "/config/enhanced_mode", handle_config_enhanced_mode_set),

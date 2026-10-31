@@ -343,7 +343,7 @@ function selectSettingsTab(id) {
   // Word 模板清单每次进都要重扫磁盘（用户可能刚往 templates/ 里放了新模板）
   if (id === "word") loadWordTemplate();
   // 知识库扫描面：每次进都重扫（用户可能刚改过库目录）
-  if (id === "prompt") { loadVaultCfg(); loadVaultScan(); }
+  if (id === "prompt") { loadVaultCfg(); loadVaults(); loadVaultScan(); }
 }
 
 const THEMES = [
@@ -3463,6 +3463,71 @@ const vaultScan = ref({ loading: false, busy: false, ok: true, msg: "", data: nu
 const vaultCfg = ref({ loading: false, busy: false, ok: true, msg: "",
                        path: "", data: null });
 
+/* 多库（A 模型，2026-10-31 用户拍板）：**一次只有一个库生效**，这里只是书签列表。
+ * 为什么不做"同时挂载"：导入设定集是整体替换语义，两个库都有"沈砚"时，
+ * 一次误合并就覆盖掉用户手写的条目 —— 那是改设定，不是功能。
+ * 当前库的真源仍是 system.local.yaml 的 vault_path；vaults.json 只存书签与每库排除项。 */
+const vaults = ref({ loading: false, busy: false, ok: true, msg: "", items: [],
+                     current: "" });
+
+async function loadVaults() {
+  vaults.value.loading = true;
+  try {
+    const r = await api("/config/vaults", "GET");
+    if (r.status === 200 && r.data.ok) {
+      vaults.value.items = r.data.items || [];
+      vaults.value.current = r.data.current || "";
+      vaults.value.ok = true;
+    } else {
+      vaults.value.ok = false;
+      vaults.value.msg = "读取库列表失败: " + (r.data.error || r.status);
+    }
+  } catch (e) {
+    vaults.value.ok = false;
+    vaults.value.msg = "读取库列表失败: " + (e.message || e);
+  }
+  vaults.value.loading = false;
+}
+
+async function switchVault(item) {
+  if (!item || item.current) return;
+  vaults.value.busy = true;
+  try {
+    const r = await api("/config/vaults/switch", "POST", { path: item.path });
+    vaults.value.ok = !!(r.status === 200 && r.data.ok);
+    vaults.value.msg = vaults.value.ok ? (r.data.message || "已切换")
+      : ("切换失败: " + (r.data.error || r.status));
+    if (vaults.value.ok) {
+      // 库变了 → 路径显示与扫描面都要跟着刷（否则界面上还是旧库的目录）
+      await loadVaultCfg();
+      await loadVaults();
+      await loadVaultScan();
+    }
+  } catch (e) {
+    vaults.value.ok = false;
+    vaults.value.msg = "切换失败: " + (e.message || e);
+  }
+  vaults.value.busy = false;
+}
+
+async function removeVault(item) {
+  if (!item) return;
+  if (!window.confirm(`把“${item.name}”移出库列表？\n\n`
+    + "只从列表里去掉，**笔记文件一个都不会动**；想再连回来，重新填一次路径就行。")) return;
+  vaults.value.busy = true;
+  try {
+    const r = await api("/config/vaults/remove", "POST", { path: item.path });
+    vaults.value.ok = !!(r.status === 200 && r.data.ok);
+    vaults.value.msg = vaults.value.ok ? (r.data.message || "已移出")
+      : ("移出失败: " + (r.data.error || r.status));
+    if (vaults.value.ok) await loadVaults();
+  } catch (e) {
+    vaults.value.ok = false;
+    vaults.value.msg = "移出失败: " + (e.message || e);
+  }
+  vaults.value.busy = false;
+}
+
 async function loadVaultCfg() {
   vaultCfg.value.loading = true;
   try {
@@ -3504,7 +3569,8 @@ async function saveVaultPath() {
     if (vaultCfg.value.ok) {
       vaultCfg.value.data = r.data;
       vaultCfg.value.path = r.data.path || p;
-      // 路径变了 → 扫描面必须重扫（否则下面还列着旧库的目录）
+      // 路径变了 → 扫描面与库列表都要刷（否则下面还列着旧库的目录）
+      await loadVaults();
       await loadVaultScan();
     }
   } catch (e) {
@@ -6288,6 +6354,35 @@ onUnmounted(() => {
         </div>
         <div class="meta tl-msg" :class="vaultCfg.ok ? 'ok' : 'bad'"
              v-if="vaultCfg.msg">{{ vaultCfg.msg }}</div>
+      </div>
+
+      <!-- 我的库（A 模型）：一次只有一个生效，切换是"换当前库"而不是"同时读多个" -->
+      <div class="vault-list-box" v-if="vaults.items.length">
+        <div class="eng-head" style="margin-bottom: 6px;">
+          <span class="eng-label">我的库</span>
+          <span class="meta">共 {{ vaults.items.length }} 个 ·
+            <b>同一时刻只有一个生效</b>（切换只换"当前用哪个"，笔记文件不动）</span>
+        </div>
+        <div v-for="it in vaults.items" :key="it.path" class="vault-item"
+             :class="{ 'on': it.current, 'gone': !it.exists }">
+          <div class="vault-item-main">
+            <div class="vault-item-name">
+              {{ it.name }}
+              <span v-if="it.current" class="vault-badge">正在使用</span>
+              <span v-if="!it.exists" class="vault-badge bad">目录不在了</span>
+            </div>
+            <div class="vault-item-path">{{ it.path }}</div>
+          </div>
+          <span class="meta" v-if="it.skip_dirs && it.skip_dirs.length">
+            排除 {{ it.skip_dirs.length }} 个目录
+          </span>
+          <button class="mini" v-if="!it.current" :disabled="vaults.busy || !it.exists"
+                  @click="switchVault(it)">切到这个库</button>
+          <button class="mini" v-if="!it.current" :disabled="vaults.busy"
+                  @click="removeVault(it)">移出列表</button>
+        </div>
+        <div class="meta tl-msg" :class="vaults.ok ? 'ok' : 'bad'"
+             v-if="vaults.msg">{{ vaults.msg }}</div>
       </div>
 
       <div class="meta" style="margin: 12px 0 8px;">

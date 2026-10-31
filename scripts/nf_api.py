@@ -2505,6 +2505,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/config/vault":
             # 库路径现状（含来源 / 篇数 / 是否像 Obsidian 库）
             self._send(*_dom(dom_project.handle_config_vault_get(self)))
+        elif p == "/config/vaults":
+            # 已知库列表（A 模型：一次只有一个生效，这里只是书签）
+            self._send(*_dom(dom_project.handle_config_vaults_get(self)))
         elif p == "/config/vault_scan":
             # 知识库扫描面（顶层目录 + 篇数 + 是否排除）—— 目录名取自用户库本身。
             self._send(*_dom(dom_project.handle_config_vault_scan(self)))
@@ -3208,6 +3211,15 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/config/vault":
                 # 填/改/清空库路径（写 system.local.yaml，写完立刻生效）
                 self._send(*_dom(dom_project.handle_config_vault_set(self, body)))
+            elif p == "/config/vaults/add":
+                # 加入库列表（只登记，不切换）
+                self._send(*_dom(dom_project.handle_config_vaults_add(self, body)))
+            elif p == "/config/vaults/switch":
+                # 换库（A 模型唯一动作：回写当前库排除项 → 切换 → 套用目标库排除项）
+                self._send(*_dom(dom_project.handle_config_vaults_switch(self, body)))
+            elif p == "/config/vaults/remove":
+                # 从列表移出（只删书签，不动笔记文件）
+                self._send(*_dom(dom_project.handle_config_vaults_remove(self, body)))
             elif p == "/config/vault_skip_dirs":
                 # 扫描排除项设置（创作决策：哪些目录算正典）；只写 system.local.yaml。
                 self._send(*_dom(dom_project.handle_config_vault_skip_dirs(self, body)))

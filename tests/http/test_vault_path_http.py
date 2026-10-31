@@ -194,12 +194,79 @@ def main():
         check("清空后 local 里的注释还在",
               "# 本地配置覆盖（不进 Git）" in local_yaml.read_text(encoding="utf-8"))
 
+        print("\n【B1】多库（A 模型）：书签列表 + 切换 + 每库排除项")
+        code, d = req("POST", "/config/vault", {"path": str(vault_a)})
+        check("先保存库 A（会自动登记进列表）", code == 200 and d.get("ok") is True, d)
+        code, lst = req("GET", "/config/vaults")
+        check("GET /config/vaults 200", code == 200 and lst.get("ok") is True, lst)
+        check("列表里已有库 A（保存即登记，不用再加一次）",
+              any(x["path"].lower() == str(vault_a).replace("\\", "/").lower()
+                  for x in lst["items"]), lst.get("items"))
+        check("当前库标记在 A 上",
+              [x["path"] for x in lst["items"] if x["current"]]
+              == [str(vault_a).replace("\\", "/")], lst.get("items"))
+
+        code, d = req("POST", "/config/vaults/add", {"path": str(vault_b)})
+        check("加入库 B", code == 200 and d.get("ok") is True, d)
+        check("重复加入不产生重复项", len(d.get("items") or []) == 2, d.get("count"))
+        code, d2 = req("POST", "/config/vaults/add", {"path": str(vault_b)})
+        check("再发一次 → 明说已在列表，且仍是 2 项",
+              code == 200 and len(d2.get("items") or []) == 2
+              and "已经在列表" in (d2.get("message") or ""), d2.get("message"))
+        code, d3 = req("POST", "/config/vaults/add", {"path": str(tmp.parent / "没有这个库")})
+        check("不存在的目录不能加入", code == 400, (code, d3.get("error")))
+
+        # 给库 A 设两个排除项（切换后必须能带回来）
+        code, _ = req("POST", "/config/vault_skip_dirs", {"exclude": ["参考作品"]})
+        check("库 A 设了排除项", code == 200, code)
+
+        code, d = req("POST", "/config/vaults/switch", {"path": str(vault_b)})
+        check("切到库 B 200", code == 200 and d.get("ok") is True, d)
+        check("当前库变成 B", str(vault_b).replace("\\", "/").lower()
+              in (d.get("current") or "").lower(), d.get("current"))
+        code, sc = req("GET", "/config/vault_scan")
+        names = [x.get("name") for x in (sc.get("top_dirs") or [])]
+        check("切换立刻生效：扫描面是库 B 的目录", names == ["另一个库的目录"], names)
+        code, lst2 = req("GET", "/config/vaults")
+        a_item = [x for x in lst2["items"]
+                  if x["path"].lower() == str(vault_a).replace("\\", "/").lower()][0]
+        check("库 A 的排除项被记住（切换前回写书签）",
+              a_item.get("skip_dirs") == ["参考作品"], a_item.get("skip_dirs"))
+
+        code, d = req("POST", "/config/vaults/switch", {"path": str(vault_a)})
+        check("切回库 A 200", code == 200, d)
+        code, sc2 = req("GET", "/config/vault_scan")
+        ex = {x.get("name"): x.get("excluded") for x in (sc2.get("top_dirs") or [])}
+        check("库 A 的排除项自动套回（不用重新勾）",
+              ex.get("参考作品") is True and ex.get("设定") is False, ex)
+
+        code, d = req("POST", "/config/vaults/switch", {"path": str(tmp.parent / "野生库")})
+        check("切到不在列表的库 → 400（先加入列表）", code == 400, (code, d.get("error")))
+
+        code, d = req("POST", "/config/vaults/remove", {"path": str(vault_a)})
+        check("不能移出正在使用的库", code == 400, (code, d.get("error")))
+        code, d = req("POST", "/config/vaults/remove", {"path": str(vault_b)})
+        check("移出库 B 200", code == 200 and d.get("ok") is True, d)
+        check("移出后只剩 1 项", d.get("count") == 1, d.get("count"))
+        check("**移出不动笔记文件**（库 B 那篇还在）",
+              (vault_b / "另一个库的目录" / "丙.md").is_file())
+        state = tmp / "data" / "state" / "vaults.json"
+        check("书签落 data/state/vaults.json（不是写进用户的库）", state.is_file())
+        check("没有写 .obsidian 之外的任何库内文件（库 A 里只有我们造的 .obsidian 与 md）",
+              sorted(x.name for x in vault_a.iterdir()) == sorted(
+                  [".obsidian", "参考作品", "设定"]),
+              sorted(x.name for x in vault_a.iterdir()))
+
         print("\n【V6】路由登记")
         sys.path.insert(0, str(ROOT / "scripts"))
         from nf_api_domains import project as PR
         routes = {(m, p) for m, p, _ in PR.ROUTES}
         check("GET /config/vault 在域路由表里", ("GET", "/config/vault") in routes)
         check("POST /config/vault 在域路由表里", ("POST", "/config/vault") in routes)
+        for m, pth in (("GET", "/config/vaults"), ("POST", "/config/vaults/add"),
+                       ("POST", "/config/vaults/switch"),
+                       ("POST", "/config/vaults/remove")):
+            check("%s %s 在域路由表里" % (m, pth), (m, pth) in routes)
         from utils import agent_guard as AG
         check("库路径**不**在 Agent 禁用名单（配置类，Agent 可代配）",
               "/config/vault" not in AG.FORBIDDEN_IN_AGENT_MODE)

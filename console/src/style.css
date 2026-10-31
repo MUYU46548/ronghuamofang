@@ -2369,3 +2369,57 @@ kbd {
   font-size: 12px;
   margin-bottom: 6px;
 }
+
+/* 我的库（A 模型，2026-10-31）：一次只有一个生效，列表只是书签 */
+.vault-list-box {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--field);
+  padding: 11px 13px 8px;
+  margin-bottom: 10px;
+}
+.vault-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+}
+.vault-item + .vault-item { border-top: 1px solid var(--border); border-radius: 0; }
+.vault-item:hover { background: var(--field-hover); }
+.vault-item.on {
+  background: var(--field-on);
+  border-color: var(--accent);
+  border-radius: 8px;
+}
+.vault-item.gone { opacity: .6; }
+.vault-item-main { flex: 1; min-width: 0; }
+.vault-item-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.vault-item-path {
+  font-size: 11px;
+  color: var(--muted);
+  font-family: var(--mono);
+  word-break: break-all;
+  margin-top: 2px;
+}
+.vault-badge {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--ink-accent);
+  background: var(--accent-soft);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+.vault-badge.bad {
+  color: var(--ink-bad);
+  background: var(--field-dim);
+  border: 1px solid var(--border);
+}
