@@ -589,8 +589,9 @@ def case_f7():
     # 否则探针里 ReferenceError（函数未定义）→ __RESULT__ 永远不出现，
     # 表现成「F7 node 探测产出结果」失败（2026-10-07 实测）。
     helper_src = []
-    for hname in ("function listFilesUnder(", "function recordFactoryManifest(",
-                  "function migrateConfigKeys(", "function ensureEnhancedMode("):
+    for hname in ("function listFilesUnder(", "function copyMissingOnly(",
+                  "function recordFactoryManifest(", "function migrateConfigKeys(",
+                  "function ensureEnhancedMode("):
         hs = src.find(hname)
         he = src.find("\n}", hs)
         check(hs > 0 and he > hs, "F7 能抽取 seedWorkspace 的辅助函数 " + hname,
@@ -614,6 +615,11 @@ def case_f7():
         (payload / "scripts" / "orchestrator.py").write_text("# NEW-CODE\n", encoding="utf-8")
         (payload / "prompts").mkdir(parents=True, exist_ok=True)
         (payload / "prompts" / "stage4.md").write_text("NEW-PROMPT\n", encoding="utf-8")
+        # 新版新增的模板 + 出厂副本（后者必须随版本刷新）
+        (payload / "prompts" / "stage5.md").write_text("ADDED-PROMPT\n", encoding="utf-8")
+        (payload / "prompts" / "factory").mkdir(parents=True, exist_ok=True)
+        (payload / "prompts" / "factory" / "stage4.md").write_text(
+            "NEW-FACTORY\n", encoding="utf-8")
         (payload / "config").mkdir(parents=True, exist_ok=True)
         (payload / "config" / "system.yaml").write_text("engine: new\n", encoding="utf-8")
         (payload / "config" / "new_feature.yaml").write_text("added: true\n",
@@ -626,6 +632,13 @@ def case_f7():
         (ws / "config").mkdir(parents=True, exist_ok=True)
         (ws / "config" / "project.yaml").write_text("book:\n  name: 我的书\n",
                                                     encoding="utf-8")
+        # 用户改过的提示词（2026-10-31：升级不得覆盖）+ 旧出厂副本（应被刷新）
+        (ws / "prompts").mkdir(parents=True, exist_ok=True)
+        (ws / "prompts" / "stage4.md").write_text("USER-EDITED-PROMPT\n",
+                                                 encoding="utf-8")
+        (ws / "prompts" / "factory").mkdir(parents=True, exist_ok=True)
+        (ws / "prompts" / "factory" / "stage4.md").write_text("OLD-FACTORY\n",
+                                                             encoding="utf-8")
         (ws / "data" / "chapters" / "raw").mkdir(parents=True, exist_ok=True)
         (ws / "data" / "chapters" / "raw" / "01.md").write_text("用户章节\n",
                                                               encoding="utf-8")
@@ -649,6 +662,10 @@ def case_f7():
             + re.search(r"const SEED_VERSION = \d+;", src).group(0) + "\n"
             + re.search(r"const SEED_CODE_DIRS = \[[^\]]*\];", src).group(0) + "\n"
             + re.search(r"const SEED_CONFIG_DIR = \"[^\"]*\";", src).group(0) + "\n"
+            + re.search(r"const SEED_KEEP_USER_EDITS = \[[^\]]*\];",
+                        src).group(0) + "\n"
+            + re.search(r"const SEED_FORCE_REFRESH_SUBDIRS = \[[^\]]*\];",
+                        src).group(0) + "\n"
             + helper_body
             + fn_body + "\n"
             "seedWorkspace();\n"
@@ -657,6 +674,8 @@ def case_f7():
             "console.log('__RESULT__' + JSON.stringify({\n"
             "  orch: rd(path.join(WORKSPACE, 'scripts', 'orchestrator.py')),\n"
             "  prompt: rd(path.join(WORKSPACE, 'prompts', 'stage4.md')),\n"
+            "  addedPrompt: rd(path.join(WORKSPACE, 'prompts', 'stage5.md')),\n"
+            "  factoryPrompt: rd(path.join(WORKSPACE, 'prompts', 'factory', 'stage4.md')),\n"
             "  userConfig: rd(path.join(WORKSPACE, 'config', 'project.yaml')),\n"
             "  newConfig: rd(path.join(WORKSPACE, 'config', 'new_feature.yaml')),\n"
             "  userChapter: rd(path.join(WORKSPACE, 'data', 'chapters', 'raw', '01.md')),\n"
@@ -679,8 +698,16 @@ def case_f7():
         check(payload["orch"] == "# NEW-CODE",
               "F7 升级后 scripts 被刷新为新版（老用户拿到新代码）",
               f"实际={payload['orch']!r}")
-        check(payload["prompt"] == "NEW-PROMPT", "F7 升级后 prompts 被刷新",
+        # 2026-10-31 用户拍板：升级**不再覆盖**用户改过的提示词。
+        check(payload["prompt"] == "USER-EDITED-PROMPT",
+              "F7 升级后用户改过的提示词**保留**（提示词是创作资产，不是纯代码）",
               f"实际={payload['prompt']!r}")
+        check(payload.get("addedPrompt") == "ADDED-PROMPT",
+              "F7 新版新增的模板照样补到位（只补缺 ≠ 不更新）",
+              f"实际={payload.get('addedPrompt')!r}")
+        check(payload.get("factoryPrompt") == "NEW-FACTORY",
+              "F7 出厂副本 factory/ 随版本刷新（否则「还原默认」给的是旧版提示词）",
+              f"实际={payload.get('factoryPrompt')!r}")
         check(payload["userConfig"].startswith("book:"),
               "F7 用户改过的 config/project.yaml **不被覆盖**（书名不丢）",
               f"实际={payload['userConfig']!r}")

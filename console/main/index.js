@@ -416,6 +416,20 @@ const SEED_VERSION = 65;   // 0.7.22: 提示词出厂保底 + 引擎可切换 + 
 const SEED_CODE_DIRS = ["scripts", "prompts", "templates"];
 const SEED_CONFIG_DIR = "config";
 
+// ---- 升级时**不覆盖用户改动**的目录（2026-10-31 用户拍板）----
+//
+// 提示词是**创作资产**，不是纯代码：用户会改 stage5 的检查项、stage4 的口吻要求。
+// 旧策略是升级 force 覆盖整个 prompts/（理由写在原注释里：旧提示词与新代码不兼容
+// 比"丢自定义"更危险）—— 那个理由在**没有还原出口**时成立，现在有了：
+// 界面「还原出厂默认」读 `prompts/factory/`，用户随时能退回官方版。
+//
+// 所以改成：升级时 prompts/ 只**补缺失文件**，已有文件一律不动。
+// 判据：用户在界面里改过的东西，不能因为装新版就消失。
+const SEED_KEEP_USER_EDITS = ["prompts"];
+// 例外：`prompts/factory/` 是**出厂副本**，必须随版本刷新 ——
+// 它不是用户内容，而且不刷新的话「还原出厂默认」会把用户退回上一版的提示词。
+const SEED_FORCE_REFRESH_SUBDIRS = ["factory"];
+
 // ---- 出厂清单（0.6.7 出厂/用户数据分治）----
 // 播种把哪些文件**实际复制**进工作区，就往 data/state/factory_manifest.json 记哪些
 // （相对路径 + sha256）。为什么必须记：历史上 examples/sample-book 的素材卡被试跑
@@ -433,6 +447,37 @@ function listFilesUnder(base, dir, out) {
     else if (ent.isFile()) out.push(path.relative(base, p));
   }
   return out;
+}
+
+// 升级时对「用户可能改过」的目录做**只补缺**：已有文件一个字都不动。
+// topLevel=true 表示 srcDir 是 payload 下那一层（只有那一层的 factory/ 需要刷新）。
+function copyMissingOnly(base, srcDir, dstDir, out, topLevel) {
+  let ents = [];
+  try {
+    ents = fs.readdirSync(srcDir, { withFileTypes: true });
+  } catch (e) {
+    console.warn("[console] seedWorkspace: 读取 " + srcDir + " 失败，跳过:", e && e.message);
+    return;
+  }
+  for (const ent of ents) {
+    const s = path.join(srcDir, ent.name);
+    const d = path.join(dstDir, ent.name);
+    if (ent.isDirectory()) {
+      if (topLevel && SEED_FORCE_REFRESH_SUBDIRS.includes(ent.name)) {
+        // 出厂副本：必须随版本刷新（否则「还原出厂默认」给出的是旧版提示词）
+        fs.cpSync(s, d, { recursive: true, force: true });
+        listFilesUnder(base, d, out);
+        console.log("[console] seedWorkspace: 已刷新 " + ent.name + "/（出厂副本）");
+        continue;
+      }
+      fs.mkdirSync(d, { recursive: true });
+      copyMissingOnly(base, s, d, out, false);
+    } else if (ent.isFile() && !fs.existsSync(d)) {
+      // 只补缺失：新版本新增的模板要给到用户，用户改过的旧模板保持原样
+      fs.copyFileSync(s, d);
+      out.push(path.relative(base, d));
+    }
+  }
 }
 
 function recordFactoryManifest(ws, relPaths) {
@@ -612,10 +657,13 @@ function seedWorkspace() {
     if (firstRun || !fs.existsSync(dst)) {
       fs.cpSync(src, dst, { recursive: true });
       listFilesUnder(ws, dst, seededRels);
+    } else if (SEED_KEEP_USER_EDITS.includes(d)) {
+      // 用户可能改过的目录：**只补缺失**，不动已有文件（见常量处的理由）。
+      copyMissingOnly(ws, src, dst, seededRels, true);
+      console.log(`[console] seedWorkspace: ${d} 只补缺失（保留用户改动；`
+                  + `factory/ 已随版本刷新）`);
     } else {
-      // 升级刷新：force 覆盖代码与提示词。
-      // 用户若改过 prompts/ 会被覆盖 —— 这是刻意取舍：
-      // 提示词属于随版本发布的资产，与旧版不兼容的提示词比"丢失自定义"危害更大。
+      // 升级刷新：force 覆盖代码。
       fs.cpSync(src, dst, { recursive: true, force: true });
       listFilesUnder(ws, dst, seededRels);
       console.log(`[console] seedWorkspace: 已刷新 ${d}（种子 v${seededVersion} → v${SEED_VERSION}）`);

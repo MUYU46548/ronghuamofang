@@ -256,6 +256,13 @@ stage4 也补了同一道校验（此前是唯一既不设上限、也不校验�
 此前 GUI 写 `resources/payload/prompts`、运行时读 `workspace/prompts` ——
 界面说「下次运行生效」，实际永远不生效。**新增任何路径常量都要在 `_set_root` 里刷新。**
 
+**④ 升级不再覆盖用户改过的提示词（2026-10-31 用户拍板）。**
+`SEED_KEEP_USER_EDITS = ["prompts"]`：升级时 `prompts/` **只补缺失文件**，已有文件一律不动；
+`SEED_FORCE_REFRESH_SUBDIRS = ["factory"]` 是例外 —— 出厂副本必须随版本刷新，
+否则「还原出厂默认」给出的是上一版的提示词。判据在 `test_failure_paths` F7
+（探针从源码抽这两个常量，改回 force 覆盖 → 立刻红）。
+⚠️ 改这条等于动「提示词算用户数据还是出厂资产」的产品决策，不是清垃圾。
+
 ## 架构：API 层的域模块拆分（P2）
 
 `scripts/nf_api.py` 原本是 2,872 行的 God Object（91 个端点全挤在

@@ -32,9 +32,20 @@ CHANGELOG」）。本文件从工程审查修复起正式启用。
    角色模型改表格（角色 / 用途 / 供应商 / 模型）、服务商改卡片、合规提示独立成块；
    三处配置写入全改 `config_io` 定向改写（注释一行不少，用例 C1–C5 锁死）。
 
-### 顺带修掉的两个静默失败
+### 提示词归属改了：升级不再覆盖你改过的模板
 
-- **打包态提示词读写不同源**：GUI 写 `ROOT/prompts`（= `resources/payload`），
+旧策略是升级 force 覆盖整个 `workspace/prompts/`（理由：旧提示词撞新代码更危险）。
+那个理由在**没有还原出口**时成立，现在有了出厂副本，所以改成：
+
+- 升级时 `prompts/` **只补缺失文件**，你改过的模板一个字都不动；
+- `prompts/factory/`（出厂副本）照旧随版本刷新 —— 否则「还原出厂默认」会把
+  你退回上一版的提示词；
+- 界面仍会标「已被修改（有出厂保底）」，想回官方版点一下就行。
+
+判据：`test_failure_paths` F7（探针从源码抽 `SEED_KEEP_USER_EDITS` / `SEED_FORCE_REFRESH_SUBDIRS`，
+改成旧行为 → 「用户改过的提示词被保留」立刻红）。
+
+### 顺带修掉的两个静默失败- **打包态提示词读写不同源**：GUI 写 `ROOT/prompts`（= `resources/payload`），
   流水线 `load_template` 读 **cwd 相对**的 `prompts/`（= workspace）——
   界面说「下次运行生效」，实际永远不生效。现在 `PROMPTS_DIR` 随 `--root` 派生
   （workspace 优先、代码区兜底），`test_prompt_factory_http` 的 P5 用
