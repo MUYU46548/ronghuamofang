@@ -30,6 +30,7 @@
 
 用法：python tests/unit/test_failure_paths.py
 """
+import hashlib
 import io
 import json
 import os
@@ -590,6 +591,7 @@ def case_f7():
     # 表现成「F7 node 探测产出结果」失败（2026-10-07 实测）。
     helper_src = []
     for hname in ("function listFilesUnder(", "function copyMissingOnly(",
+                  "function sha256OfFile(",
                   "function recordFactoryManifest(", "function migrateConfigKeys(",
                   "function ensureEnhancedMode("):
         hs = src.find(hname)
@@ -616,7 +618,8 @@ def case_f7():
         (payload / "prompts").mkdir(parents=True, exist_ok=True)
         (payload / "prompts" / "stage4.md").write_text("NEW-PROMPT\n", encoding="utf-8")
         # 新版新增的模板 + 出厂副本（后者必须随版本刷新）
-        (payload / "prompts" / "stage5.md").write_text("ADDED-PROMPT\n", encoding="utf-8")
+        (payload / "prompts" / "stage5.md").write_text("NEW-STAGE5\n", encoding="utf-8")
+        (payload / "prompts" / "stage6.md").write_text("NEW-STAGE6\n", encoding="utf-8")
         (payload / "prompts" / "factory").mkdir(parents=True, exist_ok=True)
         (payload / "prompts" / "factory" / "stage4.md").write_text(
             "NEW-FACTORY\n", encoding="utf-8")
@@ -636,6 +639,7 @@ def case_f7():
         (ws / "prompts").mkdir(parents=True, exist_ok=True)
         (ws / "prompts" / "stage4.md").write_text("USER-EDITED-PROMPT\n",
                                                  encoding="utf-8")
+        (ws / "prompts" / "stage5.md").write_text("OLD-STAGE5\n", encoding="utf-8")
         (ws / "prompts" / "factory").mkdir(parents=True, exist_ok=True)
         (ws / "prompts" / "factory" / "stage4.md").write_text("OLD-FACTORY\n",
                                                              encoding="utf-8")
@@ -644,6 +648,20 @@ def case_f7():
                                                               encoding="utf-8")
         (ws / ".seeded").write_text("1", encoding="utf-8")
         (ws / ".seed-version").write_text("1", encoding="utf-8")   # 落后于当前版本
+
+        # 出厂清单（决定「这个文件用户改没改过」）：
+        #   · stage4.md 记一个**与当前内容不同**的 sha → 判「用户改过」→ 保留
+        #   · stage5.md 记它自己的真实 sha       → 判「没动过」  → 跟随新版更新
+        (ws / "data" / "state").mkdir(parents=True, exist_ok=True)
+        (ws / "data" / "state" / "factory_manifest.json").write_text(
+            json.dumps({"seed_version": 1, "files": {
+                "prompts/stage4.md":
+                    hashlib.sha256(b"OLDPROMPT-WHAT-WAS-SEEDED\n").hexdigest(),
+                # 必须读**磁盘上的真实字节**：Windows 下 write_text 会把 \n 写成 \r\n，
+                # 直接拿 b"OLD-STAGE5\n" 算 sha 会与文件内容不符（第一版就这么假红了）
+                "prompts/stage5.md":
+                    hashlib.sha256((ws / "prompts" / "stage5.md").read_bytes()).hexdigest(),
+            }}, ensure_ascii=False), encoding="utf-8")
 
         script = probe / "run.cjs"
         script.write_text(
@@ -674,7 +692,8 @@ def case_f7():
             "console.log('__RESULT__' + JSON.stringify({\n"
             "  orch: rd(path.join(WORKSPACE, 'scripts', 'orchestrator.py')),\n"
             "  prompt: rd(path.join(WORKSPACE, 'prompts', 'stage4.md')),\n"
-            "  addedPrompt: rd(path.join(WORKSPACE, 'prompts', 'stage5.md')),\n"
+            "  addedPrompt: rd(path.join(WORKSPACE, 'prompts', 'stage6.md')),\n"
+            "  updatedPrompt: rd(path.join(WORKSPACE, 'prompts', 'stage5.md')),\n"
             "  factoryPrompt: rd(path.join(WORKSPACE, 'prompts', 'factory', 'stage4.md')),\n"
             "  userConfig: rd(path.join(WORKSPACE, 'config', 'project.yaml')),\n"
             "  newConfig: rd(path.join(WORKSPACE, 'config', 'new_feature.yaml')),\n"
@@ -702,9 +721,12 @@ def case_f7():
         check(payload["prompt"] == "USER-EDITED-PROMPT",
               "F7 升级后用户改过的提示词**保留**（提示词是创作资产，不是纯代码）",
               f"实际={payload['prompt']!r}")
-        check(payload.get("addedPrompt") == "ADDED-PROMPT",
-              "F7 新版新增的模板照样补到位（只补缺 ≠ 不更新）",
+        check(payload.get("addedPrompt") == "NEW-STAGE6",
+              "F7 新版**新增**的模板补到位（只补缺 ≠ 不更新）",
               f"实际={payload.get('addedPrompt')!r}")
+        check(payload.get("updatedPrompt") == "NEW-STAGE5",
+              "F7 用户没动过的旧模板**跟随版本更新**（官方提示词修复能到用户手里）",
+              f"实际={payload.get('updatedPrompt')!r}")
         check(payload.get("factoryPrompt") == "NEW-FACTORY",
               "F7 出厂副本 factory/ 随版本刷新（否则「还原默认」给的是旧版提示词）",
               f"实际={payload.get('factoryPrompt')!r}")

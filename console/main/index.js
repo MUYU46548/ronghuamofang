@@ -449,9 +449,14 @@ function listFilesUnder(base, dir, out) {
   return out;
 }
 
-// 升级时对「用户可能改过」的目录做**只补缺**：已有文件一个字都不动。
+// 升级时对「用户可能改过」的目录做**保守更新**：
+//   · 目标文件不存在            → 复制（新版新增的模板要给到）
+//   · 存在，且 sha 与出厂清单一致 → 用户没动过 → 用新版覆盖（官方更新照发）
+//   · 存在，且 sha 与清单不符     → 用户改过 → 一个字不动
+// 判据就是 `data/state/factory_manifest.json`（播种时逐文件记的 sha256）。
+// 没有清单记录（老工作区）→ 按"用户改过"处理，宁可少更新也不吞别人的改动。
 // topLevel=true 表示 srcDir 是 payload 下那一层（只有那一层的 factory/ 需要刷新）。
-function copyMissingOnly(base, srcDir, dstDir, out, topLevel) {
+function copyMissingOnly(base, srcDir, dstDir, out, topLevel, prevFiles, stats) {
   let ents = [];
   try {
     ents = fs.readdirSync(srcDir, { withFileTypes: true });
@@ -471,13 +476,33 @@ function copyMissingOnly(base, srcDir, dstDir, out, topLevel) {
         continue;
       }
       fs.mkdirSync(d, { recursive: true });
-      copyMissingOnly(base, s, d, out, false);
-    } else if (ent.isFile() && !fs.existsSync(d)) {
-      // 只补缺失：新版本新增的模板要给到用户，用户改过的旧模板保持原样
+      copyMissingOnly(base, s, d, out, false, prevFiles, stats);
+      continue;
+    }
+    if (!ent.isFile()) continue;
+    if (!fs.existsSync(d)) {
       fs.copyFileSync(s, d);
       out.push(path.relative(base, d));
+      stats.added += 1;
+      continue;
+    }
+    const rel = path.relative(base, d).split(path.sep).join("/");
+    const recorded = prevFiles && prevFiles[rel];
+    let cur = null;
+    try { cur = sha256OfFile(d); } catch (e) { cur = null; }
+    if (recorded && cur && recorded === cur) {
+      // 播种时记的 sha 与当前一致 → 用户没动过 → 跟随新版
+      fs.copyFileSync(s, d);
+      out.push(path.relative(base, d));
+      stats.updated += 1;
+    } else {
+      stats.kept += 1;
     }
   }
+}
+
+function sha256OfFile(p) {
+  return require("crypto").createHash("sha256").update(fs.readFileSync(p)).digest("hex");
 }
 
 function recordFactoryManifest(ws, relPaths) {
@@ -658,10 +683,23 @@ function seedWorkspace() {
       fs.cpSync(src, dst, { recursive: true });
       listFilesUnder(ws, dst, seededRels);
     } else if (SEED_KEEP_USER_EDITS.includes(d)) {
-      // 用户可能改过的目录：**只补缺失**，不动已有文件（见常量处的理由）。
-      copyMissingOnly(ws, src, dst, seededRels, true);
-      console.log(`[console] seedWorkspace: ${d} 只补缺失（保留用户改动；`
-                  + `factory/ 已随版本刷新）`);
+      // 用户可能改过的目录：按出厂清单的 sha 判「改没改过」，见 copyMissingOnly 头注释。
+      // 出厂清单在**本次播种之前**读（recordFactoryManifest 会在收尾时重写它）。
+      let prevFiles = {};
+      try {
+        const mp = path.join(ws, "data", "state", "factory_manifest.json");
+        if (fs.existsSync(mp)) {
+          prevFiles = (JSON.parse(fs.readFileSync(mp, "utf8")).files) || {};
+        }
+      } catch (e) {
+        prevFiles = {};
+        console.warn("[console] seedWorkspace: 出厂清单读不出来，"
+                     + "本次按「用户改过」保守处理:", e && e.message);
+      }
+      const stats = { added: 0, updated: 0, kept: 0 };
+      copyMissingOnly(ws, src, dst, seededRels, true, prevFiles, stats);
+      console.log(`[console] seedWorkspace: ${d} 保守更新 —— 新增 ${stats.added} · `
+                  + `随版本更新 ${stats.updated}（你没改过）· 保留 ${stats.kept}（你改过）`);
     } else {
       // 升级刷新：force 覆盖代码。
       fs.cpSync(src, dst, { recursive: true, force: true });
