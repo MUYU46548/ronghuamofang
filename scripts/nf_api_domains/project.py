@@ -668,6 +668,188 @@ def handle_config_vault_scan(h):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+# ---------------------------------------------------------------- 知识库路径读写
+# 2026-10-31：设置页只有「知识库扫描」，**没有填库路径的入口** —— 用户第一次接库
+# 只能手改 config/system.yaml + system.local.yaml（还得自己知道 local 覆盖优先）。
+# 这条路对"只用过笔记软件"的人来说根本走不通。
+#
+# 写盘落点：`config/system.local.yaml` 的 `obsidian.vault_path`。
+# 为什么不写 system.yaml：库路径是**私人本机信息**（会把用户名/盘符带进
+# 公开仓库），而 local 已被 .gitignore 忽略，与本仓既有口径一致。
+
+def _ensure_local_yaml():
+    """确保 `config/system.local.yaml` 存在（不存在就写抬头骨架）。
+
+    与 skip_dirs 端点同一口径：骨架里的注释在说"这里放的是私人配置"，
+    否则用户打开文件只看到几个键、不知道哪些能随便写。
+    """
+    fp = api.ROOT / "config" / "system.local.yaml"
+    if not fp.exists():
+        fp.parent.mkdir(parents=True, exist_ok=True)
+        fp.write_text(_VAULT_LOCAL_SKELETON, encoding="utf-8")
+    return fp
+
+
+def _yaml_cfg(path):
+    """读一份配置 YAML。
+
+    - **收绝对 Path**（调用处 `api.ROOT / ...`）：本仓已禁止把相对路径裸传给函数，
+      `--root` 场景下会静默读另一个项目的配置；
+    - 走 `config_io.load_config_yaml`（严格：重复键 / 语法错会报），这里吞掉并给空 dict ——
+      这个端点只是「告诉界面配置从哪来」，不该因为一份坏 YAML 就 500。
+      （坏配置本身会被 GET /config/project 与 nfctl status 暴露出来。）
+    """
+    try:
+        from utils.config_io import load_config_yaml
+        return load_config_yaml(path, default={}) or {}
+    except Exception:                                        # noqa: BLE001
+        return {}
+
+
+def _count_md(base, limit=20000):
+    """数 markdown 篇数（有上限，库很大时不把界面拖死）。返回 (n, truncated)。"""
+    import os as _os
+    n = 0
+    for _dirpath, dirnames, filenames in _os.walk(str(base)):
+        # 跳过体积大又必然没有笔记的目录（.git 里可能有几千个对象）
+        dirnames[:] = [d for d in dirnames if d not in (".git", "node_modules")]
+        for f in filenames:
+            if f.lower().endswith((".md", ".markdown")):
+                n += 1
+                if n >= limit:
+                    return n, True
+    return n, False
+
+
+def _vault_info():
+    """当前生效的库路径 + 它是从哪来的 + 盘上实际情况。"""
+    from obsidian_bridge import get_vault_path, DEFAULT_VAULT_PATH
+    p = get_vault_path()
+    local_raw = ((_yaml_cfg(api.ROOT / "config" / "system.local.yaml")
+                  .get("obsidian") or {}).get("vault_path") or "")
+    sys_raw = ((_yaml_cfg(api.ROOT / "config" / "system.yaml")
+                .get("obsidian") or {}).get("vault_path") or "")
+    if str(local_raw).strip():
+        source = "local"
+    elif str(sys_raw).strip():
+        source = "system"
+    else:
+        source = "none"
+    info = {
+        "ok": True,
+        "path": "" if p is None else str(p).replace("\\", "/"),
+        "configured": p is not None,
+        "source": source,
+        "default": str(DEFAULT_VAULT_PATH or "").replace("\\", "/"),
+        "local_override": str(local_raw or "").strip(),
+        "system_value": str(sys_raw or "").strip(),
+        "field": "obsidian.vault_path（写在 config/system.local.yaml，不进 Git）",
+    }
+    if p is None:
+        info.update({"exists": False, "is_dir": False, "md_count": 0,
+                     "truncated": False, "looks_like_obsidian": False,
+                     "note": "还没填库路径 —— 填了才能扫描与导入设定集。"})
+        return info
+    exists, is_dir = p.exists(), p.is_dir()
+    md, trunc = (0, False)
+    if is_dir:
+        md, trunc = _count_md(p)
+    info.update({
+        "exists": exists, "is_dir": is_dir, "md_count": md, "truncated": trunc,
+        # `.obsidian/` 是 Obsidian 的库标记 —— 只作提示，不作门槛
+        # （有人用纯文件夹当库、拿别的编辑器写 markdown，那也是合法库）
+        "looks_like_obsidian": bool(is_dir and (p / ".obsidian").is_dir()),
+        "note": ("" if is_dir else "路径存在但不是目录；也可能库被移走了。"),
+    })
+    return info
+
+
+def handle_config_vault_get(h):
+    """`GET /config/vault` —— 库路径现状（含来源 / 篇数 / 是否像 Obsidian 库）。"""
+    try:
+        return 200, _vault_info()
+    except Exception as e:                                   # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_config_vault_set(h, body):
+    """`POST /config/vault {path}` —— 填/改/清空库路径。
+
+    校验按"错了会静默跑偏"的顺序排：
+
+    | 拒绝条件 | 为什么 |
+    |---|---|
+    | 非绝对路径 | 相对路径的基准是**进程 CWD**，换启动方式就指向别处 |
+    | 不存在 / 不是目录 | 存下去之后每次扫描都空，用户会以为库是空的 |
+    | 盘根（整块盘都当库） | 一次扫描几十万文件，界面卡死 |
+    | 落在工作区内 | 会把 `data/`、`materials/` 当成笔记收进设定集 |
+    """
+    body = body or {}
+    if body.get("clear"):
+        try:
+            from utils.config_io import set_section_scalars
+            from utils.setting_schema import reset_obsidian_config_cache
+            ok, msg = set_section_scalars(("obsidian",), {"vault_path": ""},
+                                          path=_ensure_local_yaml())
+            if not ok:
+                return 400, {"ok": False, "error": "写入失败：" + msg}
+            reset_obsidian_config_cache()
+            return 200, {"ok": True, "message": "已清空库路径（可随时重填）"}
+        except Exception as e:                               # noqa: BLE001
+            return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+    raw = str(body.get("path") or "").strip().strip('"').strip("'")
+    if not raw:
+        return 400, {"ok": False, "error": "path 不能为空（要清空请传 clear=true）"}
+    from pathlib import Path as _P
+    p = _P(raw).expanduser()
+    if not p.is_absolute():
+        return 400, {"ok": False,
+                     "error": "请填绝对路径（例如 …/图书馆/我的知识库）——"
+                              "相对路径会随启动位置漂移"}
+    try:
+        p = p.resolve()
+    except OSError:
+        pass
+    if not p.exists():
+        return 400, {"ok": False, "error": "路径不存在：%s" % p}
+    if not p.is_dir():
+        return 400, {"ok": False, "error": "这是一个文件，不是目录：%s" % p}
+    anchor = _P(p.anchor) if p.anchor else None
+    if anchor is not None and p == anchor:
+        return 400, {"ok": False,
+                     "error": "别把整个磁盘当知识库（一次扫描几十万文件，界面会卡死）"}
+    try:
+        root = api.ROOT.resolve()
+        if p == root or p.is_relative_to(root):
+            return 400, {"ok": False,
+                         "error": "这个目录在项目工作区里面 —— 会把 data/、materials/ "
+                                  "当成笔记收进设定集。请选项目外面的库目录。"}
+        if root.is_relative_to(p):
+            # 反向（库包含工作区）：允许，但要提醒 —— Obsidian 官方也不建议库套库
+            pass
+    except Exception:                                        # noqa: BLE001
+        pass
+    try:
+        from utils.config_io import set_section_scalars
+        from utils.setting_schema import reset_obsidian_config_cache
+        val = p.as_posix()          # 正斜杠：YAML 里可读，也不用担心反斜杠转义
+        ok, msg = set_section_scalars(("obsidian",), {"vault_path": val},
+                                      path=_ensure_local_yaml())
+        if not ok:
+            return 400, {"ok": False, "error": "写入失败：" + msg}
+        # 写完立刻清缓存：否则 scan_vault 还会用旧路径（2026-10-31 修的那个坑）
+        reset_obsidian_config_cache()
+        info = _vault_info()
+        warn = ""
+        if not (p / ".obsidian").is_dir():
+            warn = "这个目录没有 .obsidian（不像是 Obsidian 库）—— 如果是有 markdown 的普通文件夹，照样能用。"
+        return 200, dict(info, ok=True, warning=warn,
+                         message="已保存库路径；下次扫描立刻生效（无需重启）")
+    except Exception as e:                                   # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 # system.local.yaml 可能从来没被创建过（用户没改过本地覆盖）——写入前先补骨架。
 # 抬头注释要说明"这里的目录名是私人的"，否则用户会以为可以随便放进 system.yaml。
 _VAULT_LOCAL_SKELETON = (
@@ -1261,6 +1443,8 @@ ROUTES = (
     # 代码不猜任何库结构（曾因把某个真实库的目录名当通例写进代码而返工）
     ("GET", "/config/vault_scan", handle_config_vault_scan),
     ("POST", "/config/vault_skip_dirs", handle_config_vault_skip_dirs),
+    ("GET", "/config/vault", handle_config_vault_get),
+    ("POST", "/config/vault", handle_config_vault_set),
     # 加强模式（第一波防御 · 任务三，2026-10-22）：单章拆段落群生成开关
     ("GET", "/config/enhanced_mode", handle_config_enhanced_mode),
     ("POST", "/config/enhanced_mode", handle_config_enhanced_mode_set),

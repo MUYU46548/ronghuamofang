@@ -2502,6 +2502,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/config/title_format":
             # 章标题格式读取（chapter.title_format）。用户第 12 条要求格式可自定义。
             self._send(*_dom(dom_project.handle_config_title_format(self)))
+        elif p == "/config/vault":
+            # 库路径现状（含来源 / 篇数 / 是否像 Obsidian 库）
+            self._send(*_dom(dom_project.handle_config_vault_get(self)))
         elif p == "/config/vault_scan":
             # 知识库扫描面（顶层目录 + 篇数 + 是否排除）—— 目录名取自用户库本身。
             self._send(*_dom(dom_project.handle_config_vault_scan(self)))
@@ -3160,6 +3163,9 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/judge/book_reject/clear":
                 # 撤销整本否掉（旧记录进 history）
                 self._send(*_dom(dom_judge.handle_book_reject_clear(self, body)))
+            elif p == "/judge/book_archive":
+                # 整本否掉之后的一键**归档**（搬进 data/books/，不删任何东西）
+                self._send(*_dom(dom_judge.handle_book_archive(self, body)))
             elif p == "/judge/caliber":
                 # 改口径（R04/F08）：改值即产新版本，旧版进 history
                 self._send(*_dom(dom_judge.handle_judge_caliber_set(self, body)))
@@ -3199,6 +3205,9 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/config/title_format":
                 # 章标题格式设置（创作决策；必须含 {n}，否则 400）。
                 self._send(*_dom(dom_project.handle_config_title_format_set(self, body)))
+            elif p == "/config/vault":
+                # 填/改/清空库路径（写 system.local.yaml，写完立刻生效）
+                self._send(*_dom(dom_project.handle_config_vault_set(self, body)))
             elif p == "/config/vault_skip_dirs":
                 # 扫描排除项设置（创作决策：哪些目录算正典）；只写 system.local.yaml。
                 self._send(*_dom(dom_project.handle_config_vault_skip_dirs(self, body)))

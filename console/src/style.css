@@ -2259,3 +2259,42 @@ kbd {
   .help-wrap { grid-template-columns: 1fr; }
   .help-side { position: static; }
 }
+
+/* 「整本否掉」区块里的归档入口（2026-10-31）：归档是搬家，不是删除 ——
+   两个按钮并排，中间留一点距离，避免误点成「记下判断」。 */
+.judge-archive-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
+
+/* 知识库路径（2026-10-31）：设置页新增的「库在哪」一行 */
+.vault-path-box {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--field);
+  padding: 11px 13px 12px;
+  margin-bottom: 10px;
+}
+.vault-path-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.vault-path-input {
+  flex: 1 1 320px;
+  min-width: 200px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--ink);
+  font-size: 12.5px;
+  font-family: var(--mono);
+}
+.vault-path-input:focus { outline: 1px solid var(--accent); }

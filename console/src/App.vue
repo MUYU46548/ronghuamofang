@@ -343,7 +343,7 @@ function selectSettingsTab(id) {
   // Word 模板清单每次进都要重扫磁盘（用户可能刚往 templates/ 里放了新模板）
   if (id === "word") loadWordTemplate();
   // 知识库扫描面：每次进都重扫（用户可能刚改过库目录）
-  if (id === "prompt") loadVaultScan();
+  if (id === "prompt") { loadVaultCfg(); loadVaultScan(); }
 }
 
 const THEMES = [
@@ -1180,6 +1180,13 @@ async function archiveCurrent() {
   } else {
     say("归档失败: " + (r.data.message || r.data.error || r.status));
   }
+}
+
+/** 判定页“归档这本书”之后：工作区已经空了，整页状态必须重载（2026-10-31）。
+ *  不重载的话界面还停在上一个项目的阶段/章节上 —— 用户会以为归档没生效。 */
+function onBookArchived() {
+  loadProjects();
+  refresh();
 }
 
 async function restoreProject(name) {
@@ -3449,6 +3456,81 @@ async function resetTitleFormat() {
  * 校验在后端（_validate_skip_dirs）—— 前端只回显错误，不自己写判据。 */
 const vaultScan = ref({ loading: false, busy: false, ok: true, msg: "", data: null, exclude: [] });
 
+/* 库路径读写（2026-10-31）：此前只有“扫描面”，没有填路径的地方 ——
+ * 第一次接库的人只能手改 config/system.yaml + system.local.yaml，
+ * 还得先知道 local 覆盖优先。对“只用过笔记软件”的人这条路走不通。
+ * 写盘落点由后端决定（local，不进 Git），前端只负责取值与回显结果。 */
+const vaultCfg = ref({ loading: false, busy: false, ok: true, msg: "",
+                       path: "", data: null });
+
+async function loadVaultCfg() {
+  vaultCfg.value.loading = true;
+  try {
+    const r = await api("/config/vault", "GET");
+    if (r.status === 200 && r.data.ok) {
+      vaultCfg.value.data = r.data;
+      vaultCfg.value.path = r.data.path || "";
+      vaultCfg.value.ok = true;
+      vaultCfg.value.msg = "";
+    } else {
+      vaultCfg.value.ok = false;
+      vaultCfg.value.msg = "读取失败: " + (r.data.error || r.status);
+    }
+  } catch (e) {
+    vaultCfg.value.ok = false;
+    vaultCfg.value.msg = "读取失败: " + (e.message || e);
+  }
+  vaultCfg.value.loading = false;
+}
+
+async function pickVaultDir() {
+  const dlg = window.mofangAPI && window.mofangAPI.openFileDialog;
+  if (!dlg) { vaultCfg.value.msg = "选目录需通过桌面客户端启动"; vaultCfg.value.ok = false; return; }
+  const r = await dlg({ title: "选择知识库目录（选库的根文件夹）",
+                        properties: ["openDirectory"] });
+  if (r && r.ok && r.paths && r.paths[0]) vaultCfg.value.path = r.paths[0];
+}
+
+async function saveVaultPath() {
+  const p = (vaultCfg.value.path || "").trim();
+  if (!p) { vaultCfg.value.ok = false; vaultCfg.value.msg = "先填一个目录路径"; return; }
+  vaultCfg.value.busy = true;
+  try {
+    const r = await api("/config/vault", "POST", { path: p });
+    vaultCfg.value.ok = !!(r.status === 200 && r.data.ok);
+    vaultCfg.value.msg = vaultCfg.value.ok
+      ? ((r.data.message || "已保存") + (r.data.warning ? " · " + r.data.warning : ""))
+      : ("保存失败: " + (r.data.error || r.status));
+    if (vaultCfg.value.ok) {
+      vaultCfg.value.data = r.data;
+      vaultCfg.value.path = r.data.path || p;
+      // 路径变了 → 扫描面必须重扫（否则下面还列着旧库的目录）
+      await loadVaultScan();
+    }
+  } catch (e) {
+    vaultCfg.value.ok = false;
+    vaultCfg.value.msg = "保存失败: " + (e.message || e);
+  }
+  vaultCfg.value.busy = false;
+}
+
+async function clearVaultPath() {
+  if (!window.confirm("清空库路径？\n\n只是不再扫描知识库，笔记文件一个都不动。")) return;
+  vaultCfg.value.busy = true;
+  try {
+    const r = await api("/config/vault", "POST", { clear: true });
+    vaultCfg.value.ok = !!(r.status === 200 && r.data.ok);
+    vaultCfg.value.msg = vaultCfg.value.ok ? (r.data.message || "已清空")
+      : ("清空失败: " + (r.data.error || r.status));
+    await loadVaultCfg();
+    await loadVaultScan();
+  } catch (e) {
+    vaultCfg.value.ok = false;
+    vaultCfg.value.msg = "清空失败: " + (e.message || e);
+  }
+  vaultCfg.value.busy = false;
+}
+
 async function loadVaultScan() {
   vaultScan.value.loading = true;
   try {
@@ -4983,7 +5065,7 @@ onUnmounted(() => {
       <template v-else>
       <!-- 判定报告（P0，0.7.17）：整本一页 → 单章详情 → 合格标准。
            放在章节页签顶部（产品定义 04 §2.1：不新增顶层页签）。 -->
-      <JudgePanel @say="say" />
+      <JudgePanel @say="say" @archived="onBookArchived" />
       <!-- 活二 Word 导入：外部稿 → 当作"已写好的章节"。两段式：预检（不落盘）→ 确认 -->
       <details class="import-box" :open="!!importPath || !!importPreview || !!importResult">
         <summary>导入 Word 稿（外部稿件 → raw / checked / refined）</summary>
@@ -6176,15 +6258,46 @@ onUnmounted(() => {
       </div>
       <!-- 知识库扫描面（2026-10-24）：目录名取自用户库本身，勾选排除 ——
            代码不猜任何库结构（曾因把某个真实库的目录名当通例写进代码而返工） -->
-      <h4 style="margin-top: 16px;">知识库扫描（哪些内容进正典检索）</h4>
-      <div class="meta" style="margin-bottom: 8px;">
-        写作时的正典检索会读你知识库里的笔记。下面列出库里扫到的目录 ——
+      <h4 style="margin-top: 16px;">知识库（Obsidian 库 / 存 markdown 的文件夹）</h4>
+
+      <!-- 库路径（2026-10-31 补）：此前只能手改 yaml，第一次接库的人根本走不通 -->
+      <div class="vault-path-box">
+        <div class="eng-head" style="margin-bottom: 6px;">
+          <span class="eng-label">库在哪</span>
+          <span class="meta" v-if="vaultCfg.data && vaultCfg.data.configured">
+            共 {{ vaultCfg.data.md_count }} 篇 markdown
+            <span v-if="vaultCfg.data.truncated">（超过 2 万，只数到这里）</span>
+            <span v-if="vaultCfg.data.looks_like_obsidian">· 是 Obsidian 库</span>
+            <span v-else>· 没看到 .obsidian（普通文件夹也能用）</span>
+          </span>
+          <span class="meta" v-else>还没填 —— 填了才能扫描与导入设定集</span>
+        </div>
+        <div class="vault-path-row">
+          <input v-model="vaultCfg.path" class="vault-path-input"
+                 placeholder="知识库根目录（绝对路径；不确定就点“选文件夹”）"
+                 @keyup.enter="saveVaultPath" />
+          <button class="mini" :disabled="vaultCfg.busy" @click="pickVaultDir">选文件夹…</button>
+          <button class="mini primary" :disabled="vaultCfg.busy || !vaultCfg.path.trim()"
+                  @click="saveVaultPath">{{ vaultCfg.busy ? "保存中…" : "保存路径" }}</button>
+          <button class="mini" v-if="vaultCfg.data && vaultCfg.data.configured"
+                  :disabled="vaultCfg.busy" @click="clearVaultPath">清空</button>
+        </div>
+        <div class="meta" style="margin-top: 6px;">
+          <b>只读</b>：绒花墨坊只读你的笔记，从不写入这个目录（导出的字条落在项目沙盒里）。
+          路径存在 <code>config/system.local.yaml</code>（不进 Git，不会带到别人机器上）。
+        </div>
+        <div class="meta tl-msg" :class="vaultCfg.ok ? 'ok' : 'bad'"
+             v-if="vaultCfg.msg">{{ vaultCfg.msg }}</div>
+      </div>
+
+      <div class="meta" style="margin: 12px 0 8px;">
+        写作时的正典检索会读这个库。下面列出库里扫到的目录 ——
         <b>勾掉的目录不进检索</b>（比如参考作品、草稿区）。目录名取自你的库本身，
         不需要改任何配置文件。
       </div>
       <div v-if="vaultScan.loading" class="meta">读取中…</div>
       <div v-else-if="!vaultScan.data || !vaultScan.data.configured" class="meta">
-        未配置知识库路径 —— 填好路径后这里会列出扫描面。
+        还没有库路径 —— 在上面“库在哪”填好并保存，这里就会列出扫描面。
         <button class="mini" @click="loadVaultScan" style="margin-left: 8px;">重新读取</button>
       </div>
       <template v-else>

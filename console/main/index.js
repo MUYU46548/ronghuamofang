@@ -379,7 +379,13 @@ function getWorkspaceSource() {
 //   · 前端（asar，不走种子）：项目页出厂徽标 / 启动提示词剥离说明书 /
 //     阶段复制改任务简报（原样贴模板会被外部 Agent 按红线判「模板不是任务」停工）。
 // **先 bump 再 electron-builder**。
-const SEED_VERSION = 68;   // 0.7.25: B2 整本否掉 + R05 判据引文 + R1 判据失效告警 + R11 导出合规
+const SEED_VERSION = 69;   // 0.7.26: 整本否掉一键归档 + 设置页可填库路径
+                            //   · payload scripts：switch_book.py（archive 加 reason → _meta.why）、
+                            //     obsidian_bridge.py（vault/sandbox 路径改实时读，不再模块级固化）、
+                            //     nf_api_domains/project.py（GET/POST /config/vault）、
+                            //     nf_api_domains/judge.py（POST /judge/book_archive）、agent_guard +1
+                            //   · 前端（asar）：判定页归档按钮；设置页「库在哪」+ 选文件夹
+                            // 0.7.25: B2 整本否掉 + R05 判据引文 + R1 判据失效告警 + R11 导出合规
                             //   · payload scripts：judge/backtest.py（refs/alerts/持久化 run 字段）、
                             //     judge/records.py（book_reject + history）、judge 域两个新端点、
                             //     agent_guard 禁用名单 +2

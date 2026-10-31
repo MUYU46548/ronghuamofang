@@ -156,31 +156,29 @@ def scan_vault_preview(vault_path=None):
     }
 
 
-# 延迟初始化（避免导入时读取配置文件）
-_vault_path = None
-_sandbox_dir = None
-
-
+# 路径**不进模块级缓存**（2026-10-31 修，与 skip_dirs 同一处坑）。
+#
+# 原实现是「首次调用即固化」：`_vault_path` 一旦被赋值，进程内就不再重读配置。
+# 界面新加的「填库路径」保存后，`scan_vault()` 仍旧扫旧库，而且**一句提示都没有**
+# —— 与 2026-10-31 修掉的 `_skip_dirs` 快照是同一个病（那次用户已经怀疑过
+# 「排除项是不是没生效」）。
+#
+# `setting_schema.load_obsidian_config()` 自带配置缓存，所以每次调用并不贵；
+# 需要强制重读配置时仍走 `_reload_config()`（它只清缓存）。
 def _get_vault_path():
-    global _vault_path
-    if _vault_path is None:
-        _vault_path = get_vault_path()
-    return _vault_path
+    return get_vault_path()
 
 
 def _get_sandbox_dir():
-    global _sandbox_dir
-    if _sandbox_dir is None:
-        _sandbox_dir = get_sandbox_dir()
-    return _sandbox_dir
+    return get_sandbox_dir()
 
 
 def _reload_config():
-    """重新加载配置（测试/配置变更时调用）。"""
-    global _vault_path, _sandbox_dir
+    """清配置缓存（测试/配置变更后调用）。
+
+    路径不再有本模块的快照，所以这里只需要清 `setting_schema` 的缓存。
+    """
     reset_obsidian_config_cache()
-    _vault_path = get_vault_path()
-    _sandbox_dir = get_sandbox_dir()
 
 
 # 跳过目录（非正典内容）——A1 配置化：常量已删，改由 utils.setting_schema
