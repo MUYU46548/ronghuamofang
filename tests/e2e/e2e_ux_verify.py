@@ -149,8 +149,31 @@ def new_page(browser, api_base, tag):
 
 
 def shot(page, name, full=False):
+    """截图到 Temp/gui_verify/ux/。
+
+    ⚠️ 2026-10-31 修：`full_page=True` + `position: sticky` 顶栏会出**伪影** ——
+    Playwright 会把视口临时拉高到整页高度渲染，sticky 元素却停在"当前滚动位置"
+    对应的吸附位，于是顶栏被画在**内容中间**（上方露出半截正文，下方接着表单）。
+    用户看我们的截图时以为界面坏了，实际是截图方法的问题。
+    规则：全页截图前先滚回顶部，截完恢复原滚动位置。
+    """
     p = OUT / ("%s.png" % name)
+    y = 0
+    if full:
+        try:
+            y = page.evaluate("window.scrollY") or 0
+            if y:
+                page.evaluate("window.scrollTo(0, 0)")
+                page.wait_for_timeout(260)
+        except Exception:                                    # noqa: BLE001
+            y = 0
     page.screenshot(path=str(p), full_page=full)
+    if full and y:
+        try:
+            page.evaluate("window.scrollTo(0, %d)" % y)
+            page.wait_for_timeout(120)
+        except Exception:                                    # noqa: BLE001
+            pass
     print("      shot → %s" % p.name)
     return p
 
