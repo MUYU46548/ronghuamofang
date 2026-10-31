@@ -87,7 +87,75 @@ def judge_chapter(root, n, cal_doc=None, cal_values=None, records_doc=None):
         "destroy": d,
         "object": obj,
         "author": author,
+        # 原文只为**引文校验**（R05 AC-05-2：卡上的引文必须真在正文里）。
+        # 不进 report / records —— 正文已经在 paragraphs 里有一份了。
+        "body": body,
     }
+
+
+def _rule_refs(res):
+    """R05 口径解释卡的**引文**：每条判据取第一条命中的原句。
+
+    AC-05-2「卡内正例/反例引文必须在原文中存在，对不上则卡作废并计数」——
+    所以这里做两道：
+      ① 引文只从 `analysis.defects` 里取（规则从正文切句得来，不是人编的）；
+      ② 仍然验一次 `sentence in body`：规则将来改了切句方式，引文可能与正文脱节，
+         那种卡必须作废并**计数**（`invalid_refs`），不能静默留着。
+
+    返回 `({Jxx: {sentence, paragraph_index, rule_name}}, invalid_count)`。
+    """
+    body = res.get("body") or ""
+    out, invalid = {}, 0
+    for d in (res.get("analysis") or {}).get("defects") or []:
+        rid = d.get("rule_id")
+        sent = (d.get("sentence") or "").strip()
+        if not rid or not sent or rid in out:
+            continue
+        if body and sent not in body:
+            invalid += 1
+            continue
+        out[rid] = {"sentence": T.snippet(sent, 40),
+                    "paragraph_index": d.get("paragraph_index"),
+                    "rule_name": d.get("rule_name") or ""}
+    return out, invalid
+
+
+def _detector_alerts(prev_chapters, cur_chapters, words_min):
+    """R1 判据失效告警（评审意见里标"高风险"的那条，2026-10-31）。
+
+    ## 它防的是什么
+
+    判据只在**旧的 AI 腔**上标定过。0.7.20 拆锁（放开密度与风格）之后，
+    腔调形态必然改变 —— 于是可能出现「某章 F01+F03 命中数从 ≥5 掉到 0，
+    而字数完全达标」。这有两种解释：稿子真的改好了，或者**判据已经对新腔调失效**。
+
+    系统**不分不清**这两者（要分清得有基准集，R19 目前为空）。所以这里只做
+    fail-loud：出声，不判档、不改结论。宁可让作者多抽检一章，不能静默显示"没查出问题"。
+
+    可比性前提：上一次 run 里该章的 `counts` 存在（本字段 2026-10-31 才有，
+    更早的历史 run 没有 → 跳过并说明，不假报）。
+    """
+    prev = {int(x.get("chapter") or 0): x for x in (prev_chapters or [])}
+    out = []
+    for c in cur_chapters or []:
+        n = int(c.get("chapter") or 0)
+        p = prev.get(n)
+        if not p or not isinstance(p.get("counts"), dict):
+            continue
+        pc = p["counts"]
+        before = int(pc.get("F01") or 0) + int(pc.get("F03") or 0)
+        cc = c.get("counts") or {}
+        after = int(cc.get("F01") or 0) + int(cc.get("F03") or 0)
+        words = c.get("words")
+        if before >= 5 and after == 0 and isinstance(words, int) and words >= words_min:
+            out.append({
+                "chapter": n, "before": before, "after": after, "words": words,
+                "note": ("第 %d 章：上一次判定命中 %d 处（F01 字数/句长 + F03 可替换骨架），"
+                         "这次 0 处，而字数 %d 达标。可能是稿子真改好了，"
+                         "也可能是判据对新腔调失效 —— 建议人工抽检这一章，"
+                         "确认不是「判据睡着了」。" % (n, before, words)),
+            })
+    return out
 
 
 def _matrix_row(res):
@@ -207,6 +275,8 @@ def run(root=".", book_name="", by="作者"):
     chapters = []
     total_defects = 0
     object_changed = []
+    refs_all = {}          # {Jxx: {sentence, paragraph_index, chapter}} 全书取第一条
+    invalid_refs = 0
     for r in results:
         v = r["verdict"]
         defects = r["analysis"]["defects"]
@@ -221,6 +291,11 @@ def run(root=".", book_name="", by="作者"):
                        and prev_fp[r["chapter"]] != r["object"]["raw_fp"])
         if changed:
             object_changed.append(r["chapter"])
+        refs, bad = _rule_refs(r)
+        invalid_refs += bad
+        for rid, ref in refs.items():
+            if rid not in refs_all:
+                refs_all[rid] = dict(ref, chapter=r["chapter"])
         chapters.append({
             "chapter": r["chapter"],
             "verdict": v.get("verdict"),
@@ -238,6 +313,9 @@ def run(root=".", book_name="", by="作者"):
             "author": r["author"],
             "destroy": {"compressed_twice": r["destroy"].get("compressed_twice"),
                         "shrink": r["destroy"].get("shrink")},
+            # 分规则命中数：R1 判据失效告警要跨 run 对比它（2026-10-31 起才有）
+            "counts": r["analysis"].get("counts") or {},
+            "refs": refs,
         })
 
     summary = {
@@ -248,6 +326,8 @@ def run(root=".", book_name="", by="作者"):
         "undecided": sum(1 for c in chapters if c["verdict"] is None),
         "defects": total_defects,
     }
+    words_min = int((cal_values or {}).get("J01", 5000))
+    alerts = _detector_alerts((prev_run or {}).get("chapters"), chapters, words_min)
     has_bench = (root / BENCHMARK_REL).is_dir()
     report = {
         "ok": True,
@@ -263,6 +343,14 @@ def run(root=".", book_name="", by="作者"):
         "summary": summary,
         "chapters": chapters,
         "matrix": [_matrix_row(r) for r in results],
+        # R05 口径解释卡：每条判据的**引文**（取自正文切句，不是人编的）
+        "refs": refs_all,
+        "invalid_refs": invalid_refs,
+        # R1 判据失效告警：只出声，不判档（详见 _detector_alerts）
+        "alerts": alerts,
+        "alerts_note": ("" if alerts else
+                        "本轮没有「命中骤降」的章。注意：更早的历史 run 没有分规则计数，"
+                        "首轮之后才开始可比。"),
         "zero_token": True,
         "object_changed": object_changed,
         "object_changed_note": (
@@ -293,11 +381,21 @@ def run(root=".", book_name="", by="作者"):
         "summary": summary,
         "evidence": report["evidence"],
         "object_changed": object_changed,
+        # R05 / R1：**持久化**的 run 记录也必须带这三样 ——
+        # `/judge/report` 读的是 records 里的 run_rec，不是内存里的 report。
+        # 第一版只往 report 里塞了 refs，结果界面永远显示「没命中」（白查半天）。
+        "refs": refs_all,
+        "invalid_refs": invalid_refs,
+        "alerts": alerts,
         "chapters": [
             {"chapter": c["chapter"], "verdict": c["verdict"],
              "status": c["status"], "reason_code": c["reason_code"],
              "defect_count": c["defect_count"],
              "ratio": c["defect_paragraph_ratio"],
+             "words": c.get("words"),
+             # 分规则命中数：R1 下一轮要和这一份对比（没有它永远不可比）
+             "counts": c.get("counts") or {},
+             "refs": c.get("refs") or {},
              "object": c["object"]}
             for c in chapters
         ],
@@ -316,11 +414,21 @@ def export_markdown(report, root="."):
     lines.append("口径：v%s（%s） · 生成：%s"
                  % (report["caliber"]["version"], report["caliber"]["fingerprint"],
                     report["generated_at"]))
+    # R11 数据合规（评审意见低风险但必须有）：这份清单含**正文原句**。
+    # 作者把它发给编辑/朋友，等于外发了一部分稿件 —— 必须在报告正文里说清，
+    # 而不是藏在设置页的某段说明里（评审原话：导出时在报告头保留一句）。
+    lines.append("")
+    lines.append("> ⚠️ 这份清单**含正文原句**（每处缺陷都引了原文）。转给他人前请确认："
+                 "那不是只发了一份报告，而是外发了一部分稿件。")
     s = report["summary"]
     lines.append("")
     lines.append("%d 章：%d 可以开始逐字改 · %d 要定点重写 · %d 要重写本章；全书 %d 处要改"
                  % (s["total"], s["ok"], s["spot"], s["rewrite"], s["defects"]))
     lines.append("")
+    for a in (report.get("alerts") or []):
+        lines.append("> 🔔 %s" % a.get("note"))
+    if report.get("alerts"):
+        lines.append("")
     for c in report["chapters"]:
         lines.append("## 第 %d 章 · %s" % (c["chapter"], c["status"] or "未判"))
         if c["reasons"]:
@@ -330,6 +438,22 @@ def export_markdown(report, root="."):
             lines.append("- 第 %d 段「%s」（%s）" % (d["paragraph_index"], d["sentence"],
                                                  d["rule_name"]))
         lines.append("")
+    refs = report.get("refs") or {}
+    if refs:
+        lines.append("")
+        lines.append("## 判据引文（每条判据在本书里的一个真实例子）")
+        lines.append("")
+        lines.append("| 判据 | 命中原句 | 位置 |")
+        lines.append("|---|---|---|")
+        for rid in sorted(refs):
+            r = refs[rid] or {}
+            lines.append("| %s %s | %s | 第 %s 章第 %s 段 |"
+                         % (rid, r.get("rule_name") or "", r.get("sentence") or "",
+                            r.get("chapter"), r.get("paragraph_index")))
+        if report.get("invalid_refs"):
+            lines.append("")
+            lines.append("（另有 %d 条引文与正文对不上，已按 AC-05-2 作废）"
+                         % report["invalid_refs"])
     out = Path(root) / "output" / "judge_report.md"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(lines), encoding="utf-8")

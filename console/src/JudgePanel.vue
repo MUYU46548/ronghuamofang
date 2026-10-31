@@ -26,6 +26,46 @@ const openDefect = ref(null);        // 展开的缺陷条目 id
 const note = ref("");                // 裁定理由输入
 const feel = ref("");                // 打中了 / 没打中 / 拿不准
 const calEdit = ref({});             // 口径编辑（id -> 新值）
+const rejectReason = ref("");        // B2 整本否掉的理由（必填 ≥8 字）
+const rejectBusy = ref(false);
+
+// R05：这条判据在**这本书**里的一个真实例子（取自正文切句，不是人编的）
+function refFor(rid) {
+  return (report.value && report.value.run && report.value.run.refs
+          && report.value.run.refs[rid]) || null;
+}
+// R1：判据失效告警（命中骤降）。只显示，不改档。
+const alerts = computed(() => (report.value && report.value.run
+                               && report.value.run.alerts) || []);
+const bookReject = computed(() => report.value && report.value.book_reject);
+
+async function submitBookReject() {
+  const why = rejectReason.value.trim();
+  if (why.length < 8) {
+    emit("say", "理由至少 8 个字 —— 否掉整本是要留档的决定，半年后你得看得懂");
+    return;
+  }
+  if (!window.confirm("确认“整本否掉”？\n\n· 只落一条判断记录（含理由与时间），"
+                      + "不会删除或改动任何稿件\n· 之后可以撤销")) return;
+  rejectBusy.value = true;
+  try {
+    await call("POST", "/judge/book_reject", { reason: why });
+    rejectReason.value = "";
+    await loadReport();
+    emit("say", "已记下：整本否掉");
+  } catch (e) { err.value = String(e.message || e); }
+  rejectBusy.value = false;
+}
+
+async function clearBookReject() {
+  rejectBusy.value = true;
+  try {
+    await call("POST", "/judge/book_reject/clear", {});
+    await loadReport();
+    emit("say", "已撤销“整本否掉”（旧记录留在历史里）");
+  } catch (e) { err.value = String(e.message || e); }
+  rejectBusy.value = false;
+}
 
 async function call(method, path, body) {
   const opt = { method, headers: { "Content-Type": "application/json" } };
@@ -215,6 +255,22 @@ onMounted(loadReport);
         能力证据：{{ (report.evidence.capability || {}).note }} ·
         demo 证据：{{ demoText }}
       </div>
+      <!-- B2 整本否掉：作者判定整本不行时，横幅常驻（可撤销） -->
+      <div v-if="bookReject" class="judge-bookreject">
+        <b>你已否掉整本</b>：{{ bookReject.reason }}
+        <span class="meta">（{{ bookReject.at }}）</span>
+        <button class="mini" :disabled="rejectBusy" @click="clearBookReject">撤销</button>
+        <div class="meta">这是一条判断记录，不会删除或改动任何稿件。</div>
+      </div>
+
+      <!-- R1 判据失效告警（评审高危项）：命中骤降时出声，不判档 -->
+      <div v-if="alerts.length" class="judge-alert">
+        <b>⚠ 判据可能已失效，建议人工抽检</b>
+        <div v-for="a in alerts" :key="a.chapter" class="meta">{{ a.note }}</div>
+        <div class="meta">系统分不清“稿子真改好了”和“判据对新腔调睡着了”——
+          这里只提醒你抽检一章，不改任何结论。</div>
+      </div>
+
       <!-- R07 成品过期横幅：必须给两项凭据（字数 + 时间），只给徽标 = 未实现 -->
       <div v-if="artifact && artifact.exists && artifact.stale" class="judge-artifact">
         <b>⚠ 成品已过期</b>：{{ artifact.name }}（{{ artifact.built_at }} 出的）
@@ -250,6 +306,23 @@ onMounted(loadReport);
           </tr>
         </tbody>
       </table>
+
+      <!-- B2 整本否掉（业务界定 A3 / S07）：放整本页最底部 —— 看完所有章才做这个决定 -->
+      <div v-if="!bookReject" class="judge-reject-box">
+        <div class="judge-reject-head">
+          <b>整本否掉</b>
+          <span class="meta">看完全部之后，如果你的判断是“这本书不行”而不是“某几章要改”</span>
+        </div>
+        <div class="judge-reject-row">
+          <input v-model="rejectReason" class="judge-reject-input"
+                 placeholder="为什么不行（至少 8 个字 —— 半年后你得看得懂当时为什么）"
+                 @keyup.enter="submitBookReject" />
+          <button class="mini" :disabled="rejectBusy || rejectReason.trim().length < 8"
+                  @click="submitBookReject">记下这个判断</button>
+        </div>
+        <div class="meta">只落一条记录（理由 + 时间），<b>不会删除或改动任何稿件</b>。
+          之后可以撤销，旧记录留在历史里。</div>
+      </div>
     </template>
 
     <!-- 单章详情（I2 + I3） -->
@@ -329,7 +402,8 @@ onMounted(loadReport);
       </div>
       <div v-if="err" class="judge-err">{{ err }}</div>
       <table class="judge-table">
-        <thead><tr><th>判据</th><th>值</th><th>类型</th><th>谁在读（消费方）</th></tr></thead>
+        <thead><tr><th>判据</th><th>值</th><th>类型</th><th>谁在读（消费方）</th>
+          <th>本书里的一个例子</th></tr></thead>
         <tbody>
           <tr v-for="c in caliber.criteria" :key="c.id">
             <td>{{ c.id }} · {{ c.name }}</td>
@@ -340,6 +414,16 @@ onMounted(loadReport);
             </td>
             <td>{{ c.kind }}</td>
             <td class="meta">{{ c.consumer_name }}</td>
+            <td class="judge-ref">
+              <template v-if="refFor(c.id)">
+                <div class="judge-ref-q">“{{ refFor(c.id).sentence }}”</div>
+                <div class="meta">第 {{ refFor(c.id).chapter }} 章第
+                  {{ refFor(c.id).paragraph_index }} 段</div>
+              </template>
+              <span v-else class="meta">
+                {{ report && report.exists ? "最近一次回测里没命中（可能是好事，也可能是判据没生效）" : "还没跑过回测" }}
+              </span>
+            </td>
           </tr>
         </tbody>
       </table>
@@ -357,6 +441,59 @@ onMounted(loadReport);
 .judge-sum { font-weight: 600; }
 .judge-notice { font-size: 12px; color: var(--warn); margin: 6px 0; }
 .judge-err { font-size: 12px; color: var(--bad); margin: 6px 0; }
+
+/* ---- B2 整本否掉（2026-10-31）---- */
+.judge-bookreject {
+  margin: 8px 0;
+  padding: 9px 12px;
+  border: 1px solid var(--warn);
+  border-left-width: 3px;
+  border-radius: 8px;
+  background: var(--field-dim);
+  font-size: 12.5px;
+  color: var(--ink);
+  line-height: 1.8;
+}
+.judge-bookreject button { margin-left: 8px; }
+.judge-reject-box {
+  margin-top: 14px;
+  padding: 10px 12px 11px;
+  border: 1px dashed var(--border);
+  border-radius: 9px;
+  background: var(--field-inset);
+}
+.judge-reject-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.judge-reject-head b { font-size: 13px; color: var(--ink); }
+.judge-reject-row {
+  display: flex; align-items: center; gap: 8px; margin: 8px 0 6px;
+}
+.judge-reject-input {
+  flex: 1;
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--card);
+  color: var(--ink);
+  font-size: 12.5px;
+}
+.judge-reject-input:focus { outline: 1px solid var(--accent); }
+
+/* ---- R1 判据失效告警 ---- */
+.judge-alert {
+  margin: 8px 0;
+  padding: 9px 12px;
+  border-left: 3px solid var(--bad);
+  border-radius: 0 8px 8px 0;
+  background: var(--field-dim);
+  font-size: 12.5px;
+  line-height: 1.8;
+  color: var(--ink);
+}
+.judge-alert b { color: var(--ink-bad); }
+
+/* ---- R05 判据引文列 ---- */
+.judge-ref { max-width: 260px; font-size: 11.5px; }
+.judge-ref-q { color: var(--ink); line-height: 1.6; }
 .judge-empty { line-height: 1.7; padding: 8px 0; }
 .judge-stale { font-size: 12px; color: var(--warn); }
 .judge-artifact { border: 1px solid var(--warn); border-radius: 8px; padding: 6px 10px; margin: 6px 0; font-size: 13px; color: var(--warn); }

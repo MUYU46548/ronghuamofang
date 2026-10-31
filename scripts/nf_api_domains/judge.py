@@ -57,16 +57,26 @@ def handle_judge_report(h):
                     "fingerprint": (cal or {}).get("fingerprint"),
                     "updated_at": (cal or {}).get("updated_at"),
                     "calibrated": (cal or {}).get("calibrated", False)}
+        # B2：整本否掉是**作者判断**，与有没有跑过回测无关 —— 两个分支都要带，
+        # 否则「没跑过回测就否掉整本」时界面看不到横幅（第一版就这么漏了）。
+        _author = doc.get("author") or {}
+        _br = {"book_reject": _author.get("book_reject"),
+               "book_reject_history": _author.get("book_reject_history") or []}
         if not run:
             return 200, {"ok": True, "exists": False, "caliber": cal_info,
                          "notices": [B.NOTICE_BACKTEST, B.NOTICE_NO_ARTIFACT],
-                         "message": "还没有回测记录 —— 点「重跑判定」生成第一份"}
+                         "message": "还没有回测记录 —— 点「重跑判定」生成第一份",
+                         **_br}
         return 200, {
             "ok": True, "exists": True, "run": run, "caliber": cal_info,
             "notices": [B.NOTICE_BACKTEST, B.NOTICE_NO_ARTIFACT],
             "evidence": run.get("evidence") or {},
             "object_changed": run.get("object_changed") or [],
             "author_events": (doc.get("author") or {}).get("events") or {},
+            # B2：整本否掉的记录（含历史）。报告页据此显示横幅 + 撤销按钮。
+            "book_reject": (doc.get("author") or {}).get("book_reject"),
+            "book_reject_history":
+                (doc.get("author") or {}).get("book_reject_history") or [],
             "stale": bool(run.get("caliber_fingerprint")
                           and cal_info["fingerprint"]
                           and run["caliber_fingerprint"] != cal_info["fingerprint"]),
@@ -295,6 +305,33 @@ def handle_judge_artifact(h):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+def handle_book_reject_set(h, body):
+    """B2：作者否掉整本（`{reason}`）。理由必填 —— 这是要留档的决定。
+
+    GUI-only 的同类：它和事件勾选、逐句裁定一样是**作者的判断**，
+    外部 Agent 可以读（report 里带），不可以代替签字。
+    """
+    try:
+        ok, payload = R.set_book_reject(api.ROOT, (body or {}).get("reason"))
+        if not ok:
+            return 400, {"ok": False, "error": payload.get("error")}
+        return 200, {"ok": True, "book_reject": payload,
+                     "message": "已记下：整本否掉（理由已留档，可撤销）"}
+    except Exception as e:                                     # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_book_reject_clear(h, body):
+    """撤销否掉（作者改主意）。旧记录进 history，不删除。"""
+    try:
+        ok, payload = R.clear_book_reject(api.ROOT)
+        if not ok:
+            return 400, {"ok": False, "error": payload.get("error")}
+        return 200, {"ok": True, "cleared": payload, "message": "已撤销「整本否掉」"}
+    except Exception as e:                                     # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 def handle_judge_export(h, body):
     """导出缺陷单（显式动作）：重跑一次判定并落 output/judge_report.md。"""
     try:
@@ -321,4 +358,6 @@ ROUTES = [
     ("GET", "/judge/destroy", handle_judge_destroy),
     ("GET", "/judge/artifact", handle_judge_artifact),
     ("POST", "/judge/export", handle_judge_export),
+    ("POST", "/judge/book_reject", handle_book_reject_set),
+    ("POST", "/judge/book_reject/clear", handle_book_reject_clear),
 ]

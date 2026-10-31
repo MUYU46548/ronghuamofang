@@ -118,6 +118,50 @@ def set_events(root, chapter, checked, classes=None, evidence="", evidences=None
     return doc["author"]["events"][str(int(chapter))]
 
 
+def set_book_reject(root, reason):
+    """B2：作者「整本否掉」（业务界定 A3 / S07，2026-10-31 补上）。
+
+    ## 为什么只落记录，不自动动作
+
+    否掉整本之后该做什么（清产物？退回阶段 2？归档另起？）是**产品决策**，
+    不是这里该替作者定的。本函数的职责只有一件：把"作者判定整本不行"这件事
+    连同理由、时间一起落盘，让报告与以后的自己都看得见。
+
+    破坏性动作仍走既有路径（`reject.py` 打回、归档、换书），每一条都带确认。
+    """
+    reason = str(reason or "").strip()
+    if len(reason) < 8:
+        return False, {"error": "理由太短（至少 8 个字）—— 否掉整本是要留档的决定，"
+                                "半年后你得看得懂当时为什么"}
+    doc = load(root)
+    doc["author"]["book_reject"] = {
+        "at": _now(),
+        "reason": reason,
+        "by": "author",
+    }
+    save(root, doc)
+    return True, doc["author"]["book_reject"]
+
+
+def get_book_reject(root):
+    return (load(root).get("author") or {}).get("book_reject")
+
+
+def clear_book_reject(root):
+    """撤销否掉（作者改主意）。留一条 history，别让"曾经否过"凭空消失。"""
+    doc = load(root)
+    author = doc.get("author") or {}
+    prev = author.get("book_reject")
+    if not prev:
+        return False, {"error": "当前没有否掉记录"}
+    author.setdefault("book_reject_history", []).append(
+        dict(prev, cleared_at=_now()))
+    author["book_reject"] = None
+    doc["author"] = author
+    save(root, doc)
+    return True, prev
+
+
 def get_events(root, chapter):
     return (load(root).get("author") or {}).get("events", {}).get(str(int(chapter)))
 

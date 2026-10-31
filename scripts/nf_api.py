@@ -3154,6 +3154,12 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/judge/sentence":
                 # 逐句裁定（F12）：二值 + 理由必填
                 self._send(*_dom(dom_judge.handle_judge_sentence(self, body)))
+            elif p == "/judge/book_reject":
+                # B2 整本否掉（业务界定 A3/S07）：理由必填，只落档不清产物
+                self._send(*_dom(dom_judge.handle_book_reject_set(self, body)))
+            elif p == "/judge/book_reject/clear":
+                # 撤销整本否掉（旧记录进 history）
+                self._send(*_dom(dom_judge.handle_book_reject_clear(self, body)))
             elif p == "/judge/caliber":
                 # 改口径（R04/F08）：改值即产新版本，旧版进 history
                 self._send(*_dom(dom_judge.handle_judge_caliber_set(self, body)))

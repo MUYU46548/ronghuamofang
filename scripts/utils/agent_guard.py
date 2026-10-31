@@ -93,6 +93,10 @@ FORBIDDEN_IN_AGENT_MODE = frozenset({
     "/plan/write",
     "/plan/drop",
     "/plan/revive",
+    # 整本否掉（B2，2026-10-31）：与逐句裁定、事件勾选同族 —— 这是**作者的判断**。
+    # 外部 Agent 可以读（/judge/report 里带 book_reject），不可以代替作者签字。
+    "/judge/book_reject",
+    "/judge/book_reject/clear",
     # Word 稿导入（活二，2026-10-13）：一次性把**整本外部稿**写进
     # data/chapters/{raw,checked,refined}/，且 --overwrite 能盖掉已有章节
     # —— 与归档/恢复同档的批量写入，归用户点。预览走同一端点（GUI 一体），
