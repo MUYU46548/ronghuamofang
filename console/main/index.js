@@ -379,7 +379,12 @@ function getWorkspaceSource() {
 //   · 前端（asar，不走种子）：项目页出厂徽标 / 启动提示词剥离说明书 /
 //     阶段复制改任务简报（原样贴模板会被外部 Agent 按红线判「模板不是任务」停工）。
 // **先 bump 再 electron-builder**。
-const SEED_VERSION = 66;   // 0.7.23: I3 事件勾选落到分章页 + 逐事件证据 + 主题变量收口
+const SEED_VERSION = 67;   // 0.7.24: 事件勾选文案人话化 + 内置手册（作者向）
+                            //   · payload scripts 变更：judge/records.py 增 rejected/judged/total，
+                            //     nf_api_domains/judge.py 回传 rejected 与已过目进度
+                            //   · 前端（asar）：JudgeEvents 文案重写 + 「不算一件事」标记；
+                            //     新增 src/help/*.md 六篇 + md.js 渲染器 + HelpPanel（设置第 9 项）
+                            // 0.7.23: I3 事件勾选落到分章页 + 逐事件证据 + 主题变量收口
                             //   · payload 内 scripts/ 变更：judge/records.py（evidences/counted_events）、
                             //     judge/verdict.py（两个计数）、judge/rules.py（字面重合提示）、
                             //     nf_api_domains/judge.py（/judge/events?outline=1 轻读）

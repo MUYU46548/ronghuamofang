@@ -18,6 +18,7 @@ import StylePanel from "./StylePanel.vue";
 import CommandPalette from "./CommandPalette.vue";
 import AboutDialog from "./AboutDialog.vue";
 import DisclaimerDialog from "./DisclaimerDialog.vue";
+import HelpPanel from "./HelpPanel.vue";
 import { hasAckedDisclaimer, ackedDisclaimerAt } from "./disclaimer.js";
 import NewProjectWizard from "./NewProjectWizard.vue";
 import QualityTrend from "./QualityTrend.vue";
@@ -328,6 +329,9 @@ const SETTINGS_TABS = [
   { id: "word", name: "Word 模板" },
   { id: "general", name: "外观与更新" },
   { id: "diag", name: "诊断与调试" },
+  // 手册放最后：它是"查"的地方，不是"配"的地方。放第一个会挡住默认分类
+  // （默认停在“引擎与模型”，有 e2e 断言）。
+  { id: "help", name: "使用手册" },
 ];
 const settingsTab = ref(localStorage.getItem("mofang_settings_tab") || "model");
 function selectSettingsTab(id) {
@@ -2999,6 +3003,12 @@ const newProjectOpen = ref(false);
 
 function openAbout() { aboutOpen.value = true; }
 
+/** 打开内置手册（设置 → 使用手册）。入口有三处：命令面板 / 引导卡 / 设置侧栏。 */
+function openHelp() {
+  switchTab("settings");
+  selectSettingsTab("help");
+}
+
 /** 点左上角书名 → 项目页签（顺手把项目列表刷出来） */
 function gotoProjectTab() {
   switchTab("project");
@@ -3183,6 +3193,8 @@ const commands = computed(() => {
               keywords: "tab go 页签 " + t.name });
   }
   cs.push({ id: "logs", group: "诊断", label: "查看运行日志", desc: "orchestrator / nf_api 输出尾部", keywords: "log 日志 报错" });
+  cs.push({ id: "manual", group: "诊断", label: "打开使用手册", desc: "按主题查：判定怎么用 / 提示词怎么退 / 我的东西在哪",
+            keywords: "manual 手册 帮助 文档 说明 教程 怎么用" });
   cs.push({ id: "about", group: "诊断", label: "关于绒花墨坊", desc: "版本 / 运行环境 / 数据位置 / 许可证", keywords: "about 关于 版本 许可" });
   cs.push({ id: "disclaimer", group: "诊断", label: "查看免责声明", desc: "AI 订阅合规 / 内容权属 / 风险自担 · 首次使用需确认", keywords: "disclaimer 免责 声明 条款 合规" });
   cs.push({ id: "refresh", group: "诊断", label: "刷新状态", hint: "R", keywords: "refresh 刷新" });
@@ -3206,6 +3218,7 @@ async function runCommand(id) {
   if (!id) return;
   if (id === "next") return runNextAction();
   if (id === "newproject") return openNewProject();
+  if (id === "manual") return openHelp();
   if (id === "about") return openAbout();
   if (id === "disclaimer") return openDisclaimer("view");
   if (id === "flow.all") return runPipelineFull();
@@ -4669,6 +4682,7 @@ onUnmounted(() => {
             <div class="meta">审稿逐条决策 → 校对体检 → 导出 Word 成品</div>
           </div>
           <button class="mini" @click="openAbout">看完整说明</button>
+          <button class="mini" @click="openHelp">使用手册</button>
         </div>
         <div class="cs-step">
           <span class="cs-no">5</span>
@@ -6402,6 +6416,10 @@ onUnmounted(() => {
       </div>
 
           </div><!-- /set-pane diag -->
+          <div class="set-pane" v-show="settingsTab === 'help'">
+      <!-- 内置手册（2026-10-31）：用户要求"这些东西应该写在手册里持久化备查" -->
+      <HelpPanel />
+          </div><!-- /set-pane help -->
         </div><!-- /set-panes -->
       </div><!-- /set-layout -->
 

@@ -68,35 +68,47 @@ def append_run(root, run):
     return run
 
 
-def set_events(root, chapter, checked, classes=None, evidence="", evidences=None):
+def set_events(root, chapter, checked, classes=None, evidence="", evidences=None,
+               rejected=None, total=None):
     """F03b：作者勾选「这一章发生了几件事」。**唯一硬门**，系统不代勾。
 
-    ## 两个计数，别混用（R24）
+    ## 三个计数，别混用（R24）
 
-    - `events` = **勾了几条**（作者的动作）；
+    - `events` = **勾了几条**（作者认定"是事件"）；
     - `counted_events` = **能计入下限的几条** = 勾了 + 分了类 + 有证据句。
-      R24 的 AC-24-2：类别有、证据句空 → 可提交，落「无举证」，**计入条数少 1**。
+      R24 的 AC-24-2：类别有、证据句空 → 可提交，落「无举证」，**计入条数少 1**；
+    - `judged` = **已表态几条** = 勾了 + 明确标为"不算一件事"。
+      R24 的 AC-24-5 要求「4 条全部有归属（勾+分类，或明确不勾）」才叫勾完 ——
+      光有勾选时，"勾完了"只等于"你勾了你认为是的那些"，剩下的到底是不算还是没看，
+      无法区分。`rejected`（明确不勾）就是补这个缺口。
 
-    所以「≥2 条才好判」这条下限看的是 `counted_events`，不是 `events`。
-    旧记录没有这个字段 → 调用方按 `events` 兜底（历史行为不变）。
+    `rejected` 与 `checked` **互斥**（同一条不能既算又不算）；两者都有时以 `checked` 为准
+    并把它从 rejected 里剔掉 —— 界面不该产生这种状态，这里只是防御。
+
+    `total` 是章纲事件总数（界面传进来算进度）；不传就只记 `judged` 的绝对值。
 
     `evidence`（全章一句）保留兼容：早期界面只有一个输入框。逐事件证据在
     `evidences`（`{事件序号: 句子}`）。
     """
     doc = load(root)
     checked = [int(x) for x in (checked or [])]
+    rejected = [int(x) for x in (rejected or []) if int(x) not in checked]
     classes = {str(k): v for k, v in (classes or {}).items()
                if v in EVENT_CLASSES}
     evidences = {str(k): str(v).strip() for k, v in (evidences or {}).items()
                  if str(v).strip()}
     counted = [i for i in checked if classes.get(str(i)) and evidences.get(str(i))]
+    judged = len(set(checked) | set(rejected))
     doc["author"]["events"][str(int(chapter))] = {
         "chapter": int(chapter),
         "checked": checked,
+        "rejected": rejected,
         "classes": classes,
         "evidences": evidences,
         "events": len(checked),
         "counted_events": len(counted),
+        "judged": judged,
+        "total": (int(total) if total is not None else None),
         "unproven": [i for i in checked if not evidences.get(str(i))],
         "chosen": (classes.get(str(checked[0])) if checked else None),
         "evidence_sentence": str(evidence or ""),

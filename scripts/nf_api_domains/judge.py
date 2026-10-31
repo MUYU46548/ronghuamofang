@@ -116,12 +116,14 @@ def handle_judge_chapter(h):
                  for i, t in enumerate(RU.T.paragraphs(body_text))]
         events = analysis["outline"]["events"]
         _a_checked = set((author or {}).get("checked") or [])
+        _a_rejected = set((author or {}).get("rejected") or [])
         _a_cls = (author or {}).get("classes") or {}
         _a_ev = (author or {}).get("evidences") or {}
         ev_rows = []
         for i, ev in enumerate(events):
             ev_rows.append({"n": i + 1, "text": ev,
                             "checked": bool(i in _a_checked),
+                            "rejected": bool(i in _a_rejected),
                             "class": _a_cls.get(str(i)),
                             "evidence": _a_ev.get(str(i)) or "",
                             # 计入下限 = 勾了 + 分了类 + 有证据句（R24 AC-24-2）
@@ -171,12 +173,17 @@ def handle_judge_events_get(h):
                 checked = set(author.get("checked") or [])
                 cls = author.get("classes") or {}
                 evd = author.get("evidences") or {}
+                rejected = set(author.get("rejected") or [])
                 payload["outline_events"] = [
                     {"n": i + 1, "text": e, "checked": i in checked,
+                     # 「明确判定不算一件事」（R24 AC-24-5 的"4 条全部有归属"）
+                     "rejected": i in rejected,
                      "class": cls.get(str(i)), "evidence": evd.get(str(i)) or "",
                      "counted": bool(i in checked and cls.get(str(i))
                                      and evd.get(str(i)))}
                     for i, e in enumerate(evs)]
+                payload["judged"] = len(set(checked) | rejected)
+                payload["total_events"] = len(evs)
                 payload["event_hint"] = RU.similar_events_hint(evs)
                 payload["event_min"] = int(
                     C.values(C.load(api.ROOT)).get("J12", 2))
@@ -197,7 +204,9 @@ def handle_judge_events_set(h, body):
         classes = (body or {}).get("classes") or {}
         ev = R.set_events(api.ROOT, ch, checked, classes,
                           (body or {}).get("evidence") or "",
-                          (body or {}).get("evidences") or {})
+                          (body or {}).get("evidences") or {},
+                          (body or {}).get("rejected") or [],
+                          (body or {}).get("total"))
         return 200, {"ok": True, "events": ev}
     except Exception as e:                                     # noqa: BLE001
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}

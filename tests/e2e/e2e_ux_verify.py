@@ -770,8 +770,12 @@ def test_about_project(browser, mock_proc=None):
               (page.locator(".pill:has-text('免责声明')").count(),
                page.locator("button:has-text('查看完整声明')").count()))
         navs = page.locator(".set-nav-btn")
-        check("设置页侧边栏分类渲染（8 项，取代一条长名单；含件五「Word 模板」）",
-              navs.count() == 8, navs.all_inner_texts())
+        # 2026-10-31：新增第 9 项「使用手册」（用户要求把说明持久化备查）
+        check("设置页侧边栏分类渲染（9 项，取代一条长名单；含件五「Word 模板」与「使用手册」）",
+              navs.count() == 9, navs.all_inner_texts())
+        check("侧栏最后一项是「使用手册」（手册放最后，不挡默认分类）",
+              "使用手册" in (navs.last.inner_text() if navs.count() else ""),
+              navs.all_inner_texts())
         check("默认停在「引擎与模型」分类（免责声明在其下可见）",
               "on" in (navs.nth(0).get_attribute("class") or ""),
               navs.nth(0).get_attribute("class"))

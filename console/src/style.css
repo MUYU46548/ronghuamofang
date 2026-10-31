@@ -2097,3 +2097,165 @@ kbd {
   border-left: 2px solid var(--accent-soft);
   padding-left: 10px;
 }
+
+/* 事件勾选补充：判据说明 / 「不算一件事」标记 / 四类例子（2026-10-31 文案重写） */
+.je-guide {
+  font-size: 12px;
+  line-height: 1.85;
+  color: var(--ink-mute);
+  background: var(--field-dim);
+  border-radius: 8px;
+  padding: 8px 11px;
+  margin-bottom: 8px;
+}
+.je-guide b { color: var(--ink); }
+.je-sub { color: var(--ink-warn); }
+.je-reject {
+  margin-left: auto;
+  flex: 0 0 auto;
+  font-size: 11px;
+  padding: 2px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--field);
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  white-space: nowrap;
+}
+.je-reject:hover { border-color: var(--bad); color: var(--ink-bad); }
+.je-reject.on {
+  background: var(--field-dim);
+  border-color: var(--bad);
+  color: var(--ink-bad);
+  font-weight: 600;
+}
+/* 标为「不算一件事」的行：整行退后（勾选框也随之禁用） */
+.je-row.rejected .je-text {
+  color: var(--muted);
+  text-decoration: line-through;
+  text-decoration-color: var(--border);
+}
+.je-ask { font-size: 11.5px; color: var(--muted); }
+.je-eg { font-size: 11px; color: var(--ink-mute); }
+.je-done {
+  margin-top: 8px;
+  font-size: 11.5px;
+  color: var(--ink-ok);
+  background: var(--field-dim);
+  border-left: 3px solid var(--ok);
+  border-radius: 0 6px 6px 0;
+  padding: 6px 10px;
+}
+
+/* ==========================================================================
+   内置手册（设置 → 使用手册，2026-10-31）
+   左目录右正文；正文由 src/md.js 渲染（零依赖，只认手册用到的语法）。
+   ========================================================================== */
+.help-wrap {
+  display: grid;
+  grid-template-columns: 236px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.help-side {
+  position: sticky;
+  top: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--field);
+  padding: 10px 10px 12px;
+}
+.help-side-head { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
+.help-side-head b { font-size: 13px; color: var(--ink); }
+.help-search {
+  width: 100%;
+  padding: 5px 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--card);
+  color: var(--ink);
+  font-size: 12.5px;
+  margin-bottom: 8px;
+}
+.help-search:focus { outline: 1px solid var(--accent); }
+.help-toc { display: flex; flex-direction: column; gap: 2px; }
+.help-toc-item {
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12.5px;
+  padding: 6px 9px;
+  border-radius: 7px;
+  cursor: pointer;
+  line-height: 1.5;
+}
+.help-toc-item:hover { background: var(--field-hover); color: var(--ink); }
+.help-toc-item.on {
+  background: var(--field-on);
+  color: var(--ink-accent);
+  font-weight: 600;
+}
+.help-main {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--field);
+  padding: 6px 22px 22px;
+  min-height: 320px;
+}
+/* 正文排版：行宽限制在 ~76 字符，长文才读得下去 */
+.help-article { max-width: 76ch; line-height: 1.85; color: var(--ink); font-size: 13.5px; }
+.help-article h2 {
+  font-size: 19px; margin: 18px 0 10px; padding-bottom: 6px;
+  border-bottom: 1px solid var(--border); color: var(--ink);
+}
+.help-article h3 { font-size: 15.5px; margin: 20px 0 8px; color: var(--ink); }
+.help-article h4 { font-size: 14px; margin: 16px 0 6px; color: var(--ink); }
+.help-article p { margin: 9px 0; }
+.help-article ul, .help-article ol { margin: 8px 0; padding-left: 22px; }
+.help-article li { margin: 3px 0; }
+.help-article code {
+  background: var(--field-code);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.help-article pre.md-code {
+  background: var(--field-code);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  margin: 10px 0;
+}
+.help-article pre.md-code code { background: none; padding: 0; font-size: 12px; line-height: 1.7; }
+.md-table {
+  border-collapse: collapse;
+  margin: 10px 0;
+  font-size: 12.5px;
+  width: auto;
+  max-width: 100%;
+}
+.md-table th, .md-table td {
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  text-align: left;
+  vertical-align: top;
+}
+.md-table th { background: var(--field-head); font-weight: 600; color: var(--muted); }
+.md-quote {
+  margin: 10px 0;
+  padding: 8px 12px;
+  border-left: 3px solid var(--accent);
+  background: var(--field-dim);
+  border-radius: 0 6px 6px 0;
+  color: var(--ink-mute);
+}
+.help-article a { color: var(--ink-accent); }
+@media (max-width: 900px) {
+  .help-wrap { grid-template-columns: 1fr; }
+  .help-side { position: static; }
+}

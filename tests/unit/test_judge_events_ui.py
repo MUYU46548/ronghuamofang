@@ -83,16 +83,16 @@ def main():
           'class="judge-events"' not in jp)
 
     print("\n【U3】组件守住三条硬约束")
-    check("0 事件 → 明说不可勾选，也不出结论",
-          "章纲没写事件" in comp and "不可勾选" in comp)
+    check("0 事件 → 明说为什么勾不了（2026-10-31 改文案：指出该去改章纲，而不是干说“不可勾选”）",
+          "还没写" in comp and "核心事件" in comp and "不可判定" in comp)
     check("四类必填：勾了没分类会拦下（保存前检查 unclassified）",
-          "unclassified" in comp and "四选一是硬门" in comp)
+          "unclassified" in comp and "四类必选一类" in comp)
     check("两个计数分开算（checkedCount / countedCount）",
           "checkedCount" in comp and "countedCount" in comp)
     check("界面上把差别摊开（勾了 N 件 · 计入下限 M / min）",
           "勾了" in comp and "计入下限" in comp and "{{ eventMin }}" in comp)
-    check("没填证据句时明确说「不计入下限」（不是悄悄少算）",
-          "不计入下限" in comp)
+    check("没填证据句时明确说「不算进 N 件」（不是悄悄少算）",
+          "不算进" in comp)
     check("分类按钮用的是四类固定值（与后端 EVENT_CLASSES 同口径）",
           all(c in comp for c in ("人物处境", "信息占有", "关系", "目标")))
     check("提示语只做展示，不参与结论（hint/densityNote 只读）",
