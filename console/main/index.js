@@ -379,7 +379,12 @@ function getWorkspaceSource() {
 //   · 前端（asar，不走种子）：项目页出厂徽标 / 启动提示词剥离说明书 /
 //     阶段复制改任务简报（原样贴模板会被外部 Agent 按红线判「模板不是任务」停工）。
 // **先 bump 再 electron-builder**。
-const SEED_VERSION = 70;   // 0.7.27: 多库（A 模型：一次一个生效 + 书签切换 + 每库排除项）
+const SEED_VERSION = 71;   // 0.7.28: 写作提示词补叙事技术要求（治"写出来没劲"）
+                            //   · payload prompts：stage4_writing.md 3240→5909 字符
+                            //     （目标-阻碍-变化 / 展示不讲述 / 具体压倒抽象 /
+                            //      感官预算 / 节奏 / 对白潜台词 + AI 腔短语禁令）
+                            //   · prompts/factory 已 --sync
+                            // 0.7.27: 多库（A 模型：一次一个生效 + 书签切换 + 每库排除项）
                             //   · payload scripts：project.py 增 GET /config/vaults 与
                             //     add/switch/remove 四个端点（书签存 data/state/vaults.json）
                             //   · 前端（asar）：设置页「我的库」列表 + 切换/移出
