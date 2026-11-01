@@ -212,19 +212,42 @@ def handle_chapters_layers(h):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+def _current_layer(n):
+    """当前稿所在层：refined > checked > raw；三层都没有返回 None。
+
+    与 `handle_chapters_layers` 的「当前稿」口径一致（同一判据，不写两遍）。
+    """
+    for lay in ("refined", "checked", "raw"):
+        if _chapter_path(n, lay).exists():
+            return lay
+    return None
+
+
 def handle_chapters_content(h):
     """`GET /chapters/content?n=3&layer=refined` —— 读一层正文全文。
 
     与 `/chapters/layers` 分开：列表页只要元数据（一次拉 40 章也不重），
     编辑器只读**一章一层**的全文。混在一个端点里会让列表带上几十万字。
+
+    **不给 layer 时取「最高存在的层」（refined > checked > raw）**，
+    2026-10-31 修正：原默认硬编码 refined，于是外接 Agent 调 `nf_get_chapter`
+    读一章只跑过 stage4 的稿时直接 404 —— 而真实项目里大部分章都只有 raw。
+    （`_current_layer` 早就按这个规则算，正文端点却没跟上，属于同一判据写两遍。）
     """
     try:
         n, err = _parse_n(h)
         if n is None:
             return 400, {"ok": False, "error": err}
-        layer = (h._query().get("layer") or ["refined"])[0]
-        if layer not in LAYERS:
-            return 400, {"ok": False, "error": "layer 须为 raw / checked / refined"}
+        want = (h._query().get("layer") or [""])[0].strip()
+        if want:
+            if want not in LAYERS:
+                return 400, {"ok": False, "error": "layer 须为 raw / checked / refined"}
+            layer = want
+        else:
+            layer = _current_layer(n)
+            if layer is None:
+                return 404, {"ok": False,
+                             "error": "第 %d 章的 raw / checked / refined 都不存在" % n}
         p = _chapter_path(n, layer)
         if not p.exists():
             return 404, {"ok": False, "error": "第 %d 章的 %s 稿不存在" % (n, layer)}

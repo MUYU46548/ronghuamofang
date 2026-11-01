@@ -27,6 +27,12 @@ metadata:
 2. `nf_run_stage`（stage=7 出 Word / 之后 `nf_export_markdown` 出分卷 Markdown）。
 3. 成品路径见 `GET /state` 的产物段（`output/{书名}_完整版.docx`）。
 
+### 改之前先读、先自查
+1. `nf_get_chapter` —— 读这一章正文（默认取最高存在的层 refined > checked > raw）。
+   **不读就改等于闭着眼睛改**。
+2. `nf_review_chapter` —— 零 token 的确定性审查：正文段落 + 缺陷单（段落号/原句/
+   为什么/怎么改）+ 作者的事件勾选。不用等流水线跑 stage5。
+
 ### 精修（每轮同构）
 1. 问清作者意见：**改哪里 + 改成什么样**。没有具体意见就不要提交精修 ——
    "再润色一下"式的意见会让模型自由发挥，产物不可预期。

@@ -169,6 +169,7 @@ from utils.file_io import read_text as nf_read_text, write_text as nf_write_text
 # 新包时）绝不能整站 500 —— 退化为可行动 500 而不是崩在 import 期。
 try:
     from nf_api_domains import chapters as dom_chapters        # noqa: E402 (章节正文读写：编辑器后端)
+    from nf_api_domains import ask as dom_ask              # noqa: E402 (Agent 提问通道)
     from nf_api_domains import materials as dom_materials  # noqa: E402
     from nf_api_domains import misc as dom_misc            # noqa: E402
     from nf_api_domains import models as dom_models        # noqa: E402
@@ -2434,6 +2435,12 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/plan/get":
             # 规划四态状态机（丙0）单条查询（只读）
             self._send(*_dom(dom_plan.handle_get(self)))
+        elif p == "/ask/pending":
+            # 待回答的问题（界面轮询）
+            self._send(*_dom(dom_ask.handle_ask_pending(self)))
+        elif p == "/ask/answers":
+            # **已回答**的问题（Agent 读；pending 不给，未回答 ≠ 同意）
+            self._send(*_dom(dom_ask.handle_ask_answers(self)))
         elif p == "/review/decisions":
             # 实现已迁至 nf_api_domains.runtime（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_runtime.handle_review_decisions(self)))
@@ -3365,6 +3372,12 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/factory/project/reset":
                 # 出厂测试项目一键还原（GUI 双因子 + confirm + 三重自检）。
                 self._send(*_dom(dom_factory.handle_factory_project_reset(self, body)))
+            elif p == "/ask":
+                # Agent 提问（落在 data/state/questions.json）
+                self._send(*_dom(dom_ask.handle_ask(self, body)))
+            elif p == "/ask/answer":
+                # **作者**回答（GUI-only；Agent 自问自答等于没有通道）
+                self._send(*_dom(dom_ask.handle_ask_answer(self, body)))
             elif p == "/plan/propose":
                 # 规划四态状态机（丙0）提案（agent 可提案，不可自选）
                 self._send(*_dom(dom_plan.handle_propose(self, body)))

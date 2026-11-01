@@ -108,6 +108,100 @@ MCP_TOOLS = [
         "_http": ("GET", "/chapters/quality", None),
     },
     {
+        "name": "nf_get_chapter",
+        "description": "读取某一章的正文全文（按需读，列表接口只给分数不给正文）。"
+                       "layer=refined（默认，成品层）/ checked / raw。"
+                       "零 token。**改稿前先读一遍**，否则等于闭着眼睛改。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "n": {"type": "integer", "description": "章号（从 1 开始）"},
+                "layer": {"type": "string", "enum": ["raw", "checked", "refined"],
+                          "description": "哪一层（默认 refined = 当前稿）"},
+            },
+            "required": ["n"],
+        },
+        "_http": ("GET", "/chapters/content", None),
+    },
+    {
+        "name": "nf_review_chapter",
+        "description": "对某一章发起一次**确定性审查**（零 token，不调模型）："
+                       "返回正文段落 + 判定缺陷单（每条带段落号/原句/为什么/怎么改）+ "
+                       "作者的事件勾选状态。这是 Agent 主动审查的入口 —— "
+                       "不是跑整个 stage5，也不用等流水线。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "n": {"type": "integer", "description": "章号（从 1 开始）"},
+            },
+            "required": ["n"],
+        },
+        "_http": ("GET", "/judge/chapter", None),
+    },
+    {
+        "name": "nf_plan_propose",
+        "description": "向作者提出一个方案（情节走向/改法/取舍）。**只提案，不自选** —— "
+                       "落到四态状态机的 idea，采用/写进正文/丢弃都由作者点。"
+                       "零 token。这是「AI 提案、人拍板」的正规通道。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "一句话说清方案（如「让老周先动手」）"},
+                "summary": {"type": "string", "description": "方案内容与代价（为什么值得这么做）"},
+                "kind": {"type": "string",
+                         "description": "类型（proposal / plot / rewrite 等，默认 proposal）"},
+                "context": {"type": "string", "description": "关联的章号或范围（可空）"},
+            },
+            "required": ["title"],
+        },
+        "_http": ("POST", "/plan/propose", None),
+    },
+    {
+        "name": "nf_plan_list",
+        "description": "列出所有规划提案及其状态（idea 讨论中 / selected 已采用 / "
+                       "written 已写进正文 / dropped 弃用）。零 token。"
+                       "提案被作者采用后，从这里能读到 —— 别自己假设它被采纳了。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "status": {"type": "string",
+                           "description": "只看某个状态（可空 = 全部）"},
+            },
+        },
+        "_http": ("GET", "/plan/list", None),
+    },
+    {
+        "name": "nf_ask",
+        "description": "向作者提问。**唯一能让你停下来问人的通道** —— 不写回复正文里，"
+                       "落到工作区，作者在界面上回答，之后用 nf_get_answers 读。"
+                       "适合：两种走向要选、事实不确定、要不要重写。"
+                       "零 token。**注意：未回答 ≠ 同意**，读不到回答就停下来等。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "question": {"type": "string", "description": "一句话能回答的问题"},
+                "options": {"type": "array", "items": {"type": "string"},
+                            "description": "候选项（可选，最多 6 个；给了作者更好点）"},
+                "context": {"type": "string", "description": "为什么问（可空，帮作者判断）"},
+            },
+            "required": ["question"],
+        },
+        "_http": ("POST", "/ask", None),
+    },
+    {
+        "name": "nf_get_answers",
+        "description": "读作者对提问的回答（用 nf_get_answers 这个名字调用）。"
+                       "只返回**已回答**的：未回答 ≠ 同意，pending 一条都不给。零 token。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "since": {"type": "string",
+                          "description": "只看这个时间之后回答的（YYYY-MM-DD HH:MM:SS，可空）"},
+            },
+        },
+        "_http": ("GET", "/ask/answers", None),
+    },
+    {
         "name": "nf_rewrite_chapter",
         # 2026-10-27 用户裁定：重写算 Agent 可执行（与「跑阶段 4」同族）。
         # 走 HTTP 的 /chapters/rewrite（_http 的 POST 会把参数原样当 body）。

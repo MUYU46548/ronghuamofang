@@ -3470,6 +3470,44 @@ const vaultCfg = ref({ loading: false, busy: false, ok: true, msg: "",
 const vaults = ref({ loading: false, busy: false, ok: true, msg: "", items: [],
                      current: "" });
 
+/* Agent 提问通道（2026-10-31）：外接 Agent 通过 MCP 的 nf_ask 提问，
+ * 落在工作区 data/state/questions.json。**回答只能人点** ——
+ * /ask/answer 在 Agent 禁用名单里（能自问自答的通道比没有更糟）。
+ * 这里只做最轻的一件事：轮询未回答数 + 浮层里回答。 */
+const agentAsks = ref({ items: [], msg: "" });
+const asksOpen = ref(false);
+const askDraft = ref({});
+const askPending = computed(() => (agentAsks.value.items || []).length);
+let askTimer = null;
+
+async function loadAgentAsks() {
+  try {
+    const r = await api("/ask/pending", "GET");
+    if (r.status === 200 && r.data.ok) {
+      agentAsks.value.items = r.data.items || [];
+    }
+  } catch (e) {
+    /* 轮询失败静默：这是辅助通道，不该在顶栏刷错误 */
+  }
+}
+
+async function answerAsk(item, text) {
+  const ans = String(text || "").trim();
+  if (!ans) return;
+  try {
+    const r = await api("/ask/answer", "POST", { id: item.id, answer: ans });
+    if (r.status === 200 && r.data.ok) {
+      askDraft.value[item.id] = "";
+      say("已回答，Agent 下次读取就能看到");
+      await loadAgentAsks();
+    } else {
+      say("回答失败: " + (r.data.error || r.status));
+    }
+  } catch (e) {
+    say("回答失败: " + (e.message || e));
+  }
+}
+
 async function loadVaults() {
   vaults.value.loading = true;
   try {
@@ -4628,7 +4666,15 @@ async function checkMaterialsEmpty() {
     }
   }
 }
+onMounted(() => {
+  // Agent 提问：进来先读一次，之后 20 秒轮询（不催，只是让 badge 能亮）
+  loadAgentAsks();
+  askTimer = setInterval(loadAgentAsks, 20000);
+});
+
 onUnmounted(() => {
+  if (askTimer) clearInterval(askTimer);
+  askTimer = null;
   clearInterval(timer);
   window.removeEventListener("keydown", onGlobalKey);
   window.removeEventListener("resize", syncTopbarHeight);
@@ -4667,6 +4713,9 @@ onUnmounted(() => {
         审核<span v-if="reviewPending" class="badge">{{ reviewPending }}</span>
       </button>
       <button :class="{ active: tab === 'proofread' }" @click="switchTab('proofread')">校对</button>
+      <button @click="asksOpen = !asksOpen; loadAgentAsks()" title="外接 Agent 提出的问题（回答后 Agent 能读到）">
+        Agent 提问<span v-if="askPending" class="badge">{{ askPending }}</span>
+      </button>
       <button :class="{ active: tab === 'style' }" @click="switchTab('style')">文风</button>
       <button :class="{ active: tab === 'cost' }" @click="switchTab('cost')">成本</button>
       <button :class="{ active: tab === 'inbox' }" @click="switchTab('inbox')">
@@ -4720,6 +4769,34 @@ onUnmounted(() => {
         <button class="mini" @click="copyRemedy" title="把全部建议拼成一段纯文本复制（可直接贴给外部 Agent 或存档）">📋 复制全部建议</button>
         <button class="mini" @click="remedyOpen = false">关闭</button>
       </div>
+    </div>
+  </div>
+
+  <!-- Agent 提问浮层（2026-10-31）：最小可用版 —— 问题 + 选项 + 自由回答 -->
+  <div v-if="asksOpen" class="ask-panel">
+    <div class="ask-head">
+      <b>Agent 的提问</b>
+      <span class="meta" v-if="askPending">{{ askPending }} 条待回答</span>
+      <span class="meta" v-else>没有待回答的问题</span>
+      <span class="spacer"></span>
+      <button class="mini" @click="asksOpen = false">关闭</button>
+    </div>
+    <div v-for="q in agentAsks.items" :key="q.id" class="ask-item">
+      <div class="ask-q">{{ q.question }}</div>
+      <div class="ask-ctx" v-if="q.context">{{ q.context }}</div>
+      <div class="ask-opts" v-if="q.options && q.options.length">
+        <button v-for="o in q.options" :key="o" class="mini"
+                @click="answerAsk(q, o)">{{ o }}</button>
+      </div>
+      <div class="ask-row">
+        <input v-model="askDraft[q.id]" class="ask-input"
+               placeholder="或者自己写一句…（回车提交）"
+               @keyup.enter="answerAsk(q, askDraft[q.id])" />
+        <button class="mini primary" @click="answerAsk(q, askDraft[q.id])">回答</button>
+      </div>
+    </div>
+    <div class="meta ask-foot">
+      Agent 只能提问，不能替你回答 —— 这条通道的意义就是让它停下来问你。
     </div>
   </div>
 

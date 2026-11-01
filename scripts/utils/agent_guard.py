@@ -88,6 +88,10 @@ FORBIDDEN_IN_AGENT_MODE = frozenset({
     # 与铺设端点完全同族（铺/还原是一对）。端点自身还要求 is_trusted_gui
     # （双因子）—— 只读的 GET /factory/project 不在此列（Agent 可盘点）。
     "/factory/project/reset",
+    # 提问通道的回答端（2026-10-31）：Agent 只能问，不能答。
+    # 能自问自答的通道比没有更糟 —— Agent 会自己编一个"作者的选择"继续往下跑，
+    # 而作者从头到尾不知道有人替他做了决定。提问端 /ask 不在此列（Agent 该用）。
+    "/ask/answer",
     # 规划四态状态机（丙0）：AI 可提案，但选择/写进正文/丢弃/复活归用户
     "/plan/select",
     "/plan/write",

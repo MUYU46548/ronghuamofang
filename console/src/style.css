@@ -2423,3 +2423,53 @@ kbd {
   background: var(--field-dim);
   border: 1px solid var(--border);
 }
+
+/* Agent 提问浮层（2026-10-31）：外接 Agent 通过 nf_ask 提问，作者在这里回答 */
+.ask-panel {
+  position: fixed;
+  top: 96px;
+  right: 24px;
+  width: min(460px, calc(100vw - 48px));
+  max-height: 70vh;
+  overflow-y: auto;
+  z-index: 60;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, .22);
+  padding: 12px 14px 12px;
+}
+.ask-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 8px;
+}
+.ask-head b { font-size: 13.5px; color: var(--ink); }
+.ask-item {
+  padding: 9px 0;
+  border-bottom: 1px dashed var(--border);
+}
+.ask-item:last-of-type { border-bottom: none; }
+.ask-q { font-size: 13px; line-height: 1.7; color: var(--ink); font-weight: 500; }
+.ask-ctx { font-size: 11.5px; line-height: 1.7; color: var(--muted); margin-top: 3px; }
+.ask-opts { display: flex; gap: 6px; flex-wrap: wrap; margin: 7px 0 6px; }
+.ask-row { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
+.ask-input {
+  flex: 1;
+  padding: 5px 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--field);
+  color: var(--ink);
+  font-size: 12.5px;
+}
+.ask-input:focus { outline: 1px solid var(--accent); }
+.ask-foot {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  line-height: 1.7;
+}

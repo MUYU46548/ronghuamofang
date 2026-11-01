@@ -33,6 +33,7 @@ metadata:
    `nf_refine_outline` 带作者意见修订（**意见必须来自作者**，不要自己编）。
    手工整理过的大纲用 `nf_save_outline` 落盘（自带格式校验 + 旧版备份）。
 7. 质量存疑 → `nf_get_remedy` 拿补救建议；大纲版本回退 → `nf_restore_snapshot`。
+8. **有了方案先提案，别直接写**：`nf_plan_propose` 落到 idea 态（采用/写进正文/丢弃都由作者点）；`nf_plan_list` 读回状态 —— **作者没点 select 就不算采纳**。
 
 ## 判据（跑完怎么算完）
 

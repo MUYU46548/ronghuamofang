@@ -379,7 +379,11 @@ function getWorkspaceSource() {
 //   · 前端（asar，不走种子）：项目页出厂徽标 / 启动提示词剥离说明书 /
 //     阶段复制改任务简报（原样贴模板会被外部 Agent 按红线判「模板不是任务」停工）。
 // **先 bump 再 electron-builder**。
-const SEED_VERSION = 71;   // 0.7.28: 写作提示词补叙事技术要求（治"写出来没劲"）
+const SEED_VERSION = 72;   // 0.7.29: Agent 协作四根线（读正文/提案/提问/主动审查）
+                            //   · payload scripts：新 ask.py 域、nf_mcp 加 6 个工具、
+                            //     chapters/content 缺省取最高存在层、agent_guard 加 /ask/answer
+                            //   · 前端（asar）：顶栏「Agent 提问」+ 回答浮层
+                            // 0.7.28: 写作提示词补叙事技术要求（治"写出来没劲"）
                             //   · payload prompts：stage4_writing.md 3240→5909 字符
                             //     （目标-阻碍-变化 / 展示不讲述 / 具体压倒抽象 /
                             //      感官预算 / 节奏 / 对白潜台词 + AI 腔短语禁令）

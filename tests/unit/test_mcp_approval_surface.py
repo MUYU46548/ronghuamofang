@@ -91,8 +91,14 @@ def main():
     check("工具**名字**里不出现禁止语义（防改名绕过）", not hits, hits)
 
     # 核心判据 3：禁止清单只有一份（在 agent_guard），MCP 侧不另立一份
+    #
+    # ⚠️ 匹配必须带**路径边界**（2026-10-31 修）：原先用 `f in src` 裸子串，
+    # 于是禁止端点 `/ask/answer` 会把合法端点 `/ask/answers` 也判成命中 ——
+    # 而那个"解法"只能是给合法端点改名，等于让误报逼着代码绕路。
+    # 判据要抓的是"禁止端点被抄进 MCP"，不是"禁止端点是某路径的前缀"。
     src = (REPO / "scripts" / "nf_mcp.py").read_text(encoding="utf-8")
-    hard_coded = [f for f in forbidden if f in src]
+    hard_coded = [f for f in forbidden
+                  if re.search(re.escape(f) + r"(?![A-Za-z0-9_/-])", src)]
     check("nf_mcp 里不硬编码任何禁止端点（禁止清单只在 agent_guard）",
           not hard_coded, hard_coded)
     check("nf_mcp 不定义自己的 FORBIDDEN_* 常量",
