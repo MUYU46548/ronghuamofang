@@ -14,7 +14,7 @@
 
 ## 判据
 
-- H1 全仓（git 索引）零字面直角引号
+- H1 全仓零字面直角引号（**含未跟踪文件** —— 只扫已提交的会漏掉新写的）
 - H2 归一化把四个字符都换掉，且换对（“”‘’）
 - H3 七个写正文的入口都调了归一化
 - H4 章节校验把直角引号判 error
@@ -53,7 +53,8 @@ def main():
 
     # ---- H1 全仓零命中 ----
     try:
-        out = subprocess.run(["git", "-c", "core.quotepath=false", "ls-files", "-z"],
+        out = subprocess.run(["git", "-c", "core.quotepath=false", "ls-files", "-z",
+                              "--cached", "--others", "--exclude-standard"],
                              cwd=str(ROOT), capture_output=True, timeout=30)
         files = [x for x in out.stdout.decode("utf-8", "replace").split("\0") if x] \
             if out.returncode == 0 else []

@@ -600,7 +600,11 @@ def collect_check(root: Path) -> dict:
         _cand = []
         try:
             import subprocess as _sp
-            _out = _sp.run(["git", "-c", "core.quotepath=false", "ls-files", "-z"],
+            # 必须带 -o --exclude-standard：只扫已跟踪文件的话，**新写的文件是盲区**
+            # （2026-11-02 实测：我在新文件里写了直角引号，check 说零命中）。
+            _out = _sp.run(["git", "-c", "core.quotepath=false",
+                            "ls-files", "-z", "--cached", "--others",
+                            "--exclude-standard"],
                            cwd=str(root), capture_output=True, timeout=20)
             if _out.returncode == 0:
                 _cand = [root / x for x in
