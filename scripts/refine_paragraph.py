@@ -83,6 +83,60 @@ def split_paragraphs(text):
     return paras
 
 
+_SPLIT_RE = re.compile(r"\n[ \t]*\n")
+
+
+def _segment_spans(text):
+    """每个段落**文字**在原文中的 (start, end)（不含前后空白）。
+
+    与 `split_paragraphs` 必须同口径 —— 否则“界面上第 5 段”和“这里第 5 段”
+    不是同一段，替换会串行。判据：`test_paragraph_save.py` 的 M10 逐段比对两套结果。
+    """
+    def push(out, t, a, b):
+        seg = t[a:b]
+        if not seg.strip():
+            return
+        left = len(seg) - len(seg.lstrip())
+        right = len(seg.rstrip())
+        out.append((a + left, a + right))
+
+    out, pos = [], 0
+    for m in _SPLIT_RE.finditer(text):
+        push(out, text, pos, m.start())
+        pos = m.end()
+    push(out, text, pos, len(text))
+    if len(out) <= 1 and text.strip():
+        out = []
+        for m in re.finditer(r"[^\n]+", text):
+            push(out, text, m.start(), m.end())
+    return out
+
+
+def replace_segment(text, index, new_text):
+    """只替换第 index 段，**其余字节原样保留**（2026-11-02，一期 F11/F10）。
+
+    ## 为什么不能用 "\n\n".join(...)
+
+    老写法把段落重新拼起来，等于**顺手规范化了所有分隔符**：
+    原来 `\n   \n`（带空格的空行）、行首缩进、多个空行，全被压成 `\n\n`。
+    于是"我改的是第 5 段"，落盘后第 1~4 段的字节也变了 ——
+    “未改动段逐字不变”这条保证根本不成立，而且没人看得出来（字数不变）。
+
+    ## 格式层不归这里管
+
+    换行符由 `utils.file_io.write_text` 统一成 LF（全项目口径），
+    因此这里只在 LF 文本上算位置，不再做 CRLF 往返。
+    **归一化（空格/标点）也不归这里** —— 那是 `text_norm` 的职责，会在写盘后统一跑；
+    这里只保证"除了目标段的文字，别的一个字节都不动"。
+    """
+    norm = text.replace("\r\n", "\n").replace("\r", "\n")
+    spans = _segment_spans(norm)
+    if index < 0 or index >= len(spans):
+        raise IndexError("段落号越界：当前共 %d 段，请求 %d" % (len(spans), index))
+    a, b = spans[index]
+    return norm[:a] + str(new_text or "").strip() + norm[b:]
+
+
 def _next_version(chapter):
     """该章已有备份数 + 1。"""
     HISTORY_DIR.mkdir(parents=True, exist_ok=True)
@@ -182,10 +236,9 @@ def restore_paragraph_version(chapter, paragraph_index, history_id):
     # 保存当前段落为新历史（回退前的快照）
     save_paragraph_history(chapter, paragraph_index, current_text, target_text, f"回退前快照 → h{history_id}")
 
-    # 替换段落
-    new_paragraphs = list(paragraphs)
-    new_paragraphs[paragraph_index] = target_text
-    new_text = "\n\n".join(new_paragraphs)
+    # 替换段落：**只换这一段**，其余字节原样（F11 未改动段逐字不变的硬要求）。
+    # 老写法 "\n\n".join(...) 会顺手把所有分隔符规范化，改一段等于重排全章。
+    new_text = replace_segment(full_text, paragraph_index, target_text)
 
     # 备份整章后写入
     version = _next_version(chapter)
@@ -226,7 +279,8 @@ def save_paragraph_text(chapter, paragraph_index, new_text, note="手改"):
     if chap_path is None:
         return False, f"第 {chapter} 章不存在"
 
-    paragraphs = split_paragraphs(read_text(chap_path))
+    full_text = read_text(chap_path)      # 保留原文，替换时才能"其余字节原样"
+    paragraphs = split_paragraphs(full_text)
     if paragraph_index >= len(paragraphs):
         return False, f"段落号越界：当前共 {len(paragraphs)} 段，请求 {paragraph_index}"
 
@@ -236,12 +290,11 @@ def save_paragraph_text(chapter, paragraph_index, new_text, note="手改"):
 
     save_paragraph_history(chapter, paragraph_index, current, body, note)
 
-    new_paragraphs = list(paragraphs)
-    new_paragraphs[paragraph_index] = body
+    # 只替换这一段（其余字节原样）—— 见 replace_segment 的 docstring
     version = _next_version(chapter)
     backup = HISTORY_DIR / f"ch{chapter:02d}_v{version}.md"
     shutil.copy2(chap_path, backup)
-    write_text(chap_path, "\n\n".join(new_paragraphs))
+    write_text(chap_path, replace_segment(full_text, paragraph_index, body))
     _norm(chap_path, chapter)
     return True, ("段落 #%d 已保存（%d → %d 字；整章备份 v%d，旧内容也进了段落历史）"
                   % (paragraph_index, len(current), len(body), version))

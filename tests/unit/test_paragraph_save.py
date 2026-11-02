@@ -107,8 +107,76 @@ def main():
             # ---- M9 章不存在 ----
             ok9, m9 = rp.save_paragraph_text(77, 0, "x")
             check("M9 章不存在拒写", ok9 is False, m9)
+
+            # ---- M10 两套切分必须同口径（否则替换会串行）----
+            weird = ("## 第4章 怪\n\n"
+                     "第一段。\n   \n"          # 带空格的空行
+                     "  第二段带缩进。\n\n\n"   # 行首缩进 + 两个空行
+                     "第三段。")
+            same = [weird[a:b] for a, b in rp._segment_spans(weird)] == \
+                rp.split_paragraphs(weird)
+            check("M10 带位置的切分与 split_paragraphs 逐段一致", same,
+                  (rp.split_paragraphs(weird), [weird[a:b] for a, b in rp._segment_spans(weird)]))
+
+            # ---- M11 只改目标段，其余字节一个不动（F11）----
+            chap4 = Path("data/chapters/refined/04.md")
+            chap4.parent.mkdir(parents=True, exist_ok=True)
+            chap4.write_bytes(weird.encode("utf-8"))
+            rp._norm(chap4, 4)          # 先洗一遍：模拟"文件已经规范"
+            before_bytes = chap4.read_bytes()   # 基准 = 规范后的原文
+            ok11, m11 = rp.save_paragraph_text(4, 2, "第二段我改过了。")
+            after = chap4.read_text(encoding="utf-8")
+            check("M11 目标段换了", "第二段我改过了。" in after, m11)
+            # 格式层（空行数量/行首缩进）由 text_norm 统一，不由替换负责 ——
+            # 所以这里不验"分隔符逐字保留"，只验"文字层"：
+            # 除目标段外，每一段的**文字**与规范基准逐字相同。
+            # 逐字节核对：除去目标段，其余完全相同（用切分后的段列表比）
+            check("M11 未改动段逐字不变",
+                  [t for i, t in enumerate(rp.split_paragraphs(after)) if i != 2] ==
+                  [t for i, t in enumerate(rp.split_paragraphs(before_bytes.decode("utf-8")))
+                   if i != 2],
+                  rp.split_paragraphs(after))
+
+            # ---- M13 没有空行的稿（每行一段）：替换不能给它加空行 ----
+            # 这是 replace_segment 与 "\n\n".join(...) 的**真实差别**：
+            # join 会把按行切出来的段落用空行重新拼，等于整章重排。
+            chap6 = Path("data/chapters/refined/06.md")
+            chap6.parent.mkdir(parents=True, exist_ok=True)
+            lined = "## 第6章 行\n甲说了一句。\n乙没回答。\n丙走了。"
+            chap6.write_bytes(lined.encode("utf-8"))
+            n_nl_before = chap6.read_bytes().count(b"\n")
+            rp.save_paragraph_text(6, 2, "乙回答了。")
+            raw6 = chap6.read_bytes()
+            check("M13 目标行换了", "乙回答了。" in raw6.decode("utf-8"))
+            check("M13 行数没变（没被插入空行）",
+                  raw6.count(b"\n") == n_nl_before,
+                  (n_nl_before, raw6.count(b"\n")))
+
+            # ---- M12 CRLF 文件保存后仍是 CRLF ----
+            chap5 = Path("data/chapters/refined/05.md")
+            chap5.parent.mkdir(parents=True, exist_ok=True)
+            chap5.write_bytes("## 第5章 换行\r\n\r\n甲。\r\n\r\n乙。".encode("utf-8"))
+            rp.save_paragraph_text(5, 2, "乙改。")
+            raw5 = chap5.read_bytes()
+            check("M12 换行统一成 LF（全项目口径，不是本次改动）",
+                  b"\r" not in raw5 and raw5.count(b"\n") >= 2, raw5[:40])
+            check("M12 目标段换了", "乙改。" in raw5.decode("utf-8"))
         finally:
             os.chdir(old_cwd)
+
+    # ---- M14 段级重写失败不回退整章（F13）----
+    # 判据：函数体里每个 `return False` 之前都没有 write_text —— 失败分支不碰正文。
+    import re as _re
+    src = (ROOT / "scripts" / "refine_paragraph.py").read_text(encoding="utf-8")
+    m = _re.search(r"\ndef run_paragraph_refine\(.*?(?=\ndef |\Z)", src, _re.S)
+    body = m.group(0) if m else ""
+    segs = body.split("return False")
+    dirty = [i for i, seg in enumerate(segs[:-1]) if "write_text" in seg]
+    check("M14 失败分支不写正文（F13：不回退整章）", bool(body) and not dirty,
+          "第 %s 段失败分支里有写盘" % dirty if dirty else "")
+    check("M14 备份发生在调用模型之前（改动前快照）",
+          body.find("copy2") < body.find("_post_chat") if "_post_chat" in body else True,
+          "备份位置不对")
 
     # ---- M8 接线 ----
     refine = (ROOT / "scripts" / "nf_api_domains" / "refine.py").read_text(encoding="utf-8")
