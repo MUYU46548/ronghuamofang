@@ -34,6 +34,7 @@ from utils.setting_schema import (
 )
 from utils.config_io import load_config_yaml
 from utils.text_norm import normalize_chapter_file
+from utils import intervene
 
 SUMMARY_RE = re.compile(r"<!--\s*summary:\s*(.+?)\s*-->", re.IGNORECASE | re.S)
 
@@ -935,6 +936,33 @@ def parse_chapter_scope(spec):
     return out or None
 
 
+def _take_intervention(n):
+    """取走"作者当场要求"这条一次性指令（2026-11-02，清单第 4 条）。
+
+    只在本章适用时才 consume —— 给"第 7 章"的指令不能被第 3 章吃掉。
+    拿不到就返回 None（读失败不抛：插话通道坏了不该拖垮写作）。
+    """
+    try:
+        data = intervene.read()
+        if not intervene.applies_to(data, n):
+            return None
+        return intervene.consume()
+    except Exception:                                        # noqa: BLE001
+        return None
+
+
+def _regen_over_budget(used_tokens, limit):
+    """这一章的补长是不是已经超线（2026-11-02，清单第 6 条）。
+
+    单独抽出来是为了可单测：这段判断埋在 run_stage 里的话，只能靠"真烧 200 万
+    token"来验证 —— 那等于不验证。`limit <= 0` = 不设限。
+    """
+    try:
+        return bool(limit and limit > 0 and used_tokens >= limit)
+    except TypeError:
+        return False
+
+
 def _apply_scope(todo, chapters):
     """按章范围缩 todo。返回 (这一轮要写的, 被跳过的章号)。
 
@@ -989,6 +1017,8 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         write_rolling(rolling_path, {"global_summary": "", "chapters": {}})
         print(f"[stage4] 初始化滚动摘要骨架 → {rolling_path}")
     quality_threshold = int(cfg.get("chapter", {}).get("quality_threshold", 6))
+    # 单章补长上限（2026-11-02，清单第 6 条）。0 = 不设限。
+    regen_token_limit = int(cfg.get("chapter", {}).get("regen_token_limit", 400000) or 0)
     max_recent = int(cfg.get("chapter", {}).get("summary_every", 5))
 
     completed = progress.completed_chapters(4)
@@ -1351,6 +1381,11 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         _ch_state["last_write"] = 0.0
         _ch_state["group"] = 0
         _ch_state["buf"] = []      # 换章清空：残稿是"这一章"的半截，不能带上一章的字
+        # 本章起点 token（用来算"为这一章补长烧了多少"）
+        try:
+            _ch_state["tok0"] = cost.tokens_used(run_id) if (cost and run_id) else 0
+        except Exception:                                # noqa: BLE001
+            _ch_state["tok0"] = 0
         try:
             _st4 = progress.data.setdefault("stages", {}).setdefault("4", {})
             _st4["current_chapter"] = n
@@ -1398,12 +1433,25 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                       "按现状使用，不改写（该修的是 stage3）")
         except Exception as e:                             # noqa: BLE001
             print(f"[stage4] 章大纲补齐失败（将按缺失继续）: {type(e).__name__}: {e}")
-        task = client.write_task(task_dir, f"stage4_ch{n:02d}.md",
-                                 build_chapter_task(cfg, proj, n,
-                                                    outline_rel,
-                                                    "data/setting/setting.json",
-                                                    "data/summaries/rolling.md",
-                                                    prev_tail))
+        _task_text = build_chapter_task(cfg, proj, n, outline_rel,
+                                        "data/setting/setting.json",
+                                        "data/summaries/rolling.md", prev_tail)
+        # 作者当场要求（2026-11-02，清单第 4 条）：运行中插一句，只对本章生效，
+        # 用完即删。不改大纲、不重写已写的章。
+        _iv = _take_intervention(n)
+        if _iv:
+            _task_text += intervene.render_block(_iv)
+            print(f"[stage4] 本章执行作者当场要求（{len(_iv['instruction'])} 字）："
+                  f"{_iv['instruction'][:50]}")
+            try:
+                progress.data.setdefault("stages", {}).setdefault("4", {}) \
+                    .setdefault("intervened", {})[str(n)] = {
+                        "instruction": _iv["instruction"][:300],
+                        "at": _iv.get("at", "")}
+                progress.save()
+            except Exception:                            # noqa: BLE001
+                pass
+        task = client.write_task(task_dir, f"stage4_ch{n:02d}.md", _task_text)
         # ---- 加强模式（第一波防御 · 任务三，2026-10-22）----
         # chapter.enhanced_mode=true 时本章改为「拆段落群 → 逐群生成 → 拼装」，
         # 每群立即落盘 data/chapters/_parts/（段群级断点续跑，与任务二的
@@ -1520,6 +1568,23 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         regen_actions = []
         auto_enhanced = False      # 本章是否已自动兜底过一次（防无限拆群）
         while not check.ok and not aborted and regen_rounds < regen_max:
+            # 单章补长上限（2026-11-02，清单第 6 条）：实测一章补长能烧到 200 万 token
+            # 还失败，而同样任务直连只要 6.5 万。超线就停手、说清"补不上去"，
+            # 不许烧到 run 级熔断才发现（那时钱已经花了）。
+            if regen_token_limit > 0 and cost and run_id:
+                try:
+                    _used = cost.tokens_used(run_id) - _ch_state.get("tok0", 0)
+                except Exception:                        # noqa: BLE001
+                    _used = 0
+                if _regen_over_budget(_used, regen_token_limit):
+                    print(f"[stage4] 第{n}章补长已烧 {_used} token"
+                          f"（单章上限 {regen_token_limit}）—— 停手，这一章补不上去")
+                    print("[stage4]    先看模型与提示词，别继续烧；"
+                          "调大写 config/system.yaml 的 chapter.regen_token_limit 再试")
+                    check.errors.append(
+                        f"补长超出单章 token 上限（已用 {_used} ≥ {regen_token_limit}），"
+                        "停手待人工处理")
+                    break
             regen_rounds += 1
             # ---- 字数差太多 → 用加强模式补量（2026-10-26）----
             # 用户原话：「有些弱模型无论怎么骂就是写不长，像后台有个看不见的开关

@@ -129,6 +129,9 @@ FORBIDDEN_IN_AGENT_MODE = frozenset({
     # 双因子 GUI 来源（与止烧阈值/Agent 模式同档），这里是 mode=true 下的第二道闸。
     # 读侧 GET /chapters/layers|content 不拦（Agent 可读，不能替用户改稿）。
     "/chapters/save",
+    # 段落手改（2026-11-02，清单第 8 条）：与 /chapters/save 完全同族 ——
+    # 只是粒度更细。Agent 能替作者改一段，就能替作者改整章。
+    "/chapters/paragraph/save",
     # 判定引擎（0.7.17）：事件勾选与逐句裁定都是**作者的判断**，不是系统能代劳的事。
     # Agent 替作者勾「这章算几件事」= 直接改写判定结论（F03b 是唯一硬门）。
     # 读侧 GET /judge/* 不拦（Agent 可看报告，不能替作者签字）。
@@ -139,6 +142,10 @@ FORBIDDEN_IN_AGENT_MODE = frozenset({
     # （Agent 该知道锁在谁手里，才好决定要不要等）。
     "/lock/takeover",
     "/lock/release",
+    # 运行中插话（2026-11-02，清单第 4 条）：这是**作者改方向**，不是技术动作。
+    # 外部 Agent 能插话 = 它能在人不知情时改变正在写的那一章走向。
+    # 读侧 GET /intervene 不拦（Agent 该知道有没有待用指令）。
+    "/intervene",
 })
 
 # 人工来源的标记值（HTTP 头 / 环境变量通用）

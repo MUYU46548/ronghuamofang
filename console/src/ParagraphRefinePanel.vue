@@ -16,6 +16,37 @@ const chapterN = ref(null);
 const paragraphs = ref([]);
 const loading = ref(false);
 const selectedPara = ref(null);
+/* 自己改（2026-11-02，清单第 8 条）：与"提意见让模型重写"并列的第二条路。
+   以前想改一个字也得提交重写 job 等结果 —— 人只能"再许愿一次"。 */
+const manualEdit = ref(false);
+const manualText = ref("");
+const manualSaving = ref(false);
+function startManual() {
+  manualText.value = paragraphs.value[selectedPara.value]?.text || "";
+  manualEdit.value = true;
+}
+async function saveManual() {
+  if (selectedPara.value === null) return;
+  const t = manualText.value.trim();
+  if (!t) return say("内容不能为空");
+  const pi = selectedPara.value;
+  manualSaving.value = true;
+  try {
+    const r = await api("/chapters/paragraph/save", "POST", {
+      chapter: chapterN.value, paragraph_index: pi, text: t,
+    });
+    if (r.status === 200) {
+      say(r.data.message || "已保存这一段");
+      manualEdit.value = false;
+      await loadParagraphs(chapterN.value);
+      selectedPara.value = pi;      // 读回后仍停在原段落，看得见改完的样子
+    } else {
+      say("没保存：" + (r.data?.error || r.status));
+    }
+  } finally {
+    manualSaving.value = false;
+  }
+}
 const feedback = ref("");
 const running = ref(false);
 const jobResult = ref(null);
@@ -69,6 +100,7 @@ async function loadParagraphs(n) {
 
 function selectPara(idx) {
   selectedPara.value = idx;
+  manualEdit.value = false;   // 换段落就退出编辑态，别把上一段的草稿带过来
   feedback.value = "";
   jobResult.value = null;
   showHistory.value = false;
@@ -467,12 +499,24 @@ onMounted(() => {
             <div class="editor-section-head">
               <span>目标段落 #{{ selectedPara }}（{{ paragraphs[selectedPara]?.chars }} 字）</span>
               <div class="section-actions">
+                <button class="mini primary" @click="startManual"
+                        title="直接改这一段并保存 —— 不用许愿让模型重写">自己改</button>
                 <button class="mini" @click="loadDiff">查看 diff</button>
                 <button class="mini" @click="loadHistory">历史</button>
                 <button class="mini" @click="checkStyleDrift">风格</button>
               </div>
             </div>
-            <div class="editor-para-text">{{ paragraphs[selectedPara]?.text }}</div>
+            <div v-if="!manualEdit" class="editor-para-text">{{ paragraphs[selectedPara]?.text }}</div>
+            <div v-else>
+              <textarea v-model="manualText" class="editor-textarea" rows="8"></textarea>
+              <div class="editor-actions">
+                <button class="mini primary" :disabled="manualSaving" @click="saveManual">
+                  {{ manualSaving ? "保存中…" : "保存这一段" }}
+                </button>
+                <button class="mini" :disabled="manualSaving" @click="manualEdit = false">取消</button>
+                <span class="head-hint">保存会先备份整章，旧内容也进段落历史（可回退）</span>
+              </div>
+            </div>
           </div>
 
           <div class="editor-section">

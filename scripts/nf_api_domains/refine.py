@@ -267,6 +267,29 @@ def handle_paragraph_restore(h, body):
         return 500, {"error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+def handle_paragraph_save(h, body):
+    """手改一段并保存：{chapter, paragraph_index, text}（2026-11-02，清单第 8 条）。
+
+    与 `/refine/paragraph`（提意见让模型重写）**并列**的第二条路。
+    以前只有许愿那一条 —— 想改一个字也得让模型重跑一遍。
+    """
+    try:
+        ch = int(body.get("chapter") or 0)
+        pi = int(body.get("paragraph_index") if body.get("paragraph_index") is not None else -1)
+    except (TypeError, ValueError):
+        return 400, {"error": "chapter / paragraph_index 须为整数"}
+    text = body.get("text")
+    if ch < 1 or pi < 0 or not isinstance(text, str):
+        return 400, {"error": "chapter(>=1)、paragraph_index(>=0)、text 必填"}
+    try:
+        import refine_paragraph
+        ok, msg = refine_paragraph.save_paragraph_text(ch, pi, text)
+        return (200 if ok else 400), {"ok": ok, "message": msg,
+                                      "chapter": ch, "paragraph_index": pi}
+    except Exception as e:                                # noqa: BLE001
+        return 500, {"error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 def handle_chapters_paragraphs(h):
     """获取章节的段落列表（带索引）。
 
@@ -449,6 +472,7 @@ ROUTES = (
     ("POST", "/outline/sample/submit", handle_branch_submit),
     ("POST", "/outline/sample/current", handle_branch_current),
     ("POST", "/chapters/paragraph/restore", handle_paragraph_restore),
+    ("POST", "/chapters/paragraph/save", handle_paragraph_save),
     ("POST", "/style/drift", handle_style_drift_post),
     ("GET", "/chapters/paragraphs", handle_chapters_paragraphs),
     ("GET", "/chapters/paragraph/history", handle_paragraph_history),

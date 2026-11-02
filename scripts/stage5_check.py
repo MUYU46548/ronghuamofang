@@ -261,6 +261,24 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         # 再跑一次幂等、零成本；LLM 产出的 checked 则必须在这里清洗。
         for f in batch:
             _norm(checked_dir / f.name)
+        # 字数缩水记录（2026-11-02，清单第 7 条）：检查稿比原稿短超过 10% 要说出来。
+        # 实测 raw/03.md 7184 → refined 2474 而用户毫不知情；以前这个数字只躺在
+        # 判定报告里。不拦（润色本来就该删水），但必须看得见。
+        try:
+            from utils import shrink_watch
+            for f in batch:
+                _src = raw_dir / f.name
+                _dst = checked_dir / f.name
+                if not (_src.exists() and _dst.exists()):
+                    continue
+                _d = shrink_watch.note(progress, 5, int(f.stem),
+                                       _cwords(read_text(_src)),
+                                       _cwords(read_text(_dst)))
+                if _d:
+                    print(f"[stage5] 第{f.stem}章 " + shrink_watch.describe(_d)
+                          + " —— 已记录，界面上会标出来")
+        except Exception as e:                            # noqa: BLE001
+            print(f"[stage5] 字数缩水记录失败（不影响流程）: {type(e).__name__}: {e}")
         # 七维评审账本（2026-10-20）：与修正稿同批判定。**校验的是 raw 原文**——
         # 模型读到的就是 raw，拿 checked 去核对等于让它给自己改过的句子作证。
         batch_results, batch_problems = _verify_ledger(batch, bi, _app)

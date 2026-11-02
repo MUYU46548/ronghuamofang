@@ -199,6 +199,54 @@ def restore_paragraph_version(chapter, paragraph_index, history_id):
     return True, f"段落 #{paragraph_index} 已回退到 h{history_id}（整章备份 v{version}）"
 
 
+def save_paragraph_text(chapter, paragraph_index, new_text, note="手改"):
+    """作者直接改这一段并保存（2026-11-02，不可用清单第 8 条）。
+
+    ## 为什么要有它
+
+    以前只有一条路：填一句意见 → 提交重写 job → 等 → 看 diff。
+    **没有"这一处我自己改"的路径** —— 改一个字也得让模型重跑一遍，改得怎么样全看它。
+    于是人只能"再许愿一次"。
+
+    ## 纪律与回退同源
+
+    - 当前段落先写进历史（**手改也可回退**，与 restore 一个口径）；
+    - 整章先备份到 HISTORY_DIR；
+    - 落盘后跑中文标点归一化（与其它写入口一致）。
+
+    返回 (ok, message)。
+    """
+    body = (new_text or "").strip()
+    if not body:
+        return False, "内容是空的 —— 要删这一段请直接删，不要保存空段落"
+    if "\n\n" in body:
+        return False, "这一段里有空行。按段落保存时不能夹空行（那会变成两段）"
+
+    chap_path = _pick_chapter_path(chapter)
+    if chap_path is None:
+        return False, f"第 {chapter} 章不存在"
+
+    paragraphs = split_paragraphs(read_text(chap_path))
+    if paragraph_index >= len(paragraphs):
+        return False, f"段落号越界：当前共 {len(paragraphs)} 段，请求 {paragraph_index}"
+
+    current = paragraphs[paragraph_index]
+    if current == body:
+        return True, "内容没变，未写入"
+
+    save_paragraph_history(chapter, paragraph_index, current, body, note)
+
+    new_paragraphs = list(paragraphs)
+    new_paragraphs[paragraph_index] = body
+    version = _next_version(chapter)
+    backup = HISTORY_DIR / f"ch{chapter:02d}_v{version}.md"
+    shutil.copy2(chap_path, backup)
+    write_text(chap_path, "\n\n".join(new_paragraphs))
+    _norm(chap_path, chapter)
+    return True, ("段落 #%d 已保存（%d → %d 字；整章备份 v%d，旧内容也进了段落历史）"
+                  % (paragraph_index, len(current), len(body), version))
+
+
 def build_paragraph_task(cfg, proj, chapter, paragraph_index, paragraph_text, feedback, version, chap_path, outline_path):
     """生成段落级定点重写任务文件。"""
     current_full = read_text(chap_path)

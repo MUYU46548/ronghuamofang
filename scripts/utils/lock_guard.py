@@ -46,6 +46,11 @@ EXEMPT_PREFIXES = (
     "/stream/resume",   # 恢复显示
     "/lock/takeover",   # 接管
     "/lock/release",    # 释放
+    # 运行中插一句（2026-11-02，清单第 4 条）：**它存在的意义就是 AI 持锁时人也能
+    # 改方向**。若被施工权拦掉，这条功能等于没做（真机实测过一次：AI 持锁 → 409）。
+    # 它写的是一个独立 json（下一章才读），不和流水线正在写的章抢同一个文件；
+    # 写权限另有 agent_guard 把着（外部 Agent 不得插话）。
+    "/intervene",
 )
 
 OWNER_TEXT = {"pipeline": "AI 流水线", "human": "你"}

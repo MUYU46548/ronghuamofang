@@ -104,6 +104,11 @@ const lockState = ref({ held: false, text: "" });
 function countKeys(o) {
   return (o && typeof o === "object") ? Object.keys(o).length : 0;
 }
+function shrinkTitle(o) {
+  if (!o || typeof o !== "object") return "";
+  return Object.entries(o).map(([n, v]) =>
+    `第${n}章 ${v.before} → ${v.after} 字（压掉 ${Math.round(v.ratio * 100)}%）`).join("\n");
+}
 function whyTitle(o, kind) {
   if (!o || typeof o !== "object") return "";
   return Object.entries(o).map(([n, v]) => kind === "invalid"
@@ -115,6 +120,30 @@ async function loadLock() {
     const r = await apiOnce("/lock", "GET");
     if (r.status === 200) lockState.value = r.data;
   } catch (e) { /* 顶栏状态坏了不该拖垮主界面 */ }
+}
+/* 运行中插一句（2026-11-02，清单第 4 条）：只对下一章生效，用完即删。
+   以前想改方向只能等它跑完再重写已写的章。 */
+const interveneOpen = ref(false);
+const interveneDraft = ref("");
+const intervenePending = ref(null);
+async function loadIntervene() {
+  try {
+    const r = await apiOnce("/intervene", "GET");
+    if (r.status === 200) intervenePending.value = r.data.pending || null;
+  } catch (e) { /* 只读状态，失败不影响主界面 */ }
+}
+async function sendIntervene() {
+  const t = interveneDraft.value.trim();
+  if (!t) return say("写一句你要它改什么");
+  const r = await api("/intervene", "POST", { instruction: t });
+  if (r.status === 200) {
+    say("已登记：下一章写作时生效（用完即删）");
+    interveneDraft.value = "";
+    interveneOpen.value = false;
+    loadIntervene();
+  } else {
+    say("没登记上：" + (r.data?.error || r.status));
+  }
 }
 async function takeOverLock() {
   const yes = window.confirm(
@@ -189,7 +218,8 @@ async function refresh() {
     }
     if (m.status === 200) models.value = m.data;
     if (j && j.status === 200) lastJob.value = j.data;
-    loadLock();   // L-5：界面必须自己说出"锁在谁手里"，与状态同频刷新
+    loadLock();        // L-5：界面必须自己说出"锁在谁手里"，与状态同频刷新
+    loadIntervene();   // 清单第 4 条：有没有待用的插话
     // 成本页可见时同步刷新“当前运行”实时花费（与 state 同频 2.5s）
     if (tab.value === "cost") await refreshStreamingCost();
   } catch (e) {
@@ -4879,6 +4909,23 @@ onUnmounted(() => {
             title="释放后 AI 才能继续写">改完了，让 AI 继续</button>
   </div>
 
+  <!-- 运行中插一句（2026-11-02，清单第 4 条）：只对下一章生效，用完即删。
+       以前想改方向只能等它跑完、再重写已经写好的章。 -->
+  <div v-if="interveneOpen || intervenePending" class="lockbar" style="border-color: var(--accent);">
+    <span v-if="intervenePending && !interveneOpen" style="font-size: 12.5px;">
+      待生效（下一章用掉）：{{ (intervenePending.instruction || "").slice(0, 60) }}
+      <button class="mini" style="margin-left: 8px;" @click="interveneOpen = true">改</button>
+    </span>
+    <template v-else>
+      <input v-model="interveneDraft"
+             style="flex: 1; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--field); color: var(--ink); font-size: 12.5px;"
+             placeholder="只对下一章生效，例如：这一章别写打斗，写两个人吃饭时的沉默"
+             @keyup.enter="sendIntervene" />
+      <button class="mini primary" @click="sendIntervene">登记</button>
+      <button class="mini" @click="interveneOpen = false">取消</button>
+    </template>
+  </div>
+
   <!-- 运行进度条（全局） -->
   <div v-if="isRunning" class="runbar">
     <span class="run-dot"></span>
@@ -4887,6 +4934,8 @@ onUnmounted(() => {
     <span :title="'job ' + (state.current_job || '')">{{ runningStageLabel || "任务执行中" }}</span>
     <span v-if="estimatedRemainingCost" class="run-cost">预计剩余 ¥{{ estimatedRemainingCost }}</span>
     <span class="spacer"></span>
+    <button class="mini" @click="interveneOpen = !interveneOpen"
+            title="运行中改方向：只对下一章生效，不改大纲、不重写已写的章">✎ 插一句</button>
     <button class="mini danger" @click="stopJob">停止</button>
     <!-- 单章重写只报“本章 %”，不拿全书进度冒充；没有真实进度就什么都不报 -->
     <span v-if="scopeChapterPct !== null" class="run-pct">本章 {{ scopeChapterPct }}%</span>
@@ -5223,6 +5272,11 @@ onUnmounted(() => {
             <span v-if="countKeys(s.invalid)" class="pill st-rej"
                   :title="whyTitle(s.invalid, 'invalid')">
               不合格 {{ countKeys(s.invalid) }} 章
+            </span>
+            <!-- 清单第 7 条：字数被下游压掉超过 10% 必须看得见（实测 7184 → 2474） -->
+            <span v-if="countKeys(s.shrink)" class="pill st-rej"
+                  :title="shrinkTitle(s.shrink)">
+              字数缩水 {{ countKeys(s.shrink) }} 章
             </span>
             <!-- 清单第 3 条：停止时留下的半截已经存成残稿，别让人以为白写了 -->
             <span v-if="countKeys(s.partial)" class="pill st-gate"

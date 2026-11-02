@@ -939,6 +939,9 @@ def stage_status(progress, n, total_chapters=None):
     # 中断时留下的半截（清单第 3 条）：章号 → 残稿路径/字数，界面据此提示"去残稿看看"
     if st.get("partial"):
         out["partial"] = st["partial"]
+    # 字数缩水（清单第 7 条）：章号 → {before, after, ratio}，界面标出来
+    if st.get("shrink"):
+        out["shrink"] = st["shrink"]
     if "auto_rewritten" in st:
         out["auto_rewritten"] = st["auto_rewritten"]
     return out
@@ -2355,6 +2358,13 @@ class Handler(BaseHTTPRequestHandler):
         # 施工权状态（2026-11-02，P5 · L-5）：界面必须自己说出"锁在谁手里"。
         # 只读、不设副作用 —— 状态由锁文件本身决定，不另存一份内存变量
         # （另存就会出现"界面说在你手里、实际锁还在 AI 那"的分裂）。
+        if p == "/intervene":
+            # 界面显示"有没有待用的插话"（零 token，只读一个 json）
+            from utils import intervene as _iv_mod
+            _d = _iv_mod.read(root=ROOT)
+            self._send(200, {"ok": True, "pending": _d,
+                             "has_pending": bool(_d)})
+            return
         if p == "/lock":
             trusted = agent_guard.is_trusted_gui(self.headers)
             st = lock_guard.lock_status(str(_run_lock_path()))
@@ -2916,6 +2926,26 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/costs/rates/import":
                 # 定价批量导入：confirm=false 预览 / true 落盘（GUI 粘贴框）。
                 self._send(*_dom(dom_misc.handle_costs_rates_import(self, body)))
+            elif p == "/intervene":
+                # 运行中插一句（2026-11-02，清单第 4 条）：只对**下一章**生效，
+                # 不改大纲、不重写已写的章，用完即删。
+                # 没在跑时拒收 —— "先存着以后用"的指令到真跑时早过时了，
+                # 那时候该改的是大纲，不是排队等一句话。
+                text = str(body.get("instruction") or "").strip()
+                if not text:
+                    self._send(400, {"ok": False, "error": "instruction 不能为空"})
+                    return
+                _st = lock_guard.lock_status(str(_run_lock_path()))
+                if not (_st.get("held") and _st.get("alive")
+                        and _st.get("owner") == "pipeline"):
+                    self._send(400, {"ok": False, "error":
+                        "现在没有流水线在跑。这种指令只对\"下一章\"有意义，"
+                        "存着等下次跑会过时 —— 直接改章大纲或提示词更快。"})
+                    return
+                from utils import intervene as _iv_mod
+                _data = _iv_mod.write(text, target_chapter=None, root=ROOT)
+                self._send(200, {"ok": True, **_data,
+                                 "message": "已登记：下一章写作时生效，用完即删"})
             elif p == "/lock/takeover":
                 # 人的绝对优先权（P5 · L-2）：接管只由界面发起（双因子）。
                 # 不动别人的进程 —— 流水线在下一章前的检查点自己看到 owner=human
@@ -3221,6 +3251,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(*_dom(dom_refine.handle_branch_submit(self, body)))
             elif p == "/chapters/paragraph/restore":
                 self._send(*_dom(dom_refine.handle_paragraph_restore(self, body)))
+            elif p == "/chapters/paragraph/save":
+                # 手改一段并保存（2026-11-02，清单第 8 条）
+                self._send(*_dom(dom_refine.handle_paragraph_save(self, body)))
             elif p == "/style/drift":
                 self._send(*_dom(dom_refine.handle_style_drift_post(self, body)))
             elif p == "/chapters/save":
