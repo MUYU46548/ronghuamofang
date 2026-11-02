@@ -105,6 +105,10 @@ FORBIDDEN_IN_AGENT_MODE = frozenset({
     # 外部 Agent 想归档自己的产物，走 /project/archive（明确指定书名），
     # 不能借用判定页这条「按当前书名、连素材一起搬」的快捷通道。
     "/judge/book_archive",
+    # 设定集恢复（2026-11-02）：整体替换当前设定 —— 与归档/恢复同档的批量写。
+    # 外部 Agent 能"恢复"一次，就等于能抹掉作者刚改的设定；读侧
+    # GET /setting/versions|diff 不拦（Agent 该看得见历史）。
+    "/setting/restore",
     # Word 稿导入（活二，2026-10-13）：一次性把**整本外部稿**写进
     # data/chapters/{raw,checked,refined}/，且 --overwrite 能盖掉已有章节
     # —— 与归档/恢复同档的批量写入，归用户点。预览走同一端点（GUI 一体），

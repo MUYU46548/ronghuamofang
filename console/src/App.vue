@@ -26,6 +26,7 @@ import ConsistencyPanel from "./ConsistencyPanel.vue";
 import JudgePanel from "./JudgePanel.vue";
 import ReviewLedgerPanel from "./ReviewLedgerPanel.vue";
 import SettingClosurePanel from "./SettingClosurePanel.vue";
+import SettingVersionsPanel from "./SettingVersionsPanel.vue";
 import TruncatedPanel from "./TruncatedPanel.vue";
 import ForeshadowPanel from "./ForeshadowPanel.vue";
 import HandoffPanel from "./HandoffPanel.vue";
@@ -5601,6 +5602,8 @@ onUnmounted(() => {
          端点早就有，GUI 一直缺 —— 没它等于"机器裁不了的分歧永远悬着"。 -->
     <section v-if="tab === 'story'">
       <SettingClosurePanel @say="say" />
+      <!-- 设定版本（2026-11-02，视频③对标）：两版对照 + 一键恢复 -->
+      <SettingVersionsPanel :api="api" @say="say" />
     </section>
 
     <div v-if="settingEditor.open" class="drawer-mask" @click.self="settingEditor.open = false">

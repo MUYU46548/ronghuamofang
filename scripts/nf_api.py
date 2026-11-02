@@ -2584,6 +2584,41 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/scraps/read":
             # 实现已迁至 nf_api_domains.materials（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_materials.handle_scraps_read(self)))
+        elif p == "/setting/versions":
+            # 设定版本列表（2026-11-02，视频③对标）：快照一直在写，但人看不见。
+            from utils import setting_versions as sv
+            try:
+                items = sv.list_versions(root=ROOT)
+                live = sv.live_path(ROOT)
+                _live_data = sv._load_json(live) if live.exists() else None
+                self._send(200, {
+                    "ok": True, "items": items, "count": len(items),
+                    "live": {"exists": _live_data is not None,
+                             "counts": sv._counts(_live_data) if _live_data else {}},
+                    "note": "每次覆盖设定集前自动备份（setting_vN.json）；恢复前还会再备份当前版本",
+                })
+            except Exception as e:                       # noqa: BLE001
+                self._send(500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]})
+        elif p == "/setting/diff":
+            # 两版对照：`?v=3`（和当前比）或 `?v=3&to=4`
+            from utils import setting_versions as sv
+            qs = parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")
+            try:
+                v = int((qs.get("v") or ["0"])[0])
+            except ValueError:
+                v = 0
+            if v < 1:
+                self._send(400, {"ok": False, "error": "v 必填且为历史版本号"})
+            else:
+                to_raw = (qs.get("to") or [""])[0]
+                try:
+                    to_v = int(to_raw) if to_raw else None
+                    self._send(200, {"ok": True, **sv.diff(v, to_v, root=ROOT)})
+                except FileNotFoundError as e:
+                    self._send(404, {"ok": False, "error": str(e)})
+                except Exception as e:                   # noqa: BLE001
+                    self._send(500, {"ok": False,
+                                     "error": type(e).__name__ + ": " + str(e)[:200]})
         elif p == "/setting/current":
             # 实现已迁至 nf_api_domains.materials（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_materials.handle_setting_current(self)))
@@ -3199,6 +3234,22 @@ class Handler(BaseHTTPRequestHandler):
                 # 提案审批：approve 会把优化点写回章大纲（写前备份）——审批族，
                 # 已列入 FORBIDDEN_IN_AGENT_MODE，agent 不可自批。
                 self._send(*_dom(dom_discuss.handle_discussion_review(self, body)))
+            elif p == "/setting/restore":
+                # 恢复到历史版本（2026-11-02，视频③）：破坏性，只归人。
+                if not trusted_gui:
+                    self._send(403, {"ok": False,
+                                     "error": "恢复设定集只能由界面发起（它会整体替换当前设定）"})
+                    return
+                try:
+                    v = int(body.get("v") or 0)
+                except (TypeError, ValueError):
+                    v = 0
+                if v < 1:
+                    self._send(400, {"ok": False, "error": "v 必填且为历史版本号"})
+                    return
+                from utils import setting_versions as sv
+                ok, msg = sv.restore(v, root=ROOT)
+                self._send(200 if ok else 400, {"ok": ok, "message": msg})
             elif p == "/setting/status":
                 # 人工拍板（A3 写侧）：把条目标为 adopted/rejected/uncertain。
                 # reject 会**先写墓碑**（不依赖设定集条目）；人工结果带
