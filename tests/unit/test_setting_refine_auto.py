@@ -6,7 +6,7 @@
 `--auto-thin` 曾经是**空壳**：feedback 硬编码为
 `"请对以下碎片角色进行设定补全（仅从素材推断，llm_inferred 标记）：（见体检报告）"`
 —— 既没有角色名、也没说明缺什么维度，而且**无轮次上限、无达标即停、
-无 gates 开关、orchestrator 根本没接**。用户看到的「已支持 --auto-thin」
+无 gates 开关、orchestrator 根本没接**。用户看到的\u300c已支持 --auto-thin\u300d
 是一个只有 CLI 参数的幻觉。
 
 本套用例锚定闭环的**行为契约**（不是实现位置）：
@@ -14,7 +14,7 @@
 - 达标即停：THIN 数为 0 → 零调用返回，不产生任何 cost
 - 无进展即停：本轮 THIN 数未下降 → 停（继续跑纯烧 token + 放大编造风险）
 - 轮次上限：跑满 max_rounds 仍未达标 → 以 `max_rounds` 原因结束
-- 定向 feedback：必须点名角色 + 缺失维度（否则旧空壳行为会「通过」）
+- 定向 feedback：必须点名角色 + 缺失维度（否则旧空壳行为会\u300c通过\u300d）
 - 默认关：`gates.setting_refine_auto` 缺失/False → orchestrator 不调用
 - 每轮独立备份：setting_v{N}.json 递增，任一轮可单独回溯
 
@@ -112,26 +112,26 @@ def run_py(root, code, timeout=180):
 
 # ---------------------------------------------------------------- 夹具
 #
-# ⚠️ 夹具必须产出**自洽**的产物 —— 这是本项目踩过的坑（见「夹具必须产出合法
-# 产物」纪律）。本套用例首版夹具就有两处不自洽，导致 15 条假红：
+# ⚠️ 夹具必须产出**自洽**的产物 —— 这是本项目踩过的坑（见“夹具必须产出合法
+# 产物”纪律）。本套用例首版夹具就有两处不自洽，导致 15 条假红：
 #
-# 1. `朱鸾` 的 role 是「负责档案室的整理员」—— 不含任何能力词
-#    （ABILITY_WORDS 里没有「整理」），于是 ability=False → score=2 → **THIN**。
-#    但注释声称它是 WARN、`n_thin=0` 应当「无 THIN」。结果 `already_ok`
+# 1. `朱鸾` 的 role 是“负责档案室的整理员”—— 不含任何能力词
+#    （ABILITY_WORDS 里没有“整理”），于是 ability=False → score=2 → **THIN**。
+#    但注释声称它是 WARN、`n_thin=0` 应当“无 THIN”。结果 `already_ok`
 #    永远走不到，`thin_before` 恒 ≥1。
-# 2. `thin_ok=True` 的「补全版」traits 写成 ['沉默寡言','认路极准',
+# 2. `thin_ok=True` 的“补全版”traits 写成 ['沉默寡言','认路极准',
 #    '对陌生人保持距离'] —— personality 判据是 **每条 ≥6 字**，
 #    前两条只有 4 字 → personality=False → 补全后仍是 THIN（score=2）。
-#    于是「补全成功」的模拟根本没成功，`reached_ok` 永远拿不到。
+#    于是“补全成功”的模拟根本没成功，`reached_ok` 永远拿不到。
 #
 # 结论：`run_auto_thin` 的实现是对的，那 15 条红**全部**来自夹具。
 # 修夹具时**不要**去放宽判据 —— 判据阈值是经真实数据定标的
-# （见 MEMORY.md「判据阈值定标」），改它就等于为了让测试变绿而放松质量门。
+# （见 MEMORY.md“判据阈值定标”），改它就等于为了让测试变绿而放松质量门。
 #
 # 现在三档角色各自**恰好**命中预期维度：
 #   - 苏芷 / 朱鸾：score=4（WARN，identity+personality+ability+source）→ 不补
 #   - 碎片甲/乙/丙（thin_ok=False）：score=1（只 source）→ THIN，要补
-#   - 碎片甲/乙/丙（thin_ok=True）：score=3（WARN）→ 不再 THIN，模拟「补全成功」
+#   - 碎片甲/乙/丙（thin_ok=True）：score=3（WARN）→ 不再 THIN，模拟“补全成功”
 
 # WARN 档：role ≥8 字（identity）、traits 3 条且每条 ≥6 字（personality）、
 # 文本含能力词（ability）、带 source。**刻意不满足 relations/coverage**
@@ -148,7 +148,7 @@ WARN_CAST = [
 ]
 
 # 补全成功后：identity + personality + ability + source = 4 维 → WARN。
-# 「擅长」是能力词；三条 traits 全部 ≥6 字（这是 personality 判据的硬要求）。
+# “擅长”是能力词；三条 traits 全部 ≥6 字（这是 personality 判据的硬要求）。
 THIN_FIXED = {
     "role": "来自边缘聚落的信使，负责传递跨区消息",
     "traits": ["沉默寡言极少开口", "认路极准从不迷途", "对陌生人保持距离"],
@@ -174,7 +174,7 @@ def make_fixed_char(i):
 
 
 def make_setting(n_thin=3, thin_ok=False):
-    """生成设定集。thin_ok=True 时把 THIN 角色补到 WARN（模拟「补全成功」）。"""
+    """生成设定集。thin_ok=True 时把 THIN 角色补到 WARN（模拟\u300c补全成功\u300d）。"""
     chars = [dict(c) for c in WARN_CAST]
     for i in range(n_thin):
         chars.append(make_fixed_char(i) if thin_ok else make_thin_char(i))
@@ -260,7 +260,7 @@ from utils.fake_client import FakeClient
 cfg = __import__("yaml").safe_load(read_text("config/system.yaml"))
 proj = __import__("yaml").safe_load(read_text("config/project.yaml"))
 
-# 让 stage1_refine 任务把设定集改写成「已补全」版本
+# 让 stage1_refine 任务把设定集改写成\u300c已补全\u300d版本
 FIXED = json.loads(read_text("_fixed.json"))
 import utils.fake_client as fc
 _orig_run = fc.FakeClient.run_task
@@ -313,12 +313,12 @@ def case_no_progress():
     """无进展即停：补全后 THIN 数不降 → 不跑第 2 轮。
 
     ⚠️ 必须**显式**把 `stage1_refine` 打成 no-op。首版用例想当然地以为
-    「FakeClient 不会改 setting」，实际它会给 `stage1_refine` 写一份罐头设定
+    \u300cFakeClient 不会改 setting\u300d，实际它会给 `stage1_refine` 写一份罐头设定
     （`fake_client._write_setting`：单个 `测试角色`，`traits:["冷静"]`，
     score=1 → 正好 1 个 THIN）。于是 THIN 3→1 **是有进展的**，闭环正确地
     跑了第 2 轮才因 1→1 停下 —— 用例却断言 rounds==1，报假红。
 
-    **实现是对的，是夹具没有制造出「无进展」这个场景。**
+    **实现是对的，是夹具没有制造出\u300c无进展\u300d这个场景。**
     """
     print("\n【3】无进展即停（THIN 数不下降）")
     root = build_sandbox("nf_sr_np_")
@@ -330,7 +330,7 @@ from utils.fake_client import FakeClient
 cfg = __import__("yaml").safe_load(read_text("config/system.yaml"))
 proj = __import__("yaml").safe_load(read_text("config/project.yaml"))
 
-# 显式 no-op：子会话「成功」但**不碰** setting.json（THIN 数保持不变）
+# 显式 no-op：子会话\u300c成功\u300d但**不碰** setting.json（THIN 数保持不变）
 import utils.fake_client as fc
 _orig_run = fc.FakeClient.run_task
 refine_calls = {"n": 0}
@@ -373,7 +373,7 @@ def case_max_rounds():
     print("\n【4】轮次上限（每轮有进展 → 跑满上限）")
     root = build_sandbox("nf_sr_mr_")
     write_setting(root, make_setting(n_thin=4, thin_ok=False))
-    # 每轮把「一个」THIN 角色补好：4 → 3 → 2 → 1（3 轮仍有 THIN）
+    # 每轮把“一个”THIN 角色补好：4 → 3 → 2 → 1（3 轮仍有 THIN）
     code = PRELUDE + '''
 import setting_refine as srfy
 from utils.fake_client import FakeClient
@@ -507,10 +507,10 @@ _ticket(thin=thin, detail=detail, fb=fb)
     print(f"  detail={detail}")
     check("6 检出 3 个 THIN 角色", len(thin) == 3, f"→ {thin}")
     for name in thin:
-        check(f"6 feedback 点名「{name}」", name in fb, "→ 未出现")
-    check("6 feedback 含缺失维度标注", "缺" in fb, "→ 无「缺」字")
+        check(f"6 feedback 点名\u300c{name}\u300d", name in fb, "→ 未出现")
+    check("6 feedback 含缺失维度标注", "缺" in fb, "→ 无\u300c缺\u300d字")
     check("6 含 llm_inferred 标记要求", "llm_inferred" in fb)
-    check("6 含「禁止编造」约束", "禁止编造" in fb or "留空不写" in fb)
+    check("6 含\u300c禁止编造\u300d约束", "禁止编造" in fb or "留空不写" in fb)
     check("6 标注了轮次进度", "1/2" in fb, f"→ {fb[:60]}")
     # 旧空壳的占位串必须不再出现
     check("6 **未使用旧硬编码占位串**",
@@ -628,13 +628,13 @@ def case_cli_rounds_priority():
 def case_feedback_reaches_task():
     """端到端：定向 feedback 必须真的**写进 LLM 任务文件**。
 
-    ⚠️ case 6 只孤立调用 `build_auto_feedback` —— 它能证明「函数返回值是对的」，
-    但证明不了「`run_auto_thin` 真的把它传下去了」。若某次改动让
+    ⚠️ case 6 只孤立调用 `build_auto_feedback` —— 它能证明\u300c函数返回值是对的\u300d，
+    但证明不了\u300c`run_auto_thin` 真的把它传下去了\u300d。若某次改动让
     `run_auto_thin` 重新传占位串给 `run_refine`，case 6 依然全绿
     （它压根没进 `run_auto_thin`）。这条用例堵的就是这个缺口：
     直接读子会话**实际收到的任务文件**，断言角色名与缺失维度在里面。
 
-    这就是本项目的老毛病：**单测了「零件正确」，没测「零件被装上」**。
+    这就是本项目的老毛病：**单测了\u300c零件正确\u300d，没测\u300c零件被装上\u300d**。
     """
     print("\n【11】端到端：feedback 到达任务文件")
     root = build_sandbox("nf_sr_e2e_")
@@ -655,7 +655,7 @@ def cap_write(self, task_dir, name, body):
     return _orig_write(self, task_dir, name, body)
 fc.FakeClient.write_task = cap_write
 
-# 让子会话「什么都不做」：本轮必然无进展，闭环 1 轮即停，任务文件已捕获
+# 让子会话\u300c什么都不做\u300d：本轮必然无进展，闭环 1 轮即停，任务文件已捕获
 _orig_run = fc.FakeClient.run_task
 def noop(self, task_file, workdir=None, model=None):
     return {"exit_code": 0, "stdout_tail": "", "tokens": 100, "tokens_out": 50,
@@ -678,16 +678,16 @@ _ticket(ok=ok, name=nm, body=body, rounds=stats["rounds"])
     print(f"  任务文件={name} 长度={len(body)}")
     check("11 走的是 stage1_refine 模板", name == "stage1_refine.md", f"→ {name}")
     check("11 任务文件非空", len(body) > 200, f"→ {len(body)}")
-    # ⚠️ 判别力说明（实测）：下面三条「含角色名」断言**不判别** feedback 是否传对
+    # ⚠️ 判别力说明（实测）：下面三条“含角色名”断言**不判别** feedback 是否传对
     # —— `run_refine` 里的 `review_thin`（体检得出的 THIN 名单）会独立往模板里
     # 塞同样的名字。注入 D6（把占位串传给 run_refine）时这三条**仍然全绿**。
     # 真正判别的是随后三条：缺失维度 / 轮次进度 / 无占位串。
-    # 保留它们只为防「整体断链」，不要把它们当成定向 feedback 的证据。
+    # 保留它们只为防“整体断链”，不要把它们当成定向 feedback 的证据。
     for who in ("碎片甲", "碎片乙", "碎片丙"):
-        check(f"11 任务文件含角色名「{who}」", who in body, "→ 未出现")
+        check(f"11 任务文件含角色名\u300c{who}\u300d", who in body, "→ 未出现")
     check("11 任务文件含缺失维度标注（身份/定位 等）",
           "身份/定位" in body or "能力/特殊设定" in body, "→ 缺维度列表")
-    check("11 任务文件含定向箭头「→ 缺」（build_auto_feedback 独有形态）",
+    check("11 任务文件含定向箭头\u300c→ 缺\u300d（build_auto_feedback 独有形态）",
           "→ 缺" in body, "→ 未见定向清单")
     check("11 任务文件含 llm_inferred 约束", "llm_inferred" in body)
     check("11 任务文件含轮次进度", "1/1" in body, "→ 未见轮次")
@@ -702,7 +702,7 @@ def case_orchestrator_hook_callable():
     ## 为什么单独立一条
 
     orchestrator 的钩子被 `try/except Exception` 包着，只 print 一行
-    「设定补全(auto-thin) 失败（不影响流程）」。这意味着**签名不匹配、
+    \u300c设定补全(auto-thin) 失败（不影响流程）\u300d。这意味着**签名不匹配、
     导入失败、参数名写错**这类问题会**静默降级** —— 用户开了开关、
     看到流程正常结束，功能却从未生效。这是本项目最忌讳的失败模式。
 

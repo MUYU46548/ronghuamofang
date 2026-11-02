@@ -265,7 +265,7 @@ def collect_status(root: Path) -> dict:
             "token_cap": cap,
             "token_pct": (round(tokens_used / cap * 100, 2) if cap else None),
         }
-        # 待人工确认 = 「被 gates 要求审批」且「该阶段已完成」且「尚未审批」
+        # 待人工确认 = “被 gates 要求审批”且“该阶段已完成”且“尚未审批”
         # 判据走 approval_stages（单一来源）—— 否则陪跑模式下 stage1 本该显示待审批，
         # 这里却看不到（config 的 require_approval 里并没有 1）。
         from utils.approval_policy import approval_stages
@@ -325,7 +325,7 @@ def render_status(s: dict) -> str:
     lines = []
     lines.append("绒花墨坊 · %s" % (p.get("name") or "(未命名)"))
     if p.get("name_pending"):
-        lines.append("  ! 书名仍是「（待填写）」—— config/project.yaml 尚未填")
+        lines.append("  ! 书名仍是“（待填写）”—— config/project.yaml 尚未填")
     lines.append("  类型: %s   目标章数: %s   目标字数: %s" % (p.get("genre"), p.get("chapters"), p.get("target_words")))
     lines.append("  项目根: %s" % s["root"])
 
@@ -494,7 +494,7 @@ def _check_prompts(root: Path) -> dict:
     ok = not (missing or empty or suspect)
     detail = ("%d 个必需模板全部就位 · prompts/history 备份 %d 份" % (len(req), n_bak)
               if ok else "；".join(problems)
-              + "　恢复：GUI「提示词」页签选历史版本回滚，或 git checkout -- prompts/")
+              + "　恢复：GUI“提示词”页签选历史版本回滚，或 git checkout -- prompts/")
     return {"ok": ok, "required": len(req), "missing": missing, "empty": empty,
             "bad_frontmatter": badfm, "suspect_calls": sorted(suspect),
             "backups": n_bak, "detail": detail}
@@ -524,13 +524,13 @@ def collect_check(root: Path) -> dict:
     venv_py = root / ".venv" / "Scripts" / "python.exe"
     if installed:
         add("venv python", True,
-            "安装态不建 venv（设计如此）——以「当前解释器 PyYAML 可用」为准")
+            "安装态不建 venv（设计如此）——以“当前解释器 PyYAML 可用”为准")
     else:
         add("venv python", venv_py.exists(),
             str(venv_py) if venv_py.exists() else "缺失：%s" % venv_py, blocking=True)
 
     # 当前解释器（2026-10-06 试跑实锤）：裸 python 缺 PyYAML → orchestrator 开跑即崩，
-    # 却被误诊成「.venv 缺依赖」，一天炸五次。守卫切不动 venv 时这里必须显式阻塞。
+    # 却被误诊成“.venv 缺依赖”，一天炸五次。守卫切不动 venv 时这里必须显式阻塞。
     if has_yaml():
         add("当前解释器", True, "%s（PyYAML 可用）" % sys.executable)
     else:
@@ -570,7 +570,7 @@ def collect_check(root: Path) -> dict:
 
     # API Key（只看有无）。engine=hermes 时 LLM 走 agent 子会话（订阅流量），
     # 直连 Key 根本不参与运行 → 空 Key 阻塞是假红（2026-10-12 安装态实测：hermes 工作区
-    # 被这条恒拦成「有阻塞项不要开跑」）。direct 引擎照旧阻塞，语义不变。
+    # 被这条恒拦成“有阻塞项不要开跑”）。direct 引擎照旧阻塞，语义不变。
     from utils.engine import resolve_engine
     engine = resolve_engine(sysconf or {})
     key_state, wanted = _env_key_state(root)
@@ -589,20 +589,49 @@ def collect_check(root: Path) -> dict:
     scraps = _count_files(root / "materials" / "original_scraps")
     add("素材非空", cards + scraps > 0, "materials/raw %s 张 · original_scraps %s 条" % (cards, scraps), warning=True)
 
-    # GUI 文案标点（2026-11-02）：直角引号「」『』在 console/src 一律不许出现
+    # GUI 文案标点（2026-11-02）：直角引号“”‘’在 console/src 一律不许出现
     # （作者第 5 条：中文引号是“”‘’）。放进 check 是为了**几秒内抓到** ——
     # 全量测试要 5 分钟，而我连续四次把它写进 Vue 文件、每次都要等全量才发现。
     _bad_punct = []
     try:
-        for _p in sorted((root / "console" / "src").glob("*.vue")):
-            _t = _p.read_text(encoding="utf-8")
-            if any(c in _t for c in "\u300c\u300d\u300e\u300f"):
-                _bad_punct.append(_p.name)
+        _BAD = "\u300c\u300d\u300e\u300f"
+        # 全仓扫（2026-11-02 作者口径：直角引号不该出现在任何地方）。
+        # 有 git 就用索引（快且准，跳过 node_modules/dist）；安装态退回按目录扫。
+        _cand = []
+        try:
+            import subprocess as _sp
+            _out = _sp.run(["git", "-c", "core.quotepath=false", "ls-files", "-z"],
+                           cwd=str(root), capture_output=True, timeout=20)
+            if _out.returncode == 0:
+                _cand = [root / x for x in
+                         _out.stdout.decode("utf-8", "replace").split("\0") if x]
+        except Exception:                                # noqa: BLE001
+            _cand = []
+        if not _cand:
+            for _d in ("scripts", "console", "docs", "prompts", "tests", "skills", "config"):
+                for _p in (root / _d).rglob("*"):
+                    if {"node_modules", "dist", "__pycache__"} & set(_p.parts):
+                        continue
+                    _cand.append(_p)
+        for _p in _cand:
+            if not _p.is_file() or _p.suffix.lower() in (
+                    ".png", ".jpg", ".ico", ".docx", ".dotx", ".pdf", ".lock"):
+                continue
+            try:
+                _t = _p.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, OSError):
+                continue
+            if any(c in _t for c in _BAD):
+                try:
+                    _bad_punct.append(str(_p.relative_to(root)))
+                except ValueError:
+                    _bad_punct.append(_p.name)
     except Exception:                                    # noqa: BLE001
         pass
-    add("GUI 文案标点", not _bad_punct,
-        "无直角引号" if not _bad_punct else
-        "这些文件里有「」『』（应改“”）：" + "、".join(_bad_punct[:5]), blocking=True)
+    add("直角引号", not _bad_punct,
+        "全仓零命中" if not _bad_punct else
+        "%d 个文件里有直角引号（应改中文双引号）：%s"
+        % (len(_bad_punct), "、".join(_bad_punct[:5])), blocking=True)
 
     # 端口
     running = _api_running()
@@ -645,7 +674,7 @@ def render_check(c: dict) -> str:
 def collect_doctor(root: Path) -> dict:
     """数据一致性自检：产物完整性、章节文件一致性、成本记录完整性。
 
-    与 check 的区别：check 查「能不能跑」（环境），doctor 查「数据对不对」（产物）。
+    与 check 的区别：check 查“能不能跑”（环境），doctor 查“数据对不对”（产物）。
     """
     res = {"root": str(root), "items": [], "blocking": [], "warnings": []}
 
@@ -1062,7 +1091,7 @@ def run_tests(root: Path, pattern: str = "test_*.py", verbose: bool = False) -> 
     # 开头就把自己的 stdout 换成 UTF-8（项目惯例）→ 父进程按 cp936 解 UTF-8 字节，
     # **解码异常发生在读取线程里**：communicate() 返回 stdout=None，
     # 紧接着 `proc.stdout.splitlines()` 抛 AttributeError，被下面 except 记成
-    # 「错误: 'NoneType' object has no attribute 'splitlines'」。
+    # “错误: 'NoneType' object has no attribute 'splitlines'”。
     # 后果不是崩溃，而是**结果不可信**：那几个用例的通过/失败根本没读到，
     # 报告里只剩一句看不懂的 NoneType（实测 7 个用例命中，一度被当成"7 个测试挂了"）。
     # 修法用项目既有惯例：给子进程 PYTHONIOENCODING=utf-8 + 父进程按 utf-8 解码
@@ -1147,18 +1176,18 @@ def render_test_results(d: dict) -> str:
 
 # ---------------------------------------------------------------- main
 # ---------------------------------------------------------------------------
-# release-check：把「发版前必跑」的那串检查变成一条命令
+# release-check：把“发版前必跑”的那串检查变成一条命令
 #
 # 为什么需要：这些检查此前散在 CHANGELOG / AGENTS / 验收报告里，全靠人记着跑 ——
 # 而 e2e 视觉验收已经因此**长期潜伏红色**（2026-09-29 才发现它本机 0 通过）。
-# 「写在文档里的纪律」等于没有纪律，写成一条命令才算数。
+# “写在文档里的纪律”等于没有纪律，写成一条命令才算数。
 # ---------------------------------------------------------------------------
 
 E2E_PORTS = {"静态 8091": 8091, "假后端 8798": 8798, "冷启动 8797": 8797, "真后端 8799": 8799}
-# payload 里「用户可见入口」清单：任一与工作区不一致 → 包是旧的（改了代码没重打包）。
+# payload 里“用户可见入口”清单：任一与工作区不一致 → 包是旧的（改了代码没重打包）。
 # ⚠️ 清单要覆盖**改了就影响产物**的链路，不只是最外层几个入口 —— 2026-10-03 复核发现
 # 原清单只有 6 个文件，而当天改动的 llm_client / material_state / stage1 / stage4 /
-# orchestrator / 新增域模块全不在内，等于「改了半个产品、核验照样绿」。
+# orchestrator / 新增域模块全不在内，等于“改了半个产品、核验照样绿”。
 PAYLOAD_MUST_MATCH = [
     "scripts/nf_api.py", "scripts/nf_mcp.py",
     "scripts/nf_mcp_stdio_bridge.py", "scripts/nf_mcp_handshake_check.py",
@@ -1297,7 +1326,7 @@ def _check_prompt_factory(root, python_exe):
 
 
 def _dist_step(root):
-    """核对「装出来的包」是否仍与工作区一致 —— 抓「改了代码但没重打包」。"""
+    """核对“装出来的包”是否仍与工作区一致 —— 抓“改了代码但没重打包”。"""
     import hashlib
 
     dist = root / "console" / "dist"
@@ -1356,7 +1385,7 @@ def release_check(root: Path, skip_e2e: bool = False) -> dict:
                            [str(python_exe), str(root / "scripts" / "nf_mcp_handshake_check.py")],
                            root, 300))
 
-    # 出厂提示词副本（2026-10-31）：缺了就是「用户改坏后没保底」。判据只报不拦
+    # 出厂提示词副本（2026-10-31）：缺了就是“用户改坏后没保底”。判据只报不拦
     # —— 本地改过模板时差异是正常的，真正的失败是**缺副本**（那才无法还原）。
     steps.append(_check_prompt_factory(root, python_exe))
 
@@ -1409,7 +1438,7 @@ def _load_env_light(root: Path) -> None:
 
 
 def _mask_key(value: str) -> str:
-    """脱敏：前 3 后 4。长度不足 8 一律不显示（防「前后拼出全串」）。"""
+    """脱敏：前 3 后 4。长度不足 8 一律不显示（防“前后拼出全串”）。"""
     return (value[:3] + "..." + value[-4:]) if len(value) >= 8 else ("(已设置)" if value else "")
 
 
@@ -1435,7 +1464,7 @@ def _live_probe(base_url: str, key: str, model: str) -> tuple:
 
 
 def collect_model_check(root: Path, provider: str = None, live: bool = False) -> dict:
-    """检查「换模型 / 换供应商」这条通道是否真的通（离线；`--live` 才发请求）。
+    """检查“换模型 / 换供应商”这条通道是否真的通（离线；`--live` 才发请求）。
 
     ## 为什么值得单独做一条命令
 
@@ -1460,14 +1489,14 @@ def collect_model_check(root: Path, provider: str = None, live: bool = False) ->
     targets = [provider] if provider else list(providers)
     if provider and provider not in providers:
         return {"ok": False, "providers": [],
-                "issues": ["provider「%s」不存在（config/system.yaml 里只有：%s）"
+                "issues": ["provider“%s”不存在（config/system.yaml 里只有：%s）"
                            % (provider, "、".join(providers) or "无")],
                 "warnings": []}
 
     for pid in targets:
         prov = providers.get(pid)
         if not isinstance(prov, dict):
-            issues.append("provider「%s」配置不是字典，已跳过" % pid)
+            issues.append("provider“%s”配置不是字典，已跳过" % pid)
             continue
         base_url = str(prov.get("base_url") or "")
         key_env = str(prov.get("api_key_env") or "")
@@ -1497,13 +1526,13 @@ def collect_model_check(root: Path, provider: str = None, live: bool = False) ->
             ok = (mid in avail) if avail else None
             entry["roles"].append({"role": role, "model": mid, "in_available": ok})
             if ok is False:
-                issues.append("%s/%s：模型「%s」不在 available_models 内 → 调用时会 404"
+                issues.append("%s/%s：模型“%s”不在 available_models 内 → 调用时会 404"
                               "（本项目 404 是 raise，不走 fallback）" % (pid, role, mid))
 
         # ④ fallback 跨供应商
         for fm in fb:
             if avail and fm not in avail:
-                issues.append("%s：fallback 里的「%s」不在本 provider 的 available_models 内。"
+                issues.append("%s：fallback 里的“%s”不在本 provider 的 available_models 内。"
                               "fallback 复用**当前 provider** 的端点与 Key，"
                               "放别家模型名 = 一跳就 404 并吃掉整条链" % (pid, fm))
 
@@ -1537,7 +1566,7 @@ def collect_model_check(root: Path, provider: str = None, live: bool = False) ->
                 missing.append("%s→%s" % (role, mid))
         if missing:
             issues.append("模型白名单未覆盖：" + "、".join(missing) +
-                          "（GUI 切换默认 strict 校验会 400；请在「模型」页手动添加，"
+                          "（GUI 切换默认 strict 校验会 400；请在“模型”页手动添加，"
                           "或写进该 provider 的 available_models）")
         whitelist = {"size": len(allowed), "missing": missing}
     except Exception as e:                                    # noqa: BLE001
@@ -1632,7 +1661,7 @@ def main(argv=None):
     p_ho = sub.add_parser("handoff", parents=[common],
                           help="导出交接稿（第N章后；确定性拼装，零 token，可直接粘给任何模型）")
     p_ho.add_argument("--chapter", type=int, default=None,
-                      help="「第几章之后」（默认取已写最大章号；0 = 开局稿）")
+                      help="“第几章之后”（默认取已写最大章号；0 = 开局稿）")
     p_ho.add_argument("--print", dest="print_body", action="store_true",
                       help="把交接稿正文也打到 stdout（默认只报路径与缺料）")
     p_rel = sub.add_parser("release-check", parents=[common],

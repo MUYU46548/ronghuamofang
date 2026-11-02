@@ -14,7 +14,7 @@
 
 2026-10-25 实测就是这个分裂现场：活的 nf_api（Electron 起的）
 `GET /factory/presets` 正常返回 4 套预设，而同一台机器上终端里跑
-`find_presets_dir` 打印「找不到 examples/presets/」。**把整条预设能力
+`find_presets_dir` 打印“找不到 examples/presets/”。**把整条预设能力
 押在一个环境变量上，等于让同一个功能一半可用一半不行。**
 
 ## 安装布局是固定的，可以从位置反推

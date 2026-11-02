@@ -11,7 +11,7 @@
 覆盖（对应规格验收 1/2/4/6 的界面侧）：
 - 勾选条真的能勾/取消、预估按所选数量求和、按钮禁用条件正确
 - 常用组合：起名保存 → 下拉回填 → 勾选恢复
-- 勾「缺上游」的组合跑 → 后端 409 → 界面把三要素报缺摊出来（不跑一半）
+- 勾\u300c缺上游\u300d的组合跑 → 后端 409 → 界面把三要素报缺摊出来（不跑一半）
 - 导入：空路径禁用、坏路径报人话、真 docx 预检**不落盘**、确认后真落盘 + 显示回退点
 
 ## 自带夹具与服务
@@ -233,7 +233,7 @@ def main():
                         .count() == 0)
 
             def clear_quick():
-                """清空勾选。首屏会**自动预选**「下一个未完成阶段」（既有行为），
+                """清空勾选。首屏会**自动预选**\u300c下一个未完成阶段\u300d（既有行为），
                 不先清干净，后面的计数断言全是浮的 —— 这里把它当基线处理。"""
                 for _ in range(12):
                     if page.locator(".qstage.on").count() == 0:
@@ -275,7 +275,7 @@ def main():
             }""")
             check("快速运行容器无横向溢出（换行而非挤出边界）",
                   geo["overflow"] <= 2, geo)
-            check("主按钮「运行所选工序」渲染出真实尺寸",
+            check("主按钮\u300c运行所选工序\u300d渲染出真实尺寸",
                   geo["w"] > 40 and geo["h"] > 16, geo)
             run_btn.scroll_into_view_if_needed()
             page.wait_for_timeout(300)
@@ -314,8 +314,8 @@ def main():
                 dlg.locator("button.primary").first.click()
                 page.wait_for_timeout(1500)
             toast = _toast(page)
-            check("界面报「缺上游产物」", "缺上游产物" in toast, toast[:220])
-            check("报缺带三要素之「建议先跑」", "建议先跑" in toast, toast[:220])
+            check("界面报\u300c缺上游产物\u300d", "缺上游产物" in toast, toast[:220])
+            check("报缺带三要素之\u300c建议先跑\u300d", "建议先跑" in toast, toast[:220])
             check("没被误报成运行中", not page.locator(".pill.st-running").count(),
                   page.locator(".pill.st-running").count())
             ux.shot(page, "FREE4_preflight_blocked")

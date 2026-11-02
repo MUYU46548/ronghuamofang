@@ -7,8 +7,8 @@
 **Obsidian vault schema**（`type/tags/snippet/locked`），而真实流水线
 （`prompts/stage1_materials.md` + `fake_client._write_setting`）产出的是
 **stage1 schema**（`role/traits/relations`）。后果：注入给写作模型的任务里
-角色卡只剩「名字 + 一行裸 dict」，`role` 与 `traits` 全丢 —— 而
-`prompts/stage4_writing.md` 恰恰要求「角色言行符合设定集 traits 与 relations」。
+角色卡只剩\u300c名字 + 一行裸 dict\u300d，`role` 与 `traits` 全丢 —— 而
+`prompts/stage4_writing.md` 恰恰要求\u300c角色言行符合设定集 traits 与 relations\u300d。
 
 **为什么既有测试全绿**：唯一覆盖该函数的 `tests/e2e/test_all_tasks.py:71`
 用的夹具（`{"name","type","tags","snippet"}`）恰好是 vault schema，
@@ -16,7 +16,7 @@
 把那条路补上（否则修了也还是绿）。
 
 断言分五节：A 两种 schema 都能读全 / B 大纲解析 / C 别名与 id 匹配 /
-D 实体类型判定（治「480 个碎片角色」）/ E 反向判据（负例必须为空）。
+D 实体类型判定（治\u300c480 个碎片角色\u300d）/ E 反向判据（负例必须为空）。
 """
 import json
 import shutil
@@ -120,17 +120,17 @@ def main():
         ok("locked 条目，绝对不可违逆" in cards_v, "vault schema 的 locked 被识别")
 
         # ============================================================ B
-        print("\n[B] 大纲「涉及角色」解析（容忍 id 前缀与括号描述）")
+        print("\n[B] 大纲\u300c涉及角色\u300d解析（容忍 id 前缀与括号描述）")
         names = s4._involved_names("涉及角色：c001 苏芷（写病历）、小林（夜班护士）、观澜\n")
-        ok("苏芷" in names, "从 `c001 苏芷（写病历）` 拆出「苏芷」")
+        ok("苏芷" in names, "从 `c001 苏芷（写病历）` 拆出\u300c苏芷\u300d")
         ok("c001" in names, "同时保留 ASCII id 候选")
         ok("观澜" in names, "无描述项直接取出")
         ok("小林" in names, "纯中文 + 描述项可取出")
         ok(s4._involved_names("## 第1章\n（无涉及角色行）") == [],
-           "无「涉及角色」行 → 空列表（不误配）")
+           "无\u300c涉及角色\u300d行 → 空列表（不误配）")
 
         # ============================================================ C
-        print("\n[C] 别名 / id 匹配（防「恒为空」）")
+        print("\n[C] 别名 / id 匹配（防\u300c恒为空\u300d）")
         ok(ss.base_name("观澜（神序）") == "观澜", "base_name 剥括号后缀")
         ok(ss.base_name("苏芷 · 某形态") == "苏芷", "base_name 剥点号后缀")
         ok(ss.base_name("苏芷") == "苏芷", "base_name 对无后缀名不变")
@@ -138,29 +138,29 @@ def main():
                                         "role": "神序残片", "traits": ["沉默"]}]}
         sp, op = write_fixtures(tmp, setting_alias, "## 第1章\n涉及角色：观澜\n")
         ok("观澜（神序）" in s4._extract_character_cards_for_chapter(str(sp), str(op)),
-           "大纲写「观澜」能命中设定集「观澜（神序）」（别名根名匹配）")
+           "大纲写\u300c观澜\u300d能命中设定集\u300c观澜（神序）\u300d（别名根名匹配）")
         setting_id = {"characters": [{"id": "luxi", "name": "苏芷", "role": "研究员"}]}
         sp, op = write_fixtures(tmp, setting_id, "## 第1章\n涉及角色：luxi 苏芷\n")
         ok("苏芷" in s4._extract_character_cards_for_chapter(str(sp), str(op)),
            "按 id + 名匹配成功")
 
         # ============================================================ D
-        print("\n[D] 实体类型判定（治 material_review「480 个碎片角色」）")
+        print("\n[D] 实体类型判定（治 material_review\u300c480 个碎片角色\u300d）")
         ok(ss.is_character({"name": "苏芷", "role": "主角"}), "role=主角 → 是角色")
         ok(ss.is_character({"id": "c001", "name": "苏芷", "role": "研究员"}),
            "id 以 c 开头 → 是角色")
         ok(not ss.is_character({"name": "灰羽帝国魔法管制法", "role": "魔法管制法规"}),
-           "**「灰羽帝国魔法管制法」不再被当作角色**")
+           "**\u300c灰羽帝国魔法管制法\u300d不再被当作角色**")
         ok(not ss.is_character({"name": "XR-7型隐形空天战机", "role": "圣帝军装备的隐形战机"}),
-           "**「XR-7型隐形空天战机」不再被当作角色**")
+           "**\u300cXR-7型隐形空天战机\u300d不再被当作角色**")
         ok(not ss.is_character({"name": "盐引统计", "role": "帝国的盐引统计表"}),
-           "「盐引统计」不再被当作角色")
+           "\u300c盐引统计\u300d不再被当作角色")
         ok(not ss.is_character({"name": "鲸民之城（城邦）", "role": "鲸民族聚居城邦"}),
-           "「鲸民之城（城邦）」不再被当作角色")
+           "\u300c鲸民之城（城邦）\u300d不再被当作角色")
         ok(not ss.is_character({"name": "澄源司", "role": "帝国澄源司"}),
-           "「澄源司」不再被当作角色")
+           "\u300c澄源司\u300d不再被当作角色")
         ok(not ss.is_character({"name": "织术者公约会", "role": "织术者公约会"}),
-           "「织术者公约会」不再被当作角色")
+           "\u300c织术者公约会\u300d不再被当作角色")
         ok(ss.is_character({"name": "苏芷", "type": "角色卡"}),
            "显式 card_type=角色 → 是角色")
         ok(ss.is_character({"name": "某无字段条目"}, kind_hint="characters"),
@@ -174,7 +174,7 @@ def main():
         st_a = ss.normalize_setting({"characters": [
             {"name": "观澜", "role": "院长"}, {"name": "观澜（神序）", "role": "神序"}]})
         ok(st_a["alias_groups"].get("观澜") == ["观澜", "观澜（神序）"],
-           "别名分组识别「观澜 / 观澜（神序）」")
+           "别名分组识别\u300c观澜 / 观澜（神序）\u300d")
 
         # ============================================================ E
         print("\n[E] 反向判据：负例必须为空 / 不得误报")
@@ -194,7 +194,7 @@ def main():
         # ============================================================ F
         print("\n[F] 真实归档数据回归（设定库 vault 快照，只读）")
         # 这批数据是本判据的**唯一来源**：480 条，type 全空、locked 全假、
-        # tags 全空 —— 「显式字段判类型」对它完全不生效，只能靠 path 与名字。
+        # tags 全空 —— “显式字段判类型”对它完全不生效，只能靠 path 与名字。
         # 另有一个必须记住的事实：**每条目在数组里出现两次**
         # （build_setting_from_vault 把 concepts 与 all 一起展开，85 组完全重复）。
         snap = ROOT / "history" / "20260917_191317_stage2_done" / "data" / "setting" / "setting.json"
@@ -227,18 +227,18 @@ def main():
                 by_name.setdefault(c["name"], c)
             for who in ("苏芷", "观澜", "朱鸾", "塔洛斯", "潮神", "驭风者", "岑代"):
                 ok(by_name.get(who, {}).get("is_character") is True,
-                   f"真角色「{who}」判为角色")
+                   f"真角色\u300c{who}\u300d判为角色")
             for what in ("灰羽帝国魔法管制法", "XR-7型隐形空天战机", "盐引统计",
                          "鲸民之城", "澄源司", "折镜文明", "鲸民", "神明",
                          "幽堤", "苍荆", "云白", "涤蚀者", "植律骑士"):
                 ok(by_name.get(what, {}).get("is_character") is False,
-                   f"非人物「{what}」判为非角色")
+                   f"非人物\u300c{what}\u300d判为非角色")
 
-            # 索引页：path 无子目录 → 退回名字判据 → 「列表」拦下
+            # 索引页：path 无子目录 → 退回名字判据 → “列表”拦下
             ok(by_name.get("碎片角色列表", {}).get("is_character") is False,
-               "索引页「碎片角色列表」不被当作角色（path 判据留的缺口由词表补上）")
+               "索引页\u300c碎片角色列表\u300d不被当作角色（path 判据留的缺口由词表补上）")
 
-            # 反向：kind_hint 不得先于名字判据生效 —— 这条守着「修复空转」这个坑
+            # 反向：kind_hint 不得先于名字判据生效 —— 这条守着“修复空转”这个坑
             ok(ss.is_character({"name": "灰羽帝国魔法管制法"}, kind_hint="characters") is False,
                "**kind_hint=characters 不得覆盖名字判据**（修前正是它让词表空转）")
 

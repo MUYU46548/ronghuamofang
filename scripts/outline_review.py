@@ -77,17 +77,17 @@ def _load_names(setting_path):
 
 
 def _item_re(after):
-    """构造「条目 + 终止前瞻」的正则片段。
+    """构造“条目 + 终止前瞻”的正则片段。
 
     ⚠️ 2026-09-21 修 bug：终止前瞻原为 `(?=\\n\\s*[-*]|\\n##|\\Z)`，
-    **恒定漏掉每节的最后一个条目** —— 因为最后一条后面是「空行 + 下一节标题」
-    （`\\n\\n## `）或「换行 + 文件尾」，而 `\\n##` 要求紧邻换行后就是 `##`
+    **恒定漏掉每节的最后一个条目** —— 因为最后一条后面是“空行 + 下一节标题”
+    （`\\n\\n## `）或“换行 + 文件尾”，而 `\\n##` 要求紧邻换行后就是 `##`
     （`\\n\\n##` 不匹配）、`\\Z` 要求当前位置已在串尾（当前位置在 `\\n` 之前，也不匹配）。
 
     实测：写 5 个关键节点 / 5 条章节规划，解析结果**都是 4**。
 
     危害不小：`review()` 拿这个条数去做一致性检查
-    （「章节规划 N 条 ≠ 预计章节数 M」），于是**每次体检都误报一项 issue**，
+    （“章节规划 N 条 ≠ 预计章节数 M”），于是**每次体检都误报一项 issue**，
     用户被引导去"精修"一份其实完全正确的大纲。旧行为下这只是多打印一行；
     但一旦把 issue 当作失败信号（见 `refine_outline` 的假成功修复），
     它就会变成**假失败**。
@@ -175,7 +175,7 @@ def review(global_path, setting_path=None):
     node_items = []
     if node_sec:
         # 兼容三种格式：`- 节点N：...` / `- 节点N — ...` / `- 节点N ...`
-        # （前瞻已修「漏掉末条」的 bug，见 `_item_re` 的 docstring）
+        # （前瞻已修“漏掉末条”的 bug，见 `_item_re` 的 docstring）
         node_items = re.findall(_item_re(r"节点\s*\d+"),
                                 node_sec.group(0), re.S)
     for item in node_items:
@@ -245,20 +245,20 @@ def review(global_path, setting_path=None):
 
 # ---------------------------------------------------------------- 迭代收敛视图
 #
-# 2026-09-21 新增：回答「还要不要再迭代一轮」。
+# 2026-09-21 新增：回答“还要不要再迭代一轮”。
 #
 # 背景：`refine_outline` 每轮会把**修改前**的状态备份到
 # `history/global_v{N}.md`（N 从 1 递增），所以：
 #   - `history/global_v{N}.md` = 第 N 轮精修**之前**的大纲
 #   - `global.md`             = 最后一轮精修**之后**的大纲
-# 于是「与上一版对比」= 当前 `global.md` vs 编号最大的 `global_v{N}.md`。
+# 于是“与上一版对比”= 当前 `global.md` vs 编号最大的 `global_v{N}.md`。
 #
 # 全部确定性、零 token —— 只是把已有的 `review()` 跑在不同文件上。
 
 def _fingerprint(result, label="", path=""):
     """从一个 `review()` 结果抽出可比较的指标。
 
-    比较的**主键**是 `(issues, thin)` —— 二者都是「越小越好」：
+    比较的**主键**是 `(issues, thin)` —— 二者都是“越小越好”：
     `issues` 是硬性结构问题（已会让精修回报失败），`thin` 是信息密度不足的条目数。
     次键是 `avg_score`（条目平均分，越高越好），只在主键持平时用于细分方向。
     """
@@ -351,7 +351,7 @@ def compare_with_previous(global_path, setting_path=None,
     else:
         verdict = "regressed"
         advice = (f"本轮**反而变差**（问题数上升）。"
-                  f"建议回退：GUI「大纲」页签的「版本恢复」→ v{ver}，"
+                  f"建议回退：GUI“大纲”页签的“版本恢复”→ v{ver}，"
                   f"或 `python scripts/outline_panel.py --restore {ver}`。")
 
     return {"from_version": ver, "prev": prev, "cur": cur, "deltas": deltas,
@@ -394,7 +394,7 @@ def review_series(global_path, setting_path=None,
                   history_dir="data/outline/history"):
     """按版本顺序体检全部历史（v1..vN）+ 当前，返回指标列表。
 
-    这是「迭代 50 轮」视角：一眼看出每轮是否有进展。
+    这是“迭代 50 轮”视角：一眼看出每轮是否有进展。
     """
     series = []
     hist = Path(history_dir)
@@ -448,9 +448,9 @@ def print_trend(series):
         print("[outline_review] 无版本记录（先跑 stage2 或 refine_outline）")
         return
     print("[outline_review] 迭代趋势（每行 = 一个版本；key = 问题数 + 碎片数，越小越好）")
-    # 列名刻意叫「单版体检」而不是「判定」：它是**该版本自身**的 PASS/WARN/FAIL
-    # （「有碎片即 FAIL」），与底部**跨版本**的收敛判定（done/stalled/...）不是一回事，
-    # 混用同一个词会让人误读成「整个迭代失败」。
+    # 列名刻意叫“单版体检”而不是“判定”：它是**该版本自身**的 PASS/WARN/FAIL
+    # （“有碎片即 FAIL”），与底部**跨版本**的收敛判定（done/stalled/...）不是一回事，
+    # 混用同一个词会让人误读成“整个迭代失败”。
     print(f"  {'版本':<14}{'条目':>5}{'OK':>4}{'WARN':>5}{'THIN':>5}"
           f"{'问题':>5}{'平均分':>7}{'单版体检':>9}")
     for e in series:
@@ -530,7 +530,7 @@ def main():
                         help="版本备份目录（用于对比与趋势）")
     parser.add_argument("--quiet", action="store_true", help="仅打印结论，不写报告")
     parser.add_argument("--trend", action="store_true",
-                        help="打印全部版本的迭代趋势 + 收敛判断（回答「还要不要再来一轮」）")
+                        help="打印全部版本的迭代趋势 + 收敛判断（回答“还要不要再来一轮”）")
     parser.add_argument("--no-compare", action="store_true",
                         help="跳过与上一版的对比")
     args = parser.parse_args()

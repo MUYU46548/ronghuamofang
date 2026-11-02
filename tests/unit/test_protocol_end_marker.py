@@ -3,19 +3,19 @@
 
 ## 雷是什么
 
-**雷 ①（产物污染）**：`parse_ops` 旧实现要求「OP 块后面必须找得到 `END_RE`」，
+**雷 ①（产物污染）**：`parse_ops` 旧实现要求\u300cOP 块后面必须找得到 `END_RE`\u300d，
 找不到就**整块丢弃**。模型漏写结束标记时 ops 为空 → `_apply_ops` 的兜底把
 **整段模型输出**（含 `===FILE:` 标记行与绝对路径）写进章节文件。
 实证：`data/chapters/raw/01.md` 首行就是 `===FILE: E:\\...\\01.md===`。
 
 **雷 ②（阶段空转仍报成功）**：`END_RE` 只认 `===END===`，而
 `prompts/stage5_check.md` 教模型写 `===END FILE===` → stage5 每一批的块
-**全部被丢弃** → 走「复制 raw → checked」兜底 → 打印「逻辑检查完成，报告:
-data/outline/check_report.md」，**而该报告从未落盘**（实测不存在），
+**全部被丢弃** → 走\u300c复制 raw → checked\u300d兜底 → 打印\u300c逻辑检查完成，报告:
+data/outline/check_report.md\u300d，**而该报告从未落盘**（实测不存在），
 `checked/03.md` 与 `raw/03.md` 逐字节相同。
 
 两个雷的共同教训：**判据写两遍（提示词一份、解析器一份）必然漂移**；
-且「空结果」被当成「通过」。本文件把这两条都钉住。
+且\u300c空结果\u300d被当成\u300c通过\u300d。本文件把这两条都钉住。
 
 用法：python tests/unit/test_protocol_end_marker.py（零 LLM、零网络）
 """
@@ -267,7 +267,7 @@ def case_stage5_warns():
     else:
         check("P5 兜底复制会在返回消息里显式告警（不再只是行内日志）",
               "未经检查" in a["msg"], f"→ {a['msg'][:160]}")
-        check("P5 报告缺失会被点出（旧实现照打「报告: check_report.md」）",
+        check("P5 报告缺失会被点出（旧实现照打\u300c报告: check_report.md\u300d）",
               "check_report.md" in a["msg"] and "缺失" in a["msg"], f"→ {a['msg'][:160]}")
         check("P5 警告写进 progress 状态（GUI/审计可见）",
               bool(a["warning"]), f"→ {a}")
@@ -281,7 +281,7 @@ def case_stage5_warns():
     if b is None:
         check("P5 场景B 子进程产出结果", False, f"{out_b[-300:]} {err_b[-300:]}")
     else:
-        check("P5 章节有效时不再报「未经检查」", "未经检查" not in b["msg"],
+        check("P5 章节有效时不再报\u300c未经检查\u300d", "未经检查" not in b["msg"],
               f"→ {b['msg'][:160]}")
         check("P5 但报告缺失仍然报出来", "check_report.md" in b["msg"],
               f"→ {b['msg'][:160]}")

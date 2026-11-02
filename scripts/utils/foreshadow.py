@@ -12,8 +12,8 @@
 
 只用两个**确定性**入口，不调模型：
 
-1. **章大纲的「悬念钩子」字段**（v0.7.2 已强制，缺字段 stage3 判不合格）→ 一条候选伏笔。
-2. 后续章大纲的「核心事件」「小目标」文本 → 用 bigram 重合判断"这条线有没有被推进"。
+1. **章大纲的“悬念钩子”字段**（v0.7.2 已强制，缺字段 stage3 判不合格）→ 一条候选伏笔。
+2. 后续章大纲的“核心事件”“小目标”文本 → 用 bigram 重合判断"这条线有没有被推进"。
 
 **回收不自动判定**：文本相似不等于"解决了"。自动判回收会让台账变成谎话。
 `closed` / `abandoned` 由作者在界面上标（人工标记**压过**机器判定，与素材裁决同口径）。
@@ -41,7 +41,7 @@ DEFAULT_STALE_AFTER = 30
 MIN_OVERLAP = 2
 MIN_COVER = 0.15
 
-_PUNCT = re.compile(r"[\s，。！？；：、“”‘’「」『』\"'（）()…—·,.!?;:]+")
+_PUNCT = re.compile(r"[\s，。！？；：、“”‘’\u300c\u300d\u300e\u300f\"'（）()…—·,.!?;:]+")
 
 
 def _grams(text):
@@ -113,7 +113,7 @@ def collect(outline_dir=None, stale_after=None, latest_chapter=None):
     if not chapters:
         return {
             "items": [], "notes": [
-                "没有章大纲（%s 为空）—— 伏笔台账从章大纲的「悬念钩子」抽取，"
+                "没有章大纲（%s 为空）—— 伏笔台账从章大纲的“悬念钩子”抽取，"
                 "先把阶段 3 跑出来。" % str(outline_dir).replace("\\", "/")],
             "summary": {"total": 0, "open": 0, "advanced": 0,
                         "closed": 0, "abandoned": 0, "stale": 0},
@@ -169,10 +169,10 @@ def collect(outline_dir=None, stale_after=None, latest_chapter=None):
     }
     notes = []
     if not items:
-        notes.append("章大纲里一条「悬念钩子」都没有 —— 阶段 3 的大纲要么是旧的（缺该字段），"
+        notes.append("章大纲里一条“悬念钩子”都没有 —— 阶段 3 的大纲要么是旧的（缺该字段），"
                      "要么钩子写得太空（少于 6 字会被判不合格）")
     if summary["stale"]:
-        notes.append("有 %d 条线索超过 %d 章没推进 —— 要么回收，要么明确标「已放弃」，"
+        notes.append("有 %d 条线索超过 %d 章没推进 —— 要么回收，要么明确标“已放弃”，"
                      "悬着最伤人" % (summary["stale"], stale_after))
     return {"items": items, "notes": notes, "summary": summary,
             "stale_after": stale_after, "latest_chapter": latest}
@@ -197,7 +197,7 @@ def set_status(fid, status, reason="", **kw):
     if not item:
         return False, "没有这条伏笔: %s（先刷新台账，可能是章大纲改了）" % fid
     if status in ("closed", "abandoned") and not str(reason or "").strip():
-        return False, "标记「%s」必须写理由（否则以后没人知道为什么）" % status
+        return False, "标记“%s”必须写理由（否则以后没人知道为什么）" % status
     data = _load_status()
     data[fid] = {
         "status": status,

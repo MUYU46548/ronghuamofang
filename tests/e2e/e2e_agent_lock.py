@@ -1,17 +1,17 @@
 # -*- coding: utf-8 -*-
 """Agent 模式运行锁的真机视觉验收（Playwright）——2026-10-17 用户拍板项。
 
-用户口径：「Agent 模式下常规运行的按钮应该锁死防止误操作」。锁的是**运行类**入口
+用户口径：\u300cAgent 模式下常规运行的按钮应该锁死防止误操作\u300d。锁的是**运行类**入口
 （下一步 / 全自动 / 流式全自动 / Word 成品 / 运行所选工序 / 阶段行运行 / 失败重试 /
 Space 快捷键 / 命令面板），审批 / 打回 / 停止不受影响（那几件事只归桌面端）。
 
 本用例证闭环（按钮"看着禁用"不够，函数层也必须锁）：
-1. agent_mode=true 时上述按钮逐个真的 `disabled`，agent 栏写明「已锁定（防双跑）」；
+1. agent_mode=true 时上述按钮逐个真的 `disabled`，agent 栏写明\u300c已锁定（防双跑）\u300d；
 2. **按钮之外的路径也锁得住**：Space 快捷键直接调函数 → 吃到锁定 toast（双保险）；
-3. 锁不影响审批族：存在待审批门时「执行下一步」（approve 类）保持可用；
-4. 「复制任务」简报通道改道：HTTP 提为首选、CLI 行带 runtime_python、无裸 python、
+3. 锁不影响审批族：存在待审批门时\u300c执行下一步\u300d（approve 类）保持可用；
+4. \u300c复制任务\u300d简报通道改道：HTTP 提为首选、CLI 行带 runtime_python、无裸 python、
    无成对花括号（外部 Agent 的停下判据）；
-5. 产品自带开关真能解锁：点 agent 栏「关闭」→ 按钮恢复可用（锁不是永久的）；
+5. 产品自带开关真能解锁：点 agent 栏\u300c关闭\u300d→ 按钮恢复可用（锁不是永久的）；
 6. `/state` 形态自报：form ∈ {source, installed}、runtime_python 指向真实解释器。
 
 ## 自带夹具与服务
@@ -236,19 +236,19 @@ def main():
             btn_stream = page.locator(".flow-next button:text-is('流式全自动')")
             btn_word = page.locator(".flow-next button:text-is('📄 Word 成品')")
             btn_quick = page.locator(".flow-quick button:has-text('运行所选工序')")
-            check("「执行下一步」禁用（下一步=运行类）", btn_next.is_disabled())
-            check("「全自动」禁用", btn_all.is_disabled())
-            check("「流式全自动」禁用", btn_stream.is_disabled())
-            check("「Word 成品」禁用", btn_word.is_disabled())
-            check("「运行所选工序」禁用", btn_quick.is_disabled())
+            check("\u300c执行下一步\u300d禁用（下一步=运行类）", btn_next.is_disabled())
+            check("\u300c全自动\u300d禁用", btn_all.is_disabled())
+            check("\u300c流式全自动\u300d禁用", btn_stream.is_disabled())
+            check("\u300cWord 成品\u300d禁用", btn_word.is_disabled())
+            check("\u300c运行所选工序\u300d禁用", btn_quick.is_disabled())
             check("锁定按钮带解释性 tooltip（不是无名禁用）",
                   "Agent 模式" in (btn_all.get_attribute("title") or ""))
             ux.shot(page, "LOCK1_flowbar_locked")
 
-            # 阶段行「运行」也锁
+            # 阶段行“运行”也锁
             row_run = page.locator(".stage-actions button:text-is('运行')")
-            check("阶段行「运行」按钮在场", row_run.count() >= 1, row_run.count())
-            check("阶段行「运行」全部禁用",
+            check("阶段行\u300c运行\u300d按钮在场", row_run.count() >= 1, row_run.count())
+            check("阶段行\u300c运行\u300d全部禁用",
                   all(row_run.nth(i).is_disabled() for i in range(row_run.count())))
 
             # ---------- 按钮之外的路径：Space 快捷键（函数级双保险） ----------
@@ -262,7 +262,7 @@ def main():
 
             # ---------- 复制任务简报：通道改道（F2） ----------
             copy_btn = page.locator(".stage-actions button:has-text('复制任务')")
-            check("「复制任务」按钮在场（agent 模式专属）", copy_btn.count() >= 1, copy_btn.count())
+            check("\u300c复制任务\u300d按钮在场（agent 模式专属）", copy_btn.count() >= 1, copy_btn.count())
             copy_btn.first.click()
             page.wait_for_timeout(600)
             brief = page.evaluate("navigator.clipboard.readText()")
@@ -282,7 +282,7 @@ def main():
             page.locator("button[title='全局刷新（所有页签数据）']").click()
             page.wait_for_timeout(900)
             btn_next2 = page.locator(".flow-next button:text-is('⏎ 执行下一步')")
-            check("审批门出现后「执行下一步」恢复可用（approve 类不锁）",
+            check("审批门出现后\u300c执行下一步\u300d恢复可用（approve 类不锁）",
                   not btn_next2.is_disabled())
             # 运行类仍然锁（对照：锁的是行为，不是全局禁用）
             check("同时运行类按钮仍锁", page.locator(
@@ -293,9 +293,9 @@ def main():
             page.locator(".agent-bar button:has-text('关闭')").click()
             page.wait_for_timeout(1200)
             check("关掉 Agent 模式后 ⚡ 徽标消失", page.locator(".agent-mode-badge").count() == 0)
-            check("解锁后「全自动」恢复可用",
+            check("解锁后\u300c全自动\u300d恢复可用",
                   not page.locator(".flow-next button:text-is('全自动')").is_disabled())
-            check("解锁后「执行下一步」恢复可用",
+            check("解锁后\u300c执行下一步\u300d恢复可用",
                   not page.locator(".flow-next button:text-is('⏎ 执行下一步')").is_disabled())
             ux.shot(page, "LOCK4_unlocked")
 

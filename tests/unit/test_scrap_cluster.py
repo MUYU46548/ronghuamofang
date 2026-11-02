@@ -94,11 +94,11 @@ def case_timestamp():
           by_name["无日期随便写写.md"].ts_source == "mtime"
           and by_name["无日期随便写写.md"].ts is not None)
     b4 = by_name["0312.md"]
-    check("文件名是纯数字 0312 → 按「月日」解出（自由命名常见写法）",
+    check("文件名是纯数字 0312 → 按\u300c月日\u300d解出（自由命名常见写法）",
           b4.ts.endswith("-03-12") and b4.ts_source == "filename" and b4.ts_partial,
           (b4.ts, b4.ts_source, b4.ts_partial))
     b8 = by_name["20250406.md"]
-    check("文件名是纯数字 20250406 → 按「年月日」解出",
+    check("文件名是纯数字 20250406 → 按\u300c年月日\u300d解出",
           b8.ts == "2025-04-06" and not b8.ts_partial, b8.ts)
     check("数字出现在名字中间时不被当日期（防误判）",
           by_name["第0312条草稿.md"].ts_source == "mtime",
@@ -168,7 +168,7 @@ def case_negative_clustering():
 
 
 def case_negation():
-    print("\n=== 4b. 排除性语境：「这和X无关」不应被当成关于X的证据 ===")
+    print("\n=== 4b. 排除性语境：\u300c这和X无关\u300d不应被当成关于X的证据 ===")
     d = make_dir()
     write(Path(d) / "甲.md", "潮神造了鲸民。\n")
     write(Path(d) / "乙.md", "鲸民密室的钥匙在谁手里。\n")
@@ -177,12 +177,12 @@ def case_negation():
     clusters = {c["name"]: c for c in index["clusters"]}
     bing = next(c for c in index["clusters"] if "丙.md" in [s["name"] for s in c["scraps"]])
     check("丙 未被并进潮神簇（否定词已被剔除）", bing["count"] == 1, bing["count"])
-    check("丙 的关键词里不含被否定的「潮神」",
+    check("丙 的关键词里不含被否定的\u300c潮神\u300d",
           "潮神" not in bing["scraps"][0]["keywords"], bing["scraps"][0]["keywords"])
     check("被剔除的否定词被透明记录（可人工复核）",
           "潮神" in bing["scraps"][0]["negated"], bing["scraps"][0]["negated"])
     ab = next((c for c in index["clusters"] if "甲.md" in [s["name"] for s in c["scraps"]]), None)
-    check("甲/乙 仍因共享「鲸民」合并", ab and ab["count"] == 2, ab and ab["count"])
+    check("甲/乙 仍因共享\u300c鲸民\u300d合并", ab and ab["count"] == 2, ab and ab["count"])
     shutil.rmtree(d, ignore_errors=True)
 
 

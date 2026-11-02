@@ -34,7 +34,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from utils.file_io import read_text, write_text
 # locked 语义与别名根名的**唯一实现**在 setting_schema（不在本文件重写一份）。
-# obsidian 节配置读取（含 system.local.yaml 本地覆盖，拍板③「手动指定」载体）
+# obsidian 节配置读取（含 system.local.yaml 本地覆盖，拍板③“手动指定”载体）
 # 也**单源**在 setting_schema——本文件不自持副本，防两处漂移（A1 修复）。
 from utils.setting_schema import (
     base_name, is_locked, is_character, is_uninjectable,
@@ -43,7 +43,7 @@ from utils.setting_schema import (
 )
 
 # 默认配置（被 config/system.yaml 的 obsidian 节点覆盖）
-# 刻意**不设**任何用户本机绝对路径：vault 未配置时视为「未启用联动」，
+# 刻意**不设**任何用户本机绝对路径：vault 未配置时视为“未启用联动”，
 # 沙盒未配置时回落到项目内目录，保证开箱即用且不泄露任何私人路径。
 DEFAULT_VAULT_PATH = ""
 DEFAULT_SANDBOX_DIR = "data/state/obsidian_sandbox"
@@ -61,11 +61,11 @@ def _load_obsidian_config():
 def get_vault_path():
     """获取 vault 路径（未配置时为 None）。
 
-    未配置（空）时返回 None —— 调用方应视为「未启用 Obsidian 联动」，
+    未配置（空）时返回 None —— 调用方应视为“未启用 Obsidian 联动”，
     而不是回落到某个写死的本机路径（那会让其他用户开箱即失败）。
 
     注意：**不要**返回 `Path("")` —— 它 str() 后是 `"."`（当前目录），
-    会让「是否已配置」的判断永远为真，从而把未启用误判为已启用。
+    会让“是否已配置”的判断永远为真，从而把未启用误判为已启用。
     """
     cfg = _load_obsidian_config()
     raw = (cfg.get("vault_path") or DEFAULT_VAULT_PATH or "").strip()
@@ -91,7 +91,7 @@ def is_vault_configured():
 def scan_vault_preview(vault_path=None):
     """扫描面预览：vault 顶层目录清单 + 各自 .md 数 + 是否被排除。
 
-    给 GUI「知识库扫描」用 —— 用户看到自己的库长什么样、哪些被排除了，
+    给 GUI“知识库扫描”用 —— 用户看到自己的库长什么样、哪些被排除了，
     勾掉不要的再保存。
 
     **通用性铁律（2026-10-24 定）**：本函数只回答"你库里有哪些目录、各多少篇、
@@ -158,10 +158,10 @@ def scan_vault_preview(vault_path=None):
 
 # 路径**不进模块级缓存**（2026-10-31 修，与 skip_dirs 同一处坑）。
 #
-# 原实现是「首次调用即固化」：`_vault_path` 一旦被赋值，进程内就不再重读配置。
-# 界面新加的「填库路径」保存后，`scan_vault()` 仍旧扫旧库，而且**一句提示都没有**
+# 原实现是“首次调用即固化”：`_vault_path` 一旦被赋值，进程内就不再重读配置。
+# 界面新加的“填库路径”保存后，`scan_vault()` 仍旧扫旧库，而且**一句提示都没有**
 # —— 与 2026-10-31 修掉的 `_skip_dirs` 快照是同一个病（那次用户已经怀疑过
-# 「排除项是不是没生效」）。
+# “排除项是不是没生效”）。
 #
 # `setting_schema.load_obsidian_config()` 自带配置缓存，所以每次调用并不贵；
 # 需要强制重读配置时仍走 `_reload_config()`（它只清缓存）。
@@ -187,11 +187,11 @@ def _reload_config():
 # obsidian.skip_dirs 里追加——发布物零私人痕迹（拍板③）。
 #
 # ⚠️ 2026-10-31：这里**刻意不再缓存**（原来 `_skip_dirs = get_skip_dirs()` 在
-# import 时求值一次）。那个模块级快照造成了「界面显示已排除、实际仍被检索」：
+# import 时求值一次）。那个模块级快照造成了“界面显示已排除、实际仍被检索”：
 #   · `scan_vault_preview` 每次调 get_skip_dirs() → 用户一点保存，预览面立刻变小；
 #   · `scan_vault`（设定集导入的真源）用模块级快照 → 进程不重启就一直是旧集合。
-# 用户 2026-10-30 的原话是「不确定是否真的生效」—— 他的怀疑是对的，且**不是**配置写错。
-# 判据：凡「用户改了配置要立刻生效」的读取点，都必须在**调用时**取值
+# 用户 2026-10-30 的原话是“不确定是否真的生效”—— 他的怀疑是对的，且**不是**配置写错。
+# 判据：凡“用户改了配置要立刻生效”的读取点，都必须在**调用时**取值
 # （与 utils/kb_index.py 同源同口径：那边一直是实时读，从未出过这个毛病）。
 
 # frontmatter 键
@@ -290,14 +290,14 @@ def scan_vault(vault_path=None):
 
     # 排除集合**在调用时取**（不是 import 时的模块级快照）——
     # 用户在 GUI 勾掉一个目录后，下一次 scan_vault 就必须跟着变。
-    # 见上方 `_skip_dirs` 变量处的说明（2026-10-31 修「界面已排除、实际仍收」）。
+    # 见上方 `_skip_dirs` 变量处的说明（2026-10-31 修“界面已排除、实际仍收”）。
     skip = get_skip_dirs()
 
     # 角色目录。⚠️ 2026-09-21 修复**跨类目污染与重复**：
     # 原写法把**父目录**（设定根）也放进列表并配 `rglob`，于是它递归扫到了
     # 地点/概念等兄弟类目，把地点名、法规名这类条目也当成角色，
     # 且角色目录下的条目被扫两遍（各重复一次）—— 实测一个小 vault 就扫出重复角色，
-    # 加上了若干本该归 world 的条目。这正是归档数据「characters 数组里大半不是人」
+    # 加上了若干本该归 world 的条目。这正是归档数据“characters 数组里大半不是人”
     # 的生产者侧根因。
     #
     # 现在**只认角色目录**（rglob，它有子类目）。这与 `utils.setting_schema.path_kind`
@@ -307,7 +307,7 @@ def scan_vault(vault_path=None):
     # 刻意**不把设定根放进角色列表**：直接躺在设定根下的松散文件
     # （总纲/说明/索引页）绝大多数不是人物，归入 world 更合理（见下）。
     # 早先版本把父目录同时放进 char/world 两处，靠"角色优先"的排除规则决出归属，
-    # 会把「散装说明」这类条目判成角色。
+    # 会把“散装说明”这类条目判成角色。
     vd = get_vault_dirs()
 
     def _sub(rel):
@@ -315,7 +315,7 @@ def scan_vault(vault_path=None):
         return Path(vault, *[s for s in str(rel).replace("\\", "/").split("/") if s])
 
     def _root_of(rel):
-        """目录键的第一段（「设定/人物」→「设定」）：世界观散装兜底与角色根同源。"""
+        """目录键的第一段（“设定/人物”→“设定”）：世界观散装兜底与角色根同源。"""
         seg = [s for s in str(rel).replace("\\", "/").split("/") if s]
         return seg[0] if seg else ""
 
@@ -325,7 +325,7 @@ def scan_vault(vault_path=None):
               "——若与你的 vault 结构不符，请在 config/system.yaml 或 "
               "config/system.local.yaml 的 obsidian.vault_dirs 填真实目录。")
 
-    # 角色根 = vault_dirs.characters（默认「设定/人物」；用户真实结构走本地覆盖）。
+    # 角色根 = vault_dirs.characters（默认“设定/人物”；用户真实结构走本地覆盖）。
     char_dirs = [
         (_sub(vd["characters"]), True),
     ]
@@ -344,7 +344,7 @@ def scan_vault(vault_path=None):
             fm, body_start = _parse_frontmatter(text)
             body = text[body_start:]
             # 空骨架页（模板占位 / 空文件）没有可注入的内容 —— 通用判据，
-            # 不依赖任何目录名或文件名（旧版按「文件名含索引/模板」猜，
+            # 不依赖任何目录名或文件名（旧版按“文件名含索引/模板”猜，
             # 实测会误杀 13 个真设定词条）
             if is_uninjectable(body):
                 continue
@@ -402,7 +402,7 @@ def scan_vault(vault_path=None):
             })
 
     # 世界观目录。同样：类目 rglob，父目录仅 glob（见上面的污染说明）。
-    # 设定根兜底 = characters 键的第一段（「设定/人物」→「设定」），与角色根同源。
+    # 设定根兜底 = characters 键的第一段（“设定/人物”→“设定”），与角色根同源。
     world_dirs = [
         (_sub(vd["locations"]), True),
         (_sub(vd["factions"]), True),
@@ -423,7 +423,7 @@ def scan_vault(vault_path=None):
             fm, body_start = _parse_frontmatter(text)
             body = text[body_start:]
             # 空骨架页（模板占位 / 空文件）没有可注入的内容 —— 通用判据，
-            # 不依赖任何目录名或文件名（旧版按「文件名含索引/模板」猜，
+            # 不依赖任何目录名或文件名（旧版按“文件名含索引/模板”猜，
             # 实测会误杀 13 个真设定词条）
             if is_uninjectable(body):
                 continue
@@ -459,7 +459,7 @@ def scan_vault(vault_path=None):
                 "source": "vault",
             })
 
-    # 时间线目录 = vault_dirs.timeline（默认「年表」）
+    # 时间线目录 = vault_dirs.timeline（默认“年表”）
     timeline_dir = _sub(vd["timeline"])
     if not timeline_dir.exists():
         _warn_missing(timeline_dir, "timeline", vd["timeline"])
@@ -474,7 +474,7 @@ def scan_vault(vault_path=None):
             fm, body_start = _parse_frontmatter(text)
             body = text[body_start:]
             # 空骨架页（模板占位 / 空文件）没有可注入的内容 —— 通用判据，
-            # 不依赖任何目录名或文件名（旧版按「文件名含索引/模板」猜，
+            # 不依赖任何目录名或文件名（旧版按“文件名含索引/模板”猜，
             # 实测会误杀 13 个真设定词条）
             if is_uninjectable(body):
                 continue
@@ -505,8 +505,8 @@ def scan_vault(vault_path=None):
 
     # 去重 + 跨类目排除。
     # 去重键用 `path` 而非 `name`：同名异实体是合法的
-    # （真实数据里「鲸民」是种族、「鲸民之城」是地点）。
-    # 排除是为了防「同一个文件既算角色又算世界观」——父目录 glob 与类目 rglob
+    # （真实数据里“鲸民”是种族、“鲸民之城”是地点）。
+    # 排除是为了防“同一个文件既算角色又算世界观”——父目录 glob 与类目 rglob
     # 理论上不相交，但配置变更/符号链接下可能重叠，这里显式兜住。
     _seen = set()
     _uniq_chars = []
@@ -621,7 +621,7 @@ def inject_context(query, vault_data=None, top_k=5, max_chars=500):
 # ---------------------------------------------------------------- locked 违例（2026-10-01）
 
 def _iter_setting_entries(setting):
-    """设定集 → [(来源区块, 条目)]。只取顶层「list of dict」区块。
+    """设定集 → [(来源区块, 条目)]。只取顶层“list of dict”区块。
 
     刻意**不递归**：设定集是 `{"characters": [...], "world": [...],
     "timeline": [...]}` 这样的结构，locked 条目就躺在这些列表里。
@@ -640,7 +640,7 @@ def _iter_setting_entries(setting):
 
 
 def _norm_path(p):
-    """路径归一（只用于「是不是同一条目」的判定，不用于写盘）。"""
+    """路径归一（只用于“是不是同一条目”的判定，不用于写盘）。"""
     return str(p or "").replace("/", "\\").strip().strip("\\").lower()
 
 
@@ -648,7 +648,7 @@ def _match_setting_entry(entries, path=None, name=None):
     """在设定集条目里找匹配项。优先级：vault `path` → `name` → 别名根名。
 
     抽成函数是为了让 `check_locked_violations` 与 `sync_diff` 用**同一份**匹配判据
-    —— 本仓吃过「判据复制 N 份 = 同一 bug 修两遍只修一处」的亏（见 MEMORY）。
+    —— 本仓吃过“判据复制 N 份 = 同一 bug 修两遍只修一处”的亏（见 MEMORY）。
     返回 `(来源区块, 条目, 命中方式)` 或 `None`。
     """
     lpath = _norm_path(path)
@@ -672,16 +672,16 @@ def _match_setting_entry(entries, path=None, name=None):
 def check_locked_violations(vault_data=None, setting_path=None):
     """确定性检查：vault 里 `locked=true` 的条目是否在最终设定集中被删除 / 丢锁定 / 改名。
 
-    ## 诚实边界：只能做「结构性违逆」
+    ## 诚实边界：只能做“结构性违逆”
 
-    「locked 不可违逆」的**完整**语义是"不许与它冲突"（语义级）——机器判不了
+    “locked 不可违逆”的**完整**语义是"不许与它冲突"（语义级）——机器判不了
     "本章事实是否与 locked 设定矛盾"，硬做只会产出噪音。但违逆有几种
     **结构性**表现是确定可判的，本函数只做这几种：
 
     | type | 判据 | 真实危害 |
     |---|---|---|
     | `missing` | locked 条目在设定集里**找不到**（依次按 vault path / name / 别名根名匹配） | stage1 归并把硬约束条目弄丢 |
-    | `lock_lost` | 条目还在，但 `locked` 标志**不为真** | 角色卡不再打印「⚠ 不可违逆」→ **静默降级** |
+    | `lock_lost` | 条目还在，但 `locked` 标志**不为真** | 角色卡不再打印“⚠ 不可违逆”→ **静默降级** |
     | `renamed` | 设定集里同 vault path 的条目**换了名字** | 改名绕过硬约束 |
 
     ## ⚠️ 空结果 ≠ 通过
@@ -730,7 +730,7 @@ def check_locked_violations(vault_data=None, setting_path=None):
         if hit is None:
             result["violations"].append({
                 "type": "missing", "name": lname, "path": lpath,
-                "detail": ("locked 条目「" + (lname or lpath) + "」在最终设定集中"
+                "detail": ("locked 条目“" + (lname or lpath) + "”在最终设定集中"
                            "找不到 —— 硬约束已丢失"),
             })
             continue
@@ -743,16 +743,16 @@ def check_locked_violations(vault_data=None, setting_path=None):
                 and ename != lname and base_name(ename) != base_name(lname)):
             result["violations"].append({
                 "type": "renamed", "name": lname, "to": ename, "where": where,
-                "detail": ("locked 条目「" + lname + "」被改名为「" + ename +
-                           "」（同一 vault 路径，名字被换）"),
+                "detail": ("locked 条目“" + lname + "”被改名为“" + ename +
+                           "”（同一 vault 路径，名字被换）"),
             })
             continue
 
         if not is_locked(entry):
             result["violations"].append({
                 "type": "lock_lost", "name": lname, "where": where,
-                "detail": ("设定集条目「" + (ename or lname) + "」的 locked 标志丢失"
-                           " —— 写作注入时不再提示「不可违逆」"),
+                "detail": ("设定集条目“" + (ename or lname) + "”的 locked 标志丢失"
+                           " —— 写作注入时不再提示“不可违逆”"),
             })
 
     result["checked"] = True
@@ -760,7 +760,7 @@ def check_locked_violations(vault_data=None, setting_path=None):
 
 
 def _keyset(entries, get_path, get_name):
-    """条目列表 → (path 集, name 集, 别名根名集)，用于「存在性」并集判定。"""
+    """条目列表 → (path 集, name 集, 别名根名集)，用于“存在性”并集判定。"""
     paths, names, roots = set(), set(), set()
     for e in entries:
         p = _norm_path(get_path(e))
@@ -785,18 +785,18 @@ def sync_diff(vault_data=None, setting_path=None):
     | `missing` | vault 有、设定集没有 | canon 被 stage1 归并吞掉 → 必须处理 |
     | `added` | 设定集有、vault 没有 | stage1 新造的实体 → 人工确认后回写 vault |
     | `renamed` | 同一 vault 路径，名字被换 | 改名绕过 locked 硬约束 |
-    | `lock_lost` | 条目还在，但 `locked` 标志丢了 | 角色卡不再打印「⚠ 不可违逆」→ **静默降级** |
+    | `lock_lost` | 条目还在，但 `locked` 标志丢了 | 角色卡不再打印“⚠ 不可违逆”→ **静默降级** |
 
     `renamed` / `lock_lost` 直接复用 `check_locked_violations`（那份判据只做
-    「结构性违逆」—— 语义冲突机器判不了，硬做只会变噪音），**不另写一份匹配逻辑**。
+    “结构性违逆”—— 语义冲突机器判不了，硬做只会变噪音），**不另写一份匹配逻辑**。
 
     ## ⚠️ 空结果 ≠ 一致
 
     vault 未配置 / 无角色条目 / 设定集未生成 → `checked=False` + `reason`，
-    明确回报"没查"。绝不让「0 个差异」被读成"对得上"。
+    明确回报"没查"。绝不让“0 个差异”被读成"对得上"。
 
-    `missing`/`added` 的存在性判定用「path ∨ name ∨ 别名根名」的**并集**
-    （宽松，宁少报不多报），与 locked 检查「三者全不匹配才算 missing」等价。
+    `missing`/`added` 的存在性判定用“path ∨ name ∨ 别名根名”的**并集**
+    （宽松，宁少报不多报），与 locked 检查“三者全不匹配才算 missing”等价。
 
     返回 dict：{checked, reason, vault_total, setting_total, setting_path,
                  missing, added, renamed, lock_lost, locked}
@@ -851,7 +851,7 @@ def sync_diff(vault_data=None, setting_path=None):
             "name": str(c.get("name") or "").strip(),
             "path": str(c.get("path") or "").strip()})
 
-    # 设定集 → vault：新增实体（只算被判为「角色」的条目，避免世界观条目刷屏）
+    # 设定集 → vault：新增实体（只算被判为“角色”的条目，避免世界观条目刷屏）
     for where, e in entries:
         if not is_character(e):
             continue
@@ -886,25 +886,25 @@ def check_consistency(text, vault_data=None):
         "caveat": str,                 # 使用前必读的说明
     }
 
-    ## ⚠️ 2026-09-21 诚实化（此前是「假安心」）
+    ## ⚠️ 2026-09-21 诚实化（此前是“假安心”）
 
-    本函数此前**恒返回全零**，而调用方/CLI 会打印「冲突：0 个 / 警告：0 个 /
-    locked 违例：0 个」—— 看起来像「一致性检查通过」，实际是**什么都没查**。
+    本函数此前**恒返回全零**，而调用方/CLI 会打印“冲突：0 个 / 警告：0 个 /
+    locked 违例：0 个”—— 看起来像“一致性检查通过”，实际是**什么都没查**。
     这正是本项目最忌讳的假成功：一个永远说"没问题"的检查器比没有检查器更危险，
     因为它制造虚假信心。
 
-    实测（2026-09-21）：输入「苏芷与观澜在砾城对峙，观澜质问封锁法令。」
-    （其中「观澜」是 vault 中不存在的角色、且提到了 locked 的「苏芷」），
+    实测（2026-09-21）：输入“苏芷与观澜在砾城对峙，观澜质问封锁法令。”
+    （其中“观澜”是 vault 中不存在的角色、且提到了 locked 的“苏芷”），
     三个计数**全是 0**。
 
     两个具体原因：
     1. `conflicts` / `locked_violations` 是**硬编码的空列表**，代码里从未 append。
-       「locked 不可违逆」目前只是**提示级**约束（`build_character_card` 会在
-       角色卡里写一行「⚠ locked 条目，绝对不可违逆」），**没有任何验证器**。
+       “locked 不可违逆”目前只是**提示级**约束（`build_character_card` 会在
+       角色卡里写一行“⚠ locked 条目，绝对不可违逆”），**没有任何验证器**。
        要做成检查级需要语义判断（正典事实 vs 本章事实），属设计决策，未实现。
     2. `warnings` 用 `re.findall(r'[一-鿿]{2,4}', text)` —— 对连续汉字串做**贪心
-       切片**，切出的 4 字块与人名边界完全对不上。「苏芷与观澜在砾城对峙」被切成
-       「苏芷与观」/「潮神在砾城」/「对峙」，**「观澜」根本不会作为一个候选出现**。
+       切片**，切出的 4 字块与人名边界完全对不上。“苏芷与观澜在砾城对峙”被切成
+       “苏芷与观”/“潮神在砾城”/“对峙”，**“观澜”根本不会作为一个候选出现**。
        中文未登录人名识别需要分词器（jieba 之类），本项目未引入该依赖。
 
     因此现在**显式声明**实现范围，让调用方无法把空结果误读为"通过"。
@@ -918,14 +918,14 @@ def check_consistency(text, vault_data=None):
 
     元信息放在返回值的 `locked_report` 里：`checked=False` 表示本次检查
     **没有生效**（vault 无 locked 条目，或设定集尚未生成）。调用方必须
-    据此区分「查过且没问题」与「根本没查」。
+    据此区分“查过且没问题”与“根本没查”。
     """
     if vault_data is None:
         vault_data = scan_vault()
 
     conflicts = []
     warnings = []
-    # locked 检查（确定性）。⚠️ 不吞异常：拿不到结论时必须显式说明「没查」，
+    # locked 检查（确定性）。⚠️ 不吞异常：拿不到结论时必须显式说明“没查”，
     # 而不是静默返回空列表 —— 后者正是本函数此前被诟病的那种假安心。
     try:
         locked_report = check_locked_violations(vault_data=vault_data)
@@ -944,7 +944,7 @@ def check_consistency(text, vault_data=None):
 
     from collections import Counter
     # 改用**滑动窗口**（每个位置取 2/3/4 字）收集候选，替代原来的贪心切片。
-    # 这能显著提高召回（「观澜」在「苏芷与观澜在」里能被窗口覆盖到），
+    # 这能显著提高召回（“观澜”在“苏芷与观澜在”里能被窗口覆盖到），
     # 但代价是候选里混入大量跨词边界的噪声 —— 靠下面的 known-name 剔除 +
     # 停用词 + 频次阈值压制。**这不是分词，召回与精确率都是启发式的。**
     cn_runs = re.findall(r'[一-鿿]+', text)
@@ -955,7 +955,7 @@ def check_consistency(text, vault_data=None):
                 candidates.append(run[i:i + n])
     counter = Counter(candidates)
 
-    # 与已知角色名/别名有重叠的候选一律剔除（避免把「苏芷与」「汐与暮」当成新角色）
+    # 与已知角色名/别名有重叠的候选一律剔除（避免把“苏芷与”“汐与暮”当成新角色）
     known = {n for n in (existing_names | existing_aliases) if n}
 
     def _overlaps_known(cand):
@@ -997,7 +997,7 @@ def check_consistency(text, vault_data=None):
     if not locked_report.get("checked"):
         caveat += (" ⚠️ 本次 locked 检查**未生效**：" +
                    str(locked_report.get("reason") or "原因未知") +
-                   " —— 此时的空结果更不能当成「通过」。")
+                   " —— 此时的空结果更不能当成“通过”。")
     return {
         "conflicts": conflicts,
         "warnings": warnings,
@@ -1055,8 +1055,8 @@ def write_sandbox(filename, content, subdir="", kind="", source=""):
         (ok, message)
 
     ⚠️ 2026-09-21：写入后自动在 `data/state/sandbox_manifest.json` 登记为
-    `pending`（待审）。此前沙盒只是「往目录丢文件」，用户无法区分新稿与已确认稿，
-    也没有「驳回」这个动作。
+    `pending`（待审）。此前沙盒只是“往目录丢文件”，用户无法区分新稿与已确认稿，
+    也没有“驳回”这个动作。
     """
     ok, err = _validate_sandbox_path(filename, subdir)
     if not ok:
@@ -1211,8 +1211,8 @@ if __name__ == "__main__":
     elif args.cmd == "check":
         text = read_text(args.file)
         result = check_consistency(text)
-        # ⚠️ 输出必须让「什么没查」比「查了什么」更醒目 ——
-        # 否则「0 个」会被读成「通过」，而实际是未实现。
+        # ⚠️ 输出必须让“什么没查”比“查了什么”更醒目 ——
+        # 否则“0 个”会被读成“通过”，而实际是未实现。
         print("已实现的检查：")
         for c in result.get("implemented", []):
             print(f"  ✓ {c}")

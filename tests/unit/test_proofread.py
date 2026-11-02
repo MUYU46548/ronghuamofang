@@ -128,7 +128,7 @@ def main():
         typo = pf.check_confusables(CH_TYPO, 3)
         details = " ".join(f["detail"] for f in typo)
         for wrong in ("做为", "既使", "按耐", "迫不急待"):
-            ok(wrong in details, "命中错字「%s」" % wrong)
+            ok(wrong in details, "命中错字\u300c%s\u300d" % wrong)
         ok(("跑的快" in details) or ("的/地/得" in details), "命中动词+的+补语（应为得）")
         ok(any("地" in f["suggestion"] for f in typo), "命中副词+的+动词（应为地）")
         ok(all(f["type"] == "typo" for f in typo), "type 均为 typo")

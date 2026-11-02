@@ -55,7 +55,7 @@ def case_strict_read():
             check("重复键 → 抛 ConfigError", True)
             check("报错带键名", "agent_mode" in msg, msg)
             check("报错带**行号**（第 3 行是后一个）", "第 3 行" in msg, msg)
-            check("报错说明「静默取后值」的危害", "静默" in msg, msg)
+            check("报错说明\u300c静默取后值\u300d的危害", "静默" in msg, msg)
             check("报错给体检入口", "nfctl.py check" in msg, msg)
 
         good = tmp / "ok.yaml"
@@ -203,12 +203,12 @@ def case_targeted_write():
 def case_block_seq_to_flow_list():
     """【4b】块序列键 → 流式列表值：旧的 `- 项` 必须一并删掉。
 
-    2026-10-18 实测抓出的缺陷：`_block_range` 按「缩进 <= 键缩进即块结束」判，
+    2026-10-18 实测抓出的缺陷：`_block_range` 按\u300c缩进 <= 键缩进即块结束\u300d判，
     而 YAML 块序列的 `- 2000` 与所属键 `target_words:` **同缩进** —— 于是块被判成
     空块，替换首行后旧序列残留成孤儿，**整份 YAML 解析失败**。
     写后回读能拦住（fail-closed），但文件此时已经写坏，只能靠备份回退。
 
-    这条用例锁的是「列表值能被安全改写」—— `/config/target_words` 端点依赖它。
+    这条用例锁的是\u300c列表值能被安全改写\u300d—— `/config/target_words` 端点依赖它。
     """
     print("\n【4b】块序列 → 流式列表：旧序列项必须一并删除（否则写坏整份配置）")
     tmp = tmpdir()
@@ -266,7 +266,7 @@ def case_block_seq_to_flow_list():
 def case_block_range_keeps_comments():
     """【4c】块尾注释不得被 `_apply_one` 的 del 吞掉。
 
-    2026-10-18 实测：为修「块序列残留」而放宽 `_block_range` 后，一次写 5 个键时
+    2026-10-18 实测：为修\u300c块序列残留\u300d而放宽 `_block_range` 后，一次写 5 个键时
     245 → 225 行 —— 块尾（下一个键的说明注释）被算进 del 范围，20 行说明文字消失。
     回读校验查不出这种损坏（值都对，只是注释没了），只能靠这条断言锁。
     """

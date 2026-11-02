@@ -6,7 +6,7 @@
 `examples/presets/` 是随包出厂的能力验证用例：每套一份 `preset.yaml` +
 `materials/raw/*.md` + `README.md`。它们不是文档，是**可跑的验收起点**。
 
-历史上同类东西出过事：2026-10-03「发布树虚构化」把 19 张素材卡整套换成另一个宇宙，
+历史上同类东西出过事：2026-10-03\u300c发布树虚构化\u300d把 19 张素材卡整套换成另一个宇宙，
 `user_outline` 没跟着换，写沈砚的章喂进去的是潮神设定，而全流程门禁**全程绿灯**。
 所以本用例只认一条硬判据：
 
@@ -126,11 +126,11 @@ def main():
         # 核心判据：大纲点名的专名必须在素材里有落点
         own_must = set(v.get("must_mention") or [])
         for word in own_must:
-            check("%s 素材含「%s」" % (d, word), word in blob)
+            check("%s 素材含\u300c%s\u300d" % (d, word), word in blob)
 
         # 本套禁词不得出现（如"不得注入奇幻套话"）
         for w in v.get("forbidden") or []:
-            check("%s 素材不含禁词「%s」" % (d, w), w not in blob)
+            check("%s 素材不含禁词\u300c%s\u300d" % (d, w), w not in blob)
 
         # 跨宇宙隔离：**别套点名的专名**不许出现在本套里。
         # 注意这里必须用别套的 must_mention，不能用别套的 forbidden ——
@@ -143,7 +143,7 @@ def main():
             for w in other_must:
                 if w in own_must:
                     continue
-                check("%s 不残留 %s 的专名「%s」" % (d, other, w), w not in blob)
+                check("%s 不残留 %s 的专名\u300c%s\u300d" % (d, other, w), w not in blob)
 
         # 非隐藏套必须格式规整（要能给用户当演示）；隐藏套必须真的脏
         no_suffix = [n for n in texts if not any(s in n for s in CARD_SUFFIXES)]

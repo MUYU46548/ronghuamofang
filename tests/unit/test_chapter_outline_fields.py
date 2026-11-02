@@ -1,20 +1,20 @@
 # -*- coding: utf-8 -*-
-"""章大纲六字段的自检（2026-10-20，v0.7.2「章大纲四字段」）。
+"""章大纲六字段的自检（2026-10-20，v0.7.2\u300c章大纲四字段\u300d）。
 
 ## 为什么加这两个字段
 
-书童（Pagekin）的章节蓝图是「主角小目标 / 冲突与转折 / 悬念钩子 / 出场人物」。
-我们的章大纲一直只有「核心事件 / 涉及角色 / 功能 / 衔接」——
+书童（Pagekin）的章节蓝图是\u300c主角小目标 / 冲突与转折 / 悬念钩子 / 出场人物\u300d。
+我们的章大纲一直只有\u300c核心事件 / 涉及角色 / 功能 / 衔接\u300d——
 **缺的正好是写作时最用得上的两个抓手**：
 
-- 没有「小目标」，一章就是"发生了几件事"（模型会平铺直叙）；
-- 没有「悬念钩子」，章末没有理由让人翻页；它还是 v0.9.3 伏笔台账的**唯一确定性数据源**
+- 没有\u300c小目标\u300d，一章就是"发生了几件事"（模型会平铺直叙）；
+- 没有\u300c悬念钩子\u300d，章末没有理由让人翻页；它还是 v0.9.3 伏笔台账的**唯一确定性数据源**
   （不给这个字段，台账就得靠模型自由发挥，等于没有判据）。
 
 ## 主判据
 
 1. 六字段齐全 → strict 通过
-2. 缺「小目标」/「悬念钩子」→ strict 失败，但**宽松模式通过**（存量宽容：
+2. 缺\u300c小目标\u300d/\u300c悬念钩子\u300d→ strict 失败，但**宽松模式通过**（存量宽容：
    升级一次不能把用户已经写完的大纲全判废）
 3. 字段行存在但**值为空** → 连宽松也失败（旧实现只判 `f in text`，空值照样绿）
 4. 值太短（"小目标：调查"）→ strict 失败，错误信息要说清几个字、下限几个字
@@ -82,20 +82,20 @@ def main():
         print("\n[P2] 缺字段：strict 失败、宽松通过（存量宽容）")
         no_goal = write(tmp, "no_goal.md", FULL.replace("- 小目标：拿到 1978 年那张借阅卡\n", ""))
         ok3, errs3 = S3.check_chapter_outline(no_goal, strict=True)
-        check("P2 缺「小目标」→ strict 失败", not ok3, errs3)
+        check("P2 缺\u300c小目标\u300d→ strict 失败", not ok3, errs3)
         check("P2 错误点名缺的是小目标", any("小目标" in e for e in errs3), errs3)
         ok4, _ = S3.check_chapter_outline(no_goal)
         check("P2 但宽松模式通过（老项目不会因升级判废）", ok4)
 
         no_hook = write(tmp, "no_hook.md", FULL.replace("- 悬念钩子：卡片背面的签名是她父亲的名字\n", ""))
         ok5, errs5 = S3.check_chapter_outline(no_hook, strict=True)
-        check("P2 缺「悬念钩子」→ strict 失败", not ok5, errs5)
+        check("P2 缺\u300c悬念钩子\u300d→ strict 失败", not ok5, errs5)
 
         print("\n[P3] 字段存在但值为空 / 太短")
         empty = write(tmp, "empty.md", FULL.replace("- 小目标：拿到 1978 年那张借阅卡", "- 小目标："))
         ok6, errs6 = S3.check_chapter_outline(empty, strict=True)
         check("P3 新字段有行但值为空 → strict 失败", not ok6, errs6)
-        check("P3 错误说「缺少字段或值为空」", any("值为空" in e for e in errs6), errs6)
+        check("P3 错误说\u300c缺少字段或值为空\u300d", any("值为空" in e for e in errs6), errs6)
 
         # 硬字段空值：**宽松模式**也必须失败（旧实现 `f in text` 会让它绿）
         empty_hard = write(tmp, "empty_hard.md",
@@ -116,7 +116,7 @@ def main():
                      "## 第1章 锈锁\n\n- 核心事件：苏芷去了档案室，被门挡住\n- 涉及角色：苏芷\n"
                      "- 功能：推进\n\n（这一章的小目标和悬念钩子还没想好）\n")
         ok8, errs8 = S3.check_chapter_outline(fake, strict=True)
-        check("P4 正文提到「小目标」不冒充字段", not ok8, errs8)
+        check("P4 正文提到\u300c小目标\u300d不冒充字段", not ok8, errs8)
         check("P4 仍报缺两个新字段",
               sum(1 for e in errs8 if "小目标" in e) == 1
               and sum(1 for e in errs8 if "悬念钩子" in e) == 1, errs8)
@@ -145,7 +145,7 @@ def main():
         check("P7 提示词要求六字段",
               all(f in prompt for f in S3.REQUIRED_FIELDS + S3.NEW_FIELDS),
               [f for f in S3.REQUIRED_FIELDS + S3.NEW_FIELDS if f not in prompt])
-        check("P7 提示词给了反例（不许写「继续调查」）", "继续调查" in prompt)
+        check("P7 提示词给了反例（不许写\u300c继续调查\u300d）", "继续调查" in prompt)
         check("P7 提示词给了正例", "借阅卡" in prompt)
 
         from utils import fake_client as fc

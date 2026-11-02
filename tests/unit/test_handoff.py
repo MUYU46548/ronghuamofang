@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
-"""handoff 交接稿的自检（2026-10-20，v0.10「可带走」）。
+"""handoff 交接稿的自检（2026-10-20，v0.10\u300c可带走\u300d）。
 
 ## 主判据
 
 **内容完整性（会失败的反证）**
 1. 下一章大纲的六个字段（核心事件/涉及角色/功能/小目标/悬念钩子/衔接）逐个进交接稿
 2. 大纲里删掉一个字段 → 交接稿如实缺（不假装有）；字段清洗不吞内容
-3. 下一章大纲缺失 → 交接稿写明「尚未生成 + 怎么补」，且 problems 非空
+3. 下一章大纲缺失 → 交接稿写明\u300c尚未生成 + 怎么补\u300d，且 problems 非空
 4. 未回收伏笔（open/advanced）进交接稿；已回收（closed）不占篇幅
 5. 最近 3 章摘要进交接稿；滚动摘要缺失 → 明说，不编造
 6. 上一章末尾原文段落进交接稿（语气衔接基准）
@@ -18,7 +18,7 @@
 10. 落盘路径 = `data/handoff/第N章后.md`；重复导出幂等覆盖
 
 **开局交接稿（还没写过任何章）**
-11. chapter=0：没有「最近摘要」段也不炸，身份/要求/设定照给
+11. chapter=0：没有\u300c最近摘要\u300d段也不炸，身份/要求/设定照给
 
 用法：python tests/unit/test_handoff.py
 """
@@ -95,7 +95,7 @@ def main():
         check("P1 默认取已写最大章号（第3章后）", data["chapter"] == 3, data["chapter"])
         check("P1 下一章指向第 4 章", data["next_chapter"] == 4, data["next_chapter"])
         for f in ("核心事件", "涉及角色", "功能", "小目标", "悬念钩子", "衔接"):
-            check("P1 大纲字段「%s」进交接稿" % f, f in text)
+            check("P1 大纲字段\u300c%s\u300d进交接稿" % f, f in text)
         check("P1 钩子的值逐字在稿（不是只出现字段名）",
               "笔迹与老师的手稿极像" in text)
         check("P1 problems 为空（数据齐全）", data["problems"] == [], data["problems"])
@@ -110,7 +110,7 @@ def main():
         check("P3 最近 3 章摘要进稿", "库房里发现封印遗迹" in text)
         check("P3 上一章末尾原文进稿", "屋檐上的水线正连成了串" in text)
 
-        # 造一条伏笔：04 章的钩子是「悬念钩子」字段 → planted=4？不 —— collect 从
+        # 造一条伏笔：04 章的钩子是“悬念钩子”字段 → planted=4？不 —— collect 从
         # **所有**章大纲抽钩子；夹具只有 04 有钩子 → 1 条 open。
         fs = FS.collect(outline_dir=str(tmp / "data/outline/chapters"))
         check("P3 夹具抽出 1 条伏笔", len(fs["items"]) == 1, fs["items"])

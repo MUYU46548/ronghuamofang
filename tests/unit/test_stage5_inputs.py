@@ -12,7 +12,7 @@
 冒烟佐证：stage5 输入仅 2,048 token（真内联应 1 万+）；对照组 stage4 构造正确、
 输入 35,135 token、同模型正常。
 
-本自检既验证修复生效，也用**反证**（复刻修复前的构造）证明这不是「本来就没问题」。
+本自检既验证修复生效，也用**反证**（复刻修复前的构造）证明这不是\u300c本来就没问题\u300d。
 
 全程离线、零网络、零费用。
 用法：python tests/unit/test_stage5_inputs.py
@@ -96,10 +96,10 @@ def main():
         check("设定集正文已内联（角色名可见）", "沈砚" in new_body and "程砧" in new_body)
         check("带内联输入区标记", "## 内联输入" in new_body)
 
-        print("\n[B] 反证：复刻修复前的构造，必须复现「输入缺失」")
+        print("\n[B] 反证：复刻修复前的构造，必须复现\u300c输入缺失\u300d")
         body_old = render(root, proj, bare_name=True)
         _, missing_old = inline_inputs(body_old)
-        check("裸文件名 → 章节被判 missing（证明修复不是「本来就没问题」）",
+        check("裸文件名 → 章节被判 missing（证明修复不是\u300c本来就没问题\u300d）",
               any("01.md" in m for m in missing_old), missing_old)
 
         print("\n[C] 反证：设定集行去掉 '- ' 前缀 → 不再被解析为输入")

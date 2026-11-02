@@ -307,8 +307,8 @@ def run_review(scope, report_path, dry_run, client=None):
         return False, (
             "无法从 LLM 输出解析审查 JSON（已试 %d 次，含断裂 JSON 兜底）：%s。"
             "**审稿门 fail-closed：不放行下游 stage5/6**。"
-            "原文已隔离存放: %s —— 处理：① 看原文判断是「被 max_tokens 截断」"
-            "还是「没按 JSON 契约输出」；② 截断 → 调大 config/system.yaml 的 "
+            "原文已隔离存放: %s —— 处理：① 看原文判断是“被 max_tokens 截断”"
+            "还是“没按 JSON 契约输出”；② 截断 → 调大 config/system.yaml 的 "
             "budget.token_limit.per_request_max_tokens 或缩小审查范围（--scope raw）；"
             "③ 未按契约 → 修 prompts/chapter_review.md 的输出格式段；"
             "④ 重跑 python scripts/orchestrator.py --from 4"
@@ -355,7 +355,7 @@ def _extract_json_from_output(text):
     （json.loads 全文 → 正则抓 FILE 块 → 抓 ```json 围栏 → rfind('{"chapters"')），
     它**没有断裂兜底**：被 max_tokens 截断、只差一个收尾 `}`/`]` 的报告一律
     解析失败 → 整个审稿阶段报废、那一轮的审查 token 全白烧（09-28 冒烟实测事故）。
-    validator.parse_llm_json 自带「括号配对补全」+「剥 <think> / 去围栏」，
+    validator.parse_llm_json 自带“括号配对补全”+“剥 <think> / 去围栏”，
     且 proofread 早已改用它 —— 本模块是最后一个漏网的复制实现
     （tests/e2e/test_stop_and_mingjian.py 里那条"非各自实现"的断言正是为此）。
 
@@ -367,8 +367,8 @@ def _extract_json_from_output(text):
 def _is_review_report(value):
     """结构判据：审查报告必须是带 chapters 数组的对象。
 
-    这是**契约**（prompts/chapter_review.md 的「JSON 格式（严格遵守）」），不是
-    苛求：若只判「能解析成 JSON」，模型回一句 `{"error": "..."}` 也会被当报告收下，
+    这是**契约**（prompts/chapter_review.md 的“JSON 格式（严格遵守）”），不是
+    苛求：若只判“能解析成 JSON”，模型回一句 `{"error": "..."}` 也会被当报告收下，
     然后渲染出一份"零问题"的空报告 —— 比报错更坏（审稿门静默失守）。
     """
     return isinstance(value, dict) and isinstance(value.get("chapters"), list)

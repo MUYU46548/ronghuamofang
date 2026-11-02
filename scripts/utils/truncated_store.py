@@ -5,15 +5,15 @@
 
 `finish_reason == "length"` 时我们不落盘、把残缺文本隔离到 `data/state/truncated/`
 （这条纪律是对的：残缺的正文绝不能冒充成品进 `data/chapters/`）。但结果是
-**人看不见它** —— 失败之后用户只看到「失败」，不知道模型其实已经写了 3000 字。
+**人看不见它** —— 失败之后用户只看到“失败”，不知道模型其实已经写了 3000 字。
 
-书童把这个叫「失败恢复候选」。我们的差别是：
+书童把这个叫“失败恢复候选”。我们的差别是：
 
 - **采纳不等于完成**：采纳只把残稿写进 `raw/NN.md` 并打一个侧车标记，
-  `is_chapter_complete` 见到标记仍判「未完成」（残稿就是残稿，还得走审稿）。
+  `is_chapter_complete` 见到标记仍判“未完成”（残稿就是残稿，还得走审稿）。
 - **不自动采纳**：任何自动采纳都等于替作者决定"这段能要"，而截断点之后的情节
   可能是整段缺失。必须人看一眼。
-- **标记可清**：用户自己改完/补齐后，点「已补齐」清掉标记，正常流程继续。
+- **标记可清**：用户自己改完/补齐后，点“已补齐”清掉标记，正常流程继续。
 
 侧车标记存在 `data/state/truncated/adopted.json`，**不写进正文**（正文里加注释
 会污染导出与字数统计）。
@@ -59,7 +59,7 @@ def _save_marks(marks):
 
 
 def is_adopted(chapter_no):
-    """该章是否「采纳自残稿且还没补齐」——`is_chapter_complete` 的判据之一。"""
+    """该章是否“采纳自残稿且还没补齐”——`is_chapter_complete` 的判据之一。"""
     try:
         return int(chapter_no) in adopted_marks()
     except (TypeError, ValueError):
@@ -154,11 +154,11 @@ def adopt(name, chapter_no, replace=False):
     if dst.exists():
         old = read_text(dst).strip()
         if old and not replace:
-            return False, ("第 %d 章已有 %d 字内容，未覆盖。确认要换掉时勾「允许覆盖」"
+            return False, ("第 %d 章已有 %d 字内容，未覆盖。确认要换掉时勾“允许覆盖”"
                            % (no, len(old)))
 
     # 补标题：残稿是被截断的**正文**，没有 `## 第N章`。不补的话，
-    # 用户补齐后点「已补齐」，`is_chapter_complete` 仍会因"标题格式"判未完成
+    # 用户补齐后点“已补齐”，`is_chapter_complete` 仍会因"标题格式"判未完成
     # —— 那时用户会以为"点坏了"，实际是采纳时少了一步（2026-10-20 实测踩到）。
     import re as _re
     if not _re.search(r"^##?\s*第\s*\d+\s*章", body, _re.MULTILINE):
@@ -174,4 +174,4 @@ def adopt(name, chapter_no, replace=False):
     }
     _save_marks(marks)
     return True, ("已采纳为第 %d 章草稿（%d 字）。⚠️ 它仍是**残稿**：系统不会当它完成，"
-                  "请补齐后点「已补齐」，再走审稿。" % (no, len(body)))
+                  "请补齐后点“已补齐”，再走审稿。" % (no, len(body)))

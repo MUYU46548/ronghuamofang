@@ -60,7 +60,7 @@ _ACTIVE = {}               # run_id -> Popen（本进程内在跑的子会话；
 def _root():
     """项目根：NF_ROOT 环境变量（nf_api --root 会设置）→ 源码树。
 
-    每次调用现读 —— 与域模块「禁止值拷贝 ROOT」同一条纪律，
+    每次调用现读 —— 与域模块“禁止值拷贝 ROOT”同一条纪律，
     否则 --root / 测试临时根会指向错目录。
     """
     env = os.environ.get("NF_ROOT")
@@ -164,7 +164,7 @@ def get_agent_run(run_id):
         return {"ok": False, "error": "run 不存在: " + str(run_id)}
     rec = dict(rec)
     rec["ok"] = True
-    # running 但本进程没持有对应子进程 → 服务重启过，状态只是「最后已知值」
+    # running 但本进程没持有对应子进程 → 服务重启过，状态只是“最后已知值”
     if rec.get("status") == "running" and run_id not in _ACTIVE:
         rec["stale"] = True
         rec["stale_note"] = "本进程未持有该子会话（服务重启过？状态为最后已知值）"

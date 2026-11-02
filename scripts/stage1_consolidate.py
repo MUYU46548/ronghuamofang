@@ -66,11 +66,11 @@ def normalize_plain(path, out_dir):
 
 
 def _is_meta_file(path):
-    """判断素材文件是否为「元文件」（描述素材的登记表，而非素材本身）。
+    """判断素材文件是否为“元文件”（描述素材的登记表，而非素材本身）。
 
     判据（确定性，零 LLM）：文件名**或**正文前 2000 字里出现登记/说明/计划类
     标题词。为什么按内容判而不是只看文件名：用户随手命名（如 `碎片填充计划.md`
-    正文是「已使用的碎片在此登记」）无法靠文件名穷举，标题词才稳。
+    正文是“已使用的碎片在此登记”）无法靠文件名穷举，标题词才稳。
 
     ⚠️ 这是**保守**判据：只认明确的登记类词，不猜"看起来像索引"的东西。
        宁可漏跳一张元文件（归并时会被 LLM 当成噪声，代价小），也不能误跳
@@ -81,8 +81,8 @@ def _is_meta_file(path):
     except OSError:
         return False
     probe = (path.stem + "\n" + head).lower()
-    # 「填充计划」「变更日志」「登记列表」「索引」「说明」等元文件信号词。
-    # 「说明」单独出现太宽（真卡也可能写"说明"），只在**标题行**匹配（行首 # 或开头）。
+    # “填充计划”“变更日志”“登记列表”“索引”“说明”等元文件信号词。
+    # “说明”单独出现太宽（真卡也可能写"说明"），只在**标题行**匹配（行首 # 或开头）。
     # 跳过 YAML frontmatter：设定库 真设定文件（如 `地理系统索引.md`）以
     # `---` 包裹 tags，里面有 `- 索引` 这种 **tag 行**。我第一版把 `#`/`-`
     # 开头的行都当标题扫，结果 6 个真设定被判成元文件（2026-10-24 反向验证
@@ -95,13 +95,13 @@ def _is_meta_file(path):
                 body = lines[j + 1:]
                 break
 
-    # 「XX索引」类标题：**只跳自动生成的聚类清单**，不碰真设定。
+    # “XX索引”类标题：**只跳自动生成的聚类清单**，不碰真设定。
     # 2026-10-24 反向验证抓出的坑：设定库 `01 索引/` 下 13 个真设定文件
-    # 标题是「世界索引」「历史事件」「幻境」「角色池」，文件名也带「索引」
+    # 标题是“世界索引”“历史事件”“幻境”“角色池”，文件名也带“索引”
     # —— 我第一版按"标题尾部是索引"判元，把它们全误伤了。真设定的标题
     # 讲的是**世界里的东西**，元文件的标题讲的是**这批素材本身**（聚类/
-    # 收束/总览/未改动源文件）。所以只认后者，且必须同时命中「自动生成」
-    # 或「收束/聚类/总览」这类自我指涉的词。
+    # 收束/总览/未改动源文件）。所以只认后者，且必须同时命中“自动生成”
+    # 或“收束/聚类/总览”这类自我指涉的词。
     for line in body[:12]:
         s = line.strip().lstrip("#").strip().lower()
         if not s:
@@ -114,7 +114,7 @@ def _is_meta_file(path):
             return True
     # probe 只认**自我指涉**的元信号：这些短语只可能出现在"描述这批素材"
     # 的文件里。⚠️ `本索引` 已删除（2026-10-24 反向验证抓出）：设定库 真设定
-    # `地理系统索引.md` 的正文首句就是「**本索引**遵循的层级划分规则为：」——
+    # `地理系统索引.md` 的正文首句就是“**本索引**遵循的层级划分规则为：”——
     # 我为了跳索引加的这个词，恰好把真设定的正文首句当成了元信号。跳索引
     # 靠标题判据（上方收束/聚类/总览），不靠正文词。
     return any(k in probe for k in ("已使用的碎片在此登记", "变更日志",
@@ -137,12 +137,12 @@ def scan_materials(materials_dir, normalized_dir):
         # 跳过备份/归档子目录（`raw/_backup/`、`.hidden/` 这类）。
         # 为什么必须跳：rglob 会钻进去，而 `_backup/` 装的是**同名覆盖前的旧版本** ——
         # 误扫等于把同一张卡的两个版本都喂给归并（实测该目录存量 4 个备份文件），
-        # 既费 token 又让「素材指纹」随备份变化而抖动。
+        # 既费 token 又让“素材指纹”随备份变化而抖动。
         rel_parts = path.relative_to(materials_dir).parts[:-1]
         if any(part.startswith(("_", ".")) for part in rel_parts):
             continue
         # 跳过**元文件**（2026-10-24 OB34 素材实测后补）：素材根目录里常混着
-        # 「碎片填充计划」「变更日志」这类登记表，它们描述素材而不是素材本身。
+        # “碎片填充计划”“变更日志”这类登记表，它们描述素材而不是素材本身。
         # 喂进归并等于把索引当成设定，污染设定集。判据 = 正文里出现登记/说明类
         # 标题词（确定性，零 LLM）。跳过时打印，不静默 —— 用户要知道哪些没被吃。
         if _is_meta_file(path):
@@ -234,24 +234,24 @@ def _load_prev_fingerprint(manifest_path):
 
 def _pending_material_paths(normalized_dir, setting_path="data/setting/setting.json",
                             canon_path="data/setting/canon.json"):
-    """B1 进料节流：算出「本轮仍要交给模型看」的素材文件（绝对路径），并给出说明。
+    """B1 进料节流：算出“本轮仍要交给模型看”的素材文件（绝对路径），并给出说明。
 
     判据 = **上一轮 stage1 收尾时 `apply_status` 写进 setting 条目的 `status`**：
-    `status == adopted` 的条目，其 `source` 指向的素材即「已定稿」——本轮不再把
+    `status == adopted` 的条目，其 `source` 指向的素材即“已定稿”——本轮不再把
     原文交给模型（定稿细节由 canon 快照承担）。`uncertain` 条目的素材**照旧进**
     （存疑要重看原文）；纯新增素材（还没进任何条目）自然也进。
 
-    ⚠️ 刻意**不现场跑 `audit()`**：audit 的 status 按**卡片名**给的是「这张卡质量如何」
-    （有无冲突、够不够详细），不是「这个素材是否已被归并定稿」。拿它当定稿判据会把
+    ⚠️ 刻意**不现场跑 `audit()`**：audit 的 status 按**卡片名**给的是“这张卡质量如何”
+    （有无冲突、够不够详细），不是“这个素材是否已被归并定稿”。拿它当定稿判据会把
     **新增但无冲突的卡**误判成已定稿而整篇剔除 —— 那等于**丢素材**（实测踩到：一套
     20 张卡的素材被排除 20 张）。所以只信条目上**已经存在**的 status（上轮 apply_status 写的）。
 
-    **节流的前提是「定稿有承载」**：adopted 素材的原文之所以能不贴，是因为其内容
+    **节流的前提是“定稿有承载”**：adopted 素材的原文之所以能不贴，是因为其内容
     已在 canon 快照里。canon 不存在（用户未审批 / 尚未冻结）时若照样剔除，模型就
     **彻底看不到**那些素材 —— 那是丢上下文，不是省 token。所以 canon 缺失一律不节流。
 
     旧数据/首轮：条目没有 status → `adopted_sources` 返回空 → **全量进**（宁多勿漏）。
-    任何异常同样退回全量：节流是优化，绝不能把「省 token」变成「丢素材」。
+    任何异常同样退回全量：节流是优化，绝不能把“省 token”变成“丢素材”。
     """
     d = Path(normalized_dir)
     all_files = sorted(f for f in d.glob("*.md") if f.is_file())
@@ -283,7 +283,7 @@ def build_setting_task(proj, manifest_path, normalized_dir, extra_inputs=(),
     按目录 `glob("*.md")` **全量内联**进 prompt —— 多回合迭代时 adopted 素材每轮
     重贴一遍，越跑越贵。现在改为**逐文件列出未定稿素材**，已定稿的由 canon 快照承担。
 
-    ⚠️「不引用目录」是节流生效的**必要条件**：只要 body 里还留着目录引用（`下的
+    ⚠️“不引用目录”是节流生效的**必要条件**：只要 body 里还留着目录引用（`下的
     *.md`），inline_inputs 就会照旧全量内联，改了模板也白改 —— 测试有护栏钉这一点。
     """
     from utils.material_state import status_context_section
@@ -330,7 +330,7 @@ def prepare_scraps(scraps_dir=SCRAPS_DIR_DEFAULT, index_path=SCRAPS_INDEX):
 def build_scraps_task(index_path, scraps_dir, merge_path, batch=None, batches=None):
     """构建碎片提炼任务。
 
-    单批：用「目录 + 下的 *.md」让 llm_client 整目录内联；
+    单批：用“目录 + 下的 *.md”让 llm_client 整目录内联；
     多批：改用逐文件行（`- 碎片: <绝对路径>`），每批只内联本批文件——
     否则 llm_client 的 220000 字符上限会**静默丢文件**（只打 WARN，不报错）。
     """
@@ -582,7 +582,7 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     try:
         from utils import material_state as mstate
         # 先读**上一轮**结论：既用于提示词继承（build_setting_task 里已读），
-        # 也用于「待裁决分歧应随回合单调下降」的护栏 —— 必须在本轮 write_audit 之前读。
+        # 也用于“待裁决分歧应随回合单调下降”的护栏 —— 必须在本轮 write_audit 之前读。
         prev_audit = mstate.load_audit()
         report = mstate.audit(str(setting_path), materials_dir)
         if report["checked"]:
@@ -626,7 +626,7 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
 
     # ---- B4：canon 新鲜度 —— **只在上一轮已审批冻结过**时才在本轮重冻 ----
     # 首轮没有 canon 就**不造**：定稿必须走审批（approve.py --stage 1），
-    # 自动冻结会把「机器归并结果」冒充成「人工定稿」。
+    # 自动冻结会把“机器归并结果”冒充成“人工定稿”。
     try:
         from utils import material_state as mstate
         if Path(mstate.CANON_PATH).exists():

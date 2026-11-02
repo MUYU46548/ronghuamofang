@@ -11,7 +11,7 @@
   （**engine: hermes 下金额恒 0，不可能命中**）。改完清 `data/state/progress.json` 的
   `budget.paused` → `orchestrator.py --from N` 续跑（已完成阶段不重跑）。
 - **用户打回**：`python scripts/reject.py --stage N "原因"`（记录原因、清理 N 及下游产物、重置状态、撤销审批；history/ 备份保留可回退）→ `--from N` 重跑。打回 2 用精修通道（refine_outline）而非 reject
-- **GUI 排障（2026-10-06 对齐方寸）**：顶栏「📋 日志」常驻；设置 → 诊断与调试
+- **GUI 排障（2026-10-06 对齐方寸）**：顶栏“📋 日志”常驻；设置 → 诊断与调试
   （运行形态/健康态/代码根/数据根/日志路径 + 查看日志/打开日志文件/复制诊断信息/
   DevTools 开关（Ctrl+Shift+I 或 F12）/重启后端 API；重启在流水线运行中禁用）。
 - **素材更新**：新增素材后 `--from 1` 重跑（已有章节文件自动跳过，不会重写）
@@ -22,7 +22,7 @@
   orchestrator 都调 `ensure()`）· **数据比代码新 = 拒绝运行** · 先快照后动手（丙3，快照失败
   一个字节不动）· **只自动跑 safe 步骤**（会改写用户文件结构的要 CLI `--run --yes`）·
   无戳的既有书稿记基线 v1、不碰数据 · 失败**不推进版本戳**。拒绝时退出码 **5**
-  （2 已被「预算熔断」占用，共用会让日志里的失败原因无法分辨）。
+  （2 已被“预算熔断”占用，共用会让日志里的失败原因无法分辨）。
   改数据结构 = `DATA_SCHEMA` +1 + `MIGRATIONS` 加 `Step` + 加回归，两处不同步 `status()`
   会大声拒绝而不是静默跳过。CLI：`python scripts/data_migrate.py`（`--dry-run` / `--run [--yes]`）；
   承诺与边界 → `docs/upgrade.md`。
@@ -38,7 +38,7 @@
   **轮次上限**（`gates.setting_refine_max_rounds`，默认 1，建议 ≤2）。
   手动跑：`python scripts/setting_refine.py --auto-thin --dry-run` 先预演。
   ⚠️ 钩子在 orchestrator 里被 `try/except` 包裹（失败不阻断流程）—— 若它失效
-  只会打印「失败（不影响流程）」，故 `test_setting_refine_auto.py` 用
+  只会打印“失败（不影响流程）”，故 `test_setting_refine_auto.py` 用
   `inspect.signature().bind()` 守签名，防止静默降级
 - **设定集 ↔ 大纲重合度（方案 C，2026-10-19）**：stage1 归并出设定集后，拿
   `config/project.yaml` 的 `user_outline` **反查**设定集里的每个专名，算角色/地点/总命中率
@@ -58,10 +58,10 @@
   编码有回退链），多篇合并进同一文件（路径是单值）。stage4 每章注入原文
   ≤`book.style_reference_max_chars`（默认 **6000**，范围 1000~40000）+ 3 段 few-shot（≤900 字，
   自动避开与本章大纲/上一章相似度 >30% 的段落）；stage6 用同一份文件做量化特征比对。
-  **给「场景切片」而不是整章**：2~3 个不同场景各 1500~2500 字，比一整章 8000 字更有效
-  —— few-shot 只抽 3 段，场景越分散覆盖的语感越全。超长与「配了路径但文件不存在」
-  都会 WARN（2026-10-19 之前是静默截断，会让人误判成「模型学不像」）
-- **范文有 GUI 入口**（2026-10-19）：文风特征页签「范文正文」框 = 粘贴 + 保存/清空，
+  **给“场景切片”而不是整章**：2~3 个不同场景各 1500~2500 字，比一整章 8000 字更有效
+  —— few-shot 只抽 3 段，场景越分散覆盖的语感越全。超长与“配了路径但文件不存在”
+  都会 WARN（2026-10-19 之前是静默截断，会让人误判成“模型学不像”）
+- **范文有 GUI 入口**（2026-10-19）：文风特征页签“范文正文”框 = 粘贴 + 保存/清空，
   端点是 `GET/POST /config/style_reference`。保存时**自动**把 `book.style_reference`
   指向该文件（用户不用碰 yaml）；旧版备份到 `data/state/style_reference_history/`
   （保留 20 份）；单次 ≤40000 字；路径必须落在**工作区内**（越界一律 400）。

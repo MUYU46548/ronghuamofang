@@ -1,17 +1,17 @@
 # -*- coding: utf-8 -*-
-"""「选写作方向」面板的专项验收（第 4 件 · 选项可视化的 GUI 层）。
+"""\u300c选写作方向\u300d面板的专项验收（第 4 件 · 选项可视化的 GUI 层）。
 
-用户反馈的原话是「竞品有选项可视化，分支样例方向直观可选」——「直观可选」的
+用户反馈的原话是\u300c竞品有选项可视化，分支样例方向直观可选\u300d——\u300c直观可选\u300d的
 核心是**三个方向并排可比**，所以下面这些断言是本脚本的重点：
 
-- 分章页签工具栏出现「选写作方向」按钮（这是唯一的 GUI 入口）；
-- 点开后面板渲染，且顶部说明含「不直接写稿」（红线要看得见）；
+- 分章页签工具栏出现\u300c选写作方向\u300d按钮（这是唯一的 GUI 入口）；
+- 点开后面板渲染，且顶部说明含\u300c不直接写稿\u300d（红线要看得见）；
 - 选章后面板显示章号（面板绑当前章，不串章）；
-- 「生成方向样例」→ 走 job 轮询 → **3 张方向卡片并排出现**；
-- 卡片有 label + why（方向名 + 适配说明，缺了就没法「直观」比）；
+- \u300c生成方向样例\u300d→ 走 job 轮询 → **3 张方向卡片并排出现**；
+- 卡片有 label + why（方向名 + 适配说明，缺了就没法\u300c直观\u300d比）；
 - 点卡片 → 编辑框预填该方向样例（可就地改）；
-- 「提交为写作参照」→ 提交的是编辑框文本 → 提示走「审核」页签批准；
-- 「这一章已选定的方向」区显示读回结果；
+- \u300c提交为写作参照\u300d→ 提交的是编辑框文本 → 提示走\u300c审核\u300d页签批准；
+- \u300c这一章已选定的方向\u300d区显示读回结果；
 - 切章后面板自动收起（防看着 A 章的面板改 B 章）；
 - 全程无 console error。
 
@@ -102,7 +102,7 @@ def main():
 
         # 工具栏入口：选章后才出现
         open_btn = page.locator(".bp-toolbar button", has_text="选写作方向")
-        check("工具栏有「选写作方向」入口", open_btn.count() > 0, open_btn.count())
+        check("工具栏有\u300c选写作方向\u300d入口", open_btn.count() > 0, open_btn.count())
         check("默认面板收起", page.locator(".bs-wrap").count() == 0)
 
         open_btn.first.click()
@@ -110,13 +110,13 @@ def main():
         panel = page.locator(".bs-wrap")
         check("点开后面板渲染", panel.count() > 0)
         txt = panel.first.inner_text() if panel.count() else ""
-        check("面板说明含「不直接写稿」", "不直接写稿" in txt)
+        check("面板说明含\u300c不直接写稿\u300d", "不直接写稿" in txt)
         check("面板标题带当前章号", "选写作方向" in txt and "章" in txt, txt[:60])
         page.screenshot(path=str(OUT / "S1_panel.png"), full_page=True)
 
         # 已选定方向（读回）
         existing = panel.locator(".bs-existing .bs-ex-item")
-        check("「已选定的方向」区有读回结果", existing.count() > 0, existing.count())
+        check("\u300c已选定的方向\u300d区有读回结果", existing.count() > 0, existing.count())
 
         # 生成方向样例
         panel.locator("textarea").first.fill("这章气氛要压下来，别写得太热闹")
@@ -128,7 +128,7 @@ def main():
         page.screenshot(path=str(OUT / "S2_cards.png"), full_page=True)
 
         if cards.count() == 3:
-            # 「直观可选」的前提：三张卡片各自有方向名 + 适配说明
+            # “直观可选”的前提：三张卡片各自有方向名 + 适配说明
             nos = [cards.nth(i).locator(".bs-card-no").first.inner_text()
                    for i in range(3)]
             whys = [cards.nth(i).locator(".bs-card-why").first.inner_text()
@@ -168,7 +168,7 @@ def main():
 
             toast = panel.locator(".bs-toast")
             t = toast.first.inner_text() if toast.count() else ""
-            check("提交后提示走「审核」页签批准", "审核" in t and "批准" in t, t[:80])
+            check("提交后提示走\u300c审核\u300d页签批准", "审核" in t and "批准" in t, t[:80])
             check("提交后清空方向卡（等下一轮）", cards.count() == 0)
 
         # 空文本护栏：再生成 → 清空编辑框 → 提交禁用

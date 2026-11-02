@@ -125,7 +125,7 @@ def main():
         print("\n[T1] GET /setting/conflicts（设定集缺失 → checked=false）")
         code, d = req("GET", "/setting/conflicts")
         check("T1 HTTP 200", code == 200, code)
-        check("T1 checked=false（**没查**，不是「一致」）", d.get("checked") is False, d)
+        check("T1 checked=false（**没查**，不是\u300c一致\u300d）", d.get("checked") is False, d)
         check("T1 reason 说明原因（设定集不存在）",
               "设定集不存在" in (d.get("reason") or ""), d.get("reason"))
         names = [c["name"] for c in (d.get("review_conflicts") or [])]

@@ -181,7 +181,7 @@ def normalize_text(text):
     """归一化：去 Markdown 噪声，标点/空白一律换成**分隔符**，小写。
 
     注意这里不能把标点直接删掉：删掉会让 n-gram 跨越句子边界，
-    造出「同类待定」（原文是"却没给他们同类。待定：…"）这类垃圾特征词，
+    造出“同类待定”（原文是"却没给他们同类。待定：…"）这类垃圾特征词，
     还会污染簇名。换成空格后，CJK 连续片段会自然在标点处断开。
     """
     t = MD_NOISE_RE.sub(" ", text or "")
@@ -247,7 +247,7 @@ def extract_lookaheads(text, limit=3):
 
 
 def negated_tokens(text, tokens):
-    """找出处于排除性语境里的特征词（如"这和潮神无关"里的「潮神」）。
+    """找出处于排除性语境里的特征词（如"这和潮神无关"里的“潮神”）。
 
     返回这些词构成的集合；调用方应把它们从该碎片的特征词里剔除，
     否则"和 X 无关"的注释会被当成"关于 X"的证据，把不相干的碎片并进来。
@@ -395,11 +395,11 @@ def load_scrap(path):
 def _select_keywords(scored, counts, k):
     """挑选特征词，并做"极大 n-gram"归并。
 
-    没有分词器时，一条短语会派生出大量重叠 n-gram（「鲸民密室」→ 民密室/鲸民密/民密/密室），
-    它们几乎同分，会把关键词名额占满，把真正的短特征词（「鲸民」「潮神」）挤出去 →
+    没有分词器时，一条短语会派生出大量重叠 n-gram（“鲸民密室”→ 民密室/鲸民密/民密/密室），
+    它们几乎同分，会把关键词名额占满，把真正的短特征词（“鲸民”“潮神”）挤出去 →
     该合并的簇合不上。判据：若 t 被某个更长词 T 包含，且 **count(T) >= count(t)**
     （即 t 的每次出现都落在 T 里），则 t 只是 T 的碎片，丢弃；
-    反之（如「鲸民」出现 2 次、「鲸民密室」只出现 1 次）t 有独立出现，保留。
+    反之（如“鲸民”出现 2 次、“鲸民密室”只出现 1 次）t 有独立出现，保留。
     """
     out = []
     for t, sc_ in scored:
@@ -482,8 +482,8 @@ def build_edges(scraps):
 
     成簇判据（满足其一）：
     1) 共享特征词 ≥2 个；
-    2) 共享 1 个长特征词（≥3 字，如「鲸民密室」）；
-    3) 共享 1 个只在这两个碎片里出现的特征词（kdf ≤ 2，如短篇里的人物名「鲸民」）。
+    2) 共享 1 个长特征词（≥3 字，如“鲸民密室”）；
+    3) 共享 1 个只在这两个碎片里出现的特征词（kdf ≤ 2，如短篇里的人物名“鲸民”）。
     第 3 条是为"自由命名 + 短笔记"场景补的：碎片很短，同一实体的称呼往往只出现一次，
     若坚持 ≥2 个共享词，写同一件事的两条笔记就永远聚不到一起。
     """
@@ -505,13 +505,13 @@ def build_edges(scraps):
                 reasons.append("共享特征词 %d 个：%s"
                                % (len(shared), "、".join(_top_terms(shared))))
             elif long_shared:
-                reasons.append("共享长特征词：「%s」" % long_shared[0])
+                reasons.append("共享长特征词：“%s”" % long_shared[0])
             elif rare_shared:
-                reasons.append("共享专属特征词：「%s」（仅这 2 个碎片有）" % rare_shared[0])
+                reasons.append("共享专属特征词：“%s”（仅这 2 个碎片有）" % rare_shared[0])
 
             if a.topic_hint and a.topic_hint == b.topic_hint:
                 if reasons or HINT_ONLY_SCORE:
-                    reasons.append("命名提示一致：「%s」" % a.topic_hint)
+                    reasons.append("命名提示一致：“%s”" % a.topic_hint)
 
             ratio = difflib.SequenceMatcher(None, a.norm_text, b.norm_text).ratio()
             if ratio >= SIM_THRESHOLD:
@@ -550,7 +550,7 @@ def cluster_scraps(scraps):
     reasons_by_root = defaultdict(list)
     for i, j, reasons in build_edges(scraps):
         if uf.union(i, j):
-            reasons_by_root[i].append("与「%s」：%s" % (scraps[j].name, "；".join(reasons)))
+            reasons_by_root[i].append("与“%s”：%s" % (scraps[j].name, "；".join(reasons)))
 
     groups = defaultdict(list)
     for idx in range(len(scraps)):

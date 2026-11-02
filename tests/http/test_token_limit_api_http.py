@@ -7,7 +7,7 @@
 - **看得见**：hermes 下金额阈值恒不生效，止烧全靠这几个 token 上限 ——
   调阈值的前提是先能读到当前值、预设值与合法区间；
 - **改不坏**：把 `max_total_tokens` 改成 0/负数会让闸门**静默消失**
-  （0 在今天语义里是"不限制"），与本轮修掉的「¥ 记账恒 0」是同一类坑 → 必须 400 拒绝；
+  （0 在今天语义里是"不限制"），与本轮修掉的\u300c¥ 记账恒 0\u300d是同一类坑 → 必须 400 拒绝；
 - **改不动别人的闸门**：外部 Agent 若能 POST 抬高上限，"止烧"就是摆设 →
   写入口要求 GUI 来源 + 列入 agent_guard 禁止清单。
 
@@ -50,7 +50,7 @@ def req(method, path, body=None, timeout=60, gui=False, source=None, token=None)
     data = json.dumps(body or {}, ensure_ascii=False).encode("utf-8") if method == "POST" else None
     headers = {"Content-Type": "application/json"}
     if gui:
-        # gui=True = 「可信 GUI」：来源头 + 正确 token（双因子齐备）
+        # gui=True = “可信 GUI”：来源头 + 正确 token（双因子齐备）
         headers["X-Mofang-Source"] = "gui"
         headers["X-Mofang-Token"] = TEST_TOKEN if token is None else token
     if source:
@@ -104,7 +104,7 @@ def main():
                             cwd=str(tmp), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                             # 会话 token：模拟 Electron 主进程 spawn 时的 env 注入。
                             # 没有它 → nf_api 不认任何 GUI 来源（fail-closed），
-                            # 下面【3】的「合法写入」会全挂，所以必须给。
+                            # 下面【3】的“合法写入”会全挂，所以必须给。
                             env=dict(os.environ, NF_GUI_TOKEN=TEST_TOKEN))
     try:
         ready = False
@@ -125,7 +125,7 @@ def main():
         check("GET 200", code == 200 and d.get("ok"), d)
         check("当前值 = 出厂预设（出厂即预设，不许漂）",
               d.get("current") == cost_tracker.TOKEN_LIMIT_PRESET, d.get("current"))
-        check("预设回显（设置页的「恢复默认」用它）",
+        check("预设回显（设置页的\u300c恢复默认\u300d用它）",
               d.get("preset") == cost_tracker.TOKEN_LIMIT_PRESET, d.get("preset"))
         check("区间回显（前端可据此提示）",
               set(d.get("bounds") or {}) == set(cost_tracker.TOKEN_LIMIT_BOUNDS),
@@ -171,7 +171,7 @@ def main():
         code, d2 = req("GET", "/config/token_limit")
         check("GET 回读到新值", d2.get("current", {}).get("max_total_tokens") == 2000000, d2)
 
-        print("\n【4】越界/坏值一律 400（防「乱改改坏」= 闸门静默消失）")
+        print("\n【4】越界/坏值一律 400（防\u300c乱改改坏\u300d= 闸门静默消失）")
         before_bad = cfg_text(tmp)
         for bad_body, why in (
                 ({"max_total_tokens": 0}, "0 会让累计闸门消失"),

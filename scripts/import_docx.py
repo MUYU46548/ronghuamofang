@@ -12,12 +12,12 @@
     python scripts/import_docx.py 稿件.docx                    # 预检清单，确认后落盘
     python scripts/import_docx.py 稿件.docx --preview          # 只看不写
     python scripts/import_docx.py 稿件.docx --yes               # 跳过交互确认
-    python scripts/import_docx.py 稿件.docx --as checked        # 落到「校对过」层
+    python scripts/import_docx.py 稿件.docx --as checked        # 落到“校对过”层
     python scripts/import_docx.py 稿件.docx --single            # 兜底1：整本当一章
     python scripts/import_docx.py 稿件.docx --split-by "^第.{1,6}幕"  # 兜底2：自定义分隔
     python scripts/import_docx.py 稿件.docx --json              # 机器可读输出（给接口用）
 
-## 四条红线（问题卡「不可越」）
+## 四条红线（问题卡“不可越”）
 
 1. **输入 docx 一个字节都不动**：只读；落盘后复核 sha256，不一致直接判失败。
 2. **预检未过不落盘**：没确认（`--yes` / 交互回答 y）之前，一个文件都不写。
@@ -35,7 +35,7 @@ raw = 检查/润色/出稿都能跑；checked = 跳过校对直接润色；refin
 
 ## 兜底（不许静默当一章）
 
-整篇识别不出任何章节结构 → 报「未识别出章节结构」+ 两条出路（`--single` /
+整篇识别不出任何章节结构 → 报“未识别出章节结构”+ 两条出路（`--single` /
 `--split-by`），**不落任何文件**。
 
 ## Agent 模式守卫（P2，2026-10-16）
@@ -61,7 +61,7 @@ TIERS = ("raw", "checked", "refined")
 TIER_CN = {"raw": "毛坯（raw，从检查起可用）",
            "checked": "校对过（checked，从润色起可用）",
            "refined": "润过（refined，直接出稿）"}
-# doctor 里与「导入」直接相关的检查项；其余（全局大纲等）是整书体检，
+# doctor 里与“导入”直接相关的检查项；其余（全局大纲等）是整书体检，
 # 导入时上游工序本来就没跑，**不算导入失败**（否则新书首次导入必报红）。
 CHAPTER_CHECKS = ("raw 章节文件", "checked 章节文件", "refined 章节文件")
 MAX_INPUT_CHARS = 8_000_000
@@ -88,7 +88,7 @@ def _heading_level(paragraph):
 def extract_text(path):
     """docx → 纯文本（Markdown 形态）：只取文字与标题级别，**不搬格式**。
 
-    标题段转成 `# …` 行，让 `book_split` 现成的「Markdown 标题」模式直接认；
+    标题段转成 `# …` 行，让 `book_split` 现成的“Markdown 标题”模式直接认；
     普通段落各成一段（空行分隔），下游 stage7 合并时才不会把整篇挤成一坨。
 
     **输入文件只读**（红线1）。
@@ -285,8 +285,16 @@ def import_docx(src, tier="raw", root=".", yes=False, single=False,
     out_dir.mkdir(parents=True, exist_ok=True)
     for i, ch in enumerate(chapters, 1):
         body = (ch.get("body") or "").strip()
-        write_text(out_dir / ("%02d.md" % i), body + "\n")
+        _out = out_dir / ("%02d.md" % i)
+        write_text(_out, body + "\n")
         res["wrote"] += 1
+        # 标点归一化（2026-11-02）：Word 稿里常有直角引号 / 半角引号，不清掉会一路
+        # 带到成品。所有写正文的入口都要过这一道 —— 这里是唯一漏掉的。
+        try:
+            from utils.text_norm import normalize_chapter_file
+            normalize_chapter_file(_out)
+        except Exception as e:                            # noqa: BLE001
+            res["warnings"].append("第 %d 章标点归一化失败：%s" % (i, e))
 
     # ---- 5. 对账 ----
     res["doctor"] = _doctor(root)

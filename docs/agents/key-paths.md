@@ -11,12 +11,12 @@
 - 设定补全历史：`data/setting/history/`（setting_refine.py 每次补全自动备份 setting_vN.json）
 - 角色出场统计：`data/state/appearances.json`（appearances.py / `refresh_appearances()` 生成，**stage4 每章通过校验后自动刷新**，obsidian_postprocess 自动调用；同章重复同步不重复计数）
 - 风格偏差报告：追加在 `data/outline/polish_report.md` 末尾（分卷模式先写 `polish_report_volN.md`，
-  stage6 收尾自动**合并覆盖**成 `polish_report.md`——GUI 产物概况与「润色体检报告」按钮只认汇总名，2026-10-17 修），
+  stage6 收尾自动**合并覆盖**成 `polish_report.md`——GUI 产物概况与“润色体检报告”按钮只认汇总名，2026-10-17 修），
   stage6 每卷润色后自动写入；配置 `book.style_reference` 才生成，阈值 30%，仅供参考不阻断流程
 - 大纲修订历史：`data/outline/history/`（每次精修自动备份 global_vN.md，可回退）
 - 用户大纲输入：`config/project.yaml` 的 `book.user_outline`（可选；提供后 stage2/精修优先遵循）
 - Word 成品模板：`templates/*.dotx`（config 的 `book.word_template` 指定；.dotx 自动转换；替换 [书籍标题]/[作者]/[目录占位符]/[请输入文本] 占位符；更换模板只改配置或覆盖 templates/）
-  - **GUI 入口（件五，2026-10-11）**：设置 →「Word 模板」= 下拉列 `templates/` 下 .dotx/.docx + 打开模板目录 + 恢复默认；写入走 `POST /config/word_template {template|reset}`（`project_config.set_book_fields` 定向改写 + 备份 + 回读校验），读取走 `GET /config/word_template`（清单 + 当前值 + 出厂默认）。**面向用户的入口一律 GUI**（用户 2026-10-10：「用户永远不会用终端」），CLI 直改该键仍是 agent 通道
+  - **GUI 入口（件五，2026-10-11）**：设置 →“Word 模板”= 下拉列 `templates/` 下 .dotx/.docx + 打开模板目录 + 恢复默认；写入走 `POST /config/word_template {template|reset}`（`project_config.set_book_fields` 定向改写 + 备份 + 回读校验），读取走 `GET /config/word_template`（清单 + 当前值 + 出厂默认）。**面向用户的入口一律 GUI**（用户 2026-10-10：“用户永远不会用终端”），CLI 直改该键仍是 agent 通道
 - 项目快照：`history/{时间戳}_{标签}/`（每阶段成功后自动生成，保留最近 10 份；data/ 不进 git，快照承担版本职责）
   - **恢复**：`python scripts/snapshot.py --restore <ID> --yes`。默认 dry-run；
     恢复前自动存 `pre_restore` 快照作折返点；快照外的文件默认保留。
@@ -24,12 +24,12 @@
   - **查看 / 删除**：`GET /project/archive/tree|file`（只读）、`POST /project/archive/delete`
     （GUI 来源头 + 逐字书名确认；默认移入下条的回收站，`purge=true` 才真删）
   - 归档回收站：`data/books/_trash/{书名}__{时间戳}/`（删除的默认落点，要彻底清除手工删该目录；
-    `list_books()` 跳过它，不会以「一本叫 _trash 的书」出现在列表里）
+    `list_books()` 跳过它，不会以“一本叫 _trash 的书”出现在列表里）
   - **出厂样例回收站**：`data/books/_trash/factory__{时间戳}/`（`POST /factory/clean` 的落点，
     保留原相对路径、可手工捞回；同上不会出现在书列表）
 - 出厂清单：`data/state/factory_manifest.json`（seedWorkspace 实际复制文件后写，合并语义：
   `{seed_version, generated_at, files:{相对路径: sha256}}`）；盘点/清理端点 `GET /factory/list`
-  （零副作用）与 `POST /factory/clean {confirm:true}`，GUI 入口在「设置 → 诊断与调试 → 出厂内容」，
+  （零副作用）与 `POST /factory/clean {confirm:true}`，GUI 入口在“设置 → 诊断与调试 → 出厂内容”，
   比对真源是随包 `examples/`（源码态 `ROOT/examples`，打包态 `NF_SAMPLE_ROOT` 注入）
 - **样例书的大纲与素材必须配套**（2026-10-18）：`examples/sample-book/` 的 `user_outline`
   讲沈砚/程砧/机关术，`materials/` 的 19 张卡讲**同一套设定**。改其中任一侧后跑
@@ -44,7 +44,7 @@
   它存在的意义是**换一整套专名，判据照样成立** —— 一套夹具证明不了流水线不过拟合
 - 章节修订历史：`data/chapters/history/`（refine_chapter.py 每次精修备份 chNN_vM.md）
 - 单章字数区间：`config/system.yaml` 的 `chapter.target_words`（**列表** `[low, high]`，出厂 [5000,9000]；
-  `GET/POST /config/target_words` 读写，GUI 设置页同源。判据与边界见「止烧与安全闸门」节）
+  `GET/POST /config/target_words` 读写，GUI 设置页同源。判据与边界见“止烧与安全闸门”节）
 - 中文标点归一化：唯一实现 `scripts/utils/text_norm.py`，7 处挂载点（stage4/5/6 落盘后、
   refine_chapter / refine_paragraph 落盘后、stage7 合并兜底）。判据与护栏见专节
 - 校对报告：`data/outline/proofread_report.json` + `.md`（proofread.py / `POST /proofread/run` 产出；
@@ -78,12 +78,12 @@
     从范文抽取 ≤3 段代表性原文，按空行分段、按"长度适中/含对白/含修辞/节奏有起伏"打分，
     自动剔除与当前内容字面重叠（3-gram 重叠率 > 0.30）的段落，并标注来源（第 N 段，字符 X-Y）
   - 未配置 `style_reference` 时不注入任何片段与风格指令，逻辑与旧版一致
-  - 范文是**用户自带的版权材料**：写入前必须确认「样例稿使用声明」，同意记录在
+  - 范文是**用户自带的版权材料**：写入前必须确认“样例稿使用声明”，同意记录在
     `data/state/style_sample_consent.json`（后端 403 `need_consent` 拦，不只是前端弹层）；
     范文本体存工作区（默认 `materials/style_sample.md`），片段会随写作任务发给模型服务商
 - 用户风格笔记：`config/project.yaml` 的 `book.style_notes`（可选，手动补充的风格要求）
   - 与自动分析结论叠加注入 stage4/stage6，冲突时以笔记为准；留空则完全不注入
-  - GUI 编辑：控制台「设置」页签「用户风格笔记」→ IPC（`style-notes:get/save`）→
+  - GUI 编辑：控制台“设置”页签“用户风格笔记”→ IPC（`style-notes:get/save`）→
     nf_api `/config/style_notes` → `utils/project_config.set_style_notes()`
     （按行定向改写 project.yaml 保留注释，写入前备份 `config/history/`，写后回读校验）
 - 提示词模板备份：`prompts/history/{模板名}_{时间戳}.md`（GUI 保存前自动备份，每模板留最近 50 份）

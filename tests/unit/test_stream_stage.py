@@ -4,9 +4,9 @@
 ## 本用例守护什么
 
 2026-09-19 审查发现 `nf_api.py` 的流式分支 `_fn_stream` 内引用 `only_stage`
-（局部变量实际叫 `only`）→ GUI 勾选「流式输出」跑流水线 100% `NameError`。
+（局部变量实际叫 `only`）→ GUI 勾选\u300c流式输出\u300d跑流水线 100% `NameError`。
 更阴险的是**执行时序**：API 先回 `202 {job_id, stream:true}`，再在后台线程抛错，
-于是 GUI 显示「正在流式输出」却永远收不到 token —— 典型静默失败。
+于是 GUI 显示\u300c正在流式输出\u300d却永远收不到 token —— 典型静默失败。
 
 修复方式不是打补丁，而是**消除流式/非流式平行分支**
 （合并为 `act_run_stage` / `act_run_stage_streamed` + 共用 `_rc_to_result`）。
@@ -15,7 +15,7 @@
 
   1. 两个 action 工厂能正常构造
   2. `act_run_stage_streamed` 在 fake client 下能跑到 orch_run 并返回结果元组
-  3. **两条路径的退出码翻译完全一致**（0/1/2/3/4 全覆盖）——这是「消除平行分支」的实质
+  3. **两条路径的退出码翻译完全一致**（0/1/2/3/4 全覆盖）——这是\u300c消除平行分支\u300d的实质
   4. 流式路径不会因为 `only_stage` 名字问题抛 NameError
 
 用法：python tests/unit/test_stream_stage.py

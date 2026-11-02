@@ -84,18 +84,18 @@ def case_recall_beats_scan_on_odd_layout():
         check("R1 新通道命中（正文关键词，不是文件名）",
               any("跃迁引擎" in name for _p, name, _s, _sc in hits),
               f"→ {[(n, round(sc, 1)) for _p, n, _s, sc in hits]}")
-        check("R2 命中的是正文里的词（文件名叫「随便写的文件名」）",
+        check("R2 命中的是正文里的词（文件名叫\u300c随便写的文件名\u300d）",
               any("随便写的文件名" in p for p, _n, _s, _sc in hits),
               f"→ {[p for p, _n, _s, _sc in hits]}")
         check("R2 无 frontmatter 时取正文 H1 当名字（不是零信息量的文件名）",
               any(name == "跃迁引擎" for _p, name, _s, _sc in hits),
               f"→ {[n for _p, n, _s, _sc in hits]}")
         # H1 是小节标题时必须回退文件名 —— 某真实库 417 篇实测 H1 全是
-        # 「基本信息」「一、概念定义」，照取会让词条名毫无辨识度
+        # “基本信息”“一、概念定义”，照取会让词条名毫无辨识度
         all_hits = kb_index.recall("跃迁引擎 有结构的笔记 基本信息 花园", str(v),
                                    top_k=10, max_chars=100000)
         names = [n for _p, n, _s, _sc in all_hits]
-        check("R2 小节标题 H1（「基本信息」）不当主题名，回退文件名",
+        check("R2 小节标题 H1（\u300c基本信息\u300d）不当主题名，回退文件名",
               "有结构的笔记" in names and "基本信息" not in names,
               f"→ {names}")
         check("R2 无关词条不进 top（检索不是全收）",

@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """首跑向导出厂预设端点自检（GET /factory/presets、POST /factory/preset/apply）。零 LLM。
 
-为什么这些断言重要（roadmap v0.20「首跑向导合并」+ 用户 2026-10-21 指令
-「试跑我自己会做…直接做剩余待办」）：
+为什么这些断言重要（roadmap v0.20\u300c首跑向导合并\u300d+ 用户 2026-10-21 指令
+\u300c试跑我自己会做…直接做剩余待办\u300d）：
 
 - **试跑要有素材可写**：向导选中预设即铺设配套素材 + 配置，否则首跑是空跑
   （AGENTS.md：materials/raw 为空时提醒用户，不要空跑）；
@@ -16,9 +16,9 @@
   POST /factory/preset/apply  双因子闸 + 真铺设（素材落盘 + 配置写入）
   POST /project/create        **铺设后创建（preset_applied）不得把刚铺的素材归档走**
                               —— 2026-10-24 用户实测：向导铺设→创建→试跑 9 秒即败
-                              （materials/raw 被归档进书档，阶段1 报「无素材」）
+                              （materials/raw 被归档进书档，阶段1 报\u300c无素材\u300d）
   POST /project/create        空骨架工作区创建后**不得**堆出空壳归档
-                              「示例书名（待填写）」（占位名不是一本书）
+                              \u300c示例书名（待填写）\u300d（占位名不是一本书）
   POST /project/create        冷启动（占位名 + 手放素材 + 无数据）创建 → 素材留在工作区
 
 **不碰真实仓库**：复制 scripts/config/prompts/examples 到临时根起 nf_api。
@@ -115,7 +115,7 @@ def build_project():
     shutil.copytree(ROOT / "prompts", tmp / "prompts",
                     ignore=shutil.ignore_patterns("history", "reference"))
     # 出厂预设在 examples/presets/（打包态由 payload 注入）——夹具必须带上，
-    # 否则 GET 返回空清单，「试跑有素材可写」这条判据无从验起。
+    # 否则 GET 返回空清单，“试跑有素材可写”这条判据无从验起。
     shutil.copytree(ROOT / "examples", tmp / "examples",
                     ignore=shutil.ignore_patterns("__pycache__"))
     _force_agent_mode_off(tmp / "config" / "system.yaml")
@@ -208,7 +208,7 @@ def main():
         # 【7】铺设 → 创建（preset_applied）：刚铺的素材必须原样保留
         # 事故现场（2026-10-24 用户实测）：向导第 0 步铺设、第 3 步创建，
         # /project/create 把 materials/（归档根项）连同刚铺的素材一起归档走，
-        # 新书阶段 1 9 秒即败：「materials/raw 无素材且无既有设定集」。
+        # 新书阶段 1 9 秒即败：“materials/raw 无素材且无既有设定集”。
         # ------------------------------------------------------------------
         print("\n【7】铺设后创建（preset_applied=true）：素材保留 + 不新增归档 + 阶段1预检非空")
         import yaml
@@ -234,11 +234,11 @@ def main():
               book.get("name") == "预设新书" and book.get("chapters") == 8, book)
         check("出厂标记仍在（init_empty 会清它 → preset_applied 必须跳过 init_empty）",
               (tmp / "data" / "state" / "factory_project.json").exists())
-        # 阶段 1 的失败判据就是「scan_materials 空 + 无既有设定集」——直接打这条判据
+        # 阶段 1 的失败判据就是“scan_materials 空 + 无既有设定集”——直接打这条判据
         from stage1_consolidate import scan_materials
         manifest = scan_materials(tmp / "materials" / "raw",
                                   tmp / "data" / "setting" / "normalized")
-        check("阶段1 预检输入非空（scan_materials 命中素材卡，不再「无素材」必败）",
+        check("阶段1 预检输入非空（scan_materials 命中素材卡，不再\u300c无素材\u300d必败）",
               len(manifest) > 0, len(manifest))
 
         print("\n【8】preset_applied 不绕过参数护栏（非法输入仍 400 且零改动）")
@@ -261,12 +261,12 @@ def main():
               (arch / "materials" / "raw").is_dir()
               and len(files_of(arch / "materials" / "raw")) == len(preset_mats),
               files_of(arch / "materials" / "raw") if (arch / "materials" / "raw").exists() else None)
-        check("**没有**堆出空壳归档「示例书名（待填写）」",
+        check("**没有**堆出空壳归档\u300c示例书名（待填写）\u300d",
               not (books_dir / "示例书名（待填写）").exists(),
               sorted(p.name for p in books_dir.iterdir()) if books_dir.exists() else None)
 
         print("\n【10】冷启动：占位书名 + 手放素材 + 无数据 → 素材必须留在工作区")
-        # 把工作区摆成「全新安装、用户只放了素材、还没起过书名」的形态
+        # 把工作区摆成“全新安装、用户只放了素材、还没起过书名”的形态
         proj = tmp / "config" / "project.yaml"
         proj.write_text(re.sub(r'(?m)^(\s*name:\s*).*$',
                                r'\1"示例书名（待填写）"',
@@ -283,7 +283,7 @@ def main():
         check("手放的素材留在工作区（占位名不是书，不许被自动归档搬走）",
               (tmp / "materials" / "raw" / "手放卡.md").exists(),
               files_of(tmp / "materials" / "raw"))
-        check("仍然没有空壳归档「示例书名（待填写）」",
+        check("仍然没有空壳归档\u300c示例书名（待填写）\u300d",
               not (books_dir / "示例书名（待填写）").exists(),
               sorted(p.name for p in books_dir.iterdir()) if books_dir.exists() else None)
         book = (yaml.safe_load(proj.read_text(encoding="utf-8")) or {}).get("book") or {}

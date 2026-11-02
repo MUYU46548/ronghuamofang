@@ -8,8 +8,8 @@
 
 ## 方案A（2026-10-15 用户拍板）：加固档下 CLI 审批**无条件拒绝**
 
-原口径是「正路 = 真实交互式终端（TTY 快筛 + 祖先链取证），伪造须留痕可追责」。
-用户拍板翻案，原话：**「都用桌面端了，没人会用 CLI」** —— 于是加固档下 CLI 审批
+原口径是“正路 = 真实交互式终端（TTY 快筛 + 祖先链取证），伪造须留痕可追责”。
+用户拍板翻案，原话：**“都用桌面端了，没人会用 CLI”** —— 于是加固档下 CLI 审批
 （`approve.py` / `reject.py` / `segment_cli.py` 勾段与撤销）**无论证据多完美一律拒绝**
 （判据唯一实现 = `cli_approval_gate()`，策略原因进台账），审批的唯一入口 = 桌面端 GUI 双因子。
 
@@ -33,12 +33,12 @@
 | 档位 | 触发 | CLI 人工来源的证据 |
 |------|------|--------------------|
 | 标准档 | `agent_mode=false` | ① 环境变量 `MOFANG_SOURCE=gui`；② 双端交互式 TTY；③ 显式 `--human`（历史语义；守卫关闭时调用方根本不进本函数） |
-| **加固档** | `agent_mode=true` | **只有「真实交互式终端」一种**：双端 TTY（前置快筛）+ **祖先进程链取证**（主判据，链须落在用户 shell/explorer、不得经过自动化宿主） |
+| **加固档** | `agent_mode=true` | **只有“真实交互式终端”一种**：双端 TTY（前置快筛）+ **祖先进程链取证**（主判据，链须落在用户 shell/explorer、不得经过自动化宿主） |
 
 HTTP 侧入口自 2026-10-06 起为**双因子**：来源头 `X-Mofang-Source: gui`（渲染层 `api()` 携带）
 **加**主进程签发的 `X-Mofang-Token`，判据唯一实现见 `is_trusted_gui()` —— 单靠来源头
 可被任何本机进程伪造（见该函数上方的红队复现）。CLI 没有请求头，加固档改用进程链取证
-代替「声明式」证据。
+代替“声明式”证据。
 
 加固档三条硬规格（信息哨兵三缺口钉死，勿回退）：
 
@@ -50,9 +50,9 @@ HTTP 侧入口自 2026-10-06 起为**双因子**：来源头 `X-Mofang-Source: g
   （照抄旧逻辑，验收第 1 条物理不可实现）。
 - **fail-closed**：祖先进程链读不到 = 无法确认人工 = 拒绝，绝不反向放行。
 
-**残余风险如实声明**：进程链可被伪造 —— 按红队放行口径判「伪造必须显式留痕可追责」
-（完整链与声明痕迹全部写进 `data/state/agent_audit.jsonl` 台账），不判「伪造不可能」。
-**这不是沙箱**：它拦的是「Agent 照着文档跑一条命令就悄悄替用户拍板」，
+**残余风险如实声明**：进程链可被伪造 —— 按红队放行口径判“伪造必须显式留痕可追责”
+（完整链与声明痕迹全部写进 `data/state/agent_audit.jsonl` 台账），不判“伪造不可能”。
+**这不是沙箱**：它拦的是“Agent 照着文档跑一条命令就悄悄替用户拍板”，
 不要对外宣称更强。
 """
 import hmac
@@ -103,7 +103,7 @@ FORBIDDEN_IN_AGENT_MODE = frozenset({
     "/judge/book_reject/clear",
     # 归档整本（搬家，不是删除）：同样是**作者的判断**，且它会搬空工作区。
     # 外部 Agent 想归档自己的产物，走 /project/archive（明确指定书名），
-    # 不能借用判定页这条「按当前书名、连素材一起搬」的快捷通道。
+    # 不能借用判定页这条“按当前书名、连素材一起搬”的快捷通道。
     "/judge/book_archive",
     # 设定集恢复（2026-11-02）：整体替换当前设定 —— 与归档/恢复同档的批量写。
     # 外部 Agent 能"恢复"一次，就等于能抹掉作者刚改的设定；读侧
@@ -115,7 +115,7 @@ FORBIDDEN_IN_AGENT_MODE = frozenset({
     # 只读的 /chapters/*、/outline/chapters/* 不在此列。
     "/import/docx",
     # 大纲分段审批标记（丙4，2026-10-14）：勾一段 = 替用户读了那一段，
-    # 而分段的全部意义就是「不降低强度、全过才放行」—— 让 Agent 自己勾满
+    # 而分段的全部意义就是“不降低强度、全过才放行”—— 让 Agent 自己勾满
     # 八段再放行，等于把审阅义务整个绕过。读侧 GET /outline/segments 不拦。
     "/outline/segments/set",
     # 人工跳过阶段（P1 补，2026-10-16）：/stage/skip 把阶段标成 done+已审批+skipped，
@@ -129,7 +129,7 @@ FORBIDDEN_IN_AGENT_MODE = frozenset({
     # （/outline/discussion/apply）只落草稿区，不在名单里（agent 可提案不可自批）。
     "/outline/discussion/review",
     # 手改章节正文（2026-10-27）：零 token 直接覆盖 raw/checked/refined —— 与
-    # 「重写（花 token 生成、有 stage 记录与备份）」不是一回事。端点自身另要
+    # “重写（花 token 生成、有 stage 记录与备份）”不是一回事。端点自身另要
     # 双因子 GUI 来源（与止烧阈值/Agent 模式同档），这里是 mode=true 下的第二道闸。
     # 读侧 GET /chapters/layers|content 不拦（Agent 可读，不能替用户改稿）。
     "/chapters/save",
@@ -137,7 +137,7 @@ FORBIDDEN_IN_AGENT_MODE = frozenset({
     # 只是粒度更细。Agent 能替作者改一段，就能替作者改整章。
     "/chapters/paragraph/save",
     # 判定引擎（0.7.17）：事件勾选与逐句裁定都是**作者的判断**，不是系统能代劳的事。
-    # Agent 替作者勾「这章算几件事」= 直接改写判定结论（F03b 是唯一硬门）。
+    # Agent 替作者勾“这章算几件事”= 直接改写判定结论（F03b 是唯一硬门）。
     # 读侧 GET /judge/* 不拦（Agent 可看报告，不能替作者签字）。
     "/judge/events",
     "/judge/sentence",
@@ -171,7 +171,7 @@ TERMINAL_ANCHOR_CORES = frozenset({
 AUTOMATION_HOST_CORES = frozenset({"node", "python", "pythonw", "python3", "py"})
 AUTOMATION_HOST_PREFIXES = ("hermes", "winpty")
 
-# ancestry 注入哨兵：区分「未提供 → 实测进程表」与「提供了（哪怕 None/空表）→ 用提供的」。
+# ancestry 注入哨兵：区分“未提供 → 实测进程表”与“提供了（哪怕 None/空表）→ 用提供的”。
 # 测试用注入构造正/反例链；真实运行一律实测。
 _ANCESTRY_UNSET = object()
 
@@ -180,9 +180,9 @@ def load_project_config():
     """CLI 守卫读配置：**CWD 项目优先**，缺文件回退脚本仓根（两侧共用的单一实现）。
 
     判据自 2026-10-05 起统一实现在 `config_io.load_config_yaml`（相对路径 CWD 优先、
-    缺失回退仓根）—— 本函数只做「守卫读配置绝不抛」的容错包装。
+    缺失回退仓根）—— 本函数只做“守卫读配置绝不抛”的容错包装。
     为什么必须 CWD 优先：approve/reject 的 progress.json 是 **CWD 相对**（= 所操作
-    项目的根），配置若读到另一个仓，就出现「批 A 项目的进度、按 B 项目的 agent_mode 判」
+    项目的根），配置若读到另一个仓，就出现“批 A 项目的进度、按 B 项目的 agent_mode 判”
     （2026-10-04 修复单 Step 4 回归发现；测试床与多项目/`--root` 场景同源）。
     """
     try:
@@ -225,7 +225,7 @@ def is_forbidden_in_agent_mode(path):
 #
 # 边界如实声明（2026-10-16 红队 A11 补验修正措辞）：同机攻击者可以**自起一份
 # nf_api 并自铸 token**（`NF_GUI_TOKEN=<自设>`）整体穿透本名单 —— 但这不比
-# 「直接手改 data/state/*.json」多出任何能力，同属已声明残余（这不是沙箱，
+# “直接手改 data/state/*.json”多出任何能力，同属已声明残余（这不是沙箱，
 # 防线语义 = 拦住照文档跑命令的 Agent）。勿把双因子宣称为同机攻击模型下的保证。
 #
 # **fail-closed**：nf_api 未被注入 token（独立启动 / CLI / 测试）→ 一律不认 GUI 来源。
@@ -369,7 +369,7 @@ def probe_ancestry(max_depth=48):
         depth = 0
         while pid and pid > 0 and pid not in seen:
             if depth >= max_depth:
-                # 深度上限截断 = 与「读不到名字」同款截断标记（2026-10-15 红队实弹：
+                # 深度上限截断 = 与“读不到名字”同款截断标记（2026-10-15 红队实弹：
                 # cmd×48 把自动化宿主推出上限外，旧实现静默返回"看似完整"的链 → fail-open）。
                 # 走满 max_depth 仍未落到锚点/链尾 = 无法核验，fail-closed。
                 names.append("?")
@@ -393,7 +393,7 @@ def probe_ancestry(max_depth=48):
 
 def cli_approval_gate(explicit_human=False, source_env=None, isatty=None,
                       ancestry=_ANCESTRY_UNSET):
-    """CLI 审批闸（**方案A**，2026-10-15 用户拍板：「都用桌面端了，没人会用 CLI」）。
+    """CLI 审批闸（**方案A**，2026-10-15 用户拍板：“都用桌面端了，没人会用 CLI”）。
 
     只应在 `agent_mode=true` 分支调用（调用方已判模式）。返回 `(allowed, evidence)`：
 
@@ -402,20 +402,20 @@ def cli_approval_gate(explicit_human=False, source_env=None, isatty=None,
     - `evidence` = 策略原因 + `cli_human_evidence` 的原证据（含声明痕迹），供台账留痕
       —— 证据照采，只是不再构成放行依据。
 
-    历史：2026-10-04 V5 的正路「真实交互式终端」自此废止；`cli_human_evidence`
-    原样保留（标准档语义 + 证据层 + 纵深防御）。**勿把本函数改回「证据好就放行」** ——
+    历史：2026-10-04 V5 的正路“真实交互式终端”自此废止；`cli_human_evidence`
+    原样保留（标准档语义 + 证据层 + 纵深防御）。**勿把本函数改回“证据好就放行”** ——
     那会让 CLI 重新变成守卫最脆的攻击面（红队 63 向量里一多半攻的就是那条路）。
     """
     _ok, ev = cli_human_evidence(source_env=source_env, isatty=isatty,
                                  explicit_human=explicit_human,
                                  agent_mode=True, ancestry=ancestry)
     return False, ("方案A(2026-10-15): 加固档 CLI 审批一律拒绝、只走桌面端"
-                   "（原正路「真实交互终端」废止）；原证据: " + ev)
+                   "（原正路“真实交互终端”废止）；原证据: " + ev)
 
 
 def cli_human_evidence(source_env=None, isatty=None, explicit_human=False,
                        agent_mode=False, ancestry=_ANCESTRY_UNSET):
-    """判定「本次调用是否人工来源」。返回 (is_human, 证据说明)。
+    """判定“本次调用是否人工来源”。返回 (is_human, 证据说明)。
 
     agent_mode=False（标准档，历史语义）：
         MOFANG_SOURCE 声明 > 显式 --human > 双端 TTY。守卫关闭时调用方
@@ -500,9 +500,9 @@ def refusal_message(action, evidence, entry="CLI"):
 
     **evidence 刻意不进拒文**（2026-10-04 V5 拒文泄题修复）：
     拒文本身是攻击面 —— 旧文案主动向挨拒者传授 `--human` / `MOFANG_SOURCE=gui`
-    通道与「把 gates.agent_mode 改 false」的退路，挨拒者照方抓药即可绕守卫
+    通道与“把 gates.agent_mode 改 false”的退路，挨拒者照方抓药即可绕守卫
     （红队向量 V5：拒文本身是攻击面）。
-    agent_mode=true 下拒文**零通道名**：只保留「停手并报告用户」类指引；
+    agent_mode=true 下拒文**零通道名**：只保留“停手并报告用户”类指引；
     技术证据（evidence，可能含声明痕迹 / 进程链）只写 agent_audit.jsonl 台账。
     """
     return (
@@ -521,7 +521,7 @@ def log_audit(path, method="POST", status=200, source="gui", detail="", root=Non
 
     detail 上限 600 字符（2026-10-05 红队实测修正：原 [:120] 会把祖先链证据之后的
     **声明痕迹**切掉——链文本一长，`声明来源=gui / 声明--human` 就只剩半句
-    「；附带声明（不构」，V1/V2 的留痕可追责性被自己截没了）。
+    “；附带声明（不构”，V1/V2 的留痕可追责性被自己截没了）。
     """
     try:
         base = Path(root) if root else Path(".")

@@ -6,7 +6,7 @@
 2026-10-02 审查发现：A1 把 `path_kind` 的判据锚点从写死的（某套私人数字前缀分类法）
 改成 `obsidian.vault_dirs.characters` 推导。而**能证明这个判据该有的那条用例
 （`test_setting_schema` F 节，480 条真实归档）依赖 `history/20260917_191317_stage2_done`，
-该快照已不在任何机器上 → 恒 SKIP**。也就是说：patch 号称「40/0 持平」，实际
+该快照已不在任何机器上 → 恒 SKIP**。也就是说：patch 号称\u300c40/0 持平\u300d，实际
 根本没验到 path 判据是否还活着（**假绿**）。
 
 本文件用**自造夹具**（临时 vault + 临时 config）把这条判据钉死，永不 SKIP。
@@ -18,7 +18,7 @@
 | G2 | 自定义 vault_dirs 要真的改变**扫描目标** | 造 vault 后 scan_vault 数命中 |
 | G3 | `skip_dirs` 是**追加**不是替换（旧实现点一下就把 `.git` 放进来） | local 只写一项，断言默认四项仍在 |
 | G4 | skip_dirs 曾经**两处各写一份**且已漂移（一处多跳过一个目录，另一处没跳） | 断言两处是**同一个函数对象** |
-| G5 | 锚点一改，既有「旧布局」数据**静默退回 name 词表** | `extra_character_anchors` 多锚点三态 |
+| G5 | 锚点一改，既有\u300c旧布局\u300d数据**静默退回 name 词表** | `extra_character_anchors` 多锚点三态 |
 | G6 | 目录落空曾**静默 continue**（下游注入恒空无提示） | 断言打告警 |
 | G7 | 配置解析失败曾 `except: pass` 静默降级 | 坏 YAML → 必须打告警 |
 
@@ -144,7 +144,7 @@ def case_custom_vault_dirs_actually_scans():
     print("\n[G2] 自定义 vault_dirs 要真的改变扫描目标（不是只改了配置）")
     root = build_sandbox()
     v = root / "MyVault"
-    # 只造「用户自己的」结构，不造默认的 设定/人物
+    # 只造“用户自己的”结构，不造默认的 设定/人物
     (v / "我的库" / "角色").mkdir(parents=True, exist_ok=True)
     (v / "我的库" / "角色" / "阿丙.md").write_text(
         "---\nname: 阿丙\ntype: 人物\nlocked: false\n---\n一个测试角色。\n",
@@ -217,7 +217,7 @@ _ticket(has_const=hasattr(ob, "SKIP_DIRS"),
           p["has_const"] is False, f"→ {p}")
     check("G4 kb_index 与 setting_schema 用同一个 get_skip_dirs 函数",
           p["same_kb"] is True, f"→ {p}")
-    # 2026-10-31 改为断言「没有模块级快照」：原断言是「快照==实时值」，
+    # 2026-10-31 改为断言“没有模块级快照”：原断言是“快照==实时值”，
     # 而它只在 import 那一刻成立 —— 用户改配置后快照就陈旧了（G9 的场景）。
     check("G4 bridge 不持模块级 skip_dirs 快照（快照=改了配置不生效的根因）",
           p["has_snapshot"] is False, f"→ {p}")
@@ -229,7 +229,7 @@ _ticket(has_const=hasattr(ob, "SKIP_DIRS"),
 def case_path_kind_multi_anchor():
     print("\n[G5] path_kind：锚点可配 + 旧锚点兼容（三态）")
     root = build_sandbox()
-    # 刻意用**中性的旧布局占位**（测试只关心「锚点不同」这件事，
+    # 刻意用**中性的旧布局占位**（测试只关心“锚点不同”这件事，
     # 不关心真实目录叫什么；真实结构不进发布树）
     OLD = r"旧库\人物\子类目\角色甲.md"
     NEW = r"设定\人物\子类目\角色甲.md"
@@ -364,16 +364,16 @@ _ticket(entries=sorted(idx["entries"].keys()), sd=sorted(get_skip_dirs()))
 def case_skip_dirs_hot_reload():
     """G9：运行期改排除项，scan_vault 必须**立刻**跟随（不重启进程）。
 
-    用户 2026-10-30 的原话：「第一次点了知识库扫描功能，发现可以手动排除文件夹。
-    这是一个好设计，但我不确定是否真的生效。」
+    用户 2026-10-30 的原话：\u300c第一次点了知识库扫描功能，发现可以手动排除文件夹。
+    这是一个好设计，但我不确定是否真的生效。\u300d
 
     他的怀疑是对的。根因是 `obsidian_bridge._skip_dirs` 在 **import 时**求值一次：
       · `scan_vault_preview`（界面预览）每次实时读 → 一保存，数字立刻变小；
       · `scan_vault`（设定集导入的真源）读模块级快照 → 进程不重启就是旧集合。
-    表现为「界面说已排除 N 篇，导入时那 N 篇照样进来」，且没有任何报错。
+    表现为\u300c界面说已排除 N 篇，导入时那 N 篇照样进来\u300d，且没有任何报错。
 
     反证（会变红）：把 `_skip_dirs = get_skip_dirs()` 加回模块级、三处循环改回
-    读快照 → 本用例的 after 会重新出现「乙」。
+    读快照 → 本用例的 after 会重新出现\u300c乙\u300d。
     """
     print("\n[G9] 排除项热更：同一进程内改 config，scan_vault 立刻跟随")
     root = build_sandbox()
@@ -413,9 +413,9 @@ _ticket(before=before, after=after,
         return
     check("G9 改前两个角色都在（夹具自证：旧稿确实在扫描面内）",
           p["before"] == ["乙", "甲"], f"→ {p['before']}")
-    check("G9 改后 scan_vault **立刻**不再收「旧稿」下的角色（不必重启 nf_api）",
+    check("G9 改后 scan_vault **立刻**不再收\u300c旧稿\u300d下的角色（不必重启 nf_api）",
           p["after"] == ["甲"], f"→ {p['after']}（旧实现此处仍是 ['乙','甲']）")
-    check("G9 界面预览与真实扫描口径一致（曾是「预览 1 篇 / 实际 2 篇」）",
+    check("G9 界面预览与真实扫描口径一致（曾是\u300c预览 1 篇 / 实际 2 篇\u300d）",
           len(p["after"]) == p["preview_scanned"], f"→ {p}")
     shutil.rmtree(root, ignore_errors=True)
 

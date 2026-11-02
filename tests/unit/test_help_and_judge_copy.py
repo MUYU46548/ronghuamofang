@@ -4,11 +4,11 @@
 ## 两份东西，一条根因
 
 用户的意见分两半：
-  ① 「这一章发生了几件事」我看不懂；
+  ① \u300c这一章发生了几件事\u300d我看不懂；
   ② 本来这些东西都应该写在手册里持久化备查的。
 
 ②是①的根因 —— 界面上一句话讲不清判据，讲清了也会被忘掉。所以这轮做了：
-  · 把三处黑话改成白话（「计入下限」→「不算进 2 件」；四类补例子；补「不算一件事」按钮）；
+  · 把三处黑话改成白话（\u300c计入下限\u300d→\u300c不算进 2 件\u300d；四类补例子；补\u300c不算一件事\u300d按钮）；
   · 加一份**随包内置、离线可查**的手册（`console/src/help/*.md` + `md.js` + `HelpPanel`）。
 
 ## 判据
@@ -17,8 +17,8 @@
 - H2 渲染器：块级语法（标题/列表/表格/代码/引用）+ 行内（粗体/行内码/链接）
 - H3 渲染器**先转义**（手册里贴用户来稿片段不该变成可执行 HTML）
 - H4 入口三处齐（设置侧栏 / 命令面板 / 首启引导）
-- H5 事件勾选的面板文案不含黑话（「计入下限」这类词必须消失）
-- H6 「不算一件事」标记在前后端都通了（组件有按钮、后端收 rejected）
+- H5 事件勾选的面板文案不含黑话（\u300c计入下限\u300d这类词必须消失）
+- H6 \u300c不算一件事\u300d标记在前后端都通了（组件有按钮、后端收 rejected）
 
 用法：python tests/unit/test_help_and_judge_copy.py
 """
@@ -68,7 +68,7 @@ def main():
         titles[p.stem] = (m.group(1).strip() if m else "")
         check("%s 有一级标题（目录靠它显示）" % p.name, bool(m.group(1) if m else ""),
               text[:40])
-    check("有「判定怎么用」这一篇（且排在第 2 位，作者最常查）",
+    check("有\u300c判定怎么用\u300d这一篇（且排在第 2 位，作者最常查）",
           any("judge" in k for k in titles) and list(titles)[1].endswith("judge"),
           list(titles))
 
@@ -76,16 +76,16 @@ def main():
     if judge.is_file():
         jt = judge.read_text(encoding="utf-8")
         # 用户卡住的三件事：动作 vs 事件、四类各是什么、勾完会怎样
-        check("判定篇讲清「动作不算事」（用具体例子）",
+        check("判定篇讲清\u300c动作不算事\u300d（用具体例子）",
               "不算" in jt and ("档案室" in jt or "抄下" in jt), jt[:80])
         check("判定篇列了四类，且每类带例子",
               all(k in jt for k in ("人物处境", "信息占有", "关系", "目标"))
               and "被抓" in jt, "")
-        check("判定篇讲清「不计入」是什么意思（不是悄悄少算）",
+        check("判定篇讲清\u300c不计入\u300d是什么意思（不是悄悄少算）",
               "不计入" in jt and "不算进" in jt, "")
         check("判定篇写了勾完之后落哪三档",
               "合格" in jt and "需定点重写" in jt and "需重写本章" in jt, "")
-        check("判定篇写了「没勾完 = 待作者勾选，不是合格」",
+        check("判定篇写了\u300c没勾完 = 待作者勾选，不是合格\u300d",
               "待作者勾选" in jt, "")
 
     print("\n【H2/H3】渲染器")
@@ -136,29 +136,29 @@ def main():
 
     print("\n【H4】入口三处")
     app = (SRC / "App.vue").read_text(encoding="utf-8")
-    check("设置侧栏有「使用手册」分类", 'id: "help", name: "使用手册"' in app)
-    check("命令面板有「打开使用手册」",
+    check("设置侧栏有\u300c使用手册\u300d分类", 'id: "help", name: "使用手册"' in app)
+    check("命令面板有\u300c打开使用手册\u300d",
           'label: "打开使用手册"' in app and 'if (id === "manual") return openHelp()' in app)
-    check("首启引导第 4 步有「使用手册」按钮",
+    check("首启引导第 4 步有\u300c使用手册\u300d按钮",
           '<button class="mini" @click="openHelp">使用手册</button>' in app)
     check("openHelp 会切到设置页的手册分类",
           "function openHelp()" in app and 'selectSettingsTab("help")' in app)
 
     print("\n【H5】事件勾选文案：黑话必须消失")
     comp = (SRC / "JudgeEvents.vue").read_text(encoding="utf-8")
-    check("「计入下限」这个说法已从界面文案里删掉（测试/注释里可以留）",
+    check("\u300c计入下限\u300d这个说法已从界面文案里删掉（测试/注释里可以留）",
           "计入下限" not in code_only(comp), "界面上不该出现这个词")
-    check("改成了「不算进 N 件」（能看懂的说法）", "不算进" in comp)
+    check("改成了\u300c不算进 N 件\u300d（能看懂的说法）", "不算进" in comp)
     check("常显一段判据说明（只数改变了状态的事 / 动作不算）",
           "改变了状态" in comp and "不算" in comp and "je-guide" in comp)
     check("四类各带例子（按钮 title + 选中后显示）",
           all(x in comp for x in ("被抓", "得知真相", "结盟", "决定复仇")))
-    check("有「已过目 X/Y」进度（区分“没看”与“判断为不算”）",
+    check("有\u300c已过目 X/Y\u300d进度（区分“没看”与“判断为不算”）",
           "已过目" in comp and "judgedCount" in comp)
     check("章纲零事件时说明为什么不能勾（不是空白）",
           "核心事件" in comp and "不可判定" in comp)
 
-    print("\n【H6】「不算一件事」前后端都通")
+    print("\n【H6】\u300c不算一件事\u300d前后端都通")
     check("组件有该按钮且有互斥逻辑",
           "je-reject" in comp and "toggleReject" in comp and "delete checked.value[i]" in comp)
     rec = (ROOT / "scripts" / "utils" / "judge" / "records.py").read_text(encoding="utf-8")

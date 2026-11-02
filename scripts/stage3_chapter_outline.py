@@ -34,8 +34,8 @@ def _field_re(name):
     key = name
     if key not in _FIELD_RE_CACHE:
         # ⚠️ 冒号后只能用 `[ \t]*`，不能写 `\s*`：`\s` 会把换行吃掉，
-        # 让「- 小目标：（空值）」匹配到**下一行整行**，空值于是被判成"有内容"
-        # （2026-10-20 实测：值取回来是下一行的「- 悬念钩子：…」）。
+        # 让“- 小目标：（空值）”匹配到**下一行整行**，空值于是被判成"有内容"
+        # （2026-10-20 实测：值取回来是下一行的“- 悬念钩子：…”）。
         _FIELD_RE_CACHE[key] = _re.compile(
             r"^[ \t]*(?:[-*+][ \t]+)?\**[ \t]*" + _re.escape(name)
             + r"[ \t]*\**[ \t]*[：:][ \t]*(.*)$", _re.M)
@@ -71,7 +71,7 @@ def check_chapter_outline(path, strict=False, new_fields=None):
     """校验单章大纲字段。返回 (ok, errors)。
 
     strict=False（默认，存量/GUI）：只要求三个硬字段存在且有值。
-    strict=True（stage3 **新生成**后）：再要求「小目标」「悬念钩子」存在，
+    strict=True（stage3 **新生成**后）：再要求“小目标”“悬念钩子”存在，
     且这两个字段的值至少 `MIN_FIELD_CHARS` 个有效字符。
     """
     text = read_text(path)
@@ -80,14 +80,14 @@ def check_chapter_outline(path, strict=False, new_fields=None):
         if not has_field(text, f):
             errors.append(f"缺少字段或值为空: {f}")
     if strict:
-        # 散文/随笔不要求「小目标/悬念钩子」（文体可裁，见 utils/writing_form.py）
+        # 散文/随笔不要求“小目标/悬念钩子”（文体可裁，见 utils/writing_form.py）
         for f in (NEW_FIELDS if new_fields is None else list(new_fields)):
             v = field_value(text, f)
             if not v:
                 errors.append(f"缺少字段或值为空: {f}（新标准必填）")
             elif len(v) < MIN_FIELD_CHARS:
                 errors.append(
-                    "字段「%s」只有 %d 字（下限 %d）：%s"
+                    "字段“%s”只有 %d 字（下限 %d）：%s"
                     % (f, len(v), MIN_FIELD_CHARS, v[:20]))
     return (not errors, errors)
 
@@ -158,7 +158,7 @@ def generate_chapters(cfg, proj, chapters, client, task_dir="data/state/tasks",
     """
     total = int((proj.get("book") or {}).get("chapters", 10))
     batch = int(cfg.get("chapter", {}).get("batch_outline", 10))
-    # 文体（2026-10-20）：散文不要「小目标/悬念钩子」，strict 校验按文体取字段集
+    # 文体（2026-10-20）：散文不要“小目标/悬念钩子”，strict 校验按文体取字段集
     from utils import writing_form as _wf
     _form_app = _wf.applicability(proj)
     _new_fields = _form_app.get("chapter_new_fields", NEW_FIELDS)

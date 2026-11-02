@@ -4,13 +4,13 @@
 ## 边界
 
 只承载**读**端点。`/outline/save`、`/outline/chapters/save`、`/outline/refine`
-等写端点留在 `do_POST`（涉及「先备份到 `data/outline/history/` 再覆盖」的红线）。
+等写端点留在 `do_POST`（涉及“先备份到 `data/outline/history/` 再覆盖”的红线）。
 
 ## 版本号约定
 
 `v1` / `v2` 是**整数版本号**（0 = 最初版），由 `outline_panel.resolve_version()`
 映射到 `data/outline/history/` 下的实际文件。缺少 `v1` 时返回 400 —— 因为
-「跟哪个版本比」是无法默认的语义决策，猜一个基准会让用户看到误导性的 diff。
+“跟哪个版本比”是无法默认的语义决策，猜一个基准会让用户看到误导性的 diff。
 
 ## /outline/drafts 附带四节原文
 
@@ -47,8 +47,8 @@ def handle_outline_history(h):
 def handle_outline_diff(h):
     """结构化**节点级** diff（不是文本行 diff）。
 
-    节点级而非行级，是因为大纲的语义单位是「情节点」——一行文本挪了位置
-    在行 diff 里是「删除+新增」，在节点 diff 里才能正确显示为「移动」。
+    节点级而非行级，是因为大纲的语义单位是“情节点”——一行文本挪了位置
+    在行 diff 里是“删除+新增”，在节点 diff 里才能正确显示为“移动”。
     """
     try:
         from utils import outline_panel as op
@@ -72,7 +72,7 @@ def handle_outline_diff(h):
 def handle_outline_trend(h):
     """迭代趋势 + 与上一版对比 + 收敛判断（确定性，零 token）。
 
-    回答「还要不要再迭代一轮」—— 这是 `/outline/diff`（节点级文本差异）
+    回答“还要不要再迭代一轮”—— 这是 `/outline/diff`（节点级文本差异）
     之外的**质量指标视角**：diff 告诉你哪几行变了，趋势告诉你**每轮有没有
     实质进展**（问题数 / 碎片数 / 平均分的变化），并给出结论：
 
@@ -117,8 +117,8 @@ def handle_outline_trend(h):
 def handle_outline_advise(h):
     """开工方向建议（确定性，零 token）。
 
-    与 `/outline/trend` 的分工：trend 说「**有没有进展**」，
-    advise 说「**接下来能做什么**」—— 返回按严重度排序的候选方案，
+    与 `/outline/trend` 的分工：trend 说“**有没有进展**”，
+    advise 说“**接下来能做什么**”—— 返回按严重度排序的候选方案，
     每个方案含依据、目标条目（带可执行的 `next_step`）、调用次数与取舍。
 
     参数 `window`（默认 3）：收敛判定看最近几轮。

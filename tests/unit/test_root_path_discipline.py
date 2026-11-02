@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""API 层「路径一律经 ROOT」护栏（2026-09-29 起）。
+"""API 层\u300c路径一律经 ROOT\u300d护栏（2026-09-29 起）。
 
 ## 为什么需要它
 
@@ -115,7 +115,7 @@ def test_C_functional_switch():
 
         # 配置族（2026-10-11）：漏刷它们 = `--root` 下静默读写**另一个项目**的
         # project.yaml（GET 200 但内容是 A 的；写入还落到 A）。这是本节存在的理由：
-        # 常量刷新只有「真的换了根、值真的跟着变」这条反证能守住。
+        # 常量刷新只有“真的换了根、值真的跟着变”这条反证能守住。
         import utils.project_config as pc
         check("project_config.PROJECT_YAML 跟着 ROOT 走",
               pc.PROJECT_YAML == fixture / "config" / "project.yaml",

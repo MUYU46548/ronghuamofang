@@ -5,12 +5,12 @@
 MCP 工具（允许清单见 ``MCP_TOOLS``）。业务逻辑一律不在本层实现：它只是薄适配器，
 把 ``tools/call`` 映射到 8765（nf_api）的 HTTP 端点转发。
 
-**传输真相（2026-09-29 修正虚标）**：这里是「TCP + 换行分帧的裸 JSON-RPC」，
+**传输真相（2026-09-29 修正虚标）**：这里是“TCP + 换行分帧的裸 JSON-RPC”，
 **不是** MCP 标准的 stdio / Streamable HTTP 传输 —— 标准 MCP 客户端
 （Claude Code / Cline / Hermes 等）**无法直连 8766**，中间必须有 stdio 垫片，
 把 stdio 上的标准 MCP 帧与 8766 的 TCP 换行帧互转。
-原注释写「compatible with any MCP client that supports TCP/HTTP transport」属**虚标**，
-已改正 —— 「文档比实现好听」正是本项目最忌讳的那类静默失真。
+原注释写“compatible with any MCP client that supports TCP/HTTP transport”属**虚标**，
+已改正 —— “文档比实现好听”正是本项目最忌讳的那类静默失真。
 
 **垫片已就位**：`scripts/nf_mcp_stdio_bridge.py`（stdio ↔ 8766，逐行透传；
 `mcpServers` 配置示例与三层分层口径见该文件头）。它连不上 8766 时返回
@@ -142,11 +142,11 @@ MCP_TOOLS = [
         "name": "nf_plan_propose",
         "description": "向作者提出一个方案（情节走向/改法/取舍）。**只提案，不自选** —— "
                        "落到四态状态机的 idea，采用/写进正文/丢弃都由作者点。"
-                       "零 token。这是「AI 提案、人拍板」的正规通道。",
+                       "零 token。这是“AI 提案、人拍板”的正规通道。",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "title": {"type": "string", "description": "一句话说清方案（如「让老周先动手」）"},
+                "title": {"type": "string", "description": "一句话说清方案（如“让老周先动手”）"},
                 "summary": {"type": "string", "description": "方案内容与代价（为什么值得这么做）"},
                 "kind": {"type": "string",
                          "description": "类型（proposal / plot / rewrite 等，默认 proposal）"},
@@ -203,7 +203,7 @@ MCP_TOOLS = [
     },
     {
         "name": "nf_rewrite_chapter",
-        # 2026-10-27 用户裁定：重写算 Agent 可执行（与「跑阶段 4」同族）。
+        # 2026-10-27 用户裁定：重写算 Agent 可执行（与“跑阶段 4”同族）。
         # 走 HTTP 的 /chapters/rewrite（_http 的 POST 会把参数原样当 body）。
         # 不要自己用 write_file 覆盖 raw/checked/refined —— 那会绕过拼装、
         # 校验、备份与进度。
@@ -294,7 +294,7 @@ MCP_TOOLS = [
             "properties": {
                 "feedback": {
                     "type": "string",
-                    "description": "修改意见（如『第二章节奏拖沓，需增加冲突』）",
+                    "description": "修改意见（如‘第二章节奏拖沓，需增加冲突’）",
                 },
                 "dry_run": {
                     "type": "boolean",
@@ -500,7 +500,7 @@ MCP_TOOLS = [
             "properties": {
                 "title": {
                     "type": "string",
-                    "description": "任务标题（如「为第 3 章起草角色卡」）",
+                    "description": "任务标题（如“为第 3 章起草角色卡”）",
                 },
                 "context": {
                     "type": "string",
@@ -560,7 +560,7 @@ MCP_TOOLS = [
                 },
                 "delete_extra": {
                     "type": "boolean",
-                    "description": "是否同时删除「快照里没有」的额外文件（默认 false=保留，防不可逆误删）",
+                    "description": "是否同时删除“快照里没有”的额外文件（默认 false=保留，防不可逆误删）",
                 },
             },
         },
@@ -571,7 +571,7 @@ MCP_TOOLS = [
         "name": "nf_get_setting_conflicts",
         "description": "读素材冲突清单：**机器裁不了、需人拍板**的分歧（带双方出处）"
                        "+ 状态分布 + 已登记墓碑。零 token。"
-                       "⚠️ checked=false 表示「**根本没查**」（设定集缺失/损坏），"
+                       "⚠️ checked=false 表示“**根本没查**”（设定集缺失/损坏），"
                        "此时 review_conflicts 为空**不代表**没有冲突。",
         "inputSchema": {"type": "object", "properties": {}},
         "_http": ("GET", "/setting/conflicts", None),
@@ -671,9 +671,9 @@ def _local_snapshot_restore(args):
 def _service_unreachable_text(reason):
     """8765 服务本体不可达时的**统一分层文案**（件6）。
 
-    两个入口共用同一份文案，避免「同一句话写两遍、只改一处」：
+    两个入口共用同一份文案，避免“同一句话写两遍、只改一处”：
       · `urllib.error.URLError`（直连被拒/超时）
-      · `HTTPError 502/503/504`（企业代理或沙箱把「连不上」表现成网关 5xx）
+      · `HTTPError 502/503/504`（企业代理或沙箱把“连不上”表现成网关 5xx）
     """
     return json.dumps({
         "ok": False,
@@ -681,7 +681,7 @@ def _service_unreachable_text(reason):
         "error": "无法连接 8765 服务本体（nf_api）: " + str(reason),
         "hint": ("MCP 传输层（8766）已就绪，缺的是**服务本体（8765）**。"
                  "请在项目根启动：python scripts/nf_api.py"
-                 "（或用控制台「调试启动.bat」/ 直接开绒花墨坊控制台）；"
+                 "（或用控制台“调试启动.bat”/ 直接开绒花墨坊控制台）；"
                  "确认 http://127.0.0.1:8765/health 可访问后重试。"
                  "注意：8766 的报错不代表 8765 有问题，两层要分开看。"),
     }, ensure_ascii=False, indent=2)
@@ -727,7 +727,7 @@ def handle_rpc(method, params, http_host, http_port):
         # 派发/查询是 nf_mcp 自己的能力，不经 HTTP loopback —— 否则必须改
         # nf_api.py 加端点（Phase 4 约束：不改 nf_api 主逻辑）。
         # 派发失败由 nf_agent_dispatch 兜成 error 状态返回，不抛异常；
-        # 这里只兜「模块本身挂了」的极端情况，同样转为 isError 而非崩协议。
+        # 这里只兜“模块本身挂了”的极端情况，同样转为 isError 而非崩协议。
         if "_local" in tool:
             try:
                 if tool["_local"] == "snapshot_restore":
@@ -830,7 +830,7 @@ def handle_rpc(method, params, http_host, http_port):
 
         except urllib.error.HTTPError as e:
             body = e.read().decode("utf-8", "replace")
-            # 件6：企业代理 / 沙箱会把「连不上 8765」表现成网关 5xx ——
+            # 件6：企业代理 / 沙箱会把“连不上 8765”表现成网关 5xx ——
             # 这与 URLError 是同一件事（服务本体不可达），给同一份分层指引。
             low = body.lower()
             if e.code in (502, 503, 504) or "connect failed" in low or "connection refused" in low:
@@ -865,7 +865,7 @@ def handle_rpc(method, params, http_host, http_port):
                 "error": "无法连接 8765 服务本体（nf_api）: " + str(reason),
                 "hint": ("MCP 传输层（8766）已就绪，缺的是**服务本体（8765）**。"
                          "请在项目根启动：python scripts/nf_api.py"
-                         "（或用控制台「调试启动.bat」/ 直接开绒花墨坊控制台）；"
+                         "（或用控制台“调试启动.bat”/ 直接开绒花墨坊控制台）；"
                          "确认 http://127.0.0.1:8765/health 可访问后重试。"
                          "注意：8766 的报错不代表 8765 有问题，两层要分开看。"),
             }, ensure_ascii=False, indent=2)

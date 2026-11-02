@@ -1,21 +1,21 @@
 # -*- coding: utf-8 -*-
 """POST 杂项域：不属于其它域的写端点。
 
-放这里的判据是「**没有同类**」——一旦某类端点超过 3 个，就应当另开一个域模块
+放这里的判据是“**没有同类**”——一旦某类端点超过 3 个，就应当另开一个域模块
 （像 models / outline / materials 那样）。这个模块存在的意义是给零散端点一个
 明确归宿，而不是让它们堆在 `nf_api.py` 的 elif 链里。
 
 当前成员：
 - `/export/markdown`  分卷导出 Markdown（P3 多平台发布；2026-10-17 起支持
-  `include_frontmatter`，并修复 GUI 传 book_name=null 造出「None_markdown」目录）
-- `/export/word`      导出 Word 成品（2026-10-17 复盘 P0：导出面板「双格式」此前
+  `include_frontmatter`，并修复 GUI 传 book_name=null 造出“None_markdown”目录）
+- `/export/word`      导出 Word 成品（2026-10-17 复盘 P0：导出面板“双格式”此前
   是假选项——只出 Markdown。现复用 stage7 的合并+模板转换，同步执行、不写进度）
 
 ## 为什么 `per_vol` 要在入口处转 int
 
 `body.get("per_vol")` 可能来自 JSON（int）也可能来自表单（str）。
 在**这里**转而不是在 `stage8_markdown_export` 里转，是因为
-「HTTP 层负责把外部输入规整成域函数要的类型」是更清晰的边界；
+“HTTP 层负责把外部输入规整成域函数要的类型”是更清晰的边界；
 导出模块不该关心自己是被 HTTP 调的还是被 CLI 调的。
 """
 import nf_api as api
@@ -94,12 +94,12 @@ def _stale_info(done_mtime):
 
 
 def _export_history_items():
-    """扫 output/ 得出「导出过什么」（零 token、只读盘上事实）。
+    """扫 output/ 得出“导出过什么”（零 token、只读盘上事实）。
 
     ## 为什么不能靠"谁调用了导出端点"来记（2026-10-26，用户第 10 条）
 
-    用户原话：「阶段8已经跑完了，暂无导出记录，过于幽默。由此可见整个 GUI 和
-    程序本体是极度割裂的」。真实原因是导出记录只存在于前端内存 ref，且只在
+    用户原话：“阶段8已经跑完了，暂无导出记录，过于幽默。由此可见整个 GUI 和
+    程序本体是极度割裂的”。真实原因是导出记录只存在于前端内存 ref，且只在
     **走导出面板**时 unshift —— orchestrator 跑阶段 8、Agent 调 CLI、重开页面，
     三种情况都会让它变空。界面于是对着一个装满产物的 output/ 说"暂无记录"。
 
@@ -151,7 +151,7 @@ def _export_history_items():
 def handle_exports_history(h):
     """`GET /exports/history` —— 最近导出（**盘上事实**，不依赖谁调用过导出）。
 
-    对应用户第 10 条：「阶段8已经跑完了，暂无导出记录」。阶段 8 由 orchestrator
+    对应用户第 10 条：“阶段8已经跑完了，暂无导出记录”。阶段 8 由 orchestrator
     跑，不经过导出面板，所以前端那份内存记录永远是空的。这里直接扫 output/。
     """
     try:
@@ -161,7 +161,7 @@ def handle_exports_history(h):
             "items": items,
             "count": len(items),
             "note": ("读的是 output/ 目录的实际内容（含 orchestrator 跑阶段 7/8 的产物），"
-                     "与「本次会话里点过导出按钮」无关。"),
+                     "与“本次会话里点过导出按钮”无关。"),
         }
     except Exception as e:                                   # noqa: BLE001
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
@@ -171,8 +171,8 @@ def handle_export_markdown(h, body):
     """Markdown 分卷导出。
 
     `per_vol` 缺省 5 章一卷。`book_name` 缺省时由 stage8 回退 project.yaml 的
-    book.name（**不再**让 null 直通成「None_markdown」目录）。返回 `(200, {...})`
-    或 `(400, {...})`——「导出失败」是**业务**结果（比如还没写章节），不是服务器
+    book.name（**不再**让 null 直通成“None_markdown”目录）。返回 `(200, {...})`
+    或 `(400, {...})`——“导出失败”是**业务**结果（比如还没写章节），不是服务器
     错误，所以走 400 而不是 500。
     """
     try:
@@ -188,7 +188,7 @@ def handle_export_markdown(h, body):
 
 
 def handle_export_word(h, body):
-    """Word 成品导出（导出面板「仅 Word / 双格式」分支）。
+    """Word 成品导出（导出面板“仅 Word / 双格式”分支）。
 
     复用 stage7 的 `merge_book` + `md_to_docx`，**不写 progress、不打快照** ——
     导出是用户的即时动作，不是流水线阶段；progress 语义仍归 orchestrator 跑

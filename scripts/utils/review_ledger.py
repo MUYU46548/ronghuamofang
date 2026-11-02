@@ -7,7 +7,7 @@
 全都无从判断。同一本书重跑两次，"检查通过"的含义可能完全不同 —— 这种产出
 **不可回归**（无法 diff、无法断言、无法知道模型是不是只是在复述任务要求）。
 
-台账（docs/收口台账-20261019.md）二·「七维评审 + 原文举证」定的判据是：
+台账（docs/收口台账-20261019.md）二·“七维评审 + 原文举证”定的判据是：
 **每一维都必须引用原文句子，否则不算评分**。本模块就是那条判据的唯一实现。
 
 ## 判据（全部确定性、零额外 token）
@@ -31,7 +31,7 @@
 
 ## 不做什么
 
-不做语义判断：分数高低由模型给，本模块只判「有没有资格算分」。
+不做语义判断：分数高低由模型给，本模块只判“有没有资格算分”。
 """
 import json
 import re
@@ -58,9 +58,9 @@ DIM_LABEL = {d["code"]: d["label"] for d in DIMENSIONS}
 # ---------------------------------------------------------------------------
 # 审美五问（2026-10-20，抄 ainovel-cli 的审美细分）
 #
-# **为什么不叫「第八维」**：七维是既有契约（prompt / 测试 / GUI / 账本四处都按"七维齐全"
+# **为什么不叫“第八维”**：七维是既有契约（prompt / 测试 / GUI / 账本四处都按"七维齐全"
 # 判完整）。往里加一维会让**所有历史账本一夜之间变成"不完整"**，那是拿数据迁移换一句
-# 好听的话。所以另开一块独立字段 `aesthetic`，人话叫「审美五问」：
+# 好听的话。所以另开一块独立字段 `aesthetic`，人话叫“审美五问”：
 #
 #   这章写得好看吗 —— 描写、手法、对话、用词、打动人心，各问一句，各引一句原文。
 #
@@ -84,10 +84,10 @@ WARN_SCORE = 6           # >= 视为可接受；低于此进 findings
 MAX_QUOTE_CHARS = 400    # 单条举证上限（防止模型整段粘贴冒充"引用"）
 
 # 匹配时**忽略**的字符：空白 + 中英文标点/引号。
-# 为什么连标点一起忽略：模型转述原文时经常改引号形态（「」/“”/"）、把逗号写成半角，
+# 为什么连标点一起忽略：模型转述原文时经常改引号形态（“”/“”/"）、把逗号写成半角，
 # 这种差异不该判成"编造"；但字符顺序编不了，所以子串匹配依然能抓住真正的虚构。
 _IGNORE_RE = re.compile(
-    r"[\s\u3000“”‘’「」『』\"'`，。！？；：、,.!?;:—…·\-（）()【】\[\]《》<>~～|/\\*#]+"
+    r"[\s\u3000“”‘’\u300c\u300d\u300e\u300f\"'`，。！？；：、,.!?;:—…·\-（）()【】\[\]《》<>~～|/\\*#]+"
 )
 _ELLIPSIS_RE = re.compile(r"…+|\.{3,}")
 
@@ -197,14 +197,14 @@ def _pick_aesthetic(entry):
 
 
 def check_aesthetic(entry, chapter_text, chapter_no=0, reserved=None, questions=None):
-    """校验「审美五问」。返回 {items, missing, unverified, complete, mean, findings}。
+    """校验“审美五问”。返回 {items, missing, unverified, complete, mean, findings}。
 
     ## 两条硬判据
 
     1. 五问缺一即整块作废（不算"部分完成"—— 只问了三问的评审等于没评审美）。
     2. **一问一句，同一句原文只算第一问**。模型最爱偷懒：拿同一句"她哭了"给五个问题
        各作一次证据。去重按 squash 后的字符串比对，第 2 次起判未举证并写明与哪一问撞了。
-       `reserved` 传「七维已经用过的句子」→ 同一句既给七维又给审美也算复用
+       `reserved` 传“七维已经用过的句子”→ 同一句既给七维又给审美也算复用
        （提示词里已经这么要求，这里必须真的判 —— 判据写两遍必然漂移）。
 
     分数仍走 0-10；低于 `WARN_SCORE` 进 findings（给作者看"哪里不好看"），
@@ -241,7 +241,7 @@ def check_aesthetic(entry, chapter_text, chapter_no=0, reserved=None, questions=
         key = _squash(quote)
         if ok and key in used:
             ok = False
-            why = ("与「%s」用了同一句举证（一问一句，同一句只算第一处）"
+            why = ("与“%s”用了同一句举证（一问一句，同一句只算第一处）"
                    % AESTHETIC_LABEL.get(used[key], used[key]))
         if score is None:
             reason = "分数缺失或不在 0-10 区间" + ("；" + why if why else "")
@@ -502,7 +502,7 @@ def write_summary(base_dir, results, extra=None):
 
 
 def render_markdown(results, summary=None):
-    """人读版：一章一行，七维分数 + 举证状态。未举证的维度写「未举证」。"""
+    """人读版：一章一行，七维分数 + 举证状态。未举证的维度写“未举证”。"""
     s = summary or summarize(results)
     lines = ["# 七维评审账本", ""]
     lines.append(f"- 章节：{s['chapters']} 章（完整 {s['complete']} 章）")

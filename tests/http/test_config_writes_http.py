@@ -3,13 +3,13 @@
 
 ## 起因
 
-用户让重做「引擎与模型」界面时，先把写入侧查了一遍，发现：
+用户让重做\u300c引擎与模型\u300d界面时，先把写入侧查了一遍，发现：
 
 | 端点 | 旧写法 | 后果 |
 |---|---|---|
 | `POST /config/provider` | `yaml.dump(整份 cfg)` 覆盖写 | system.yaml 里 172 行注释**全部消失** |
 | `POST /models/switch` | `yaml.safe_dump(整份 cfg)` | 同上 |
-| `POST /config/engine` | **不存在** | 界面上那行「引擎与模型」只是只读文字，用户只能手改 YAML |
+| `POST /config/engine` | **不存在** | 界面上那行\u300c引擎与模型\u300d只是只读文字，用户只能手改 YAML |
 
 那些注释不是装饰：止烧阈值的口径、`model.*` 只在 direct 下生效、为什么禁用某些
 思考模型、provider 的注意事项，全写在里面。用户点一次下拉 = 悄悄删掉说明书，
@@ -72,7 +72,7 @@ def req(method, path, body=None, timeout=60):
 
 
 def comments(text):
-    """注释行数（含行内注释）。用「行数」而不是「字符数」：一目了然。"""
+    """注释行数（含行内注释）。用\u300c行数\u300d而不是\u300c字符数\u300d：一目了然。"""
     return sum(1 for ln in text.splitlines() if "#" in ln)
 
 
@@ -136,7 +136,7 @@ def main():
 
         print("\n【C3】切 provider：注释一行不少")
         # 必须拿**真实存在的** provider 名：用错名字会走 400 分支，那条路径根本不写文件
-        # —— 断言照样绿，但什么都没验到（本仓叫它「假绿」）。
+        # —— 断言照样绿，但什么都没验到（本仓叫它“假绿”）。
         provs = list((req("GET", "/models/available")[1].get("providers") or {}).keys())
         check("夹具自证：拿到了至少一个 provider（否则 C3 是空转）", bool(provs), provs)
         if provs:

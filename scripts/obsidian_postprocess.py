@@ -42,7 +42,7 @@ def _derive_character_dirs():
     """从 `obsidian.vault_dirs.characters` 推导角色词条目录（A4）。
 
     修的是**恒假判定**：`obsidian_templates.yaml` 的 `character_dirs` 默认 `[]`
-    → `has_obsidian_entry()` 永远返回 False → 「已有词条的角色只出出场记录」
+    → `has_obsidian_entry()` 永远返回 False → “已有词条的角色只出出场记录”
     这条分支**从未真跑过**；后处理对所有角色一律生成设定草稿（重复造词条）。
 
     目录来源与扫描**同一配置源**（`vault_dirs.characters`），不再各写一份。
@@ -146,8 +146,8 @@ def has_obsidian_entry(role_name, character_dirs):
     —— 只查 `<根>/<名>.md` 会漏掉绝大多数词条（推导了等于没推导）。
     故先查同层（快路径），未命中再递归查子目录。
 
-    文件名用 `glob.escape` 转义：角色名里若含 `[`、`*`、`?`（如「第[1]号实验体」），
-    未转义会被当成通配符 → 误判「已有词条」。
+    文件名用 `glob.escape` 转义：角色名里若含 `[`、`*`、`?`（如“第[1]号实验体”），
+    未转义会被当成通配符 → 误判“已有词条”。
     """
     from glob import escape as _glob_escape
     for d in character_dirs:
@@ -348,7 +348,7 @@ def run(proj, mode="all", client=None, task_dir="data/state/tasks",
                 out = sandbox / f"{book_name}_角色出场记录_草稿.md"
                 header = (f"# 《{book_name}》角色出场记录草稿（--no-llm 骨架）\n\n"
                           f"> 由 NovelForge 自动生成（{datetime.now().strftime('%Y-%m-%d')}）。\n"
-                          f"> 请将各角色段落粘贴到 vault 对应词条的「官作出场记录」节，并润色事迹。\n\n")
+                          f"> 请将各角色段落粘贴到 vault 对应词条的“官作出场记录”节，并润色事迹。\n\n")
                 write_text(out, header + "\n".join(rec_lines))
                 generated.append(str(out))
                 print(f"[obsidian] 角色出场记录骨架（no-llm）→ {out}")
@@ -392,7 +392,7 @@ def run(proj, mode="all", client=None, task_dir="data/state/tasks",
                 out = sandbox / f"{book_name}_角色出场记录_草稿.md"
                 header = (f"# 《{book_name}》角色出场记录草稿\n\n"
                           f"> 由 NovelForge 自动生成（{datetime.now().strftime('%Y-%m-%d')}）。\n"
-                          f"> 请将各角色段落粘贴到 vault 对应词条的「官作出场记录」节。\n\n")
+                          f"> 请将各角色段落粘贴到 vault 对应词条的“官作出场记录”节。\n\n")
                 write_text(out, header + "\n".join(rec_lines))
                 generated.append(str(out))
                 print(f"[obsidian] 角色出场记录 → {out}")

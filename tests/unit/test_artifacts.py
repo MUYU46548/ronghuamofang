@@ -5,7 +5,7 @@
 
 本用例守四件事：
 1. **名录不漏不越界**：每个 id 唯一、路径是相对项目根的**相对**路径（不许 `..` 逃逸）、
-   每条都写清「是什么 / 怎么复用 / 安全等级」，等级只在 safe|backup|keep 里取；
+   每条都写清\u300c是什么 / 怎么复用 / 安全等级\u300d，等级只在 safe|backup|keep 里取；
 2. **keep 不许清**：`--clean` 对 keep 等级一律拒绝，并把"该用哪个工具"指出来
    （快照用 snapshot.py、归档书用 switch_book.py）；
 3. **默认 dry-run**：不加 `--yes` 一个文件都不许删（与 `snapshot.py --restore` 同惯例）；
@@ -95,7 +95,7 @@ def case_list_and_json():
         check("列出了 keep 项（archived_books）", "archived_books" in p.stdout)
         check("标出了安全等级（[可清]/[备份]/[勿删]）",
               "[可清]" in p.stdout and "[备份]" in p.stdout and "[勿删]" in p.stdout)
-        check("不存在的项标「暂无」而不是报错", "（暂无）" in p.stdout)
+        check("不存在的项标\u300c暂无\u300d而不是报错", "（暂无）" in p.stdout)
         check("给了清理与导出入口",
               "--clean" in p.stdout and "--export" in p.stdout)
 

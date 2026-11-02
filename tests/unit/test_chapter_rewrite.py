@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-"""重写单章（2026-10-26，用户：「如何整章重写？当前已有跑完的测试项目，我想随便找一章跑」）。
+"""重写单章（2026-10-26，用户：\u300c如何整章重写？当前已有跑完的测试项目，我想随便找一章跑\u300d）。
 
 ## 为什么需要它
 
 用户想验证"加强模式能不能把弱模型凑够 5000 字"，但 GUI 里没有"重写整章"入口：
-- 「编辑 → 段落批注」是**精修一段**，只在旧稿上改，不触发加强模式
+- \u300c编辑 → 段落批注\u300d是**精修一段**，只在旧稿上改，不触发加强模式
 - 命令行删文件再跑 orchestrator 对用户不可接受
 
 而这里有一个必须做对的坑：`stage4` 判断"这章要不要写"看的是**盘上文件的合格性**
@@ -20,7 +20,7 @@ A. `_prepare_chapter_rewrite`：旧稿移到 rewrite_backup/、原路径消失�
 B. 备份是**移动**不是复制（原位置不能再留一份，否则 stage4 又判它完成）
 C. `NF_STAGE4_ONLY` 让 stage4 只写指定章（别的章一次都不调）
 D. 端点参数校验：非法章号 400
-E. 前端有「重写」按钮且调的是 /chapters/rewrite
+E. 前端有\u300c重写\u300d按钮且调的是 /chapters/rewrite
 
 全程离线、零 LLM。
 用法：python tests/unit/test_chapter_rewrite.py
@@ -149,7 +149,7 @@ def main():
               not (raw / "02.md").exists(),
               sorted(p.name for p in raw.glob("*.md")))
         # 2026-10-27：有旧稿 = 新一轮重写，旧段群必须作废 —— 否则 part_ok 会
-        # 把旧群当断点复用，用户点了「重写」却拿到同一篇（静默不生效）。
+        # 把旧群当断点复用，用户点了“重写”却拿到同一篇（静默不生效）。
         check("旧稿存在 → 旧段群缓存作废（重写不复用旧群）",
               not parts.exists(), parts)
         prog = ProgressManager(tmp / "data" / "state" / "progress.json")
@@ -188,7 +188,7 @@ def main():
 
         print("\n【D】前端接线")
         app_vue = (ROOT / "console" / "src" / "App.vue").read_text(encoding="utf-8")
-        check("章节行有「重写」按钮", "rewriteChapter(c.n)" in app_vue)
+        check("章节行有\u300c重写\u300d按钮", "rewriteChapter(c.n)" in app_vue)
         check("调的是 /chapters/rewrite", "/chapters/rewrite" in app_vue)
         check("有二次确认（会花 token）", "会调用模型重新写整章" in app_vue)
         check("运行中禁用（不抢 job）",

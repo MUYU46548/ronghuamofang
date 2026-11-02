@@ -9,7 +9,7 @@
 | `POST /judge/run` | 全量回测（只读 raw）→ 写 records.json | 否 |
 | `GET /judge/chapter?n=` | 单章：缺陷单 + 原文 + 档位 + 三稿对照 | 否 |
 | `GET /judge/events?chapter=` | 作者勾选记录 | 否 |
-| `POST /judge/events` | 作者勾「这章发生了几件事」（**唯一硬门，GUI-only**） | 否 |
+| `POST /judge/events` | 作者勾“这章发生了几件事”（**唯一硬门，GUI-only**） | 否 |
 | `POST /judge/sentence` | 逐句裁定（打中了/没打中/拿不准 + 理由） | 否 |
 | `GET /judge/caliber` | 口径登记表 + 版本 + 消费方 | 否 |
 | `POST /judge/caliber` | 改口径（产新版本，旧版进 history） | 否 |
@@ -58,14 +58,14 @@ def handle_judge_report(h):
                     "updated_at": (cal or {}).get("updated_at"),
                     "calibrated": (cal or {}).get("calibrated", False)}
         # B2：整本否掉是**作者判断**，与有没有跑过回测无关 —— 两个分支都要带，
-        # 否则「没跑过回测就否掉整本」时界面看不到横幅（第一版就这么漏了）。
+        # 否则“没跑过回测就否掉整本”时界面看不到横幅（第一版就这么漏了）。
         _author = doc.get("author") or {}
         _br = {"book_reject": _author.get("book_reject"),
                "book_reject_history": _author.get("book_reject_history") or []}
         if not run:
             return 200, {"ok": True, "exists": False, "caliber": cal_info,
                          "notices": [B.NOTICE_BACKTEST, B.NOTICE_NO_ARTIFACT],
-                         "message": "还没有回测记录 —— 点「重跑判定」生成第一份",
+                         "message": "还没有回测记录 —— 点“重跑判定”生成第一份",
                          **_br}
         return 200, {
             "ok": True, "exists": True, "run": run, "caliber": cal_info,
@@ -162,7 +162,7 @@ def handle_judge_events_get(h):
 
     ## 为什么要 `outline=1`
 
-    分章页（`ChapterBlueprint`）只想知道「这章章纲有哪几条事件、我勾了没」，
+    分章页（`ChapterBlueprint`）只想知道“这章章纲有哪几条事件、我勾了没”，
     不该为此跑一遍完整分析（`/judge/chapter` 会算三稿对照、骨架命中、缺陷单）。
     所以这里给一条**轻读**：解析章纲 + 读作者记录，零分析。
     """
@@ -186,7 +186,7 @@ def handle_judge_events_get(h):
                 rejected = set(author.get("rejected") or [])
                 payload["outline_events"] = [
                     {"n": i + 1, "text": e, "checked": i in checked,
-                     # 「明确判定不算一件事」（R24 AC-24-5 的"4 条全部有归属"）
+                     # “明确判定不算一件事”（R24 AC-24-5 的"4 条全部有归属"）
                      "rejected": i in rejected,
                      "class": cls.get(str(i)), "evidence": evd.get(str(i)) or "",
                      "counted": bool(i in checked and cls.get(str(i))
@@ -333,28 +333,28 @@ def handle_book_reject_clear(h, body):
         ok, payload = R.clear_book_reject(api.ROOT)
         if not ok:
             return 400, {"ok": False, "error": payload.get("error")}
-        return 200, {"ok": True, "cleared": payload, "message": "已撤销「整本否掉」"}
+        return 200, {"ok": True, "cleared": payload, "message": "已撤销“整本否掉”"}
     except Exception as e:                                     # noqa: BLE001
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
 def handle_book_archive(h, body):
-    """B2 延伸（2026-10-31）：「整本否掉」之后的一键**归档** —— 不是一键清除。
+    """B2 延伸（2026-10-31）：“整本否掉”之后的一键**归档** —— 不是一键清除。
 
     ## 为什么是归档而不是清理
 
-    用户原话：「直接一键清理产物风险太高。归档之后是用户自己的事情，
-    我们已经做到了保护措施。」——完全同意，而且这个仓库里早有同样的教训
+    用户原话：“直接一键清理产物风险太高。归档之后是用户自己的事情，
+    我们已经做到了保护措施。”——完全同意，而且这个仓库里早有同样的教训
     （方寸那次：把\"清 release 目录\"顺手改成搬出工作区，理由是\"顺手治本\"）。
 
     所以这里只做一件事：把当前工作区整本搬进 `data/books/<书名>/`
     （复用 `switch_book.archive`：先打 before-import 快照 → 搬 → 失败可回退），
-    工作区变空。**不删任何东西**。想彻底删掉，是作者在「项目」页对某份归档
+    工作区变空。**不删任何东西**。想彻底删掉，是作者在“项目”页对某份归档
     自己点删除（那条路径还进系统回收站）。归档之后怎么办是人的决定。
 
     归档原因写进 `_meta.json` 的 `why`：优先取本次传入的理由，
-    其次取 `records.json` 里「整本否掉」的那条理由 —— 半年后翻归档列表时，
-    看得见「这本当初为什么被放进来」，而不是只有一个书名和日期。
+    其次取 `records.json` 里“整本否掉”的那条理由 —— 半年后翻归档列表时，
+    看得见“这本当初为什么被放进来”，而不是只有一个书名和日期。
     """
     try:
         body = body or {}
@@ -381,8 +381,8 @@ def handle_book_archive(h, body):
             return 400, {"ok": False, "error": msg}
         return 200, {"ok": True, "name": name, "path": rel, "why": why,
                      "message": msg,
-                     "next": "工作区已清空。这本书是「搬走」不是「删掉」——"
-                             "在「项目」页可以恢复，或由你决定是否删除归档。"}
+                     "next": "工作区已清空。这本书是“搬走”不是“删掉”——"
+                             "在“项目”页可以恢复，或由你决定是否删除归档。"}
     except Exception as e:                                     # noqa: BLE001
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 

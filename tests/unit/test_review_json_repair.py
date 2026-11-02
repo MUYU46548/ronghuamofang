@@ -14,7 +14,7 @@
 `gates.review_retries`（默认 1）重试 → 仍败则**原文隔离存放 + 可行动报错 + 非零返回**，
 由 orchestrator 的审稿门 fail-closed 停住（不放行 stage5/6）。
 
-判据都是**行为级**的：看「LLM 被调了几次」「报告落没落盘」「返回消息能不能照着做」，
+判据都是**行为级**的：看\u300cLLM 被调了几次\u300d\u300c报告落没落盘\u300d\u300c返回消息能不能照着做\u300d，
 而不是看日志里有没有打印。
 
 用法：python tests/unit/test_review_json_repair.py
@@ -124,7 +124,7 @@ def case_repair_saves_truncated():
 
 def case_contract_guard():
     print("\n【2】契约判据：能解析成 JSON ≠ 是审查报告")
-    check("缺 chapters → 不算报告（否则会渲染出一份假「零问题」报告）",
+    check("缺 chapters → 不算报告（否则会渲染出一份假\u300c零问题\u300d报告）",
           cr._is_review_report({"error": "我不确定"}) is False)
     check("chapters 不是数组 → 不算报告", cr._is_review_report({"chapters": {}}) is False)
     check("数组顶层 → 不算报告（审查报告是对象）", cr._is_review_report([]) is False)
@@ -140,7 +140,7 @@ def case_parse_fail_retries_then_stops():
         check("两次都解析不出 → 阶段判失败", ok is False, msg)
         check("**真的重试了**（默认 1 轮 → 共 2 次调用）", client.calls == 2,
               "实际调用 %d 次" % client.calls)
-        check("报错点明「审稿门 fail-closed，不放行下游」",
+        check("报错点明\u300c审稿门 fail-closed，不放行下游\u300d",
               "fail-closed" in msg, msg)
         check("报错是可行动的（给出该改哪个键/哪个模板/怎么重跑）",
               "budget.token_limit.per_request_max_tokens" in msg

@@ -72,7 +72,7 @@ def main():
     check("字数口径与非引擎一致（去空白与符号）", T.count_cn_words(BODY) > 0)
 
     print("\n=== B. F01 体检（AC：普通句 0 条；长句/复读可定位） ===")
-    plain = "他坐下，把茶推过去。「喝吗？」她摇头。"
+    plain = "他坐下，把茶推过去。\u300c喝吗？\u300d她摇头。"
     m0 = RU.body_metrics(plain, 1, CAL)
     check("普通文本 F01 报 0 条缺陷", len(m0["defects"]) == 0, m0["defects"])
     long_body = "他把整段话一口气说完" * 9 + "。"
@@ -92,7 +92,7 @@ def main():
     check("三句全部召回（自造刻度 ×2 + 器物特写 ×1）", len(fc) >= 3, hit_sents)
     check("召回条目全部带段号与原句",
           all(x["paragraph_index"] >= 1 and x["sentence"] for x in fc))
-    check("未裁定前状态是「待裁定」，不记为合格",
+    check("未裁定前状态是\u300c待裁定\u300d，不记为合格",
           all(x.get("status") == "待裁定" for x in fc),
           [x.get("status") for x in fc])
     sk = RU.skeleton_hits("十次呼吸之内落不了章。留三次余量。", 1, CAL)
@@ -113,20 +113,20 @@ def main():
           len(ev_inline) == 4, ev_inline)
     dens = RU.outline_density(ev4, CAL)
     check("原稿：章纲密度虚高（3 条连续动作）", dens["flagged"] is True, dens.get("reason"))
-    ev_del = [ev4[0], ev4[1], ev4[3]]          # 删掉「日志划改」这条连续动作
+    ev_del = [ev4[0], ev4[1], ev4[3]]          # 删掉“日志划改”这条连续动作
     dens3 = RU.outline_density(ev_del, CAL)
     check("删掉一条事件后不再报密度虚高", dens3["flagged"] is False, dens3.get("reason"))
     land_ok = RU.outline_landing(ev4, BODY, CAL)
     check("原稿：F05 不报（正文落地 4 条）",
           not land_ok["missing_in_body"] and not land_ok["extra_in_body"], land_ok)
     land_gap = RU.outline_landing(ev_del, BODY, CAL)
-    check("删事件版本：报「章纲缺项（正文多出事件）」",
+    check("删事件版本：报\u300c章纲缺项（正文多出事件）\u300d",
           bool(land_gap["extra_in_body"]), [b["paragraph_index"] for b in land_gap["extra_in_body"]])
     body_missing = BODY.replace("他抽出一张字条。他把字条摊在桌上，压在回执底下。", "")
     land_miss = RU.outline_landing(ev4, body_missing, CAL)
-    check("正文没写章纲事件：报「正文未落地章纲」",
+    check("正文没写章纲事件：报\u300c正文未落地章纲\u300d",
           bool(land_miss["missing_in_body"]), [x["event"] for x in land_miss["missing_in_body"]])
-    check("删事件版本报「章纲缺项」在第 3 段",
+    check("删事件版本报\u300c章纲缺项\u300d在第 3 段",
           any(b["paragraph_index"] == 3 for b in land_gap["extra_in_body"]),
           [b["paragraph_index"] for b in land_gap["extra_in_body"]])
     d_def = RU.outline_landing_defects(land_gap, 1)
@@ -177,7 +177,7 @@ def main():
     check("删除句带段号", comp["deleted"] and comp["deleted"][0]["paragraph_index"] >= 1,
           comp["deleted"][:1])
     miss = D.compare(raw, None, None, CAL)
-    check("缺版标「该版不存在」而不是记 0",
+    check("缺版标\u300c该版不存在\u300d而不是记 0",
           miss["present"]["checked"] is False and miss["words"]["checked"] is None, miss["present"])
     empty = D.compare(None, None, None, CAL)
     check("三版全缺 → 不可判定：无正文", empty["ok"] is False and "无正文" in empty["reason"])
@@ -229,7 +229,7 @@ def main():
         rep = B.run(tmp, book_name="回测夹具书")
         check("回测跑通且覆盖 10 章", rep.get("ok") and rep["summary"]["total"] == 10,
               rep.get("error"))
-        check("总账 0 个「可以开始逐字改」（基线 0/10）", rep["summary"]["ok"] == 0,
+        check("总账 0 个\u300c可以开始逐字改\u300d（基线 0/10）", rep["summary"]["ok"] == 0,
               rep["summary"])
         check("报告头带固定串①和②",
               B.NOTICE_BACKTEST in rep["notices"] and B.NOTICE_NO_ARTIFACT in rep["notices"],
@@ -245,7 +245,7 @@ def main():
               rep["chapters"][0]["destroy"])
         # ⚠️ 用 st_mtime_ns：st_mtime 只有秒级精度，两次回测落在同一秒内 →
         # `changed` 恒为空 → 这条用例会**随机红**（2026-10-30 全量跑时实测复现，
-        # 单跑两次全绿）。判据本是「除 records.json 外没有别的写点」，不该被时钟精度绑架。
+        # 单跑两次全绿）。判据本是“除 records.json 外没有别的写点”，不该被时钟精度绑架。
         after = {p: p.stat().st_mtime_ns for p in (tmp / "data").rglob("*.json")}
         B.run(tmp, book_name="回测夹具书")
         after2 = {p: p.stat().st_mtime_ns for p in (tmp / "data").rglob("*.json")}
@@ -291,7 +291,7 @@ def main():
 
         from utils.judge import artifact as A
         st0 = A.status(tmp)
-        check("没有成品 → 状态是「未生成」而不是「已过期」",
+        check("没有成品 → 状态是\u300c未生成\u300d而不是\u300c已过期\u300d",
               st0["exists"] is False and st0["status"] == "未生成", st0.get("status"))
         try:
             import docx
@@ -323,7 +323,7 @@ def main():
         rep = B.run(tmp, book_name="证据夹具")
         check("能力区不带 demo（未勾选时不混入）",
               rep["evidence"]["capability"]["items"] == [], rep["evidence"]["capability"])
-        check("无基准集时能力区明说「不误报未验证」",
+        check("无基准集时能力区明说\u300c不误报未验证\u300d",
               "未验证" in rep["evidence"]["capability"]["note"],
               rep["evidence"]["capability"]["note"])
         R.set_events(tmp, 1, [0], {"0": "关系"}, "")

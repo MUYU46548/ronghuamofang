@@ -18,7 +18,7 @@
   1 = 阶段失败（gates.pause_on_failure 时暂停）
   2 = 预算熔断
   3 = 等待审批 / 等待审阅
-  4 = 用户中断（GUI「停止」）
+  4 = 用户中断（GUI“停止”）
 """
 import argparse
 import os
@@ -65,7 +65,7 @@ def _approval_stages(cfg):
     逻辑在 `utils.approval_policy.approval_stages`（**单一来源**）—— 这里只是把
     cfg 剥出 gates 的薄包装。原先这套判据在 dry-run 预演 / 实际执行 / 启动横幅
     三处各写一份（外加 nfctl 的待审批统计），改一处忘其余就会
-    「预演说会停、实跑不停」或「status 里看不到待审批的 stage1」。
+    “预演说会停、实跑不停”或“status 里看不到待审批的 stage1”。
     """
     from utils.approval_policy import approval_stages
     return approval_stages((cfg or {}).get("gates"))
@@ -146,8 +146,8 @@ def _safe_stdout():
     `UnicodeEncodeError: 'gbk' codec can't encode character '\\xa5'`。
     管道正是 GUI（Electron spawn）与后台任务捕获输出的形态，于是
     `engine: hermes` 下 orchestrator **第一行启动横幅就崩**（实测 dry-run 直接退出码 1）。
-    注意：TTY 下 Python 用 UTF-8（PEP 528），所以这个问题只在「被捕获」时才现形 ——
-    典型的「本地手跑好好的，GUI 一跑就挂」。
+    注意：TTY 下 Python 用 UTF-8（PEP 528），所以这个问题只在“被捕获”时才现形 ——
+    典型的“本地手跑好好的，GUI 一跑就挂”。
 
     项目已有同一做法（`nfctl.py` 的 `sys.stdout.reconfigure(encoding="utf-8")`），
     现统一收敛到 `utils.console.ensure_utf8_stdout()`（单一来源）。
@@ -171,7 +171,7 @@ def _stop_requested():
 
     延迟导入 nf_api：nf_api 在模块顶层 `from orchestrator import run`，
     顶层反向 import 会成环。CLI 直接跑 orchestrator 时 nf_api 不可导入，
-    此处静默降级为「未请求停止」，不影响命令行用法。
+    此处静默降级为“未请求停止”，不影响命令行用法。
     """
     try:
         from nf_api import should_stop
@@ -230,12 +230,12 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
         stages=None, chapters=None):
     """跑流水线。
 
-    `stages` = 自由模式（`--stages 3,5,7`）的显式阶段集合：只改「执行哪些阶段」
+    `stages` = 自由模式（`--stages 3,5,7`）的显式阶段集合：只改“执行哪些阶段”
     这一个来源，已完成跳过 / 审批门 / 断点续跑 / 预算熔断 / 规划四态一律走原路径。
     与 `only_stage`（单跑）互斥，由 CLI 层先拦（`utils.stage_select`）。
 
     `chapters` = 阶段 4 的章范围（set，如 {1,2,3}）。只缩"这一轮写哪些章"，
-    不改断点续跑/失败/半成品任何一条判据 —— 不可用清单第 1 条「没法定跑到哪为止」。
+    不改断点续跑/失败/半成品任何一条判据 —— 不可用清单第 1 条“没法定跑到哪为止”。
     """
     _safe_stdout()      # 管道 stdout 下 ¥/emoji 会把启动横幅直接搞崩（见其 docstring）
     cfg, proj = load_config()
@@ -255,7 +255,7 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
               f"｜本 run 累计上限={_tl.get('max_total_tokens') or '不限'} token")
     else:
         # ⚠️ 本行**不要**出现 U+00A5 的 ¥ / emoji：它们不在 GBK 里，而这一行在
-        # 「被捕获的 stdout」（GUI/后台任务）下是 cp936 → 一行日志就能把启动搞崩
+        # “被捕获的 stdout”（GUI/后台任务）下是 cp936 → 一行日志就能把启动搞崩
         # （本轮实测踩到：engine=direct + 无 token_limit 时启动即 UnicodeEncodeError）。
         # _safe_stdout() 已兜一道，这里再保证字符本身安全（双保险）。
         print("[orchestrator] 注意：token 级熔断未开启（budget.token_limit.enabled=false）"
@@ -279,10 +279,10 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
     prev_book = progress.data.get("project", "")
     book_name = proj.get("book", {}).get("name", "")
     if prev_book and prev_book != book_name:
-        print(f"[orchestrator] 注意：progress 记录的书名「{prev_book}」"
-              f"与 project.yaml「{book_name}」不一致")
+        print(f"[orchestrator] 注意：progress 记录的书名“{prev_book}”"
+              f"与 project.yaml“{book_name}”不一致")
         print("             换书请用: python scripts/switch_book.py --archive "
-              f"(归档「{prev_book}」) / --restore \"书名\"；继续将按 project.yaml 处理")
+              f"(归档“{prev_book}”) / --restore \"书名\"；继续将按 project.yaml 处理")
     progress.data["project"] = book_name
     # ---- 自由模式：本次要按序执行哪些阶段（唯一来源）----
     # 报缺**只在多选模式**启用：--from / --stage 是续跑、重跑语义，历史上游
@@ -299,8 +299,8 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
                   "（执行前统一拦截，一次报全，不跑一半才报）")
             for _ln in problems:
                 print("  · " + _ln)
-            print("[orchestrator] 处理：按上面「建议」先跑缺的那件再重来；"
-                  "确实不想跑就对它用「跳过（带理由）」。"
+            print("[orchestrator] 处理：按上面“建议”先跑缺的那件再重来；"
+                  "确实不想跑就对它用“跳过（带理由）”。"
                   "各阶段状态: python scripts/nfctl.py status")
             return 1
         print(f"[orchestrator] 自由模式：所选 {order}，"
@@ -334,7 +334,7 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
 
         if dry_run:
             # 预演模式：只打印执行计划，不调 LLM、不写产物、不建 runs 记录。
-            # 判定逻辑与实跑完全一致（断点/审批门/预算），保证「预演=实跑会走到的路径」。
+            # 判定逻辑与实跑完全一致（断点/审批门/预算），保证“预演=实跑会走到的路径”。
             print("[orchestrator] === dry-run 预演开始 ===")
             planned = []
             for n in order:
@@ -381,14 +381,14 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
 
             ## 为什么抽成函数（2026-10-01）
 
-            原先这整块写在「首次就成功」的 `if ok:` 分支里，于是
-            **「首次失败 → 自动重试成功」**的路径会**整块跳过**它 —— 最严重的是
+            原先这整块写在“首次就成功”的 `if ok:` 分支里，于是
+            **“首次失败 → 自动重试成功”**的路径会**整块跳过**它 —— 最严重的是
             `review_after_stage4`：本应在 stage4 跑完后停下等人工审稿，被跳过后
             流水线直接冲进 stage5/6，用户根本没机会看那几十章的审查结果。
             而 `auto_retry` 默认开，首次失败是常见路径，不是边角情况。
             """
-            # 单章重写（GUI「重写本章」/ Agent 的 nf_rewrite_chapter）只写稿，
-            # 不跑后置审稿/自动重写：那些是「跑完整个阶段」的动作，会把一次
+            # 单章重写（GUI“重写本章”/ Agent 的 nf_rewrite_chapter）只写稿，
+            # 不跑后置审稿/自动重写：那些是“跑完整个阶段”的动作，会把一次
             # 十几分钟的重写拖成半小时以上，而且用户没要求。
             if os.environ.get("NF_SKIP_POST_STAGE") == "1":
                 print("[orchestrator] NF_SKIP_POST_STAGE=1：跳过阶段后置钩子"
@@ -483,7 +483,7 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
             判据只有一份（`CostTracker.status_detail`）：金额（direct 按量计费）与
             token（engine: hermes 走订阅流量、¥ 记账恒 0 → 真正的闸门是 token）。
             熔断必须**说清是哪条判据命中 + 该调哪个键** —— 否则用户面对
-            「预算超限（已用 0.00 元）」只能瞎猜（hermes 下旧日志就是这个形状）。
+            “预算超限（已用 0.00 元）”只能瞎猜（hermes 下旧日志就是这个形状）。
             """
             detail = cost.status_detail(run_id)
             if detail["state"] != "pause":
@@ -499,7 +499,7 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
             return 2
 
         for n in order:
-            # 用户中断（GUI「停止」）：每轮阶段开始前检查，置位则不再启动新阶段。
+            # 用户中断（GUI“停止”）：每轮阶段开始前检查，置位则不再启动新阶段。
             # 已经跑完的阶段照常保留（断点续跑语义不变）。
             if _stop_requested():
                 print("[orchestrator] 收到停止请求，中断")
@@ -591,7 +591,7 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
                     return _finalize("failed", 1)
                 # 后置钩子统一走 _post_stage（快照 / 素材体检 / 自动重写 / 审稿门 / 校对）。
                 # 抽成函数的理由见其 docstring：原先写在这一分支里，导致
-                # 「首次失败 → 自动重试成功」的路径整块跳过 —— 包括本该停下来
+                # “首次失败 → 自动重试成功”的路径整块跳过 —— 包括本该停下来
                 # 等人工审稿的 review_after_stage4。
                 _code = _post_stage(n)
                 if _code is not None:
@@ -600,7 +600,7 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
             if not ok:
                 # 自动重试（默认开）：阶段失败后自动重试，减少人工干预。
                 # 整段包 try/except：重试是**失败兜底机制**，它自己绝不能成为最脆的一环。
-                # 任何异常（含历史存量缺陷）都必须收敛为「退出码 1 + runs 已收尾」，
+                # 任何异常（含历史存量缺陷）都必须收敛为“退出码 1 + runs 已收尾”，
                 # 而不是穿透 run() 把 runs 留在 status='running' 脏状态。
                 try:
                     gates = cfg.get("gates", {}) or {}
@@ -675,8 +675,8 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
 
         # 件4：质量验收闸门（gates.quality_gate，默认开）。
         #
-        # 为什么必须在宣告「全部完成」**之前**跑：
-        # 本项目最忌讳的失败是「门禁失守还盖绿灯」—— 明鉴悲剧（五十万字债）就是
+        # 为什么必须在宣告“全部完成”**之前**跑：
+        # 本项目最忌讳的失败是“门禁失守还盖绿灯”—— 明鉴悲剧（五十万字债）就是
         # 完成通知发出后才发现整批章节是垃圾。章节产物存在 ≠ 章节产物合格。
         # 这里复用 quality_checklist.py（确定性、零 token），非零退出即红阻断。
         #
@@ -703,7 +703,7 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
     finally:
         # 兜底幂等补偿：正常路径已 _finalize 过 → 此处的 UPDATE 命中 0 行、无副作用；
         # 异常穿透路径（含未来新增的崩溃点）→ 把残留的 status='running' 脏行收敛为 'crashed'。
-        # 读侧（nf_api /costs/streaming）不再需要靠「绕过 running 过滤」来容错。
+        # 读侧（nf_api /costs/streaming）不再需要靠“绕过 running 过滤”来容错。
         if not finished and run_id is not None:
             try:
                 if db.finish_run_if_running(run_id, "crashed"):
@@ -761,7 +761,7 @@ def main():
             print("[orchestrator] 已停止：书稿数据结构检查未通过（原因见上面的 [migrate] 行）。")
             print("[orchestrator] 处置：python scripts/data_migrate.py 看状态；"
                   "数据比代码新时升级程序，或 python scripts/snapshot.py --restore <快照> --yes 回退。")
-            # 退出码 5 = 数据结构拒绝。**不能用 2**：2 在本入口已表示「预算熔断」，
+            # 退出码 5 = 数据结构拒绝。**不能用 2**：2 在本入口已表示“预算熔断”，
             # 共用会让同一份日志里的失败原因无法分辨。
             sys.exit(5)
     except Exception as _wm_e:                              # noqa: BLE001

@@ -77,7 +77,7 @@ def _chapter_no(path):
 def _verify_ledger(batch, bi, app=None):
     """读回本批七维评审 JSON 并校验。返回 (results, problems)。
 
-    **为什么必须是「读回文件」而不是「解析 stdout」**：stdout 尾部只留最后几百字，
+    **为什么必须是“读回文件”而不是“解析 stdout”**：stdout 尾部只留最后几百字，
     而且模型随手说的 JSON 片段与真正落盘的产物不是一回事。只有落盘文件才是
     下游能复用的那份账本。
     """
@@ -146,20 +146,20 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     # R01 预算—篇幅联动（0.7.17；口径 2026-10-30 修正）
     #
     # ⚠️ 旧口径的缺陷：一次请求要回**整批**章节的全文，而容量校验拿的是
-    # 「单章最大字数」——批 5 章就低估 5 倍。direct 下必被 max_tokens 截断
+    # “单章最大字数”——批 5 章就低估 5 倍。direct 下必被 max_tokens 截断
     # （不落盘、退出码 2）；agent 子会话下没有 max_tokens 旋钮，模型会为了
     # 塞进自己的输出窗口**自己删内容**（实测 5967 → 2186，finish_reason 还是 stop）。
     #
     # 现在两件事一起做：
-    #   ① 批大小由「本次 max_tokens 装得下几章」反推（装不下 2 章就 1 章一批），
+    #   ① 批大小由“本次 max_tokens 装得下几章”反推（装不下 2 章就 1 章一批），
     #   ② 容量校验用**本批总字数**（不是单章最大字数）。
-    # 这样「批大小」与「容量判据」永远同步，改 target_words / max_tokens 不会各说各话。
+    # 这样“批大小”与“容量判据”永远同步，改 target_words / max_tokens 不会各说各话。
     from utils.judge.budget import (check_capacity, effective_max_tokens,
                                     items_per_request)
     from utils.verify_chapter import count_cn_words as _cwords
     _words5 = {f.name: _cwords(f.read_text(encoding="utf-8")) for f in pending}
     _max_words5 = max(_words5.values(), default=0)
-    # 实际可用上限取「提示词声明」与「config 单请求上限」的较小者 —— 只认后者才是
+    # 实际可用上限取“提示词声明”与“config 单请求上限”的较小者 —— 只认后者才是
     # direct 引擎真正设进 payload 的值（见 effective_max_tokens 的 docstring）。
     _limit5 = effective_max_tokens(cfg, 5)
     batch_size = min(5, items_per_request(_limit5, _max_words5, maximum=5))
@@ -182,7 +182,7 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
           % (_cap.get("max_tokens"), _cap.get("target_words"), _cap.get("needed")))
 
     def _bad_checked(batch):
-        """本批中「修正文件缺失**或为空壳**」的章节名。
+        """本批中“修正文件缺失**或为空壳**”的章节名。
 
         ⚠️ 光判 `exists()` 不够：LLM 可能产出空壳（章节压根没进 prompt，只吐了个
         开头就收工）。那种文件"存在但不可用"，会被 `exists()` 判成已完成 →
@@ -243,13 +243,13 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                     copied.append(name)
             if copied:
                 # ⚠️ 兜底复制 = **这批实际上没有被检查**。旧实现只打一行普通日志，
-                # 用户看到「阶段 5 完成」就以为检查过了。2026-09-28 那本正是如此：
+                # 用户看到“阶段 5 完成”就以为检查过了。2026-09-28 那本正是如此：
                 # checked/03.md 与 raw/03.md 逐字节相同，check_report.md 从未落盘，
-                # 而「检查完成」照打（→ 报告的根因是协议结束标记不匹配，已修）。
+                # 而“检查完成”照打（→ 报告的根因是协议结束标记不匹配，已修）。
                 copied_all.extend(copied)
-                # ⚠️ 提示文字不用 emoji：本行会在「被捕获的 stdout」（GUI/后台任务）下
+                # ⚠️ 提示文字不用 emoji：本行会在“被捕获的 stdout”（GUI/后台任务）下
                 # 以 cp936 输出，emoji 直接 UnicodeEncodeError —— 恰好在这一条
-                # 「这几章未经检查」的告警上崩，等于把最该被看见的话弄丢。
+                # “这几章未经检查”的告警上崩，等于把最该被看见的话弄丢。
                 print(f"[stage5] 兜底：本批 LLM 未产出有效修正 → 复制 raw → checked "
                       f"({', '.join(copied)})；**这几章未经检查**")
                 missing = _bad_checked(batch)
@@ -295,8 +295,8 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         for f in pending:
             db.log_chapter(run_id, 5, int(f.stem), "ok")
 
-    # 阶段收尾自检（2026-10-02）：**把「没检查」这件事显式化**。
-    # 旧实现只要文件存在就 `mark_stage_done` + 打印「报告: check_report.md」——
+    # 阶段收尾自检（2026-10-02）：**把“没检查”这件事显式化**。
+    # 旧实现只要文件存在就 `mark_stage_done` + 打印“报告: check_report.md”——
     # 而报告可能压根不存在（实测如此）。空壳检查器比没有检查器更危险。
     warnings = []
     if copied_all:
@@ -310,7 +310,7 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         report_text = ""
     if len(report_text.strip()) < 20:
         warnings.append("检查报告 data/outline/check_report.md 缺失或为空 —— "
-                        "本轮没有留下检查记录（章节产物仍可用，但别当「检查通过」）")
+                        "本轮没有留下检查记录（章节产物仍可用，但别当“检查通过”）")
 
     # 七维评审汇总（2026-10-20）：`data/review/` 是**可回归**的那份（JSON + 表格），
     # check_report.md 仍是给人看的自由文本报告 —— 两者都留，不互相替代。
@@ -353,7 +353,7 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                 f"{len(_dang)} 条伏笔悬空（埋设后一直没推进/回收）："
                 + "、".join("`%s`(第%d章)" % (r["id"], r["planted"]) for r in _dang[:6])
                 + ("…" if len(_dang) > 6 else "")
-                + " —— 详见章节页签「伏笔台账」")
+                + " —— 详见章节页签“伏笔台账”")
     except Exception as _e:                                   # noqa: BLE001
         # 告警是锦上添花，坏了不该拖垮检查主链路；但要出声，不静默。
         print(f"[stage5] 伏笔联动告警组装失败（不影响检查结果）: {type(_e).__name__}: {_e}")

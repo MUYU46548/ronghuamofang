@@ -1,21 +1,21 @@
 # -*- coding: utf-8 -*-
-"""GUI 暗色主题可读性 + 「打开文件」路径护栏（2026-10-01 起）。
+"""GUI 暗色主题可读性 + \u300c打开文件\u300d路径护栏（2026-10-01 起）。
 
-## 两条都是用户实测反馈，且都是「改了但没测」的典型
+## 两条都是用户实测反馈，且都是\u300c改了但没测\u300d的典型
 
 1. **暗色主题下文本读不出来**：`console/src/style.css` 的输入框/卡片写死
    `background:#fff`，而文字色是 `var(--ink)` —— 暗色主题下 `--ink` 是浅色，
-   于是「浅底浅字」。更糟的是暗色覆盖只写了 `.theme-dark` 一套，
+   于是\u300c浅底浅字\u300d。更糟的是暗色覆盖只写了 `.theme-dark` 一套，
    三套 `night-*`（暗夜蓝/绿/暖）完全裸奔，连顶栏都是白色半透明。
    → 判据 A/B/C/D：禁止硬编码浅底、暗色主题必须齐备控件变量、
    `.is-dark` 公共覆盖必须在、**并且用 WCAG 对比度做数值断言**。
 
-2. **设置页「在文件夹中显示」点了没反应**：`.env`、`data/`、`output/` 都在 workspace
+2. **设置页\u300c在文件夹中显示\u300d点了没反应**：`.env`、`data/`、`output/` 都在 workspace
    （打包态 = `%APPDATA%\\绒花墨坊\\workspace`），而 Electron 主进程用
    `path.resolve(ROOT, ...)`（打包态 = 安装目录里的 payload）解析 → 必然
-   「文件不存在」；`pathAllowed` 又按 ROOT 前缀 slice 算相对路径，
-   workspace 路径会被切出一段垃圾 → 全部判「不在白名单」。
-   前端还**不检查返回值**、照样提示成功 → 用户只看到「点了没反应」。
+   \u300c文件不存在\u300d；`pathAllowed` 又按 ROOT 前缀 slice 算相对路径，
+   workspace 路径会被切出一段垃圾 → 全部判\u300c不在白名单\u300d。
+   前端还**不检查返回值**、照样提示成功 → 用户只看到\u300c点了没反应\u300d。
    → 判据 E：文件类 IPC 必须经 `resolveExisting`（workspace 优先）、
    前端必须看返回值、`updater:check` 不得把不可序列化的对象过 IPC。
 
@@ -52,7 +52,7 @@ CSS = CSS_PATH.read_text(encoding="utf-8")
 APP = APP_PATH.read_text(encoding="utf-8")
 MAIN = MAIN_PATH.read_text(encoding="utf-8")
 
-# 输入/卡片类选择器：这些一旦写死浅色底，暗色主题下必然「浅底浅字」
+# 输入/卡片类选择器：这些一旦写死浅色底，暗色主题下必然“浅底浅字”
 INPUT_SELECTOR_RE = re.compile(
     r"^\.(text-input|model-select|prompt-text|tree-edit|sb-item|ov-opt|ov-diff-seg|"
     r"stream-body|prompt-list|ov-multi-col|ov-adv-verdict|sb-preview|setting-row|"
@@ -124,7 +124,7 @@ def test_C_is_dark_override():
           re.search(r'is-dark', APP) and "DARK_THEMES.includes" in APP)
     # 老写法（只覆盖 theme-dark）会让 night-* 裸奔，禁止回退
     legacy = re.findall(r"\.theme-dark \.(?:card|topbar|ps-progress-text|mini)", CSS)
-    check("C3 没有退回「只覆盖 .theme-dark」的旧写法", not legacy, legacy)
+    check("C3 没有退回\u300c只覆盖 .theme-dark\u300d的旧写法", not legacy, legacy)
 
 
 # ---------------------------------------------------------------- D
@@ -156,7 +156,7 @@ def test_D_contrast_wcag():
     """数值断言：控件底 vs 正文色，对比度必须过 WCAG AA(4.5)。
 
     用真实公式算，不做形式断言 —— 将来谁把 --field 调成接近 --ink，
-    这条会立刻红，而不是等用户来报告「字看不见」。
+    这条会立刻红，而不是等用户来报告\u300c字看不见\u300d。
     """
     print("\n[D] WCAG 对比度：每套主题 --field × --ink ≥ 4.5（AA 正文）")
     # 浅色主题共用同一块控件变量（选择器是 :root, :root.theme-purple, ...），
@@ -188,7 +188,7 @@ def test_E_path_resolution_and_ipc():
     check("E2 resolveExisting 优先 workspace",
           re.search(r"function resolveExisting[\s\S]{0,300}?getWorkspaceDir\(\)", MAIN) is not None)
 
-    # resolveExisting 内部那一处 path.resolve(ROOT, ...) 是「兜底」语义，属合法；
+    # resolveExisting 内部那一处 path.resolve(ROOT, ...) 是“兜底”语义，属合法；
     # 检查的是**函数之外**是否还有裸用（那才是绕过 workspace 的旧写法）。
     body = re.search(r"function resolveExisting\([\s\S]*?\n\}", MAIN)
     rest = MAIN.replace(body.group(0), "") if body else MAIN
@@ -198,7 +198,7 @@ def test_E_path_resolution_and_ipc():
     check("E4 pathAllowed 同时识别两个根",
           "new Set([" in MAIN and "getWorkspaceDir()" in MAIN)
 
-    # updater:check 回传不可序列化对象 → IPC reject → 前端按钮卡在「检查中…」
+    # updater:check 回传不可序列化对象 → IPC reject → 前端按钮卡在“检查中…”
     check("E5 updater:check 不把 result 原对象过 IPC",
           "return { ok: true, result }" not in MAIN)
     check("E6 updater:check 只回传可序列化字段",
@@ -209,19 +209,19 @@ def test_E_path_resolution_and_ipc():
           bool(re.search(r"revealEnvInFolder[\s\S]{0,700}?res\??\.\s*ok", APP)))
     check("F2 checkForUpdates 有 try/finally（按钮不会被卡死）",
           bool(re.search(r"async function checkForUpdates[\s\S]{0,1200}?finally", APP)))
-    check("F3 设置页保留了「检查更新」按钮", "checkForUpdates" in APP)
-    check("F4 关于弹窗也提供「检查更新」入口",
+    check("F3 设置页保留了\u300c检查更新\u300d按钮", "checkForUpdates" in APP)
+    check("F4 关于弹窗也提供\u300c检查更新\u300d入口",
           "检查更新" in (ROOT / "console" / "src" / "AboutDialog.vue").read_text(encoding="utf-8"))
 
 
 def test_G_functional_path_resolution():
     """功能反证：把**真实函数体**抽到 node 里跑。
 
-    静态判据只能证明「写法改了」，证明不了「真的能找到 .env」。
+    静态判据只能证明\u300c写法改了\u300d，证明不了\u300c真的能找到 .env\u300d。
     这里用假目录复刻打包态的两个根：payload（代码根，里面没有 .env）
     + workspace（用户数据，有 .env 与 data/），并同时验证旧写法为什么失败。
     """
-    print("\n[G] 功能反证：resolveExisting / pathAllowed 在「payload + workspace」双根下")
+    print("\n[G] 功能反证：resolveExisting / pathAllowed 在\u300cpayload + workspace\u300d双根下")
     node = shutil.which("node")
     if not node:
         check(True, "G 跳过 node 行为验证（环境无 node）")
@@ -274,7 +274,7 @@ def test_G_functional_path_resolution():
         check("G2 .env 解析到 workspace（而不是代码根）", r["envIsWs"], r)
         check("G3 旧写法 path.resolve(ROOT,'.env') 在打包态不存在（根因反证）",
               (not r["legacyExists"]) and r["envExists"], r)
-        check("G4 workspace 下的产物路径在白名单内（旧实现会判「越界」）",
+        check("G4 workspace 下的产物路径在白名单内（旧实现会判\u300c越界\u300d）",
               r["dataAllowed"], r)
         check("G5 .env 本身仍不可被外部打开", not r["envDenied"], r)
         check("G6 两个根之外的路径仍被拒", not r["outsideDenied"], r)

@@ -3,17 +3,17 @@
 
 ## 回答什么
 
-「我迭代了 N 轮，现在到底该继续改、还是该开工？如果继续，改哪儿？」
+“我迭代了 N 轮，现在到底该继续改、还是该开工？如果继续，改哪儿？”
 
 `outline_review --trend` 已经给出**收敛判定**（done/stalled/improving/mixed），
-但那只说「有没有进展」。本模块把它变成**可选择的行动方案**：每个方案含
+但那只说“有没有进展”。本模块把它变成**可选择的行动方案**：每个方案含
 依据、目标条目、缺失维度、**可直接执行的下一步**、代价与取舍。
 
 ## 为什么确定性生成，不用 LLM
 
 1. 依据全部来自 `outline_review` 的可验证判据（issues / thin_dims / flags），
    LLM 复述只会引入不可验证的措辞；
-2. 零 token —— 「该不该开工」这个问题本身不该花钱；
+2. 零 token —— “该不该开工”这个问题本身不该花钱；
 3. 可测试 —— 方案与判据的映射可以被反向验证。
 
 ## 方案池（按优先级排序，不必全选）
@@ -22,13 +22,13 @@
 |---|---|---|
 | `fix_structure` | `issues` 非空 | 结构性缺陷（如章节规划条数 ≠ 预计章节数）——**必须先修**，否则开工必亏 |
 | `rollback` | 本轮退化 | 回退到上一版 |
-| `densify` | 有 THIN 或 WARN 条目 | 逐条目补缺失维度（给出每个条目的具体补法）。**仅 WARN 时标为「可选优化」** |
+| `densify` | 有 THIN 或 WARN 条目 | 逐条目补缺失维度（给出每个条目的具体补法）。**仅 WARN 时标为“可选优化”** |
 | `change_approach` | 停滞 | 同方向迭代已无收益 → 换角度 / 补素材（给出素材方向） |
 | `start_writing` | 始终可选项 | 开工前的人工确认清单 |
 
 **推荐规则按严重度短路**（不是固定顺序）：结构问题 > 本轮退化 > **有 THIN 条目** >
-停滞 > 开工。所以「只有 WARN、收敛判定已是 done」时推荐会落到**开工** ——
-否则会把「可以开工」这个最重要的结论压掉。
+停滞 > 开工。所以“只有 WARN、收敛判定已是 done”时推荐会落到**开工** ——
+否则会把“可以开工”这个最重要的结论压掉。
 
 `recommended` 给出推荐方案 id，但**决定权在用户**。
 """
@@ -55,14 +55,14 @@ DIM_HINT = {
     "关系网": ("点明与另一名已登场角色的关系", "角色设定"),
     "素材覆盖": ("该条目在素材里出现太少 —— 属**素材缺口**，写正文前需补素材", "原始素材"),
     "无场景锚点": ("补一个具体地点（已登记的或新地点）", "地点设定"),
-    "无具体事件动词": ("把概述改成「谁 对 谁 做了什么」", "—"),
+    "无具体事件动词": ("把概述改成“谁 对 谁 做了什么”", "—"),
     "无冲突/张力词": ("点明这一章的阻力/代价是什么", "—"),
-    # 2026-09-21 补：此前没有这条，导致「只被判篇幅过短」的条目拿不到任何提示，
-    # 只能落到兜底文案「按体检缺失维度补全信息」——太笼统、不可执行。
+    # 2026-09-21 补：此前没有这条，导致“只被判篇幅过短”的条目拿不到任何提示，
+    # 只能落到兜底文案“按体检缺失维度补全信息”——太笼统、不可执行。
     "篇幅过短": ("把概述写具体：加时间/地点/关键动作，至少 60 字", "—"),
 }
 
-# 素材缺口的聚合归类（用于 stalled 时的「补素材」建议）
+# 素材缺口的聚合归类（用于 stalled 时的“补素材”建议）
 MATERIAL_DIM = "素材覆盖"
 
 # 结构性问题 → 可执行改法。逐条 pattern 匹配，匹配不到就原样呈现（不编造改法）。
@@ -79,10 +79,10 @@ _ISSUE_FIX = (
 
 
 def _issue_action(issue):
-    """把一条结构性问题变成「问题 + 可执行改法」。
+    """把一条结构性问题变成“问题 + 可执行改法”。
 
     ⚠️ 2026-09-21：首版把 issue 原文同时塞进 `target` 和 `suggested_feedback`，
-    输出成「问题：问题」的重复行。现 `target` 是精简问题，`feedback` 是**改法**。
+    输出成“问题：问题”的重复行。现 `target` 是精简问题，`feedback` 是**改法**。
     """
     for rx, fix in _ISSUE_FIX:
         m = rx.search(issue)
@@ -99,7 +99,7 @@ def _entry_actions(nodes, plan, struct=None):
     """把体检里的空泛条目变成逐条可执行动作。
 
     ⚠️ 2026-09-21 修：`outline_review.review()` 的条目**没有 `id`**
-    （只有 `title`，如「节点1」）；`id` 是 `utils.outline_struct.parse_global()`
+    （只有 `title`，如“节点1”）；`id` 是 `utils.outline_struct.parse_global()`
     才产出的（`node1` / `ch1` 这类）。首版直接读 `e.get("id")` 得到 None，
     拼出的命令是 `{"node_id":"None"}` —— **不可执行**。
     现改为用 `outline_struct` 的解析结果**按出现顺序对齐**补上 id
@@ -174,7 +174,7 @@ def advise(global_path=GLOBAL, setting_path=SETTING, history_dir=HISTORY_DIR,
     except Exception:                          # noqa: BLE001
         struct = None
     actions = _entry_actions(nodes, plan, struct)
-    # 只有 WARN 条目的 densify 属「可选优化」；有 THIN 才是「该修」
+    # 只有 WARN 条目的 densify 属“可选优化”；有 THIN 才是“该修”
     thin_actions = [a for a in actions if a.get("level") == "THIN"]
 
     options = []
@@ -230,7 +230,7 @@ def advise(global_path=GLOBAL, setting_path=SETTING, history_dir=HISTORY_DIR,
             "actions": actions,
             "llm_calls": len([a for a in actions if a["entry_id"]]),
             "tradeoff": "逐条目精修比整篇精修便宜、可控、可逐条回退，"
-                        "但要跑多次调用；适合「大部分条目已经不错」的情况。"
+                        "但要跑多次调用；适合“大部分条目已经不错”的情况。"
                         + ("" if thin_actions else
                            " 注意：本轮只有 WARN 条目（无 THIN），"
                            "体检已达标 —— 这属于锦上添花，不是开工前提。"),
@@ -239,7 +239,7 @@ def advise(global_path=GLOBAL, setting_path=SETTING, history_dir=HISTORY_DIR,
     # ---- 4) 停滞 → 换策略 ----
     if verdict == "stalled":
         mat_dims = [d for d in (dim_counter if actions else {}) if MATERIAL_DIM in d]
-        material_hint = ("素材缺口集中在「素材覆盖」维度 —— "
+        material_hint = ("素材缺口集中在“素材覆盖”维度 —— "
                          "建议往 materials/raw/ 补这几条对应的原始材料，"
                          "而不是继续让模型复述已有信息。"
                          if mat_dims else
@@ -277,15 +277,15 @@ def advise(global_path=GLOBAL, setting_path=SETTING, history_dir=HISTORY_DIR,
         "tradeoff": "开工后再回头改大纲，代价远高于现在改（下游已有逐章大纲/正文）。",
     })
 
-    # 推荐规则（按「严重度」短路，不是简单的固定顺序）：
+    # 推荐规则（按“严重度”短路，不是简单的固定顺序）：
     #   结构性问题 > 本轮退化 > **有 THIN 条目** > 停滞 > 开工
     #
     # ⚠️ 2026-09-21 修：首版用固定顺序 "densify 恒优先于 start_writing"，
-    # 于是「只有 WARN 条目」时也推荐 densify —— 而收敛判定已是 `done`
-    # （无结构性问题、无 THIN），推荐「继续补密度」与判定自相矛盾，
-    # 把「可以开工」这个最重要的结论压掉了。
+    # 于是“只有 WARN 条目”时也推荐 densify —— 而收敛判定已是 `done`
+    # （无结构性问题、无 THIN），推荐“继续补密度”与判定自相矛盾，
+    # 把“可以开工”这个最重要的结论压掉了。
     # 现在只有**存在 THIN** 时 densify 才参与推荐；只有 WARN 时它仍是
-    # 一个可选项（标为「可选优化」），但推荐落到 start_writing。
+    # 一个可选项（标为“可选优化”），但推荐落到 start_writing。
     ids = {o["id"] for o in options}
     if "fix_structure" in ids:
         recommended = "fix_structure"
@@ -320,7 +320,7 @@ def advise(global_path=GLOBAL, setting_path=SETTING, history_dir=HISTORY_DIR,
 
 
 def _avg_round_cost():
-    """从账本读「大纲迭代」历史平均每轮费用。无记录返回 (None, 0)。"""
+    """从账本读“大纲迭代”历史平均每轮费用。无记录返回 (None, 0)。"""
     try:
         import sqlite3
         p = Path("logs/runs.db")

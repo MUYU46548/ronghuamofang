@@ -45,7 +45,7 @@ def check(name, cond, detail=""):
 
 DOCSTRING_RE = re.compile(r'"""(?:.|\n)*?"""|\'\'\'(?:.|\n)*?\'\'\'')
 
-# 「只会展示」的形态：把布尔判定直接 print 出来，而不据它退出
+# “只会展示”的形态：把布尔判定直接 print 出来，而不据它退出
 PRINT_ONLY_RE = re.compile(
     r"print\([^)]*("
     r"\bis not None\b|\bis None\b|\bcallable\(|\ball\(|\bany\(|"
@@ -142,7 +142,7 @@ def main():
     e2e = sorted((ROOT / "tests" / "e2e").glob("test_*.py"))
     e2e_print_only = [p.relative_to(ROOT).as_posix() for p in e2e
                       if scan(p)["print_only"]]
-    print("\n  tests/e2e（不判红，仅统计）：%d 个脚本，其中 %d 个含「print 型判定行」：%s"
+    print("\n  tests/e2e（不判红，仅统计）：%d 个脚本，其中 %d 个含\u300cprint 型判定行\u300d：%s"
           % (len(e2e), len(e2e_print_only), "、".join(e2e_print_only) or "无"))
     check("tests/e2e 的 print 型判定行不再新增（基线 %d，只许降）" % len(e2e_print_only),
           len(e2e_print_only) <= 7, e2e_print_only)
@@ -158,7 +158,7 @@ def main():
             "sys.exit(0)\n", encoding="utf-8")
         probe = scan(tmp)
         check("反证：纯 print 用例被判为无判定构造", not probe["judge"], probe)
-        check("反证：纯 print 用例被判为「失败不驱动退出码」",
+        check("反证：纯 print 用例被判为\u300c失败不驱动退出码\u300d",
               not FAIL_DRIVEN_RE.search(strip_comments_and_docstrings(
                   tmp.read_text(encoding="utf-8"))))
     finally:

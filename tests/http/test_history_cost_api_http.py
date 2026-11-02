@@ -220,7 +220,7 @@ def main():
         check("缺 job_id → 400", code == 400, (code, d.get("error")))
         code, d = req("POST", "/stop", {"job_id": "no-such-job"})
         check("未知 job_id → 200（幂等，不 500）", code == 200 and d.get("ok") is True, (code, d))
-        check("响应提示「停止」语义已生效", "停止" in str(d.get("message")), d.get("message"))
+        check("响应提示\u300c停止\u300d语义已生效", "停止" in str(d.get("message")), d.get("message"))
 
         print("\n=== 6. 静态：do_GET/do_POST 无本地名遮蔽 ===")
         bad = ast_shadow_check()

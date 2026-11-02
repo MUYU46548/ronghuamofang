@@ -21,14 +21,14 @@ CLI 层就是敞开的。本用例守两件事：
 
 2026-10-04 TTY 加固跟进（修复单第三节，用例随新规格改）：
 - 加固档（agent_mode=true）下声明通道（--human / MOFANG_SOURCE=gui）死透
-  → 用例 4/7 的「声明放行」断言**反转**为「声明照样被拒」（V1/V2 死透）；
+  → 用例 4/7 的\u300c声明放行\u300d断言**反转**为\u300c声明照样被拒\u300d（V1/V2 死透）；
 - 拒文 V5 零通道名 → 用例 2/3 的文案断言反转（不得再出现 --human 等通道指路）；
 - 正路（真实交互终端）= 用例 2b 单元级注入祖先链断言；真实终端的动态放行验收
   归红队/用户亲手 TTY（修复方不自验，Step 4b）。
 
-2026-10-15 方案A（用户拍板「都用桌面端了，没人会用 CLI」）：
+2026-10-15 方案A（用户拍板\u300c都用桌面端了，没人会用 CLI\u300d）：
 - 加固档下 CLI 审批（approve/reject/segment_cli 勾段）改经 `cli_approval_gate` **恒拒**，
-  证据只入台账；本用例新增【11】【12】两节钉死「完美证据也拒 + 写前拦截 + 只读不受限」；
+  证据只入台账；本用例新增【11】【12】两节钉死\u300c完美证据也拒 + 写前拦截 + 只读不受限\u300d；
 - `cli_human_evidence` 原样保留（标准档语义 + 证据层 + 纵深防御），正判 ≠ 放行。
 
 2026-10-16（P1/P2 同族补闸）：
@@ -90,7 +90,7 @@ def case_shared_predicate():
 
 
 def case_human_evidence():
-    print("\n【2】「人工来源」取证·标准档历史语义（agent_mode=false，接口兼容反证）；加固档见【2b】")
+    print("\n【2】\u300c人工来源\u300d取证·标准档历史语义（agent_mode=false，接口兼容反证）；加固档见【2b】")
     check("MOFANG_SOURCE=gui → 人工",
           agent_guard.cli_human_evidence(source_env="gui", isatty=False)[0] is True)
     check("MOFANG_SOURCE=agent → 非人工",
@@ -233,7 +233,7 @@ def case_cli_refuses_non_human():
     try:
         p = run_approve(tmp)
         check("退出码非零（拒绝执行）", p.returncode == 1, p.returncode)
-        check("报错点明「不是人工来源」", "不是人工来源" in p.stdout, p.stdout[-300:])
+        check("报错点明\u300c不是人工来源\u300d", "不是人工来源" in p.stdout, p.stdout[-300:])
         check("V5 拒文零通道名（不教 --human / MOFANG_SOURCE / pty / 交互终端 / 改配置）",
               all(k not in p.stdout for k in
                   ("--human", "MOFANG_SOURCE", "pty", "交互式终端", "设为 false")),
@@ -271,7 +271,7 @@ def case_cli_declared_channels_dead():
         entries = audit_entries(tmp)
         check("两次尝试都留 blocked 台账",
               sum(1 for e in entries if e.get("status") == 403) >= 2, entries)
-        # 注：正路「放行也留痕（allowed）」无法在 agent 宿主环境自验（加固档下
+        # 注：正路“放行也留痕（allowed）”无法在 agent 宿主环境自验（加固档下
         # 本机任何自动化形态都过不了祖先链 —— 这正是修复目标）；
         # 真实终端的放行 + allowed 台账由红队/用户亲手 TTY 跑出（验收 2）。
     finally:
@@ -307,7 +307,7 @@ def run_reject(tmp, extra_args=(), env_extra=None):
 
 
 def case_reject_cli_guarded():
-    print("\n【7】reject.py 同款守卫（打回也是「代替用户拍板」，只补 approve 等于半开）")
+    print("\n【7】reject.py 同款守卫（打回也是\u300c代替用户拍板\u300d，只补 approve 等于半开）")
     tmp = build_root(agent_mode=True)
     try:
         p = run_reject(tmp)
@@ -348,11 +348,11 @@ def case_http_layer_uses_same_set():
         s = (ROOT / "scripts" / script).read_text(encoding="utf-8")
         check("%s 有 agent_mode 守卫（CLI 后门已堵）" % script,
               "agent_guard.agent_mode_enabled" in s and action in s, script)
-        # 2026-10-15 方案A 契约更新（旧断言「agent_mode=True 传参」随之作废）：
+        # 2026-10-15 方案A 契约更新（旧断言“agent_mode=True 传参”随之作废）：
         # 加固档审批入口改经 cli_approval_gate 恒拒，证据函数不再直接决定放行。
         check("%s 接线方案A（调 cli_approval_gate，加固档恒拒）" % script,
               "cli_approval_gate" in s, script)
-    check("HTTP 403 拒文共用零通道文案（V5，不教「仅 GUI」通道）",
+    check("HTTP 403 拒文共用零通道文案（V5，不教\u300c仅 GUI\u300d通道）",
           "refusal_message(" in src and "仅 GUI 可执行" not in src)
 
 
@@ -390,7 +390,7 @@ def case_depth_cap_truncation():
     """红队 2026-10-15 实弹回归（P10 真绕过）：cmd×48 深链曾静默放行。
 
     旧 probe_ancestry 走满 max_depth 后**静默退出、不打截断标记**，返回一条
-    「前 48 跳全是锚点(cmd)、宿主全在上限之外」的看似完整链 → 放行。
+    \u300c前 48 跳全是锚点(cmd)、宿主全在上限之外\u300d的看似完整链 → 放行。
     规格（V5）：取证失败**或链截断** = fail-closed。本用例钉死：
     深度上限截断必须打 "?"，且消费端 cli_human_evidence 据此拒绝。
     """
@@ -602,7 +602,7 @@ def case_switch_book_cli_guarded():
 
     def mk_tree(agent_mode):
         # ⚠️ switch_book 的 PROJECT_ROOT 取自**脚本位置**而非 CWD —— 必须把脚本
-        # 连同 utils/ 与 snapshot.py 一起拷进临时树：守卫一旦失效，被「归档」的
+        # 连同 utils/ 与 snapshot.py 一起拷进临时树：守卫一旦失效，被“归档”的
         # 也只能是夹具树，绝不能是真仓库。
         tmp = Path(tempfile.mkdtemp(prefix="nf_swb_a_"))
         (tmp / "scripts").mkdir(parents=True)

@@ -134,7 +134,7 @@ def case_consecutive_failures_stop():
         c = AlwaysFailClient()
         ok, msg, progress, _ = run_stage4(tmp, c)
         check("连续失败 → 阶段判失败", ok is False, msg)
-        check("消息点明「提前止损」而非只报一句失败数",
+        check("消息点明\u300c提前止损\u300d而非只报一句失败数",
               "提前止损" in msg, msg)
         check("**只跑了 3 章就停**（默认阈值 3，不是 10）",
               c.calls == 3, "实际调用 %d 次" % c.calls)
@@ -159,14 +159,14 @@ def case_threshold_configurable():
         check("阈值 0 → 不提前止损（跑完 4 章）", c.calls == 4,
               "实际调用 %d 次" % c.calls)
         check("跑完后仍因有失败章而返回 False（不是假成功）", ok is False, msg)
-        check("消息里**不含**「提前止损」", "提前止损" not in msg, msg)
+        check("消息里**不含**\u300c提前止损\u300d", "提前止损" not in msg, msg)
     finally:
         os.chdir(origin)
         shutil.rmtree(tmp, ignore_errors=True)
 
 
 def case_budget_circuit_breaker_inside_stage():
-    print("\n【3】章间预算熔断：限额对「一次跑几十章」也要生效")
+    print("\n【3】章间预算熔断：限额对\u300c一次跑几十章\u300d也要生效")
     tmp = build_workspace(total=5, tag="budget")
     origin = os.getcwd()
     try:
@@ -174,7 +174,7 @@ def case_budget_circuit_breaker_inside_stage():
         cost = StubCost(pause_after=1)      # 第 1 章成功后就熔断
         ok, msg, progress, _ = run_stage4(tmp, c, cost=cost)
         check("熔断后阶段返回 False", ok is False, msg)
-        check("消息点明「预算熔断」", "预算熔断" in msg, msg)
+        check("消息点明\u300c预算熔断\u300d", "预算熔断" in msg, msg)
         check("**熔断在阶段内就生效**（没有把 5 章跑完）",
               cost.calls == 1, "charge 调用 %d 次" % cost.calls)
         check("progress 标记预算暂停（orchestrator 下次启动即刻熔断）",

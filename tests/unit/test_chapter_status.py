@@ -4,7 +4,7 @@
 ## 要治的病
 
 实测：润色稿 10 章全部 2000 上下（`chapter.target_words` 下限 5000），
-`chapter_log` 全部 `status=ok, quality=8~9`，界面显示「完成」。
+`chapter_log` 全部 `status=ok, quality=8~9`，界面显示\u300c完成\u300d。
 
 代码原因是两行：
 

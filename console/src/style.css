@@ -15,8 +15,8 @@
   --bad: #c47f7f;
   /* ---- 控件与状态文字变量（浅色默认；四套暗色主题各自覆盖）----
      ⚠️ 控件背景**不得**硬编码颜色：暗色主题下 --ink 是浅色，写死
-     `background:#fff` 就是「浅底浅字」，内容直接读不出来 ——
-     2026-10-01 反馈「暗色主题下文本框内文字显示困难」的根因。
+     `background:#fff` 就是“浅底浅字”，内容直接读不出来 ——
+     2026-10-01 反馈“暗色主题下文本框内文字显示困难”的根因。
      新增任何输入类控件一律用 var(--field) 系列，不要再写 #fff。 */
   --field: #ffffff;          /* 输入框 / 按钮 / 可编辑卡片底 */
   --field-inset: #fbfbfd;    /* 弱化输入区（对话框 textarea、流式输出） */
@@ -271,7 +271,7 @@ body {
 /* 四套暗色主题（dark / night-blue / night-green / night-warm）的公共覆盖。
    `is-dark` 由 App.vue 的 setTheme() 写在 <html> 上。
    ⚠️ 旧写法只覆盖 .theme-dark，三套 night-* 完全裸奔：顶栏是白色半透明、
-   卡片/输入框写死 #fff —— 这正是「部分暗色主题下文字看不清」的来源。 */
+   卡片/输入框写死 #fff —— 这正是“部分暗色主题下文字看不清”的来源。 */
 .is-dark .outline-chapter-item:hover { background: rgba(124, 131, 212, 0.12); }
 .is-dark .outline-chapter-item.on { background: rgba(124, 131, 212, 0.2); }
 .is-dark .tabs button:hover { background: rgba(124, 131, 212, 0.15); }
@@ -376,7 +376,7 @@ body {
 }
 .stage-name { font-weight: 600; }
 /* 进行中阶段的具体事实（第 g/G 群 · 本群 X/Y 字）—— 2026-10-27：
-   用户要的是「它到底在干嘛」，不是又一个百分比。独占一行，不挤按钮。 */
+   用户要的是“它到底在干嘛”，不是又一个百分比。独占一行，不挤按钮。 */
 .stage-sub { flex-basis: 100%; font-size: 11px; color: var(--muted); padding-left: 36px; }
 .stage-actions { display: flex; gap: 8px; flex: none; }
 .running-hint {
@@ -453,8 +453,8 @@ body {
 .mini.danger { color: var(--ink-bad); }
 .mini.danger:hover { border-color: var(--bad); }
 
-/* 全自动运行条：已并入「一键工作流」条（.flow-strip），此处不留旧样式 ——
-   按「新旧交互模型并存 = 差评」铁律，旧入口连同样式一起删干净（2026-09-15） */
+/* 全自动运行条：已并入“一键工作流”条（.flow-strip），此处不留旧样式 ——
+   按“新旧交互模型并存 = 差评”铁律，旧入口连同样式一起删干净（2026-09-15） */
 
 /* 产物速览 */
 .art-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; }
@@ -505,7 +505,7 @@ body {
    .style-rule-select / .judge-ev-class / .fr-select / .bs-select` **六个类名
    都没有自己的样式定义** —— 暗色主题下它们是浏览器原生白底白框，在深色面板上
    刺眼，而亮色主题下又和周围圆角/边距不一致。同一个缺陷散在六个面板里，
-   谁改自己那一页就只修一处（正是「判据写 N 份」的老毛病）。
+   谁改自己那一页就只修一处（正是“判据写 N 份”的老毛病）。
    现在**一处定义、按类名列出**：以后新增下拉请把类名加进这两条选择器，
    不要另写一份 background/border。
    （其中 `.judge-ev-class` 在同日的 JudgeEvents 改造中退役 —— 事件分类改成了按钮，
@@ -580,7 +580,7 @@ body {
 
 /* 抽屉避让顶栏（2026-10-24）：顶栏是 sticky 流内元素，抽屉遮罩原来 inset:0
    从视口顶起，drawer-head 正好压在它下方 —— 关闭按钮点不到（Playwright 实测
-   「topbar intercepts pointer events」）。
+   “topbar intercepts pointer events”）。
    高度不写死数字：让遮罩从 topbar 下沿开始、抽屉 height:100% 自然填满，
    顶栏将来改字号/加徽标也不会再错位。 */
 .drawer-mask {
@@ -807,7 +807,7 @@ body {
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
 .ov-multi-col { border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; background: var(--field-inset); }
 .ov-multi-head { display: flex; align-items: center; gap: 8px; }
-/* 开局方案卡片：字段名 + 内容；「代价」单独用警示色左边线，让取舍一眼可见 */
+/* 开局方案卡片：字段名 + 内容；“代价”单独用警示色左边线，让取舍一眼可见 */
 .ov-var-body { font-size: 13px; line-height: 1.72; margin: 8px 0 10px; }
 .ov-var-body p { margin: 0 0 6px; }
 .ov-var-k { display: inline-block; min-width: 4.6em; color: var(--muted); margin-right: 6px; }
@@ -839,8 +839,8 @@ body {
    右对齐的抽屉在窄屏下会把内容推到屏幕外，宽抽屉改为居中显示并允许标题栏换行。 */
 .drawer-wide, .drawer-xwide { margin: auto; }
 
-/* ---------- 迭代趋势 / 开工建议（大纲页签「趋势 / 建议」抽屉） ----------
-   设计意图：把「还要不要再来一轮」和「接下来做什么」放在一屏里。
+/* ---------- 迭代趋势 / 开工建议（大纲页签“趋势 / 建议”抽屉） ----------
+   设计意图：把“还要不要再来一轮”和“接下来做什么”放在一屏里。
    结论（verdict）置顶加底色，趋势表在中间，候选方案在下面按严重度排。 */
 .ov-hotdot {
   display: inline-block; width: 6px; height: 6px; border-radius: 50%;
@@ -901,7 +901,7 @@ body {
   border-top: 1px solid var(--border); line-height: 1.65;
 }
 
-/* ---------- 审核队列（「审核」页签） ---------- */
+/* ---------- 审核队列（“审核”页签） ---------- */
 .sb-wrap { display: flex; flex-direction: column; gap: 12px; }
 .sb-toolbar .sb-dir { display: flex; align-items: center; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
 .sb-dir code { background: var(--field-code); padding: 1px 6px; border-radius: 4px; word-break: break-all; }
@@ -1030,12 +1030,12 @@ body {
   padding: 16px 20px;
 }
 
-/* 已删除：原「项目结构树」样式块（.project-tree / .tree-group* / .tree-item-* /
+/* 已删除：原“项目结构树”样式块（.project-tree / .tree-group* / .tree-item-* /
    .tree-status-*）。该功能已移除，这些类全项目无人引用（含动态拼接）。
    其中那条 `display:flex` 的 .tree-item 是 v0.1 竖排文本故障的元凶：
    它覆盖了 OutlineTree.vue 的节点容器，把 <li> 变成 flex 行，嵌套 <ul> 与
    .tree-row 并排抢宽度 → 标签被压到一字宽、逐字换行。
-   树样式统一在文件上方「树（OutlineTree.vue）」一节维护，勿在此处再造 .tree-item。 */
+   树样式统一在文件上方“树（OutlineTree.vue）”一节维护，勿在此处再造 .tree-item。 */
 
 /* AI 助手侧栏 */
 .ai-assistant {
@@ -1640,7 +1640,7 @@ kbd {
   color: var(--muted-foreground);
 }
 
-/* ---- 接入其他 Agent（2026-10-06 对齐方寸「接入页」）---- */
+/* ---- 接入其他 Agent（2026-10-06 对齐方寸“接入页”）---- */
 .ac-block {
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -1836,8 +1836,8 @@ kbd {
   margin: 24px 0;
 }
 
-/* 出厂还原：滑动确认条（0.7.0）—— 破坏性操作的多步确认，替代「同位置点两次」
-   （2026-10-24 用户点名）。拖到底解锁「开始还原」；中途松手弹回；完成后轨道转 ok 色。 */
+/* 出厂还原：滑动确认条（0.7.0）—— 破坏性操作的多步确认，替代“同位置点两次”
+   （2026-10-24 用户点名）。拖到底解锁“开始还原”；中途松手弹回；完成后轨道转 ok 色。 */
 .slider-confirm {
   position: relative; height: 42px; margin-top: 14px;
   border: 1px solid var(--border); border-radius: 21px;
@@ -1864,7 +1864,7 @@ kbd {
 
 /* ==========================================================================
    引擎与模型（设置页 · 2026-10-31 重做）
-   之前是「一行只读的 engine 文字 + 六行原生 select 堆在 art-row 里」，
+   之前是“一行只读的 engine 文字 + 六行原生 select 堆在 art-row 里”，
    而且 engine **根本改不了**（只能手改 YAML）。现在分四块：
      ① 运行引擎（可点选的两张卡）② 角色模型（表格式）③ 服务商与密钥 ④ 合规提示
    所有颜色只取主题变量 —— 硬编码色值在暗色/粉色主题下会瞎眼（GUI 纪律③）。
@@ -2109,7 +2109,7 @@ kbd {
   padding-left: 10px;
 }
 
-/* 事件勾选补充：判据说明 / 「不算一件事」标记 / 四类例子（2026-10-31 文案重写） */
+/* 事件勾选补充：判据说明 / “不算一件事”标记 / 四类例子（2026-10-31 文案重写） */
 .je-guide {
   font-size: 12px;
   line-height: 1.85;
@@ -2141,7 +2141,7 @@ kbd {
   color: var(--ink-bad);
   font-weight: 600;
 }
-/* 标为「不算一件事」的行：整行退后（勾选框也随之禁用） */
+/* 标为“不算一件事”的行：整行退后（勾选框也随之禁用） */
 .je-row.rejected .je-text {
   color: var(--muted);
   text-decoration: line-through;
@@ -2271,8 +2271,8 @@ kbd {
   .help-side { position: static; }
 }
 
-/* 「整本否掉」区块里的归档入口（2026-10-31）：归档是搬家，不是删除 ——
-   两个按钮并排，中间留一点距离，避免误点成「记下判断」。 */
+/* “整本否掉”区块里的归档入口（2026-10-31）：归档是搬家，不是删除 ——
+   两个按钮并排，中间留一点距离，避免误点成“记下判断”。 */
 .judge-archive-row {
   display: flex;
   align-items: center;
@@ -2283,7 +2283,7 @@ kbd {
   border-top: 1px dashed var(--border);
 }
 
-/* 知识库路径（2026-10-31）：设置页新增的「库在哪」一行 */
+/* 知识库路径（2026-10-31）：设置页新增的“库在哪”一行 */
 .vault-path-box {
   border: 1px solid var(--border);
   border-radius: 10px;

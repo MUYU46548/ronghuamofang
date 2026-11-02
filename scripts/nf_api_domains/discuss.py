@@ -5,7 +5,7 @@
 
 | 端点 | 方法 | Agent 可调用 | 说明 |
 |------|------|--------------|------|
-| `/outline/discussion/brief`   | GET  | ✅ | 打包「讨论第 N 章」的自包含任务书（只读，供复制给外部 Agent） |
+| `/outline/discussion/brief`   | GET  | ✅ | 打包“讨论第 N 章”的自包含任务书（只读，供复制给外部 Agent） |
 | `/outline/discussion/apply`  | POST | ✅ | 提交提案 → 写草稿区 + 登记 pending（草稿类，自动待审） |
 | `/outline/discussion/review` | POST | ❌ 进 `FORBIDDEN_IN_AGENT_MODE` | 批准（真正写回章大纲）/ 驳回 —— 审批族，与 /approve 同档 |
 | `/outline/discussions`       | GET  | ✅ | 提案队列（GUI 审批页签消费） |
@@ -16,7 +16,7 @@
 
 ## 为什么不用沙盒 manifest
 
-沙盒是「贴进 vault」中转区，讨论提案是「改我的大纲」，目的地与生命周期都不同。
+沙盒是“贴进 vault”中转区，讨论提案是“改我的大纲”，目的地与生命周期都不同。
 `utils/discuss` 用独立 `data/state/discuss_manifest.json`，判据仍复用
 `sandbox_review` 的状态机实现（一份实现，两处 manifest）。
 """

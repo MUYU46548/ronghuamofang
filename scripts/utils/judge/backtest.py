@@ -96,7 +96,7 @@ def judge_chapter(root, n, cal_doc=None, cal_values=None, records_doc=None):
 def _rule_refs(res):
     """R05 口径解释卡的**引文**：每条判据取第一条命中的原句。
 
-    AC-05-2「卡内正例/反例引文必须在原文中存在，对不上则卡作废并计数」——
+    AC-05-2“卡内正例/反例引文必须在原文中存在，对不上则卡作废并计数”——
     所以这里做两道：
       ① 引文只从 `analysis.defects` 里取（规则从正文切句得来，不是人编的）；
       ② 仍然验一次 `sentence in body`：规则将来改了切句方式，引文可能与正文脱节，
@@ -126,8 +126,8 @@ def _detector_alerts(prev_chapters, cur_chapters, words_min):
     ## 它防的是什么
 
     判据只在**旧的 AI 腔**上标定过。0.7.20 拆锁（放开密度与风格）之后，
-    腔调形态必然改变 —— 于是可能出现「某章 F01+F03 命中数从 ≥5 掉到 0，
-    而字数完全达标」。这有两种解释：稿子真的改好了，或者**判据已经对新腔调失效**。
+    腔调形态必然改变 —— 于是可能出现“某章 F01+F03 命中数从 ≥5 掉到 0，
+    而字数完全达标”。这有两种解释：稿子真的改好了，或者**判据已经对新腔调失效**。
 
     系统**不分不清**这两者（要分清得有基准集，R19 目前为空）。所以这里只做
     fail-loud：出声，不判档、不改结论。宁可让作者多抽检一章，不能静默显示"没查出问题"。
@@ -153,7 +153,7 @@ def _detector_alerts(prev_chapters, cur_chapters, words_min):
                 "note": ("第 %d 章：上一次判定命中 %d 处（F01 字数/句长 + F03 可替换骨架），"
                          "这次 0 处，而字数 %d 达标。可能是稿子真改好了，"
                          "也可能是判据对新腔调失效 —— 建议人工抽检这一章，"
-                         "确认不是「判据睡着了」。" % (n, before, words)),
+                         "确认不是“判据睡着了”。" % (n, before, words)),
             })
     return out
 
@@ -349,7 +349,7 @@ def run(root=".", book_name="", by="作者"):
         # R1 判据失效告警：只出声，不判档（详见 _detector_alerts）
         "alerts": alerts,
         "alerts_note": ("" if alerts else
-                        "本轮没有「命中骤降」的章。注意：更早的历史 run 没有分规则计数，"
+                        "本轮没有“命中骤降”的章。注意：更早的历史 run 没有分规则计数，"
                         "首轮之后才开始可比。"),
         "zero_token": True,
         "object_changed": object_changed,
@@ -383,7 +383,7 @@ def run(root=".", book_name="", by="作者"):
         "object_changed": object_changed,
         # R05 / R1：**持久化**的 run 记录也必须带这三样 ——
         # `/judge/report` 读的是 records 里的 run_rec，不是内存里的 report。
-        # 第一版只往 report 里塞了 refs，结果界面永远显示「没命中」（白查半天）。
+        # 第一版只往 report 里塞了 refs，结果界面永远显示“没命中”（白查半天）。
         "refs": refs_all,
         "invalid_refs": invalid_refs,
         "alerts": alerts,
@@ -406,7 +406,7 @@ def run(root=".", book_name="", by="作者"):
 
 
 def export_markdown(report, root="."):
-    """导出缺陷单（I1 底部「导出这份清单」）—— 显式动作，不属于回测本身。"""
+    """导出缺陷单（I1 底部“导出这份清单”）—— 显式动作，不属于回测本身。"""
     lines = ["# 判定报告 · %s" % (report.get("book") or ""), ""]
     lines.append("> %s" % report["notices"][0])
     lines.append("> %s" % report["notices"][1])
@@ -435,7 +435,7 @@ def export_markdown(report, root="."):
             for r in c["reasons"]:
                 lines.append("- %s" % r.get("text"))
         for d in c["top_defects"]:
-            lines.append("- 第 %d 段「%s」（%s）" % (d["paragraph_index"], d["sentence"],
+            lines.append("- 第 %d 段“%s”（%s）" % (d["paragraph_index"], d["sentence"],
                                                  d["rule_name"]))
         lines.append("")
     refs = report.get("refs") or {}

@@ -2,7 +2,7 @@
 //
 // 数据来源：setting.json 的 characters[].relations，是**字符串数组**且形如
 //   "角色甲: 侍从/徒弟/继承者/眷属/实验对象，对角色乙宠爱万分…"
-// 左半是「对端名称」，右半是自由描述。类型只能从**描述文本**关键词启发式归类。
+// 左半是“对端名称”，右半是自由描述。类型只能从**描述文本**关键词启发式归类。
 //
 // 匹配顺序即优先级：越具体的类型放前面（如"实验体"要先于"同僚"，
 // 否则"眷属/实验对象"会被"伙伴"误判成同僚）。
@@ -60,14 +60,14 @@ export const RELATION_TYPES = [
 
 const TYPE_BY_KEY = Object.fromEntries(RELATION_TYPES.map((t) => [t.key, t]));
 
-/** 按 key 取类型定义（未知 key 回退「其他」）。 */
+/** 按 key 取类型定义（未知 key 回退“其他”）。 */
 export function relationTypeOf(key) {
   return TYPE_BY_KEY[key] || TYPE_BY_KEY.other;
 }
 
 /**
  * 从关系描述文本归类。传入整条关系字符串（左名 + 右描述）即可 ——
- * 左侧的组织名（如「某作战部队」）也算有效线索。
+ * 左侧的组织名（如“某作战部队”）也算有效线索。
  */
 export function classifyRelation(text) {
   const s = String(text || "");

@@ -3,7 +3,7 @@
 
 要回答的问题只有一个：**这一章的 6000 字，是哪一步被削到 2000 的、删了哪些句子。**
 所以这里只读三份稿（raw / checked / refined），逐句对齐，输出删除/改写清单与缩减率；
-缩减率超口径（默认 5%）即判「销毁」并进缺陷单。
+缩减率超口径（默认 5%）即判“销毁”并进缺陷单。
 
 为什么不改 stage5/6：那要真机重跑（花钱），P0 的硬线是零 token、断网可跑。
 """
@@ -30,7 +30,7 @@ def paragraphs(body):
 
 
 def compare(raw, checked, refined, cal=None, threshold=None):
-    """三稿对照。缺哪一版就明说「该版不存在」，绝不记 0（记 0 会让「删了 4000 字」显示成无变化）。"""
+    """三稿对照。缺哪一版就明说“该版不存在”，绝不记 0（记 0 会让“删了 4000 字”显示成无变化）。"""
     cal = cal or {}
     limit = float(cal.get("J11", 0.05)) if threshold is None else float(threshold)
     stages = {"raw": raw, "checked": checked, "refined": refined}

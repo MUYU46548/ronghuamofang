@@ -42,17 +42,17 @@ RATES = {
     "minimax-m2.7":       {"in": 1.0, "out": 4.2, "cache_read": 0.2},
     # 2026-09-29（随行件2）：kimi-k2.6 是当前 7 个角色（含 writer）的主力，
     # 但刊例里原先只有 kimi-k3 → 每次记账都走 "未知模型回退默认价 + WARN"，
-    # 09-28 冒烟账单的绝对值因此不可信（冒烟报告「下一步②」也列了这条）。
+    # 09-28 冒烟账单的绝对值因此不可信（冒烟报告“下一步②”也列了这条）。
     # ⚠️ 下列数值为**占位**（与 default 角色回退价同值，好在拿到官方价前不改变既有
     # 账单口径、只是不再刷 WARN）；**拿到 TokenHub 官方刊例价后请更新**。
     "kimi-k2.6":          {"in": 1.0, "out": 4.2, "cache_read": 0.2},
     "kimi-k3":            {"in": 20.0, "out": 100.0, "cache_read": 2.0},
     # 美团 LongCat（2026-10-01 预置）。开放平台以**免费额度**为主（注册赠千万级
     # token，部分模型另有每日额度），控制台未公布刊例价 → 先按 default 角色价占位，
-    # 保证不再刷「未知模型回退」WARN。
+    # 保证不再刷“未知模型回退”WARN。
     # ⚠️ 免费额度期实际扣费为 0 —— 面板上这两个模型显示的是**虚拟费用**
-    # （整簿「估算口径」，与套餐/免费额度无关，系统目前不区分计费模式）。
-    # 拿到官方价别改这里：走「成本 → 定价 → 📋 批量导入」，写 data/state/cost_rates.json
+    # （整簿“估算口径”，与套餐/免费额度无关，系统目前不区分计费模式）。
+    # 拿到官方价别改这里：走“成本 → 定价 → 📋 批量导入”，写 data/state/cost_rates.json
     # （用户数据、不进 git、优先级高于本表），定价变动时改一次就行。
     "LongCat-2.0":        {"in": 1.0, "out": 4.2, "cache_read": 0.2},
     "LongCat-2.5-Preview": {"in": 1.0, "out": 4.2, "cache_read": 0.2},
@@ -70,7 +70,7 @@ RATES = {
 # （`nf_api._set_root()` 会一并刷新）。
 # 历史错位的旧文件做**一次性兼容**：新位置没有而旧位置有 → 先读旧的；下次保存时
 # 自动把旧文件带进新位置。理由：那 113 字节里是用户手改的单价，直接换路径等于让它
-# 静默消失（本项目栽过太多次「换实现 = 用户数据没了」）。
+# 静默消失（本项目栽过太多次“换实现 = 用户数据没了”）。
 _CUSTOM_RATES_LEGACY = Path(__file__).resolve().parent.parent / "data" / "state" / "cost_rates.json"
 CUSTOM_RATES_PATH = Path(__file__).resolve().parents[2] / "data" / "state" / "cost_rates.json"
 
@@ -125,12 +125,12 @@ def get_merged_rates():
 #
 # 一次粘贴整张价格表 → 解析 → 预览 → 确认，落进自定义定价 data/state/cost_rates.json。
 # 分工刻意切干净，三层各管一件事（GUI 端点与 CLI 向导共用，判据只有一份）：
-#   parse_rates_text    「文本 → 结构」，不含任何业务语义；
-#   plan_rates_import   「合并策略」：cache 缺省怎么办、新增还是覆盖、与源码刊例价的关系；
-#   upsert_custom_rates 「落盘」：只覆盖同名条目，**绝不删其他**（不是整体替换）。
+#   parse_rates_text    “文本 → 结构”，不含任何业务语义；
+#   plan_rates_import   “合并策略”：cache 缺省怎么办、新增还是覆盖、与源码刊例价的关系；
+#   upsert_custom_rates “落盘”：只覆盖同名条目，**绝不删其他**（不是整体替换）。
 #
 # 纪律：**跳过任何一行都必须留痕** —— 识别不了的进 warnings，语义错误进 errors，
-# 不存在「悄悄少导入几条」的可能。
+# 不存在“悄悄少导入几条”的可能。
 # ---------------------------------------------------------------------------
 
 _RATE_KEYS = ("in", "out", "cache_read")
@@ -160,14 +160,14 @@ _HEADER_HINTS = ("模型", "名称", "输入", "输出", "缓存", "价格", "�
                  "model", "name", "input", "output", "cache", "price")
 _FREE_WORDS = ("免费", "free", "0（免费）", "免费额度", "免费期")
 
-# 「/ 百万 tokens」「元 / 百万」这类单位尾巴。数值本身不含单位信息，先整段剥掉再切分，
+# “/ 百万 tokens”“元 / 百万”这类单位尾巴。数值本身不含单位信息，先整段剥掉再切分，
 # 否则 `¥1.00 / M tokens` 会被空白切成 4 个字段、数值段判定直接失效。
 _UNIT_TAIL_RE = re.compile(
     r"\s*(?:元|圆|块|美元|rmb|cny|usd)?\s*"
     r"(?:/\s*(?:百万(?:\s*tokens?)?|m(?:\s*tokens?)?|1m|tokens?))",
     re.IGNORECASE,
 )
-# 「8.0 元」这种数字与货币单位之间夹空格的写法
+# “8.0 元”这种数字与货币单位之间夹空格的写法
 _CURRENCY_GAP_RE = re.compile(r"(\d)\s+(元|圆|块|美元|rmb|cny|usd)(?![a-z])", re.IGNORECASE)
 
 
@@ -187,7 +187,7 @@ def _extract_number(tok):
     m = _NUM_RE.match(_strip_thousands(t))
     if m:
         return float(m.group(1))
-    # 「0 元（免费）」「免费/0」这类混写：仅当整串只剩一个数字（或没有数字）时才认
+    # “0 元（免费）”“免费/0”这类混写：仅当整串只剩一个数字（或没有数字）时才认
     if "免费" in t or "free" in low:
         nums = re.findall(r"-?\d+(?:\.\d+)?", _strip_thousands(t))
         if len(nums) == 1:
@@ -231,14 +231,14 @@ def _table_entries(raw, errors, warnings):
         s = re.sub(r"(?:^|\s)//.*$", "", s).strip()
         if not s:
             continue
-        # 单位尾巴先剥掉（「¥1.00 / M tokens」→「¥1.00」；「8.0 元 / 百万」→「8.0」），
+        # 单位尾巴先剥掉（“¥1.00 / M tokens”→“¥1.00”；“8.0 元 / 百万”→“8.0”），
         # 否则会被空白切成多个字段、数值段判定失效。
         s = _UNIT_TAIL_RE.sub("", s)
         s = _CURRENCY_GAP_RE.sub(r"\1\2", s).strip()
         if not s:
             continue
         parts = _split_fields(s)
-        # 从行尾往左取「连续数值段」= 价格字段；剩下的都算模型名
+        # 从行尾往左取“连续数值段”= 价格字段；剩下的都算模型名
         # （故 "DeepSeek V4.1 Flash 1.0 4.2" 也能正确把 V4.1 归回名字）
         idx = len(parts) - 1
         while idx >= 0 and _extract_number(parts[idx]) is not None:
@@ -254,7 +254,7 @@ def _table_entries(raw, errors, warnings):
             continue
         if len(nums) < 2:
             errors.append("第 " + str(lineno) + " 行：只解析出 1 个数值，"
-                          "至少需要「输入价 输出价」：" + s[:50])
+                          "至少需要“输入价 输出价”：" + s[:50])
             continue
         if len(nums) > 3:
             warnings.append("第 " + str(lineno) + " 行：" + name + " 有 " + str(len(nums)) +
@@ -349,7 +349,7 @@ def parse_rates_text(text):
       ① JSON：{"kimi-k2.6": {"in": 1, "out": 4.2, "cache_read": 0.2}}
               或 [{"model": "kimi-k2.6", "in": 1, "out": 4.2}]
       ② Python 字面量：从 cost_tracker.py 的 RATES 块整段复制（`"名字": {"in": ..}`）
-      ③ 表格行：每行「模型名 输入价 输出价 [缓存价]」，
+      ③ 表格行：每行“模型名 输入价 输出价 [缓存价]”，
                分隔符支持 空白 / 制表 / 分号 / 竖线 / 顿号 / 逗号；`#` `//` 注释与空行跳过
     """
     parsed, errors, warnings = {}, [], []
@@ -441,8 +441,8 @@ def plan_rates_import(text):
 def upsert_custom_rates(entries):
     """把 {模型: {in,out,cache_read}} 合并进自定义定价。返回 (最终条数, 备份路径或 None)。
 
-    **只覆盖同名条目，不删其他** —— 与面板「保存」的整体替换语义不同（那是显式全量提交）。
-    落盘前把原文件另存为 cost_rates.json.bak（固定名，始终是「上一次」），可随时回退。
+    **只覆盖同名条目，不删其他** —— 与面板“保存”的整体替换语义不同（那是显式全量提交）。
+    落盘前把原文件另存为 cost_rates.json.bak（固定名，始终是“上一次”），可随时回退。
     """
     custom = load_custom_rates()
     backup = None
@@ -484,13 +484,13 @@ DEFAULT_TOKEN_LIMIT = {
 }
 
 # ---- 出厂预设（2026-10-03 用户定调）----
-# 「恢复默认预设」的**唯一**取值来源；设置页的初始值也取它。
+# “恢复默认预设”的**唯一**取值来源；设置页的初始值也取它。
 # 阈值依据（用户实测口径）：单章 5000–15000 字、常态 ~8000 字，偶有更长章；
 # 一次 stage1 子会话 ≈ 11.6 万 token（输入 9.8 万 + 输出 1.8 万）。
 #   · per_request_max_tokens 50000：远高于"一章正文"的输出量，正常写作不会撞；
 #     它拦的是**失控生成**（模型复读/思考跑飞）。
 #   · max_total_tokens 10000000（1000 万/轮）：给整本书（多阶段 + 重试 + 精修）留足余量，
-#     「鬼知道会不会发生什么奇怪的情况」—— 阈值先放宽，真撞上说明确实异常。
+#     “鬼知道会不会发生什么奇怪的情况”—— 阈值先放宽，真撞上说明确实异常。
 TOKEN_LIMIT_PRESET = {
     "enabled": True,
     "per_request_max_tokens": 50000,
@@ -513,7 +513,7 @@ TOKEN_LIMIT_BOUNDS = {
 
 
 def validate_token_limit(raw):
-    """校验并归一「设置页/API 传进来的一组阈值」。返回 (ok, msg, normalized)。
+    """校验并归一“设置页/API 传进来的一组阈值”。返回 (ok, msg, normalized)。
 
     与 `normalize_token_limit` 的分工：那个是**读配置**时的容错归一（不抛、尽量可用），
     这个是**写配置前**的把关（不合格就拒绝，并说清哪一项越界/是什么类型）。
@@ -630,7 +630,7 @@ def estimate_cost_yuan(tokens_in, tokens_out, model=None, provider=None, role=No
     provider == "hermes" 恒返回 0（2026-10-01 用户定调）：agent 模式走订阅流量，
     无按量 ¥ 成本 —— token 照记（run_task 返回真实 usage），但预算熔断对 hermes
     引擎不生效是**刻意语义**（预算是 direct 引擎的按量保护），orchestrator 启动时
-    会显式提示，不做「按任务文件大小 × 刊例价」的虚构记账。
+    会显式提示，不做“按任务文件大小 × 刊例价”的虚构记账。
     """
     if provider == "hermes":
         return 0.0
@@ -682,7 +682,7 @@ class CostTracker:
         """返回熔断诊断 dict：{state, spent_yuan, tokens, reason, message}。
 
         state: 'ok' | 'warn' | 'pause'；reason 指出**是哪条判据命中**（金额/token 累计/
-        token 单次）—— 熔断日志必须能回答「为什么停」，否则用户只能瞎猜该调哪个键。
+        token 单次）—— 熔断日志必须能回答“为什么停”，否则用户只能瞎猜该调哪个键。
         """
         spent = float(self.db.sum_cost(run_id) or 0.0)
         tl = self.token_limit
@@ -694,7 +694,7 @@ class CostTracker:
 
         # 1) 金额（direct 引擎按量计费时才可能命中；hermes 恒 0，天然不触发）
         #    判据与旧版**逐字一致**（`spent >= self.limit`，不加真值守卫）——
-        #    兼容旧语义，避免「limit_yuan=0 从不熔断」这种静默语义漂移。
+        #    兼容旧语义，避免“limit_yuan=0 从不熔断”这种静默语义漂移。
         if spent >= self.limit:
             return _out("pause", "yuan",
                         "已用 %.2f 元 ≥ 上限 %.2f 元" % (spent, self.limit))
@@ -766,7 +766,7 @@ def pause_detail(cost, run_id=None):
 
     为什么要这层包装：各 stage 的 cost 参数是可注入的（测试常塞只有
     `charge_cost`/`spent` 的替身）。诊断信息只用于**打印**，让它因为
-    「替身没有 status_detail」而把 stage 搞崩，是本末倒置。
+    “替身没有 status_detail”而把 stage 搞崩，是本末倒置。
     """
     try:
         return cost.status_detail(run_id)

@@ -93,7 +93,7 @@ def _build_workspace(base, book_name="单测预设书"):
 
 def _pin_modules(tmp):
     """把写盘模块的根常量钉到夹具（同 test_export_reports 的做法），
-    并把 snapshot 换成记账假实现（断言「先快照」且不碰真仓库 history）。"""
+    并把 snapshot 换成记账假实现（断言\u300c先快照\u300d且不碰真仓库 history）。"""
     import utils.project_config as pc
     import snapshot as snap_mod
     state = {"snapshot_called": []}
@@ -375,7 +375,7 @@ def case_dirty_flag(tmp):
     check("素材卡数不齐 → dirty=True 且点名素材卡",
           wp2.get("dirty") is True
           and any("素材卡" in str(s) for s in wp2.get("dirty_items") or []), wp2)
-    # 还原之后 → 干净（这就是「已清理完按钮置灰」的判据；用户 2026-10-24 点名场景）
+    # 还原之后 → 干净（这就是“已清理完按钮置灰”的判据；用户 2026-10-24 点名场景）
     ws3 = _build_workspace(tmp / "ws_dirty_after")
     restore, _snap = _pin_modules(ws3)
     try:
@@ -390,7 +390,7 @@ def case_dirty_flag(tmp):
 def case_implicit_preset(tmp):
     print("\n[10] 隐式预设：标记随归档走掉后（同名重建）仍认得出")
     # 用户实况（2026-10-25）：10:08 铺 rail-end（标记写进工作区），10:09 用
-    # 「＋ 新建项目」同名重建 —— 归档把标记连旧书一起搬走，此后还原按钮消失。
+    # “＋ 新建项目”同名重建 —— 归档把标记连旧书一起搬走，此后还原按钮消失。
     # 判据：书名 == 预设名 + 素材卡与预设源逐字节一致（文件名集合 + sha256）。
     os.environ.pop("NF_SAMPLE_ROOT", None)   # 本用例自建预设源，不吃上一用例的注入
 

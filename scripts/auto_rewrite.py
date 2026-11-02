@@ -2,7 +2,7 @@
 """方向3：质量自评闭环 —— quality < 阈值的章节自动轻量重写。
 
 设计原则：**薄封装**。复用 batch_refine.run_single_refine()，不重复实现
-「备份 history/chNN_vM.md → 建 stage4_refine 任务 → 跑模型 → ±20% 铁律校验」。
+“备份 history/chNN_vM.md → 建 stage4_refine 任务 → 跑模型 → ±20% 铁律校验”。
 本模块只负责：收集目标章 → 生成修订意见 → 逐章调度 → 记账 → 出报告。
 
 与既有 n==4 钩子的关系：在审稿分支（review_after_stage4）**之前**运行，

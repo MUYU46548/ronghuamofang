@@ -29,14 +29,14 @@ from utils.progress_manager import ProgressManager
 
 # Artifact directories to clean when rejecting stage N (self + downstream)
 #
-# ⚠️ 阶段 1 的「自己 + 下游」在字面量之后拼装（见 DOWNSTREAM_ARTIFACTS[1]）：
+# ⚠️ 阶段 1 的“自己 + 下游”在字面量之后拼装（见 DOWNSTREAM_ARTIFACTS[1]）：
 # 自己的产物必须清，否则打回是空操作——stage1 的增量判据
 # （stage1_consolidate._pending_material_paths）读 setting.json + canon.json 判断
-# 「还有哪些素材没定稿」，两者留着，重跑会判「无未定稿素材」直接空跑。
+# “还有哪些素材没定稿”，两者留着，重跑会判“无未定稿素材”直接空跑。
 # 与 stage3 漏清 data/outline/chapters 是同一类坑（见下方 3: 的注释）。
 STAGE1_OWN_ARTIFACTS = [
     "data/setting/setting.json",      # 归并产物（stage1 的 STAGE_ARTIFACTS 主项）
-    "data/setting/canon.json",        # 审批冻结的定稿快照——不清则增量判据恒「无待归并」
+    "data/setting/canon.json",        # 审批冻结的定稿快照——不清则增量判据恒“无待归并”
     "data/setting/material_review.md",  # 素材体检报告（stage1 后自动产出）
     "data/setting/materials_manifest.json",
     "data/setting/merge_audit.json",
@@ -126,7 +126,7 @@ def reject_stage(pm, stage, reason="", dry_run=False):
 
     # Safety: 丙3 before-import 契约 —— 打回要清产物，**先快照，备份不了就不许动**。
     # 原实现是 fail-open（快照失败只 append 一行 "Snapshot failed (continuing)"
-    # 然后照删不误），2026-10-04「进度全清重跑烧 116,413 token」正缺这道闸。
+    # 然后照删不误），2026-10-04“进度全清重跑烧 116,413 token”正缺这道闸。
     if not dry_run:
         from utils.import_guard import ImportGuardError, preimport
         try:
@@ -145,7 +145,7 @@ def reject_stage(pm, stage, reason="", dry_run=False):
         st = pm.data["stages"][str(stage)]
         st.pop("approved", None)
         # 人工跳过（/stage/skip）留下的标记必须一起清掉，否则 GUI 会同时显示
-        # 「已跳过」和「已打回」两个矛盾徽标
+        # “已跳过”和“已打回”两个矛盾徽标
         for k in ("skipped", "skipped_at", "skip_reason"):
             st.pop(k, None)
         pm.save()
@@ -196,10 +196,10 @@ def main():
     args = parser.parse_args()
 
     # Agent 模式守卫（CLI 层，与 approve.py / HTTP 侧**同一份判据**）。
-    # 打回同样是「代替用户拍板」的动作（HTTP 侧 /reject 就在禁止清单里），
+    # 打回同样是“代替用户拍板”的动作（HTTP 侧 /reject 就在禁止清单里），
     # 守卫只补 approve.py 的话，这里就还是敞着的后门。
     # 2026-10-15 方案A：加固档 CLI 审批**恒拒**（cli_approval_gate），证据只入台账；
-    # 正路「真实交互终端」废止，审批只走桌面端 GUI 双因子。
+    # 正路“真实交互终端”废止，审批只走桌面端 GUI 双因子。
     # ⚠️ 必须**先于**任何写操作（progress.json 变更与产物清理都在后面）。
     # 配置读取走 CWD 项目优先（与 progress.json 同根；实现见 agent_guard）。
     if agent_guard.agent_mode_enabled(agent_guard.load_project_config()):

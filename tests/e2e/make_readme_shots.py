@@ -2,11 +2,11 @@
 """README 截图一条命令 —— docs/screenshots/*.png 的唯一生成入口。
 
 为什么要有：README 三图（流水线主界面 / 关于页面 / 设置 · Word 模板）此前靠手动截图，
-界面一改就过期（2026-10-12 欠账第一周第 2 件「截图命令化」）。本脚本自管一切：
+界面一改就过期（2026-10-12 欠账第一周第 2 件\u300c截图命令化\u300d）。本脚本自管一切：
 
     ./.venv/Scripts/python.exe tests/e2e/make_readme_shots.py
 
-自管：临时夹具根（fixture 拷贝 + templates/ 播种 + 书名改「示例长篇」）、
+自管：临时夹具根（fixture 拷贝 + templates/ 播种 + 书名改\u300c示例长篇\u300d）、
 nf_api 8795、8091 静态服务、Playwright headless Chromium
 （1440x940 视口、deviceScaleFactor=2 → 2880x1880，与既有三图同尺寸）。
 
@@ -18,7 +18,7 @@ nf_api 8795、8091 静态服务、Playwright headless Chromium
 - **只杀自己起的 PID**，不碰用户任何进程（用户可能正开着控制台）；
 - 图直接写 --out（默认 docs/screenshots/），不落 Temp。
 
-夹具为什么这样搭：fixture_project 的 progress.json 天生就是「1-4 已完成、阶段5 待运行」
+夹具为什么这样搭：fixture_project 的 progress.json 天生就是\u300c1-4 已完成、阶段5 待运行\u300d
 —— 与既有 README 截图状态一致；书名在临时根里改，不动仓库夹具本体。
 """
 import argparse
@@ -95,14 +95,14 @@ def png_dims(path):
 
 
 def prepare_root():
-    """临时夹具根：fixture 拷贝 + 模板播种 + 书名改「示例长篇」。
+    """临时夹具根：fixture 拷贝 + 模板播种 + 书名改\u300c示例长篇\u300d。
 
     替换全部带护栏（找不到原文 = 夹具漂移 → 大声失败，不静默截出一张错图）。
     """
     tmp = Path(tempfile.mkdtemp(prefix="nf_readme_shots_"))
     shutil.copytree(ROOT / "tests" / "e2e" / "fixture_project", tmp, dirs_exist_ok=True)
 
-    # templates/ 播种：README 的「设置 · Word 模板」图要有真模板可选
+    # templates/ 播种：README 的“设置 · Word 模板”图要有真模板可选
     tpl_src = sorted((ROOT / "templates").glob("*.dotx")) + \
         sorted((ROOT / "templates").glob("*.docx"))
     if not tpl_src:
@@ -235,7 +235,7 @@ def run(tmp_root, out_dir, tpl_name, e2e):
             page.locator(".tabs button:has-text('设置')").click()
             page.wait_for_timeout(700)
             nav = page.locator(".set-nav-btn", has_text="Word 模板")
-            must(nav.count() == 1, "侧边栏「Word 模板」入口存在（count=%d）" % nav.count())
+            must(nav.count() == 1, "侧边栏\u300cWord 模板\u300d入口存在（count=%d）" % nav.count())
             if nav.count() == 1:
                 nav.click()
                 page.wait_for_timeout(600)

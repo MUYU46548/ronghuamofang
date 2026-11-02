@@ -56,7 +56,7 @@ book:
   #   所以是每章都付的 token；超长时控制台 WARN 并写明丢弃字数（不再静默截断）。
   # style_reference_max_chars: 6000
   # 用户风格笔记（可选）。与自动分析结论叠加注入 stage4/stage6，冲突时以本节为准。
-  #   控制台「设置」页签可直接编辑（保存前自动备份 config/history/）。
+  #   控制台“设置”页签可直接编辑（保存前自动备份 config/history/）。
   style_notes: ""
 
 materials:

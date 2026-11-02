@@ -2,7 +2,7 @@
 """导出面板专项验收（2026-10-17 复盘修复的真机点击层）。
 
 e2e_ux_verify 主套不触碰导出页签，而本次修复恰是导出面板的**分流逻辑**：
-「双格式/仅 Word」曾是假选项（只出 Markdown）、frontmatter 勾选框是摆设、
+\u300c双格式/仅 Word\u300d曾是假选项（只出 Markdown）、frontmatter 勾选框是摆设、
 book_name 显式 null 造出 None_markdown 目录。本脚本逐个选项真点一次，
 用 mock 后端（tests/e2e/mock_nf_api_state.py，会回显收到的参数）断言：
 

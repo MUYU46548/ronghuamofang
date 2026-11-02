@@ -2,9 +2,9 @@
 """GUI 新增界面真机验收（CDP，非 mock）。
 
 验证三件事，每件都要有**可复验的证据**（截图 + 提取到的真实文本）：
-  1. 「审核」页签存在，且徽标数 = 后端待审数
-  2. 审核页签能把队列渲染出来，且「通过」按钮真的改了后端状态
-  3. 大纲页签「趋势 / 建议」抽屉能打开，且展示 trend 表与 advise 方案
+  1. \u300c审核\u300d页签存在，且徽标数 = 后端待审数
+  2. 审核页签能把队列渲染出来，且\u300c通过\u300d按钮真的改了后端状态
+  3. 大纲页签\u300c趋势 / 建议\u300d抽屉能打开，且展示 trend 表与 advise 方案
 
 做法：临时项目根 → 起真实 nf_api（--allow-fake）→ 预置沙盒产物与大纲历史 →
 vite preview 起前端（注入 __NF_API_BASE__）→ CDP 驱动 headless Chrome。
@@ -141,7 +141,7 @@ def build_project():
         OUTLINE_BAD, encoding="utf-8")
     (tmp / "data" / "outline" / "global.md").write_text(
         OUTLINE_GOOD, encoding="utf-8")
-    # 预置两份沙盒产物：一份待审（会被点「通过」）、一份待审（答辩留证）
+    # 预置两份沙盒产物：一份待审（会被点“通过”）、一份待审（答辩留证）
     subprocess.run([str(PY), "-c",
                     "import sys; sys.path.insert(0,'scripts');"
                     "from obsidian_bridge import write_sandbox as w;"
@@ -231,24 +231,24 @@ def main():
         rep = json.loads(rep_file.read_text(encoding="utf-8")) if rep_file.exists() else {}
 
         print("\n=== 断言（基于页面真实渲染结果 + 后端状态回读）===")
-        check("「审核」徽标数 = 初始待审数（2，页面加载时抓的）",
+        check("\u300c审核\u300d徽标数 = 初始待审数（2，页面加载时抓的）",
               str(rep.get("badge")) == "2", rep.get("badge"))
-        check("页面顶部能看到「审核」页签", rep.get("tabExists") is True,
+        check("页面顶部能看到\u300c审核\u300d页签", rep.get("tabExists") is True,
               rep.get("tabText"))
         check("审核页签渲染出队列（含两份产物路径）",
               "词条_苏芷.md" in (rep.get("sandboxText") or "")
               and "词条_阿砚.md" in (rep.get("sandboxText") or ""),
               (rep.get("sandboxText") or "")[:220])
-        check("页面明示「不会写入 Obsidian」的边界",
+        check("页面明示\u300c不会写入 Obsidian\u300d的边界",
               "不会写入" in (rep.get("sandboxText") or "")
               or "绝不" in (rep.get("sandboxText") or "")
               or "手工完成" in (rep.get("sandboxText") or ""),
               (rep.get("sandboxText") or "")[:220])
-        # 注意：断言必须打「点击成功（rc=0）」与「后端确实变了」两件事，
-        # 只判 rc 会漏掉「点了但后端没动」，只判后端会漏掉「自己发生了什么都不知道」。
+        # 注意：断言必须打“点击成功（rc=0）”与“后端确实变了”两件事，
+        # 只判 rc 会漏掉“点了但后端没动”，只判后端会漏掉“自己发生了什么都不知道”。
         code, q1 = req(base, "GET", "/sandbox/queue?all=1")
         st1 = q1.get("stats") or {}
-        check("点「通过」后后端状态真的变了（approved=1, pending=1）",
+        check("点\u300c通过\u300d后后端状态真的变了（approved=1, pending=1）",
               rep.get("approvedCount") == 0
               and st1.get("approved") == 1 and st1.get("pending") == 1,
               (rep.get("approvedCount"), st1, q1.get("items")))
@@ -261,11 +261,11 @@ def main():
               rep.get("advOpen") is True
               and (rep.get("advText") or "").strip() != "",
               (rep.get("advText") or "")[:200])
-        check("抽屉里出现迭代趋势表（含「单版体检」列）",
+        check("抽屉里出现迭代趋势表（含\u300c单版体检\u300d列）",
               "单版体检" in (rep.get("advText") or "")
               or "迭代趋势" in (rep.get("advText") or ""),
               (rep.get("advText") or "")[:250])
-        check("抽屉里出现「接下来可以做什么」与候选方案",
+        check("抽屉里出现\u300c接下来可以做什么\u300d与候选方案",
               "接下来可以做什么" in (rep.get("advText") or ""),
               (rep.get("advText") or "")[:250])
         check("推荐方案与后端一致（%s）" % a.get("recommended"),
@@ -301,7 +301,7 @@ def main():
 
 
 PROBE_JS = r"""
-// CDP 探针：打开页面 → 点「审核」→ 点「通过」→ 点大纲「趋势 / 建议」→ 抓文本与截图
+// CDP 探针：打开页面 → 点“审核”→ 点“通过”→ 点大纲“趋势 / 建议”→ 抓文本与截图
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
@@ -395,7 +395,7 @@ class CDP {
   await cdp.shot(path.join(OUT, '01_审核队列.png'));
   rep.sandboxText = await txt('#app');
 
-  // ---- 2. 点第一份产物的「通过」 ----
+  // ---- 2. 点第一份产物的“通过” ----
   rep.approvedCount = await cdp.evalJS(`(() => {
     const items = [...document.querySelectorAll('.sb-item')];
     const first = items.find(x => x.classList.contains('sb-pending'));
@@ -414,7 +414,7 @@ class CDP {
   })()`);
   rep.sandboxTextAfter = await txt('#app');
 
-  // ---- 3. 大纲页签「趋势 / 建议」 ----
+  // ---- 3. 大纲页签“趋势 / 建议” ----
   await cdp.evalJS(`(() => {
     const b = [...document.querySelectorAll('nav.tabs button')].find(x => x.textContent.trim() === '大纲');
     if (b) b.click();

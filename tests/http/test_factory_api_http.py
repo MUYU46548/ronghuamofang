@@ -86,7 +86,7 @@ def req(method, path, body=None, timeout=60):
 
 def w(p: Path, text: str):
     """写 UTF-8 原字节（不用 write_text：Windows 下它会把 \\n 翻成 \\r\\n，
-    逐字节比对的夹具就再也不是「逐字节一致」了）。"""
+    逐字节比对的夹具就再也不是\u300c逐字节一致\u300d了）。"""
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_bytes(text.encode("utf-8"))
 
@@ -134,7 +134,7 @@ def build_project():
 
 
 def snap(root: Path):
-    """工作区全部文件的 {相对路径: sha} 快照（判「零副作用」用）。"""
+    """工作区全部文件的 {相对路径: sha} 快照（判\u300c零副作用\u300d用）。"""
     import hashlib
     out = {}
     for p in sorted(root.rglob("*")):
@@ -186,7 +186,7 @@ def main():
         check("每条命中带 sample_rel 与 sha256",
               all(m.get("sample_rel") and len(m.get("sha256", "")) == 64
                   for m in d.get("matches") or []), d.get("matches"))
-        # 出厂样例徽标（2026-10-11，项目页「这是不是出厂测试项目」）：书名比对视图
+        # 出厂样例徽标（2026-10-11，项目页“这是不是出厂测试项目”）：书名比对视图
         cur = d.get("current") or {}
         check("current 视图给出两侧书名（样例书名来自样例随包 project.yaml）",
               cur.get("sample_title") == "雾港核心" and cur.get("title") == "雾港核心", cur)

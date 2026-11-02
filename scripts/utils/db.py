@@ -161,7 +161,7 @@ class RunDB:
         """累计 token（输入 + 输出）。token 级熔断的**唯一记账来源**。
 
         2026-10-03：engine: hermes 下 `cost_yuan` 恒 0（订阅流量）→ 金额熔断是虚设，
-        唯一的止烧口径就是这里。round 语义：按 run_id 归集 = 「一轮」
+        唯一的止烧口径就是这里。round 语义：按 run_id 归集 = “一轮”
         （每次 orchestrator.run() 新建 run_id，--from N 重跑即新的一轮）。
         """
         sql = ("SELECT COALESCE(SUM(COALESCE(tokens_in,0) + COALESCE(tokens_out,0)),0)"

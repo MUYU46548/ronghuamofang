@@ -3,8 +3,8 @@
 
 ## 为什么要有这个端点
 
-用户原话：「为什么不在绒花墨坊里直接搞个窗口一键粘贴进去？而且它应该跟着用户数据走」。
-原先只能「用编辑器打开 materials/style_sample.md 粘」—— 对非程序员是一道坎。
+用户原话：\u300c为什么不在绒花墨坊里直接搞个窗口一键粘贴进去？而且它应该跟着用户数据走\u300d。
+原先只能\u300c用编辑器打开 materials/style_sample.md 粘\u300d—— 对非程序员是一道坎。
 
 ## 钉什么
 
@@ -13,9 +13,9 @@
 | S0 | **样例稿声明门**（2026-10-29）：没同意 → 保存 403 + 一个字节不写；同意后可写 |
 | S1 | 未配置时回默认路径 `materials/style_sample.md`，且 configured=false |
 | S2 | 保存后**文件落盘 + 配置自动指向它**（用户不用改 yaml） |
-| S3 | 有效正文字数的口径与 stage4 同源（`prose_char_count`），不足 100 → 明确「暂不生效」 |
+| S3 | 有效正文字数的口径与 stage4 同源（`prose_char_count`），不足 100 → 明确\u300c暂不生效\u300d |
 | S4 | 超长（>40000）→ 400 且**文件一个字没动** |
-| S5 | 超出注入上限 → 回 `truncated`，前端能提示「只注入前 N 字」 |
+| S5 | 超出注入上限 → 回 `truncated`，前端能提示\u300c只注入前 N 字\u300d |
 | S6 | 覆盖写入前**备份旧版**到 data/state/style_reference_history/ |
 | S7 | 清空 = 传空字符串（写作不再注入范文） |
 | S8 | **路径必须落在工作区内**：`../evil.md` 一律 400，且工作区外不落盘 |
@@ -48,7 +48,7 @@ PORT = 8934
 BASE = "http://127.0.0.1:%d" % PORT
 PASS, FAIL = [], []
 
-PROSE = "他把刀放下，说了句「走吧」，然后转身走进雨里。"
+PROSE = "他把刀放下，说了句\u300c走吧\u300d，然后转身走进雨里。"
 short_probe = PROSE * 8
 MIN_YAML = """book:
   name: "范文测试书"
@@ -159,7 +159,7 @@ def main():
               d.get("prose_chars", 0) > 100 and d.get("prose_chars") < len(short),
               (d.get("prose_chars"), len(short)))
 
-        print("\n【S3b】只有占位符 → 明确「暂不生效」")
+        print("\n【S3b】只有占位符 → 明确\u300c暂不生效\u300d")
         code, d = req("POST", "/config/style_reference",
                       {"text": "## 范文一\n\n（把正文粘到这里，粘完删掉这一行）\n"})
         check("占位符文本 effective=false", d.get("effective") is False, d.get("prose_chars"))
@@ -169,9 +169,9 @@ def main():
         print("\n【S6】覆盖前备份旧版")
         code, d = req("POST", "/config/style_reference", {"text": PROSE * 20})
         hist = sorted((tmp / "data" / "state" / "style_reference_history").glob("reference_*.md"))
-        # 原判据断言「恰好 1 份」——但它依赖前面 S2/S3b 各写了几次，
+        # 原判据断言“恰好 1 份”——但它依赖前面 S2/S3b 各写了几次，
         # 用例第二次连跑就变红（实测 2 份）。备份判据要钉的是
-        # 「覆盖前把上一版存下来了」，不是「历史目录总数」。
+        # “覆盖前把上一版存下来了”，不是“历史目录总数”。
         check("覆盖前有备份（>=1 份）", len(hist) >= 1, len(hist))
         check("最新备份内容是上一版（占位符那版）",
               hist and "把正文粘到这里" in hist[-1].read_text(encoding="utf-8"),

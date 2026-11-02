@@ -4,8 +4,8 @@
 ## 为什么需要它
 
 沙盒（`obsidian_bridge.write_sandbox`）此前只是**往目录里丢 .md 文件** ——
-没有「这份产物我看过没有 / 通过没有」的记录。用户面对一堆文件，
-无法区分「新生成的待审稿」与「已确认可粘贴的稿」，也没有「驳回」这个动作。
+没有“这份产物我看过没有 / 通过没有”的记录。用户面对一堆文件，
+无法区分“新生成的待审稿”与“已确认可粘贴的稿”，也没有“驳回”这个动作。
 
 本模块给每份沙盒产物挂一个状态：
 
@@ -14,7 +14,7 @@
 
 ## 为什么不写进沙盒文件自己的 frontmatter
 
-沙盒是「准备粘贴进 vault」的中转区。若把审核状态写进 frontmatter，
+沙盒是“准备粘贴进 vault”的中转区。若把审核状态写进 frontmatter，
 用户粘贴时会**把内部状态一起带进 vault 词条**（污染正典）。
 所以状态独立存在 `data/state/sandbox_manifest.json`。
 
@@ -25,7 +25,7 @@
 - 内容**没变** → 保留原状态（重复写入不重置你的审核结论）
 - 内容**变了**   → 状态重置为 `pending`
 
-这条是正确性关键：产物被重新生成后仍显示「已通过」，等于让旧审核为
+这条是正确性关键：产物被重新生成后仍显示“已通过”，等于让旧审核为
 新内容背书 —— 正是本项目最忌讳的假成功。
 """
 import hashlib
@@ -74,7 +74,7 @@ def save(data, manifest_path=MANIFEST):
 def register(rel_path, sandbox_dir, kind="", source="", manifest_path=MANIFEST):
     """登记/更新一份沙盒产物。返回 (entry, changed)。
 
-    `changed=True` 表示「内容变了 → 状态被重置为 pending」（需要重新审核）。
+    `changed=True` 表示“内容变了 → 状态被重置为 pending”（需要重新审核）。
     """
     rel = str(rel_path).replace("\\", "/")
     full = Path(sandbox_dir) / rel
@@ -132,10 +132,10 @@ def list_items(status=None, manifest_path=MANIFEST):
 
 
 def stats(manifest_path=MANIFEST):
-    """各状态计数 + 沙盒中「未登记」的孤儿文件数。
+    """各状态计数 + 沙盒中“未登记”的孤儿文件数。
 
     孤儿检测很关键：产物是**手工**拷进沙盒、或换过沙盒目录时，
-    会出现「文件在沙盒里但状态库里没有」——不报出来就成了审核盲区。
+    会出现“文件在沙盒里但状态库里没有”——不报出来就成了审核盲区。
     """
     data = load(manifest_path)
     out = {PENDING: 0, APPROVED: 0, REJECTED: 0}

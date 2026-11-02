@@ -3,7 +3,7 @@
 
 ## 为什么需要这套用例
 
-`check_chapter` 原有的判据（标题/字数/占位符/复杂元素）只能抓「产出太空」。
+`check_chapter` 原有的判据（标题/字数/占位符/复杂元素）只能抓\u300c产出太空\u300d。
 **产出够长却全是垃圾时，原判据全部漏过** —— 本次改造前实测（把退化样本
 字数调进 `[2000,3000]` 区间后跑旧 `check_chapter`）：
 
@@ -19,13 +19,13 @@
 
 ## 测试设计三条纪律（本项目血泪积累）
 
-1. **反向验证是唯一可信的绿灯判据**：每条判据都必须有「删掉它 → 对应样本
-   必须变绿」的反证。没有反证的用例很可能是永远为绿的空断言。
+1. **反向验证是唯一可信的绿灯判据**：每条判据都必须有\u300c删掉它 → 对应样本
+   必须变绿\u300d的反证。没有反证的用例很可能是永远为绿的空断言。
 2. **判据隔离**：每个退化样本只带**一种**靶向特征，其余内容用**互不重复的
    正常文学句**填充。否则 n-gram 判据会替所有样本"抢答"击中，
    掩盖真实缺口（本次开发中就踩过这个坑）。
 3. **真实产物零误报**：用仓库内真实章节文件做负例。判据不能把
-   「对话密集、单句成段」的中文小说标准写法当退化 —— 这是第一版
+   \u300c对话密集、单句成段\u300d的中文小说标准写法当退化 —— 这是第一版
    平均段长判据踩过的坑（7/19 命中，5 个误报，均长 26.3~29.1 全是健康章）。
 """
 import os
@@ -134,7 +134,7 @@ DEGEN_SAMPLES = {
     # 段落结构靶向：整章无换行（必须单独构造，不能填充）
     "无段落换行": None,
     # content_ratio 靶向：纯标点（**不能填充** —— 填充会稀释 content_ratio，
-    # 使样本变成「70% 正常文字 + 30% 标点」，那按定义就不算标点灌水）。
+    # 使样本变成“70% 正常文字 + 30% 标点”，那按定义就不算标点灌水）。
     # 规模须 ≥ 真实章节下限（2000 字），否则会被 MIN_RATIO_BODY_CHARS 门槛
     # 整体跳过 —— 开发时用 480 字的样本踩过这个坑，得到"判据失灵"的假象。
     "标点灌水": ["。" * 400, "，" * 400, "！" * 400, "？" * 400, "；" * 400, "、" * 400],
@@ -174,7 +174,7 @@ def _make_sample(name, tmpdir):
                   "行人在他身边经过，没有人回头看他一眼。" * 55)
                + "\n\n<!-- quality: 7/10 -->\n")
     elif name == "标点灌水":
-        # 纯标点，不填充：确保 content_ratio 直接反映「标点灌水」这一特征。
+        # 纯标点，不填充：确保 content_ratio 直接反映“标点灌水”这一特征。
         # 同时用不同标点分组，避免全靠 n-gram 重复率命中。
         txt = TITLE + "\n\n".join(DEGEN_SAMPLES[name]) + "\n\n<!-- quality: 7/10 -->\n"
     else:
@@ -379,7 +379,7 @@ def main():
                     for k, v in patch.items():
                         setattr(vc, k, v)
                 else:
-                    # 模式类判据：清空该模式表即为「删掉该判据」
+                    # 模式类判据：清空该模式表即为“删掉该判据”
                     attr = {"元话语阈值": "META_PATTERNS",
                             "思考残片阈值": "REASONING_PATTERNS",
                             "骨架阈值": "SKELETON_PATTERNS",
@@ -394,7 +394,7 @@ def main():
                 p = Path(tmpdir) / f"{sname}.md"
                 problems, _ = vc.check_degenerate(p.read_text(encoding="utf-8"))
                 still = any(keyword in x for x in problems)
-                check(f"F1 删「{judge}」→ {sname} 的「{keyword}」消失",
+                check(f"F1 删\u300c{judge}\u300d→ {sname} 的\u300c{keyword}\u300d消失",
                       not still, f"→ 仍命中: {problems}")
             finally:
                 if backup:
@@ -407,7 +407,7 @@ def main():
                                ("模板骨架", "模板骨架"), ("标点灌水", "标点灌水")):
             p = Path(tmpdir) / f"{sname}.md"
             problems, _ = vc.check_degenerate(p.read_text(encoding="utf-8"))
-            check(f"F2 恢复后 {sname} 重新命中「{keyword}」",
+            check(f"F2 恢复后 {sname} 重新命中\u300c{keyword}\u300d",
                   any(keyword in x for x in problems), f"→ {problems}")
 
     finally:

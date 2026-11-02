@@ -7,7 +7,7 @@
 | J2 | `canon_stale`：**未冻结不算过期**；素材 mtime 晚于冻结时间才算 |
 | J3 | `recanon` 重冻并给出**条目级变更**（带变更字段名），冻结时间更新 |
 | J4 | 范围隔离：`plot_fragments` 不进 diff（它的 status 是另一套语义） |
-| J5 | 变更清单**只报「哪些键变了」，不报「谁改的」**（单人本地无从得知，硬造即假信息） |
+| J5 | 变更清单**只报\u300c哪些键变了\u300d，不报\u300c谁改的\u300d**（单人本地无从得知，硬造即假信息） |
 
 用法：python tests/unit/test_canon_refresh.py（零 LLM、零网络）
 """
@@ -60,7 +60,7 @@ def case_approval_three_states():
     check("J1 gates 缺 require_approval → 默认 [2]",
           _approval_stages(g6) == [2], _approval_stages(g6))
     # 单一来源：orchestrator 的包装必须委托同一份策略（否则会出现
-    # 「orchestrator 停了、nfctl 的待审批里却看不到 stage1」的不一致）
+    # “orchestrator 停了、nfctl 的待审批里却看不到 stage1”的不一致）
     edges = {"require_approval": [2, 6], "material_autonomy": False}
     check("J1 orchestrator 的 _approval_stages 与策略同源（薄包装剥 gates）",
           _orch_approval({"gates": edges}) == _approval_stages(edges),
@@ -78,7 +78,7 @@ def case_stale():
         (raw / "甲_角色卡.md").write_text("# 角色：甲\n", encoding="utf-8")
         cp = td / "canon.json"
         stale, why, _ = ms.canon_stale(str(cp), str(raw))
-        check("J2 无 canon → 不算过期（「没冻结」≠「过期」）",
+        check("J2 无 canon → 不算过期（\u300c没冻结\u300d≠\u300c过期\u300d）",
               stale is False and "尚未冻结" in why, (stale, why))
 
         # canon 冻结时间设为**未来** → 素材不可能晚于它 → 不过期
@@ -161,7 +161,7 @@ def case_scope():
 # --------------------------------------------------------------------- J5
 
 def case_no_author():
-    print("\n[J5] 变更清单只报「哪些键变了」，不报「谁改的」")
+    print("\n[J5] 变更清单只报\u300c哪些键变了\u300d，不报\u300c谁改的\u300d")
     ch = ms.diff_canon_entries(
         {"characters": [{"name": "甲", "role": "A"}]},
         {"characters": [{"name": "甲", "role": "B"}]})

@@ -123,7 +123,7 @@ def check_word_count(text, chapter_no, project):
     2. **配置的单章下限**（新增）：`system.yaml` 的 `chapter.target_words[0]`。
        旧实现只看均摊值 —— 实测《雾港核心》book.target_words=9000 / chapters=3
        → 均摊 3000、门槛 1500，于是 2033 字的章**直接过检**，用户判定
-       「一章两三千字根本不合格」。收尾闸门必须与写作阶段用的是**同一把尺**。
+       “一章两三千字根本不合格”。收尾闸门必须与写作阶段用的是**同一把尺**。
     """
     issues = []
     if not project.exists():
@@ -137,7 +137,7 @@ def check_word_count(text, chapter_no, project):
         issues.append(f"第{chapter_no}章字数不足（{actual}/{per_chapter}）")
 
     # 判据 2：单章下限（读不到 system.yaml 时静默跳过 —— 收尾闸门不该因
-    # 「没有 system.yaml」而误报，但也**不因此放宽**：有值就必须过）。
+    # “没有 system.yaml”而误报，但也**不因此放宽**：有值就必须过）。
     sys_yaml = ROOT / "config" / "system.yaml"
     if sys_yaml.exists():
         try:
@@ -185,7 +185,7 @@ def main():
     parser = argparse.ArgumentParser(description="章节质量验收 checklist")
     parser.add_argument("--chapter", type=int, help="只检查指定章节")
     parser.add_argument("--allow-missing", action="store_true",
-                        help="把「产物缺失」降级为**明确标注的跳过**（探索期/只写了前几章时用）。"
+                        help="把“产物缺失”降级为**明确标注的跳过**（探索期/只写了前几章时用）。"
                              "默认缺失即失败：跑完却缺文件绝不算通过。")
     args = parser.parse_args()
 
@@ -211,7 +211,7 @@ def main():
     if _form_app.get("warning"):
         print("[quality] " + _form_app["warning"])
     if not _require_character:
-        print("[quality] 文体：%s —— 跳过「未提及角色」判据" % _form_app["label"])
+        print("[quality] 文体：%s —— 跳过“未提及角色”判据" % _form_app["label"])
 
     print(f"章节质量验收 checklist（共 {len(chapters)} 章）")
     print("=" * 60)
@@ -225,7 +225,7 @@ def main():
         if not chapter_file.exists():
             # ⚠️ 2026-10-03（用户拍板）：**产物缺失一律失败**。
             # 旧实现这里只打一行 `[SKIP] 文件不存在` 就 continue，`all_pass` 保持 True
-            # → 末尾照打「全部章节通过验收 ✓」并退 0。而本脚本是 orchestrator 的收尾闸门
+            # → 末尾照打“全部章节通过验收 ✓”并退 0。而本脚本是 orchestrator 的收尾闸门
             # （gates.quality_gate），于是"跑了但没落盘"这种最该拦的情形被盖了绿灯。
             # 产物存在 ≠ 合格（那要靠下面的逐项检查）；但**产物缺失一定不合格**。
             missing.append(ch)
@@ -236,7 +236,7 @@ def main():
             print(f"\n第{ch}章: [FAIL] 产物缺失 —— 该章没有任何落盘文件")
             print(f"  - 既无 {CHAPTERS.relative_to(ROOT).as_posix()}/{ch:02d}.md，"
                   f"也无 {CHAPTERS_RAW.relative_to(ROOT).as_posix()}/{ch:02d}.md")
-            print("  - 「跑过但没落盘」= 失败（截断丢弃 / 子会话异常 / 被删）；"
+            print("  - “跑过但没落盘”= 失败（截断丢弃 / 子会话异常 / 被删）；"
                   "确属还没写到这一章，请显式加 --allow-missing（届时会标注为未验收）")
             continue
 

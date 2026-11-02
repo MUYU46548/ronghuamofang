@@ -19,10 +19,10 @@ from utils.file_io import read_text
 FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.S)
 
 
-# 正文里的占位符（`{{名字}}`）。用于「填充后是否还有残留」的自检。
+# 正文里的占位符（`{{名字}}`）。用于“填充后是否还有残留”的自检。
 PLACEHOLDER_RE = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
 
-# 已就「残留占位符」告警过的模板（同一进程只刷一次，避免逐章刷屏）
+# 已就“残留占位符”告警过的模板（同一进程只刷一次，避免逐章刷屏）
 _warned_leftovers = set()
 
 
@@ -48,7 +48,7 @@ def load_template(template_name, variables=None):
     if not path.exists():
         raise FileNotFoundError(
             "提示词模板缺失: prompts/" + str(template_name)
-            + "　恢复方式：① GUI「提示词」页签 → 该模板 → 选历史备份回滚；"
+            + "　恢复方式：① GUI“提示词”页签 → 该模板 → 选历史备份回滚；"
               "② git checkout -- prompts/" + str(template_name))
     text = read_text(path)
     meta = {}

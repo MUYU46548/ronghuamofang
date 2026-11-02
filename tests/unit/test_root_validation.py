@@ -53,7 +53,7 @@ def main():
     assert not missing.exists()
     # 路径断言双口径：nf_api 打印原始入参、nfctl 打印 resolve() 后的规范路径；
     # CI runner 的 TEMP 常是 8.3 短名/不同大小写 → 只比原始串会在 CI 假红
-    # （2026-10-11 首跑实测：本机绿、runner 红在「报出路径」）。
+    # （2026-10-11 首跑实测：本机绿、runner 红在“报出路径”）。
     miss_raw, miss_res = str(missing), str(Path(missing).resolve())
 
     def path_in(out):

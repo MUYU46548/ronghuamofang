@@ -2,7 +2,7 @@
 """v0.6.6 修复批次的**接线级**回归（2026-10-07）。
 
 行为层另有 node 单测（quitGuard.test.js：回执/超时/netstat 解析）与 e2e
-（引导五步/自装技能源）覆盖；本文件钉的是「线有没有接上」—— 静态事实，
+（引导五步/自装技能源）覆盖；本文件钉的是\u300c线有没有接上\u300d—— 静态事实，
 改坏了任何一条都是接线断裂：
   1. 8765 双绑接管：spawn 前清场 + startApi 重入守卫 + 解析纯函数引入；
   2. 退出确认回执链：preload 回执 → 主进程撤表 → 判据支持 acked；
@@ -56,7 +56,7 @@ check("extraResources 带 payload/skills", '"to": "payload/skills"' in pkg)
 check("extraResources 带 payload/examples（样例随包，出厂内容检测的比对真源）",
       '"to": "payload/examples"' in pkg)
 # 版本防回退（下界判断，与下面 SEED_VERSION 的 >= 口径一致）：
-# 原来写死 '"version": "0.6.7"' → 每次 bump 都会假红，拦的是「回退」不是「前进」。
+# 原来写死 '"version": "0.6.7"' → 每次 bump 都会假红，拦的是“回退”不是“前进”。
 import re as _re_ver
 _m_ver = _re_ver.search(r'"version":\s*"(\d+)\.(\d+)\.(\d+)"', pkg)
 _cur_ver = tuple(int(x) for x in _m_ver.groups()) if _m_ver else (0, 0, 0)

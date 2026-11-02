@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """大纲产出侧锚点闸门自检（件3，2026-09-29）。
 
-验收（执行单 v2.2 件3）：「构造 THIN 样本回放：被校验打回；提示词含锚点数下限」。
+验收（执行单 v2.2 件3）：\u300c构造 THIN 样本回放：被校验打回；提示词含锚点数下限\u300d。
 
 覆盖：
 A. `stage2_outline.check_outline_anchors` —— THIN 超上限判不合格、在上限内放行；
@@ -74,7 +74,7 @@ def test_not_touching_structural():
 def test_prompt_has_floor():
     print("\n[C] 提示词含锚点数下限硬约束")
     text = (ROOT / "prompts" / "stage2_global_outline.md").read_text(encoding="utf-8")
-    check("含「硬约束（锚点数下限）」", "锚点数下限" in text)
+    check("含\u300c硬约束（锚点数下限）\u300d", "锚点数下限" in text)
     check("含场景地点要求", "具体场景地点" in text)
     check("含 THIN 打回说明", "THIN" in text and "打回" in text)
     check("保留 {{target_words}} 占位符（渲染不被破坏）", "{{target_words}}" in text)

@@ -48,7 +48,7 @@ TEMPLATE_CACHE = Path("data/tmp/template_cache")
 def merge_book(refined_dir, checked_dir, raw_dir, out_path, book_title="未命名"):
     """按优先级合并章节为 book.md：refined > checked > raw，**逐章**取最优版本。
 
-    ⚠️ 2026-10-01 修正：原先「命中第一个非空目录就定死」。于是
+    ⚠️ 2026-10-01 修正：原先“命中第一个非空目录就定死”。于是
     `data/chapters/refined/` 里只要残留**一个**文件（例如上一轮 stage6 只完成了一部分），
     就只合并那一章，checked/raw 里其它章**全被忽略** —— 而成品就此定稿；
     更糟的是 stage7 会 `mark_stage_done`，断点续跑再也不会补它。
@@ -80,7 +80,7 @@ def merge_book(refined_dir, checked_dir, raw_dir, out_path, book_title="未命�
         detail = "、".join(f"{k}={v}" for k, v in _counts.items() if v)
         print(f"[stage7] 合并时标点归一化（{detail}）")
     # 章标题格式兜底（2026-10-26）：`## 第10章潜七十二` 这种章号章名粘连是**形态**
-    # 问题，前面的标点归一化不管它，verify_chapter 的 TITLE_RE 又对「章」后内容全宽容
+    # 问题，前面的标点归一化不管它，verify_chapter 的 TITLE_RE 又对“章”后内容全宽容
     # —— 不在这里统一，它就原样进 Word 成品（用户实测 10 章全粘）。
     from utils.text_norm import normalize_chapter_title
     text, _title_fixed = normalize_chapter_title(text)
@@ -162,7 +162,7 @@ def _style_font_map(doc):
 
     ## 为什么不能硬编码宋体（2026-10-18 用户点破）
 
-    用户原话：「正文 run 显式写确定不会炸吗？模板里可不是全是宋体。」
+    用户原话：“正文 run 显式写确定不会炸吗？模板里可不是全是宋体。”
     实测模板 `小说格式模板V1.3.dotx` 的样式表：正文 Normal=宋体、章标题
     heading1-4=黑体、卷首诗/引用文本=楷体、书名=黑体 —— **三套字体并存**。
     硬编码宋体会把章标题与引用段一起刷成宋体，等于用一个 bug 换另一个 bug。
@@ -204,12 +204,12 @@ def _style_font_map(doc):
 def _apply_cjk_font(run, font):
     """把 run 的 ascii / hAnsi / eastAsia 三处都设为同一个中文字体，并加 hint。
 
-    ## 三处都要设的原因（这是「破折号不是宋体」的直接根因）
+    ## 三处都要设的原因（这是“破折号不是宋体”的直接根因）
 
     Word 对 U+2014（—）、U+201C/U+201D（“”）、U+2026（…）这类**通用标点**
     按 ascii（西文）字体渲染。旧实现只靠样式继承，样式的 eastAsia=宋体 而
     ascii=Times New Roman —— 于是汉字是宋体、破折号与引号是 Times New Roman，
-    视觉上就是用户看到的「破折号字体不对」。
+    视觉上就是用户看到的“破折号字体不对”。
     `hint=eastAsia` 再兜一层：让 Word 对歧义字符优先按中文字体规则处理。
     """
     if not font:
@@ -398,7 +398,7 @@ def md_to_docx(md_text, out_path, book_title="未命名", author="",
         if use_template:
             # 模板模式：**只写文本，段落格式全继承模板 Normal**（1.15 行距/首行缩进/两端对齐）。
             # 旧实现硬编码 space_after=6pt + line_spacing=1.5 直写每个段落 → 覆盖模板规格，
-            # 违反件一验收线「样式继承自模板非硬编码」（2026-10-11 template_check 抓出）。
+            # 违反件一验收线“样式继承自模板非硬编码”（2026-10-11 template_check 抓出）。
             # 字体同理：段落格式继承模板，但 run 的三处 rFonts 显式写模板声明的 eastAsia
             # 字体 —— 否则破折号/引号走样式里的西文字体（Times New Roman / Helvetica）。
             _add_paragraph_before(anchor, line.strip(), font=body_font)
@@ -451,7 +451,7 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         # 才知道拦了什么 —— orchestrator 日志/GUI 只拿到这条消息）。
         _named = "；".join(all_errs[:3]) + ("…" if len(all_errs) > 3 else "")
         return False, (f"stage7 导出前校验未通过（{len(all_errs)} 项）—— "
-                       f"已按「校验不过不出文件」拦下：{_named}")
+                       f"已按“校验不过不出文件”拦下：{_named}")
 
     md_to_docx(md_text, book_docx, book_title=book_name, author=author,
                template_path=template_path, page_break=page_break)

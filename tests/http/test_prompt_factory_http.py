@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-"""提示词「出厂保底」与**读写同源**（2026-10-31）。
+"""提示词\u300c出厂保底\u300d与**读写同源**（2026-10-31）。
 
 ## 用户提的问题
 
-「提示词模板是否像测试用书一样有一键还原默认值的功能？如果被用户改坏了却不能
-还原默认提示词，就失去了最后的保底。」
+\u300c提示词模板是否像测试用书一样有一键还原默认值的功能？如果被用户改坏了却不能
+还原默认提示词，就失去了最后的保底。\u300d
 
 查下来是两件事，都不轻：
 
@@ -13,7 +13,7 @@
 | ① | 只有 history 回滚，没有出厂保底 | history 是**用户改动记录**，救不了三种事故：滚动淘汰（只留 50 份）/ 外部编辑器手改（不留痕）/ 升级覆盖 |
 | ② | 界面保存了却不生效 | GUI 端点写 `ROOT/prompts`（打包态 = resources/payload），流水线 `load_template` 读 **cwd 相对** `prompts/`（= workspace）—— 一个功能读一套、写另一套 |
 
-② 比 ① 更严重：它让「还原出厂」本身也没意义（还原到 payload，运行还读 workspace）。
+② 比 ① 更严重：它让\u300c还原出厂\u300d本身也没意义（还原到 payload，运行还读 workspace）。
 
 ## 钉什么
 
@@ -157,7 +157,7 @@ def main():
         check("stage4_writing 有出厂副本且标记为不一致",
               items.get("stage4_writing.md", {}).get("has_factory") is True
               and items["stage4_writing.md"]["diff"]["identical"] is False, items)
-        check("stage6_polish 被明确标成「没有出厂副本」（不假装有）",
+        check("stage6_polish 被明确标成\u300c没有出厂副本\u300d（不假装有）",
               items.get("stage6_polish.md", {}).get("has_factory") is False
               and "stage6_polish.md" in (d.get("missing") or []), d.get("missing"))
 
@@ -166,7 +166,7 @@ def main():
                       {"name": "stage4_writing.md"})
         check("200 且 ok=true", code == 200 and d.get("ok") is True, d)
         after = (ws / "prompts" / "stage4_writing.md").read_text(encoding="utf-8")
-        check("磁盘内容 == 出厂副本（不是「看起来成功」）", after == FAC, repr(after))
+        check("磁盘内容 == 出厂副本（不是\u300c看起来成功\u300d）", after == FAC, repr(after))
         hist = list((ws / "prompts" / "history").glob("stage4_writing_*.md")) \
             if (ws / "prompts" / "history").is_dir() else []
         check("还原前那份进了 history（否则无从对照改坏了什么）", len(hist) == 1, hist)
@@ -182,7 +182,7 @@ def main():
         print("\n【P4】没有出厂副本 → 明说，不假装成功")
         code, d = req("POST", "/prompts/factory_restore", {"name": "stage6_polish.md"})
         check("非 200 且带可读原因", code != 200 and "出厂副本" in str(d.get("error")), d)
-        check("提示里说清「这只说明随包版本缺这一份」", "随包" in str(d.get("hint")), d)
+        check("提示里说清\u300c这只说明随包版本缺这一份\u300d", "随包" in str(d.get("hint")), d)
 
         print("\n【P6】白名单外一律拒绝")
         for bad in ("../system.yaml", "stage1_../../x.md", "not_a_stage.md", ""):

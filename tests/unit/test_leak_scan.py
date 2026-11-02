@@ -14,7 +14,7 @@
 | L5 | 二进制文件被当文本读 → 噪声/误报 | 按扩展名跳过 |
 | L6 | **门禁自己的词表模板泄露真值** | `ci/blacklist.example` 必须全是占位 |
 
-历史教训：本仓栽过「检查器恒返回空 → 被读成通过」（`locked_violations` 曾恒为空列表），
+历史教训：本仓栽过\u300c检查器恒返回空 → 被读成通过\u300d（`locked_violations` 曾恒为空列表），
 所以这里对"空结果"的三种成因逐一断言。
 
 用法：python tests/unit/test_leak_scan.py（零 LLM、零网络）
@@ -71,7 +71,7 @@ def case_fail_closed():
         short = Path(td) / "short.txt"
         short.write_text("甲\n乙\n丙\n", encoding="utf-8")
         rc, out, _ = run(["--list", str(short), "--root", td, "--no-git"])
-        check("L1 词表条目数不足下限 → exit 2（防「部分丢失」）", rc == 2,
+        check("L1 词表条目数不足下限 → exit 2（防\u300c部分丢失\u300d）", rc == 2,
               f"→ rc={rc} {out[-140:]}")
 
 
@@ -171,7 +171,7 @@ def case_non_ascii_filenames_scanned():
     sys.path.insert(0, str(REPO / "scripts"))
     from leak_scan import tracked_files, scan
     files, how = tracked_files(str(REPO))
-    # 本用例的判据是「中文名文件能被取到真实路径」，与**具体是哪张卡无关**。
+    # 本用例的判据是“中文名文件能被取到真实路径”，与**具体是哪张卡无关**。
     # 旧实现硬编码 `潮神_角色卡` / `白蚀效应` / `潮崩_概念卡`，2026-10-18 样例卡
     # 整套重写（与 user_outline 配套）后当场假红 —— 现改为**动态取一张中文名文件**，
     # 并从它自己的内容里提取探针词，将来再换卡也不会再红。
@@ -233,7 +233,7 @@ def case_non_ascii_filenames_scanned():
 # ====================================================================== L8
 
 def case_unreadable_is_not_pass():
-    print("\n[L8] 非二进制文件读不到 = 没扫到，绝不当「通过」")
+    print("\n[L8] 非二进制文件读不到 = 没扫到，绝不当\u300c通过\u300d")
     sys.path.insert(0, str(REPO / "scripts"))
     from leak_scan import scan
     with tempfile.TemporaryDirectory() as td:

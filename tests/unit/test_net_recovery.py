@@ -10,12 +10,12 @@
 
 1. **断网**：client 抛 URLError（模拟 llm_client 内部重试耗尽后 raise）→
    run_stage 不崩、按失败记账、已完成章保留；网络恢复后续跑只补失败章。
-2. **强杀**：真实子进程在「第 2 章写盘之后、标完成之前」`os._exit(1)`
+2. **强杀**：真实子进程在\u300c第 2 章写盘之后、标完成之前\u300d`os._exit(1)`
    （等价 SIGKILL：无 finally / 无 atexit / progress 未保存）→ 重启后：
    第 1 章（已记账）不重写、第 2 章（崩溃窗口孤儿）零 LLM 补账、
    第 3 章正常写。全程 LLM 调用只发生在第 3 章。
-3. **传输异常的排障口径**：失败原因必须点明「网络/传输异常」，
-   不能误导成「子会话退出码非零」（那会让人去查提示词）。
+3. **传输异常的排障口径**：失败原因必须点明\u300c网络/传输异常\u300d，
+   不能误导成\u300c子会话退出码非零\u300d（那会让人去查提示词）。
 
 用法：python tests/unit/test_net_recovery.py
 """
@@ -44,8 +44,8 @@ PASS, FAIL = [], []
 
 def check(name, cond, detail=""):
     (PASS if cond else FAIL).append(name)
-    # 900 而不是 220：强杀用例的详情要装下「驱动日志探针 + 管子输出」两段证据，
-    # 220 会把排在后面的探针挤掉 —— CI 上就靠它定位「管子为什么一个字节都收不到」。
+    # 900 而不是 220：强杀用例的详情要装下“驱动日志探针 + 管子输出”两段证据，
+    # 220 会把排在后面的探针挤掉 —— CI 上就靠它定位“管子为什么一个字节都收不到”。
     print("  [%s] %s%s" % ("PASS" if cond else "FAIL", name,
                            ("  → " + str(detail)[:900]) if detail else ""))
 
@@ -173,7 +173,7 @@ def case_offline_no_crash():
               sorted(f["n"] for f in progress.failed_chapters(4)) == [2, 3],
               progress.failed_chapters(4))
         f2 = next(f for f in progress.failed_chapters(4) if f["n"] == 2)
-        check("失败原因点明「网络/传输异常」（排障不跑偏）",
+        check("失败原因点明\u300c网络/传输异常\u300d（排障不跑偏）",
               "网络/传输异常" in f2["error"], f2["error"])
         check("第 1 章文件在盘", (tmp / "data/chapters/raw/01.md").exists())
 
@@ -278,7 +278,7 @@ class CountingOnlineClient(_BaseClient):
 
 
 def case_kill_resume():
-    print("\n【2】强杀：子进程硬杀在「写盘后、标完成前」→ 重启续跑零重复零丢失")
+    print("\n【2】强杀：子进程硬杀在\u300c写盘后、标完成前\u300d→ 重启续跑零重复零丢失")
     tmp = build_workspace(total=3, tag="kill")
     origin = os.getcwd()
     try:
@@ -290,7 +290,7 @@ def case_kill_resume():
         out = (r.stdout or "") + (r.stderr or "")
         # 详情必须压成**单行**：run_tests 的失败摘录只取 [FAIL] 那一行，多行 detail
         # （子进程 traceback 恰好以换行结尾时）会被整段丢掉 —— CI 上曾因此只看到
-        # 「KILLPOINT 不在输出里」，却看不到子进程到底炸在哪（红了一天无从下手）。
+        # “KILLPOINT 不在输出里”，却看不到子进程到底炸在哪（红了一天无从下手）。
         flat = " | ".join(out.splitlines()[-4:])[-180:]
         # ⚠ CI 已知异常（2026-10-24 探针定位）：子进程 os.write(1) 返回 10 = 写成功，
         #   父进程管道却一个字节都收不到 —— **管子这条通道在 CI 上不可信**。

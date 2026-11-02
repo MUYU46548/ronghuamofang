@@ -3,7 +3,7 @@
 
 ## 这几个端点为什么归一类
 
-它们都是**「查一个已经算好的东西」**：job 状态、报告 JSON、模板正文、
+它们都是**“查一个已经算好的东西”**：job 状态、报告 JSON、模板正文、
 token 预估、拆书产物、章节备份列表。没有一个是写操作，
 且都只读项目内的既有产物（路径一律经 `api.ROOT` 解析）。
 
@@ -23,7 +23,7 @@ token 预估、拆书产物、章节备份列表。没有一个是写操作，
 书档，读到的是 CWD 的书。
 
 现已全部改为 `api.ROOT / ...`。注意：Electron 场景 CWD==ROOT，**行为不变**；
-测试用临时根时 CWD 也是临时根，同样不变。由「第 7 节．无相对路径 IO」守护。
+测试用临时根时 CWD 也是临时根，同样不变。由“第 7 节．无相对路径 IO”守护。
 
 ## /prompts/get 的白名单
 
@@ -40,8 +40,8 @@ def _p(h):
     """路径（去掉 query 与尾部 `/`），与 `do_GET` 里那个 `p` 完全同源。
 
     域模块**不重算** `h.path.split("?")[0].rstrip("/")`，而是走这里，
-    因为「p 是怎么来的」只该有一个定义——否则哪天 nf_api 改了归一化规则，
-    这里会静默漂移，表现为「某些带斜杠的路径 404」。
+    因为“p 是怎么来的”只该有一个定义——否则哪天 nf_api 改了归一化规则，
+    这里会静默漂移，表现为“某些带斜杠的路径 404”。
     """
     return api.norm_path(h)
 
@@ -74,7 +74,7 @@ def handle_review_decisions(h):
     """用户对审稿发现的决策（accept/ignore）。
 
     文件不存在时返回**空决策列表 + 200**，而不是 404：
-    「还没做决策」是正常初态，前端不该在控制台刷 404。
+    “还没做决策”是正常初态，前端不该在控制台刷 404。
     """
     dec_path = api.ROOT / "data" / "outline" / "review_report.decisions.json"
     if not dec_path.exists():
@@ -201,7 +201,7 @@ def handle_prompts_factory_restore(h, body):
     模块头：滚动淘汰 / 手改不留痕 / 升级覆盖，三种情况下 history 里都没有出厂版）。
 
     本端点读 `prompts/factory/`（只由发版流程写入），仍走 `api.save_prompt` 落盘
-    —— 于是「还原」这个动作本身也进备份链：还原前的（改坏的）版本可以在 history
+    —— 于是“还原”这个动作本身也进备份链：还原前的（改坏的）版本可以在 history
     里找到，判断"到底改坏了什么"时有对照物。
     """
     name = api.prompt_name_ok(str(body.get("name") or "").strip())
@@ -233,7 +233,7 @@ def handle_prompts_factory_restore(h, body):
 def handle_prompts_factory_info(h):
     """出厂副本盘点：哪些模板有出厂版、与当前是否一致。
 
-    给界面用 —— 用户要能看见「保底在不在」，而不是点到按钮才发现没有。
+    给界面用 —— 用户要能看见“保底在不在”，而不是点到按钮才发现没有。
     """
     fac_dir = _factory_dir()
     items = []
@@ -491,7 +491,7 @@ def handle_chapters_history(h):
     """章节历史版本：?n=3 → 第 3 章的备份列表（新 → 旧）。
 
     章节号必填且必须可解析为整数——`_pick_chapter_path()` 需要明确的 n，
-    没有「默认章节」这种合理语义。
+    没有“默认章节”这种合理语义。
     """
     try:
         q = h._query()
@@ -526,7 +526,7 @@ def handle_truncated(h):
     """残稿清单（零 token 只读）。
 
     为什么要有：截断时我们**不落盘**（纪律正确），但人看不见那份 3000 字的开头，
-    只看到「失败」。书童把这类叫「失败恢复候选」，这里给同一件事一个可见入口。
+    只看到“失败”。书童把这类叫“失败恢复候选”，这里给同一件事一个可见入口。
     """
     try:
         ts = _trunc_store()
@@ -555,10 +555,10 @@ def handle_truncated_read(h):
 def handle_gate_artifacts(h):
     """审批门产物概况（零 token 只读）：`GET /gate/artifacts?stage=N`。
 
-    为什么要有：收件箱每个门要显示「这个阶段到底产出了什么」。stage 1/2/6 的产物
+    为什么要有：收件箱每个门要显示“这个阶段到底产出了什么”。stage 1/2/6 的产物
     是文件，前端 readPreview 还能数行；stage 3/4/7 的产物是**目录**，前端数不出来 ——
-    于是收件箱那一行「产物概况」永远空白（2026-10-24 用户复现：「产物概况依旧是空
-    的，不显示东西」）。行数/章节数/字数在后端按确定性规则数（utils.stage_artifacts
+    于是收件箱那一行“产物概况”永远空白（2026-10-24 用户复现：“产物概况依旧是空
+    的，不显示东西”）。行数/章节数/字数在后端按确定性规则数（utils.stage_artifacts
     单源），这里只做接线。
     """
     try:
@@ -577,7 +577,7 @@ def handle_truncated_adopt(h, body):
     """采纳为第 N 章草稿：`POST /truncated/adopt {name, chapter, replace?}`。
 
     采纳**不等于完成**：写进 raw 的同时打侧车标记，`is_chapter_complete` 见到标记
-    仍判未完成（残稿就是残稿）。补齐后由用户点「已补齐」清标记。
+    仍判未完成（残稿就是残稿）。补齐后由用户点“已补齐”清标记。
     """
     try:
         ts = _trunc_store()
@@ -590,7 +590,7 @@ def handle_truncated_adopt(h, body):
 
 
 def handle_truncated_clear(h, body):
-    """「已补齐」：清掉某章的自残稿标记，恢复正常完成判定。"""
+    """“已补齐”：清掉某章的自残稿标记，恢复正常完成判定。"""
     try:
         ts = _trunc_store()
         ok = ts.clear_mark((body or {}).get("chapter"))
@@ -620,7 +620,7 @@ def _foreshadow_stale_after():
 
 
 def _latest_chapter_no():
-    """最新章节号（raw / checked / refined 里最大的）。台账用它算「闲置几章」。"""
+    """最新章节号（raw / checked / refined 里最大的）。台账用它算“闲置几章”。"""
     best = 0
     for sub in ("refined", "checked", "raw"):
         d = Path(api.ROOT) / "data" / "chapters" / sub
@@ -637,7 +637,7 @@ def _latest_chapter_no():
 def handle_foreshadow(h):
     """伏笔台账（零 token 只读）：`GET /foreshadow`。
 
-    数据来源只有两个确定性入口：章大纲的「悬念钩子」+ 后续章的文本重合。
+    数据来源只有两个确定性入口：章大纲的“悬念钩子”+ 后续章的文本重合。
     **回收不自动判定** —— 文本相似不等于解决了，自动判会让台账变谎话。
     """
     try:
@@ -671,7 +671,7 @@ def handle_foreshadow_status(h, body):
 def handle_handoff_export(h, body):
     """导出交接稿：`POST /handoff/export {chapter?}` → `data/handoff/第N章后.md`。
 
-    v0.10「可带走」：把「写到哪了 + 接下来写什么」压成一份可粘给任何模型的
+    v0.10“可带走”：把“写到哪了 + 接下来写什么”压成一份可粘给任何模型的
     markdown。纯确定性拼装（零 token），只写导出物，不改书稿与进度 ——
     与 `/export/markdown` 同族，故 Agent 可调。
     """

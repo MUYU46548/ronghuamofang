@@ -6,7 +6,7 @@
 Temp/gui_verify/ux/，同时收集 console error 与非 2xx 请求。
 
 两个后端：
-  - 假后端（tests/e2e/mock_nf_api_state.py，8798）：确定性喂「阶段3 失败 + 阶段4 已跳过 + 待重写章节」，
+  - 假后端（tests/e2e/mock_nf_api_state.py，8798）：确定性喂\u300c阶段3 失败 + 阶段4 已跳过 + 待重写章节\u300d，
     验证错误恢复一级入口、跳过徽标、待重写徽标、跳过确认框。
   - 真后端（scripts/nf_api.py --port 8799）：真数据（1-4 已完成），验证工作流条、命令面板、
     Space→预估确认框、数字键切页签、日志面板。
@@ -67,7 +67,7 @@ def check(name, cond, detail=""):
 # ⚠️ 已知覆盖缺口（有意为之，不是遗漏）：
 #   readPreview 走的是 Electron IPC（主进程读工作区文件，带白名单），
 #   浏览器侧**没有等价通道**。所以这里返回 {ok:false} —— 好处是零侵入、零 console 噪音；
-#   代价是「文件预览」这条路径在浏览器验收里**不被覆盖**（它只在真机 Electron 下生效）。
+#   代价是“文件预览”这条路径在浏览器验收里**不被覆盖**（它只在真机 Electron 下生效）。
 #   若要真正覆盖，需要给浏览器加一层文件桥（例如带 CORS 头的只读静态服务），
 #   那属于验收基建的独立议题，别顺手塞进本脚本。
 PRELOAD_SHIM_JS = """
@@ -265,9 +265,9 @@ def settle_disclaimer(page):
 
     全新浏览器 profile 没有 `mofang_disclaimer_ack_v*` → App.vue onMounted 弹出
     first-run 真锁模态（z-60 压全抽屉、焦点困于弹窗内），不处理会把后续所有点击拦死
-    （2026-10-05 实测：卡在「跳过确认框」，报 disclaimer-mask intercepts pointer events）。
+    （2026-10-05 实测：卡在\u300c跳过确认框\u300d，报 disclaimer-mask intercepts pointer events）。
     这里**先跑该门的行为断言（仅首次），再走完真实勾选流放行**——不是绕过，是把这道闸
-    纳入真机验收；勾选流本身也验证了「滚到底才解锁 → 同意 → ack 落 localStorage」。
+    纳入真机验收；勾选流本身也验证了\u300c滚到底才解锁 → 同意 → ack 落 localStorage\u300d。
     """
     if page.locator(".disclaimer-mask.forced").count() == 0:
         check("首启强制免责声明弹出（无 ack 的全新 profile 必弹）",
@@ -279,7 +279,7 @@ def settle_disclaimer(page):
         check("弹窗语义=对话框（role=dialog + aria-modal）",
               page.locator(".disclaimer-dlg[role=dialog][aria-modal=true]").count() == 1)
         agree = page.locator(".disclaimer-dlg button:has-text('我已阅读并同意')")
-        check("「我已阅读并同意」按钮存在且未滚到底前禁用",
+        check("\u300c我已阅读并同意\u300d按钮存在且未滚到底前禁用",
               agree.count() == 1 and agree.first.is_disabled(),
               "count=%d disabled=%s" % (agree.count(),
                                         agree.first.is_disabled() if agree.count() else "-"))
@@ -371,7 +371,7 @@ def test_mock(browser):
         page.fill(".cmd-input", "跳过")
         page.wait_for_timeout(300)
         labels = page.locator(".cmd-item .cmd-label").all_inner_texts()
-        check("中文关键词能过滤到「跳过阶段」", any("跳过阶段" in t for t in labels), labels[:4])
+        check("中文关键词能过滤到\u300c跳过阶段\u300d", any("跳过阶段" in t for t in labels), labels[:4])
         shot(page, "A6_palette_filter")
         page.keyboard.press("ArrowDown")
         page.keyboard.press("Enter")
@@ -402,7 +402,7 @@ def test_mock(browser):
         check("数字键 1 → 流水线页签", "流水线" in page.locator(".tabs button.active").first.inner_text())
         shot(page, "A8_back_to_pipeline")
 
-        print("  --- 顶栏「📋 日志」（对齐方寸 顶栏诊断入口）---")
+        print("  --- 顶栏\u300c📋 日志\u300d（对齐方寸 顶栏诊断入口）---")
         page.locator("header button:has-text('📋 日志')").click()
         page.wait_for_timeout(900)
         check("顶栏 📋 按钮打开运行日志面板（排障第一入口常驻可见）",
@@ -420,7 +420,7 @@ def test_mock(browser):
         check("定价面板展开前没有导入区", page.locator(".rate-import").count() == 0)
         page.locator("button:has-text('批量导入')").first.click()
         page.wait_for_timeout(300)
-        check("点「批量导入」展开粘贴框", page.locator(".rate-import-box").count() == 1)
+        check("点\u300c批量导入\u300d展开粘贴框", page.locator(".rate-import-box").count() == 1)
         shot(page, "A9_rate_import_open")
 
         page.fill(".rate-import-box", "kimi-k2.6  1.0  4.2  0.2\nglm-5.3 8 28 2\n")
@@ -431,10 +431,10 @@ def test_mock(browser):
         preview = page.locator(".rate-import .cost-table").inner_text()
         check("预览表含模型名与新值",
               "kimi-k2.6" in preview and "4.2" in preview, preview.replace("\n", " | ")[:80])
-        check("动作列标出「新增」", "新增" in preview, preview.replace("\n", " | ")[:80])
-        check("预览不是写入（未出现「已导入」）",
+        check("动作列标出\u300c新增\u300d", "新增" in preview, preview.replace("\n", " | ")[:80])
+        check("预览不是写入（未出现\u300c已导入\u300d）",
               page.locator(".rate-import:has-text('✅ 已导入')").count() == 0)
-        check("解析无错误时「确认导入」可用",
+        check("解析无错误时\u300c确认导入\u300d可用",
               not page.locator(".rate-import button:has-text('确认导入')").is_disabled())
 
         page.fill(".rate-import-box", "kimi-k2.6 1.0\n")
@@ -444,7 +444,7 @@ def test_mock(browser):
               page.locator(".rate-import-err").count() == 1
               and "只解析出 1 个数值" in page.locator(".rate-import-err").inner_text(),
               page.locator(".rate-import-err").inner_text()[:70])
-        check("有解析错误时「确认导入」被禁用",
+        check("有解析错误时\u300c确认导入\u300d被禁用",
               page.locator(".rate-import button:has-text('确认导入')").is_disabled())
         shot(page, "A10_rate_import_error")
 
@@ -454,7 +454,7 @@ def test_mock(browser):
         page.locator(".rate-import button:has-text('确认导入')").click()
         page.wait_for_timeout(800)
         body_txt = page.locator(".rate-import").inner_text()
-        check("确认后报告「已导入 N 条」", "已导入 1 条" in body_txt, body_txt.replace("\n", " | ")[:90])
+        check("确认后报告\u300c已导入 N 条\u300d", "已导入 1 条" in body_txt, body_txt.replace("\n", " | ")[:90])
         shot(page, "A11_rate_import_done")
         page.locator(".tabs button:has-text('流水线')").click()
         page.wait_for_timeout(500)
@@ -479,8 +479,8 @@ def real_state():
 def real_next():
     """从 /state 推导 (下一可运行阶段号, 待审批门阶段号)。
 
-    ⚠️ 为什么不写死「阶段 5」（2026-10-03 事故）：
-    本脚本原先假定真后端工作区是「1-4 已完成」，断言写死 `下一步 = 运行阶段 5`。
+    ⚠️ 为什么不写死\u300c阶段 5\u300d（2026-10-03 事故）：
+    本脚本原先假定真后端工作区是\u300c1-4 已完成\u300d，断言写死 `下一步 = 运行阶段 5`。
     换成别的工作区状态（例如刚跑完 stage1、停在审批门）之后：
       ① 4 条断言集体**假红**（其实什么都没验）；
       ② 更糟：下面那段 `Space`（= 执行下一步）会**真的把审批按掉** ——
@@ -511,7 +511,7 @@ def test_real(browser):
                   ("阶段 %s" % gate_stage) in nxt and "确认" in nxt, nxt)
             sel = page.locator(".flow-quick select").input_value()
             # 审批门状态下 quickStage 为 null → select 显示占位项文本（"选择阶段…"）。
-            # 断言放宽到「占位项或某个阶段号」：前者是当前设计，后者是"将来预选下一可运行阶段"
+            # 断言放宽到“占位项或某个阶段号”：前者是当前设计，后者是"将来预选下一可运行阶段"
             # 的实现 —— 两种都算健康，写死任一种都会在对方实现下假红。
             check("审批门状态下快速运行选择器停在占位项（不预设阶段）",
                   page.locator(".flow-quick select").count() == 1
@@ -521,15 +521,15 @@ def test_real(browser):
             check("真数据：下一步 = 运行阶段 %s" % run_stage,
                   ("阶段 %s" % run_stage) in nxt, nxt)
             # 活一契约（b676efe + App.vue watch(state)）：快速运行从单选下拉改成
-            # **勾选条**（勾几件跑几件），但「自动对齐到下一个未完成阶段」保留 ——
+            # **勾选条**（勾几件跑几件），但“自动对齐到下一个未完成阶段”保留 ——
             # 只是形态从 select.input_value() 变成该阶段按钮的 .on 勾选态。
-            # 旧断言读 .flow-quick select（现已只剩「组合…」下拉）必假红，按新契约改写。
+            # 旧断言读 .flow-quick select（现已只剩“组合…”下拉）必假红，按新契约改写。
             strip = page.locator(".flow-quick .qstage")
             n_stages = len((real_state() or {}).get("stages") or [])
             check("快速运行勾选条渲染全部 %s 个阶段按钮（新契约）" % n_stages,
                   strip.count() == n_stages, strip.count())
             on_txt = page.locator(".flow-quick .qstage.on").all_inner_texts()
-            check("勾选条自动对齐到阶段 %s（旧「select 自动对齐」契约的新形态）" % run_stage,
+            check("勾选条自动对齐到阶段 %s（旧\u300cselect 自动对齐\u300d契约的新形态）" % run_stage,
                   len(on_txt) == 1 and on_txt[0].startswith(str(run_stage)), on_txt)
             strip.nth(run_stage - 1).click()
             page.wait_for_timeout(250)
@@ -554,11 +554,11 @@ def test_real(browser):
         if is_gate:
             # ⚠️ 绝不在这里按 Space：Space = 执行下一步 = 会真的把审批按掉（改用户数据）。
             print("  [SKIP] Space = 执行下一步：下一步是**审批门**，真机按下去会改用户工作区；"
-                  "该段只在「下一步 = 运行」时有意义（那时会先弹费用预估确认框）。")
+                  "该段只在\u300c下一步 = 运行\u300d时有意义（那时会先弹费用预估确认框）。")
         elif (real_state() or {}).get("agent_mode"):
             # Agent 模式运行锁（2026-10-17 新契约）：Space = 执行下一步 = 运行类
             # → 被 agentRunGuard 拦下吃锁定 toast，**不弹**预估框。此前这条断言
-            # 只认「弹预估框」，真后端开 agent_mode 时必假红 —— 按新语义分流。
+            # 只认“弹预估框”，真后端开 agent_mode 时必假红 —— 按新语义分流。
             print("  --- Space = 执行下一步（Agent 模式：应吃锁定提示，不弹预估）---")
             page.locator("body").click(position={"x": 700, "y": 700})
             page.keyboard.press(" ")
@@ -590,7 +590,7 @@ def test_real(browser):
         page.fill(".cmd-input", "日")
         page.wait_for_timeout(300)
         labels = page.locator(".cmd-item .cmd-label").all_inner_texts()
-        check("搜索「日」命中运行日志", any("日志" in t for t in labels), labels[:5])
+        check("搜索\u300c日\u300d命中运行日志", any("日志" in t for t in labels), labels[:5])
         page.fill(".cmd-input", "运行日志")
         page.wait_for_timeout(250)
         page.keyboard.press("Enter")
@@ -608,7 +608,7 @@ def test_real(browser):
         check("R 键刷新有 toast 反馈", page.locator(".toast").count() == 1,
               page.locator(".toast").inner_text() if page.locator(".toast").count() else "")
 
-        print("  --- 真后端「关于」：版本/路径必须来自真实数据 ---")
+        print("  --- 真后端\u300c关于\u300d：版本/路径必须来自真实数据 ---")
         page.locator(".brand-btn").click()
         page.wait_for_timeout(1200)
         about = page.locator(".about-dlg")
@@ -616,7 +616,7 @@ def test_real(browser):
         atxt = about.inner_text() if about.count() else ""
         # 版本号必须**取自 console/package.json**（真实口径），且不得是 dev/mock 占位。
         # 原实现硬编码 "v0.1.0" —— 判据本身是错的：① 版本一升就必然红（2026-09-29
-        # 已是 0.3.2）；② "v0.1.0" 还能匹到 mock 的 "0.1.0-mock"，等于没测出「非 dev」。
+        # 已是 0.3.2）；② "v0.1.0" 还能匹到 mock 的 "0.1.0-mock"，等于没测出“非 dev”。
         _pkg_ver = json.loads((ROOT / "console" / "package.json").read_text(encoding="utf-8"))["version"]
         check("版本号取自 console/package.json（非 dev）",
               ("v" + _pkg_ver) in atxt and "读取版本信息失败" not in atxt
@@ -687,10 +687,10 @@ def test_about_project(browser, mock_proc=None):
         print("  --- 左上角 LOGO → 关于 ---")
         page.locator(".brand-btn").click()
         page.wait_for_timeout(900)
-        check("点 LOGO 打开「关于」", page.locator(".about-dlg").count() == 1)
+        check("点 LOGO 打开\u300c关于\u300d", page.locator(".about-dlg").count() == 1)
         txt = page.locator(".about-dlg").inner_text()
         check("关于含版本号", "v" in txt and "绒花墨坊" in txt, txt[:60].replace("\n", " | "))
-        check("关于含「快速上手」四步", page.locator(".about-steps li").count() == 4,
+        check("关于含\u300c快速上手\u300d四步", page.locator(".about-steps li").count() == 4,
               page.locator(".about-steps li").count())
         check("关于含运行环境表（Electron/Chromium/平台）",
               "Electron" in txt and "Chromium" in txt, None)
@@ -710,19 +710,19 @@ def test_about_project(browser, mock_proc=None):
         page.locator(".brand-sub-btn").click()
         page.wait_for_timeout(700)
         active = page.locator(".tabs button.active").first.inner_text()
-        check("点书名跳到「项目」页签", "项目" in active, active)
-        check("项目页签有「＋ 新建项目」入口",
+        check("点书名跳到\u300c项目\u300d页签", "项目" in active, active)
+        check("项目页签有\u300c＋ 新建项目\u300d入口",
               page.locator("button:has-text('＋ 新建项目')").count() >= 1)
         check("项目页签显示工作区状态徽标",
               page.locator("text=工作区有数据").count() >= 1 or page.locator("text=工作区为空").count() >= 1)
-        # 出厂样例徽标（2026-10-11 用户需求「当前项目没有任何显示标识」）：
-        # mock 的书名与样例书名相同 → 提示「同名」而非「出厂项目」（2026-10-23 改：
+        # 出厂样例徽标（2026-10-11 用户需求“当前项目没有任何显示标识”）：
+        # mock 的书名与样例书名相同 → 提示“同名”而非“出厂项目”（2026-10-23 改：
         # 名字比对冒充出厂身份，在真书上误导过用户），说明文要说清"只是撞名"。
         badge = page.locator(".pill:has-text('与出厂样例同名')")
-        check("项目页显示「与出厂样例同名」徽标（书名 == 样例书名但无铺设标记）",
+        check("项目页显示\u300c与出厂样例同名\u300d徽标（书名 == 样例书名但无铺设标记）",
               badge.count() >= 1, badge.count())
         tip = badge.first.get_attribute("title") if badge.count() else ""
-        check("徽标悬浮说明含「自检没过」与「一键还原」边界",
+        check("徽标悬浮说明含\u300c自检没过\u300d与\u300c一键还原\u300d边界",
               bool(tip) and "自检没过" in tip and "一键还原" in tip, (tip or "")[:160])
         if badge.count():
             badge.first.click()
@@ -741,15 +741,15 @@ def test_about_project(browser, mock_proc=None):
         check("向导打开且停在第 0 步（选预设）", page.locator(".wiz-steps").count() == 1
               and "0 选预设" in page.locator(".wiz-step.on").inner_text())
         nxt = page.locator(".dialog button:has-text('下一步')")
-        check("未选预设时「下一步」可用（手工流程不被堵在预设屏）", not nxt.is_disabled())
+        check("未选预设时\u300c下一步\u300d可用（手工流程不被堵在预设屏）", not nxt.is_disabled())
         shot(page, "D3_wizard_step0")
         nxt.click()
         page.wait_for_timeout(300)
         check("进入第 1 步（基本信息）", "1 基本信息" in page.locator(".wiz-step.on").inner_text())
-        check("空书名时「下一步」禁用（前置校验）", nxt.is_disabled())
+        check("空书名时\u300c下一步\u300d禁用（前置校验）", nxt.is_disabled())
         page.locator(".dialog input.text-input").first.fill("验收新书")
         page.wait_for_timeout(200)
-        check("填了书名后「下一步」可用", not nxt.is_disabled())
+        check("填了书名后\u300c下一步\u300d可用", not nxt.is_disabled())
         nxt.click()
         page.wait_for_timeout(300)
         check("进入第 2 步（当前工作区）", "2 当前工作区" in page.locator(".wiz-step.on").inner_text())
@@ -760,11 +760,11 @@ def test_about_project(browser, mock_proc=None):
               page.locator(".wiz-warn").count() == 1
               and "拒绝" in page.locator(".wiz-warn").inner_text(),
               page.locator(".wiz-warn").inner_text()[:60])
-        check("未勾选归档时「下一步」直接置灰（不许走到确认创建再被后端弹回）",
+        check("未勾选归档时\u300c下一步\u300d直接置灰（不许走到确认创建再被后端弹回）",
               nxt.is_disabled())
         page.locator(".wiz-check input[type=checkbox]").check()
         page.wait_for_timeout(200)
-        check("勾选归档后「下一步」恢复可用", not nxt.is_disabled())
+        check("勾选归档后\u300c下一步\u300d恢复可用", not nxt.is_disabled())
         page.locator(".dialog button:has-text('下一步')").click()
         page.wait_for_timeout(300)
         check("进入第 3 步（确认摘要）", "3 确认创建" in page.locator(".wiz-step.on").inner_text())
@@ -791,13 +791,13 @@ def test_about_project(browser, mock_proc=None):
         check("第 0 步列出出厂预设卡片", cards.count() >= 1, cards.count())
         cards.first.click()
         page.wait_for_timeout(200)
-        page.locator(".dialog .wiz-preset-act button").click()   # 「铺设「…」」
+        page.locator(".dialog .wiz-preset-act button").click()   # “铺设“…””
         page.wait_for_timeout(600)
-        check("铺设成功 → 显示「已铺设」",
+        check("铺设成功 → 显示\u300c已铺设\u300d",
               page.locator(".dialog .pill.st-done").filter(has_text="已铺设").count() == 1,
               page.locator(".dialog").inner_text()[:120])
         nxt2 = page.locator(".dialog button:has-text('下一步')")
-        check("铺设后第 0 步「下一步」可用", not nxt2.is_disabled())
+        check("铺设后第 0 步\u300c下一步\u300d可用", not nxt2.is_disabled())
         nxt2.click()
         page.wait_for_timeout(300)
         check("书名从预设带出（第 1 步可直接过）", not nxt2.is_disabled())
@@ -809,11 +809,11 @@ def test_about_project(browser, mock_proc=None):
               "已铺设" in page.locator(".dialog").inner_text()
               and "不会动素材" in page.locator(".dialog").inner_text(),
               page.locator(".dialog").inner_text()[:200])
-        check("第 2 步「下一步」可用（无需勾归档）", not nxt2.is_disabled())
+        check("第 2 步\u300c下一步\u300d可用（无需勾归档）", not nxt2.is_disabled())
         shot(page, "D6_wizard_preset_step2")
         nxt2.click()
         page.wait_for_timeout(300)
-        check("确认摘要标明「素材保留」",
+        check("确认摘要标明\u300c素材保留\u300d",
               "素材保留" in page.locator(".dialog .cost-table").inner_text(),
               page.locator(".dialog .cost-table").inner_text().replace("\n", " | ")[:120])
         page.locator(".dialog button:has-text('确认创建')").click()
@@ -829,7 +829,7 @@ def test_about_project(browser, mock_proc=None):
         page.fill(".cmd-input", "关于")
         page.wait_for_timeout(250)
         labels = page.locator(".cmd-item .cmd-label").all_inner_texts()
-        check("命令面板能搜到「关于绒花墨坊」", any("关于" in t for t in labels), labels[:3])
+        check("命令面板能搜到\u300c关于绒花墨坊\u300d", any("关于" in t for t in labels), labels[:3])
         page.keyboard.press("Escape")
         page.wait_for_timeout(200)
         page.keyboard.press("Control+k")
@@ -837,7 +837,7 @@ def test_about_project(browser, mock_proc=None):
         page.fill(".cmd-input", "新建项目")
         page.wait_for_timeout(250)
         labels = page.locator(".cmd-item .cmd-label").all_inner_texts()
-        check("命令面板能搜到「新建项目」", any("新建项目" in t for t in labels), labels[:3])
+        check("命令面板能搜到\u300c新建项目\u300d", any("新建项目" in t for t in labels), labels[:3])
         page.keyboard.press("Escape")
         page.wait_for_timeout(200)
         page.keyboard.press("Control+k")
@@ -845,7 +845,7 @@ def test_about_project(browser, mock_proc=None):
         page.fill(".cmd-input", "免责")
         page.wait_for_timeout(250)
         labels = page.locator(".cmd-item .cmd-label").all_inner_texts()
-        check("命令面板能搜到「查看免责声明」（常驻入口之一）",
+        check("命令面板能搜到\u300c查看免责声明\u300d（常驻入口之一）",
               any("免责声明" in t for t in labels), labels[:3])
         page.keyboard.press("Escape")
         page.wait_for_timeout(200)
@@ -855,7 +855,7 @@ def test_about_project(browser, mock_proc=None):
         page.wait_for_timeout(700)
         strip = page.locator(".ps-item").all_inner_texts()
         joined = " | ".join(strip)
-        check("流水线条显示「token 闸门」（不能只显示 ¥0.0）",
+        check("流水线条显示\u300ctoken 闸门\u300d（不能只显示 ¥0.0）",
               any(("token 闸门" in t) for t in strip), joined[:160])
         check("显示 token 已用 / 上限（数字真的来自 /state）",
               "116,599" in joined and "10,000,000" in joined, joined[:200])
@@ -871,13 +871,13 @@ def test_about_project(browser, mock_proc=None):
               (page.locator(".pill:has-text('免责声明')").count(),
                page.locator("button:has-text('查看完整声明')").count()))
         navs = page.locator(".set-nav-btn")
-        # 2026-10-31：新增第 9 项「使用手册」（用户要求把说明持久化备查）
-        check("设置页侧边栏分类渲染（9 项，取代一条长名单；含件五「Word 模板」与「使用手册」）",
+        # 2026-10-31：新增第 9 项“使用手册”（用户要求把说明持久化备查）
+        check("设置页侧边栏分类渲染（9 项，取代一条长名单；含件五\u300cWord 模板\u300d与\u300c使用手册\u300d）",
               navs.count() == 9, navs.all_inner_texts())
-        check("侧栏最后一项是「使用手册」（手册放最后，不挡默认分类）",
+        check("侧栏最后一项是\u300c使用手册\u300d（手册放最后，不挡默认分类）",
               "使用手册" in (navs.last.inner_text() if navs.count() else ""),
               navs.all_inner_texts())
-        check("默认停在「引擎与模型」分类（免责声明在其下可见）",
+        check("默认停在\u300c引擎与模型\u300d分类（免责声明在其下可见）",
               "on" in (navs.nth(0).get_attribute("class") or ""),
               navs.nth(0).get_attribute("class"))
         page.locator(".set-nav-btn", has_text="预算与止烧").click()
@@ -899,14 +899,14 @@ def test_about_project(browser, mock_proc=None):
         page.wait_for_timeout(900)
         msg = (page.locator(".tl-msg").first.inner_text()
                if page.locator(".tl-msg").count() else "")
-        check("点「恢复默认预设」后有明确反馈（成功或失败都要说清）",
+        check("点\u300c恢复默认预设\u300d后有明确反馈（成功或失败都要说清）",
               ("已恢复默认预设" in msg) or ("恢复失败" in msg), msg or "（无反馈元素）")
 
         print("  --- Word 模板面板（件五 GUI 入口：下拉 / 打开模板目录 / 恢复默认）---")
         page.locator(".set-nav-btn", has_text="Word 模板").click()
         page.wait_for_timeout(450)
         wpane = page.locator(".set-pane", has_text="Word 成品模板（templates/")
-        check("「Word 模板」面板渲染（h4 + 说明）",
+        check("\u300cWord 模板\u300d面板渲染（h4 + 说明）",
               wpane.count() == 1 and wpane.locator("h4").count() == 1, wpane.count())
         wsel = wpane.locator("select.model-select")
         check("下拉列出 mock 清单的 2 个模板",
@@ -917,7 +917,7 @@ def test_about_project(browser, mock_proc=None):
               all(wpane.locator("button:has-text('%s')" % b).count() >= 1
                   for b in ("重新读取", "打开模板目录", "恢复默认", "应用")),
               wpane.locator("button").all_inner_texts())
-        check("未改动时「应用」禁用（防误写配置）",
+        check("未改动时\u300c应用\u300d禁用（防误写配置）",
               wpane.locator("button:has-text('应用')").is_disabled())
         check("字段口径写在面板上（book.word_template）",
               "book.word_template" in wpane.inner_text(),
@@ -926,20 +926,20 @@ def test_about_project(browser, mock_proc=None):
 
         wsel.select_option("templates/备用模板.docx")
         page.wait_for_timeout(250)
-        check("改选后出现「已修改」徽标 + 应用解锁",
+        check("改选后出现\u300c已修改\u300d徽标 + 应用解锁",
               wpane.locator(".pill.st-gate").count() >= 1
               and not wpane.locator("button:has-text('应用')").is_disabled())
         wpane.locator("button:has-text('打开模板目录')").click()
         page.wait_for_timeout(350)
         wt_toast = page.locator(".toast").inner_text() if page.locator(".toast").count() else ""
-        check("「打开模板目录」有明确反馈（成功或失败都要说清）",
+        check("\u300c打开模板目录\u300d有明确反馈（成功或失败都要说清）",
               "模板目录" in wt_toast, wt_toast)
         wpane.locator("button:has-text('应用')").click()
         page.wait_for_timeout(700)
         check("应用后下拉回读到新值（写→读真链路，不是静态面板）",
               wsel.input_value() == "templates/备用模板.docx", wsel.input_value())
         wt_txt = wpane.inner_text()
-        check("应用后给出落点反馈且「已修改」徽标消失",
+        check("应用后给出落点反馈且\u300c已修改\u300d徽标消失",
               "word_template" in wt_txt and "已修改" not in wt_txt,
               wt_txt[:200].replace("\n", " | "))
         wpane.locator("button:has-text('恢复默认')").click()
@@ -966,7 +966,7 @@ def test_about_project(browser, mock_proc=None):
               (light_btns.count(), dark_btns.count()))
         dark_titles = [dark_btns.nth(i).get_attribute("title")
                        for i in range(dark_btns.count())]
-        check("暗色排全是「暗夜」系主题（分组没串排）",
+        check("暗色排全是\u300c暗夜\u300d系主题（分组没串排）",
               bool(dark_titles) and all(t and t.startswith("暗夜") for t in dark_titles),
               dark_titles)
         shot(page, "D11_theme_rows")
@@ -974,7 +974,7 @@ def test_about_project(browser, mock_proc=None):
         print("  --- 接入其他 Agent（配置段生成 + kickoff 一键复制）---")
         page.locator(".set-nav-btn", has_text="Agent 接入").click()
         page.wait_for_timeout(250)
-        check("「接入其他 Agent」配置块渲染", page.locator(".ac-block").count() == 1,
+        check("\u300c接入其他 Agent\u300d配置块渲染", page.locator(".ac-block").count() == 1,
               page.locator(".ac-block").count())
         acode = page.locator(".ac-code")
         check("默认展示 Hermes YAML 配置段（含 mcp_servers 与垫片路径）",
@@ -992,7 +992,7 @@ def test_about_project(browser, mock_proc=None):
               kick.count() == 1 and "PROJECT_ROOT}}" not in kick_val
               and len(kick_val) > 25,
               "len=%d" % len(kick_val))
-        check("「复制启动提示词」按钮可用",
+        check("\u300c复制启动提示词\u300d按钮可用",
               not page.locator(".ac-kickoff button:has-text('复制启动提示词')").is_disabled())
         page.locator(".ac-kickoff button:has-text('复制启动提示词')").click()
         page.wait_for_timeout(400)
@@ -1000,9 +1000,9 @@ def test_about_project(browser, mock_proc=None):
         check("复制动作有明确反馈（已复制 / 失败都要说）",
               ("已复制" in kick_toast) or ("失败" in kick_toast), kick_toast)
 
-        print("  --- 让它自装（对齐方寸「🤖 让它自装」第三渠道）---")
+        print("  --- 让它自装（对齐方寸\u300c🤖 让它自装\u300d第三渠道）---")
         si = page.locator(".ac-selfinstall")
-        check("「让它自装」块渲染", si.count() == 1, si.count())
+        check("\u300c让它自装\u300d块渲染", si.count() == 1, si.count())
         si_ta = page.locator(".ac-selfinstall textarea")
         si_val = si_ta.input_value() if si_ta.count() else ""
         check("自装指令含目标配置路径 + YAML 配置段（不是空壳）",
@@ -1041,7 +1041,7 @@ def test_about_project(browser, mock_proc=None):
         print("  --- 诊断与调试（对齐方寸 🩺 诊断页签）---")
         page.locator(".set-nav-btn", has_text="诊断与调试").click()
         page.wait_for_timeout(250)
-        check("「诊断与调试」块渲染",
+        check("\u300c诊断与调试\u300d块渲染",
               page.locator("h4:has-text('诊断与调试')").count() == 1,
               page.locator("h4:has-text('诊断与调试')").count())
         dbg_meta = page.locator("h4:has-text('诊断与调试') + .meta")
@@ -1053,7 +1053,7 @@ def test_about_project(browser, mock_proc=None):
               "fake" in dbg_txt and "nf_api_child.log" in dbg_txt,
               dbg_txt[-160:].replace("\n", " | "))
         for label in ("查看运行日志", "打开日志文件", "复制诊断信息", "DevTools 开关", "重启后端 API"):
-            check("诊断块含「%s」按钮" % label,
+            check("诊断块含\u300c%s\u300d按钮" % label,
                   page.locator("button:has-text('%s')" % label).count() >= 1, label)
         page.locator("button:has-text('DevTools 开关')").click()
         page.wait_for_timeout(300)
@@ -1064,12 +1064,12 @@ def test_about_project(browser, mock_proc=None):
         page.wait_for_timeout(500)          # 等 mock 的 /factory/list 回来
         fac_meta = page.locator("h4:has-text('出厂内容') + .meta")
         fac_txt = fac_meta.inner_text() if fac_meta.count() else ""
-        check("「出厂内容」块渲染（清单文件数 + 样例匹配数）",
+        check("\u300c出厂内容\u300d块渲染（清单文件数 + 样例匹配数）",
               page.locator("h4:has-text('出厂内容')").count() == 1
               and "214" in fac_txt and "2 个" in fac_txt,
               fac_txt[:160].replace("\n", " | "))
         fac_btn = page.locator("button:has-text('清理出厂样例')")
-        check("有命中时「清理出厂样例」按钮存在且可用",
+        check("有命中时\u300c清理出厂样例\u300d按钮存在且可用",
               fac_btn.count() >= 1 and not fac_btn.first.is_disabled(),
               fac_btn.count())
         # 诊断块几何：先滚到可见再拍/再断言（bounding_box 是视口相对坐标）
@@ -1097,7 +1097,7 @@ def test_about_project(browser, mock_proc=None):
               page2.locator(".cs-step:has-text('接外部 Agent')").count() == 1
               and (page2.locator(".cs-step:has-text('MCP 未监听')").count() == 1
                    or page2.locator(".cs-step:has-text('MCP 监听中')").count() == 1))
-        check("引导里有「新建项目」直达按钮",
+        check("引导里有\u300c新建项目\u300d直达按钮",
               page2.locator(".coldstart button:has-text('新建项目')").count() == 1)
         shot(page2, "D6_coldstart")
     finally:

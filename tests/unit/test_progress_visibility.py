@@ -8,18 +8,18 @@
 
 | 现象（用户原话） | 真因 |
 |---|---|
-| 「我受不了那个永恒的 29%」 | `stage_status` 从不返回 `chapters_done`，前端拿 undefined 算进度 → running 阶段贡献恒 0 |
-| 「阶段 8 在客户端内直接不存在」 | `build_state` 写死 `range(1, 8)`，阶段 8 被整个排除 |
-| 「output (1 篇 · 0 字)」 | `summarize_artifacts` 遇到 .docx 直接 continue → chars 恒 0 |
-| 「第10章潜七十二，中间没有空格」 | 章标题无归一化，`TITLE_RE` 对「章」后内容全宽容 |
-| 「每章只有两千多字，作为小说严重不合格」 | 安装态 config 只补缺不覆盖 → target_words 停在旧默认 [2000,5500] |
+| \u300c我受不了那个永恒的 29%\u300d | `stage_status` 从不返回 `chapters_done`，前端拿 undefined 算进度 → running 阶段贡献恒 0 |
+| \u300c阶段 8 在客户端内直接不存在\u300d | `build_state` 写死 `range(1, 8)`，阶段 8 被整个排除 |
+| \u300coutput (1 篇 · 0 字)\u300d | `summarize_artifacts` 遇到 .docx 直接 continue → chars 恒 0 |
+| \u300c第10章潜七十二，中间没有空格\u300d | 章标题无归一化，`TITLE_RE` 对\u300c章\u300d后内容全宽容 |
+| \u300c每章只有两千多字，作为小说严重不合格\u300d | 安装态 config 只补缺不覆盖 → target_words 停在旧默认 [2000,5500] |
 
 ## 判据
 
 A. `stage_status` 返回章级进度（进度键 + 盘上产物文件数取大者），且 `started_at` 可透出。
 B. `build_state().stages` 覆盖 1-8（含 Markdown 导出），不再有"看不见的阶段"。
 C. `summarize_artifacts` 对 .docx **真数正文**，不再谎报 0 字。
-D. 章标题归一化：粘连 → 加空格；已规范 → 幂等；无章名 → 不留尾随空格；正文「第N章」不动。
+D. 章标题归一化：粘连 → 加空格；已规范 → 幂等；无章名 → 不留尾随空格；正文\u300c第N章\u300d不动。
 E. `chapter.title_format` 可读可写，缺 `{n}` 一律 400。
 
 全程离线、零 LLM、零费用。
@@ -72,7 +72,7 @@ def _seed_workspace(root):
 def main():
     import nf_api
 
-    print("【A】阶段内章级进度（用户「永恒 29%」）")
+    print("【A】阶段内章级进度（用户\u300c永恒 29%\u300d）")
     tmp = tempfile.mkdtemp(prefix="nf_prog_")
     try:
         _seed_workspace(tmp)
@@ -85,11 +85,11 @@ def main():
         check("阶段 4 返回 chapters_done", st4.get("chapters_done") == 3,
               st4)   # 进度键 2 章 vs 盘上 3 章 → 取大者（盘上事实优先）
         check("阶段 4 返回 total_chapters", st4.get("total_chapters") == 10, st4)
-        check("阶段 4 返回 started_at（前端好算「已跑多久」）",
+        check("阶段 4 返回 started_at（前端好算\u300c已跑多久\u300d）",
               st4.get("started_at") == "2026-10-26T10:00:00", st4)
-        check("阶段 4 在写时透出 current_chapter（「正在写第 3 章」）",
+        check("阶段 4 在写时透出 current_chapter（\u300c正在写第 3 章\u300d）",
               st4.get("current_chapter") == 3, st4)
-        check("阶段 4 在写时透出 current_chars（「已写 1200 字」）",
+        check("阶段 4 在写时透出 current_chars（\u300c已写 1200 字\u300d）",
               st4.get("current_chars") == 1200, st4)
         st5 = nf_api.stage_status(nf_api.ProgressManager(Path(tmp) / "data/state/progress.json"), 5, 10)
         check("阶段 5 无进度键也能从 checked/ 数出章数（不再恒 0）",
@@ -97,7 +97,7 @@ def main():
     finally:
         nf_api._set_root(ROOT)
 
-    print("\n【B】阶段 8 必须出现在 /state（用户「客户端内直接不存在」）")
+    print("\n【B】阶段 8 必须出现在 /state（用户\u300c客户端内直接不存在\u300d）")
     tmp2 = tempfile.mkdtemp(prefix="nf_state_")
     try:
         _seed_workspace(tmp2)
@@ -110,8 +110,8 @@ def main():
         check("阶段 8 的状态可读", s8["status"] == "done", s8)
         check("阶段 8 也带章级字段（前端同一套渲染）",
               "chapters_done" in s8 and "total_chapters" in s8, s8)
-        # 2026-10-27 用户实测：「阶段8无法放行（提示stage须为1-7，代码打架）」。
-        # 阶段 8 出现在 /state 且带「确认」按钮，审批端点就必须收它。
+        # 2026-10-27 用户实测：“阶段8无法放行（提示stage须为1-7，代码打架）”。
+        # 阶段 8 出现在 /state 且带“确认”按钮，审批端点就必须收它。
         ok8, msg8 = nf_api.act_approve(8, False)
         check("阶段 8 可审批（不再被 1-7 挡在门外）", ok8 is True, msg8)
         pm8 = nf_api.ProgressManager(Path(tmp2) / "data/state/progress.json")
@@ -131,27 +131,27 @@ def main():
           "若退回 STAGE_MAIN_PROMPT[s.stage]，阶段 7 的空串又会让按钮消失")
     check("STAGE_TASK_INFO 收录阶段 7（Word 成品）", "7: { name:" in app_vue)
     check("STAGE_TASK_INFO 收录阶段 8（Markdown 导出）", "8: { name:" in app_vue)
-    check("顶栏有「打开成品」入口（不必再靠命令面板找 docx）",
+    check("顶栏有\u300c打开成品\u300d入口（不必再靠命令面板找 docx）",
           "📕 成品" in app_vue)
     check("导出记录读盘上事实（/exports/history）", "/exports/history" in app_vue)
-    # 2026-10-27：单章重写显示「本章 %」+ 段群明细，禁止退回「整体 99% 不动」。
-    check("前端按「本章内进度」计算（stageFraction）", "function stageFraction" in app_vue)
+    # 2026-10-27：单章重写显示“本章 %”+ 段群明细，禁止退回“整体 99% 不动”。
+    check("前端按\u300c本章内进度\u300d计算（stageFraction）", "function stageFraction" in app_vue)
     check("前端显示段群进度（第 g/G 群 · 本群约 X 字）",
           "本群约 " in app_vue and "current_group_quota" in app_vue)
     # 2026-10-27 二次修复：hermes 用 write_file 写正文，text 事件不是正文字数。
-    check("前端区分「文件字数」与「文本流」（current_chars_source）",
+    check("前端区分\u300c文件字数\u300d与\u300c文本流\u300d（current_chars_source）",
           "current_chars_source" in app_vue and "current_text_chars" in app_vue)
-    check("前端不再把「无 text 事件」说成「无新字」",
+    check("前端不再把\u300c无 text 事件\u300d说成\u300c无新字\u300d",
           "秒无活动" in app_vue and "秒无新字" not in app_vue)
     check("重写走 SSE 且显示本章文件尾部",
           "streamFileText" in app_vue and '"file"' in app_vue
           and "_openRewriteStream" in app_vue)
-    check("单章重写显示「本章 %」而不是全书百分比",
+    check("单章重写显示\u300c本章 %\u300d而不是全书百分比",
           "scopeChapterPct" in app_vue and "本章 " in app_vue)
     check("重写完成提示带字节数与群字数（/chapters/content 的 bytes/parts）",
           "d.bytes" in app_vue and "d.parts" in app_vue)
 
-    print("\n【C】docx 字数不再谎报 0（用户「1 篇 · 0 字」）")
+    print("\n【C】docx 字数不再谎报 0（用户\u300c1 篇 · 0 字\u300d）")
     from utils.stage_artifacts import summarize_artifacts
     tmp3 = tempfile.mkdtemp(prefix="nf_docx_")
     try:
@@ -176,7 +176,7 @@ def main():
     finally:
         pass
 
-    print("\n【D】章标题格式归一化（用户「第10章潜七十二」）")
+    print("\n【D】章标题格式归一化（用户\u300c第10章潜七十二\u300d）")
     from utils.text_norm import normalize_chapter_title
     cases = [
         ("## 第10章潜七十二\n\n正文。", "## 第10章 潜七十二", 1),
@@ -190,12 +190,12 @@ def main():
         check("归一化 %r → %r" % (src.splitlines()[0], want),
               got.splitlines()[0] == want and n == want_n, got.splitlines()[0])
     body, n = normalize_chapter_title("这是正文，提到第10章潜七十二的说法。\n")
-    check("正文里的「第N章」不动（只改标题行）",
+    check("正文里的\u300c第N章\u300d不动（只改标题行）",
           "第10章潜七十二" in body and n == 0, body)
     again, n2 = normalize_chapter_title("## 第10章 潜七十二\n\n正文。")
     check("已是目标格式 → 幂等（不重复改写）", n2 == 0, again.splitlines()[0])
 
-    print("\n【E】chapter.title_format 可读可写（用户要求「格式自定义」）")
+    print("\n【E】chapter.title_format 可读可写（用户要求\u300c格式自定义\u300d）")
     tmp4 = tempfile.mkdtemp(prefix="nf_tfmt_")
     try:
         _seed_workspace(tmp4)
@@ -220,7 +220,7 @@ def main():
     finally:
         nf_api._set_root(ROOT)
 
-    print("\n【F】单章重写的进度分母 = 这一章（用户「已写1字，但进度99%」）")
+    print("\n【F】单章重写的进度分母 = 这一章（用户\u300c已写1字，但进度99%\u300d）")
     tmp5 = tempfile.mkdtemp(prefix="nf_rewrite_prog_")
     try:
         _seed_workspace(tmp5)
@@ -240,7 +240,7 @@ def main():
         check("重写时分母是 1（不是全书 10 章）", st.get("total_chapters") == 1, st)
         check("重写时 chapters_done 只看这一章（未落盘 = 0）",
               st.get("chapters_done") == 0, st)
-        check("透出 rewrite_chapter（前端可显示「重写第 5 章」）",
+        check("透出 rewrite_chapter（前端可显示\u300c重写第 5 章\u300d）",
               st.get("rewrite_chapter") == 5, st)
         check("透出段群进度（第 2/5 群）",
               st.get("current_group") == 2 and st.get("total_groups") == 5, st)

@@ -18,7 +18,7 @@
 2. 路径一律 `api.ROOT / ...`：提炼目录、setting.json、词表都按 ROOT 解析，
    `--root` 场景下不会静默读写另一个项目；
 3. 花钱的那一步（`/run`）必须进 `start_job`：与流水线共用一把锁，
-   不会出现「一边成书提炼一边 stage4」两个任务抢 `data/`。
+   不会出现“一边成书提炼一边 stage4”两个任务抢 `data/`。
 """
 import json
 from pathlib import Path
@@ -126,7 +126,7 @@ def handle_book_extract_init(h, body):
         name = str(body.get("name") or "").strip()
         if name:
             name = _safe_name(name)
-        # 同名已存在单独判 409：让前端能说「换个名字或先删」，而不是笼统 400
+        # 同名已存在单独判 409：让前端能说“换个名字或先删”，而不是笼统 400
         effective = name or Path(p).stem
         if (_book_extract_root() / effective / "manifest.json").exists():
             return 409, {"ok": False,

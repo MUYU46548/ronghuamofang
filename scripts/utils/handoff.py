@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-"""handoff 交接稿（2026-10-20，v0.10「可带走」）。
+"""handoff 交接稿（2026-10-20，v0.10“可带走”）。
 
 ## 为什么要有它
 
-换模型 / 换会话 / 换机器，上下文全靠重跑 —— 作品没有一种「可携带形态」。
-交接稿 = 把「这本书现在写到哪了、接下来该写什么」压成**一份人可读、
+换模型 / 换会话 / 换机器，上下文全靠重跑 —— 作品没有一种“可携带形态”。
+交接稿 = 把“这本书现在写到哪了、接下来该写什么”压成**一份人可读、
 可直接粘给任何模型**的 markdown：新会话只靠它就能写出接得上的下一章。
 
 ## 内容（全部确定性拼装，零 token）
@@ -21,10 +21,10 @@
 ## 判据（确定性）
 
 - **下一章大纲的每个非空字段都必须出现在交接稿里**（假客户端可验证）——
-  交接稿缺了「悬念钩子」，新会话写出的下一章就会丢钩子，这正是它要防的事故
+  交接稿缺了“悬念钩子”，新会话写出的下一章就会丢钩子，这正是它要防的事故
 - **不含本机绝对路径**：所有输入先过 `strip_protocol_markers`（老产物首行可能残留
   `===FILE: E:\\...===`），输出再过绝对路径扫描 —— 交接稿要去别人家，不能带门牌号
-- **缺料明说，不编造**：下一章大纲没生成 → 写明「尚未生成 + 怎么补」；
+- **缺料明说，不编造**：下一章大纲没生成 → 写明“尚未生成 + 怎么补”；
   没有伏笔 / 没有摘要同理。空手交出去也要让接手方知道哪里是空的
 
 ## 边界
@@ -78,8 +78,8 @@ def _written_chapters(root="."):
 def build(chapter=None, root="."):
     """拼装交接稿。返回 {"text", "path", "chapter", "next_chapter", "problems"}。
 
-    `chapter` = 「第几章之后」的那章；不传则取已写章节的最大章号。
-    没写过任何章时 chapter=0（开局交接稿：只有设定与要求，没有「最近摘要」）。
+    `chapter` = “第几章之后”的那章；不传则取已写章节的最大章号。
+    没写过任何章时 chapter=0（开局交接稿：只有设定与要求，没有“最近摘要”）。
     """
     root = Path(root)
     written = _written_chapters(root)
@@ -166,7 +166,7 @@ def build(chapter=None, root="."):
             lines.append("> 其中 %d 条超过 %d 章没推进 —— 下一章要么推进它，要么明确放弃。"
                          % (len(stale), fs.get("stale_after", 30)))
     else:
-        lines.append("> （台账为空。没有章大纲就没有「悬念钩子」可抽；"
+        lines.append("> （台账为空。没有章大纲就没有“悬念钩子”可抽；"
                      "跑过阶段 3 后自动生成。）")
     lines.append("")
 
@@ -215,7 +215,7 @@ def build(chapter=None, root="."):
             if name.startswith("_"):
                 continue
             if val and val.strip() and val.strip() not in "\n".join(lines):
-                problems.append("下一章大纲字段「%s」没进交接稿" % name)
+                problems.append("下一章大纲字段“%s”没进交接稿" % name)
     else:
         lines.append("> **第 %d 章的大纲还没生成**（%s 不存在）。先跑阶段 3，再重新导出交接稿。"
                      % (next_ch, (OUTLINE_DIR / ("%02d.md" % next_ch)).as_posix()))

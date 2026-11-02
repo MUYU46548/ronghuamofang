@@ -15,13 +15,13 @@
 ## 关于 --restore（2026-09-19 补齐）
 
 此前快照**只写不读** —— 有 510 个文件的备份，却没有任何恢复入口，
-「可回退」是纸面承诺。恢复路径从未被演练，真出事时只能手工拷贝。
+“可回退”是纸面承诺。恢复路径从未被演练，真出事时只能手工拷贝。
 
 安全设计（按危险程度递减）：
-1. **默认 dry-run**：不带 `--yes` 只列出「将覆盖哪些文件、将删除哪些文件」。
+1. **默认 dry-run**：不带 `--yes` 只列出“将覆盖哪些文件、将删除哪些文件”。
 2. **恢复前先给当前状态打快照**（`pre_restore`），恢复错了还能折返。
 3. **删除需显式开启**：快照里没有、而当前 data/ 里有的文件，
-   默认**保留**（`--delete-extra` 才删）。默认只做「覆盖 + 补齐」，
+   默认**保留**（`--delete-extra` 才删）。默认只做“覆盖 + 补齐”，
    因为多出来的文件通常无害，而误删是不可逆的。
 4. **恢复范围限定**：只恢复 SNAPSHOT_ITEMS 覆盖的路径，
    绝不整棵 `data/` 还原（`data/books/` 归档、`data/state/tasks/` 等
@@ -61,7 +61,7 @@ def snapshot(label="manual", keep=KEEP, history_dir="history", dry_run=False, ro
     **不给 root 而调用方 cwd 又不等于项目根时，快照会静默落空**：
     `src.exists()` 逐项为假 → copied=0 却返回成功目录，看起来"备份过了"，
     实际一个文件没复制。按 `__file__` 定根的调用方（switch_book / nf_api）
-    必须显式传 root —— 这条是丙3「先快照后动手」契约能成立的前提。
+    必须显式传 root —— 这条是丙3“先快照后动手”契约能成立的前提。
     """
     # 路径验证：防止 history_dir 被误改为 data/ 等关键目录
     history_path = Path(history_dir).resolve()
@@ -156,7 +156,7 @@ def resolve_snapshot(snap_id, history_dir="history"):
 
 
 def _collect_plan(snap_dir, items=None):
-    """对比快照与当前工作区，算出「覆盖/新增」「多余」两份清单。
+    """对比快照与当前工作区，算出“覆盖/新增”“多余”两份清单。
 
     返回 (to_restore, extras)：
       · to_restore — 快照里有、需要写入工作区的**顶层条目**（相对路径）
@@ -164,16 +164,16 @@ def _collect_plan(snap_dir, items=None):
 
     ## extras 为什么要**递归**扫描（2026-09-19 修正）
 
-    原实现只在「快照覆盖过的父目录」下扫**一层**：
+    原实现只在“快照覆盖过的父目录”下扫**一层**：
 
         covered_parents = {str(Path(i).parent) for i in items if not Path(i).suffix}
 
     于是 `data/outline`、`data/chapters` 进了列表，但它们的**子目录**
     （`data/outline/chapters`、`data/chapters/raw`）没进 —— 新增的
     `data/chapters/raw/99.md` 落在子目录里，永远检测不到，
-    `--delete-extra` 对「快照后新增的章节」完全失效。
+    `--delete-extra` 对“快照后新增的章节”完全失效。
 
-    「目录型 item」的语义本来就是**整棵子树**（`shutil.copytree` 就是全量复制），
+    “目录型 item”的语义本来就是**整棵子树**（`shutil.copytree` 就是全量复制），
     所以 extras 也必须按同一口径递归比对，否则两者不对称。
     """
     items = items or SNAPSHOT_ITEMS
@@ -184,7 +184,7 @@ def _collect_plan(snap_dir, items=None):
             to_restore.append(item)
 
     def _scan(pdir, sdir):
-        """递归比对目录，收集「工作区有、快照没有」的**文件**（相对路径）。"""
+        """递归比对目录，收集“工作区有、快照没有”的**文件**（相对路径）。"""
         if not pdir.is_dir():
             return
         for child in sorted(pdir.iterdir()):
@@ -194,14 +194,14 @@ def _collect_plan(snap_dir, items=None):
                     _scan(child, counterpart)
                 else:
                     # 工作区多了整个目录：目录下的文件逐个列出，
-                    # 让用户看到「具体会删哪些」，而不是一个笼统的目录名。
+                    # 让用户看到“具体会删哪些”，而不是一个笼统的目录名。
                     for f in sorted(child.rglob("*")):
                         if f.is_file():
                             extras.append(str(f).replace("\\", "/"))
             elif not counterpart.exists():
                 extras.append(str(child).replace("\\", "/"))
 
-    # 只在**目录型 item** 下扫（文件型 item 没有「多余」的概念）
+    # 只在**目录型 item** 下扫（文件型 item 没有“多余”的概念）
     for item in items:
         if Path(item).suffix:
             continue
@@ -214,7 +214,7 @@ def restore_snapshot(snap_id, history_dir="history", yes=False, delete_extra=Fal
     """从快照恢复。返回 (ok, messages)。
 
     yes=False（默认）= dry-run，只打印计划不做任何改动。
-    delete_extra=True 才删除「快照里没有」的额外文件（默认保留）。
+    delete_extra=True 才删除“快照里没有”的额外文件（默认保留）。
     """
     msgs = []
     snap_dir, err = resolve_snapshot(snap_id, history_dir)
@@ -297,8 +297,8 @@ def snapshot_ids(history_dir="history"):
     """列出全部快照 ID（目录名），按名称（= 时间戳）排序。**只读、不打印**。
 
     供 CLI（list_snapshots）与 MCP 工具（nf_restore_snapshot 的预览）共用 ——
-    「哪些目录算快照」这一判据只写一处，避免两处各判一次各错一次
-    （见 TESTS.md 的「复制实现」教训）。history_dir 非法（不含 history 段）时返回空列表。
+    “哪些目录算快照”这一判据只写一处，避免两处各判一次各错一次
+    （见 TESTS.md 的“复制实现”教训）。history_dir 非法（不含 history 段）时返回空列表。
     """
     try:
         root = _history_root(history_dir)

@@ -5,7 +5,7 @@
 
 `rotate_days` 曾长期是**死配置**——没有任何代码读它，
 `%LOCALAPPDATA%/Temp/nf_api_child.log` 被 Electron 无界追加。
-这类「配置写了但没人读」的缺陷不会报错、不会崩、单测也不会红，
+这类\u300c配置写了但没人读\u300d的缺陷不会报错、不会崩、单测也不会红，
 只会让日志长到几百 MB 之后才开始有人抱怨。
 
 ## 本测试如何避免污染真实环境
@@ -103,7 +103,7 @@ def test_level_cfg_unpack_order():
 
     `load_logging_cfg` 返回 (level, rotate_days)。曾把它 unpack 成
     `_lvl, cfg_level`，于是 cfg_level = 30（int）→ `_LEVELS.get(30, 20)`
-    落默认值 20 → debug 被误判为「不该输出」。
+    落默认值 20 → debug 被误判为\u300c不该输出\u300d。
     """
     print("\n[3] 配置解包顺序（历史缺陷回归）")
     with Sandbox() as sb:
@@ -215,9 +215,9 @@ def test_status():
               st["level"] == "warn" and st["rotate_days"] == 5, st)
         check("exists 为 True 且 size > 0",
               st["exists"] and st["size_bytes"] > 0, st)
-        # age_days 用「整数天差」计算，刚写的日志应为 0。
+        # age_days 用“整数天差”计算，刚写的日志应为 0。
         #
-        # 这里刻意断言 == 0 而不是 `in (0, 1)`：曾经写成 `in (0,1)` 来「防跨午夜」，
+        # 这里刻意断言 == 0 而不是 `in (0, 1)`：曾经写成 `in (0,1)` 来“防跨午夜”，
         # 结果**掩盖了一个真缺陷** —— `timedelta.days` 对负值向下取整，
         # 而 mtime 可能比 now() 晚哪怕 1 微秒（文件系统时间戳精度），
         # 于是刚写的日志算出 -1 天。断言要钉死契约，不能放宽到容忍坏值。

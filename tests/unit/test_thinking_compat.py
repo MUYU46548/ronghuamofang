@@ -4,8 +4,8 @@
 三部分：
 A. 离线单测：名单匹配 / 关闭思考片段注入 / 候选自动切换与降级 / reasoning_content 兜底
    （stub 拦截 _request_json 与 urlopen，零网络、零费用）
-B. 真实探针：直连 TokenHub glm-5.1，验证「不关思考 → content 空」与
-   「关闭思考 → content 非空」，并记录 reasoning_effort 被平台拒收的事实（少量 token）
+B. 真实探针：直连 TokenHub glm-5.1，验证\u300c不关思考 → content 空\u300d与
+   \u300c关闭思考 → content 非空\u300d，并记录 reasoning_effort 被平台拒收的事实（少量 token）
 C. 集成：make_client 从 config 读到名单/片段，_post_chat 返回的 content 非空
 
 用法：python tests/test_thinking_compat.py [--offline]
@@ -39,7 +39,7 @@ def check(name, cond, detail=""):
 def check_skip(name, reason=""):
     """跳过（**不是失败**）：断言无从执行，例如缺少密钥/外部服务。
 
-    区分 SKIP 与 FAIL 很重要：把「未执行」报成「失败」会让真正的回归信号被淹没，
+    区分 SKIP 与 FAIL 很重要：把\u300c未执行\u300d报成\u300c失败\u300d会让真正的回归信号被淹没，
     也会诱导人用错误手段（比如提交密钥）去消灭红色。
     """
     SKIP.append(name)
@@ -83,7 +83,7 @@ def case_matching():
 
 
 def case_payload_injection():
-    print("\n=== A2. payload 注入「关闭思考」片段 ===")
+    print("\n=== A2. payload 注入\u300c关闭思考\u300d片段 ===")
     c = fake_client("glm-5.1")
     p = {"model": "glm-5.1", "messages": []}
     inj = c._apply_no_thinking(p, "glm-5.1")
@@ -170,7 +170,7 @@ def case_offline_flow():
     # 生产真实形态（2026-09-23 补）：写作是**纯正文**，reasoning_content 里没有协议块。
     # 原实现此时返回整段思考 → 思考被当正文写进小说（实测 minimax-m2.7 复现）。
     # 上面那条 fixture 恰好带 ===FILE: 标记，所以旧断言永远通过 —— 典型的
-    # 「测了生产中不走的路」。这两条钉住无标记时必须**丢弃**。
+    # “测了生产中不走的路”。这两条钉住无标记时必须**丢弃**。
     def stub_pure_thinking(payload):
         return {"choices": [{"message": {"content": "",
                                          "reasoning_content": 'The user says "第 2 次"，我先理解一下…'}}],
@@ -220,7 +220,7 @@ def case_param_rejected():
           text2 == "plain-ok" and not OpenAICompatClient._thinking_keys_present(seen2[-1]),
           [sorted(s.keys()) for s in seen2])
     c3 = fake_client("glm-5.1")
-    check("无关 400 不被误判为「拒绝思考参数」",
+    check("无关 400 不被误判为\u300c拒绝思考参数\u300d",
           not c3._reject_thinking_snippet(GLM_OFF, 400, "invalid api key"))
 
 
@@ -322,10 +322,10 @@ def case_live():
         #
         # 密钥不入版本控制是**正确行为**（红线：API Key 绝不进 git）。
         # 但曾经这里判 FAIL，导致两个坏后果：
-        #   ① 干净检出 / CI 上必然红 —— 红的是「没配密钥」而非代码缺陷，
+        #   ① 干净检出 / CI 上必然红 —— 红的是“没配密钥”而非代码缺陷，
         #      真正的回归信号被淹没；
         #   ② 更糟：它**激励错误行为** —— 让人为了变绿而把 .env 提交进去。
-        # 探针的价值在于「有密钥时验证真实行为」，无密钥时它本就无从验证，
+        # 探针的价值在于“有密钥时验证真实行为”，无密钥时它本就无从验证，
         # 那不是失败，是未执行。
         check_skip("真实探针（需 TOKENHUB_API_KEY，未配置则跳过）",
                    f"未找到 {PROV.get('api_key_env')}（密钥不入库，属预期）")
@@ -347,7 +347,7 @@ def case_live():
     # reasoning_content。这是本模块要防的缺陷。但供应商上游会变 —— 若某天它默认
     # 就正常把正文放 content，那么"content 必为空"这条硬断言反而会误报失败。
     # 因此这里只**记录观测事实**并打印，供人判断上游行为是否变化；真正必须守住
-    # 的不变量是「关思考后 content 非空」（探针 2），那才与本项目的修复目的相关。
+    # 的不变量是“关思考后 content 非空”（探针 2），那才与本项目的修复目的相关。
     d1, c1, r1, note1 = probe(None)
     print("  [默认/不关思考] content=%d 字, reasoning_content=%d 字 (%s)" % (len(c1), len(r1), note1))
     if note1.startswith("HTTP"):
@@ -396,7 +396,7 @@ def case_cache_field_parse():
     """缓存命中字段解析（2026-09-23 修，防回归锚）。
 
     修前的 bug：只读 `usage["cache_read_tokens"]` —— 该键在 OpenAI / DeepSeek /
-    Anthropic **任何一家都不存在**，于是命中数恒为 0。而上面那条「用量回传正常」
+    Anthropic **任何一家都不存在**，于是命中数恒为 0。而上面那条\u300c用量回传正常\u300d
     只断言了 prompt_tokens 是 int，所以这个错误长期零告警：**测试全绿、生产静默失效**。
     这些断言把各家的真实字段形态钉住，谁再改回旧键就立刻红。
     """

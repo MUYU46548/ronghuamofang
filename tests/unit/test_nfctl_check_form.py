@@ -9,7 +9,7 @@
 2. **API Key 空 = 阻塞** —— engine=hermes 时 LLM 走 agent 子会话（订阅流量），
    直连 Key 根本不参与运行。
 
-假红会训练人忽略红灯（这恰是「agent 分不清开发态和客户端」痛点的一半：check 自己
+假红会训练人忽略红灯（这恰是\u300cagent 分不清开发态和客户端\u300d痛点的一半：check 自己
 不先说清形态，人和 agent 都会把安装态误读成坏环境）。本文件把两种形态的语义钉死。
 
 ## 判据设计
@@ -75,17 +75,17 @@ def test_A_installed_form():
     try:
         res = collect_check(tmp)
         check("A1 form 标为 installed", res.get("form") == "installed", res.get("form"))
-        check("A2 「执行形态」自检项在场且为 ok",
+        check("A2 \u300c执行形态\u300d自检项在场且为 ok",
               any(it["name"] == "执行形态" and it["ok"] for it in res["items"]),
               [it["name"] for it in res["items"]][:4])
         check("A3 venv 不再是阻塞（安装态设计如此）",
               "venv python" not in _blocking(res), _blocking(res))
         check("A4 hermes 空 Key 不再是阻塞",
               "API Key 已配置" not in _blocking(res), _blocking(res))
-        check("A5 反证：夹具缺 prompts，「提示词模板完整」仍须阻塞（不是整绿）",
+        check("A5 反证：夹具缺 prompts，\u300c提示词模板完整\u300d仍须阻塞（不是整绿）",
               "提示词模板完整" in _blocking(res), _blocking(res))
         rendered = render_check(res)
-        check("A6 渲染文案带「安装态」",
+        check("A6 渲染文案带\u300c安装态\u300d",
               "安装态" in rendered, rendered.splitlines()[0])
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -102,7 +102,7 @@ def test_B_source_form():
         check("B3 direct 引擎空 Key 仍是阻塞",
               "API Key 已配置" in _blocking(res), _blocking(res))
         rendered = render_check(res)
-        check("B4 渲染文案带「源码态」",
+        check("B4 渲染文案带\u300c源码态\u300d",
               "源码态" in rendered, rendered.splitlines()[0])
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""断点续跑「产物有效性」判据自检（`utils.verify_chapter.is_usable_output`）。
+"""断点续跑\u300c产物有效性\u300d判据自检（`utils.verify_chapter.is_usable_output`）。
 
 ## 为什么需要这套用例
 
@@ -62,13 +62,13 @@ def case_judgement():
     check("目标比原稿长（润色扩写）→ 可用",
           is_usable_output(src, _w(d / "long.md", "正文内容" * 260)) is True)
     # 阈值边界：刚好 30%
-    check("恰在 30% 边界 → 可用（阈值是「< 30% 才判不可用」）",
+    check("恰在 30% 边界 → 可用（阈值是\u300c< 30% 才判不可用\u300d）",
           is_usable_output(src, _w(d / "edge.md", "正文内容" * 60)) is True)
-    # 源不存在时退化为「目标非空即可用」
+    # 源不存在时退化为“目标非空即可用”
     check("原稿缺失但目标非空 → 可用（不因缺源而误杀）",
           is_usable_output(d / "no_src.md", _w(d / "t2.md", "正文内容" * 80)) is True)
     # 2026-10-27：重写单章后 raw 比 checked 新 —— 旧 checked 可能仍有 33% 字数，
-    # 光看比例会判「可用」，重跑 stage5 直接跳过（用户实测踩到）。必须按 mtime 判过期。
+    # 光看比例会判“可用”，重跑 stage5 直接跳过（用户实测踩到）。必须按 mtime 判过期。
     fresh_src = _w(d / "fresh_src.md", "重写后的新正文" * 200)
     stale_out = _w(d / "stale_out.md", "上一轮的旧正文" * 200)
     old = time.time() - 3600
@@ -82,7 +82,7 @@ def case_judgement():
 
 
 def case_callsites_use_it():
-    print("\n【2】调用点真的用它（防「修好了又漂回 exists()」）")
+    print("\n【2】调用点真的用它（防\u300c修好了又漂回 exists()\u300d）")
     s5 = (ROOT / "scripts" / "stage5_check.py").read_text(encoding="utf-8")
     s6 = (ROOT / "scripts" / "stage6_polish.py").read_text(encoding="utf-8")
     check("stage5 的续跑判据用 is_usable_output",

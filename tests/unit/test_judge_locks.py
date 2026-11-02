@@ -2,9 +2,9 @@
 """P0 拆锁与预算校验的判据（F15/F16/F17 + R01/D1）—— 零 token、纯静态 + 纯函数。
 
 三条拆锁各自带**反证**（把锁加回去，判据必须变红）：
-- F15 「擅长克制叙事」写死在 stage4 系统提示里
-- F16 「不得新增关键情节」= 密度上限锁
-- F17 无范文时仍注入「中立克制 / 内敛克制」风格指令
+- F15 \u300c擅长克制叙事\u300d写死在 stage4 系统提示里
+- F16 \u300c不得新增关键情节\u300d= 密度上限锁
+- F17 无范文时仍注入\u300c中立克制 / 内敛克制\u300d风格指令
 
 用法：python tests/unit/test_judge_locks.py
 """
@@ -39,9 +39,9 @@ def main():
     stage4 = (ROOT / "prompts" / "stage4_writing.md").read_text(encoding="utf-8")
 
     print("=== A. F15/F16：两处提示词锁已拆 ===")
-    check("stage4 不含「%s」" % LOCK_A, LOCK_A not in stage4,
+    check("stage4 不含\u300c%s\u300d" % LOCK_A, LOCK_A not in stage4,
           scan(stage4, [LOCK_A]))
-    check("stage4 不含「%s」" % LOCK_B, LOCK_B not in stage4,
+    check("stage4 不含\u300c%s\u300d" % LOCK_B, LOCK_B not in stage4,
           scan(stage4, [LOCK_B]))
     # 反证：把锁写回一份临时文本，判据必须变红
     fake = stage4 + "\n你是" + LOCK_A + "。\n可补充细节，但" + LOCK_B + "。\n"
@@ -55,7 +55,7 @@ def main():
           repr(SA.build_style_instruction({}))[:40])
     neutral = SA.build_style_instruction({
         "sentiment": {"tone": "中性", "positive": 0, "negative": 0, "polarity": 0}})
-    check("无明确情感倾向 → 不写「中立克制」", not scan(neutral, LOCK_C),
+    check("无明确情感倾向 → 不写\u300c中立克制\u300d", not scan(neutral, LOCK_C),
           neutral[:120])
     low_dlg = SA.build_style_instruction({"dialogue_ratio": 0.02})
     check("对白占比低 → 只报读数，不追加风格指令", "对白占比低" in low_dlg

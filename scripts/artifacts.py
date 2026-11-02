@@ -87,7 +87,7 @@ ARTIFACT_KINDS = (
      "reuse": "直接读；GUI 页签也读它 —— 要留存请用 `--export`，**不要删**"},
     {"id": "sandbox", "grade": "keep", "path": "data/state/obsidian_sandbox",
      "what": "待审产物（回写设定库的草稿）",
-     "reuse": "走审核流程（`sandbox_review.py --queue` / GUI「审核」页签）"},
+     "reuse": "走审核流程（`sandbox_review.py --queue` / GUI“审核”页签）"},
     {"id": "cost_db", "grade": "keep", "path": "logs/runs.db",
      "what": "运行记录与成本账本（token 熔断的计量来源）",
      "reuse": "`cost_report.py`、`nfctl status` 的 token 用量都读它 —— **删了就没账**"},

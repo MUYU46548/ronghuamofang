@@ -15,7 +15,7 @@ const CHROME = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 // 新面板 + 联调页签；顺序即截图顺序
 const TABS = ['流水线', '审稿', '校对', '文风', '文风>章节节奏', '成本', '分章', '项目', '导出'];
 const SKIP_ESTIMATE_PROBE = false;
-// 运行前预估确认框（点「运行」阶段1 会先弹预估，这里只截不确认）
+// 运行前预估确认框（点“运行”阶段1 会先弹预估，这里只截不确认）
 const PROBE_ESTIMATE = true;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -135,7 +135,7 @@ class CDP {
     const online = await cdp.evalJS("document.querySelector('.conn')?.textContent || '?'");
     console.log('连接状态:', online.trim());
     if (!/已连接/.test(online)) {
-      console.log('WARN: 控制台显示「' + online.trim() + '」——检查 nf_api 是否在 8765');
+      console.log('WARN: 控制台显示“' + online.trim() + '”——检查 nf_api 是否在 8765');
     }
 
     let idx = 0;
@@ -162,7 +162,7 @@ class CDP {
       console.log('SHOT ' + path.basename(f) + '  ← ' + head.slice(0, 200));
     }
 
-    // 运行前 token/费用预估确认框：点「运行」只弹框、不发 POST；截完点「取消」
+    // 运行前 token/费用预估确认框：点“运行”只弹框、不发 POST；截完点“取消”
     await cdp.evalJS(`(() => {
       const b = [...document.querySelectorAll('nav.tabs button')]
         .find(x => x.textContent.trim() === '流水线');
@@ -191,12 +191,12 @@ class CDP {
           c.click();
           return true;
         })()`);
-        console.log(cancelled ? '已点击「取消」（未提交任何运行）' : 'WARN 未找到取消按钮');
+        console.log(cancelled ? '已点击“取消”（未提交任何运行）' : 'WARN 未找到取消按钮');
       } else {
-        console.log('WARN 点「运行」后没有出现预估确认框');
+        console.log('WARN 点“运行”后没有出现预估确认框');
       }
     } else {
-      console.log('SKIP 找不到「运行」按钮');
+      console.log('SKIP 找不到“运行”按钮');
     }
 
     const errs = cdp.errors();

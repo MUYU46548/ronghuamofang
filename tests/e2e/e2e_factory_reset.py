@@ -2,8 +2,8 @@
 """出厂测试项目一键还原 —— 真机视觉验收（针对本功能，替代卡壳的全量脚本）。
 
 起 scratch 工作区（带出厂标记 + 测试进度）+ nf_api --root，Playwright 真浏览器：
-项目页出现还原面板（按钮可用）→ 点「一键还原」→ 弹窗列出将清除项 → 滑条中途松手
-弹回不解锁 → 拖到最右解锁 → 点「开始还原」→ toast 报成功 → 面板按钮置灰
+项目页出现还原面板（按钮可用）→ 点\u300c一键还原\u300d→ 弹窗列出将清除项 → 滑条中途松手
+弹回不解锁 → 拖到最右解锁 → 点\u300c开始还原\u300d→ toast 报成功 → 面板按钮置灰
 （已是出厂状态）→ 磁盘验证：进度清掉、素材铺回出厂。
 截图存 Temp/gui_verify/factory_reset/。
 """
@@ -124,7 +124,7 @@ def main():
             page.locator("button", has_text="项目").first.click()
             page.wait_for_timeout(1200)
             panel = page.locator("button", has_text="一键还原")
-            check("项目页出现「一键还原」按钮（出厂项目）", panel.count() > 0)
+            check("项目页出现\u300c一键还原\u300d按钮（出厂项目）", panel.count() > 0)
             check("有测试进度 → 按钮可用（未置灰）",
                   panel.count() > 0 and panel.first.is_enabled())
             check("面板带擦除计划说明",
@@ -139,7 +139,7 @@ def main():
             check("确认弹窗出现（列出将清除项 + 滑条）",
                   slider.count() > 0 and "将清除" in page.locator(".dialog").first.inner_text())
             start_btn = page.locator(".dialog button", has_text="开始还原")
-            check("「开始还原」默认禁用（未滑条不解锁）",
+            check("\u300c开始还原\u300d默认禁用（未滑条不解锁）",
                   start_btn.count() > 0 and not start_btn.first.is_enabled())
             page.screenshot(path=str(SHOT / "2_dialog.png"))
             # 第二步：滑条解锁 —— 先拖一半松手验证弹回，再拖到底解锁
@@ -164,13 +164,13 @@ def main():
                 page.wait_for_timeout(60)
             page.mouse.up()
             page.wait_for_timeout(150)
-            check("拖到最右 → 解锁「开始还原」", start_btn.first.is_enabled())
+            check("拖到最右 → 解锁\u300c开始还原\u300d", start_btn.first.is_enabled())
             page.screenshot(path=str(SHOT / "3_slid.png"))
             # 第三步：执行
             start_btn.first.click()
             page.wait_for_timeout(2500)
             body = page.inner_text("body")
-            check("toast 报「已还原到出厂状态」", "已还原到出厂状态" in body)
+            check("toast 报\u300c已还原到出厂状态\u300d", "已还原到出厂状态" in body)
             check("还原后面板按钮置灰（已是出厂状态，2026-10-24 用户点名场景）",
                   panel.count() > 0 and panel.first.is_disabled())
             page.screenshot(path=str(SHOT / "4_done.png"))

@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-"""stage4「停止」要真的停下来（2026-10-26，用户第 6 条）。
+"""stage4\u300c停止\u300d要真的停下来（2026-10-26，用户第 6 条）。
 
 ## 为什么单独一个用例
 
-用户原话：「我受不了那个永恒的 29% 了，直接批准让 AI 试跑阶段三。依旧点停止停不下来，绝了。」
+用户原话：\u300c我受不了那个永恒的 29% 了，直接批准让 AI 试跑阶段三。依旧点停止停不下来，绝了。\u300d
 
 真实原因不是按钮坏了，是**停止语义只存在于章间**：非流式 `run_task` 要等整章
 返回（十几分钟）才轮到下一轮循环检查 `_stop_requested()`。这一章写不完，
@@ -18,7 +18,7 @@ A. `_run_task_safe` 在有 `run_task_stream` 的客户端上**确实走流式**
 B. 中断章**不落盘**（盘上只有已完成的那一章）
 C. 中断 ≠ 失败：阶段状态是 `pending`（可断点续跑），不是 `failed`
 D. 已完成章保留、不被回滚
-E. 中断消息说清「半截不入稿」，不报成"失败"
+E. 中断消息说清\u300c半截不入稿\u300d，不报成"失败"
 
 纯 fake、零 LLM、零网络。
 用法：python tests/unit/test_stage4_stop_interrupt.py
@@ -58,10 +58,10 @@ SETTING = {
 
 
 class StreamStopClient:
-    """前 N-1 章交给真 FakeClient 流式写完，第 N 章模拟「用户点了停止」。
+    """前 N-1 章交给真 FakeClient 流式写完，第 N 章模拟\u300c用户点了停止\u300d。
 
     为什么要包一层：真实停止是 nf_api 置位 STOP_EVENTS 后 stage4 在流里查
-    `stop_flag()`；这里直接把「流被中断」的结果交给 stage4，测的是
+    `stop_flag()`；这里直接把\u300c流被中断\u300d的结果交给 stage4，测的是
     **stage4 拿到 stopped 之后怎么处理**（这条路径以前根本不存在）。
     """
 
@@ -137,8 +137,8 @@ def main():
               client.stream_calls >= 1, "stream_calls=%d calls=%d"
               % (client.stream_calls, client.calls))
         check("阶段返回 False（本轮没跑完）", ok is False, msg)
-        check("消息说清是「用户中断」", "中断" in msg, msg)
-        check("消息点明「半截不入稿」", "半截" in msg or "不入稿" in msg, msg)
+        check("消息说清是\u300c用户中断\u300d", "中断" in msg, msg)
+        check("消息点明\u300c半截不入稿\u300d", "半截" in msg or "不入稿" in msg, msg)
 
         raw = tmp / "data" / "chapters" / "raw"
         check("第 1 章已落盘（已完成的保留）", (raw / "01.md").exists(),
@@ -151,7 +151,7 @@ def main():
         print("\n【2】中断 ≠ 失败（状态语义）")
         check("阶段状态是 pending（可断点续跑）", progress.stage_status(4) == "pending",
               progress.stage_status(4))
-        check("**不是 failed**（否则界面显示「阶段 4 失败」，用户以为弄坏了）",
+        check("**不是 failed**（否则界面显示\u300c阶段 4 失败\u300d，用户以为弄坏了）",
               progress.stage_status(4) != "failed")
         check("已完成章仍在 completed_chapters 里",
               1 in progress.completed_chapters(4), progress.completed_chapters(4))
@@ -172,7 +172,7 @@ def main():
               0 < i_stopped < i_exit, (i_stopped, i_exit))
         check("写作回调传了 on_piece（实时字数要能上来）",
               "on_piece=_piece_progress(n" in src)
-        # 2026-10-30：回调多了「文本流是不是正文」这一个入参 —— agent 模式下 text 事件
+        # 2026-10-30：回调多了“文本流是不是正文”这一个入参 —— agent 模式下 text 事件
         # 是助手碎念，不许当字数（判据来自 client.writes_files）。
         check("文本流是否正文由客户端类型决定（agent 不把碎念当字数）",
               "_text_is_prose" in src

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """质量验收闸门自检（件4，2026-09-29）。
 
-验收（执行单 v2.2 件4）：「人为造红样例：流程被打回」。
+验收（执行单 v2.2 件4）：\u300c人为造红样例：流程被打回\u300d。
 
 做法：在临时项目根跑**真实** `orchestrator.run()`（全流程，各 stage 用 FakeStage
 mock 掉，零 LLM），章节产物**故意造红**（过短），观察收尾闸门是否真的阻断：
@@ -56,7 +56,7 @@ def build_sandbox(good_chapter):
         if src.exists():
             shutil.copy(src, root / "scripts" / name)
 
-    # target_words=200 / chapters=1 → 门槛 100 字，便于造「刚好合格」的章节
+    # target_words=200 / chapters=1 → 门槛 100 字，便于造“刚好合格”的章节
     (root / "config" / "project.yaml").write_text(
         "book:\n  name: 闸门测试书\n  genre: 测试\n  target_words: 200\n  chapters: 1\n",
         encoding="utf-8")
@@ -66,13 +66,13 @@ def build_sandbox(good_chapter):
         encoding="utf-8")
 
     if good_chapter:
-        # 5 段、每段错开长度（避免「连续三行相同」被判复读），共 >100 字
+        # 5 段、每段错开长度（避免“连续三行相同”被判复读），共 >100 字
         body = ""
         for i, n in enumerate((70, 60, 50, 40, 35), 1):
             body += "第" + str(i) + "段" + ("测试正文内容" * (n // 6 + 1))[:n] + "\n\n"
         text = body
     else:
-        text = "太短了。\n"          # 结构检查直接判「过短 / 无段落分隔」
+        text = "太短了。\n"          # 结构检查直接判“过短 / 无段落分隔”
     (root / "data" / "chapters" / "refined" / "01.md").write_text(text, encoding="utf-8")
     return root
 

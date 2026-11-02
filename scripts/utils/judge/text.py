@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """判定引擎的文本层：分段 / 分句 / 定位 / 计数（确定性，零模型）。
 
-为什么单独一层：所有规则都要回答「第几段、哪一句」，如果每支规则各写一套切分，
+为什么单独一层：所有规则都要回答“第几段、哪一句”，如果每支规则各写一套切分，
 同一句话在不同规则里会得到不同段号，缺陷单就会出现"同句两个位置"的自相矛盾。
-段号从 1 开始，与界面「第 3 段」一致。
+段号从 1 开始，与界面“第 3 段”一致。
 """
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ import re
 # 句末（含中文省略号与分号：判定按"一句话"切，不按语法句切）
 SENT_END = "。！？…；!?;"
 # 句末之后可能还有收尾引号，不另起一句
-CLOSERS = "”」』）)]】"
+CLOSERS = "””’）)]】"
 
 MD_COMMENT = re.compile(r"<!--[\s\S]*?-->")
 
@@ -102,10 +102,10 @@ def snippet(sentence: str, limit: int = 20) -> str:
 
 
 def dialogue_count(text: str) -> int:
-    """对话句数（含「」“”『』或对话标签「……说」）。"""
+    """对话句数（含“”“”‘’或对话标签“……说”）。"""
     n = 0
     for _pi, _si, sent in iter_sentences(text):
-        if re.search(r"[「『]|[“”]", sent) or re.search(r"(说|问|答|道)[：:「“]", sent):
+        if re.search(r"[“‘]|[“”]", sent) or re.search(r"(说|问|答|道)[：:““]", sent):
             n += 1
     return n
 

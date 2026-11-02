@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 """生成前 token / 费用预估（确定性，零 LLM 调用）。
 
-用途：GUI 在「运行阶段 / 全自动运行」前弹出预估确认框，让用户先看到
+用途：GUI 在“运行阶段 / 全自动运行”前弹出预估确认框，让用户先看到
 **预计还要消耗多少 token、大概花多少钱**，再决定是否开跑。
 
 估算策略（先实测、后退化）
 1. **历史优先**：logs/runs.db 的 cost_log 已记录每次真实调用的 tokens_in/out，
    同阶段历史均值 × 本次计划调用次数 = 最贴近现实的估算（会标注 basis 来源）。
-2. **字符折算兜底**：无历史时按「1 token ≈ CHARS_PER_TOKEN 字符」折算
+2. **字符折算兜底**：无历史时按“1 token ≈ CHARS_PER_TOKEN 字符”折算
    （默认 1.5，偏保守 → 估多不估少，可在 config/system.yaml 用
    `estimate.chars_per_token` 覆盖），并对设定集等大文件施加与流水线一致的
    内联上限（INLINE_LIMIT）。
@@ -39,10 +39,10 @@ from utils.config_io import load_config_yaml
 from utils.engine import resolve_engine                   # noqa: E402
 
 DEFAULT_CHARS_PER_TOKEN = 1.5
-# 与直连引擎「目录内联」一致的总量上限（超限只 WARN 且静默丢文件）
+# 与直连引擎“目录内联”一致的总量上限（超限只 WARN 且静默丢文件）
 INLINE_LIMIT = 220000
 # stage4/5/6 的提示词是**按路径引用**设定集（由模型 read_file 按需读取），
-# 不是整份内联。故对这类「按需读取」的上下文施加单次调用预算，
+# 不是整份内联。故对这类“按需读取”的上下文施加单次调用预算，
 # 默认 40000 字符（≈2.7 万 token，与本项目 stage4 实测均值吻合）。
 # 可在 config/system.yaml 用 `estimate.context_budget_chars` 覆盖。
 DEFAULT_CONTEXT_BUDGET = 40000
@@ -429,7 +429,7 @@ def format_text(result):
     tk = result.get("token_limit") or {}
     if not tk.get("enabled"):
         L.append("token 闸门：**未启用** —— engine: hermes 下金额阈值无效，"
-                 "本轮没有任何止烧闸门（可在桌面端「设置 → 预算与止烧」开启）")
+                 "本轮没有任何止烧闸门（可在桌面端“设置 → 预算与止烧”开启）")
     else:
         L.append("token 闸门：已用 %d / 上限 %d；跑完预计 %d（%.1f%%）%s"
                  % (tk.get("used_tokens", 0), tk.get("max_total_tokens", 0),

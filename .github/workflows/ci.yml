@@ -35,8 +35,8 @@ jobs:
           cache: pip
 
       # 依赖装进**项目 .venv** —— 源码态约定：interp_guard 与测试套（B1/D2/E3 等）
-      # 都假定仓库里有 .venv；装进 setup-python 解释器会让守卫判「缺 PyYAML 且
-      # 项目没有 .venv」直接拦下（10-10 首轮 Windows CI 红的根因之一）。
+      # 都假定仓库里有 .venv；装进 setup-python 解释器会让守卫判“缺 PyYAML 且
+      # 项目没有 .venv”直接拦下（10-10 首轮 Windows CI 红的根因之一）。
       # 装进 setup-python 的老步骤已删（.venv 才是这些断言的对象）。
       - name: 建项目 .venv 并装依赖
         env:
@@ -58,7 +58,7 @@ jobs:
         run: .\.venv\Scripts\python.exe scripts\nfctl.py test
 
   # ==========================================================================
-  # 泄露门禁：挡住「私人词 → 发布树」。
+  # 泄露门禁：挡住“私人词 → 发布树”。
   #
   # fail-closed 是刻意的：secret 缺失 / 为空 / 条目数不足 → 任务直接红。
   # 一个悄悄退化成空名单的门禁等于没有门禁，而"扫了但没报"比没扫更危险。

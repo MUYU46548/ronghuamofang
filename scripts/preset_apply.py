@@ -53,14 +53,14 @@ def find_presets_dir(root):
        取其 `presets/`）—— **打包态唯一能命中的候选**：主进程把 nf_api 起在
        **工作区播种的 scripts 副本**上（`ws/scripts/nf_api.py`），DEFAULT_ROOT
        因此落在工作区，而播种只带 scripts/prompts/templates、不带 examples/；
-       2026-10-24 实测：装机版向导「选预设」恒空报「找不到 examples/presets/」，
+       2026-10-24 实测：装机版向导“选预设”恒空报“找不到 examples/presets/”，
        预设功能在安装包里整体失效（源码态 DEFAULT_ROOT=仓库根，测不出来）。
     ② root/examples/presets（源码态 --root 指仓库根时命中）
     ③ 脚本位置兜底（DEFAULT_ROOT）
     ④ **随包位置反推**（`utils.app_paths`）：从解释器位置往上层找
        `resources/payload/examples`。2026-10-25 量出第二种形态 —— 活的 nf_api
        （Electron 起的，带 env）`GET /factory/presets` 正常返回预设，而同一台
-       机器上在终端里跑本脚本的同一条解析链却报「找不到 examples/presets/」，
+       机器上在终端里跑本脚本的同一条解析链却报“找不到 examples/presets/”，
        因为 env 只存在于主进程 spawn 那一条路。预设不是 GUI 专属能力：
        CLI / MCP 垫片代拉 / 排障脚本都得能解析 —— 候选表里必须有一条
        **不依赖运行环境**的位置判据。
@@ -193,7 +193,7 @@ def apply(preset_id, root, new_name=None, replace=False, dry_run=False, hidden_o
     print("[preset] 素材: %d 张卡 -> materials/raw/" % n_cards)
     print("[preset] 章数: %s / 题材: %s" % (meta.get("chapters"), meta.get("genre")))
     if work:
-        print("[preset] 当前工作区: 「%s」（有数据）" % (cur or "未命名"))
+        print("[preset] 当前工作区: “%s”（有数据）" % (cur or "未命名"))
 
     if dry_run:
         print("[preset] --dry-run：不做任何写入。")
@@ -216,7 +216,7 @@ def apply(preset_id, root, new_name=None, replace=False, dry_run=False, hidden_o
         if not ok:
             print("[preset] 归档失败，已中止（未做改动）: %s" % msg)
             return 1
-        notes.append("已归档「%s」" % (cur or books))
+        notes.append("已归档“%s”" % (cur or books))
 
     ok, msg = sb.init_empty()
     if not ok:
@@ -253,7 +253,7 @@ def apply(preset_id, root, new_name=None, replace=False, dry_run=False, hidden_o
         return 1
     notes.append(msg)
 
-    # 出厂测试项目标记：这本从此可「一键还原」（utils/factory_reset）。
+    # 出厂测试项目标记：这本从此可“一键还原”（utils/factory_reset）。
     # 换书/归档时由 switch_book 清除 —— 标记与书名绑定，惰性不误伤真书。
     try:
         from utils import factory_reset as fr

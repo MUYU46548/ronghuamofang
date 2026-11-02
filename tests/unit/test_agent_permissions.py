@@ -3,16 +3,16 @@
 
 ## 为什么需要
 
-用户 2026-10-24 原话：「在客户端内根本分不清哪些会走 agent 哪些直接走内部
-配置 API，很混乱。Agent 模式没做好界面」。
+用户 2026-10-24 原话：\u300c在客户端内根本分不清哪些会走 agent 哪些直接走内部
+配置 API，很混乱。Agent 模式没做好界面\u300d。
 
 病根是**两份名单**：判据的唯一真源是 `utils/agent_guard.FORBIDDEN_IN_AGENT_MODE`，
-而 GUI 上「哪些按钮被锁、哪些不受影响」是模板里**硬编码的一句话**（agent-bar）。
+而 GUI 上\u300c哪些按钮被锁、哪些不受影响\u300d是模板里**硬编码的一句话**（agent-bar）。
 两处各自维护 → 必然漂移，漂移时界面就在对用户说假话，且没有任何信号暴露它。
 
 本端点把权威名单交给前端渲染；本用例守四件事：
 
-1. **清单与真源逐条一致**（不许漏、不许多）—— 这是「不再有两份名单」的机械保证；
+1. **清单与真源逐条一致**（不许漏、不许多）—— 这是\u300c不再有两份名单\u300d的机械保证；
 2. **每条都有人话说明** —— 只甩端点路径给用户看等于没说（原抱怨的一半）；
 3. **三类边界齐全**：forbidden（后端 403）/ internal（Agent 可驱动）/ run_locked
    （GUI 运行锁，是防双跑不是权限拦截，必须与前两者区分开）；
@@ -81,7 +81,7 @@ def case_why_present():
     empty = [f["path"] for f in payload["forbidden"]
              if not str(f.get("why") or "").strip()]
     check("无 why 为空的条目（只甩路径等于没说）", not empty, empty)
-    # why 必须解释「为什么归用户」，而不是复读端点名
+    # why 必须解释“为什么归用户”，而不是复读端点名
     sample = next((f for f in payload["forbidden"] if f["path"] == "/approve"), None)
     check("/approve 的 why 提到审批语义",
           sample and "审批" in sample["why"], sample)
@@ -102,7 +102,7 @@ def case_three_buckets():
           not overlap, sorted(overlap))
     check("/approve 只在 forbidden，不在 internal",
           "/approve" in forbidden_paths and "/approve" not in internal_paths)
-    # run_locked 的第二条必须讲明「审批不受影响」—— 这正是用户分不清的那件事
+    # run_locked 的第二条必须讲明“审批不受影响”—— 这正是用户分不清的那件事
     rl_texts = " ".join(r.get("what", "") + r.get("why", "") for r in payload["run_locked"])
     check("run_locked 说明了审批/打回不受影响",
           "审批" in rl_texts and ("不受影响" in rl_texts or "只归桌面端" in rl_texts),

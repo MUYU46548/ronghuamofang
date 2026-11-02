@@ -139,11 +139,11 @@ def case_stage4_wiring():
     # 2026-10-22 第一波防御：run_task 外面包了 _run_task_safe（断网异常兜底），
     # session_id 经 **kw 透传 —— 判据认两种形态（透传成立即算接线在）。
     # 2026-10-26：写作改走流式后，这一行变成多行调用（多一个 on_piece 参数），
-    # 不再能整句匹配；判据退成「参数确实传进去了」，不绑定换行与缩进。
+    # 不再能整句匹配；判据退成“参数确实传进去了”，不绑定换行与缩进。
     check("K7 stage4 传了 session_id（hermes 续接靠它）",
           "session_id=chapter_session" in src, "")
     check("K7 有 chapter_session 初始化", "chapter_session = None" in src, "")
-    # 更新语句必须落在「本章成功」分支内（consec_fail = 0 之后），而不是失败分支
+    # 更新语句必须落在“本章成功”分支内（consec_fail = 0 之后），而不是失败分支
     tree = ast.parse(src)
     ok_order = False
     for node in ast.walk(tree):
@@ -156,7 +156,7 @@ def case_stage4_wiring():
         if i_reset != -1 and i_set != -1:
             ok_order = i_set > i_reset
             break
-    check("K7 session 更新在「成功」之后（不在失败分支）", ok_order, ok_order)
+    check("K7 session 更新在\u300c成功\u300d之后（不在失败分支）", ok_order, ok_order)
     check("K7 更新前有 session_continuation 守卫",
           'getattr(client, "session_continuation", False)' in src, "")
 
@@ -180,7 +180,7 @@ def case_all_implementations():
                         missing.append("%s:%d" % (p.relative_to(REPO).as_posix(),
                                                   node.lineno))
     # 实测踩到：stage4 改调 `run_task(task, session_id=...)` 后，FakeClient 没跟着改
-    # → 4 个端到端用例整片 TypeError。这条护栏就是防「加了参数却漏改某个实现」。
+    # → 4 个端到端用例整片 TypeError。这条护栏就是防“加了参数却漏改某个实现”。
     check("K8 无遗漏实现（否则调用方传参会 TypeError）", not missing, missing)
 
 

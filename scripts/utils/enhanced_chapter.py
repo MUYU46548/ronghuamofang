@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """加强模式：单章拆段落群生成（第一波防御 · 任务三，2026-10-22）。
 
-施工单口径：设置中新增「加强模式」开关，默认关闭；开启后单章生成改为
+施工单口径：设置中新增“加强模式”开关，默认关闭；开启后单章生成改为
 **章 → 段落 → 段落群**，逐段群生成后拼装成章；字数预算按段群分配下放
 （各段群配额之和 = 章节目标字数）。关闭时走原有整章流程，零影响。
 
@@ -50,8 +50,8 @@ MIN_GROUPS, MAX_GROUPS = 2, 8
 def plan_groups(target_low, target_high, group_words=None):
     """按章节目标字数规划段群配额。返回 [{'idx': 1, 'quota': 1800}, ...]。
 
-    配额之和 == 章节目标字数（取区间中值）—— 施工单「各段群配额之和 =
-    章节目标字数」。余数摊给前面的群（先写的角色多担一点，避免最后一群
+    配额之和 == 章节目标字数（取区间中值）—— 施工单“各段群配额之和 =
+    章节目标字数”。余数摊给前面的群（先写的角色多担一点，避免最后一群
     拿到零头还要"补满"）。
     """
     group_words = int(group_words or DEFAULT_GROUP_WORDS)
@@ -106,7 +106,7 @@ def build_group_task(cfg, proj, n, group, groups, prev_tail,
         "k": len(groups),
         "quota": group["quota"],
         # 区间形态同时服务两处：真模型拿它当目标带宽；FakeClient 按
-        # 「字数 X-Y 字」正则取目标字数（夹具兼容，勿改成裸数字）。
+        # “字数 X-Y 字”正则取目标字数（夹具兼容，勿改成裸数字）。
         "quota_low": int(group["quota"] * 0.85),
         "quota_high": int(group["quota"] * 1.15),
         "is_first": "是" if group["idx"] == 1 else "否",
@@ -172,7 +172,7 @@ def _report_part(pp, group, on_file_progress):
 
     为什么需要：hermes/agent 类引擎用 `write_file` 写正文，它回放的 text 事件
     只有助手自己的几句话（实测 8 个字），而 `gK.md` 已经几 KB —— 界面若只盯
-    text 事件，会一直显示「已写 8 字」，用户以为卡死。文件才是正文的真相。
+    text 事件，会一直显示“已写 8 字”，用户以为卡死。文件才是正文的真相。
     """
     if on_file_progress is None:
         return
@@ -213,7 +213,7 @@ def write_chapter_groups(cfg, proj, n, client, task_dir,
     chapter_feedback：整章级打回反馈（stage4 的重生成循环注入），
     下传给**每个**段群任务 —— 整章不过关时往往每群都有份。
     on_group(group, total_groups)：段群开始前的回调（stage4 用来写
-    「第 g/G 群 · 本群配额」进度；缺省 None = 不观测，测试行为不变）。
+    “第 g/G 群 · 本群配额”进度；缺省 None = 不观测，测试行为不变）。
     on_file_progress(words, bytes, group)：段群调用期间按**产物文件**回报
     真实进度（hermes 工具型写作不看 text 事件；见 `_report_part`）。
     should_stop()：群与群之间的停止判据（缺省不查；stage4 传 _stop_requested）。
@@ -231,8 +231,8 @@ def write_chapter_groups(cfg, proj, n, client, task_dir,
 
     for group in groups:
         if should_stop is not None and should_stop():
-            # 群与群之间也要认「停止」：只在群里杀子进程，下一群照样开新会话，
-            # 用户看到的就是「点了停止还在跑」。
+            # 群与群之间也要认“停止”：只在群里杀子进程，下一群照样开新会话，
+            # 用户看到的就是“点了停止还在跑”。
             agg["stopped"] = True
             return agg
         if on_group is not None:
@@ -269,7 +269,7 @@ def write_chapter_groups(cfg, proj, n, client, task_dir,
             agg["tokens_out"] += int(result.get("tokens_out") or 0)
             agg["requests"] += int(result.get("requests") or 1)
             if result.get("stopped"):
-                # 把「用户停了」原样传出去：只杀进程、不传标志的话，调用方会
+                # 把“用户停了”原样传出去：只杀进程、不传标志的话，调用方会
                 # 把这群当失败去重试/继续下一群 —— 停止形同虚设（2026-10-27）。
                 agg["stopped"] = True
                 return agg

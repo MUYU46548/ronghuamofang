@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
-"""设置页两条「界面接线」护栏（2026-10-31）。
+"""设置页两条\u300c界面接线\u300d护栏（2026-10-31）。
 
 ## 为什么单独立一条
 
 后端能跑 ≠ 用户能用。这批活里有两次是同一个形状：
 
 1. **引擎切换**：`config/system.yaml` 的 `engine` 一直可读不可写，设置页把它当
-   一行只读文字显示 —— 标题却写着「引擎与模型」。用户要换引擎只能手改 YAML，
+   一行只读文字显示 —— 标题却写着\u300c引擎与模型\u300d。用户要换引擎只能手改 YAML，
    而界面上看起来能点。**端点缺失**是靠肉眼发现的。
 2. **提示词还原**：`/prompts/factory_restore` 做完了，如果前端没接上，
    用户照样只有 history 回滚 —— 等于白做。
@@ -20,7 +20,7 @@ test_prompt_factory_http 的事），而是**前端真的调了它**。
 - U2 restorePromptFactory() 调 `/prompts/factory_restore`，模板里有该按钮
 - U3 新增的引擎面板样式**不得硬编码浅底**（暗色主题下必瞎，判据同
      test_ui_theme_and_paths 的 A 条；这里只查本批新增的类，避免与那边重复实现）
-- U4 不回到「一排 art-row + 原生 select」的老结构（`.rm-row` 必须在）
+- U4 不回到\u300c一排 art-row + 原生 select\u300d的老结构（`.rm-row` 必须在）
 
 用法：python tests/unit/test_engine_settings_ui.py
 """
@@ -47,7 +47,7 @@ def func_body(src, name):
     """粗切一个 `function name(...) { ... }` 的函数体（按大括号配平）。
 
     不做 AST：这是 .vue 里的 <script setup> 段，用 Python AST 解析不了。
-    判据只要「函数体内出现了某个字符串」，粗切够用；匹配不到返回空串（= 断言失败）。
+    判据只要\u300c函数体内出现了某个字符串\u300d，粗切够用；匹配不到返回空串（= 断言失败）。
     """
     m = re.search(r"(?:async\s+)?function\s+" + re.escape(name) + r"\s*\(", src)
     if not m:
@@ -90,7 +90,7 @@ def main():
     check("restorePromptFactory() 存在且非空", bool(body))
     check("函数体里调用了 /prompts/factory_restore",
           '"/prompts/factory_restore"' in body, body[:120])
-    check("模板里有「还原出厂默认」按钮",
+    check("模板里有\u300c还原出厂默认\u300d按钮",
           "还原出厂默认" in app and "@click=\"restorePromptFactory\"" in app)
     check("按钮在有出厂副本/已一致时禁用（防误点覆盖）",
           "hasFactory(promptName)" in app and "factoryIdentical(promptName)" in app)
@@ -132,7 +132,7 @@ def main():
           'class="rm-table"' in app and 'class="rm-row"' in app)
     check("角色用途列有中文说明（不再只给英文键名）",
           "ROLE_USE" in app and "正文写作" in app)
-    check("agent 模式下明确标出「角色模型不参与」",
+    check("agent 模式下明确标出\u300c角色模型不参与\u300d",
           "agent 模式下不参与" in app)
 
     print("\n" + "=" * 66)

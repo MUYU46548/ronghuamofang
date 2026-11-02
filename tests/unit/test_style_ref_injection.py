@@ -10,7 +10,7 @@
 - 配了路径但文件不存在时同样是静默占位（`（未提供…）`），
   和"本来没配"看起来一模一样。
 
-项目纪律是「静默降级比没有更糟」，所以把上限改成可配
+项目纪律是\u300c静默降级比没有更糟\u300d，所以把上限改成可配
 （`book.style_reference_max_chars`，1000~40000），且**截断/缺文件都必须出声**。
 
 | 编号 | 钉什么 |
@@ -65,7 +65,7 @@ def main():
     long_path = root / "long.md"
     long_path.write_text(long_text, encoding="utf-8")
     short_path = root / "short.md"
-    short_path.write_text("他把刀放下，说了句「走吧」。" * 20, encoding="utf-8")
+    short_path.write_text("他把刀放下，说了句\u300c走吧\u300d。" * 20, encoding="utf-8")
 
     # ------------------------------------------------------------------ R1
     print("\n[R1] 未配置")
@@ -77,7 +77,7 @@ def main():
     print("\n[R2] 配了但文件不存在")
     text, meta, out = run({"style_reference": str(root / "不存在.md")})
     check("R2 仍是占位文本", text == STYLE_REF_PLACEHOLDER)
-    check("R2 **必须 WARN**（与「本来没配」区分开）",
+    check("R2 **必须 WARN**（与\u300c本来没配\u300d区分开）",
           "WARN" in out and "不存在" in out, out.strip()[:80])
     check("R2 meta 标出 exists=False", meta["exists"] is False)
 
@@ -131,7 +131,7 @@ def main():
     stub.write_text("# 范文一（可删）\n\n（把正文粘到这里，粘完删掉这一行）\n\n"
                     "## 第二篇（可选）\n\n（把第二篇正文粘到这里）\n", encoding="utf-8")
     text9, meta9, out9 = run({"style_reference": str(stub)})
-    check("R9 按「未提供」处理，不把占位说明当范文",
+    check("R9 按\u300c未提供\u300d处理，不把占位说明当范文",
           text9 == STYLE_REF_PLACEHOLDER and meta9["injected"] == 0, text9[:30])
     check("R9 **必须 WARN**（提示去粘正文）",
           "WARN" in out9 and "占位符" in out9, out9.strip()[:100])

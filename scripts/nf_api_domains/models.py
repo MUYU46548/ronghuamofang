@@ -4,23 +4,23 @@
 ## 为什么单独成域
 
 `/models/*` 是全站权限最敏感的读端点族：它会**读 provider 配置并回显**。
-原实现散在 `do_GET` 三处 + `do_POST` 两处，各自「顺手取一下 cfg」，
-于是「哪些字段允许回显」这件事没有单一答案 —— 2026-09-19 审查 S8 正是
+原实现散在 `do_GET` 三处 + `do_POST` 两处，各自“顺手取一下 cfg”，
+于是“哪些字段允许回显”这件事没有单一答案 —— 2026-09-19 审查 S8 正是
 发生在这个族里（白名单数据存在，但没有任何判定回路）。
 
-本模块把所有模型相关端点收在一处，让「回显什么 / 校验什么」有唯一落点。
+本模块把所有模型相关端点收在一处，让“回显什么 / 校验什么”有唯一落点。
 
 ## 脱敏红线（不可放宽）
 
 `/models/available` 回显 provider 信息，**只能**给：
 `base_url` / `api_key_env`（变量名，不是值）/ `has_key`（布尔）/ `key_mask`。
-`key_mask` 用「前 4 + ... + 后 4」，长度不足 8 时返回空串 ——
+`key_mask` 用“前 4 + ... + 后 4”，长度不足 8 时返回空串 ——
 绝不回显完整密钥，也绝不回显中段。
 
 ## provider 配置里的 api_key_env 语义
 
 配置里存的是**环境变量名**（如 `TOKENHUB_API_KEY`），不是密钥本身；
-真实值从进程环境读。前端拿到 `key_mask` 只为显示「已配置/未配置」。
+真实值从进程环境读。前端拿到 `key_mask` 只为显示“已配置/未配置”。
 """
 import nf_api as api
 
@@ -50,7 +50,7 @@ def handle_models_available(h):
             "base_url": base_url,
             "api_key_env": api_key_env,
             "has_key": bool(api_key),
-            # 脱敏：前 4 + ... + 后 4；短于 8 位一律空串（防「前4后4」拼出全串）
+            # 脱敏：前 4 + ... + 后 4；短于 8 位一律空串（防“前4后4”拼出全串）
             "key_mask": (api_key[:4] + "..." + api_key[-4:]) if len(api_key) > 8 else "",
             "available_models": prov.get("available_models", []),
         }
@@ -130,7 +130,7 @@ def handle_models_cache(h):
 
 
 def handle_models_add(h, body):
-    """手动把一个模型名写进缓存（GUI「手动添加」按钮）。
+    """手动把一个模型名写进缓存（GUI“手动添加”按钮）。
 
     曾经写在 do_GET 里且用了 `body.get` —— GET 会 500、POST 会 404。
     写操作必须走 POST。

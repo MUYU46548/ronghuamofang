@@ -49,8 +49,8 @@ def _norm(path, n=None):
     """就地归一化润色稿的中文标点。幂等、零 token；失败只打印不阻断。
 
     润色模型与写作模型一样会写出半角引号 / 直角引号（实测《雾港核心》
-    refined 稿里 76 个半角 "、67 对「」），提示词管不住，故在字数比对前做
-    确定性替换。放在「±20% 字数铁律」之前是因为归一化会轻微改变字符数。
+    refined 稿里 76 个半角 "、67 对“”），提示词管不住，故在字数比对前做
+    确定性替换。放在“±20% 字数铁律”之前是因为归一化会轻微改变字符数。
     """
     try:
         changed, counts = normalize_chapter_file(path)
@@ -74,9 +74,9 @@ def _merge_vol_reports():
     """把分卷润色报告（polish_report_vol*.md）合并成单一 polish_report.md。
 
     为什么需要（2026-10-17 第15次试跑复盘 P0）：分卷模式下每个子会话只写
-    polish_report_vol{N}.md，而 GUI 审批门的产物概况、「润色体检报告」按钮
-    只认 data/outline/polish_report.md —— 于是产物概况显示空、按钮报「文件
-    不存在」，用户以为报告丢了（其实分卷文件一直在，只是没人合并）。
+    polish_report_vol{N}.md，而 GUI 审批门的产物概况、“润色体检报告”按钮
+    只认 data/outline/polish_report.md —— 于是产物概况显示空、按钮报“文件
+    不存在”，用户以为报告丢了（其实分卷文件一直在，只是没人合并）。
 
     - 幂等：每次**覆盖写**汇总文件（它是分卷文件的派生物，不是增量日志）。
     - 无分卷文件时不动 polish_report.md（非分卷模式直接写它，别覆盖）。
@@ -112,8 +112,8 @@ _POLISH_RULES_CACHE = None
 def _load_polish_rules():
     """加载 prompts/reference/对话优化咒语.md，剥离 frontmatter 与交付节。
 
-    咒语全文 24KB，每条规则都有其价值；但「五、最终承诺与交付」讲的是
-    「只输出润色后文本，不必附带说明」—— 与 stage6 自己的输出格式契约
+    咒语全文 24KB，每条规则都有其价值；但“五、最终承诺与交付”讲的是
+    “只输出润色后文本，不必附带说明”—— 与 stage6 自己的输出格式契约
     （修改清单追加到 path_report）冲突，故剥离交付节，保留前五节全部规则。
     文件缺失时返回空字符串（回退到模板里的基础约束）。
     """
@@ -132,7 +132,7 @@ def _load_polish_rules():
     import re as _re
     m = _re.match(r"^---\s*\n.*?\n---\s*\n", text, _re.S)
     body = text[m.end():] if m else text
-    # 剥离「五、最终承诺与交付」节（stage6 自身定义输出契约）
+    # 剥离“五、最终承诺与交付”节（stage6 自身定义输出契约）
     cut = body.find("\n## 五、")
     if cut != -1:
         body = body[:cut]
@@ -244,7 +244,7 @@ def _run_one_volume(client, task_dir, vol_index, proj, checked_dir, refined_dir,
 
     ## 为什么一卷拆成逐章请求（2026-10-30）
 
-    旧实现是「整卷一次 run_task」：40 章、`parallelism.polish=3` → 一次要回 13 章
+    旧实现是“整卷一次 run_task”：40 章、`parallelism.polish=3` → 一次要回 13 章
     全文（≈10 万字）。任何 max_tokens 都装不下：direct 下必截断（不落盘、退出码 2）；
     agent 子会话没有 max_tokens 旋钮，模型会自己删内容或只写回前几章 → `missing`
     把整卷判失败 —— 卷越大越必然失败。容量校验也因此只能拿**单章**字数去比
@@ -252,7 +252,7 @@ def _run_one_volume(client, task_dir, vol_index, proj, checked_dir, refined_dir,
 
     现在：一次请求只润**一章**（请求单元 == 容量校验单元），卷内逐章记账、逐章查
     熔断、逐章判产物是否可用；卷内已合格的章支持断点续跑（重跑只补缺的章）。
-    并发仍是「卷 × parallelism.polish」，整体时延不变。
+    并发仍是“卷 × parallelism.polish”，整体时延不变。
     """
     checked = Path(checked_dir).resolve()
     refined = Path(refined_dir).resolve()
@@ -261,7 +261,7 @@ def _run_one_volume(client, task_dir, vol_index, proj, checked_dir, refined_dir,
     for n in vol_chapters:
         if is_usable_output(checked / f"{n:02d}.md", refined / f"{n:02d}.md"):
             continue
-        # 本章「修改清单」先写临时文件，成功后再追加进卷报告 —— 逐章请求若都写同一个
+        # 本章“修改清单”先写临时文件，成功后再追加进卷报告 —— 逐章请求若都写同一个
         # 报告路径，FILE 协议是**覆盖**语义，后一章会把前一章的清单冲掉。
         tmp_report = (Path("data/outline") / f".polish_ch{n:02d}.md").resolve()
         tmp_report.parent.mkdir(parents=True, exist_ok=True)
@@ -304,7 +304,7 @@ def _run_one_volume(client, task_dir, vol_index, proj, checked_dir, refined_dir,
         src = checked / f"{n:02d}.md"
         out = refined / f"{n:02d}.md"
         # 中文标点归一化（2026-10-18）：润色模型同样会写出半角引号 / 直角引号。
-        # 必须在「±20% 字数铁律」比对**之前**做 —— 归一化会轻微改变字符数。
+        # 必须在“±20% 字数铁律”比对**之前**做 —— 归一化会轻微改变字符数。
         _norm(out, n)
         # 同质化/退化检测（P1，2026-10-19）：润色是最后一个能把好稿改平庸的环节
         # （改得更顺、更整齐、更像"标准答案"），所以这里再测一次。
@@ -363,7 +363,7 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     chapters = [int(f.stem) for f in pending]
 
     # R01 预算—篇幅联动（0.7.17；口径 2026-10-30 修正）：请求单元是**一章**，
-    # 所以拿「单章最大字数」比 max_tokens 是对的 —— 前提是每章单独发请求
+    # 所以拿“单章最大字数”比 max_tokens 是对的 —— 前提是每章单独发请求
     # （见 _run_one_volume 的 docstring：整卷一次发时这里低估一个数量级）。
     # 装不下 → 拒绝执行、一个请求都不发（否则模型会为了塞进窗口自己删内容）。
     from utils.judge.budget import check_capacity, effective_max_tokens
@@ -404,7 +404,7 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     if db and run_id:
         for n in chapters:
             db.log_chapter(run_id, 6, n, "ok")
-    # 合并分卷报告 → polish_report.md（GUI 审批门产物概况与「润色体检报告」按钮只认这个路径）
+    # 合并分卷报告 → polish_report.md（GUI 审批门产物概况与“润色体检报告”按钮只认这个路径）
     try:
         _merge_vol_reports()
     except Exception as e:  # noqa: BLE001 — 合并失败不把已完成的润色判成失败

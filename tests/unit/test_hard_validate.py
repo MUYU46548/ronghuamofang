@@ -11,7 +11,7 @@
 1. 标点判据单元测试：不成对配对（硬拦）、连续重复标点（硬拦）、双引号计数差
    （只警告）、保护区跳过（注释/围栏不误报）。
 2. 归一化后仍残留的形态才算错（text_norm 修得掉的不该由这里拦）。
-3. 5 章试产验收：2 短章 + 1 标点章 → 全部停在「待人工」；留痕 JSON 齐全
+3. 5 章试产验收：2 短章 + 1 标点章 → 全部停在\u300c待人工\u300d；留痕 JSON 齐全
    （字数/问题清单/处置/打回轮次）；2 个正常章一次过、零额外调用。
 4. 防误伤：正常章不因新判据多烧一次调用；跨段引语/句末留白不判错。
 
@@ -170,10 +170,10 @@ def case_punct_after_norm():
     print("\n【2】归一化分工：text_norm 修得掉的不进硬拦，修不掉的才拦")
     from utils.text_norm import normalize_chinese_punctuation
     # 直角引号 + 半角引号 + 重复句号：归一化应全部修掉 → 校验零硬拦
-    dirty = "## 第1章\n\n" + _gen_body(2200, 3) + "\n\n他说「嗯」，她答\"好\"。。走吧。\n"
+    dirty = "## 第1章\n\n" + _gen_body(2200, 3) + "\n\n他说\u300c嗯\u300d，她答\"好\"。。走吧。\n"
     clean = normalize_chinese_punctuation(dirty)
     errs, _, _ = check_punctuation(clean)
-    check("归一化产物零硬拦（「」/\"/。。 都已被修）", errs == [], errs)
+    check("归一化产物零硬拦（\u300c\u300d/\"/。。 都已被修）", errs == [], errs)
     # 未归一化直接写入的不成对书名号：归一化不管（它只管引号家族）→ 仍被拦
     errs2, _, _ = check_punctuation(dirty + "\n\n《未闭合的书名\n")
     check("归一化不管的形态（不成对《》）仍被拦", any("书名号" in e for e in errs2), errs2)

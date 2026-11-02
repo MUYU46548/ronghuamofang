@@ -46,7 +46,7 @@ def extract_style_features(text):
     punct_density = (punct_count / total_chars) * 100 if total_chars > 0 else 0
 
     # 对话比例（含引号的文本占比）
-    dialogue_chars = sum(len(m) for m in re.findall(r'["「『].*?["」』]', text))
+    dialogue_chars = sum(len(m) for m in re.findall(r'["“‘].*?["”’]', text))
     dialogue_ratio = dialogue_chars / total_chars if total_chars > 0 else 0
 
     # 修辞频率（每百字）

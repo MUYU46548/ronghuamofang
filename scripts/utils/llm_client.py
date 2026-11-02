@@ -5,7 +5,7 @@
 （OpenAI 兼容直连 / 子会话执行层 / 未来可插拔）。
 
 直连模式设计：
-- 无子会话工具循环 → 任务文件「输入文件」段解析后全文内联进 prompt；
+- 无子会话工具循环 → 任务文件“输入文件”段解析后全文内联进 prompt；
 - 单请求输出上限 → 多文件输出任务按目标文件拆分请求（segment_requests）；
 - 输出协议：===FILE: 路径=== ... ===END===（写入）/ ===APPEND:（追加）/ ===DELETE:（删除）；
 - 模型给的路径按任务解析出的期望路径贴齐（snap_to_expected），再过写白名单（data/**、
@@ -16,7 +16,7 @@
 - 部分模型（glm-5.x / kimi 等）默认进 thinking 模式：正文全进 reasoning_content、
   content 为空，且思考 token 会吃掉 max_tokens 预算 → 流水线所有产物空白。三道防线：
   1) 主动：模型名命中 config 的 providers.<id>.disable_thinking_models 时，
-     注入「关闭思考」payload 片段，模型直接给 content（名单与片段都不硬编码在代码里）；
+     注入“关闭思考”payload 片段，模型直接给 content（名单与片段都不硬编码在代码里）；
   2) 自适应：未列名单的思考模型，若返回空 content 且 reasoning_content 非空，
      自动注入关闭思考片段重试一次；仍为空则从 reasoning_content 兜底提取正文并告警；
   3) 降级：provider 拒绝该参数（HTTP 400/422）时自动换下一个候选片段，
@@ -44,7 +44,7 @@ from utils.console import ensure_utf8_stdout
 # estimate_tokens/nfctl 缺省 direct —— 同一份缺键配置预估与实际跑在两个引擎上。
 from utils.engine import resolve_engine
 # 解析层容错（件2）：`<think>` 内嵌剥离 + 从思考里捞可解析的 JSON 文档。
-# 同包内复用，避免「同一判据写两遍、只修一处」（见 TESTS.md 的复制实现教训）。
+# 同包内复用，避免“同一判据写两遍、只修一处”（见 TESTS.md 的复制实现教训）。
 from utils.validator import strip_think, extract_json
 
 # 进程级输出安全网（幂等）：stdout 被捕获时是 cp936，而 ¥/⚠️/✅ 等字符不在 GBK 里
@@ -86,7 +86,7 @@ def _split_sections(body):
 
 
 class InputSectionFormatError(ValueError):
-    """「输入文件」段里存在**路径引用但格式不被解析器接受**。
+    """“输入文件”段里存在**路径引用但格式不被解析器接受**。
 
     这不是"文件缺失"（那种是 FileNotFoundError），而是**段落格式对不上**：
     路径写在了非列表行上、目录引用指向不存在的目录等。旧实现一律**静默跳过**，
@@ -105,7 +105,7 @@ _INPUT_FORMAT_HINT = (
 
 
 def extract_input_paths(body, diag=None):
-    """解析任务正文「输入文件」段的路径引用。返回 [(path_str, is_dir)]。
+    """解析任务正文“输入文件”段的路径引用。返回 [(path_str, is_dir)]。
 
     diag（可选 dict）：**诊断出口**，供调用方显式报错而不是静默返空。填入：
       {"section_found": bool, "section_line": int, "accepted": [...],
@@ -166,26 +166,26 @@ def extract_input_paths(body, diag=None):
 
 def format_input_section_error(diag, task_path=None):
     """把 extract_input_paths 的诊断渲染成**可行动**的报错文案。"""
-    head = ("任务「输入文件」段有 %d 处路径引用**不能被解析**（这些输入不会被内联，"
+    head = ("任务“输入文件”段有 %d 处路径引用**不能被解析**（这些输入不会被内联，"
             "模型会收不到它们）：" % len(diag.get("skipped") or []))
     lines = [head]
     for s in diag.get("skipped") or []:
         lines.append("  · 第 %d 行 —— %s：`%s`"
                      % (s.get("line"), s.get("reason"), (s.get("text") or "")[:90]))
     where = ("任务文件: " + str(task_path)) if task_path else "任务正文"
-    lines.append("  %s（「输入文件」段起于第 %s 行）" % (where, diag.get("section_line")))
+    lines.append("  %s（“输入文件”段起于第 %s 行）" % (where, diag.get("section_line")))
     lines.append("  " + _INPUT_FORMAT_HINT)
     return NEWLINE.join(lines)
 
 
 def inline_inputs(body, char_limit=220000, task_path=None):
-    """把「输入文件」段引用的文件内容内联进正文。返回 (new_body, [缺失路径])。
+    """把“输入文件”段引用的文件内容内联进正文。返回 (new_body, [缺失路径])。
 
-    **格式不符 = 明确报错**（P1，2026-10-03）：段落里出现「有路径、但解析器不认」的行
+    **格式不符 = 明确报错**（P1，2026-10-03）：段落里出现“有路径、但解析器不认”的行
     （最常见的形态就是漏写 `- ` 前缀 —— stage5 空稿事故的同类根因）时，抛
     `InputSectionFormatError` 并指出**行号 + 原文 + 正确写法**，而不是静默返空。
 
-    与既有的「输入文件缺失就抛 FileNotFoundError」是同一处置哲学：
+    与既有的“输入文件缺失就抛 FileNotFoundError”是同一处置哲学：
     输入构造错了必须**当场停**，不能让模型基于空输入跑出一轮"看起来成功"的产物
     （白烧钱 + 产物不可信，两样都比报错贵）。
     """
@@ -256,15 +256,15 @@ def parse_ops(text):
     旧实现：**OP 后面找不到 END_RE 就把这一块静默丢弃**。而
 
     ① `END_RE` 只认 `===END===`，stage5 的提示词却教模型写 `===END FILE===`
-       → **整批块被丢掉**，stage5 于是走「复制 raw → checked」兜底，
-       「逻辑检查完成」照打，报告 `check_report.md` 根本没落盘；
+       → **整批块被丢掉**，stage5 于是走“复制 raw → checked”兜底，
+       “逻辑检查完成”照打，报告 `check_report.md` 根本没落盘；
     ② 模型随手漏写结束标记时同样整块丢 → `_apply_ops` 的兜底把**整段模型输出**
        （含 `===FILE:` 标记行与绝对路径）直接写进章节文件。实测
        `data/chapters/raw/01.md` 首行就是 `===FILE: E:\\...\\01.md===`。
 
     现改两处：`END_RE` 兼容带 tag 的写法（见其定义）；本函数在找不到 END 时
-    **不再丢弃**，改用「下一个 OP 之前」当块尾并打 WARN —— 「块尾外扩」的代价
-    （最多带一小段收尾说明）远小于「整块丢弃 + 兜底写全文」。
+    **不再丢弃**，改用“下一个 OP 之前”当块尾并打 WARN —— “块尾外扩”的代价
+    （最多带一小段收尾说明）远小于“整块丢弃 + 兜底写全文”。
     """
     text = text.replace(BS + BS, BS)          # 模型常把 Windows 路径双反斜杠转义
     ops = []
@@ -294,8 +294,8 @@ def strip_protocol_markers(text):
     实测 `data/chapters/raw/01.md` 首行就是
     `===FILE: E:\\CODE\\...\\01.md===` —— 既是产物污染，也是私路径泄露。
 
-    只修解析器只能防新增；老产物里的残留会随「上一章内容 → 提示词 → 新章节」
-    和「合并正文 → Word 成品」继续传播。故在**读取侧**再兜一道。
+    只修解析器只能防新增；老产物里的残留会随“上一章内容 → 提示词 → 新章节”
+    和“合并正文 → Word 成品”继续传播。故在**读取侧**再兜一道。
     """
     if not text:
         return text
@@ -341,7 +341,7 @@ def _dedupe_by_name(paths):
 def common_prefix_len(texts):
     """一组文本的**公共前缀**长度（前缀缓存命中上限，用来定位分叉点）。
 
-    只用于诊断与自检：前缀缓存按「请求开头逐字相同」命中，所以这个数字直接
+    只用于诊断与自检：前缀缓存按“请求开头逐字相同”命中，所以这个数字直接
     决定 N 个子请求能不能共享缓存。**前缀里一个字符都不能变**。
     """
     items = [t or "" for t in texts]
@@ -362,8 +362,8 @@ def common_prefix_len(texts):
 # 所以这里定死两条纪律，并由 tests/unit/test_segment_cache_prefix.py 守：
 #   ① 变的部分（第 i/N 个 + 文件路径）**只能出现在最后**；
 #   ② 不变的部分（下面这段说明）必须**整段落在公共前缀里** —— 于是把常量放前面、
-#      变量放最后；旧写法「第 1/3 个」打头，分叉点落在指令第 3 个字符，
-#      后半段那句「严禁输出其他文件的内容块」每个子请求各成一份独立前缀。
+#      变量放最后；旧写法“第 1/3 个”打头，分叉点落在指令第 3 个字符，
+#      后半段那句“严禁输出其他文件的内容块”每个子请求各成一份独立前缀。
 SEGMENT_HEAD = ("【本批次共 {total} 个输出文件，本次调用**只**处理其中一个："
                 "其余文件由其他调用处理，严禁输出其他文件的内容块；"
                 "报告类输出只记录与本次输出相关的内容。"
@@ -374,13 +374,13 @@ def segment_requests(body, expected_writes, expected_appends):
     """多文件输出任务 → 拆为逐请求指令。返回 [(sub_prompt, writes, appends)]。
 
     **指令必须放在 body 之后、且变量只能在最末**（2026-09-29 随行件3 + 2026-10-03 重排）。
-    原先把「仅处理第 i/N 个输出」的指令**头插**在 user 消息最前，于是 N 个子请求虽然
+    原先把“仅处理第 i/N 个输出”的指令**头插**在 user 消息最前，于是 N 个子请求虽然
     共享 95%+ 的正文与内联输入，却在**首字符**就分叉 → 前缀缓存全部失效（每次都是
     全新前缀）。挪到内联输入之后，N 个子请求共享同一段前缀，只有尾部差异 →
     前缀缓存可命中（实测 deepseek-v4-flash 重排后 57.9%，重排前上限 1.2%）。
 
     2026-10-03（P1 缓存）：**连指令内部也统一** —— 常量说明在前、`第 i/N 个 + 路径`
-    放最末，使那句「严禁输出其他文件的内容块」也落进公共前缀（旧写法白丢）。
+    放最末，使那句“严禁输出其他文件的内容块”也落进公共前缀（旧写法白丢）。
     """
     if len(expected_writes) <= 1:
         return [(body, list(expected_writes), list(expected_appends))]
@@ -439,7 +439,7 @@ class OpenAICompatClient:
     run_task 签名与 HermesClient 兼容：调用点零改动切换引擎。
 
     `writes_files = False`：正文由本进程按 `===FILE:` 协议落盘（走 allowed_paths
-    白名单）。stage4 据此决定「进度取文本流还是取产物文件」，以及是否需要
+    白名单）。stage4 据此决定“进度取文本流还是取产物文件”，以及是否需要
     对子会话做**越权写盘检测**（见 utils/write_guard）。
     """
 
@@ -495,7 +495,7 @@ class OpenAICompatClient:
         return min(caps) if caps else None
 
     def _thinking_disabled(self, model_name):
-        """模型是否命中「禁用思考」名单：精确名 / 双向前缀（glm-5 命中 glm-5.1）。"""
+        """模型是否命中“禁用思考”名单：精确名 / 双向前缀（glm-5 命中 glm-5.1）。"""
         m = str(model_name or "").strip().lower()
         if not m:
             return False
@@ -513,7 +513,7 @@ class OpenAICompatClient:
         return [k for k in THINKING_KEYS if k in payload]
 
     def _next_thinking_snippet(self):
-        """取下一个可用的「关闭思考」片段（已锁定优先）。返回 dict 或 None。"""
+        """取下一个可用的“关闭思考”片段（已锁定优先）。返回 dict 或 None。"""
         if self._chosen_thinking_snippet is not None:
             return dict(self._chosen_thinking_snippet)
         for s in self.disable_thinking_payloads:
@@ -523,9 +523,9 @@ class OpenAICompatClient:
         return None
 
     def _apply_no_thinking(self, payload, model_name, force=False):
-        """注入「关闭思考」片段。返回注入的片段（dict）或 None。
+        """注入“关闭思考”片段。返回注入的片段（dict）或 None。
 
-        force=True 用于「自动探测」场景：模型不在名单里，但实测正在 thinking
+        force=True 用于“自动探测”场景：模型不在名单里，但实测正在 thinking
         （content 空 + reasoning_content 非空）或刚被拒需换候选。
         """
         if self._thinking_keys_present(payload):
@@ -545,7 +545,7 @@ class OpenAICompatClient:
         return [k for k in THINKING_KEYS if k.lower() in low]
 
     def _reject_thinking_snippet(self, snippet, code, body):
-        """provider 拒绝该「关闭思考」片段 → 拉黑并换下一个候选。返回是否发生了切换。"""
+        """provider 拒绝该“关闭思考”片段 → 拉黑并换下一个候选。返回是否发生了切换。"""
         if not snippet or code not in (400, 422):
             return False
         if snippet in self._bad_thinking_snippets:
@@ -577,7 +577,7 @@ class OpenAICompatClient:
 
     @staticmethod
     def _salvage_answer(text):
-        """thinking 兜底：**只取「正式协议块」或「可解析的 JSON 文档」，其余一律丢弃**。
+        """thinking 兜底：**只取“正式协议块”或“可解析的 JSON 文档”，其余一律丢弃**。
 
     为什么不能在无标记时返回全文：思考过程与正文混在同一个 `reasoning_content` 里，
     文本层面**无法可靠切分**（实测 minimax-m2.7 返回 `The user says "第 2 次…` 这种纯思考残片）。
@@ -587,7 +587,7 @@ class OpenAICompatClient:
 
     2026-09-29（件2）增补：若剥离 `<think>` 后文本里有一个**真能 json.loads 通过**的
     JSON 文档，则把它捞回来 —— 审稿/校对的 JSON 结果常整段落进 reasoning_content，
-    而协议块兜底管不到（审稿 JSON 断裂事故的根因）。该分支要求「真的能解析」，
+    而协议块兜底管不到（审稿 JSON 断裂事故的根因）。该分支要求“真的能解析”，
     所以**纯散文的思考永远命不中**：写作阶段（无协议块、非 JSON）行为与修复前一致。
     """
         for marker in ("===FILE:", "===APPEND:", "===DELETE:"):
@@ -752,7 +752,7 @@ class OpenAICompatClient:
         """流式请求：逐 token 产出文本块。on_chunk(text) 每次收到新内容时调用。
         stop_flag: callable，返回 True 时中止流。
 
-        thinking 模式同理：命中名单注入「关闭思考」片段；未命中而只收到
+        thinking 模式同理：命中名单注入“关闭思考”片段；未命中而只收到
         reasoning_content 时自动注入后重试，仍为空则把思考内容兜底回调（避免 GUI 空白）。
         """
         self._validate_creds()
@@ -886,7 +886,7 @@ class OpenAICompatClient:
         appends, writes = [], []
         for m in PATH_RE_MJ.finditer(head):
             p = m.group(0).strip()
-            if _NOISE_RE.search(p):  # 排除「xx/ 下的 *.md」与括号说明里的裸词
+            if _NOISE_RE.search(p):  # 排除“xx/ 下的 *.md”与括号说明里的裸词
                 continue
             if m.start() > 0 and head[m.start() - 1] in "（(":
                 continue  # 路径在括号内（如 ## 输出格式（setting.json，…））→ 噪声
@@ -1179,11 +1179,11 @@ class HermesClient:
 
     模型：恒不传 -m —— agent 模式一律用 agent 内部配置的模型（用户 2026-10-01 定调），
     与 config 的 model.* 无关。旧实现透传 TokenHub（腾讯云）模型名，hermes 按它自己的
-    active provider（小米）解析 → 400 → 静默 fallback 到别家，「配置写 A、实际跑 B」。
+    active provider（小米）解析 → 400 → 静默 fallback 到别家，“配置写 A、实际跑 B”。
 
     工具面（P1-5）：`-t file` toolset（= patch/read_file/search_files/write_file 四件套）
     —— 子会话不再持有 terminal/browser/kanban/cron/MCP 等全量工具，写盘越权从
-    「提示词约束」变成「机制约束」。⚠️ `-t` 收 **toolset 名**（file/web/terminal…），
+    “提示词约束”变成“机制约束”。⚠️ `-t` 收 **toolset 名**（file/web/terminal…），
     传工具名（read_file,…）会得到空集合：模型照旧吐 tool_call 但永不派发，
     result.text 是原始 <longcat_tool_call> 且 exit_code=0 假成功（2026-10-01 实测踩坑）。
     config 可用 hermes.toolsets 覆盖（设为空串恢复全量工具，逃生门）。
@@ -1229,7 +1229,7 @@ class HermesClient:
 
         为什么不在这里判失败（2026-10-03 定）：
         - hermes 子会话已用文件工具把章节写进盘了，判失败 = 丢掉真产物 + 重跑更贵；
-        - 「是否停机」是**熔断判据**，唯一来源是 CostTracker.status_detail()；
+        - “是否停机”是**熔断判据**，唯一来源是 CostTracker.status_detail()；
           想要按次熔断就把 token_limit.per_request_pause_hermes 设为 true。
         返回是否超限（供测试与调用方观察）。
         """
@@ -1360,7 +1360,7 @@ class HermesClient:
         if stderr and exit_code != 0:
             out["stderr_tail"] = stderr[-600:]
         # P0 止烧：单次子会话输出的比对（hermes 无 max_tokens 旋钮 → 只告警不停机，
-        # 「是否熔断」由 CostTracker.status_detail 一元判据决定）。
+        # “是否熔断”由 CostTracker.status_detail 一元判据决定）。
         if self.note_request_tokens(t_out):
             out["request_tokens_over"] = True
         return out
@@ -1372,7 +1372,7 @@ class HermesClient:
         `hermes` 是 pip 入口 .exe，底下还孵着 python 子进程；`.bat` 桩同理
         （cmd 孵孙进程）。只 kill 直接子进程 → 孤儿继续持有 stdout 管道 →
         communicate()/wait() 等不到 EOF（实测超时阈值 1s 却 19.3s 才返回），
-        「停止」后真实子会话还在继续跑。必须 taskkill /F /T 连孙子一起杀。
+        “停止”后真实子会话还在继续跑。必须 taskkill /F /T 连孙子一起杀。
         """
         import subprocess
         try:
@@ -1523,7 +1523,7 @@ class HermesClient:
             else:
                 # 任何非 text 事件（工具调用 / init / result）都算**活动心跳**：
                 # hermes 用 write_file 写正文时可能几分钟没有一个 text 事件，
-                # 只按 text 计心跳会把「正在写文件」误报成「卡死」（2026-10-27）。
+                # 只按 text 计心跳会把“正在写文件”误报成“卡死”（2026-10-27）。
                 try:
                     on_piece("")
                 except Exception:                       # noqa: BLE001
@@ -1531,7 +1531,7 @@ class HermesClient:
 
         def _kill():
             # 杀整棵进程树：只杀直接子进程会让 hermes.exe 的 python 孙进程
-            # 成孤儿继续跑（「停止」形同虚设）
+            # 成孤儿继续跑（“停止”形同虚设）
             self._kill_tree(proc)
             try:
                 proc.wait(timeout=5)
@@ -1559,7 +1559,7 @@ class HermesClient:
 # ---------------------------------------------------------------- 工厂
 
 def extract_cache_read_tokens(usage):
-    """从 usage 里取「缓存命中的输入 token 数」，兼容多家字段命名。
+    """从 usage 里取“缓存命中的输入 token 数”，兼容多家字段命名。
 
     **2026-09-23 实测（TokenHub，免费额度）**：返回的是 OpenAI 风格
     `usage.prompt_tokens_details.cached_tokens`；而此处原先读的是
@@ -1612,7 +1612,7 @@ def _load_env_file(path=".env"):
 
 
 def _request_max_tokens_from_cfg(cfg):
-    """从 config 取「单请求输出上限」（budget.token_limit.per_request_max_tokens）。
+    """从 config 取“单请求输出上限”（budget.token_limit.per_request_max_tokens）。
 
     只在这一处解析（两个引擎共用一份判据），返回 int 或 None。
     enabled=false 时返回 None = 不设上限（老行为）。
@@ -1645,7 +1645,7 @@ def make_client(cfg, model_key="default", verbose=True):
         # 与本配置的 model.* 完全无关（流量本就走 agent 的订阅）。
         # 历史坑：曾把 model_id 透传成 `-m` —— hermes 按它自己的 active provider 解析
         # 裸模型名，TokenHub（腾讯云）的模型名发到小米端点 → 400 Unsupported model →
-        # 静默 fallback 到别家，「配置写 A、实际跑 B」。故此处不传 -m（= hermes 默认模型）。
+        # 静默 fallback 到别家，“配置写 A、实际跑 B”。故此处不传 -m（= hermes 默认模型）。
         if verbose:
             print("[client] 引擎=hermes → 用 agent 内部配置的模型（忽略 model." +
                   str(model_key) + "）")

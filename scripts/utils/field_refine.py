@@ -12,7 +12,7 @@ Hermes 不在场时，讨论入口不能断。本模块提供 GUI 内的**单轮
 
 ## 粒度：只改一个字段，不做整章重写（2026-10-18 用户裁定）
 
-「整章重写意义不大」—— 那等于 `refine_outline` 的章节版，改动面大、diff 难看、
+“整章重写意义不大”—— 那等于 `refine_outline` 的章节版，改动面大、diff 难看、
 批准风险高。定向改写一次只碰一个字段（叙事要点 / 核心事件 / 涉及角色 / 功能 /
 承接 / 钩子 / 标题），diff 清晰，用户一眼能判断要不要。
 
@@ -68,8 +68,8 @@ def current_field(n, field, root="."):
 def _build_prompt(chapter_text, field, value, note):
     """构造单轮候选生成提示。
 
-    刻意要求「只输出 JSON」：思考模型会把正文塞进 reasoning_content，
-    所以提示里明确「先给结论再解释」，并在解析侧用 parse_llm_json 容错。
+    刻意要求“只输出 JSON”：思考模型会把正文塞进 reasoning_content，
+    所以提示里明确“先给结论再解释”，并在解析侧用 parse_llm_json 容错。
     """
     label = FIELD_LABELS[field]
     kind = "（列表字段：每行一条，行首保留序号）" if field in LIST_FIELDS else "（单段文本）"

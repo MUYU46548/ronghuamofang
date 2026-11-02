@@ -4,8 +4,8 @@
 `data/outline/review_report.json`。**离线不可跑。**
 
 ⚠️ 本文件没有 PASS/FAIL 断言框架，只打印结果 —— 所以它不进自动化套件的
-断言计数。原本在服务不可用时抛裸 `HTTPError` traceback，看起来像「测试失败」，
-实际是「未执行」。按项目纪律（未执行 ≠ 失败，见 MEMORY.md），
+断言计数。原本在服务不可用时抛裸 `HTTPError` traceback，看起来像\u300c测试失败\u300d，
+实际是\u300c未执行\u300d。按项目纪律（未执行 ≠ 失败，见 MEMORY.md），
 现在改成打印可行动的 SKIP 并以 0 退出。
 """
 import sys

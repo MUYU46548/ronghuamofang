@@ -39,7 +39,7 @@ def main():
     print("=" * 70)
 
     print("\n【U1】入口与取数")
-    check("单章详情里有「三稿对照」按钮",
+    check("单章详情里有\u300c三稿对照\u300d按钮",
           "三稿对照" in PANEL and "openCompare" in PANEL)
     check("取数带 text=1（默认不带正文，省体积）",
           "/judge/destroy?n=" in PANEL and "&text=1" in PANEL)
@@ -50,13 +50,13 @@ def main():
     for key in ("raw", "checked", "refined"):
         check("有 %s 这一列" % key, '"%s"' % key in PANEL)
     check("缺版文案：这一版不存在", "这一版不存在" in PANEL)
-    check("缺版不说成「没变化」（这是最容易骗人的一处）",
+    check("缺版不说成\u300c没变化\u300d（这是最容易骗人的一处）",
           "是根本没生成过" in PANEL)
     check("缺版说明具体缺哪个阶段",
           "没跑过检查阶段" in PANEL and "没跑过润色阶段" in PANEL)
 
     print("\n【U3】不做假对齐")
-    check("明确写了「不做逐行对齐」（对用户的前置说明）",
+    check("明确写了\u300c不做逐行对齐\u300d（对用户的前置说明）",
           "不做逐行对齐" in PANEL)
     check("三栏是各自滚动（不是同一张表按行排版）",
           ".jc-body" in CSS and "overflow-y: auto" in CSS)
@@ -66,7 +66,7 @@ def main():
     print("\n【U4】统计照旧展示")
     check("顶部显示两段缩减率（原→检 / 检→润）",
           "raw->checked" in PANEL and "checked->refined" in PANEL)
-    check("越过阈值时明说「疑似整章重生成」",
+    check("越过阈值时明说\u300c疑似整章重生成\u300d",
           "疑似整章重生成" in PANEL)
 
     print("\n【U5】样式只吃主题变量")

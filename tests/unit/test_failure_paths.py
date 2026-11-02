@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
-"""F1~F8 失败路径回归：堵住「FakeClient 恒 exit_code=0」的最大盲区。
+"""F1~F8 失败路径回归：堵住\u300cFakeClient 恒 exit_code=0\u300d的最大盲区。
 
 ## 背景（2026-09-19 审查报告 H5）
 
 全仓 22 个 `result["exit_code"] != 0` 分支在测试里**一次都没走到过**。
-`FakeClient` 永远成功，于是「子会话失败 → 标记章节失败 → 阶段失败 →
-自动重试 → 预算熔断 / 用户停止」这条**兜底链路**完全是纸面承诺。
+`FakeClient` 永远成功，于是\u300c子会话失败 → 标记章节失败 → 阶段失败 →
+自动重试 → 预算熔断 / 用户停止\u300d这条**兜底链路**完全是纸面承诺。
 
-比覆盖率低更危险的是「声称覆盖 > 实际覆盖」——它制造虚假安全感。
+比覆盖率低更危险的是\u300c声称覆盖 > 实际覆盖\u300d——它制造虚假安全感。
 本用例是该结论的正面回应：**主动把系统打坏，看它是不是按承诺的方式坏。**
 
 ## 覆盖清单
@@ -200,7 +200,7 @@ print("__RESULT__" + json.dumps({{
 def case_f3():
     """F3 重试成功但烧钱 → 阶段末尾的预算检查熔断 → exit=2 + budget.paused。
 
-    采用「重试后成功」而非「恒失败」：恒失败会在**重试循环内部**先因预算
+    采用\u300c重试后成功\u300d而非\u300c恒失败\u300d：恒失败会在**重试循环内部**先因预算
     返回 paused（那条路径由 F3b 覆盖）。本用例针对阶段循环**末尾**的
     常规熔断检查（orchestrator.py 的 `state, spent = cost.status(run_id)` 段），
     两条路径语义不同，都要验。
@@ -272,10 +272,10 @@ print("__RESULT__" + json.dumps({{
     # --- F3c：**最后一个阶段**超预算 → 阶段末尾检查必须熔断（S10）
     #
     # 这是本组最关键的一条，也是最难构造的一条：
-    #   · 「失败 → 重试前检查」由 F3b 覆盖；
-    #   · 「非末阶段成功后 → 下一阶段启动前检查」由上面的 F3 覆盖
+    #   · “失败 → 重试前检查”由 F3b 覆盖；
+    #   · “非末阶段成功后 → 下一阶段启动前检查”由上面的 F3 覆盖
     #     （阶段1 成功后进入阶段2 前被拦）。
-    #   · 唯独「**最后一个阶段**成功且烧钱」没有下一阶段可拦 ——
+    #   · 唯独“**最后一个阶段**成功且烧钱”没有下一阶段可拦 ——
     #     只能靠阶段循环**末尾**那次检查。而它此前只 print 不停机（S10），
     #     于是 run() 走到 `_finalize("done", 0)` 宣告"全部完成"，GUI 显示成功，
     #     实际已超预算 → 静默失败。
@@ -332,7 +332,7 @@ print("__RESULT__" + json.dumps({{
               f"paused={pc['paused']} st8={pc['st8']}")
         check(pc["err"] is None, "F3c 末阶段熔断路径无异常", f"实际={pc['err']}")
         check(pc["rc"] == 2,
-              "F3c 最后一站超预算 → 退出码 2（不是 0「全部完成」）",
+              "F3c 最后一站超预算 → 退出码 2（不是 0\u300c全部完成\u300d）",
               f"实际={pc['rc']}（0 = 静默宣告成功，S10 缺陷）")
         check([r[1] for r in pc["rows"]][-1] == "paused",
               "F3c runs 末行状态为 paused（不是 done）", f"实际={pc['rows']}")
@@ -444,7 +444,7 @@ print("__RESULT__" + json.dumps({{"rc": rc, "err": err, "calls": CALLS["n"], "ro
           f"实际={statuses}")
     check("running" not in statuses, "F4 runs 无残留 running", f"实际={statuses}")
     # 初始阶段开始前检查 _stop_requested() 即返回 True → 阶段一次都没启动。
-    # 这比「跑完再停」更强：停止生效在最前，不产生任何额外花费。
+    # 这比“跑完再停”更强：停止生效在最前，不产生任何额外花费。
     check(p["calls"] == 0, "F4 停止请求在阶段启动前即生效（零额外调用）",
           f"实际={p['calls']}")
 
@@ -506,7 +506,7 @@ print("__RESULT__" + json.dumps({{
           "F5 仅第 1 章被标记失败（失败被精确隔离）",
           f"实际={p['failed1']}")
     check(p["failed1"] and "退出码" in (p["failed1"][0].get("error") or ""),
-          "F5 失败原因被记录为「子会话退出码非零」（可诊断）",
+          "F5 失败原因被记录为\u300c子会话退出码非零\u300d（可诊断）",
           f"实际={p['failed1']}")
     check(p["failed1"][0].get("attempts") == 1, "F5 失败尝试次数被记录",
           f"实际={p['failed1']}")
@@ -529,7 +529,7 @@ def case_f6():
     print("  " + out.strip().replace("\n", "\n  ")[-600:])
     check(proc.returncode == 0, "F6 质量门禁退出码 0（BLOCK 为 0）",
           f"实际={proc.returncode}")
-    check("BLOCK（未定义名）: 0" in out, "F6 报告「未定义名: 0」",
+    check("BLOCK（未定义名）: 0" in out, "F6 报告\u300c未定义名: 0\u300d",
           out[-300:])
     # 反向验证：把缺陷塞进一个真文件，门禁必须变红
     probe = REPO / "scripts" / "_gate_probe.py"
@@ -557,7 +557,7 @@ def case_f7():
     print("\n【F7】seedWorkspace 升级刷新（旧 .seeded 工作区）")
     src = (REPO / "console" / "main" / "index.js").read_text(encoding="utf-8")
 
-    # 静态检查：源码层面必须同时具备「版本标记」与「刷新」能力
+    # 静态检查：源码层面必须同时具备“版本标记”与“刷新”能力
     has_version_marker = "SEED_VERSION" in src and ".seed-version" in src
     has_unconditional_return = 'if (fs.existsSync(path.join(ws, ".seeded"))) return;' in src
     check(has_version_marker,
@@ -588,7 +588,7 @@ def case_f7():
     # 0.6.7 出厂清单：seedWorkspace 调用了同文件里的两个小函数
     # （listFilesUnder / recordFactoryManifest），抽取函数体跑探针时必须**一并带上**，
     # 否则探针里 ReferenceError（函数未定义）→ __RESULT__ 永远不出现，
-    # 表现成「F7 node 探测产出结果」失败（2026-10-07 实测）。
+    # 表现成“F7 node 探测产出结果”失败（2026-10-07 实测）。
     helper_src = []
     for hname in ("function listFilesUnder(", "function copyMissingOnly(",
                   "function sha256OfFile(",
@@ -649,9 +649,9 @@ def case_f7():
         (ws / ".seeded").write_text("1", encoding="utf-8")
         (ws / ".seed-version").write_text("1", encoding="utf-8")   # 落后于当前版本
 
-        # 出厂清单（决定「这个文件用户改没改过」）：
-        #   · stage4.md 记一个**与当前内容不同**的 sha → 判「用户改过」→ 保留
-        #   · stage5.md 记它自己的真实 sha       → 判「没动过」  → 跟随新版更新
+        # 出厂清单（决定“这个文件用户改没改过”）：
+        #   · stage4.md 记一个**与当前内容不同**的 sha → 判“用户改过”→ 保留
+        #   · stage5.md 记它自己的真实 sha       → 判“没动过”  → 跟随新版更新
         (ws / "data" / "state").mkdir(parents=True, exist_ok=True)
         (ws / "data" / "state" / "factory_manifest.json").write_text(
             json.dumps({"seed_version": 1, "files": {
@@ -728,7 +728,7 @@ def case_f7():
               "F7 用户没动过的旧模板**跟随版本更新**（官方提示词修复能到用户手里）",
               f"实际={payload.get('updatedPrompt')!r}")
         check(payload.get("factoryPrompt") == "NEW-FACTORY",
-              "F7 出厂副本 factory/ 随版本刷新（否则「还原默认」给的是旧版提示词）",
+              "F7 出厂副本 factory/ 随版本刷新（否则\u300c还原默认\u300d给的是旧版提示词）",
               f"实际={payload.get('factoryPrompt')!r}")
         check(payload["userConfig"].startswith("book:"),
               "F7 用户改过的 config/project.yaml **不被覆盖**（书名不丢）",
@@ -834,7 +834,7 @@ print("__RESULT__" + json.dumps({{
     check(not a["refined"], "F8 stage5 打回 → refined/ 被清（下游产物清理）")
     check(not a["output"], "F8 stage5 打回 → output/ 被清")
     # 注意：reject(5) 清掉了 checked —— 这是**符合设计**的。
-    # reject 的语义是「重跑 stage5」，若 checked 保留，stage5 的断点逻辑
+    # reject 的语义是“重跑 stage5”，若 checked 保留，stage5 的断点逻辑
     # （`pending = [f for f in raw_files if not (checked/f.name).exists()]`）
     # 会把全部章节判为"已检查"而直接跳过 → 打回变成空操作。清掉才能真重跑。
     check(not a["checked"],
@@ -845,7 +845,7 @@ print("__RESULT__" + json.dumps({{
     check(a["st5_rejected"] is True, "F8 打回原因已记录（GUI 可显示）")
     check(a["st5_approved"] is None, "F8 stage5 审批标记被撤销（防误放行）",
           f"实际={a['st5_approved']}")
-    check(a["st5_skipped"] is None, "F8 人工跳过标记被清（避免「已跳过+已打回」双徽标）",
+    check(a["st5_skipped"] is None, "F8 人工跳过标记被清（避免\u300c已跳过+已打回\u300d双徽标）",
           f"实际={a['st5_skipped']}")
     check(a["st6_status"] == "pending" and a["st7_status"] == "pending",
           "F8 下游阶段 6/7 状态被重置为 pending",
@@ -886,9 +886,9 @@ def case_f9():
     """F9 reject 范围扩展到 stage1（修复单 #9）。
 
     背景：stage1 陪跑闸是合法审批点（gates.material_autonomy=false），用户实测
-    `reject.py --stage 1` 被 "valid: 2-7" 挡在门外。同时「打回 stage1 ≠ 空操作」
+    `reject.py --stage 1` 被 "valid: 2-7" 挡在门外。同时\u300c打回 stage1 ≠ 空操作\u300d
     必须成立——setting.json/canon.json 若残留，stage1 的增量判据
-    （_pending_material_paths 读两者判「还有哪些素材没定稿」）重跑恒判无待归并。
+    （_pending_material_paths 读两者判\u300c还有哪些素材没定稿\u300d）重跑恒判无待归并。
     """
     print("\n【F9】reject 范围（2-7 → 1-7；2026-10-27 补阶段 8）")
     sys.path.insert(0, str(REPO / "scripts"))
@@ -902,7 +902,7 @@ def case_f9():
           R.DOWNSTREAM_ARTIFACTS.get(8))
     own1 = R.DOWNSTREAM_ARTIFACTS[1]
     check("data/setting/setting.json" in own1 and "data/setting/canon.json" in own1,
-          "F9 stage1 清单含 setting.json + canon.json（否则重跑判「无待归并」空跑）",
+          "F9 stage1 清单含 setting.json + canon.json（否则重跑判\u300c无待归并\u300d空跑）",
           own1[:3])
     check("data/outline/global.md" in own1 and "data/chapters/refined" in own1,
           "F9 stage1 清单含下游大纲与章节产物（自+下游语义）")
@@ -910,7 +910,7 @@ def case_f9():
           "F9 不清 history 备份（打回留退路）", own1)
     api_src = (REPO / "scripts" / "nf_api.py").read_text(encoding="utf-8")
     # 报错口径由 utils.stage_artifacts.VALID_STAGES 生成（单一真源），不再写死字面量；
-    # 这里钉住「用同一份 format 且旧字面量已消失」，防有人改回 1-7。
+    # 这里钉住“用同一份 format 且旧字面量已消失”，防有人改回 1-7。
     check("stage 须为 %d-%d" in api_src and "stage 须为 1-7" not in api_src,
           "F9 HTTP /reject 报错口径同步为合法阶段集（1-8）")
     # 越界阶段：范围校验先于一切写操作，pm 传 None 也不会被用到
@@ -1004,7 +1004,7 @@ def case_s9():
     `progress.stage_status(8)` 抛 `KeyError: '8'`，异常穿透 `run()`，
     `runs` 被兜底标为 `crashed`。**默认全流程的最后一站必崩。**
 
-    断言的是「阶段键集必须覆盖编排遍历范围」+「越界阶段不崩」两条行为。
+    断言的是\u300c阶段键集必须覆盖编排遍历范围\u300d+\u300c越界阶段不崩\u300d两条行为。
     """
     print("\n【S9】阶段键集与编排遍历范围对齐（KeyError: '8' 回归）")
     sys.path.insert(0, str(REPO / "scripts"))
@@ -1015,7 +1015,7 @@ def case_s9():
     # `utils.stage_select.stage_order` —— 它是 --stages / --stage / --from 三选一的
     # 唯一来源（新单测 `test_stage_select` 也钉它）。断言改判**行为**（直接问
     # stage_order 默认跑到哪一站），不再刮 orchestrator 源码文本：换实现不会再假红，
-    # 而本用例真正要守的「键集必须盖住编排遍历上界」原样保留。
+    # 而本用例真正要守的“键集必须盖住编排遍历上界”原样保留。
     from utils.stage_select import stage_order
     default_order = list(stage_order(from_stage=1))
     check(default_order == list(range(1, 9)),

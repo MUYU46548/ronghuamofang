@@ -24,7 +24,7 @@ def datnow():
 
 
 def _frontmatter(book_name):
-    """YAML frontmatter（导出面板「包含 frontmatter 元数据」勾选项的真实现）。
+    """YAML frontmatter（导出面板“包含 frontmatter 元数据”勾选项的真实现）。
 
     多平台发布（Hugo/Jekyll 等静态站）需要书名元数据；此前勾选框是摆设，
     勾了不勾一个样。作者等字段从 project.yaml 读，读不到就不写该行。
@@ -149,8 +149,8 @@ def export_markdown(book_name="未命名", chapters_per_vol=5, out_dir=None,
     失败时清理临时目录，不留半成品。
 
     书名兜底（2026-10-17 复盘 P0）：GUI 导出面板曾显式传 book_name=null，
-    Python 侧 `f"{None}_markdown"` 造出「None_markdown」目录。空名一律回退
-    project.yaml 的 book.name，再不行才用「未命名」。
+    Python 侧 `f"{None}_markdown"` 造出“None_markdown”目录。空名一律回退
+    project.yaml 的 book.name，再不行才用“未命名”。
     """
     if not (book_name or "").strip():
         try:

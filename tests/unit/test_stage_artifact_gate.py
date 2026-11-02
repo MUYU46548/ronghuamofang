@@ -5,7 +5,7 @@
 
 15:52 实证事故：**0 行 polish_report.md 走完审批门** —— 旧判据只有 `exists()`
 （文件在、内容空 = 放行）。甲2 要求完成判定分两态：
-「真完成」= 产物存在**且非空**；「人工跳过」= 显式 skip 标记 + 理由，GUI 两态可辨。
+\u300c真完成\u300d= 产物存在**且非空**；\u300c人工跳过\u300d= 显式 skip 标记 + 理由，GUI 两态可辨。
 
 ## 判据
 
@@ -68,7 +68,7 @@ def main():
     rel("data", "outline", "chapters", "01.md").write_text("# 第1章", encoding="utf-8")
     check("有货目录 → 放行", missing_artifacts(3, tmp) == [], missing_artifacts(3, tmp))
     # 阶段 8（Markdown 导出）自 2026-10-26 起**在表内**（此前漏登记 = 产物校验真空过，
-    # /state 也整个不返回它，用户「阶段 8 在客户端内直接不存在」）。故空列表改用
+    # /state 也整个不返回它，用户“阶段 8 在客户端内直接不存在”）。故空列表改用
     # 真正未登记的阶段号 99 来验。
     check("未登记阶段（如 99）→ 空列表", missing_artifacts(99, tmp) == [],
           missing_artifacts(99, tmp))

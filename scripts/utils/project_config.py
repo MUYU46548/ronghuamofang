@@ -53,7 +53,7 @@ def _render_value(notes, indent):
         quoted = lines[0].replace("\\", "\\\\").replace('"', '\\"')
         return ['"' + quoted + '"']
     # |-（strip）而不是 |：块字面量会把末尾换行也读进值里，
-    # 导致「写入 A\nB → 回读 A\nB\n」不一致（2026-09-15 自检抓到）
+    # 导致“写入 A\nB → 回读 A\nB\n”不一致（2026-09-15 自检抓到）
     return ["|-"] + [(pad + ln if ln.strip() else "") for ln in lines]
 
 
@@ -98,7 +98,7 @@ def get_style_notes():
     """读取 book.style_notes（缺失/为空/结构异常一律返回空串）。
 
     2026-09-15 修：nf_api 的 GET /config/style_notes 一直在 import 这个函数，
-    但它从未存在过 → 控制台一打开「设置」页签就弹
+    但它从未存在过 → 控制台一打开“设置”页签就弹
     `ImportError: cannot import name 'get_style_notes' from 'utils.project_config'`。
     """
     try:

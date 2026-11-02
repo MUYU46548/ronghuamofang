@@ -5,7 +5,7 @@
 → 页面读扫描面 → 勾掉一个目录 → 保存 → 界面立刻反映新排除态。
 
 为什么单独一个脚本：e2e_ux_verify 需要外部先起服务，而这个面板的验收点是
-「目录名取自用户库、勾选真的写进配置」—— 用临时根夹具能把这条链路钉死，
+\u300c目录名取自用户库、勾选真的写进配置\u300d—— 用临时根夹具能把这条链路钉死，
 且不碰用户真实配置。
 
 用法：python tests/e2e/e2e_vault_scan_shot.py
@@ -62,7 +62,7 @@ def port_busy(port):
 def build_fixture_root():
     """临时项目根 + 一个**结构完全自定**的假 vault。
 
-    刻意用与任何真实库都不同的目录名 —— 本用例的判据是「界面列出你库里的目录」，
+    刻意用与任何真实库都不同的目录名 —— 本用例的判据是\u300c界面列出你库里的目录\u300d，
     所以夹具里出现任何具体库的目录名都会把判据测歪。
     """
     root = Path(tempfile.mkdtemp(prefix="nf_vscan_gui_"))
@@ -182,7 +182,7 @@ def main():
             page.screenshot(path=str(SHOT), full_page=True)
             print("  截图:", SHOT)
 
-            # 勾掉「参考区」→ 保存 → 界面立刻反映（真链路，不是静态渲染）
+            # 勾掉“参考区”→ 保存 → 界面立刻反映（真链路，不是静态渲染）
             row = page.query_selector(".vault-dir-row:has-text('参考区')")
             check("找到参考区行", row is not None)
             if row:

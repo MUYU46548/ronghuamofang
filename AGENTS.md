@@ -10,7 +10,7 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 **执行引擎可切换**：`config/system.yaml` 的 `engine` 字段控制。`direct`=OpenAI 兼容直连（当前接 TokenHub，可随时换供应商），`hermes`=Hermes 子会话（备选）。所有调用点经 `make_client(cfg, role)` 取客户端，零调用点硬编码引擎。
 
 **思考模式兼容（2026-09-14 起）**：glm-5.x / kimi 等模型默认进 thinking 模式时，正文会全进 `reasoning_content`、`content` 为空（且思考 token 吃掉 `max_tokens` 预算）→ 流水线产出空白。
-防线有三：① `providers.<id>.disable_thinking_models` 名单内模型自动注入「关闭思考」片段（候选顺序见 `disable_thinking_payloads`，TokenHub 实测首选 `thinking: {type: disabled}`；`reasoning_effort: none` 会被该平台拒收）；② 未列名单的思考模型由客户端自动探测并注入后重试；③ 兜底**只取协议块**（`===FILE:` / `===APPEND:` / `===DELETE:`）：reasoning_content 里找不到
+防线有三：① `providers.<id>.disable_thinking_models` 名单内模型自动注入“关闭思考”片段（候选顺序见 `disable_thinking_payloads`，TokenHub 实测首选 `thinking: {type: disabled}`；`reasoning_effort: none` 会被该平台拒收）；② 未列名单的思考模型由客户端自动探测并注入后重试；③ 兜底**只取协议块**（`===FILE:` / `===APPEND:` / `===DELETE:`）：reasoning_content 里找不到
 协议块就**直接丢弃**、返回空让上层判失败 —— **绝不把思考当正文写进产物**
 （2026-09-23 修：原实现无标记时返回整段思考，写作阶段实测把思考残片写进了小说正文）。
 
@@ -51,7 +51,7 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 | 本手册 + `docs/agents/` | **开发/Agent** | 仓库 `docs/` | 改架构、加判据 |
 | 内置手册 | **作者（用户）** | `console/src/help/*.md`（随包打进前端） | 改界面功能、用户问"这怎么用" |
 
-用户 2026-10-31 的原话：「本来这些东西都应该写在手册里持久化备查的。」
+用户 2026-10-31 的原话：“本来这些东西都应该写在手册里持久化备查的。”
 —— 用户在界面上看不懂的东西，第一反应必须是**把手册那篇改清楚**，
 而不是在聊天里解释一遍就算了（解释完下次还得再问）。
 
@@ -71,7 +71,7 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
    - **写成裸 `python` 也不会再炸**：`orchestrator.py` / `nfctl.py` 入口挂了解释器守卫
      `utils/interp_guard.py` —— 当前解释器缺 PyYAML 时 stderr 留痕 `[py-guard]` 后自动切 venv 重跑
      （`NF_PY_GUARD` 防拉锯）；切不动才退 1 并给可行动命令。⚠️ 2026-10-06 试跑连炸的真根因
-     就是裸 python（宿主环境缺 yaml），被误诊成「.venv 缺依赖」——venv 里 PyYAML 一直在
+     就是裸 python（宿主环境缺 yaml），被误诊成“.venv 缺依赖”——venv 里 PyYAML 一直在
    - 长任务（数小时），用后台运行 + 完成通知
 3. 监控：轮询 `logs/runs.db` 与 `data/state/progress.json` 向用户汇报进度/成本
 4. 退出码语义（orchestrator 返回）：
@@ -98,23 +98,23 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 - 熔断后处置：调大对应键 → 清 `data/state/progress.json` 的 `budget.paused` → `orchestrator.py --from N` 续跑（已完成阶段不重跑）。
 - 阈值参考量级：hermes 一次 stage1 子会话 ≈ 11.6 万 token（输入 9.8 万 + 输出 1.8 万）；40 章 stage4 合计通常 200~400 万。
 - **阈值可配 + 出厂预设 + 边界校验**（2026-10-03）：默认 **1000 万/轮 + 单请求 50000**
-  （用户口径：单章 5000~15000 字、常态 ~8000）。桌面端「**设置 → 预算与止烧**」可改，
-  「恢复默认预设」取 `cost_tracker.TOKEN_LIMIT_PRESET`（**预设与出厂配置由用例断言逐项一致**）。
+  （用户口径：单章 5000~15000 字、常态 ~8000）。桌面端“**设置 → 预算与止烧**”可改，
+  “恢复默认预设”取 `cost_tracker.TOKEN_LIMIT_PRESET`（**预设与出厂配置由用例断言逐项一致**）。
   越界值（0 / 负数 / 天文数字）**一律拒绝**并由 `validate_token_limit` 说清哪一项、区间是多少；
   手工把配置改坏时 `normalize_token_limit` 会**回落预设并打印 WARN** —— 闸门不许静默消失。
   端点：`GET/POST /config/token_limit`；写入口**只认 GUI 来源**并列入
   `agent_guard.FORBIDDEN_IN_AGENT_MODE`（外部 Agent 不得抬高自己的闸门）。
 - **看得见**：`nfctl status` 打 `token 闸门: 已用 N / 上限 M（x%）（本 run #id）`；
   `GET /state` 的 `budget` 带 `tokens_used / token_limit / token_pct`；`estimate_tokens.py`
-  给出「跑完预计 token / 是否撞闸门」；GUI 流水线条有同一项。
+  给出“跑完预计 token / 是否撞闸门”；GUI 流水线条有同一项。
   ⚠️ 口径是**最近一次 run**（一轮 = 一次 `orchestrator.run()`；`--from N` 重跑 = 新 run，计数归零）。
-- **未启用时会明说**「未启用（hermes 下金额阈值无效 → 本轮没有止烧闸门）」——
+- **未启用时会明说**“未启用（hermes 下金额阈值无效 → 本轮没有止烧闸门）”——
   静默不显示等于让用户以为有闸门。
 
 **单章字数区间（`chapter.target_words`，2026-10-18）**：出厂默认 **[5000, 9000]**
-（旧默认 [2000,5500] 让实测 2033 字的章直接过检，用户判定「一章两三千字根本不合格」）。
+（旧默认 [2000,5500] 让实测 2033 字的章直接过检，用户判定“一章两三千字根本不合格”）。
 **总量仍由章数控制**，抬高这里只把单章篇幅拉到合格线。
-端点 `GET/POST /config/target_words`（GUI 设置页「预算与止烧 → 单章字数（篇幅口径）」同源），
+端点 `GET/POST /config/target_words`（GUI 设置页“预算与止烧 → 单章字数（篇幅口径）”同源），
 边界 500~20000 / 500~30000，越界一律 400 并说清区间。
 ⚠️ **落盘必须是列表 `[low, high]`**：消费方全是 list 语义（`low, high = tw[:2]`、
 `is_chapter_complete(path, *tw)`、`tw[0]`），落 dict 会全线炸；`test_target_words.py` 锁死这条。
@@ -122,25 +122,25 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 
 ## 中文标点归一化（2026-10-18，确定性、零 token）
 
-> 详见 **`docs/agents/text-norm.md`**。留在手册里的只有「为什么」：形态错误只能靠确定性替换治理（提示词里早就写着全角标点，产物照旧）；唯一实现 `scripts/utils/text_norm.py`，7 处挂载点 + 幂等/保守/保护区三条护栏。
+> 详见 **`docs/agents/text-norm.md`**。留在手册里的只有“为什么”：形态错误只能靠确定性替换治理（提示词里早就写着全角标点，产物照旧）；唯一实现 `scripts/utils/text_norm.py`，7 处挂载点 + 幂等/保守/保护区三条护栏。
 
 ## 文体（form）—— 决定哪些判据适用（2026-10-20）
 
-> 详见 **`docs/agents/writing-forms.md`**。留在手册里的只有「为什么」：`book.form` 决定哪些判据适用（叙事/散文/书信/单元）；不适应要显式标 N/A，不许给 0 分或满分。书信/单元的写法指导仍未接入（回落叙事并告警）。
+> 详见 **`docs/agents/writing-forms.md`**。留在手册里的只有“为什么”：`book.form` 决定哪些判据适用（叙事/散文/书信/单元）；不适应要显式标 N/A，不许给 0 分或满分。书信/单元的写法指导仍未接入（回落叙事并告警）。
 
-## 知识库扫描通用化（2026-10-24，用户点名「不要拿私例当通例」）
+## 知识库扫描通用化（2026-10-24，用户点名“不要拿私例当通例”）
 
-> 详见 **`docs/agents/kb-scan.md`**。留在手册里的只有「为什么」：任何「用户的库长什么样」的假设都不许写进代码/提示词/测试夹具；收集走 `vault.rglob("*.md")`，排除项由用户在 GUI 勾（只写 system.local.yaml）。
+> 详见 **`docs/agents/kb-scan.md`**。留在手册里的只有“为什么”：任何“用户的库长什么样”的假设都不许写进代码/提示词/测试夹具；收集走 `vault.rglob("*.md")`，排除项由用户在 GUI 勾（只写 system.local.yaml）。
 
 ## 长篇规模能力（2026-10-20，四项一次落地）
 
-> 详见 **`docs/agents/long-form.md`**。留在手册里的只有「为什么」：七维评审账本 / 审美五问 / 三层记忆 / 卷弧滚动 / 残稿采纳 / 伏笔台账 / step 级 checkpoint / 设定库闭环 —— 每项的判据与踩过的坑。
+> 详见 **`docs/agents/long-form.md`**。留在手册里的只有“为什么”：七维评审账本 / 审美五问 / 三层记忆 / 卷弧滚动 / 残稿采纳 / 伏笔台账 / step 级 checkpoint / 设定库闭环 —— 每项的判据与踩过的坑。
 
 ## 发布树卫生：夹具/预设的专名只能取自虚构侧（2026-10-20 立规）
 
 **事故**：我（AI）为写测试夹具，从本机 `Temp/_archive_20261001/_probe_setting.json`
 （真实设定集的历史探针快照）里抄了角色名，写进 5 个发布树文件、共 69 处。
-`leak_scan` 当时报「零命中」—— 因为它只扫 `git ls-files`（已跟踪文件），
+`leak_scan` 当时报“零命中”—— 因为它只扫 `git ls-files`（已跟踪文件），
 而新文件在提交前全是 **untracked**。`git add` 之后立刻满屏命中。
 
 **两道修正（都已落地）**：
@@ -179,7 +179,7 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 ## 成书提炼（把写完的书变成正典，2026-10-27 集成自 SP-1024）
 
 素材卡 → 设定集走阶段 1；**已经写完的一本书 → 正典四表**走成书提炼。
-GUI：章节页签「成书提炼」折叠块（预演 → 后台跑 → 合并预览 → 确认）；CLI 同源：
+GUI：章节页签“成书提炼”折叠块（预演 → 后台跑 → 合并预览 → 确认）；CLI 同源：
 `python scripts/book_extract.py init <书.txt> --name X` → `run X --dry-run`（零 token 预演）→
 `run X` → `status X` → `merge X --yes`。产物在 `data/book_extract/X/`（摘要/角色/设定/时间线/
 伏笔/冲突/病灶/报告/成本）；**断点续跑**（摘要落盘即算完成，失败章重跑只补它）、
@@ -191,15 +191,15 @@ GUI：章节页签「成书提炼」折叠块（预演 → 后台跑 → 合并�
 ## 判定引擎（P0，2026-10-29）
 
 **一句话**：确定性规则产依据 → 作者勾事件 → 三档结论 → 单一记录；**零 token、断网可跑、没有分数**。
-GUI：章节页签顶部「判定」摘要条 → 整本一页 → 单章（缺陷卡 + 事件勾选）→ 改标准。
+GUI：章节页签顶部“判定”摘要条 → 整本一页 → 单章（缺陷卡 + 事件勾选）→ 改标准。
 CLI：`python scripts/judge.py run` → `report` / `chapter N` / `destroy N` / `events` / `sentence` / `caliber`。
 产物：口径 `data/judge/caliber.json`、判定记录 `data/judge/records.json`（**只有这一个写点**）。
 三条界：① 规则只产依据，档位只在 `verdict.decide`；② 阈值只在口径表（代码里硬编码 = 造空判据）；
 ③ 事件勾选与逐句裁定是**作者本人**动作（`/judge/events`、`/judge/sentence` 对 Agent 403）。
-同时拆了三处锁：stage4 的「擅长克制叙事」「不得新增关键情节」、无范文的「中立克制」兜底；
+同时拆了三处锁：stage4 的“擅长克制叙事”“不得新增关键情节”、无范文的“中立克制”兜底；
 stage5/6 的 `max_tokens` 抬到 **40000/25000**，并在开跑前做**预算—篇幅联动校验**（装不下不发请求）。
 **容量口径（2026-10-30 修）**：判据一律按**本次请求实际要产出的总字数**算，不是单章最大字数 ——
-stage5 的批大小由「装得下几章」反推（`judge.budget.items_per_request`），stage6 改成**一章一次请求**
+stage5 的批大小由“装得下几章”反推（`judge.budget.items_per_request`），stage6 改成**一章一次请求**
 （旧实现整卷一次发，40 章要一口气回 13 章全文，任何 max_tokens 都装不下）；实际上限取
 `min(提示词声明, config 的 per_request_max_tokens)`（`judge.budget.effective_max_tokens`）；
 stage4 也补了同一道校验（此前是唯一既不设上限、也不校验的阶段）。
@@ -211,7 +211,7 @@ stage4 也补了同一道校验（此前是唯一既不设上限、也不校验�
 
 1. **CLI（默认）**：项目脚本，不需要起服务。先跑 `python scripts/nfctl.py status`（全景）
    + `check`（自检），再按上表取具体命令。
-2. **HTTP**（`nf_api` on `127.0.0.1:8765`）：只在需要「正在跑的那个任务」的状态、
+2. **HTTP**（`nf_api` on `127.0.0.1:8765`）：只在需要“正在跑的那个任务”的状态、
    流式 token、SSE 时才用。只读转发用 `nfctl.py api <GET路径>`。
 3. **MCP**：`nf_mcp.py` 在 **TCP 127.0.0.1:8766** 暴露白名单工具（`tools/list` 返回
    **27 个**：25 个 HTTP loopback + 2 个 LOCAL 直调 —— ⚠️ **数量勿写死**，以
@@ -219,7 +219,7 @@ stage4 也补了同一道校验（此前是唯一既不设上限、也不校验�
    现有域模块。审批类/项目类/模式切换端点**永不**暴露给 MCP。
    **垫片自启动（2026-10-06）**：`nf_mcp_stdio_bridge.py` 起来时若 8765 `/health` 不通
    会**代拉一次 nf_api**（连带起 8766），最多等 12s；逃生门 `NF_BRIDGE_NO_AUTOSTART=1`
-   （测试/握手自检必设）。配置段在 GUI「设置 → 接入其他 Agent」按运行态生成；
+   （测试/握手自检必设）。配置段在 GUI“设置 → 接入其他 Agent”按运行态生成；
    外部 Agent 启动提示词单一事实源 `prompts/agent_kickoff.md`（同页一键复制）。
    ⚠️ **8766 不是标准 MCP 传输**（是 TCP + 换行分帧的裸 JSON-RPC）——标准 MCP 客户端
    （Hermes / Claude Code / Cline）**必须经 stdio 垫片**接入：
@@ -240,18 +240,18 @@ stage4 也补了同一道校验（此前是唯一既不设上限、也不校验�
 `/config/agent_mode`、**`/config/token_limit`**（止烧阈值：Agent 不得抬高自己的闸门）、
 **`/factory/clean`**（出厂样例清理：Agent 可用只读 `/factory/list` 盘点，不得动手搬素材）、
 **`/stage/skip`**（跳过阶段 = 标 done+已审批，与审批同族，2026-10-16 补入名单）、
-**`/chapters/save`**（手改正文：零 token 直接覆盖三层稿 —— 与「重写（花 token 生成、有备份与
-自动恢复）」不是一回事，2026-10-27 补入名单）
+**`/chapters/save`**（手改正文：零 token 直接覆盖三层稿 —— 与“重写（花 token 生成、有备份与
+自动恢复）”不是一回事，2026-10-27 补入名单）
 返回 **403**。含义是：**外部 Agent 可读、可跑流水线，但不能代替用户审批** —— 这是设计，不是 bug。
 另外设置类写入（`/config/agent_mode`、`/config/token_limit`）**无论模式如何都要求 GUI 来源头**；
 `/chapters/save` 同档（与 agent_mode 无关也要求双因子 GUI 来源）。
 双因子的边界如实声明（2026-10-16 红队 A11）：同机攻击者可自起一份 nf_api 并自铸 `NF_GUI_TOKEN`
-整体穿透本名单 —— 但这不比「直接手改 `data/state/*.json`」多出任何能力，同属已声明残余
+整体穿透本名单 —— 但这不比“直接手改 `data/state/*.json`”多出任何能力，同属已声明残余
 （防线语义 = 拦住照文档跑命令的 Agent，**不是沙箱**）。
 
 ## 提示词前缀纪律（2026-09-23 定，改 `prompts/stage*.md` 前必读）
 
-> 详见 **`docs/agents/prompt-prefix.md`**。留在手册里的只有「为什么」：改 `prompts/stage*.md` 前必读：body 里 `---` 之前必须逐章逐字不变，否则前缀缓存命中率从 77.6% 崩到 1.2%。
+> 详见 **`docs/agents/prompt-prefix.md`**。留在手册里的只有“为什么”：改 `prompts/stage*.md` 前必读：body 里 `---` 之前必须逐章逐字不变，否则前缀缓存命中率从 77.6% 崩到 1.2%。
 
 ## 提示词的两条保底纪律（2026-10-31）
 
@@ -272,14 +272,14 @@ stage4 也补了同一道校验（此前是唯一既不设上限、也不校验�
 **③ 打包态 `prompts/` 只有一份真源。** `PROMPTS_DIR` 由 `_set_root()` 随 `--root` 派生
 （workspace 优先、代码区兜底），与流水线 `load_template` 的 cwd 相对读取同源。
 此前 GUI 写 `resources/payload/prompts`、运行时读 `workspace/prompts` ——
-界面说「下次运行生效」，实际永远不生效。**新增任何路径常量都要在 `_set_root` 里刷新。**
+界面说“下次运行生效”，实际永远不生效。**新增任何路径常量都要在 `_set_root` 里刷新。**
 
 **④ 升级不再覆盖用户改过的提示词（2026-10-31 用户拍板）。**
 `SEED_KEEP_USER_EDITS = ["prompts"]`：升级时 `prompts/` **只补缺失文件**，已有文件一律不动；
 `SEED_FORCE_REFRESH_SUBDIRS = ["factory"]` 是例外 —— 出厂副本必须随版本刷新，
-否则「还原出厂默认」给出的是上一版的提示词。判据在 `test_failure_paths` F7
+否则“还原出厂默认”给出的是上一版的提示词。判据在 `test_failure_paths` F7
 （探针从源码抽这两个常量，改回 force 覆盖 → 立刻红）。
-⚠️ 改这条等于动「提示词算用户数据还是出厂资产」的产品决策，不是清垃圾。
+⚠️ 改这条等于动“提示词算用户数据还是出厂资产”的产品决策，不是清垃圾。
 
 ## 架构：API 层的域模块拆分（P2）
 
@@ -347,7 +347,7 @@ stage4 也补了同一道校验（此前是唯一既不设上限、也不校验�
 - 审计日志：所有 Agent 调用记录到 `data/state/agent_audit.jsonl`
 
 **前端配合**：
-- 「设置」页新增「Agent 模式」toggle（二次确认）
+- “设置”页新增“Agent 模式”toggle（二次确认）
 - 顶部连接状态旁显示 `⚡ Agent` 徽标（橙色脉冲动画）
 - 全局刷新按钮（↻）一键刷新所有页签数据
 - 审批门产物摘要显示 `agent: true/false` 标记
@@ -360,7 +360,7 @@ stage4 也补了同一道校验（此前是唯一既不设上限、也不校验�
 - `GET /config/project`、`/config/style_notes`、`/config/agent_mode`、`/config/target_words`
   （单章字数区间：当前值 + 出厂预设 + 合法区间）
 - `GET /config/vault_scan`（知识库扫描面：**顶层目录名取自用户库本身** + 各自篇数 +
-  是否被排除 + 用户排除项/默认项分列。目录名一律不写进代码 —— 见「知识库扫描通用化」）
+  是否被排除 + 用户排除项/默认项分列。目录名一律不写进代码 —— 见“知识库扫描通用化”）
 - `GET /outline/structure`、`/outline/trend`、`/outline/advise`、`/outline/history`、`/outline/diff`
 - `GET /outline/segments`（丙4 分段审阅：分段清单 + 每段正文 + 放行判据回显；**读侧不设闸**）
 - `GET /sandbox/queue`、`/sandbox/file`
@@ -446,42 +446,42 @@ if __name__ == "__main__":
 
 ## 关键路径
 
-> 详见 **`docs/agents/key-paths.md`**。留在手册里的只有「为什么」：所有数据/产物路径与它们的真源（设定集、大纲、章节三层、快照、归档、模板、备份……）。
+> 详见 **`docs/agents/key-paths.md`**。留在手册里的只有“为什么”：所有数据/产物路径与它们的真源（设定集、大纲、章节三层、快照、归档、模板、备份……）。
 
 ## 运维场景
 
-> 详见 **`docs/agents/operations.md`**。留在手册里的只有「为什么」：阶段失败 / 熔断 / 用户打回 / GUI 排障 / 素材更新 / 跨版本升级的标准处置与退出码。
+> 详见 **`docs/agents/operations.md`**。留在手册里的只有“为什么”：阶段失败 / 熔断 / 用户打回 / GUI 排障 / 素材更新 / 跨版本升级的标准处置与退出码。
 
 ## 能力边界（2026-09-21 实证，勿重复夸大）
 
-**本系统是「确定性流水线 + 单轮 LLM 调用」，没有 agent 层。** `engine: direct` 是
-OpenAI 兼容直连，模型**无工具调用、无自主多轮循环、无记忆**。「多轮迭代」全部靠
+**本系统是“确定性流水线 + 单轮 LLM 调用”，没有 agent 层。** `engine: direct` 是
+OpenAI 兼容直连，模型**无工具调用、无自主多轮循环、无记忆**。“多轮迭代”全部靠
 外层（用户或外部 agent）驱动。以下是逐项实证的能力边界：
 
 | 能力 | 现状 | 缺口 |
 |---|---|---|
 | 大纲多轮迭代 | ✅ 每轮备份 `global_vN.md` 可回溯；体检零 token；**✅ 收敛判断**（`--trend`：done/improving/stalled/mixed + 建议）；**✅ 迭代成本进账本**（`stage=2` + `chapter=版本号`，`cost_report --by-outline` 逐轮可见） | — |
-| 调设定库 | ⚠️ 能导入能注入 | ❌ 整体替换非合并 ❌ 无增量同步 ❌ 大纲阶段不注入 vault 词条（只给 `setting.json` 路径）。**注：冲突消解靠机器规则解决不了（哪个设定更对是创作决策）—— 若要合并，需要「把冲突摊出来让用户当场决断」的交互，而非自动规则** |
-| 反向写沙盒等审核 | ✅ **审核状态机**（`pending/approved/rejected` + 独立状态库 + 审核队列 CLI + 孤儿检测）；✅ **大纲迭代阶段可回写**（`outline_export.py` 导出审核包，只写沙盒不改产物）；✅ **GUI「审核」页签**（队列 / 预览 / 通过 / 驳回 / 退回，徽标提示待审数） | ❌ 完书后通道未接审核状态机；❌ 无「一键粘贴进 vault」——**刻意不做**（见下） |
-| 迭代后给开工方向 | ✅ **`outline_advisor.py`**按严重度给候选方案（结构问题 > 退化 > 有 THIN > 停滞 > 开工），每个方案含依据 + 目标条目 + **可执行 next_step** + 调用次数 + 取舍；✅ **GUI 大纲页签「趋势 / 建议」抽屉**（趋势表 + 候选方案 + 逐条「AI 精修此条」一键提交） | ❌ 只给方案不自动执行（刻意：`start_writing` 是用户的决定，不是系统的）；❌ 结构性问题（如四节缺失）无自动改法，如实说「需手工处理」 |
+| 调设定库 | ⚠️ 能导入能注入 | ❌ 整体替换非合并 ❌ 无增量同步 ❌ 大纲阶段不注入 vault 词条（只给 `setting.json` 路径）。**注：冲突消解靠机器规则解决不了（哪个设定更对是创作决策）—— 若要合并，需要“把冲突摊出来让用户当场决断”的交互，而非自动规则** |
+| 反向写沙盒等审核 | ✅ **审核状态机**（`pending/approved/rejected` + 独立状态库 + 审核队列 CLI + 孤儿检测）；✅ **大纲迭代阶段可回写**（`outline_export.py` 导出审核包，只写沙盒不改产物）；✅ **GUI“审核”页签**（队列 / 预览 / 通过 / 驳回 / 退回，徽标提示待审数） | ❌ 完书后通道未接审核状态机；❌ 无“一键粘贴进 vault”——**刻意不做**（见下） |
+| 迭代后给开工方向 | ✅ **`outline_advisor.py`**按严重度给候选方案（结构问题 > 退化 > 有 THIN > 停滞 > 开工），每个方案含依据 + 目标条目 + **可执行 next_step** + 调用次数 + 取舍；✅ **GUI 大纲页签“趋势 / 建议”抽屉**（趋势表 + 候选方案 + 逐条“AI 精修此条”一键提交） | ❌ 只给方案不自动执行（刻意：`start_writing` 是用户的决定，不是系统的）；❌ 结构性问题（如四节缺失）无自动改法，如实说“需手工处理” |
 
 **回写设定库的硬边界（2026-09-21 用户确认）**：任何回写设定库（Obsidian vault
 或后续新增支持的其它设定库）的动作，**一律只写沙盒目录产出草稿样本，
-永不直接覆盖 vault / 正典内容**。决策权始终在用户手里 —— 系统负责「把候选摊出来
-+ 标清来源与状态」，用户负责「选哪个、什么时候入库」。基于此：
+永不直接覆盖 vault / 正典内容**。决策权始终在用户手里 —— 系统负责“把候选摊出来
++ 标清来源与状态”，用户负责“选哪个、什么时候入库”。基于此：
 
 - 沙盒是**唯一可写位置**；vault 本体只读（`obsidian_bridge` 的写入函数全部落沙盒）。
 - 审核状态（`pending/approved/rejected`）存在独立的 `data/state/sandbox_manifest.json`，
   **不写进产物 frontmatter** —— 否则用户粘贴时会把内部状态一起带进 vault 词条。
 - 内容变了（sha256 比对）自动重置为 `pending`：**绝不让旧审核为新内容背书**。
-- 系统**不提供**「通过后自动写入 vault」的通道。也不应新增 —— 那等于绕过用户决策。
+- 系统**不提供**“通过后自动写入 vault”的通道。也不应新增 —— 那等于绕过用户决策。
 
 **收敛判断的口径**（确定性，不是 LLM 判断）：主键 `issues + thin`（越小越好），
 看最近 `window`（默认 3）轮 —— 最新为 0 = `done`（可开工）；持续下降 = `improving`；
 完全不变 = `stalled`（收益递减，建议换角度/补素材/开工）；有升有降 = `mixed`（建议回看哪几条在反复）。
 
-**结论**：绒花墨坊负责「手」（确定性地读写文件、调 LLM、算成本、留备份、做体检），
-**「脑」需要外层 agent**（读体检 → 判断收敛 → 给方向 → 调 refine → 审沙盒产物）。
+**结论**：绒花墨坊负责“手”（确定性地读写文件、调 LLM、算成本、留备份、做体检），
+**“脑”需要外层 agent**（读体检 → 判断收敛 → 给方向 → 调 refine → 审沙盒产物）。
 两者是互补而非替代关系。
 
 ## 硬性约束
@@ -494,13 +494,13 @@ OpenAI 兼容直连，模型**无工具调用、无自主多轮循环、无记�
 - **直连引擎（engine: direct）语义**：无子会话工具循环——任务文件的输入文件段由 `llm_client.inline_inputs` 全文内联进单请求；多文件输出任务自动按目标文件拆分请求；模型产物经 `===FILE/APPEND/DELETE===` 协议落盘（白名单：`data/**` 与 `logs/runs.db`），期望外路径直接拒绝
 - **子会话（engine: hermes）**：任务文件（data/state/tasks/）必须自包含全部上下文
 - **本地 API（nf_api.py）**：函数级复用 orchestrator/approve/reject/refine，不经过 Hermes 子进程；客户端注入走 `_client_for_env`（默认 make_client 真引擎，`NF_API_ALLOW_FAKE=1`/`--allow-fake` 时注入 FakeClient——**仅限测试**，自测脚本运行会清空 data/ 运行产物）；服务默认只绑 127.0.0.1
-- **GUI 交互纪律**：① 运行入口唯一（流水线页签顶部的「一键工作流」条，旧的 `.run-all-bar` 已删——
+- **GUI 交互纪律**：① 运行入口唯一（流水线页签顶部的“一键工作流”条，旧的 `.run-all-bar` 已删——
   新增运行按钮一律并入该条，不让两套入口并存）；② 破坏性操作走应用内确认框 + 勾选护栏，不用
   `window.confirm`（Electron 原生对话框不可靠）；③ 新 CSS 一律用主题变量（`--ok/--bad/--warn/--accent`），
   硬编码色值在暗色主题下会看不清；④ 新增/改前端后必须跑 `tests/e2e/e2e_ux_verify.py` 做真机视觉验收
   （用户明确要求：不许只跑冒烟测试就交付）；⑤ 前端 API 基址可用 `window.__NF_API_BASE__` 覆盖，
   便于在不干扰用户 8765 实例的前提下验收
-- **新建项目只有一个入口**：「项目」页签 →「＋ 新建项目」（`POST /project/create`：快照 → 归档当前 →
+- **新建项目只有一个入口**：“项目”页签 →“＋ 新建项目”（`POST /project/create`：快照 → 归档当前 →
   建空工作区 → 写 project.yaml）。手工改 `config/project.yaml` 只算高级用法，不要写进引导文案；
   首启向导（`POST /project/init`）走同一实现，**必须真写盘**（历史上的静默丢弃已修）
 - **project.yaml 只用定向改写**：一律经 `utils/project_config.set_book_fields()`（按行替换 + 备份 +

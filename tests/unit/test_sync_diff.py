@@ -3,13 +3,13 @@
 
 ## 为什么需要这套用例
 
-两个缺陷都属于「**从来没真正跑过**」那一类，最容易被"全绿"掩盖：
+两个缺陷都属于\u300c**从来没真正跑过**\u300d那一类，最容易被"全绿"掩盖：
 
 | 编号 | 缺陷 | 危害 |
 |---|---|---|
-| D1 | `obsidian_templates.yaml` 的 `character_dirs` 默认 `[]` → `has_obsidian_entry` **恒假** | 「已有词条的角色只出出场记录」这条分支从未执行；后处理对每个角色都造设定草稿（重复造词条） |
+| D1 | `obsidian_templates.yaml` 的 `character_dirs` 默认 `[]` → `has_obsidian_entry` **恒假** | \u300c已有词条的角色只出出场记录\u300d这条分支从未执行；后处理对每个角色都造设定草稿（重复造词条） |
 | D2 | 没有 vault↔设定集的**内容级对账** | canon 被 stage1 归并吞掉、条目被改名绕过 locked、locked 标志丢失，全靠人工东查西查 |
-| D3 | 对账/检查的「空结果」易被读成「通过」 | 没查 ≠ 通过（本仓栽过：`locked_violations` 曾恒为空列表） |
+| D3 | 对账/检查的\u300c空结果\u300d易被读成\u300c通过\u300d | 没查 ≠ 通过（本仓栽过：`locked_violations` 曾恒为空列表） |
 
 全部零 LLM、零网络，跑在**临时项目根**（复制 scripts/config），真实仓库零污染。
 """
@@ -238,7 +238,7 @@ _ticket(checked=r["checked"], vt=r["vault_total"], st=r["setting_total"],
 
 
 def case_sync_diff_not_checked():
-    print("\n[D2b] 空结果 ≠ 一致：vault 没配 / 设定集不存在 都要显式回报「没查」")
+    print("\n[D2b] 空结果 ≠ 一致：vault 没配 / 设定集不存在 都要显式回报\u300c没查\u300d")
     root = build_sandbox()
     code = PRELUDE + '''
 import obsidian_bridge as ob
@@ -246,7 +246,7 @@ r = ob.sync_diff(vault_data={"characters": []})
 _ticket(checked=r["checked"], reason=r["reason"])
 '''
     p, out, err = run_py(root, code)
-    check("D2b vault 无角色 → checked=False 且给出原因（不冒充「一致」）",
+    check("D2b vault 无角色 → checked=False 且给出原因（不冒充\u300c一致\u300d）",
           p is not None and p["checked"] is False and bool(p["reason"]),
           f"→ {p if p else out[-200:]}")
 

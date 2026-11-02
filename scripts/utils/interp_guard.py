@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-"""解释器守卫：拦「用错 python」这类一开局就崩的事故。
+"""解释器守卫：拦“用错 python”这类一开局就崩的事故。
 
 背景（2026-10-06 试跑实锤）：外部 Agent 在项目根敲 `python scripts/orchestrator.py`，
 PATH 上的 python 是宿主环境（如 Hermes 自带的 3.14，没装 PyYAML）→ `import yaml`
-直接 ModuleNotFoundError 打死启动。agent 又把病因误诊成「.venv 缺 yaml」——
+直接 ModuleNotFoundError 打死启动。agent 又把病因误诊成“.venv 缺 yaml”——
 其实 .venv 里 PyYAML 一直好好装着，**错的从来不是依赖，是解释器**。
 
 两个开跑入口共用本守卫（kickoff 写明的 `orchestrator.py` 与 `nfctl.py`）：
@@ -41,7 +41,7 @@ def has_yaml() -> bool:
     try:
         import yaml  # noqa: F401
         return True
-    except Exception:  # noqa: BLE001 —— 缺包/坏包一律当「不可用」
+    except Exception:  # noqa: BLE001 —— 缺包/坏包一律当“不可用”
         return False
 
 

@@ -3,7 +3,7 @@
 
 为什么要单独一层（与 `tests/unit/test_outline_segments.py` 不重复）：
 单测验的是**判据**（切分/记账/gate_status/CLI），本文件验的是**闸与界面之间的那段路**——
-上一轮交付时闸已经开着、GUI 却没做，用户在界面上点「确认放行」只吃到一个哑巴 409。
+上一轮交付时闸已经开着、GUI 却没做，用户在界面上点\u300c确认放行\u300d只吃到一个哑巴 409。
 这里把端点行为钉死：
 
 - 读侧**不设闸**：不带任何 GUI 头也能读（它只回显 global.md 本就存在的正文）；
@@ -81,7 +81,7 @@ def req(method, path, body=None, timeout=60, gui=False, source=None, token=None)
     data = json.dumps(body or {}, ensure_ascii=False).encode("utf-8") if method == "POST" else None
     headers = {"Content-Type": "application/json"}
     if gui:
-        # gui=True = 「可信 GUI」：来源头 + 正确 token（双因子齐备）
+        # gui=True = “可信 GUI”：来源头 + 正确 token（双因子齐备）
         headers["X-Mofang-Source"] = "gui"
         headers["X-Mofang-Token"] = TEST_TOKEN if token is None else token
     if source:

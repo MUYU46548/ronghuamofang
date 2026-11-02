@@ -12,10 +12,10 @@ const { shouldGuardClose, closeAskTimedOut, killTreeArgv,
 const { configFileFor, resolveProjectRoot, persistRoot } = require("./project-root");
 
 // ---------------------------------------------------------------------------
-// 退出守卫状态（2026-10-03：修「关不掉」）
+// 退出守卫状态（2026-10-03：修“关不掉”）
 //
 // 旧实现把退出确认挂在渲染进程的 window.beforeunload 上，触发条件含
-// 「有 stage 是 done 但未审批」= 审批门的长期正常状态 → 每次关窗都弹
+// “有 stage 是 done 但未审批”= 审批门的长期正常状态 → 每次关窗都弹
 // Chromium 原生框；该框可能跑到窗口后面、或被 Esc 吃掉 → 用户以为"关不掉"。
 // 现在：渲染进程只上报 busy，**主进程**决定拦不拦，确认走应用内对话框，
 // 并且永远有看门狗兜底（宁可丢掉一次确认，也不能把用户关在应用里）。
@@ -132,7 +132,7 @@ function setupAutoUpdater() {
     });
     autoUpdater.on("update-not-available", () => {
       console.log("[updater] already up to date");
-      // 主动回推：主动检查后若「没有新版本」，只靠 checkForUpdates() 的返回值
+      // 主动回推：主动检查后若“没有新版本”，只靠 checkForUpdates() 的返回值
       // 前端拿不到结论（结果对象不可序列化），必须走事件
       if (mainWindow) {
         mainWindow.webContents.send("updater", {
@@ -204,14 +204,14 @@ const API_PORT = 8765;
 //   源码态 → 项目根 ROOT
 //            **开发即用项目数据**：data/ materials/ config/ .env 全部直读，
 //            改了 scripts/ 立即生效。
-//            此前源码态也走 appdata，后果是「改项目代码零生效 + 界面看到的是
-//            一个空壳工作区（书名待填写 / 暂无素材 / API 未配置）」，开发时
+//            此前源码态也走 appdata，后果是“改项目代码零生效 + 界面看到的是
+//            一个空壳工作区（书名待填写 / 暂无素材 / API 未配置）”，开发时
 //            完全无法自测，且不报任何错（2026-09-23 排查）。
 //
 // ⚠️ 2026-10-04 根修（修复单 Step 4c）：默认值之上还有**显式配置**层 ——
 // 项目根优先由 --project-root 启动参数 / NF_ROOT 环境变量 / 记忆配置文件决定
-// （实现与优先级见 project-root.js），消除「安装版 GUI 无条件指 %APPDATA%
-// 工作区 → 与 orchestrator 源码树静默分裂」（双 progress.json、审批门不可见、
+// （实现与优先级见 project-root.js），消除“安装版 GUI 无条件指 %APPDATA%
+// 工作区 → 与 orchestrator 源码树静默分裂”（双 progress.json、审批门不可见、
 // GUI 批准落空 —— 本轮试写事故 P0 病根）。解析结果连同来源
 // （source=cli|env|config|default）打启动日志，**无静默回退**。
 function defaultWorkspaceDir() {
@@ -231,7 +231,7 @@ function resolveAndRememberProjectRoot() {
     log: console.log, warn: console.warn,
   });
   if (cliRoot && hit.source === "cli") {
-    // 「启动参数记住项目根」：写进配置文件，下次启动不再需要参数
+    // “启动参数记住项目根”：写进配置文件，下次启动不再需要参数
     if (persistRoot(cfgFile, hit.root, fs)) {
       console.log("[console] projectRoot 已记住 →", cfgFile);
     } else {
@@ -256,7 +256,7 @@ function getWorkspaceSource() {
 // 否则老用户永远拿不到新代码 —— 见下方 seedWorkspace() 的升级刷新逻辑。
 //
 // 历史：本轮（2026-09-19）之前 seedWorkspace() 在 .seeded 存在时直接 return，
-// 于是「只在首次安装时播种」变成了「永远不再更新」。桌面端用户升级 App 后
+// 于是“只在首次安装时播种”变成了“永远不再更新”。桌面端用户升级 App 后
 // workspace 里跑的还是旧版 orchestrator/stage*/prompts，而 config/ 下的
 // system.yaml 又是新的 → 新配置撞旧代码，各种诡异失败且无法从 UI 诊断。
 //
@@ -277,12 +277,12 @@ function getWorkspaceSource() {
 //   Content-Type → 非 Electron 的浏览器上下文里所有请求被拦）。
 //   仍遵守同一条顺序纪律：**先 bump 再 electron-builder**。
 // v6（2026-09-29 同日，第三批）：payload 再变 —— `/state` 的 progress.json 改经 ROOT 解析、
-//   `--root` 解析加 resolve()、`/about` 版本改「ROOT 优先 → 代码仓库兜底」、
+//   `--root` 解析加 resolve()、`/about` 版本改“ROOT 优先 → 代码仓库兜底”、
 //   `progress_manager` 损坏时不再静默降级（告警 + 留原件）。
 //   仍遵守同一条顺序纪律：**先 bump 再 electron-builder**。
 // v7（2026-09-29 同日，第四批）：定价批量导入上线 —— payload 新增
 //   `POST /costs/rates/import`（后端 utils/cost_tracker 的解析/合并三层 + 域 handler），
-//   renderer 侧定价面板加「批量导入」粘贴框。**先 bump 再 electron-builder**。
+//   renderer 侧定价面板加“批量导入”粘贴框。**先 bump 再 electron-builder**。
 // v8（2026-09-30，第五批）：`--root` 路径纪律存量清理 —— payload 里
 //   nf_api.py 的 12 处相对数据路径改经 ROOT（含 `GLOBAL`/`HISTORY_DIR` 由 _set_root 派生）、
 //   nf_api_domains/outline.py 的体检路径。**先 bump 再 electron-builder**。
@@ -296,7 +296,7 @@ function getWorkspaceSource() {
 // v12（2026-10-01，第八批）：payload 多处变更 ——
 //   · `utils/setting_schema.py` 新增 `is_locked` 公开入口（locked 判据单点复用）；
 //   · `obsidian_bridge.py` 新增 `check_locked_violations`（locked 结构性违例：缺失/
-//     丢锁定/改名）+ `locked` 子命令，`check_consistency` 把它从「未实现」移入「已实现」；
+//     丢锁定/改名）+ `locked` 子命令，`check_consistency` 把它从“未实现”移入“已实现”；
 //   · `switch_book.py` 归档范围纳入 `config/` 与 `materials/`（换书不再丢配置与素材卡），
 //     并保证归档后工作区仍有 `system.yaml` 与 `project.yaml` 骨架；
 //   · `nf_api.py` 的 `/config/provider` 在切供应商后回报模型不匹配的 warning；
@@ -319,7 +319,7 @@ function getWorkspaceSource() {
 //   · `stage7_convert.py` 的 `merge_book` 逐章取优（不再只取第一个非空目录）+ 校验章数；
 //   · `reject.py` 补 `data/outline/chapters`（stage3 自己的产物）与 `data/summaries`；
 //   · `utils/cost_tracker.py` 修缓存 token 双重计价；
-//   · `utils/verify_chapter.py` 的截断判据不再误伤「……」结尾；
+//   · `utils/verify_chapter.py` 的截断判据不再误伤“……”结尾；
 //   · `snapshot.py` 恢复以"全部成功"为成功条件；
 //   · `utils/progress_manager.py` 容忍"合法 JSON 但顶层不是对象"；
 //   · `nf_api.py` 的 `build_state` 补顶层 `agent_mode`；
@@ -336,27 +336,27 @@ function getWorkspaceSource() {
 //   · prompts/*.md 清除死字段 `model: hy3`（全项目无一处代码读它；真源是
 //     config/system.yaml 的 model.*，三份副本同步）；utils/template_loader.py
 //     文档同步 + 新增 tests/unit/test_prompt_frontmatter.py 防回潮；
-//   · nf_api_domains/project.py 新增归档「查看/删除」三端点
+//   · nf_api_domains/project.py 新增归档“查看/删除”三端点
 //     （tree / file / delete，默认进回收站，agent 侧 403）+ nf_api 薄转发；
 //   · switch_book.list_books 跳过 _trash；agent_guard 禁用名单加 /project/archive/delete。
 //   **先 bump 再 electron-builder**。
 // 2026-10-06：GUI 来源双因子（来源头 + 主进程 token）+ 版本号优先取 app.getVersion，
-// 安装版不再显示「vdev」+ 退出必确认默认开。scripts/prompts/templates 均有实质变更。
+// 安装版不再显示“vdev”+ 退出必确认默认开。scripts/prompts/templates 均有实质变更。
 // v19（2026-10-06，第十四批）：payload 内 prompts/agent_kickoff.md 实质变更 ——
-//   新增「开发态 ≠ 客户端」三条红线（管线状态只 orchestrator 写 / 含 {{...}} 模板停下报告 /
+//   新增“开发态 ≠ 客户端”三条红线（管线状态只 orchestrator 写 / 含 {{...}} 模板停下报告 /
 //   声明工作态并不混用）。console/src/*（App.vue / AboutDialog.vue / style.css）再次变更 ——
-//   设置页侧栏分类 + Agent 接入「让它自装」第三渠道 + 关于页清理「内部代号 NovelForge」。
+//   设置页侧栏分类 + Agent 接入“让它自装”第三渠道 + 关于页清理“内部代号 NovelForge”。
 //   **先 bump 再 electron-builder**。
 // v20（2026-10-06，第十五批）：payload 内 scripts/ 实质变更 ——
 //   · 新增 utils/interp_guard.py 解释器守卫：裸 python 缺 PyYAML 时 stderr 留痕
 //     [py-guard] 自动切 venv 重跑（NF_PY_GUARD 防拉锯）；切不动 orchestrator 退 1
-//     给可行动命令、nfctl check 转阻塞项「当前解释器」（--json stdout 不受污染）。
+//     给可行动命令、nfctl check 转阻塞项“当前解释器”（--json stdout 不受污染）。
 //   · orchestrator.py / nfctl.py 两入口挂守卫 + nfctl 自检新增解释器判据
 //     （2026-10-06 试跑连炸五次的真根因：裸 python 缺 yaml 被误诊成 .venv 缺依赖）。
-//   · tests/unit/test_interp_guard.py 20 断言（含「藏掉 yaml」反证）。
+//   · tests/unit/test_interp_guard.py 20 断言（含“藏掉 yaml”反证）。
 //   **先 bump 再 electron-builder**。
 // v21（2026-10-07，第十六批）：payload 内 scripts/ 实质变更 ——
-//   · nf_mcp_stdio_bridge.py：项目根解析补「注册表 User NF_ROOT」兜底 ——
+//   · nf_mcp_stdio_bridge.py：项目根解析补“注册表 User NF_ROOT”兜底 ——
 //     长驻进程（Hermes 网关）的环境变量可能过期/缺失，与新起的 GUI 解析出
 //     不同的数据根 → GUI 与 MCP 垫片双根分裂（2026-10-07 事故）。
 //   · 随包新增 skills/（extraResources：技能卡随版本分发）。
@@ -374,15 +374,15 @@ function getWorkspaceSource() {
 // **先 bump 再 electron-builder**。
 // v25（2026-10-11，第十八批，0.6.10 用户可见三修）：payload scripts/prompts 变更 ——
 //   · nf_api_domains/factory.py：新增 `current_sample_view()` 并随 /factory/list 回
-//     `current`（当前书名 ↔ 样例书名，项目页「出厂测试项目」徽标据此点亮）；
-//   · prompts/agent_kickoff.md：补「复制只取提示词正文」的人机分界说明；
+//     `current`（当前书名 ↔ 样例书名，项目页“出厂测试项目”徽标据此点亮）；
+//   · prompts/agent_kickoff.md：补“复制只取提示词正文”的人机分界说明；
 //   · 前端（asar，不走种子）：项目页出厂徽标 / 启动提示词剥离说明书 /
-//     阶段复制改任务简报（原样贴模板会被外部 Agent 按红线判「模板不是任务」停工）。
+//     阶段复制改任务简报（原样贴模板会被外部 Agent 按红线判“模板不是任务”停工）。
 // **先 bump 再 electron-builder**。
 const SEED_VERSION = 72;   // 0.7.29: Agent 协作四根线（读正文/提案/提问/主动审查）
                             //   · payload scripts：新 ask.py 域、nf_mcp 加 6 个工具、
                             //     chapters/content 缺省取最高存在层、agent_guard 加 /ask/answer
-                            //   · 前端（asar）：顶栏「Agent 提问」+ 回答浮层
+                            //   · 前端（asar）：顶栏“Agent 提问”+ 回答浮层
                             // 0.7.28: 写作提示词补叙事技术要求（治"写出来没劲"）
                             //   · payload prompts：stage4_writing.md 3240→5909 字符
                             //     （目标-阻碍-变化 / 展示不讲述 / 具体压倒抽象 /
@@ -391,13 +391,13 @@ const SEED_VERSION = 72;   // 0.7.29: Agent 协作四根线（读正文/提案/�
                             // 0.7.27: 多库（A 模型：一次一个生效 + 书签切换 + 每库排除项）
                             //   · payload scripts：project.py 增 GET /config/vaults 与
                             //     add/switch/remove 四个端点（书签存 data/state/vaults.json）
-                            //   · 前端（asar）：设置页「我的库」列表 + 切换/移出
+                            //   · 前端（asar）：设置页“我的库”列表 + 切换/移出
                             // 0.7.26: 整本否掉一键归档 + 设置页可填库路径
                             //   · payload scripts：switch_book.py（archive 加 reason → _meta.why）、
                             //     obsidian_bridge.py（vault/sandbox 路径改实时读，不再模块级固化）、
                             //     nf_api_domains/project.py（GET/POST /config/vault）、
                             //     nf_api_domains/judge.py（POST /judge/book_archive）、agent_guard +1
-                            //   · 前端（asar）：判定页归档按钮；设置页「库在哪」+ 选文件夹
+                            //   · 前端（asar）：判定页归档按钮；设置页“库在哪”+ 选文件夹
                             // 0.7.25: B2 整本否掉 + R05 判据引文 + R1 判据失效告警 + R11 导出合规
                             //   · payload scripts：judge/backtest.py（refs/alerts/持久化 run 字段）、
                             //     judge/records.py（book_reject + history）、judge 域两个新端点、
@@ -406,7 +406,7 @@ const SEED_VERSION = 72;   // 0.7.29: Agent 协作四根线（读正文/提案/�
                             // 0.7.24: 事件勾选文案人话化 + 内置手册（作者向）
                             //   · payload scripts 变更：judge/records.py 增 rejected/judged/total，
                             //     nf_api_domains/judge.py 回传 rejected 与已过目进度
-                            //   · 前端（asar）：JudgeEvents 文案重写 + 「不算一件事」标记；
+                            //   · 前端（asar）：JudgeEvents 文案重写 + “不算一件事”标记；
                             //     新增 src/help/*.md 六篇 + md.js 渲染器 + HelpPanel（设置第 9 项）
                             // 0.7.23: I3 事件勾选落到分章页 + 逐事件证据 + 主题变量收口
                             //   · payload 内 scripts/ 变更：judge/records.py（evidences/counted_events）、
@@ -417,9 +417,9 @@ const SEED_VERSION = 72;   // 0.7.29: Agent 协作四根线（读正文/提案/�
                             //   · scripts/prompts 变更：新增 scripts/prompt_factory.py、
                             //     新增 prompts/factory/（16 份出厂副本，**不 seed 用户就拿不到保底**）、
                             //     obsidian_bridge 排除项热更、nf_api 的 PROMPTS_DIR 改为随 --root 派生
-                            //     （此前打包态「界面写 payload、运行时读 workspace」）、
+                            //     （此前打包态“界面写 payload、运行时读 workspace”）、
                             //     config_io 支持顶层键、/config/engine 新增、配置写入改定向改写
-                            //   · 前端（asar，不走种子）：设置页「引擎与模型」重做
+                            //   · 前端（asar，不走种子）：设置页“引擎与模型”重做
                             // 0.7.21: 判定报告上屏证据分级（能力区 / demo 区）
                             // 0.7.20: 拆锁③——默认不注入风格规格（book.style_rule 显式选择才注入）
                             // 0.7.19: 判定引擎收口（影响面预览 / 成品过期 / 证据分级）
@@ -435,11 +435,11 @@ const SEED_VERSION = 72;   // 0.7.29: Agent 协作四根线（读正文/提案/�
                             // 0.7.11: 重写接 SSE（token + 文件尾）+ hermes 文件进度/心跳；
                             // 加强模式停止传播；MCP nf_rewrite_chapter
                             // 0.7.10: 阶段 8 可放行（VALID_STAGES 收口）+ 单章重写
-                            // 进度按「本章/段群」报，不再恒 99%；/chapters/content 报
+                            // 进度按“本章/段群”报，不再恒 99%；/chapters/content 报
                             // 群字数与整章字节
-                            // 0.7.9: GUI「重写本章」—— 旧稿备份到 rewrite_backup/、NF_STAGE4_ONLY 只写指定章   // 0.7.8: 弱模型写不长 → 自动转加强模式补量（字数不足优先拆群，
+                            // 0.7.9: GUI“重写本章”—— 旧稿备份到 rewrite_backup/、NF_STAGE4_ONLY 只写指定章   // 0.7.8: 弱模型写不长 → 自动转加强模式补量（字数不足优先拆群，
                             // 不再整章重生成白烧输入）；配置补 chapter.enhanced_mode；
-                            // 设置页把「篇幅 5000+ 却没开拆群」说破
+                            // 设置页把“篇幅 5000+ 却没开拆群”说破
 //   · prompts/: stage5 加七维 JSON 契约、stage4 加记忆块、stage3 加卷弧块、stage2 加设定摘要、
 //     新增 volume_plan.md —— **payload 变了，不 bump 用户永远拿不到新提示词**。
 
@@ -455,25 +455,25 @@ const SEED_CONFIG_DIR = "config";
 // 提示词是**创作资产**，不是纯代码：用户会改 stage5 的检查项、stage4 的口吻要求。
 // 旧策略是升级 force 覆盖整个 prompts/（理由写在原注释里：旧提示词与新代码不兼容
 // 比"丢自定义"更危险）—— 那个理由在**没有还原出口**时成立，现在有了：
-// 界面「还原出厂默认」读 `prompts/factory/`，用户随时能退回官方版。
+// 界面“还原出厂默认”读 `prompts/factory/`，用户随时能退回官方版。
 //
 // 所以改成：升级时 prompts/ 只**补缺失文件**，已有文件一律不动。
 // 判据：用户在界面里改过的东西，不能因为装新版就消失。
 const SEED_KEEP_USER_EDITS = ["prompts"];
 // 例外：`prompts/factory/` 是**出厂副本**，必须随版本刷新 ——
-// 它不是用户内容，而且不刷新的话「还原出厂默认」会把用户退回上一版的提示词。
+// 它不是用户内容，而且不刷新的话“还原出厂默认”会把用户退回上一版的提示词。
 const SEED_FORCE_REFRESH_SUBDIRS = ["factory"];
 
 // ---- 出厂清单（0.6.7 出厂/用户数据分治）----
 // 播种把哪些文件**实际复制**进工作区，就往 data/state/factory_manifest.json 记哪些
 // （相对路径 + sha256）。为什么必须记：历史上 examples/sample-book 的素材卡被试跑
-// 手工搬进真实工作区，与用户自己写的卡**没有任何标记可分辨** —— 「哪些是机器发的」
-// 没有账可查，GUI 的「出厂内容」面板就只能靠逐字节比对样例（那是另一条检测线，
-// 见 nf_api_domains/factory.py）。本清单回答的是「这次播种动了哪些文件」。
+// 手工搬进真实工作区，与用户自己写的卡**没有任何标记可分辨** —— “哪些是机器发的”
+// 没有账可查，GUI 的“出厂内容”面板就只能靠逐字节比对样例（那是另一条检测线，
+// 见 nf_api_domains/factory.py）。本清单回答的是“这次播种动了哪些文件”。
 //
 // 合并语义：已记的保留，本次复制的追加/覆盖（与 Python 侧
 // utils/factory_manifest.write_manifest 同一口径）；只在**真的复制过文件**时才落盘，
-// 「无事可做」不写生成时间。
+// “无事可做”不写生成时间。
 function listFilesUnder(base, dir, out) {
   for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
     const p = path.join(dir, ent.name);
@@ -483,7 +483,7 @@ function listFilesUnder(base, dir, out) {
   return out;
 }
 
-// 升级时对「用户可能改过」的目录做**保守更新**：
+// 升级时对“用户可能改过”的目录做**保守更新**：
 //   · 目标文件不存在            → 复制（新版新增的模板要给到）
 //   · 存在，且 sha 与出厂清单一致 → 用户没动过 → 用新版覆盖（官方更新照发）
 //   · 存在，且 sha 与清单不符     → 用户改过 → 一个字不动
@@ -503,7 +503,7 @@ function copyMissingOnly(base, srcDir, dstDir, out, topLevel, prevFiles, stats) 
     const d = path.join(dstDir, ent.name);
     if (ent.isDirectory()) {
       if (topLevel && SEED_FORCE_REFRESH_SUBDIRS.includes(ent.name)) {
-        // 出厂副本：必须随版本刷新（否则「还原出厂默认」给出的是旧版提示词）
+        // 出厂副本：必须随版本刷新（否则“还原出厂默认”给出的是旧版提示词）
         fs.cpSync(s, d, { recursive: true, force: true });
         listFilesUnder(base, d, out);
         console.log("[console] seedWorkspace: 已刷新 " + ent.name + "/（出厂副本）");
@@ -577,13 +577,13 @@ function recordFactoryManifest(ws, relPaths) {
 //   ① 全新安装（无 .seeded）      → 全量播种
 //   ② 老版本升级（.seed-version 落后）→ 刷新代码目录（force 覆盖），保留 data/
 //   ③ 已是最新版本                → 只补缺失目录（幂等，不改任何已有文件）
-// 出厂配置的**键级升级**（2026-10-26，用户第 13 条「每章只有两千多字」）。
+// 出厂配置的**键级升级**（2026-10-26，用户第 13 条“每章只有两千多字”）。
 //
-// 为什么必须做：上面的 config 播种是「只补缺、绝不覆盖」—— 老用户升到新版，
+// 为什么必须做：上面的 config 播种是“只补缺、绝不覆盖”—— 老用户升到新版，
 // system.yaml 仍是**首装那一版**。实测：安装态工作区（seed v47，已是最新安装包）
 // 的 chapter.target_words 还是 [2000, 5500]，而当前出厂是 [5000, 9000]。
 // 于是 2500 字一章就落在区间内 → 校验绿灯 → 扩写永不触发 → 整本书偏短，
-// 而全程没有任何告警（用户看到的是「体检 PASS=14」）。
+// 而全程没有任何告警（用户看到的是“体检 PASS=14”）。
 //
 // 纪律：**只改用户没动过的键**。判据 = 当前值逐项等于**旧出厂值**；
 // 用户自己调过（哪怕调小了）就一个字不动 —— 那是他的创作决策。
@@ -594,7 +594,7 @@ const SEED_CONFIG_MIGRATIONS = [
     // 行内列表写法：target_words: [2000, 5500]
     // ⚠ 一律用 [ \t]，不用 \s：\s 会吃换行，跨行匹配可能删掉相邻配置行。
     // 捕获组只到冒号（不含尾随空白），替换时统一补一个空格 —— 块列表形式
-    // 冒号后本来就没有空格，若按「原样保留」替换会写出 `target_words:[5000, 9000]`
+    // 冒号后本来就没有空格，若按“原样保留”替换会写出 `target_words:[5000, 9000]`
     // （YAML 仍合法，但格式变了，且用户会以为被别的工具改过）。
     inline: /^([ \t]*target_words:)[ \t]*\[[ \t]*2000[ \t]*,[ \t]*5500[ \t]*\]/m,
     // 块列表写法：
@@ -637,9 +637,9 @@ function migrateConfigKeys(ws) {
 //
 // 为什么必须单独一条：target_words 已经被上面那条迁移提到 [5000, 9000]，而
 // chapter.enhanced_mode 是**后加的键** —— 老工作区的 system.yaml 里根本没有它，
-// 于是实际行为是「5000 字标准 + 整章单发」。
-// 用户原话：「有些弱模型无论怎么骂就是写不长，像后台有个看不见的开关拧死了一样。
-// 所以才需要那个加强模式来强行拼凑。」
+// 于是实际行为是“5000 字标准 + 整章单发”。
+// 用户原话：“有些弱模型无论怎么骂就是写不长，像后台有个看不见的开关拧死了一样。
+// 所以才需要那个加强模式来强行拼凑。”
 // 那个"看不见的开关"就是这里：配置里没有这个键，代码默认 false。
 //
 // 纪律：**用户显式设置过就不碰**（哪怕设成 false）。只在键完全缺失时补 true，
@@ -659,7 +659,7 @@ function ensureEnhancedMode(ws) {
   if (!m) return;                                        // 没有 chapter 段 → 不猜结构
   const pos = m.index + m[0].length;
   const add = "  # 2026-10-26 自动补充：单章字数下限已提到 5000，整章单发对弱模型\n"
-    + "  # 常常只写两三千字就收尾；改为拆段落群逐群生成（可在「设置 → 加强模式」关掉）\n"
+    + "  # 常常只写两三千字就收尾；改为拆段落群逐群生成（可在“设置 → 加强模式”关掉）\n"
     + "  enhanced_mode: true\n";
   text = text.slice(0, pos) + add + text.slice(pos);
   try {
@@ -676,7 +676,7 @@ function seedWorkspace() {
 
   // 源码态：工作区 == 项目根，代码/提示词/模板本来就在那儿，无需播种。
   // 必须在此短路 —— 否则下面 payloadRoot 也等于 ROOT，cpSync(ROOT/x, ROOT/x)
-  // 会「自己复制自己」，Node 直接抛 ERR_FS_CP_EINVAL。
+  // 会“自己复制自己”，Node 直接抛 ERR_FS_CP_EINVAL。
   if (!isPackaged) {
     console.log("[console] seedWorkspace: 源码态跳过播种（workspace = 项目根）");
     return;
@@ -717,7 +717,7 @@ function seedWorkspace() {
       fs.cpSync(src, dst, { recursive: true });
       listFilesUnder(ws, dst, seededRels);
     } else if (SEED_KEEP_USER_EDITS.includes(d)) {
-      // 用户可能改过的目录：按出厂清单的 sha 判「改没改过」，见 copyMissingOnly 头注释。
+      // 用户可能改过的目录：按出厂清单的 sha 判“改没改过”，见 copyMissingOnly 头注释。
       // 出厂清单在**本次播种之前**读（recordFactoryManifest 会在收尾时重写它）。
       let prevFiles = {};
       try {
@@ -728,7 +728,7 @@ function seedWorkspace() {
       } catch (e) {
         prevFiles = {};
         console.warn("[console] seedWorkspace: 出厂清单读不出来，"
-                     + "本次按「用户改过」保守处理:", e && e.message);
+                     + "本次按“用户改过”保守处理:", e && e.message);
       }
       const stats = { added: 0, updated: 0, kept: 0 };
       copyMissingOnly(ws, src, dst, seededRels, true, prevFiles, stats);
@@ -743,7 +743,7 @@ function seedWorkspace() {
   }
 
   // 0.7.14：提炼入口统一改名（旧入口名 → 成书提炼），工作区里的旧文件按清单删掉。
-  // 为什么必须删：上面只做「覆盖 + 补缺」，已移除的文件会原地留着 —— 旧 eat_book.py
+  // 为什么必须删：上面只做“覆盖 + 补缺”，已移除的文件会原地留着 —— 旧 eat_book.py
   // 与 utils/eatbook/ 会和新代码并存，用户在终端里仍会看到旧名（seed 不负责删除）。
   // 只删确切知道的这几条路径，不做目录级猜测；任何一条失败都不阻断启动。
   if (stale && !firstRun) {
@@ -783,7 +783,7 @@ function seedWorkspace() {
       listFilesUnder(ws, cfgDst, seededRels);
     } else {
       // 逐文件补缺：**只在整个文件缺失时**才从 payload 复制。
-      // ⚠️ 这只做到「文件粒度」，**不会**把新版本新增的 provider 并进用户已有的
+      // ⚠️ 这只做到“文件粒度”，**不会**把新版本新增的 provider 并进用户已有的
       // system.yaml —— 键级合并得改写用户配置，而 yaml 序列化会丢掉全部注释、
       // 也可能覆盖用户的模型选择，风险大于收益，所以刻意不做。
       // 升级后要用新 provider，请手动把 payload 里 config/system.yaml 的对应段落
@@ -801,7 +801,7 @@ function seedWorkspace() {
     }
   }
 
-  // config 键级升级：只动「仍是旧出厂值」的键（用户改过的一律不碰）
+  // config 键级升级：只动“仍是旧出厂值”的键（用户改过的一律不碰）
   migrateConfigKeys(ws);
   // 篇幅口径与生成方式的联动：目标字数已提到 5000 → 补上拆群开关（缺失才补）
   ensureEnhancedMode(ws);
@@ -820,7 +820,7 @@ function seedWorkspace() {
     console.log(`[console] seedWorkspace: 工作区已升级到种子 v${SEED_VERSION}（用户 data/ 未受影响）`);
   }
 }
-// 技能随版本分发（2026-10-07，对齐方寸「升级后启动自动同步」）：
+// 技能随版本分发（2026-10-07，对齐方寸“升级后启动自动同步”）：
 // 随包 skills/worldbuilding → Hermes 技能库，内容不一致才覆盖（发布版赢），
 // 运行态技能永远等于当前安装版本，Agent 手改下次启动即被复位。
 // 只碰 worldbuilding/ 子树：技能库根目录还有别家的技能与清单文件，不越界。
@@ -963,7 +963,7 @@ function startApi(attempt) {
   });
   tester.once("listening", () => {
     tester.close();
-    // 双绑接管（2026-10-07）：Windows 下 SO_REUSEADDR 会让「端口空闲」探测在
+    // 双绑接管（2026-10-07）：Windows 下 SO_REUSEADDR 会让“端口空闲”探测在
     // 既有实例（MCP 垫片自启 / 上轮遗留）仍在监听时假成功 —— 不清场就双绑，
     // 新连接落进无 GUI token 的旧实例，受保护写入全 403（gui(untrusted)）。
     // spawn 前先清场：8765 只允许本进程注入了本会话 token 的实例持有。
@@ -987,12 +987,12 @@ function startApi(attempt) {
       stdio: ["ignore", out, out],
       windowsHide: true,
       // GUI 来源双因子：把会话 token 注入 nf_api 环境（Python 侧 agent_guard 读它
-      // 判定「请求是否真来自本桌面端」）。漏注入 = nf_api 不认任何 GUI 来源 →
+      // 判定“请求是否真来自本桌面端”）。漏注入 = nf_api 不认任何 GUI 来源 →
       // 受保护端点一律 403（fail-closed，宁可拒绝也不放行）。
       // 出厂样例真源（0.6.7）：打包态样例书随包住在安装目录
       // resources/payload/examples，而 nf_api 的 ROOT 被 --root 指向工作区
       // （工作区里没有 examples）→ 不注入这个变量，/factory/list 就永远
-      // 「样例目录不存在」，出厂内容检测在安装版上等于失效。
+      // “样例目录不存在”，出厂内容检测在安装版上等于失效。
       // 源码态 ROOT 就是仓库根，无需注入（注入了也无害：按存在性取）。
       env: isPackaged
         ? { ...process.env, NF_GUI_TOKEN: guiToken,
@@ -1016,7 +1016,7 @@ function stopApi() {
     const pid = apiProc.pid;
     // ⚠️ 先杀**整棵树**（2026-10-03）：实测 nf_api 自己还孵着孙进程，
     // 只 `apiProc.kill()` 会让孙子成孤儿继续占 8765 与句柄 —— 那正是
-    // 「退出后端口还占着 / 下次启动撞端口 / 应用像没死透」的来源。
+    // “退出后端口还占着 / 下次启动撞端口 / 应用像没死透”的来源。
     if (pid && !killTree(pid)) {
       try { apiProc.kill(); } catch (e) { /* ignore */ }
     }
@@ -1041,8 +1041,8 @@ async function waitForApi(timeoutMs = 15000) {
 // 为什么不能只认 ROOT：打包态 ROOT 指向安装目录里的 `resources/payload`
 // （随安装包只读，且 extraResources 里**没有** data/），而 `.env`、`data/`、
 // `output/` 全在 workspace（`%APPDATA%\绒花墨坊\workspace`）。
-// 用 ROOT 去解析 `.env` 必然「文件不存在」—— 这正是设置页「在文件夹中显示」
-// 点了没反应、关于弹窗「打开」按钮打不开产物的根因（2026-10-01 实测反馈）。
+// 用 ROOT 去解析 `.env` 必然“文件不存在”—— 这正是设置页“在文件夹中显示”
+// 点了没反应、关于弹窗“打开”按钮打不开产物的根因（2026-10-01 实测反馈）。
 function resolveExisting(relPath) {
   const wsAbs = path.resolve(getWorkspaceDir(), relPath);
   if (fs.existsSync(wsAbs)) return wsAbs;
@@ -1056,7 +1056,7 @@ function pathAllowed(p) {
   // 两个根都要算：源码态二者相同（去重无害），打包态分别是 workspace 与 payload。
   // ⚠️ 旧实现只按 ROOT 前缀 slice 计算相对路径 —— 打包态下 workspace 里的路径
   // 会切出一段垃圾 rel，命中不了任何白名单分支，于是**所有**指向用户数据的
-  // 打开/预览请求都被判「路径不在白名单」。
+  // 打开/预览请求都被判“路径不在白名单”。
   const roots = [...new Set([getWorkspaceDir(), ROOT].map(
     (r) => r.replace(/\\/g, "/").toLowerCase()))];
   let rel = null;
@@ -1066,14 +1066,14 @@ function pathAllowed(p) {
   }
   if (rel === null) return false;
   if (rel === "") return true;
-  // 允许直接打开这几个白名单目录本身（关于弹窗的「打开目录」按钮）
-  // templates = 件五「打开模板目录」：用户要把 .dotx 放进去才能在设置页选到
+  // 允许直接打开这几个白名单目录本身（关于弹窗的“打开目录”按钮）
+  // templates = 件五“打开模板目录”：用户要把 .dotx 放进去才能在设置页选到
   if (["data", "output", "logs", "materials", "config", "templates"].includes(rel)) return true;
   if (rel.startsWith("data/") || rel.startsWith("output/")) return true;
   if ((rel.startsWith("logs/") || rel.startsWith("materials/")) && /\.(md|log|json)$/.test(rel)) return true;
   if (rel.startsWith("config/") && /\.(yaml|yml)$/.test(rel)) return true;
   // Agent kickoff 提示词（单一事实源 prompts/agent_kickoff.md）：
-  // 「接入其他 Agent」设置块要读它展示/复制。精确到这一个文件，不放开整个 prompts/。
+  // “接入其他 Agent”设置块要读它展示/复制。精确到这一个文件，不放开整个 prompts/。
   if (rel === "prompts/agent_kickoff.md") return true;
   // 注意：.env 含明文密钥，**刻意不放入外部打开白名单** —— 不再允许用外部编辑器
   // 直接打开（2026-09-19 审查 S7）。如需编辑密钥，请用 GUI 设置页的专用入口，
@@ -1101,7 +1101,7 @@ ipcMain.handle("open-artifact", async (e, relPath) => {
   return r ? { ok: false, error: r } : { ok: true };
 });
 
-// 直接用系统默认程序打开文件（用户显式点击「打开」时调用）
+// 直接用系统默认程序打开文件（用户显式点击“打开”时调用）
 ipcMain.handle("open-file", async (e, relPath) => {
   const abs = resolveExisting(relPath);
   if (!pathAllowed(abs)) return { ok: false, error: "路径不在白名单" };
@@ -1112,8 +1112,8 @@ ipcMain.handle("open-file", async (e, relPath) => {
 // 在文件管理器中定位 `.env`（含明文密钥：**只定位、不打开**）。
 // 2026-09-19 审查 S7 决定程序不代为用外部编辑器打开密钥文件，但当时的实现
 // 却把路径解析成 `ROOT/.env`（打包态 = 安装目录里的 payload，那里根本没有 .env）
-// → 恒返回「文件不存在」，前端又没检查返回值、照样提示成功 —— 用户看到的是
-// 「点了没反应」。现在改为解析到 workspace（后端写 .env 的地方），并把
+// → 恒返回“文件不存在”，前端又没检查返回值、照样提示成功 —— 用户看到的是
+// “点了没反应”。现在改为解析到 workspace（后端写 .env 的地方），并把
 // 失败如实体现在返回值里。本 IPC 只服务 .env，不接受任意路径。
 ipcMain.handle("reveal-in-folder", async (e, relPath) => {
   try {
@@ -1151,7 +1151,7 @@ ipcMain.handle("open-file-dialog", async (e, options = {}) => {
 });
 
 // ---------------------------------------------------------------------------
-// 接入其他 Agent（2026-10-06 对齐方寸「接入其他 Agent」设置页）
+// 接入其他 Agent（2026-10-06 对齐方寸“接入其他 Agent”设置页）
 // 生成 MCP 配置段（按安装态/源码态算真实路径）+ 打开目标配置文件。
 // 纪律：路径**全在主进程计算**，渲染进程只拿结果；open 只接受三个固定 target，
 // 不接受任意路径（否则这就是一个任意文件打开后门）。
@@ -1222,7 +1222,7 @@ ipcMain.handle("agent-connect:info", async () => {
     clineConfig: p.clineConfig,
     jsonSnippet, yamlSnippet,
     mcpListening,
-    mcpConfigured: false,   // 客户端配置在外部文件里，本进程无法可靠判读——由用户点「打开」自查
+    mcpConfigured: false,   // 客户端配置在外部文件里，本进程无法可靠判读——由用户点“打开”自查
   };
 });
 
@@ -1248,7 +1248,7 @@ ipcMain.handle("agent-connect:open-config", async (e, target) => {
 });
 
 // ---------------------------------------------------------------------------
-// 诊断与调试入口（2026-10-06 对齐方寸「诊断日志抽屉 / 🩺 诊断页签」）
+// 诊断与调试入口（2026-10-06 对齐方寸“诊断日志抽屉 / 🩺 诊断页签”）
 // 纪律：全部是**固定目标**操作（自家日志文件、DevTools、自家后端进程），
 // 不接受渲染进程传来的任意路径 / 任意命令 —— 否则这就是后门。
 function nfApiLogPath() {
@@ -1259,7 +1259,7 @@ function nfApiLogPath() {
 }
 
 ipcMain.handle("debug:info", async () => {
-  // 后端健康与「谁在服务 8765」分开报：GUI 自己的子进程挂了但外部进程在服务
+  // 后端健康与“谁在服务 8765”分开报：GUI 自己的子进程挂了但外部进程在服务
   // 时，光看 apiProc 会误判。
   let healthOk = false;
   try {
@@ -1295,7 +1295,7 @@ ipcMain.handle("debug:open-log", async () => {
   return err ? { ok: false, path: p, error: err } : { ok: true, path: p };
 });
 
-// DevTools 开关（打包态没有开发菜单 —— 这就是「像样的调试入口」的开发者半边）
+// DevTools 开关（打包态没有开发菜单 —— 这就是“像样的调试入口”的开发者半边）
 ipcMain.handle("debug:devtools", async () => {
   if (!mainWindow) return { ok: false, error: "窗口不存在" };
   const wc = mainWindow.webContents;
@@ -1315,7 +1315,7 @@ ipcMain.handle("debug:restart-api", async () => {
   return { ok: healthy, healthy, logPath: nfApiLogPath() };
 });
 
-// 审批门系统通知（2026-10-06 修「通知权限是死按钮」）
+// 审批门系统通知（2026-10-06 修“通知权限是死按钮”）
 //
 // 旧实现：渲染进程 Notification.requestPermission()。它只在 permission === "default"
 // 时才动作，而打包态 Electron 里权限通常已是 granted/denied → 按钮点了毫无反应，
@@ -1366,7 +1366,7 @@ ipcMain.handle("app:about", async () => ({
   userDataDir: app.getPath("userData"),
   // projectRoot = **用户数据根**（.env / data / output 所在处）；
   // 打包态它与安装目录里的 codeRoot（payload）不是同一个地方，
-  // 排查「东西写到哪去了」时必须能分别看到。
+  // 排查“东西写到哪去了”时必须能分别看到。
   projectRoot: getWorkspaceDir(),
   codeRoot: ROOT,
   apiPort: API_PORT,
@@ -1452,11 +1452,11 @@ ipcMain.handle("style-notes:save", async (e, content) => {
 // `cancellationToken`（CancellationToken 实例，带 EventEmitter）与 `downloadPromise`，
 // 直接经 IPC 回传会触发 "An object could not be cloned"，invoke 直接 reject。
 // 前端当时没有 try/catch → 未捕获的 rejection，`checkingUpdate` 永远停在 true，
-// 按钮卡在「检查中…」并保持 disabled —— 表现就是「检查更新点了没反应 / 功能没了」。
+// 按钮卡在“检查中…”并保持 disabled —— 表现就是“检查更新点了没反应 / 功能没了”。
 ipcMain.handle("updater:check", async () => {
   if (!autoUpdater) {
     return { ok: false, uninitialized: true,
-             error: "本机未启用自动更新（开发模式或便携版），请用「下载新版本」" };
+             error: "本机未启用自动更新（开发模式或便携版），请用“下载新版本”" };
   }
   try {
     const result = await autoUpdater.checkForUpdates();
@@ -1479,7 +1479,7 @@ ipcMain.handle("updater:check", async () => {
 ipcMain.handle("updater:quitAndInstall", () => {
   if (autoUpdater && updateDownloaded) {
     // 更新安装期间**关掉硬退出看门狗**：安装器要接管退出流程，
-    // 5 秒后强杀 Electron 可能打断安装器启动（用户点了「重启安装」却什么都没发生）。
+    // 5 秒后强杀 Electron 可能打断安装器启动（用户点了“重启安装”却什么都没发生）。
     updateInstalling = true;
     if (closeAskTimer) { clearTimeout(closeAskTimer); closeAskTimer = null; }
     autoUpdater.quitAndInstall();
@@ -1513,7 +1513,7 @@ ipcMain.handle("app:set-confirm-on-exit", (e, v) => {
   return { ok, confirmOnExit };
 });
 
-// 渲染进程回执「确认框已弹出/已接手」（2026-10-07 修「几秒后自动退出」）：
+// 渲染进程回执“确认框已弹出/已接手”（2026-10-07 修“几秒后自动退出”）：
 // 收到回执立刻撤看门狗 —— 确认框在场绝不计时自动退；没回执才走 5s 强退
 // （渲染进程死掉时兜底，不把用户关在应用里）。
 ipcMain.on("app:close-answered", () => {
@@ -1521,7 +1521,7 @@ ipcMain.on("app:close-answered", () => {
   if (closeAskTimer) { clearTimeout(closeAskTimer); closeAskTimer = null; }
 });
 
-// 用户在应用内确认框里点了「确认退出」→ 真正关窗（isQuitting=true 后 close 不再被拦）。
+// 用户在应用内确认框里点了“确认退出”→ 真正关窗（isQuitting=true 后 close 不再被拦）。
 ipcMain.handle("app:quit-confirmed", () => {
   isQuitting = true;
   if (closeAskTimer) { clearTimeout(closeAskTimer); closeAskTimer = null; }
@@ -1531,7 +1531,7 @@ ipcMain.handle("app:quit-confirmed", () => {
   else forceQuit("confirmed-no-window");
   return { ok: true };
 });
-// 用户点了「取消」→ 只记一笔，让下次关窗还能再问（不改变 busy 状态）。
+// 用户点了“取消”→ 只记一笔，让下次关窗还能再问（不改变 busy 状态）。
 ipcMain.handle("app:quit-canceled", () => {
   console.log("[console] 用户取消退出");
   if (closeAskTimer) { clearTimeout(closeAskTimer); closeAskTimer = null; }
@@ -1565,7 +1565,7 @@ function createWindow() {
   // ---- 调试入口快捷键（2026-10-06 对齐方寸）----
   // 打包态没有开发菜单可点，Ctrl+Shift+I / F12 是开发者的常驻通道；
   // 普通用户的入口在 设置 → 诊断与调试（日志 / 重启后端 / 诊断信息）。
-  // preventDefault 后由这里唯一处理，不与 Chromium 默认快捷键叠成「按一次开两次」。
+  // preventDefault 后由这里唯一处理，不与 Chromium 默认快捷键叠成“按一次开两次”。
   mainWindow.webContents.on("before-input-event", (event, input) => {
     if (input.type !== "keyDown") return;
     const isToggle = input.key === "F12"
@@ -1577,7 +1577,7 @@ function createWindow() {
     if (wc.isDevToolsOpened()) wc.closeDevTools();
     else wc.openDevTools({ mode: "detach" });
   });
-  // ---- 退出守卫（2026-10-03 修「关不掉」）----
+  // ---- 退出守卫（2026-10-03 修“关不掉”）----
   // 关窗时**由主进程**决定拦不拦：渲染进程只上报 busy，确认走应用内对话框。
   // 判据在 quitGuard.shouldGuardClose（纯函数，可单测）。
   mainWindow.on("close", (e) => {

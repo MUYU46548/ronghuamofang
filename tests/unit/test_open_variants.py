@@ -159,7 +159,7 @@ def main():
         os.chdir(tmp)
         import stage2_outline as s2
         body_none = s2.build_task({}, PROJ)
-        check("未选定时写「未选定开局方案」", "未选定开局方案" in body_none, body_none[:200])
+        check("未选定时写\u300c未选定开局方案\u300d", "未选定开局方案" in body_none, body_none[:200])
         OV.pick(3, root=".")
         body_pick = s2.build_task({}, PROJ)
         check("选定后注入方案名", "双线并置" in body_pick, body_pick[:300])

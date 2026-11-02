@@ -6,12 +6,12 @@
 把**一本已经写完的书**（旧稿 / 参考作品 / 自己的前作）提炼成一套结构化正典：
 章节摘要 ② → 角色卡 ③ / 伏笔台账 ⑥ / 时间线 ⑧ / 世界观设定 ⑨ → 一致性检查 ①，
 外加纯本地的病灶词扫描 ⑦。产物是 `data/book_extract/<书名>/` 下的 JSON，
-`book_extract.py merge` 可按「只增不改」并进 `data/setting/setting.json`。
+`book_extract.py merge` 可按“只增不改”并进 `data/setting/setting.json`。
 
 ## 与沙盒原版的差异（为什么不照搬）
 
 原地在 `SP-1024` 是**零网络**的参考实现：LLM 调用由调用方注入 `call(prompt) -> str`，
-配套 `campaign` 用「出提示词 → 人工贴到外部平台 → 回收文件」跑批。本仓有
+配套 `campaign` 用“出提示词 → 人工贴到外部平台 → 回收文件”跑批。本仓有
 `make_client()` 与 `_post_chat()`，所以这里：
 
 1. 保留全部 `build_prompt / parse_response / run(call=...)` 三件套（**提示词逐字未改**，

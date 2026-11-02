@@ -8,8 +8,8 @@
 `DEFAULT_ROOT = SCRIPTS_DIR.parent` 落在工作区 —— 而播种只带
 scripts/prompts/templates、**不带 examples/**。旧实现只查
 `root/examples/presets` 与 `DEFAULT_ROOT/examples/presets` 两个候选，
-双双落空 → 装机版首跑向导「选预设」恒空，报
-「找不到 examples/presets/（打包态应由 payload 注入）」，
+双双落空 → 装机版首跑向导\u300c选预设\u300d恒空，报
+\u300c找不到 examples/presets/（打包态应由 payload 注入）\u300d，
 预设能力在安装包里整体失效。源码态 DEFAULT_ROOT 恰好是仓库根，测不出来。
 
 唯一能命中打包态的候选是主进程注入的 `NF_SAMPLE_ROOT`
@@ -22,9 +22,9 @@ scripts/prompts/templates、**不带 examples/**。旧实现只查
  5. **随包位置反推**（2026-10-25 补）：无 env 时从解释器位置
     （`<install>/resources/runtime/python/python.exe`）反推出
     `<install>/resources/payload/examples/presets` —— 环境变量只在
-    「Electron 主进程 spawn nf_api」这一条路上有，CLI / MCP 垫片代拉 /
+    \u300cElectron 主进程 spawn nf_api\u300d这一条路上有，CLI / MCP 垫片代拉 /
     排障脚本都没有；实测活的 nf_api 能列 4 套预设，而终端里同一函数报
-    「找不到 examples/presets/」。这条锁保证「env 断开 ≠ 预设功能整体失效」。
+    \u300c找不到 examples/presets/\u300d。这条锁保证\u300cenv 断开 ≠ 预设功能整体失效\u300d。
 
 用法：python tests/unit/test_preset_resolve.py
 """

@@ -3,13 +3,13 @@
 
 ## 为什么有这个测试
 
-界面上那句「已暂停输出，可修改提示词后点恢复」是**三重谎**：
+界面上那句\u300c已暂停输出，可修改提示词后点恢复\u300d是**三重谎**：
 
 1. `/stream/pause` 只 `set()` 一个 Event，该 Event 只在包装器的 `_push` 里被查
    —— 模型调用照跑，服务端 token 照产生照计费；
 2. 本次请求的 prompt 在开跑时就发出去了，此刻改它不影响这一轮；
-3. 那个「修改提示词」输入框**从来没有发送方**（`streamPromptOverride` 全项目无消费），
-   恢复时还补一句「新提示词将在后续输出中生效」。
+3. 那个\u300c修改提示词\u300d输入框**从来没有发送方**（`streamPromptOverride` 全项目无消费），
+   恢复时还补一句\u300c新提示词将在后续输出中生效\u300d。
 
 结果：用户以为按了暂停就能改方向，实际只是看不见。
 
@@ -20,8 +20,8 @@
 - P3 pause 分支的响应带 `model_running: True`（界面别只靠文案，能拿到事实）
 - P4 **pause 分支不含任何中断调用** —— 这是"模型没停"的结构证据；
       将来若真做成暂停，必须同时改文案，这条会先红
-- P5 前端提示语必须同时说清「仍在生成」与「计费」
-- P6 后端文案不得再写「已暂停流式输出」
+- P5 前端提示语必须同时说清\u300c仍在生成\u300d与\u300c计费\u300d
+- P6 后端文案不得再写\u300c已暂停流式输出\u300d
 
 用法：python tests/unit/test_pause_honesty.py
 """
@@ -84,7 +84,7 @@ def main():
         "新提示词将在后续输出中生效",
     ]
     for lie in lies:
-        check("P1 前端无假话「%s」" % lie, lie not in app,
+        check("P1 前端无假话\u300c%s\u300d" % lie, lie not in app,
               "仍在 App.vue 的活代码里" if lie in app else "")
 
     # ---- P2 假控件彻底删除 ----
@@ -96,7 +96,7 @@ def main():
     check("P3 能截到 pause 分支", bool(blk), "没找到 /stream/pause")
     check("P3 pause 响应带 model_running=True", '"model_running": True' in blk,
           blk[:160])
-    check("P6 后端不再写「已暂停流式输出」", "已暂停流式输出" not in api,
+    check("P6 后端不再写\u300c已暂停流式输出\u300d", "已暂停流式输出" not in api,
           "旧文案还在 nf_api.py")
 
     # ---- P4 结构证据：pause 分支没有中断调用 ----

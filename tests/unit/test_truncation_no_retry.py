@@ -42,7 +42,7 @@ def check(name, cond, detail=""):
 
 
 def case_mark_and_query():
-    print("\n【1】截断标记：写得出、读得回、按时间可比（不靠「文件存在」）")
+    print("\n【1】截断标记：写得出、读得回、按时间可比（不靠\u300c文件存在\u300d）")
     tmp = Path(tempfile.mkdtemp(prefix="nf_trunc_"))
     origin = os.getcwd()
     real_mark = REPO / "data" / "state" / "truncated" / "last.json"

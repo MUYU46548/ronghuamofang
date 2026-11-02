@@ -3,14 +3,14 @@
 
 ## 为什么写在这里而不是 `post_misc`
 
-`post_misc` 是「零散 POST」的垃圾桶；沙盒审核是一条完整的业务线
+`post_misc` 是“零散 POST”的垃圾桶；沙盒审核是一条完整的业务线
 （配合 `utils/sandbox_review` + `scripts/sandbox_review.py` CLI），
-单列一个域模块，将来加「批量通过 / 导出审核报告 / 二次确认」时不用挤别人。
+单列一个域模块，将来加“批量通过 / 导出审核报告 / 二次确认”时不用挤别人。
 
 ## 语义红线：只动状态库，绝不动文件
 
 本模块**只改** `data/state/sandbox_manifest.json`，不写不删沙盒里的 .md，
-更不碰 vault。审核是「贴标签」而非「执行粘贴」—— 真正的入库动作始终由
+更不碰 vault。审核是“贴标签”而非“执行粘贴”—— 真正的入库动作始终由
 用户手工完成（或未来的显式导出命令）。审错了可以 `reset` 退回，无损。
 
 ## rel_path 必须相对沙盒目录
@@ -53,7 +53,7 @@ def handle_sandbox_review(h, body=None):
 
     `body` 由 `do_POST` 传入（它在函数开头已 `self._body()` 读过一次）。
     **绝不要在 handler 里再调 `h._body()`** —— 请求体是一次性流，
-    二次读会阻塞在 `rfile.read(n)` 上直到客户端超时（表现为「点了没反应」，
+    二次读会阻塞在 `rfile.read(n)` 上直到客户端超时（表现为“点了没反应”，
     且服务端日志一片空白，极难定位）。这是本模块唯一必须记住的调用约定。
 
     动作三选一（`action`），与 CLI 的 --approve/--reject/--reset 一一对应：
@@ -104,7 +104,7 @@ def handle_sandbox_review(h, body=None):
 def handle_sandbox_file(h):
     """GET /sandbox/file?path=<相对路径> → 只读预览沙盒产物的正文。
 
-    为什么需要它：审核队列里点「预览」必须能看到**真实内容**，否则「通过」
+    为什么需要它：审核队列里点“预览”必须能看到**真实内容**，否则“通过”
     就是盲签。GUI 拿不到沙盒目录的原始路径（目录可由配置改到 Obsidian 库内），
     所以读这一侧也必须走后端。
 

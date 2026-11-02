@@ -9,12 +9,12 @@ PyYAML 对**重复键静默取后值**，不报错、不告警。这个坑本项
    （2026-09-28，已由 `utils.project_config._UniqueKeyLoader` 修掉）；
 2. **`switch_book.current_book_name` 漏网**：它一直用裸 `yaml.safe_load` 取
    `book.name`。换书是**破坏性操作**（归档当前 + 恢复目标），书名读错的后果是
-   **把内容归档到错误书名的目录下**，而界面上一切正常 —— 这正是「看起来配好了、
-   实际没生效」的典型形态。
+   **把内容归档到错误书名的目录下**，而界面上一切正常 —— 这正是\u300c看起来配好了、
+   实际没生效\u300d的典型形态。
 
 本用例守三件事：
 - 重复键 → `current_book_name()` **抛错**（不是静默取后值，也不是吞成空书名）；
-- 缺失文件仍是合法的「未初始化」状态（返回 ""），不误报；
+- 缺失文件仍是合法的\u300c未初始化\u300d状态（返回 ""），不误报；
 - CLI 层把错误收敛成**可行动的一行话**（不是 traceback），且**不执行归档**。
 
 用法：python tests/unit/test_project_yaml_dup_keys.py
@@ -52,8 +52,8 @@ def build_root(project_yaml=None, progress=None):
 
     ⚠️⚠️ **必须把 switch_book.py 复制进临时根再跑**（2026-10-03 实测教训）：
     `switch_book.PROJECT_ROOT = Path(__file__).resolve().parent.parent` —— 它认的是
-    **脚本文件所在位置**，不是 CWD！所以「chdir 到临时目录再跑真实仓库的
-    scripts/switch_book.py」会**直接归档真实工作区**（本轮真踩到：测试把
+    **脚本文件所在位置**，不是 CWD！所以\u300cchdir 到临时目录再跑真实仓库的
+    scripts/switch_book.py\u300d会**直接归档真实工作区**（本轮真踩到：测试把
     data/ + config/ + materials/ 全搬进了 data/books/{真书名}/，已当场恢复并逐文件
     核对无损）。与 test_switch_book_scope.py 同一套做法：复制脚本，让 __file__ 落在临时根。
     """
@@ -115,7 +115,7 @@ def case_duplicate_keys_raise():
     tmp = build_root(project_yaml=DUP_YAML)
     try:
         r = probe(tmp)
-        check("current_book_name 抛错而非返回「第二本书」", r.get("ok") is False, r)
+        check("current_book_name 抛错而非返回\u300c第二本书\u300d", r.get("ok") is False, r)
         check("错误类型是 ValueError（可被上层收敛成一行话）",
               "ValueError" in str(r.get("err")), r.get("err"))
         check("错误里点名重复键所在的文件", "project.yaml" in str(r.get("err")), r.get("err"))
@@ -147,7 +147,7 @@ def case_progress_does_not_mask_corruption():
 
 
 def case_good_and_missing():
-    print("\n【3】反证：正常配置与「未初始化」都不许误报")
+    print("\n【3】反证：正常配置与\u300c未初始化\u300d都不许误报")
     tmp = build_root(project_yaml=GOOD_YAML)
     try:
         r = probe(tmp)
@@ -179,10 +179,10 @@ def case_cli_clean_error_and_no_archive():
             capture_output=True, text=True, encoding="utf-8", errors="replace",
             cwd=str(tmp), env=env, timeout=120)
         check("退出码非零", proc.returncode == 1, proc.returncode)
-        check("输出是「拒绝执行 + 原因」，不是 traceback",
+        check("输出是\u300c拒绝执行 + 原因\u300d，不是 traceback",
               "拒绝执行" in proc.stdout and "Traceback" not in proc.stdout,
               proc.stdout[-400:])
-        check("输出里能看到「Duplicate key」这类可定位信息",
+        check("输出里能看到\u300cDuplicate key\u300d这类可定位信息",
               "Duplicate key" in proc.stdout or "重复键" in proc.stdout,
               proc.stdout[-300:])
         books = list((tmp / "data" / "books").iterdir())

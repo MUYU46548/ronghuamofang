@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 """MCP stdio 垫片自检（2026-09-30）。
 
-垫片是「标准 MCP 客户端（Hermes / Claude Code）→ 8766」的桥：
+垫片是\u300c标准 MCP 客户端（Hermes / Claude Code）→ 8766\u300d的桥：
 客户端只在本地 spawn 进程、用 stdin/stdout 说话，而 `nf_mcp.py` 是 TCP 换行分帧的
 裸 JSON-RPC → 中间必须有这一层。它坏掉的表现是**客户端直接连不上**，
-所以这里覆盖的是「桥本身」的行为，不是 nf_mcp 的工具实现。
+所以这里覆盖的是\u300c桥本身\u300d的行为，不是 nf_mcp 的工具实现。
 
 本自检覆盖（全部离线，用本地 mock TCP 服务当 8766）：
 A. 透传保真：有 id 的请求 → 原样送到 8766，响应原样回 stdout（id / 字段不丢）。
-B. **通知（无 id）不能阻塞后续请求** —— 若实现按「请求-响应」严格配对，这里会死锁。
+B. **通知（无 id）不能阻塞后续请求** —— 若实现按\u300c请求-响应\u300d严格配对，这里会死锁。
 C. 非法 JSON → -32700，且**进程不退**（之后仍能正常服务）。
 D. 空行不是错误，也不产生响应。
 E. 8766 连不上 → -32002 + 带层号与启动命令的干净报错，**id 保真**。
@@ -251,7 +251,7 @@ def test_unreachable_and_reconnect():
               data.get("layer"))
         check("报错带可执行的启动指引（而不是裸栈）",
               "nf_mcp.py" in str(data.get("hint", "")), str(data.get("hint"))[:100])
-        check("提示里点明「两层分开看」（避免拿 A 层的错修 B 层）",
+        check("提示里点明\u300c两层分开看\u300d（避免拿 A 层的错修 B 层）",
               "两层" in str(data.get("hint", "")), None)
 
         # 服务后起 → 惰性重连

@@ -31,7 +31,7 @@
 优化点是**讨论的沉淀**，只追加不覆盖。此前蓝图编辑器的保存路径只渲染 6 个骨架
 字段，任何追加在章末的优化点块会在下次保存时被**静默删除** —— 讨论成果当场蒸发。
 现在 parse 先把优化点切出来、render 再原样拼回去，`raw` 保留逐字节原文（含
-`<!--opt-anchor -->` 注释），保证「agent 写入 → 用户在 GUI 改个错别字 → 保存」
+`<!--opt-anchor -->` 注释），保证“agent 写入 → 用户在 GUI 改个错别字 → 保存”
 这条路上优化点一字不丢。
 """
 import json
@@ -58,7 +58,7 @@ ANCHOR_RE = re.compile(r"<!--\s*opt-anchor\s*(\{[\s\S]*?\})\s*-->")
 def split_opt_sections(text):
     """把章节大纲切成（骨架 markdown, 优化点块列表）。
 
-    **必须先切再解析骨架**：优化点正文里若出现「- 涉及角色：…」这类字样
+    **必须先切再解析骨架**：优化点正文里若出现“- 涉及角色：…”这类字样
     （样例文里写角色对话是常态），不切开会污染骨架字段。
     """
     heads = list(OPT_HEAD_RE.finditer(text or ""))
@@ -92,7 +92,7 @@ def parse_chapter_md(text: str) -> dict:
         "hook": "",
         "opt_points": [],
     }
-    # 先把优化点切出去，再解析骨架 —— 样例文里出现「- 涉及角色：」等字样
+    # 先把优化点切出去，再解析骨架 —— 样例文里出现“- 涉及角色：”等字样
     # 不会污染骨架字段（见 split_opt_sections docstring）。
     skeleton, opts = split_opt_sections(text)
     d["opt_points"] = opts
@@ -122,8 +122,8 @@ def parse_chapter_md(text: str) -> dict:
         # 衔接可能包含"承接..."和"钩子..."两段
         carry, hook = "", ""
         if "钩子" in raw:
-            # 分隔符可能是「钩子：」「钩子:」「钩子——」——统一切掉，否则破折号
-            # 留进 hook 值里，而渲染时又拼一个「钩子——」→ 每轮 parse/render
+            # 分隔符可能是“钩子：”“钩子:”“钩子——”——统一切掉，否则破折号
+            # 留进 hook 值里，而渲染时又拼一个“钩子——”→ 每轮 parse/render
             # 累积两个破折号（定向改写每批准一次就多一对，实测 3 轮后变 8 个）。
             parts = re.split(r"钩子\s*[：:—\-]*\s*", raw, maxsplit=1)
             carry = parts[0].strip().rstrip("；;。")
@@ -195,8 +195,8 @@ def next_opt_number(text):
 def append_opt_point(chapter_text, body_md, anchor=None):
     """把一个优化点块追加到章节大纲末尾。返回新文本。
 
-    编号顺延（提案里写「优化点1」是提案内部的序号，落到章里要接上已有的号）。
-    锚点的 `n` 用顺延后的编号，保证「章内编号 == 锚点编号」可反查。
+    编号顺延（提案里写“优化点1”是提案内部的序号，落到章里要接上已有的号）。
+    锚点的 `n` 用顺延后的编号，保证“章内编号 == 锚点编号”可反查。
     """
     n = next_opt_number(chapter_text)
     anchor = dict(anchor or {})

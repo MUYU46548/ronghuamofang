@@ -102,7 +102,7 @@ def main():
         b3 = S3.build_batch_task(cfg, proj, [1], "data/outline/global.md",
                                  "data/setting/setting.json")
         check("P2 stage3 任务含卷弧块", "卷弧" in b3, b3[:200])
-        check("P2 无卷纲时明确说「尚未生成」", "尚未生成" in b3, b3[-300:])
+        check("P2 无卷纲时明确说\u300c尚未生成\u300d", "尚未生成" in b3, b3[-300:])
 
         print("\n[P3] stage4：记忆上下文")
         import stage4_writing as S4

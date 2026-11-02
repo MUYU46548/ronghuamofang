@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """stage1 元文件分拣自检（`_is_meta_file` + `scan_materials` 跳过行为，零 LLM）。
 
-用户 2026-10-24 的素材里混着「碎片填充计划」这类登记表（正文：已使用的碎片
+用户 2026-10-24 的素材里混着\u300c碎片填充计划\u300d这类登记表（正文：已使用的碎片
 在此登记）。喂进归并等于把索引当成设定，污染设定集。本用例守三件事：
 
 1. 元文件被识别（登记表 / 说明 / readme / 变更日志）；
@@ -43,7 +43,7 @@ def main():
             p.write_text(text, encoding="utf-8")
             return p
 
-        # --- 元文件（真实 OB34 形态：标题是「说明」，正文是登记表） ---
+        # --- 元文件（真实 OB34 形态：标题是“说明”，正文是登记表） ---
         meta_a = w("碎片填充计划.md", "# 说明\n\n已使用的碎片在此登记，避免重复使用。\n\n# 登记列表\n2099-1-1\n2099-2-2\n")
         meta_b = w("变更日志.md", "# 变更日志\n\n2099-01-01 新增角色卡。\n")
         meta_c = w("readme.md", "# Readme\n\n这是素材目录说明。\n")
@@ -54,7 +54,7 @@ def main():
         real_d = w("raw/_backup/旧卡.md", "# 旧卡\n\n覆盖前的旧版本。\n")
         # 两个真坑（2026-10-24 反向验证在 设定库 真设定上抓出，必须锁死）：
         # ① YAML frontmatter 里的 tag `- 索引` 曾被当成标题 → 真设定被判元；
-        # ② 真设定正文首句「本索引遵循…」曾命中我加的 probe 词「本索引」。
+        # ② 真设定正文首句“本索引遵循…”曾命中我加的 probe 词“本索引”。
         real_e = w("地理系统索引.md",
                    "---\npublish: true\ntags:\n- 索引\n- 地理系统\n"
                    "上级页面: '[[总索引]]'\n---\n\n本索引遵循的层级划分规则为：\n\n"
@@ -75,17 +75,17 @@ def main():
               _is_meta_file(meta_d))
 
         print("== 2. 真素材不被误跳（保守判据） ==")
-        check("角色卡不判元（正文含「计划」也不算）", not _is_meta_file(real_a))
+        check("角色卡不判元（正文含\u300c计划\u300d也不算）", not _is_meta_file(real_a))
         check("碎片正文不判元", not _is_meta_file(real_b))
         check("raw 里的卡不判元", not _is_meta_file(real_c))
         check("不存在的文件不抛（OSError → False）",
               not _is_meta_file(root / "nope.md"))
-        # 反向验证：设定库 `01 索引/` 下 13 个真设定文件名带「索引」、
-        # frontmatter tag 是 `- 索引`、正文首句是「本索引…」——三重诱因，
+        # 反向验证：设定库 `01 索引/` 下 13 个真设定文件名带“索引”、
+        # frontmatter tag 是 `- 索引`、正文首句是“本索引…”——三重诱因，
         # 我前两版判据都在这里误伤过，锁死。
-        check("带 YAML frontmatter 的真设定不判元（tag「索引」不是标题）",
+        check("带 YAML frontmatter 的真设定不判元（tag\u300c索引\u300d不是标题）",
               not _is_meta_file(real_e))
-        check("正文首句「本索引不作为…」不判元（probe 词已收紧）",
+        check("正文首句\u300c本索引不作为…\u300d不判元（probe 词已收紧）",
               not _is_meta_file(real_f))
 
         print("== 3. scan_materials 真的跳过 ==")

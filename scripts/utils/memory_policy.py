@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
-"""上下文记忆策略（memory policy）—— 把「把能塞的都塞进去」换成**分层 + 按需**。
+"""上下文记忆策略（memory policy）—— 把“把能塞的都塞进去”换成**分层 + 按需**。
 
-## 为什么（台账三·「上下文固定拼接」）
+## 为什么（台账三·“上下文固定拼接”）
 
-旧 stage4 的上下文是「设定集路径 + 滚动摘要路径 + 上一章尾 + 范文」一锅端：
+旧 stage4 的上下文是“设定集路径 + 滚动摘要路径 + 上一章尾 + 范文”一锅端：
 滚动摘要给的是**路径**而不是内容（模型读多少不受控），设定的相关条目靠
 `_extract_world_context` 按大纲筛，但**没有任何预算**。40 章还能过，
 200 章时要么摘要无限膨胀、要么模型把预算全吃在历史上，正文写不出来。
@@ -14,7 +14,7 @@
 |---|---|---|
 | **L1 固定层** | 本章大纲 / 本章角色卡 / 上一章尾 / 硬性要求 | **不裁** —— 裁了就没法写。仍由 stage4 既有块提供 |
 | **L2 滚动层** | 全书摘要 + 最近 N 章摘要 | 按 `rolling_chars` 裁，**裁掉的章号必须写出来** |
-| **L3 召回层** | 四维召回：伏笔 / 角色 / 状态 / 关系 | 按 `recall_chars` 裁 + top-K，**每条都带「为什么被召回」** |
+| **L3 召回层** | 四维召回：伏笔 / 角色 / 状态 / 关系 | 按 `recall_chars` 裁 + top-K，**每条都带“为什么被召回”** |
 
 ## L3 四维（对标 ainovel-cli 的四维推荐）
 
@@ -45,7 +45,7 @@ DEFAULT_BUDGET = {
     "recall_top_k": 6,         # L3 最多几条
     # 相关度门槛（2026-10-20 实测调过）：只看 bigram 重合数会把"没有""一个"这类
     # 虚词组合算成相关 —— 中文里任意两句话重合 2-3 个 bigram 是常态，实测
-    # 「他在屋里擦桌子」也能召回到「怀表的来历」碎片。所以要求**两条同时满足**：
+    # “他在屋里擦桌子”也能召回到“怀表的来历”碎片。所以要求**两条同时满足**：
     # 重合数 >= 4 且重合率 >= 20%；专名命中则直接放行（人名/物品名才是真信号）。
     "recall_min_terms": 4,
 }
@@ -192,9 +192,9 @@ def _state_lines(state, n, involved, items):
         if typ == "death":
             out.append((ch, "%s 在第%d章死亡（%s）" % (who, ch, ev[:40])))
         elif typ == "lose_item":
-            out.append((ch, "%s 在第%d章失去「%s」（%s）" % (who, ch, item, ev[:40])))
+            out.append((ch, "%s 在第%d章失去“%s”（%s）" % (who, ch, item, ev[:40])))
         elif typ == "hold_item":
-            out.append((ch, "%s 在第%d章持有「%s」" % (who, ch, item)))
+            out.append((ch, "%s 在第%d章持有“%s”" % (who, ch, item)))
         elif typ == "time":
             out.append((ch, "第%d章时间锚：%s 年" % (ch, e.get("year"))))
         elif typ == "unknown_name":
@@ -353,7 +353,7 @@ def build_memory(n, outline_text, setting_path=None, rolling_path=None,
     lines.append("")
     lines.append("### L3 相关历史（四维召回：伏笔 / 角色 / 状态 / 关系）")
     if recalled:
-        lines.append("按「与本章大纲的相关度」选出，共 %d 条；括号里是它为什么在这里。"
+        lines.append("按“与本章大纲的相关度”选出，共 %d 条；括号里是它为什么在这里。"
                      % len(recalled))
         for c in recalled:
             lines.append("- [%s] %s（%s）" % (DIM_LABEL.get(c["dim"], c["dim"]),

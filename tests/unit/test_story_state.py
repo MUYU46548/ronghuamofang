@@ -47,18 +47,18 @@ ITEMS = ["怀表", "图纸"]
 BROKEN = {
     1: "2018 年冬，边城下了一场雪。沈砚在值班室掏出怀表，看了很久。",
     2: "韩拙死了。他断气的时候，窗外正在刮风。",
-    3: "韩拙说：「这边走。」沈砚跟上去。",
+    3: "韩拙说：\u300c这边走。\u300d沈砚跟上去。",
     4: "沈砚把怀表扔进了河里。老周死了，丧事办得很简单。",
-    5: "沈砚握着怀表站在桥头。林小曼说：「我不知道。」",
+    5: "沈砚握着怀表站在桥头。林小曼说：\u300c我不知道。\u300d",
     6: "老周死了，这一次没有人去送葬。一九九八年冬天，边城下了第一场雪。",
 }
 
 CLEAN = {
     1: "2018 年冬，边城下了一场雪。沈砚在值班室掏出怀表，看了很久。",
-    2: "韩拙说：「这边走。」沈砚跟上去。林小满在门口等着。",
+    2: "韩拙说：\u300c这边走。\u300d沈砚跟上去。林小满在门口等着。",
     3: "沈砚把怀表递给韩拙。韩拙收下了。",
     4: "韩拙握着怀表站在桥头，风很大。",
-    5: "林小满说：「我不知道。」沈砚没有说话。",
+    5: "林小满说：\u300c我不知道。\u300d沈砚没有说话。",
     6: "2019 年春天，雪化了。三个人一起离开了边城。",
 }
 
@@ -111,7 +111,7 @@ def main():
           [e["type"] for e in ev])
 
     ev = S.scan_chapter(2, "韩拙没有死。他差点死了，但最终活了下来。", CHARS, ITEMS)
-    check("否定与「差点」不记账", not [e for e in ev if e["type"] == "death"],
+    check("否定与\u300c差点\u300d不记账", not [e for e in ev if e["type"] == "death"],
           [e["type"] for e in ev])
 
     ev = S.scan_chapter(3, "1998 年冬天，沈砚出生。2018 年冬天，他回到边城。", CHARS, ITEMS)
@@ -147,7 +147,7 @@ def main():
         check("事件条数 > 10", len(state["events"]) > 10, len(state["events"]))
 
         # 重写第 6 章：让老周彻底退场 → 重复死亡与"死后再现"都应消失
-        (ch / "06.md").write_text("沈砚说：「走吧。」林小满点头，跟着他过了桥。", encoding="utf-8")
+        (ch / "06.md").write_text("沈砚说：\u300c走吧。\u300d林小满点头，跟着他过了桥。", encoding="utf-8")
         state2, mine = S.update_chapter(tmp, 6, (ch / "06.md").read_text(encoding="utf-8"))
         check("重写后不再报第6章的冲突",
               not [c for c in state2["conflicts"] if c.get("chapter") == 6],
@@ -171,7 +171,7 @@ def main():
     print("\n[5] 边界")
     tmp = Path(tempfile.mkdtemp(prefix="nf_state_edge_"))
     try:
-        st, _mine = S.update_chapter(tmp, 1, "沈砚说：「走。」", str(tmp / "nope.json"))
+        st, _mine = S.update_chapter(tmp, 1, "沈砚说：\u300c走。\u300d", str(tmp / "nope.json"))
         check("没有设定集也能跑（不崩）", isinstance(st, dict) and "events" in st)
         check("没角色名时零事件", len(st["events"]) == 0, st["events"])
         check("summarize 可用", "事件" in S.summarize(st), S.summarize(st))
@@ -186,7 +186,7 @@ def main():
         (tmp / "data" / "state").mkdir(parents=True)
         state = S.save_state(tmp, {"version": 1, "events": [
             {"chapter": 2, "type": "death", "who": "韩拙", "evidence": "韩拙死了。"},
-            {"chapter": 3, "type": "act", "who": "韩拙", "evidence": "韩拙说：「走。」"},
+            {"chapter": 3, "type": "act", "who": "韩拙", "evidence": "韩拙说：\u300c走。\u300d"},
         ], "conflicts": []})
         check("账本自带冲突（韩拙死而复生）",
               any(c["code"] == "dead_again" for c in state["conflicts"]),
@@ -195,9 +195,9 @@ def main():
         old_root = qc.ROOT
         try:
             qc.ROOT = tmp
-            issues3 = qc.check_consistency("韩拙说：「走。」", 3, tmp / "nope.json")
+            issues3 = qc.check_consistency("韩拙说：\u300c走。\u300d", 3, tmp / "nope.json")
             check("第3章读到账本冲突", any("dead_again" in i for i in issues3), issues3)
-            issues4 = qc.check_consistency("沈砚说：「走。」", 4, tmp / "nope.json")
+            issues4 = qc.check_consistency("沈砚说：\u300c走。\u300d", 4, tmp / "nope.json")
             check("第4章不受第3章冲突影响", issues4 == [], issues4)
         finally:
             qc.ROOT = old_root

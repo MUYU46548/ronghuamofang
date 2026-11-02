@@ -1,11 +1,11 @@
 // 项目根显式解析（2026-10-04 修复单 Step 4c 根修 —— 主进程侧，零渲染层变更）
 //
-// 为什么要有：主进程此前对 nf_api 的 ROOT 是「隐式默认」—— getWorkspaceDir()
+// 为什么要有：主进程此前对 nf_api 的 ROOT 是“隐式默认”—— getWorkspaceDir()
 // 按打包态算出 %APPDATA% 工作区后**无条件**传 --root，开发机跑安装版 GUI 时
 // GUI 读的项目与 orchestrator 所在源码树**静默分裂**（双 progress.json、
 // 审批门不可见、GUI 批准落空 —— 2026-10-04 试写事故的 P0 病根）。
 //
-// 现在项目根必须**显式**决定，优先级与「记住」语义：
+// 现在项目根必须**显式**决定，优先级与“记住”语义：
 //   1. --project-root <path> 启动参数（本次运行生效，并写入配置文件记住）
 //   2. NF_ROOT 环境变量（本次运行覆盖，**不**写入配置 —— 保留为覆盖手段）
 //   3. 配置文件（此前记住的项目根；%APPDATA%\绒花墨坊\project-root.json）
@@ -64,7 +64,7 @@ function resolveProjectRoot(opts) {
       const j = JSON.parse(fsImpl.readFileSync(configFile, "utf8"));
       saved = (j && j.projectRoot) || "";
     } catch (e) {
-      // 无文件 / 坏 JSON = 「尚未记住」，属正常缺省，不是显式配置失效
+      // 无文件 / 坏 JSON = “尚未记住”，属正常缺省，不是显式配置失效
       saved = "";
     }
     hit = tryCandidate(saved, "config");
@@ -78,7 +78,7 @@ function resolveProjectRoot(opts) {
 }
 
 function persistRoot(configFile, root, fsImpl) {
-  /** 把 --project-root 指定的根写进配置文件（「启动参数记住项目根」）。 */
+  /** 把 --project-root 指定的根写进配置文件（“启动参数记住项目根”）。 */
   const f = fsImpl || fs;
   try {
     f.mkdirSync(path.dirname(configFile), { recursive: true });

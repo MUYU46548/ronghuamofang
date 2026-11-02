@@ -9,7 +9,7 @@
   `voice_to_docx` 的默认值里 → 任何其他用户开箱即失败，且泄露私人路径到公开仓库。
 - **S8**：`available_models` 与 `fetched_models.json` 两份白名单数据**确实存在**，
   却**从未参与任何判定**——`/models/switch` 连格式校验都没有，任意模型名可落盘生效，
-  AGENTS.md 的「模型白名单纪律」是纸面纪律。
+  AGENTS.md 的\u300c模型白名单纪律\u300d是纸面纪律。
 
 ## 断言策略
 
@@ -150,7 +150,7 @@ def main():
     r = mr.check_model("brand-new-model", cfg, root, strict=False)
     check(r["ok"] is True, "strict=false 放行未登记模型")
     check(r["checked"] is False,
-          "回报 checked=False（前端/日志可辨「未做白名单校验」）")
+          "回报 checked=False（前端/日志可辨\u300c未做白名单校验\u300d）")
 
     # 纠错建议
     print("\n--- C4. 纠错建议 ---")
@@ -164,11 +164,11 @@ def main():
     #
     # 2026-09-19 修正：这两条原本在 nf_api.py 里**按分支边界切源码文本**再 grep。
     # P2 拆分把 /models/* 的实现搬到了 nf_api_domains/models.py，文本自然不在
-    # nf_api.py 里了 —— 于是测试变红，但它红的原因是「找错了文件」而不是
-    # 「校验回路断了」。这类依赖**实现位置**的断言是脆的：重构一动就误报。
+    # nf_api.py 里了 —— 于是测试变红，但它红的原因是“找错了文件”而不是
+    # “校验回路断了”。这类依赖**实现位置**的断言是脆的：重构一动就误报。
     #
-    # 改为「先定位实现所在文件，再在文件内断言」：实现可以搬家，
-    # 「必须调用 check_model / validate_format」这个契约不变。
+    # 改为“先定位实现所在文件，再在文件内断言”：实现可以搬家，
+    # “必须调用 check_model / validate_format”这个契约不变。
     print("\n--- D. 写入层回路接通确认 ---")
     api_src = (REPO / "scripts" / "nf_api.py").read_text(encoding="utf-8")
     check("from utils import model_registry" in api_src,

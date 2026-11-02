@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""上下文记忆策略的自检（2026-10-20，台账三·「上下文 memory policy」）。
+"""上下文记忆策略的自检（2026-10-20，台账三·\u300c上下文 memory policy\u300d）。
 
 ## 主判据
 
@@ -16,7 +16,7 @@
 7. 状态：本章之前的事件被召回（带章号），**未来事件不召回**
 8. 关系：`relations` 的 dict / list 两种形态都读得出来
 9. 角色：滚动摘要里提到本章角色的章被召回；最近 3 章排除（那段由上一章尾巴覆盖）
-10. 每条召回都带「为什么在这里」（命中词 / 用词重合）—— 不许只有正文
+10. 每条召回都带\u300c为什么在这里\u300d（命中词 / 用词重合）—— 不许只有正文
 11. 预算收紧后召回变少，且写明"因预算/top-K 未注入"
 12. 一条都召不回时给明确文案（"不是漏了，是没有"）
 
@@ -144,7 +144,7 @@ def case_no_future():
               all(c < 4 for c in r["stats"]["rolling"]["chapters"]),
               r["stats"]["rolling"]["chapters"])
         texts = " ".join(c["text"] for c in r["recall"])
-        check("P2 第 4 章不召回第 5 章「扔怀表」事件", "扔进河里" not in texts, texts)
+        check("P2 第 4 章不召回第 5 章\u300c扔怀表\u300d事件", "扔进河里" not in texts, texts)
         check("P2 但会召回第 3 章的死亡事件", "第3章死亡" in texts, texts)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
@@ -199,8 +199,8 @@ def case_budget_and_empty():
         r = MP.build_memory(2, "第一章的续写。", str(Path(tmp2) / "nope.json"),
                             str(Path(tmp2) / "nope.md"), str(Path(tmp2) / "nope2.json"))
         check("P4 无任何数据也不抛异常", isinstance(r["block"], str) and r["block"])
-        check("P4 明确写出「没有滚动摘要」", "没有滚动摘要" in r["block"], r["block"])
-        check("P4 明确写出「未召回到相关历史」", "未召回到相关历史" in r["block"], r["block"])
+        check("P4 明确写出\u300c没有滚动摘要\u300d", "没有滚动摘要" in r["block"], r["block"])
+        check("P4 明确写出\u300c未召回到相关历史\u300d", "未召回到相关历史" in r["block"], r["block"])
 
         # 有数据但全无关
         sp, stp = scene(tmp2)

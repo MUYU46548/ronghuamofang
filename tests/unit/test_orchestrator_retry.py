@@ -7,7 +7,7 @@
 但全文件未导入 → `auto_retry` 默认 `true`，任一阶段失败即 `NameError`，
 且 `db.finish_run()` 永不执行 → `runs` 表残留 `status='running'` 脏行。
 
-**这条用例的价值在于：它必须能在修复前失败。** 因此断言的是「行为」而非「代码长相」：
+**这条用例的价值在于：它必须能在修复前失败。** 因此断言的是\u300c行为\u300d而非\u300c代码长相\u300d：
   1. 阶段失败 + auto_retry 开启时，`run()` 不得抛异常（应返回退出码 1）
   2. `runs` 表不得残留 `status='running'`（必须有收尾状态）
   3. 通过 `finish_run_if_running` 的幂等补偿路径也要被覆盖

@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
-"""质量验收 checklist「产物缺失必须失败」自检（2026-10-03）。零 LLM、零网络。
+"""质量验收 checklist\u300c产物缺失必须失败\u300d自检（2026-10-03）。零 LLM、零网络。
 
 ## 为什么（用户拍板）
 
 > 章节文件不存在，如果是跑了但没落盘，当然不是预期的结果。这绝对有问题。
 
 旧实现（`quality_checklist.py`）对缺失章节只打一行 `[SKIP] 文件不存在` 就 `continue`，
-`all_pass` 保持 True → 末尾照打「**全部章节通过验收 ✓**」并 **退 0**。
+`all_pass` 保持 True → 末尾照打\u300c**全部章节通过验收 ✓**\u300d并 **退 0**。
 而本脚本是 orchestrator 的收尾闸门（`gates.quality_gate`，默认开）——
 "跑了但没落盘"这种最该拦的情形，恰恰被盖了绿灯。
 
@@ -77,7 +77,7 @@ def run(root, *args):
 
 
 def case_missing_fails():
-    print("\n【1】产物缺失 → FAIL（旧实现是 SKIP + 退 0 + 「全部通过」）")
+    print("\n【1】产物缺失 → FAIL（旧实现是 SKIP + 退 0 + \u300c全部通过\u300d）")
     root = build_root(3, with_files=[1, 2])
     try:
         p = run(root)
@@ -88,7 +88,7 @@ def case_missing_fails():
               "data/chapters/refined/03.md" in out and "data/chapters/raw/03.md" in out,
               out[-400:])
         check("解释含义（跑过没落盘 = 失败）", "没落盘" in out, out[-300:])
-        check("**不许**再出现「全部章节通过验收」", "全部章节通过验收" not in out, out[-200:])
+        check("**不许**再出现\u300c全部章节通过验收\u300d", "全部章节通过验收" not in out, out[-200:])
         check("摘要说明有几章缺失", "产物缺失" in out and "3" in out, out[-200:])
         check("已有的两章仍逐项检查（缺失不吞掉其它检查）",
               "第1章: [PASS]" in out and "第2章: [PASS]" in out, out[:300])
@@ -97,7 +97,7 @@ def case_missing_fails():
 
 
 def case_allow_missing_is_explicit():
-    print("\n【2】--allow-missing：显式放行，但摘要必须说「未经验收」")
+    print("\n【2】--allow-missing：显式放行，但摘要必须说\u300c未经验收\u300d")
     root = build_root(3, with_files=[1])
     try:
         p = run(root, "--allow-missing")
@@ -105,7 +105,7 @@ def case_allow_missing_is_explicit():
         check("退出码 0（逃生门生效）", p.returncode == 0, p.returncode)
         check("缺失章节标为 SKIP 且写明未验收",
               "[SKIP]" in out and "未经验收" in out, out[-300:])
-        check("摘要**不说**「通过」（跳过 ≠ 通过）",
+        check("摘要**不说**\u300c通过\u300d（跳过 ≠ 通过）",
               "全部章节通过验收" not in out, out[-200:])
         check("摘要点出缺失章号", "2" in out and "3" in out, out[-200:])
     finally:
@@ -113,20 +113,20 @@ def case_allow_missing_is_explicit():
 
 
 def case_all_present_passes():
-    print("\n【3】反证：产物齐全且合格 → 仍然退 0 + 「通过」")
+    print("\n【3】反证：产物齐全且合格 → 仍然退 0 + \u300c通过\u300d")
     root = build_root(2, with_files=[1, 2])
     try:
         p = run(root)
         out = p.stdout
         check("退出码 0", p.returncode == 0, out[-300:])
-        check("输出「全部章节通过验收 ✓」", "全部章节通过验收" in out, out[-200:])
+        check("输出\u300c全部章节通过验收 ✓\u300d", "全部章节通过验收" in out, out[-200:])
         check("两章都是 PASS", out.count("[PASS]") == 2, out.count("[PASS]"))
     finally:
         shutil.rmtree(root, ignore_errors=True)
 
 
 def case_zero_chapters_fails():
-    print("\n【4】空集合不许「全过」（vacuous truth 是门禁最阴的假绿）")
+    print("\n【4】空集合不许\u300c全过\u300d（vacuous truth 是门禁最阴的假绿）")
     root = build_root(0, with_files=[], chapter_count=0)
     try:
         p = run(root)
@@ -150,7 +150,7 @@ def case_orchestrator_blocks_on_nonzero():
 
 def main():
     print("=" * 62)
-    print("  质量验收 checklist「产物缺失必失败」自检")
+    print("  质量验收 checklist\u300c产物缺失必失败\u300d自检")
     print("=" * 62)
     case_missing_fails()
     case_allow_missing_is_explicit()

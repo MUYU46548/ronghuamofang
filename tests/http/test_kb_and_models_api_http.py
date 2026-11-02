@@ -6,7 +6,7 @@
 **`/kb/search` 与 `/kb/build` 曾长期带着 NameError 存活**：源码直接引用
 `get_vault_path()`，但该名字在 `nf_api.py` 中**从未导入** → 端点一旦被调用必崩。
 之所以没人发现，是因为**全部 HTTP 契约测试里没有任何 kb 用例**（零覆盖）。
-`pyflakes` 首次接入即报出这两行 —— 这也是「把 py_compile 换成 pyflakes」
+`pyflakes` 首次接入即报出这两行 —— 这也是\u300c把 py_compile 换成 pyflakes\u300d
 这一单项改动价值的直接证据。
 
 **`/models/switch` 曾是唯一没有校验的模型写入路径**：连格式校验都没有，
@@ -220,7 +220,7 @@ def main():
         check("strict=false 逃生门 → 200", code == 200, f"{code} {d}")
         check("逃生门回报 whitelist_checked=false（不静默）",
               d.get("whitelist_checked") is False, d)
-        check("逃生门消息里标注「未做白名单校验」",
+        check("逃生门消息里标注\u300c未做白名单校验\u300d",
               "未做白名单校验" in str(d.get("message", "")), d)
 
         # C5 未知角色仍被护栏拦住

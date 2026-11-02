@@ -7,15 +7,15 @@
    · 排序按**卷号数值**（vol10 排在 vol2 之后，不是文件名字典序）；
    · 幂等：重复跑产出一致（它是分片的派生物，覆盖写而非追加）；
    · 无分卷文件时返回 None 且**不动**已有的 polish_report.md（非分卷模式直接写它）。
-   背景：GUI 审批门产物概况与「润色体检报告」按钮只认 polish_report.md，
-   分卷模式下没人合并 → 产物概况空白、按钮报「文件不存在」。
+   背景：GUI 审批门产物概况与\u300c润色体检报告\u300d按钮只认 polish_report.md，
+   分卷模式下没人合并 → 产物概况空白、按钮报\u300c文件不存在\u300d。
 
 2. `export_markdown`（stage8）——书名兜底 + frontmatter 勾选框真实现：
-   · book_name=None/空串 → 回退 project.yaml 的 book.name（修「None_markdown」目录；
+   · book_name=None/空串 → 回退 project.yaml 的 book.name（修\u300cNone_markdown\u300d目录；
      根因是 GUI 曾显式传 book_name: null 压掉默认参数）；
    · include_frontmatter=True 时全书.md 以 `---`/`title:` 开头，False 时不带。
 
-3. `handle_export_word`（nf_api_domains/post_misc）——导出面板「仅 Word/双格式」分支：
+3. `handle_export_word`（nf_api_domains/post_misc）——导出面板\u300c仅 Word/双格式\u300d分支：
    · ROUTES 已注册；无章节可合并 → (400, {ok: False})（业务失败不是 500）；
    · 有章节 → 200 且真实产出非空 docx。
 

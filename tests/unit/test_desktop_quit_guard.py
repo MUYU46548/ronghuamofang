@@ -1,29 +1,29 @@
 # -*- coding: utf-8 -*-
-"""桌面端「关不掉」回归自检（P0，2026-10-03）。零 LLM、零网络。
+"""桌面端\u300c关不掉\u300d回归自检（P0，2026-10-03）。零 LLM、零网络。
 
 ## 事故与根因（实测取证）
 
-用户报告「桌面端应用又关不掉了，原因不明」。进程树取证发现：
+用户报告\u300c桌面端应用又关不掉了，原因不明\u300d。进程树取证发现：
 `绒花墨坊.exe`(9012) + 3 个 Electron 子进程 + 1 个它 spawn 的 `nf_api.py`(13616)，
 而 nf_api 自己**还孵着一个孙进程**（PID 2732）。根因是两处叠加：
 
 1. **渲染进程的 `window.beforeunload` 原生确认框**（App.vue `setupExitGuard`），
-   触发条件包含「有 stage 是 done 但未审批」—— 那是审批门的**长期正常状态**
+   触发条件包含\u300c有 stage 是 done 但未审批\u300d—— 那是审批门的**长期正常状态**
    （可持续数天）→ 每次关窗都弹 Chromium 原生框；该框在 Windows 上会跑到窗口后面、
-   或被 Esc/取消吃掉 → 表现就是「点了 X 没反应、关不掉」，并连带卡住「重启安装」。
+   或被 Esc/取消吃掉 → 表现就是\u300c点了 X 没反应、关不掉\u300d，并连带卡住\u300c重启安装\u300d。
    主进程侧**完全没有** `mainWindow.on("close")`，既没兜底也没看门狗。
 2. `stopApi()` 只 `apiProc.kill()`：**杀子不杀孙** → 残留进程继续占 8765 →
-   下次启动走「端口被占 → 杀进程 → 重试」那条路，而那条路是**无限递归**，
-   端口清不掉时应用看起来就是「起不来/半死不活」。
+   下次启动走\u300c端口被占 → 杀进程 → 重试\u300d那条路，而那条路是**无限递归**，
+   端口清不掉时应用看起来就是\u300c起不来/半死不活\u300d。
 
-这与项目自己的 GUI 纪律冲突（「破坏性操作走应用内确认框，不用 window.confirm
-（Electron 原生对话框不可靠）」）—— `beforeunload` 正是同类且更糟。
+这与项目自己的 GUI 纪律冲突（\u300c破坏性操作走应用内确认框，不用 window.confirm
+（Electron 原生对话框不可靠）\u300d）—— `beforeunload` 正是同类且更糟。
 
 ## 本用例守什么
 
 判据分两层：**纯逻辑行为**（node 单测，见 console/tests/quitGuard.test.js）+
 **结构形态**（源码断言，防回流）。结构断言是刻意的：
-「关不掉」没有一个能在 CI 里手动关一百次窗口的验法，只能钉住形态。
+\u300c关不掉\u300d没有一个能在 CI 里手动关一百次窗口的验法，只能钉住形态。
 
 用法：python tests/unit/test_desktop_quit_guard.py
 """
@@ -81,9 +81,9 @@ def case_renderer():
     check("有应用内确认对话框状态", "quitDlg" in vue and "退出绒花墨坊？" in vue)
     check("确认路径调 confirmQuit", "mofangAPI" in vue and "confirmQuit" in vue)
     check("取消路径调 cancelQuit（让下次关窗还能再问）", "cancelQuit" in vue)
-    check("对话框带勾选护栏（与「跳过阶段」同一套交互）",
+    check("对话框带勾选护栏（与\u300c跳过阶段\u300d同一套交互）",
           'v-model="quitDlg.agreed"' in vue and ':disabled="!quitDlg.agreed"' in vue)
-    check("busy 判据仍然包含「done 但未审批」（审批门是长期状态，才必须问一次）",
+    check("busy 判据仍然包含\u300cdone 但未审批\u300d（审批门是长期状态，才必须问一次）",
           's.status === "done" && !s.approved' in vue)
 
 
@@ -110,7 +110,7 @@ def case_main():
     check("端口探测**限次**（旧实现是无限递归）",
           "shouldRetryPortProbe(" in main and "MAX_PORT_PROBE_RETRIES" in main)
     check("before-quit 有硬退出看门狗", "before-quit-timeout" in main)
-    check("装更新时不抢退出（否则「重启安装」会失效）",
+    check("装更新时不抢退出（否则\u300c重启安装\u300d会失效）",
           "updateInstalling" in main and "if (updateInstalling) return;" in main)
     check("纯判据住在独立模块（不 require electron，故可 node 直测）",
           (ROOT / "console/main/quitGuard.js").exists()
@@ -152,13 +152,13 @@ def case_reflection():
           'addEventListener("beforeunload"' in old_vue and "returnValue" in old_vue)
     main = read("console/main/index.js")
     old_main = main.replace("killTree(pid)", "apiProc.kill()")
-    check("退回「只杀子进程」会被【3】的断言抓住",
+    check("退回\u300c只杀子进程\u300d会被【3】的断言抓住",
           "killTree(pid)" not in old_main)
 
 
 def main():
     print("=" * 62)
-    print("  桌面端「关不掉」回归自检（P0）")
+    print("  桌面端\u300c关不掉\u300d回归自检（P0）")
     print("=" * 62)
     case_node_unit()
     case_renderer()

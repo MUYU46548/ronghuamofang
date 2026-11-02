@@ -51,8 +51,8 @@ LEAVE_RE = re.compile(
     r"(?P<verb>留|剩|余)\s*(?P<num>%s)\s*(?P<unit>%s)\s*(?P<tail>%s)"
     % (NUM, UNIT, REMAIN_TAIL))
 
-# 对话标签：「他说」「木野说」「她问」
-TAG_RE = re.compile(r"([\u4e00-\u9fff]{0,3})(说|问|答|道|喊|叫)(?=[：:，。！？「“]|$)")
+# 对话标签：“他说”“木野说”“她问”
+TAG_RE = re.compile(r"([\u4e00-\u9fff]{0,3})(说|问|答|道|喊|叫)(?=[：:，。！？““]|$)")
 
 
 def _entry(rule_id, name, chapter, pi, sent, count, why, fix, status=None):
@@ -116,7 +116,7 @@ def body_metrics(body, chapter=0, cal=None):
             defects.append(_entry(
                 "J05", "对话标签复现", chapter, pi, "（%s）共 %d 处" % (tag, len(locs)),
                 len(locs),
-                "「%s」出现 %d 次 —— 标签复现是机械感的主要来源" % (tag, len(locs)),
+                "“%s”出现 %d 次 —— 标签复现是机械感的主要来源" % (tag, len(locs)),
                 "换标签/删标签"))
 
     return {
@@ -158,11 +158,11 @@ DETAIL_RE = re.compile(
 def _is_pure_action(sent):
     """纯动作句：没有对话、没有功能词，且"两个动作"或"一个动作 + 器物细节"。
 
-    为什么留第二个条件：本次实测句「笔尖朝上，放回笔槽」只有一个动作动词，
+    为什么留第二个条件：本次实测句“笔尖朝上，放回笔槽”只有一个动作动词，
     但它是典型的"器物特写冒充质感"——按两个动作卡会漏掉它（AC-09-1 明确要求命中）。
     """
     s = sent or ""
-    if "「" in s or "『" in s or "“" in s:
+    if "“" in s or "‘" in s or "“" in s:
         return False
     if FUNCTION_RE.search(s):
         return False
@@ -183,13 +183,13 @@ def fake_concrete(body, chapter=0, cal=None):
             num, unit, tail = units[0]
             out.append(_entry(
                 "J02", "伪具体·自造刻度", chapter, pi, s, len(units),
-                "「%s%s%s」是自造计量单位：换个数字照样成立，本身不推进任何事" % (num, unit, tail),
+                "“%s%s%s”是自造计量单位：换个数字照样成立，本身不推进任何事" % (num, unit, tail),
                 "换说法/删", status="待裁定"))
             continue
         if strategy == "unit_or_pure_action" and _is_pure_action(s):
             out.append(_entry(
                 "J02", "伪具体·纯动作句", chapter, pi, s, 1,
-                "这句只有动作，不改变处境/不揭示信息/不产生情绪/不动关系 —— 像不像「填满」由你判",
+                "这句只有动作，不改变处境/不揭示信息/不产生情绪/不动关系 —— 像不像“填满”由你判",
                 "删/补功能", status="待裁定"))
     return out
 
@@ -224,7 +224,7 @@ def skeleton_of(sentence):
             tail_m = m
             break
     if not tail_m:
-        # 尾巴出现在单位之前（如「余量留三次」）——骨架抽不出来就放弃，别拿半截当骨架
+        # 尾巴出现在单位之前（如“余量留三次”）——骨架抽不出来就放弃，别拿半截当骨架
         return None
     return {"head": head.strip(), "unit": unit_txt.group(0).strip(),
             "tail": tail_m.group(0),
@@ -248,7 +248,7 @@ def skeleton_hits(body, chapter=0, cal=None):
             continue
         out.append(_entry(
             "J03b", "伪具体·可替换骨架", chapter, pi, s, 1,
-            "骨架「%s」：任何数字都能填进去（如「%s」）—— 这类句子可无限生成"
+            "骨架“%s”：任何数字都能填进去（如“%s”）—— 这类句子可无限生成"
             % (sk["pattern"].replace("N", "N"), repl),
             "换说法/删"))
     return out
@@ -269,7 +269,7 @@ def _replace_num(sentence):
 
 # --------------------------------------------------------------------- F04
 def outline_events(outline_text):
-    """从章节大纲解析「核心事件」列表。
+    """从章节大纲解析“核心事件”列表。
 
     两种真实形态都要吃（2026-10-29 实测踩到）：
     - 换行编号（stage3 出厂）：`- 核心事件：\\n  1. …`
@@ -416,7 +416,7 @@ def outline_landing_defects(res, chapter=0):
     for item in (res.get("missing_in_body") or []):
         out.append(_entry(
             "J05b", "正文未落地章纲", chapter, 0, item["event"], 1,
-            "章纲写了「%s」，正文里找不到对应内容（匹配率 %.0f%%）"
+            "章纲写了“%s”，正文里找不到对应内容（匹配率 %.0f%%）"
             % (item["event"], item["rate"] * 100),
             "补事件/删章纲条目"))
     for beat in (res.get("extra_in_body") or []):
@@ -462,9 +462,9 @@ def analyze_chapter(body, outline_text=None, chapter=0, cal=None):
 
 
 # --------------------------------------------------------------------- F03b 提示
-# 「这几条读起来像同一场戏的连续动作」——**只提示，不入三档映射**。
+# “这几条读起来像同一场戏的连续动作”——**只提示，不入三档映射**。
 #
-# 为什么需要：作者容易把「盖章 → 核对回执 → 划改日志」拆成 3 条事件交上来，
+# 为什么需要：作者容易把“盖章 → 核对回执 → 划改日志”拆成 3 条事件交上来，
 # 条数够了但实质是 1 件事（R24 的 AC-24-5 就卡在这儿：4 条按口径只算 1 条）。
 # 系统**不得替作者合并、不得改档位**，只能提示一句让他自己判断。
 #
@@ -499,7 +499,7 @@ def _bigrams(s):
 
 
 def similar_event_pairs(events):
-    """两两比较，返回疑似「同一场戏」的对：`[{"a": 1, "b": 2, "why": "共享「盖章」"}]`。
+    """两两比较，返回疑似“同一场戏”的对：`[{"a": 1, "b": 2, "why": "共享“盖章”"}]`。
 
     下标与调用方一致（**从 1 开始**，与界面上的编号对应）。
     """
@@ -513,7 +513,7 @@ def similar_event_pairs(events):
             ga, gb = _bigrams(ta), _bigrams(tb)
             jac = (len(ga & gb) / len(ga | gb)) if (ga and gb) else 0.0
             if lcs >= SIMILAR_LCS_MIN or jac >= SIMILAR_JACCARD_MIN:
-                why = ("共享「%s」" % _common_sub(ta, tb, lcs)) if lcs >= SIMILAR_LCS_MIN \
+                why = ("共享“%s”" % _common_sub(ta, tb, lcs)) if lcs >= SIMILAR_LCS_MIN \
                     else "用词重合 %.0f%%" % (jac * 100)
                 out.append({"a": ia, "b": ib, "lcs": lcs,
                             "jaccard": round(jac, 3), "why": why})

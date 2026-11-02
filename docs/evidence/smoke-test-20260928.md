@@ -45,8 +45,8 @@
 
 **实际根因**（2026-10-03 复核）：**协议结束标记不匹配** ——
 `prompts/stage5_check.md` 教模型写 `===END FILE===`，而 `llm_client` 的 `END_RE` 只认
-`===END===`，于是 `parse_ops` 把**整批协议块全部丢弃**；随后 stage5 走「复制 raw → checked」
-兜底并照打「逻辑检查完成」，报告 `check_report.md` 从未落盘。**模型不是元凶。**
+`===END===`，于是 `parse_ops` 把**整批协议块全部丢弃**；随后 stage5 走“复制 raw → checked”
+兜底并照打“逻辑检查完成”，报告 `check_report.md` 从未落盘。**模型不是元凶。**
 
 **修复**：`END_RE` 兼容带 tag 的写法；`parse_ops` 找不到 END 时不再丢块；
 stage5 提示词统一 `===END===`；兜底复制与报告缺失都升级为**显式告警**

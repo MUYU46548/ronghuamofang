@@ -3,7 +3,7 @@
 
 ## 为什么需要它
 `utils.project_config.PROJECT_YAML`、`utils.config_io.ROOT` 这些常量在**模块加载时**
-按「脚本所在位置」固化，而 `nf_api._set_root()` 原先只刷新了 `nf_api` 自己的
+按\u300c脚本所在位置\u300d固化，而 `nf_api._set_root()` 原先只刷新了 `nf_api` 自己的
 GLOBAL/HISTORY_DIR 与 `switch_book` 三个常量 —— **漏刷配置族**。后果是静默的：
 
     脚本在仓库 A，--root 指向书档 B

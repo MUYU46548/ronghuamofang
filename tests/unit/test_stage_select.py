@@ -4,7 +4,7 @@
 守三件事（问题卡活一）：
 1. `--stages 3,5,7` 解析：去重升序、人话报错、与 `--from` / `--stage` **互斥不猜意图**
 2. 执行前**一次报全**的缺料拦截，每条带三要素（缺什么 / 哪件产的 / 建议先跑哪件）
-3. 「本次会产出」的上游不算缺 —— 勾「检查+润色+出稿」不许被自己拦死
+3. \u300c本次会产出\u300d的上游不算缺 —— 勾\u300c检查+润色+出稿\u300d不许被自己拦死
 
 判据全在 `utils.stage_select` / `utils.stage_artifacts`（纯函数，临时目录），
 不拉 orchestrator 的整条 stage 链（那是它 import 就要付的价）。
@@ -136,13 +136,13 @@ def test_preflight():
 
 
 def test_will_produce():
-    print("\n[5] 「本次会产出」的上游不算缺（不许把正常组合拦死）")
+    print("\n[5] \u300c本次会产出\u300d的上游不算缺（不许把正常组合拦死）")
     root = _mkroot()
     try:
         # 勾 5,6,7：checked 是这次跑阶段5 才有的，现在当然没有
         _put(root, "data/chapters/raw/01.md", "毛坯")
         lines = preflight_lines([5, 6, 7], root, will_produce=[5, 6, 7])
-        check("5.1 勾「检查+润色+出稿」不被自己拦死", lines == [], lines)
+        check("5.1 勾\u300c检查+润色+出稿\u300d不被自己拦死", lines == [], lines)
         # 只勾 6（不勾 5）→ checked 既没有、这次也不产 → 必须拦
         lines = preflight_lines([6], root, will_produce=[6])
         check("5.2 只勾润色而无校对产物 → 拦", len(lines) == 1, lines)
@@ -154,7 +154,7 @@ def test_will_produce():
 
 
 def test_any_group():
-    print("\n[6] 出稿/导出的「三层任一可用」回退链")
+    print("\n[6] 出稿/导出的\u300c三层任一可用\u300d回退链")
     root = _mkroot()
     try:
         # 三层全空 → 整组报（让人一次看清三层都没有）
@@ -176,7 +176,7 @@ def producers_of(probs):
 
 
 def test_advice_mentions_import():
-    print("\n[7] 报缺文案给得出「导入」这条出路")
+    print("\n[7] 报缺文案给得出\u300c导入\u300d这条出路")
     root = _mkroot()
     try:
         lines = preflight_lines([7], root, will_produce=[7])

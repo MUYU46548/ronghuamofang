@@ -62,7 +62,7 @@ providers:
   #   ① base_url：文档给的端点是 .../openai/v1/chat/completions，SDK 示例却写
   #      base_url=.../openai。本项目的客户端按 `base_url + "/chat/completions"` 拼接，
   #      故先填带 /v1 的完整形态；**若报 404 就删掉结尾的 /v1**。
-  #   ② /models 拉取：GUI「↻ 同步服务商模型」会请求 `base_url + "/models"`，
+  #   ② /models 拉取：GUI“↻ 同步服务商模型”会请求 `base_url + "/models"`，
   #      龙猫若不支持该端点会返回错误 —— 属**可忽略**（另两处入口不受影响）。
   # 自检：python scripts/nfctl.py model-check longcat
   longcat:
@@ -120,8 +120,8 @@ budget:
   #   没边。这里按 **token** 记账并熔断，触发后**走现有 budget/pause 机制**
   #   （progress.json 的 budget.paused + 退出码 2）—— 不新增状态机、不新增暂停语义。
   # 记账口径：`cost_log` 的 tokens_in/tokens_out（真实 usage，hermes 由 result.tokens
-  #   回传），累计按 **run_id** 归集 → 「一轮」= 一次 orchestrator.run()。
-  #   ⚠️ 熔断后重跑（--from N）会开新 run_id → 计数归零，这是刻意的「每轮」语义。
+  #   回传），累计按 **run_id** 归集 → “一轮”= 一次 orchestrator.run()。
+  #   ⚠️ 熔断后重跑（--from N）会开新 run_id → 计数归零，这是刻意的“每轮”语义。
   token_limit:
     enabled: true
     # 单请求**输出**上限（2026-10-03 用户定调：50000，按单章 5000~15000 字、
@@ -129,22 +129,22 @@ budget:
     #   不是正常写长章）。
     #   direct 引擎真的设进每次请求的 payload["max_tokens"]（超了 finish_reason=length
     #   → 不落盘 + 退出码 2）；hermes 引擎**没有这个旋钮**（hermes chat 不接受
-    #   max_tokens）→ 只做「实测值 vs 本值」的比对与 WARN，默认不据此熔断
+    #   max_tokens）→ 只做“实测值 vs 本值”的比对与 WARN，默认不据此熔断
     #   （见 per_request_pause_hermes）。
     per_request_max_tokens: 50000
-    # hermes 是否把「单次子会话输出 > per_request_max_tokens」也当熔断判据。
+    # hermes 是否把“单次子会话输出 > per_request_max_tokens”也当熔断判据。
     #   **默认 false**：实测 hermes 一次 stage1 子会话输出就有 1.8 万 token
     #   （含工具循环内的多轮）。要看真实数据请翻日志里的 WARN，或改这里再跑。
     per_request_pause_hermes: true
     # 单轮运行**累计** token 上限（输入 + 输出）：超了即熔断暂停。
     #   2026-10-03 用户定调 1000 万/轮：给整本（多阶段 + 重试 + 精修）留足余量，
-    #   「鬼知道会不会发生什么奇怪的情况」—— 阈值先放宽，真撞上说明确实异常。
+    #   “鬼知道会不会发生什么奇怪的情况”—— 阈值先放宽，真撞上说明确实异常。
     #   量级参考：hermes 一次 stage1 子会话 ≈ 11.6 万（输入 9.8 万 + 输出 1.8 万），
     #   40 章的 stage4 逐章子会话合计通常 200~400 万。
     #   熔断后：调大本值 → 清 progress.json 的 budget.paused → orchestrator --from N 续跑。
     max_total_tokens: 10000000
     warn_ratio: 0.7
-    # 以上四值可在桌面端「设置 → 预算与止烧」里改（含「恢复默认预设」）；
+    # 以上四值可在桌面端“设置 → 预算与止烧”里改（含“恢复默认预设”）；
     # 越界值会被拒绝（0/负数会让闸门静默消失，与"¥ 记账恒 0"是同一类坑）。
     # 预设取值见 scripts/utils/cost_tracker.py 的 TOKEN_LIMIT_PRESET。
   # 熔断恢复：manual = 用户通过 GUI 手动恢复（默认）
@@ -171,16 +171,16 @@ chapter:
   # 超线就停手并报"这一章补不上去"，不许烧到熔断才发现。
   # 0 = 不设限（不建议：等于回到"烧到熔断"）。
   regen_token_limit: 400000
-  # 章标题格式（2026-10-26，用户第 12 条：「第10章潜七十二」章号章名粘连，
+  # 章标题格式（2026-10-26，用户第 12 条：“第10章潜七十二”章号章名粘连，
   # 期望 `第X章 XXX`、并要求格式可自定义）。
   # 占位符：{n} = 章号，{title} = 章名。**必须含 {n}**，否则回退默认。
   # 归一化在 stage4/5/6/refine 落盘后与 stage7 合并时执行（utils/text_norm.
-  # normalize_chapter_title），只改标题行，正文里的「第10章」不动。
+  # normalize_chapter_title），只改标题行，正文里的“第10章”不动。
   title_format: "第{n}章 {title}"
   # 加强模式（第一波防御 · 任务三，2026-10-22）：true 时单章生成改为
-  # 「章 → 段落群」拆分生成（utils/enhanced_chapter.py）：逐群生成、每群立即
+  # “章 → 段落群”拆分生成（utils/enhanced_chapter.py）：逐群生成、每群立即
   # 落盘 data/chapters/_parts/（段群级断点续跑）、拼装成章后走同一套校验。
-  # 默认 false = 整章单发（改动前行为，零影响）。GUI「设置」页有开关。
+  # 默认 false = 整章单发（改动前行为，零影响）。GUI“设置”页有开关。
   enhanced_mode: false
   enhanced_group_words: 1500   # 单群目标字数（决定一章拆几群；仅加强模式生效）
   summary_every: 15
@@ -189,7 +189,7 @@ chapter:
   quality_threshold: 6
   page_break: true
   # 卷弧（2026-10-20，台账三）：一卷多少章 + 只详细规划最近几卷。
-  # rolling_volumes = 0 时回到「一次规划全书」（改动前的行为）。
+  # rolling_volumes = 0 时回到“一次规划全书”（改动前的行为）。
   # 为什么要滚：一次性规划 200 章，越靠后的章大纲越空泛（模型第 1 天不知道
   # 第 190 章该发生什么，只会写"继续调查、遇到新阻力"）。现在近层（当前卷 +
   # 后续 1 卷）出逐章目标，远层只留一句话方向，写到跟前再定。
@@ -241,14 +241,14 @@ gates:
   # 打回重生成（第一波防御 · 任务一，2026-10-22）：章节校验（字数/标点/退化）不过关
   # 时自动打回重生成的**上限**（不含首写）。字数只差一点走定向扩写，其余整章重生成
   # 并回带上一轮问题清单。0 = 关闭打回（校验不过直接判失败章，改动前的行为）。
-  # 仍不过关的章停在「待人工」，留痕 data/state/validation/NN.json。
+  # 仍不过关的章停在“待人工”，留痕 data/state/validation/NN.json。
   hard_validate_regen_rounds: 2
   auto_retry: true                # 阶段失败后自动重试（默认开）
   auto_retry_max_rounds: 2        # 最大自动重试轮次（不含首次）
   auto_retry_delay_seconds: 3      # 重试前等待（秒），给 LLM 限流/超时恢复时间
   auto_retry_backoff: 2            # 退避系数：3s → 6s → 12s …
   quality_gate: true               # 件4：全流程收尾强制跑 quality_checklist，非零退出即红阻断
-                                   # （防「门禁失守还盖绿灯」：产物存在 ≠ 产物合格）。
+                                   # （防“门禁失守还盖绿灯”：产物存在 ≠ 产物合格）。
                                    # 仅在**全流程**收尾生效；单阶段 --stage N 重跑不拦。
   stage8_export: true  # 阶段8：Markdown 分卷导出
   segment_approval: true  # 丙4 大纲分段审批：全部分段通过才放行阶段2（false=退回整本一次审）
@@ -265,7 +265,7 @@ context:
 
 obsidian:
   # vault path（只读）：用户自己的 Obsidian 知识库根目录
-  # 留空则不启用 Obsidian 联动；首次使用请在 GUI「设置」页填写本地路径
+  # 留空则不启用 Obsidian 联动；首次使用请在 GUI“设置”页填写本地路径
   # （本地私有路径不应进 Git——请在本地覆盖，切勿提交自己的真实路径）
   vault_path: ""
   # Obsidian 联动沙盒目录（唯一可写位置，vault 本体只读）
@@ -280,7 +280,7 @@ obsidian:
   #     vault_dirs:
   #       characters: "我的设定/我的人物"
   #       ...
-  # 目录落空时扫描会打告警（不静默扫零）；characters 建议「根/目录」两段式。
+  # 目录落空时扫描会打告警（不静默扫零）；characters 建议“根/目录”两段式。
   vault_dirs:
     characters: "设定/人物"    # 角色卡（其下子目录按类目归档）
     locations:   "设定/地点"   # 世界观-地点
@@ -296,7 +296,7 @@ obsidian:
   #     skip_dirs: ['模板归档']
   skip_dirs: ['.obsidian', '.git', '.hermes', '.agent_context']
   # ---- 旧布局兼容锚点（可选，默认空）----
-  # `path_kind` 判据靠 `vault_dirs.characters` 的「根/目录」两段式锚点。
+  # `path_kind` 判据靠 `vault_dirs.characters` 的“根/目录”两段式锚点。
   # **换了锚点又不填这里，你既有的 vault 数据会整体失去 path 判据**（静默退回
   # name 词表）。历史布局请把你自己的结构在 system.local.yaml 里追加，例如：
   #   obsidian:

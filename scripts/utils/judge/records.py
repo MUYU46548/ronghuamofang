@@ -70,15 +70,15 @@ def append_run(root, run):
 
 def set_events(root, chapter, checked, classes=None, evidence="", evidences=None,
                rejected=None, total=None):
-    """F03b：作者勾选「这一章发生了几件事」。**唯一硬门**，系统不代勾。
+    """F03b：作者勾选“这一章发生了几件事”。**唯一硬门**，系统不代勾。
 
     ## 三个计数，别混用（R24）
 
     - `events` = **勾了几条**（作者认定"是事件"）；
     - `counted_events` = **能计入下限的几条** = 勾了 + 分了类 + 有证据句。
-      R24 的 AC-24-2：类别有、证据句空 → 可提交，落「无举证」，**计入条数少 1**；
+      R24 的 AC-24-2：类别有、证据句空 → 可提交，落“无举证”，**计入条数少 1**；
     - `judged` = **已表态几条** = 勾了 + 明确标为"不算一件事"。
-      R24 的 AC-24-5 要求「4 条全部有归属（勾+分类，或明确不勾）」才叫勾完 ——
+      R24 的 AC-24-5 要求“4 条全部有归属（勾+分类，或明确不勾）”才叫勾完 ——
       光有勾选时，"勾完了"只等于"你勾了你认为是的那些"，剩下的到底是不算还是没看，
       无法区分。`rejected`（明确不勾）就是补这个缺口。
 
@@ -119,7 +119,7 @@ def set_events(root, chapter, checked, classes=None, evidence="", evidences=None
 
 
 def set_book_reject(root, reason):
-    """B2：作者「整本否掉」（业务界定 A3 / S07，2026-10-31 补上）。
+    """B2：作者“整本否掉”（业务界定 A3 / S07，2026-10-31 补上）。
 
     ## 为什么只落记录，不自动动作
 

@@ -9,8 +9,8 @@ data/
 history/
 
 # 例外：e2e **夹具项目**里的 data/ 是**固定测试状态**，必须入库 ——
-# 否则视觉验收（tests/e2e/e2e_ux_verify.py 的「真后端」段）在干净克隆上不可复现，
-# 而它正是「发版前必跑」的闸门。上面那条 `data/` 是无斜杠前缀的目录规则，会连坐到这里。
+# 否则视觉验收（tests/e2e/e2e_ux_verify.py 的“真后端”段）在干净克隆上不可复现，
+# 而它正是“发版前必跑”的闸门。上面那条 `data/` 是无斜杠前缀的目录规则，会连坐到这里。
 !tests/e2e/fixture_project/data/
 !tests/e2e/fixture_project/data/**
 
@@ -55,7 +55,7 @@ materials/_archive/
 # 覆盖：config/project.yaml.bak 这类手改残留、章节/成品备份的 *.bak。
 # 备份目录 history/ 已由上面第 8 行的 `history/` 规则覆盖（config/history、
 # data/chapters/history、data/outline/history 均含名为 history 的段）。
-# 2026-09-29：此前 projects.yaml.bak 类是「未跟踪但可见」→ 每次 git status 都出现，
+# 2026-09-29：此前 projects.yaml.bak 类是“未跟踪但可见”→ 每次 git status 都出现，
 # 容易被顺手提交。
 *.bak
 
@@ -96,11 +96,11 @@ ci/fictional-map.txt
 #    属于模式本身 → `config/project.yaml   # 说明` 变成一条永远匹配不上的模式，
 #    忽略规则**静默失效**（实测踩到：本块三条规则全部没生效，随后的 `git add -A`
 #    把 `git rm --cached` 整体撤销，三个文件照旧入库）。
-#    说明写在上面，规则行保持「一行一模式」的裸形式。
+#    说明写在上面，规则行保持“一行一模式”的裸形式。
 # config/project.yaml：承载书名/署名/剧情梗概，用 config/project.yaml.example 兜底
 # materials/vault_links.md：阶段1 生成的设定库引用索引（含私路径与作品词）
 # deliverables/：内部交付/审计报告
-# 立项契约.md：按用户注「应该进仓库一起备份」已落回仓库（2026-10-12）——
+# 立项契约.md：按用户注“应该进仓库一起备份”已落回仓库（2026-10-12）——
 #   拍板原话不改词，泄露门靠词表 `allow: 立项契约.md` 整文件豁免（本地 + CI secret 同步）
 # 用户注（2026-10-11）：这些东西真的不进仓库吗？会丢的。我觉得应该进仓库一起备份
 #   → 契约已入仓；其余三项仍不入库，理由在各自上一行（每书数据有 config/history/ 备份

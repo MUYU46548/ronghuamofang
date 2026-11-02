@@ -6,10 +6,10 @@
 
 本用例守三件事：
 1. **预设就是出厂值**：`config/system.yaml` 里的四个键必须与 `TOKEN_LIMIT_PRESET`
-   逐项一致 —— 否则设置页点「恢复默认」会写出一个与出厂不同的配置（很隐蔽的漂移）；
+   逐项一致 —— 否则设置页点\u300c恢复默认\u300d会写出一个与出厂不同的配置（很隐蔽的漂移）；
 2. **改不坏**：越界/非数字/未知字段一律拒绝，且报错说清哪一项、区间是多少；
 3. **改坏了也看得见**：手工把配置写成 0/天文数字时，读配置的归一化会**拉回预设并打印 WARN**，
-   绝不让闸门静默消失（与本轮修的「hermes 下 ¥ 记账恒 0」同一类失败）。
+   绝不让闸门静默消失（与本轮修的\u300chermes 下 ¥ 记账恒 0\u300d同一类失败）。
 
 用法：python tests/unit/test_token_limit_config.py
 """
@@ -40,7 +40,7 @@ def check(name, cond, detail=""):
 
 
 def case_preset_matches_shipped():
-    print("\n【1】出厂配置 == 预设（否则「恢复默认」会写出与出厂不同的值）")
+    print("\n【1】出厂配置 == 预设（否则\u300c恢复默认\u300d会写出与出厂不同的值）")
     cfg = load_config_yaml(ROOT / "config" / "system.yaml")
     shipped = ((cfg.get("budget") or {}).get("token_limit")) or {}
     check("system.yaml 的 token_limit 与 TOKEN_LIMIT_PRESET 逐项一致",
@@ -51,7 +51,7 @@ def case_preset_matches_shipped():
           shipped.get("per_request_max_tokens") == 50000, shipped.get("per_request_max_tokens"))
     check("预设按次熔断 hermes（用户 2026-10-06 要求；实测一次子会话 1.8 万 < 50000 不误停）",
           shipped.get("per_request_pause_hermes") is True)
-    check("预设是「开」的（止烧默认生效）", shipped.get("enabled") is True)
+    check("预设是\u300c开\u300d的（止烧默认生效）", shipped.get("enabled") is True)
     check("DEFAULT_TOKEN_LIMIT（缺键兜底）仍是关闭态：不改变未配置时的老行为",
           DEFAULT_TOKEN_LIMIT["enabled"] is False
           and DEFAULT_TOKEN_LIMIT["max_total_tokens"] == 0)
@@ -176,7 +176,7 @@ def case_estimate_shows_gate():
     tk = res.get("token_limit") or {}
     check("结果带 token_limit 块", bool(tk), tk)
     check("上限与配置一致", tk.get("max_total_tokens") == 10000000, tk)
-    check("给出「预计跑完」的累计与该轮占比",
+    check("给出\u300c预计跑完\u300d的累计与该轮占比",
           isinstance(tk.get("projected_tokens"), int) and tk.get("projected_pct") is not None, tk)
     check("预计值 = 已用 + 本轮估算",
           tk.get("projected_tokens") == tk.get("used_tokens", 0) + tk.get("estimated_tokens", 0), tk)
@@ -186,7 +186,7 @@ def case_estimate_shows_gate():
 
     # 反证：把上限压到**校验下限 100000**（validate_token_limit 的最小值，
     # normalize 会把低于下限的配置回落预设——不能设得更小），并把本轮估算放大到必超下限。
-    # 写死「估算 > 100000」会让本用例随仓库 data/ 漂移假红（2026-10-05 修：
+    # 写死“估算 > 100000”会让本用例随仓库 data/ 漂移假红（2026-10-05 修：
     # 判据与数据解耦——重复投喂 stage4 直到估算 ≥ 200000，再用下限做对照）。
     est = (res.get("token_limit") or {}).get("estimated_tokens") or 0
     check("前提：本轮估算 > 0（否则反证无意义）", est > 0, est)
@@ -199,7 +199,7 @@ def case_estimate_shows_gate():
                        use_history=False)
     check("小上限 → exceeds=True", (res2.get("token_limit") or {}).get("exceeds") is True,
           res2.get("token_limit"))
-    check("小上限 → 文本给出「跑完将撞闸门」",
+    check("小上限 → 文本给出\u300c跑完将撞闸门\u300d",
           "撞闸门" in et.format_text(res2), et.format_text(res2)[-200:])
 
 

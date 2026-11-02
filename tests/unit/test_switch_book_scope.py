@@ -89,7 +89,7 @@ def run_switch(root, *args):
 
 
 def run_switch_from(root, cwd, *args):
-    """从**指定 CWD** 跑（默认 root）—— 用来验「项目根取自脚本位置，不是 CWD」这条地雷。"""
+    """从**指定 CWD** 跑（默认 root）—— 用来验\u300c项目根取自脚本位置，不是 CWD\u300d这条地雷。"""
     p = subprocess.run([sys.executable, str(root / "scripts" / "switch_book.py"), *args],
                        capture_output=True, text=True, encoding="utf-8",
                        errors="replace", cwd=str(cwd), timeout=120)
@@ -100,7 +100,7 @@ def build_skeleton_root(prefix="nf_sb_skel_"):
     """归档后的**空工作区**形态：占位骨架 project.yaml + 空数据目录 + 工作区级文件。
 
     这是新建项目向导每次创建后留下的形态 —— 2026-10-24 用户实测它会被判成
-    「有数据」，于是铺设/创建各多归档一次，往归档列表里塞「示例书名（待填写）」空壳。
+    \u300c有数据\u300d，于是铺设/创建各多归档一次，往归档列表里塞\u300c示例书名（待填写）\u300d空壳。
     """
     root = Path(tempfile.mkdtemp(prefix=prefix))
     (root / "scripts").mkdir(parents=True)
@@ -117,7 +117,7 @@ def build_skeleton_root(prefix="nf_sb_skel_"):
               "data/chapters/raw", "data/chapters/checked", "data/chapters/refined",
               "data/summaries", "data/merged"):
         (root / d).mkdir(parents=True, exist_ok=True)
-    # 工作区级文件（全新工作区就存在）：不许把空工作区撑成「有数据」
+    # 工作区级文件（全新工作区就存在）：不许把空工作区撑成“有数据”
     (root / "data" / "state" / "agent_audit.jsonl").write_text("{}\n", encoding="utf-8")
     (root / "data" / "state" / "workspace_schema.json").write_text("{}\n", encoding="utf-8")
     (root / "materials" / "raw").mkdir(parents=True, exist_ok=True)
@@ -129,7 +129,7 @@ def main():
     print("  多书归档范围自检（离线，临时项目根）")
     print("=" * 62)
 
-    # ---------------- 0. 「要动哪个根」必须说清（事故后加的护栏）----------------
+    # ---------------- 0. “要动哪个根”必须说清（事故后加的护栏）----------------
     print("\n【0】从别的目录跑：必须大声报出将操作的根，且不许静默动手")
     root0 = build_root("nf_sb_cwd_")
     try:
@@ -235,7 +235,7 @@ def main():
               (root / "config" / "system.yaml").exists(),
               "逐项合并失效 —— 书档没有的配置把工作区那份删了")
         # 注意：restore 会先把当前书（测试书）自动归档，所以 project.yaml 理应
-        # 被搬进「测试书」书档，而不是留在工作区 —— 这里判的是"没被静默丢掉"。
+        # 被搬进“测试书”书档，而不是留在工作区 —— 这里判的是"没被静默丢掉"。
         check("当前书的 project.yaml 被自动归档收进书档（不是被静默丢掉）",
               (root / "data" / "books" / "测试书" / "config" / "project.yaml").exists(),
               "自动归档没有把当前书的 project.yaml 收进书档")
@@ -243,7 +243,7 @@ def main():
         shutil.rmtree(root, ignore_errors=True)
 
     # ---------------- 5. 占位骨架：不是书，不许堆空壳归档 ----------------
-    print("\n【5】占位骨架：空工作区不算有数据，且不许建「示例书名（待填写）」空壳")
+    print("\n【5】占位骨架：空工作区不算有数据，且不许建\u300c示例书名（待填写）\u300d空壳")
     root = build_skeleton_root()
     try:
         sys.path.insert(0, str(root / "scripts"))
@@ -261,12 +261,12 @@ def main():
             ok, msg = sbx.init_empty()
             books = root / "data" / "books"
             check("init_empty 成功", ok is True, msg)
-            check("**没有**建出空壳归档「示例书名（待填写）」",
+            check("**没有**建出空壳归档\u300c示例书名（待填写）\u300d",
                   not (books / "示例书名（待填写）").exists(),
                   sorted(p.name for p in books.iterdir()) if books.exists() else None)
 
             ok, msg = sbx.archive(sbx.PLACEHOLDER_BOOK, yes=True, force=True)
-            check("占位骨架归档 → 判「无需归档」且返回成功",
+            check("占位骨架归档 → 判\u300c无需归档\u300d且返回成功",
                   ok is True and "无需归档" in msg, (ok, msg))
             check("归档后 books/ 仍无空壳条目",
                   not (books / "示例书名（待填写）").exists(),

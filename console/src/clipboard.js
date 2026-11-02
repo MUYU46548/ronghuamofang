@@ -2,10 +2,10 @@
  *
  * 为什么抽出来：Electron 渲染进程在 contextIsolation 下 `navigator.clipboard`
  * 可能不可用（无焦点 / 未授权 / 平台差异），裸调 writeText 会抛异常 →
- * 「点了复制没反应」。所以必须有回退路径。
+ * “点了复制没反应”。所以必须有回退路径。
  *
  * 历史坑：App.vue 的 copyText 早就做了这个回退，但组件各自实现时（如
- * ChapterBlueprint 的「讨论此章」）又裸调了一次 navigator.clipboard ——
+ * ChapterBlueprint 的“讨论此章”）又裸调了一次 navigator.clipboard ——
  * 同一个坑踩第二遍。现在收敛到这里，新组件一律 import 本模块。
  *
  * 用法：

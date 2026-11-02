@@ -195,9 +195,9 @@ def run_refine(cfg, proj, chapter, feedback, client=None, task_dir=None,
     if not chap_path.exists():
         return False, "精修后章节文件缺失"
 
-    # 空转检测（2026-10-17 用户质疑「精修该不会在空转吧」）：hermes 子会话
-    # exit 0 但一个字没写（读不到任务/放弃写作）时，原实现会因「字数变化 0%」
-    # 通过 ±20% 校验而报「精修完成」—— 白烧一次 token 还骗过验收。
+    # 空转检测（2026-10-17 用户质疑“精修该不会在空转吧”）：hermes 子会话
+    # exit 0 但一个字没写（读不到任务/放弃写作）时，原实现会因“字数变化 0%”
+    # 通过 ±20% 校验而报“精修完成”—— 白烧一次 token 还骗过验收。
     # 内容与备份逐字节相同 = 子会话什么都没做，判失败。
     if read_text(chap_path) == read_text(backup):
         return False, (f"精修子会话未产出任何修改（空转）—— 第 {chapter} 章与备份"
@@ -205,8 +205,8 @@ def run_refine(cfg, proj, chapter, feedback, client=None, task_dir=None,
                        f"是否找到任务文件")
 
     # 中文标点归一化（2026-10-18）：精修模型同样会写出半角引号 / 直角引号。
-    # 必须在「±20% 字数铁律」比对**之前**做 —— 归一化会轻微改变字符数，
-    # 且空转检测已先行（归一化只改标点，改不动「逐字节相同」这个判据的实质）。
+    # 必须在“±20% 字数铁律”比对**之前**做 —— 归一化会轻微改变字符数，
+    # 且空转检测已先行（归一化只改标点，改不动“逐字节相同”这个判据的实质）。
     _norm(chap_path, chapter)
 
     # 校验：字数 ±20% + quality 注释

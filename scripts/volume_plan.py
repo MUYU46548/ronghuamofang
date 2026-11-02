@@ -130,7 +130,7 @@ def ensure_volume(v, cfg=None, proj=None, client=None, task_dir="data/state/task
         from utils import story_deepen as sd
         segs, present = sd.load_segments(p)
         if not present:
-            log("[volume] WARN 第 %d 卷卷纲缺「叙事深化」节 —— 本卷将没有节奏形状注入"
+            log("[volume] WARN 第 %d 卷卷纲缺“叙事深化”节 —— 本卷将没有节奏形状注入"
                 "（旧卷纲正常；要补切段就 --force 重规划）" % v)
         else:
             d_ok, d_problems = sd.check_deepen(segs, start, end)
@@ -151,7 +151,7 @@ def ensure_volume(v, cfg=None, proj=None, client=None, task_dir="data/state/task
 
 def ensure_window(cfg=None, proj=None, client=None, total=None, written=None,
                   force=False, log=print):
-    """确保「当前卷 + 后续 rolling_volumes-1 卷」都有合格卷纲。返回 (ok, messages, generated_n)。"""
+    """确保“当前卷 + 后续 rolling_volumes-1 卷”都有合格卷纲。返回 (ok, messages, generated_n)。"""
     cfg = cfg or {}
     proj = proj or {}
     # 文体（2026-10-20）：散文不做分卷 —— 入口早退，免得逐卷各打印一遍

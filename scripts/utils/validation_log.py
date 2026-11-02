@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """校验留痕台账（第一波防御工程 · 任务一）。
 
-施工单要求「每次校验留痕：字数、问题清单、处置（通过/重生成/待人工）」。
+施工单要求“每次校验留痕：字数、问题清单、处置（通过/重生成/待人工）”。
 落盘 `data/state/validation/NN.json`（单章最后一次校验的完整现场）
 + `summary.json`（全部章的处置一览，GUI / CLI 只读）。
 
@@ -115,5 +115,5 @@ def load_chapter_log(chapter_no):
 
 
 def manual_chapters():
-    """停在「待人工」的章号列表（升序）。"""
+    """停在“待人工”的章号列表（升序）。"""
     return sorted(int(k) for k, v in load_summary().items() if v.get("manual"))

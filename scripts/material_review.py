@@ -12,7 +12,7 @@
 
 本脚本历史上**只遍历 `setting["characters"]` 数组**，不区分实体类型。
 真实归档数据把**机构/法规/装备/文明条目也塞在 characters 数组里**，于是一份
-几百条的设定集里只有一部分是人物，体检报告却把它们**全判成「碎片角色」**，
+几百条的设定集里只有一部分是人物，体检报告却把它们**全判成“碎片角色”**，
 `thin_names` 塞进 orchestrator 的
 审批提醒里，用户看到的是一个毫无意义的巨型名单。
 
@@ -61,14 +61,14 @@ def _norm(s):
 def review_characters(setting, materials_text, all_names):
     """对每个**人物**条目 6 维打分。返回 (角色结果列表, 非人物条目名列表)。
 
-    ⚠️ 类型门是本次修复的核心：不再对「灰羽帝国魔法管制法」这类条目
+    ⚠️ 类型门是本次修复的核心：不再对“灰羽帝国魔法管制法”这类条目
     按角色维度打分。判据集中在 `utils.setting_schema.is_character`，
     这里不重复实现、不各自维护词表。
 
     ⚠️ **按 `(name, path)` 去重**：vault 产出的设定集每条目重复两次
     （`build_setting_from_vault` 把 concepts 与 all 一起展开）。
     实测 480 条里 85 组完全重复 —— 不去重的话结论清单会变成回音
-    （「刘锋炎、锋炎（自然罗盘）…刘锋炎、锋炎（自然罗盘）」），
+    （“刘锋炎、锋炎（自然罗盘）…刘锋炎、锋炎（自然罗盘）”），
     角色数也会翻倍失真（168 vs 真实 84）。
     """
     results = []
@@ -195,7 +195,7 @@ def format_report(char_results, world_items, thin_names, warn_names, setting_pat
     lines = []
     lines.append("# 素材完备度体检报告（material_review）")
     lines.append("")
-    # ⚠️ 这里曾是写死的字面量「（脚本运行时）」——报告归档后无法判断新旧。
+    # ⚠️ 这里曾是写死的字面量“（脚本运行时）”——报告归档后无法判断新旧。
     lines.append(f"- 生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     lines.append(f"- 设定集: `{setting_path}`")
     lines.append(f"- 素材目录: `{normalized_dir}`")
@@ -232,7 +232,7 @@ def format_report(char_results, world_items, thin_names, warn_names, setting_pat
     lines.append("")
     if non_characters:
         lines.append(f"共 {len(non_characters)} 条机构/法规/场所/装备/文明等条目被排除在角色维度之外。")
-        lines.append("这不是缺陷 —— 它们的完备度要看 `world` 一节，而不是「身份/性格/关系网」。")
+        lines.append("这不是缺陷 —— 它们的完备度要看 `world` 一节，而不是“身份/性格/关系网”。")
         lines.append("")
         preview = non_characters[:40]
         for n in preview:
@@ -356,7 +356,7 @@ def main():
                         help="素材卡目录（A3 状态审计用）")
     parser.add_argument("--no-state", action="store_true", help="跳过 A3 状态段")
     parser.add_argument("--conflicts", action="store_true",
-                        help="只输出「需人工裁决」的分歧清单；有分歧时退出码非零")
+                        help="只输出“需人工裁决”的分歧清单；有分歧时退出码非零")
     parser.add_argument("--reject", metavar="NAME",
                         help="登记墓碑：该条目已否决，归并时不得复活")
     parser.add_argument("--reason", default="", help="配合 --reject 的否决理由")

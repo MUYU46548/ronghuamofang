@@ -103,7 +103,7 @@ def main():
 
     e2e = load_e2e_module()
 
-    # ---- 夹具根：fixture 拷贝 + 改写成「stage1 完成待审批」 ----
+    # ---- 夹具根：fixture 拷贝 + 改写成“stage1 完成待审批” ----
     tmp_root = Path(tempfile.mkdtemp(prefix="nf_gate1_smoke_"))
     fixture = ROOT / "tests" / "e2e" / "fixture_project"
     shutil.copytree(fixture, tmp_root, dirs_exist_ok=True)
@@ -239,8 +239,8 @@ window.mofangAPI.readPreview = async (p) => {
             print("【2】stage 1 预览按钮 ×2 与真内容预览（P0-2）")
             b1 = page.locator(".gate-files button", has_text="设定集原文")
             b2 = page.locator(".gate-files button", has_text="素材体检报告")
-            check("「设定集原文」按钮存在", b1.count() == 1, b1.count())
-            check("「素材体检报告」按钮存在", b2.count() == 1, b2.count())
+            check("\u300c设定集原文\u300d按钮存在", b1.count() == 1, b1.count())
+            check("\u300c素材体检报告\u300d按钮存在", b2.count() == 1, b2.count())
             b1.click()
             page.wait_for_selector(".drawer-mask", timeout=8000)
             title = page.locator(".drawer-mask b").first.inner_text()

@@ -132,7 +132,7 @@ def save_preset(pid, data, root="."):
     p.parent.mkdir(parents=True, exist_ok=True)
     cleaned["_saved_at"] = datetime.now().isoformat(timespec="seconds")
     write_text(p, json.dumps(cleaned, ensure_ascii=False, indent=2))
-    return True, "已保存预设「%s」（%d 个键）" % (pid, len(cleaned))
+    return True, "已保存预设“%s”（%d 个键）" % (pid, len(cleaned))
 
 
 def apply_preset(pid, root="."):
@@ -183,7 +183,7 @@ def apply_preset(pid, root="."):
     if not ok:
         return False, "写回 project.yaml 失败：%s" % msg
     changed = [k for k in cleaned if prev.get(k) != cleaned[k]]
-    return True, ("已切换到预设「%s」：%s 生效%s"
+    return True, ("已切换到预设“%s”：%s 生效%s"
                   % (pid, "、".join(changed) or "无变化",
                      "（上一套值在 history.jsonl，切回有据）"))
 

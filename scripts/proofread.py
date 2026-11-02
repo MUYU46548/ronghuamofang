@@ -64,8 +64,8 @@ DEFAULT_TARGET = (1200, 3500)   # project.yaml 缺省时的章节字数区间
 # ---------------------------------------------------------------- 规则表
 
 # 高频易混词：错形 → 正确形。
-# 收录原则：**高精度优先，宁漏不误**。只收「错形在现代汉语中不成立」的成对词；
-# 像「分辩/分辨」「衷情/钟情」这类两形皆成立的语境词一律不收，避免误报。
+# 收录原则：**高精度优先，宁漏不误**。只收“错形在现代汉语中不成立”的成对词；
+# 像“分辩/分辨”“衷情/钟情”这类两形皆成立的语境词一律不收，避免误报。
 CONFUSABLES = [
     ("做为", "作为"), ("既使", "即使"), ("按耐", "按捺"), ("急燥", "急躁"),
     ("寒喧", "寒暄"), ("迫不急待", "迫不及待"), ("一如继往", "一如既往"),
@@ -110,11 +110,11 @@ def merge_confusables(local, extra=None, exclude=None):
 
 CONFUSABLES = merge_confusables(CONFUSABLES, TYPO_DICT_MINGJIAN, TYPO_EXCLUDE_MINGJIAN)
 
-# 的地得启发式：动词 + 的 + 补语 → 应为「得」
+# 的地得启发式：动词 + 的 + 补语 → 应为“得”
 _VERB = "跑|说|来|走|做|想|唱|看|听|写|读|打|数|算|记|睡|笑|哭|喊|叫|爬|飞"
 _COMPL = "快|慢|好|早|晚|多|少|高|低|远|近|清楚|明白|响亮|认真|仔细|干净|彻底|漂亮"
 DE_AS_DE = re.compile("(%s)的(%s)" % (_VERB, _COMPL))
-# 副词 + 的 + 动词 → 应为「地」
+# 副词 + 的 + 动词 → 应为“地”
 _ADV = ("认真|仔细|慢慢|轻轻|悄悄|默默|静静|缓缓|急急|匆匆|狠狠|死死|紧紧|"
         "大大|小小|飞快|悄悄|慌忙|从容|深情|冷冷|淡淡|依依|恋恋")
 _VP = ("走|说|看|想|做|笑|哭|跑|站|坐|点|摇|抓|握|推|拉|拿|放|问|答|望|"
@@ -131,9 +131,9 @@ REPEAT_PUNCT = re.compile(r"([，。；：、,;:])\1+")
 ELLIPSIS_WRONG = re.compile(r"\.{3,}|。{2,}")
 DASH_SINGLE = re.compile(r"(?<!—)—(?!—)")
 QUOTE_PAIRS = [("“", "”", "双引号"), ("‘", "’", "单引号"),
-               ("「", "」", "直角引号"), ("『", "』", "直角双引号"),
+               ("“", "”", "直角引号"), ("‘", "’", "直角双引号"),
                ("《", "》", "书名号"), ("〈", "〉", "尖括号")]
-SENT_END = "。！？…\"'”’」』）)】》〉.!?~"
+SENT_END = "。！？…\"'”’”’）)】》〉.!?~"
 TITLE_RE = re.compile(r"^#{1,3}\s*第\s*([0-9一二三四五六七八九十百千零两]+)\s*章(.*)$", re.MULTILINE)
 
 
@@ -203,9 +203,9 @@ def check_punctuation(text, chapter_no, start_idx=100):
         idx += 1
         line_no, line = _line_of(text, m.start())
         out.append(_mk(chapter_no, "e%d" % idx, "punct", "warn",
-                       "省略号写法不统一：「%s」" % m.group(0),
+                       "省略号写法不统一：“%s”" % m.group(0),
                        "第%d行 %s" % (line_no, line),
-                       "中文省略号统一为「……」"))
+                       "中文省略号统一为“……”"))
         break  # 每章最多报一次
 
     # 3) 破折号统一
@@ -214,9 +214,9 @@ def check_punctuation(text, chapter_no, start_idx=100):
         idx += 1
         line_no, line = _line_of(text, m.start())
         out.append(_mk(chapter_no, "d%d" % idx, "punct", "warn",
-                       "破折号疑似单写：「%s」" % _snippet(text, m.start(), 6),
+                       "破折号疑似单写：“%s”" % _snippet(text, m.start(), 6),
                        "第%d行 %s" % (line_no, line),
-                       "中文破折号用「——」（两个全角破折号）"))
+                       "中文破折号用“——”（两个全角破折号）"))
 
     # 4) 中英标点混用
     hits = [m for m in HALF_PUNCT.finditer(text)]
@@ -225,7 +225,7 @@ def check_punctuation(text, chapter_no, start_idx=100):
         m = hits[0]
         line_no, line = _line_of(text, m.start())
         out.append(_mk(chapter_no, "h%d" % idx, "punct", "warn",
-                       "中文语境混用半角标点，共 %d 处（如「%s」）" % (len(hits), m.group(0)),
+                       "中文语境混用半角标点，共 %d 处（如“%s”）" % (len(hits), m.group(0)),
                        "第%d行 %s" % (line_no, line),
                        "中文句内标点改为全角，或按统一规范处理"))
 
@@ -235,7 +235,7 @@ def check_punctuation(text, chapter_no, start_idx=100):
         idx += 1
         line_no, line = _line_of(text, m.start())
         out.append(_mk(chapter_no, "r%d" % idx, "punct", "info",
-                       "出现连续标点：「%s」" % m.group(0),
+                       "出现连续标点：“%s”" % m.group(0),
                        "第%d行 %s" % (line_no, line),
                        "确认是刻意强调还是误输入"))
 
@@ -270,8 +270,8 @@ def check_punctuation(text, chapter_no, start_idx=100):
         idx += 1
         lineno, tail = missing[0]
         out.append(_mk(chapter_no, "m%d" % idx, "punct", "info",
-                       "有 %d 个段落结尾缺标点（首个：段%d 结尾「…%s」）" % (len(missing), lineno, tail),
-                       suggestion="叙述段以「。！」收尾，避免句子悬空"))
+                       "有 %d 个段落结尾缺标点（首个：段%d 结尾“…%s”）" % (len(missing), lineno, tail),
+                       suggestion="叙述段以“。！”收尾，避免句子悬空"))
 
     # 9) 明鉴标点规范（全角方括号 / 半角括号含中文）
     #    与 1-8 同源：确定性、零 token，仅提示不自动改。
@@ -284,7 +284,7 @@ def check_punctuation(text, chapter_no, start_idx=100):
         line_no, line = _line_of(text, m.start())
         out.append(_mk(chapter_no, "mj%d" % idx, "punct",
                        "warn" if name == "全角方括号" else "info",
-                       "标点规范（%s）：%s，共 %d 处（如「%s」）"
+                       "标点规范（%s）：%s，共 %d 处（如“%s”）"
                        % (name, desc, len(hits), m.group(0)),
                        "第%d行 %s" % (line_no, line),
                        "按规范调整标点；确认非刻意用法后再改"))
@@ -304,9 +304,9 @@ def check_confusables(text, chapter_no, start_idx=200):
         idx += 1
         line_no, line = _line_of(text, m)
         out.append(_mk(chapter_no, "c%d" % idx, "typo", "error",
-                       "疑似错字：「%s」应为「%s」" % (wrong, right),
+                       "疑似错字：“%s”应为“%s”" % (wrong, right),
                        "第%d行 %s" % (line_no, line),
-                       "改为「%s」" % right))
+                       "改为“%s”" % right))
 
     for regex, right, why in ((DE_AS_DE, "得", "动词 + 得 + 补语"),
                               (DE_AS_DI, "地", "副词 + 地 + 动词")):
@@ -315,9 +315,9 @@ def check_confusables(text, chapter_no, start_idx=200):
             idx += 1
             line_no, line = _line_of(text, m.start())
             out.append(_mk(chapter_no, "c%d" % idx, "typo", "warn",
-                           "「的/地/得」疑似误用：「%s」" % m.group(0),
+                           "“的/地/得”疑似误用：“%s”" % m.group(0),
                            "第%d行 %s" % (line_no, line),
-                           "按「%s」应为「%s」" % (why, m.group(1) + right + m.group(2))))
+                           "按“%s”应为“%s”" % (why, m.group(1) + right + m.group(2))))
     return out
 
 
@@ -346,8 +346,8 @@ def check_format(text, chapter_no, setting, start_idx=300):
         if len(set(used)) > 1:
             idx += 1
             out.append(_mk(chapter_no, "f%d" % idx, "format", "info",
-                           "同一角色多种称法混用：%s（正式名「%s」）" % ("、".join(sorted(set(used))), name),
-                           suggestion="确认是否为刻意的称呼变化，否则统一为「%s」" % name))
+                           "同一角色多种称法混用：%s（正式名“%s”）" % ("、".join(sorted(set(used))), name),
+                           suggestion="确认是否为刻意的称呼变化，否则统一为“%s”" % name))
 
     # 3) 章节标题格式
     titles = TITLE_RE.findall(text)
@@ -368,7 +368,7 @@ def chapter_rhythm(text):
     """单章节奏指标（确定性，零 LLM）。"""
     paras = [p.strip() for p in text.split("\n\n")
              if p.strip() and not p.strip().startswith("#") and not p.strip().startswith("<!--")]
-    quoted = re.findall(r"[“「]([^”」]*)[”」]", text)
+    quoted = re.findall(r"[““]([^””]*)[””]", text)
     sentences = [s for s in re.split(r"(?<=[。！？…])", text) if s.strip()]
     para_lens = [count_cn_words(p) for p in paras] or [0]
     sent_lens = [count_cn_words(s) for s in sentences] or [0]

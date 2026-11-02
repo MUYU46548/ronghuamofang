@@ -20,7 +20,7 @@ console/dist/win-unpacked/
     └── elevate.exe
 ```
 
-**`resources/` 里只有壳，没有运行时、没有业务负载。** 用户装完双击 → `ROOT/.venv/Scripts/pythonw.exe` 不存在 → `existsSync` 守卫静默 return → UI 显示「离线」。
+**`resources/` 里只有壳，没有运行时、没有业务负载。** 用户装完双击 → `ROOT/.venv/Scripts/pythonw.exe` 不存在 → `existsSync` 守卫静默 return → UI 显示“离线”。
 
 ### 1.2 当前启动链路（源码态）
 
@@ -201,7 +201,7 @@ const userDataDir = isPortable
 - 版本号单一来源：`console/package.json`
 - `latest.yml` url 必须与安装包文件名一致（否则自动更新 404）
 - 发布前 `taskkill /IM 绒花墨坊.exe` 清文件锁
-- Release Notes 写明「v0.1.0 空壳作废，需手动换包」
+- Release Notes 写明“v0.1.0 空壳作废，需手动换包”
 
 ---
 
@@ -212,7 +212,7 @@ const userDataDir = isPortable
 | 多条打包线路并存 | 没有单一事实源 | 只有 `prepare-runtime.js` + `electron-builder` 一条 |
 | `datas=[]` / 漏 hiddenimports | 资源没带 → 空壳 | fail-fast 断言 |
 | 后端 `os.chdir(ROOT)` | 安装目录不可写 | `NF_ROOT` env 覆盖 |
-| 拿「打包成功」当交付 | 用户装了跑不起来 | 干净环境验收 |
+| 拿“打包成功”当交付 | 用户装了跑不起来 | 干净环境验收 |
 | 自动更新救不了坏包 | 坏包没进程去检查更新 | Release Notes 写明手动换包 |
 
 ---

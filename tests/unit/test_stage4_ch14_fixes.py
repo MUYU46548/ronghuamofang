@@ -220,7 +220,7 @@ def case_rolling_skeleton():
         if rolling.exists():
             from utils.summary_chain import load_rolling
             data = load_rolling(rolling)
-            # write_rolling 对空摘要写占位句「（待首次压缩生成）」，解析应零章节
+            # write_rolling 对空摘要写占位句“（待首次压缩生成）”，解析应零章节
             check("骨架可被 load_rolling 解析（零章节）",
                   data["chapters"] == {} and "待首次压缩" in data["global_summary"], data)
     finally:
@@ -370,7 +370,7 @@ def case_app_vue_fixes():
                       if "copyStagePrompt(s.stage)" in ln and "<button" in ln), "")
     check("复制任务按钮不再被 isRunning 禁用",
           copy_line != "" and ":disabled=\"isRunning\"" not in copy_line, copy_line[:150])
-    check("补救弹窗有「复制全部建议」按钮",
+    check("补救弹窗有\u300c复制全部建议\u300d按钮",
           "copyRemedy" in src and "复制全部建议" in src)
     check("remedyAsText 拼装函数存在", "function remedyAsText()" in src)
     check("收件箱空态指明阶段3产物去向",
@@ -403,7 +403,7 @@ class NoopClient:
 
 
 def case_refine_noop_detection():
-    print("\n【8】精修空转检测（用户质疑「AI精修该不会在空转吧」）")
+    print("\n【8】精修空转检测（用户质疑\u300cAI精修该不会在空转吧\u300d）")
     tmp = build_workspace(total=1, tag="noop")
     origin = os.getcwd()
     os.chdir(tmp)          # run_refine 用相对路径读 data/，必须先进沙盒
@@ -416,12 +416,12 @@ def case_refine_noop_detection():
         cfg = yaml.safe_load((tmp / "config" / "system.yaml").read_text(encoding="utf-8"))
         proj = yaml.safe_load((tmp / "config" / "project.yaml").read_text(encoding="utf-8"))
 
-        # refine_chapter：子会话什么都不写 → 必须判失败（空转），不能报「精修完成」
+        # refine_chapter：子会话什么都不写 → 必须判失败（空转），不能报“精修完成”
         import refine_chapter as rc
         ok, msg = rc.run_refine(cfg, proj, 1, "把冲突写得更狠", client=NoopClient(),
                                 task_dir=str(tmp / "data" / "state" / "tasks"))
         check("refine_chapter：子会话空转 → 判失败", ok is False, msg)
-        check("refine_chapter：失败消息点明「空转」", "空转" in msg, msg)
+        check("refine_chapter：失败消息点明\u300c空转\u300d", "空转" in msg, msg)
 
         # refine_outline：同上
         import refine_outline as ro
@@ -432,7 +432,7 @@ def case_refine_noop_detection():
         ok2, msg2 = ro.run_refine(cfg, proj, "加强冲突", client=NoopClient(),
                                 task_dir=str(tmp / "data" / "state" / "tasks"))
         check("refine_outline：子会话空转 → 判失败", ok2 is False, msg2)
-        check("refine_outline：失败消息点明「空转」", "空转" in msg2, msg2)
+        check("refine_outline：失败消息点明\u300c空转\u300d", "空转" in msg2, msg2)
     finally:
         os.chdir(origin)
         shutil.rmtree(tmp, ignore_errors=True)

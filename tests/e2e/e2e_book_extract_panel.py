@@ -3,15 +3,15 @@
 
 ## 为什么单独写一个
 
-单元/HTTP 用例证明端点对；证明不了「章节页签里点得到、预演结果看得见、
-后台跑起来有进度、失败原因摊在界面上」。这正是用户用终端做不到的那一段。
+单元/HTTP 用例证明端点对；证明不了\u300c章节页签里点得到、预演结果看得见、
+后台跑起来有进度、失败原因摊在界面上\u300d。这正是用户用终端做不到的那一段。
 
 ## 判据
 
-A. 章节页签里有「成书提炼」折叠块
-B. 预演：填路径 → 点预演 → 显示「3 章 / 字数 / 预计 N 次调用」，**盘上没有 data/book_extract**
-C. 开始提炼：后台启动 → 状态条出现「提炼中」
-D. 引擎是 hermes（或 fake）→ 任务失败，界面明说「改直连 / 用预演」，不是转圈
+A. 章节页签里有\u300c成书提炼\u300d折叠块
+B. 预演：填路径 → 点预演 → 显示\u300c3 章 / 字数 / 预计 N 次调用\u300d，**盘上没有 data/book_extract**
+C. 开始提炼：后台启动 → 状态条出现\u300c提炼中\u300d
+D. 引擎是 hermes（或 fake）→ 任务失败，界面明说\u300c改直连 / 用预演\u300d，不是转圈
 E. 目录已建（manifest 落盘），且没有 console error / 4xx
 
 零 token（失败发生在调用模型之前）。用法：python tests/e2e/e2e_book_extract_panel.py
@@ -124,7 +124,7 @@ def main():
 
             print("\n=== A. 面板存在 ===")
             box = page.locator("details.import-box").filter(has_text="成书提炼")
-            check("章节页签里有「成书提炼」折叠块", box.count() == 1, box.count())
+            check("章节页签里有\u300c成书提炼\u300d折叠块", box.count() == 1, box.count())
             if box.count() == 0:
                 ctx.close()
                 browser.close()
@@ -145,7 +145,7 @@ def main():
 
             print("\n=== C/D. 开始提炼：后台启动 → 失败可见（引擎护栏） ===")
             box.locator("button:has-text('开始提炼')").click()
-            # 轮询到「失败」或 15 秒
+            # 轮询到“失败”或 15 秒
             status = ""
             for _ in range(30):
                 page.wait_for_timeout(700)
@@ -161,7 +161,7 @@ def main():
                   or (ws / "data" / "book_extract" / "old" / "manifest.json").exists(),
                   sorted(p.name for p in (ws / "data" / "book_extract").glob("*"))
                   if (ws / "data" / "book_extract").is_dir() else None)
-            check("出现「合并预览」入口（说明目录名已记住）",
+            check("出现\u300c合并预览\u300d入口（说明目录名已记住）",
                   box.locator("button:has-text('合并预览')").count() == 1)
             UX.shot(page, "EX2_failed")
 

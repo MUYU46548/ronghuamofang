@@ -3,7 +3,7 @@
 
 ## 边界
 
-所有涉及「读用户反馈 → 调 LLM → 写盘 + 备份」的操作，以及段落级读取和风格分析。
+所有涉及“读用户反馈 → 调 LLM → 写盘 + 备份”的操作，以及段落级读取和风格分析。
 与 runtime.py 的区别：runtime 只读状态，refine 负责写操作 + 段落查询 + 风格分析。
 
 ## 安全纪律
@@ -156,7 +156,7 @@ def handle_field_current(h, body):
 def handle_field_submit(h, body):
     """把选定的候选落成提案（**不直接写章大纲**）：{chapter, field, text, why?, note?}
 
-    写回归用户在「审核」页签批准（与讨论提案同一队列、同一守卫）。
+    写回归用户在“审核”页签批准（与讨论提案同一队列、同一守卫）。
     """
     try:
         ch = int(body.get("chapter") or 0)
@@ -184,7 +184,7 @@ def handle_field_submit(h, body):
 def handle_branch_candidates(h, body):
     """分支样例生成（第 4 件 · 选项可视化）：{chapter, kind, note?} → job_id
 
-    同一章出 2-3 个方向明显不同的开头，让用户在动笔前先比「同一件事，三种写法」。
+    同一章出 2-3 个方向明显不同的开头，让用户在动笔前先比“同一件事，三种写法”。
     产物不碰章大纲；选定后走 /outline/sample/submit 落提案（批准才写回）。
     """
     try:
@@ -238,7 +238,7 @@ def handle_branch_submit(h, body):
 
 
 def handle_branch_current(h, body):
-    """读某章已选定的写作方向（GUI 面板显示「这一章已经选了什么」）。"""
+    """读某章已选定的写作方向（GUI 面板显示“这一章已经选了什么”）。"""
     try:
         ch = int((body or {}).get("chapter") or 0)
     except (TypeError, ValueError):

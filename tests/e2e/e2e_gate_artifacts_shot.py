@@ -1,12 +1,12 @@
 # -*- coding: utf-8 -*-
 """产物概况 + 成本 NaN 的真机视觉自查（2026-10-24）。
 
-用户点名「该截图自查的自己查，别连界面长什么都不知道」。本脚本只干两件事，
+用户点名\u300c该截图自查的自己查，别连界面长什么都不知道\u300d。本脚本只干两件事，
 都断言到 DOM 文本，不靠肉眼猜：
 
-  1. 收件箱审批门的「产物概况」不再空白 —— 目录形态产物要渲染出「12 篇 · 148,930 字」
+  1. 收件箱审批门的\u300c产物概况\u300d不再空白 —— 目录形态产物要渲染出\u300c12 篇 · 148,930 字\u300d
      （这是本次修复的核心：旧前端只认 stage 1/2/6 的文件，stage 4/6 的目录恒空白）；
-  2. 流水线条「预计剩余」不再出现 NaN（旧实现读错字段 costSummary.total_yuan）。
+  2. 流水线条\u300c预计剩余\u300d不再出现 NaN（旧实现读错字段 costSummary.total_yuan）。
 
 依赖 e2e_ux_verify.py 的同款垫片（preload shim + 免责声明放行）。
 用法：先起 8091 静态站 + 8798 mock，再 python tests/e2e/e2e_gate_artifacts_shot.py
@@ -48,22 +48,22 @@ def main():
         settle_disclaimer(page)
 
         # --- 1. 收件箱：产物概况 ---
-        # 顶部导航里点「收件箱」
+        # 顶部导航里点“收件箱”
         page.get_by_role("button", name="收件箱").first.click()
         page.wait_for_timeout(1500)
 
         body = page.inner_text("body")
-        check("收件箱出现「产物概况」标签", "产物概况" in body)
+        check("收件箱出现\u300c产物概况\u300d标签", "产物概况" in body)
         # 目录形态产物：mock 喂 files=12 / chars=148930
-        check("目录产物渲染出「12 篇」", "12 篇" in body,
-              "" if "12 篇" in body else "页面未见「12 篇」")
-        check("目录产物渲染出字数「148,930」",
+        check("目录产物渲染出\u300c12 篇\u300d", "12 篇" in body,
+              "" if "12 篇" in body else "页面未见\u300c12 篇\u300d")
+        check("目录产物渲染出字数\u300c148,930\u300d",
               "148,930" in body or "148930" in body,
               "" if ("148,930" in body or "148930" in body) else "页面未见字数")
-        # 旧 bug 的症状：只有「产物概况：」四个字后面全空
+        # 旧 bug 的症状：只有“产物概况：”四个字后面全空
         if "产物概况" in body:
             tail = body.split("产物概况", 1)[1][:80].replace("\n", " ")
-            check("「产物概况：」后面不是空白", tail.strip("：: ") != "", tail)
+            check("\u300c产物概况：\u300d后面不是空白", tail.strip("：: ") != "", tail)
         p1 = shot(page, "gate_artifacts_inbox")
 
         # --- 2. 流水线条：预计剩余不得为 NaN ---
@@ -77,7 +77,7 @@ def main():
         check("旧字段 total_yuan 确实不存在（证明原实现读错）",
               "total_yuan" not in (summary or {}), summary)
 
-        # 全页扫一次 NaN：estimatedRemainingCost 读错字段时会渲染成「NaN」
+        # 全页扫一次 NaN：estimatedRemainingCost 读错字段时会渲染成“NaN”
         full_txt = page.inner_text("body")
         check("全页无 NaN 字样（成本估算读错字段的症状）",
               "NaN" not in full_txt,

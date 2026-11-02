@@ -8,7 +8,7 @@
   GET  /config/word_template   清单（templates/ 下 .dotx/.docx）+ 当前值 + 出厂默认值
                                当前值指向的文件不在 templates/ → current_exists=False（不静默）
   POST /config/word_template   选择 → 落地 book.word_template + config/history/ 备注 + 注释存活
-                               （首次写入走「键不存在 → 插入 book 块」那条历史上写坏过 YAML 的路）
+                               （首次写入走\u300c键不存在 → 插入 book 块\u300d那条历史上写坏过 YAML 的路）
                                带 templates/ 前缀的写法同样接受
                                恢复默认（reset: true）→ 回到出厂模板
                                护栏：目录穿越 / 文件不存在 / 非 .dotx|.docx / 空值 → 400 且**零改动**
@@ -211,7 +211,7 @@ def main():
         print("\n=== 6. 空值请求的报错要点名出路 ===")
         code, d = req("POST", "/config/word_template", {})
         check("空请求体 → 400", code == 400 and not d.get("ok"), (code, str(d)[:160]))
-        check("报错提到「恢复默认」", "恢复默认" in str(d.get("error")), str(d.get("error"))[:160])
+        check("报错提到\u300c恢复默认\u300d", "恢复默认" in str(d.get("error")), str(d.get("error"))[:160])
 
         print("=" * 62)
         print("合计: %d 通过 / %d 失败" % (len(PASS), len(FAIL)))

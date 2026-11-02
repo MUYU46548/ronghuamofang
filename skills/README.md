@@ -9,7 +9,7 @@
 ```
 skills/
 └── worldbuilding/            ← 与 Hermes 技能库的分类目录同名
-    └── ronghuamofang/        ← 操作接线卡（只管「用」，不管「改」）
+    └── ronghuamofang/        ← 操作接线卡（只管“用”，不管“改”）
         ├── SKILL.md
         └── references/
             └── api.md        ← 端点清单（快照，滞后以 nf_api.py docstring 为准）

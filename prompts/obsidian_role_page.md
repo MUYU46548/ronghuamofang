@@ -45,7 +45,7 @@ tags:
 ---
 
 > [!info] 提示
-> 本页面是角色「{{role_name}}」的设定草稿，由 NovelForge 自动生成，待人工审阅补充。
+> 本页面是角色“{{role_name}}”的设定草稿，由 NovelForge 自动生成，待人工审阅补充。
 
 # 角色信息
 

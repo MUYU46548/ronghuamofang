@@ -1,13 +1,13 @@
 # -*- coding: utf-8 -*-
 """R01 预算—篇幅联动校验：**先算装不装得下，装不下就不发请求**。
 
-为什么必须有：`prompts/stage5_check.md` 要求模型「输出修正后的全文」，而它写着
+为什么必须有：`prompts/stage5_check.md` 要求模型“输出修正后的全文”，而它写着
 `max_tokens: 8000`；6000 字中文 ≈ 8000–9000 token —— 装不下时模型会**自己删**
 （实测 03 章 5967 → 2186），`finish_reason` 还是 `stop`，既有截断防线完全看不见。
 所以判定不能只在"截断即失败"，要在**开跑之前**拒绝。
 
 系数与安全系数**必须可配**（AC-01-3）：登记在 `data/judge/caliber.json`（J13/J14），
-改值留痕；未标定时按保守值并在结论里标「未标定」。
+改值留痕；未标定时按保守值并在结论里标“未标定”。
 """
 from __future__ import annotations
 
@@ -126,10 +126,10 @@ def guard_capacity(proj, stage, root=".", words=None):
 def words_capacity(max_tokens, root=".", coeff=None, safety=None):
     """`needed_tokens` 的反函数：**max_tokens 装得下多少字**。
 
-    为什么需要（2026-10-30）：批/卷的尺寸本该由「装得下多少」决定，而旧实现是
-    写死 `batch_size = 5`（stage5）与「整卷一次发」（stage6），容量校验再拿
+    为什么需要（2026-10-30）：批/卷的尺寸本该由“装得下多少”决定，而旧实现是
+    写死 `batch_size = 5`（stage5）与“整卷一次发”（stage6），容量校验再拿
     **单章**字数去比 —— 两个数字各说各话，批一多就低估 5 倍、卷一大就低估一个
-    数量级。有了这个反函数，「批多大」与「装得下」就只有一处判据。
+    数量级。有了这个反函数，“批多大”与“装得下”就只有一处判据。
     """
     c, s, _ = _factors(root)
     if coeff is not None:
@@ -146,10 +146,10 @@ def words_capacity(max_tokens, root=".", coeff=None, safety=None):
 
 
 def items_per_request(max_tokens, words_per_item, root=".", maximum=None):
-    """一次请求最多装几个「字数为 words_per_item」的条目（章）。
+    """一次请求最多装几个“字数为 words_per_item”的条目（章）。
 
     返回值**恒 ≥ 1**：连一页都装不下时也返回 1，让 `check_capacity` 去拒绝并
-    说清「差多少」—— 在这里返回 0 会把调用方变成「一个都不发」且**没有任何
+    说清“差多少”—— 在这里返回 0 会把调用方变成“一个都不发”且**没有任何
     报错**（静默空转，正是本项目最忌讳的失败形态）。
     """
     cap = words_capacity(max_tokens, root)

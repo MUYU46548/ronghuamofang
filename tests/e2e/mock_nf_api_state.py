@@ -2,7 +2,7 @@
 """UX 验收用的假后端：给前端喂确定性的 /state（含失败阶段、跳过标记、待重写章节）。
 
 **这是正式测试资产**（`tests/e2e/e2e_ux_verify.py` 的两个后端之一），必须进 Git ——
-否则干净克隆上跑不了这个「发版前必跑」的视觉验收闸门。
+否则干净克隆上跑不了这个\u300c发版前必跑\u300d的视觉验收闸门。
 （2026-09-29 之前它只躺在 `Temp/mock_nf_api_state.py`，而 `Temp/` 被 .gitignore 忽略，
   AGENTS.md 却早已把路径写成 `tests/e2e/` —— 文档与现实不一致，闸门实际不可复现。）
 
@@ -23,7 +23,7 @@ AGENT_MODE = True
 
 # ---- Agent 权限面板：名单直接消费后端真源，不再手打 ----
 # 为什么这么做：此前 mock 手列 6 条 forbidden，而真源是 20 条 —— 就地校验当场
-# 抓到「界面承诺 /project/restore 不许 Agent 碰，后端名单却查无此项」的真漂移。
+# 抓到“界面承诺 /project/restore 不许 Agent 碰，后端名单却查无此项”的真漂移。
 # 手打 mock 必然与真源分叉（改一处漏一处），所以这里从 utils.agent_guard 取全量，
 # 人话表（AGENT_WHY）只负责**展示文案**，缺项给通用兜底。真源加条目 → mock 自动跟上。
 from utils.agent_guard import FORBIDDEN_IN_AGENT_MODE  # noqa: E402
@@ -62,13 +62,13 @@ def agent_forbidden():
 # 设定集 mock：**必须用真实字段结构**，否则这两处修复等于没验：
 #   1. 角色真实字段是 traits[]/relations[]/experience，不是 snippet；
 #   2. 世界观众是 locations/items 等**分组数组**，真书的 world 下**没有 all 键** ——
-#      旧前端读 world.all 会恒显示「暂无条目」（用户截图里那本 2 地点 3 物品全看不见）。
+#      旧前端读 world.all 会恒显示“暂无条目”（用户截图里那本 2 地点 3 物品全看不见）。
 MOCK_SETTING = {
     "characters": [
         {
             "id": "c_zhou_yanqing", "name": "周砚清",
             "role": "青石站巡道工（主角线索人物）",
-            "traits": ["不多问也不多答", "认刻度不认人", "对「补写」有执念"],
+            "traits": ["不多问也不多答", "认刻度不认人", "对\u300c补写\u300d有执念"],
             "relations": [
                 {"target": "韩拙", "type": "上下级", "note": "知道韩拙有事瞒他，二十年没问"},
                 {"target": "林小满", "type": "陌生到同盟", "note": "因同一件旧事站到一边"},
@@ -123,7 +123,7 @@ STATE = {
     "cost": {"spent_yuan": 12.3456, "limit_yuan": 50.0, "calls": 42, "estimated_entries": 3},
     "budget": {"paused": False,
                # token 闸门观测面（2026-10-03）：真后端 /state 也带这几个字段，
-               # mock 不补的话流水线条上的「token 闸门」一行在视觉验收里恒不渲染。
+               # mock 不补的话流水线条上的“token 闸门”一行在视觉验收里恒不渲染。
                "tokens_used": 116599, "tokens_run_id": 7,
                "token_limit": {"enabled": True, "per_request_max_tokens": 50000,
                                "per_request_pause_hermes": False,
@@ -149,7 +149,7 @@ LOGS = {"ok": True, "exists": True,
                   "[orchestrator] 阶段3 结果: exit=1",
                   "Traceback (most recent call last):",
                   "  File \"scripts/stage3_outline.py\", line 88, in run",
-                  "ValueError: 缺少角色「苏芷」的设定"]}
+                  "ValueError: 缺少角色\u300c苏芷\u300d的设定"]}
 
 
 DISCUSS = {"items": [], "stats": {"pending": 1, "approved": 0, "rejected": 0}}
@@ -158,11 +158,11 @@ NL = "\n"
 COLD = False   # --cold：全新工作区（所有阶段 pending + has_work=false）→ 冷启动引导
 
 # Word 成品模板面板（件五）的**有状态**当前值：POST 改、GET 读，
-# 这样「选模板 → 应用 → 下拉回读新值」在视觉验收里是真链路而不是静态截图。
+# 这样“选模板 → 应用 → 下拉回读新值”在视觉验收里是真链路而不是静态截图。
 DEFAULT_WT = "templates/小说格式模板V1.3.dotx"
 WT = {"current": DEFAULT_WT}
 
-# 知识库扫描面（2026-10-24）：**有状态** mock —— 「勾掉目录 → 保存 → 列表状态变化」
+# 知识库扫描面（2026-10-24）：**有状态** mock —— “勾掉目录 → 保存 → 列表状态变化”
 # 必须是真链路。排除态由 exclude 现算（与真后端同构），不写死在条目里，
 # 否则保存后界面不变，视觉验收看到的是假绿。
 VAULT_DIRS = [
@@ -258,7 +258,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"entries": []})
         if p == "/costs/summary":
             # totals 必须带真实字段：前端 estimatedRemainingCost 读 totals.cost_yuan，
-            # 空 totals 会让它走「数据缺失不显示」分支 —— 那样 NaN 修复等于没被验到。
+            # 空 totals 会让它走“数据缺失不显示”分支 —— 那样 NaN 修复等于没被验到。
             return self._send(200, {"by_stage": [], "by_model": [], "totals": {
                 "cost_yuan": 3.75, "tokens_in": 128000, "tokens_out": 41000,
                 "calls": 26, "run_id": 20261024}})
@@ -297,7 +297,7 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/gate/artifacts":
             # 审批门产物概况（2026-10-24 加，配 utils.stage_artifacts.summarize_artifacts）。
             # 故意喂**混合形态**：stage 6 的产物是目录（润色稿），必须走 kind="dir"
-            # 的渲染分支显示「N 篇 · M 字」—— 若 mock 只给文件，验收就永远看不到
+            # 的渲染分支显示“N 篇 · M 字”—— 若 mock 只给文件，验收就永远看不到
             # 目录分支，等于没验（前端正是因目录数不出来才加的这个端点）。
             stage = str((self._query().get("stage") or ["6"])[0])
             table = {
@@ -332,7 +332,7 @@ class Handler(BaseHTTPRequestHandler):
                 "repo": "https://github.com/MYU46548/ronghuamofang",
             })
         if p == "/factory/presets":
-            # 首跑向导「选预设」（v0.20）：回两套可见预设，让第 0 步有真卡片可点。
+            # 首跑向导“选预设”（v0.20）：回两套可见预设，让第 0 步有真卡片可点。
             # 与真实端点同构：hidden 用例不出现在清单里。
             return self._send(200, {"ok": True, "presets": [
                 {"id": "rail-end", "name": "铁轨尽头", "genre": "悬疑", "chapters": 6,
@@ -346,9 +346,9 @@ class Handler(BaseHTTPRequestHandler):
                                                   "items": 6, "size_kb": 320.5,
                                                   "archived_at": "2026-09-14 18:20:00"}]})
         if p == "/factory/list":
-            # 出厂内容面板（设置 → 诊断与调试）：回一份「有命中」的确定性数据，
+            # 出厂内容面板（设置 → 诊断与调试）：回一份“有命中”的确定性数据，
             # 让视觉验收能真读到清单文件数 / 匹配数 / 前 20 条路径，
-            # 而不是停在「读取中…」（mock 不给 fixture，面板就恒为空壳）。
+            # 而不是停在“读取中…”（mock 不给 fixture，面板就恒为空壳）。
             return self._send(200, {
                 "ok": True,
                 "manifest": {"seed_version": 22, "count": 214,
@@ -362,7 +362,7 @@ class Handler(BaseHTTPRequestHandler):
                 "match_count": 2,
                 "sample_root": "C:/mock/NovelForge/examples",
                 "sample_root_exists": True,
-                # 出厂样例徽标（项目页「当前项目」旁，2026-10-11）：mock 书名与样例书名
+                # 出厂样例徽标（项目页“当前项目”旁，2026-10-11）：mock 书名与样例书名
                 # 刻意相同 → 徽标必须点亮；书名不同的反例由 tests/http 的 HTTP 自检覆盖。
                 "current": {"title": "验收用书", "sample_title": "验收用书",
                             "is_sample": True},
@@ -374,7 +374,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if p == "/config/word_template":
             # Word 成品模板面板（设置 → Word 模板，件五）：确定性清单，
-            # 让视觉验收能真读到「下拉有几项 / 当前是哪份 / 默认是哪份」。
+            # 让视觉验收能真读到“下拉有几项 / 当前是哪份 / 默认是哪份”。
             return self._send(200, {
                 "ok": True,
                 "current": WT["current"],
@@ -391,7 +391,7 @@ class Handler(BaseHTTPRequestHandler):
             })
         if p == "/outline/discussions":
             # 讨论提案队列（P0-1 落地协议）：mock 喂 1 条待审，让视觉验收能
-            # 真点到「读提案 / 批准并写回 / 驳回」三个动作。
+            # 真点到“读提案 / 批准并写回 / 驳回”三个动作。
             if not DISCUSS["items"]:
                 DISCUSS["items"] = [{
                     "path": "data/outline/drafts/ch03_20261018_101010.md",
@@ -439,7 +439,7 @@ class Handler(BaseHTTPRequestHandler):
                                     "setting": MOCK_SETTING})
         if p == "/outline/chapters/list":
             # 分章页签（章节蓝图编辑器）的章节清单：喂两章，让视觉验收能真选中
-            # 一章再点「讨论此章」（currentN 为空时 openDiscuss 直接 return）。
+            # 一章再点“讨论此章”（currentN 为空时 openDiscuss 直接 return）。
             return self._send(200, {"ok": True, "chapters": [
                 {"n": 1, "title": "相聚风神城", "path": "data/outline/chapters/01.md"},
                 {"n": 2, "title": "兵棋展巧思", "path": "data/outline/chapters/02.md"},
@@ -457,7 +457,7 @@ class Handler(BaseHTTPRequestHandler):
                                     "content": demo})
         if p == "/outline/discussion/draft":
             # 提案全文预览：mock 喂一段带待审声明的提案，让视觉验收能真读到
-            # 抬头（「这是待审提案」）与正文结构。
+            # 抬头（“这是待审提案”）与正文结构。
             demo = ("# 讨论提案：第3章优化点" + NL + NL +
                     "> **这是待审提案，不是成品。** 批准后优化点会追加进 "
                     "data/outline/chapters/03.md，不改正文。" + NL + NL +
@@ -481,7 +481,7 @@ class Handler(BaseHTTPRequestHandler):
                                     "result": "exit=1"})
         if p == "/outline/discussion/brief":
             # 讨论任务书打包（P0-1 简报投递）：mock 喂一份自包含任务书，
-            # 让视觉验收能真点「讨论此章 → 打包并复制」并读到内容。
+            # 让视觉验收能真点“讨论此章 → 打包并复制”并读到内容。
             n = str((self._query().get("n") or ["3"])[0])
             note = str((self._query().get("note") or [""])[0])
             demo = ("# 讨论任务：第 " + n + " 章" + NL + NL +
@@ -549,10 +549,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {
                 "ok": True,
                 "proposal": "data/outline/drafts/ch%02d_mock.md" % int(body.get("chapter") or 1),
-                "message": "提案已落盘待审 —— 去「审核」页签批准后才会写回章大纲"})
+                "message": "提案已落盘待审 —— 去\u300c审核\u300d页签批准后才会写回章大纲"})
 
         if p == "/outline/sample/current":
-            # 已选定的方向：mock 固定回一条，让「已选定」区在视觉验收里可见
+            # 已选定的方向：mock 固定回一条，让“已选定”区在视觉验收里可见
             ch = int(body.get("chapter") or 1)
             return self._send(200, {"ok": True, "chapter": ch, "samples": [
                 {"n": 1, "title": "克制隐忍", "kind": "tone",
@@ -568,11 +568,11 @@ class Handler(BaseHTTPRequestHandler):
                 "samples": [
                     {"label": "克制隐忍",
                      "text": "主角甲没有立刻回答。他把星图推回去，很久才开口："
-                             "「规模不是问题，补给才是。」",
+                             "\u300c规模不是问题，补给才是。\u300d",
                      "why": "适合内敛主角、慢热铺陈的书"},
                     {"label": "外放热烈",
-                     "text": "「不行！」主角甲一掌拍在桌上，星图跳了一下，"
-                             "「三倍兵力进去，回来的不到一半！」",
+                     "text": "\u300c不行！\u300d主角甲一掌拍在桌上，星图跳了一下，"
+                             "\u300c三倍兵力进去，回来的不到一半！\u300d",
                      "why": "适合冲突驱动、节奏明快的书"},
                     {"label": "冷峻疏离",
                      "text": "星图在两人之间发着冷光。主角甲看着它，"
@@ -593,7 +593,7 @@ class Handler(BaseHTTPRequestHandler):
                 "ok": True,
                 "proposal": "data/outline/drafts/ch%02d_sample_mock.md"
                             % int(body.get("chapter") or 1),
-                "message": "方向样例已落盘待审 —— 去「审核」页签批准后才会进"
+                "message": "方向样例已落盘待审 —— 去\u300c审核\u300d页签批准后才会进"
                            "第 %d 章的写作参照" % int(body.get("chapter") or 1)})
 
         if p == "/config/vault_skip_dirs":
@@ -615,10 +615,10 @@ class Handler(BaseHTTPRequestHandler):
 
         if p == "/config/word_template":
             # Word 模板面板（件五）：**有状态** mock —— 选完再读必须能看到新值，
-            # 否则「应用 → 下拉回跳」这种真 bug 在视觉验收里测不出来。
+            # 否则“应用 → 下拉回跳”这种真 bug 在视觉验收里测不出来。
             if not body.get("reset") and not str(body.get("template") or "").strip():
                 return self._send(400, {"ok": False,
-                                        "error": "未选择模板（要回到出厂模板请点「恢复默认」）"})
+                                        "error": "未选择模板（要回到出厂模板请点\u300c恢复默认\u300d）"})
             WT["current"] = (DEFAULT_WT if body.get("reset")
                              else str(body.get("template")))
             return self._send(200, {"ok": True, "current": WT["current"],
@@ -639,7 +639,7 @@ class Handler(BaseHTTPRequestHandler):
                 "chapters": 2})
         if p == "/outline/discussion/review":
             # 讨论提案审批：mock 只改内存状态（有状态 —— 批准后队列要真变化，
-            # 否则「批准 → 待审归零」这类闭环在视觉验收里测不出来）。
+            # 否则“批准 → 待审归零”这类闭环在视觉验收里测不出来）。
             action = str(body.get("action") or "")
             rel = str(body.get("path") or "")
             for it in DISCUSS["items"]:
@@ -672,12 +672,12 @@ class Handler(BaseHTTPRequestHandler):
                                     "message": "阶段%d 已标记完成（人工跳过，未生成产物）" % body.get("stage", 0),
                                     "missing": ["data/outline/chapters"]})
         if p == "/factory/preset/apply":
-            # 向导第 0 步「铺设」：真端点会快照→归档→铺素材→写配置；mock 只回
-            # 确定性成功，让视觉验收能走到「已铺设 → 第 2 步不再要求勾归档」这条链。
+            # 向导第 0 步“铺设”：真端点会快照→归档→铺素材→写配置；mock 只回
+            # 确定性成功，让视觉验收能走到“已铺设 → 第 2 步不再要求勾归档”这条链。
             if not body.get("id"):
                 return self._send(400, {"ok": False, "error": "缺少 id"})
             return self._send(200, {"ok": True,
-                                    "message": "预设「%s」已铺设" % body.get("id"),
+                                    "message": "预设\u300c%s\u300d已铺设" % body.get("id"),
                                     "log": "· 已快照\n· 已归档\n· 素材 6 张已铺入"})
         if p == "/project/create":
             # preset_applied=true（向导第 0 步已铺设预设）→ 真后端会跳过归档/初始化、
@@ -687,7 +687,7 @@ class Handler(BaseHTTPRequestHandler):
                     "ok": True,
                     "message": "沿用已铺设的预设工作区（素材保留）；已更新 name、genre、chapters"})
             return self._send(200, {"ok": True,
-                                    "message": "已快照 current；已归档「验收用书」；空工作区骨架已初始化；"
+                                    "message": "已快照 current；已归档\u300c验收用书\u300d；空工作区骨架已初始化；"
                                                "已更新 name、genre、chapters"})
         if p == "/factory/clean":
             # 出厂样例清理：mock 只回确定性结果（不真动文件），但**护栏照旧**——

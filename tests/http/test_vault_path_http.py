@@ -3,9 +3,9 @@
 
 ## 为什么有这个测试
 
-设置页此前只有「知识库扫描」，**没有填库路径的地方** —— 用户第一次接库只能
+设置页此前只有\u300c知识库扫描\u300d，**没有填库路径的地方** —— 用户第一次接库只能
 手改 `config/system.yaml` + `config/system.local.yaml`，还得先知道 local 覆盖优先。
-排行榜第一条的「库路径没生效」正好是这个缺口的下游症状，所以这次连根补上。
+排行榜第一条的\u300c库路径没生效\u300d正好是这个缺口的下游症状，所以这次连根补上。
 
 这里钉四件事：
 
@@ -129,7 +129,7 @@ def main():
         if not ready:
             return 1
 
-        print("\n【V1】未配置时读得出「没配置」")
+        print("\n【V1】未配置时读得出\u300c没配置\u300d")
         code, d = req("GET", "/config/vault")
         check("200 且 ok", code == 200 and d.get("ok") is True, d)
         check("configured=false（不把\"没配置\"说成\"库是空的\"）",

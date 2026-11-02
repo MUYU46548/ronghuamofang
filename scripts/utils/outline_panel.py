@@ -116,7 +116,7 @@ def _assign_plan_acts(plan, nodes):
     total = max([p["chapter_no"] or 0 for p in plan] + [0])
     total = max(total, len(plan), 1)
 
-    # 2) 节点区间（节点含「第a-b章」时用于精确归属）
+    # 2) 节点区间（节点含“第a-b章”时用于精确归属）
     ranges = []
     for nd in nodes:
         mm = re.findall(
@@ -377,7 +377,7 @@ def undo_last_refine():
     last_v, last_p = versions[-1]
 
     gp = Path(GLOBAL)
-    # 先把「当前版」另存为新版本，撤销后仍可再前进
+    # 先把“当前版”另存为新版本，撤销后仍可再前进
     new_v = ro.next_version(HISTORY_DIR)
     if gp.exists():
         shutil.copy2(gp, hist / ("global_v%d.md" % new_v))

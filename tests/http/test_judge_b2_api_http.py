@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """B2 整本否掉的端点契约（2026-10-31）。
 
-用户拍板「B2 加按钮」后，这里钉住四件事：
+用户拍板\u300cB2 加按钮\u300d后，这里钉住四件事：
 
 - A1 理由太短 → 400（否掉整本是留档决定，不是随手一点）
 - A2 理由够 → 200，落盘；`/judge/report` 回传（界面横幅靠它）
@@ -155,9 +155,9 @@ def main():
               "/judge/report" not in AG.FORBIDDEN_IN_AGENT_MODE)
 
         # ---------------------------------------------------------------- A5
-        # 2026-10-31 用户追加：「整本否掉帮我加个一键归档的快捷按钮，
-        # 直接一键清理产物风险太高。归档之后是用户自己的事情。」
-        # 所以这里钉的是「搬走」而不是「删掉」—— 而且搬完还能原样恢复。
+        # 2026-10-31 用户追加：“整本否掉帮我加个一键归档的快捷按钮，
+        # 直接一键清理产物风险太高。归档之后是用户自己的事情。”
+        # 所以这里钉的是“搬走”而不是“删掉”—— 而且搬完还能原样恢复。
         print("\n【A5】一键归档：搬家，不是删除")
         code, d = req("POST", "/judge/book_archive", {})
         check("缺 confirm → 400（防误点搬空工作区）", code == 400,
@@ -167,7 +167,7 @@ def main():
         check("归档 200 且 ok", code == 200 and d.get("ok") is True, d)
         check("回执写明搬去哪（data/books/书名）",
               d.get("path") == "data/books/B2端点验收", d.get("path"))
-        check("回执明说「是搬走不是删掉」",
+        check("回执明说\u300c是搬走不是删掉\u300d",
               "搬走" in (d.get("next") or "") and "删除归档" in (d.get("next") or ""),
               d.get("next"))
 
@@ -189,7 +189,7 @@ def main():
               meta.get("book") == "B2端点验收" and bool(meta.get("archived_at")), meta)
 
         code, d2 = req("POST", "/judge/book_archive", {"confirm": True})
-        check("工作区已空时再点 → 明确说「无需归档」，不报错也不覆盖",
+        check("工作区已空时再点 → 明确说\u300c无需归档\u300d，不报错也不覆盖",
               code == 200 and "无需归档" in (d2.get("message") or ""),
               (code, d2.get("message") or d2.get("error")))
         check("原归档没被这次点击动过（meta 还在）",
@@ -231,7 +231,7 @@ def main():
                                           "refined": False},
               d["destroy"]["present"])
 
-        # 造一份检查稿：证据是「真的读第二份文件」，而不是把 raw 复制一份充数
+        # 造一份检查稿：证据是“真的读第二份文件”，而不是把 raw 复制一份充数
         (tmp / "data" / "chapters" / "checked").mkdir(parents=True, exist_ok=True)
         (tmp / "data" / "chapters" / "checked" / "01.md").write_text(
             "## 第1章 夜雨\n\n他在档案室盖章。\n\n他核对编号。\n", encoding="utf-8")

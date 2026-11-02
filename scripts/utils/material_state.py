@@ -3,7 +3,7 @@
 
 ## 要解决的问题（执行单 §3）
 
-素材卡**没有状态**。同角色两张卡矛盾时，提示词层只有「取更详细/更新的」一句，
+素材卡**没有状态**。同角色两张卡矛盾时，提示词层只有“取更详细/更新的”一句，
 没有可执行规则 → 模型自由心证、重跑漂移；被否决过的卡没有墓碑 → 下一轮复活；
 大纲阶段读的是活稿 → 改素材会扰动已经定稿的大纲。
 
@@ -20,7 +20,7 @@
 ## 与既有实现的关系
 
 `plot_fragments` 的 `status` 来自 1a 碎片层（只吃 `original_scraps`）；本模块把同一套
-「状态」推广到 characters/world，并补上墓碑与 canon 冻结。**判据不复制**：
+“状态”推广到 characters/world，并补上墓碑与 canon 冻结。**判据不复制**：
 名字归一复用 `utils.setting_schema.base_name`。
 """
 import json
@@ -130,7 +130,7 @@ def detect_conflicts(cards):
 
     判据（确定性）：
       - 某字段在 ≥2 张卡上都有**非空**值、且去掉空格后字面不同 → 潜在冲突；
-      - 若其中一个是另一个的子串（如「神明」vs「神明（月面）」）或属低风险字段 → `auto`；
+      - 若其中一个是另一个的子串（如“神明”vs“神明（月面）”）或属低风险字段 → `auto`；
       - 否则 → `review`（机器裁不了，必须报人）。
     """
     by_name = {}
@@ -215,7 +215,7 @@ def tombstone_names(data=None):
 
 
 def add_tombstone(name, reason, source="", path=None):
-    """登记「此条目已否决，归并时不得复活」。已存在则更新理由。"""
+    """登记“此条目已否决，归并时不得复活”。已存在则更新理由。"""
     name = _clean_name(name)
     if not name:
         return False, "名字为空，未登记"
@@ -235,7 +235,7 @@ def remove_tombstone(name, path=None):
     name = _clean_name(name)
     data = load_tombstones(path)
     if name not in data["entries"]:
-        return False, f"墓碑里没有「{name}」"
+        return False, f"墓碑里没有“{name}”"
     data["entries"].pop(name)
     save_tombstones(data, path)
     return True, f"已撤销墓碑：{name}"
@@ -341,7 +341,7 @@ def apply_status(setting, report):
             nm = str(it.get("name") or "").strip()
             info = by_name.get(nm) or by_name.get(base_name(nm)) if nm else None
             # 人工拍板优先：`status_source == "human"` 的条目**不被机器判定覆盖**
-            # —— 否则 MCP/GUI 侧的「拍板写入」会被下一轮 stage1 的 apply_status
+            # —— 否则 MCP/GUI 侧的“拍板写入”会被下一轮 stage1 的 apply_status
             # 原样抹掉，拍板等于没拍。机器判定只在没人拍过板时生效。
             if info and str(it.get("status_source") or "") != "human":
                 it = dict(it)
@@ -368,7 +368,7 @@ def apply_status(setting, report):
 
 
 def adopted_sources(marked):
-    """从**已 `apply_status` 的**设定集里收集「已定稿（adopted）」条目对应的素材名。
+    """从**已 `apply_status` 的**设定集里收集“已定稿（adopted）”条目对应的素材名。
 
     B1 进料节流的判据来源：这些素材的内容已经进 canon 定稿，下一轮归并不必再把
     它们的原文整篇交给模型（改由 canon 快照承担）。
@@ -376,7 +376,7 @@ def adopted_sources(marked):
     ⚠️ 刻意**只扫 characters / world**：`apply_status` 也只给这两处打 status。
     `plot_fragments.status` 是**另一套语义**（`unused`/… 指剧情碎片有没有被用过），
     不是 A3 的 adopted/uncertain/rejected —— 拿它当定稿判据会把两套语义搅在一起，
-    而且会把「已采用的剧情碎片」误判成「素材已定稿」而整篇剔除。
+    而且会把“已采用的剧情碎片”误判成“素材已定稿”而整篇剔除。
 
     没有 status 字段的旧条目一律**不算定稿** —— 宁可多喂一轮，不可漏喂。
     """
@@ -451,7 +451,7 @@ def set_entry_status(name, status, reason="", setting_path=None):
     elif isinstance(world, list):
         data["world"] = _mark(world)
     if not hit[0]:
-        return 0, "设定集里没有名为「%s」的条目（可能尚未归并）" % nm
+        return 0, "设定集里没有名为“%s”的条目（可能尚未归并）" % nm
     meta = dict(data.get("_meta") or {})
     audit_meta = dict(meta.get("status_audit") or {})
     audit_meta["last_human_decision"] = {
@@ -462,7 +462,7 @@ def set_entry_status(name, status, reason="", setting_path=None):
     data["_meta"] = meta
     sp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n",
                   encoding="utf-8")
-    return hit[0], "已把「%s」标记为 %s（人工拍板）" % (nm, status)
+    return hit[0], "已把“%s”标记为 %s（人工拍板）" % (nm, status)
 
 
 def write_audit(report, path=None):
@@ -519,10 +519,10 @@ def diff_canon_entries(old, new, fields=("role", "traits", "relations",
                                          "description", "type", "status")):
     """两份设定集的条目级差异 → `{"added": [...], "removed": [...], "changed": [...]}`。
 
-    `changed` 带**变更字段名**，只回答「哪些键变了」。
+    `changed` 带**变更字段名**，只回答“哪些键变了”。
 
-    ⚠️ 刻意**不报「谁改的」** —— 单人本地场景里没有作者信息，硬造一个字段是假信息。
-    （执行单原写「日志写明哪个键被谁改了」，后半句在本项目里无法成立。）
+    ⚠️ 刻意**不报“谁改的”** —— 单人本地场景里没有作者信息，硬造一个字段是假信息。
+    （执行单原写“日志写明哪个键被谁改了”，后半句在本项目里无法成立。）
     """
     a, b = _entries_index(old or {}), _entries_index(new or {})
     added = sorted(set(b) - set(a))
@@ -542,8 +542,8 @@ def diff_canon_entries(old, new, fields=("role", "traits", "relations",
 def canon_stale(canon_path=None, materials_dir=None):
     """canon 是否已过期：**素材卡 mtime 晚于 canon 冻结时间**即算过期。
 
-    返回 `(stale, reason, detail)`。**未冻结 → (False, ...)** —— 「没冻结」不是
-    「过期」，首轮不该被误报成过期。
+    返回 `(stale, reason, detail)`。**未冻结 → (False, ...)** —— “没冻结”不是
+    “过期”，首轮不该被误报成过期。
     """
     cp = Path(canon_path or CANON_PATH)
     if not cp.exists():
@@ -579,7 +579,7 @@ def canon_stale(canon_path=None, materials_dir=None):
 
 
 def recanon(setting_path=None, canon_path=None):
-    """重冻 canon，返回 `(ok, msg, changes)`；changes 来自「旧 canon vs 当前设定集」的 diff。
+    """重冻 canon，返回 `(ok, msg, changes)`；changes 来自“旧 canon vs 当前设定集”的 diff。
 
     调用方应**先确认 canon 已存在**（首轮无 canon 不该凭空造 —— 定稿要走审批）。
     """
@@ -641,7 +641,7 @@ def load_audit(path=None):
         data = json.loads(p.read_text(encoding="utf-8"))
         return data if isinstance(data, dict) else None
     except Exception as e:                                    # noqa: BLE001
-        print("[material_state] WARN 上一轮审计文件解析失败（本轮按「无历史」处理）："
+        print("[material_state] WARN 上一轮审计文件解析失败（本轮按“无历史”处理）："
               + str(e)[:140])
         return None
 

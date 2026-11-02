@@ -6,9 +6,9 @@
 ## 为什么这些断言值得写
 
 - 残稿：采纳是**唯一能把隔离文本送回正式产物路径**的口子。判据一旦松，
-  「采纳残稿」就变成绕过审稿的后门（半章正文冒充完成章）。
+  \u300c采纳残稿\u300d就变成绕过审稿的后门（半章正文冒充完成章）。
 - 伏笔台账：自动化最容易做假的地方 —— 用文本相似去"自动判定已回收"，
-  台账会很好看，但全是谎话。所以这里钉住「回收只能人工标」「标了必须给理由」。
+  台账会很好看，但全是谎话。所以这里钉住\u300c回收只能人工标\u300d\u300c标了必须给理由\u300d。
 """
 import io
 import json
@@ -84,12 +84,12 @@ def main():
         raw = TS.RAW_DIR / "03.md"
         check("P3 内容已写入 raw/03.md", raw.exists() and len(raw.read_text(encoding="utf-8")) > 300)
         check("P3 标记已落盘", TS.is_adopted(3) is True)
-        check("P3 清单回显「已采纳为第 N 章」",
+        check("P3 清单回显\u300c已采纳为第 N 章\u300d",
               any(i["adopted_as"] == 3 for i in TS.list_items()))
         check("P3 ⚠️ 采纳后仍判**未完成**（不能变成绕过审稿的后门）",
               V.is_chapter_complete(raw, target_min=100, target_max=99999) is False)
 
-        print("\n[P4] 残稿：覆盖保护与「已补齐」")
+        print("\n[P4] 残稿：覆盖保护与\u300c已补齐\u300d")
         ok, msg = TS.adopt("stage4_ch03_20261020_120000.txt", 3)
         check("P4 已有内容 → 拒绝覆盖并说明", not ok and "覆盖" in msg, msg)
         ok, msg = TS.adopt("stage4_ch03_20261020_120000.txt", 3, replace=True)
@@ -112,7 +112,7 @@ def main():
         check("P5 并且说明原因", any("没有章大纲" in n for n in data["notes"]), data["notes"])
         check("P5 计数全 0", data["summary"]["total"] == 0, data["summary"])
 
-        print("\n[P6] 伏笔台账：从「悬念钩子」抽取 + 推进判定")
+        print("\n[P6] 伏笔台账：从\u300c悬念钩子\u300d抽取 + 推进判定")
         FS.OUTLINE_DIR.mkdir(parents=True)
         def w(no, hook, event):
             (FS.OUTLINE_DIR / ("%02d.md" % no)).write_text(

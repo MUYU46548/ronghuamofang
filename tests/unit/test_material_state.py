@@ -8,7 +8,7 @@ A3 要解决的三件事**都是"没有状态"造成的静默问题**：
 | 编号 | 问题 | 钉法 |
 |---|---|---|
 | W1 | 素材卡解析（`# 角色：X` + `## 基本信息`）—— 解析不对，后面全错 | 含括号注释的标题归一、非卡片文件必须返回 None |
-| W2 | 同角色两张卡矛盾时提示词层只有「取更详细/更新的」，模型自由心证 | `review`（机器裁不了 → 报人）判据 |
+| W2 | 同角色两张卡矛盾时提示词层只有\u300c取更详细/更新的\u300d，模型自由心证 | `review`（机器裁不了 → 报人）判据 |
 | W3 | 信息量有包含关系时不该打扰人 | `auto` 判据（子串包含 / 英文名·别名等低风险字段 / "待填充"不算值） |
 | W4 | 被否决的卡没有墓碑 → 下一轮复活 | 墓碑 CRUD + 损坏文件**不静默** |
 | W5 | **不给 LLM 自报置信度的机会** —— 数字要可复现 | 全流程零 token，纯函数 |
@@ -110,14 +110,14 @@ def case_conflicts_severity():
         cards = collect_cards(td)
         conf = detect_conflicts(cards)
         by_field = {c["field"]: c for c in conf}
-        check("W2 「能力」两值都不为空且不同 → review（机器裁不了，报人）",
+        check("W2 \u300c能力\u300d两值都不为空且不同 → review（机器裁不了，报人）",
               by_field.get("能力", {}).get("severity") == "review", f"→ {by_field.get('能力')}")
         check("W3 英文名属低风险字段 → auto（不打扰人）",
               by_field.get("英文名", {}).get("severity") == "auto", f"→ {by_field.get('英文名')}")
-        check("W3 「待填充」不算有值，不产生冲突",
+        check("W3 \u300c待填充\u300d不算有值，不产生冲突",
               "驻地或据点" not in by_field, f"→ {by_field.get('驻地或据点')}")
         vals = by_field.get("能力", {}).get("values", [])
-        check("W2 冲突条目带**双方出处**（不能只说「有冲突」）",
+        check("W2 冲突条目带**双方出处**（不能只说\u300c有冲突\u300d）",
               len(vals) == 2 and all(v["file"] for v in vals), f"→ {vals}")
 
     with tempfile.TemporaryDirectory() as td:
@@ -155,7 +155,7 @@ def case_tombstones():
         check("W4 重复登记=更新而不是新增",
               ok2 and len(data["entries"]) == 1
               and data["entries"]["戊"]["reason"] == "换了个理由", f"→ {msg2}")
-        check("W4 理由为空也要有占位（不许空着当「没问题」）",
+        check("W4 理由为空也要有占位（不许空着当\u300c没问题\u300d）",
               ms.add_tombstone("己", "", path=tp)[0]
               and ms.load_tombstones(tp)["entries"]["己"]["reason"])
         ok3, _ = ms.remove_tombstone("戊", path=tp)
@@ -228,7 +228,7 @@ def case_audit_and_status():
         md = make_materials(Path(td) / "raw", [])
         rep = ms.audit(str(Path(td) / "nonexistent.json"), str(md),
                        str(Path(td) / "tomb.json"))
-        check("W7 设定集不存在 → checked=False 且给出原因（不冒充「通过」）",
+        check("W7 设定集不存在 → checked=False 且给出原因（不冒充\u300c通过\u300d）",
               rep["checked"] is False and bool(rep["reason"]), f"→ {rep['reason']}")
 
 
@@ -270,7 +270,7 @@ def case_prompt_section():
               ms.status_context_section(tp, ap) == "")
         ms.add_tombstone("庚", "作者明确废弃", path=tp)
         sec = ms.status_context_section(tp, ap)
-        check("W9 有墓碑 → 含「不得复活」与条目名",
+        check("W9 有墓碑 → 含\u300c不得复活\u300d与条目名",
               "不得复活" in sec and "庚" in sec and "作者明确废弃" in sec,
               f"→ {sec[:90]}")
         check("W9 旧入口 tombstones_prompt_section 仍可用（兼容）",
@@ -299,7 +299,7 @@ def case_round_inheritance():
         check("W11 上一轮分歧进提示词（带双方出处）",
               "甲" in sec and "能力" in sec and "控火" in sec
               and "甲_角色卡.md" in sec and "甲_角色卡2.md" in sec, f"→ {sec[:160]}")
-        check("W11 明确标注「继承、不得当成已定」", "继承" in sec and "未裁决" in sec,
+        check("W11 明确标注\u300c继承、不得当成已定\u300d", "继承" in sec and "未裁决" in sec,
               f"→ {sec[:160]}")
         check("W11 带上轮计数（多回合可读）",
               "上一轮结论" in sec and "uncertain" in sec, f"→ {sec[:160]}")

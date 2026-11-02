@@ -3,8 +3,8 @@
 
 ## 解决什么
 
-用户的真实工作流是「与 agent 讨论十几次 → 结论以【优化点】烤进大纲 → 从大纲往下写」，
-讨论回路一直存在，只是不在产品里。此前唯一的「修改入口」是审批门的通过/打回二元选择
+用户的真实工作流是“与 agent 讨论十几次 → 结论以【优化点】烤进大纲 → 从大纲往下写”，
+讨论回路一直存在，只是不在产品里。此前唯一的“修改入口”是审批门的通过/打回二元选择
 + `refine_outline` 的单轮意见 —— 没有会话记忆、没有候选对比、没有讨论史留痕。
 
 本模块提供落地通道，**与讨论发生在哪解耦**：讨论走 Hermes（简报投递，主形态）或
@@ -18,7 +18,7 @@ GUI 单轮精修（兜底），产物都汇到同一个待审队列，用户在 
 
 状态机复用 `utils/sandbox_review`（pending/approved/rejected + sha256 变更重置），
 但用**独立 manifest**：`data/state/discuss_manifest.json`。为什么不用沙盒那一份 ——
-沙盒是「贴进 vault」的中转区，讨论提案是「改我的大纲」，目的地与生命周期都不同，
+沙盒是“贴进 vault”的中转区，讨论提案是“改我的大纲”，目的地与生命周期都不同，
 混在一张状态库里会让两队列互相污染计数。
 
 ## 红线
@@ -87,7 +87,7 @@ def _proposal_markdown(target_rel, kind, title, rationale, candidates,
                        chosen, body, anchor, rounds, source):
     """提案文件的人读形态：抬头 + 理由 + 写回区块 + 锚点。
 
-    抬头带「这是待审提案」声明 —— 用户在文件管理器里直接打开也能看懂它的状态。
+    抬头带“这是待审提案”声明 —— 用户在文件管理器里直接打开也能看懂它的状态。
     """
     ts = datetime.now().strftime("%Y-%m-%d %H:%M")
     lines = [
@@ -207,8 +207,8 @@ def apply_proposal(rel, root=".", reviewer=""):
         d = parse_chapter_md(src)
         old_val = d.get(field)
         if isinstance(old_val, list):
-            # 只剥形如「1. 」「1、」的行首序号 —— lstrip("0123456789.") 会连内容
-            # 开头的数字一起吃掉（「10. 十年布局」→「十年布局」是数据损坏）。
+            # 只剥形如“1. ”“1、”的行首序号 —— lstrip("0123456789.") 会连内容
+            # 开头的数字一起吃掉（“10. 十年布局”→“十年布局”是数据损坏）。
             new_val = [_LIST_MARK.sub("", ln).strip()
                        for ln in body.splitlines() if ln.strip()]
         else:
@@ -247,8 +247,8 @@ def apply_proposal(rel, root=".", reviewer=""):
                              manifest_path=str(root / MANIFEST))
     if not ok:
         return _bad(f"已写回但状态未更新：{msg}（改动已在章大纲里，请手动核对）")
-    # 文案按 kind 分流 —— blueprint_patch 是字段替换，说成「新增优化点」会误导
-    what = (f"替换字段「{anchor.get('field')}」" if kind == "blueprint_patch"
+    # 文案按 kind 分流 —— blueprint_patch 是字段替换，说成“新增优化点”会误导
+    what = (f"替换字段“{anchor.get('field')}”" if kind == "blueprint_patch"
             else "新增优化点")
     return True, (f"已写回第 {target_n} 章（{what}，原稿备份 {bak.name}）；"
                   f"提案 {rel} 已标记通过")

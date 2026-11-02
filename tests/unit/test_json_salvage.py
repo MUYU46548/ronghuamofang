@@ -3,7 +3,7 @@
 
 覆盖两处修复：
 A. `utils.validator.parse_llm_json` —— `<think>` 内嵌剥离 / 断裂（截断）JSON 兜底 /
-   失败不抛裸异常且回报原文偏移；同时回归既有「围栏 / 数组 / 已是 dict」语义。
+   失败不抛裸异常且回报原文偏移；同时回归既有\u300c围栏 / 数组 / 已是 dict\u300d语义。
 B. `OpenAICompatClient._salvage_answer` —— content 为空时从 reasoning_content
    捞回 JSON（审稿断裂根因）；**纯散文思考仍必须丢弃**（守住 2026-09-23 的修复：
    绝不把思考当正文写进小说）。
@@ -126,7 +126,7 @@ def test_salvage():
     got = OpenAICompatClient._salvage_answer(rj)
     check("reasoning-only JSON 可捞回", got.startswith('{"chapters"') and '"n":1' in got, got[:80])
     prose = 'The user says "第 2 次调用仅处理..." —— 我应该输出正文。'
-    check("纯散文思考 → 空（守住 09-23「思考不进正文」）",
+    check("纯散文思考 → 空（守住 09-23\u300c思考不进正文\u300d）",
           OpenAICompatClient._salvage_answer(prose) == "")
     prose2 = "我的计划是：{先写场景}，然后收尾。"
     check("含花括号但非 JSON 的思考 → 空",

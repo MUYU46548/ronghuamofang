@@ -3,7 +3,7 @@
 
 **不碰真实仓库数据**：把 scripts/ config/ prompts/ 复制到临时目录当 ROOT 起 nf_api
 （--allow-fake），所有读写都落在临时目录；同时把子进程的 LOCALAPPDATA/TEMP 指向临时目录，
-让「运行日志」分支的路径解析也完全可控。
+让\u300c运行日志\u300d分支的路径解析也完全可控。
 
 覆盖：
   GET  /logs/tail        无日志文件 → exists=false + 可行动 hint（不是 500）
@@ -195,7 +195,7 @@ def main():
         check("合法跳过 → 200 + ok", code == 200 and d.get("ok"), (code, str(d)[:200]))
         check("回报缺失产物（data/outline/chapters 不存在）",
               any("chapters" in m for m in (d.get("missing") or [])), d.get("missing"))
-        check("message 里说明「下游阶段可能因此失败」",
+        check("message 里说明\u300c下游阶段可能因此失败\u300d",
               "下游" in str(d.get("message")), str(d.get("message"))[:200])
         prog = json.loads((tmp / "data" / "state" / "progress.json").read_text(encoding="utf-8"))
         st3 = prog["stages"]["3"]
@@ -206,14 +206,14 @@ def main():
               st3.get("skip_reason") == "素材不足先放行" and st3.get("skipped_at"), st3)
         code, s = req("GET", "/state")
         row = [x for x in s["stages"] if x["stage"] == 3][0]
-        check("/state 暴露 skipped（GUI 才能显示「已跳过」徽标）", row.get("skipped") is True, row)
+        check("/state 暴露 skipped（GUI 才能显示\u300c已跳过\u300d徽标）", row.get("skipped") is True, row)
 
         print("\n=== 4. 跳过之后仍可回退 ===")
         code, d = req("POST", "/reject", {"stage": 3, "reason": "还是想重跑", "dry_run": False})
         check("POST /reject 打回跳过过的阶段 → 200", code == 200 and d.get("ok"), (code, str(d)[:200]))
         prog = json.loads((tmp / "data" / "state" / "progress.json").read_text(encoding="utf-8"))
         st3 = prog["stages"]["3"]
-        check("打回后状态变 rejected 且 skipped 标记被清掉（不再同时显示「已跳过」+「已打回」）",
+        check("打回后状态变 rejected 且 skipped 标记被清掉（不再同时显示\u300c已跳过\u300d+\u300c已打回\u300d）",
               st3.get("status") == "rejected" and not st3.get("skipped"), st3)
         code, s = req("GET", "/state")
         row = [x for x in s["stages"] if x["stage"] == 3][0]

@@ -15,7 +15,7 @@ nf_api（--allow-fake），所有读写都落在临时目录。
   POST /export/markdown   不再是 404（GET 版曾因 do_GET 内引用未定义变量而 500）
   AST 静态检查：do_GET / do_POST 内不得有本地名遮蔽模块级名（防 UnboundLocalError）
   POST /sandbox/review    通过/驳回/退回；驳回必带 note；路径遍历与绝对路径被拒；
-                          只动状态库不动沙盒文件（含「二次读 body 会挂死」的回归锚点）
+                          只动状态库不动沙盒文件（含\u300c二次读 body 会挂死\u300d的回归锚点）
 
 用法：python tests/test_new_endpoints_api_http.py
 """
@@ -184,7 +184,7 @@ def build_project():
     (tmp / "style_sample.md").write_text(STYLE_SAMPLE, encoding="utf-8")
     (tmp / "book.txt").write_text(BOOK_TEXT, encoding="utf-8")
     (tmp / "short.txt").write_text("太短了。", encoding="utf-8")
-    # 供 /outline/trend：一个「改前（差）」的历史版本 + 一个「改后（好）」的当前版本。
+    # 供 /outline/trend：一个“改前（差）”的历史版本 + 一个“改后（好）”的当前版本。
     # 两者 key（问题数+碎片数）分别为 2 与 0，于是 trend 应判 improved、
     # 并给出 has_backup=true。放在这里是为了让端点有真实可对比的数据。
     (tmp / "data" / "outline" / "history").mkdir(parents=True, exist_ok=True)
@@ -412,7 +412,7 @@ def main():
         check("重复保存会先备份旧版（破坏性操作可回退）",
               code == 200 and len(baks) == 1, [p.name for p in baks])
         code, d = req("POST", "/outline/chapters/save", {"n": 2, "content": "没有必需字段"})
-        check("缺「核心事件」→ 400", code == 400 and "核心事件" in str(d.get("error")),
+        check("缺\u300c核心事件\u300d→ 400", code == 400 and "核心事件" in str(d.get("error")),
               (code, str(d)[:180]))
         code, d = req("POST", "/outline/chapters/save", {"n": 0, "content": GOOD_CH})
         check("非法章号 → 400", code == 400, (code, str(d)[:160]))
@@ -447,7 +447,7 @@ def main():
         check("has_backup 为真（有历史版本可对比）", d.get("has_backup") is True)
         check("status 反映最新版已达标（key=0 → done）",
               d.get("status") == "done", d.get("status"))
-        check("note 是可读结论（含「开工」提示）", "开工" in str(d.get("note")),
+        check("note 是可读结论（含\u300c开工\u300d提示）", "开工" in str(d.get("note")),
               str(d.get("note"))[:80])
         cmp_ = d.get("compare") or {}
         check("compare.verdict 为 improved（问题 2 → 0）",

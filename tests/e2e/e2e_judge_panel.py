@@ -2,13 +2,13 @@
 """判定面板真机验收（0.7.17）：整本一页 → 单章 → 勾事件 → 裁定 → 改标准。
 
 钉什么：
-A. 章节页签顶部有「判定」摘要条，且两句固定串常显
-B. 没跑过 → 明说「还没跑过回测」，不假装有结论
-C. 点「开始回测」→ 出现总账 + 三章行（档位带符号与短语，不是分数）
-D. 「看这章」→ 详情：事件勾选区 + 缺陷清单 + 原文
-E. 勾事件保存 → 档位不再是「还没判」
-F. 点缺陷 → 展开「原句/为什么/你怎么办」；选感受 + 理由 → 记录裁定
-G. 「改标准」→ 口径表（带消费方）；改 J10 → 版本 +1
+A. 章节页签顶部有\u300c判定\u300d摘要条，且两句固定串常显
+B. 没跑过 → 明说\u300c还没跑过回测\u300d，不假装有结论
+C. 点\u300c开始回测\u300d→ 出现总账 + 三章行（档位带符号与短语，不是分数）
+D. \u300c看这章\u300d→ 详情：事件勾选区 + 缺陷清单 + 原文
+E. 勾事件保存 → 档位不再是\u300c还没判\u300d
+F. 点缺陷 → 展开\u300c原句/为什么/你怎么办\u300d；选感受 + 理由 → 记录裁定
+G. \u300c改标准\u300d→ 口径表（带消费方）；改 J10 → 版本 +1
 H. 无 console error / 无 4xx
 
 零 token（整条链不调模型）。用法：python tests/e2e/e2e_judge_panel.py
@@ -140,9 +140,9 @@ def main():
             panel = page.locator(".judge").first
             check("章节页签顶部有判定面板", panel.count() >= 1, panel.count())
             body = panel.inner_text()
-            check("固定串①「存量回测判定，非新跑拦截」在场", "存量回测判定，非新跑拦截" in body,
+            check("固定串①\u300c存量回测判定，非新跑拦截\u300d在场", "存量回测判定，非新跑拦截" in body,
                   body[:160])
-            check("固定串②「本报告不改变现有成品文件」在场", "本报告不改变现有成品文件" in body)
+            check("固定串②\u300c本报告不改变现有成品文件\u300d在场", "本报告不改变现有成品文件" in body)
             check("没跑过时明说（不假装有结论）", "还没跑过回测" in body, body[:160])
 
             print("\n=== C. 开始回测 → 总账 + 三章 ===")
@@ -154,10 +154,10 @@ def main():
             rows = panel.locator("table.judge-table tbody tr")
             check("三章各一行", rows.count() == 3, rows.count())
             first = rows.first.inner_text()
-            check("档位带符号或明确「还没判」",
+            check("档位带符号或明确\u300c还没判\u300d",
                   ("✓" in first) or ("⚠" in first) or ("✕" in first) or ("还没判" in first),
                   first[:120])
-            check("不出现分数（无「分」结尾的评分字样）",
+            check("不出现分数（无\u300c分\u300d结尾的评分字样）",
                   "quality" not in body.lower() and "评分" not in body)
             check("证据分级上屏（能力区注明未验证）",
                   "能力证据" in body and "未验证" in body, body[:200])
@@ -168,7 +168,7 @@ def main():
             det = panel.inner_text()
             check("进到单章详情（回整本按钮）", "回整本" in det, det[:120])
             check("有事件勾选区", "这一章发生了几件事" in det)
-            check("有缺陷清单或「没命中任何规则」",
+            check("有缺陷清单或\u300c没命中任何规则\u300d",
                   ("第 " in det and "段" in det) or "没命中任何规则" in det)
 
             print("\n=== E. 勾事件 → 档位出现 ===")
@@ -194,7 +194,7 @@ def main():
             panel.locator("button:has-text('保存勾选')").click()
             page.wait_for_timeout(1200)
             det2 = panel.inner_text()
-            check("保存后不再是「还没判」", "还没判" not in det2, det2[:160])
+            check("保存后不再是\u300c还没判\u300d", "还没判" not in det2, det2[:160])
 
             print("\n=== F. 缺陷卡：原句/为什么/你怎么办 + 裁定 ===")
             defect = panel.locator(".judge-defect-row").first
@@ -231,7 +231,7 @@ def main():
             if inp.count():
                 inp.fill("0.30")
                 page.wait_for_timeout(1400)
-                check("改数字后出现「影响面预览（还没生效）」",
+                check("改数字后出现\u300c影响面预览（还没生效）\u300d",
                       "影响面预览" in panel.inner_text(), panel.inner_text()[:200])
                 panel.locator("button:has-text('保存（产新版本）')").click()
                 page.wait_for_timeout(1000)

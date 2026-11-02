@@ -3,11 +3,11 @@
 
 ## 为什么需要（2026-10-17 第14次试跑复盘）
 
-用户问「是否支持跨会话跑同一本书」。答案此前是**不安全**：nf_api 的 409
+用户问“是否支持跨会话跑同一本书”。答案此前是**不安全**：nf_api 的 409
 守卫只在**单进程内**有效（CURRENT 字典），CLI orchestrator、GUI 后台任务、
 外部 agent 各起一个进程时互不知情 —— 两条流水线同时写 progress.json /
 data/chapters / runs.db 会互相踩踏（第14次试跑就留下多条 status='running'
-的脏行）。本锁把「同时只跑一条」从约定变成机制。
+的脏行）。本锁把“同时只跑一条”从约定变成机制。
 
 ## 语义
 
@@ -181,7 +181,7 @@ class RunLock:
         **不杀进程**：流水线进程还活着，它会在下一个检查点自己看到
         ``owner == "human"`` 然后停（见 write_guard.check_pipeline_should_stop）。
         这里只改"谁说了算"，不动别人的进程 —— 杀进程有误伤风险（记忆里
-        「只按 PID 杀、按名会连坐」就是这么来的）。
+        “只按 PID 杀、按名会连坐”就是这么来的）。
         """
         self.path.parent.mkdir(parents=True, exist_ok=True)
         prev = read_holder(self.path)

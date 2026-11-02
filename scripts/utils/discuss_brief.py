@@ -5,22 +5,22 @@
 
 用户的实际场景是**绒花墨坊桌面客户端 + 一个常开的 Agent 桌面端（Hermes）并存**。
 讨论回路发生在 Agent 那边（它有多轮记忆、能真读文件、能跑体检），墨坊这边只负责
-「把讨论对象打包好」与「接住讨论结论」。中间那一步此前是空白 —— 用户得自己去
+“把讨论对象打包好”与“接住讨论结论”。中间那一步此前是空白 —— 用户得自己去
 翻文件路径、复制章大纲、说明白要讨论什么。
 
-本模块把「发起讨论」收敛成一次打包：读章大纲 + 相关设定 + 上一章末尾 + 待审优化点
+本模块把“发起讨论”收敛成一次打包：读章大纲 + 相关设定 + 上一章末尾 + 待审优化点
 + 摩擦提醒，产出一份**自包含**的任务书。用户把它贴给 Agent，Agent 就有足够上下文
-开聊，不必回头追问「文件在哪」。
+开聊，不必回头追问“文件在哪”。
 
 ## 与 kickoff 的区别（别搞混）
 
-`prompts/agent_kickoff.md` 是**开工提示词**：告诉一个新接手的 Agent「这是什么项目、
-怎么自检、红线在哪」。本模块产出的是**单次讨论任务书**：告诉一个已经在跑的 Agent
-「现在就这一章、这一段，讨论这个意见」。前者是长期契约，后者是一次性工单。
+`prompts/agent_kickoff.md` 是**开工提示词**：告诉一个新接手的 Agent“这是什么项目、
+怎么自检、红线在哪”。本模块产出的是**单次讨论任务书**：告诉一个已经在跑的 Agent
+“现在就这一章、这一段，讨论这个意见”。前者是长期契约，后者是一次性工单。
 
 ## ⚠️ 简报里不得出现成对花括号
 
-这是外部 Agent 的「这是模板不是任务」停下判据。模板占位符一旦原样落进简报，
+这是外部 Agent 的“这是模板不是任务”停下判据。模板占位符一旦原样落进简报，
 接手方第一步就停工报告（2026-10-11 实测踩过）。所以本模块**不用任何模板渲染**，
 所有文本都是确定性拼接 + 真实文件内容。
 """
@@ -37,8 +37,8 @@ ROLLING_PATH = "data/summaries/rolling.md"
 DISCUSS_MANIFEST = "data/state/discuss_manifest.json"
 
 # 简报长度保护：整份任务书超过这个字数就截断长块（Agent 侧读原文更准）。
-# 用户口径：写作子动作单章 5 万 token 甚至更高都可以 —— 这里的截断只防「把整本书
-# 塞进剪贴板」这种极端，正常一章的上下文远够不着。
+# 用户口径：写作子动作单章 5 万 token 甚至更高都可以 —— 这里的截断只防“把整本书
+# 塞进剪贴板”这种极端，正常一章的上下文远够不着。
 BRIEF_CHAR_CAP = 60000
 LONG_BLOCK_CAP = 8000
 
@@ -77,9 +77,9 @@ def _pending_opts(root):
 
 
 def build_chapter_brief(n, note="", root=".", project_root_label=""):
-    """打包「讨论第 n 章」的自包含任务书。返回 (ok, msg, brief_text)。
+    """打包“讨论第 n 章”的自包含任务书。返回 (ok, msg, brief_text)。
 
-    内容顺序刻意按「先结论后材料」：Agent 一上来就知道要讨论什么、意见是什么，
+    内容顺序刻意按“先结论后材料”：Agent 一上来就知道要讨论什么、意见是什么，
     然后才是支撑材料（章大纲 / 待审优化点 / 相关角色 / 上一章末尾）。
     """
     root = Path(root)
@@ -158,7 +158,7 @@ def build_chapter_brief(n, note="", root=".", project_root_label=""):
             parts.append(f"- {p}")
         parts.append("")
 
-    # 相关角色：从章大纲的「涉及角色」行取，再回设定集捞卡
+    # 相关角色：从章大纲的“涉及角色”行取，再回设定集捞卡
     roles = _roles_from_chapter(chap_md)
     if roles:
         parts += [f"### 相关角色设定（{len(roles)} 位）", ""]
@@ -200,7 +200,7 @@ def build_chapter_brief(n, note="", root=".", project_root_label=""):
             ]
             break
 
-    # 滚动摘要（全书走向，Agent 判断「这章该往哪走」要用）
+    # 滚动摘要（全书走向，Agent 判断“这章该往哪走”要用）
     rolling = root / ROLLING_PATH
     if rolling.exists():
         rmd = read_text(rolling)
@@ -219,7 +219,7 @@ def build_chapter_brief(n, note="", root=".", project_root_label=""):
 
     # 终检：不得出现成对花括号（外部 Agent 的停下判据）
     if brief.count("{") >= 2 and brief.count("}") >= 2:
-        # 提交示例里的 JSON 花括号是**成对示例**，属白名单形态；这里只拦「模板感」的
+        # 提交示例里的 JSON 花括号是**成对示例**，属白名单形态；这里只拦“模板感”的
         # 单个占位符形态 {{xxx}}
         if re.search(r"\{\{[^}]{1,40}\}\}", brief):
             return False, "简报里出现模板占位符（成对花括号），已拒绝产出", ""
@@ -244,7 +244,7 @@ def _cap_brief(brief, cap):
 
 
 def _roles_from_chapter(chap_md):
-    """从章大纲的「涉及角色」行取角色名（分隔符兼容后端解析）。"""
+    """从章大纲的“涉及角色”行取角色名（分隔符兼容后端解析）。"""
     m = re.search(r"^-\s*涉及角色[：:]\s*(.+?)\s*$", chap_md, re.M)
     if not m:
         return []

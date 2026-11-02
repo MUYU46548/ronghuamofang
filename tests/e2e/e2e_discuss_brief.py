@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
-"""「讨论此章」按钮的专项验收（P0-1 简报投递的 GUI 层）。
+"""\u300c讨论此章\u300d按钮的专项验收（P0-1 简报投递的 GUI 层）。
 
 e2e_ux_verify 主套不触碰分章页签的编辑器工具栏，而本次交付的核心 GUI 入口就是
-「分章页签 → 选章 → 讨论此章 → 打包任务书到剪贴板」。本脚本真点一遍：
+\u300c分章页签 → 选章 → 讨论此章 → 打包任务书到剪贴板\u300d。本脚本真点一遍：
 
 - 分章页签渲染 + 能选中一章；
-- 「讨论此章」按钮打开内联弹层（**不是 window.prompt** —— Electron 禁用原生
+- \u300c讨论此章\u300d按钮打开内联弹层（**不是 window.prompt** —— Electron 禁用原生
   对话框，prompt() 恒返回 null，会导致按钮点了没反应）；
-- 弹层里填意见 →「打包并复制任务书」→ 真调 /outline/discussion/brief；
-- 剪贴板真收到内容（含任务书抬头「讨论任务」与提交端点/红线）；
+- 弹层里填意见 →\u300c打包并复制任务书\u300d→ 真调 /outline/discussion/brief；
+- 剪贴板真收到内容（含任务书抬头\u300c讨论任务\u300d与提交端点/红线）；
 - 空意见也能打包（让 Agent 自己提问题）；
 - 全程无 console error。
 
@@ -46,7 +46,7 @@ def main():
     with sync_playwright() as pw:
         browser = pw.chromium.launch(args=["--no-proxy-server"])
         ctx = browser.new_context()
-        # 剪贴板读写权限（验收要断言「真复制到了」，不是只看 toast）
+        # 剪贴板读写权限（验收要断言“真复制到了”，不是只看 toast）
         for perm in ("clipboard-read", "clipboard-write", "clipboard-sanitized-write"):
             try:
                 ctx.grant_permissions([perm], origin=SITE)
@@ -98,7 +98,7 @@ def main():
             first_item.first.click()
             page.wait_for_timeout(900)
         btn = page.locator("button", has_text="讨论此章")
-        check("「讨论此章」按钮存在", btn.count() > 0)
+        check("\u300c讨论此章\u300d按钮存在", btn.count() > 0)
         page.screenshot(path=str(OUT / "B1_toolbar.png"), full_page=True)
 
         # 点击 → 内联弹层（不是 window.prompt！）
@@ -110,7 +110,7 @@ def main():
             dlg = page.locator(".dialog", has_text="讨论第")
             check("内联弹层打开（非 window.prompt）", dlg.count() > 0)
             check("弹层含意见输入框", dlg.locator("textarea").count() > 0)
-            check("弹层说明「你批准才写回大纲」",
+            check("弹层说明\u300c你批准才写回大纲\u300d",
                   "批准" in dlg.first.inner_text())
             check("无原生 prompt 残留（Electron 禁用，点了会静默退出）",
                   page.evaluate("() => window.__promptCalled || false") is False)

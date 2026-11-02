@@ -79,10 +79,10 @@ def run_refine(cfg, proj, feedback, client=None, task_dir=None, dry_run=False,
     迭代 50 轮花的钱在 `logs/runs.db` 里查不到（`cost_report.py` 里
     `outline` 出现 0 次）。用户无法知道迭代成本。
 
-    记账口径（免 schema 迁移）：`stage=2` 沿用「整体大纲」阶段号，
+    记账口径（免 schema 迁移）：`stage=2` 沿用“整体大纲”阶段号，
     **`chapter` 记版本号** —— 初版生成时 `stage2_outline` 传的是 `chapter=0`，
     于是第 N 轮迭代记为 `chapter=N`。`cost_report --by-outline` 据此把
-    「初版」与「迭代」分开统计。
+    “初版”与“迭代”分开统计。
 
     预算熔断：本函数**只记录 + 告警，不阻断** —— 精修是用户显式发起的
     单次动作，静默拒绝比多花一点钱更糟。若已超预算会打印醒目提示，
@@ -110,13 +110,13 @@ def run_refine(cfg, proj, feedback, client=None, task_dir=None, dry_run=False,
         return False, "精修子会话失败"
 
     # 空转检测（2026-10-17）：子会话 exit 0 但大纲一字未改时，下面的
-    # check_global_outline 照样通过 → 报「精修完成」，白烧一次 token。
+    # check_global_outline 照样通过 → 报“精修完成”，白烧一次 token。
     # 与备份逐字节相同 = 什么都没做，判失败。
     if read_text(GLOBAL) == read_text(backup):
         return False, (f"精修子会话未产出任何修改（空转）—— 大纲与备份逐字节相同"
                        f"（{backup}）；检查任务路径与子会话是否找到任务文件")
 
-    # 成本归集（stage=2，chapter=版本号 → 与「初版 chapter=0」区分）
+    # 成本归集（stage=2，chapter=版本号 → 与“初版 chapter=0”区分）
     cost_note = ""
     if cost is not None and run_id is not None:
         try:
@@ -142,18 +142,18 @@ def run_refine(cfg, proj, feedback, client=None, task_dir=None, dry_run=False,
 
     # 精修后体检（P0.5-A）。
     #
-    # ⚠️ 2026-09-21 修复「假成功」：这里此前只**打印**体检摘要，返回值恒为
-    # (True, "精修完成")。实测有子会话产出「0 个关键节点、章节规划与预计数不符」
+    # ⚠️ 2026-09-21 修复“假成功”：这里此前只**打印**体检摘要，返回值恒为
+    # (True, "精修完成")。实测有子会话产出“0 个关键节点、章节规划与预计数不符”
     # 的大纲，体检判 FAIL，而 `run_refine` 依然回报成功 —— 用户看到的是
-    # 「精修完成」，拿到的是废稿。这正是本项目最忌讳的假成功。
+    # “精修完成”，拿到的是废稿。这正是本项目最忌讳的假成功。
     #
-    # 修法沿用既有分层（与 `check_global_outline` 的「结构校验」/ `outline_review`
-    # 的「质量体检」同构）：
+    # 修法沿用既有分层（与 `check_global_outline` 的“结构校验”/ `outline_review`
+    # 的“质量体检”同构）：
     #   - `issues` 非空 = **硬性结构问题**（章节规划条数 ≠ 预计章节数、缺预计章节数）
     #     → 必须回报失败，否则用户会带着废稿进入 stage3。
-    #   - 仅 `thins` = **启发式密度提示**（报告自己写明「非质量判决」）
+    #   - 仅 `thins` = **启发式密度提示**（报告自己写明“非质量判决”）
     #     → 打印醒目警告但仍算成功，避免把启发式当判决误伤。
-    #   - 体检本身异常 = **未执行 ≠ 失败** → 明确打印「体检未执行」，
+    #   - 体检本身异常 = **未执行 ≠ 失败** → 明确打印“体检未执行”，
     #     不让用户以为"没输出就是没问题"。
     try:
         review = ov.review(GLOBAL, "data/setting/setting.json")
@@ -163,12 +163,12 @@ def run_refine(cfg, proj, feedback, client=None, task_dir=None, dry_run=False,
         review = None
 
     # 回溯提示：无论第几轮都给**可行动**的路径。
-    # （首轮没有更早版本时，仍要说清「备份在哪 / 怎么回退」，
+    # （首轮没有更早版本时，仍要说清“备份在哪 / 怎么回退”，
     #   否则用户拿着失败消息不知道下一步该做什么。）
     backup_hint = ("可回溯：当前版本已备份到 data/outline/history/global_v"
-                   f"{version}.md；GUI「大纲」页签可用「版本恢复」回到任一历史版本"
+                   f"{version}.md；GUI“大纲”页签可用“版本恢复”回到任一历史版本"
                    "（或 `python scripts/outline_panel.py --list` 查看版本列表）")
-    # 迭代收敛视图：把本轮与上一版对比，给「还要不要再迭代一轮」一个依据。
+    # 迭代收敛视图：把本轮与上一版对比，给“还要不要再迭代一轮”一个依据。
     # （确定性，零 token —— 只读 history/ 与当前 global.md）
     try:
         cmp = ov.compare_with_previous(GLOBAL, "data/setting/setting.json",

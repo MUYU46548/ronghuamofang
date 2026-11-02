@@ -10,7 +10,7 @@
 frontmatter 解析、同样的目录遍历）。已改为**委托**，单一事实源在 bridge。
 顺带删掉了随之成为死代码的 `_parse_frontmatter` / `_safe_list` 及未使用导入。
 
-复制实现的代价在这里体现得很典型：同一个「父目录 rglob 导致跨类目污染」
+复制实现的代价在这里体现得很典型：同一个“父目录 rglob 导致跨类目污染”
 缺陷必须修两遍，而实际上当时只修了 bridge 一处。
 """
 import re
@@ -98,7 +98,7 @@ def _backup_setting_if_exists(setting_path):
 def build_setting_from_vault(vault_path=None, output_path=None):
     """从 vault 构建设定集（data/setting/setting.json）。
 
-    ⚠️ **语义是「整体替换」，不是「合并」/「统一」**：本函数用 vault 扫描
+    ⚠️ **语义是“整体替换”，不是“合并”/“统一”**：本函数用 vault 扫描
     结果构造**全新**的 characters 列表，并把 `plot_fragments` / `timeline`
     置为空列表。因此它**不会**保留 stage1 从素材归并的内容。
 
@@ -182,7 +182,7 @@ def build_setting_from_vault(vault_path=None, output_path=None):
 
 def merge_setting_from_vault(vault_path=None, output_path="data/setting/setting.json",
                              conflict_path="data/setting/vault_conflicts.json"):
-    """把 vault 词条**增量合并**进现有设定集（2026-10-20，台账三·「设定库闭环」）。
+    """把 vault 词条**增量合并**进现有设定集（2026-10-20，台账三·“设定库闭环”）。
 
     ## 与 build_setting_from_vault 的区别（这是它存在的全部理由）
 
@@ -204,7 +204,7 @@ def merge_setting_from_vault(vault_path=None, output_path="data/setting/setting.
 
     vault 是作者的原始笔记（可能很旧），设定集是**已经过素材归并与人工审阅**的定稿。
     让旧笔记悄悄盖掉定稿，等于把审阅工作作废 —— 而那正是闭环要防的事。
-    冲突进 `vault_conflicts.json`，再由 GUI「素材裁决」三态拍板（adopt/reject/uncertain）。
+    冲突进 `vault_conflicts.json`，再由 GUI“素材裁决”三态拍板（adopt/reject/uncertain）。
 
     Returns: stats dict（added / filled / conflicts / skipped_locked / kept_fragments）
     """
@@ -324,7 +324,7 @@ def merge_setting_from_vault(vault_path=None, output_path="data/setting/setting.
         cp.parent.mkdir(parents=True, exist_ok=True)
         write_text(cp, json.dumps({"generated_at": datetime.now().isoformat(timespec="seconds"),
                                    "conflicts": conflicts}, ensure_ascii=False, indent=2))
-        print("[obsidian_integrate] %d 处字段分歧**未自动改**，已记进 %s（去 GUI「素材裁决」拍板）"
+        print("[obsidian_integrate] %d 处字段分歧**未自动改**，已记进 %s（去 GUI“素材裁决”拍板）"
               % (len(conflicts), cp.as_posix()))
     stats["conflicts"] = conflicts
     stats["backup"] = str(backup) if backup else ""

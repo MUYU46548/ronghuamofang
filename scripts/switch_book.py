@@ -14,7 +14,7 @@ NovelForge 是单书工作区：data/ 只存当前一本书。换书时必须清
 
 归档范围（2026-10-01 起）：
 - `data/` 下 8 项产物（progress/setting/outline/chapters/summaries/merged/state/素材清单）
-- **外加 `config/` 与 `materials/`** —— 此前不归档，于是「换书 = 丢配置与素材卡」
+- **外加 `config/` 与 `materials/`** —— 此前不归档，于是“换书 = 丢配置与素材卡”
   （书名/类型/章节数在 `config/project.yaml`，素材与素材卡在 `materials/`）。
 - `config/system.yaml` / `system.local.yaml` 是**应用级**配置（引擎/模型/预算/vault 路径），
   归档时会一并存进书档（便于回溯当时的配置），但**立刻复制一份回工作区** ——
@@ -59,7 +59,7 @@ APP_LEVEL_KEEP = ("system.yaml", "system.local.yaml")
 
 # `data/state/` 下的**工作区级**文件：随工作区走、不随书走（API 审计台账 /
 # 数据迁移版本戳 / 模型列表缓存 / 出厂标记）。全新工作区里它们就已存在 ——
-# 若参与 has_work 判定，空工作区会被判成「有数据」：新建项目逼用户勾归档、
+# 若参与 has_work 判定，空工作区会被判成“有数据”：新建项目逼用户勾归档、
 # 铺设与创建各多归档一次，堆出空壳归档条目（2026-10-24 实测）。书稿进度看
 # `data/state/progress.json` 与 `data/state/tasks/`，它们不在此名单内。
 STATE_APP_FILES = frozenset({"agent_audit.jsonl", "workspace_schema.json",
@@ -68,8 +68,8 @@ STATE_APP_FILES = frozenset({"agent_audit.jsonl", "workspace_schema.json",
 UNSAFE = re.compile(r"[\\/:*?\"<>|]")
 
 # 占位书名：归档后工作区骨架 project.yaml 的 book.name 就是它（见 _archive_root_items）。
-# 它的含义是「还没有书」，不是一本书 —— init_empty 等自动路径若拿它当归档对象，
-# 每次操作都会多出一个空壳归档条目「示例书名（待填写）」（2026-10-24 用户实测：
+# 它的含义是“还没有书”，不是一本书 —— init_empty 等自动路径若拿它当归档对象，
+# 每次操作都会多出一个空壳归档条目“示例书名（待填写）”（2026-10-24 用户实测：
 # 新建项目后归档列表凭空多出这一项，且同一次操作在 import_guard 台账里记两条 archive）。
 PLACEHOLDER_BOOK = "示例书名（待填写）"
 
@@ -87,7 +87,7 @@ def current_book_name(proj_path=None):
     PyYAML 对重复键**静默取后值**，不报错不告警 —— 于是 `book.name` 写了两遍时，
     换书拿到的是**后一个**（历史上踩到过 `user_outline` 重复 → 真实大纲被空值覆盖）。
     对建书工具而言后果更硬：可能把内容归档到**错误书名**的目录下。
-    这类「看起来配好了、实际没生效」的坑必须能被机器一眼看出来。
+    这类“看起来配好了、实际没生效”的坑必须能被机器一眼看出来。
 
     两个刻意的语义（别当成 bug 改掉）：
     1. **只要 project.yaml 存在就一定解析校验**（哪怕 progress.json 已经给出书名）——
@@ -106,7 +106,7 @@ def current_book_name(proj_path=None):
         except Exception as e:                              # noqa: BLE001
             raise ValueError(
                 "读取 " + str(path) + " 失败：" + str(e)[:200] +
-                "　—— project.yaml 有重复键或格式错误时**不能**靠「取后一个值」猜书名"
+                "　—— project.yaml 有重复键或格式错误时**不能**靠“取后一个值”猜书名"
                 "（会把数据归档到错误书名下）。请修掉重复键后重试；"
                 "体检：python scripts/nfctl.py check") from e
     # 书名：progress.json（真实位置 data/state/，旧布局在 data/ 下）优先，project.yaml 兜底。
@@ -146,16 +146,16 @@ def has_work(root=None):
     """工作区是否有**实际内容**（只有空目录不算有数据）。
 
     2026-10-24 改判据：此前只看 ITEMS 目录存在与否，而 `init_empty()` 刚建出来的
-    骨架全是空目录 —— 于是「全新工作区」被判成「有数据」：新建项目向导第 2 步显示
-    「工作区有数据」、逼用户勾归档（不勾创建就被拒），还会触发一次纯属空转的
+    骨架全是空目录 —— 于是“全新工作区”被判成“有数据”：新建项目向导第 2 步显示
+    “工作区有数据”、逼用户勾归档（不勾创建就被拒），还会触发一次纯属空转的
     快照 + 归档。空目录里没有任何可丢的东西，那不是数据。
     """
     if root is None:
         root = DATA_DIR
     if not Path(root).exists():
         # 新鲜工作区（全新克隆 / 出厂未播种，data/ 还没建）= 没数据，不是错误。
-        # 这里抛 FileNotFoundError 会让 GET /state 直接 500 —— 而「工作区有没有
-        # 数据」恰恰是新建项目向导在**最空的时刻**要问的问题（2026-10-10 CI 实测）。
+        # 这里抛 FileNotFoundError 会让 GET /state 直接 500 —— 而“工作区有没有
+        # 数据”恰恰是新建项目向导在**最空的时刻**要问的问题（2026-10-10 CI 实测）。
         return False
     return bool(_item_files(root))
 
@@ -175,13 +175,13 @@ def _move_items(src_root, dest_root):
 
 
 def _materials_have_files():
-    """materials/ 里是否有文件（素材是「要保的东西」，归档判据要看它）。"""
+    """materials/ 里是否有文件（素材是“要保的东西”，归档判据要看它）。"""
     d = PROJECT_ROOT / "materials"
     return d.is_dir() and any(x.is_file() for x in d.rglob("*"))
 
 
 def _has_root_items():
-    """config/ 或 materials/ 里是否有「随书走」的内容。
+    """config/ 或 materials/ 里是否有“随书走”的内容。
 
     只补了应用级配置（归档后复制回来的 system.yaml / system.local.yaml）不算 ——
     否则一次归档之后就会永远认为"工作区还有数据"。
@@ -213,7 +213,7 @@ def _archive_root_items(dest):
         shutil.move(str(src), str(d))
         moved.append(item)
     # ⚠️ 保证工作区 `config/` 目录始终存在，且有一份**可被改写的** `project.yaml`：
-    # 「新建项目」走的是**定向改写**（`set_book_fields` 读原文件再改），文件不在
+    # “新建项目”走的是**定向改写**（`set_book_fields` 读原文件再改），文件不在
     # 就直接 FileNotFoundError（实测：归档过的空工作区上 POST /project/create → 500）。
     (PROJECT_ROOT / "config").mkdir(parents=True, exist_ok=True)
     for name in APP_LEVEL_KEEP:
@@ -271,8 +271,8 @@ def archive(book_name=None, yes=False, force=False, guard_snapshot=True, reason=
     guard_snapshot=False 仅供**已经打过 before-import 快照**的上层调用方
     （restore）使用 —— 契约要求"操作前一次快照"，不是"每层都来一次"。
     reason=归档原因（2026-10-31 加）：写进 `_meta.json` 的 `why`。
-        从「整本否掉」一键归档时传作者的理由，半年后翻归档列表能看见
-        「这本当初为什么被放进来」，而不是只有一个书名和日期。
+        从“整本否掉”一键归档时传作者的理由，半年后翻归档列表能看见
+        “这本当初为什么被放进来”，而不是只有一个书名和日期。
         ⚠️ 参数名**不能叫 note**：函数体里 `note` 已被用来存快照提示
         （`；回退点 xxx`），同名会被覆盖 —— 第一版就这么把"理由"写成了回退点。
     """
@@ -285,7 +285,7 @@ def archive(book_name=None, yes=False, force=False, guard_snapshot=True, reason=
         return True, "工作区无数据，无需归档"
     # 占位名 + 零内容 = 没有可归档的书：归档后骨架 project.yaml 的 book.name 恒为
     # PLACEHOLDER_BOOK，拿它当书名建目录只会往归档列表里塞空壳条目
-    # （2026-10-24 用户实测：新建项目后多出「示例书名（待填写）」，items=[]）。
+    # （2026-10-24 用户实测：新建项目后多出“示例书名（待填写）”，items=[]）。
     # 有书稿内容或有素材时照常归档 —— 那是要保的东西，名字再怪也不能丢。
     if name == PLACEHOLDER_BOOK and not has_work() and not _materials_have_files():
         return True, "工作区只有占位骨架（未起过书名），无需归档"
@@ -310,7 +310,7 @@ def archive(book_name=None, yes=False, force=False, guard_snapshot=True, reason=
         shutil.move(str(dest), str(tmp_dest))
 
     try:
-        # 先搬「书档级」的 config/ 与 materials/，再搬 data/ 产物。
+        # 先搬“书档级”的 config/ 与 materials/，再搬 data/ 产物。
         # 顺序有意为之：root 项挪动失败时 data/ 还没动，回退面最小。
         root_moved, kept = _archive_root_items(dest)
         moved = _move_items(DATA_DIR, dest)
@@ -332,14 +332,14 @@ def archive(book_name=None, yes=False, force=False, guard_snapshot=True, reason=
             fr.clear_marker(PROJECT_ROOT)
         except Exception:                                 # noqa: BLE001
             pass
-        return True, f"已归档「{name}」→ {dest}（{len(moved)} 项{extra}）{keep_note}{note}"
+        return True, f"已归档“{name}”→ {dest}（{len(moved)} 项{extra}）{keep_note}{note}"
     except Exception as e:
         # 失败：先把已挪进书档的 config/ materials/ 并回工作区，再恢复旧归档。
         #
         # ⚠️ 回退本身失败时**绝不许删 dest**（2026-10-25 加固）：materials/ 已经被
         # `_archive_root_items` 搬进 dest 了，若 `_restore_root_items` 半路抛错，
         # 原来的 `shutil.rmtree(dest)` 会把用户的素材卡连同书档一起删掉 ——
-        # 「归档失败」不该以「素材消失」收场。留下 dest 并明说放在哪，人还能捞回来。
+        # “归档失败”不该以“素材消失”收场。留下 dest 并明说放在哪，人还能捞回来。
         restored = True
         restore_err = None
         try:
@@ -374,17 +374,17 @@ def restore(book_name, yes=False):
         return False, str(e)
     # 先自动归档当前工作区（若不同书）
     cur = current_book_name()
-    # 判据含 _has_root_items()：只靠 data/ 判断的话，「data 空但 config/materials
-    # 有内容」的工作区会被直接覆盖掉，且没有任何归档留底。
+    # 判据含 _has_root_items()：只靠 data/ 判断的话，“data 空但 config/materials
+    # 有内容”的工作区会被直接覆盖掉，且没有任何归档留底。
     if cur and sanitize(cur) != sanitize(book_name) and (has_work() or _has_root_items()):
-        print(f"[switch_book] 当前工作区有「{cur}」数据，先自动归档")
+        print(f"[switch_book] 当前工作区有“{cur}”数据，先自动归档")
         ok, msg = archive(cur, yes=True, force=True, guard_snapshot=False)
         if not ok:
             return False, f"自动归档失败: {msg}"
     moved = _move_items(src, DATA_DIR)
     root_moved = _restore_root_items(src)
     extra = ("，含 " + "、".join(root_moved)) if root_moved else ""
-    return True, (f"已恢复「{book_name}」→ data/（{len(moved)} 项{extra}）"
+    return True, (f"已恢复“{book_name}”→ data/（{len(moved)} 项{extra}）"
                   f"；回退点 {entry.get('snapshot_id')}")
 
 
@@ -395,11 +395,11 @@ def init_empty():
     # 自动归档当前工作区（防止误操作丢失）。
     # ⚠️ 占位名（PLACEHOLDER_BOOK）不是一本书：归档后骨架 project.yaml 的 book.name
     # 就是它，拿它再归档一次只会堆出空壳归档条目（且把 materials/ 里用户为新书
-    # 准备的素材搬走 → 新书阶段1 必报「materials/raw 无素材」）。没有书就没有可
+    # 准备的素材搬走 → 新书阶段1 必报“materials/raw 无素材”）。没有书就没有可
     # 归档的归属，根项留在工作区原地。
     cur = current_book_name()
     if cur and cur != PLACEHOLDER_BOOK:
-        print(f"[switch_book] 自动归档当前工作区「{cur}」")
+        print(f"[switch_book] 自动归档当前工作区“{cur}”")
         ok, msg = archive(cur, yes=True, force=True)
         if not ok:
             return False, f"自动归档失败: {msg}"
@@ -426,8 +426,8 @@ def list_books():
             if not d.is_dir():
                 continue
             # _trash = 删除归档的回收站（POST /project/archive/delete 的默认落点）。
-            # 不跳过的话它会以「一本叫 _trash 的书」出现在归档列表里。
-            # 只认这一个名字：宽到 `_` 开头会连真叫「_某某」的书一起藏掉。
+            # 不跳过的话它会以“一本叫 _trash 的书”出现在归档列表里。
+            # 只认这一个名字：宽到 `_` 开头会连真叫“_某某”的书一起藏掉。
             if d.name == "_trash":
                 continue
             meta = {}
@@ -471,7 +471,7 @@ def main():
     try:
         return _dispatch(args)
     except ValueError as e:
-        # current_book_name 对「project.yaml 重复键 / 格式错误」**报错不吞**（P2）。
+        # current_book_name 对“project.yaml 重复键 / 格式错误”**报错不吞**（P2）。
         # 这里把它收敛成**可行动的一行话**而不是 traceback：换书是破坏性操作，
         # 用户需要知道该去改哪个文件，而不是读一段栈。
         print("[switch_book] 拒绝执行（配置有问题，先修它再换书）：")
@@ -480,12 +480,12 @@ def main():
 
 
 def _dispatch(args):
-    # 「要动哪个项目」必须**每次都说清**（2026-10-03 事故后加的）。
+    # “要动哪个项目”必须**每次都说清**（2026-10-03 事故后加的）。
     # PROJECT_ROOT 取自 `__file__`，**不是 CWD** —— 从别的目录敲 `python 某路径/switch_book.py`
     # 时，它动的是**脚本所在的那个仓库**，不是你现在所在的目录。这个差别很致命：
     # 归档 = 把当前书的产物搬走并重置工作区。实测就有一次"以为在临时目录里跑，结果归档了
     # 真实工作区"（已完整恢复）。所以这里在**任何写操作之前**把将要操作的根打出来，
-    # 并显式提示「与 CWD 不同」这一情形。
+    # 并显式提示“与 CWD 不同”这一情形。
     if not args.list:
         try:
             cwd = Path.cwd().resolve()
@@ -500,9 +500,9 @@ def _dispatch(args):
     # 早在 FORBIDDEN_IN_AGENT_MODE 里，CLI 这三个旗标此前**零守卫** —— Agent 一条
     # 命令就能搬空/覆盖工作区。gates.agent_mode=true 下无条件拒（方案A 口径，判据
     # 单源 agent_guard.cli_approval_gate），位于任何搬移/写盘之前；--list 只读不受限。
-    # 判据读**两份**配置取「或」：CWD 项目（配置解析惯例）+ PROJECT_ROOT（本脚本真正
-    # 操作的根）—— 本脚本数据根不随 CWD 走，只读 CWD 就出现「按 A 根的配置放行、
-    # 动的却是 B 根」的分叉。延迟 import（本脚本 utils 一律函数内导入，见 main 顶部）。
+    # 判据读**两份**配置取“或”：CWD 项目（配置解析惯例）+ PROJECT_ROOT（本脚本真正
+    # 操作的根）—— 本脚本数据根不随 CWD 走，只读 CWD 就出现“按 A 根的配置放行、
+    # 动的却是 B 根”的分叉。延迟 import（本脚本 utils 一律函数内导入，见 main 顶部）。
     if args.init or args.archive is not None or args.restore:
         from utils import agent_guard
         from utils.config_io import load_config_yaml

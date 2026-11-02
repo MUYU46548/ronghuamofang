@@ -5,14 +5,14 @@
 
 沙盒原版（SP-1024）刻意**不含网络代码**，LLM 调用由集成方注入。本仓的客户端有
 两条路径：`run_task(任务文件)` 与更底层的 `_post_chat(messages)`。前者按
-「===FILE:」协议落盘、只回 `stdout_tail`（截断到 2000 字）—— 成书提炼要的是**整段
+“===FILE:”协议落盘、只回 `stdout_tail`（截断到 2000 字）—— 成书提炼要的是**整段
 JSON 正文**，所以必须走 `_post_chat`。本仓已有三处同样用法
 （`branch_samples` / `field_refine` / `open_variants`），不是新开的口子。
 
 ## 三条纪律
 
 - **截断即失败**：`finish_reason == "length"` 时正文不完整，JSON 必然解析失败；
-  这里提前抛 `LLMCallError`，让上层按「本章未完成」处理（可重跑），
+  这里提前抛 `LLMCallError`，让上层按“本章未完成”处理（可重跑），
   绝不把半截 JSON 当产出落盘 —— 与全仓的截断纪律同源。
 - **成本必须记**：`stats` 累加 tokens / 估算金额，落盘到 `cost.json`。
   沙盒版零额度；本仓是真花钱，不记账等于让用户闭眼烧。
@@ -51,8 +51,8 @@ def make_call(client: Any, *, max_tokens: Optional[int] = None,
     """
     if not hasattr(client, "_post_chat"):
         raise LLMCallError(
-            "当前引擎不支持这种「一次把整段书稿交给模型」的用法。"
-            "请到「设置 → 引擎与模型」里改用直连模型后再试；"
+            "当前引擎不支持这种“一次把整段书稿交给模型”的用法。"
+            "请到“设置 → 引擎与模型”里改用直连模型后再试；"
             "命令行也可以先用 --dry-run 预演（不花 token）。")
 
     def call(prompt: str) -> str:

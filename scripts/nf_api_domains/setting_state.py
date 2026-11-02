@@ -6,18 +6,18 @@
 这三条是 A3（素材库状态机）的**读侧 + 写侧**入口，服务对象是**外部 Agent**
 （经 `nf_mcp.py` 暴露成 MCP 工具）。它们只碰 `data/setting/` 下的**既有产物**
 （`merge_audit.json` / `canon.json` / `tombstones.json` / `setting.json`），
-**不新造数据层** —— 与域模块「薄适配」的本分一致。
+**不新造数据层** —— 与域模块“薄适配”的本分一致。
 
 ## 语义红线
 
-1. **`checked=false` ≠「没有冲突」**：设定集不存在 / 解析失败时 audit 给的是
-   `checked=false`。必须原样透出，让调用方看见「**没查**」而不是「一致」
+1. **`checked=false` ≠“没有冲突”**：设定集不存在 / 解析失败时 audit 给的是
+   `checked=false`。必须原样透出，让调用方看见“**没查**”而不是“一致”
    （A3 的 W7 教训：空结果被读成通过）。
 2. **reject 必须写原因**：无原因的否决，三天后自己也看不懂（同沙盒审核域）。
 3. **人工拍板 > 机器判定**：`set_entry_status` 打 `status_source="human"` 标记，
    下一轮 stage1 的 `apply_status` 会跳过它 —— 否则拍板被机器判定抹掉 = 白拍。
 4. **`body` 由 `do_POST` 传入**：handler 里**绝不**再调 `h._body()`（请求体是
-   一次性流，二次读会挂到客户端超时，表现为「点了没反应」且服务端日志空白）。
+   一次性流，二次读会挂到客户端超时，表现为“点了没反应”且服务端日志空白）。
 """
 import nf_api as api
 
@@ -137,7 +137,7 @@ def handle_setting_status(h, body):
 
     行为：
       · `reject` → **先写墓碑**（墓碑按名字生效，不依赖设定集条目），再把条目
-        标为 rejected。无条目也成功（「不得复活」立即生效）。
+        标为 rejected。无条目也成功（“不得复活”立即生效）。
       · `adopt` / `uncertain` → 改设定集条目的 status；**条目不存在则 404**
         （这两种状态只能挂在条目上，凭空记没有意义）。
       · 拍板后刷新一次审计（`merge_audit.json`），让冲突清单反映最新状态；

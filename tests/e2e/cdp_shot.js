@@ -1,4 +1,4 @@
-// 用 CDP 驱动 headless Chrome 截图「大纲」页签（不依赖 agent-browser 的 Chromium 下载）
+// 用 CDP 驱动 headless Chrome 截图“大纲”页签（不依赖 agent-browser 的 Chromium 下载）
 const http = require('http');
 const { spawn } = require('child_process');
 const fs = require('fs');
@@ -86,7 +86,7 @@ async function shot(cdp, name) {
   // 1) 首页
   await shot(cdp, 'ui_1_pipeline.png');
 
-  // 2) 切到「大纲」页签
+  // 2) 切到“大纲”页签
   const clicked = await evaluate(cdp, `(() => {
     const btns = [...document.querySelectorAll('.tabs button')];
     const b = btns.find(x => x.textContent.trim() === '大纲');

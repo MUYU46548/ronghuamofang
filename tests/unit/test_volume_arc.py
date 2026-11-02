@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
-"""卷弧滚动规划的自检（2026-10-20，台账三·「卷弧双层滚动规划」）。
+"""卷弧滚动规划的自检（2026-10-20，台账三·\u300c卷弧双层滚动规划\u300d）。
 
 ## 主判据
 
 **分卷与窗口**
 1. `volume_of` / `volume_range`：20 章/卷时第 21 章属第 2 卷，末卷不越界
-2. `horizon`：只铺「当前卷 + 后续 roll-1 卷」；roll=0 → 全书（关闭滚动 = 老行为）
+2. `horizon`：只铺\u300c当前卷 + 后续 roll-1 卷\u300d；roll=0 → 全书（关闭滚动 = 老行为）
 3. 写到第 45 章、roll=2 → 窗口到第 100 章（只往前看两卷，不是全书）
 
 **卷纲质量（会失败的反证）**
@@ -76,7 +76,7 @@ class Stub:
     def __init__(self, volume_text=None, chapter_body=None):
         self.volume_text = volume_text
         # 六字段：stage3 对**新生成**的章大纲按 strict 校验（2026-10-20），
-        # 夹具少了「小目标」「悬念钩子」会让整个滚动用例假红。
+        # 夹具少了“小目标”“悬念钩子”会让整个滚动用例假红。
         self.chapter_body = chapter_body or (
             "## 第N章 名字\n- 核心事件：某事发生并被挡住\n- 涉及角色：苏芷\n"
             "- 小目标：拿到那份旧记录\n- 悬念钩子：记录上多出一个陌生名字\n"
@@ -205,7 +205,7 @@ def case_render():
     sb = Sandbox()
     try:
         r = VA.render_context(25, 200, {"chapter": {"volume_size": 20}}, {})
-        check("P3 无卷纲时明确说「卷纲尚未生成」", "尚未生成" in r, r)
+        check("P3 无卷纲时明确说\u300c卷纲尚未生成\u300d", "尚未生成" in r, r)
         check("P3 无卷纲时给出补救命令", "volume_plan.py" in r, r)
 
         p = VA.volume_path(2)
@@ -216,7 +216,7 @@ def case_render():
         check("P3 注入关键转折", "档案室被封" in r2, r2)
         check("P3 注入本章在卷内的位置（卷纲原话）",
               "本章在本卷里的位置" in r2 and "借阅卡" in r2, r2)
-        check("P3 远层没规划就写「尚未规划」（不编细节）", "尚未规划" in r2, r2)
+        check("P3 远层没规划就写\u300c尚未规划\u300d（不编细节）", "尚未规划" in r2, r2)
 
         plan = VA.load_plan()
         VA.mark_outlined(plan, 3, 41, 60)
@@ -253,7 +253,7 @@ def case_ensure():
         ok2, msg2, gen2 = ensure_volume(1, cfg, proj, client=stub2, total=200, written=0)
         check("P4 已存在且合格 → 不再调模型（0 次调用）",
               ok2 and not gen2 and len(stub2.calls) == 0, stub2.calls)
-        check("P4 并且明说「已存在且合格」", "已存在且合格" in msg2, msg2)
+        check("P4 并且明说\u300c已存在且合格\u300d", "已存在且合格" in msg2, msg2)
 
         # 存在但不合格（缺章）→ 重新规划
         text = [ln for ln in volume_md(1, 1, 20).splitlines() if not ln.startswith("第 7 章")]

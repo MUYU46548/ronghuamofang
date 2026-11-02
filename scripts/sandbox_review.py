@@ -2,7 +2,7 @@
 """沙盒产物审核队列 CLI（2026-09-21）。
 
 沙盒（`data/state/obsidian_sandbox/`，可配置到你的 Obsidian 库内目录）是
-「准备粘贴进 vault」的中转区。`obsidian_bridge.write_sandbox` /
+“准备粘贴进 vault”的中转区。`obsidian_bridge.write_sandbox` /
 `outline_export` 等写入时会自动登记为**待审**；本 CLI 用来审它们。
 
 用法：

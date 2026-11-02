@@ -8,7 +8,7 @@
     **非人工来源**拒绝审批执行 —— 外部 Agent 可读、可跑流水线，但不能代替用户审批。
     HTTP 层对 /approve 早有 403 守卫，但 CLI 这条路原先没有任何检查
     （Agent 照着文档跑 `approve.py --stage 2` 就能绕过），本块把后门堵上。
-    加固档下人工来源**只有「真实交互式终端」一种**：双端 TTY 快筛 +
+    加固档下人工来源**只有“真实交互式终端”一种**：双端 TTY 快筛 +
     祖先进程链取证；`--human` / `MOFANG_SOURCE=gui` 声明不构成人工证据。
     详见 utils/agent_guard.py。
 
@@ -38,7 +38,7 @@ def main():
 
     # Agent 模式守卫（CLI 层）：判据与 HTTP 层同源（utils/agent_guard）。
     # agent_mode=True = 加固档：2026-10-15 方案A 起 CLI 审批**恒拒**（cli_approval_gate），
-    # 证据只入台账；正路「真实交互终端」废止，审批只走桌面端 GUI 双因子。
+    # 证据只入台账；正路“真实交互终端”废止，审批只走桌面端 GUI 双因子。
     # 必须在**任何写操作之前**：一旦快照/改 progress.json 就晚了。
     if agent_guard.agent_mode_enabled(agent_guard.load_project_config()):
         is_human, evidence = agent_guard.cli_approval_gate(explicit_human=args.human)

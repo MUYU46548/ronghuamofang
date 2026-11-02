@@ -3,10 +3,10 @@
 
 ## 钉什么（用户原话：客户端里放样例稿的地方，免责声明写了没）
 
-A. 文风页签里有「范文正文」框，且明确标着「保存前需确认样稿使用声明」
-B. 填正文点保存 → 先弹声明框（不弹 = 静默同意，FAIL），**默认焦点在「我不同意」**
-C. 点「我不同意」→ 弹层关闭、盘上一个字节都没写
-D. 再点保存 → 点「我同意并保存」→ 文件落盘 + 同意记录落盘 + 状态转「已同意」
+A. 文风页签里有\u300c范文正文\u300d框，且明确标着\u300c保存前需确认样稿使用声明\u300d
+B. 填正文点保存 → 先弹声明框（不弹 = 静默同意，FAIL），**默认焦点在\u300c我不同意\u300d**
+C. 点\u300c我不同意\u300d→ 弹层关闭、盘上一个字节都没写
+D. 再点保存 → 点\u300c我同意并保存\u300d→ 文件落盘 + 同意记录落盘 + 状态转\u300c已同意\u300d
 E. 刷新页面 → 仍显示已同意（同意记录在后端，不是 localStorage 假象）
 F. 无 console error / 无 4xx
 
@@ -47,11 +47,11 @@ PASS, FAIL = [], []
 
 SAMPLE = (
     "他把门带上，屋里只剩炉子上的一线白汽。\n\n"
-    "「你回来得比信上写的早。」她说这话时没抬头，手里的锥子照旧扎进鞋底。\n\n"
-    "他站着没动，靴子上的雪化成水，沿着砖缝往低处走。过了很久才说：「路上没停。」\n\n"
+    "\u300c你回来得比信上写的早。\u300d她说这话时没抬头，手里的锥子照旧扎进鞋底。\n\n"
+    "他站着没动，靴子上的雪化成水，沿着砖缝往低处走。过了很久才说：\u300c路上没停。\u300d\n\n"
     "她没有问为什么。锥子穿过去，麻线抽紧，发出很轻的一声。窗外的风把整条街的招牌都吹得响，"
     "只有这一间铺子像是没听见。\n\n"
-    "「锅里还有半碗。」她终于抬头，看了他一眼，又低下去，「凉了你自己热。」\n"
+    "\u300c锅里还有半碗。\u300d她终于抬头，看了他一眼，又低下去，\u300c凉了你自己热。\u300d\n"
 ) * 3
 
 
@@ -70,8 +70,8 @@ def build_workspace():
     (ws / "config" / "project.yaml").write_text(
         'book:\n  name: "样例稿声明验收书"\n  chapters: 3\n  style_reference: ""\n',
         encoding="utf-8")
-    # 文风面板挂载时会自动分析（未配置范文则回落到「第 N 章」）——
-    # 没有章节文件就会刷一串 400，把「无 4xx」判据变成噪音。这里给三章正经正文。
+    # 文风面板挂载时会自动分析（未配置范文则回落到“第 N 章”）——
+    # 没有章节文件就会刷一串 400，把“无 4xx”判据变成噪音。这里给三章正经正文。
     for i in range(1, 4):
         (ws / "data" / "chapters" / "raw" / ("%02d.md" % i)).parent.mkdir(
             parents=True, exist_ok=True)
@@ -125,16 +125,16 @@ def main():
 
             print("\n=== A. 入口与声明提示 ===")
             box = page.locator(".card").filter(has_text="范文正文")
-            check("文风页签里有「范文正文」框", box.count() >= 1, box.count())
+            check("文风页签里有\u300c范文正文\u300d框", box.count() >= 1, box.count())
             if box.count() == 0:
                 ctx.close()
                 browser.close()
                 return 1
             text0 = box.first.inner_text()
-            check("框上写着「保存前需确认样稿使用声明」",
+            check("框上写着\u300c保存前需确认样稿使用声明\u300d",
                   "样稿使用声明" in text0, text0[:160])
 
-            print("\n=== B/C. 保存先弹声明；「我不同意」= 一个字都不写 ===")
+            print("\n=== B/C. 保存先弹声明；\u300c我不同意\u300d= 一个字都不写 ===")
             box.first.locator("textarea.style-ref-input").fill(SAMPLE)
             box.first.locator("button:has-text('保存')").first.click()
             page.wait_for_timeout(500)
@@ -146,7 +146,7 @@ def main():
                 return 1
             focus_txt = page.evaluate(
                 "() => (document.activeElement && document.activeElement.textContent || '').trim()")
-            check("默认焦点在「我不同意」", "不同意" in focus_txt, focus_txt[:20])
+            check("默认焦点在\u300c我不同意\u300d", "不同意" in focus_txt, focus_txt[:20])
             UX.shot(page, "SC1_notice")
             dlg.locator("button:has-text('我不同意')").click()
             page.wait_for_timeout(400)
@@ -165,8 +165,8 @@ def main():
                 d = json.loads(consent_file.read_text(encoding="utf-8"))
                 check("记录里 agreed=true 且带时间", d.get("agreed") is True and bool(d.get("at")), d)
             body = box.first.inner_text()
-            check("状态转「已同意样例稿使用声明」", "已同意样例稿使用声明" in body, body[:200])
-            check("字数口径回显「已生效」", "已生效" in body, body[:200])
+            check("状态转\u300c已同意样例稿使用声明\u300d", "已同意样例稿使用声明" in body, body[:200])
+            check("字数口径回显\u300c已生效\u300d", "已生效" in body, body[:200])
             UX.shot(page, "SC2_saved")
 
             print("\n=== E. 刷新后仍是已同意（记录在后端） ===")

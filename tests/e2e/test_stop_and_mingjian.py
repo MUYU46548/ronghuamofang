@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""本轮「停止按钮 / 明鉴规则库 / parse_llm_json」三项改动的离线自检。
+"""本轮\u300c停止按钮 / 明鉴规则库 / parse_llm_json\u300d三项改动的离线自检。
 
 **不碰真实仓库数据**：临时项目根里跑，真实 data/ 零写入。
 
@@ -108,13 +108,13 @@ def test_stop():
         api.clear_stop("job-stop-test")
         ok(orc._stop_requested() is False, "清除标志后 _stop_requested() 为 False（不误中断）")
 
-        # 退出码 → job 结果的映射：4 是「用户中断」，不能标成失败（GUI 会飘红）
+        # 退出码 → job 结果的映射：4 是“用户中断”，不能标成失败（GUI 会飘红）
         saved_run = api.orch_run
         try:
             api.orch_run = lambda **kw: 4
             ok_flag, msg = api.act_run_stage({}, None, 1)()
             ok(ok_flag is True and "用户中断" in msg,
-               "act_run_stage 把退出码 4 映射为成功态 + 「用户中断」（实际 %s / %s）"
+               "act_run_stage 把退出码 4 映射为成功态 + \u300c用户中断\u300d（实际 %s / %s）"
                % (ok_flag, msg))
             api.orch_run = lambda **kw: 3
             ok_flag3, msg3 = api.act_run_stage({}, None, 1)()
@@ -186,13 +186,13 @@ def test_mingjian():
 
     # 同一段文本：合并前 vs 合并后
     found = pf.check_confusables(MINGJIAN_ONLY_SAMPLE, 1)
-    hit_words = {f["detail"].split("「")[1].split("」")[0] for f in found
+    hit_words = {f["detail"].split("\u300c")[1].split("\u300d")[0] for f in found
                  if "疑似错字" in f["detail"]}
 
     saved = pf.CONFUSABLES
     try:
         pf.CONFUSABLES = list(local_pairs)          # 用真实基线对照
-        base_words = {f["detail"].split("「")[1].split("」")[0]
+        base_words = {f["detail"].split("\u300c")[1].split("\u300d")[0]
                       for f in pf.check_confusables(MINGJIAN_ONLY_SAMPLE, 1)
                       if "疑似错字" in f["detail"]}
     finally:
@@ -206,8 +206,8 @@ def test_mingjian():
 
     # 豁免表：合法异形词不上报
     exc_details = " ".join(f["detail"] for f in pf.check_confusables(EXCLUDED_SAMPLE, 1))
-    ok("既而" not in exc_details, "豁免生效：「既而」不上报（文言连词，非错字）")
-    ok("布署" not in exc_details, "豁免生效：「布署」不上报（《现汉》异形词）")
+    ok("既而" not in exc_details, "豁免生效：\u300c既而\u300d不上报（文言连词，非错字）")
+    ok("布署" not in exc_details, "豁免生效：\u300c布署\u300d不上报（《现汉》异形词）")
     ok(set(pf.TYPO_EXCLUDE_MINGJIAN) >= {"既而", "布署"}, "豁免表本身可查")
 
     # 明鉴标点规则

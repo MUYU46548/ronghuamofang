@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """新面板的真机视觉验收（2026-10-20）：七维评审账本 + 素材裁决。
 
-为什么单独写一个：这两个面板是「后端判据 → GUI 显示」的最后一公里，
+为什么单独写一个：这两个面板是\u300c后端判据 → GUI 显示\u300d的最后一公里，
 单元测试证明不了"打开页面能看到、点得动、没有 console error"。
 沿用 `e2e_ux_verify.py` 的垫片与免责声明放行流（同一套，不另写一份）。
 
@@ -129,7 +129,7 @@ def build_workspace():
     dims = [
         {"dim": "plot", "score": 8, "quote": "他推开门的时候，屋檐上的水线正连成了串，地上积了一小滩暗色的水。", "note": "开门即入场景，因果清楚"},
         {"dim": "timeline", "score": 9, "quote": "“你迟到了。”老者没有抬头，手指在桌沿上慢慢摩挲。", "note": "无时间矛盾"},
-        # 故意给一条编造的举证：GUI 必须显示「未计分」而不是 8 分
+        # 故意给一条编造的举证：GUI 必须显示“未计分”而不是 8 分
         {"dim": "space", "score": 7, "quote": "他从怀里掏出那只停在三点二十的怀表。", "note": "（这条是编的，用于验收未举证显示）"},
         {"dim": "reference", "score": 8, "quote": "院子里的老狗趴在墙根，尾巴动了一下，又沉下去。", "note": "指代清楚"},
         {"dim": "relation", "score": 7, "quote": "“你迟到了。”老者没有抬头，手指在桌沿上慢慢摩挲。", "note": "互动符合关系"},
@@ -198,7 +198,7 @@ def main():
               (one.get("dims") or {}).get("plot"))
         cf = api_get("/setting/conflicts")
         check("/setting/conflicts 已检查", cf.get("checked") is True, cf.get("reason"))
-        check("识别出「身份」字段分歧（苏芷两份素材）",
+        check("识别出\u300c身份\u300d字段分歧（苏芷两份素材）",
               any(c.get("field") == "身份" for c in (cf.get("review_conflicts") or [])),
               cf.get("review_conflicts"))
 
@@ -217,8 +217,8 @@ def main():
             check("七维评审账本卡片渲染", card.count() >= 1, card.count())
             head = card.locator(".rl-table thead th").all_inner_texts() if card.count() else []
             check("表头 7 个维度 + 章 + 逻辑均分 + 审美", len(head) == 10, head)
-            check("表头含「情节连贯性」", "情节连贯性" in head, head)
-            check("未举证维度显示「未举证」", "未举证" in card.inner_text(), card.inner_text()[:200])
+            check("表头含\u300c情节连贯性\u300d", "情节连贯性" in head, head)
+            check("未举证维度显示\u300c未举证\u300d", "未举证" in card.inner_text(), card.inner_text()[:200])
             card.locator(".rl-table tbody tr").first.click()
             page.wait_for_timeout(600)
             # 七维 7 条 + 审美五问 5 条 = 12 条明细块
@@ -249,7 +249,7 @@ def main():
             check("素材裁决卡片渲染", sc.count() >= 1, sc.count())
             # 设定列表的摘要要能回落到 role（否则整列"（无描述）"，像设定集是空的）
             row = page.locator(".setting-row").first
-            check("设定列表回落到 role/snippet 显示（不是一排「无描述」）",
+            check("设定列表回落到 role/snippet 显示（不是一排\u300c无描述\u300d）",
                   "档案室整理员" in row.inner_text(), row.inner_text()[:80])
             body = sc.inner_text() if sc.count() else ""
             check("显示待裁决数量", "处待裁决" in body, body[:200])
@@ -257,7 +257,7 @@ def main():
             check("显示双方出处（素材甲 / 素材乙）",
                   "素材甲" in body or "素材乙" in body or "a.md" in body, body[:400])
             btn = sc.locator("button:has-text('否决该条目')").first
-            check("有「否决该条目」按钮", btn.count() == 1)
+            check("有\u300c否决该条目\u300d按钮", btn.count() == 1)
             btn.click()
             page.wait_for_timeout(400)
             check("点否决后要求填原因（输入框出现）", sc.locator(".sc-input").count() == 1,

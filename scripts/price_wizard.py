@@ -149,7 +149,7 @@ def main():
             print("  取消")
             return 0
         if name in rates:
-            print(f"  {name} 已存在，请用「修改」")
+            print(f"  {name} 已存在，请用“修改”")
             return 0
         in_price = prompt_float("  输入单价（元/百万 token）")
         out_price = prompt_float("  输出单价（元/百万 token）")
@@ -163,7 +163,7 @@ def main():
     elif action == "修改模型":
         name = input("  模型名: ").strip()
         if name not in rates:
-            print(f"  {name} 不存在，请用「新增」")
+            print(f"  {name} 不存在，请用“新增”")
             return 0
         cur = rates[name]
         print(f"  当前: in={cur['in']} out={cur['out']} cache_read={cur.get('cache_read', '无')}")

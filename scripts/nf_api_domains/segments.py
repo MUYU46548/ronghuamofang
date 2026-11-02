@@ -5,13 +5,13 @@
 
 `/outline/segments`（读）与 `/outline/segments/set`（写）是**同一个状态机**的两半
 ——判据与记账全在 `utils.outline_segments`（切分 → 记账 → `gate_status` 放行）。
-放不进现有任何一块地：`outline.py` 的宪章是「只承载读端点、写留在 do_POST」，
+放不进现有任何一块地：`outline.py` 的宪章是“只承载读端点、写留在 do_POST”，
 `sandbox.py` 管沙盒审核，`plan.py` 管规划四态。与其把一个功能拆到三个文件，
 不如让读写同居一处，边界清楚。
 
 ## 红线：读随便，勾不行
 
-「把某段标为已读通过」是**审批级**动作 —— 分段不降低强度（全过才放行 stage2），
+“把某段标为已读通过”是**审批级**动作 —— 分段不降低强度（全过才放行 stage2），
 所以勾一段 = 替用户读了那一段。因此：
 
 - 写侧要求 **GUI 双因子**（来源头 + 主进程签发 token），实现复用
@@ -38,7 +38,7 @@ def handle_segments_get(h):
     前端据此决定要不要渲染分段面板：切不出两段时面板毫无意义（契约 2）。
 
     `gate_ok` / `gate_message` 与 CLI 是同一份判据的回显，让用户在勾之前就看见
-    「还差哪几段」，而不是点「确认放行」吃一个 409 才知道。
+    “还差哪几段”，而不是点“确认放行”吃一个 409 才知道。
     """
     try:
         from utils import outline_segments as seg
@@ -70,7 +70,7 @@ def handle_segments_get(h):
             "invalidations": sm.get("invalidations", 0),
             "updated_at": sm.get("updated_at", ""),
             "doc_exists": bool(sm.get("doc_exists")),
-            "doc_path": "data/outline/global.md",    # 供前端「预览原文」按钮直开
+            "doc_path": "data/outline/global.md",    # 供前端“预览原文”按钮直开
             "gate_ok": bool(gate_ok),
             "gate_message": gate_msg or "",
             "switch_on": bool(sw),
@@ -120,7 +120,7 @@ def _gui_only(h, what):
     """写侧闸：复用 project 域的 `_gui_only`（判据 = agent_guard.is_trusted_gui）。
 
     **函数内延迟 import**：域模块之间在 nf_api 导入期互相 import 会形成
-    「nf_api → 域A → 域B → nf_api」的半初始化环；调用期再取就没有环。
+    “nf_api → 域A → 域B → nf_api”的半初始化环；调用期再取就没有环。
     为什么不另写一份：双因子判据只能有一份，抄一份就等于给自己开后门。
     """
     from nf_api_domains.project import _gui_only as _impl

@@ -102,7 +102,7 @@ def case_token_pause():
         cost = CostTracker(db, limit_yuan=300, warn_ratio=0.7,
                            token_limit={"enabled": True, "max_total_tokens": 100000,
                                         "per_request_max_tokens": 8000})
-        # hermes：¥ 恒 0 —— 这正是「金额阈值是虚设」的实证
+        # hermes：¥ 恒 0 —— 这正是“金额阈值是虚设”的实证
         cost.charge_cost(rid, 4, 1, {"tokens": 20000, "tokens_out": 5000,
                                      "provider": "hermes", "model": "hermes-x"})
         d1 = cost.status_detail(rid)
@@ -288,7 +288,7 @@ def run_sandbox(cap):
         "    max_total_tokens: %d\n" % cap, encoding="utf-8")
     (root / "config" / "project.yaml").write_text(
         "book:\n  name: token 熔断测试书\n  chapters: 2\n", encoding="utf-8")
-    # 产物夹具（2026-10-11「完成判定挂产物」后必须有）：本沙盒的替身阶段会
+    # 产物夹具（2026-10-11“完成判定挂产物”后必须有）：本沙盒的替身阶段会
     # `set_stage(done)`，orchestrator.artifact_gate 随即校验 STAGE_ARTIFACTS ——
     # 沙盒必须像"各阶段真产出了"，否则测到的是产物闸门而不是熔断本身
     # （首版实测：rc 2 被打成 1、calls 停在 [1]，正是被闸门截胡）。
@@ -328,7 +328,7 @@ def case_orchestrator_integration():
         check("退出码 2（预算/熔断暂停语义，复用既有退出码）", p["rc"] == 2, p["rc"])
         check("progress.budget.paused=True（GUI/续跑据此熔断）", p["paused"] is True, p)
         check("**熔断后不再启动下一阶段**（只跑了阶段 1）", p["calls"] == [1], p["calls"])
-        check("日志点明「熔断暂停」并给出 token 数值",
+        check("日志点明\u300c熔断暂停\u300d并给出 token 数值",
               "熔断暂停" in out and "累计 token" in out, out[-400:])
     finally:
         shutil.rmtree(root, ignore_errors=True)
@@ -381,7 +381,7 @@ def case_request_cap_at_call_point():
           (c2.effective_max_tokens(None), c2.effective_max_tokens(0)))
     check("坏值不抛", c2.effective_max_tokens("abc") is None, c2.effective_max_tokens("abc"))
 
-    # 真的进了 payload（这是「单请求 max_tokens」的唯一证据）
+    # 真的进了 payload（这是“单请求 max_tokens”的唯一证据）
     seen = {}
 
     def _fake_request_json(payload):

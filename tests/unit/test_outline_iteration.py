@@ -3,10 +3,10 @@
 
 ## 为什么需要这套用例
 
-就绪度审计（同日前一轮）确认了两个缺口，都是「迭代 10~50 轮」场景的刚需：
+就绪度审计（同日前一轮）确认了两个缺口，都是\u300c迭代 10~50 轮\u300d场景的刚需：
 
 1. **无收敛判断**：`outline_review` 只看当前绝对值，不与上一版对比 ——
-   用户不知道「再迭代一轮还有没有收益」，只能凭感觉停下来。
+   用户不知道\u300c再迭代一轮还有没有收益\u300d，只能凭感觉停下来。
 2. **迭代成本不进账本**：`refine_outline` 把 `result["cost_yuan"]` **直接丢弃**，
    `cost_report.py` 里 `outline` 出现 0 次 —— 迭代 50 轮花了多少钱查不到。
 
@@ -15,7 +15,7 @@
 - 对比：问题数/碎片数/平均分的 delta、逐条目改善/退化、三种判定（改善/停滞/退化）
 - 趋势：`review_series` 按版本序返回 v1..vN + 当前；`convergence_verdict` 五分支出对
 - 记账：`stage=2` + `chapter=版本号`（初版是 `chapter=0`，免 schema 迁移）；
-  `cost_report --by-outline` 据此把「初版」与「迭代」分开
+  `cost_report --by-outline` 据此把\u300c初版\u300d与\u300c迭代\u300d分开
 - 不记账时也不能崩（`未记账` 明确写在消息里，不静默）
 
 ## 隔离策略
@@ -115,7 +115,7 @@ def _ticket(**kw):
 # 两份自洽的大纲，key（= issues + thin）可控：
 #   GOOD：1 节点 + 1 规划，条目够长且含事件/冲突/场景词 → thin=0, issues=0 → key=0
 #   BAD ：0 节点 + 0 规划，预计章节数 1 → issues=2, thin=0 → key=2
-# 用它们组合出「改善 / 退化 / 停滞」三种对比结论。
+# 用它们组合出“改善 / 退化 / 停滞”三种对比结论。
 
 _LONG_NODE = ("- 节点1：第1章 苏芷在砾城的医院里发现那封匿名信，"
               "与祁砚在回廊发生对峙，冲突迅速升级，她决定追查真相并封锁消息。")
@@ -183,7 +183,7 @@ def write_backup(root, version, text):
 # ====================================================================== 对比
 
 def case_compare_reads_latest_backup():
-    """取编号最大的备份作为「上一版」，并与当前对比。"""
+    """取编号最大的备份作为\u300c上一版\u300d，并与当前对比。"""
     print("\n【C1】与上一版对比（取最大版本号）")
     root = build_sandbox("nf_oi2_c1_")
     write_backup(root, 1, BAD_OUTLINE)
@@ -225,7 +225,7 @@ _ticket(lb_ver=(lb[0] if lb else None),
 
 
 def case_compare_no_backup():
-    """无备份时返回 None —— 不得假装「已对比」。"""
+    """无备份时返回 None —— 不得假装\u300c已对比\u300d。"""
     print("\n【C2】无历史备份 → 不做对比")
     root = build_sandbox("nf_oi2_c2_")
     write_global(root, GOOD_OUTLINE)
@@ -355,9 +355,9 @@ _ticket(**out)
     check("C4 key 严格递减 → improving", v["improving"] == "improving",
           f"→ {v['improving']}")
     check("C4 有升有降 → mixed", v["mixed"] == "mixed", f"→ {v['mixed']}")
-    check("C4 done 说明含「可以开工」", "开工" in p["notes"]["done"],
+    check("C4 done 说明含\u300c可以开工\u300d", "开工" in p["notes"]["done"],
           f"→ {p['notes']['done'][:50]}")
-    check("C4 stalled 说明含「递减」", "递减" in p["notes"]["stalled"],
+    check("C4 stalled 说明含\u300c递减\u300d", "递减" in p["notes"]["stalled"],
           f"→ {p['notes']['stalled'][:50]}")
     check("C4 mixed 说明指向换策略而非微调",
           "策略" in p["notes"]["mixed"], f"→ {p['notes']['mixed'][:60]}")
@@ -389,7 +389,7 @@ def case_compare_cli_default():
     write_backup(root, 1, BAD_OUTLINE)
     write_global(root, GOOD_OUTLINE)
     out = _run_cli(root, ["scripts/outline_review.py", "--quiet"])
-    check("C6 默认输出含「与上一版对比」", "与上一版对比" in out, f"→ {out[-300:]}")
+    check("C6 默认输出含\u300c与上一版对比\u300d", "与上一版对比" in out, f"→ {out[-300:]}")
     check("C6 对比里给出 delta", "→" in out and ("问题" in out), f"→ {out[-300:]}")
     check("C6 对比里给出建议", "→" in out, f"→ {out[-300:]}")
     out2 = _run_cli(root, ["scripts/outline_review.py", "--quiet", "--no-compare"])
@@ -487,7 +487,7 @@ _ticket(ok=ok, msg=msg,
 
 
 def case_refine_without_db_ok():
-    """不传 db/cost 时不得崩，且明确写「未记账」（不静默丢账）。"""
+    """不传 db/cost 时不得崩，且明确写\u300c未记账\u300d（不静默丢账）。"""
     print("\n【C8】未提供 db/cost → 不崩且明确未记账")
     root = build_sandbox("nf_oi2_c8_")
     write_global(root, GOOD_OUTLINE)
@@ -525,7 +525,7 @@ _ticket(ok=ok, msg=msg)
         shutil.rmtree(root, ignore_errors=True)
         return
     check("C8 未记账时不崩且成功", p["ok"] is True, f"→ {p['msg'][:60]}")
-    check("C8 消息明确标注「未记账」（不静默）", "未记账" in p["msg"],
+    check("C8 消息明确标注\u300c未记账\u300d（不静默）", "未记账" in p["msg"],
           f"→ {p['msg'][:80]}")
     shutil.rmtree(root, ignore_errors=True)
 
@@ -565,7 +565,7 @@ print("__RESULT__" + json.dumps({"ok": True}))
           "0.1500" not in out2, f"→ 混入了其他阶段")
 
     ov = _run_cli(root, ["scripts/cost_report.py"])
-    check("C9 总览含「阶段2 细分（初版 vs 迭代）」",
+    check("C9 总览含\u300c阶段2 细分（初版 vs 迭代）\u300d",
           "阶段2 细分" in ov, f"→ {ov[-300:]}")
     check("C9 总览区分初版生成 / 大纲迭代",
           "初版生成" in ov and "大纲迭代" in ov, f"→ {ov[-300:]}")

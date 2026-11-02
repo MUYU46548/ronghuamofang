@@ -55,7 +55,7 @@ SETTING_REL = "data/setting/setting.json"
 DEATH_WORDS = ("死了", "断气", "咽气", "去世", "身亡", "下葬", "入土", "没了呼吸", "没有呼吸")
 DEATH_NEG = ("没", "不", "未", "差点", "险些", "几乎", "假", "装", "仿佛", "好像", "如果")
 HOLD_WORDS = ("拿出", "掏出", "握着", "揣着", "收进", "放进", "捡起", "接过", "拿着", "摸出", "取出")
-# 「真正失去」与「转手」必须分开：递出去下一章再接回来是合法写法，
+# “真正失去”与“转手”必须分开：递出去下一章再接回来是合法写法，
 # 混在一起会把"转手"误报成"丢失后复现"（首版就是这么错的）。
 LOSE_WORDS = ("扔", "毁", "烧", "丢掉", "丢了", "失手", "还回去", "埋了", "沉进")
 TRANSFER_WORDS = ("递给", "给了", "交出", "交给", "送到")
@@ -257,7 +257,7 @@ def check(events):
                 out.append({
                     "code": "item_resurrect", "level": "conflict",
                     "item": item, "chapter": e["chapter"],
-                    "detail": "「%s」在第%d章已失去，第%d章又被持有"
+                    "detail": "“%s”在第%d章已失去，第%d章又被持有"
                               % (item, l["chapter"], e["chapter"]),
                     "evidence": [l["evidence"], e["evidence"]],
                 })
@@ -283,7 +283,7 @@ def check(events):
             out.append({
                 "code": "unknown_name", "level": "warning",
                 "chapter": e["chapter"],
-                "detail": "第%d章出现「%s」，疑似「%s」的错名" % (e["chapter"], e["name"], e["like"]),
+                "detail": "第%d章出现“%s”，疑似“%s”的错名" % (e["chapter"], e["name"], e["like"]),
                 "evidence": [e["evidence"]],
             })
 

@@ -3,8 +3,8 @@
 
 ## 为什么需要它
 
-执行单 ⑤前置步1 的验收是「Hermes mcpServers 配置 spawn 垫片，标准 MCP 握手成功 +
-tools/list 约 20 项 nf_* 工具可见」。而 mock 替身**测不出**这件事：
+执行单 ⑤前置步1 的验收是“Hermes mcpServers 配置 spawn 垫片，标准 MCP 握手成功 +
+tools/list 约 20 项 nf_* 工具可见”。而 mock 替身**测不出**这件事：
 mock 只会回声，握手能否成立、工具清单对不对，都要**真客户端 × 真服务**才知道。
 
 本脚本用**官方 MCP Python SDK**（`mcp` 包，Hermes 用的同一套）当客户端：
@@ -156,7 +156,7 @@ def main():
     print("=" * 66)
 
     # 用 find_spec 探测依赖（而不是 `import mcp` + noqa）：pyflakes 不认 noqa，
-    # 那样会平白给质量门添一条「未使用导入」的 WARN。
+    # 那样会平白给质量门添一条“未使用导入”的 WARN。
     import importlib.util
     if importlib.util.find_spec("mcp") is None:
         SKIP.append("缺 mcp SDK")
@@ -174,7 +174,7 @@ def main():
     try:
         import nf_mcp
         srv = nf_mcp.MCPServer(port=MCP_PORT, http_port=API_PORT)
-        # 掐掉 UDP 服务发现广播：那是给外部 Agent「自动发现」用的，
+        # 掐掉 UDP 服务发现广播：那是给外部 Agent“自动发现”用的，
         # 而这里跑的是**临时端口**的自检 —— 广播出去只会让别人缓存一个马上要死的地址。
         srv._start_discovery = lambda: None
         srv.start()

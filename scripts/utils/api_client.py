@@ -8,7 +8,7 @@
 两者命令行参数不同（一个带 `--format stream-json` + `-t file` + `--max-turns`，
 一个都不带）、停止语义不同、usage 解析也不同。全仓无一处 import 它，纯死代码 ——
 谁照着旧文档用上，就会得到一套没有超时结构化失败、没有工具白名单、
-没有 stream-json 的「另一个引擎」。
+没有 stream-json 的“另一个引擎”。
 
 现在执行子会话**只有一个实现**：`utils.llm_client.HermesClient`。
 本模块只保留两件纯函数（无进程、无 IO 副作用）：

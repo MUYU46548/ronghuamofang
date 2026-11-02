@@ -5,7 +5,7 @@
 
 `examples/sample-book/`（雾港核心 + 19 张素材卡）曾被试跑**手工搬进真实用户
 工作区**的 `materials/raw/`，与用户自己写的素材卡**逐文件无差别**：用户既不敢删
-（怕删掉自己的），也不敢留（污染 stage1 归并）。本域把「出厂内容」摊出来给用户看：
+（怕删掉自己的），也不敢留（污染 stage1 归并）。本域把“出厂内容”摊出来给用户看：
 
   · `GET /factory/list` —— **零副作用**：出厂清单（哪些文件是播种进来的）+
     与样例逐字节一致的素材卡命中列表 + 样例随包目录在不在。
@@ -25,7 +25,7 @@ nf_api 的 ROOT **不是同一个坐标系**：
 → `ROOT/payload/examples` → `ROOT/examples` → 代码根兜底（`scripts/` 的上一级）。
 按存在性取第一个命中的；全都不在 → `sample_root: null`，
 `GET /factory/list` 仍 200（`matches` 为空 + `sample_root_exists: false`），
-**绝不因此 500** —— 「样例没随包」是可诊断状态，不是服务故障。
+**绝不因此 500** —— “样例没随包”是可诊断状态，不是服务故障。
 
 ## 两条纪律
 
@@ -75,7 +75,7 @@ def resolve_sample_root():
 def _book_title(path):
     """读 project.yaml 的 `book.name`；缺失/坏文件/无该键一律返回 None。
 
-    只取这一个键 —— 出厂徽标只需要书名，整份解析反而把「配置坏掉」这种
+    只取这一个键 —— 出厂徽标只需要书名，整份解析反而把“配置坏掉”这种
     与本功能无关的状态带进响应。
     """
     try:
@@ -88,18 +88,18 @@ def _book_title(path):
 
 
 def current_sample_view():
-    """当前项目 vs 出厂样例的轻量比对（GUI「项目」页徽标用）。
+    """当前项目 vs 出厂样例的轻量比对（GUI“项目”页徽标用）。
 
     **判据 = 书名相等**（样例随包的 `examples/sample-book/project.yaml` 的
     `book.name` ↔ 当前 `config/project.yaml` 的 `book.name`），零 sha、
     零目录遍历 —— 与 `handle_factory_list` 的逐字节盘点分工：那边回答
-    「工作区里哪些文件是机器发的」，这边只回答「当前这本书是不是示例书」。
+    “工作区里哪些文件是机器发的”，这边只回答“当前这本书是不是示例书”。
 
     为什么不用逐字节判据：示例书进工作区后配置**本来就会变**（word_template、
-    style_notes、模型选择都会被写进去），拿「配置没动过」当必要条件会让徽标
+    style_notes、模型选择都会被写进去），拿“配置没动过”当必要条件会让徽标
     在最该出现的场景里消失。书名相同 + 素材来自 examples/ 才是用户的实际
-    认知（「这就是那个出厂测试项目」），而**改过书名的项目永远不会命中**
-    —— 徽标误报的方向是「多提醒一次」，不是「漏掉用户数据」。
+    认知（“这就是那个出厂测试项目”），而**改过书名的项目永远不会命中**
+    —— 徽标误报的方向是“多提醒一次”，不是“漏掉用户数据”。
     """
     sample_root, exists = resolve_sample_root()
     out = {"title": None, "sample_title": None, "is_sample": False}
@@ -121,7 +121,7 @@ def current_sample_view():
 
 
 def _manifest_view(workspace):
-    """清单 → 响应用的精简视图；没有清单返回 None（GUI 显示「未播种」）。"""
+    """清单 → 响应用的精简视图；没有清单返回 None（GUI 显示“未播种”）。"""
     data = fm.read_manifest(workspace)
     if not data or not data.get("files"):
         return None
@@ -161,7 +161,7 @@ def handle_factory_clean(h, body):
     if not body.get("confirm"):
         return 400, {"ok": False,
                      "error": "清理出厂样例是破坏性操作，必须显式确认："
-                              "请在应用内确认框勾选「我已了解：仅移动与示例逐字节一致的文件」"
+                              "请在应用内确认框勾选“我已了解：仅移动与示例逐字节一致的文件”"
                               "后重试（请求体需 confirm: true）。"}
     try:
         root, exists = resolve_sample_root()
@@ -186,7 +186,7 @@ def handle_factory_project(h):
 
     **零副作用**（只读）。回答三件事：能不能还原（`is_factory` + `reason`）、
     源还在不在（`source_ok`）、还原会动什么（`wipe_plan`）。GUI 据此决定
-    是否显示「一键还原」按钮与确认框内容；外部 Agent 可盘点，不能动手。
+    是否显示“一键还原”按钮与确认框内容；外部 Agent 可盘点，不能动手。
     """
     try:
         import utils.factory_reset as fr

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""书稿数据的跨版本迁移机制（C3「升级断崖」的机制侧答案）。
+"""书稿数据的跨版本迁移机制（C3“升级断崖”的机制侧答案）。
 
 ## 它解决什么
 
@@ -7,7 +7,7 @@
 `.seed-version` 与 `SEED_VERSION`，force 覆盖 `scripts/` `prompts/` `templates/`，
 `config/` 只补缺、绝不覆盖），而 **`data/`（书稿：设定集 / 大纲 / 章节 / 进度 /
 归档）从不被碰** —— 不碰是对的，可一旦新版改了数据结构，旧书稿就变成
-「程序读不读得懂全凭运气」：发布说明只能写「更早版本千万不可用」，
+“程序读不读得懂全凭运气”：发布说明只能写“更早版本千万不可用”，
 用户既不敢升级、也不敢再开旧书。这就是升级断崖。
 
 本模块给数据侧补上与代码侧**对称**的那半边：
@@ -27,11 +27,11 @@
    快照失败即中止，一个字节都不改；成功行带可直接抄的回退命令。
 4. **只自动跑 safe 步骤**：`Step.safe=False`（要改写用户文件结构的）必须 CLI
    显式 `--run --yes`，启动钩子一律停在它前面并说明原因 —— 与止烧阈值
-   「越界值拒绝 + 出厂预设」同一哲学：机制可以自动，动用户的东西不行。
+   “越界值拒绝 + 出厂预设”同一哲学：机制可以自动，动用户的东西不行。
 5. **基线不改数据**：没有版本戳的既有工作区一律记为 **v1**（它们本就是 v1 时代
    的产物），只写戳、不动数据 —— 装上这套机制不会惊动任何一本书。
 6. **幂等**：戳到位即 no-op；中途失败**不推进版本戳**（下次启动重试同一批步骤，
-   不会出现「半迁移状态被当成已完成」）。
+   不会出现“半迁移状态被当成已完成”）。
 
 ## 边界（别扩大解读）
 
@@ -68,9 +68,9 @@ STAMP_REL = "data/state/workspace_schema.json"
 class Step:
     """一步迁移：把数据从 from_v 升到 to_v。
 
-    `safe=True` 表示「补字段 / 建索引 / 补默认值」这类**不删不改用户内容**的
+    `safe=True` 表示“补字段 / 建索引 / 补默认值”这类**不删不改用户内容**的
     步骤，可以在启动时自动跑；`safe=False` 表示会改写用户文件结构，必须
-    CLI 显式确认（契约 4）。`fn(root)` 返回一句「这步做了什么」，抛异常即失败。
+    CLI 显式确认（契约 4）。`fn(root)` 返回一句“这步做了什么”，抛异常即失败。
     """
 
     def __init__(self, from_v, to_v, fn, title, safe=True):
@@ -87,7 +87,7 @@ class Step:
 # 有序步骤表。当前为空：截至 v1，本仓没有任何**改数据结构**的历史变更
 # （progress.json 新键一律 `.get()` 兜底、setting.json 四顶层键未变、
 #  runs.db 自带 `_migrate` 补列、新文件天然兼容），所以现存全部书稿就是 v1。
-# **以后改数据结构时在这里加一条**，别指望「反正没人升级」。
+# **以后改数据结构时在这里加一条**，别指望“反正没人升级”。
 MIGRATIONS = ()
 
 
@@ -97,7 +97,7 @@ def stamp_path(root):
 
 
 def read_stamp(root):
-    """读版本戳；缺失/损坏一律返回 None（损坏按「没戳」处理，走基线流程）。"""
+    """读版本戳；缺失/损坏一律返回 None（损坏按“没戳”处理，走基线流程）。"""
     p = stamp_path(root)
     if not p.exists():
         return None
@@ -130,7 +130,7 @@ def _write_stamp(root, schema, note):
 
 # ---------------------------------------------------------------- 状态判据
 def _plan(found, current, steps):
-    """按「found → DATA_SCHEMA」排出要跑的步骤；返回 (plan, err)。
+    """按“found → DATA_SCHEMA”排出要跑的步骤；返回 (plan, err)。
 
     plan 是有序 Step 列表（可能为空）；err 非空表示**排不出来**（缺口 /
     断链 / 重复），调用方必须拒绝执行而不是跳过 —— 静默跳过等于把用户
@@ -208,7 +208,7 @@ def migrate(root, current=None, steps=None, dry_run=False, allow_unsafe=False):
     """执行迁移。返回 `(ok, report)`；report 是 dict（含给人看的 `lines`）。
 
     失败一律**不推进版本戳**（契约 6）：半迁移状态会被下次启动重试，
-    而不会被当成「已经迁好了」。
+    而不会被当成“已经迁好了”。
     """
     current = DATA_SCHEMA if current is None else int(current)
     steps = MIGRATIONS if steps is None else tuple(steps)
@@ -278,7 +278,7 @@ def migrate(root, current=None, steps=None, dry_run=False, allow_unsafe=False):
         try:
             detail = s.fn(root)
         except Exception as e:                              # noqa: BLE001
-            lines.append("[migrate] 停在 v%d→v%d「%s」：%s: %s"
+            lines.append("[migrate] 停在 v%d→v%d“%s”：%s: %s"
                          % (s.from_v, s.to_v, s.title, type(e).__name__, e))
             lines.append("[migrate] 版本戳仍是 v%d（未推进），修好后重跑即可；"
                          "要整体回退：%s" % (v, rep["rollback"]))

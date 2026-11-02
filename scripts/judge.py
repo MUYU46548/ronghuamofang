@@ -99,7 +99,7 @@ def cmd_chapter(args):
     for r in v.get("reasons") or []:
         print("  依据 [%s] %s" % (r.get("rule_id"), r.get("text")))
     for d in res["defects"]:
-        print("  第 %d 段「%s」（%s ×%d）%s"
+        print("  第 %d 段“%s”（%s ×%d）%s"
               % (d["paragraph_index"], d["sentence"][:26], d["rule_name"],
                  d["count"], d["why"][:40]))
     return 0
@@ -124,7 +124,7 @@ def cmd_destroy(args):
           % ("销毁" if d["destroyed"] else "未超阈值", d["threshold"] * 100,
              "；两次压缩，判定不可信" if d["compressed_twice"] else ""))
     for x in d["deleted"][:12]:
-        print("  删 第 %d 段「%s」" % (x["paragraph_index"], x["sentence"][:30]))
+        print("  删 第 %d 段“%s”" % (x["paragraph_index"], x["sentence"][:30]))
     return 0
 
 

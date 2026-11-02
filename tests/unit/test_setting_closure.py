@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""设定库闭环的自检（2026-10-20，台账三·「设定库闭环」）。
+"""设定库闭环的自检（2026-10-20，台账三·\u300c设定库闭环\u300d）。
 
 覆盖三件事：**增量合并**（不再是整体替换）、**大纲注入**（设定集摘要内联）、
 **冲突三态**（后端判据，GUI 只是它的显示层）。
@@ -120,7 +120,7 @@ def case_merge():
 
         names = [c["name"] for c in data["characters"]]
         check("P1 新角色被追加", "新角色·阿岚" in names, names)
-        check("P1 base_name 归一：不重复追加「苏芷（档案室）」",
+        check("P1 base_name 归一：不重复追加\u300c苏芷（档案室）\u300d",
               names.count("苏芷") == 1 and "苏芷（档案室）" not in names, names)
         check("P1 地点被追加", any(w["name"] == "旧码头" for w in data["world"]["locations"]),
               data["world"]["locations"])

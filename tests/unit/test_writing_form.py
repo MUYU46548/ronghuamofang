@@ -1,28 +1,28 @@
 # -*- coding: utf-8 -*-
-"""文体（form）与「不适用」判据的自检（2026-10-20）。
+"""文体（form）与\u300c不适用\u300d判据的自检（2026-10-20）。
 
 ## 起因
 
-用户问了一句「如果根本不是传统叙事小说，会不会炸」。
+用户问了一句\u300c如果根本不是传统叙事小说，会不会炸\u300d。
 会 —— 整条流水线的判据默认叙事小说，而且是硬编码。最典型的三处：
 
-- 散文集按七维要求「情节连贯 / 人物关系 / 人设统一」→ 永远不完整；
-- 散文没有对话，审美里的「对话区分度」永远拿不到分；
-- 一首诗、一封短信会被 `verify_chapter` 的「段数 <6」判成退化。
+- 散文集按七维要求\u300c情节连贯 / 人物关系 / 人设统一\u300d→ 永远不完整；
+- 散文没有对话，审美里的\u300c对话区分度\u300d永远拿不到分；
+- 一首诗、一封短信会被 `verify_chapter` 的\u300c段数 <6\u300d判成退化。
 
 本文件钉住两件事：**矩阵本身合法** + **不适用的项真的不计分、不算缺失、不进均值**。
 
 ## 主判据
 
 1. 四种文体的维度/审美/章大纲字段都是合法 code 的子集（写错一个字母就红）
-2. 默认（不写 form）= narrative，且 applicability 与「全适用」逐项一致
+2. 默认（不写 form）= narrative，且 applicability 与\u300c全适用\u300d逐项一致
 3. 未知 form → 回落 narrative **并给出 warning**（不静默）
 4. essay：只有 commonsense 适用；审美没有 dialogue；无章大纲新字段；不做深化/分卷/伏笔
 5. `check_chapter(dims=[...])`：不适用维度 `applicable=False`、不进 `unverified`、
    不进均值、不算 missing；只举证适用维度即 `complete=True`
 6. 不传 dims（老调用方/老账本）行为与改动前**完全一致**
 7. overrides 生效；未知键/未知值/类型错 **抛 ValueError**（静默忽略等于用户以为改了）
-8. 渲染：不适用显示「—」/「不适用」，不显示「未举证」
+8. 渲染：不适用显示\u300c—\u300d/\u300c不适用\u300d，不显示\u300c未举证\u300d
 
 用法：python tests/unit/test_writing_form.py
 """
@@ -78,7 +78,7 @@ def case_essay_wiring():
           st_d == "" and pa_d == "" and w_d == "", (st_d[:20], pa_d[:20], w_d[:20]))
     st_n, pa_n, w_n = WF.style_blocks("narrative", chosen="narrative")
     st_e, pa_e, w_e = WF.style_blocks("essay", chosen="essay")
-    check("P7 叙事文风块含「客观叙事」", "客观叙事" in st_n, st_n[:60])
+    check("P7 叙事文风块含\u300c客观叙事\u300d", "客观叙事" in st_n, st_n[:60])
     check("P7 散文文风块**不含**叙事口吻", "客观叙事" not in st_e, st_e[:80])
     check("P7 散文文风块写的是观察与感受", "观察与感受" in st_e, st_e[:80])
     check("P7 散文段落块允许一句一段", "一句一段是合法的" in pa_e, pa_e[:80])
@@ -157,7 +157,7 @@ def case_essay_wiring():
     q1 = QC.check_consistency(txt, 1, setting, require_character=True)
     q2 = QC.check_consistency(txt, 1, setting, require_character=False)
     check("P8 叙事：未提角色会报", any("未提及" in x for x in q1), q1)
-    check("P8 散文：不报「未提及角色」", not any("未提及" in x for x in q2), q2)
+    check("P8 散文：不报\u300c未提及角色\u300d", not any("未提及" in x for x in q2), q2)
 
     # stage3 strict：散文不要求小目标/钩子
     import stage3_chapter_outline as S3
@@ -184,7 +184,7 @@ def case_scope_and_entry():
     t_n = WF.review_scope(a_n, "/abs/data/review/batch1.json")
     t_e = WF.review_scope(a_e, "/abs/data/review/batch1.json")
 
-    check("P9 叙事：标题沿用「七维评审账本」", "七维评审账本" in t_n, t_n[:60])
+    check("P9 叙事：标题沿用\u300c七维评审账本\u300d", "七维评审账本" in t_n, t_n[:60])
     check("P9 叙事：示例含 7 条维度", t_n.count('"dim"') == 7, t_n.count('"dim"'))
     check("P9 叙事：示例含 5 问", t_n.count('"q"') == 5, t_n.count('"q"'))
     check("P9 叙事：绝对路径照抄进示例", "/abs/data/review/batch1.json" in t_n)
@@ -235,7 +235,7 @@ def case_scope_and_entry():
     ok_e, msgs_e, gen_e = VP.ensure_window(cfg={}, proj={"book": {"form": "essay", "chapters": 40}},
                                             log=lambda *_a: None)
     check("P9 散文：卷规划直接跳过、不调模型", ok_e and gen_e == 0, (ok_e, msgs_e, gen_e))
-    check("P9 散文：明说「不做分卷规划」", any("不做分卷规划" in m for m in msgs_e), msgs_e)
+    check("P9 散文：明说\u300c不做分卷规划\u300d", any("不做分卷规划" in m for m in msgs_e), msgs_e)
     check("P9 散文：返回成功（不是失败，否则流水线会判阶段失败）", ok_e is True)
 
     print("\n[P9] 文体写入的校验（GUI 端点的后端）")
@@ -247,7 +247,7 @@ def case_scope_and_entry():
     ok_empty, _ = PC.set_book_fields({"form": "  "})
     check("P9 空值拒写", not ok_empty)
 
-    print("\\n[P9] 「写法指导是否接入」不能靠回落正文判断（会假报已接入）")
+    print("\\n[P9] \u300c写法指导是否接入\u300d不能靠回落正文判断（会假报已接入）")
     check("P9 叙事：已接入", WF.style_files_exist("narrative") is True)
     check("P9 散文：已接入", WF.style_files_exist("essay") is True)
     check("P9 书信：**未**接入（尽管 style_blocks 会回落出非空正文）",
@@ -259,7 +259,7 @@ def case_scope_and_entry():
 
 def main():
     print("=" * 62)
-    print("  文体与「不适用」判据自检")
+    print("  文体与\u300c不适用\u300d判据自检")
     print("=" * 62)
 
     print("\n[P1] 矩阵合法性")
@@ -361,8 +361,8 @@ def main():
     check("P5 汇总记录不适用章数", s["dims"]["plot"]["not_applicable"] == 1,
           s["dims"]["plot"])
     md = R.render_markdown([r], s)
-    check("P5 表格里不适用显示「—」", "| — |" in md, md[:400])
-    check("P5 审美小节里不适用写「不适用」", "不适用（本文体没有这一项）" in md, md[-300:])
+    check("P5 表格里不适用显示\u300c—\u300d", "| — |" in md, md[:400])
+    check("P5 审美小节里不适用写\u300c不适用\u300d", "不适用（本文体没有这一项）" in md, md[-300:])
 
     print("\n[P6] 说明文案")
     d = WF.describe(WF.applicability({"book": {"form": "essay"}}))

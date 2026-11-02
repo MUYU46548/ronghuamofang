@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""R07 成品与源稿一致性检测（P0 形态：比对 + 标「已过期」，**不做自动重出**）。
+"""R07 成品与源稿一致性检测（P0 形态：比对 + 标“已过期”，**不做自动重出**）。
 
 为什么 P0 只做检测：重出必须重跑评审→润色→成书（花钱、要模型），
 而"能看见成品已过期"是纯离线比对 —— 正好落在这期"零 token、断网可跑"的线上。
@@ -46,7 +46,7 @@ def newest_docx(root="."):
 
 
 def split_chapters(text):
-    """按「第N章」切分成品正文（拿不到编号的段落归到最近一章）。"""
+    """按“第N章”切分成品正文（拿不到编号的段落归到最近一章）。"""
     text = text or ""
     marks = list(CHAP_RE.finditer(text))
     out = {}
@@ -67,7 +67,7 @@ def status(root="."):
     p = newest_docx(root)
     if not p:
         return {"ok": True, "exists": False, "status": "未生成",
-                "note": "还没有生成过 Word 成品 —— 这不是「已过期」，是「还没出」",
+                "note": "还没有生成过 Word 成品 —— 这不是“已过期”，是“还没出”",
                 "chapters": [], "stale": False, "evidence": []}
     text = _docx_text(p)
     if text is None:

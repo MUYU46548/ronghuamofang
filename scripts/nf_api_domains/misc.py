@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """杂项域：运行环境 / 日志 / 关于 / 章节完整性 / 成本实时视图。
 
-这是 P2 拆分的**第一个域模块**，用来把「薄转发 + 纯函数 handler」的范式立起来。
+这是 P2 拆分的**第一个域模块**，用来把“薄转发 + 纯函数 handler”的范式立起来。
 挑这组端点的理由：体量最大（`/logs/tail` 31 行、`/about` 31 行、
 `/costs/summary` 41 行）、互不依赖、且无写入副作用 —— 搬错了会立刻被
 HTTP 契约测试抓到，却不会损坏用户数据。
@@ -22,7 +22,7 @@ HTTP 契约测试抓到，却不会损坏用户数据。
 ## 与原实现的一致性约束
 
 搬运时**逐行对齐**原分支，唯一改动是：`self._send(code, payload)` → `return code, payload`。
-所有副作用（建 .env、建目录）保留原样，因为这些端点原本就是「读操作带幂等初始化」。
+所有副作用（建 .env、建目录）保留原样，因为这些端点原本就是“读操作带幂等初始化”。
 """
 from . import contract  # noqa: F401  （仅为声明协议来自本包）
 
@@ -76,8 +76,8 @@ def handle_costs_summary(h):
 def handle_env_open(h):
     """返回 .env 真实路径（原 do_GET `elif p == "/env/open"`）。
 
-    文件不存在时创建模板 —— 原行为如此：GUI 点「打开 .env」不该只看到
-    「不存在」而不知所措。
+    文件不存在时创建模板 —— 原行为如此：GUI 点“打开 .env”不该只看到
+    “不存在”而不知所措。
     """
     import nf_api as api
 
@@ -99,9 +99,9 @@ def handle_env_set(h, body):
 
     ## 为什么需要它
 
-    2026-09-19 审查 S7 决定「程序不该代为用**外部编辑器**打开明文密钥」，于是
+    2026-09-19 审查 S7 决定“程序不该代为用**外部编辑器**打开明文密钥”，于是
     `open-file` 把 `.env` 排除在白名单外。但那个决定**只砍掉了出口、没给入口** ——
-    GUI 上仍留着「打开 .env 填入 Key」按钮，点了必然报「路径不在白名单」，
+    GUI 上仍留着“打开 .env 填入 Key”按钮，点了必然报“路径不在白名单”，
     用户卡在"我该怎么填 Key"这一步（实测反馈就是这条）。
 
     本端点补上正确入口：写盘由后端完成，前端不接触文件路径。
@@ -222,7 +222,7 @@ def handle_chapters_quality(h):
 def handle_chapters_verify(h):
     """断点续跑检查：逐章是否**真正完成**（原 do_GET `elif p == "/chapters/verify"`）。
 
-    注意用 `is_chapter_complete` 而非「文件存在」—— 半成品章节（写到一半中断）
+    注意用 `is_chapter_complete` 而非“文件存在”—— 半成品章节（写到一半中断）
     若被当成已完成，续跑会跳过它，成品里就会出现断章。
     """
     import nf_api as api
@@ -252,7 +252,7 @@ def handle_logs_tail(h):
 
     Electron 主进程把 nf_api 的 stdout/stderr 追加到
     `%LOCALAPPDATA%/Temp/nf_api_child.log`，orchestrator 的 print 也在里面。
-    阶段失败时 GUI 的「查看日志」读它排障（纯只读，不落盘）。
+    阶段失败时 GUI 的“查看日志”读它排障（纯只读，不落盘）。
     """
     import nf_api as api
 
@@ -262,7 +262,7 @@ def handle_logs_tail(h):
         lines = 200
     lines = max(1, min(2000, lines))
 
-    # 优先暴露 utils.run_log 的规范路径，保持「写入方」与「读取方」同源；
+    # 优先暴露 utils.run_log 的规范路径，保持“写入方”与“读取方”同源；
     # 该模块不存在时退回原候选链（老 workspace 可能还没被 seedWorkspace 刷新）。
     cands = []
     try:
@@ -303,7 +303,7 @@ def handle_about(h):
         # 为什么必须有 env 这层（2026-10-24 实测取证）：打包态 nf_api 的 ROOT 被
         # --root 指向工作区（没有 console/package.json），脚本又住在
         # resources/payload 下（parents[2] 也不是 console/）→ /about 恒报 "dev"，
-        # 外部探查装机版本只能靠猜，「装的是哪一版」成了不可观测量。
+        # 外部探查装机版本只能靠猜，“装的是哪一版”成了不可观测量。
         # （旧注释称"打包态走 app.getVersion"指的是 GUI 关于弹窗的 IPC 通道，
         #   本端点从未拿到过该值 —— 探查走的是 HTTP /about，不是弹窗。）
         import os as _os
@@ -413,7 +413,7 @@ def handle_costs_rates_import(h, body):
     """定价批量导入：confirm=false 只解析预览（**不落盘**），true 才写入自定义定价。
 
     两段式是刻意的：粘贴内容来自账单页/文档，格式不可控，先让用户看清
-    「哪些是新增、哪些覆盖源码价、缓存价取了多少」再决定写不写。
+    “哪些是新增、哪些覆盖源码价、缓存价取了多少”再决定写不写。
     有解析错误时**拒绝落盘**（返回 400）—— 宁可让用户改完再来，也不静默丢条目。
     """
     try:

@@ -5,15 +5,15 @@
 
 `_prepare_chapter_rewrite` 把 `raw/NN.md` **移走**（必须移：留着的话 stage4 判该章
 已完成、根本不重写）。可重写一旦失败，旧稿就**没有人负责放回** —— 实测《潮汐档案》
-第 3 章模型连续三次「未生成章节文件」→ raw/03.md 缺失、stage4 failed、
+第 3 章模型连续三次\u300c未生成章节文件\u300d→ raw/03.md 缺失、stage4 failed、
 completed_chapters 少一章，界面看起来像章节被删了，旧稿只剩在 rewrite_backup/。
 
 ## 判据
 
 A. 失败且新稿缺失 → 备份被**复制**回 raw/（备份仍在）、完成标记补回、失败留痕清掉
 B. 新稿已存在（哪怕半成品）→ 绝不覆盖
-C. 没有备份 → 不动任何东西，文案说清「需人工捞回」
-D. 阶段状态按「全书章是否都齐」定 done / pending；失败那轮的 started_at/finished_at 不残留
+C. 没有备份 → 不动任何东西，文案说清\u300c需人工捞回\u300d
+D. 阶段状态按\u300c全书章是否都齐\u300d定 done / pending；失败那轮的 started_at/finished_at 不残留
 E. 两条 job 路径（普通 / 流式）与异常穿透都接上收尾
 
 全程离线、零 LLM。
@@ -93,7 +93,7 @@ def main():
 
         ok, detail = nf_api._rewrite_job_result(2, False, "exit=1", True)
         check("job 结果仍是失败（不伪装成功）", ok is False, ok)
-        check("文案写明「旧稿已自动恢复」", "旧稿已自动恢复" in detail, detail)
+        check("文案写明\u300c旧稿已自动恢复\u300d", "旧稿已自动恢复" in detail, detail)
         check("raw/02.md 回来了", (raw / "02.md").exists())
         check("恢复内容 = 重写前原文",
               (raw / "02.md").read_text(encoding="utf-8") == before)
@@ -200,11 +200,11 @@ def main():
         check("流式路径：旧稿已恢复", "旧稿已自动恢复" in detail, detail)
         check("流式路径：raw/03.md 存在", (raw / "03.md").exists())
 
-        print("\n【F】源码判据：安全网接在收尾处，且有「不覆盖新稿」的守卫")
+        print("\n【F】源码判据：安全网接在收尾处，且有\u300c不覆盖新稿\u300d的守卫")
         src = (ROOT / "scripts" / "nf_api.py").read_text(encoding="utf-8")
         check("收尾函数存在且被两条 job 路径调用",
               src.count("_rewrite_job_result(") >= 3, src.count("_rewrite_job_result("))
-        check("恢复函数有「新稿存在就不动手」的守卫",
+        check("恢复函数有\u300c新稿存在就不动手\u300d的守卫",
               "if raw.exists():" in src)
         check("恢复正常用 copy2（复制，不是 move）",
               "shutil.copy2(str(src), str(raw))" in src)

@@ -3,7 +3,7 @@
 
 ## 为什么这批断言长这样
 
-成书提炼的每一段都是「模型产出 → 宽容解析 → 落盘 → 可续跑 → 只增不改并库」。
+成书提炼的每一段都是\u300c模型产出 → 宽容解析 → 落盘 → 可续跑 → 只增不改并库\u300d。
 模型那头不可控，所以判据全部钉在**确定性半边**：
 拆章正则、断点跳过、解析容错、合并语义、并库不覆盖、预演不动盘。
 
@@ -148,7 +148,7 @@ def main():
         check("围栏 + 前后废话可解析", data == {"a": 1}, data)
         wrapped = fake_call("角色状态卡")
         parsed = __import__("utils.book_extract.character_cards", fromlist=["x"]).parse_response(wrapped)
-        check("③ 容忍「前面有话」+ 数组", parsed and parsed[0]["名字"] == "苏芷", parsed)
+        check("③ 容忍\u300c前面有话\u300d+ 数组", parsed and parsed[0]["名字"] == "苏芷", parsed)
         wv = __import__("utils.book_extract.worldview", fromlist=["x"]).parse_response(
             fake_call("世界观设定卡"))
         check("⑨ 容忍 {\"设定卡\": [...]} 包裹", wv[0]["设定名"] == "客栈", wv)

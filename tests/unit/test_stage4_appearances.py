@@ -103,7 +103,7 @@ def case_first_run_creates():
         check("total_chapters 用书配置（3）", data.get("total_chapters") == 3, data.get("total_chapters"))
         check("分级已计算（非 pending）", luxi.get("level") in ("major", "minor", "background"),
               luxi.get("level"))
-        check("未出场的角色仍在统计中并给出版级（防「写了忘了用」）",
+        check("未出场的角色仍在统计中并给出版级（防\u300c写了忘了用\u300d）",
               "小林" in chars and chars["小林"].get("level") in
               ("absent", "background", "minor", "major"), chars.get("小林"))
 
@@ -208,7 +208,7 @@ if __name__ == "__main__":
     # ⚠️ 不要用 `sentence * N` 造正文（本文件 2026-09-20 前的写法）——
     # 那是**退化正文**（复读 + 无换行），会被 verify_chapter 的退化检测
     # 拦下，stage4 判章失败、appearances.json 根本不生成，用例整片假红。
-    # 正确做法：复用 fake_client 的静态句库，只把「主语」替换成角色名，
+    # 正确做法：复用 fake_client 的静态句库，只把“主语”替换成角色名，
     # 既保留健康段落结构，又让出场统计有对象可数。
     _orig_para = fc._words_para
     _ROLES = ("苏芷", "朱鸾", "塔洛斯")

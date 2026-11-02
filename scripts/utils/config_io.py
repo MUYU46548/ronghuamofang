@@ -18,7 +18,7 @@ PyYAML 对**重复键静默取后值** —— 不报错、不告警。本项目�
 
 ## 分工（刻意切干净）
 
-- **本模块**：管「字节 ↔ 结构」——读（严格）、写（定向改写，保留注释）、备份、回读校验。
+- **本模块**：管“字节 ↔ 结构”——读（严格）、写（定向改写，保留注释）、备份、回读校验。
 - **`cost_tracker`**：管**语义**——token 阈值的默认预设、归一化、合法性校验。
   两边都不重复对方那份判据。
 """
@@ -58,7 +58,7 @@ def _construct_mapping(loader, node, deep=False):
         if key in mapping:
             raise ConfigError(
                 "YAML 重复键 '%s'（第 %d 行）：PyYAML 默认会静默取后一个值，"
-                "本项目显式拒绝 —— 否则「看着设过了、实际生效的是另一行」"
+                "本项目显式拒绝 —— 否则“看着设过了、实际生效的是另一行”"
                 "这类坑无法被发现。请删掉多余那一行；"
                 "体检：python scripts/nfctl.py check" % (key, key_node.start_mark.line + 1))
         mapping[key] = loader.construct_object(value_node, deep=deep)
@@ -72,12 +72,12 @@ _UniqueKeyLoader.add_constructor(
 def load_config_yaml(path, default=None):
     """严格读取一个配置 YAML。
 
-    - 文件不存在：返回 default（缺省 None）—— 「未初始化」是合法状态，不该抛。
+    - 文件不存在：返回 default（缺省 None）—— “未初始化”是合法状态，不该抛。
     - 重复键 / 语法错误：抛 `ConfigError`（带行号与修法）。
     - **相对路径 = CWD 项目优先，缺失才回退脚本仓根**（与
       `agent_guard.load_project_config` 同一判据，2026-10-05 统一）。
-      为什么不是「固定解到仓根」：数据侧（progress.json / data/ 产物）全是 **CWD 相对**
-      = 正在操作的那个项目；配置若固定读脚本仓根，就是「按 B 项目的配置写 A 项目的数据」。
+      为什么不是“固定解到仓根”：数据侧（progress.json / data/ 产物）全是 **CWD 相对**
+      = 正在操作的那个项目；配置若固定读脚本仓根，就是“按 B 项目的配置写 A 项目的数据”。
       2026-10-04 A0 把相对路径一律解到仓根，本为修非仓库根 CWD 的 FileNotFoundError，
       却顺带架空了所有依赖 chdir 的调用方（审稿重试 / 自动重写两组测试同源挂掉即此）。
     """
@@ -128,7 +128,7 @@ def load_pipeline_config(system_path=SYSTEM_YAML, local_path=LOCAL_YAML,
 
 
 # ---------------------------------------------------------------------------
-# 定向写入（保留注释与排版）——给「设置」页用
+# 定向写入（保留注释与排版）——给“设置”页用
 #
 # 为什么不定向 dump：`yaml.safe_dump` 会把注释、空行、键顺序全丢掉，
 # 而 system.yaml 里大量注释是**使用说明**（阈值为什么这么设、哪个键在什么引擎下无效）。
@@ -145,7 +145,7 @@ def _block_range(lines, idx, indent):
     ⚠️ 两件事都必须做对（2026-10-18 实测各踩了一次）：
 
     1. **必须容忍同缩进的序列项**：YAML 块序列里 `- 2000` 与所属键
-       `target_words:` 同缩进（不是更深一层）。只按「缩进 <= indent 即块结束」判，
+       `target_words:` 同缩进（不是更深一层）。只按“缩进 <= indent 即块结束”判，
        块序列会被判成空块 → 替换首行后旧的 `- 2000` 残留成孤儿，
        整份 YAML 解析失败。
     2. **块尾的注释行不算块体**：范围用于 `_apply_one` 的 `del`，把块尾

@@ -1,22 +1,22 @@
 # -*- coding: utf-8 -*-
 """项目域（GET）：健康检查、状态快照、多书列表、项目结构树、配置读取。
 
-## 为什么 /health 与 /state 放在「项目」域
+## 为什么 /health 与 /state 放在“项目”域
 
-它们回答的是同一个问题——「当前项目处于什么状态、能不能开工」。
+它们回答的是同一个问题——“当前项目处于什么状态、能不能开工”。
 GUI 启动时的冷启动引导、书本切换、初始化向导都读这一族。
 
 ## 关于 /project/status 里的 `stages`
 
 `stages` 来自 `api.build_state()`，而其它字段是**文件系统探测**（路径 exists +
-glob 计数）。两者刻意不合并：`stages` 是「流程走到哪」，exists 是「盘上有什么」。
+glob 计数）。两者刻意不合并：`stages` 是“流程走到哪”，exists 是“盘上有什么”。
 实践中二者可能不一致（比如用户手删了产物但没重置状态），这是**有信息量的不一致**，
-前端据此可以提示「状态与实际产物不符，建议打回重跑」。
+前端据此可以提示“状态与实际产物不符，建议打回重跑”。
 
 ## /config/project 的历史缺陷
 
 该端点曾经**只有 POST 分支、没有 GET 分支**，而 GUI 用的是 GET → 一律 404
-→ 初始化向导与「素材为空」提醒永远不触发。读操作必须挂在 do_GET 上。
+→ 初始化向导与“素材为空”提醒永远不触发。读操作必须挂在 do_GET 上。
 """
 import json
 
@@ -51,7 +51,7 @@ def handle_project_list(h):
 def handle_project_status(h):
     """项目结构树（左侧导航用）：状态 + 各产物是否存在。
 
-    只做「存在性 + 计数」，不做内容解析——导航栏刷新频率高，
+    只做“存在性 + 计数”，不做内容解析——导航栏刷新频率高，
     解析内容是各页面自己的事。
     """
     try:
@@ -98,7 +98,7 @@ def handle_config_style_notes(h):
 
 
 # ---------------------------------------------------------------- 风格范文（GUI 粘贴窗口）
-# 2026-10-19：范文原来只能「用编辑器打开 materials/style_sample.md 粘」，用户提的
+# 2026-10-19：范文原来只能“用编辑器打开 materials/style_sample.md 粘”，用户提的
 # 更对——直接在面板里粘贴，且它属于**用户数据**（materials/ 是书档级内容，换书跟着走）。
 #
 # 设计取舍：
@@ -112,7 +112,7 @@ STYLE_REF_HISTORY_DIR = "data/state/style_reference_history"
 STYLE_REF_HISTORY_KEEP = 20
 STYLE_REF_MAX_CHARS = 40000          # 与 stage4 的注入上限上限一致（STYLE_REF_LIMIT_MAX）
 # 范文（样例稿）使用声明：同意记录与拆解声明分开存 —— 两者事实不同：
-# 拆解「不存原文」，范文「必须存盘」（否则写作阶段没法注入）。一份声明不能盖两件事。
+# 拆解“不存原文”，范文“必须存盘”（否则写作阶段没法注入）。一份声明不能盖两件事。
 SAMPLE_CONSENT_REL = "data/state/style_sample_consent.json"
 
 
@@ -137,7 +137,7 @@ def _set_sample_consent(agreed):
 
 
 def handle_style_sample_consent(h):
-    """样例稿使用声明的同意状态（GET）。范文框据此决定「保存」要不要先弹声明。"""
+    """样例稿使用声明的同意状态（GET）。范文框据此决定“保存”要不要先弹声明。"""
     try:
         return 200, dict({"ok": True}, **_sample_consent())
     except Exception as e:                                  # noqa: BLE001
@@ -183,7 +183,7 @@ def handle_config_style_rule_set(h, body):
         return 400, {"ok": False, "error": msg}
     return 200, {"ok": True, "value": value,
                  "message": ("已改为不注入" if not value
-                             else "已选择「%s」—— 下一章写作开始注入"
+                             else "已选择“%s”—— 下一章写作开始注入"
                                   % next(o["label"] for o in STYLE_RULE_OPTIONS
                                          if o["code"] == value))}
 
@@ -252,7 +252,7 @@ def _style_ref_payload(text, rel, configured):
 
 
 def handle_config_style_reference(h):
-    """读范文正文 + 字数口径（GUI「范文」编辑框的数据源）。"""
+    """读范文正文 + 字数口径（GUI“范文”编辑框的数据源）。"""
     p, rel, configured = _style_ref_target()
     text = ""
     if p.exists():
@@ -275,12 +275,12 @@ def handle_config_style_reference_set(h, body):
     if "text" not in body:
         return 400, {"ok": False, "error": "缺少 text 字段（清空请传空字符串）"}
     text = str(body.get("text") or "").replace("\r\n", "\n").replace("\r", "\n")
-    # 声明门（2026-10-29）：写正文前先确认「样例稿由你提供、片段会随任务发给模型服务商」。
+    # 声明门（2026-10-29）：写正文前先确认“样例稿由你提供、片段会随任务发给模型服务商”。
     # 为什么拦在后端而不是只做前端弹层：外部 Agent 也调这个端点，声明不能只靠 GUI 自觉。
     # 清空（空串）不拦 —— 那是撤回，不该再被声明挡一次。
     if text.strip() and not _sample_consent().get("agreed"):
         return 403, {"ok": False, "need_consent": True,
-                     "error": "保存范文前需先确认「样例稿使用声明」："
+                     "error": "保存范文前需先确认“样例稿使用声明”："
                               "正文会保存在本机工作区，其中的片段会随写作任务发给模型服务商。"}
     if len(text) > STYLE_REF_MAX_CHARS:
         return 400, {"ok": False,
@@ -324,7 +324,7 @@ def handle_config_style_reference_set(h, body):
         payload["message"] = "已清空范文 —— 写作阶段不再注入范文"
     elif payload["prose_chars"] < payload["min_prose"]:
         payload["message"] = ("已保存，但有效正文只有 %d 字（少于 %d）—— **暂不生效**，"
-                              "写作时会按「未提供范文」处理"
+                              "写作时会按“未提供范文”处理"
                               % (payload["prose_chars"], payload["min_prose"]))
     elif payload["truncated"]:
         payload["message"] = ("已保存：有效正文 %d 字；超出注入上限 %d 字，stage4 只注入前 %d 字"
@@ -338,7 +338,7 @@ def handle_config_style_reference_set(h, body):
 # ---------------------------------------------------------------- Word 模板
 # 件五（GUI 模板入口，A 方案）后端：清单来自磁盘 templates/，当前值来自
 # project.yaml 的 book.word_template —— 两者**分开回**：当前值指向的模板可能
-# 已被移走（配置陈旧），前端据此提示「文件不在」而不是让下拉悄悄显示空值。
+# 已被移走（配置陈旧），前端据此提示“文件不在”而不是让下拉悄悄显示空值。
 DEFAULT_WORD_TEMPLATE = "templates/小说格式模板V1.3.dotx"   # 出厂默认（恢复默认的落点）
 TPL_DIR = "templates"      # 模板目录名（配置值里存的是 `templates/<文件名>`）
 TPL_PREFIX = TPL_DIR + "/"
@@ -394,7 +394,7 @@ def handle_config_word_template_set(h, body):
 
     只接受 **templates/ 目录里真实存在的文件名**：配置里的值会被 stage7 当路径
     用（`Path(tmpl).exists()`），放行不存在或带目录的值等于给成品链埋一个
-    「静默退回硬编码样式」的坑；`../` 这类写法一律拒在门外。
+    “静默退回硬编码样式”的坑；`../` 这类写法一律拒在门外。
     """
     body = body or {}
     name = str(body.get("template") or "").strip()
@@ -404,7 +404,7 @@ def handle_config_word_template_set(h, body):
     if norm.startswith(TPL_PREFIX):
         norm = norm[len(TPL_PREFIX):]
     if not norm:
-        return 400, {"ok": False, "error": "未选择模板（要回到出厂模板请点「恢复默认」）"}
+        return 400, {"ok": False, "error": "未选择模板（要回到出厂模板请点“恢复默认”）"}
     if "/" in norm or "\\" in norm or ".." in norm:
         return 400, {"ok": False, "error": "模板名非法（只允许 %s 下的文件名）: %s" % (TPL_PREFIX, name)}
     if not norm.lower().endswith((".dotx", ".docx")):
@@ -439,7 +439,7 @@ def _gui_only(h, what):
     拒文**零通道名**（V5）：不提缺哪个头、该填什么值 —— 拒文本身是攻击面。
     """
     from utils import agent_guard
-    # 传 None / 无 headers 的调用方一律按「非 GUI」fail-closed（不 AttributeError 崩成 500）：
+    # 传 None / 无 headers 的调用方一律按“非 GUI”fail-closed（不 AttributeError 崩成 500）：
     # 这些端点本就不该由无请求头的通道调用。
     headers = getattr(h, "headers", None) or {}
     if agent_guard.is_trusted_gui(headers):
@@ -479,7 +479,7 @@ def handle_config_token_limit_set(h, body):
 
     校验在 cost_tracker（语义唯一来源），落盘在 config_io（定向改写 + 备份 + 回读）。
     越界值一律 400 拒绝：把 max_total_tokens 改成 0 等于**让闸门静默消失**，
-    与本轮修掉的「hermes 下 ¥ 记账恒 0」是同一类坑。
+    与本轮修掉的“hermes 下 ¥ 记账恒 0”是同一类坑。
     """
     guard = _gui_only(h, "止烧阈值（budget.token_limit）")
     if guard:
@@ -506,7 +506,7 @@ def handle_config_token_limit_set(h, body):
 #
 # 为什么出厂下限是 5000 而不是 2000（2026-10-18 用户取证）：
 # 旧默认 [2000, 5500] 让实测 2033 / 2439 字的章**直接过检**，用户判定
-# 「一章两三千字根本不合格」。用户既定口径是「单章 5000~15000、常态 ~8000」。
+# “一章两三千字根本不合格”。用户既定口径是“单章 5000~15000、常态 ~8000”。
 # 注意：总量仍应由**章数**控制，抬高这里只是把单章篇幅拉到合格线。
 TARGET_WORDS_PRESET = [5000, 9000]
 TARGET_WORDS_BOUNDS = {"low": (500, 20000), "high": (500, 30000)}
@@ -540,7 +540,7 @@ def handle_config_target_words(h):
     """读单章字数区间（chapter.target_words）+ 出厂预设 + 合法区间。
 
     为什么要有这个读口：用户此前只能手改 system.yaml 才能调篇幅，
-    「绒花墨坊似乎没有显示设置每章字数要求的地方」—— 要能调就得先看得见。
+    “绒花墨坊似乎没有显示设置每章字数要求的地方”—— 要能调就得先看得见。
     """
     try:
         cfg = api.load_all()[0]
@@ -602,7 +602,7 @@ TITLE_FORMAT_DEFAULT = "第{n}章 {title}"
 def handle_config_title_format(h):
     """读章标题格式（chapter.title_format）+ 出厂默认。
 
-    用户 2026-10-26 第 12 条：「做个章节名格式自定义不难吧？」——
+    用户 2026-10-26 第 12 条：“做个章节名格式自定义不难吧？”——
     格式本身是**创作决策**（有人喜欢 `第10章 潜七十二`，有人喜欢 `第十章 潜七十二`），
     所以给读口和写口，判据只有一条：必须含 `{n}`（不带章号的格式没法保证章号不丢）。
     """
@@ -655,7 +655,7 @@ def handle_config_title_format_set(h, body):
 def handle_config_vault_scan(h):
     """读知识库扫描面：顶层目录 + 各自篇数 + 是否被排除。
 
-    给 GUI「知识库扫描」用。**通用性是这里的第一要求**：本端点只报告"你的库里
+    给 GUI“知识库扫描”用。**通用性是这里的第一要求**：本端点只报告"你的库里
     有哪些目录、各多少篇、哪些没进检索"，代码里不出现任何具体目录名 —— 用户的
     库怎么组织由用户说了算，界面上看得到、勾得掉，不需要改配置文件。
     """
@@ -669,7 +669,7 @@ def handle_config_vault_scan(h):
 
 
 # ---------------------------------------------------------------- 知识库路径读写
-# 2026-10-31：设置页只有「知识库扫描」，**没有填库路径的入口** —— 用户第一次接库
+# 2026-10-31：设置页只有“知识库扫描”，**没有填库路径的入口** —— 用户第一次接库
 # 只能手改 config/system.yaml + system.local.yaml（还得自己知道 local 覆盖优先）。
 # 这条路对"只用过笔记软件"的人来说根本走不通。
 #
@@ -696,7 +696,7 @@ def _yaml_cfg(path):
     - **收绝对 Path**（调用处 `api.ROOT / ...`）：本仓已禁止把相对路径裸传给函数，
       `--root` 场景下会静默读另一个项目的配置；
     - 走 `config_io.load_config_yaml`（严格：重复键 / 语法错会报），这里吞掉并给空 dict ——
-      这个端点只是「告诉界面配置从哪来」，不该因为一份坏 YAML 就 500。
+      这个端点只是“告诉界面配置从哪来”，不该因为一份坏 YAML 就 500。
       （坏配置本身会被 GET /config/project 与 nfctl status 暴露出来。）
     """
     try:
@@ -930,7 +930,7 @@ def _current_vault_path():
 def _user_skip_dirs():
     """当前生效的排除项里，**除掉默认四项**之后的部分（= 用户自己勾的那几个）。
 
-    为什么要减默认项：`get_skip_dirs()` 是「默认 + local 追加」，把整份存进书签
+    为什么要减默认项：`get_skip_dirs()` 是“默认 + local 追加”，把整份存进书签
     再套到另一个库上，等于把`.obsidian` 之类也当成"用户选择"带来带去。
     """
     from obsidian_bridge import get_skip_dirs
@@ -943,7 +943,7 @@ def _user_skip_dirs():
 
 
 def _apply_vault(path, skip_dirs):
-    """把「当前库」切到 path，并把 skip_dirs 写进 local（空列表 = 清掉用户项）。"""
+    """把“当前库”切到 path，并把 skip_dirs 写进 local（空列表 = 清掉用户项）。"""
     from utils.config_io import set_section_scalars
     from utils.setting_schema import reset_obsidian_config_cache
     ok, msg = set_section_scalars(("obsidian",),
@@ -1034,7 +1034,7 @@ def handle_config_vaults_switch(h, body):
             break
     if item is None:
         return 400, {"ok": False,
-                     "error": "这个库不在列表里（先「加入列表」，或直接用路径输入框保存）"}
+                     "error": "这个库不在列表里（先“加入列表”，或直接用路径输入框保存）"}
     from pathlib import Path as _P
     if not _P(item["path"]).is_dir():
         return 400, {"ok": False,
@@ -1057,7 +1057,7 @@ def handle_config_vaults_switch(h, body):
         return 400, {"ok": False, "error": "切换失败：" + msg}
     _save_vaults_doc(doc)
     return 200, dict(_vaults_public(),
-                     message="已切到「%s」" % (item.get("name") or item["path"]),
+                     message="已切到“%s”" % (item.get("name") or item["path"]),
                      scan=None)
 
 
@@ -1097,7 +1097,7 @@ _VAULT_LOCAL_SKELETON = (
 def _validate_skip_dirs(body):
     """校验排除目录入参。返回 (ok, msg, names)。
 
-    只收**目录名**（不含路径分隔符 / `..`）：判据是「拿名字去比对路径的每一段」，
+    只收**目录名**（不含路径分隔符 / `..`）：判据是“拿名字去比对路径的每一段”，
     收路径既无意义又给路径穿越留口子。长度上限防把整段路径粘进来。
     """
     body = body or {}
@@ -1178,7 +1178,7 @@ def handle_config_enhanced_mode(h):
     """读加强模式开关（chapter.enhanced_mode）。
 
     加强模式 = 单章拆段落群生成（utils/enhanced_chapter.py）：逐群生成、
-    每群落盘、拼装成章后走同一套校验。默认关 —— 施工单口径「只手动开启」。
+    每群落盘、拼装成章后走同一套校验。默认关 —— 施工单口径“只手动开启”。
     """
     try:
         cfg = api.load_all()[0]
@@ -1325,9 +1325,9 @@ def handle_config_agent_mode_set(h, body):
 
 
 # Agent 模式下各操作族的**人话说明**。键 = 端点路径前缀；判据唯一来源仍是
-# utils.agent_guard.is_forbidden_in_agent_mode —— 这里只补「为什么」，不改判据。
+# utils.agent_guard.is_forbidden_in_agent_mode —— 这里只补“为什么”，不改判据。
 # ⚠️ 判据绝不能在这里复述一份：两份名单必然漂移（前端锁了后端没锁 / 反过来），
-#    而漂移的表现正是用户 2026-10-24 抱怨的「客户端里分不清哪些走 Agent 哪些走内部」。
+#    而漂移的表现正是用户 2026-10-24 抱怨的“客户端里分不清哪些走 Agent 哪些走内部”。
 _AGENT_PATH_NOTES = {
     "/approve": "审批放行 —— 判定权归用户，Agent 不得代批",
     "/reject": "打回重跑 —— 同审批族，会清下游产物",
@@ -1366,8 +1366,8 @@ def handle_agent_permissions(h):
 
     为什么要有：Agent 模式下 GUI 锁哪些按钮，此前是**前端各处硬编码**，而判据的
     唯一真源是 utils.agent_guard.FORBIDDEN_IN_AGENT_MODE —— 两边没有共享通道。
-    用户 2026-10-24 的原话：「在客户端内根本分不清哪些会走 agent 哪些直接走内部
-    配置 API，很混乱」。这里把权威名单 + 人话说明一次性交给前端渲染，前端不再
+    用户 2026-10-24 的原话：“在客户端内根本分不清哪些会走 agent 哪些直接走内部
+    配置 API，很混乱”。这里把权威名单 + 人话说明一次性交给前端渲染，前端不再
     自己维护第二份名单（两份名单必然漂移，漂移 = 这次抱怨的根因）。
 
     返回三类，让界面能画出明确分界：
@@ -1408,10 +1408,10 @@ def handle_agent_permissions(h):
 
 
 # ---------------------------------------------------------------- 归档查看 / 删除
-# 为什么在「项目」域：/project/list 已在此，归档的「看」与「删」是它的自然延伸 ——
-# 此前 GUI 每行只有「恢复」，既看不了内容也删不掉，归档变成死胡同。
+# 为什么在“项目”域：/project/list 已在此，归档的“看”与“删”是它的自然延伸 ——
+# 此前 GUI 每行只有“恢复”，既看不了内容也删不掉，归档变成死胡同。
 #
-# 路径纪律：一律 api.ROOT 拼接（AGENTS.md「路径 IO 必须经 ROOT」）。
+# 路径纪律：一律 api.ROOT 拼接（AGENTS.md“路径 IO 必须经 ROOT”）。
 # 不用 switch_book 的模块常量：那套常量按**脚本位置**解析，--root 场景下
 # 会静默指向另一个项目 —— 与 nf_api 里 Path("data/...") 是同一类坑。
 
@@ -1453,8 +1453,8 @@ def _archive_dir(name):
 def handle_archive_tree(h):
     """归档内容清单：`GET /project/archive/tree?name=X`。
 
-    只读。给「归档项目查看」用 —— 想删之前先看清楚里面有什么，
-    也是「恢复出来才能看」这个死胡同的替代出口。
+    只读。给“归档项目查看”用 —— 想删之前先看清楚里面有什么，
+    也是“恢复出来才能看”这个死胡同的替代出口。
     """
     name = _query1(h, "name")
     if not name:
@@ -1487,7 +1487,7 @@ def handle_archive_file(h):
     """归档内单文件预览：`GET /project/archive/file?name=X&path=rel`。
 
     只读 + 三道闸：路径不许越出归档根、超大文件只报体积、二进制不回内容
-    （下载 .docx 之类对「看一眼」没有意义，还会把 JSON 响应变成乱码）。
+    （下载 .docx 之类对“看一眼”没有意义，还会把 JSON 响应变成乱码）。
     """
     name, rel = _query1(h, "name"), _query1(h, "path")
     if not name or not rel:
@@ -1505,7 +1505,7 @@ def handle_archive_file(h):
     except OSError as e:
         return 500, {"ok": False, "error": str(e)}
     if size > _MAX_ARCHIVE_FILE:
-        return 413, {"ok": False, "error": "文件过大（%d B > %d B），请用「恢复」后查看"
+        return 413, {"ok": False, "error": "文件过大（%d B > %d B），请用“恢复”后查看"
                                             % (size, _MAX_ARCHIVE_FILE)}
     data = target.read_bytes()
     if b"\x00" in data[:4096]:
@@ -1535,7 +1535,7 @@ def handle_archive_delete(h, body):
     if not name:
         return 400, {"ok": False, "error": "name 必填"}
     if confirm != name:
-        return 400, {"ok": False, "error": "请输入归档名「%s」以确认删除" % name}
+        return 400, {"ok": False, "error": "请输入归档名“%s”以确认删除" % name}
     d, err = _archive_dir(name)
     if err:
         return 404, {"ok": False, "error": err}
@@ -1544,7 +1544,7 @@ def handle_archive_delete(h, body):
         if purge:
             shutil.rmtree(str(d))
             return 200, {"ok": True, "mode": "purged", "name": name,
-                         "message": "已彻底删除「%s」（%s）—— 不可恢复" % (name, d)}
+                         "message": "已彻底删除“%s”（%s）—— 不可恢复" % (name, d)}
         ts = api.time.strftime("%Y%m%d_%H%M%S", api.time.localtime())
         trash = _books_root() / "_trash"
         trash.mkdir(parents=True, exist_ok=True)
@@ -1552,7 +1552,7 @@ def handle_archive_delete(h, body):
         shutil.move(str(d), str(target))
         return 200, {"ok": True, "mode": "trashed", "name": name,
                      "trash_path": str(target),
-                     "message": "已移出归档列表「%s」→ 回收站 %s（要彻底清除请手工删除该目录）"
+                     "message": "已移出归档列表“%s”→ 回收站 %s（要彻底清除请手工删除该目录）"
                                 % (name, target)}
     except OSError as e:
         return 500, {"ok": False, "error": "删除失败: %s" % e}
@@ -1604,7 +1604,7 @@ def handle_writing_presets_apply(h, body):
 
 # ---------------------------------------------------------------- 出厂预设（2026-10-21）
 def handle_factory_presets_list(h):
-    """`GET /factory/presets` —— 列出出厂预设（只读）。首跑向导的「选预设」用。"""
+    """`GET /factory/presets` —— 列出出厂预设（只读）。首跑向导的“选预设”用。"""
     try:
         import preset_apply as pa
         pdir = pa.find_presets_dir(api.ROOT)
@@ -1644,7 +1644,7 @@ def handle_factory_preset_apply(h, body):
         tail = "\n".join(buf.getvalue().splitlines()[-12:])
         if rc != 0:
             return 400, {"ok": False, "error": "铺设失败（退出码 %s）" % rc, "log": tail}
-        return 200, {"ok": True, "message": "预设「%s」已铺设" % pid, "log": tail}
+        return 200, {"ok": True, "message": "预设“%s”已铺设" % pid, "log": tail}
     except Exception as e:                                  # noqa: BLE001
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
@@ -1691,7 +1691,7 @@ ROUTES = (
     ("GET", "/config/writing_presets", handle_writing_presets_get),
     ("POST", "/config/writing_presets/save", handle_writing_presets_save),
     ("POST", "/config/writing_presets/apply", handle_writing_presets_apply),
-    # 出厂预设（2026-10-21）：首跑向导「选预设」；apply 是破坏性动作（GUI 双因子）
+    # 出厂预设（2026-10-21）：首跑向导“选预设”；apply 是破坏性动作（GUI 双因子）
     ("GET", "/factory/presets", handle_factory_presets_list),
     ("POST", "/factory/preset/apply", handle_factory_preset_apply),
 )

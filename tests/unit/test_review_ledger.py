@@ -1,17 +1,17 @@
 # -*- coding: utf-8 -*-
-"""七维评审账本的自检（2026-10-20，台账二·「七维评审 + 原文举证」）。
+"""七维评审账本的自检（2026-10-20，台账二·\u300c七维评审 + 原文举证\u300d）。
 
 ## 主判据（正反两方都钉）
 
 **必须算分**：
 1. 七维齐全 + 每维引一句真实原句 → `complete=True`，均分 = 七维平均
-2. 举证换标点形态（「」→“”、半角逗号）仍算命中 —— 不许把正常转述判成编造
+2. 举证换标点形态（\u300c\u300d→“”、半角逗号）仍算命中 —— 不许把正常转述判成编造
 3. 省略号引用（`前句……后句`）两段都在原文里 → 算命中
 4. 三种 dims 形态（list / dict / 平铺）都读得出来
 
 **必须不算分**（每一条都对应一种真实的偷懒/编造）：
 5. 举证是编的（原文里没有）→ `verified=False`、`score=None`（不是扣分，是整维作废）
-6. 举证太短（< 8 个有效字符，如「他点了点头」）→ 不算
+6. 举证太短（< 8 个有效字符，如\u300c他点了点头\u300d）→ 不算
 7. 分数越界（11 / -1 / "abc"）→ 该维作废，即使举证是真的
 8. 七维缺一维 → `missing` 记录 + `complete=False`（**不补默认分**）
 9. 省略号引用里有一段是编的 → 整条不算
@@ -29,8 +29,8 @@
 
 ## 为什么这些断言值得写
 
-旧 stage5 的判据是「check_report.md 有内容」——模型写满一屏漂亮话就通过了。
-本模块把「通过」重新定义为**七维都能在原文里找到落点**。上面前四条防误伤
+旧 stage5 的判据是\u300ccheck_report.md 有内容\u300d——模型写满一屏漂亮话就通过了。
+本模块把\u300c通过\u300d重新定义为**七维都能在原文里找到落点**。上面前四条防误伤
 （正常引用被冤枉），后七条防放水（没读原文也能得分）。
 
 用法：python tests/unit/test_review_ledger.py
@@ -102,7 +102,7 @@ def case_tolerance():
     print("\n[P2] 正常转述不许被冤枉（标点/引号形态差异 / 省略号引用）")
     ok1, _ = R.quote_ok("他推开门的时候，屋檐上的水线正连成了串", CHAPTER)
     check("P2 标点形态微调仍命中", ok1)
-    ok2, _ = R.quote_ok("「你迟到了。」老者没有抬头", CHAPTER)
+    ok2, _ = R.quote_ok("\u300c你迟到了。\u300d老者没有抬头", CHAPTER)
     check("P2 引号形态换成直角引号仍命中", ok2)
     ok3, _ = R.quote_ok("他推开门的时候，屋檐上的水线正连成了串……院子里的老狗趴在墙根", CHAPTER)
     check("P2 省略号跨句（两段都在原文）命中", ok3)
@@ -211,10 +211,10 @@ def case_parse_and_io():
         md = (tmp / "ledger.md").read_text(encoding="utf-8")
         check("P5 人读版含七维表头", "情节连贯性" in md and "| 章 |" in md, md[:120])
 
-        # 不完整的章：ledger.md 必须写「未举证」，不许留空让人误以为满分
+        # 不完整的章：ledger.md 必须写“未举证”，不许留空让人误以为满分
         r2 = R.check_chapter(entry(1, quotes={"plot": "编的句子编的句子编的句子"}), CHAPTER, 1)
         md2 = R.render_markdown([r2], R.summarize([r2]))
-        check("P5 未举证的维度在表格里写明「未举证」", "未举证" in md2, md2[:200])
+        check("P5 未举证的维度在表格里写明\u300c未举证\u300d", "未举证" in md2, md2[:200])
         check("P5 低分项单独成节", "低分项" not in md2, "8 分不该进低分项")
         r3 = R.check_chapter(entry(1, scores={"plot": 3}), CHAPTER, 1)
         md3 = R.render_markdown([r3], R.summarize([r3]))
@@ -234,7 +234,7 @@ def aes(quotes=None, scores=None, items=None):
     if items is not None:
         return items
     # ⚠️ 池子里不能放 QUOTE_A：`entry()` 默认拿它给七维全部举证，
-    # 审美的第一问再用它就会被「跨块复用」判据打掉（这是判据正确，不是夹具 bug 的挡箭牌）
+    # 审美的第一问再用它就会被“跨块复用”判据打掉（这是判据正确，不是夹具 bug 的挡箭牌）
     pool = [QUOTE_B, QUOTE_C, "灯芯爆了一下，屋里暗了半格。",
             "他把湿透的袖口往腕上又卷了一道。", "门轴响了一声，他没有回头。"]
     return [{"q": c, "score": scores.get(c, 8),
@@ -255,7 +255,7 @@ def case_aesthetic():
     r2 = R.check_chapter({**entry(1), "aesthetic": dup}, CHAPTER, 1)
     ok_count = sum(1 for v in r2["aesthetic"]["items"].values() if v["verified"])
     check("P6 同一句给五问 → 只认第一问（1/5 有效）", ok_count == 1, ok_count)
-    check("P6 其余四问写明「用了同一句举证」",
+    check("P6 其余四问写明\u300c用了同一句举证\u300d",
           sum(1 for v in r2["aesthetic"]["items"].values()
               if "用了同一句举证" in v["reason"]) == 4,
           [v["reason"] for v in r2["aesthetic"]["items"].values()])
@@ -302,9 +302,9 @@ def case_aesthetic():
     check("P6 汇总里审美章节数 = 0（老账本全 None）",
           s_old["aesthetic"]["chapters"] == 0, s_old["aesthetic"])
     md_old = R.render_markdown([old], s_old)
-    check("P6 老账本渲染不崩且表格有「审美」列",
+    check("P6 老账本渲染不崩且表格有\u300c审美\u300d列",
           "审美" in md_old.splitlines()[0:12][-1] or "| 审美 |" in md_old, md_old[:300])
-    check("P6 老账本表格里该章审美显示「未评」", "未评" in md_old, md_old[:400])
+    check("P6 老账本表格里该章审美显示\u300c未评\u300d", "未评" in md_old, md_old[:400])
 
     # 汇总 + 人读版（有审美）
     s2 = R.summarize([r])
@@ -315,7 +315,7 @@ def case_aesthetic():
           and all(v["label"] for v in s2["aesthetic"]["items"].values()),
           list(s2["aesthetic"]["items"]))
     md = R.render_markdown([r], s2)
-    check("P6 人读版有「审美五问」小节", "## 审美五问" in md, md[-500:])
+    check("P6 人读版有\u300c审美五问\u300d小节", "## 审美五问" in md, md[-500:])
     check("P6 人读版五问逐项列出", all(q["label"] in md for q in R.AESTHETIC), md[-400:])
 
 

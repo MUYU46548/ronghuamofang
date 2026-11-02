@@ -40,7 +40,7 @@ SUMMARY_RE = re.compile(r"<!--\s*summary:\s*(.+?)\s*-->", re.IGNORECASE | re.S)
 
 # progress.json 的写入锁（2026-10-27）：文件进度看门狗是**独立线程**，与
 # stream 回调 `_on_piece` 可能同时 save()。不加锁会两个线程各写整份 JSON，
-# 轻则丢一次更新，重则写出半截文件。粒度只包住「改字段 + save」。
+# 轻则丢一次更新，重则写出半截文件。粒度只包住“改字段 + save”。
 _PROGRESS_LOCK = threading.Lock()
 
 # 范文注入上限（字）。6000 是**注入成本与收益的拐点**：few-shot 只抽 3 段/≤900 字，
@@ -78,7 +78,7 @@ def build_style_reference_block(book):
     if not ref:
         return STYLE_REF_PLACEHOLDER, meta
     if not Path(ref).exists():
-        print("[stage4] WARN style_reference 指向的文件不存在：%s —— 本次按「未提供范文」写作"
+        print("[stage4] WARN style_reference 指向的文件不存在：%s —— 本次按“未提供范文”写作"
               % ref)
         return STYLE_REF_PLACEHOLDER, meta
     text = read_text(ref).strip()
@@ -89,7 +89,7 @@ def build_style_reference_block(book):
     prose = prose_char_count(text)
     if prose < STYLE_REF_MIN_PROSE:
         print("[stage4] WARN 范文文件 %s 里只有占位符/标题（有效正文 %d 字，少于 %d）"
-              "—— 本次按「未提供范文」写作，请把正文粘进去"
+              "—— 本次按“未提供范文”写作，请把正文粘进去"
               % (ref, prose, STYLE_REF_MIN_PROSE))
         meta["injected"] = 0
         return STYLE_REF_PLACEHOLDER, meta
@@ -166,7 +166,7 @@ def _homo_report(path, n=None):
     except Exception as e:                                    # noqa: BLE001
         print(f"[homogeneity] 第{n}章检测失败（不影响主流程）: {type(e).__name__}: {e}")
 
-# 知识库注入的「一次性提示」开关。
+# 知识库注入的“一次性提示”开关。
 # `build_chapter_task` 每章调一次，逐章打印同一条提示会淹没日志；
 # 但**完全不提示**又是静默失败（用户以为 KB 生效了）。折中：每进程提示一次。
 _KB_NOTICE = {"shown": False}
@@ -183,9 +183,9 @@ def _stop_requested():
     """GUI/外部是否请求停止（与 orchestrator._stop_requested 同语义）。
 
     P0-4（2026-10-01）：orchestrator 只在**阶段边界**查停止，而 stage4 一阶段
-    可能是几十章 —— 不在章间查，按了「停止」也要跑完整个阶段才生效。
+    可能是几十章 —— 不在章间查，按了“停止”也要跑完整个阶段才生效。
     延迟导入 nf_api 防循环依赖（nf_api 顶层 import orchestrator，orchestrator
-    模块级 import 本文件）；CLI 独立跑本文件时 nf_api 不可导入 → 降级「未请求」。
+    模块级 import 本文件）；CLI 独立跑本文件时 nf_api 不可导入 → 降级“未请求”。
     """
     try:
         from nf_api import should_stop
@@ -207,19 +207,19 @@ def _safe_read(path, budget=20000):
 def _run_task_safe(client, task, on_piece=None, **kw):
     """client.run_task 的异常兜底（第一波防御 · 任务二，2026-10-22）。
 
-    ## 为什么优先走流式（2026-10-26，用户第 6 条「点停止停不下来」）
+    ## 为什么优先走流式（2026-10-26，用户第 6 条“点停止停不下来”）
 
     非流式 `run_task` 要等**整章**返回才可能检查停止标志 —— 一章几千字，等十几分钟，
-    用户点了「停止」界面毫无动静（原话：「依旧点停止停不下来，绝了」）。
+    用户点了“停止”界面毫无动静（原话：“依旧点停止停不下来，绝了”）。
     `run_task_stream` 每读一小块就查一次 `stop_flag`，中断能在几秒内收手，
     而且半截正文**不落盘**（`_apply_ops` 被 stop 跳过），断点续跑不会捡到废稿。
 
     ## 2026-10-30：hermes（agent 模式）也走这条分支
 
-    以前这里写着 `provider != "hermes"` —— 理由是「它的会话续接只接在 run_task 上」。
+    以前这里写着 `provider != "hermes"` —— 理由是“它的会话续接只接在 run_task 上”。
     实际代价是：**在 agent 模式下按停止，要等这一章跑完（最长 `hermes.timeout`=900 秒）**，
     因为 `run_task` 是 `communicate(timeout=900)` 一把阻塞，中途根本没有检查点。
-    而 `HermesClient.run_task_stream` 早就实现了「逐行读 stream-json + stop 即杀进程树」，
+    而 `HermesClient.run_task_stream` 早就实现了“逐行读 stream-json + stop 即杀进程树”，
     只是没被接进来（会话续接在流式里传 session_id 即可，`_build_cmd` 会拼 --resume）。
 
     所以现在所有引擎统一走流式；`session_id` 照原样透传（不悄悄 pop：
@@ -228,10 +228,10 @@ def _run_task_safe(client, task, on_piece=None, **kw):
     ## 越权写盘检测（同批）
 
     `client.writes_files` 为真（hermes / 任何用文件工具写正文的子会话）时，
-    调用前后各做一次快照比对，把「写了 data/** 之外的文件」变成事实打印出来。
+    调用前后各做一次快照比对，把“写了 data/** 之外的文件”变成事实打印出来。
     这是**检测不是沙箱**（真边界在 hermes 自己的权限设置里，见 utils/write_guard）。
 
-    ⚠️ 只兜「客户端调用」这一步：任务构造（write_task/build_chapter_task）
+    ⚠️ 只兜“客户端调用”这一步：任务构造（write_task/build_chapter_task）
     的异常仍要穿透 —— 那是代码/输入缺陷，吞掉只会让每章都悄悄失败。
     """
     stream_ok = (
@@ -239,7 +239,7 @@ def _run_task_safe(client, task, on_piece=None, **kw):
         and hasattr(client, "run_task_stream")
         and not kw.get("dry_run")
     )
-    # 写盘边界快照（只对「子会话自己写文件」的引擎；direct 的写入经 allowed_paths 白名单）
+    # 写盘边界快照（只对“子会话自己写文件”的引擎；direct 的写入经 allowed_paths 白名单）
     _wg_before = None
     if getattr(client, "writes_files", False) and not kw.get("dry_run"):
         try:
@@ -307,7 +307,7 @@ def sync_appearances_after_chapter(chapter_text, chapter_no, total_chapters=None
 
 
 def _involved_names(outline_text):
-    """从逐章大纲的「涉及角色」解析角色名列表。
+    """从逐章大纲的“涉及角色”解析角色名列表。
 
     ## 支持两种真实格式（2026-10-18 修正）
 
@@ -320,7 +320,7 @@ def _involved_names(outline_text):
     2. 单行顿号：`- 涉及角色：苏芷、观澜`
     3. 混合：`luxi 苏芷（写病历）、小林（夜班护士）`
 
-    ⚠️ **旧实现只取「涉及角色」那一行**，多行格式下后续两行被整行丢掉，
+    ⚠️ **旧实现只取“涉及角色”那一行**，多行格式下后续两行被整行丢掉，
     于是只剩 `- 沈砚（c015）：主角…` 一句，再按顿号切就得到
     `['-', '沈砚：主角', '落魄机关术师', …]` —— 真正的角色名 `沈砚` 反而不在里面，
     带括号的描述文字全成了"名字"。后果：角色卡恒空、设定条目恒空，
@@ -349,7 +349,7 @@ def _involved_names(outline_text):
 
     # 逐项两段法（2026-10-18 第四次修正）。
     #
-    # ⚠️ 教训记录：这条函数改了四版，前三版都是「按顿号切整行」，每修好一种格式
+    # ⚠️ 教训记录：这条函数改了四版，前三版都是“按顿号切整行”，每修好一种格式
     # 又漏另一种 —— `沈砚（c015）：主角，落魄机关术师；…` 一切就是
     # `['沈砚（c015）', '主角', '落魄机关术师', …]`，描述碎片全成了"名字"；
     # `玄翎卫统领（本章新登场，无设定集编号）` 的括号内含逗号，剥括号后残出
@@ -408,7 +408,7 @@ def _extract_world_context(setting_path, outline_text, involved=None, budget=450
     实测真实设定集（《雾港核心》）69 KB，含 `world`（18 地点 / 16 势力 / 19 世界规则 /
     8 物品）、`timeline`（15 条）、`plot_fragments`（24 条）——
     **这些条目一个都没进任务**，模型读多少、读哪条完全不受控。
-    用户的判断正是：「设定库里扔了一堆语料都学不明白吗？」
+    用户的判断正是：“设定库里扔了一堆语料都学不明白吗？”
 
     根因不是模型不学，是**没给它可学的东西**。内联后设定上下文从"一个路径"
     变成"本章相关的具体条目"，且与角色卡一样可被校验、可被计数。
@@ -418,7 +418,7 @@ def _extract_world_context(setting_path, outline_text, involved=None, budget=450
     - 条目名**出现在大纲正文**里 → 收录（地点/势力/规则/物品同规则）
     - `timeline` 事件文本含涉及角色名 → 收录（时间线是 locked 硬约束，漏了会写错年份）
     - `plot_fragments` 的 summary 含涉及角色名 → 收录；另附**未启用**（status=unused）
-      的前 3 条作为「可用素材」——它们是 stage1 归并时留下的候选情节
+      的前 3 条作为“可用素材”——它们是 stage1 归并时留下的候选情节
     - 每条 desc 截断，总预算 `budget` 字；匹配不到就返回空，**不塞无关条目**
       （把整个设定集灌进去等于没灌：模型会跳读，且白烧输入 token）
     """
@@ -529,13 +529,13 @@ def _extract_world_context(setting_path, outline_text, involved=None, budget=450
 def _extract_character_cards_for_chapter(setting_path, outline_path, budget=3000):
     """从 setting.json 提取当前章节涉及的角色卡片段。
 
-    匹配逻辑：从大纲解析「涉及角色」，与 setting.json 的 characters 逐个匹配，
+    匹配逻辑：从大纲解析“涉及角色”，与 setting.json 的 characters 逐个匹配，
     返回格式化的角色卡文本（供任务文件注入）。
 
     **schema 兼容**：setting.json 有**两个生产者**，字段集不同 ——
     stage1（真实流水线）产出 `role/traits/relations`，vault 联动产出
     `type/tags/snippet/locked`。本函数此前只认后者，导致真实流水线下
-    「身份」与「性格」全丢。现统一走 `utils.setting_schema.normalize_character`，
+    “身份”与“性格”全丢。现统一走 `utils.setting_schema.normalize_character`，
     两套都能读全（详见该模块 docstring 的字段对照表）。
     """
     try:
@@ -567,7 +567,7 @@ def _extract_character_cards_for_chapter(setting_path, outline_path, budget=3000
 
 
 def _name_matches(nc, involved):
-    """角色是否落在大纲「涉及角色」名单里（容忍别名与括号描述）。"""
+    """角色是否落在大纲“涉及角色”名单里（容忍别名与括号描述）。"""
     names = {nc["name"], nc.get("id", "")}
     base = base_name(nc["name"])
     if base:
@@ -636,7 +636,7 @@ def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, p
         if not is_vault_configured():
             _kb_notice_once(
                 "[stage4] 提示：未配置 obsidian.vault_path，本次写作**未启用**知识库"
-                "词条注入（属未启用，非失败）。配置后可在 GUI「设置」页填写本地路径。")
+                "词条注入（属未启用，非失败）。配置后可在 GUI“设置”页填写本地路径。")
         else:
             outline_text = _safe_read(outline_path, budget=8000)
             rm = re.search(r"涉及角色[：:]\s*(.+)", outline_text)
@@ -660,7 +660,7 @@ def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, p
                 for _p, name, snip, score in hits:
                     if name and name in ctx_a:      # A 已覆盖的不重复注入
                         continue
-                    # 上一级目录名（如「行星」「01 武器装备」）帮模型分辨类别；
+                    # 上一级目录名（如“行星”“01 武器装备”）帮模型分辨类别；
                     # 分数只留 1 位小数 —— 原样打 29.014470149006385 是噪声。
                     folder = Path(_p).parent.name
                     where = f"{folder}／" if folder and folder != "." else ""
@@ -678,7 +678,7 @@ def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, p
                 _kb_notice_once(
                     "[stage4] 提示：vault 已配置但两条检索通道（词条名精确匹配 + "
                     "正文全文检索）都未匹配到相关词条 —— 未注入 KB 上下文"
-                    "（可能是章节「涉及角色」行缺失，或本章内容与正典词条无交集）。")
+                    "（可能是章节“涉及角色”行缺失，或本章内容与正典词条无交集）。")
     except Exception as e:                       # noqa: BLE001
         print(f"[stage4] ⚠ 知识库注入失败（本章将无 KB 正典上下文）: "
               f"{type(e).__name__}: {e}")
@@ -717,7 +717,7 @@ def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, p
               f"{type(e).__name__}: {e}")
         memory_block = ""
 
-    # 分支样例锚点（第 4 件 · 选项可视化）：用户在章大纲里选定的「样例文本」
+    # 分支样例锚点（第 4 件 · 选项可视化）：用户在章大纲里选定的“样例文本”
     # 注入成 few-shot 参照。读章大纲里的优化点锚点，只挑 kind=sample 的 ——
     # 讨论意见/字段改写类锚点是给**人**看的决策记录，混进去会污染写作模型。
     # 全量注入不做 top-K 截断（用户口径：整套写作用不了多少 token，样例文是
@@ -726,7 +726,7 @@ def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, p
         from utils.chapter_samples import chapter_samples
         chapter_samples_block = chapter_samples(n)
     except Exception as e:                              # noqa: BLE001
-        # 注入失败不阻断写作（同 kb_context 的三态纪律：这里属「失败」要打印）
+        # 注入失败不阻断写作（同 kb_context 的三态纪律：这里属“失败”要打印）
         print(f"[stage4] ⚠ 样例锚点注入失败（本章将无样例参照）: "
               f"{type(e).__name__}: {e}")
         chapter_samples_block = ""
@@ -743,7 +743,7 @@ def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, p
         decompose_samples = ""
 
     # 大纲点名的素材原文（2026-10-24 OB34 素材实测后补）：用户在大纲里写
-    # 「（碎片2026-4-8）」是**取材指令**，此前没有任何机械通道保证它进上下文
+    # “（碎片2026-4-8）”是**取材指令**，此前没有任何机械通道保证它进上下文
     # （bigram 召回只看字面重合，点名不等于命中）。这里逐章解析并内联原文。
     # 纪律同 kb_context：解析失败不阻断写作，但必须打印 —— 静默丢弃等于让
     # 取材指令失效而无人知。
@@ -850,7 +850,7 @@ def build_expand_task(cfg, proj, n, cur_words, low, high):
 
 
 def _stash_partial(n, chap_path, buf):
-    """把「按停止时已经收到的字」落成残稿（2026-11-02，不可用清单第 3 条）。
+    """把“按停止时已经收到的字”落成残稿（2026-11-02，不可用清单第 3 条）。
 
     ## 之前的定价
 
@@ -861,7 +861,7 @@ def _stash_partial(n, chap_path, buf):
 
     半截落到 `data/state/truncated/chNN_停在_<时间>.txt`，走的是**同一套**残稿机制
     （列表 / 读 / 采纳 / 清 都已存在，只是从没接在"用户停止"这条路径上）。
-    采纳只写进 `raw/NN.md` + 侧车标记，`is_chapter_complete` 仍判「未完成」——
+    采纳只写进 `raw/NN.md` + 侧车标记，`is_chapter_complete` 仍判“未完成”——
     残稿就是残稿，还得过审稿。
 
     返回 `(path, chars)`；没东西可存时 `(None, 0)`。失败只告警：
@@ -985,7 +985,7 @@ def _chapter_status(check, quality_threshold):
 
     1. **字数不达标也算 ok**：字数区间写在 `check.errors` 里、`check.ok` 已经是 False，
        但 status 压根没看 `check.ok`。实测 10 章全部 2000 上下（下限 5000）、
-       全部判 ok、自评 8~9 分 —— 用户看到「完成」。
+       全部判 ok、自评 8~9 分 —— 用户看到“完成”。
     2. **自评分是唯一判据**：P5 的 H2 说"模型自评分不得单独决定任何转移"，
        这里却是它一个人说了算。
 
@@ -1050,14 +1050,14 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                           "没有调用任何模型" % total)
 
     # 崩溃窗口恢复（step 级 checkpoint，2026-10-21）：**磁盘有合格正文、但 progress
-    # 没标 done** 的章 = 上轮在「写作落盘」之后、「标记完成」之前崩了（进程被杀 /
+    # 没标 done** 的章 = 上轮在“写作落盘”之后、“标记完成”之前崩了（进程被杀 /
     # 断电 / 熔断恰好落在中间）。这类章的正文是好的，重调 LLM 重写一遍纯属浪费，
     # 还可能换来一版更差的。处理：走 _finalize 的幂等重放 —— 补摘要 + 补出场 +
     # 补记账，再标完成，全程零 LLM 调用。
     #
     # 为什么摘要必须补而不是跳过：滚动摘要是**下一章的输入**。崩溃前它没写进
     # rolling.md，下一章就会拿不到本章摘要。而 append_chapter_summary 是同章
-    # 覆盖语义 —— 这里补一次是安全的；真正会污染全局摘要的是「重调 LLM 重跑整章」
+    # 覆盖语义 —— 这里补一次是安全的；真正会污染全局摘要的是“重调 LLM 重跑整章”
     # （多压一行进 global_summary）。所以判据是：正文合格 → 只补账，不重写。
     _tw = cfg.get("chapter", {}).get("target_words", [2000, 3000])[:2]
     _raw_seen = {int(p.stem) for p in raw_dir.glob("*.md") if p.stem.isdigit()}
@@ -1066,14 +1066,14 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         if n not in completed and n not in failed_ns
         and is_chapter_complete(raw_dir / f"{n:02d}.md", *_tw, para_structure=_para_ok))
     if orphan_ns:
-        print(f"[stage4] 检测到 {len(orphan_ns)} 章「正文已在盘、账未记」"
+        print(f"[stage4] 检测到 {len(orphan_ns)} 章“正文已在盘、账未记”"
               f"（上轮崩溃遗留）：{orphan_ns} —— 幂等补账，不重调 LLM")
-        # 孤儿章必须进 todo：否则「全是孤儿」时下面的 not todo 会误判成
-        # 「跳过（已完成）」，崩溃恢复路径永远走不到。
+        # 孤儿章必须进 todo：否则“全是孤儿”时下面的 not todo 会误判成
+        # “跳过（已完成）”，崩溃恢复路径永远走不到。
         todo = sorted(set(todo) | set(orphan_ns))
     _orphan_set = set(orphan_ns)
 
-    # 「只写指定章」（2026-10-26，GUI「重写本章」）：GUI 那边已经把这章的
+    # “只写指定章”（2026-10-26，GUI“重写本章”）：GUI 那边已经把这章的
     # raw 文件移走并清了完成标记，这里再把 todo 收窄到指定章。
     # 为什么用环境变量而不是加参数：orch_run 的签名是四个阶段路径共用的，
     # 为一个 GUI 动作改公共签名不划算；而 start_job 保证同一时刻只有一个 job
@@ -1093,8 +1093,8 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                 print(f"[stage4] 指定章 {sorted(_only_ns)} 不在待写列表里"
                       "（盘上已有合格正文且标记完整）—— 无需重写")
             if len(_only_ns) == 1:
-                # 单章重写标记：/state 据此把分母从「全书章数」换成「这一章」，
-                # 前端才不会把「重写第 5 章」画成永恒的 99%（见 stage_status）。
+                # 单章重写标记：/state 据此把分母从“全书章数”换成“这一章”，
+                # 前端才不会把“重写第 5 章”画成永恒的 99%（见 stage_status）。
                 try:
                     _st4 = progress.data.setdefault("stages", {}).setdefault("4", {})
                     _st4["rewrite_chapter"] = next(iter(_only_ns))
@@ -1117,9 +1117,9 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     low, high = cfg.get("chapter", {}).get("target_words", [2000, 3000])[:2]
     # R01 预算—篇幅联动（2026-10-30 补齐）：stage4 此前是唯一**既没有容量校验、
     # 也从不设 max_tokens** 的阶段（提示词里的 25000 无人读取）。装不下时模型会
-    # 自己删内容，表现为「每章都短一截」，而 finish_reason 还是 stop —— 既有那道
-    # 「截断即失败」的防线**看不见**（与 stage5 实测 5967→2186 同一机制）。
-    # 这里至少拦住「目标字数根本装不进本阶段输出上限」的配置，并把实际生效值打出来。
+    # 自己删内容，表现为“每章都短一截”，而 finish_reason 还是 stop —— 既有那道
+    # “截断即失败”的防线**看不见**（与 stage5 实测 5967→2186 同一机制）。
+    # 这里至少拦住“目标字数根本装不进本阶段输出上限”的配置，并把实际生效值打出来。
     from utils.judge.budget import check_capacity, effective_max_tokens
     _limit4 = effective_max_tokens(cfg, 4)
     _ok4, _why4, _cap4 = check_capacity(proj, 4, max_tokens=_limit4, words=int(high))
@@ -1129,13 +1129,13 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         return False, _why4
     print(f"[stage4] 篇幅预算校验通过：输出上限 {_limit4}，单章目标 {low}-{high} 字"
           f"（需要 ≥{_cap4.get('needed')} token）")
-    # 篇幅口径与生成方式的匹配告警（2026-10-26，用户：「弱模型无论怎么骂就是写不长
-    # ……所以才需要加强模式来强行拼凑」）。不阻断，只说清楚"你可能需要它"。
+    # 篇幅口径与生成方式的匹配告警（2026-10-26，用户：“弱模型无论怎么骂就是写不长
+    # ……所以才需要加强模式来强行拼凑”）。不阻断，只说清楚"你可能需要它"。
     if low >= 4000 and not bool(cfg.get("chapter", {}).get("enhanced_mode", False)):
         print(f"[stage4] 提示：目标字数下限 {low} 字，但加强模式未开启"
               "（chapter.enhanced_mode=false）。"
               "弱模型整章单发常在两三千字就收尾；出现这类失败时本阶段会自动兜底"
-              "转加强模式，也可以在「设置 → 加强模式」里预先开启。")
+              "转加强模式，也可以在“设置 → 加强模式”里预先开启。")
     # 连续失败止损阈值（0 = 关闭）。见 _fail 的说明。
     max_consec_fail = int(cfg.get("gates", {}).get("stage4_max_consecutive_failures", 3))
     # 打回重生成上限（第一波防御 · 任务一）。0 = 关闭打回（行为退回本改动之前：
@@ -1147,20 +1147,20 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     done_this_round = 0
 
     # ---- 流式写作的字数回传（2026-10-26，用户第 3/4/6 条）----
-    # 用户原话：「job 状态一直 running，我无法知道内部进度」「卡在 29% 让人觉得坏了」。
-    # 有了流式回调，界面可以显示「正在写第 6 章 · 已 1200 字」，而不是一个死数字。
+    # 用户原话：“job 状态一直 running，我无法知道内部进度”“卡在 29% 让人觉得坏了”。
+    # 有了流式回调，界面可以显示“正在写第 6 章 · 已 1200 字”，而不是一个死数字。
     _ch_state = {"chars": 0, "last_write": 0.0, "buf": []}
     # `buf`：本章已收到的**正文片段**（2026-11-02，不可用清单第 3 条）。
-    # 只累计不给用户看 —— 用户按「停止」时把它落成残稿，这样"停一下"不再等于
+    # 只累计不给用户看 —— 用户按“停止”时把它落成残稿，这样"停一下"不再等于
     # 白写一整章。只在文本流就是正文时累计；agent 引擎的正文在文件里，走另一条。`
     # 文本流是不是正文？（2026-10-30）
     #   direct：正文随流产出 → text 就是进度；
     #   hermes/agent：正文由子会话 write_file 落盘，text 只是助手碎念
-    #   （"我先读取任务文件…"），把它当字数 = 界面显示「已写 1200 字」而正文 0 字。
+    #   （"我先读取任务文件…"），把它当字数 = 界面显示“已写 1200 字”而正文 0 字。
     _text_is_prose = not bool(getattr(client, "writes_files", False))
 
     def _piece_progress(chapter_no, text_is_prose=True):
-        """流式回调：累计文本流，并兼任「活动心跳」。
+        """流式回调：累计文本流，并兼任“活动心跳”。
 
         分工（2026-10-30 定）：
           · `current_text_chars`：永远是原始文本流长度，排障用；
@@ -1168,7 +1168,7 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
             agent 模式下由 `_file_progress` 按产物文件回报真实字数 ——
             宁可显示 0 字也不许把碎念当正文（那是在骗用户）。
           · `current_chars_at`：任何事件（含工具事件）都刷新，前端据此显示
-            「N 秒无活动」，用来区分「正在写文件」与「卡死」。
+            “N 秒无活动”，用来区分“正在写文件”与“卡死”。
         """
         def _on_piece(piece):
             if piece:
@@ -1191,8 +1191,8 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                     if text_is_prose and st.get("current_chars_source") != "file":
                         st["current_chars"] = _ch_state["chars"]
                         st["current_chars_source"] = "text"
-                    # 最后更新时间（2026-10-27）：只说「已写 1 字」用户分不清是刚起步
-                    # 还是模型思考/网络卡住。前端据此显示「N 秒无活动」。
+                    # 最后更新时间（2026-10-27）：只说“已写 1 字”用户分不清是刚起步
+                    # 还是模型思考/网络卡住。前端据此显示“N 秒无活动”。
                     st["current_chars_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
                     progress.save()
             except Exception:                                # noqa: BLE001
@@ -1240,11 +1240,11 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                 pass
 
     def _group_progress(chapter_no):
-        """段群开始回调（2026-10-27，加强模式）：把「第几群 / 本群配额」写进进度。
+        """段群开始回调（2026-10-27，加强模式）：把“第几群 / 本群配额”写进进度。
 
         为什么需要：整章 5 群、每群十几分钟，只报整章字数的话，用户看到
-        「已写 1 字」无法判断是在第 1 群刚起步还是第 3 群卡住。按群归零后，
-        界面能说「第 2/5 群 · 本群 800/1400 字」——这是可核对的事实。
+        “已写 1 字”无法判断是在第 1 群刚起步还是第 3 群卡住。按群归零后，
+        界面能说“第 2/5 群 · 本群 800/1400 字”——这是可核对的事实。
         """
         def _on_group(group, total_groups):
             _ch_state["chars"] = 0
@@ -1291,18 +1291,18 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
             return True
         return False
 
-    # B2：章间会话续接（默认关）—— 只有「引擎开了续接」且「上一章成功」时才传下去
+    # B2：章间会话续接（默认关）—— 只有“引擎开了续接”且“上一章成功”时才传下去
     chapter_session = None
     # ---- _finalize：写盘之后的全部收尾（摘要/出场/记账/标完成）----
     # 抽成一处：主循环成功路径与崩溃恢复路径共用，避免两份同步逻辑漂移。
-    # 全程零 LLM 调用。result=None 表示「本轮没有新的 LLM 调用」（崩溃恢复重放），
+    # 全程零 LLM 调用。result=None 表示“本轮没有新的 LLM 调用”（崩溃恢复重放），
     # 此时不做熔断累加也不重复记账（上一轮已记过）。
     def _finalize(n, chap_path, result, check):
         text = read_text(chap_path)
         sm = SUMMARY_RE.search(text)
         summary = sm.group(1).strip() if sm else f"（第{n}章，未附摘要）"
         # append_chapter_summary 是同章覆盖语义：重放不会污染 global_summary
-        # （重调 LLM 重写整章才会，那条路已被「正文合格就不重写」堵死）。
+        # （重调 LLM 重写整章才会，那条路已被“正文合格就不重写”堵死）。
         append_chapter_summary(rolling_path, n, summary, max_recent=max_recent)
         sync_appearances_after_chapter(text, n, total)
 
@@ -1335,7 +1335,7 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
             db.log_chapter(run_id, 4, n, status, quality=check.quality, cost_yuan=cost_est)
         if result is not None and cost and not result.get("already_charged"):
             # 章与章之间必须查熔断：orchestrator 只在阶段之间查，而一章就能烧掉几元，
-            # 不在这里拦，限额对「一次跑几十章」这种最该保护的场景恰好完全失效。
+            # 不在这里拦，限额对“一次跑几十章”这种最该保护的场景恰好完全失效。
             # 加强模式例外：段群调用已逐群 charge 过（_group_run），这里再 charge
             # 会把一章记两遍账 —— 熔断检查也已在群间做过。
             if cost.charge_cost(run_id, 4, n, result) == "pause":
@@ -1350,14 +1350,14 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         return None
 
     for n in todo:
-        # P0-4（2026-10-01）：章间检查停止请求 —— 不在这里查，按了「停止」
+        # P0-4（2026-10-01）：章间检查停止请求 —— 不在这里查，按了“停止”
         # 也要跑完整个阶段（几十章）才轮到 orchestrator 的阶段边界检查。
         if _stop_requested():
             print(f"[stage4] 收到停止请求，停在第{n}章开始前"
                   "（已完成章节保留，断点续跑不重写）")
             aborted = "stopped"
             break
-        # 施工权被夺（2026-11-02，P5 · L-2 的另一半）：作者在界面点「接管」后，
+        # 施工权被夺（2026-11-02，P5 · L-2 的另一半）：作者在界面点“接管”后，
         # 锁文件的 owner 变成 human —— 流水线必须**真的停手**，否则"接管"只是
         # 改了一个谁都不看的文件，模型还在照跑照计费。
         # 放在章前检查：一章之内不再打断，避免留下半截（残稿落地是另一条，别混）。
@@ -1370,9 +1370,9 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
             print(f"[stage4] {_stop_why}")
             aborted = "preempted"
             break
-        # 「正在写第 N 章」（2026-10-26，用户「永恒 29%」/「Agent 跑起来完全看不见」）：
+        # “正在写第 N 章”（2026-10-26，用户“永恒 29%”/“Agent 跑起来完全看不见”）：
         # 这一行进 progress.json 后，/state 的 stages[4].current_chapter 就能回答
-        # 「现在写到第几章、总共几章」。此前 progress 只在**章写完之后**才动，
+        # “现在写到第几章、总共几章”。此前 progress 只在**章写完之后**才动，
         # 一章写十几分钟期间外部只看到 state=running、别的什么都没有。
         # 失败不影响写作主链路（进度观测坏了不该拖垮出稿）。
         # 顺带重置流式字数（2026-10-26）：整章单发与拆群生成共用同一个计数，
@@ -1390,7 +1390,7 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
             _st4 = progress.data.setdefault("stages", {}).setdefault("4", {})
             _st4["current_chapter"] = n
             # 清掉上一章/上一轮遗留的段群字段：整章单发模式下它们没有意义，
-            # 留着会让界面把「第 2/5 群」显示到下一章头上。
+            # 留着会让界面把“第 2/5 群”显示到下一章头上。
             for _k in ("current_group", "total_groups", "current_group_quota",
                        "current_chars", "current_chars_at", "current_chars_source",
                        "current_group_words", "current_group_bytes", "current_text_chars"):
@@ -1418,7 +1418,7 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
             from stage3_chapter_outline import outline_ok, generate_chapters
             # ⚠️ 只在**文件不存在**时补齐。存在但字段不合格**绝不重写** ——
             # 那是上游（stage3）该修的东西，在写作阶段静默覆盖既有大纲会
-            # 把已审阅过的产物换掉（实测踩到：夹具里少一个「功能」字段就触发了
+            # 把已审阅过的产物换掉（实测踩到：夹具里少一个“功能”字段就触发了
             # 全量重写，章大纲里的角色名整批被替成占位名）。
             if not Path(outline_rel).exists():
                 print(f"[stage4] 第{n}章大纲不在滚动窗口内，按需补齐…")
@@ -1453,12 +1453,12 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                 pass
         task = client.write_task(task_dir, f"stage4_ch{n:02d}.md", _task_text)
         # ---- 加强模式（第一波防御 · 任务三，2026-10-22）----
-        # chapter.enhanced_mode=true 时本章改为「拆段落群 → 逐群生成 → 拼装」，
+        # chapter.enhanced_mode=true 时本章改为“拆段落群 → 逐群生成 → 拼装”，
         # 每群立即落盘 data/chapters/_parts/（段群级断点续跑，与任务二的
         # "已完成段落落盘"是同一件事）。默认 false = 走下面的整章单发，零影响。
         enhanced = bool(cfg.get("chapter", {}).get("enhanced_mode", False))
         # 段群调用 hook（2026-10-26 提前到这里）：整章单发与拆群生成共用一个，
-        # 因为「字数不够时自动转加强模式」也要用它。
+        # 因为“字数不够时自动转加强模式”也要用它。
         _bstate = {"paused": False}
 
         def _group_run(tp):
@@ -1466,7 +1466,7 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
             不在群间查，限额对加强模式恰好失效）。
 
             ⚠️ `on_piece` 必须传：加强模式是长章的主路径，不传就等于
-            「拆群时点停止没反应」——恰好在最需要停的时候失效。
+            “拆群时点停止没反应”——恰好在最需要停的时候失效。
             """
             r = _run_task_safe(client, tp,
                                on_piece=_piece_progress(n, _text_is_prose))
@@ -1517,7 +1517,7 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
             if _p_path:
                 print(f"[stage4] 第{n}章写作被用户中断 —— 已收到的 {_p_chars} 字"
                       f"已存为残稿: {_p_path}")
-                print("[stage4] 残稿可在界面「残稿」里看一眼：采纳为草稿 / 丢掉。"
+                print("[stage4] 残稿可在界面“残稿”里看一眼：采纳为草稿 / 丢掉。"
                       "采纳后仍算未完成，还得过审稿。")
                 try:
                     _st4p = progress.data.setdefault("stages", {}).setdefault("4", {})
@@ -1532,8 +1532,8 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
             aborted = "stopped"
             break
         if result["exit_code"] != 0:
-            # 传输类异常（断网/503 耗尽）要说清自己 —— 否则用户按「子会话退出码
-            # 非零」去查提示词/产物，而真因是网络（任务二排障口径）。
+            # 传输类异常（断网/503 耗尽）要说清自己 —— 否则用户按“子会话退出码
+            # 非零”去查提示词/产物，而真因是网络（任务二排障口径）。
             _why = ("网络/传输异常（内部重试已耗尽）—— 检查网络与服务商状态后"
                     "重跑即从断点续跑" if result.get("transport_error")
                     else "子会话退出码非零")
@@ -1549,8 +1549,8 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
             continue
 
         # 中文标点归一化（2026-10-18）：模型产出的半角引号 / 直角引号 / 单破折号
-        # 在**校验之前**修掉。实测《雾港核心》三章：76 个半角 "、67 对「」——
-        # stage6 提示词写着「全角标点」也不管用，故改为确定性替换（utils/text_norm）。
+        # 在**校验之前**修掉。实测《雾港核心》三章：76 个半角 "、67 对“”——
+        # stage6 提示词写着“全角标点”也不管用，故改为确定性替换（utils/text_norm）。
         _norm(chap_path, n)
         # 同质化/退化检测（P1）：零 token、写 data/state/homogeneity/<章>.json、只报不拦
         _homo_report(chap_path, n)
@@ -1562,7 +1562,7 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         # 每轮策略：字数只差一点（>= 下限 60%）→ 定向扩写（读原稿补量，实证比整章
         # 重写有效）；其余（差太多 / 退化 / 标点不过关）→ 整章重生成，并把上一轮
         # 的问题清单写进任务反馈，让模型知道要修什么。
-        # 仍不过关 → 停在「待人工」，绝不混入合格品（_fail 记失败章）。
+        # 仍不过关 → 停在“待人工”，绝不混入合格品（_fail 记失败章）。
         # 每轮调用都记账 + 查熔断（与扩写同口径：一章多轮调用同样可能烧穿限额）。
         regen_rounds = 0
         regen_actions = []
@@ -1587,14 +1587,14 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                     break
             regen_rounds += 1
             # ---- 字数差太多 → 用加强模式补量（2026-10-26）----
-            # 用户原话：「有些弱模型无论怎么骂就是写不长，像后台有个看不见的开关
-            # 拧死了一样。所以才需要那个加强模式来强行拼凑。」
+            # 用户原话：“有些弱模型无论怎么骂就是写不长，像后台有个看不见的开关
+            # 拧死了一样。所以才需要那个加强模式来强行拼凑。”
             #
-            # 对这类失败，「整章重生成」是**无效**的：同一个模型、同一个目标、
+            # 对这类失败，“整章重生成”是**无效**的：同一个模型、同一个目标、
             # 同一套提示词，只会再短一次（白烧一遍输入）。拆段落群才解得开 ——
             # 每群只背 1500 字配额，弱模型也做得到，拼起来才够长。
             #
-            # ⚠️ 但这招比「定向扩写」贵（拆 k 群 = k 次调用），所以**只在差太多时**
+            # ⚠️ 但这招比“定向扩写”贵（拆 k 群 = k 次调用），所以**只在差太多时**
             # 用：字数已到下限 60% 时先试扩写（1 次），扩写补不上再拆群。
             # 判据与 can_expand 同一个阈值，两个分支不会互相打架。
             if ((not check.degenerate) and check.word_count < low
@@ -1675,7 +1675,7 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                              daemon=True).start()
             try:
                 # 打回/扩写同样走流式（2026-10-30）：不带 on_piece 就退回阻塞式
-                # run_task，「停止」在重试轮里会再失灵一次 —— 而重试恰恰是最长的路径。
+                # run_task，“停止”在重试轮里会再失灵一次 —— 而重试恰恰是最长的路径。
                 gres = _run_task_safe(client, gtask,
                                       on_piece=_piece_progress(n, _text_is_prose))
             finally:
@@ -1704,7 +1704,7 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
             log_chapter_validation(n, check, "regenerated",
                                    regen_rounds=regen_rounds, actions=regen_actions)
         if not check.ok:
-            # 退化（正文够长但内容是垃圾）单独标注：这类失败与「字数不足」
+            # 退化（正文够长但内容是垃圾）单独标注：这类失败与“字数不足”
             # 的处置不同 —— 重试往往没用，多半是模型/提示词层面出了问题。
             _manual = (f"（已打回重生成 {regen_rounds} 轮仍未过关，停在**待人工**；"
                        "留痕见 data/state/validation/）" if regen_rounds
@@ -1738,7 +1738,7 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
             aborted = "budget"
             break
 
-    # 阶段结束（无论 done/failed/中断）都清掉「正在写第 N 章」——
+    # 阶段结束（无论 done/failed/中断）都清掉“正在写第 N 章”——
     # 否则断点续跑前 /state 会一直显示上一轮停在的那个章号，看起来像卡住了。
     try:
         _st4 = progress.data.get("stages", {}).get("4", {})
@@ -1748,7 +1748,7 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                    "current_group_bytes", "current_text_chars",
                    "rewrite_chapter"):
             _st4.pop(_k, None)
-        # 显式落盘：下面的 set_stage 各分支都会 save，但把「观测字段清理」
+        # 显式落盘：下面的 set_stage 各分支都会 save，但把“观测字段清理”
         # 依赖后续调用保存，等于让下次加分支的人踩同一个坑。
         progress.save()
     except Exception:                                        # noqa: BLE001
@@ -1757,7 +1757,7 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         remaining_failed = progress.failed_chapters(4)
         if aborted == "stopped":
             # 用户主动中断 ≠ 章节失败（2026-10-26）：状态回到 pending，**不标 failed**。
-            # 标 failed 会让界面显示「阶段 4 失败」，用户以为自己把东西弄坏了；
+            # 标 failed 会让界面显示“阶段 4 失败”，用户以为自己把东西弄坏了；
             # 而且 failed 语义是"跑过但没成功"，中断语义是"还没跑完"，两回事。
             progress.set_stage(4, "pending")
             _partial = (progress.data.get("stages", {}).get("4", {}) or {}).get("partial") or {}
@@ -1772,7 +1772,7 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
             progress.set_stage(4, "pending")
             return False, ("stage4 因**作者接管施工权**停手（本轮完成 %d 章）—— "
                            "已完成的章保留，当前章未开始；"
-                           "要继续请在界面点「释放施工权」后重跑（断点续跑）"
+                           "要继续请在界面点“释放施工权”后重跑（断点续跑）"
                            % done_this_round)
         progress.set_stage(4, "failed", failed_count=len(remaining_failed))
         if aborted == "budget":

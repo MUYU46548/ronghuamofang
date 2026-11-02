@@ -12,7 +12,7 @@
 - batch_refine → 就地改写目标章节（保留字数，quality 置 8/10），供 auto_rewrite 链路测试
 - chapter_review → data/outline/review_report.json（偶数章各 1 条发现）+ 回放 FILE 协议块
 - stage5_proofread → 回放裸 JSON 到 stdout（每章 1 条 warn；proofread.py 从 stdout 解析）
-- 其余（book_summary 等）→ 任务文本里「写入」目标写一行占位
+- 其余（book_summary 等）→ 任务文本里“写入”目标写一行占位
 
 仅用于 NF_API_ALLOW_FAKE=1 的测试模式与离线集成测试，不进真实流水线。
 """
@@ -29,7 +29,7 @@ NUM2 = "[0-9]{2}"   # 任务文件名里的两位章号（stage4_ch01.md）
 # 静态句库（94 句 / 2294 字）：**逐句独立撰写**，彼此不共享 12 字连续片段。
 #
 # 为什么必须是静态字面量而非模板拼装：
-# 退化检测用「12-gram 重复率」判复读。模板拼装（如 12 主语 x 12 动作 x ...）
+# 退化检测用“12-gram 重复率”判复读。模板拼装（如 12 主语 x 12 动作 x ...）
 # 会让每个片段在一章里出现几十次 —— 即使组合本身不重复，字符级 12-gram
 # 仍大量撞车（实测 60%~70%），正文会被判退化。要压到阈值以下，
 # 句子之间就不能复用任何 12 字以上的连续片段。实测本句库重复率 0.0000。
@@ -155,7 +155,7 @@ def _words_para(min_words):
 
     第二个坑（2026-10-02 修）：本函数按任务里的**字数下限**生成，而句库总量约
     1147 字 → 一旦配置把下限抬过 ~2294 字，句库开始循环复用，12-gram 重复率
-    直接飙到 58%（实测 8000 字），撞「复读 >35%」退化门 →
+    直接飙到 58%（实测 8000 字），撞“复读 >35%”退化门 →
     **一批用 FakeClient 的端到端用例整片假红**（看起来像产品坏了，其实是夹具
     模拟不出长章）。假红比没有测试更糟，所以这里不再依赖"下限不会太大"。
 
@@ -218,7 +218,7 @@ def _write_setting(_text):
 
 
 def _write_global(text):
-    # 优先遵循任务里的「写入文件: xxx.md」（与 _write_chapter 一致），
+    # 优先遵循任务里的“写入文件: xxx.md”（与 _write_chapter 一致），
     # 否则退回默认 data/outline/global.md —— 多方案 draft 生成依赖此约定。
     m = re.search("写入文件:\\s*([^ \\r\\n]+[.]md)", text)
     p = Path(m.group(1)) if m else Path("data/outline/global.md")
@@ -274,7 +274,7 @@ def _refine_chapter(text):
     """batch_refine / auto_rewrite：按任务里的目标路径就地改写章节。
 
     fake 语义：保留章节正文与字数（满足 ±20% 铁律），仅把 quality 注释置为 8/10，
-    使「重写 → 复评 → 幂等」链路可端到端验证。
+    使“重写 → 复评 → 幂等”链路可端到端验证。
     """
     m = re.search("写入[:：]\\s*([^ \\n]+[.]md)", text)
     if not m:
@@ -297,7 +297,7 @@ def _write_review_report(text):
     """chapter_review：产出可被 chapter_review.py 解析的审查报告 JSON。
 
     fake 语义：偶数章各 1 条 warn 发现、奇数章无问题（覆盖"有问题/无问题"两条 GUI 分支），
-    报告路径优先取任务里的「写入: xxx.json」，否则回退 data/outline/review_report.json。
+    报告路径优先取任务里的“写入: xxx.json”，否则回退 data/outline/review_report.json。
     返回 (落盘路径列表, 供 stdout_tail 回放的 FILE 协议文本)——chapter_review 从
     stdout 解析 JSON，故必须回放协议块，只落盘不返回会导致解析失败。
     """
@@ -357,13 +357,13 @@ def _write_proofread_findings(text):
 
 
 def _sq(s):
-    return re.sub(r"[\s，。！？；：、“”‘’「」『』\"'（）()…—·,.!?;:]+", "", s or "")
+    return re.sub(r"[\s，。！？；：、“”‘’\u300c\u300d\u300e\u300f\"'（）()…—·,.!?;:]+", "", s or "")
 
 
 def _fake_quotes(body, n=1):
     """从正文里取 n 句**互不相同**的真实原句（不编造，也不复用）。
 
-    为什么不复用：审美五问有「一问一句」判据，同一句给两问作废。夹具如果用一句糊五问，
+    为什么不复用：审美五问有“一问一句”判据，同一句给两问作废。夹具如果用一句糊五问，
     这条判据在生产里就永远没被走到 —— 假绿。
     """
     out = []
@@ -391,7 +391,7 @@ def _fake_quote(body):
 def _write_review_ledger(text, name, raw_files):
     """stage5：写本批的七维评审账本（data/review/batchN.json）。
 
-    为什么 fake 也要写：七维评审的判据是「举证必须出自原文」——夹具若绕过它，
+    为什么 fake 也要写：七维评审的判据是“举证必须出自原文”——夹具若绕过它，
     这段校验在生产里就永远没跑过（本项目最忌讳的假绿）。所以 fake 拿**真实原句**
     当举证，走的是与真实模型完全相同的校验路径。
     """
@@ -405,7 +405,7 @@ def _write_review_ledger(text, name, raw_files):
         except (TypeError, ValueError):
             continue
         body = read_text(f)
-        # 1 句给七维，后 5 句给审美（互不相同，避免撞「一问一句」判据）
+        # 1 句给七维，后 5 句给审美（互不相同，避免撞“一问一句”判据）
         quotes = _fake_quotes(body, 1 + len(AESTHETIC_CODES))
         q7 = quotes[0]
         aes = [{"q": code, "score": 9, "quote": q, "note": "（fake）"}

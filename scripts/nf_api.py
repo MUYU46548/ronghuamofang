@@ -49,7 +49,7 @@ GET  /costs/summary       按阶段/模型聚合
 GET  /costs/streaming     当前 run 实时消耗 + 预算进度（GUI 成本页轮询）
 POST /models/switch       {role, model} → 切换模型
 GET  /models/cache        动态拉取的模型缓存（含手动添加的 _manual）
-POST /models/add          {name} → 手动把一个模型名写进缓存（GUI「手动添加」用）
+POST /models/add          {name} → 手动把一个模型名写进缓存（GUI“手动添加”用）
 GET  /scraps/list         原始碎片：按簇分组 + 时间轴 + 前瞻备忘（确定性，零 LLM）
 GET  /scraps/read         ?name= → 读取单个碎片正文
 POST /scraps/save         {name, content} → 写前备份后保存碎片
@@ -74,7 +74,7 @@ POST /project/create      {name, genre?, chapters?, style_notes?, archive_curren
                            一键新建项目：归档当前 → 初始化空工作区 → 写 project.yaml；
                            preset_applied=true（向导已铺设出厂预设）→ 跳过归档/初始化，
                            只改写 project.yaml，保住刚铺的 materials/
-GET  /about               版本 / 运行环境 / 路径（GUI「关于」弹窗数据）
+GET  /about               版本 / 运行环境 / 路径（GUI“关于”弹窗数据）
 GET  /config/style_notes  book.style_notes 读取（GUI 设置页签）
 GET  /config/word_template Word 成品模板清单（templates/ 下 .dotx/.docx）+ 当前值
 POST /config/word_template {template?|reset?} → 定向改写 book.word_template（件五 GUI 入口）
@@ -149,7 +149,7 @@ import book_split as book_split_mod  # noqa: E402
 import import_docx as import_docx_mod  # noqa: E402
 from utils.stage_select import parse_stages, preflight_lines  # noqa: E402
 # 合法阶段号的唯一真源（含阶段 8）：审批/跳过/运行/打回四处共用这一份判据，
-# 不再各写 `1 <= n <= 7`（用户实测「阶段8无法放行，代码打架」）。
+# 不再各写 `1 <= n <= 7`（用户实测“阶段8无法放行，代码打架”）。
 from utils.stage_artifacts import VALID_STAGES as _VALID_STAGES  # noqa: E402
 import refine_chapter as refine_ch_mod  # noqa: E402
 from utils.verify_chapter import is_chapter_complete  # noqa: E402
@@ -224,7 +224,7 @@ def _dom(result):
 def norm_path(h):
     """把请求路径归一化为 **分发用的 p**：去 query、去尾部 `/`、空则 `/`。
 
-    这个函数是「p 是怎么来的」的**唯一定义**：`do_GET` / `do_POST` 开头调它，
+    这个函数是“p 是怎么来的”的**唯一定义**：`do_GET` / `do_POST` 开头调它，
     域模块要解析子路径时也调它（域模块里另写一份 `split("?")[0].rstrip("/")`
     会静默漂移——日后归一化规则一改，就只有域模块里的那份是旧的）。
     """
@@ -252,7 +252,7 @@ def _set_root(path):
 
     为什么必须走函数、不能直接 `global ROOT; ROOT = ...`：
     `GLOBAL` / `HISTORY_DIR` 在模块加载期就固化了，只改 ROOT 会让它们继续
-    指向旧项目 —— 这正是「`--root` 下静默读写另一个项目」的第二次登场
+    指向旧项目 —— 这正是“`--root` 下静默读写另一个项目”的第二次登场
     （第一次是 `build_state()` 里写死相对的 `data/state/progress.json`）。
     **以后新增导出路径常量，必须在这里一并刷新**，否则又是一个静默错项目。
     """
@@ -266,16 +266,16 @@ def _set_root(path):
     #   · 打包态：ROOT = --root workspace，cwd = workspace，而代码在 resources/payload。
     # 以 ROOT/prompts 为准（与 cwd 相对在两种形态下都对齐）；极端情形（老安装包
     # 的 workspace 里没有 prompts/）回落**代码区**那份，宁可读只读副本也不空目录 ——
-    # 空目录会让「提示词」页签列出 0 个模板，比报错更难诊断。
+    # 空目录会让“提示词”页签列出 0 个模板，比报错更难诊断。
     _p = ROOT / "prompts"
     if not _p.is_dir() and (_CODE_ROOT / "prompts").is_dir():
         _p = _CODE_ROOT / "prompts"
     PROMPTS_DIR = _p.resolve()
     PROMPTS_HISTORY_DIR = PROMPTS_DIR / "history"
     # switch_book 的三个常量（PROJECT_ROOT / DATA_DIR / BOOKS_DIR）在**导入时**
-    # 按「脚本所在目录」固化。`--root` 指向别处时它们与 ROOT 分叉 →
+    # 按“脚本所在目录”固化。`--root` 指向别处时它们与 ROOT 分叉 →
     # `/project/list` 列出的是**另一个项目**的归档，而归档查看/删除按 ROOT 走 ——
-    # 同一个「项目」页读到两份不同数据源（2026-10-06 真机验收时实测到）。
+    # 同一个“项目”页读到两份不同数据源（2026-10-06 真机验收时实测到）。
     # 与 GLOBAL/HISTORY_DIR 同理：凡由路径派生的常量，都在这里一并刷新。
     try:
         import switch_book as _sb
@@ -333,7 +333,7 @@ def _log_audit(path, method="POST", status=200, source="gui", detail=""):
 
     实现委托给 `utils.agent_guard.log_audit`（**同一份格式与落盘路径**）——
     CLI 侧的审批守卫（approve.py / reject.py）也要写同一本台账，
-    两处各写一份必然漂移（本项目在「判据写两遍」上栽过多次）。
+    两处各写一份必然漂移（本项目在“判据写两遍”上栽过多次）。
     """
     agent_guard.log_audit(path, method=method, status=status, source=source,
                           detail=detail, root=ROOT)
@@ -353,7 +353,7 @@ STOP_LOCK = threading.Lock()
 def should_stop(job_id=None):
     """检查是否有停止请求。返回 True/False。
 
-    job_id 为 None 时检查「当前在跑的 job」（CURRENT["id"]），
+    job_id 为 None 时检查“当前在跑的 job”（CURRENT["id"]），
     这样 orchestrator 无需自己持有 job_id —— 它是被 API 的 worker 线程调用的。
 
     停止是**协作式**的：orchestrator 在每个阶段开始前轮询此函数，
@@ -435,9 +435,9 @@ def _wrap_client_for_streaming(client, job_id):
     ## 为什么**两个方法都要包**（2026-10-27）
 
     原先只替换了 `client.run_task`，而 stage4 的 `_run_task_safe` 会优先调用
-    `client.run_task_stream` —— 于是「流式运行」在最长的那一站（写作）反而
-    绕过了包装器：SSE 队列里一个 token 都没有。用户原话「点了流式运行，连写到
-    哪里都看不到」。这里把 `run_task_stream` 也包上，并**串联**调用方自己的
+    `client.run_task_stream` —— 于是“流式运行”在最长的那一站（写作）反而
+    绕过了包装器：SSE 队列里一个 token 都没有。用户原话“点了流式运行，连写到
+    哪里都看不到”。这里把 `run_task_stream` 也包上，并**串联**调用方自己的
     on_piece/stop_flag（stage4 的进度与停止不能因为要推 SSE 就丢掉）。
     """
     orig_run_task = client.run_task
@@ -563,7 +563,7 @@ def _snapshot_state():
 #   而 `load_template()` 读的是 **cwd 相对**的 `prompts/`（= workspace/prompts）。
 #   旧代码这里写死 `ROOT/prompts`（ROOT 在 import 期= resources/payload）→
 #   **GUI 里保存的提示词写进 payload，流水线读的却是 workspace**：
-#   界面说「下次运行生效」，实际永远不生效；随包升级又把 workspace 那份覆盖回去。
+#   界面说“下次运行生效”，实际永远不生效；随包升级又把 workspace 那份覆盖回去。
 #   同一个功能读一套、写另一套 = 本仓最忌的静默失败。
 PROMPT_NAME_RE = re.compile(r'^stage[1-7]_.*\.md$')
 PROMPT_MAX_BYTES = 1024 * 1024          # 单文件 1MB 上限
@@ -842,24 +842,24 @@ def promote_to_card(card_name, card_type, points, open_questions=(), sources=(),
 def stage_status(progress, n, total_chapters=None):
     """单个阶段的公开状态（/state 的 stages[] 元素）。
 
-    ## 为什么带章级字段（2026-10-26，用户「永恒 29%」）
+    ## 为什么带章级字段（2026-10-26，用户“永恒 29%”）
 
-    前端 `progressPct` 早就写了「running 阶段按 chapters_done / total_chapters
-    细分」的逻辑，但**后端从来没返回过这两个键** —— 于是 `s.chapters_done`
+    前端 `progressPct` 早就写了“running 阶段按 chapters_done / total_chapters
+    细分”的逻辑，但**后端从来没返回过这两个键** —— 于是 `s.chapters_done`
     恒 `undefined` → running 阶段对进度的贡献恒为 0。7 个阶段里前 2 个 done 时
     进度 = 2/7 = 28.6% → 界面四舍五入成 **29%**，此后整个 stage4（几十分钟）
-    数字一动不 动。用户原话：「我受不了那个永恒的 29%」。
+    数字一动不 动。用户原话：“我受不了那个永恒的 29%”。
 
     修法不是改前端公式（公式本来是对的），而是把它要的数据给它。
     `completed_chapters` 是 stage4/5/6 已有的真相（ProgressManager 维护）；
-    `current_chapter` 由 stage4 每章开始时写入，用来回答「现在写到第几章」。
+    `current_chapter` 由 stage4 每章开始时写入，用来回答“现在写到第几章”。
     """
     st = progress.data.get("stages", {}).get(str(n), {})
     # 章级进度的第二来源：**盘上的产物文件数**。
     # 为什么不能只信 progress：阶段 5/6 根本不写 completed_chapters（它们只写
     # review_status / polish 报告），阶段 3 也不写 —— 光看进度键的话这三个阶段
     # 的 chapters_done 恒 0，前端又退化成"数字不动"。
-    # 盘上事实在「哪一层已写完」这件事上比进度标记更准：checked/ 里存在的
+    # 盘上事实在“哪一层已写完”这件事上比进度标记更准：checked/ 里存在的
     # 就是检查完了的章。取两者较大值（断点续跑可能已落盘但标记还没补）。
     _stage_dir = {
         3: "data/outline/chapters",
@@ -877,9 +877,9 @@ def stage_status(progress, n, total_chapters=None):
             except OSError:
                 _from_disk = 0
     _marker_done = len(st.get("completed_chapters") or [])
-    # 单章重写（GUI「重写本章」）：分母**不是全书章数**，而是这一章。
-    # 否则「重写第 5 章」在 10 章的书里恒显示 9/10 → 整体 99% 卡住不动
-    # （用户原话：「重写中，已写1字，但是进度99%……卡了很久」）。
+    # 单章重写（GUI“重写本章”）：分母**不是全书章数**，而是这一章。
+    # 否则“重写第 5 章”在 10 章的书里恒显示 9/10 → 整体 99% 卡住不动
+    # （用户原话：“重写中，已写1字，但是进度99%……卡了很久”）。
     _rewrite_ch = st.get("rewrite_chapter")
     _is_rewrite = isinstance(_rewrite_ch, int) and _rewrite_ch > 0
     if _is_rewrite:
@@ -898,7 +898,7 @@ def stage_status(progress, n, total_chapters=None):
     }
     if _is_rewrite:
         out["rewrite_chapter"] = _rewrite_ch
-    # 「正在写第 N 章」（stage4 每章开头写；阶段结束后应清掉，否则会显示成僵值）
+    # “正在写第 N 章”（stage4 每章开头写；阶段结束后应清掉，否则会显示成僵值）
     cur_ch = st.get("current_chapter")
     if isinstance(cur_ch, int) and cur_ch > 0:
         out["current_chapter"] = cur_ch
@@ -907,8 +907,8 @@ def stage_status(progress, n, total_chapters=None):
         cur_chars = st.get("current_chars")
         if isinstance(cur_chars, int) and cur_chars > 0:
             out["current_chars"] = cur_chars
-    # 段群级进度（2026-10-27，加强模式）：用户看到「已写 1 字」时分不清是刚起步
-    # 还是卡死。给出「第 g/G 群 · 本群 X/Y 字」+「最后更新时间」，界面才有真话可说。
+    # 段群级进度（2026-10-27，加强模式）：用户看到“已写 1 字”时分不清是刚起步
+    # 还是卡死。给出“第 g/G 群 · 本群 X/Y 字”+“最后更新时间”，界面才有真话可说。
     for _k in ("current_group", "total_groups", "current_group_quota",
                "current_group_words", "current_group_bytes", "current_text_chars"):
         _v = st.get(_k)
@@ -921,7 +921,7 @@ def stage_status(progress, n, total_chapters=None):
     done = st.get("completed_chapters") or []
     if done:
         out["last_chapter_done"] = max(done)
-    # 「这个阶段已经跑了多久」—— 前端用它替代一个假百分比（见 stageElapsedText）
+    # “这个阶段已经跑了多久”—— 前端用它替代一个假百分比（见 stageElapsedText）
     if st.get("started_at"):
         out["started_at"] = st["started_at"]
     if st.get("finished_at"):
@@ -951,8 +951,8 @@ def runtime_form():
     """执行形态自报（2026-10-17 指引层修复）。
 
     'source' = 源码树（ROOT 下有 .git/.venv）；'installed' = 安装态工作区。
-    外部 Agent 据此选通道与解释器 —— 13 次试跑全死在「拿宿主裸 python 跑安装态
-    工作区」上，判据此前只写在技能卡里，没有可编程出口。
+    外部 Agent 据此选通道与解释器 —— 13 次试跑全死在“拿宿主裸 python 跑安装态
+    工作区”上，判据此前只写在技能卡里，没有可编程出口。
     """
     return "source" if ((ROOT / ".git").exists() or (ROOT / ".venv").exists()) \
         else "installed"
@@ -961,7 +961,7 @@ def runtime_form():
 def _chapter_target_words(cfg):
     """单章字数区间（整数二元组，读坏了一律回落出厂 [5000, 9000]）。
 
-    只在 /state 里给前端当「本章进度」的分母，不参与写作判定 —— 写作侧的真源
+    只在 /state 里给前端当“本章进度”的分母，不参与写作判定 —— 写作侧的真源
     仍是 config 的 chapter.target_words（stage4 自己读）。
     """
     try:
@@ -974,11 +974,11 @@ def _chapter_target_words(cfg):
 def build_state():
     # 2026-09-29：这里原写死相对路径 "data/state/progress.json" —— 依赖进程 CWD。    # `--root` 场景（自动化验收 / 多书隔离）下 CWD 仍是发起进程的目录，
     # 于是 /state 会**静默读到另一个项目的 progress.json**：返回 200、内容却是别人的，
-    # 不报错、很难发现（这正是「一律经 ROOT」那条纪律要防的事）。
+    # 不报错、很难发现（这正是“一律经 ROOT”那条纪律要防的事）。
     progress = ProgressManager(ROOT / "data" / "state" / "progress.json")
     # 阶段 8（Markdown 导出）此前被**整个排除**在 /state 之外：范围写死 range(1, 8)，
-    # 前端 STAGE_NAMES 也只到 7。后果是用户「阶段 8 在客户端内直接不存在，只能靠
-    # agent 提示的隐藏模式」——而 orchestrator 的 STAGES 本来就有 8。真源取
+    # 前端 STAGE_NAMES 也只到 7。后果是用户“阶段 8 在客户端内直接不存在，只能靠
+    # agent 提示的隐藏模式”——而 orchestrator 的 STAGES 本来就有 8。真源取
     # utils.stage_artifacts.STAGE_NAMES（已含 8），不再各写一份。
     from utils.stage_artifacts import STAGE_NAMES as _STAGE_NAMES
     _cfg, _proj = load_all()
@@ -1014,12 +1014,12 @@ def build_state():
         archived = []
     return {
         "book": (load_all()[1] or {}).get("book", {}).get("name", ""),
-        # 单章目标字数：前端算「本章写到哪」的分母（拿不到 chapter 里的值就回落
+        # 单章目标字数：前端算“本章写到哪”的分母（拿不到 chapter 里的值就回落
         # 出厂下限 5000）。2026-10-27：没有它，单章重写只能显示一个假百分比。
         "chapter_target_words": _chapter_target_words(_cfg),
         "project_dir": str(ROOT),
         # 执行形态 + 能跑管线的解释器（2026-10-17）：Electron 两种形态下都用
-        # 「能跑管线的那份 python」拉起 nf_api（安装态=自带 runtime，源码态=.venv），
+        # “能跑管线的那份 python”拉起 nf_api（安装态=自带 runtime，源码态=.venv），
         # 所以本进程解释器天然就是 CLI 该用的解释器 —— 简报/kickoff 直接引用，
         # 不再写裸 python（裸 python 缺 PyYAML 必被 interp_guard 拦，是拿错解释器）。
         "form": runtime_form(),
@@ -1044,21 +1044,21 @@ def build_state():
           "token_pct": (round(tokens_used / tl["max_total_tokens"] * 100, 2)
                         if tl.get("enabled") and tl.get("max_total_tokens") else None),
         },
-        # GUI 要靠它显示「Agent 模式」开关的**真实**状态。
+        # GUI 要靠它显示“Agent 模式”开关的**真实**状态。
         # ⚠️ 前端读的是 `s.data.agent_mode`（顶层），而此前这个字段只存在于
-        # `gates` 里 → `!!undefined` 恒 false → 开关永远显示「已关闭」，
+        # `gates` 里 → `!!undefined` 恒 false → 开关永远显示“已关闭”，
         # 哪怕 system.yaml 里明明是 true（用户完全看不出真实权限状态）。
         "agent_mode": bool((gates or {}).get("agent_mode", False)),
     }
 
 
 def build_streaming_cost():
-    """当前 run 的实时消耗 + 预算进度（GUI 成本页「当前运行」卡片）。
+    """当前 run 的实时消耗 + 预算进度（GUI 成本页“当前运行”卡片）。
 
-    「当前 run」= runs 表里 status='running' 的最新一条；没有则退化为最近一条 run
+    “当前 run”= runs 表里 status='running' 的最新一条；没有则退化为最近一条 run
     （跑完后仍能看最后一次 run 的账）。数据全部取自 cost_log 实测记账；
-    estimated_calls 是其中「按字符折算、尚未回填实测」的调用数，单独透出，
-    让前端能标注「含估算」而不是把它混进实测数字里。
+    estimated_calls 是其中“按字符折算、尚未回填实测”的调用数，单独透出，
+    让前端能标注“含估算”而不是把它混进实测数字里。
     """
     cfg, _proj = load_all()
     budget = cfg.get("budget", {}) or {}
@@ -1102,7 +1102,7 @@ def build_streaming_cost():
             "spent_yuan": round(float(agg[3]), 6),
             "calls": int(agg[4]), "estimated_calls": int(agg[5]),
         })
-        # 已耗时只在真有 job 在跑时给：否则「最后一次 run 至今」会算出几十小时的假时长
+        # 已耗时只在真有 job 在跑时给：否则“最后一次 run 至今”会算出几十小时的假时长
         t0 = None
         if out["running"]:
             for cand in (out["job_started_at"], started_at):
@@ -1201,7 +1201,7 @@ def _rc_to_result(rc):
 
     退出码语义（orchestrator 模块 docstring）：
       0=完成 1=阶段失败 2=预算熔断 3=等待审批/审阅 4=用户中断
-    3 与 4 都不是「失败」：3 是审批门正常暂停，4 是用户主动停止 → 不标红。
+    3 与 4 都不是“失败”：3 是审批门正常暂停，4 是用户主动停止 → 不标红。
     """
     if rc == 4:
         return True, "用户中断（exit=4）"
@@ -1213,7 +1213,7 @@ def _rc_to_result(rc):
 def act_run_stage(cfg, only_stage, from_stage, chapters=None):
     """创建阶段运行动作（非流式路径）。
 
-    ``chapters`` 只对阶段 4 有意义（2026-11-02，清单第 1 条「没法定跑到哪为止」）。
+    ``chapters`` 只对阶段 4 有意义（2026-11-02，清单第 1 条“没法定跑到哪为止”）。
     """
     client = _client_for_env(cfg, "default")
 
@@ -1296,18 +1296,18 @@ def _restore_chapter_after_failed_rewrite(n):
 
     `_prepare_chapter_rewrite` 是**移动**旧稿而不是复制（原位置必须不存在，否则
     stage4 判该章已完成、根本不重写）。可重写一旦失败，**没有任何人负责把它放回**：
-    实测《潮汐档案》第 3 章模型连续三次「未生成章节文件」→ raw/03.md 缺失、
-    stage4 变 failed、completed_chapters 少一章，界面看起来「章节凭空消失」，
+    实测《潮汐档案》第 3 章模型连续三次“未生成章节文件”→ raw/03.md 缺失、
+    stage4 变 failed、completed_chapters 少一章，界面看起来“章节凭空消失”，
     旧稿只剩在 rewrite_backup/ 里。这是数据安全网，不是新功能。
 
     ## 判据（三条都不可松）
 
     - **只在 raw/NN.md 不存在时动手**：已有新稿（哪怕半成品）一律不覆盖 ——
-      覆盖会把「用户中途停止后想续写」变成「旧稿盖掉新稿」。
+      覆盖会把“用户中途停止后想续写”变成“旧稿盖掉新稿”。
     - **复制而不是移动**：备份留在原处，这次恢复本身也可反悔。
-    - **不虚报完成**：只补这一章的完成标记；阶段状态按「全书章是否都齐」定，
+    - **不虚报完成**：只补这一章的完成标记；阶段状态按“全书章是否都齐”定，
       不齐就回 pending，并把失败那轮的 started_at/finished_at 清掉
-      （否则界面显示「阶段刚跑过并失败」，而事实是「已回到重写前」）。
+      （否则界面显示“阶段刚跑过并失败”，而事实是“已回到重写前”）。
     """
     raw = ROOT / "data" / "chapters" / "raw" / ("%02d.md" % n)
     if raw.exists():
@@ -1361,7 +1361,7 @@ def _rewrite_job_result(n, ok, detail, had_old_draft):
 
 
 def act_rewrite_chapter(cfg, n):
-    """重写单章（2026-10-26，GUI「重写本章」）。
+    """重写单章（2026-10-26，GUI“重写本章”）。
 
     ## 为什么必须"移走文件"，不能只清进度标记
 
@@ -1383,7 +1383,7 @@ def act_rewrite_chapter(cfg, n):
 
     ## 失败必须把旧稿放回（2026-10-27 数据安全网）
 
-    「移走」是没有后悔药的动作：模型连续几次「未生成章节文件」后 stage4 判失败，
+    “移走”是没有后悔药的动作：模型连续几次“未生成章节文件”后 stage4 判失败，
     旧稿就只剩在 rewrite_backup/ 里，界面看着像章节被删了。所以 job 收尾统一走
     `_rewrite_job_result` —— 失败且新稿未落盘时自动复制备份回 raw/ 并补回完成
     标记；异常穿透路径同样先恢复再抛。
@@ -1415,7 +1415,7 @@ def _rewrite_file_tail(n, q, stop_ev):
     """把正在写的第 n 章文件尾部推进 SSE 队列（2026-10-27）。
 
     为什么需要：hermes / 外部 agent 用 `write_file` 写正文，stream-json 的 text
-    事件里没有正文。用户「连写到哪里都看不到」——文件尾部才是可核对的事实。
+    事件里没有正文。用户“连写到哪里都看不到”——文件尾部才是可核对的事实。
     同时推 `words/bytes`，前端不必自己数。
     """
     from utils.verify_chapter import count_cn_words
@@ -1458,8 +1458,8 @@ def act_rewrite_chapter_streamed(cfg, n, preview_job_id, stream_q, stop_ev):
 
     - 复用 `act_run_stage_streamed`（客户端包装 / 退出码翻译 / STREAMERS 注册
       都只有那一份实现）；
-    - 额外起一个「文件尾」看门狗：正文写进 `_parts/NN/gK.md` / `raw/NN.md` 时
-      推 SSE `{type:"file"}`，让界面看得见「写到哪里」。
+    - 额外起一个“文件尾”看门狗：正文写进 `_parts/NN/gK.md` / `raw/NN.md` 时
+      推 SSE `{type:"file"}`，让界面看得见“写到哪里”。
     """
     def _fn():
         bak = _prepare_chapter_rewrite(n)
@@ -1488,7 +1488,7 @@ def act_run_stage_streamed(cfg, only_stage, from_stage, preview_job_id,
 
     与 act_run_stage 共用 _rc_to_result，**唯一差异**是套一层流式客户端包装。
     两条路径的退出码翻译逻辑不再各写一份 —— 这是 2026-09-19 修复 only_stage
-    未定义缺陷（S2）时消除的结构性温床：平行分支必然「改一处漏一处」。
+    未定义缺陷（S2）时消除的结构性温床：平行分支必然“改一处漏一处”。
     """
     def _fn():
         client = _client_for_env(cfg, "default")
@@ -1510,7 +1510,7 @@ def act_run_stage_streamed(cfg, only_stage, from_stage, preview_job_id,
 def act_run_stages(cfg, stages):
     """自由模式（活一）：一次跑勾选的多道工序。
 
-    与 `act_run_stage` 的差别只有「执行哪些阶段」这一个入参 —— `orch_run(stages=…)`
+    与 `act_run_stage` 的差别只有“执行哪些阶段”这一个入参 —— `orch_run(stages=…)`
     内部走同一套已完成跳过 / 审批门 / 熔断 / 规划四态，这里不再复述一遍。
     """
     client = _client_for_env(cfg, "default")
@@ -1530,7 +1530,7 @@ from utils.stage_artifacts import missing_artifacts as _missing_artifacts
 def missing_artifacts(stage):
     """返回该阶段缺失/为空的产物路径列表（保留原签名；root = 本服务 ROOT）。
 
-    「空文件」判据为 2026-10-11 新增：0 行产物此前被 exists() 放行走完审批门。
+    “空文件”判据为 2026-10-11 新增：0 行产物此前被 exists() 放行走完审批门。
     """
     return _missing_artifacts(stage, ROOT)
 
@@ -1559,7 +1559,7 @@ def act_project_create(name, genre=None, chapters=None, style_notes=None,
                        preset_applied=False):
     """新建项目：归档当前工作区 → 初始化空工作区 → 写入 project.yaml 基本信息。
 
-    这是「一键新建项目」的完整语义（此前必须手工改 project.yaml + 手动归档）。
+    这是“一键新建项目”的完整语义（此前必须手工改 project.yaml + 手动归档）。
     护栏：
       · 书名必填、章节数 1-999，非法值直接退回，不落地任何改动
       · 当前工作区有内容且 archive_current=False 时**拒绝执行**（绝不静默清空书稿）
@@ -1569,7 +1569,7 @@ def act_project_create(name, genre=None, chapters=None, style_notes=None,
     `preset_applied=True`（新建项目向导在第 0 步已铺设出厂预设）时**跳过
     快照/归档/初始化**，只定向改写 project.yaml：工作区本身就是新项目（预设素材
     刚铺进去），再走一遍归档会把 `materials/`（归档根项）连同刚铺的素材一起搬进
-    书档 → 新书阶段 1 必报「materials/raw 无素材且无既有设定集」（2026-10-24
+    书档 → 新书阶段 1 必报“materials/raw 无素材且无既有设定集”（2026-10-24
     用户实测：铺设→创建→试跑 9 秒即败）。旧项目的归档已在铺设时完成（replace）。
     """
     name = (name or "").strip()
@@ -1603,8 +1603,8 @@ def act_project_create(name, genre=None, chapters=None, style_notes=None,
 
         if has_work:
             if not archive_current and not force:
-                return False, ("当前工作区还有「%s」的数据。新建项目会清空工作区，"
-                               "请先勾选「归档当前项目」，或用「项目」页签手动归档。"
+                return False, ("当前工作区还有“%s”的数据。新建项目会清空工作区，"
+                               "请先勾选“归档当前项目”，或用“项目”页签手动归档。"
                                % (cur or "未命名"))
             # 破坏性操作前先快照（与 /project/init 同口径），失败只记一笔不阻断
             try:
@@ -1616,7 +1616,7 @@ def act_project_create(name, genre=None, chapters=None, style_notes=None,
             ok, msg = sb_mod.archive(target, yes=True, force=True)
             if not ok:
                 return False, "归档当前项目失败，已中止（未做任何改动）: " + str(msg)
-            notes.append("已归档「%s」" % target)
+            notes.append("已归档“%s”" % target)
 
         ok, msg = sb_mod.init_empty()
         if not ok:
@@ -1669,7 +1669,7 @@ def act_refine_outline(feedback, dry_run):
     from utils.cost_tracker import CostTracker
     cfg, proj = load_all()
     # 成本记账（与 `act_auto_rewrite_run` 同范式）：不记账的话从控制台迭代
-    # 也查不到花了多少钱 —— 那正是「迭代成本」这一维度缺失的原因。
+    # 也查不到花了多少钱 —— 那正是“迭代成本”这一维度缺失的原因。
     # 记账初始化失败不阻断精修（记一条日志即可，不能因为记账把活停了）。
     db, cost, run_id = None, None, None
     if not dry_run:
@@ -1747,13 +1747,13 @@ def act_field_submit(chapter, field, text, why, note):
     if not ok:
         return False, err
     return True, {"proposal": rel,
-                  "message": "提案已落盘待审：批准后才会写回第 %d 章的「%s」字段" % (chapter, field)}
+                  "message": "提案已落盘待审：批准后才会写回第 %d 章的“%s”字段" % (chapter, field)}
 
 
 def act_open_variants(note=""):
     """开局方案生成（2026-10-19，动笔前定走向）。
 
-    与「多方案对比」（大纲已出、挑节点拼合）的差别：这里在 stage2 **之前**，
+    与“多方案对比”（大纲已出、挑节点拼合）的差别：这里在 stage2 **之前**，
     给 N 个结构不同的走向让用户拍板 —— 方向错了的返工最贵，那时全书大纲的钱已烧完。
     产物 `data/outline/open_variants.json` 只是候选，用户选定后才写
     `open_variant_chosen.md`，stage2 会读它。
@@ -1821,7 +1821,7 @@ def act_branch_samples(chapter, kind, note):
     """分支样例生成（第 4 件 · 选项可视化）。
 
     同一章出 2-3 个**方向明显不同**的开头（基调/视角/节奏），让用户在正文动笔前
-    先比「同一件事，三种写法」。与定向改写的差别：那个改章大纲的**一个字段**
+    先比“同一件事，三种写法”。与定向改写的差别：那个改章大纲的**一个字段**
     （结构层），这个定整章的**写作方向**（基调层）。产物同样**不直接写稿** ——
     选定后走 /outline/sample/submit 落提案，批准才写回。
     """
@@ -1849,7 +1849,7 @@ def act_branch_submit(chapter, kind, label, text, why, note):
 
 
 def act_branch_current(chapter):
-    """读某章已选定的写作方向（GUI 面板显示「这一章已经选了什么」）。"""
+    """读某章已选定的写作方向（GUI 面板显示“这一章已经选了什么”）。"""
     from utils.chapter_samples import list_samples
     items = list_samples(chapter, root=str(ROOT))
     # 锚点不外漏给前端：只留面板要展示的字段
@@ -2436,11 +2436,11 @@ class Handler(BaseHTTPRequestHandler):
             self._send(*_dom(dom_outline.handle_outline_structure(self)))
         elif p == "/outline/trend":
             # 迭代趋势 + 上一版对比 + 收敛判断（确定性，零 token）。
-            # 与 /outline/diff 互补：diff 是「哪几行变了」，trend 是「每轮有没有实质进展」。
+            # 与 /outline/diff 互补：diff 是“哪几行变了”，trend 是“每轮有没有实质进展”。
             self._send(*_dom(dom_outline.handle_outline_trend(self)))
         elif p == "/outline/advise":
             # 开工方向建议：候选方案 + 依据 + 可执行 next_step（确定性，零 token）。
-            # trend 说「有没有进展」，advise 说「接下来能做什么」。
+            # trend 说“有没有进展”，advise 说“接下来能做什么”。
             self._send(*_dom(dom_outline.handle_outline_advise(self)))
         elif p == "/outline/compass":
             # 指南针读侧：全书终局方向 + 活跃长线（≤5）+ 规模估计。没设 → exists:false。
@@ -2455,13 +2455,13 @@ class Handler(BaseHTTPRequestHandler):
             # 讨论提案队列（P0-1 落地协议：agent 可提案、不可自批）。
             self._send(*_dom(dom_discuss.handle_discussions(self)))
         elif p == "/outline/discussion/brief":
-            # 打包「讨论第 N 章」的自包含任务书（只读，供复制给外部 Agent）。
+            # 打包“讨论第 N 章”的自包含任务书（只读，供复制给外部 Agent）。
             self._send(*_dom(dom_discuss.handle_discussion_brief(self)))
         elif p == "/outline/discussion/draft":
             # 提案全文预览（批准前必须看 diff，否则又是盲签）。
             self._send(*_dom(dom_discuss.handle_discussion_draft(self)))
         elif p == "/sandbox/file":
-            # 沙盒产物只读预览（审核「通过」前必须能看清真实内容，否则是盲签）。
+            # 沙盒产物只读预览（审核“通过”前必须能看清真实内容，否则是盲签）。
             self._send(*_dom(dom_sandbox.handle_sandbox_file(self)))
         elif p == "/factory/list":
             # 出厂内容盘点（清单 + 样例逐字节命中）；只读，实现在域模块。
@@ -2538,7 +2538,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(*_dom(dom_project.handle_config_agent_mode(self)))
         elif p == "/agent/permissions":
             # Agent 模式权限清单（只读）：把后端权威名单 FORBIDDEN_IN_AGENT_MODE
-            # 交给前端渲染，消除「客户端里分不清哪些走 Agent」的混乱（2026-10-24）。
+            # 交给前端渲染，消除“客户端里分不清哪些走 Agent”的混乱（2026-10-24）。
             self._send(*_dom(dom_project.handle_agent_permissions(self)))
         elif p == "/config/token_limit":
             # token 级熔断阈值读取（budget.token_limit）+ 出厂预设 + 合法区间。
@@ -2566,7 +2566,7 @@ class Handler(BaseHTTPRequestHandler):
             # 阶段 8 由 orchestrator 跑、不经导出面板，前端内存记录永远空。
             self._send(*_dom(dom_post_misc.handle_exports_history(self)))
         elif p == "/factory/presets":
-            # 出厂预设清单（只读）：首跑向导「选预设」用。
+            # 出厂预设清单（只读）：首跑向导“选预设”用。
             self._send(*_dom(dom_project.handle_factory_presets_list(self)))
         elif p == "/factory/project":
             # 当前工作区是否出厂测试项目 + 一键还原预览（只读）。
@@ -2713,7 +2713,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send(*_dom(dom_runtime.handle_truncated(self)))
         elif p == "/gate/artifacts":
             # 审批门产物概况（2026-10-24，零 token 只读）：?stage=N。收件箱每个门
-            # 要显示「这个阶段产出了什么」；stage 3/4/7 的产物是目录，前端
+            # 要显示“这个阶段产出了什么”；stage 3/4/7 的产物是目录，前端
             # readPreview 只读单文件、数不出章节数/字数 —— 判据在 utils.stage_artifacts
             # 单源，这里只做转发。
             self._send(*_dom(dom_runtime.handle_gate_artifacts(self)))
@@ -2721,7 +2721,7 @@ class Handler(BaseHTTPRequestHandler):
             # 读一份残稿全文（?name=xxx.txt，只允许 basename）
             self._send(*_dom(dom_runtime.handle_truncated_read(self)))
         elif p == "/foreshadow":
-            # 伏笔台账（2026-10-20，零 token 只读）：从章大纲「悬念钩子」抽取。
+            # 伏笔台账（2026-10-20，零 token 只读）：从章大纲“悬念钩子”抽取。
             self._send(*_dom(dom_runtime.handle_foreshadow(self)))
         elif p == "/decompose/consent":
             self._send(*_dom(dom_runtime.handle_decompose_consent(self)))
@@ -2813,7 +2813,7 @@ class Handler(BaseHTTPRequestHandler):
 
         # Agent 模式安全守卫：禁止外部 Agent 调用敏感操作
         # 仅当 agent_mode=true 且请求路径在禁止列表中时生效
-        # GUI 请求不受限制 —— 但「是不是 GUI」必须用**双因子**判：
+        # GUI 请求不受限制 —— 但“是不是 GUI”必须用**双因子**判：
         # 来源头 + 主进程签发 token，唯一实现在 agent_guard.is_trusted_gui。
         #
         # ⚠️ 旧实现只看 X-Mofang-Source != "gui"：该头任何本机进程都能伪造，
@@ -2935,7 +2935,7 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(400, {"error": str(e)})
                     return
                 # 执行前统一拦一次（orchestrator 内部还会再拦一道，防竞态）：
-                # 409 让 GUI 当场把「缺什么 / 哪件产的 / 建议先跑哪件」显示出来，
+                # 409 让 GUI 当场把“缺什么 / 哪件产的 / 建议先跑哪件”显示出来，
                 # 而不是先建 job 再让人去翻日志。
                 prog = ProgressManager(ROOT / "data" / "state" / "progress.json")
                 todo = [n for n in stages if prog.stage_status(n) != "done"]
@@ -3051,7 +3051,7 @@ class Handler(BaseHTTPRequestHandler):
                         streamer["pause"] = threading.Event()
                     streamer["pause"].set()
                     # 2026-11-02：措辞改准。这个 Event 只在包装器的 _push 里被检查，
-                    # 模型调用不会停 —— 旧文案「已暂停流式输出」会让人以为不再计费。
+                    # 模型调用不会停 —— 旧文案“已暂停流式输出”会让人以为不再计费。
                     self._send(200, {"ok": True, "model_running": True,
                                      "message": "已暂停前端显示（模型仍在生成并计费）: " + job_id})
                 else:
@@ -3071,7 +3071,7 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/approve":
                 stage = int(body.get("stage") or 0)
                 # 阶段 8（Markdown 导出）同样是可审批的阶段：它出现在 /state，
-                # GUI 会给它「确认」按钮 —— 校验若只收到 7 就是自相矛盾的死路。
+                # GUI 会给它“确认”按钮 —— 校验若只收到 7 就是自相矛盾的死路。
                 if stage not in _VALID_STAGES:
                     self._send(400, {"error": "stage 须为 %d-%d" % (_VALID_STAGES[0],
                                                                     _VALID_STAGES[-1])})
@@ -3129,7 +3129,7 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/outline/chapters/save":
                 # 结构化编辑器保存单章大纲（验证+备份+写盘）。
                 # 注意：这一行 elif 曾经丢失，导致本段代码变成 /outline/restore 分支的
-                # 裸尾随代码 —— GUI 的「保存本章大纲」404，而 restore 会二次发送响应
+                # 裸尾随代码 —— GUI 的“保存本章大纲”404，而 restore 会二次发送响应
                 # 触发 headers already sent。新增分支务必确认 elif 守卫存在。
                 try:
                     n = int(body.get("n") or 0)
@@ -3141,10 +3141,10 @@ class Handler(BaseHTTPRequestHandler):
                         self._send(400, {"error": "内容为空"})
                         return
                     if "核心事件" not in content:
-                        self._send(400, {"error": "缺少「核心事件」字段"})
+                        self._send(400, {"error": "缺少“核心事件”字段"})
                         return
                     if "涉及角色" not in content:
-                        self._send(400, {"error": "缺少「涉及角色」字段"})
+                        self._send(400, {"error": "缺少“涉及角色”字段"})
                         return
                     # 注：shutil / datetime 均已在模块顶层导入（勿在 do_POST 内再写裸 import，
                     # 否则该名会成为整个函数的局部名，遮蔽模块级同名对象 —— 本项目踩过此坑）
@@ -3307,16 +3307,16 @@ class Handler(BaseHTTPRequestHandler):
                 # 读某章某字段当前值（GUI 打开改写面板时预填）
                 self._send(*_dom(dom_refine.handle_field_current(self, body)))
             elif p == "/outline/field/submit":
-                # 选定候选 → 落提案进待审队列（写回归用户在「审核」页签批准）
+                # 选定候选 → 落提案进待审队列（写回归用户在“审核”页签批准）
                 self._send(*_dom(dom_refine.handle_field_submit(self, body)))
             elif p == "/outline/sample/candidates":
                 # 分支样例生成（选项可视化）：同章 2-3 个方向，不碰章大纲
                 self._send(*_dom(dom_refine.handle_branch_candidates(self, body)))
             elif p == "/outline/sample/current":
-                # 读某章已选定的写作方向（面板顶部显示「已选」）
+                # 读某章已选定的写作方向（面板顶部显示“已选”）
                 self._send(*_dom(dom_refine.handle_branch_current(self, body)))
             elif p == "/outline/sample/submit":
-                # 选定方向 → 落样例类提案（写回归用户在「审核」页签批准）
+                # 选定方向 → 落样例类提案（写回归用户在“审核”页签批准）
                 self._send(*_dom(dom_refine.handle_branch_submit(self, body)))
             elif p == "/chapters/paragraph/restore":
                 self._send(*_dom(dom_refine.handle_paragraph_restore(self, body)))
@@ -3348,7 +3348,7 @@ class Handler(BaseHTTPRequestHandler):
                 # 全量回测（零 token）：只读 raw，跑完只写 records.json
                 self._send(*_dom(dom_judge.handle_judge_run(self, body)))
             elif p == "/judge/events":
-                # 作者勾「这章发生了几件事」（F03b 唯一硬门；GUI-only 由 agent_guard 拦）
+                # 作者勾“这章发生了几件事”（F03b 唯一硬门；GUI-only 由 agent_guard 拦）
                 self._send(*_dom(dom_judge.handle_judge_events_set(self, body)))
             elif p == "/judge/sentence":
                 # 逐句裁定（F12）：二值 + 理由必填
@@ -3438,14 +3438,14 @@ class Handler(BaseHTTPRequestHandler):
                 # Word 成品模板选择/恢复默认（件五 GUI 入口，定向改写 project.yaml）。
                 self._send(*_dom(dom_project.handle_config_word_template_set(self, body)))
             elif p == "/env/set":
-                # 把 API Key 写进 .env（GUI 内置入口，替代「用外部编辑器打开 .env」）。
+                # 把 API Key 写进 .env（GUI 内置入口，替代“用外部编辑器打开 .env”）。
                 # 键名白名单/值校验/备份都在域模块里（判据只有一份）。
                 self._send(*_dom(dom_misc.handle_env_set(self, body)))
             elif p == "/config/engine":
                 # 切换执行引擎（config/system.yaml 的顶层键 `engine`）。
                 # 2026-10-31 新增：此前**只有读没有写** —— 设置页把 engine 当只读文字显示，
-                # 用户想从「直连」换到「Agent 子会话」（或反过来）只能手改 YAML，
-                # 而界面上那行字还写着「引擎与模型」，看起来能点。
+                # 用户想从“直连”换到“Agent 子会话”（或反过来）只能手改 YAML，
+                # 而界面上那行字还写着“引擎与模型”，看起来能点。
                 eng = str(body.get("engine") or "").strip().lower()
                 if eng not in ("direct", "hermes"):
                     self._send(400, {"ok": False, "error":
@@ -3521,7 +3521,7 @@ class Handler(BaseHTTPRequestHandler):
                     "available_models") or []
                 warning = ""
                 if cur_model and avail and cur_model not in avail:
-                    warning = ("模型「" + cur_model + "」不在 " + new_provider +
+                    warning = ("模型“" + cur_model + "”不在 " + new_provider +
                                " 的 available_models 内，运行时会 404 —— 请同时改选模型")
                 self._send(200, {"ok": True, "role": role, "provider": new_provider,
                                  "model": cur_model, "warning": warning})
@@ -3719,10 +3719,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(*_dom(dom_project.handle_config_form_set(self, body)))
             elif p == "/truncated/adopt":
                 # 采纳残稿为草稿（2026-10-20）：写进 raw 并打侧车标记，
-                # 完成判定仍为「未完成」——采纳不等于完成。
+                # 完成判定仍为“未完成”——采纳不等于完成。
                 self._send(*_dom(dom_runtime.handle_truncated_adopt(self, body)))
             elif p == "/truncated/clear":
-                # 「已补齐」：清掉该章残稿标记，恢复正常完成判定
+                # “已补齐”：清掉该章残稿标记，恢复正常完成判定
                 self._send(*_dom(dom_runtime.handle_truncated_clear(self, body)))
             elif p == "/foreshadow/status":
                 # 伏笔三态拍板（closed/abandoned 必须写理由）
@@ -3947,7 +3947,7 @@ class Handler(BaseHTTPRequestHandler):
                            {"error": err} if err else {"job_id": jid, "message": "校对已提交"})
             elif p == "/style/analyze":
                 # 文风分析：对范文 / 指定文本 / 指定章节求特征，可选与某章对比求偏差。
-                # 「未配置范文」「范文文件缺失」属正常状态（soft），返回 200 让 GUI 展示引导，
+                # “未配置范文”“范文文件缺失”属正常状态（soft），返回 200 让 GUI 展示引导，
                 # 只有请求本身不合法（source 非法 / 缺 path / 章号不存在）才 400。
                 try:
                     payload = act_style_analyze(body)
@@ -3984,7 +3984,7 @@ class Handler(BaseHTTPRequestHandler):
                 # 实现已迁至 nf_api_domains.post_misc（P2 拆分）；此处只做转发。
                 self._send(*_dom(dom_post_misc.handle_export_markdown(self, body)))
             elif p == "/export/word":
-                # Word 成品导出（导出面板「双格式/仅 Word」；复用 stage7 转换，不写进度）
+                # Word 成品导出（导出面板“双格式/仅 Word”；复用 stage7 转换，不写进度）
                 self._send(*_dom(dom_post_misc.handle_export_word(self, body)))
             else:
                 self._send(404, {"error": "未知路径 " + p})
@@ -3997,14 +3997,14 @@ class Handler(BaseHTTPRequestHandler):
 def port_busy_hint(host, port, probe=None):
     """端口绑定失败时给**可行动**的一段话（纯函数 + 可注入探测，单测友好）。
 
-    为什么值得单独立一段（产品池欠账「端口占用无处理」，2026-10-11 收口）：
+    为什么值得单独立一段（产品池欠账“端口占用无处理”，2026-10-11 收口）：
     `ThreadingHTTPServer` 绑不上端口会直接抛 OSError 裸堆栈（Windows 上是
     WinError 10048），用户只看到一行英文异常 —— 既不知道谁占着端口，也不知道
     下一步做什么。这里把它翻成两句人话：占位者是谁（能探测到就报它的项目根）、
     以及两条处置路径（GUI 重启后端 / 命令行换端口）。
 
     探测只打本机这两个只读端点，1.5s 超时；**探测失败不影响提示主干**（拿不到
-    就退化成「被其他进程占用」+ 查占用者的命令）。`probe` 可注入以便单测离线跑。
+    就退化成“被其他进程占用”+ 查占用者的命令）。`probe` 可注入以便单测离线跑。
     """
     if probe is None:
         def _default_probe(url):
@@ -4017,7 +4017,7 @@ def port_busy_hint(host, port, probe=None):
     try:
         probe(base + "/health")
     except HTTPError:
-        # 有服务在应答、但端点不是我们的 → 别把它说成「没服务」
+        # 有服务在应答、但端点不是我们的 → 别把它说成“没服务”
         return ("该端口上有一个 HTTP 服务在应答，但它不是绒花墨坊（/health 无回应）。"
                 " 处置：命令行改用别的端口：python scripts/nf_api.py --port <其他端口>")
     except Exception:                                     # noqa: BLE001
@@ -4035,7 +4035,7 @@ def port_busy_hint(host, port, probe=None):
     msg = "该端口上已经有另一个绒花墨坊 API 在跑"
     if root:
         msg += "（project_root=" + root + "）"
-    msg += ("。处置：GUI 侧「设置 → 诊断与调试 → 重启后端 API」会先清掉占用者；"
+    msg += ("。处置：GUI 侧“设置 → 诊断与调试 → 重启后端 API”会先清掉占用者；"
             "命令行改用别的端口：python scripts/nf_api.py --port <其他端口>")
     return msg
 
@@ -4044,7 +4044,7 @@ def _tcp_listening(host, port, timeout=0.5):
     """端口上是否**有人在听**（独立于 HTTP 语义）。
 
     返回 True=在听 / False=明确拒绝（无监听者） / True=超时拿不准。
-    拿不准时一律按「有人」处理 —— 宁可报一次占用，也不能静默双绑
+    拿不准时一律按“有人”处理 —— 宁可报一次占用，也不能静默双绑
     （Windows 上 `SO_REUSEADDR=1` 的二次绑定会**成功**，这才是本欠账的真身：
     不是抛裸堆栈，而是两个服务抢一个端口、请求被随机分流）。
     """
@@ -4074,7 +4074,7 @@ def bind_or_explain(host, port, server_cls=None, handler=None, listening=None):
 
     1. **先严格绑定**（子类把 `allow_reuse_address` 关掉）：有活跃监听者 → 立刻
        EADDRINUSE，零网络往返；
-    2. 严格失败 → TCP 连一下判是「真有人」还是 TIME_WAIT 残留：前者给提示，
+    2. 严格失败 → TCP 连一下判是“真有人”还是 TIME_WAIT 残留：前者给提示，
        后者（刚重启过、无监听者）放宽重绑一次，保证快速重启不被误伤；
     3. 两者都失败 → 仍给提示，并把底层错误带上。
 
@@ -4132,7 +4132,7 @@ def main():
         _set_root(args.root)
     # ---- 书稿数据结构迁移（C3 升级断崖）----
     # 代码与提示词由 Electron 的 seedWorkspace 刷新（.seed-version），而 data/
-    # 从不被碰 —— 可新版一旦改了数据结构，旧书稿就成了「没人保证读得懂」的东西。
+    # 从不被碰 —— 可新版一旦改了数据结构，旧书稿就成了“没人保证读得懂”的东西。
     # 所以在**服务起来之前**对齐结构：能自动迁的就迁（先快照后动手，丙3 契约），
     # 迁不动 / 数据比代码新 → 拒绝启动。
     # 契约（utils/workspace_migrate）：ok=False 时**不许继续** —— 拿旧代码去写
@@ -4144,7 +4144,7 @@ def main():
             print("[nf_api] 启动失败：书稿数据结构检查未通过（原因见上面的 [migrate] 行）。")
             print("[nf_api] 处置：python scripts/data_migrate.py 看状态；"
                   "数据比代码新时升级程序，或 python scripts/snapshot.py --restore <快照> --yes 回退。")
-            # 退出码 5 专用于「数据结构拒绝」：2 已被 orchestrator 占用（预算熔断），
+            # 退出码 5 专用于“数据结构拒绝”：2 已被 orchestrator 占用（预算熔断），
             # 共用一个码会让日志里的失败原因无法分辨。
             sys.exit(5)
     except Exception as _wm_e:                              # noqa: BLE001
@@ -4165,7 +4165,7 @@ def main():
         print(f"[nf_api] 日志: level={_lvl} rotate_days={_days} → {_rr['reason']}")
     except Exception as _e:                                 # noqa: BLE001
         print(f"[nf_api] 日志轮转检查跳过（不影响服务）: {_e}")
-    # 端口占用不再裸抛、更不许静默双绑（产品池「端口占用无处理」收口，2026-10-11）：
+    # 端口占用不再裸抛、更不许静默双绑（产品池“端口占用无处理”收口，2026-10-11）：
     # Windows 上 allow_reuse_address=1 会让二次绑定**成功**（实机复现：新实例陪跑、
     # 请求被随机分流），所以绑定走 bind_or_explain —— 先严格绑定，被占才退提示。
     _bound = bind_or_explain(args.host, args.port)

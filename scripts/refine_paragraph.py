@@ -46,7 +46,7 @@ def _norm(path, chapter=None):
     """就地归一化章节文件的中文标点。幂等、零 token；失败只打印不阻断。
 
     段落回退读的是历史版本 JSON（原样搬运），历史版本本身可能已带脏标点
-    —— 回退后统一清洗一次，避免「回退一次脏一次」。
+    —— 回退后统一清洗一次，避免“回退一次脏一次”。
     """
     try:
         changed, counts = normalize_chapter_file(path)

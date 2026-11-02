@@ -1,18 +1,18 @@
 # -*- coding: utf-8 -*-
-"""章节正文读写域：用户「自带编辑器」的后端（2026-10-26）。
+"""章节正文读写域：用户\u300c自带编辑器\u300d的后端（2026-10-26）。
 
 ## 为什么需要它
 
-用户第 1 条：「我之前提的画线批改之类的都没有，而且编辑还要强制用外部编辑器
-打开，没有自带编辑器。」
-第 2 条：「完全不是一个适合审阅、适合精修、适合讨论的形态。」
+用户第 1 条：\u300c我之前提的画线批改之类的都没有，而且编辑还要强制用外部编辑器
+打开，没有自带编辑器。\u300d
+第 2 条：\u300c完全不是一个适合审阅、适合精修、适合讨论的形态。\u300d
 
-这一层是「编辑器」的地基：读三层现状、读单层全文、把手改内容**安全地**存回去。
+这一层是\u300c编辑器\u300d的地基：读三层现状、读单层全文、把手改内容**安全地**存回去。
 三个动作都零 token（不调模型），所以判据可以做到确定性。
 
 ## 判据
 
-A. `GET /chapters/layers`：三层各自存在性/字数/标题/mtime，并指出「当前稿」是哪层。
+A. `GET /chapters/layers`：三层各自存在性/字数/标题/mtime，并指出\u300c当前稿\u300d是哪层。
 B. `GET /chapters/content`：读指定层全文；不存在的层 404（不返空串冒充成功）。
 C. `POST /chapters/save` 的护栏：
    - 写前**备份**旧稿到 `history/chNN_vM.md`（保存本身可回退）
@@ -42,7 +42,7 @@ os.environ.pop("NF_ROOT", None)
 
 PASS, FAIL = [], []
 
-# 测试态的「主进程签发 token」：is_trusted_gui 读环境变量，测试自己铸一个并带上。
+# 测试态的“主进程签发 token”：is_trusted_gui 读环境变量，测试自己铸一个并带上。
 GUI_TOKEN = "unit-test-gui-token"
 
 
@@ -100,11 +100,11 @@ def main():
         check("三层都返回", set(layers) == {"raw", "checked", "refined"}, sorted(layers))
         check("raw 存在且字数 > 0",
               layers["raw"]["exists"] and layers["raw"]["words"] > 0, layers["raw"])
-        check("标题被解析出来（带「第2章」）", "第2章" in layers["raw"]["title"],
+        check("标题被解析出来（带\u300c第2章\u300d）", "第2章" in layers["raw"]["title"],
               layers["raw"]["title"])
         check("当前稿取最高存在层（refined = 成品层，编辑器默认打开它）",
               p.get("current_layer") == "refined", p.get("current_layer"))
-        check("另给「最近改动层」供界面提示",
+        check("另给\u300c最近改动层\u300d供界面提示",
               p.get("last_modified_layer") in {"raw", "checked", "refined"},
               p.get("last_modified_layer"))
         check("回显单章字数口径", p.get("target_words") == [10, 100], p.get("target_words"))
@@ -168,13 +168,13 @@ def main():
         check("返回字数", p.get("words", 0) > 0, p.get("words"))
 
         print("\n【C2】标点归一化（与流水线同一实现）")
-        dirty = '## 第1章 测试\n\n他说："这样不对。"\n\n「好」她答。\n'
+        dirty = '## 第1章 测试\n\n他说："这样不对。"\n\n\u300c好\u300d她答。\n'
         code, p = dom.handle_chapters_save(
             FakeHandler(), {"n": 1, "layer": "raw", "content": dirty})
         check("保存 200", code == 200, p.get("error"))
         norm = (tmp / "data" / "chapters" / "raw" / "01.md").read_text(encoding="utf-8")
         check("半角引号转中文引号", '"' not in norm and "“" in norm, norm)
-        check("直角引号转中文引号", "「" not in norm and "”" in norm, norm)
+        check("直角引号转中文引号", "\u300c" not in norm and "”" in norm, norm)
         check("归一化计数回传", isinstance(p.get("normalized"), dict) and p["normalized"], p.get("normalized"))
 
         print("\n【C3】并发保护：expected_mtime 不一致 → 409")
@@ -185,7 +185,7 @@ def main():
                             "expected_mtime": stale})
         check("过期 mtime → 409（不覆盖）", code == 409, (code, p))
         check("409 说明是并发冲突", "重新加载" in (p.get("error") or ""), p.get("error"))
-        check("文件未被改动（还是原「润色稿」正文）",
+        check("文件未被改动（还是原\u300c润色稿\u300d正文）",
               "润色稿" in target2.read_text(encoding="utf-8"),
               target2.read_text(encoding="utf-8")[:40])
 
@@ -224,7 +224,7 @@ def main():
     app_vue = (ROOT / "console" / "src" / "App.vue").read_text(encoding="utf-8")
     check("章节页签引入就地编辑器", "<ChapterEditor" in app_vue)
     check("章节页签引入三栏审阅台", "<ChapterDesk" in app_vue)
-    check("每章行有「编辑」入口", "openEditor(c.n)" in app_vue)
+    check("每章行有\u300c编辑\u300d入口", "openEditor(c.n)" in app_vue)
     check("编辑器挂到章节页签（列表视图外，两视图都能开）",
           '@saved="onChapterSaved"' in app_vue)
     check("审阅台入口按钮存在", "toggleChapterView" in app_vue)
@@ -248,7 +248,7 @@ def main():
         t = p.read_text(encoding="utf-8")
         if chr(0x300C) in t or chr(0x300D) in t or chr(0x300E) in t or chr(0x300F) in t:
             offenders.append(p.name)
-    check("console/src 下无「」『』残留", not offenders, offenders)
+    check("console/src 下无\u300c\u300d\u300e\u300f残留", not offenders, offenders)
 
     print("\n" + "=" * 66)
     print("通过 %d / 失败 %d" % (len(PASS), len(FAIL)))

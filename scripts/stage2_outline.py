@@ -19,7 +19,7 @@ from utils.config_io import load_config_yaml
 
 REQUIRED_SECTIONS = ["起", "承", "转", "合"]
 
-# 件3：产出侧空泛（THIN）条目上限。绿标准为「大纲 THIN ≤1/11」，故容差取 1。
+# 件3：产出侧空泛（THIN）条目上限。绿标准为“大纲 THIN ≤1/11”，故容差取 1。
 THIN_TOLERANCE = 1
 
 
@@ -41,14 +41,14 @@ def check_global_outline(path):
 def check_outline_anchors(path, setting_path="data/setting/setting.json"):
     """产出侧锚点校验（件3）：THIN 条目数超上限即判不合格。返回 (ok, errors)。
 
-    与 `prompts/stage2_global_outline.md` 里的「每节点锚点数下限」硬约束配套：
+    与 `prompts/stage2_global_outline.md` 里的“每节点锚点数下限”硬约束配套：
     提示词负责**引导**，这里负责**拦**。
 
     判据**复用** `outline_review.review`（确定性、零 token），不在此重造打分逻辑——
-    否则「提示词要求的锚点」与「校验器认的锚点」会各写一套、迟早分叉。
+    否则“提示词要求的锚点”与“校验器认的锚点”会各写一套、迟早分叉。
 
     只用于**流水线产出**（run_stage）。结构校验 `check_global_outline` 保持纯净：
-    GUI 的「保存大纲 / 精修大纲」也走它，不应因空泛而被拦（那是审阅环节的事）。
+    GUI 的“保存大纲 / 精修大纲”也走它，不应因空泛而被拦（那是审阅环节的事）。
     """
     errors = []
     try:
@@ -97,7 +97,7 @@ def build_task(cfg, proj):
         "target_words": book.get("target_words", 300000),
         "user_outline": user_outline or "（未提供，请基于设定集与素材清单自拟整体大纲）",
         "variant_chosen": (load_chosen()
-                           or "（未选定开局方案 —— 按上面的「用户提供的大纲/构思」走）"),
+                           or "（未选定开局方案 —— 按上面的“用户提供的大纲/构思”走）"),
         "setting_brief": (_brief["block"]
                           or "（设定集摘要不可用：%s。请从素材清单与用户构思出发）"
                           % (_brief["error"] or "未生成")),

@@ -8,7 +8,7 @@
     字数一方面受模型本身限制，有些弱模型无论怎么骂就是写不长，像后台有个看不见的
     开关拧死了一样。所以才需要那个加强模式来强行拼凑。
 
-这句话点破了一个我用错力的地方：此前「字数不足」的兜底是**整章重生成**。
+这句话点破了一个我用错力的地方：此前\u300c字数不足\u300d的兜底是**整章重生成**。
 对弱模型而言这是无效动作 —— 同一个模型、同一个目标、同一套提示词，只会再短
 一次，白烧一遍输入。真正解得开的是**拆段落群**：每群只背 1500 字配额，
 弱模型做得到，拼起来才够长。
@@ -18,7 +18,7 @@
 A. 目标字数 5000、模型只写 2500 且 not enhanced → **自动转加强模式**（落 _parts）
 B. 加强模式已开启时**不**再走"自动兜底"分支（本来就在拆群）
 C. 自动兜底只做一次（防无限拆群）
-D. stage4 启动时对「低目标 5000 + 未开加强模式」给出明确提示
+D. stage4 启动时对\u300c低目标 5000 + 未开加强模式\u300d给出明确提示
 
 纯 fake、零 LLM、零网络。
 用法：python tests/unit/test_stage4_enhanced_fallback.py
@@ -187,7 +187,7 @@ def main():
               sorted(p.name for p in parts.glob("*.md")) if parts.is_dir() else "无")
         check("阶段拿到了结论（ok=%s）" % ok, isinstance(ok, bool), msg)
 
-        print("\n【B】已开加强模式 → 不再走「自动兜底」分支")
+        print("\n【B】已开加强模式 → 不再走\u300c自动兜底\u300d分支")
         tmp2 = build_workspace(total=1, enhanced=True, target=(5000, 9000), tag="b")
         os.chdir(tmp2)
         c2 = WeakModelClient(short_words=2500)
@@ -200,7 +200,7 @@ def main():
 
         print("\n【C】启动提示：5000 字 + 未开加强模式要说出来")
         src = (ROOT / "scripts" / "stage4_writing.py").read_text(encoding="utf-8")
-        check("有「目标字数下限 X 字，但加强模式未开启」提示",
+        check("有\u300c目标字数下限 X 字，但加强模式未开启\u300d提示",
               "加强模式未开启" in src)
         check("提示里给了两条出路（自动兜底 / 设置里开启）",
               "自动兜底" in src and "设置 → 加强模式" in src)

@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 """Word 导入器（活二）回归 —— 26 断言。
 
-守四条红线（问题卡「不可越」）：
+守四条红线（问题卡\u300c不可越\u300d）：
 1. 输入 docx **一个字节都不动**（落盘前后 sha256 逐字节比）
 2. **预检未过不落盘**（preview / 需确认两种形态都必须 0 写入）
 3. 切分**复用** `book_split.split_chapters`（中文回目 / Markdown 标题两条模式都验）
-4. 未识别章节结构 → 报「未识别」+ 两条出路，**不落半吊子产物**
+4. 未识别章节结构 → 报\u300c未识别\u300d+ 两条出路，**不落半吊子产物**
 
 外加：落位三档、覆盖保护（先打 before-import 快照）、doctor 对账、参数校验。
 夹具 docx 用 python-docx 现造（自包含，不依赖外部文件）。
@@ -145,7 +145,7 @@ def test_fallback():
         src = make_docx(TMP / "无结构.docx", "plain")
         res = import_docx(src, tier="raw", root=TMP, yes=True, interactive=False)
         check("3.1 判为未识别（ok=False）", res.get("ok") is False, res.get("ok"))
-        check("3.2 报错文案含「未识别出章节结构」",
+        check("3.2 报错文案含\u300c未识别出章节结构\u300d",
               "未识别出章节结构" in str(res.get("error")), res.get("error"))
         sugg = res.get("suggestions") or []
         check("3.3 出路一 --single", any("--single" in s for s in sugg), sugg)

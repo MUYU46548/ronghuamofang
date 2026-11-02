@@ -5,15 +5,15 @@
 
 就绪度审计确认了三个缺口，本套用例锚定它们的**行为契约**：
 
-1. **沙盒没有审核状态**：此前只是往目录丢 .md，用户无法区分「新生成的待审稿」
-   与「已确认可粘贴的稿」，也没有「驳回」这个动作。
+1. **沙盒没有审核状态**：此前只是往目录丢 .md，用户无法区分\u300c新生成的待审稿\u300d
+   与\u300c已确认可粘贴的稿\u300d，也没有\u300c驳回\u300d这个动作。
 2. **回写只有完书后通道**：大纲迭代过程中无法把成果推出来审阅。
-3. **迭代后不给开工方向**：只有 verdict + THIN 清单，没有「接下来能做什么」。
+3. **迭代后不给开工方向**：只有 verdict + THIN 清单，没有\u300c接下来能做什么\u300d。
 
 ## 三条最容易写错、也最要紧的契约
 
 - **改过的文件必须重新审核**：登记带内容 sha256，内容变了状态重置 pending。
-  否则产物重新生成后仍显示「已通过」——等于让旧审核为新内容背书。
+  否则产物重新生成后仍显示\u300c已通过\u300d——等于让旧审核为新内容背书。
 - **只写沙盒、绝不碰 `data/outline/global.md`**：导出是旁路，产物本身只读。
 - **建议必须可执行且零 token**：每条动作给 `next_step`（真实端点/命令），
   且不调用任何 LLM。
@@ -152,8 +152,8 @@ GOOD_OUTLINE = f"""# 《测试书》整体大纲
 """
 
 # 素材覆盖维度：角色名在 normalized 素材里出现 ≥3 次才算 OK；
-# 这里不建 normalized 目录，于是「角色」维度会被判缺 —— 但本夹具不写角色名，
-# 所以重点是「篇幅过短 / 无场景锚点」这类可精修的维度。
+# 这里不建 normalized 目录，于是“角色”维度会被判缺 —— 但本夹具不写角色名，
+# 所以重点是“篇幅过短 / 无场景锚点”这类可精修的维度。
 THIN_OUTLINE = """# 《测试书》整体大纲
 
 ## 起
@@ -268,7 +268,7 @@ _ticket(ch=(ch1, ch2), st0=st0, st1=st1,
 def case_hash_guards_re_review():
     """**改过的文件必须重新审核**；内容没变则保留原状态。
 
-    这是本模块最要紧的契约：产物重新生成后仍显示「已通过」，
+    这是本模块最要紧的契约：产物重新生成后仍显示\u300c已通过\u300d，
     等于让旧审核为新内容背书。
     """
     print("\n【A2】内容变化 → 状态重置（核心契约）")
@@ -316,7 +316,7 @@ _ticket(after_approve=after_approve, changed_same=changed_same, kept=kept,
 
 
 def case_orphans_detected():
-    """手工放进沙盒的文件会被检为「未登记」——不能成为审核盲区。"""
+    """手工放进沙盒的文件会被检为\u300c未登记\u300d——不能成为审核盲区。"""
     print("\n【A3】未登记文件检测（审核盲区）")
     root = build_sandbox("nf_sra_a3_")
     (root / "data" / "state" / "obsidian_sandbox").mkdir(parents=True, exist_ok=True)
@@ -450,20 +450,20 @@ _ticket(ok=ok, msg=msg, files=files,
           all(i["status"] == "pending" for i in p["items"]), f"→ {p['items']}")
     check("B1 kind 标为 outline_proposal",
           all(i["kind"] == "outline_proposal" for i in p["items"]), f"→ {p['items']}")
-    check("B1 含「当前大纲」一份", any("当前" in n for n in names), f"→ {names}")
-    check("B1 含「对比」一份", any("对比" in n for n in names), f"→ {names}")
-    check("B1 含「趋势」一份", any("趋势" in n for n in names), f"→ {names}")
+    check("B1 含\u300c当前大纲\u300d一份", any("当前" in n for n in names), f"→ {names}")
+    check("B1 含\u300c对比\u300d一份", any("对比" in n for n in names), f"→ {names}")
+    check("B1 含\u300c趋势\u300d一份", any("趋势" in n for n in names), f"→ {names}")
     check("B1 **global.md 未被改动**（导出是旁路）", before == after)
     # 内容检查
     doc_txt = "\n".join(p["docs"].values())
-    check("B1 产物抬头声明「待审提案，不是成品」",
+    check("B1 产物抬头声明\u300c待审提案，不是成品\u300d",
           "待审提案" in doc_txt and "sandbox_review.py --approve" in doc_txt,
           f"→ {doc_txt[:160]}")
     check("B1 抬声明状态不会随文件进 vault",
           "不会随本文件粘进 vault" in doc_txt, f"→ {doc_txt[:200]}")
     check("B1 对比稿含体检指针表（改前/改后/变化）",
           "改前" in doc_txt and "改后" in doc_txt and "变化" in doc_txt)
-    check("B1 趋势稿含收敛判定与「两者不是一回事」说明",
+    check("B1 趋势稿含收敛判定与\u300c两者不是一回事\u300d说明",
           "收敛判定" in doc_txt and "不是一回事" in doc_txt)
     check("B1 当前大纲稿含体检结论", "体检结论" in doc_txt)
     check("B1 当前大纲稿内嵌了 global.md 正文",
@@ -609,9 +609,9 @@ _ticket(**out)
     check("C1 结构性问题带可执行改法", all(a["suggested_feedback"] for a in fix_acts),
           f"→ {fix_acts}")
     dup = [a for a in fix_acts if a["suggested_feedback"].strip() == a["target"].strip()]
-    check("C1 **改法不与问题原文重复**（旧行为输出「问题：问题」）", not dup,
+    check("C1 **改法不与问题原文重复**（旧行为输出\u300c问题：问题\u300d）", not dup,
           f"→ 重复的 {[a['target'][:20] for a in dup]}")
-    check("C1 「章节规划条数≠预计」被翻译成具体改法（含目标条数）",
+    check("C1 \u300c章节规划条数≠预计\u300d被翻译成具体改法（含目标条数）",
           any("调整到" in a["suggested_feedback"]
               or "改为" in a["suggested_feedback"] for a in fix_acts),
           f"→ {[a['suggested_feedback'] for a in fix_acts]}")
@@ -653,7 +653,7 @@ def case_advisor_stalled_and_material():
     """停滞 → change_approach；素材缺口被识别并给出补素材方向。"""
     print("\n【C2】停滞与素材缺口")
     root = build_sandbox("nf_sra_c2_")
-    # 造「素材覆盖」缺失：条目里点名一个不在 setting 里的角色，
+    # 造“素材覆盖”缺失：条目里点名一个不在 setting 里的角色，
     # 且 normalized 素材为空 → coverage=False
     covered = """# 《测试书》整体大纲
 
@@ -715,7 +715,7 @@ _ticket(ids=[o["id"] for o in a["options"]], verdict=a["verdict"],
           f"→ {p['change_next'][:90]}")
     check("C2 densify 动作里带出缺失维度（供判断是精修还是补素材）",
           bool(p["dens_dims"]), f"→ {p['dens_dims']}")
-    check("C2 只判「篇幅过短」的条目也拿得到可执行提示（不落兜底空话）",
+    check("C2 只判\u300c篇幅过短\u300d的条目也拿得到可执行提示（不落兜底空话）",
           "写具体" in p["dens_fb"] or "60 字" in p["dens_fb"],
           f"→ {p['dens_fb']}")
     shutil.rmtree(root, ignore_errors=True)

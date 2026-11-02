@@ -61,7 +61,7 @@ BODY3 = BODY.replace("他推开门", "第二天落雪了他才回来").replace(
 def build_text():
     return "\n".join([
         "第一章 归途", "", BODY, "",
-        # 陷阱：正文里单独一行"第三章"，但它离「第二章」标题只有几十字
+        # 陷阱：正文里单独一行"第三章"，但它离“第二章”标题只有几十字
         # （真实场景：作者在开头引用了"第三章提到的那件事"）
         "第二章 旧物", "", "他又把这句想过一遍。", "第三章", "那句话终究没有说出口。", "",
         BODY2, "",
@@ -84,7 +84,7 @@ def main():
         titles = [t for t, _ in chapters]
         check("拆出 4 章（陷阱行不算）", len(chapters) == 4, titles)
         check("第一章标题正确", titles and "第一章" in titles[0], titles)
-        check("陷阱的「第三章」没被拆出来",
+        check("陷阱的\u300c第三章\u300d没被拆出来",
               sum(1 for t in titles if t.strip() == "第三章") == 0, titles)
         check("前言为空（正文从第一章开始）", preface == "", preface[:40])
 
@@ -92,7 +92,7 @@ def main():
         print("\n[2] 无标题整篇")
         pre2, ch2 = SP.split_chapters(BODY)
         check("整篇当成一章", len(ch2) == 1, len(ch2))
-        check("标题为「全文」", ch2[0][0] == "全文", ch2[0][0])
+        check("标题为\u300c全文\u300d", ch2[0][0] == "全文", ch2[0][0])
 
         # ---- 3. 画像 ----
         print("\n[3] 画像")
@@ -113,7 +113,7 @@ def main():
         print("\n[4] 不存原文")
         blob = json.dumps(prof, ensure_ascii=False)
         for phrase in ("这道裂纹", "布包很轻", "二十年前的暗号", "表壳上有一道旧划痕"):
-            check("输出不含原句「%s」" % phrase, phrase not in blob, "命中了原文")
+            check("输出不含原句\u300c%s\u300d" % phrase, phrase not in blob, "命中了原文")
         check("只留文件名", prof["source"]["name"] == src.name, prof["source"])
         check("留哈希便于核对", len(prof["source"]["sha256_8"]) == 8, prof["source"])
         check("notice 写明不存原文", "不含原文" in prof["notice"], prof["notice"])
@@ -160,7 +160,7 @@ def main():
         print("\n[8] stage4 注入块")
         block = SP.load_snippets_block(str(tmp))
         check("块含标题", "参考片段" in block, block[:60])
-        check("块含「不要复制」警告", "不要复制" in block)
+        check("块含\u300c不要复制\u300d警告", "不要复制" in block)
         check("块含片段正文", snips[0]["text"][:12] in block)
         SP.clear_snippets(str(tmp))
         check("清空后块为空", SP.load_snippets_block(str(tmp)) == "")

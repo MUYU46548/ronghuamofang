@@ -8,7 +8,7 @@
 1. **域模块反向依赖被写成值拷贝** —— 域模块里写 `from nf_api import ROOT`，
    测试把 `nf_api.ROOT` 指到临时项目根后，域模块还盯着旧目录 → 静默读写真实仓库。
 2. **分支体在内联业务逻辑** —— 拆了一半点，新代码又直接写在 elif 里，
-   于是「拆完了」只是自我感觉良好。
+   于是\u300c拆完了\u300d只是自我感觉良好。
 3. **转发忘了展开返回值** —— `self._send(dom_misc.f(self))`（漏 `*_dom(...)`），
    会把元组当成 payload 塞进 JSON → 响应形状全错，但 `_send` 不报错。
 
@@ -58,7 +58,7 @@ def test_package():
     check("域模块数量 >= 6（拆分已实质推进）", len(dom_files) >= 6, dom_files)
 
     init_src = (DOM_DIR / "__init__.py").read_text(encoding="utf-8")
-    check("__init__ 说明了「不可 from nf_api import ROOT」的纪律",
+    check("__init__ 说明了\u300c不可 from nf_api import ROOT\u300d的纪律",
           "from nf_api import ROOT" in init_src and "属性访问" in init_src)
 
     contract = (DOM_DIR / "contract.py").read_text(encoding="utf-8")
@@ -122,8 +122,8 @@ def test_handlers_no_double_body_read():
     """handler 不得再调 h._body()（请求体是一次性流，二次读会**挂死**）。
 
     2026-09-21 实测事故：`/sandbox/review` 的 handler 里写了 `body = h._body()`，
-    而 `do_POST` 开头已经读过一次。HTTP 表现是「请求永远不返回、服务端日志
-    一片空白」—— 不是 500，不是 400，就是静默挂起，极难定位。
+    而 `do_POST` 开头已经读过一次。HTTP 表现是\u300c请求永远不返回、服务端日志
+    一片空白\u300d—— 不是 500，不是 400，就是静默挂起，极难定位。
     正确写法是签名收参：`handle_xxx(h, body)`，由 do_POST 传入已读的 dict。
     """
     print("\n[3b] handler 不得二次读请求体（会挂死在 rfile.read）")
@@ -141,7 +141,7 @@ def test_handlers_no_double_body_read():
                         f.name, call.lineno, fn.name, func.attr))
     check("handle_* 内无 h._body() 调用（请求体由 do_POST 传入）",
           not offenders, offenders)
-    # 反向：确认 do_POST 里确实是「先读一次、再把 body 传下去」
+    # 反向：确认 do_POST 里确实是“先读一次、再把 body 传下去”
     src = API_PY.read_text(encoding="utf-8")
     check("do_POST 开头只读一次请求体", src.count("body = self._body()") == 1,
           src.count("body = self._body()"))
@@ -179,7 +179,7 @@ def test_thin_forwarding():
 
     # 收集 `self._send(*_dom(dom_xxx.handle_yyy(self)))` 形式的转发端点。
     # 注意：必须只遍历**顶层 elif 链**，不能用 ast.walk(get_node) —— 后者会递归
-    # 进分支体内部的 if/except，把内层条件也当成「分支」，度量出来的行数毫无意义。
+    # 进分支体内部的 if/except，把内层条件也当成“分支”，度量出来的行数毫无意义。
     def _top_chain(method_node):
         chain = []
         for stmt in method_node.body:
@@ -198,7 +198,7 @@ def test_thin_forwarding():
 
         必须只扫 `node.body` —— `ast.walk(node)` 会钻进 `orelse`，
         沿 elif 链把后续分支（乃至链尾）的 `_dom` 全算成本分支的，
-        于是每一个分支都被判成「已转发且超长」。
+        于是每一个分支都被判成\u300c已转发且超长\u300d。
         """
         for stmt in node.body:
             for c in ast.walk(stmt):
@@ -213,10 +213,10 @@ def test_thin_forwarding():
 
     # 转发分支体必须极短 —— 判据只对**已经转发**的分支生效：
     # 拆分是分批进行的，尚未迁走的旧分支仍可能很长（那是待办，不是缺陷）；
-    # 但「已经声明转发的分支里又长出实现」必须立刻报警，否则拆分会被写回去。
+    # 但“已经声明转发的分支里又长出实现”必须立刻报警，否则拆分会被写回去。
     # 注意：不能直接 `len(ast.unparse(node).splitlines())` —— unparse 一个 If
     # 会把 orelse（即后续整条 elif 链）一并打印，行数必然爆表。
-    # 正确做法：**只量 body**（该分支自己的实现），用「行号跨度」估实际长度。
+    # 正确做法：**只量 body**（该分支自己的实现），用“行号跨度”估实际长度。
     def _body_lines(node):
         if not node.body:
             return 0

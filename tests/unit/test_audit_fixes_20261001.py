@@ -9,9 +9,9 @@
 | # | 缺陷 | 判据形态 |
 |---|---|---|
 | 1 | 成本把缓存 token **双重计价**（高估 → 熔断提前触发） | 纯函数数值断言 |
-| 2 | `is_chapter_complete` 把以「……」结尾的**完整章**判成截断（→ 反复重写烧钱） | 纯函数正反例 |
+| 2 | `is_chapter_complete` 把以\u300c……\u300d结尾的**完整章**判成截断（→ 反复重写烧钱） | 纯函数正反例 |
 | 3 | `merge_book` 只取**第一个非空目录**（refined 残留 1 章 → 成品只有 1 章） | 真实文件操作 |
-| 4 | `ProgressManager` 对「合法 JSON 但顶层不是对象」直接 AttributeError 崩 | 真实文件操作 |
+| 4 | `ProgressManager` 对\u300c合法 JSON 但顶层不是对象\u300d直接 AttributeError 崩 | 真实文件操作 |
 | 5 | `snapshot.restore` 单项失败仍返回 True（"丢了文件却报成功"） | 源码断言 |
 | 6 | `reject.py --stage 3` 漏清 `data/outline/chapters`（打回是空操作） | 常量断言 |
 | 7 | `build_state` 缺 `agent_mode` → GUI 开关永远显示"已关闭" | 源码断言 |
@@ -82,7 +82,7 @@ def case_truncation_judgement():
 
     p1 = d / "a.md"
     p1.write_text(body + "“那就这样吧……”\n", encoding="utf-8")
-    check("以「……」结尾的完整章 → 判为完成（旧版会反复重写它）",
+    check("以\u300c……\u300d结尾的完整章 → 判为完成（旧版会反复重写它）",
           is_chapter_complete(p1, 100, 99999) is True)
 
     p2 = d / "b.md"
@@ -141,9 +141,9 @@ def case_progress_non_dict_json():
 
 # ---------------------------------------------------------------- 5-9 结构性
 def case_structural():
-    print("\n【5】结构性判据（防「修好了又漂回去」）")
+    print("\n【5】结构性判据（防\u300c修好了又漂回去\u300d）")
     snap = _src("scripts/snapshot.py")
-    check("snapshot.restore 以「全部成功」为成功条件",
+    check("snapshot.restore 以\u300c全部成功\u300d为成功条件",
           "all_ok = (restored == len(to_restore))" in snap and "return all_ok, msgs" in snap)
 
     rej = _src("scripts/reject.py")
@@ -167,7 +167,7 @@ def case_structural():
           "ok = _post_stage(n)" in orch or "_code = _post_stage(n)" in orch)
 
     vue = _src("console/src/App.vue")
-    check("前端「全自动」显式传 only_stage:false（否则只跑阶段 1）",
+    check("前端\u300c全自动\u300d显式传 only_stage:false（否则只跑阶段 1）",
           vue.count("only_stage: false") >= 2, vue.count("only_stage: false"))
 
 

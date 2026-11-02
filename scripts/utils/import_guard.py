@@ -115,7 +115,7 @@ def preimport(op, root=None, required=True):
         _write_audit(root, entry)
         if required:
             raise ImportGuardError(
-                f"[import-guard] 快照失败，已中止「{op}」（契约：备份不了就不许动）。\n"
+                f"[import-guard] 快照失败，已中止“{op}”（契约：备份不了就不许动）。\n"
                 f"  原因: {entry['error']}\n"
                 f"  排查: 确认 {root}/history 可写、磁盘未满；"
                 f"单独跑 python scripts/snapshot.py \"{op}\" 看完整报错。"
@@ -125,7 +125,7 @@ def preimport(op, root=None, required=True):
     entry.update(ok=True, snapshot_id=dest.name, snapshot_path=str(dest))
     entry["rollback"] = f"python scripts/snapshot.py --restore {dest.name} --yes"
     if not _write_audit(root, entry):
-        # 审计写失败不阻断：快照已在，回退面完整（见模块 docstring「边界」）
+        # 审计写失败不阻断：快照已在，回退面完整（见模块 docstring“边界”）
         print(f"[import-guard] 审计写入失败（不影响回退）: {root / AUDIT_NAME}")
     return entry
 
@@ -169,7 +169,7 @@ def rollback_hint(op=None, root=None):
     r = rows[0]
     if r.get("ok") and r.get("rollback"):
         return r["rollback"]
-    return f"最近一次「{r.get('op')}」快照失败，无回退点: {r.get('error', '未知原因')}"
+    return f"最近一次“{r.get('op')}”快照失败，无回退点: {r.get('error', '未知原因')}"
 
 
 if __name__ == "__main__":

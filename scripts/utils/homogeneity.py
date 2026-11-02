@@ -64,7 +64,7 @@ _FENCE_RE = re.compile(r"```.*?```", re.S)
 _TITLE_RE = re.compile(r"^\s{0,3}#{1,6}\s.*$", re.M)
 _CJK_RE = re.compile(r"[^\u4e00-\u9fff0-9]")
 _DIALOG_RE = re.compile(r"[“\"]([^”\"]{2,300})[”\"]")
-_PHRASE_SPLIT_RE = re.compile(r"[。！？!?…，,；;：:、\n“”\"「」『』（）()\s]+")
+_PHRASE_SPLIT_RE = re.compile(r"[。！？!?…，,；;：:、\n“”\"“”‘’（）()\s]+")
 
 # 短语首尾的虚词：切成短语后前后削掉，避免"他的""在门口"这类误计
 _EDGE_STOP = "的了着过是在把被和与就都也还很更最不没这那有要会能可"
@@ -228,7 +228,7 @@ def dialogue_same_voice(text, names):
 
 def sentence_cv(text):
     """句长变异系数（std/mean）。口径与 style_analyzer._sentence_stats 完全一致 ——
-    那边 cv<0.35 判「节奏均匀平稳」，这边取 0.45 作告警线（宁可漏报，不误报）。"""
+    那边 cv<0.35 判“节奏均匀平稳”，这边取 0.45 作告警线（宁可漏报，不误报）。"""
     sentences = split_sentences(text)
     if len(sentences) < 20:
         return None, len(sentences)

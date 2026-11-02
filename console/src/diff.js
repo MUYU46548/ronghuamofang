@@ -51,7 +51,7 @@ export function diffParagraphs(raw, refined) {  if (!raw || !refined) return [];
  * 结构化大纲 diff（任务4，独立于上面的 diffParagraphs：章节对比仍用旧函数）
  * =========================================================================
  * 后端已提供节点级 diff（scripts/utils/outline_panel.py → diff_outlines），
- * 前端此函数用于「上传/粘贴两份 global.md」的离线对比场景，算法与后端一致：
+ * 前端此函数用于“上传/粘贴两份 global.md”的离线对比场景，算法与后端一致：
  *   解析 → 按类型内顺序对齐 → 标题相同做字符级 diff → 未匹配标记 add/del
  * 中文按字符切分（不按空格）。
  */

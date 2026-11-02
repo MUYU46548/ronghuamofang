@@ -4,8 +4,8 @@
 ## 为什么这一层要单独做
 
 现有两份"多方案"都在**结构已成之后**：
-- 大纲页签的「多方案对比」——全书大纲已经生成，用户挑节点拼合；
-- 分章页签的「选写作方向」——章大纲已经出来，用户选基调/视角/节奏。
+- 大纲页签的“多方案对比”——全书大纲已经生成，用户挑节点拼合；
+- 分章页签的“选写作方向”——章大纲已经出来，用户选基调/视角/节奏。
 
 真正贵的返工是**方向错了**：那时全书大纲的钱已经烧完，改方向等于推倒重来。
 所以这里在 stage2 之前先给 N 个走向，让用户拍板，选中的注入 stage2。
@@ -202,7 +202,7 @@ def pick(variant_id, root="."):
     lines = [
         "# 作者选定的开局方案",
         "",
-        "> 由「开局方案」卡片选定（%s）。stage2 生成全书大纲时必须按本方案的结构走；"
+        "> 由“开局方案”卡片选定（%s）。stage2 生成全书大纲时必须按本方案的结构走；"
         % datetime.now().strftime("%Y-%m-%d %H:%M"),
         "> 与 project.yaml 的 user_outline 冲突时，**以本文件为准**。",
         "",
@@ -238,7 +238,7 @@ def pick(variant_id, root="."):
     cp = chosen_path(root)
     cp.parent.mkdir(parents=True, exist_ok=True)
     write_text(cp, "\n".join(lines))
-    return True, "已选定「%s」，stage2 会按它生成大纲" % chosen.get("title", ""), str(cp)
+    return True, "已选定“%s”，stage2 会按它生成大纲" % chosen.get("title", ""), str(cp)
 
 
 def load_chosen(root="."):

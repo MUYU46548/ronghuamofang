@@ -5,20 +5,20 @@
 
 SP-1024 的 `campaign.py` 是**人机通道**：出提示词 → 人工贴到外部平台 → 回收文件入账
 （因为沙盒零网络）。本仓有 `make_client()`，同一件事可以在进程内一次跑完，
-照搬那套文件搬运只会多出「提示词文件、响应文件、命名规约、去重」四份负担。
+照搬那套文件搬运只会多出“提示词文件、响应文件、命名规约、去重”四份负担。
 
 ## 保留了什么
 
 - **分章正则**（`第X回/章/卷`）与 UTF-8 → GB18030 回退读法：老电子书常见的坑；
 - **分批**（③⑧⑨ 一次读 30 章摘要，别把整本塞进一个请求）；
 - **断点**：每章摘要落盘即算完成，重跑跳过（`force=True` 才重做）——
-  这是「报错自愈断点续跑」那条纪律在成书提炼上的落地；
+  这是“报错自愈断点续跑”那条纪律在成书提炼上的落地；
 - **只增不改**的并库语义（与 `obsidian_integrate.merge_setting_from_vault` 同一条）。
 
 ## 不做什么
 
 - 不改写原文、不评价文笔（⑦ 只检测）；
-- 不把「提炼出来的卡」直接写进正典：`merge` 是显式动作，且带备份 + 回读。
+- 不把“提炼出来的卡”直接写进正典：`merge` 是显式动作，且带备份 + 回读。
 """
 
 from __future__ import annotations
@@ -118,9 +118,9 @@ def resolve_camp(name_or_path: str) -> Path:
 
 def preview_book(book_path: str | Path, pattern: str = "",
                  max_chapters: int = 0, batch_size: int = 30) -> Dict[str, Any]:
-    """**零写盘**预演：只数标题、字数与预计调用数（GUI「预演」按钮用）。
+    """**零写盘**预演：只数标题、字数与预计调用数（GUI“预演”按钮用）。
 
-    为什么单独写：`split_book` 会真的建目录，而用户点「预演」时不该在盘上留下任何东西。
+    为什么单独写：`split_book` 会真的建目录，而用户点“预演”时不该在盘上留下任何东西。
     """
     src = Path(book_path)
     if not src.exists():
@@ -537,7 +537,7 @@ def merge_into_setting(camp: str | Path, setting_path: str | Path = "data/settin
 
     规则（与设定库增量合并同源）：
     - 角色按 `name` 去重：已存在的一律不动（用户/素材写的那份永远优先）；
-    - world 四槽按「名字：」前缀去重，只追加不存在的行；
+    - world 四槽按“名字：”前缀去重，只追加不存在的行；
     - 伏笔进 `plot_fragments`（未回收的），时间线进 `timeline`；
     - 写前把旧 `setting.json` 备份到 `data/setting/history/`。
     """

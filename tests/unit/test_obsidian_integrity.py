@@ -8,12 +8,12 @@
 
 | 编号 | 缺陷 | 危害 |
 |---|---|---|
-| F1 | `scan_vault` 父目录 `rglob` 跨类目污染 + 重复 | 4 个文件的 vault 扫出 6 个"角色"；归档数据「480 条只有 84 条真人物」的生产者侧根因 |
+| F1 | `scan_vault` 父目录 `rglob` 跨类目污染 + 重复 | 4 个文件的 vault 扫出 6 个"角色"；归档数据\u300c480 条只有 84 条真人物\u300d的生产者侧根因 |
 | F2 | `build_setting_from_vault` 整体替换**且不备份** | 实测把 stage1 从素材归并的角色/剧情碎片/时间线**全部删掉且不可恢复** |
 | F3 | 同函数失败返回 `(False, msg)`、成功返回 dict | 调用方 `setting['meta']` 在失败路径抛 TypeError |
 | F4 | `stage4` KB 注入裸 `except Exception: pass` | vault 未配置/配错时注入恒为空，**无任何提示** |
-| F5 | `check_consistency` 恒返回全零 | 打印「违例 0 个」像是"检查通过"，实际 `conflicts`/`locked_violations` 硬编码空列表（`locked_violations` **2026-10-01 已落地**：只判结构性违逆，语义冲突仍不碰；`conflicts` 仍未实现） |
-| F6 | `refine_outline` 体检 FAIL 仍报「精修完成」 | 子会话产出 0 节点的废稿，用户看到的是成功 |
+| F5 | `check_consistency` 恒返回全零 | 打印\u300c违例 0 个\u300d像是"检查通过"，实际 `conflicts`/`locked_violations` 硬编码空列表（`locked_violations` **2026-10-01 已落地**：只判结构性违逆，语义冲突仍不碰；`conflicts` 仍未实现） |
+| F6 | `refine_outline` 体检 FAIL 仍报\u300c精修完成\u300d | 子会话产出 0 节点的废稿，用户看到的是成功 |
 
 ## 隔离策略
 
@@ -306,11 +306,11 @@ def case_kb_injection_not_silent():
     src = (REPO / "scripts" / "stage4_writing.py").read_text(encoding="utf-8")
     check("F4 不再有裸 `except Exception: pass` 吞掉 KB 注入",
           "except Exception:\n        pass" not in src, "→ 仍有裸 pass")
-    check("F4 区分「未配置 vault」（未启用，不是失败）",
+    check("F4 区分\u300c未配置 vault\u300d（未启用，不是失败）",
           "is_vault_configured" in src, "→ 未做未配置判断")
     check("F4 未命中时有提示", "未匹配到相关词条" in src, "→ 未命中静默")
     check("F4 失败时打印（不再吞）", "知识库注入失败" in src, "→ 失败静默")
-    check("F4 有「一次性提示」机制（避免逐章刷屏）",
+    check("F4 有\u300c一次性提示\u300d机制（避免逐章刷屏）",
           "_kb_notice_once" in src and "_KB_NOTICE" in src, "→ 缺失")
 
     # 运行时验证：提示只打印一次
@@ -338,7 +338,7 @@ _ticket(printed=buf.getvalue(), count=buf.getvalue().count("提示A"))
 # ====================================================================== F5
 
 def case_check_consistency_is_honest():
-    """F5：不得再假装「检查通过」；且滑动窗口应能召回未被贪心切片吃掉的名字。"""
+    """F5：不得再假装\u300c检查通过\u300d；且滑动窗口应能召回未被贪心切片吃掉的名字。"""
     print("\n【F5】check_consistency 诚实化 + 召回修复")
     root = build_sandbox("nf_oi_f5_")
     v = make_vault(root)
@@ -375,14 +375,14 @@ _ticket(keys=sorted(cc.keys()),
           f"→ {p['unimplemented']}")
     check("F5 带 caveat 说明（空结果 ≠ 无问题）",
           "不代表" in p["caveat"] or "未实现" in p["caveat"], f"→ {p['caveat'][:60]}")
-    check("F5 **滑动窗口召回了未登记角色「观澜」**（旧贪心切片恒为空）",
+    check("F5 **滑动窗口召回了未登记角色\u300c观澜\u300d**（旧贪心切片恒为空）",
           "观澜" in p["warn_names"], f"→ {p['warn_names']}")
     check("F5 已知角色未被误报为疑似新角色",
           not any(n in ("苏芷", "祁砚") for n in p["warn_names"]),
           f"→ 误报 {p['warn_names']}")
     check("F5 已知地点未被误报", "砾城" not in p["warn_names"], f"→ {p['warn_names']}")
     check("F5 conflicts 仍为空（诚实标注未实现）", p["conflicts"] == [])
-    check("F5 设定集不存在 → locked 检查回报「未生效」，不伪造「通过」",
+    check("F5 设定集不存在 → locked 检查回报\u300c未生效\u300d，不伪造\u300c通过\u300d",
           p["locked"] == [] and p["locked_checked"] is False,
           f"→ locked={p['locked']} checked={p['locked_checked']}")
     shutil.rmtree(root, ignore_errors=True)
@@ -391,7 +391,7 @@ _ticket(keys=sorted(cc.keys()),
 # ====================================================================== F6
 
 def case_refine_outline_no_false_success():
-    """F6：大纲体检 FAIL 时不得回报「精修完成」。"""
+    """F6：大纲体检 FAIL 时不得回报\u300c精修完成\u300d。"""
     print("\n【F6】大纲精修不再假成功")
     root = build_sandbox("nf_oi_f6_")
     # 一个**结构合法但内容为空**的大纲：四节齐全、有关键节点标题、
@@ -436,10 +436,10 @@ _orig = fc.FakeClient.run_task
 def patched(self, task_file, workdir=None, model=None):
     name = str(task_file).split(os.sep)[-1]
     if name.startswith("stage2"):
-        # 子会话产出「0 节点」的废稿（体检必 FAIL）。
+        # 子会话产出\u300c0 节点\u300d的废稿（体检必 FAIL）。
         # 与初始 global.md 逐字节不同（改一个词）—— 否则被 refine_outline 的
         # 空转检测（内容与备份相同 = 子会话没做任何事）正确判失败，
-        # 「体检 FAIL 不假成功」这条路径就测不到了。
+        # \u300c体检 FAIL 不假成功\u300d这条路径就测不到了。
         write_text("data/outline/global.md",
                    "# 《测试书》整体大纲\\n\\n## 起\\n开端篇。\\n\\n## 承\\n发展。\\n\\n"
                    "## 转\\n高潮。\\n\\n## 合\\n结局。\\n\\n## 关键节点\\n（无）\\n\\n"
@@ -460,15 +460,15 @@ _ticket(ok=ok, msg=msg)
         shutil.rmtree(root, ignore_errors=True)
         return
     print(f"  ok={p['ok']} msg={p['msg'][:110]}")
-    check("F6 **体检 FAIL 时不再返回成功**（旧行为：ok=True「精修完成」）",
+    check("F6 **体检 FAIL 时不再返回成功**（旧行为：ok=True\u300c精修完成\u300d）",
           p["ok"] is False, f"→ ok={p['ok']}")
-    check("F6 消息点明「体检未通过」而非「完成」",
+    check("F6 消息点明\u300c体检未通过\u300d而非\u300c完成\u300d",
           "体检未通过" in p["msg"], f"→ {p['msg'][:80]}")
     check("F6 消息给出问题数或问题内容",
           "结构性" in p["msg"] or "项" in p["msg"], f"→ {p['msg'][:80]}")
     check("F6 消息给出回溯方式（备份可恢复）",
           "history" in p["msg"] or "restore" in p["msg"], f"→ {p['msg'][:80]}")
-    check("F6 未谎报「精修完成」", "精修完成" not in p["msg"], f"→ {p['msg'][:80]}")
+    check("F6 未谎报\u300c精修完成\u300d", "精修完成" not in p["msg"], f"→ {p['msg'][:80]}")
     shutil.rmtree(root, ignore_errors=True)
 
 

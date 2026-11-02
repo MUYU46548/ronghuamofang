@@ -175,12 +175,12 @@ def server_routes():
             prefixes |= p
             templated |= t
         blocks[name] = (exact, prefixes, templated)
-    server_routes.chain = chain          # 供「死分支」等检查复用同一条链
+    server_routes.chain = chain          # 供“死分支”等检查复用同一条链
     return blocks, src, methods
 
 
 def _branch_elifs(method_node):
-    """该方法的**顶层分支链**里的 elif/if 语句（用于「丢失 elif 守卫」类回归）。
+    """该方法的**顶层分支链**里的 elif/if 语句（用于\u300c丢失 elif 守卫\u300d类回归）。
 
     只取 `if p ...: / elif p ...:` 这条链，不递归进嵌套块。
     """
@@ -276,8 +276,8 @@ def main():
             wrong_method["%s %s" % (method, raw)] = where
         else:
             missing["%s %s" % (method, raw)] = where
-    check("无「前端在调、后端没有」的端点", not missing, missing)
-    check("无「路径存在但 HTTP 方法不对」的端点", not wrong_method, wrong_method)
+    check("无\u300c前端在调、后端没有\u300d的端点", not missing, missing)
+    check("无\u300c路径存在但 HTTP 方法不对\u300d的端点", not wrong_method, wrong_method)
 
     print("\n=== 2. 历史断点回归项 ===")
     for method, ep in (("POST", "/models/switch"), ("POST", "/export/markdown"),
@@ -349,7 +349,7 @@ def main():
 
     print("\n=== 5. 死分支 / 裸尾随代码不再回来 ===")
     # 跟随 do_GET → _do_GET_raw 的转发：只看 do_GET 包装层的话，这三条检查
-    # 会因为「包装层里当然没有裸 read_text」而恒绿（空断言）。
+    # 会因为“包装层里当然没有裸 read_text”而恒绿（空断言）。
     get_body_src = "\n".join(ast.unparse(n)
                              for n in server_routes.chain.get("GET", []))
     check("do_GET 内不再出现裸 read_text(/write_text(（未导入的名字）",
@@ -361,18 +361,18 @@ def main():
     check("GET /review/run 不再出现在 do_GET（该分支会 500）",
           "/review/run" not in routes["GET"][0])
 
-    # 「丢失 elif 守卫」类缺陷的判据（2026-09-19 修正）：
+    # “丢失 elif 守卫”类缺陷的判据（2026-09-19 修正）：
     # 曾经的写法是 `"elif" in ast.unparse(do_POST)` —— 那是**空断言**。
-    # `ast.unparse` 把 `elif X:` 还原为「`else:` 里嵌 `if X:`」，函数体里必然有
+    # `ast.unparse` 把 `elif X:` 还原为“`else:` 里嵌 `if X:`”，函数体里必然有
     # 一大堆 `if`，所以怎么都能匹配到。真正的判据是**结构性的**：
     #   分支链从第一个 p 判定出发，沿 orelse 能一直走到最后一个分支；
     # 一旦某个 `elif p == "..."` 被误写成独立 `if`（历史上那次事故的形态），
     # 它就是 Try 体的**第二条顶层语句**，链在此断裂，链长骤降 —— 必须报警。
     #
     # 2026-09-29 修正判据范围：原实现把 do_POST 的**所有顶层语句**都收进来，
-    # 于是 Try 体**之前**的「Agent 模式安全守卫」(`if request_source != "gui":`)
+    # 于是 Try 体**之前**的“Agent 模式安全守卫”(`if request_source != "gui":`)
     # 被算成第二条 if → 误报（该守卫不属于 p 分支链，且它在 Try 之外）。
-    # 按本段自述的意图（「Try 体的顶层语句」）收窄到 Try 体。
+    # 按本段自述的意图（“Try 体的顶层语句”）收窄到 Try 体。
     post_stmts = []
     for stmt in methods["do_POST"].body:
         if isinstance(stmt, ast.Try):

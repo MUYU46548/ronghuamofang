@@ -119,7 +119,7 @@ def main():
     guard = (ROOT / "scripts" / "utils" / "agent_guard.py").read_text(encoding="utf-8")
     check("M8 外部 Agent 不得替作者改稿", '"/chapters/paragraph/save"' in guard)
     panel = (ROOT / "console" / "src" / "ParagraphRefinePanel.vue").read_text(encoding="utf-8")
-    check("M8 面板里有「自己改」", "自己改" in panel and "/chapters/paragraph/save" in panel)
+    check("M8 面板里有\u300c自己改\u300d", "自己改" in panel and "/chapters/paragraph/save" in panel)
 
     print("-" * 66)
     print("通过 %d / 失败 %d" % (len(PASS), len(FAIL)))

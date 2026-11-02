@@ -1,17 +1,17 @@
 # -*- coding: utf-8 -*-
-"""章节正文读写域 —— 用户「自带编辑器」的后端（2026-10-26）。
+"""章节正文读写域 —— 用户“自带编辑器”的后端（2026-10-26）。
 
 ## 为什么新开一个域模块
 
-用户第 1 条：「我之前提的画线批改之类的都没有，而且编辑还要强制用外部编辑器
-打开，没有自带编辑器。」
-第 2 条：「第二阶段产物依旧令人崩溃，完全不是一个适合审阅、适合精修、适合讨论
-的形态。是整个前端的设计有问题。」
+用户第 1 条：“我之前提的画线批改之类的都没有，而且编辑还要强制用外部编辑器
+打开，没有自带编辑器。”
+第 2 条：“第二阶段产物依旧令人崩溃，完全不是一个适合审阅、适合精修、适合讨论
+的形态。是整个前端的设计有问题。”
 
 `/chapters/*` 此前已有 7 个端点，散在 `misc.py`（quality/verify）与 `refine.py`
 （paragraph 四件套）。本次一口气加 3 个（layers / content / save），按 AGENTS
-「某类端点超过 3 个就另开一个域模块，不要堆回 elif 链」收拢到这里 —— 后续
-「划线批注」「多版本合并」「三栏审阅台」也住这个文件，不再往 3400 行的分发器里塞。
+“某类端点超过 3 个就另开一个域模块，不要堆回 elif 链”收拢到这里 —— 后续
+“划线批注”“多版本合并”“三栏审阅台”也住这个文件，不再往 3400 行的分发器里塞。
 
 ## 分工：别和"花 token 的模型改稿"混了
 
@@ -109,15 +109,15 @@ def _count_words(text):
 
 
 def _byte_len(text):
-    """UTF-8 字节数（用户口径的「整章字节数」）。"""
+    """UTF-8 字节数（用户口径的“整章字节数”）。"""
     return len((text or "").encode("utf-8"))
 
 
 def _parts_stats(n):
     """加强模式的段群统计（2026-10-27）：每群字数/字节 + 合计。
 
-    「群字数」是判断 `chapter.enhanced_group_words`（默认 1500）该不该调的唯一
-    依据 —— 用户原话：「run 完一章后，请把群字数和整章字节数发给我」。这些数字
+    “群字数”是判断 `chapter.enhanced_group_words`（默认 1500）该不该调的唯一
+    依据 —— 用户原话：“run 完一章后，请把群字数和整章字节数发给我”。这些数字
     本来就在盘上（data/chapters/_parts/NN/gK.md），只是从没被读出来给人看。
     """
     d = api.ROOT / "data" / "chapters" / "_parts" / ("%02d" % n)
@@ -154,7 +154,7 @@ def handle_chapters_layers(h):
 
     返回每层：是否存在、字数、标题、mtime、是否等于当前最高层。
     为什么不让前端自己 readPreview：那条 IPC 只能读、不数中文、也不认识
-    「refined 才是当前稿」这条业务规则；这些判据放后端可单测。
+    “refined 才是当前稿”这条业务规则；这些判据放后端可单测。
     """
     try:
         n, err = _parse_n(h)
@@ -189,9 +189,9 @@ def handle_chapters_layers(h):
                         last_mtime = st.st_mtime
                         last_layer = layer
             out[layer] = item
-        # 「当前稿」= **最高存在的层**（refined > checked > raw），不是 mtime 最新那层。
+        # “当前稿”= **最高存在的层**（refined > checked > raw），不是 mtime 最新那层。
         # 为什么：三层是同一条产物的三个加工阶段，用户要审阅/精修的是成品层。
-        # 用 mtime 裁决会在「三份同一秒写盘」时随机落到 raw（实测夹具就是这么写的，
+        # 用 mtime 裁决会在“三份同一秒写盘”时随机落到 raw（实测夹具就是这么写的，
         # 而且真实流水线里三层的 mtime 常常只差毫秒）—— 编辑器于是默认打开原稿，
         # 用户在错的那层改半天。
         current = ""
@@ -215,7 +215,7 @@ def handle_chapters_layers(h):
 def _current_layer(n):
     """当前稿所在层：refined > checked > raw；三层都没有返回 None。
 
-    与 `handle_chapters_layers` 的「当前稿」口径一致（同一判据，不写两遍）。
+    与 `handle_chapters_layers` 的“当前稿”口径一致（同一判据，不写两遍）。
     """
     for lay in ("refined", "checked", "raw"):
         if _chapter_path(n, lay).exists():
@@ -229,7 +229,7 @@ def handle_chapters_content(h):
     与 `/chapters/layers` 分开：列表页只要元数据（一次拉 40 章也不重），
     编辑器只读**一章一层**的全文。混在一个端点里会让列表带上几十万字。
 
-    **不给 layer 时取「最高存在的层」（refined > checked > raw）**，
+    **不给 layer 时取“最高存在的层”（refined > checked > raw）**，
     2026-10-31 修正：原默认硬编码 refined，于是外接 Agent 调 `nf_get_chapter`
     读一章只跑过 stage4 的稿时直接 404 —— 而真实项目里大部分章都只有 raw。
     （`_current_layer` 早就按这个规则算，正文端点却没跟上，属于同一判据写两遍。）
@@ -260,7 +260,7 @@ def handle_chapters_content(h):
             "mtime": st.st_mtime,
             "mtime_text": time.strftime("%Y-%m-%d %H:%M", time.localtime(st.st_mtime)),
             "target_words": _target_words(),
-            # 段群明细（仅 raw 层；重写完成后的 toast 用它报「群字数 + 整章字节」）
+            # 段群明细（仅 raw 层；重写完成后的 toast 用它报“群字数 + 整章字节”）
             "parts": _parts_stats(n) if layer == "raw" else [],
         }
     except Exception as e:                                   # noqa: BLE001
@@ -283,7 +283,7 @@ def handle_chapters_save(h, body):
 
     ## 为什么手改正文是 GUI-only（2026-10-27）
 
-    重写/跑流水线是「花 token 的生成」，出问题有 stage 记录、有备份、失败还会自动
+    重写/跑流水线是“花 token 的生成”，出问题有 stage 记录、有备份、失败还会自动
     恢复旧稿；而这里**零 token 直接覆盖** raw/checked/refined —— 外部 Agent 一条
     POST 就能静默改写用户已审阅的稿子，且不留下任何"模型写的"痕迹。两者不是一回事。
     故与止烧阈值/Agent 模式同档：`_gui_only` 双因子（来源头 + 主进程签发 token），
@@ -311,7 +311,7 @@ def handle_chapters_save(h, body):
         if not content.strip():
             # 空稿会让下游把"没内容"当成"没写过"，断点续跑于是重写整章 ——
             # 要清空请走版本回退，别用保存。
-            return 400, {"ok": False, "error": "内容为空。若要清空本章，请用「历史」回退到旧版本"}
+            return 400, {"ok": False, "error": "内容为空。若要清空本章，请用“历史”回退到旧版本"}
         if len(content) > MAX_CHARS:
             return 400, {"ok": False,
                          "error": "内容过长（%d 字符，上限 %d）—— 单章不会这么长，"

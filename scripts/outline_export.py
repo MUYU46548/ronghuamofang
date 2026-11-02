@@ -3,9 +3,9 @@
 
 ## 解决什么
 
-此前沙盒回写**只有「完书后」通道**（`obsidian_postprocess.py` 生成作品介绍页 /
+此前沙盒回写**只有“完书后”通道**（`obsidian_postprocess.py` 生成作品介绍页 /
 出场记录 / 新角色设定）。而用户真正需要的是**在大纲迭代过程中**把成果推出来审阅
-—— 「我迭代了 12 轮，想看看到底改了什么、值不值得开工」。
+—— “我迭代了 12 轮，想看看到底改了什么、值不值得开工”。
 
 本模块把一轮迭代的成果导出为**审核包**（三份文件）到沙盒，并自动登记为待审：
 
@@ -145,7 +145,7 @@ def export(global_path=GLOBAL, setting_path=SETTING, history_dir=HISTORY_DIR,
     ver_tag = ""
     lb = ov.latest_backup(history_dir)
     if lb is not None:
-        # 命名要点：lb[0] 是「最近一轮精修**之前**」的版本号，
+        # 命名要点：lb[0] 是“最近一轮精修**之前**”的版本号，
         # 当前 global.md 是该轮的结果 —— 写 "v3_到_3" 语义不明，
         # 明确成 "v3到当前"。
         ver_tag = f"_v{lb[0]}到当前"

@@ -12,7 +12,7 @@ stage2 审批门之前的补全通道：用户对 setting.json 的薄弱项（�
 生成定向 feedback（含具体角色名 + 各自缺失维度）→ 补全 → 复评 THIN 数 →
 若 THIN 数下降则再来一轮，直到**达标即停 / 无进展即停 / 触达轮次上限**。
 
-设计约束（作者原话：「轮次上限 1-2、达标即停、默认关」）：
+设计约束（作者原话：“轮次上限 1-2、达标即停、默认关”）：
 
 - **默认关**：`gates.setting_refine_auto = False`。现有流水线行为零变化 ——
   自动补全会改设定集，属"改变用户产物"的动作，必须用户显式开启。
@@ -179,9 +179,9 @@ def run_refine(cfg, proj, feedback, client=None, task_dir=None, dry_run=False):
 def thin_report(setting_path=SETTING, normalized_dir=NORMALIZED):
     """跑体检，返回 (thin_names, thin_detail)。异常时返回 (None, 错误信息)。
 
-    `thin_detail` 是「角色名 → 缺失维度列表」的映射，用于**生成定向 feedback**：
-    只说「补全 THIN 角色」模型会泛泛地加形容词；点名「苏芷 缺 ability、
-    relations」才能让它去素材里找对应线索。
+    `thin_detail` 是“角色名 → 缺失维度列表”的映射，用于**生成定向 feedback**：
+    只说“补全 THIN 角色”模型会泛泛地加形容词；点名“苏芷 缺 ability、
+    relations”才能让它去素材里找对应线索。
     """
     try:
         char_results, _, thin_names, _ = mr.review(setting_path, normalized_dir)

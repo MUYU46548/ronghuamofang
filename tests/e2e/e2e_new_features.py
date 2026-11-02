@@ -4,18 +4,18 @@
 ## 为什么单独一个用例
 
 `e2e_ux_verify.py` 是既有功能的回归网，覆盖不到**本轮新增**的 UI：
-项目页归档行的「查看」「删除」、归档查看对话框、收件箱的通知开关，
+项目页归档行的\u300c查看\u300d\u300c删除\u300d、归档查看对话框、收件箱的通知开关，
 以及丙4 的**分段审阅面板**（收件箱 stage2 门内）。
 按钮"看着有、点了没反应"正是本项目栽过的翻车点（2026-10-06：收件箱
-「🔔 通知权限」点了毫无反应 —— requestPermission 只在 permission 为
+\u300c🔔 通知权限\u300d点了毫无反应 —— requestPermission 只在 permission 为
 "default" 时才动作），所以新按钮必须真的点一次才算数。
 
 ## 分段审阅为什么也必须真点
 
 后端的闸 `tests/unit/test_outline_segments.py` 已经验过（拦/放都是真的），
-但「闸开着、界面没做」正是丙4 上一轮留下的落差：用户在界面上点「确认放行」
+但\u300c闸开着、界面没做\u300d正是丙4 上一轮留下的落差：用户在界面上点\u300c确认放行\u300d
 只吃到一个 toast，看不到**差哪几段**。本用例要证的是闭环：面板真的渲染 8 段
-→ 未全过时点「确认放行」被拦**且 toast 说得出差哪几段** → 逐段打勾真的推进
+→ 未全过时点\u300c确认放行\u300d被拦**且 toast 说得出差哪几段** → 逐段打勾真的推进
 进度 → 全过后真的放行（门消失）。
 
 ## 自带夹具与服务（不依赖手工准备）
@@ -121,7 +121,7 @@ def _force_agent_mode_off(system_yaml: Path):
 
     它消掉的是**第一层**假红：本机 config/system.yaml 是 `agent_mode: true`，
     照抄进夹具后，浏览器验收环境（拿不到 GUI token）会被 FORBIDDEN_IN_AGENT_MODE
-    端点一律 403，表现是「对话框关不掉」，看着像前端 bug，实为夹具继承了 Agent 模式。
+    端点一律 403，表现是\u300c对话框关不掉\u300d，看着像前端 bug，实为夹具继承了 Agent 模式。
     与 tests/http/* 的 `_force_agent_mode_off` 同一做法。
 
     ⚠️ **只解第一层**。`/project/archive/delete` 还有第二层闸 `_gui_only` ——
@@ -185,7 +185,7 @@ def make_fixture():
     (book / "chapters").mkdir(parents=True, exist_ok=True)
     (root / "config").mkdir(parents=True, exist_ok=True)
     (root / "materials" / "raw").mkdir(parents=True, exist_ok=True)
-    # 分段审阅夹具（丙4）：8 段大纲 + 阶段2「已完成、未审批」→ 收件箱出 stage2 门。
+    # 分段审阅夹具（丙4）：8 段大纲 + 阶段2“已完成、未审批”→ 收件箱出 stage2 门。
     (root / "data" / "outline").mkdir(parents=True, exist_ok=True)
     (root / "data" / "outline" / "global.md").write_text(SEG_OUTLINE, encoding="utf-8")
     (root / "data" / "state").mkdir(parents=True, exist_ok=True)
@@ -197,7 +197,7 @@ def make_fixture():
         '{"book": "测试归档书", "archived_at": "2026-10-01 12:00:00"}', encoding="utf-8")
     (book / "chapters" / "01.md").write_text(
         "# 第一章\n\n这是归档里的正文，用于验证在线预览。\n", encoding="utf-8")
-    (book / "notes.txt").write_text("归档备注：这段文字应该能在「查看」里读到。\n",
+    (book / "notes.txt").write_text("归档备注：这段文字应该能在\u300c查看\u300d里读到。\n",
                                     encoding="utf-8")
     sys_yaml = ROOT / "config" / "system.yaml"
     if sys_yaml.exists():
@@ -303,9 +303,9 @@ def main():
             page.wait_for_timeout(900)
             row = page.locator(".art-row", has_text="测试归档书")
             check("归档行渲染", row.count() >= 1, row.count())
-            check("行内有「查看」", row.locator("button:has-text('查看')").count() == 1)
-            check("行内有「删除」", row.locator("button:has-text('删除')").count() == 1)
-            check("行内仍保留「恢复」", row.locator("button:has-text('恢复')").count() == 1)
+            check("行内有\u300c查看\u300d", row.locator("button:has-text('查看')").count() == 1)
+            check("行内有\u300c删除\u300d", row.locator("button:has-text('删除')").count() == 1)
+            check("行内仍保留\u300c恢复\u300d", row.locator("button:has-text('恢复')").count() == 1)
             ux.shot(page, "NEW1_archive_row")
 
             # ---------- 查看：只读预览 ----------
@@ -367,7 +367,7 @@ def main():
             nb = page.locator("button", has_text="通知")
             check("收件箱通知按钮存在", nb.count() >= 1, nb.count())
             head = page.locator(".card-head").inner_text()
-            check("按钮带通道说明（不再只写「已开启」）",
+            check("按钮带通道说明（不再只写\u300c已开启\u300d）",
                   ("浏览器通知" in head) or ("系统级通知" in head), head[:160])
             before = nb.first.inner_text()
             nb.first.click()
@@ -397,7 +397,7 @@ def main():
                   txt.inner_text()[:60] if txt.count() else "无正文")
             ux.shot(page, "NEW7_segment_panel")
 
-            # 未全过时点「确认放行」→ 必须被拦，且 toast 说得出差哪几段 + 下一条命令
+            # 未全过时点“确认放行”→ 必须被拦，且 toast 说得出差哪几段 + 下一条命令
             page.locator(".gate-head button:has-text('确认放行')").click()
             page.wait_for_timeout(500)
             toast = page.locator(".toast").inner_text()
@@ -429,9 +429,9 @@ def main():
                   page.locator(".seg-review").count() == 0,
                   page.locator(".seg-review").count())
 
-            # 唯一预期的「报错」是上面那次刻意触发的 409：Chromium 把被拒的
+            # 唯一预期的“报错”是上面那次刻意触发的 409：Chromium 把被拒的
             # fetch 记成一条网络级 console error，而它正是本用例要证的拦截本身。
-            # 只放行这一条、且必须真的发生过 —— 放宽成「忽略全部 409」会让
+            # 只放行这一条、且必须真的发生过 —— 放宽成“忽略全部 409”会让
             # 真出问题的冲突（如并发写）一起溜过去。
             blocked = [e for e in errs
                        if "Failed to load resource" in e and "409" in e]

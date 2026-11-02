@@ -4,7 +4,7 @@
 ## 为什么需要这套用例
 
 `check_consistency.locked_violations` 自 2026-09-21 起**恒为空列表**，
-而 CLI 却打印「locked 违例：0 个」—— 看起来像检查通过，实际什么都没查。
+而 CLI 却打印\u300clocked 违例：0 个\u300d—— 看起来像检查通过，实际什么都没查。
 2026-10-01 把这个检查接上了（只做**结构性**违逆，语义冲突仍不碰）。
 
 本用例守两件事：
@@ -128,7 +128,7 @@ def main():
           rep["violations"])
 
     # ---------------- 诚实性：未生效必须说"没查" ----------------
-    print("\n【4】未生效时不得伪装成「通过」")
+    print("\n【4】未生效时不得伪装成\u300c通过\u300d")
     rep = run_case("vault 无 locked 条目", _vault(locked=False), full)
     check("vault 无 locked 条目 → checked=False", rep["checked"] is False,
           rep["checked"])

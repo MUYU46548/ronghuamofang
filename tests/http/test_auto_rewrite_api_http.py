@@ -153,7 +153,7 @@ def main():
 
         print("\n=== 4. 幂等：达 max_rounds 后不再重写 ===")
         stamp = (tmp / "data/chapters/raw/01.md").stat().st_mtime_ns
-        # 人为把 quality 打回 4 模拟「重写后仍不达标」，但轮次已用尽
+        # 人为把 quality 打回 4 模拟“重写后仍不达标”，但轮次已用尽
         p = tmp / "data/chapters/raw/01.md"
         p.write_text(p.read_text(encoding="utf-8").replace("quality: 8", "quality: 4"),
                      encoding="utf-8")

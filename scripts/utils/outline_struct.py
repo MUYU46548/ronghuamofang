@@ -27,7 +27,7 @@ NODE_LINE_RE = re.compile(r"^[-*]\s*(节点\s*\d+)\s*[：:，,]?\s*(.*)$")
 # 章节规划：- 第N章：... / - 第 3 章：... / 支持中文数字
 PLAN_LINE_RE = re.compile(r"^[-*]\s*(第\s*[\d一二三四五六七八九十百零两]+\s*章)\s*[：:，,]?\s*(.*)$")
 
-# 把所有「## 起/承/转/合/关键节点/预计章节数/章节规划」视为分节边界
+# 把所有“## 起/承/转/合/关键节点/预计章节数/章节规划”视为分节边界
 _SECTION_RE = re.compile(
     r"^##\s*(起|承|转|合|关键节点|预计章节数|章节规划)\s*$", re.M)
 
@@ -171,7 +171,7 @@ def _norm_entry(entry):
     if not tail:
         return title
     if tail.startswith(title):
-        return tail          # 正文已含标题前缀（如「节点1：…」），原样输出
+        return tail          # 正文已含标题前缀（如“节点1：…”），原样输出
     return title + "：" + tail
 
 

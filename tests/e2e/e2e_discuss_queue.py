@@ -2,14 +2,14 @@
 """讨论提案队列的专项验收（P0-1 落地协议的 GUI 层）。
 
 e2e_ux_verify 主套的 pendingGates 恒空，且不触碰审核页签的讨论队列 —— 而本次
-修复的核心就是「agent 提案 → 用户在 GUI 批准 → 写回章大纲」这条链路的 GUI 侧。
+修复的核心就是\u300cagent 提案 → 用户在 GUI 批准 → 写回章大纲\u300d这条链路的 GUI 侧。
 本脚本用 mock（有状态：批准后队列真变化）真点一遍：
 
-- 讨论提案块渲染在「审核」页签（与沙盒队列并存）；
+- 讨论提案块渲染在\u300c审核\u300d页签（与沙盒队列并存）；
 - 顶部徽标计入讨论待审（不只是沙盒产物）；
-- 「读提案」打开抽屉，正文含「待审提案」声明；
-- 「批准并写回」走确认框 → 队列就地刷新、待审归零；
-- 「驳回」必须填原因（空原因按钮禁用）；
+- \u300c读提案\u300d打开抽屉，正文含\u300c待审提案\u300d声明；
+- \u300c批准并写回\u300d走确认框 → 队列就地刷新、待审归零；
+- \u300c驳回\u300d必须填原因（空原因按钮禁用）；
 - 全程无 console error。
 
 前置：静态服务 8091（serve console/renderer/dist）+ mock 8798 已起。
@@ -92,18 +92,18 @@ def main():
               badge.count() > 0 and badge.first.inner_text().strip() == "1",
               badge.first.inner_text() if badge.count() else "无徽标")
 
-        # 读提案：打开抽屉，正文含「待审提案」声明
+        # 读提案：打开抽屉，正文含“待审提案”声明
         dq.locator("button", has_text="读提案").first.click()
         page.wait_for_timeout(900)
         drawer = page.locator(".drawer-wide")
         check("读提案抽屉打开", drawer.count() > 0)
         if drawer.count():
             txt = drawer.first.inner_text()
-            check("提案正文含「待审提案」声明", "待审提案" in txt, txt[:80])
+            check("提案正文含\u300c待审提案\u300d声明", "待审提案" in txt, txt[:80])
             check("提案正文含理由段", "理由" in txt)
         page.screenshot(path=str(OUT / "Q2_drawer.png"), full_page=True)
 
-        # 关抽屉：用底部 .dialog-actions 里的「关闭」（不在顶栏下，也不受
+        # 关抽屉：用底部 .dialog-actions 里的“关闭”（不在顶栏下，也不受
         # drawer-wide 居中占满影响；头部的关闭按钮在视口顶被 sticky 顶栏盖住，
         # 遮罩又被 drawer-wide 居中盖掉，都没得点 —— 底部这个是可靠路径）。
         footer_close = page.locator(".drawer-wide .dialog-actions button",

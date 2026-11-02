@@ -5,10 +5,10 @@
 
 `FakeClient.run_task()` **恒返回 `exit_code=0`** —— 全仓 22 个 `result["exit_code"] != 0`
 分支（stage1~6 的子会话失败判定、batch_refine/refine_outline 等的失败回报）
-在测试里**从未被走到过**。这是本项目最大的「假成功」温床：
+在测试里**从未被走到过**。这是本项目最大的“假成功”温床：
 兜底机制（重试/熔断/停止）自己崩了没人知道。
 
-2026-09-19 审查报告 H5 项：「失败路径 100% 零覆盖」。
+2026-09-19 审查报告 H5 项：“失败路径 100% 零覆盖”。
 本模块是该结论的正面回应 —— 不动生产代码、不联网、可稳定复现失败。
 
 ## 用法
@@ -21,7 +21,7 @@
     # ② 只在指定阶段失败，其余正常（继承 FakeClient 的真实产物能力）
     client = FailingClient(fail_on=["stage4"])     # stage4 批失败、stage1~3 正常
 
-    # ③ 前 N 次失败，之后成功（验证「重试后成功」）
+    # ③ 前 N 次失败，之后成功（验证“重试后成功”）
     client = FailingClient(fail_times=1)
 
     # ④ 抛异常而非返回非零码（验证异常穿透路径）
@@ -78,18 +78,18 @@ class FailingClient(FakeClient):
     ----
     fail_on : str | list[str] | None
         命中即失败。`"*"` / None 之外的默认是 `"*"`（全失败）。
-        单个字符串按「阶段分组」精确匹配（见 `_stage_of`），
+        单个字符串按“阶段分组”精确匹配（见 `_stage_of`），
         如 `"stage4"` 只让 stage4_* 任务失败。
     fail_times : int | None
-        只让前 N 次调用失败，之后恢复正常（验证「重试后成功」链路）。
+        只让前 N 次调用失败，之后恢复正常（验证“重试后成功”链路）。
         `None` = 一直失败。
     exit_code : int
         失败时返回的退出码（默认 1，模拟子会话非零退出）。
     raise_exc : BaseException | None
-        不为 None 时改为**抛异常**而非返回非零码 —— 覆盖「客户端本身崩了」
-        这条比「客户端返回失败」更深的路径。
+        不为 None 时改为**抛异常**而非返回非零码 —— 覆盖“客户端本身崩了”
+        这条比“客户端返回失败”更深的路径。
     empty_stdout : bool
-        失败时是否清空 stdout_tail（模拟「无任何输出就挂了」）。
+        失败时是否清空 stdout_tail（模拟“无任何输出就挂了”）。
     """
 
     provider = "failing"
@@ -104,7 +104,7 @@ class FailingClient(FakeClient):
         self.exit_code = exit_code
         self.raise_exc = raise_exc
         self.empty_stdout = empty_stdout
-        # 调用计数（按「总次数」与「按阶段」分别记，便于断言）
+        # 调用计数（按“总次数”与“按阶段”分别记，便于断言）
         self.calls = 0
         self.calls_by_stage = {}
 
@@ -147,7 +147,7 @@ class FailingClient(FakeClient):
             print("[failing_client] 模拟失败: " + name + "（分组 " + stage + "）")
             return self._fail_result(stage)
         # 未命中失败策略 → 复用 FakeClient 的真实产物能力，
-        # 这样「只在 stage4 失败」的用例里 stage1~3 依然能产出可校验的产物。
+        # 这样“只在 stage4 失败”的用例里 stage1~3 依然能产出可校验的产物。
         return super().run_task(task_file, workdir=workdir, model=model)
 
     def run_task_stream(self, task_file, on_piece, stop_flag, workdir=None, model=None,
@@ -176,7 +176,7 @@ class FailingClient(FakeClient):
         """写任务文件本身**不算失败点** —— 真实崩溃发生在执行阶段。
 
         否则 stage4 会在 `client.write_task()` 就炸，测不到
-        「子会话退出码非零 → mark_chapter_failed」这条真正的分支。
+        “子会话退出码非零 → mark_chapter_failed”这条真正的分支。
         """
         return super().write_task(task_dir, name, content)
 
@@ -184,7 +184,7 @@ class FailingClient(FakeClient):
 class ExpensiveClient(FakeClient):
     """正常产出，但每次调用都记一笔**高额**费用 —— 触发预算熔断（F3）。
 
-    与 FailingClient 的区别：FailingClient 造「失败」，这里造「成功但烧钱」，
+    与 FailingClient 的区别：FailingClient 造“失败”，这里造“成功但烧钱”，
     用来验证 `cost.status() == "pause"` 这条**与失败无关**的熔断路径。
     """
 

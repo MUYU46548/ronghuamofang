@@ -42,10 +42,10 @@ def check(name, cond, detail=""):
 class Sandbox:
     """把自定义定价落到临时文件，绝不碰仓库里的 data/state/cost_rates.json。
 
-    2026-10-11 起**连历史错位的旧位置一起隔离**：加载侧加了「新位置没有就读旧位置」
+    2026-10-11 起**连历史错位的旧位置一起隔离**：加载侧加了\u300c新位置没有就读旧位置\u300d
     的兜底之后，沙盒若只改 `CUSTOM_RATES_PATH`，`load_custom_rates()` 会 fallback 到
     **真仓库的 scripts/data/state/cost_rates.json** —— 测试读到真实用户单价，还会在
-    保存时把它「迁移」进沙盒（语义全错）。所以两个路径都得指进沙盒。
+    保存时把它\u300c迁移\u300d进沙盒（语义全错）。所以两个路径都得指进沙盒。
     """
 
     def __init__(self, legacy=None):

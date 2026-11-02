@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """runtime_form() 判据 + /state 形态自报接线（2026-10-17 指引层修复）。
 
-背景：十三次试跑全部死在「外部 Agent 分不清源码态/安装态、CLI 用裸 python」上。
+背景：十三次试跑全部死在\u300c外部 Agent 分不清源码态/安装态、CLI 用裸 python\u300d上。
 修复：`GET /state` 自报 `form`（source/installed）+ `runtime_python`（能跑管线的
 解释器），任务简报与 kickoff 引用它选通道选解释器。本用例锁两件事：
 

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""质量门禁「语法错必须红」自检（2026-10-03）。零 LLM、零网络。
+"""质量门禁\u300c语法错必须红\u300d自检（2026-10-03）。零 LLM、零网络。
 
 ## 为什么
 
@@ -84,7 +84,7 @@ def case_good_file_passes():
         p = run_gate(str(good))
         out = (p.stdout or "") + (p.stderr or "")
         check("正常文件 → 退出码 0", p.returncode == 0, out[-300:])
-        check("输出仍是「通过」", "通过" in out, out[-200:])
+        check("输出仍是\u300c通过\u300d", "通过" in out, out[-200:])
     finally:
         import shutil
         shutil.rmtree(tmp, ignore_errors=True)

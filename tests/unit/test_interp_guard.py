@@ -5,7 +5,7 @@
 
 外部 Agent 在项目根敲 `python scripts/orchestrator.py`，PATH 上的 python 是宿主环境
 （Hermes 自带 3.14，没装 PyYAML）→ `import yaml` 开跑即崩。agent 把病因误诊成
-「.venv 缺 yaml」，而 .venv 里 PyYAML 一直好好装着 —— **错的从来不是依赖，是解释器**。
+\u300c.venv 缺 yaml\u300d，而 .venv 里 PyYAML 一直好好装着 —— **错的从来不是依赖，是解释器**。
 当天连续炸了五次试跑。
 
 守卫（`utils/interp_guard.py`）挂在这两个开跑入口上：
@@ -16,7 +16,7 @@
 4. **不污染 stdout**：nfctl `--json` 是协议流，守卫一律写 stderr。
 
 判据设计：C/D/E 三条是**反证**（把 yaml 藏掉，看系统是不是真的会闹）——
-只测「yaml 在时一切正常」证明不了守卫存在，那是 vacuous truth。
+只测\u300cyaml 在时一切正常\u300d证明不了守卫存在，那是 vacuous truth。
 
 全程离线、零网络、零 LLM 费用。
 用法：python tests/unit/test_interp_guard.py
@@ -64,7 +64,7 @@ def test_B_paths():
     check("B3 守卫先于 utils.config_io 导入（yaml 崩点在它之前就要拦住）",
           orch.find("interp_guard") < orch.find("from utils.config_io"))
     check("B4 nfctl 挂了守卫", 'ensure_working_python("scripts/nfctl.py")' in nfctl)
-    check("B5 nfctl collect_check 有「当前解释器」阻塞分支",
+    check("B5 nfctl collect_check 有\u300c当前解释器\u300d阻塞分支",
           'add("当前解释器", False' in nfctl and "has_yaml()" in nfctl)
     check("B6 守卫写 stderr（不污染 --json stdout）", "file=sys.stderr" in guard_src)
     check("B7 防拉锯标记在场（NF_PY_GUARD 只切一次）",
@@ -135,7 +135,7 @@ def test_E_fail_loud_nfctl_json():
         except json.JSONDecodeError as e:
             data = {}
             check("E1 stdout 是合法 JSON（守卫没写进协议流）", False, e)
-        check("E2 阻塞项含「当前解释器」（不再误导成别的毛病）",
+        check("E2 阻塞项含\u300c当前解释器\u300d（不再误导成别的毛病）",
               "当前解释器" in (data.get("blocking") or []),
               data.get("blocking"))
         check("E3 stderr 有切换留痕 + 挡下说明",

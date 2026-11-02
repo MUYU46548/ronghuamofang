@@ -185,7 +185,7 @@ async function expectations() {
   await sleep(4000);
 
   // 进入 设定 → 关系图
-  console.log('\n=== 1. 打开「设定 → 关系图」 ===');
+  console.log('\n=== 1. 打开“设定 → 关系图” ===');
   await evaluate(cdp, `(() => {
     const b = [...document.querySelectorAll('.tabs button')].find(x => x.textContent.trim().startsWith('设定'));
     if (b) b.click();
@@ -198,7 +198,7 @@ async function expectations() {
   })()`);
   console.log('  关系图页签:', tabClick);
   await sleep(3500);
-  check('存在「关系图」子页签', tabClick === 'clicked', tabClick);
+  check('存在“关系图”子页签', tabClick === 'clicked', tabClick);
   await shot(cdp, 'rg_1_graph.png');
 
   console.log('\n=== 2. 节点与边数量与数据层一致 ===');
@@ -292,7 +292,7 @@ async function expectations() {
   check('滚轮缩放改变视图变换', zoomRes.after !== zoomRes.before && /scale/.test(zoomRes.after), zoomRes);
   await shot(cdp, 'rg_3_zoom.png');
 
-  console.log('\n=== 6. 「重新布局」释放固定位置 ===');
+  console.log('\n=== 6. “重新布局”释放固定位置 ===');
   const re = await evaluate(cdp, `(async () => {
     const btn = [...document.querySelectorAll('.rg-mini, .mini')].find(b => b.textContent.trim() === '重新布局');
     if (!btn) return { ok: false };
@@ -334,7 +334,7 @@ async function expectations() {
     return { ok: true, rows: document.querySelectorAll('.setting-row').length,
              graphGone: document.querySelectorAll('.rg-node').length };
   })()`);
-  check('切回「角色」页签仍正常渲染列表', back.ok && back.rows > 0, back);
+  check('切回“角色”页签仍正常渲染列表', back.ok && back.rows > 0, back);
   check('关系图已卸载（不残留 SVG 节点）', back.graphGone === 0, back.graphGone);
 
   const errs = await evaluate(cdp, `window.__errs || []`).catch(() => []);

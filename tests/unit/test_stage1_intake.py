@@ -1,19 +1,19 @@
 # -*- coding: utf-8 -*-
-"""B1 进料节流回归 —— stage1 只喂「未定稿」素材。
+"""B1 进料节流回归 —— stage1 只喂\u300c未定稿\u300d素材。
 
 ## 为什么需要它
 
 stage1 素材正文进 prompt 的机制**不在提示词模板里**，而在 `llm_client.inline_inputs()`：
 它对 body 里以**目录**形式引用的路径做 `glob("*.md")` **全量内联**。所以历史行为是
-「多回合迭代时 adopted 素材每轮重贴一遍，越跑越贵」（B1 缺口）。
+\u300c多回合迭代时 adopted 素材每轮重贴一遍，越跑越贵\u300d（B1 缺口）。
 
 | 编号 | 钉什么 |
 |---|---|
 | I1 | **防回归（最关键）**：body 里不得残留目录引用 —— 留着它就等于节流零效果（改了模板也白改） |
 | I2 | adopted 素材**正文**不进 prompt（真实 inline 后文本零命中） |
 | I3 | uncertain 素材正文**照旧进**（存疑要重看原文） |
-| I4 | 纯新增素材正文**必须进**（防「把新增且无冲突的卡误判成已定稿」→ 丢素材） |
-| I5 | 第 2 轮 prompt 显著短于第 1 轮（节流真的发生，而非「看起来改了」） |
+| I4 | 纯新增素材正文**必须进**（防\u300c把新增且无冲突的卡误判成已定稿\u300d→ 丢素材） |
+| I5 | 第 2 轮 prompt 显著短于第 1 轮（节流真的发生，而非\u300c看起来改了\u300d） |
 | I6 | canon 存在时注入快照引用行 |
 | I7 | 无 status / 设定集缺失 → 退回全量（宁多勿漏，绝不丢素材） |
 | I8 | `plot_fragments.status`（`unused` 那套语义）**不得**被当成定稿判据 |
@@ -72,8 +72,8 @@ def write_setting(root, entries, name="setting.json"):
 def render(nd, root, setting_path, canon_path=None, make_canon=True):
     """走真实链路：build_setting_task → inline_inputs。返回 (body, inlined)。
 
-    默认**造一个 canon**：节流的前提就是「定稿有承载」，没有 canon 时不该节流
-    （见 `_pending_material_paths` 的说明）。要测「无 canon」就传 make_canon=False。
+    默认**造一个 canon**：节流的前提就是\u300c定稿有承载\u300d，没有 canon 时不该节流
+    （见 `_pending_material_paths` 的说明）。要测\u300c无 canon\u300d就传 make_canon=False。
     """
     cp = Path(canon_path) if canon_path else (root / "canon.json")
     if make_canon and not cp.exists():
@@ -100,7 +100,7 @@ def case_no_dir_ref():
         body, _ = render(nd, root, sp)
         check("I1 body 不匹配 DIR_SPEC_RE（`下的 *.md`）",
               DIR_SPEC_RE.search(body) is None, f"→ {DIR_SPEC_RE.search(body)}")
-        check("I1 body 里没有「归一化素材目录」字样",
+        check("I1 body 里没有\u300c归一化素材目录\u300d字样",
               "归一化素材目录" not in body, "→ 目录引用没删干净")
         check("I1 模板用的是逐文件占位符 pending_inputs",
               "{{pending_inputs}}" not in body and (nd / "甲_角色卡.md").resolve().as_posix()
@@ -226,7 +226,7 @@ def case_plot_fragments_not_a_verdict():
         "world": {"locations": [{"name": "某地", "source": "某地_场景卡",
                                  "status": "uncertain"}]},
         "plot_fragments": [
-            # 剧情碎片的 status 是「用没用过」，不是「素材是否定稿」——
+            # 剧情碎片的 status 是“用没用过”，不是“素材是否定稿”——
             # 它**不能**让 甲 之外的东西进 adopted 集
             {"id": "f001", "source": "碎片_录", "status": "used"},
             {"id": "f002", "source": "碎片2_录", "status": "unused"},

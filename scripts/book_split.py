@@ -84,7 +84,7 @@ def chapter_metrics(body):
     """单章节奏指标（与 proofread.chapter_rhythm 同口径，供两处图表一致）。"""
     paras = [p.strip() for p in re.split(r"\n\s*\n", body)
              if p.strip() and not p.strip().startswith("#")]
-    quoted = re.findall(r"[“「]([^”」]*)[”」]", body)
+    quoted = re.findall(r"[““]([^””]*)[””]", body)
     sentences = [s for s in re.split(r"(?<=[。！？…])", body) if s.strip()]
     para_lens = [count_cn_words(p) for p in paras] or [0]
     sent_lens = [count_cn_words(s) for s in sentences] or [0]

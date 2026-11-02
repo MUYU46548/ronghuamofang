@@ -48,9 +48,9 @@ def main():
     print("\n【A】默认词表（与 SP-1024 同一口径：字面子串、不去重长词）")
     rep = cliche_scan.scan_text(TEXT)
     hits = {h["词"]: h for h in rep["命中"]}
-    check("命中『微微一笑』2 次", hits.get("微微一笑", {}).get("次数") == 2, hits.get("微微一笑"))
-    check("命中『眼底闪过一丝』1 次", hits.get("眼底闪过一丝", {}).get("次数") == 1)
-    check("『仿佛…一般』按正则命中", hits.get("仿佛…一般", {}).get("次数") == 1,
+    check("命中\u300e微微一笑\u300f2 次", hits.get("微微一笑", {}).get("次数") == 2, hits.get("微微一笑"))
+    check("命中\u300e眼底闪过一丝\u300f1 次", hits.get("眼底闪过一丝", {}).get("次数") == 1)
+    check("\u300e仿佛…一般\u300f按正则命中", hits.get("仿佛…一般", {}).get("次数") == 1,
           hits.get("仿佛…一般"))
     check("排行按次数从高到低", rep["排行"][0][0] == "微微一笑", rep["排行"])
     check("位置示例带【】标出命中处",
@@ -112,7 +112,7 @@ def main():
         print("\n【D】接线：只报告不阻断 + 命令存在")
         qc = (ROOT / "scripts" / "quality_checklist.py").read_text(encoding="utf-8")
         check("quality_checklist 调用了病灶词扫描", "cliche_scan" in qc)
-        check("病灶词段落明确「只报告，不阻断验收」", "只报告，不阻断验收" in qc)
+        check("病灶词段落明确\u300c只报告，不阻断验收\u300d", "只报告，不阻断验收" in qc)
         _start = qc.find("病灶词扫描（只报告")
         _end = qc.find('print("\\n" + "=" * 60)', _start)
         block = qc[_start:_end] if _start >= 0 and _end > _start else ""

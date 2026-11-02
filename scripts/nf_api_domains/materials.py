@@ -6,7 +6,7 @@
 本模块只承载**读**端点（`do_GET` 侧）。同名路径的写端点（`/materials/save`、
 `/scraps/delete`、`/setting/save` 等）留在 `do_POST`，其实现后续迁往
 `materials_write.py` / `scraps_write.py`。读写分家是有意的：
-写路径要遵守「破坏性操作先快照 + 显式 confirm」的红线，读路径不需要，
+写路径要遵守“破坏性操作先快照 + 显式 confirm”的红线，读路径不需要，
 混在一个模块里容易让红线被稀释。
 
 ## 碎片目录
@@ -15,10 +15,10 @@
 （默认 `materials/original_scraps`），经 `api.scraps_dir_path()` 解析。
 自由命名是刻意的设计：用户随手写下的碎片不该被强制改名。
 
-## 关于 /scraps/list 的「索引陈旧」标记
+## 关于 /scraps/list 的“索引陈旧”标记
 
 `data/setting/scraps_index.json` 里的 `content_fingerprint` 是**内容指纹**。
-指纹不一致 → `index_stale: true`，前端提示「碎片有改动，建议重跑 stage1」。
+指纹不一致 → `index_stale: true`，前端提示“碎片有改动，建议重跑 stage1”。
 这是确定性计算，零 LLM 调用。
 """
 import nf_api as api

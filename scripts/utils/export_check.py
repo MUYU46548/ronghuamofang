@@ -25,7 +25,7 @@
    - 成品章标题数与 md 不一致 → 错误（结构错位）
 
 判据刻意不认模板的具体样式表内容（字体/页面设置由 template_check.py 那套
-逐字比对负责）—— 本模块只管「能不能出一份不残缺、不错位的文件」。
+逐字比对负责）—— 本模块只管“能不能出一份不残缺、不错位的文件”。
 """
 import re
 import zipfile
@@ -76,7 +76,7 @@ def check_merged_md(md_text, expect_chapters=None):
     # ---- 结构：章标题 ----
     nums = [int(x) for x in CHAPTER_NUM_RE.findall(text)]
     if not nums:
-        errors.append("结构错位：合并稿里找不到任何「## 第N章」章标题")
+        errors.append("结构错位：合并稿里找不到任何“## 第N章”章标题")
     else:
         dup = sorted({x for x in nums if nums.count(x) > 1})
         if dup:
@@ -111,7 +111,7 @@ def _read_docx_xml(path):
 def check_template(template_path):
     """模板可用性校验（样式层）。返回 (errors, warnings)。
 
-    判据只认「结构必需品」：正文锚点、Normal/Heading 1 样式 —— 字体/页面
+    判据只认“结构必需品”：正文锚点、Normal/Heading 1 样式 —— 字体/页面
     设置的逐字比对是 template_check.py 的职责（导出后 8 点校验），别在这里重复。
     """
     errors, warnings = [], []
@@ -175,7 +175,7 @@ def check_template(template_path):
 def check_docx_output(docx_path, md_text=None):
     """成品 docx 的导出后校验。返回 (errors, warnings)。
 
-    过不了就删文件（调用方负责删；本函数只报）——「校验不过不出文件」的
+    过不了就删文件（调用方负责删；本函数只报）——“校验不过不出文件”的
     最后一环：占位符替换失败 / 章标题丢失的成品绝不能留在 output/ 里。
     """
     errors, warnings = [], []

@@ -38,9 +38,9 @@ ok(not is_chapter_complete(p, 100, 3000), "占位符判定为未完成")
 p.write_text("## 第1章\n\n" + "a" * 50, encoding="utf-8")
 ok(not is_chapter_complete(p, 100, 3000), "字数不足判定为未完成")
 
-# ⚠️ 「正常章节」夹具必须产出**合法产物**（本项目血泪纪律）。
+# ⚠️ “正常章节”夹具必须产出**合法产物**（本项目血泪纪律）。
 # 这里曾是 `"你好世界" * 150` —— 单段 + 同一短语复读 150 次，
-# 正是正文退化判据要拒的形态。它靠「旧判据不看内容」一直放行，
+# 正是正文退化判据要拒的形态。它靠“旧判据不看内容”一直放行，
 # 加严判据后变红。**修夹具，不要放宽判据。**
 from utils.fake_client import _BODY_CORPUS            # noqa: E402
 _paras = ["".join(_BODY_CORPUS[i:i + 2]) for i in range(0, 30, 2)]
@@ -102,7 +102,7 @@ ok('elif p == "/chapters/verify":' in src_api, "nf_api 新增 /chapters/verify �
 # 于是纯文本匹配必然失配 —— 测试红，但**契约是对的**。
 #
 # 按项目纪律改成锚定**契约**：整个 API 层（主模块 + 所有域模块）里，
-# 必须存在一处「以 is_chapter_complete 判定 path」的调用。用 AST，
+# 必须存在一处“以 is_chapter_complete 判定 path”的调用。用 AST，
 # 不用源码文本切片（文本匹配会随实现搬家/加前缀而误报）。
 def _uses_is_chapter_complete_on_path(*files):
     for f in files:

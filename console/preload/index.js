@@ -4,7 +4,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("mofangAPI", {
   readPreview: (relPath) => ipcRenderer.invoke("read-preview", relPath),
   openArtifact: (relPath) => ipcRenderer.invoke("open-artifact", relPath),
-  // 直接用系统默认程序打开文件（用户显式点击「打开」时调用）
+  // 直接用系统默认程序打开文件（用户显式点击“打开”时调用）
   openFile: (relPath) => ipcRenderer.invoke("open-file", relPath),
   // 在文件夹中定位（不打开内容）——用于 .env 等含密钥的敏感文件
   revealInFolder: (relPath) => ipcRenderer.invoke("reveal-in-folder", relPath),
@@ -16,7 +16,7 @@ contextBridge.exposeInMainWorld("mofangAPI", {
   debugOpenLog: () => ipcRenderer.invoke("debug:open-log"),
   debugToggleDevtools: () => ipcRenderer.invoke("debug:devtools"),
   debugRestartApi: () => ipcRenderer.invoke("debug:restart-api"),
-  // 审批门系统通知（主进程 OS 级通知，无需授权 —— 修「通知权限是死按钮」）
+  // 审批门系统通知（主进程 OS 级通知，无需授权 —— 修“通知权限是死按钮”）
   notifyGate: (opts) => ipcRenderer.invoke("notify:gate", opts),
   openFileDialog: (options) => ipcRenderer.invoke("open-file-dialog", options),
   // 提示词模板编辑器（prompts/stage[1-7]_*.md）
@@ -44,7 +44,7 @@ contextBridge.exposeInMainWorld("mofangAPI", {
   setQuitBusy: (busy) => ipcRenderer.send("app:busy", !!busy),
   onCloseRequested: (callback) => {
     const handler = () => {
-      // 应答即撤看门狗（2026-10-07）：主进程发问后我们先回执「我活着/框已接手」，
+      // 应答即撤看门狗（2026-10-07）：主进程发问后我们先回执“我活着/框已接手”，
       // 它就清掉 5s 强退定时器 —— 退出不再计时自动退；回执先于回调，回调再抛也不断链。
       try { ipcRenderer.send("app:close-answered"); } catch (e) { /* ignore */ }
       callback();

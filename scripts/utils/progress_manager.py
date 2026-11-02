@@ -23,7 +23,7 @@ DEFAULT_PROGRESS = {
 # S9 缺陷（2026-09-19 由 F3 用例暴露）：此处原为 ("1"..."7")，而 orchestrator
 # 会跑到阶段 8 → `orchestrator.py:213` 的 `progress.stage_status(8)` 抛
 # `KeyError: '8'`。该异常穿透 `run()`，由 finally 兜底把 runs 标成 `crashed`
-# —— **默认全流程走到最后一站必崩**，且崩在「断点跳过」判断上而非任何业务逻辑。
+# —— **默认全流程走到最后一站必崩**，且崩在“断点跳过”判断上而非任何业务逻辑。
 # 修法：把阶段 8 纳入键集；同时下面加 `_ensure_stage()` 做纵深防御，
 # 让外部传入越界阶段号时**自动登记**而不是 KeyError。
 STAGE_KEYS = ("1", "2", "3", "4", "5", "6", "7", "8")
@@ -47,13 +47,13 @@ class ProgressManager:
                 data = json.loads(raw)
             except (json.JSONDecodeError, ValueError) as e:
                 # ⚠️ 这里**绝不能静默降级**（2026-09-29 实测踩到）：
-                # JSON 解析失败 → data={} → 界面显示「全部阶段未开始」，
+                # JSON 解析失败 → data={} → 界面显示“全部阶段未开始”，
                 # 而**下一次 save() 会用默认值把用户原有的阶段状态整体覆盖掉** —— 真丢数据。
                 # 处置：① 大声告警（带路径与原因）② 先把原件另存一份再降级。
                 data = {}
                 self._quarantine(raw, e)
             else:
-                # 「语法合法但结构不对」是同一风险的另一半盲区：`[]` / `"..."` / `123`
+                # “语法合法但结构不对”是同一风险的另一半盲区：`[]` / `"..."` / `123`
                 # 都能 json.loads 成功，随后 `data.items()` 直接 AttributeError
                 # 穿透出去，把整条流水线打挂。与语法错误同样处置：
                 # 告警 + 隔离原件 + 降级到默认值。
@@ -92,11 +92,11 @@ class ProgressManager:
     def _ensure_stage(self, stage):
         """纵深防御：阶段键不存在时自动登记，返回其 dict。
 
-        STAGE_KEYS 是「已声明的阶段」，但 orchestrator 的遍历范围是
+        STAGE_KEYS 是“已声明的阶段”，但 orchestrator 的遍历范围是
         `range(from_stage, 9)` —— 两个数字一旦再次失同步，原先直接下标
         `self.data["stages"][str(stage)]` 会抛 KeyError 崩掉整个 run
-        （见 S9）。此处主动补键，把「配置不一致」降级为「多一个键」，
-        而不是「全流程崩溃」。
+        （见 S9）。此处主动补键，把“配置不一致”降级为“多一个键”，
+        而不是“全流程崩溃”。
 
         注意：这只是兜底，**不等于** STAGE_KEYS 可以不管 ——
         缺失的键不会出现在 GUI 阶段列表里，所以上面仍要把阶段 8 声明齐。
@@ -109,9 +109,9 @@ class ProgressManager:
     def set_stage(self, stage, status, **extra):
         st = self._ensure_stage(stage)
         st["status"] = status
-        # 阶段开始时刻（2026-10-26）：外部只能看到「running」，看不到「跑了多久」。
+        # 阶段开始时刻（2026-10-26）：外部只能看到“running”，看不到“跑了多久”。
         # 每次转入 running 都重置一次 —— 断点续跑 / 重试是新的一轮，耗时应重算。
-        # 只在转入 running 时写，其它状态保留上一次的值（便于事后看「这阶段跑了多久」）。
+        # 只在转入 running 时写，其它状态保留上一次的值（便于事后看“这阶段跑了多久”）。
         if status == "running":
             st["started_at"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
         elif status in ("done", "failed"):

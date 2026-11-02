@@ -43,7 +43,7 @@ def parse_stages(raw):
             v = int(tok)
         except ValueError:
             raise ValueError(
-                f"「{tok}」不是阶段号。阶段号是 1-8 的整数，用逗号分隔，"
+                f"“{tok}”不是阶段号。阶段号是 1-8 的整数，用逗号分隔，"
                 f"例如：--stages 3,5,7") from None
         if v not in VALID_STAGES:
             names = "、".join(f"{n}{STAGE_NAMES.get(n, '')}" for n in VALID_STAGES)
@@ -65,7 +65,7 @@ def mutual_exclusion_error(stages, from_given=False, only_stage=None):
                 "只跑一件就用 --stage N；要按自己挑的顺序跑多件就用 --stages，"
                 "并去掉 --stage。")
     if from_given:
-        return ("多选（--stages）与「从第 N 件跑到底」（--from）二选一，不猜你想跑哪个。"
+        return ("多选（--stages）与“从第 N 件跑到底”（--from）二选一，不猜你想跑哪个。"
                 "跑到底就用 --from N（可去掉 --stages）；只跑自己挑的几件就用 "
                 "--stages 3,5,7（可去掉 --from）。")
     return None
@@ -100,7 +100,7 @@ def preflight_lines(stages, root, will_produce=None):
         for p in (x for x in probs if x["kind"] == "all"):
             lines.append(
                 f"阶段{n}（{name}）缺 {p['path']} —— 由{_producer_note(p)}产出；"
-                f"建议先跑阶段{p['produced_by']}，或对它用「跳过（带理由）」放行后续")
+                f"建议先跑阶段{p['produced_by']}，或对它用“跳过（带理由）”放行后续")
         any_probs = [x for x in probs if x["kind"] == "any"]
         if any_probs:
             paths = "、".join(dict.fromkeys(p["path"] for p in any_probs))

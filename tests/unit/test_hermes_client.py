@@ -252,7 +252,7 @@ def test_stream_and_stop():
               extra=str(got))
         time.sleep(1.0)
         oc2 = _orphan_count(marker2)
-        check("停止后无孤儿子进程（否则「停止」形同虚设）", oc2 == 0,
+        check("停止后无孤儿子进程（否则\u300c停止\u300d形同虚设）", oc2 == 0,
               extra="alive=%s" % oc2)
 
         # 流式超时：timeout=1 + 慢桩 → 124 结构化

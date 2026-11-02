@@ -34,12 +34,12 @@ from collections import Counter
 # 低于此长度认为样本不足，特征不可靠 → 返回 {}
 MIN_TEXT_LEN = 100
 
-# 计算「有效正文」时剔除的字符：空白 + markdown 装饰 + 各类标点。
+# 计算“有效正文”时剔除的字符：空白 + markdown 装饰 + 各类标点。
 # 为什么需要它：范文文件里的 `## 范文一`、`（把正文粘到这里）` 这类占位/标题
 # 若被当成正文，会进统计特征与 few-shot 候选池 —— **判据只有这一份**，
-# stage4 的「只有占位符 → 按未提供处理」与 GUI 的字数提示都调 prose_char_count()。
+# stage4 的“只有占位符 → 按未提供处理”与 GUI 的字数提示都调 prose_char_count()。
 _PROSE_NOISE_RE = re.compile(
-    r"[\s#>*_`\-—–…·（）()【】\[\]「」“”\"'’,，。.:：;；!！?？/|~]")
+    r"[\s#>*_`\-—–…·（）()【】\[\]“”“”\"'’,，。.:：;；!！?？/|~]")
 
 
 def prose_char_count(text):
@@ -112,8 +112,8 @@ PERSON_WORDS = {
 _SENT_SPLIT = re.compile(r'[。！？；…]+|\n+')
 _CN = re.compile(r'[\u4e00-\u9fff]')
 _CN_WORD = re.compile(r'[\u4e00-\u9fff]{2,4}')
-_QUOTED = re.compile(r'["“”「」『』]([^"“”「」『』]{1,200})["“”「」『』]')
-# 无引号对白：说话动词（或提示动作）+ 冒号后的内容，如「头也不抬：去哪儿？」
+_QUOTED = re.compile(r'["“”“”‘’]([^"“”“”‘’]{1,200})["“”“”‘’]')
+# 无引号对白：说话动词（或提示动作）+ 冒号后的内容，如“头也不抬：去哪儿？”
 _SPEECH_TAIL = re.compile(
     r'(?:说|道|问|答|喊|吼|叫|嘀咕|喃喃|嘟囔|低语|喘|笑|应|回|抬|望|看|指|摆|叹|皱|停)'
     r'[^：:\n]{0,8}[：:]([^\n]{1,200})')
@@ -333,7 +333,7 @@ def _opening_ending(sentences, text):
             o_temp += 1
         if any(s.startswith(w) for ws in PERSON_WORDS.values() for w in ws):
             o_pron += 1
-        if s[:1] in ('"', '“', '「', '『'):
+        if s[:1] in ('"', '“', '“', '‘'):
             o_quote += 1
     n = len(sentences)
     opening = {
@@ -728,7 +728,7 @@ def build_style_instruction(features):
         dom = conn.get("dominant", "")
         L.append(f"- **连接词偏好**：{detail}")
         if dom:
-            L.append(f"  - 以「{dom}」关系为主，句间推进请沿用这一逻辑重心")
+            L.append(f"  - 以“{dom}”关系为主，句间推进请沿用这一逻辑重心")
         ratio = conn.get("ratio") or {}
         if ratio.get("转折", 0) >= 0.4:
             L.append("  - 转折密集：叙事多靠“反转”推进，请保持情节的逆向张力")

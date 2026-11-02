@@ -8,7 +8,7 @@
 
 - 词表优先级：显式路径 > `config/system.yaml` 的 `quality.cliche_wordlist`
   > 内置默认 20 条（与原版一致，词表词之间不做长词优先去重）；
-- 章节正文：按 `refined > checked > raw` 取第一份存在的（与编辑器「当前稿」同序）。
+- 章节正文：按 `refined > checked > raw` 取第一份存在的（与编辑器“当前稿”同序）。
 
 ## 为什么不做成门禁
 

@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
-"""「重写本章」实时面板的真机验收（2026-10-27）：文件尾 + 中断 + 完成。
+"""\u300c重写本章\u300d实时面板的真机验收（2026-10-27）：文件尾 + 中断 + 完成。
 
 ## 为什么单独写一个
 
-单元用例只证明「源码里有 SSE 分支」「后端会推 {type:file}」；证明不了
+单元用例只证明\u300c源码里有 SSE 分支\u300d\u300c后端会推 {type:file}\u300d；证明不了
 **点下去面板真的出现、文件尾真的刷出来、中断真的能停** —— 而这正是用户
-2026-10-27 抱怨的那一段（「连写到哪里都看不到」「点停止停不下来」）。
+2026-10-27 抱怨的那一段（\u300c连写到哪里都看不到\u300d\u300c点停止停不下来\u300d）。
 
 ## 怎么做到零 token
 
@@ -16,11 +16,11 @@
 任务与流是假的 —— **不调模型、不落稿**。
 
 判据（A–F）：
-A. 章节页签渲染 + 本章行有可点的「重写」
+A. 章节页签渲染 + 本章行有可点的\u300c重写\u300d
 B. 点重写 → 面板打开、job 号显示、token 流有字
-C. `{type:file}` → 「本章正文（文件实时）」块出现，元信息带字数与字节
-D. 点「中断」→ 前端真的 POST /stop（代理记账）+ 状态变「已中断」
-E. `{type:done}` → 状态变「完成」，按钮不再显示「中断」
+C. `{type:file}` → \u300c本章正文（文件实时）\u300d块出现，元信息带字数与字节
+D. 点\u300c中断\u300d→ 前端真的 POST /stop（代理记账）+ 状态变\u300c已中断\u300d
+E. `{type:done}` → 状态变\u300c完成\u300d，按钮不再显示\u300c中断\u300d
 F. console 无 error、无 4xx 响应（代理的是 200/202）
 
 跑法：python tests/e2e/e2e_rewrite_panel.py
@@ -85,7 +85,7 @@ def build_workspace():
     (ws / "config").mkdir(parents=True)
     (ws / "config" / "project.yaml").write_text(
         'book:\n  name: "重写面板验收书"\n  chapters: 3\n', encoding="utf-8")
-    # agent_mode 必须关：开着的话 GUI 的「重写」按钮被 agentRunGuard 拦下
+    # agent_mode 必须关：开着的话 GUI 的“重写”按钮被 agentRunGuard 拦下
     # （设计如此：运行类动作归外部 Agent），验收就永远看不到面板 —— 2026-10-27 实测。
     sy = (ROOT / "config" / "system.yaml").read_text(encoding="utf-8")
     sy = re.sub(r"(?m)^(\s*agent_mode:\s*)true", r"\1false", sy)
@@ -221,7 +221,7 @@ class Proxy(BaseHTTPRequestHandler):
                          "text": "## 第1章 雨夜\n\n他推开门，屋檐上的水线正连成了串。",
                          "bytes": 4096, "words": 1200}):
                 return
-            # 保持连接，直到前端点「中断」（或 30s 兜底）
+            # 保持连接，直到前端点“中断”（或 30s 兜底）
             for _ in range(120):
                 if STATE["stop_flag"]:
                     break
@@ -271,7 +271,7 @@ def main():
             rows = page.locator(".chap-row")
             check("章节行渲染（真数据 3 章）", rows.count() >= 3, rows.count())
             btn = rows.first.locator("button:has-text('重写')")
-            check("第一章行里有「重写」按钮", btn.count() == 1, btn.count())
+            check("第一章行里有\u300c重写\u300d按钮", btn.count() == 1, btn.count())
             check("按钮可点（非 disabled / 非 agent 锁）",
                   btn.count() == 1 and btn.first.is_enabled(),
                   btn.first.get_attribute("title") if btn.count() else "-")
@@ -305,24 +305,24 @@ def main():
                   panel.locator("button:has-text('中断')").count())
             UX.shot(page, "RW1_panel_file_tail")
 
-            print("\n=== D. 中断：真的发 /stop + 状态变「已中断」 ===")
+            print("\n=== D. 中断：真的发 /stop + 状态变\u300c已中断\u300d ===")
             panel.locator("button:has-text('中断')").click()
             page.wait_for_timeout(1000)
             check("前端真的 POST 了 /stop", STATE["stops"] >= 1, STATE["stops"])
-            check("状态显示「已中断」", "已中断" in panel.inner_text(),
+            check("状态显示\u300c已中断\u300d", "已中断" in panel.inner_text(),
                   panel.inner_text()[:160])
-            check("中断后不再显示「中断」按钮",
+            check("中断后不再显示\u300c中断\u300d按钮",
                   panel.locator("button:has-text('中断')").count() == 0,
                   panel.locator("button:has-text('中断')").count())
             UX.shot(page, "RW2_stopped")
 
-            print("\n=== E. 完成事件 → 状态「完成」，收尾清干净 ===")
+            print("\n=== E. 完成事件 → 状态\u300c完成\u300d，收尾清干净 ===")
             page.locator(".chap-row").nth(1).locator("button:has-text('重写')").click()
             page.wait_for_timeout(2000)
             panel = page.locator(".stream-panel")
-            check("完成后状态显示「完成」", "完成" in panel.inner_text(),
+            check("完成后状态显示\u300c完成\u300d", "完成" in panel.inner_text(),
                   panel.inner_text()[:160])
-            check("完成后不再显示「中断」按钮",
+            check("完成后不再显示\u300c中断\u300d按钮",
                   panel.locator("button:has-text('中断')").count() == 0)
             UX.shot(page, "RW3_done")
 
