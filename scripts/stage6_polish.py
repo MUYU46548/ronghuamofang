@@ -317,6 +317,18 @@ def _run_one_volume(client, task_dir, vol_index, proj, checked_dir, refined_dir,
         before = count_cn_words(read_text(src))
         out_text = read_text(out)
         after = count_cn_words(out_text)
+        # 段级对照（2026-11-02，一期 F12 的地基）：润色到底动了哪几段。
+        # 以前只知道"这一章变了"；现在能说"改了几段、未动几段、几段只是挪了位置"。
+        try:
+            from utils import segments as seg
+            _d = seg.diff_ids(seg.anchors(read_text(src)), seg.anchors(out_text))
+            if _d["added"] or _d["removed"] or _d["moved"]:
+                print(f"[stage6] 第{n}章 润色改动 {_d['added'] + _d['removed']} 段"
+                      f"（{_d['before']} → {_d['after']}），未动 {_d['kept']} 段"
+                      + (f"，挪位 {_d['moved']} 段" if _d["moved"] else ""))
+            seg.snapshot(n, out_text, note="stage6 落盘")
+        except Exception as e:                            # noqa: BLE001
+            print(f"[stage6] 段身份记录失败（不影响流程）: {type(e).__name__}: {e}")
         if before and abs(after - before) / before > 0.2:
             return False, f"stage6 第{n}章字数变化超20%（疑似重写）", vol_chapters
         if ref_features:
