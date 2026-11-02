@@ -2631,6 +2631,24 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/setting/canon":
             # canon 快照元信息（默认不含全文，?full=1 才给）
             self._send(*_dom(dom_setting_state.handle_setting_canon(self)))
+        elif p == "/outline/graph":
+            # 情节图数据（2026-11-02，视频②对标）：章=节点、顺序/共享角色=连线。
+            # 零 token，纯解析 data/outline/chapters/*.md。
+            from utils import plot_graph
+            qs = parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")
+            try:
+                per_vol = int((qs.get("per_volume") or ["10"])[0])
+            except ValueError:
+                per_vol = 10
+            try:
+                lim = int((qs.get("limit") or ["0"])[0]) or None
+            except ValueError:
+                lim = None
+            try:
+                g = plot_graph.build_graph(root=ROOT, per_volume=per_vol, limit=lim)
+                self._send(200, {"ok": True, **g})
+            except Exception as e:                       # noqa: BLE001
+                self._send(500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]})
         elif p == "/outline/chapters/list":
             # 实现已迁至 nf_api_domains.outline（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_outline.handle_chapters_list(self)))

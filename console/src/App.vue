@@ -27,6 +27,7 @@ import JudgePanel from "./JudgePanel.vue";
 import ReviewLedgerPanel from "./ReviewLedgerPanel.vue";
 import SettingClosurePanel from "./SettingClosurePanel.vue";
 import SettingVersionsPanel from "./SettingVersionsPanel.vue";
+import PlotGraph from "./PlotGraph.vue";
 import TruncatedPanel from "./TruncatedPanel.vue";
 import ForeshadowPanel from "./ForeshadowPanel.vue";
 import HandoffPanel from "./HandoffPanel.vue";
@@ -5502,6 +5503,8 @@ onUnmounted(() => {
                    @say="say" @structure-loaded="onStructureLoaded" />
       <!-- 指南针（2026-10-21，roadmap 7.3）：全书终局锚点 -->
       <CompassPanel @say="say" />
+      <!-- 情节图（2026-11-02，视频 v0.5 对标②）：按卷收起 / 选中只看相关 / 导成图片 -->
+      <PlotGraph :api="api" @say="say" />
     </section>
 
     <!-- 审稿 -->
