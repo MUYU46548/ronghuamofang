@@ -2886,7 +2886,10 @@ class Handler(BaseHTTPRequestHandler):
                     if "pause" not in streamer:
                         streamer["pause"] = threading.Event()
                     streamer["pause"].set()
-                    self._send(200, {"ok": True, "message": "已暂停流式输出: " + job_id})
+                    # 2026-11-02：措辞改准。这个 Event 只在包装器的 _push 里被检查，
+                    # 模型调用不会停 —— 旧文案「已暂停流式输出」会让人以为不再计费。
+                    self._send(200, {"ok": True, "model_running": True,
+                                     "message": "已暂停前端显示（模型仍在生成并计费）: " + job_id})
                 else:
                     self._send(404, {"error": "stream not found: " + job_id})
             elif p == "/stream/resume":

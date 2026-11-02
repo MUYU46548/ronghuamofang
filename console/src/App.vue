@@ -1450,15 +1450,19 @@ const streamModel = ref("");
 const streamCost = ref(0);
 const streamStatus = ref(""); // "running" | "ok" | "failed" | "stopped"
 const streamOpen = ref(false);
-const streamPromptOverride = ref("");
 let streamSource = null;
 
+/* 2026-11-02：原来这里有一句“已暂停输出，可修改提示词后点恢复”，是三重谎：
+   ① 暂停只停 SSE 推送（nf_api 的 _push 在等 Event），模型照跑、照计费；
+   ② 本次请求的 prompt 在开跑时已经发出，改它不影响这一次；
+   ③ 那个"修改提示词"输入框从来没有发送方（streamPromptOverride 全项目无消费）。
+   所以：删掉输入框，提示语只陈述事实。真暂停 = 点“中断”。 */
 async function pauseStream() {
   if (!streamJob.value) return;
   const r = await api("/stream/pause", "POST", { job_id: streamJob.value });
   if (r.status === 200 && r.data.ok) {
     streamStatus.value = "paused";
-    say("已暂停输出，可修改提示词后点恢复");
+    say("已暂停显示：模型仍在生成、仍在计费。本次提示词已发出，改不了");
   } else {
     say("暂停失败: " + (r.data?.error || r.status));
   }
@@ -1469,11 +1473,7 @@ async function resumeStream() {
   const r = await api("/stream/resume", "POST", { job_id: streamJob.value });
   if (r.status === 200 && r.data.ok) {
     streamStatus.value = "running";
-    if (streamPromptOverride.value.trim()) {
-      say("已恢复，新提示词将在后续输出中生效");
-    } else {
-      say("已恢复输出");
-    }
+    say("已恢复显示（模型从未停止，计费也没有停过）");
   } else {
     say("恢复失败: " + (r.data?.error || r.status));
   }
@@ -4824,19 +4824,21 @@ onUnmounted(() => {
       <span v-if="streamModel" class="pill st-done">{{ streamModel }}</span>
       <span v-if="streamCost > 0" class="stream-cost">¥{{ streamCost.toFixed(4) }}</span>
       <span v-if="streamStatus === 'running'" class="pill st-running">生成中</span>
-      <span v-else-if="streamStatus === 'paused'" class="pill" style="background: var(--warn)">⏸ 已暂停</span>
+      <span v-else-if="streamStatus === 'paused'" class="pill" style="background: var(--warn)">⏸ 已暂停显示（模型仍计费）</span>
       <span v-else-if="streamStatus === 'ok'" class="pill st-done">完成</span>
       <span v-else-if="streamStatus === 'stopped'" class="pill st-rej">已中断</span>
       <span v-else class="pill st-rej">{{ streamStatus }}</span>
-      <button v-if="streamStatus === 'running'" class="mini" @click="pauseStream" title="暂停输出">⏸ 暂停</button>
-      <button v-if="streamStatus === 'paused'" class="mini primary" @click="resumeStream" title="恢复输出">▶ 恢复</button>
+      <button v-if="streamStatus === 'running'" class="mini" @click="pauseStream" title="暂停显示（模型不会停，仍计费）">⏸ 暂停显示</button>
+      <button v-if="streamStatus === 'paused'" class="mini primary" @click="resumeStream" title="恢复显示">▶ 恢复显示</button>
       <button v-if="streamConnected" class="mini danger" @click="stopStream">中断</button>
       <button class="mini" @click="streamOpen = false; stopStream()">关闭</button>
     </div>
-    <!-- 暂停时显示修改提示词输入框 -->
-    <div v-if="streamStatus === 'paused'" style="padding: 12px; border-top: 1px solid var(--border);">
-      <label style="display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px;">修改提示词（可选，恢复后注入）</label>
-      <textarea v-model="streamPromptOverride" class="prompt-text" style="width: 100%; min-height: 80px;" placeholder="输入修改后的提示词（追加到任务末尾）..."></textarea>
+    <!-- 暂停只停显示，不停模型：这里不再放"改提示词"输入框（它原来没有发送方）。
+         要改方向只有两条路：中断后重来，或在下次运行前改提示词。 -->
+    <div v-if="streamStatus === 'paused'" style="padding: 12px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted); line-height: 1.7;">
+      暂停的是<b>显示</b>，不是模型的笔：它还在生成、还在计费。<br>
+      这一轮的提示词在开跑时就发出去了，此刻改它不影响这一轮。<br>
+      要改方向 → 点“中断”（本章已写的字会丢）后重来，或在下次运行前改提示词。
     </div>
     <pre class="stream-body">{{ streamText || "等待输出…" }}</pre>
     <!-- hermes/agent 用 write_file 写正文：模型聊天里没有正文，文件尾部才是“写到哪里”。 -->
@@ -6764,6 +6766,12 @@ onUnmounted(() => {
               · {{ h.name }}
             </span>
             <button class="mini" @click="openExportDir(h.rel || h.path)">打开目录</button>
+            <!-- 2026-11-02（不可用清单第 9 条）：成品比源稿旧时必须自己说出来。
+                 原来只有判定报告有 stale，成品侧一声不响 —— 用户改了正文还以为导出的是新的。 -->
+            <div v-if="h.stale" style="flex-basis:100%; margin-top:6px; font-size:12px; color: var(--warn); line-height:1.6;">
+              ⚠ {{ h.stale_note }}
+              <button class="mini" style="margin-left:8px;" @click="runPublish">按当前稿重新生成</button>
+            </div>
           </div>
         </div>
       </div>

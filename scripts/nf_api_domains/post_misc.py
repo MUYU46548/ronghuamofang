@@ -23,6 +23,76 @@ from datetime import datetime
 from utils.file_io import read_text
 
 
+_CHAP_DIRS = ("refined", "checked", "raw")
+_STALE_TOLERANCE = 0.5      # 秒。Windows 时间戳精度足够，留一点余量防同秒误判
+
+
+def _chapter_sources():
+    """每章**实际被采用**的源文件（键=文件名，值=mtime）。
+
+    规则必须与 `stage7_convert.merge_book` 一致：refined > checked > raw，**逐章**取。
+    不一致就会误报：比如 raw/03.md 比成品新，但成品用的是 refined/03.md（更旧）——
+    按"三个目录里最新"算会天天报过期，用户两天就不看了。
+    """
+    root = api.ROOT / "data" / "chapters"
+    picked = {}
+    for d in _CHAP_DIRS:
+        p = root / d
+        if not p.is_dir():
+            continue
+        try:
+            files = sorted(p.glob("*.md"))
+        except OSError:
+            continue
+        for f in files:
+            picked.setdefault(f.name, f)          # 先到先得 = 优先级高的赢
+    out = {}
+    for name, f in picked.items():
+        try:
+            out[name] = f.stat().st_mtime
+        except OSError:
+            pass
+    return out
+
+
+def _stale_info(done_mtime):
+    """成品比源稿旧吗？返回过期详情（零 token，只比 mtime）。
+
+    ## 为什么需要它（2026-11-02，不可用清单第 9 条）
+
+    用户原话的意思是：**改了正文，`output/*.docx` 不会告诉你它已经旧了。**
+    全书只有判定报告有 `stale` 标记，成品侧什么都没有 —— 于是"我改完了"
+    和"成品是三天前的"可以同时成立，而界面一声不响。
+
+    判据只看事实：**成品 mtime 之后有没有被改过的采用稿**。
+    """
+    if not done_mtime:
+        return None
+    srcs = _chapter_sources()
+    newer = sorted(n for n, mt in srcs.items() if mt > done_mtime + _STALE_TOLERANCE)
+    # 合并产物（book.md）也参与判定：它更新但没重新导出，同样意味着成品旧了
+    merged_newer = False
+    merged = api.ROOT / "data" / "merged" / "book.md"
+    try:
+        merged_newer = (merged.is_file()
+                        and merged.stat().st_mtime > done_mtime + _STALE_TOLERANCE)
+    except OSError:
+        pass
+    if not newer and not merged_newer:
+        return None
+    parts = []
+    if newer:
+        parts.append("源稿已改 %d 章（%s）" % (len(newer), "、".join(newer[:5])))
+    if merged_newer:
+        parts.append("合并稿 book.md 已更新，成品未重新生成")
+    return {
+        "stale": True,
+        "stale_count": len(newer) + (1 if merged_newer else 0),
+        "stale_chapters": newer[:20],
+        "stale_note": "；".join(parts) + " —— 你手上的不是最新稿",
+    }
+
+
 def _export_history_items():
     """扫 output/ 得出「导出过什么」（零 token、只读盘上事实）。
 
@@ -62,12 +132,17 @@ def _export_history_items():
                         and q.name.lower().endswith(".md")]
             except OSError:
                 vols = []
-            item.update({"kind": "markdown", "files": len(vols),
-                         "chars": 0})
+            # 目录 mtime 不随目录内文件变化，取卷文件的 mtime 最大值作为"成品时间"
+            done = max([q.stat().st_mtime for q in vols], default=st.st_mtime)
+            item.update({"kind": "markdown", "files": len(vols), "chars": 0,
+                         "mtime": done,
+                         "mtime_text": datetime.fromtimestamp(done).strftime("%Y-%m-%d %H:%M")})
+            item.update(_stale_info(done) or {"stale": False})
             items.append(item)
         elif p.suffix.lower() == ".docx":
             item.update({"kind": "word", "files": 1,
                          "chars": 0, "size": st.st_size})
+            item.update(_stale_info(st.st_mtime) or {"stale": False})
             items.append(item)
     items.sort(key=lambda x: x.get("mtime") or 0, reverse=True)
     return items
