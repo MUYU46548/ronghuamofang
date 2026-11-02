@@ -1207,13 +1207,16 @@ def _rc_to_result(rc):
     return (rc == 0), "exit=" + str(rc)
 
 
-def act_run_stage(cfg, only_stage, from_stage):
-    """创建阶段运行动作（非流式路径）。"""
+def act_run_stage(cfg, only_stage, from_stage, chapters=None):
+    """创建阶段运行动作（非流式路径）。
+
+    ``chapters`` 只对阶段 4 有意义（2026-11-02，清单第 1 条「没法定跑到哪为止」）。
+    """
     client = _client_for_env(cfg, "default")
 
     def _fn():
-        return _rc_to_result(orch_run(from_stage=from_stage,
-                                      only_stage=only_stage, client=client))
+        return _rc_to_result(orch_run(from_stage=from_stage, only_stage=only_stage,
+                                      client=client, chapters=chapters))
     return _fn
 
 
@@ -1477,7 +1480,7 @@ def act_rewrite_chapter_streamed(cfg, n, preview_job_id, stream_q, stop_ev):
 
 
 def act_run_stage_streamed(cfg, only_stage, from_stage, preview_job_id,
-                           stream_q, stop_ev):
+                           stream_q, stop_ev, chapters=None):
     """创建阶段运行动作（流式路径）。
 
     与 act_run_stage 共用 _rc_to_result，**唯一差异**是套一层流式客户端包装。
@@ -1496,8 +1499,8 @@ def act_run_stage_streamed(cfg, only_stage, from_stage, preview_job_id,
                 "text": [],
             }
         client = _wrap_client_for_streaming(client, real_job)
-        return _rc_to_result(orch_run(from_stage=from_stage,
-                                      only_stage=only_stage, client=client))
+        return _rc_to_result(orch_run(from_stage=from_stage, only_stage=only_stage,
+                                      client=client, chapters=chapters))
     return _fn
 
 
@@ -2804,6 +2807,18 @@ class Handler(BaseHTTPRequestHandler):
                 if body.get("only_stage") is False:
                     only = None
 
+                # 章范围（2026-11-02，清单第 1 条）：只对阶段 4 有意义。
+                # 写错了一律 400 说清格式 —— 静默忽略 = 用户以为限了范围、实际整本跑完。
+                _scope = None
+                if only == 4 and body.get("chapters"):
+                    from stage4_writing import parse_chapter_scope
+                    try:
+                        _scope = parse_chapter_scope(body.get("chapters"))
+                    except ValueError as e:
+                        self._send(400, {"ok": False,
+                                         "error": "章范围写错了：%s" % e})
+                        return
+
                 # 是否启用流式输出
                 want_stream = bool(body.get("stream"))
 
@@ -2822,7 +2837,8 @@ class Handler(BaseHTTPRequestHandler):
                     jid, err = start_job(
                         "stage" + rest,
                         act_run_stage_streamed(cfg, only, from_stage,
-                                              job_id_preview, stream_q, stop_ev))
+                                              job_id_preview, stream_q, stop_ev,
+                                              chapters=_scope))
                     if err:
                         with STREAMERS_LOCK:
                             STREAMERS.pop(job_id_preview, None)
@@ -2836,12 +2852,13 @@ class Handler(BaseHTTPRequestHandler):
                                      "from_stage": from_stage, "stream": True})
                 else:
                     jid, err = start_job("stage" + rest,
-                                         act_run_stage(cfg, only, from_stage))
+                                         act_run_stage(cfg, only, from_stage, chapters=_scope))
                     if err:
                         self._send(409, {"error": err})
                     else:
                         self._send(202, {"job_id": jid, "stage": only,
-                                         "from_stage": from_stage})
+                                         "from_stage": from_stage,
+                                         "chapters": sorted(_scope) if _scope else None})
             elif p == "/stages/run":
                 # 自由模式（活一）：勾选多道工序一次跑。解析/互斥/报缺与 CLI
                 # **同一份判据**（utils.stage_select），GUI 与命令行不会各判各的。

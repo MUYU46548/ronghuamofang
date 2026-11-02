@@ -86,10 +86,13 @@ def main():
 
     captured = {}
 
-    def fake_orch_run(from_stage=None, only_stage=None, client=None):
+    def fake_orch_run(from_stage=None, only_stage=None, client=None, chapters=None):
+        # chapters 是 2026-11-02 加的（清单第 1 条：章范围）。夹具必须跟真实签名走 ——
+        # 少一个参数就变成"夹具走的路生产不走"，端到端那条会假红。
         captured["from_stage"] = from_stage
         captured["only_stage"] = only_stage
         captured["client"] = client
+        captured["chapters"] = chapters
         return 0
 
     orig = nf_api.orch_run

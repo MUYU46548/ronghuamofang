@@ -1374,14 +1374,21 @@ function cancelEstimate() {
   estDialog.value = { open: false, loading: false, data: null, title: "", confirm: null };
 }
 
-async function runStage(n) {
+/* 章范围（2026-11-02，清单第 1 条）：阶段 4 可以只写几章再回来看。
+   留空 = 全部未完成章（旧行为）。 */
+const chapterScopeDraft = ref("");
+async function runStage(n, chapters = null) {
   if (agentRunGuard()) return;
-  await confirmRunWithEstimate("运行阶段 " + n + "（" + (STAGE_NAMES[n] || "") + "）",
-                               n, () => doRunStage(n));
+  const scope = (n === 4 && chapters && String(chapters).trim()) ? String(chapters).trim() : null;
+  await confirmRunWithEstimate(
+    "运行阶段 " + n + "（" + (STAGE_NAMES[n] || "") + "）" + (scope ? " · 只写 " + scope : ""),
+    n, () => doRunStage(n, scope));
 }
 
-async function doRunStage(n) {
-  const r = await api("/stage/" + n + "/run", "POST", {});
+async function doRunStage(n, chapters = null) {
+  const body = {};
+  if (n === 4 && chapters) body.chapters = chapters;
+  const r = await api("/stage/" + n + "/run", "POST", body);
   if (r.status === 202) say("已提交 阶段" + n + "（job " + r.data.job_id + "），进度见顶栏");
   else say("提交失败: " + (r.data.error || r.status));
   refresh();
@@ -5227,7 +5234,12 @@ onUnmounted(() => {
             <span v-if="stageDetail(s)" class="stage-sub">{{ stageDetail(s) }}</span>
           </div>
           <div class="stage-actions">
-            <button class="mini" :disabled="isRunning || agentRunLocked" :title="agentRunLocked ? AGENT_LOCK_HINT : ''" @click="runStage(s.stage)">运行</button>
+            <!-- 章范围（2026-11-02，清单第 1 条）：只对阶段 4 显示。留空=全部未完成章。 -->
+            <input v-if="s.stage === 4" v-model="chapterScopeDraft"
+                   style="width: 78px; padding: 2px 6px; font-size: 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--field); color: var(--ink);"
+                   placeholder="只写 1-3"
+                   title="可选：只写这几章（1-3 / 1,3 / 1-3,7）；留空 = 全部未完成章" />
+            <button class="mini" :disabled="isRunning || agentRunLocked" :title="agentRunLocked ? AGENT_LOCK_HINT : ''" @click="runStage(s.stage, chapterScopeDraft)">运行</button>
             <button class="mini" :disabled="isRunning" @click="runStageStream(s.stage)" title="实时流式输出，可随时中断">流式运行</button>
             <button v-if="agentMode && STAGE_TASK_INFO[s.stage]" class="mini" @click="copyStagePrompt(s.stage)" title="复制“执行本阶段”的任务简报给外部 Agent（项目根 + 命令 + 产物 + 退出码）。复制是只读操作，运行中也可用。阶段 7/8 是确定性步骤、无提示词模板，但同样可以复制任务。">复制任务</button>
             <button v-if="s.status === 'done' && !s.approved" class="mini primary" @click="approve(s.stage)">确认</button>

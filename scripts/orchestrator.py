@@ -227,12 +227,15 @@ def artifact_gate(stage, progress, root="."):
 
 
 def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False,
-        stages=None):
+        stages=None, chapters=None):
     """跑流水线。
 
     `stages` = 自由模式（`--stages 3,5,7`）的显式阶段集合：只改「执行哪些阶段」
     这一个来源，已完成跳过 / 审批门 / 断点续跑 / 预算熔断 / 规划四态一律走原路径。
     与 `only_stage`（单跑）互斥，由 CLI 层先拦（`utils.stage_select`）。
+
+    `chapters` = 阶段 4 的章范围（set，如 {1,2,3}）。只缩"这一轮写哪些章"，
+    不改断点续跑/失败/半成品任何一条判据 —— 不可用清单第 1 条「没法定跑到哪为止」。
     """
     _safe_stdout()      # 管道 stdout 下 ¥/emoji 会把启动横幅直接搞崩（见其 docstring）
     cfg, proj = load_config()
@@ -567,8 +570,12 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
                     print(f"[orchestrator] 阶段前快照失败（不影响流程）: {e}")
             # 记录阶段开始时刻：自动重试前用它判定"这次失败之后有没有新的截断标记"
             _stage_started_iso = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+            # 章范围（2026-11-02，清单第 1 条）只对阶段 4 有意义；其余阶段签名
+            # 一致，多传会 TypeError，所以按阶段给。
+            _extra = {"chapters": chapters} if (n == 4 and chapters) else {}
             ok, msg = STAGES[n].run_stage(cfg, proj, progress, db, cost, client=client,
-                                          task_dir="data/state/tasks", run_id=run_id)
+                                          task_dir="data/state/tasks", run_id=run_id,
+                                          **_extra)
             print(f"[orchestrator] 阶段{n} 结果: {msg}")
             # P0-4：阶段内请求的停止（stage4 章间检查等）立即收尾 —— 不再等下一个
             # 阶段边界，也绝不带着停止继续跑后置钩子（审稿等 LLM 动作）。
@@ -718,6 +725,9 @@ def main():
     parser.add_argument("--stages", default=None, metavar="3,5,7",
                         help="自由模式：只跑勾选的这几件，按序执行（如 3,5,7）。"
                              "与 --from / --stage 互斥——同时给会报错，不猜意图")
+    parser.add_argument("--chapters", default=None, metavar="1-3",
+                        help="阶段 4 只写这几章：1-3 或 1,3,5 或 1-3,7"
+                             "（不填=全部未完成章）。只缩范围，不改断点续跑判据")
     parser.add_argument("--verbose", action="store_true", help="输出详细调试信息（LLM 请求/响应摘要、阶段内部状态）")
     parser.add_argument("--dry-run", action="store_true", help="预演模式：跳过所有 LLM 调用和文件写入，只打印将执行的操作")
     args = parser.parse_args()
@@ -732,6 +742,10 @@ def main():
     if conflict:
         parser.error(conflict)
     from_stage = args.from_stage if args.from_stage is not None else 1
+    try:
+        chapter_scope = s4.parse_chapter_scope(args.chapters)
+    except ValueError as e:
+        parser.error(str(e))
     if args.verbose:
         print("[orchestrator] verbose 模式已开启")
     if args.dry_run:
@@ -753,7 +767,7 @@ def main():
     except Exception as _wm_e:                              # noqa: BLE001
         print(f"[orchestrator] 数据结构检查跳过（不影响运行）: {_wm_e}")
     sys.exit(run(from_stage, args.stage, verbose=args.verbose,
-                 dry_run=args.dry_run, stages=stages))
+                 dry_run=args.dry_run, stages=stages, chapters=chapter_scope))
 
 
 if __name__ == "__main__":

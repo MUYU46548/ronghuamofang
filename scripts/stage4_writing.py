@@ -891,6 +891,63 @@ def _stash_partial(n, chap_path, buf):
         return None, 0
 
 
+def parse_chapter_scope(spec):
+    """把 ``"1-3,5"`` 解析成 ``{1,2,3,5}``；空/None → None（表示不限制）。
+
+    ## 为什么要有它（2026-11-02，不可用清单第 1 条）
+
+    阶段 4 一旦开始就把**所有**未完成章一口气写完：只有阶段粒度，没有章粒度。
+    于是"先写三章看看"这件事做不到，后面所有"停下来看看"都无从谈起。
+
+    格式刻意只支持两种写法：单章（``5``）与闭区间（``1-3``），逗号分隔。
+    **不猜**：``abc``、``3-1``、``0`` 一律抛 ValueError 并说清怎么写 ——
+    静默忽略等于让用户以为限了范围、实际整本跑完（这正是要治的病）。
+    """
+    if spec is None:
+        return None
+    s = str(spec).strip()
+    if not s:
+        return None
+    out = set()
+    for part in s.replace("，", ",").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "-" in part:
+            a, _, b = part.partition("-")
+            try:
+                lo, hi = int(a), int(b)
+            except ValueError:
+                raise ValueError("章号区间写法不对：%r（要 1-3 这种）" % part)
+            if lo < 1 or hi < 1:
+                raise ValueError("章号从 1 开始：%r" % part)
+            if lo > hi:
+                raise ValueError("区间起点大于终点：%r" % part)
+            out.update(range(lo, hi + 1))
+        else:
+            try:
+                n = int(part)
+            except ValueError:
+                raise ValueError("章号写法不对：%r（要 3 或 1-3）" % part)
+            if n < 1:
+                raise ValueError("章号从 1 开始：%r" % part)
+            out.add(n)
+    return out or None
+
+
+def _apply_scope(todo, chapters):
+    """按章范围缩 todo。返回 (这一轮要写的, 被跳过的章号)。
+
+    纯函数 —— 行为可单测。放在 run_stage 里内联的话，只有"真跑一次模型"
+    才能验证它，那等于永远不验证（要花 token）。
+    """
+    if not chapters:
+        return list(todo), []
+    want = [n for n in todo if n in chapters]
+    out = sorted(set(chapters) - set(todo))
+    return want, out
+
+
 def _chapter_status(check, quality_threshold):
     """章节状态（2026-11-02，不可用清单第 5 条）：确定性判据优先，自评分只作参考。
 
@@ -916,7 +973,8 @@ def _chapter_status(check, quality_threshold):
     return "ok"
 
 
-def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=None):
+def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=None,
+              chapters=None):
     client = client or make_client(cfg, "writer")
     task_dir = task_dir or "data/state/tasks"
     total = int(proj.get("book", {}).get("chapters", 10))
@@ -948,6 +1006,18 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     failed = progress.failed_chapters(4)
     failed_ns = {f["n"] for f in failed}
     todo = [n for n in range(1, total + 1) if n not in verified or n in failed_ns or n in skipped]
+
+    # 章范围（2026-11-02，不可用清单第 1 条）：只写你要的那几章。
+    # 放在 todo 算完之后缩范围，不改上面任何一条判据 —— 已完成 / 半成品 / 失败
+    # 的语义全部照旧，只是"这一轮写哪些"多了一个上限。
+    if chapters:
+        todo, _out = _apply_scope(todo, chapters)
+        print(f"[stage4] 限写 {len(todo)} 章：{todo}")
+        if _out:
+            print(f"[stage4] 跳过（已完成 / 超出本书章数）：{_out}")
+        if not todo:
+            return True, ("指定的章都无需重写（已完成或超出本书章数 %d）—— "
+                          "没有调用任何模型" % total)
 
     # 崩溃窗口恢复（step 级 checkpoint，2026-10-21）：**磁盘有合格正文、但 progress
     # 没标 done** 的章 = 上轮在「写作落盘」之后、「标记完成」之前崩了（进程被杀 /
@@ -1662,11 +1732,19 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
 def main():
     parser = argparse.ArgumentParser(description="NovelForge 阶段4：逐章写作")
     parser.add_argument("--task-dir", default="data/state/tasks")
+    parser.add_argument("--chapters", default=None,
+                        help="只写这几章：1-3 或 1,3,5 或 1-3,7（不填=全部未完成章）")
     args = parser.parse_args()
     cfg = load_config_yaml("config/system.yaml")
     proj = load_config_yaml("config/project.yaml")
     progress = ProgressManager("data/state/progress.json")
-    ok, msg = run_stage(cfg, proj, progress, None, None, task_dir=args.task_dir)
+    try:
+        scope = parse_chapter_scope(args.chapters)
+    except ValueError as e:
+        print(f"[stage4] 章范围写错了：{e}")
+        return 2
+    ok, msg = run_stage(cfg, proj, progress, None, None, task_dir=args.task_dir,
+                        chapters=scope)
     print(msg)
     return 0 if ok else 1
 
