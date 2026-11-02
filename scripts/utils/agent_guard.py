@@ -134,6 +134,11 @@ FORBIDDEN_IN_AGENT_MODE = frozenset({
     # 读侧 GET /judge/* 不拦（Agent 可看报告，不能替作者签字）。
     "/judge/events",
     "/judge/sentence",
+    # 施工权（2026-11-02，P5）：夺锁与释放都是**人的动作**。外部 Agent 夺锁 =
+    # 把作者正在改的书抢过来；释放 = 拆掉拦住别人的那道门。读侧 GET /lock 不拦
+    # （Agent 该知道锁在谁手里，才好决定要不要等）。
+    "/lock/takeover",
+    "/lock/release",
 })
 
 # 人工来源的标记值（HTTP 头 / 环境变量通用）

@@ -1169,6 +1169,19 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                   "（已完成章节保留，断点续跑不重写）")
             aborted = "stopped"
             break
+        # 施工权被夺（2026-11-02，P5 · L-2 的另一半）：作者在界面点「接管」后，
+        # 锁文件的 owner 变成 human —— 流水线必须**真的停手**，否则"接管"只是
+        # 改了一个谁都不看的文件，模型还在照跑照计费。
+        # 放在章前检查：一章之内不再打断，避免留下半截（残稿落地是另一条，别混）。
+        try:
+            from utils import lock_guard
+            _stop_why = lock_guard.check_pipeline_should_stop("data/state/run.lock")
+        except Exception:                                    # noqa: BLE001
+            _stop_why = None        # 判锁坏了不该拖垮写作（护栏在 API 侧）
+        if _stop_why:
+            print(f"[stage4] {_stop_why}")
+            aborted = "preempted"
+            break
         # 「正在写第 N 章」（2026-10-26，用户「永恒 29%」/「Agent 跑起来完全看不见」）：
         # 这一行进 progress.json 后，/state 的 stages[4].current_chapter 就能回答
         # 「现在写到第几章、总共几章」。此前 progress 只在**章写完之后**才动，
@@ -1510,6 +1523,15 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
             progress.set_stage(4, "pending")
             return False, ("stage4 被**用户中断**（本轮完成 %d 章）—— "
                            "当前章半截不入稿；断点续跑不会重写已完成章节"
+                           % done_this_round)
+        if aborted == "preempted":
+            # 作者接管施工权（2026-11-02）：这也不是失败，是**人把笔拿走了**。
+            # 同样回 pending；话要说清是谁停的、怎么继续 —— 否则用户看到
+            # "阶段 4 失败"会以为自己弄坏了，或者以为系统崩了。
+            progress.set_stage(4, "pending")
+            return False, ("stage4 因**作者接管施工权**停手（本轮完成 %d 章）—— "
+                           "已完成的章保留，当前章未开始；"
+                           "要继续请在界面点「释放施工权」后重跑（断点续跑）"
                            % done_this_round)
         progress.set_stage(4, "failed", failed_count=len(remaining_failed))
         if aborted == "budget":

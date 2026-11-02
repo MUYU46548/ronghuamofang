@@ -125,6 +125,7 @@ from orchestrator import run as orch_run  # noqa: E402
 from utils.progress_manager import ProgressManager  # noqa: E402
 from utils.db import RunDB  # noqa: E402
 from utils import agent_guard  # noqa: E402 (Agent 模式守卫：与 CLI 侧同一份判据)
+from utils import lock_guard  # noqa: E402 (施工权裁决：与 orchestrator 同一份锁)
 from utils.config_io import load_config_yaml  # noqa: E402 (严格 loader：重复键要报错)
 from utils.llm_client import _load_env_file  # noqa: E402
 # project.yaml 定向读写（模块级导入：do_GET/do_POST 多个分支共用，禁止在函数内裸 import）
@@ -401,6 +402,15 @@ def _kb_vault_path():
     """
     from obsidian_bridge import get_vault_path, is_vault_configured
     return get_vault_path() if is_vault_configured() else None
+
+
+def _run_lock_path():
+    """运行锁的绝对路径（**调用时取值**，不在模块级固化）。
+
+    纪律同 `_vault_path`：`--root` 可能在 import 之后才生效，模块级常量会永久
+    指错目录 —— 那会让"锁"看着装了、实际判的是另一个文件。
+    """
+    return ROOT / "data" / "state" / "run.lock"
 
 
 def _vault_ready(handler):
@@ -2332,6 +2342,16 @@ class Handler(BaseHTTPRequestHandler):
     def _do_GET_raw(self):
         p = norm_path(self)
 
+        # 施工权状态（2026-11-02，P5 · L-5）：界面必须自己说出"锁在谁手里"。
+        # 只读、不设副作用 —— 状态由锁文件本身决定，不另存一份内存变量
+        # （另存就会出现"界面说在你手里、实际锁还在 AI 那"的分裂）。
+        if p == "/lock":
+            trusted = agent_guard.is_trusted_gui(self.headers)
+            st = lock_guard.lock_status(str(_run_lock_path()))
+            st["can_takeover"] = bool(trusted)
+            self._send(200, st)
+            return
+
         # SSE 流式端点
         if p.startswith("/stream/"):
             job_id = p[len("/stream/"):]
@@ -2749,6 +2769,20 @@ class Handler(BaseHTTPRequestHandler):
                 # 非禁止操作也记录审计日志
                 _log_audit(p, "POST", 0, source=audit_src, detail="allowed")
 
+        # ---- 施工权裁决（2026-11-02，P5 · L-1）----
+        # 不是"拦第二条流水线"，是**拦所有写入口**：段落重写、存稿、改设定、
+        # 审批、打回、plan 落盘以前全是裸写，两个 agent 同时用必炸。
+        # 单一真源 utils/lock_guard；/stop、/stream/*、/lock/* 永不拦 ——
+        # 那是人来叫停和接管用的通道本身，拦了就把人锁在门外。
+        _lock_block = lock_guard.check_write(
+            str(_run_lock_path()), p, trusted_gui)
+        if _lock_block:
+            _log_audit(p, "POST", 409,
+                       source=("gui" if trusted_gui else audit_src),
+                       detail="write-locked")
+            self._send(409, _lock_block)
+            return
+
         try:
             if p.startswith("/stage/") and p.endswith("/run"):
                 rest = p[len("/stage/"):-len("/run")]
@@ -2858,6 +2892,29 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/costs/rates/import":
                 # 定价批量导入：confirm=false 预览 / true 落盘（GUI 粘贴框）。
                 self._send(*_dom(dom_misc.handle_costs_rates_import(self, body)))
+            elif p == "/lock/takeover":
+                # 人的绝对优先权（P5 · L-2）：接管只由界面发起（双因子）。
+                # 不动别人的进程 —— 流水线在下一章前的检查点自己看到 owner=human
+                # 再停（见 lock_guard.check_pipeline_should_stop）。
+                if not trusted_gui:
+                    self._send(403, {"ok": False,
+                                     "error": "接管施工权只能由界面发起；"
+                                              "外部 Agent 请等人释放后再写"})
+                    return
+                from utils.run_lock import RunLock
+                ok, msg = RunLock(str(_run_lock_path())).takeover("human", by="界面")
+                st = lock_guard.lock_status(str(_run_lock_path()))
+                self._send(200 if ok else 409, {"ok": ok, "message": msg, **st})
+            elif p == "/lock/release":
+                # L-4：人显式释放之后 AI 才能继续。force：锁在谁手里都清掉。
+                if not trusted_gui:
+                    self._send(403, {"ok": False,
+                                     "error": "释放施工权只能由界面发起"})
+                    return
+                from utils.run_lock import RunLock
+                RunLock(str(_run_lock_path())).release(force=True)
+                st = lock_guard.lock_status(str(_run_lock_path()))
+                self._send(200, {"ok": True, "message": "已释放施工权", **st})
             elif p == "/stop":
                 job_id = str(body.get("job_id") or "")
                 if not job_id:

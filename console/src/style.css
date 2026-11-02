@@ -547,6 +547,17 @@ body {
 }
 .budget-banner .spacer { flex: 1; }
 
+/* 施工权条（2026-11-02，P5 · L-5）：锁在谁手里必须一眼看得见。
+   不用白色底 —— 暗色主题下会变成白底白字（UI 主题护栏判据 F 会红）。 */
+.lockbar {
+  display: flex; align-items: center; gap: 12px;
+  margin: 10px 20px 0; padding: 8px 14px;
+  background: var(--field); border: 1px solid var(--border);
+  border-radius: 10px; font-size: 12.5px; color: var(--ink);
+}
+.lockbar.human { border-color: var(--warn); }
+.lockbar .spacer { flex: 1; }
+
 /* 章节行 */
 .chap-row { display: flex; align-items: center; gap: 9px; padding: 9px 0; border-bottom: 1px dashed var(--border); }
 .chap-row:last-of-type { border-bottom: none; }

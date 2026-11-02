@@ -61,7 +61,7 @@ async function guiToken() {
   return _guiToken;
 }
 
-async function api(path, method = "GET", body = null) {
+async function apiOnce(path, method = "GET", body = null) {
   const opt = { method, headers: { "Content-Type": "application/json", "X-Mofang-Source": "gui" } };
   const tok = await guiToken();
   if (tok) opt.headers["X-Mofang-Token"] = tok;
@@ -70,6 +70,54 @@ async function api(path, method = "GET", body = null) {
   let data = {};
   try { data = await r.json(); } catch (e) { /* empty */ }
   return { status: r.status, data };
+}
+
+/* 施工权（2026-11-02，P5 · L-1/L-2）：AI 持锁时**所有写入口**都会 409。
+   在这里统一处理一次，而不是让每个调用点各自记得看 409 —— 那种写法必然
+   有的看有的不看，最后等于没装。人点了确认才接管，接管后重试**一次**。 */
+async function api(path, method = "GET", body = null) {
+  const r = await apiOnce(path, method, body);
+  if (r.status === 409 && r.data?.code === "LOCKED" && r.data?.can_takeover) {
+    const yes = window.confirm(
+      (r.data.error || "施工权不在这边") + "\n\n要接管吗？\n"
+      + "· 流水线会在下一章开始前停手，不会打断正在写的那一章\n"
+      + "· 已写完的章全部保留\n"
+      + "· 接管后由你说了算，改完点“释放”AI 才能继续"
+    );
+    if (!yes) return r;
+    const t = await apiOnce("/lock/takeover", "POST", {});
+    if (t.status !== 200) {
+      say("接管失败：" + (t.data?.error || t.status));
+      return r;
+    }
+    say("已接管施工权 —— 流水线会在下一章前停手");
+    loadLock();
+    return await apiOnce(path, method, body);   // 只重试一次，不循环
+  }
+  return r;
+}
+
+/* 施工权状态（L-5）。只读端点，走 apiOnce —— 别让 GET 也进 409 接管流程。 */
+const lockState = ref({ held: false, text: "" });
+async function loadLock() {
+  try {
+    const r = await apiOnce("/lock", "GET");
+    if (r.status === 200) lockState.value = r.data;
+  } catch (e) { /* 顶栏状态坏了不该拖垮主界面 */ }
+}
+async function takeOverLock() {
+  const yes = window.confirm(
+    "接管施工权？\n\n· 流水线会在下一章开始前停手（正在写的那一章会写完）\n"
+    + "· 已写完的章全部保留\n· 改完点“释放”AI 才能继续");
+  if (!yes) return;
+  const r = await apiOnce("/lock/takeover", "POST", {});
+  say(r.status === 200 ? "已接管施工权" : ("接管失败：" + (r.data?.error || r.status)));
+  loadLock();
+}
+async function releaseLock() {
+  const r = await apiOnce("/lock/release", "POST", {});
+  say(r.status === 200 ? "已释放施工权，AI 可以继续" : ("释放失败：" + (r.data?.error || r.status)));
+  loadLock();
 }
 
 const tab = ref("pipeline");
@@ -130,6 +178,7 @@ async function refresh() {
     }
     if (m.status === 200) models.value = m.data;
     if (j && j.status === 200) lastJob.value = j.data;
+    loadLock();   // L-5：界面必须自己说出"锁在谁手里"，与状态同频刷新
     // 成本页可见时同步刷新“当前运行”实时花费（与 state 同频 2.5s）
     if (tab.value === "cost") await refreshStreamingCost();
   } catch (e) {
@@ -4798,6 +4847,18 @@ onUnmounted(() => {
     <div class="meta ask-foot">
       Agent 只能提问，不能替你回答 —— 这条通道的意义就是让它停下来问你。
     </div>
+  </div>
+
+  <!-- 施工权（2026-11-02，P5 · L-5）：谁在写这本书，界面自己说。
+       原来两个 agent 同时用必炸 —— 锁只在 orchestrator 一处，写端点全裸写。 -->
+  <div v-if="lockState.held" class="lockbar" :class="{ human: lockState.owner === 'human' }">
+    <span>🔒 施工权：{{ lockState.text }}</span>
+    <span class="meta" v-if="lockState.cmd">{{ lockState.cmd }}</span>
+    <span class="spacer"></span>
+    <button v-if="lockState.owner !== 'human'" class="mini" @click="takeOverLock"
+            title="把施工权拿过来；流水线会在下一章开始前停手，已写完的章保留">我来改（接管）</button>
+    <button v-else class="mini primary" @click="releaseLock"
+            title="释放后 AI 才能继续写">改完了，让 AI 继续</button>
   </div>
 
   <!-- 运行进度条（全局） -->

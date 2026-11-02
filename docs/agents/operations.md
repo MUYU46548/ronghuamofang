@@ -68,3 +68,34 @@
   正文存文件而非塞 yaml —— 范文可数万字。**不设 GUI-only**：创作决策，Agent 可代写
   （与 `target_words` 同口径；`token_limit` 那类成本/安全闸门才限 GUI）
 - **提示词调优**：直接改 `prompts/stageN_*.md`（模板与代码分离，无需改脚本）
+
+## 施工权（锁在谁手里 / 谁能写，2026-11-02）
+
+**病**：`RunLock` 全项目只有 `orchestrator.py:311` 一个调用点，只拦"起第二条流水线"；
+段落重写、存稿、改设定、审批、打回、plan 落盘全裸写。`CURRENT["id"]` 是进程内变量，
+连"流水线跑着时有人改章"都拦不住。
+
+**三层，各管一段，别混**：
+
+| 层 | 文件 | 管什么 |
+|---|---|---|
+| 锁文件 | `utils/run_lock.py` | 谁在跑、谁说了算（`owner` ∈ pipeline/human） |
+| 判定 | `utils/lock_guard.py` | **谁能写**（唯一真源，API 与流水线共用） |
+| 拦截 | `nf_api.do_POST` 一处 | 所有写入口进路由前过 `check_write` |
+
+- `read_holder` **原样**返回 `owner`（可能 None）；"缺 owner 算 pipeline"只在
+  `lock_guard` 兜一次。两处各兜一次 = 判据两份，反证会假绿（实测踩过）。
+- `/stop`、`/stream/pause|resume`、`/lock/takeover|release` **永不拦** —— 那是人来
+  叫停和接管的通道本身，拦了等于把人锁在门外。
+- 锁的持有进程已死 → 放行（陈旧锁不许把全书锁死）。
+- **接管不动别人的进程**：只改锁文件，流水线在 `stage4` 每章开始前读
+  `check_pipeline_should_stop` 自己停（`aborted="preempted"` → 阶段回 `pending`，
+  不标 failed，否则用户以为系统崩了）。
+- `release(force=True)` = 人显式释放，锁在谁手里都清掉；`/lock/takeover` 与
+  `/lock/release` 都在 `agent_guard.FORBIDDEN_IN_AGENT_MODE`（外部 Agent 不得夺锁）。
+- 界面：顶栏锁条（`GET /lock`）+ `api()` 统一处理 409 → 弹确认 → 接管 → **只重试一次**。
+  前端 9 个组件各有一份 `api()`，只有主 `App.vue` 那份带接管流程 —— 其余面板会看到
+  409 原文（不是假控制，但要接管得回主界面）。
+- 判据：`tests/unit/test_write_lock.py`（26 条，W1~W10）。反证必须改 `lock_guard`
+  的兜底，改 `run_lock` 不会红（因为判定不在那儿）。
+
