@@ -932,6 +932,13 @@ def stage_status(progress, n, total_chapters=None):
         out["skip_reason"] = st["skip_reason"]
     if "needs_rewrite" in st:
         out["needs_rewrite"] = st["needs_rewrite"]
+    # 不合格章（2026-11-02，清单第 5 条）：确定性判据不过（字数/占位符/退化/标点）。
+    # 它不是 needs_rewrite（那个是"自评低、还没到烧钱重写"），界面要分开说。
+    if st.get("invalid"):
+        out["invalid"] = st["invalid"]
+    # 中断时留下的半截（清单第 3 条）：章号 → 残稿路径/字数，界面据此提示"去残稿看看"
+    if st.get("partial"):
+        out["partial"] = st["partial"]
     if "auto_rewritten" in st:
         out["auto_rewritten"] = st["auto_rewritten"]
     return out

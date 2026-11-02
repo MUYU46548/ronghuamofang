@@ -848,6 +848,74 @@ def build_expand_task(cfg, proj, n, cur_words, low, high):
         ).format(**variables)
 
 
+def _stash_partial(n, chap_path, buf):
+    """把「按停止时已经收到的字」落成残稿（2026-11-02，不可用清单第 3 条）。
+
+    ## 之前的定价
+
+    停止 = 当前章半截**直接丢弃**。用户原话的意思是：停一次亏一整章几千字，
+    所以理性选择就是不停 —— 这就是"只能丢进去一直跑"的由来。
+
+    ## 现在
+
+    半截落到 `data/state/truncated/chNN_停在_<时间>.txt`，走的是**同一套**残稿机制
+    （列表 / 读 / 采纳 / 清 都已存在，只是从没接在"用户停止"这条路径上）。
+    采纳只写进 `raw/NN.md` + 侧车标记，`is_chapter_complete` 仍判「未完成」——
+    残稿就是残稿，还得过审稿。
+
+    返回 `(path, chars)`；没东西可存时 `(None, 0)`。失败只告警：
+    **不能因为存残稿失败就把"停止"本身变成错误**。
+    """
+    from utils import truncation
+    text = "".join(buf or []).strip()
+    if not text:
+        # agent / hermes：正文由子会话 write_file 落盘，文本流只是碎念。
+        # 文件已经在了就是残稿 —— 不再复制一份（两份"真相"会打架）。
+        try:
+            p = Path(chap_path)
+            if p.exists():
+                text = read_text(p).strip()
+        except Exception:                                    # noqa: BLE001
+            text = ""
+        if text:
+            return str(chap_path), len(text)
+        return None, 0
+    try:
+        truncation.TRUNC_DIR.mkdir(parents=True, exist_ok=True)
+        path = truncation.TRUNC_DIR / (
+            "ch%02d_停在_%s.txt" % (n, time.strftime("%Y%m%d_%H%M%S")))
+        write_text(path, text)
+        return str(path), len(text)
+    except Exception as e:                                   # noqa: BLE001
+        print(f"[stage4] WARN 残稿落盘失败（不影响停止本身）: {e!r}")
+        return None, 0
+
+
+def _chapter_status(check, quality_threshold):
+    """章节状态（2026-11-02，不可用清单第 5 条）：确定性判据优先，自评分只作参考。
+
+    ## 旧写法有两个洞
+
+    旧：``needs_rewrite = quality < threshold; status = ok / needs_rewrite``
+
+    1. **字数不达标也算 ok**：字数区间写在 `check.errors` 里、`check.ok` 已经是 False，
+       但 status 压根没看 `check.ok`。实测 10 章全部 2000 上下（下限 5000）、
+       全部判 ok、自评 8~9 分 —— 用户看到「完成」。
+    2. **自评分是唯一判据**：P5 的 H2 说"模型自评分不得单独决定任何转移"，
+       这里却是它一个人说了算。
+
+    现在三档：
+    - ``invalid``：确定性判据不过（字数区间 / 占位符 / 退化 / 标点）→ 不许是 ok；
+    - ``needs_rewrite``：确定性过了，但模型自评低于阈值（**参考项**）；
+    - ``ok``：两者都过。
+    """
+    if not getattr(check, "ok", True):
+        return "invalid"
+    if check.quality is not None and check.quality < quality_threshold:
+        return "needs_rewrite"
+    return "ok"
+
+
 def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=None):
     client = client or make_client(cfg, "writer")
     task_dir = task_dir or "data/state/tasks"
@@ -981,7 +1049,10 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     # ---- 流式写作的字数回传（2026-10-26，用户第 3/4/6 条）----
     # 用户原话：「job 状态一直 running，我无法知道内部进度」「卡在 29% 让人觉得坏了」。
     # 有了流式回调，界面可以显示「正在写第 6 章 · 已 1200 字」，而不是一个死数字。
-    _ch_state = {"chars": 0, "last_write": 0.0}
+    _ch_state = {"chars": 0, "last_write": 0.0, "buf": []}
+    # `buf`：本章已收到的**正文片段**（2026-11-02，不可用清单第 3 条）。
+    # 只累计不给用户看 —— 用户按「停止」时把它落成残稿，这样"停一下"不再等于
+    # 白写一整章。只在文本流就是正文时累计；agent 引擎的正文在文件里，走另一条。`
     # 文本流是不是正文？（2026-10-30）
     #   direct：正文随流产出 → text 就是进度；
     #   hermes/agent：正文由子会话 write_file 落盘，text 只是助手碎念
@@ -1002,6 +1073,12 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         def _on_piece(piece):
             if piece:
                 _ch_state["chars"] += len(piece)
+                if text_is_prose:
+                    # 只收正文流：agent 模式下 piece 是助手碎念（"我先读取任务文件…"），
+                    # 收进来会变成一份由碎念组成的"残稿"，比没有更糟。
+                    _ch_state["buf"].append(piece)
+                    if len(_ch_state["buf"]) > 4000:      # 防极端长跑吃内存
+                        _ch_state["buf"] = ["".join(_ch_state["buf"][-2000:])]
             now = time.time()
             if now - _ch_state["last_write"] < 1.5:
                 return
@@ -1129,9 +1206,20 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         append_chapter_summary(rolling_path, n, summary, max_recent=max_recent)
         sync_appearances_after_chapter(text, n, total)
 
-        needs_rewrite = check.quality is not None and check.quality < quality_threshold
-        status = "needs_rewrite" if needs_rewrite else "ok"
+        # 确定性判据（字数/占位符/退化/标点）优先，自评分只作参考 —— 见 _chapter_status
+        status = _chapter_status(check, quality_threshold)
+        needs_rewrite = status == "needs_rewrite"
         progress.mark_chapter_done(n, 4)
+        if status == "invalid":
+            # 不写 ok、也不自动重写（重写=烧钱，属"补长"那一件事，另开）。
+            # 断点续跑仍会重跑它：is_chapter_complete 本身就含字数区间。
+            _bad = progress.data.setdefault("stages", {}).setdefault("4", {}) \
+                .setdefault("invalid", {})
+            _bad[str(n)] = {"why": "；".join(list(check.errors)[:3]),
+                            "words": check.word_count, "quality": check.quality}
+            progress.save()
+            print(f"[stage4] 第{n}章判**不合格**（{check.word_count} 字，"
+                  f"自评 {check.quality}）：{'；'.join(list(check.errors)[:2])}")
         if needs_rewrite:
             nr = progress.data["stages"]["4"].setdefault("needs_rewrite", [])
             if n not in nr:
@@ -1192,6 +1280,7 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         _ch_state["chars"] = 0
         _ch_state["last_write"] = 0.0
         _ch_state["group"] = 0
+        _ch_state["buf"] = []      # 换章清空：残稿是"这一章"的半截，不能带上一章的字
         try:
             _st4 = progress.data.setdefault("stages", {}).setdefault("4", {})
             _st4["current_chapter"] = n
@@ -1306,7 +1395,22 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         # stop 跳过）。这**不是**失败 —— 记成失败会触发连败止损，把"你按了停止"
         # 误报成"系统性问题"，还可能让后续章节全部停摆。
         if result.get("stopped"):
-            print(f"[stage4] 第{n}章写作被用户中断（半截不落盘；断点续跑会重写这一章）")
+            _p_path, _p_chars = _stash_partial(n, chap_path, _ch_state.get("buf"))
+            if _p_path:
+                print(f"[stage4] 第{n}章写作被用户中断 —— 已收到的 {_p_chars} 字"
+                      f"已存为残稿: {_p_path}")
+                print("[stage4] 残稿可在界面「残稿」里看一眼：采纳为草稿 / 丢掉。"
+                      "采纳后仍算未完成，还得过审稿。")
+                try:
+                    _st4p = progress.data.setdefault("stages", {}).setdefault("4", {})
+                    _st4p.setdefault("partial", {})[str(n)] = {
+                        "path": _p_path, "chars": _p_chars,
+                        "at": time.strftime("%Y-%m-%dT%H:%M:%S")}
+                    progress.save()
+                except Exception:                            # noqa: BLE001
+                    pass
+            else:
+                print(f"[stage4] 第{n}章写作被用户中断（一个字都还没收到，无可存残稿）")
             aborted = "stopped"
             break
         if result["exit_code"] != 0:
@@ -1521,9 +1625,11 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
             # 标 failed 会让界面显示「阶段 4 失败」，用户以为自己把东西弄坏了；
             # 而且 failed 语义是"跑过但没成功"，中断语义是"还没跑完"，两回事。
             progress.set_stage(4, "pending")
+            _partial = (progress.data.get("stages", {}).get("4", {}) or {}).get("partial") or {}
+            _kept = ("；本次已收到的半截存进了残稿（data/state/truncated/），"
+                     "可在界面采纳或丢弃" if _partial else "")
             return False, ("stage4 被**用户中断**（本轮完成 %d 章）—— "
-                           "当前章半截不入稿；断点续跑不会重写已完成章节"
-                           % done_this_round)
+                           "断点续跑不会重写已完成章节%s" % (done_this_round, _kept))
         if aborted == "preempted":
             # 作者接管施工权（2026-11-02）：这也不是失败，是**人把笔拿走了**。
             # 同样回 pending；话要说清是谁停的、怎么继续 —— 否则用户看到

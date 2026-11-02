@@ -99,6 +99,17 @@ async function api(path, method = "GET", body = null) {
 
 /* 施工权状态（L-5）。只读端点，走 apiOnce —— 别让 GET 也进 409 接管流程。 */
 const lockState = ref({ held: false, text: "" });
+/* 模板里不能直接用 Object：Vue 的模板作用域只有白名单全局（Math/Date 等），
+   用 Object.keys 会静默渲染成空。包成函数。 */
+function countKeys(o) {
+  return (o && typeof o === "object") ? Object.keys(o).length : 0;
+}
+function whyTitle(o, kind) {
+  if (!o || typeof o !== "object") return "";
+  return Object.entries(o).map(([n, v]) => kind === "invalid"
+    ? `第${n}章 ${v.words} 字（自评 ${v.quality ?? "-"}）：${v.why}`
+    : `第${n}章 ${v.chars} 字 → ${v.path}`).join("\n");
+}
 async function loadLock() {
   try {
     const r = await apiOnce("/lock", "GET");
@@ -5199,6 +5210,17 @@ onUnmounted(() => {
             <span v-if="s.needs_rewrite && s.needs_rewrite.length" class="pill st-rej"
                   :title="'未达质量线的章节：' + s.needs_rewrite.join('、')">
               待重写 {{ s.needs_rewrite.length }} 章
+            </span>
+            <!-- 2026-11-02（清单第 5 条）：字数是确定性判据，不达标不许显示“完成”。
+                 以前这类章全判 ok（自评 8~9 分），用户看到的是“完成”。 -->
+            <span v-if="countKeys(s.invalid)" class="pill st-rej"
+                  :title="whyTitle(s.invalid, 'invalid')">
+              不合格 {{ countKeys(s.invalid) }} 章
+            </span>
+            <!-- 清单第 3 条：停止时留下的半截已经存成残稿，别让人以为白写了 -->
+            <span v-if="countKeys(s.partial)" class="pill st-gate"
+                  :title="whyTitle(s.partial, 'partial')">
+              有 {{ countKeys(s.partial) }} 段残稿
             </span>
             <!-- 2026-10-27：进行中阶段把“第几群 / 本群多少字”摆在行内。
                  只给百分比时，用户无法判断 99% 是快完了还是卡死了。 -->
