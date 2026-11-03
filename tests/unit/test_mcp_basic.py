@@ -26,6 +26,31 @@ API_PORT = 8799
 MCP_PORT = 8796
 
 
+def _port_in_use(port):
+    """端口是否已被占用（真机验收的临时后端会占 8799 / 8766，导致误报红）。"""
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=0.6):
+            return True
+    except OSError:
+        return False
+
+
+def skip_if_ports_busy():
+    """8799 / 8796 被占 → **SKIP 而不是 FAIL**（2026-11-03 真机踩过）。
+
+    实测：同时跑 e2e 真机验收（它的真后端就起在 8799）与本用例，本用例自己起不了
+    服务，报成"失败"——但这既不是代码缺陷，也不是 MCP 坏了。按项目纪律：
+    缺外部条件 = 未执行 ≠ 失败（见 MEMORY.md）。
+    """
+    busy = [p for p in (API_PORT, MCP_PORT) if _port_in_use(p)]
+    if busy:
+        print("[SKIP] 端口已被占用 %s —— 本用例需要自己起 nf_api（8799）+ MCP（8796）。"
+              % busy)
+        print("       多半是真机验收的临时后端还在跑；等它结束再跑本用例。")
+        return True
+    return False
+
+
 def start_nf_api():
     """启动 nf_api.py，等待端口就绪，返回 Popen 对象。"""
     env = os.environ.copy()
@@ -98,6 +123,8 @@ _call_id = 0
 def main():
     global _call_id
     _call_id = 0
+    if skip_if_ports_busy():
+        return 0          # 未执行 ≠ 失败
     proc = start_nf_api()
     checks = []
     sock = None
