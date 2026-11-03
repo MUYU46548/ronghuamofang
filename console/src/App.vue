@@ -2486,7 +2486,7 @@ const totalStages = computed(() => {
 const progressPercent = computed(() => progressPct.value);
 
 function statusBadge(s) {
-  return { pending: "待办", running: "进行中", done: "完成", failed: "失败", rejected: "已打回", retrying: "自动重试中" }[s] || s;
+  return { pending: "待办", running: "进行中", done: "完成", failed: "失败", rejected: "已打回", retrying: "自动重试中", stopped: "已中断" }[s] || s;
 }
 function fmtYuan(v) { return "¥" + Number(v || 0).toFixed(4); }
 function fmtNum(v) { return Number(v || 0).toLocaleString("zh-CN"); }
@@ -4626,7 +4626,12 @@ const artifacts = computed(() => [
   { label: "素材体检", path: "data/setting/material_review.md" },
   { label: "整体大纲", path: "data/outline/global.md" },
   { label: "素材清单", path: "data/setting/materials_manifest.json" },
-  { label: "Word 成品", path: "output/" + (state.value?.book || "") + "_完整版.docx" },
+  // Word 成品（2026-11-03，作者第 7 条）：**还不知道有没有就先说“尚未产出”**。
+  // 原话：“我正在跑新项目，Word成品写在这里是什么意思？点了还不存在。哪怕变成
+  // 灰色或者写个尚未产出我也就饶了你了。”判据用 latestDocx —— 它是扫 output/ 的
+  // 盘上事实，不是自己造的记录；没有 docx 时按钮置灰，不给一个点了报错的死按钮。
+  { label: "Word 成品", path: "output/" + (state.value?.book || "") + "_完整版.docx",
+    missing: !latestDocx.value },
 ]);
 
 async function checkForUpdates() {
@@ -4697,6 +4702,10 @@ function syncTopbarHeight() {
 
 onMounted(() => {
   refresh();
+  // 单章字数区间（2026-11-03）：流水线页现在也有直接入口，进页面就得有值 ——
+  // 以前只在“设置”页签里读，用户根本没找到那个入口（“最高频最重要的流水线界面
+  // 根本找不到入口，难道藏在什么奇怪的角落吗？”）。
+  loadTargetWords();
   // 导出面板读盘（2026-10-26）：进页面就有内容，且切到导出页签时重扫一次
   // —— 阶段 7/8 刚跑完的产物**刷新即见**，不再需要"点过导出按钮"才记账。
   refreshExportState();
@@ -5241,6 +5250,28 @@ onUnmounted(() => {
         <button class="mini" @click="openSettingEdit" title="暂停流水线并编辑设定集（不影响已完成章节）">✏️ 中途改设定</button>
       </div>
 
+      <!-- 单章字数（2026-11-03，作者第 10 条）：最高频的流水线界面必须有入口。
+           以前只有“设置 → 预算与止烧 → 单章字数”，作者原话“最高频最重要的流水线
+           界面根本找不到入口，难道藏在什么奇怪的角落吗？”——他要一章不少于 8000 字。 -->
+      <div class="flow-words">
+        <span class="meta">每章字数</span>
+        <input class="words-num" type="number" min="500" max="20000" step="100"
+               v-model.number="targetWords.form.low" :disabled="targetWords.busy"
+               title="单章字数下限：写完不到这个数会被判不合格并自动打回扩写" />
+        <span class="meta">–</span>
+        <input class="words-num" type="number" min="500" max="30000" step="100"
+               v-model.number="targetWords.form.high" :disabled="targetWords.busy"
+               title="单章字数上限：超过会被压回来" />
+        <span class="meta">字</span>
+        <button class="mini" :disabled="targetWords.busy || targetWords.loading"
+                @click="saveTargetWords"
+                title="保存后，下一次写作与校验立即按新口径（总量仍由章数控制）">保存</button>
+        <span v-if="targetWords.msg" class="meta words-msg"
+              :class="{ bad: !targetWords.ok }">{{ targetWords.msg }}</span>
+        <span class="spacer"></span>
+        <span class="meta">要一章不少于 8000 字 → 下限填 8000</span>
+      </div>
+
       <div class="flow-quick">
         <span class="meta">快速运行</span>
         <!-- 活一 自由模式：单选下拉 → 勾选条（勾几件跑几件） -->
@@ -5326,13 +5357,20 @@ onUnmounted(() => {
                  只给百分比时，用户无法判断 99% 是快完了还是卡死了。 -->
             <span v-if="stageDetail(s)" class="stage-sub">{{ stageDetail(s) }}</span>
           </div>
+          <!-- 章范围（2026-11-02 清单第 1 条；2026-11-03 作者反馈重做）：只对阶段 4 显示。
+               原样是挤在按钮行里的一个 78px 输入框，placeholder 写着“只写 1-3” ——
+               作者原话：“文案‘只写1-3’极具误导性且部分情况下点击文本框无法输入”。
+               两处都改：① 单独占一行、给足宽度（挤在 5 个按钮中间时点击落不到输入框上）；
+               ② 文案说清“留空 = 全部”，不再把示例当说明。 -->
+          <div v-if="s.stage === 4" class="scope-row">
+            <span class="meta">章范围</span>
+            <input v-model="chapterScopeDraft" class="scope-input"
+                   placeholder="留空 = 全部未完成章"
+                   title="可选：只写这几章（1-3 / 1,3 / 1-3,7）。留空 = 按断点把没写完的全写完。" />
+            <span class="meta">填了就只有这几章会写（例：1-3）；留空 = 全部未完成章</span>
+          </div>
           <div class="stage-actions">
-            <!-- 章范围（2026-11-02，清单第 1 条）：只对阶段 4 显示。留空=全部未完成章。 -->
-            <input v-if="s.stage === 4" v-model="chapterScopeDraft"
-                   style="width: 78px; padding: 2px 6px; font-size: 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--field); color: var(--ink);"
-                   placeholder="只写 1-3"
-                   title="可选：只写这几章（1-3 / 1,3 / 1-3,7）；留空 = 全部未完成章" />
-            <button class="mini" :disabled="isRunning || agentRunLocked" :title="agentRunLocked ? AGENT_LOCK_HINT : ''" @click="runStage(s.stage, chapterScopeDraft)">运行</button>
+            <button class="mini" :disabled="isRunning || agentRunLocked" :title="agentRunLocked ? AGENT_LOCK_HINT : (s.stage === 4 && chapterScopeDraft ? '只写 ' + chapterScopeDraft : '')" @click="runStage(s.stage, chapterScopeDraft)">运行</button>
             <button class="mini" :disabled="isRunning" @click="runStageStream(s.stage)" title="实时流式输出，可随时中断">流式运行</button>
             <button v-if="agentMode && STAGE_TASK_INFO[s.stage]" class="mini" @click="copyStagePrompt(s.stage)" title="复制“执行本阶段”的任务简报给外部 Agent（项目根 + 命令 + 产物 + 退出码）。复制是只读操作，运行中也可用。阶段 7/8 是确定性步骤、无提示词模板，但同样可以复制任务。">复制任务</button>
             <button v-if="s.status === 'done' && !s.approved" class="mini primary" @click="approve(s.stage)">确认</button>
@@ -5368,8 +5406,12 @@ onUnmounted(() => {
           <span class="art-label">{{ a.label }}</span>
           <span class="art-path">{{ a.path }}</span>
           <span class="spacer"></span>
-          <button class="mini" @click="preview(a.path)">预览</button>
-          <button class="mini" @click="openArtifact(a.path)">打开</button>
+          <!-- 尚未产出就直说，别给能点的死按钮（2026-11-03，作者第 7 条） -->
+          <span v-if="a.missing" class="art-miss">尚未产出</span>
+          <template v-else>
+            <button class="mini" @click="preview(a.path)">预览</button>
+            <button class="mini" @click="openArtifact(a.path)">打开</button>
+          </template>
         </div>
         <div class="meta">
           <div>预算: {{ fmtYuan(state.cost.spent_yuan) }} / {{ fmtYuan(state.cost.limit_yuan) }}</div>

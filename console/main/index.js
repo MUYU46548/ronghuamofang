@@ -379,7 +379,7 @@ function getWorkspaceSource() {
 //   · 前端（asar，不走种子）：项目页出厂徽标 / 启动提示词剥离说明书 /
 //     阶段复制改任务简报（原样贴模板会被外部 Agent 按红线判“模板不是任务”停工）。
 // **先 bump 再 electron-builder**。
-const SEED_VERSION = 72;   // 0.7.29: Agent 协作四根线（读正文/提案/提问/主动审查）
+const SEED_VERSION = 73;   // 0.7.31: 代码随安装包版本刷新（工作区不再停在首装那一版）
                             //   · payload scripts：新 ask.py 域、nf_mcp 加 6 个工具、
                             //     chapters/content 缺省取最高存在层、agent_guard 加 /ask/answer
                             //   · 前端（asar）：顶栏“Agent 提问”+ 回答浮层
@@ -573,10 +573,23 @@ function recordFactoryManifest(ws, relPaths) {
 // 首启/升级：种子 payload 进 workspace + 建 data/ 目录结构
 // 打包态：从 process.resourcesPath/payload 复制；源码态：从项目根目录 ROOT 复制
 //
-// 三种情形：
+// 四种情形：
 //   ① 全新安装（无 .seeded）      → 全量播种
 //   ② 老版本升级（.seed-version 落后）→ 刷新代码目录（force 覆盖），保留 data/
 //   ③ 已是最新版本                → 只补缺失目录（幂等，不改任何已有文件）
+//   ④ 安装包版本变了（.seed-app-version ≠ 当前版本）→ **同样刷新代码目录**
+//
+// ④ 是 2026-11-03 补的，补的是一个会**静默吃掉整次发版**的坑：
+//   代码刷新原来只认 `SEED_VERSION` 一个人工常量。0.7.29 / 0.7.30 改了
+//   scripts/ 却没 bump 它（担心“升级会覆盖用户配置”——其实配置走的是下面
+//   `migrateConfigKeys` / 只补缺那套，与这个常量无关），结果：安装包里的
+//   payload 是新代码，用户工作区里跑的还是首装那一版。
+//   实测后果：0.7.30 装上后，工作区 scripts 落后 291 个文件，
+//   `utils/pause_flag.py` 根本不存在 → “写完这章就停”点了必然 404；
+//   `orchestrator.py` 缺 `chapters` 参数 → 章范围框填了也不生效；
+//   stage4 还是老的（1547 行 vs 1850 行）→ 阶段 4 全灭。
+//   **判据**：`SEED_CODE_DIRS`（代码/模板）与安装包版本绑定；`prompts` 仍走
+//   `SEED_KEEP_USER_EDITS` 的“只补缺/保留用户改动”，配置仍只做键级迁移。
 // 出厂配置的**键级升级**（2026-10-26，用户第 13 条“每章只有两千多字”）。
 //
 // 为什么必须做：上面的 config 播种是“只补缺、绝不覆盖”—— 老用户升到新版，
@@ -696,15 +709,25 @@ function seedWorkspace() {
 
   const seededMarker = path.join(ws, ".seeded");
   const versionMarker = path.join(ws, ".seed-version");
+  // 安装包版本印记（情形 ④）。与 SEED_VERSION 分开：前者是**事实**（这次装的是
+  // 哪个版本的包），后者是**结构迁移代次**（哪一批文件需要改名/删除）。
+  // 现有安装没有这个文件 → 读成空串 → 必然 ≠ 当前版本 → 下一次启动就会自修。
+  const appVersionMarker = path.join(ws, ".seed-app-version");
+  let seededAppVersion = "";
+  try {
+    seededAppVersion = fs.readFileSync(appVersionMarker, "utf8").trim();
+  } catch (e) { /* 文件不存在 = 从未按版本记过 */ }
   let seededVersion = 0;
   try {
     seededVersion = parseInt(fs.readFileSync(versionMarker, "utf8").trim(), 10) || 0;
   } catch (e) { /* 文件不存在 = 版本 0 */ }
 
+  const packVersion = String(app.getVersion() || "");
   const firstRun = !fs.existsSync(seededMarker);
-  const stale = seededVersion < SEED_VERSION;
+  const codeStale = seededVersion < SEED_VERSION || seededAppVersion !== packVersion;
+  const stale = codeStale;   // 下游“旧文件移除 / 日志文案”沿用同一判据
 
-  if (!firstRun && !stale) return;   // 情形 ③：无事可做
+  if (!firstRun && !codeStale) return;   // 情形 ③：无事可做
 
   // 本次**实际复制**的文件（相对路径）→ 收尾统一写进出厂清单
   const seededRels = [];
@@ -816,8 +839,10 @@ function seedWorkspace() {
 
   fs.writeFileSync(seededMarker, "1");
   fs.writeFileSync(versionMarker, String(SEED_VERSION));
+  fs.writeFileSync(appVersionMarker, packVersion);
   if (stale && !firstRun) {
-    console.log(`[console] seedWorkspace: 工作区已升级到种子 v${SEED_VERSION}（用户 data/ 未受影响）`);
+    console.log(`[console] seedWorkspace: 代码已刷新到 ${packVersion}`
+                + `（种子 v${seededVersion} → v${SEED_VERSION}；用户 data/ 未受影响）`);
   }
 }
 // 技能随版本分发（2026-10-07，对齐方寸“升级后启动自动同步”）：

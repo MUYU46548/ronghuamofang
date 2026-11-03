@@ -379,6 +379,16 @@ body {
    用户要的是“它到底在干嘛”，不是又一个百分比。独占一行，不挤按钮。 */
 .stage-sub { flex-basis: 100%; font-size: 11px; color: var(--muted); padding-left: 36px; }
 .stage-actions { display: flex; gap: 8px; flex: none; }
+/* 章范围（2026-11-03）：单独一行、够宽 —— 挤在按钮堆里时真机点不进输入框 */
+.scope-row {
+  flex: 1 0 100%; display: flex; align-items: center; gap: 8px;
+  margin-top: 8px; flex-wrap: wrap;
+}
+.scope-input {
+  width: 150px; padding: 3px 8px; font-size: 12.5px; border-radius: 7px;
+  border: 1px solid var(--border); background: var(--field); color: var(--ink);
+}
+.scope-input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .running-hint {
   margin-top: 10px; font-size: 12px; color: var(--accent);
   background: rgba(155, 143, 196, 0.1); border-radius: 8px; padding: 6px 10px;
@@ -460,6 +470,11 @@ body {
 .art-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; }
 .art-label { font-weight: 600; flex: none; }
 .art-path { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 尚未产出：灰字 + 虚线，明说没有而不是给一个点了报错的按钮（2026-11-03） */
+.art-miss {
+  flex: none; font-size: 12px; color: var(--muted);
+  border: 1px dashed var(--border); border-radius: 6px; padding: 2px 8px;
+}
 .spacer { flex: 1; }
 .meta { color: var(--muted); font-size: 12.5px; line-height: 1.8; }
 
@@ -1317,6 +1332,19 @@ body {
   background: rgba(155, 143, 196, 0.08); border-radius: 8px; padding: 5px 10px;
 }
 .flow-est.warn { color: var(--warn); background: rgba(201, 162, 106, 0.16); }
+
+/* 每章字数（2026-11-03）：流水线页的常驻入口，不用去设置页找。 */
+.flow-words {
+  display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+  padding: 8px 0 10px;
+}
+.flow-words .words-num {
+  width: 74px; padding: 3px 7px; font-size: 12.5px; border-radius: 7px;
+  border: 1px solid var(--border); background: var(--field); color: var(--ink);
+}
+.flow-words .words-num:disabled { opacity: 0.6; }
+.flow-words .words-msg { color: var(--ok); }
+.flow-words .words-msg.bad { color: var(--bad); }
 
 /* ---- ③ 错误恢复一级入口 ---- */
 .stage-recovery {

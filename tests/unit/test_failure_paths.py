@@ -670,7 +670,10 @@ def case_f7():
             f"const ROOT = {json.dumps(str(probe)).replace(chr(92), '/')};\n"
             f"const WORKSPACE = {json.dumps(str(ws)).replace(chr(92), '/')};\n"
             "const isPackaged = true;\n"
-            "const app = { getPath: () => WORKSPACE };\n"
+            # 2026-11-03：seedWorkspace 新增 app.getVersion()（情形 ④：安装包版本变了
+            # 就刷新代码，不再只认人工 bump 的 SEED_VERSION）。stub 必须给这个方法，
+            # 否则探针 ReferenceError → __RESULT__ 不出现，整条 F7 假红。
+            "const app = { getPath: () => WORKSPACE, getVersion: () => '9.9.9' };\n"
             "process.resourcesPath = ROOT;\n"
             "function getWorkspaceDir() { return WORKSPACE };\n"
             # 2026-10-04 Step 4c 根修：seedWorkspace 新增依赖（显式配置的项目根
@@ -764,6 +767,23 @@ def case_f7():
             check(payload2["orch"] == "# USER-PATCHED",
                   "F7 版本已是最新时不再覆盖（幂等：不反复回滚用户改动）",
                   f"实际={payload2['orch']!r}")
+        # 情形 ④（2026-11-03）：**种子版本没变**，只换安装包版本 → 代码也必须刷新。
+        # 这是 0.7.29 / 0.7.30 被静默吃掉的路径：改了 scripts 却没 bump SEED_VERSION，
+        # 新代码躺在 payload 里没人复制，工作区还在跑首装那一版（实测落后 291 个文件，
+        # `utils/pause_flag.py` 都不存在 → “写完这章就停”必然 404）。
+        (ws / "scripts" / "orchestrator.py").write_text("# OLD-AGAIN\n", encoding="utf-8")
+        (ws / ".seed-version").write_text(current_seed_ver, encoding="utf-8")
+        (ws / ".seed-app-version").write_text("0.0.1", encoding="utf-8")
+        proc3 = subprocess.run([node, str(script)], capture_output=True, text=True,
+                               encoding="utf-8", errors="replace", timeout=60)
+        out3 = proc3.stdout or ""
+        if "__RESULT__" in out3:
+            payload3 = json.loads(out3.split("__RESULT__", 1)[1].splitlines()[0])
+            check(payload3["orch"] == "# NEW-CODE",
+                  "F7 安装包版本变了就刷新代码（种子版本没 bump 也不许静默吃掉整次发版）",
+                  f"实际={payload3['orch']!r}")
+        else:
+            check(False, "F7 情形④探针产出结果", (proc3.stderr or "")[-300:])
     finally:
         shutil.rmtree(probe, ignore_errors=True)
 

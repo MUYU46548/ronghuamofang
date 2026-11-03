@@ -270,6 +270,12 @@ class Handler(BaseHTTPRequestHandler):
                                     "pct": 24.7, "warn_ratio": 0.7, "tokens_in": 0, "tokens_out": 0})
         if p == "/config/project":
             return self._send(200, {"ok": True, "config": {"book": {"name": "验收用书", "chapters": 12}}})
+        if p == "/config/target_words":
+            # 单章字数区间（2026-11-03）：流水线页现在常驻一行“每章字数”，
+            # 缺这条就在验收里显示“读取失败”，把新入口误判成坏入口。
+            return self._send(200, {"ok": True, "current": [5000, 9000],
+                                    "preset": [5000, 9000],
+                                    "bounds": {"low": [500, 20000], "high": [500, 30000]}})
         if p == "/config/token_limit":
             # 止烧阈值面板（设置页）：回一份**与出厂预设一致**的数据，
             # 让视觉验收能真读到值，而不是只看到"读取失败"。
@@ -510,6 +516,16 @@ class Handler(BaseHTTPRequestHandler):
         p = self.path.split("?")[0].rstrip("/") or "/"
         n = int(self.headers.get("Content-Length") or 0)
         body = json.loads(self.rfile.read(n).decode("utf-8")) if n else {}
+        if p == "/config/target_words":
+            # 保存单章字数区间（2026-11-03）：真实后端会校验区间并落列表，
+            # mock 只回显 —— 但必须**回读同一份形状**，否则前端保存后回显空。
+            lo = int(body.get("low") or 0)
+            hi = int(body.get("high") or 0)
+            if not (500 <= lo < hi <= 30000):
+                return self._send(400, {"ok": False, "error": "区间不合法"})
+            return self._send(200, {"ok": True, "current": [lo, hi],
+                                    "message": "已保存：单章 %d–%d 字" % (lo, hi)})
+
         if p == "/outline/field/current":
             # 定向改写（C 兜底）读当前字段值：喂一段固定字段，让 GUI 预填可见。
             # 复用 do_POST 开头已解析的 body —— rfile 是一次性流，二次读会挂死

@@ -183,6 +183,38 @@ def _stop_requested():
         return False
 
 
+#: 阶段在 retrying 上被打断时，落终态时写给用户看的原因（单一真源，便于单测）。
+RETRY_SETTLE_WHY = {
+    "stopped": "已中断（你点了停止）—— 这一阶段没跑完；点运行会从断点继续，已完成的章不受影响",
+    "failed": "自动重试已用尽仍失败 —— 看日志里的失败原因",
+    "paused": "预算/token 熔断暂停 —— 调大阈值后重跑即可续",
+}
+
+
+def settle_retrying_stage(progress, stage, status):
+    """把还挂在 `retrying` 的阶段落成终态。返回是否真的改了。
+
+    为什么必须有这一步（2026-11-03 真机 run 53）：`_finalize` 原来只写 `runs` 表，
+    progress 一个字不动 → “自动重试中被打断”的阶段永远停在 `retrying`：
+    GUI 上既不是失败也不在跑，重试次数停在 2，用户看到的就是“卡在重试循环里”。
+    `retrying` 能进不能出，没有任何出口。
+
+    只动 `retrying`：正在跑（running）/ 已完成（done）的阶段一个字不改 ——
+    收尾不该替它们下结论。
+    """
+    if status not in RETRY_SETTLE_WHY:
+        return False
+    try:
+        st = (progress.data.get("stages") or {}).get(str(stage)) or {}
+        if st.get("status") != "retrying":
+            return False
+        progress.set_stage(stage, status, error=RETRY_SETTLE_WHY[status])
+        return True
+    except Exception as e:                                  # noqa: BLE001
+        print(f"[orchestrator] 警告：收尾写阶段状态失败（{e}）")
+        return False
+
+
 def should_auto_retry(gates, retry_count, truncated):
     """是否该自动重试。返回 (bool, 原因)。判据只有这一份（便于单测）。
 
@@ -313,9 +345,24 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
     from utils.run_lock import RunLock
     run_lock = RunLock("data/state/run.lock")
 
+    # 当前阶段号（供 _finalize 收尾时把还挂在 retrying 的阶段落成终态）。
+    # 不用闭包直接读 `n`：_finalize 在循环外也可能被调用（预算/锁分支），
+    # 那时 `n` 还没绑定，会抛 NameError 把收尾本身搞崩。
+    _cur_stage = {"n": None}
+
     def _finalize(status, code):
-        """收尾：写 runs 状态 + 标记已完成，返回退出码（幂等）。"""
+        """收尾：写 runs 状态 + 把阶段落成终态 + 标记已完成，返回退出码（幂等）。
+
+        2026-11-03 补后半句。此前只写 `runs` 表，**progress.json 一个字不动** ——
+        于是“重试中被打断”的路径把阶段永远留在 `status: retrying`：
+        GUI 上既不是失败也不在跑，重试次数还停在 2，用户看到的就是
+        “卡在重试循环里”（真机 run 53 实测：runs=stopped，stage4 至今还是 retrying）。
+        卡住的阶段没有任何出口 —— `retrying` 能进不能出。
+        """
         nonlocal finished
+        _n = _cur_stage.get("n")
+        if _n is not None:
+            settle_retrying_stage(progress, _n, status)
         try:
             db.finish_run(run_id, status)
         except Exception as e:                              # noqa: BLE001
@@ -499,6 +546,7 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
             return 2
 
         for n in order:
+            _cur_stage["n"] = n
             # 用户中断（GUI“停止”）：每轮阶段开始前检查，置位则不再启动新阶段。
             # 已经跑完的阶段照常保留（断点续跑语义不变）。
             if _stop_requested():
