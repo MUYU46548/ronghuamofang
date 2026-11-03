@@ -82,6 +82,17 @@ def main():
     check("P7 API 端点把 chapters 传下去", "chapters=_scope" in src)
     check("P7 非法章范围回 400 而不是忽略", '"章范围写错了' in src)
 
+    # ---- P9 自动重试也必须守住章范围（2026-11-03 真机踩坑）----
+    # 现象：`只写 1-3` 的 run 写完 1-3 之后，一进自动重试就退化成整本跑，
+    # 又去写第 4、5 章（因为重试那行调 run_stage 时没带 chapters）。
+    orch_src = (ROOT / "scripts" / "orchestrator.py").read_text(encoding="utf-8")
+    _stage4_calls = [ln for ln in orch_src.splitlines()
+                     if "STAGES[n].run_stage(" in ln or "_extra)" in ln]
+    check("P9 自动重试与首次调用都带章范围（两个调用点都过 _extra）",
+          orch_src.count("**_extra)") >= 2, orch_src.count("**_extra)"))
+    check("P9 重试那行不再裸调 run_stage",
+          "run_stage(cfg, proj, progress, db, cost, client=client, run_id=run_id)" not in orch_src)
+
     # ---- P8~P10 行为：真的缩了范围（不是只解析了字符串）----
     want, out = _apply_scope([1, 2, 3, 4, 5, 6], {1, 2, 3})
     check("P8 只写 1-3 时 todo 缩到 3 章", want == [1, 2, 3], want)

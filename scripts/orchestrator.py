@@ -631,6 +631,9 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
             _stage_started_iso = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
             # 章范围（2026-11-02，清单第 1 条）只对阶段 4 有意义；其余阶段签名
             # 一致，多传会 TypeError，所以按阶段给。
+            # ⚠️ 这个 dict 必须在**首次调用与自动重试**两处一起用（2026-11-03 修）：
+            # 重试那行原先漏了它，于是"只写 1-3"的 run 一进重试就退化成整本跑 ——
+            # 真机实测：限定 1-3 的 run 写完了 1-3 之后又去写第 4、5 章。
             _extra = {"chapters": chapters} if (n == 4 and chapters) else {}
             ok, msg = STAGES[n].run_stage(cfg, proj, progress, db, cost, client=client,
                                           task_dir="data/state/tasks", run_id=run_id,
@@ -709,7 +712,8 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
                         if _code is not None:
                             return _finalize("paused", _code)
                         # 执行重试
-                        ok, msg = STAGES[n].run_stage(cfg, proj, progress, db, cost, client=client, run_id=run_id)
+                        ok, msg = STAGES[n].run_stage(cfg, proj, progress, db, cost, client=client,
+                                                      run_id=run_id, **_extra)
                         print(f"[orchestrator] 阶段{n} 重试结果: {msg}")
                         if ok:
                             break
