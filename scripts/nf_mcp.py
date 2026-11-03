@@ -286,6 +286,23 @@ MCP_TOOLS = [
         "_http": ("POST", "/review/semantic", None),
     },
     {
+        "name": "nf_rewrite_studio",
+        "description": "改写工作室（2026-11-03）：mode=sensory（感官扩写）/ dehumanize（去 AI 腔）/"
+                       "reader（读者视角·弃书点）。只开讨论 + 出任务书（零 token，不调模型），"
+                       "产物是**可直接采用的文字建议**落在讨论里；定稿归作者。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "mode": {"type": "string", "description": "sensory / dehumanize / reader"},
+                "chapter": {"type": "integer", "description": "章号"},
+                "excerpt": {"type": "string",
+                            "description": "只讨论这一段（可空 = 整章）"},
+            },
+            "required": ["mode", "chapter"],
+        },
+        "_http": ("POST", "/rewrite/studio", None),
+    },
+    {
         "name": "nf_ask",
         "description": "向作者提问。**唯一能让你停下来问人的通道** —— 不写回复正文里，"
                        "落到工作区，作者在界面上回答，之后用 nf_get_answers 读。"

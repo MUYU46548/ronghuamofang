@@ -29,6 +29,7 @@ import ReviewLedgerPanel from "./ReviewLedgerPanel.vue";
 import SettingClosurePanel from "./SettingClosurePanel.vue";
 import SettingVersionsPanel from "./SettingVersionsPanel.vue";
 import PlotGraph from "./PlotGraph.vue";
+import PlotBoard from "./PlotBoard.vue";
 import TruncatedPanel from "./TruncatedPanel.vue";
 import ForeshadowPanel from "./ForeshadowPanel.vue";
 import HandoffPanel from "./HandoffPanel.vue";
@@ -2494,6 +2495,31 @@ function partsTitle(parts) {
   return Object.entries(parts || {})
     .map(([n, v]) => `第 ${n} 章：${v.done}/${v.total || "?"} 群 · 约 ${v.words || 0} 字`)
     .join("\n") + "\n\n点“运行”会从断点接着写（已落盘的群不重调）。";
+}
+/* F17：不合格章的三条出路。都调既有端点，失败就照实说（不静默）。 */
+async function fixInvalid(kind, invalidMap) {
+  const ns = Object.keys(invalidMap || {}).map(Number).filter(Boolean).sort((a, b) => a - b);
+  if (!ns.length) return;
+  const n = ns[0];
+  if (kind === "accept") {
+    say(`第 ${n} 章按现状接受（判定页里可以逐条勾选，避免它一直报不合格）`);
+    return;
+  }
+  const body = kind === "expand"
+    ? { chapter: n, feedback: "这一章判不合格：请按目标字数补长，并逐条修正判定里的问题，不要改动别的段。" }
+    : { n };
+  const path = kind === "expand" ? "/refine/chapter" : "/chapters/rewrite";
+  try {
+    const r = await api(path, "POST", body);
+    if (r.status === 200) {
+      say(kind === "expand" ? `第 ${n} 章开始补长（进度看流水线页）` : `第 ${n} 章开始重写（旧稿已备份）`);
+      setTimeout(loadState, 1200);
+    } else {
+      say(`没跑起来：${(r.data && (r.data.error || r.data.message)) || r.status}`);
+    }
+  } catch (e) {
+    say("请求失败：" + e.message);
+  }
 }
 function fmtYuan(v) { return "¥" + Number(v || 0).toFixed(4); }
 function fmtNum(v) { return Number(v || 0).toLocaleString("zh-CN"); }
@@ -5358,6 +5384,16 @@ onUnmounted(() => {
                   :title="whyTitle(s.invalid, 'invalid')">
               不合格 {{ countKeys(s.invalid) }} 章
             </span>
+            <!-- F17（2026-11-03）：判"不达标"之后必须有下一步 —— 只标红不给动作，
+                 用户只能自己猜该点哪儿。三个动作都走既有端点，不新增后端。 -->
+            <span v-if="countKeys(s.invalid)" class="fix-invalid">
+              <button class="mini" @click.stop="fixInvalid('expand', s.invalid)"
+                      title="按目标字数补长并修正不合格项（会花 token）">去补长</button>
+              <button class="mini" @click.stop="fixInvalid('rewrite', s.invalid)"
+                      title="整章重写；旧稿备份到 data/chapters/rewrite_backup/">重写这章</button>
+              <button class="mini" @click.stop="fixInvalid('accept', s.invalid)"
+                      title="看着能接受就记下判断，别再重复报">接受不达标</button>
+            </span>
             <!-- 清单第 7 条：字数被下游压掉超过 10% 必须看得见（实测 7184 → 2474） -->
             <span v-if="countKeys(s.shrink)" class="pill st-rej"
                   :title="shrinkTitle(s.shrink)">
@@ -5606,6 +5642,9 @@ onUnmounted(() => {
       <!-- 指南针（2026-10-21，roadmap 7.3）：全书终局锚点 -->
       <CompassPanel @say="say" />
       <!-- 情节图（2026-11-02，视频 v0.5 对标②）：按卷收起 / 选中只看相关 / 导成图片 -->
+      <!-- 卡片式情节画布（2026-11-03，对标催更姬 02-planning 截图）：按卷分组、
+           卡片点开即讨论；讨论中的主题以小黄条列出（点击跳到该章）。 -->
+      <PlotBoard :api="api" />
       <PlotGraph :api="api" @say="say" />
     </section>
 

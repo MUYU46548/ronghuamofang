@@ -189,6 +189,7 @@ try:
     from nf_api_domains import discuss_thread as dom_thread  # noqa: E402 (讨论件 2026-11-03)
     from nf_api_domains import lookup_tools as dom_lookup     # noqa: E402 (资料工具 2026-11-03)
     from nf_api_domains import semantic_review as dom_semrev  # noqa: E402 (语义审稿 2026-11-03)
+    from nf_api_domains import rewrite_studio as dom_studio    # noqa: E402 (改写工作室 2026-11-03)
     from nf_api_domains import judge as dom_judge          # noqa: E402 (0.7.17 判定引擎：零 token)
 except Exception as _dom_err:                            # noqa: BLE001
     dom_chapters = None
@@ -210,6 +211,7 @@ except Exception as _dom_err:                            # noqa: BLE001
     dom_thread = None
     dom_lookup = None
     dom_semrev = None
+    dom_studio = None
     dom_judge = None
     print("[nf_api] 域模块加载失败（端点将返回可行动错误）: " + str(_dom_err))
 
@@ -2519,6 +2521,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(*_dom(dom_lookup.handle_lookup(self)))
         elif p == "/notes/list":
             self._send(*_dom(dom_lookup.handle_notes_list(self)))
+        elif p == "/rewrite/studio/list":
+            self._send(*_dom(dom_studio.handle_rewrite_studio_list(self)))
         elif p == "/review/semantic/list":
             self._send(*_dom(dom_semrev.handle_review_semantic_list(self)))
         elif p == "/discuss/read":
@@ -3331,6 +3335,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(*_dom(dom_lookup.handle_lookup_rebuild(self, body)))
             elif p == "/notes/add":
                 self._send(*_dom(dom_lookup.handle_note_add(self, body)))
+            elif p == "/rewrite/studio":
+                # 改写工作室（感官扩写 / 去 AI 腔 / 读者视角）：只开讨论 + 出任务书，零 token
+                self._send(*_dom(dom_studio.handle_rewrite_studio(self, body)))
             elif p == "/review/semantic":
                 self._send(*_dom(dom_semrev.handle_review_semantic(self, body)))
             elif p == "/discuss/say":
