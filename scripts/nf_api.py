@@ -190,6 +190,7 @@ try:
     from nf_api_domains import lookup_tools as dom_lookup     # noqa: E402 (资料工具 2026-11-03)
     from nf_api_domains import semantic_review as dom_semrev  # noqa: E402 (语义审稿 2026-11-03)
     from nf_api_domains import rewrite_studio as dom_studio    # noqa: E402 (改写工作室 2026-11-03)
+    from nf_api_domains import vault_dirs as dom_vdirs         # noqa: E402 (设定目录 2026-11-03)
     from nf_api_domains import judge as dom_judge          # noqa: E402 (0.7.17 判定引擎：零 token)
 except Exception as _dom_err:                            # noqa: BLE001
     dom_chapters = None
@@ -212,6 +213,7 @@ except Exception as _dom_err:                            # noqa: BLE001
     dom_lookup = None
     dom_semrev = None
     dom_studio = None
+    dom_vdirs = None
     dom_judge = None
     print("[nf_api] 域模块加载失败（端点将返回可行动错误）: " + str(_dom_err))
 
@@ -2625,6 +2627,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/config/vaults":
             # 已知库列表（A 模型：一次只有一个生效，这里只是书签）
             self._send(*_dom(dom_project.handle_config_vaults_get(self)))
+        elif p == "/config/vault_dirs":
+            # 设定目录映射的候选清单（目录名取自用户库本身，2026-11-03）
+            self._send(*_dom(dom_vdirs.handle_config_vault_dirs(self)))
         elif p == "/config/vault_scan":
             # 知识库扫描面（顶层目录 + 篇数 + 是否排除）—— 目录名取自用户库本身。
             self._send(*_dom(dom_project.handle_config_vault_scan(self)))
@@ -3516,6 +3521,8 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/config/vaults/remove":
                 # 从列表移出（只删书签，不动笔记文件）
                 self._send(*_dom(dom_project.handle_config_vaults_remove(self, body)))
+            elif p == "/config/vault_dirs":
+                self._send(*_dom(dom_vdirs.handle_config_vault_dirs_save(self, body)))
             elif p == "/config/vault_skip_dirs":
                 # 扫描排除项设置（创作决策：哪些目录算正典）；只写 system.local.yaml。
                 self._send(*_dom(dom_project.handle_config_vault_skip_dirs(self, body)))

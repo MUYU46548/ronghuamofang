@@ -25,6 +25,7 @@ import QualityTrend from "./QualityTrend.vue";
 import ConsistencyPanel from "./ConsistencyPanel.vue";
 import JudgePanel from "./JudgePanel.vue";
 import DiscussThreadPanel from "./DiscussThreadPanel.vue";
+import VaultDirsPanel from "./VaultDirsPanel.vue";
 import ReviewLedgerPanel from "./ReviewLedgerPanel.vue";
 import SettingClosurePanel from "./SettingClosurePanel.vue";
 import SettingVersionsPanel from "./SettingVersionsPanel.vue";
@@ -6697,6 +6698,9 @@ onUnmounted(() => {
           </div>
         </div>
       </div>
+      <!-- 设定目录（2026-11-03）：产品级的通用做法 —— 目录名全部取自用户自己的库，
+           代码里不出现任何具体目录名（换个人、换个库都不废）。 -->
+      <VaultDirsPanel :api="api" />
       <!-- 知识库扫描面（2026-10-24）：目录名取自用户库本身，勾选排除 ——
            代码不猜任何库结构（曾因把某个真实库的目录名当通例写进代码而返工） -->
       <h4 style="margin-top: 16px;">知识库（Obsidian 库 / 存 markdown 的文件夹）</h4>
