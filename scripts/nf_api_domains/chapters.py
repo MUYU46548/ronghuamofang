@@ -267,6 +267,82 @@ def handle_chapters_content(h):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+def handle_chapters_versions(h):
+    """`GET /chapters/versions?n=3` —— 该章的历史版本 + 哪一版是"被压缩前"的（F19）。
+
+    此前版本只躺在 `data/chapters/history/chNN_vM.md` 里，想回溯得自己翻目录。
+    这里给出：版本号 / 字数 / 时间 / 路径，并**标出与 progress 里 shrink 记录的
+    “压缩前字数”相符的那一版** —— 用户点一下就知道该回退到哪一版。
+
+    只读，零 token。
+    """
+    import nf_api as api
+    from utils.file_io import read_text
+    from utils.verify_chapter import count_cn_words
+
+    q = h._query()
+    try:
+        n = int((q.get("n") or ["0"])[0])
+    except (TypeError, ValueError):
+        return 400, {"ok": False, "error": "n 必须是章号整数"}
+    if n < 1:
+        return 400, {"ok": False, "error": "n 必须是正整数"}
+
+    hist = api.ROOT / "data" / "chapters" / "history"
+    versions = []
+    pat = re.compile(r"^ch%02d_v(\d+)\.md$" % n)
+    if hist.is_dir():
+        for p in sorted(hist.glob("ch%02d_v*.md" % n)):
+            m = pat.match(p.name)
+            if not m:
+                continue
+            try:
+                words = count_cn_words(read_text(p))
+            except Exception:                                # noqa: BLE001
+                words = 0
+            versions.append({"version": int(m.group(1)), "words": words,
+                             "mtime": time.strftime("%Y-%m-%dT%H:%M:%S",
+                                                    time.localtime(p.stat().st_mtime)),
+                             "path": str(p)})
+
+    # 压缩记录（progress.stages.*.shrink 里按章号存的 {before, after, ratio}）
+    shrink = None
+    try:
+        from utils.progress_manager import ProgressManager
+        pm = ProgressManager(api.ROOT / "data" / "state" / "progress.json")
+        for _st in (getattr(pm, "data", {}) or {}).get("stages", {}).values():
+            if not isinstance(_st, dict):
+                continue
+            hit = (_st.get("shrink") or {}).get(str(n))
+            if isinstance(hit, dict):
+                shrink = hit
+                break
+    except Exception:                                        # noqa: BLE001
+        shrink = None
+
+    pre = None
+    if shrink and shrink.get("before"):
+        want = int(shrink["before"])
+        cands = [v for v in versions if v["words"]]
+        if cands:
+            # 字数最接近“压缩前”的那一版就是它（容差 5%）
+            best = min(cands, key=lambda v: abs(v["words"] - want))
+            if abs(best["words"] - want) <= max(30, int(want * 0.05)):
+                pre = best["version"]
+    for v in versions:
+        v["pre_shrink"] = (v["version"] == pre)
+
+    return 200, {"ok": True, "n": n, "count": len(versions), "versions": versions,
+                 "pre_shrink_version": pre, "shrink": shrink,
+                 "hint": (("被压缩前那一版是 v%d（%d 字），要回退就用 POST /chapters/restore"
+                           % (pre, next(v["words"] for v in versions if v["version"] == pre)))
+                          if pre else
+                          ("还没有版本（第一次写之前不会有备份）；要回退先跑一次精修或手改"
+                           if not versions else
+                           "没找到与“压缩前字数”相符的版本（可能这章没被压缩过，"
+                           "或压缩发生在更早的备份之前）"))}
+
+
 def handle_chapters_save(h, body):
     """`POST /chapters/save {n, layer, content, expected_mtime?}` —— 手改正文落盘。
 

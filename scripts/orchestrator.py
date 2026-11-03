@@ -466,6 +466,30 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
                 snap.snapshot(f"stage{n}_done")  # 阶段成功 → 快照
             except Exception as e:
                 print(f"[orchestrator] 快照失败（不影响流程）: {e}")
+            # ④ 语义审稿（2026-11-03，窄口）：**默认关**（gates.semantic_review=false）。
+            # 打开后，阶段 4 跑完会给"不合格 / 待重写"的章各开一个审稿讨论 + 任务书
+            # （零 token，不调模型），然后停在等人工 —— 因为要不要改、怎么改是作者的事。
+            if n == 4 and (cfg.get("gates", {}) or {}).get("semantic_review", False):
+                try:
+                    from utils import review_semantic
+                    _st4 = (progress.data.get("stages", {}) or {}).get("4", {}) or {}
+                    _ns = sorted({int(x) for x in list(_st4.get("invalid") or [])
+                                  + [int(x) for x in (_st4.get("needs_rewrite") or [])]})
+                    _built = []
+                    for _n in _ns:
+                        _r = review_semantic.build_review(_n, root=".")
+                        if _r.get("ok"):
+                            _built.append(_n)
+                        else:
+                            print("[orchestrator] 语义审稿跳过第%d章：%s"
+                                  % (_n, _r.get("error")))
+                    if _built:
+                        print("[orchestrator] 语义审稿：已为第 %s 章开讨论、出任务书"
+                              "（零 token）—— 看完再决定改不改" % _built)
+                        return 3
+                except Exception as _e:                      # noqa: BLE001
+                    print(f"[orchestrator] 语义审稿接线异常（不影响主流程）: "
+                          f"{type(_e).__name__}: {_e}")
             if n == 1:
                 # P1.5：stage1 归并完成后自动生成素材体检报告（不阻断）
                 run_material_review(progress)

@@ -243,6 +243,10 @@ gates:
   # 并回带上一轮问题清单。0 = 关闭打回（校验不过直接判失败章，改动前的行为）。
   # 仍不过关的章停在“待人工”，留痕 data/state/validation/NN.json。
   hard_validate_regen_rounds: 2
+  # 语义审稿（2026-11-03，④ 窄口）：阶段 4 跑完给"不合格/待重写"的章各开一个审稿讨论 +
+  # 任务书（零 token，不调模型），然后停在等人工 —— 要不要改、怎么改是作者的决定。
+  # 默认关：打开后每次跑完阶段 4 都会多出几个待定讨论。
+  semantic_review: false
   auto_retry: true                # 阶段失败后自动重试（默认开）
   auto_retry_max_rounds: 2        # 最大自动重试轮次（不含首次）
   auto_retry_delay_seconds: 3      # 重试前等待（秒），给 LLM 限流/超时恢复时间
