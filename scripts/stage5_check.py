@@ -227,8 +227,12 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                                f"{_detail['tokens']}）—— 调大 budget.token_limit.max_total_tokens "
                                "后重跑可续上；已完成的批次保留")
         if result["exit_code"] != 0:
-            progress.set_stage(5, "failed", error=f"批 {bi}/{total_batches} 子会话退出码非零")
-            return False, f"stage5 批 {bi}/{total_batches} 子会话失败"
+            # 失败原因带出来（2026-11-03 错误契约）：旧版只写"子会话退出码非零"。
+            from utils import error_contract
+            _why5 = error_contract.describe(result)
+            progress.set_stage(5, "failed",
+                               error=f"批 {bi}/{total_batches} 子会话失败：{_why5}")
+            return False, f"stage5 批 {bi}/{total_batches} 子会话失败：{_why5}"
 
         missing = _bad_checked(batch)
         if missing:

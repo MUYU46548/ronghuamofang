@@ -275,8 +275,15 @@ def write_chapter_groups(cfg, proj, n, client, task_dir,
                 return agg
             if result.get("exit_code") != 0:
                 agg["exit_code"] = result["exit_code"]
-                agg["error"] = ("段群 %d 生成失败（已落盘的群保留，"
-                                "重启后从断点续跑）" % group["idx"])
+                # 失败原因带出来（2026-11-03 错误契约）：这里原先把 result 整个丢掉，
+                # 只留一句"段群 N 生成失败" —— 子会话的上游报文（HTTP 码 + message）
+                # 就断在这一层，排障只能猜。
+                from utils import error_contract
+                _why_part = error_contract.describe(result)
+                agg["error"] = ("段群 %d 生成失败：%s（已落盘的群保留，"
+                                "重启后从断点续跑）" % (group["idx"], _why_part))
+                print("[enhanced] 第%d章 群%d 失败原因：%s"
+                      % (n, group["idx"], _why_part))
                 return agg
             if part_ok(pp, group["quota"]):
                 break

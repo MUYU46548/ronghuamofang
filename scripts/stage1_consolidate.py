@@ -530,8 +530,12 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     if cost and run_id:
         cost.charge_cost(run_id, 1, 0, result)
     if result["exit_code"] != 0:
-        progress.set_stage(1, "failed", error="子会话退出码非零")
-        return False, "stage1 归并子会话失败"
+        # 失败原因带出来（2026-11-03 错误契约）：旧版只写"子会话退出码非零"，
+        # llm_client 抓到的 stderr 报文整条丢掉 —— 排障只能猜。
+        from utils import error_contract
+        _why = error_contract.describe(result)
+        progress.set_stage(1, "failed", error=_why)
+        return False, "stage1 归并子会话失败：" + _why
     ok, errors = validate_setting(setting_path)
     if not ok:
         progress.set_stage(1, "failed", error="; ".join(errors))

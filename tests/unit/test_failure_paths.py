@@ -505,8 +505,13 @@ print("__RESULT__" + json.dumps({{
     check([f["n"] for f in p["failed1"]] == [1],
           "F5 仅第 1 章被标记失败（失败被精确隔离）",
           f"实际={p['failed1']}")
-    check(p["failed1"] and "退出码" in (p["failed1"][0].get("error") or ""),
-          "F5 失败原因被记录为\u300c子会话退出码非零\u300d（可诊断）",
+    check(p["failed1"] and "失败" in (p["failed1"][0].get("error") or ""),
+          "F5 失败原因被记录（可诊断，不再只是“退出码非零”）",
+          f"实际={p['failed1']}")
+    # 2026-11-03 错误契约：失败原因必须带出上游报文/异常，而不是一句通用的
+    # "子会话退出码非零" —— FakeClient 的失败分支有自己的说明，就要原样带出来。
+    check(p["failed1"] and "模拟失败" in (p["failed1"][0].get("error") or ""),
+          "F5 失败原因来自底层（不被 stage 层压成通用文案）",
           f"实际={p['failed1']}")
     check(p["failed1"][0].get("attempts") == 1, "F5 失败尝试次数被记录",
           f"实际={p['failed1']}")

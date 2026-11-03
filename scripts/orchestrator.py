@@ -45,6 +45,7 @@ from utils.db import RunDB
 from utils.cost_tracker import CostTracker
 from utils.config_io import load_pipeline_config
 from utils.engine import resolve_engine
+from utils import error_contract
 
 import stage1_consolidate as s1
 import stage2_outline as s2
@@ -215,12 +216,17 @@ def settle_retrying_stage(progress, stage, status):
         return False
 
 
-def should_auto_retry(gates, retry_count, truncated):
+def should_auto_retry(gates, retry_count, truncated, error_text=None):
     """是否该自动重试。返回 (bool, 原因)。判据只有这一份（便于单测）。
 
     **截断类失败一律不重试**（2026-10-03）：同一个 `max_tokens` 上限再跑一次，
     只会再截断一次 —— 白烧一倍输入（几万~几十万 token）。这类失败要的是
     "调大 `budget.token_limit.per_request_max_tokens` / 改提示词"，不是再赌一次。
+
+    **非可重试错误也不重试**（2026-11-03）：`error_text` 是阶段失败原因
+    （`progress.error` / 逐章失败原因，见 `utils/error_contract`）。400/401/403/404、
+    模型不可用、请求体被拒 —— 同一输入再跑一次结果完全相同，重试只是白烧时间。
+    未传 `error_text` 时保持旧行为（只判截断），调用方不必改造。
     """
     if not (gates or {}).get("auto_retry", True):
         return False, "auto_retry 已关闭"
@@ -229,6 +235,11 @@ def should_auto_retry(gates, retry_count, truncated):
                        "→ 不重试：同一上限只会再截断一次，白烧一倍输入。处理：调大 "
                        "config/system.yaml 的 budget.token_limit.per_request_max_tokens，"
                        "或减小单次任务量 / 改提示词")
+    if error_text:
+        from utils import error_contract
+        _ok, _why = error_contract.retryable(str(error_text))
+        if not _ok and _why:
+            return False, _why
     if retry_count >= int((gates or {}).get("auto_retry_max_rounds", 2)):
         return False, "已达重试轮次上限"
     return True, ""
@@ -674,7 +685,10 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
                     stage_started = _stage_started_iso
                     while True:
                         _truncated = truncation.after(stage_started)
-                        _do, _why = should_auto_retry(gates, retry_count, _truncated)
+                        # 非可重试错误（400/401/403/404/模型不可用）不重试：判据在
+                        # utils.error_contract，原因来自 progress.error + 逐章失败原因。
+                        _err_text = error_contract.stage_error_text(progress, n)
+                        _do, _why = should_auto_retry(gates, retry_count, _truncated, _err_text)
                         if not _do:
                             if _why:
                                 print("[orchestrator] 不自动重试：%s" % _why)

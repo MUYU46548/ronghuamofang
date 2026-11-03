@@ -114,7 +114,7 @@ def case_wiring():
     orch = (REPO / "scripts" / "orchestrator.py").read_text(encoding="utf-8")
     llm = (REPO / "scripts" / "utils" / "llm_client.py").read_text(encoding="utf-8")
     check("orchestrator 的重试循环调用 should_auto_retry",
-          "should_auto_retry(gates, retry_count, _truncated)" in orch)
+          "should_auto_retry(gates, retry_count, _truncated, _err_text)" in orch)
     check("orchestrator 用 truncation.after(阶段开始时刻) 判定",
           "truncation.after(stage_started)" in orch
           and "_stage_started_iso = datetime.now()" in orch)

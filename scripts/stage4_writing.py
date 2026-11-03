@@ -35,6 +35,7 @@ from utils.setting_schema import (
 from utils.config_io import load_config_yaml
 from utils.text_norm import normalize_chapter_file
 from utils import intervene
+from utils import error_contract
 
 SUMMARY_RE = re.compile(r"<!--\s*summary:\s*(.+?)\s*-->", re.IGNORECASE | re.S)
 
@@ -1542,9 +1543,13 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         if result["exit_code"] != 0:
             # 传输类异常（断网/503 耗尽）要说清自己 —— 否则用户按“子会话退出码
             # 非零”去查提示词/产物，而真因是网络（任务二排障口径）。
-            _why = ("网络/传输异常（内部重试已耗尽）—— 检查网络与服务商状态后"
-                    "重跑即从断点续跑" if result.get("transport_error")
-                    else "子会话退出码非零")
+            # 失败原因必须带出来（2026-11-03 错误契约）：旧版这里只写“子会话退出码
+            # 非零”，把 llm_client 抓到的 stderr 报文整条丢掉 —— progress.error 与
+            # 界面上一个字都没有，排障只能猜。utils.error_contract 挑出报文里最该
+            # 看的那一行（含上游 HTTP 码）。
+            _why = error_contract.describe(result)
+            if result.get("transport_error"):
+                _why += "——检查网络与服务商状态后重跑即从断点续跑"
             if _fail(n, _why, [f"[stage4] 第{n}章子会话失败：{_why}"]):
                 aborted = "consecutive_failures"
                 break
@@ -1806,7 +1811,11 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                            "已完成的章保留，当前章未开始；"
                            "要继续请在界面点“释放施工权”后重跑（断点续跑）"
                            % done_this_round)
-        progress.set_stage(4, "failed", failed_count=len(remaining_failed))
+        # 阶段级 error 带上第一条失败原因（2026-11-03）：orchestrator 的重试判据与
+        # 界面都读它 —— 只写 failed_count 等于让上层"知道几章挂了、不知道为什么"。
+        _first_why = error_contract.first_failure(progress, 4)
+        progress.set_stage(4, "failed", failed_count=len(remaining_failed),
+                           error=_first_why or None)
         if aborted == "budget":
             return False, ("stage4 因**预算熔断**停止（本轮完成 %d 章，累计失败 %d 章）。"
                            "调大 config/system.yaml 的 budget.token_limit.max_total_tokens"
@@ -1820,8 +1829,11 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
 
     remaining_failed = progress.failed_chapters(4)
     if remaining_failed:
-        progress.set_stage(4, "failed", failed_count=len(remaining_failed))
-        return False, f"stage4 有 {len(remaining_failed)} 章失败"
+        _first_why = error_contract.first_failure(progress, 4)
+        progress.set_stage(4, "failed", failed_count=len(remaining_failed),
+                           error=_first_why or None)
+        return False, f"stage4 有 {len(remaining_failed)} 章失败" + (
+            f"（首条：{_first_why}）" if _first_why else "")
     progress.set_stage(4, "done")
     return True, f"stage4 完成（{total} 章）"
 
