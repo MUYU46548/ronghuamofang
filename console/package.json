@@ -14,8 +14,8 @@
     "prepare": "node scripts/prepare-runtime.js",
     "start": "electron .",
     "probe": "electron probe-electron.js",
-    "pack": "node scripts/assert-runtime.js && electron-builder --dir",
-    "dist": "node scripts/assert-runtime.js && electron-builder --win --publish never",
+    "pack": "npm run build && node scripts/assert-runtime.js && electron-builder --dir",
+    "dist": "npm run build && node scripts/assert-runtime.js && electron-builder --win --publish never",
     "release": "node scripts/make-release.js",
     "release:dry": "node scripts/make-release.js --dry-run"
   },

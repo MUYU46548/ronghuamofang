@@ -290,6 +290,10 @@ stage4 也补了同一道校验（此前是唯一既不设上限、也不校验�
 **语义**：工作区的 `scripts/` **不是用户资产**（手改会被下次启动纠正回安装包版本）；
 `prompts/` 仍保留用户改动，`data/` 一个字节不动。
 **判据**：`test_failure_paths` F7 情形④/⑤（含“内容一致时不再重写”的幂等断言）。
+**同一族的第二个坑（已一起堵）**：`npm run dist` 原来**不跑 `vite build`** —— 改完 `src/`
+直接打包，asar 里装的是上一次的 `renderer/dist`（后端新、前端旧，方向相反但一样静默）。
+现在 `dist`/`pack` 先 `npm run build`，且 `assert-runtime.js` 会比对 `src/` 与
+`renderer/dist/assets` 的 mtime，源码更新就 fail-fast 中止打包。
 
 ## 架构：API 层的域模块拆分（P2）
 
