@@ -484,6 +484,41 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         return False, (f"stage7 失败：只合并到 {n} 章，计划 {expect} 章 —— "
                        "部分章节可能尚未生成，或不在 refined/checked/raw 里")
 
+    # ---- 逐章核对（F22，2026-11-03）：导出件与源"差异 = 0"要有报告 ----
+    # 结构数对（章标题数、占位符）不等于正文对：缺段 / 串章 / 截断都能结构过关。
+    try:
+        from utils.export_check import check_export_matches_source
+        _ch_src = {}
+        for _d in (Path("data/chapters/refined"), Path("data/chapters/checked"),
+                   Path("data/chapters/raw")):
+            if not _d.is_dir():
+                continue
+            for _p in sorted(_d.glob("*.md")):
+                if not _p.stem.isdigit():
+                    continue
+                _k = int(_p.stem)
+                if _k not in _ch_src:       # refined 优先，逐层回退
+                    _ch_src[_k] = read_text(_p)
+        _rep = check_export_matches_source(book_docx, _ch_src)
+        try:
+            import json as _json
+            _rp = Path("data/state/export_check.json")
+            _rp.parent.mkdir(parents=True, exist_ok=True)
+            _rp.write_text(_json.dumps(
+                {"book": book_name, "docx": str(book_docx), **_rep},
+                ensure_ascii=False, indent=2), encoding="utf-8")
+            print(f"[stage7] 逐章核对报告：{_rp}（{_rep['matched']}/{_rep['total']} 章一致）")
+        except Exception:                                    # noqa: BLE001
+            pass
+        if not _rep["ok"]:
+            print("[stage7] ⚠ 逐章核对未过（只报告，不删成品）：")
+            for it in _rep["mismatched"][:5]:
+                print(f"  · 第{it['n']}章：{it['why']}（源 {it['chars']} 字）")
+            progress.set_stage(7, "running",
+                               export_mismatch=[it["n"] for it in _rep["mismatched"]][:20])
+    except Exception as _e:                                  # noqa: BLE001
+        print(f"[stage7] 逐章核对跳过（{type(_e).__name__}: {_e}）")
+
     progress.mark_stage_done(7)
     print(f"[stage7] 完成：{n} 章 → {book_docx}")
     return True, f"stage7 完成（{n} 章）"

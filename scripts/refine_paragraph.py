@@ -137,6 +137,31 @@ def replace_segment(text, index, new_text):
     return norm[:a] + str(new_text or "").strip() + norm[b:]
 
 
+def verify_untouched(before, after, index):
+    """校验"只动了第 index 段"：其余字节必须逐字相同（F11，2026-11-03）。
+
+    返回问题列表（空 = 通过）。判据是**字节级**的：先用 `_segment_spans` 拿到
+    目标段在原稿里的前后边界，再比对新稿的同位置前缀/后缀。
+
+    为什么不能只按"段 id 多重集"判：id 相同只能说明"这几段还在"，说明不了
+    "一个字都没动"。实测风险是本模块自己：老写法 `"\n\n".join(...)` 会把
+    `\n   \n` 这种带空格的空行压平 —— 段还是那几段，字节却变了。
+    """
+    b = (before or "").replace("\r\n", "\n").replace("\r", "\n")
+    a = (after or "").replace("\r\n", "\n").replace("\r", "\n")
+    spans = _segment_spans(b)
+    if index < 0 or index >= len(spans):
+        return ["段落号越界：原稿共 %d 段，请求 %d" % (len(spans), index)]
+    start, end = spans[index]
+    problems = []
+    if not a.startswith(b[:start]):
+        problems.append("目标段**之前**的内容被改动了（前缀不一致）")
+    tail = b[end:]
+    if not a.endswith(tail):
+        problems.append("目标段**之后**的内容被改动了（后缀不一致）")
+    return problems
+
+
 def _next_version(chapter):
     """该章已有备份数 + 1。"""
     HISTORY_DIR.mkdir(parents=True, exist_ok=True)
@@ -294,7 +319,14 @@ def save_paragraph_text(chapter, paragraph_index, new_text, note="手改"):
     version = _next_version(chapter)
     backup = HISTORY_DIR / f"ch{chapter:02d}_v{version}.md"
     shutil.copy2(chap_path, backup)
-    write_text(chap_path, replace_segment(full_text, paragraph_index, body))
+    new_full = replace_segment(full_text, paragraph_index, body)
+    # 写盘前硬校验（F11，2026-11-03）：除了目标段，其余字节必须一字不动。
+    # 不过就不写 —— 宁可这一段落空，也不许"改一段、动全章"。
+    _bad = verify_untouched(full_text, new_full, paragraph_index)
+    if _bad:
+        return False, ("没写入：改动波及了其他段（%s）—— 这是本模块的缺陷，"
+                       "请把这条报给开发者，正文一个字都没动" % "；".join(_bad))
+    write_text(chap_path, new_full)
     _norm(chap_path, chapter)
     return True, ("段落 #%d 已保存（%d → %d 字；整章备份 v%d，旧内容也进了段落历史）"
                   % (paragraph_index, len(current), len(body), version))

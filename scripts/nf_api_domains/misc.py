@@ -288,6 +288,23 @@ def handle_logs_tail(h):
         return 200, {"ok": True, "exists": False, "path": str(log_path), "lines": [],
                      "hint": "读取日志失败: " + str(e)[:200]}
     all_lines = text.splitlines()
+    # 按 job 切片（P3，2026-11-03）：日志是共享追加流，不带 job 的话用户点
+    # “查看日志”看到的可能是上一次 run 的历史 —— 那不是"这次失败的日志"。
+    job = (h._query().get("job") or [""])[0].strip()
+    if job:
+        try:
+            from utils.run_log import extract_job_block
+            block = extract_job_block(all_lines, job)
+        except Exception:                                    # noqa: BLE001
+            block = []
+        if not block:
+            return 200, {"ok": True, "exists": True, "path": str(log_path),
+                         "job": job, "total_lines": len(all_lines), "lines": [],
+                         "hint": ("日志里没有这次 job（%s）的边界行 —— 可能是旧版本起的 "
+                                  "进程，或这次 run 太早。去掉 ?job= 可看全量尾部。" % job)}
+        return 200, {"ok": True, "exists": True, "path": str(log_path),
+                     "job": job, "total_lines": len(all_lines),
+                     "lines": block[-lines:]}
     return 200, {"ok": True, "exists": True, "path": str(log_path),
                  "total_lines": len(all_lines), "lines": all_lines[-lines:]}
 

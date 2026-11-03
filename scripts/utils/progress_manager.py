@@ -114,10 +114,12 @@ class ProgressManager:
         # 只在转入 running 时写，其它状态保留上一次的值（便于事后看“这阶段跑了多久”）。
         if status == "running":
             st["started_at"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-        elif status in ("done", "failed", "stopped", "paused"):
+        elif status in ("done", "failed", "stopped", "paused", "partial"):
             # stopped/paused 也写 finished_at（2026-11-03）：这两种是**终态**，
             # 界面要能说“这一轮什么时候停的”。漏了它们，收尾改了状态却没有时间戳，
             # 事后无法判断是刚停的还是几分钟前停的。
+            # partial（2026-11-03，作者拍板）：**按章范围完成** = 部分完成。它同样
+            # 是一轮的终态（这一轮不会再动），但不等于阶段完成 —— 本书还有章没写。
             st["finished_at"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
         st.update(extra)
         self.save()

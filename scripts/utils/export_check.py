@@ -172,6 +172,68 @@ def check_template(template_path):
     return errors, warnings
 
 
+# ---------------------------------------------------------------------------
+# 逐章核对（F22，2026-11-03）：导出件与源"差异 = 0"要有报告，不是凭结构数推断
+# ---------------------------------------------------------------------------
+
+def docx_plain_text(docx_path):
+    """取 docx 里的纯文本（按段落拼接）。读不出就返回 ""。"""
+    try:
+        doc_xml, _ = _read_docx_xml(Path(docx_path))
+    except Exception:                                        # noqa: BLE001
+        return ""
+    paras = re.findall(r"<w:p[ >].*?</w:p>", doc_xml, re.S)
+    out = []
+    for para in paras:
+        parts = re.findall(r"<w:t[^>]*>(.*?)</w:t>", para, re.S)
+        if not parts:
+            continue
+        txt = "".join(parts)
+        # XML 实体还原（&amp; &lt; &gt; &quot; &#39;）
+        txt = (txt.replace("&lt;", "<").replace("&gt;", ">")
+                  .replace("&quot;", '"').replace("&#39;", "'")
+                  .replace("&amp;", "&"))
+        out.append(txt)
+    return "\n".join(out)
+
+
+def _flat(s):
+    """比对口径：去掉所有空白。排版换行不是"内容差异"。"""
+    return re.sub(r"\s+", "", s or "")
+
+
+def check_export_matches_source(docx_path, chapters, limit=8):
+    """逐章核对：每一章的正文（去空白后）必须**原样**出现在成品里。
+
+    `chapters` = {章号: 该章源文本}（调用方从 raw/refined 读）。
+    返回 {"total", "matched", "mismatched":[{n, chars, why}], "ok"}。
+
+    为什么按"整章文本是否原样出现"判，而不是逐字 diff：docx 会把段落拆开、
+    加上分页/目录，肉眼逐字 diff 既不可信也不可读；"整章正文一字不差地在成品里"
+    才是真正要保证的那件事（缺段 / 串章 / 截断都会打破它）。
+    """
+    doc = _flat(docx_plain_text(docx_path))
+    items = []
+    for n in sorted((chapters or {}), key=lambda x: int(x)):
+        src = _flat(chapters[n])
+        if not src:
+            continue
+        if src in doc:
+            items.append({"n": int(n), "ok": True, "chars": len(src)})
+        else:
+            why = "成品里找不到这一章的完整正文（缺段 / 串章 / 排版改写）"
+            # 开头在、后面没有 = 截断（这是最常见的残次形态），单独点名。
+            # head 取 20 字：太长了短章会整段落空，反而认不出截断。
+            head = src[:20]
+            if head and head in doc:
+                why = "成品里这一章被截断了（开头在，后文缺）"
+            items.append({"n": int(n), "ok": False, "chars": len(src), "why": why})
+    bad = [it for it in items if not it["ok"]]
+    return {"total": len(items), "matched": len(items) - len(bad),
+            "mismatched": bad, "ok": not bad,
+            "docx_chars": len(doc), "source_chars": sum(it["chars"] for it in items)}
+
+
 def check_docx_output(docx_path, md_text=None):
     """成品 docx 的导出后校验。返回 (errors, warnings)。
 

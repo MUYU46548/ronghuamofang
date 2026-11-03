@@ -977,6 +977,79 @@ def _apply_scope(todo, chapters):
     return want, out
 
 
+def parts_state(parts_dir, chapter_no, total_groups=0):
+    """盘上真实进度：这章已落盘几群 / 共几群 / 合计多少字（零 token）。
+
+    为什么要读盘而不是读内存：加强模式是"逐群落盘"，`_parts/NN/gK.md` 就是
+    事实本身。2026-11-03 真机：第 1 章 4 群约 5900 字在盘，系统里等于没写 ——
+    用户看到"这章没写"，而 90% 的字已经在盘上了。
+    """
+    d = Path(parts_dir) / ("%02d" % int(chapter_no))
+    done = words = 0
+    if d.is_dir():
+        for p in sorted(d.glob("g*.md")):
+            try:
+                words += count_cn_words(read_text(p))
+                done += 1
+            except Exception:                                # noqa: BLE001
+                continue
+    try:
+        total = int(total_groups or 0)
+    except (TypeError, ValueError):
+        total = 0
+    return {"done": done, "total": total, "words": words}
+
+
+def note_parts(parts_dir, raw_dir, progress, chapter_no, total_groups=0):
+    """把段群进度写进 `progress.stages["4"].parts`（有拼装稿的章就不再挂"未拼装"）。
+
+    返回写进去的那条记录（没写则 None）。零 token、纯读盘，随时可重放。
+    """
+    try:
+        st = progress.data.setdefault("stages", {}).setdefault("4", {})
+        bucket = st.setdefault("parts", {})
+        key = str(int(chapter_no))
+        if (Path(raw_dir) / ("%02d.md" % int(chapter_no))).exists():
+            bucket.pop(key, None)
+            info = None
+        else:
+            info = parts_state(parts_dir, chapter_no, total_groups)
+            if info["done"]:
+                bucket[key] = info
+            else:
+                bucket.pop(key, None)
+                info = None
+        progress.save()
+        return info
+    except Exception:                                        # noqa: BLE001
+        return None
+
+
+def _scope_completion(scope, done_ns, total):
+    """按范围完成 vs 整本完成（2026-11-03，作者拍板：按范围完成 = 部分完成）。
+
+    返回 ``(left_outside, left_inside)``：
+
+    · ``left_inside`` —— 你要的章里还没写完的。非空 = 这一轮**没**完成（失败/中断语义）。
+    · ``left_outside`` —— 范围之外还没写完的。``left_inside`` 空 + 这个非空 =
+      **部分完成**：这一轮该写的都写了，但整本还没齐，阶段**不许标 done**。
+
+    ``scope`` 为空 = 不限范围，两项都返回空（整本跑，语义与从前一致）。
+    纯函数，行为可单测（真跑模型验证一次要几百万 token，等于不验证）。
+    """
+    if not scope:
+        return [], []
+    try:
+        total = int(total)
+    except (TypeError, ValueError):
+        return [], []
+    all_ns = set(range(1, total + 1))
+    inside = sorted({int(x) for x in scope} & all_ns)
+    outside = sorted(all_ns - set(inside))
+    done = {int(x) for x in (done_ns or ())}
+    return [n for n in outside if n not in done], [n for n in inside if n not in done]
+
+
 def _chapter_status(check, quality_threshold):
     """章节状态（2026-11-02，不可用清单第 5 条）：确定性判据优先，自评分只作参考。
 
@@ -1038,6 +1111,59 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     failed_ns = {f["n"] for f in failed}
     todo = [n for n in range(1, total + 1) if n not in verified or n in failed_ns or n in skipped]
 
+    # ---- 按范围完成 = 部分完成（2026-11-03，作者拍板）----
+    # 判据只看**盘上事实**：raw/NN.md 是否合格（与断点续跑同一判据），不信 progress
+    # 的完成标记 —— 标记可能因崩溃而落后于文件。
+    _tw_scope = cfg.get("chapter", {}).get("target_words", [2000, 3000])[:2]
+
+    def _done_ns():
+        done = set(progress.completed_chapters(4))
+        for _p in raw_dir.glob("*.md"):
+            if not _p.stem.isdigit():
+                continue
+            _n = int(_p.stem)
+            if _n in done:
+                continue
+            try:
+                if is_chapter_complete(_p, *_tw_scope, para_structure=_para_ok):
+                    done.add(_n)
+            except Exception:                                # noqa: BLE001
+                pass
+        return done
+
+    def _partial_or_done(scope, note):
+        """这一轮该写的都写完了：整本齐 → done；范围内齐、范围外缺 → partial。"""
+        left_out, left_in = _scope_completion(scope, _done_ns(), total)
+        if left_in:
+            # 范围里还有没写完的：交给调用方按失败/中断处理，不在这里下结论。
+            return None
+        if left_out:
+            msg = ("stage4 **按范围完成**（部分完成）：你要的第 %s 章都写好了；"
+                   "本书还有 %d 章没写（%s）。阶段 4 **不标完成** —— 看完这几章、"
+                   "把剩下的章号填进范围再跑即可（断点续跑，不会重写已完成章）%s"
+                   % (",".join(str(x) for x in sorted(scope)), len(left_out),
+                      ",".join(str(x) for x in left_out), note))
+            print("[stage4] " + msg)
+            progress.set_stage(4, "partial",
+                               partial_scope=sorted(int(x) for x in scope),
+                               chapters_left=left_out,
+                               note=note or None)
+            return False, msg
+        return True
+
+    # 开跑前先对账一次（2026-11-03）：把盘上**已落盘但还没拼装**的段群补进 progress，
+    # 这样崩溃/中断过后，界面也能说清"这章只差最后一群"，而不是一片空白。
+    try:
+        _pdir = raw_dir.parent / "_parts"
+        if _pdir.is_dir():
+            for _d in sorted(_pdir.iterdir()):
+                if _d.is_dir() and _d.name.isdigit():
+                    # 这里必须用**模块级** note_parts：内层的 _note_parts 还没定义
+                    # （它在下面才 def），提前调用会 NameError（被 quality_gate 抓住）。
+                    note_parts(_pdir, raw_dir, progress, int(_d.name), total_groups=0)
+    except Exception:                                        # noqa: BLE001
+        pass
+
     # 章范围（2026-11-02，不可用清单第 1 条）：只写你要的那几章。
     # 放在 todo 算完之后缩范围，不改上面任何一条判据 —— 已完成 / 半成品 / 失败
     # 的语义全部照旧，只是"这一轮写哪些"多了一个上限。
@@ -1047,8 +1173,11 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         if _out:
             print(f"[stage4] 跳过（已完成 / 超出本书章数）：{_out}")
         if not todo:
-            return True, ("指定的章都无需重写（已完成或超出本书章数 %d）—— "
-                          "没有调用任何模型" % total)
+            _msg = ("指定的章都无需重写（已完成或超出本书章数 %d）—— "
+                    "没有调用任何模型" % total)
+            # 范围内都齐 ≠ 整本齐：整本齐才是 done，否则记 partial（作者 2026-11-03 拍板）
+            _verdict = _partial_or_done(chapters, "（本轮没有调用任何模型）")
+            return (_msg if _verdict is None else _verdict), _msg
 
     # 崩溃窗口恢复（step 级 checkpoint，2026-10-21）：**磁盘有合格正文、但 progress
     # 没标 done** 的章 = 上轮在“写作落盘”之后、“标记完成”之前崩了（进程被杀 /
@@ -1229,6 +1358,8 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                     if group is not None:
                         st["current_group"] = int(group.get("idx") or 0) or st.get("current_group")
                     progress.save()
+                # 段群进度进账（2026-11-03）：按盘上 gK.md 的个数与合计字数
+                _note_parts(chapter_no)
             except Exception:                                # noqa: BLE001
                 pass
         return _on_file
@@ -1247,6 +1378,11 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                 cb(count_cn_words(read_text(path)), size)
             except Exception:                                # noqa: BLE001
                 pass
+
+    def _note_parts(chapter_no):
+        """把段群进度写进 progress（实现见模块级 note_parts，便于单测）。"""
+        note_parts(raw_dir.parent / "_parts", raw_dir, progress, chapter_no,
+                   total_groups=int(_ch_state.get("total_groups") or 0))
 
     def _group_progress(chapter_no):
         """段群开始回调（2026-10-27，加强模式）：把“第几群 / 本群配额”写进进度。
@@ -1273,6 +1409,8 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                     st["current_chars_source"] = "pending"
                     st["current_chars_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
                     progress.save()
+                # 段群进度进账（2026-11-03）：让"已落盘 4/5 群"在界面上看得见
+                _note_parts(chapter_no)
             except Exception:                                # noqa: BLE001
                 pass
         return _on_group
@@ -1497,6 +1635,7 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
             # 段群调用已在 _group_run 里逐群记账 —— _finalize 只补 log，
             # 不再重复 charge（否则一章记两遍账）。
             result["already_charged"] = True
+            _note_parts(n)          # 拼装完 → 清掉"未拼装"条目；未拼装则记下真实群数
             if _bstate["paused"]:
                 _detail = _pause_detail(cost, run_id)
                 print(f"[stage4] 熔断停止[{_detail['reason']}]：{_detail['message']}"
@@ -1834,6 +1973,13 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                            error=_first_why or None)
         return False, f"stage4 有 {len(remaining_failed)} 章失败" + (
             f"（首条：{_first_why}）" if _first_why else "")
+    # 整本齐 → done；只把你要的章写完、范围外还缺 → partial（不标完成）。
+    if chapters:
+        _verdict = _partial_or_done(chapters, "")
+        if _verdict is not None:
+            return _verdict, (f"stage4 按范围完成（本轮写了第 {done_this_round} 章）"
+                              if _verdict is False else
+                              f"stage4 完成（{total} 章）")
     progress.set_stage(4, "done")
     return True, f"stage4 完成（{total} 章）"
 

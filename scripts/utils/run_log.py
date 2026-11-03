@@ -220,6 +220,54 @@ def tail(lines=200, log_path=None):
     return text.splitlines()[-max(1, int(lines)):]
 
 
+# ---- 一次 job 的边界（`/logs/tail?job=<id>` 用它切片）----------------------
+# 为什么要有：日志是一条**共享**的追加流，多次 run 混在一起。排障时用户点
+# “查看日志”，看到的是别人的历史输出 —— 那不是"这次失败的日志"。
+# 边界行由 nf_api 在 job 起止各写一条，切片是纯函数，两边共用同一口径。
+JOB_MARK = "[job]"
+
+
+def job_marker(job_id, phase, code=None):
+    """job 的边界行（phase: start / end）。"""
+    tail = "" if code is None else " exit=%s" % code
+    return "%s ===== %s %s%s =====" % (JOB_MARK, job_id, phase, tail)
+
+
+def _job_phase(line, job_id):
+    """这行是不是 job_id 的边界行；是就返回 "start"/"end"，否则 None。
+
+    注意 end 行后面还带 `exit=<state>`，所以不能用 `endswith("end =====")` 判断
+    （第一版就是这么写错的：end 永远认不出来，切片一路冲到下一个 job）。
+    """
+    token = "%s ===== %s " % (JOB_MARK, job_id)
+    if token not in line:
+        return None
+    rest = line.split(token, 1)[1].strip()
+    for phase in ("start", "end"):
+        if rest.startswith(phase):
+            return phase
+    return None
+
+
+def extract_job_block(lines, job_id):
+    """从日志行里切出某个 job 的那一段（取**最后一段**，兼容同一 id 重跑）。
+
+    找不到边界返回 []（调用方据此回一句"这次 run 没有日志"而不是给别人的日志）。
+    """
+    start = None
+    for i, line in enumerate(lines):
+        if _job_phase(line, job_id) == "start":
+            start = i
+    if start is None:
+        return []
+    out = []
+    for line in lines[start:]:
+        out.append(line)
+        if _job_phase(line, job_id) == "end":
+            break
+    return out
+
+
 def log_status(cfg=None):
     """汇总日志现状（供 GUI 展示 / 排障）：路径、大小、天数、归档数。"""
     level, rotate_days = load_logging_cfg(cfg)

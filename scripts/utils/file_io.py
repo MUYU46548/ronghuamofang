@@ -22,13 +22,25 @@ def read_text(path, fallback_encodings=ENCODINGS):
 
 
 def write_text(path, content, newline="\n", atomic=True):
-    """UTF-8 写入；统一 LF 换行。atomic=True 时先写 .tmp 再 rename，防断电半写。"""
+    """UTF-8 写入；统一 LF 换行。atomic=True 时先写 .tmp 再 rename，防断电半写。
+
+    失败时**不留下 .tmp 垃圾**，原文件保持原样（2026-11-03 补 finally）：
+    否则一次失败会在数据目录里堆 `.md.tmp`，而且下次 `glob("*.md")` 不会读到它，
+    用户根本不知道那里躺着一份半截稿。
+    """
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     if atomic:
         tmp = p.with_suffix(p.suffix + ".tmp")
-        tmp.write_text(content, encoding="utf-8", newline=newline)
-        tmp.replace(p)
+        try:
+            tmp.write_text(content, encoding="utf-8", newline=newline)
+            tmp.replace(p)
+        except BaseException:
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
     else:
         p.write_text(content, encoding="utf-8", newline=newline)
 

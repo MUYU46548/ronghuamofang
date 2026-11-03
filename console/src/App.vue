@@ -2486,7 +2486,13 @@ const totalStages = computed(() => {
 const progressPercent = computed(() => progressPct.value);
 
 function statusBadge(s) {
-  return { pending: "待办", running: "进行中", done: "完成", failed: "失败", rejected: "已打回", retrying: "自动重试中", stopped: "已中断" }[s] || s;
+  return { pending: "待办", running: "进行中", done: "完成", failed: "失败", rejected: "已打回", retrying: "自动重试中", stopped: "已中断", partial: "按范围完成" }[s] || s;
+}
+function partsTitle(parts) {
+  /* 段群进度（2026-11-03）：加强模式逐群落盘，拼装前这些字已经在盘上了。 */
+  return Object.entries(parts || {})
+    .map(([n, v]) => `第 ${n} 章：${v.done}/${v.total || "?"} 群 · 约 ${v.words || 0} 字`)
+    .join("\n") + "\n\n点“运行”会从断点接着写（已落盘的群不重调）。";
 }
 function fmtYuan(v) { return "¥" + Number(v || 0).toFixed(4); }
 function fmtNum(v) { return Number(v || 0).toLocaleString("zh-CN"); }
@@ -5328,9 +5334,17 @@ onUnmounted(() => {
             <!-- 2026-10-27：进程被杀/重启后 progress.json 仍留 running，界面会一直
                  “运行中” + 一个不动的百分比（用户就是因此以为卡死）。GUI 内存里
                  没有任务时明说这是残留状态，并给出唯一正确动作（运行 = 断点续跑）。 -->
-            <span v-if="s.status === 'running' && !isRunning" class="pill st-rej"
-                  title="GUI 没有后台任务在跑。若你是在命令行跑流水线，请忽略；否则这是上次异常中断留下的状态 —— 点“运行”续跑（已完成章节不会重写），或“打回”重来。">状态残留</span>
+            <!-- 运行态真相（F02，2026-11-03）：不再只靠"GUI 内存里有没有 job"猜 ——
+                 后端按记录里的 pid 判活（命令行起的 run 也能判对），s.stale 就是结论。 -->
+            <span v-if="s.status === 'running' && (s.stale || !isRunning)" class="pill st-rej"
+                  :title="s.stale_why || 'GUI 没有后台任务在跑。若你是在命令行跑流水线，请忽略；否则这是上次异常中断留下的状态 —— 点“运行”续跑（已完成章节不会重写），或“打回”重来。'">状态残留</span>
             <span v-if="s.status === 'done' && !s.approved" class="pill st-gate">待审批</span>
+            <!-- 2026-11-03（作者拍板）：按章范围跑完 = 部分完成，绝不是"完成"。
+                 点"运行"就按剩余章续写（断点续跑，不重写已完成的章）。 -->
+            <span v-if="s.status === 'partial'" class="pill st-gate"
+                  :title="s.chapters_left && s.chapters_left.length ? ('还有第 ' + s.chapters_left.join('、') + ' 章没写。把剩下的章号填进范围再跑即可续写。') : '按章范围跑完，整本还没齐'">
+              还有 {{ (s.chapters_left || []).length || '?' }} 章没写
+            </span>
             <span v-if="s.skipped" class="pill st-skip" title="人工跳过，未生成产物">已跳过</span>
             <span v-if="s.rejected" class="pill st-rej" :title="s.rejected">打回: {{ s.rejected.slice(0, 12) }}</span>
             <span v-if="s.needs_rewrite && s.needs_rewrite.length" class="pill st-rej"
@@ -5349,6 +5363,11 @@ onUnmounted(() => {
               字数缩水 {{ countKeys(s.shrink) }} 章
             </span>
             <!-- 清单第 3 条：停止时留下的半截已经存成残稿，别让人以为白写了 -->
+            <!-- 段群进度进账（2026-11-03）：加强模式逐群落盘，拼装前这些字在盘上、
+                 却不在任何界面里 —— 用户以为"这章没写"。 -->
+            <span v-if="countKeys(s.parts)" class="pill st-gate" :title="partsTitle(s.parts)">
+              未拼装 {{ countKeys(s.parts) }} 章（段群已落盘）
+            </span>
             <span v-if="countKeys(s.partial)" class="pill st-gate"
                   :title="whyTitle(s.partial, 'partial')">
               有 {{ countKeys(s.partial) }} 段残稿

@@ -939,6 +939,16 @@ def stage_status(progress, n, total_chapters=None):
     # 中断时留下的半截（清单第 3 条）：章号 → 残稿路径/字数，界面据此提示"去残稿看看"
     if st.get("partial"):
         out["partial"] = st["partial"]
+    # 按范围完成 = 部分完成（2026-11-03 作者拍板）：界面要能说"还有哪几章没写"，
+    # 否则用户看到状态不是"完成"却不知道差什么。
+    if st.get("chapters_left"):
+        out["chapters_left"] = st["chapters_left"]
+    if st.get("partial_scope"):
+        out["partial_scope"] = st["partial_scope"]
+    # 段群进度进账（2026-11-03）：{章号: {done, total, words}} —— 加强模式逐群落盘，
+    # 拼装前这些字在盘上、却不在任何界面里，用户以为"这章没写"。
+    if st.get("parts"):
+        out["parts"] = st["parts"]
     # 字数缩水（清单第 7 条）：章号 → {before, after, ratio}，界面标出来
     if st.get("shrink"):
         out["shrink"] = st["shrink"]
@@ -984,6 +994,16 @@ def build_state():
     _cfg, _proj = load_all()
     _total_ch = int((_proj or {}).get("book", {}).get("chapters") or 0) or None
     stages = [stage_status(progress, n, _total_ch) for n in sorted(_STAGE_NAMES)]
+    # 运行态真相（F02，2026-11-03）：status=running 到底是"在跑"还是"上辈子留下的"。
+    # 判据是记录里的 pid 还活不活（utils.liveness），不是"GUI 内存里有没有 job" ——
+    # 命令行起的 run 也要能判对。
+    from utils import liveness as _liveness
+    _run = _liveness.run_status(progress)
+    if _run.get("stale"):
+        for _s in stages:
+            if _s.get("status") == "running":
+                _s["stale"] = True
+                _s["stale_why"] = _run.get("why")
     gates = (_cfg or {}).get("gates", {})
     cost_spent, calls, est = 0.0, 0, 0
     tokens_used, tokens_run = 0, None
@@ -1029,6 +1049,8 @@ def build_state():
         "has_progress": (ROOT / "data" / "state" / "progress.json").exists(),  # 冷启动引导用：是否跑过流水线
         "archived": archived,                   # 已归档书列表（新建项目向导展示用）
         "stages": stages,
+        # 运行态（F02）：{alive, stale, pid, since, stage, why}
+        "runner": _run,
         "gates": gates,
         "cost": {"spent_yuan": round(cost_spent, 4),
                  "calls": calls, "estimated_entries": est,
@@ -1173,6 +1195,13 @@ def start_job(kind, fn):
 
     def _worker():
         state, detail = "failed", ""
+        # 日志边界（P3，2026-11-03）：日志是共享追加流，不画边界就分不清
+        # "这次 job 的输出"和"上一次 run 的历史"。/logs/tail?job= 靠这两行切片。
+        try:
+            from utils.run_log import append_line, job_marker
+            append_line(job_marker(job_id, "start"), level="info")
+        except Exception:                                    # noqa: BLE001
+            pass
         try:
             ok, detail = fn()
             state = "ok" if ok else "failed"
@@ -1187,6 +1216,11 @@ def start_job(kind, fn):
                 JOBS[job_id]["result"] = detail
                 if CURRENT["id"] == job_id:
                     CURRENT["id"] = None
+            try:
+                from utils.run_log import append_line, job_marker
+                append_line(job_marker(job_id, "end", state), level="info")
+            except Exception:                                # noqa: BLE001
+                pass
             _notify_stream_done(job_id, state, detail)
             clear_stop(job_id)
 
@@ -1206,6 +1240,16 @@ def _rc_to_result(rc):
     if rc == 4:
         return True, "用户中断（exit=4）"
     if rc == 3:
+        # 3 有两条来路：审批门暂停、**按范围完成（部分完成）**（2026-11-03）。
+        # 后者不是"审批"，说成审批会让作者去找一个不存在的确认按钮。
+        try:
+            _pg = ProgressManager(ROOT / "data" / "state" / "progress.json")
+            _st4 = (getattr(_pg, "data", {}) or {}).get("stages", {}).get("4") or {}
+        except Exception:                                    # noqa: BLE001
+            _st4 = {}
+        if _st4.get("status") == "partial":
+            return True, ("按范围完成（部分）：还有第 %s 章没写 —— 补上范围再跑即可续写"
+                          % (_st4.get("chapters_left") or []))
         return True, "exit=3（等待审批，属正常门暂停）"
     return (rc == 0), "exit=" + str(rc)
 

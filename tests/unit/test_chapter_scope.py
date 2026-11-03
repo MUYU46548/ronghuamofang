@@ -93,6 +93,38 @@ def main():
     check("P9 重试那行不再裸调 run_stage",
           "run_stage(cfg, proj, progress, db, cost, client=client, run_id=run_id)" not in orch_src)
 
+    # ---- P10 按范围完成 = 部分完成（2026-11-03 作者拍板）----
+    from stage4_writing import _scope_completion
+    check("P10 范围 1-3 全写完、全书 5 章只差 4/5 → 部分完成（外面缺 4,5）",
+          _scope_completion({1, 2, 3}, {1, 2, 3}, 5) == ([4, 5], []),
+          _scope_completion({1, 2, 3}, {1, 2, 3}, 5))
+    check("P10 整本都写完 → 无缺（可以标 done）",
+          _scope_completion({1, 2, 3}, {1, 2, 3, 4, 5}, 5) == ([], []))
+    check("P10 范围内还有没写完的 → left_in 非空（走失败/中断语义，不判部分完成）",
+          _scope_completion({1, 2, 3}, {1}, 5) == ([4, 5], [2, 3]),
+          _scope_completion({1, 2, 3}, {1}, 5))
+    check("P10 不限范围（None）→ 两项都空，语义与从前一致",
+          _scope_completion(None, {1}, 5) == ([], []) and
+          _scope_completion(set(), {1}, 5) == ([], []))
+    check("P10 范围超出本书章数不影响判定",
+          _scope_completion({1, 2, 9}, {1, 2}, 3) == ([3], []))
+
+    # 接线：不许把"按范围完成"写成 done，也不许被当成失败去重试
+    s4_src = (ROOT / "scripts" / "stage4_writing.py").read_text(encoding="utf-8")
+    check("P11 stage4 把按范围完成落成 partial（不是 done）",
+          'progress.set_stage(4, "partial"' in s4_src)
+    check("P11 stage4 用的是盘上事实判完成（is_chapter_complete），不是只看标记",
+          "is_chapter_complete(_p, *_tw_scope" in s4_src)
+    check("P11 orchestrator 见到 partial 就不重试、不进下游",
+          'progress.stage_status(n) == "partial"' in orch_src
+          and '_finalize("waiting_review", 3)' in orch_src)
+    check("P11 /state 把 chapters_left 交给界面",
+          'out["chapters_left"] = st["chapters_left"]' in
+          (ROOT / "scripts" / "nf_api.py").read_text(encoding="utf-8"))
+    check("P11 界面把 partial 显示成【按范围完成】",
+          'partial: "按范围完成"' in
+          (ROOT / "console" / "src" / "App.vue").read_text(encoding="utf-8"))
+
     # ---- P8~P10 行为：真的缩了范围（不是只解析了字符串）----
     want, out = _apply_scope([1, 2, 3, 4, 5, 6], {1, 2, 3})
     check("P8 只写 1-3 时 todo 缩到 3 章", want == [1, 2, 3], want)

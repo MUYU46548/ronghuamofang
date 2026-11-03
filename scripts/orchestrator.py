@@ -46,6 +46,7 @@ from utils.cost_tracker import CostTracker
 from utils.config_io import load_pipeline_config
 from utils.engine import resolve_engine
 from utils import error_contract
+from utils import liveness
 
 import stage1_consolidate as s1
 import stage2_outline as s2
@@ -371,6 +372,8 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
         卡住的阶段没有任何出口 —— `retrying` 能进不能出。
         """
         nonlocal finished
+        # 收尾撤掉运行标记：不撤的话，下一轮/下次启动会把"上一轮的 pid"当成失联。
+        liveness.clear_run_marker(progress)
         _n = _cur_stage.get("n")
         if _n is not None:
             settle_retrying_stage(progress, _n, status)
@@ -430,6 +433,9 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
         run_id = db.start_run(
             plan_json=(f"stages={stages}" if stages
                        else f"from={from_stage} only={only_stage}"))
+        # 运行态真相（F02，2026-11-03）：把本进程 pid 写进 progress。读取端
+        # （/state、GUI）据此判断"running 是真的在跑，还是崩溃留下的"。
+        liveness.mark_run_start(progress, stage=(only_stage or from_stage))
 
         def _post_stage(n):
             """阶段成功后的后置动作（快照 / 素材体检 / 自动重写 / 审稿门 / 校对）。
@@ -639,6 +645,17 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
                                           task_dir="data/state/tasks", run_id=run_id,
                                           **_extra)
             print(f"[orchestrator] 阶段{n} 结果: {msg}")
+            # 按范围完成 = 部分完成（2026-11-03，作者拍板）：既不是失败（不重试、
+            # 不标 failed、不铺废稿），也不是完成（不进下游阶段）。停在"等你确认"上。
+            # 判据只看 stage4 落在 progress 的状态 —— 它已经把"范围里齐、范围外缺"
+            # 算清楚了，orchestrator 不重复算一遍。
+            if progress.stage_status(n) == "partial":
+                _st = (progress.data.get("stages", {}) or {}).get(str(n)) or {}
+                _left = _st.get("chapters_left") or []
+                print(f"[orchestrator] 阶段{n} **按范围完成**（部分）：还有第 "
+                      f"{_left} 章没写 —— 本轮到此为止（不重试、不进下游）；"
+                      "把剩下的章号填进范围再跑即可续写")
+                return _finalize("waiting_review", 3)
             # P0-4：阶段内请求的停止（stage4 章间检查等）立即收尾 —— 不再等下一个
             # 阶段边界，也绝不带着停止继续跑后置钩子（审稿等 LLM 动作）。
             if _stop_requested():
