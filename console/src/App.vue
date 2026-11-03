@@ -123,6 +123,16 @@ async function loadLock() {
     if (r.status === 200) lockState.value = r.data;
   } catch (e) { /* 顶栏状态坏了不该拖垮主界面 */ }
 }
+/* 指到即到（2026-11-02，F07）：缺陷单点“去精修这一段” → 切到精修页并选中那一段。
+   以前只能记下段号、自己到另一个页签里翻。
+   带 at 时间戳：同一段再点一次也要重新定位（否则 watch 不触发）。 */
+const refineFocus = ref(null);
+function gotoParagraph({ chapter, index }) {
+  if (!chapter) return say("这一章还没打开，先在上面选一章");
+  refineFocus.value = { chapter, index, at: Date.now() };
+  switchTab("refine");
+}
+
 /* 写完这章就停（2026-11-02，F04）：与“停止”是两个动作 ——
    停止立刻掐断（半截存残稿），这个等本章入稿、标完成后再停。 */
 const finishChapterOn = ref(false);
@@ -5388,7 +5398,7 @@ onUnmounted(() => {
       <template v-else>
       <!-- 判定报告（P0，0.7.17）：整本一页 → 单章详情 → 合格标准。
            放在章节页签顶部（产品定义 04 §2.1：不新增顶层页签）。 -->
-      <JudgePanel @say="say" @archived="onBookArchived" />
+      <JudgePanel @say="say" @archived="onBookArchived" @goto-paragraph="gotoParagraph" />
       <!-- 活二 Word 导入：外部稿 → 当作"已写好的章节"。两段式：预检（不落盘）→ 确认 -->
       <details class="import-box" :open="!!importPath || !!importPreview || !!importResult">
         <summary>导入 Word 稿（外部稿件 → raw / checked / refined）</summary>
@@ -5543,7 +5553,7 @@ onUnmounted(() => {
     <section v-if="tab === 'refine'">
       <FieldRefinePanel />
       <div class="refine-sep"></div>
-      <ParagraphRefinePanel />
+      <ParagraphRefinePanel :focus="refineFocus" />
     </section>
 
     <!-- 审核（沙盒产物审核队列：通过/驳回只改状态，不写文件、不碰 vault） -->

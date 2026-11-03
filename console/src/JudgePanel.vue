@@ -8,12 +8,12 @@
  * 3. 页头两句固定串必须常显：
  *    “存量回测判定，非新跑拦截”“本报告不改变现有成品文件”。
  */
-import { ref, computed, onMounted } from "vue";
+import { ref, computed, onMounted, nextTick } from "vue";
 import { API } from "./apiBase.js";
 import JudgeEvents from "./JudgeEvents.vue";
 
 // archived：归档搬空了工作区 —— 外层要重载项目列表/阶段/章节（2026-10-31）
-const emit = defineEmits(["say", "archived"]);
+const emit = defineEmits(["say", "archived", "goto-paragraph"]);
 
 const view = ref("report");          // report | detail | caliber
 const report = ref(null);
@@ -23,7 +23,20 @@ const artifact = ref(null);
 const preview = ref(null);
 const busy = ref(false);
 const err = ref("");
-const openDefect = ref(null);        // 展开的缺陷条目 id
+const openDefect = ref(null);
+/* 指到即到（F07）：高亮哪个段落 */
+const focusedPara = ref(null);
+function focusPara(idx) {
+  if (typeof idx !== "number") return;
+  focusedPara.value = idx;
+  nextTick(() => {
+    const el = document.querySelector(`.judge-body [data-para="${idx}"]`);
+    if (el && el.scrollIntoView) el.scrollIntoView({ block: "center", behavior: "smooth" });
+  });
+}
+function gotoParagraph(idx) {
+  emit("goto-paragraph", { chapter: detail.value?.chapter, index: idx });
+}        // 展开的缺陷条目 id
 const note = ref("");                // 裁定理由输入
 const feel = ref("");                // 打中了 / 没打中 / 拿不准
 const calEdit = ref({});             // 口径编辑（id -> 新值）
@@ -441,7 +454,8 @@ onMounted(loadReport);
         <div class="judge-defects">
           <div v-for="d in detail.defects" :key="d.id + d.paragraph_index + d.rule_id"
                class="judge-defect" :class="{ open: openDefect === d.id }">
-            <div class="judge-defect-row" @click="openDefect = openDefect === d.id ? null : d.id">
+            <div class="judge-defect-row"
+                 @click="openDefect = openDefect === d.id ? null : d.id; focusPara(d.paragraph_index)">
               <span class="judge-para">第 {{ d.paragraph_index || "—" }} 段</span>
               <span class="judge-rule">{{ d.rule_name }}<template v-if="d.count > 1"> ×{{ d.count }}</template></span>
               <span class="judge-quote">“{{ d.sentence }}”</span>
@@ -456,13 +470,21 @@ onMounted(loadReport);
                 <button class="mini" :class="{ primary: feel === '拿不准' }" @click="feel = '拿不准'">拿不准</button>
                 <input v-model="note" class="judge-reason" placeholder="一句理由（必填）" />
                 <button class="mini primary" :disabled="busy" @click="saveSentence(d)">记录裁定</button>
+                <button class="mini" v-if="d.paragraph_index"
+                        @click="gotoParagraph(d.paragraph_index)"
+                        title="带着这一段去段落精修工作台自己改">去精修这一段</button>
               </div>
             </div>
           </div>
           <div v-if="!detail.defects.length" class="meta">这章没命中任何规则。</div>
         </div>
         <div class="judge-body">
-          <div v-for="p in detail.paragraphs" :key="p.paragraph_index" class="judge-para-body">
+          <!-- 指到即到（2026-11-02，F07）：点缺陷行 → 正文滚到那一段并高亮。
+               以前缺陷单只说"第 3 段"，人还得自己在几百段里找。 -->
+          <div v-for="p in detail.paragraphs" :key="p.paragraph_index"
+               class="judge-para-body"
+               :class="{ 'judge-para-focus': focusedPara === p.paragraph_index }"
+               :data-para="p.paragraph_index">
             <span class="judge-para-no">{{ p.paragraph_index }}</span>{{ p.text }}
           </div>
         </div>
@@ -665,6 +687,14 @@ onMounted(loadReport);
 .judge-reason { flex: 1; min-width: 160px; background: var(--field); color: var(--ink); border: 1px solid var(--border); border-radius: 6px; padding: 3px 8px; }
 .judge-body { max-height: 460px; overflow: auto; font-size: 13px; line-height: 1.9; }
 .judge-para-body { margin-bottom: 8px; }
+/* 指到即到（F07）：点到的那一段给个明显的底，不然滚过去了也看不出来是哪段 */
+.judge-para-body.judge-para-focus {
+  background: #fff8d6;
+  box-shadow: inset 3px 0 0 #d9a600;
+  border-radius: 4px;
+  padding-left: 6px;
+  margin-left: -6px;
+}
 .judge-para-no { color: var(--muted); font-size: 11px; margin-right: 6px; }
 .judge-cal-input { width: 120px; background: var(--field); color: var(--ink); border: 1px solid var(--border); border-radius: 6px; padding: 2px 6px; }
 </style>

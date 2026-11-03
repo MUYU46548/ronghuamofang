@@ -15,12 +15,23 @@ async function api(path, method = "GET", body = null) {
 const chapterN = ref(null);
 const paragraphs = ref([]);
 const loading = ref(false);
+/* 指到即到（F07）：外面（缺陷单）指定"第 N 章第 M 段"，这里自动载入并选中。
+   at 是时间戳 —— 同一段再点一次也要重新定位（否则 watch 不触发）。 */
+const props = defineProps({ focus: { type: Object, default: null } });
 const selectedPara = ref(null);
 /* 自己改（2026-11-02，清单第 8 条）：与"提意见让模型重写"并列的第二条路。
    以前想改一个字也得提交重写 job 等结果 —— 人只能"再许愿一次"。 */
 const manualEdit = ref(false);
 const manualText = ref("");
 const manualSaving = ref(false);
+
+watch(() => props.focus, async (f) => {
+  if (!f || !f.chapter) return;
+  await loadParagraphs(f.chapter);
+  if (typeof f.index === "number" && f.index >= 0) {
+    selectPara(f.index);
+  }
+}, { immediate: true });
 function startManual() {
   manualText.value = paragraphs.value[selectedPara.value]?.text || "";
   manualEdit.value = true;
