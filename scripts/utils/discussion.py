@@ -117,6 +117,7 @@ def append_round(chapter, topic, role, text, root="."):
     from utils.file_io import append_text
     append_text(md, "\n### 第 %d 轮 · %s（%s）\n\n%s\n" % (n, speaker, _now(), str(text or "").strip()))
     state["rounds"] = n
+    state["last_role"] = str(role or "ai").lower()
     state["updated_at"] = _now()
     if state.get("status") != _STATUS_DECIDED:
         state["status"] = _STATUS_OPEN
@@ -170,6 +171,31 @@ def decide(chapter, topic, must=(), must_not=(), voice=(), foreshadow_plant=(),
 
 
 # ---------------------------------------------------------------- 读取/渲染
+def next_step(state):
+    """这个讨论下一步该谁说话（③ 接着推进，2026-11-03）。
+
+    讨论是往复的：断了以后，人和 agent 都要知道"轮到谁、问什么"，
+    否则每次都要从头读一遍稿子才知道自己在哪。
+    """
+    st = state or {}
+    if st.get("status") == _STATUS_DECIDED:
+        return {"role": None, "ask": "已定稿 —— 要改就开一个新讨论，别在结论上打补丁"}
+    last = str(st.get("last_role") or "")
+    rounds = int(st.get("rounds") or 0)
+    if rounds == 0:
+        return {"role": "author", "ask": "还没人说话：先说清这一章到底在犹豫什么"}
+    if last == "author":
+        return {"role": "ai", "ask": "作者刚说完 —— 给出 2-3 个可执行的走向，并写清代价"}
+    if last == "ai":
+        return {"role": "author", "ask": "AI 已给方案 —— 作者选一个，或在界面上定稿"}
+    return {"role": "author", "ask": "继续"}
+
+
+def open_threads(chapter=None, root="."):
+    """还没定稿的讨论（"接着聊"的入口）。"""
+    return [s for s in list_threads(chapter, root) if s.get("status") != _STATUS_DECIDED]
+
+
 def list_threads(chapter=None, root="."):
     """列出讨论（按章或全书）。零 token。"""
     base = Path(root) / DISCUSS_DIR

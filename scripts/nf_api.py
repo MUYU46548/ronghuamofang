@@ -187,6 +187,8 @@ try:
     from nf_api_domains import segments as dom_segments    # noqa: E402 (丙4 分段审批读写)
     from nf_api_domains import discuss as dom_discuss      # noqa: E402 (讨论落地协议)
     from nf_api_domains import discuss_thread as dom_thread  # noqa: E402 (讨论件 2026-11-03)
+    from nf_api_domains import lookup_tools as dom_lookup     # noqa: E402 (资料工具 2026-11-03)
+    from nf_api_domains import semantic_review as dom_semrev  # noqa: E402 (语义审稿 2026-11-03)
     from nf_api_domains import judge as dom_judge          # noqa: E402 (0.7.17 判定引擎：零 token)
 except Exception as _dom_err:                            # noqa: BLE001
     dom_chapters = None
@@ -206,6 +208,8 @@ except Exception as _dom_err:                            # noqa: BLE001
     dom_segments = None
     dom_discuss = None
     dom_thread = None
+    dom_lookup = None
+    dom_semrev = None
     dom_judge = None
     print("[nf_api] 域模块加载失败（端点将返回可行动错误）: " + str(_dom_err))
 
@@ -2510,6 +2514,13 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/discuss/list":
             # 讨论件（2026-11-03）：讨论的产物是一份会传导到写作的数据，不是聊天记录。
             self._send(*_dom(dom_thread.handle_discuss_list(self)))
+        elif p == "/lookup":
+            # 资料检索（2026-11-03）：摘要索引 + 按需读全文，替代"全量塞提示词"。
+            self._send(*_dom(dom_lookup.handle_lookup(self)))
+        elif p == "/notes/list":
+            self._send(*_dom(dom_lookup.handle_notes_list(self)))
+        elif p == "/review/semantic/list":
+            self._send(*_dom(dom_semrev.handle_review_semantic_list(self)))
         elif p == "/discuss/read":
             self._send(*_dom(dom_thread.handle_discuss_read(self)))
         elif p == "/outline/discussion/draft":
@@ -3313,6 +3324,12 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/discuss/open":
                 # 开讨论：写 data/discuss/NN/<主题>.md（只追加，不碰正文）
                 self._send(*_dom(dom_thread.handle_discuss_open(self, body)))
+            elif p == "/lookup/rebuild":
+                self._send(*_dom(dom_lookup.handle_lookup_rebuild(self, body)))
+            elif p == "/notes/add":
+                self._send(*_dom(dom_lookup.handle_note_add(self, body)))
+            elif p == "/review/semantic":
+                self._send(*_dom(dom_semrev.handle_review_semantic(self, body)))
             elif p == "/discuss/say":
                 # 追加一轮发言（AI 与作者都写同一份稿）
                 self._send(*_dom(dom_thread.handle_discuss_say(self, body)))

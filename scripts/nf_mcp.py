@@ -232,6 +232,60 @@ MCP_TOOLS = [
         "_http": ("POST", "/discuss/say", None),
     },
     {
+        "name": "nf_lookup",
+        "description": "查作品资料（2026-11-03 资料工具）：按关键词在设定集/素材/笔记里找，"
+                       "返回名字 + 一句话 + 出处。**先查再写**，不要假设自己记得设定；"
+                       "命中后按出处读全文（别把整本设定塞进上下文）。零 token。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "q": {"type": "string", "description": "要查什么（人名/地名/概念，可多个词）"},
+                "kind": {"type": "string",
+                         "description": "限定类型：character/location/faction/concept/item/"
+                                        "material/note（可空）"},
+                "limit": {"type": "integer", "description": "最多几条（默认 8）"},
+            },
+            "required": ["q"],
+        },
+        "_http": ("GET", "/lookup", None),
+    },
+    {
+        "name": "nf_notes_list",
+        "description": "列出案头笔记（data/notes/）。笔记不是正典，随时可删。零 token。",
+        "inputSchema": {"type": "object", "properties": {}},
+        "_http": ("GET", "/notes/list", None),
+    },
+    {
+        "name": "nf_note_add",
+        "description": "写一条案头笔记（不进正典、不碰任何产物）。适合记下你自己查到的结论、"
+                       "待确认的猜测。**不要用它冒充设定** —— 要进正典请走设定/大纲的正式通道。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string", "description": "一句话标题"},
+                "text": {"type": "string", "description": "笔记正文"},
+            },
+            "required": ["title", "text"],
+        },
+        "_http": ("POST", "/notes/add", None),
+    },
+    {
+        "name": "nf_review_semantic",
+        "description": "语义审稿（2026-11-03 窄口）：对某一章的“情绪曲线”或“视角漂移”"
+                       "开一个审稿讨论并生成任务书（零 token，不调模型）。产物是**讨论稿**，"
+                       "不是分数；你写完用 nf_discuss_say 追加，定稿归作者。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "chapter": {"type": "integer", "description": "章号"},
+                "focus": {"type": "string",
+                          "description": "审什么：情绪曲线（默认）/ 视角漂移"},
+            },
+            "required": ["chapter"],
+        },
+        "_http": ("POST", "/review/semantic", None),
+    },
+    {
         "name": "nf_ask",
         "description": "向作者提问。**唯一能让你停下来问人的通道** —— 不写回复正文里，"
                        "落到工作区，作者在界面上回答，之后用 nf_get_answers 读。"
