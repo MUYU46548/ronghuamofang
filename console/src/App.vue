@@ -36,6 +36,7 @@ import ForeshadowPanel from "./ForeshadowPanel.vue";
 import HandoffPanel from "./HandoffPanel.vue";
 import CompassPanel from "./CompassPanel.vue";
 import WritingPresetsPanel from "./WritingPresetsPanel.vue";
+import OnboardingGuide from "./OnboardingGuide.vue";
 
 // 审批门通知偏好
 const GATE_NOTIFY_KEY = "mofang_gate_notify";
@@ -253,6 +254,7 @@ async function refresh() {
     }
     if (m.status === 200) models.value = m.data;
     if (j && j.status === 200) lastJob.value = j.data;
+    guideReloadKey.value += 1;   // 引导的“下一步”跟着状态换（每 2.5s 一次，只读端点）
     loadLock();        // L-5：界面必须自己说出"锁在谁手里"，与状态同频刷新
     loadIntervene();   // 清单第 4 条：有没有待用的插话
     loadFinishChapter();  // F04：有没有登记“写完这章就停”
@@ -3218,50 +3220,42 @@ function reopenGuide() {
   localStorage.removeItem(GUIDE_KEY);
 }
 
-/* ---------- 首启引导状态检测 ---------- */
-const coldStartStatus = ref({
-  materials: { count: 0, checked: false },
-  apiKey: { has_key: false, checked: false },
-  bookName: { name: "", checked: false },
-});
+/* ---------- 新手序列引导（I-1，2026-11-03） ----------
+   判据全部在后端 `/onboarding/status`（确定性、零 token）；这里只负责两件事：
+     · 把“下一步”的 action 翻译成真实的界面动作（切页签 / 开向导）；
+     · 高亮目标控件 —— 旧版只写“去素材页签”，用户还得自己在页签里找入口。 */
+const guideReloadKey = ref(0);
 
-async function checkColdStartStatus() {
-  // 2026-10-07 放开冷启动限制：非冷启动工作区的首启引导也要真实状态
-  // （全部只读接口，仅在展示引导时调用）。
-  // 素材数
-  try {
-    const m = await api("/materials/list");
-    if (m.status === 200) {
-      coldStartStatus.value.materials = { count: m.data.count || 0, checked: true };
-    }
-  } catch (e) { /* ignore */ }
-  // API Key
-  try {
-    const p = await api("/models/available");
-    if (p.status === 200) {
-      const tokenhub = p.data.providers?.tokenhub;
-      coldStartStatus.value.apiKey = { has_key: !!tokenhub?.has_key, checked: true };
-    }
-  } catch (e) { /* ignore */ }
-  // 书名
-  try {
-    const c = await api("/config/project");
-    if (c.status === 200 && c.data.ok) {
-      coldStartStatus.value.bookName = { name: c.data.config?.book?.name || "", checked: true };
-    }
-  } catch (e) { /* ignore */ }
-  // 外部 Agent 接入状态（仅 Electron 有 IPC；浏览器验收态保持“未检查”）
-  try {
-    if (window.mofangAPI?.agentConnectInfo && !agentConnect.value) {
-      await loadAgentConnect();
-    }
-  } catch (e) { /* ignore */ }
+/** 高亮某个目标元素（3 秒脉冲）+ 滚到可见位置。找不到就静默（不假装点了）。 */
+function spotlight(name) {
+  if (!name || typeof document === "undefined") return;
+  nextTick(() => {
+    const el = document.querySelector('[data-ob="' + name + '"]');
+    if (!el) return;
+    try { el.scrollIntoView({ block: "center", behavior: "smooth" }); } catch (e) { /* 老内核 */ }
+    el.classList.add("ob-spot");
+    setTimeout(() => el.classList.remove("ob-spot"), 3200);
+  });
 }
 
-const coldStartReady = computed(() => {
-  const s = coldStartStatus.value;
-  return s.materials.count > 0 && s.apiKey.has_key && s.bookName.name && s.bookName.name !== "示例书名（待填写）";
-});
+/** 引导的“带我去”：action 形状见 scripts/nf_api_domains/onboarding.py */
+function onboardingGo(action) {
+  const a = action || {};
+  if (a.kind === "new_project") { openNewProject(); return; }
+  const t = a.tab || "pipeline";
+  switchTab(t);
+  if (a.settings_tab) selectSettingsTab(a.settings_tab);
+  if (a.spot) spotlight(a.spot);
+  say("→ " + ((TAB_ORDER.find((x) => x.t === t) || {}).name || t));
+}
+
+/** 引导卡底部“接入外部 Agent”入口：设置页 → Agent 接入分类。
+    保留旧五步卡的能力入口 —— 新引导聚焦主线后，这条不能跟着消失。 */
+function openAgentConnect() {
+  switchTab("settings");
+  selectSettingsTab("agent");
+  say("→ 设置 · Agent 接入");
+}
 
 const SHORTCUTS = [
   { k: "Ctrl + K", d: "命令面板（搜索一切操作）" },
@@ -4796,7 +4790,6 @@ onMounted(() => {
   watch(isColdStart, (v) => {
     if (v) {
       showGuide.value = !localStorage.getItem(GUIDE_KEY);
-      checkColdStartStatus();
     } else {
       showGuide.value = false;
     }
@@ -4810,10 +4803,9 @@ onMounted(() => {
     // 检查素材目录是否为空
     checkMaterialsEmpty();
     // 新手引导：没手动关闭过就展示（含非冷启动工作区的首启）——
-    // 引导卡含素材 / 书名 / API Key / Agent 接入就绪检查。
+    // 步骤与判据由 OnboardingGuide → /onboarding/status 自己取。
     if (!localStorage.getItem(GUIDE_KEY)) {
       showGuide.value = true;
-      checkColdStartStatus();
     }
   };
   if (!hasAckedDisclaimer()) {
@@ -5075,73 +5067,13 @@ onUnmounted(() => {
     </div>
 
 
-    <!-- 新手引导（首启未关闭即显示，免责声明确认后弹出）：五步上手路径 + 就绪状态检查 -->
-    <div v-if="tab === 'pipeline' && state && showGuide && !disclaimerOpen" class="coldstart">
-      <div style="display:flex;justify-content:space-between;align-items:center;">
-        <div class="cs-title">从这个开始（五步跑通第一本书）</div>
-        <button class="mini" @click="dismissGuide" title="关闭引导">✕</button>
-      </div>
-      <div class="cs-steps">
-        <div class="cs-step">
-          <span class="cs-no">1</span>
-          <div>
-            <b>放素材</b>
-            <div class="meta">materials/raw/ 放设定卡；随手写的碎片丢 materials/original_scraps/</div>
-          </div>
-          <span v-if="coldStartStatus.materials.checked && coldStartStatus.materials.count > 0" class="pill st-done">✓ {{ coldStartStatus.materials.count }} 张卡</span>
-          <span v-else-if="coldStartStatus.materials.checked" class="pill st-warn">暂无素材</span>
-          <button class="mini" @click="switchTab('materials')">去素材</button>
-        </div>
-        <div class="cs-step">
-          <span class="cs-no">2</span>
-          <div>
-            <b>建项目</b>
-            <div class="meta">书名 / 类型 / 章数一键创建（自动归档旧项目）</div>
-          </div>
-          <span v-if="coldStartStatus.bookName.checked && coldStartStatus.bookName.name && coldStartStatus.bookName.name !== '示例书名（待填写）'" class="pill st-done">✓ {{ coldStartStatus.bookName.name }}</span>
-          <span v-else-if="coldStartStatus.bookName.checked" class="pill st-warn">未命名</span>
-          <button class="mini primary" @click="openNewProject">新建项目</button>
-        </div>
-        <div class="cs-step">
-          <span class="cs-no">3</span>
-          <div>
-            <b>跑流水线</b>
-            <div class="meta">下面“一键工作流 → 执行下一步”；审批门在“收件箱”</div>
-          </div>
-          <span v-if="coldStartStatus.apiKey.checked && coldStartStatus.apiKey.has_key" class="pill st-done">✓ API 已配置</span>
-          <span v-else-if="coldStartStatus.apiKey.checked" class="pill st-warn">API 未配置</span>
-          <button class="mini" @click="paletteOpen = true">Ctrl+K 命令面板</button>
-        </div>
-        <div class="cs-step">
-          <span class="cs-no">4</span>
-          <div>
-            <b>验收交付</b>
-            <div class="meta">审稿逐条决策 → 校对体检 → 导出 Word 成品</div>
-          </div>
-          <button class="mini" @click="openAbout">看完整说明</button>
-          <button class="mini" @click="openHelp">使用手册</button>
-        </div>
-        <div class="cs-step">
-          <span class="cs-no">5</span>
-          <div>
-            <b>接外部 Agent（可选）</b>
-            <div class="meta">设置 → 接入其他 Agent：MCP 配置段 / “让它自装”指令，配好后外部 Agent 可代管流水线</div>
-          </div>
-          <span v-if="agentConnect && agentConnect.mcpListening" class="pill st-done">✓ MCP 监听中</span>
-          <span v-else-if="agentConnect" class="pill st-warn">MCP 未监听</span>
-          <button class="mini" @click="switchTab('settings')">去接入</button>
-        </div>
-      </div>
-      <!-- 状态全绿时显示“开始运行”按钮 -->
-      <div v-if="coldStartReady" class="cs-ready">
-        <span class="meta">三项准备就绪：素材 {{ coldStartStatus.materials.count }} 张 · API 已配置 · 项目“{{ coldStartStatus.bookName.name }}”</span>
-        <button class="mini primary" @click="runNextAction">开始运行流水线</button>
-      </div>
-      <!-- 状态未全绿时显示提示 -->
-      <div v-else class="cs-warn">
-        <span class="meta">请先完成上方步骤（素材、项目、API Key）后再运行流水线。</span>
-      </div>
-    </div>
+    <!-- 新手序列引导（I-1，2026-11-03）：判据在后端 /onboarding/status，
+         界面只说“下一步点哪里”，并按 action 真跳页签 + 高亮目标控件。
+         旧版五条并列文本已整块删除（新旧并存 = 用户不知道该看哪个）。 -->
+    <OnboardingGuide v-if="tab === 'pipeline' && state && !disclaimerOpen"
+                     :api="api" :visible="showGuide" :reload-key="guideReloadKey"
+                     @dismiss="dismissGuide" @go="onboardingGo"
+                     @help="openHelp" @agent="openAgentConnect" />
 
     <!-- 重看引导按钮（非冷启动或引导已关闭时显示） -->
     <div v-if="tab === 'pipeline' && state && !showGuide" style="margin-bottom: 8px;">
@@ -5272,6 +5204,7 @@ onUnmounted(() => {
         <span class="meta">{{ nextAction ? nextAction.hint : '' }}</span>
         <span class="spacer"></span>
         <button class="mini primary" :disabled="isRunning || !nextAction || nextRunLocked"
+                data-ob="flow-run"
                 :title="nextRunLocked ? AGENT_LOCK_HINT : ''" @click="runNextAction">
           ⏎ 执行下一步
         </button>
@@ -5827,7 +5760,7 @@ onUnmounted(() => {
     </section>
 
     <!-- 收件箱 -->
-    <section v-if="tab === 'inbox' && state" class="card">
+    <section v-if="tab === 'inbox' && state" class="card" data-ob="gate-list">
       <div class="card-head">
         <h3>审批收件箱</h3>
         <span v-if="gateJustHit" class="pill st-gate">刚到达</span>

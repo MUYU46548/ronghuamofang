@@ -1117,21 +1117,120 @@ def test_about_project(browser, mock_proc=None):
     finally:
         ctx.close()
 
-    print("  --- 冷启动引导（全新工作区）---")
+    print("  --- 新手序列引导（I-1，2026-11-03）---")
     ctx2, page2, errs2, bad2 = new_page(browser, COLD_API, "cold")
     try:
-        check("全新工作区显示冷启动引导卡", page2.locator(".coldstart").count() == 1)
-        check("引导含五步上手路径", page2.locator(".cs-step").count() == 5,
-              page2.locator(".cs-step").count())
-        check("第 5 步是 Agent 接入检查（监听状态两态之一）",
-              page2.locator(".cs-step:has-text('接外部 Agent')").count() == 1
-              and (page2.locator(".cs-step:has-text('MCP 未监听')").count() == 1
-                   or page2.locator(".cs-step:has-text('MCP 监听中')").count() == 1))
-        check("引导里有\u300c新建项目\u300d直达按钮",
-              page2.locator(".coldstart button:has-text('新建项目')").count() == 1)
-        shot(page2, "D6_coldstart")
+        check("全新工作区显示序列引导卡", page2.locator(".ob-card").count() == 1,
+              page2.locator(".ob-card").count())
+        check("给出唯一的“”",
+              "下一步：建项目" in (page2.locator(".ob-next-title").inner_text()
+                                if page2.locator(".ob-next-title").count() else ""),
+              page2.locator(".ob-next-title").inner_text()
+              if page2.locator(".ob-next-title").count() else "(缺)")
+        check("收起态不铺步骤（先一句“下一步”，不糊一脸）",
+              page2.locator(".ob-step").count() == 0)
+        page2.locator(".ob-card button:has-text('全部步骤')").click()
+        page2.wait_for_timeout(350)
+        check("展开后 8 步齐全", page2.locator(".ob-step").count() == 8,
+              page2.locator(".ob-step").count())
+        check("只有一个“”（序列严格）",
+              page2.locator(".ob-step.is-current").count() == 1,
+              page2.locator(".ob-step.is-current").count())
+        check("当前步写明点了哪里",
+              page2.locator(".ob-step.is-current .ob-step-how").count() == 1)
+        shot(page2, "D6_onboarding_cold")
+        page2.locator(".ob-step.is-current button:has-text('带我去')").click()
+        page2.wait_for_timeout(500)
+        check("“”真的打开了新建项目向导",
+              page2.locator(".drawer-mask .dialog").count() >= 1,
+              page2.locator(".drawer-mask .dialog").count())
+        errs2_real = [e for e in errs2 if "404" not in e]
+        check("引导无 console 报错", not errs2_real, errs2_real[:3])
     finally:
         ctx2.close()
+
+    print("  --- 审批门抢“”+ 带我去高亮 ---")
+    ctx3, page3, errs3, bad3 = new_page(browser, MOCK_API, "gate-guide")
+    try:
+        check("有未审批阶段时，下一步 = 审批放行",
+              "审批放行" in (page3.locator(".ob-next-title").inner_text()
+                          if page3.locator(".ob-next-title").count() else ""),
+              page3.locator(".ob-next-title").inner_text()
+              if page3.locator(".ob-next-title").count() else "(缺)")
+        page3.locator(".ob-card button:has-text('带我去')").first.click()
+        page3.wait_for_timeout(450)
+        check("切到收件箱页签",
+              page3.locator(".tabs button.active:has-text('收件箱')").count() == 1,
+              page3.locator(".tabs button.active").all_inner_texts())
+        check("目标区域被高亮（ob-spot 落到了 gate-list）",
+              page3.locator('[data-ob="gate-list"].ob-spot').count() == 1)
+        shot(page3, "D7_onboarding_gate")
+        errs3_real = [e for e in errs3 if "404" not in e]
+        check("引导跳转无 console 报错", not errs3_real, errs3_real[:3])
+    finally:
+        ctx3.close()
+
+
+    print("  --- 多方案：逐版进度 + 并排对比（I-2）---")
+    ctx4, page4, errs4, bad4 = new_page(browser, MOCK_API, "multi")
+    try:
+        page4.locator(".tabs button:has-text('大纲')").click()
+        page4.wait_for_timeout(900)
+        page4.locator("button:has-text('多方案')").first.click()
+        page4.wait_for_timeout(1200)
+        check("多方案抽屉打开", page4.locator(".ov-multi").count() == 1,
+              page4.locator(".ov-multi").count())
+        check("三份方案并排", page4.locator(".ov-multi-col").count() == 3,
+              page4.locator(".ov-multi-col").count())
+        check("推荐列只有一列且带徽标",
+              page4.locator(".ov-multi-col.is-rec").count() == 1
+              and page4.locator(".ov-multi-col.is-rec:has-text('推荐')").count() == 1)
+        meta_txt = page4.locator(".ov-multi-meta").first.inner_text()
+        check("元信息显示字数 / 节点 / 章规划",
+              "5,820" in meta_txt and "节点" in meta_txt and "章规划" in meta_txt, meta_txt)
+        check("推荐说明不越权（明说是排序建议）",
+              page4.locator(".ov-multi-hint:has-text('最终由你定')").count() == 1)
+        check("默认勾选与推荐一致（不出现“推荐2、默认1”）",
+              page4.locator(".ov-multi-col.is-rec input[type=checkbox]").first.is_checked()
+              and page4.locator(".ov-multi-col.is-rec input[type=radio]").first.is_checked())
+        shot(page4, "D8_multi_compare")
+        # 逐版进度：点“生成 3 版”，按钮文案必须动起来
+        page4.locator(".drawer-head button:has-text('生成 3 版')").click()
+        page4.wait_for_timeout(2600)
+        btn = page4.locator(".drawer-head button:has-text('版')").first.inner_text()
+        check("生成中显示第几版（不是不动的“生成中…”）",
+              "/3 版" in btn or "3 版完成" in btn, btn)
+        shot(page4, "D9_multi_progress")
+        errs4_real = [e for e in errs4 if "404" not in e]
+        check("多方案无 console 报错", not errs4_real, errs4_real[:3])
+    finally:
+        ctx4.close()
+
+
+    print("  --- 设定条目来源链路（F21）---")
+    ctx5, page5, errs5, bad5 = new_page(browser, MOCK_API, "prov")
+    try:
+        page5.locator(".tabs button:has-text('设定')").click()
+        page5.wait_for_timeout(1200)
+        page5.locator(".prov-input").scroll_into_view_if_needed()
+        check("“”块渲染", page5.locator(".prov-block").count() == 1)
+        page5.locator(".prov-input").fill("主角甲")
+        page5.locator(".prov-row button:has-text('追溯')").click()
+        page5.wait_for_timeout(700)
+        res = page5.locator(".prov-result")
+        check("追溯结果渲染", res.count() == 1, res.count())
+        rt = res.inner_text() if res.count() else ""
+        check("说明最早出现在哪一版", "最早出现在 v1" in rt, rt[:80].replace("\n", " | "))
+        check("字段级“”可读", "从这个版本起" in rt and "性格" in rt and "v2" in rt)
+        check("导入来源显示文件路径", "materials/raw/主角甲_角色卡.md" in rt)
+        check("改动记录列出字段", "改动记录" in rt and "简介" in rt)
+        page5.locator(".prov-block").scroll_into_view_if_needed()
+        page5.wait_for_timeout(200)
+        shot(page5, "D13_setting_provenance", keep_scroll=True)
+        errs5_real = [e for e in errs5 if "404" not in e]
+        check("条目来源无 console 报错", not errs5_real, errs5_real[:3])
+    finally:
+        ctx5.close()
 
 
 def main():

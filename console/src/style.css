@@ -435,7 +435,67 @@ body {
 }
 .is-dark .ps-progress-text { color: #fff; mix-blend-mode: screen; }
 
-/* 首启引导：就绪/警告条 */
+/* 新手序列引导（I-1）：就绪/警告条 + 步骤序列 + “带我去”高亮脉冲 */
+.ob-card {
+  border: 1px solid var(--border); border-left: 3px solid var(--accent);
+  border-radius: var(--radius); background: var(--card);
+  padding: 12px 14px; margin-bottom: 14px;
+}
+.ob-head { display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
+.ob-badge {
+  font-size: 11px; padding: 2px 8px; border-radius: 999px; flex: none;
+  background: var(--accent); color: #fff; font-weight: 700; margin-top: 2px;
+}
+.ob-next { flex: 1; min-width: 200px; }
+.ob-next-title { font-size: 13px; }
+.ob-count {
+  margin-left: 10px; font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums;
+  padding: 1px 8px; border-radius: 999px;
+  background: var(--accent-soft); color: var(--accent);
+}
+.ob-next-how { color: var(--muted); font-size: 12px; margin-top: 2px; line-height: 1.5; }
+.ob-bar { height: 3px; background: var(--bg); border-radius: 999px; margin-top: 10px; overflow: hidden; }
+.ob-bar-in { height: 100%; background: var(--accent); transition: width .25s ease; }
+.ob-steps { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.ob-step {
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 8px; border-radius: 8px; border: 1px solid transparent;
+}
+.ob-step.is-current { border-color: var(--accent); background: var(--accent-soft); }
+.ob-step.is-todo { opacity: .62; }
+.ob-dot {
+  width: 20px; height: 20px; flex: none; border-radius: 50%;
+  display: grid; place-items: center; font-size: 11px;
+  border: 1px solid var(--border); color: var(--muted);
+}
+.ob-step.is-done .ob-dot { background: var(--ok); border-color: var(--ok); color: #fff; }
+.ob-step.is-current .ob-dot { background: var(--accent); border-color: var(--accent); color: #fff; }
+.ob-step-main { flex: 1; min-width: 0; }
+.ob-step-title { font-size: 12.5px; font-weight: 600; }
+.ob-cur-tag {
+  margin-left: 8px; font-size: 11px; font-weight: 800; letter-spacing: .05em;
+  padding: 2px 8px; border-radius: 999px; vertical-align: 1px;
+  background: var(--accent); color: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .18);
+}
+.ob-step-ev { font-size: 11.5px; color: var(--muted); margin-top: 1px; }
+.ob-step-how { font-size: 11.5px; margin-top: 3px; color: var(--accent); }
+.ob-err { color: var(--bad); font-size: 11.5px; margin-top: 6px; }
+.ob-foot {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--border);
+}
+@keyframes ob-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 transparent; }
+  40% { box-shadow: 0 0 0 6px var(--accent-soft); }
+}
+.ob-spot {
+  animation: ob-pulse 1s ease-in-out 3;
+  outline: 3px solid var(--accent); outline-offset: 3px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+}
+/* 旧冷启动就绪条（结构已删，仅保留类名以防外部样式引用） */
 .cs-ready {
   display: flex; align-items: center; gap: 10px; margin-top: 10px;
   padding: 10px 12px; border-radius: 9px;
@@ -446,6 +506,40 @@ body {
   display: flex; align-items: center; gap: 10px; margin-top: 10px;
   padding: 10px 12px; border-radius: 9px;
   background: rgba(201, 162, 106, 0.08); border: 1px solid rgba(201, 162, 106, 0.2);
+}
+
+/* ---- 设定条目来源（F21）：哪版进来 / 现在这个值从哪版起 / 哪个文件导入 ---- */
+.prov-block { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.prov-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+.prov-input {
+  flex: 1; max-width: 320px; padding: 6px 9px; font-size: 12.5px;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--field); color: var(--ink);
+}
+.prov-empty { padding: 6px 2px; }
+.prov-result {
+  border: 1px solid var(--border); border-radius: 10px;
+  padding: 10px 12px; background: var(--field-inset);
+}
+.prov-sum { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
+.prov-note { margin-bottom: 6px; }
+.prov-table { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.prov-tr {
+  display: grid; grid-template-columns: 100px 1fr 120px; gap: 8px;
+  padding: 5px 8px; font-size: 12px; border-top: 1px solid var(--border);
+}
+.prov-tr:first-child { border-top: none; }
+.prov-th { background: var(--bg); color: var(--muted); font-weight: 600; }
+.prov-changes { margin-top: 8px; }
+.prov-change { font-size: 12px; padding: 2px 0; }
+.prov-imports {
+  margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap;
+  align-items: center; font-size: 12px;
+}
+.prov-imp {
+  padding: 1px 7px; border-radius: 6px; font-size: 11.5px;
+  background: var(--accent-soft); color: var(--ink);
+  font-family: ui-monospace, Consolas, monospace;
 }
 
 /* 按钮 */
@@ -821,6 +915,16 @@ body {
 .ov-multi { flex: 1; overflow: auto; display: grid; gap: 12px; padding: 12px 16px;
   grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
 .ov-multi-col { border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; background: var(--field-inset); }
+/* 推荐列（I-2）：只给**排序建议**的视觉提示，不改变勾选与拼合规则 */
+.ov-multi-col.is-rec { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-soft); }
+.ov-multi-hint {
+  grid-column: 1 / -1; padding: 6px 10px; border-radius: 8px;
+  background: var(--accent-soft); color: var(--ink); font-size: 12px;
+}
+.ov-multi-meta {
+  display: flex; gap: 10px; flex-wrap: wrap;
+  font-size: 11.5px; color: var(--muted); margin-top: 3px;
+}
 .ov-multi-head { display: flex; align-items: center; gap: 8px; }
 /* 开局方案卡片：字段名 + 内容；“代价”单独用警示色左边线，让取舍一眼可见 */
 .ov-var-body { font-size: 13px; line-height: 1.72; margin: 8px 0 10px; }
@@ -1540,21 +1644,7 @@ kbd {
 }
 .wiz-check .meta { display: inline; }
 
-/* ---- 冷启动引导（工作区全新时） ---- */
-.coldstart {
-  border: 1px dashed var(--accent); border-radius: var(--radius);
-  background: rgba(155, 143, 196, 0.06); padding: 14px 16px; margin-bottom: 16px;
-}
-.cs-title { font-size: 13px; font-weight: 700; margin-bottom: 10px; }
-.cs-steps { display: flex; flex-direction: column; gap: 8px; }
-.cs-step { display: flex; align-items: center; gap: 10px; }
-.cs-no {
-  width: 22px; height: 22px; flex: none; border-radius: 50%;
-  background: var(--accent); color: #fff; font-size: 12px; font-weight: 700;
-  display: grid; place-items: center;
-}
-.cs-step > div { flex: 1; min-width: 0; }
-.cs-step b { font-size: 13px; }
+/* ---- 启动引导样式见上方 .ob-*（2026-11-03 序列引导替换旧 .coldstart 卡） ---- */
 
 /* ---- ③ 运行日志 ---- */
 .log-body {

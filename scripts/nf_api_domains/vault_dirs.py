@@ -2,7 +2,7 @@ from pathlib import Path
 def handle_config_vault_dirs(h):
     """`GET /config/vault_dirs` —— 设定目录映射的**候选清单**（产品通用化）。
 
-    为什么不是让用户填五个字符串：每个人的库布局不同（`设定/人物`、`03 设定/01 人物`、
+    为什么不是让用户填五个字符串：每个人的库布局不同（`Setting/Characters`、
     `World/Characters`…），把某一种当通例写进代码/文档，换个人就废。
     所以这里只做两件事：**把库里真实存在的目录列出来**（带 md 篇数），
     让用户在界面上点选；代码里一个具体目录名都不出现。

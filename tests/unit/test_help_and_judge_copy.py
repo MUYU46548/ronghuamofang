@@ -139,8 +139,10 @@ def main():
     check("设置侧栏有\u300c使用手册\u300d分类", 'id: "help", name: "使用手册"' in app)
     check("命令面板有\u300c打开使用手册\u300d",
           'label: "打开使用手册"' in app and 'if (id === "manual") return openHelp()' in app)
-    check("首启引导第 4 步有\u300c使用手册\u300d按钮",
-          '<button class="mini" @click="openHelp">使用手册</button>' in app)
+    guide_src = (SRC / "OnboardingGuide.vue").read_text(encoding="utf-8")
+    check("首启引导有“使用手册”入口（新卡底部，含 emit 接线）",
+          "使用手册" in guide_src and "$emit('help')" in guide_src
+          and '@help="openHelp"' in app)
     check("openHelp 会切到设置页的手册分类",
           "function openHelp()" in app and 'selectSettingsTab("help")' in app)
 

@@ -254,7 +254,7 @@
           <span v-if="drafts.length" class="meta">{{ drafts.length }} 份方案</span>
           <span class="spacer"></span>
           <button class="mini" :disabled="multiRunning" @click="runMulti">
-            {{ multiRunning ? ("生成中… 已 " + _fmtElapsed(multiElapsed)) : "生成 3 版" }}
+            {{ multiRunning ? (multiProgressText || ("生成中… 已 " + _fmtElapsed(multiElapsed))) : "生成 3 版" }}
           </button>
           <button class="mini" :disabled="!drafts.length" @click="compose">拼合为最终版</button>
           <button class="mini danger" :disabled="!drafts.length" @click="discardDrafts">放弃并清理</button>
@@ -262,12 +262,22 @@
         </div>
         <div v-if="!drafts.length" class="empty">尚无方案 —— 点击“生成 3 版”串行生成（约需数分钟）</div>
         <div v-else class="ov-multi">
-          <div v-for="d in drafts" :key="d.id" class="ov-multi-col">
+          <div v-if="recommendedId" class="ov-multi-hint meta">
+            推荐“”：OK 更多、THIN 更少、字数更全。只是排序建议，最终由你定。
+          </div>
+          <div v-for="d in drafts" :key="d.id" class="ov-multi-col" :class="{ 'is-rec': recommendedId === d.id }">
             <div class="ov-multi-head">
               <b>方案 {{ d.id }}</b>
+              <span v-if="recommendedId === d.id" class="pill st-done">推荐</span>
               <span class="pill" :class="verdictClass(d.summary && d.summary.verdict)">
                 {{ d.summary && d.summary.verdict }}
               </span>
+            </div>
+            <div class="ov-multi-meta">
+              <span>{{ fmtNum(d.chars) }} 字</span>
+              <span>{{ d.node_count || 0 }} 节点</span>
+              <span>{{ d.plan_count || 0 }} 章规划</span>
+              <span v-if="d.created_at" :title="'生成于 ' + d.created_at">·</span>
             </div>
             <div class="ov-multi-score">
               OK {{ (d.summary && d.summary.ok) || 0 }} / WARN {{ (d.summary && d.summary.warn) || 0 }} / THIN {{ (d.summary && d.summary.thin) || 0 }}
@@ -896,8 +906,29 @@ const drafts = ref([]);
 const actSource = ref(1);
 const multiRunning = ref(false);
 const multiElapsed = ref(0);       // 已等待秒数（用户要看“还在动”）
+const multiProgress = ref(null);   // 后端逐版进度（I-2）：第几版 / 共几版 / 已完成哪几版
+const recommendedId = ref(null);   // 后端给的排序建议（不是质量结论）
 let multiTimer = null;
 const checked = ref({});
+
+/** 逐版进度文案：比“生成中…”多说两件事 —— 第几版、还有多久轮到。 */
+const multiProgressText = computed(() => {
+  const p = multiProgress.value;
+  if (!p) return "";
+  const i = Number(p.index) || 0;
+  const c = Number(p.count) || 0;
+  const done = Array.isArray(p.done) ? p.done.length : 0;
+  const t = _fmtElapsed(multiElapsed.value);
+  if (p.phase === "start") return `准备生成 ${c} 版 · 已 ${t}`;
+  if (p.phase === "failed") return `第 ${i}/${c} 版失败 · 已生成 ${done} 版`;
+  if (p.phase === "done") return `${c} 版完成`;
+  return `第 ${i}/${c} 版生成中 · 已完成 ${done} 版 · 已 ${t}`;
+});
+
+function fmtNum(n) {
+  const v = Number(n) || 0;
+  return v.toLocaleString("zh-CN");
+}
 
 function _fmtElapsed(sec) {
   const s = Math.max(0, Math.floor(sec || 0));
@@ -924,11 +955,18 @@ async function loadDrafts() {
         + " —— 建议“放弃并清理”后重新生成");
   }
   drafts.value = raw.filter((d) => Array.isArray(d.nodes) && Array.isArray(d.plan));
-  if (drafts.value.length) actSource.value = drafts.value[0].id;
+  recommendedId.value = (r.data && r.data.recommended) || null;
+  // 默认勾选与“四节来源”都落在推荐版上（I-2）：推荐只是排序建议，但**默认值**
+  // 必须与它一致 —— 否则界面上出现“推荐方案 2、默认选方案 1”的自相矛盾，
+  // 用户会以为系统在乱指。作者随时可以改勾选。
+  const firstId = drafts.value.length ? drafts.value[0].id : null;
+  const defaultId = recommendedId.value || firstId;
+  if (drafts.value.length) actSource.value = defaultId;
   const c = {};
   drafts.value.forEach((d) => {
-    d.nodes.forEach((_, i) => (c["n" + d.id + "_" + i] = d.id === drafts.value[0].id));
-    d.plan.forEach((_, i) => (c["p" + d.id + "_" + i] = d.id === drafts.value[0].id));
+    const on = d.id === defaultId;
+    d.nodes.forEach((_, i) => (c["n" + d.id + "_" + i] = on));
+    d.plan.forEach((_, i) => (c["p" + d.id + "_" + i] = on));
   });
   checked.value = c;
 }
@@ -941,6 +979,7 @@ async function runMulti() {
   if (multiRunning.value) return;
   multiRunning.value = true;
   multiElapsed.value = 0;
+  multiProgress.value = null;
   // 串行生成 3 份，通常 3~8 分钟，期间后端只给 state=running —— 没有这个计时器，
   // 用户看到的就是一个不动的“生成中…”，然后开始怀疑坏了（第 3/4 条原话：
   // “经常卡在29%，让人觉得坏了，想点停止”）。先回答"还在动、动了多久"。
@@ -970,7 +1009,14 @@ async function runMulti() {
         } catch (e) {
           return;                        // 单次网络抖动不终止，下一轮再试
         }
-        if (!j || j.status !== 200 || (j.data && j.data.state === "running")) return;
+        if (!j || j.status !== 200 || (j.data && j.data.state === "running")) {
+          // 逐版进度（I-2）：state 全程是 running，只有 progress 会变 ——
+          // 不读它，这 3~8 分钟里界面上的“生成中…”就是一个不动的假数字。
+          if (j && j.status === 200 && j.data && j.data.progress) {
+            multiProgress.value = j.data.progress;
+          }
+          return;
+        }
         clearInterval(poll);
         const state = j.data && j.data.state;
         say(state === "ok" ? "方案生成完成" : ("生成失败: " + ((j.data && j.data.result) || "")));

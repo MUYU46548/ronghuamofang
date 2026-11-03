@@ -13,6 +13,7 @@
 import argparse
 import json
 import sys
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -156,6 +157,7 @@ DISCUSS = {"items": [], "stats": {"pending": 1, "approved": 0, "rejected": 0}}
 # 换行常量：demo 提案文案里拼真实换行用（对齐真后端的多行 markdown）
 NL = "\n"
 COLD = False   # --cold：全新工作区（所有阶段 pending + has_work=false）→ 冷启动引导
+MULTI_STARTED = {}   # 多方案 mock job 的起始时刻（逐版进度按秒推进）
 
 # Word 成品模板面板（件五）的**有状态**当前值：POST 改、GET 读，
 # 这样“选模板 → 应用 → 下拉回读新值”在视觉验收里是真链路而不是静态截图。
@@ -270,6 +272,58 @@ class Handler(BaseHTTPRequestHandler):
                                     "pct": 24.7, "warn_ratio": 0.7, "tokens_in": 0, "tokens_out": 0})
         if p == "/config/project":
             return self._send(200, {"ok": True, "config": {"book": {"name": "验收用书", "chapters": 12}}})
+        if p == "/onboarding/status":
+            # 新手序列引导（I-1）：真后端按盘上事实算，mock 按固定剧本喂同一形状。
+            # 关键：COLD 下必须只有 project 是 current（序列严格），
+            # 非 cold 下模拟 stage6 done 未审批 → gate 抢 current（审批门优先于继续烧 token）。
+            steps = []
+
+            def _step(sid, title, how, action, state, evidence=""):
+                steps.append({"id": sid, "title": title, "done": state == "done",
+                              "state": state, "evidence": evidence, "how": how,
+                              "action": action})
+
+            if COLD:
+                _step("project", "建项目", "“”页签 → ＋ 新建项目；填书名 / 类型 / 章数",
+                      {"kind": "new_project"}, "current", "还没有项目")
+                _step("materials", "放素材", "“”页签 → 放素材卡到 materials/raw/",
+                      {"kind": "tab", "tab": "materials"}, "todo", "素材卡 0 张 / 碎片 0 条")
+                for sid, title, how, action in (
+                        ("model", "配模型", "“”→ 模型与引擎", {"kind": "tab", "tab": "settings", "settings_tab": "models"}),
+                        ("stage1", "阶段 1 · 素材 → 设定集", "“”→ 执行下一步", {"kind": "tab", "tab": "pipeline", "spot": "flow-run"}),
+                        ("stage2", "阶段 2 · 整体大纲", "“”", {"kind": "tab", "tab": "outline"}),
+                        ("gate", "审批放行", "“”→ 通过", {"kind": "tab", "tab": "inbox", "spot": "gate-list"}),
+                        ("stage4", "阶段 4 · 逐章写作", "“”", {"kind": "tab", "tab": "pipeline", "spot": "flow-run"}),
+                        ("export", "导出成品", "“”页签", {"kind": "tab", "tab": "export"})):
+                    _step(sid, title, how, action, "todo",
+                          "阶段 2 / 6 完成时会在这里停一次（阶段 3 不设门）" if sid == "gate" else "")
+                done_n = 0
+            else:
+                _step("project", "建项目", "“”页签 → ＋ 新建项目", {"kind": "new_project"},
+                      "done", "书名：验收用书")
+                _step("materials", "放素材", "“”页签", {"kind": "tab", "tab": "materials"},
+                      "done", "素材卡 6 张 / 碎片 2 条")
+                _step("model", "配模型", "“”→ 模型与引擎",
+                      {"kind": "tab", "tab": "settings", "settings_tab": "models"},
+                      "done", "direct / glm-5.3")
+                _step("stage1", "阶段 1 · 素材 → 设定集", "“”→ 执行下一步",
+                      {"kind": "tab", "tab": "pipeline", "spot": "flow-run"}, "done", "设定集已生成")
+                _step("stage2", "阶段 2 · 整体大纲", "“”",
+                      {"kind": "tab", "tab": "outline"}, "done", "大纲已生成")
+                _step("gate", "审批放行", "“”→ 逐个点“”；不满意就“”并写原因",
+                      {"kind": "tab", "tab": "inbox", "spot": "gate-list"},
+                      "current", "有 1 处等你审：阶段 6（阶段 3 不设门）")
+                _step("stage4", "阶段 4 · 逐章写作", "“”",
+                      {"kind": "tab", "tab": "pipeline", "spot": "flow-run"}, "done", "已落盘 12 章")
+                _step("export", "导出成品", "“”页签", {"kind": "tab", "tab": "export"},
+                      "todo", "还没有 Word 成品")
+                done_n = 6
+            return self._send(200, {"ok": True, "book": "" if COLD else "验收用书",
+                                    "steps": steps,
+                                    "next": next((s for s in steps if s["state"] == "current"), None),
+                                    "progress": {"done": done_n, "total": len(steps)},
+                                    "gates": [{"stage": 6}] if not COLD else [],
+                                    "has_progress": not COLD, "target_chapters": 12})
         if p == "/config/target_words":
             # 单章字数区间（2026-11-03）：流水线页现在常驻一行“每章字数”，
             # 缺这条就在验收里显示“读取失败”，把新入口误判成坏入口。
@@ -443,6 +497,62 @@ class Handler(BaseHTTPRequestHandler):
             # 旧前端读 world.all 会恒显示"暂无条目"）。空骨架验不到这两个修复。
             return self._send(200, {"ok": True, "path": "data/setting/setting.json",
                                     "setting": MOCK_SETTING})
+        if p == "/setting/names":
+            # F21：条目名（界面补全）
+            return self._send(200, {"ok": True, "exists": True,
+                                    "characters": ["主角甲", "主角乙", "沈砚", "程砧"],
+                                    "world": ["雾港", "风神城"]})
+        if p == "/setting/versions":
+            # F21 展示需要：给两版历史，让“”能说清“从哪版起”
+            return self._send(200, {"ok": True,
+                                    "live": {"exists": True,
+                                             "counts": {"characters": 4, "world": 2}},
+                                    "items": [
+                                        {"v": 2, "file": "setting_v2.json",
+                                         "at": "2026-11-03 10:12", "size": 4096,
+                                         "counts": {"characters": 4, "world": 2},
+                                         "readable": True},
+                                        {"v": 1, "file": "setting_v1.json",
+                                         "at": "2026-11-02 18:40", "size": 3900,
+                                         "counts": {"characters": 3, "world": 2},
+                                         "readable": True},
+                                    ]})
+        if p == "/setting/diff":
+            return self._send(200, {"from": "v2", "to": "当前",
+                                    "added": ["沈砚"], "removed": [],
+                                    "changed": [], "world": {"added": [], "removed": [], "changed": []},
+                                    "counts": {"character": {"added": 1, "removed": 0,
+                                                             "changed": 0, "same": 3},
+                                               "world": {"added": 0, "removed": 0,
+                                                         "changed": 0, "same": 2}}})
+        if p == "/setting/provenance":
+            nm = str((self._query().get("name") or ["主角甲"])[0])
+            return self._send(200, {
+                "ok": True, "name": nm, "found": True, "traceable": True,
+                "kind": "characters",
+                "current": {"fields": {"角色定位": "机关术师", "性格": ["寡言", "手稳"],
+                                       "关系": "与主角乙同门", "简介": "边城出身的机关术师",
+                                       "锁定": False},
+                            "source": "materials/raw/主角甲_角色卡.md", "status": ""},
+                "first_seen": {"v": 1, "label": "v1", "at": "2026-11-02 18:40"},
+                "field_since": [
+                    {"field": "角色定位", "value": "机关术师", "since": "v1", "since_v": 1},
+                    {"field": "性格", "value": ["寡言", "手稳"], "since": "v2", "since_v": 2},
+                    {"field": "关系", "value": "与主角乙同门", "since": "v1", "since_v": 1},
+                    {"field": "简介", "value": "边城出身的机关术师", "since": "v2", "since_v": 2},
+                    {"field": "锁定", "value": False, "since": "v1", "since_v": 1},
+                ],
+                "changed_in": [
+                    {"v": 2, "label": "v2", "at": "2026-11-03 10:12",
+                     "fields": ["性格", "简介"]},
+                ],
+                "imports": [{"source": "materials/raw/主角甲_角色卡.md",
+                             "note": "设定集条目的 source 字段"}],
+                "versions": [{"v": 1, "label": "v1", "at": "2026-11-02 18:40"},
+                             {"v": 2, "label": "v2", "at": "2026-11-03 10:12"},
+                             {"v": None, "label": "当前", "at": ""}],
+                "why": "",
+            })
         if p == "/outline/chapters/list":
             # 分章页签（章节蓝图编辑器）的章节清单：喂两章，让视觉验收能真选中
             # 一章再点“讨论此章”（currentN 为空时 openDiscuss 直接 return）。
@@ -475,8 +585,68 @@ class Handler(BaseHTTPRequestHandler):
                 "content": demo,
                 "chars": len(demo),
             })
+        if p == "/outline/drafts":
+            # 多方案清单（I-2）：三份可比方案 —— 字数 / 节点数 / 章规划 / 推荐。
+            def _nd(txt, lv):
+                return {"text": txt, "level": lv}
+
+            demo = [
+                {"id": 1, "name": "global_draft_1.md",
+                 "summary": {"verdict": "可开工", "ok": 6, "warn": 1, "thin": 1},
+                 "expected_chapters": 12, "chars": 5820, "node_count": 6,
+                 "plan_count": 12, "created_at": "2026-11-03 11:20", "score": 17,
+                 "nodes": [_nd("第1-2章 沈砚在边城营地被程砧找上门", "OK"),
+                           _nd("第3-4章 两人前往雾港遗址", "OK"),
+                           _nd("第5-6章 遗址深处异常封印", "WARN")],
+                 "plan": [_nd("第1章 边城营地", "OK"), _nd("第2章 冲突起", "OK"),
+                          _nd("第3章 出发", "THIN")],
+                 "acts": [{"name": "起", "text": "边城营地相识"},
+                          {"name": "承", "text": "雾港遗址探查"},
+                          {"name": "转", "text": "暗卫围杀"},
+                          {"name": "合", "text": "追查真相"}]},
+                {"id": 2, "name": "global_draft_2.md",
+                 "summary": {"verdict": "可开工", "ok": 9, "warn": 0, "thin": 0},
+                 "expected_chapters": 14, "chars": 7420, "node_count": 9,
+                 "plan_count": 14, "created_at": "2026-11-03 11:26", "score": 27,
+                 "nodes": [_nd("第1-2章 沈砚被程砧找上门", "OK"),
+                           _nd("第3-5章 雾港遗址封印", "OK"),
+                           _nd("第6-8章 暗卫围杀与援手", "OK")],
+                 "plan": [_nd("第1章 边城营地", "OK"), _nd("第2章 冲突", "OK"),
+                          _nd("第3章 出发", "OK")],
+                 "acts": [{"name": "起", "text": "营地相识"},
+                          {"name": "承", "text": "遗址探查"},
+                          {"name": "转", "text": "围杀与援手"},
+                          {"name": "合", "text": "真相初现"}]},
+                {"id": 3, "name": "global_draft_3.md",
+                 "summary": {"verdict": "需修订", "ok": 3, "warn": 2, "thin": 2},
+                 "expected_chapters": 9, "chars": 3100, "node_count": 3,
+                 "plan_count": 9, "created_at": "2026-11-03 11:31", "score": 7,
+                 "nodes": [_nd("第1-2章 出发", "WARN"),
+                           _nd("第3-4章 遗址", "THIN")],
+                 "plan": [_nd("第1章 出发", "WARN"), _nd("第2章 遗址", "THIN")],
+                 "acts": [{"name": "起", "text": "营地"},
+                          {"name": "承", "text": "出发"},
+                          {"name": "转", "text": "遗址"},
+                          {"name": "合", "text": "归来"}]},
+            ]
+            return self._send(200, {"drafts": demo,
+                                    "files": [d["name"] for d in demo],
+                                    "recommended": 2})
         if p.startswith("/jobs/"):
             jid = p.split("/")[-1]
+            if jid.startswith("mock_multi"):
+                # 逐版进度（I-2）：每 2 秒推进一版，永远 running —— 前端轮询
+                # 只能靠 progress 说话（state 全程不变），这正是要验的东西。
+                el = time.time() - MULTI_STARTED.get(jid, time.time())
+                idx = min(3, int(el // 2) + 1)
+                return self._send(200, {
+                    "id": jid, "kind": "stage2_multi", "state": "running",
+                    "progress": {"phase": "running", "index": idx, "count": 3,
+                                 "done": list(range(1, idx)),
+                                 "latest": ({"id": idx - 1, "chars": 5000}
+                                            if idx > 1 else None),
+                                 "message": "正在生成第 %d / 3 版" % idx},
+                })
             if jid in FIELD_JOBS:
                 return self._send(200, {"id": jid, "kind": "field_refine",
                                         "state": "ok", "result": FIELD_JOBS[jid]})
@@ -525,6 +695,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(400, {"ok": False, "error": "区间不合法"})
             return self._send(200, {"ok": True, "current": [lo, hi],
                                     "message": "已保存：单章 %d–%d 字" % (lo, hi)})
+
+        if p == "/stage/2/run-multi":
+            # 多方案生成（I-2 视觉验收）：返回一个会递进的 mock job。
+            jid = "mock_multi_1"
+            MULTI_STARTED[jid] = time.time()
+            return self._send(202, {"job_id": jid,
+                                    "count": int(body.get("count") or 3)})
 
         if p == "/outline/field/current":
             # 定向改写（C 兜底）读当前字段值：喂一段固定字段，让 GUI 预填可见。

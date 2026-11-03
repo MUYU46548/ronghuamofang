@@ -77,8 +77,11 @@ check("syncSkills 随版本分发（函数 + 启动调用）",
       "function syncSkills(" in main and "syncSkills();" in main)
 check("agent-connect 返回 skillPath", "skillPath: p.skillPath" in main)
 check("自装指令用主进程 skillPath", "c.skillPath" in appvue)
-check("引导含 Agent 接入第 5 步", "接外部 Agent（可选）" in appvue)
-check("引导不与免责声明叠层", "showGuide && !disclaimerOpen" in appvue)
+guide = read("console/src/OnboardingGuide.vue")
+check("引导保留 Agent 接入入口（新卡底部，不随旧卡消失）",
+      "接入外部 Agent（可选）" in guide and "openAgentConnect" in appvue)
+check("引导不与免责声明叠层（模板条件 + 组件 visible 双保险）",
+      "state && !disclaimerOpen" in appvue and ':visible="showGuide"' in appvue)
 check("免责声明 ack 后跑延后引导",
       "pendingAfterDisclaimer" in appvue and "onDisclaimerAck" in appvue)
 

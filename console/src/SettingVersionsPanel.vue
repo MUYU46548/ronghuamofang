@@ -5,6 +5,7 @@
 // 改错了只能去目录里翻 json 手工比对。这里把它接到界面上。
 //
 // 数据源：GET /setting/versions · GET /setting/diff?v=N · POST /setting/restore
+// 附加（F21）：GET /setting/provenance?name=X · GET /setting/names —— 条目来源链路
 import { ref, onMounted } from "vue";
 
 const props = defineProps({ api: { type: Function, required: true } });
@@ -16,6 +17,12 @@ const loading = ref(false);
 const diffData = ref(null);
 const diffFor = ref(null);
 const busy = ref(false);
+
+/* F21：条目来源链路。回答“这个值从哪版起 / 哪次导入带来的”。 */
+const names = ref({ characters: [], world: [] });
+const provName = ref("");
+const prov = ref(null);
+const provBusy = ref(false);
 
 function say(msg) { emit("say", msg); }
 
@@ -77,7 +84,35 @@ function fieldText(v) {
   return String(v ?? "（空）");
 }
 
-onMounted(load);
+/* ---------- F21：条目来源 ---------- */
+async function loadNames() {
+  const r = await props.api("/setting/names");
+  if (r.status === 200 && r.data && r.data.ok) {
+    names.value = { characters: r.data.characters || [], world: r.data.world || [] };
+  }
+}
+
+async function traceIt(name) {
+  const n = String(name ?? provName.value ?? "").trim();
+  if (!n) { say("先填要追溯的条目名"); return; }
+  provName.value = n;
+  provBusy.value = true;
+  try {
+    const r = await props.api("/setting/provenance?name=" + encodeURIComponent(n));
+    if (r.status === 200) {
+      prov.value = r.data;
+    } else {
+      prov.value = { found: false, why: (r.data && r.data.error) || ("HTTP " + r.status) };
+    }
+  } finally {
+    provBusy.value = false;
+  }
+}
+
+onMounted(async () => {
+  await load();
+  await loadNames();
+});
 </script>
 
 <template>
@@ -138,6 +173,66 @@ onMounted(load);
       <div v-if="!diffData.added.length && !diffData.removed.length && !diffData.changed.length"
            class="meta">
         角色条目没有差别（世界条目的变化单独列在 /setting/diff 的 world 字段里）。
+      </div>
+    </div>
+
+    <!-- F21：条目来源链路（哪版进来 / 现在这个值从哪版起 / 哪个文件导入） -->
+    <div class="prov-block">
+      <div class="card-head" style="margin-bottom: 6px;">
+        <h3>条目来源</h3>
+        <span class="meta">这条是第几版进来的 · 现在这个值从哪版起 · 由哪个文件导入</span>
+        <span class="spacer"></span>
+      </div>
+      <div class="prov-row">
+        <input class="prov-input" list="prov-names" v-model="provName"
+               placeholder="条目名（如 沈砚）" @keyup.enter="traceIt()" />
+        <datalist id="prov-names">
+          <option v-for="n in names.characters" :key="'c' + n" :value="n"></option>
+          <option v-for="n in names.world" :key="'w' + n" :value="n"></option>
+        </datalist>
+        <button class="mini primary" :disabled="provBusy" @click="traceIt()">
+          {{ provBusy ? "追溯中…" : "追溯" }}
+        </button>
+      </div>
+
+      <div v-if="prov && !prov.found" class="meta prov-empty">
+        {{ prov.why || "没找到这个条目" }}
+      </div>
+      <div v-else-if="prov" class="prov-result">
+        <div class="prov-sum">
+          <span class="pill st-done">{{ prov.kind === "world" ? "世界条目" : "角色" }}</span>
+          <b>{{ prov.name }}</b>
+          <span class="meta" v-if="prov.first_seen">
+            最早出现在 {{ prov.first_seen.label }}<template v-if="prov.first_seen.at">（{{ prov.first_seen.at }}）</template>
+          </span>
+          <span class="meta" v-else-if="!prov.traceable">无可追溯历史</span>
+        </div>
+        <div v-if="prov.why" class="prov-note meta">{{ prov.why }}</div>
+
+        <div class="prov-table">
+          <div class="prov-tr prov-th"><span>字段</span><span>当前值</span><span>从这个版本起</span></div>
+          <div class="prov-tr" v-for="f in prov.field_since" :key="f.field">
+            <span>{{ f.field }}</span>
+            <span>{{ fieldText(f.value) }}</span>
+            <span><b>{{ f.since }}</b></span>
+          </div>
+        </div>
+
+        <div v-if="prov.changed_in && prov.changed_in.length" class="prov-changes">
+          <div class="meta" style="margin-bottom: 3px;">改动记录（越靠后越新）</div>
+          <div v-for="c in prov.changed_in" :key="c.label" class="prov-change">
+            <b>{{ c.label }}</b>
+            <span class="meta">{{ c.at }}</span> · {{ c.fields.join("、") }}
+          </div>
+        </div>
+
+        <div class="prov-imports">
+          <span class="meta">导入来源：</span>
+          <template v-if="prov.imports && prov.imports.length">
+            <span v-for="i in prov.imports" :key="i.source" class="prov-imp">{{ i.source }}</span>
+          </template>
+          <span v-else class="meta">{{ prov.imports_note || "无法指认导入文件" }}</span>
+        </div>
       </div>
     </div>
   </div>

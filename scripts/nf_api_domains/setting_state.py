@@ -186,9 +186,56 @@ def handle_setting_status(h, body):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+def handle_setting_provenance(h):
+    """GET /setting/provenance?name=X&kind=characters → 条目来源链路（F21）。
+
+    回答三件事：最早哪一版进来、现在这个值从哪版起、来自哪个导入文件。
+    没有历史版本时 `traceable=false` 并说明为什么 —— 不编造“第 1 版就有”。
+    """
+    q = h._query()
+    name = str((q.get("name") or [""])[0]).strip()
+    kind = str((q.get("kind") or ["characters"])[0]).strip() or "characters"
+    if not name:
+        return _bad("name 必填（要追溯的条目名）")
+    try:
+        from utils import setting_provenance as sp
+        res = sp.trace(name, root=str(api.ROOT), kind=kind)
+    except Exception as e:                                    # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+    return (200 if res.get("ok") else 400), res
+
+
+def handle_setting_names(h):
+    """GET /setting/names → 当前设定集里的条目名（供界面下拉/补全，零 token）。"""
+    p = _paths()
+    sp = p["setting"]
+    if not sp.exists():
+        return 200, {"ok": True, "exists": False, "characters": [], "world": [],
+                     "hint": "还没有 setting.json（阶段 1 尚未完成）"}
+    try:
+        data = api.json.loads(sp.read_text(encoding="utf-8"))
+    except Exception as e:                                    # noqa: BLE001
+        return 500, {"ok": False, "error": "setting.json 解析失败: " + repr(e)}
+
+    def names(key):
+        out = []
+        for e in (data.get(key) or []):
+            if not isinstance(e, dict):
+                continue
+            n = str(e.get("name") or e.get("title") or e.get("名称") or "").strip()
+            if n:
+                out.append(n)
+        return out
+
+    return 200, {"ok": True, "exists": True,
+                 "characters": names("characters"), "world": names("world")}
+
+
 # 本模块负责的端点（供自检与文档）
 ROUTES = (
     ("GET", "/setting/conflicts", handle_setting_conflicts),
     ("GET", "/setting/canon", handle_setting_canon),
     ("POST", "/setting/status", handle_setting_status),
+    ("GET", "/setting/provenance", handle_setting_provenance),
+    ("GET", "/setting/names", handle_setting_names),
 )

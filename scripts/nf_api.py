@@ -189,6 +189,7 @@ try:
     from nf_api_domains import discuss_thread as dom_thread  # noqa: E402 (讨论件 2026-11-03)
     from nf_api_domains import lookup_tools as dom_lookup     # noqa: E402 (资料工具 2026-11-03)
     from nf_api_domains import semantic_review as dom_semrev  # noqa: E402 (语义审稿 2026-11-03)
+    from nf_api_domains import onboarding as dom_onboarding   # noqa: E402 (新手序列引导 I-1)
     from nf_api_domains import rewrite_studio as dom_studio    # noqa: E402 (改写工作室 2026-11-03)
     from nf_api_domains import vault_dirs as dom_vdirs         # noqa: E402 (设定目录 2026-11-03)
     from nf_api_domains import vault_probe as dom_vprobe       # noqa: E402 (给 AI 的扫描证据 2026-11-03)
@@ -2226,20 +2227,38 @@ def act_stage2_run_multi(count=3, interval=2.0):
 
     做法：把任务模板里的输出路径 {{path_global_outline}} 逐份指向独立的 draft 文件，
     因此模型的产物直接落盘到 data/outline/global_draft_N.md，原始 global.md 原封不动。
+
+    逐版进度（I-2，2026-11-03）：每份开始/完成都写进 `JOBS[job_id]["progress"]`，
+    前端据此显示“第 2/3 版生成中 · 已完成 1 版”。此前只有 state=running ——
+    作者原话：“不知道在跑、不知道做到哪”。
     """
     import stage2_outline as s2
     import outline_review as ov
+
+    def _note(**kw):
+        """把进度写进当前 job（拿不到 job 就静默：CLI 直调也有意义）。"""
+        jid = CURRENT.get("id")
+        if not jid or jid not in JOBS:
+            return
+        with LOCK:
+            prog = JOBS[jid].setdefault("progress", {})
+            prog.update(kw)
+            prog["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
 
     def _fn():
         cfg, proj = load_all()
         client = _client_for_env(cfg, "default")
         drafts = []
+        _note(phase="start", index=0, count=count, done=[], latest=None,
+              message="准备生成 %d 版" % count)
         for i in range(1, count + 1):
             draft = ROOT / "data" / "outline" / ("global_draft_%d.md" % i)
             try:
                 draft.unlink()
             except OSError:
                 pass
+            _note(phase="running", index=i, count=count, done=[d["id"] for d in drafts],
+                  message="正在生成第 %d / %d 版" % (i, count))
             # 关键：把输出路径改指到 draft 文件，模型产物不会覆盖 global.md
             body = s2.build_task(cfg, proj).replace(
                 str(Path(GLOBAL).resolve()), str(draft.resolve()))
@@ -2247,20 +2266,34 @@ def act_stage2_run_multi(count=3, interval=2.0):
                                      "stage2_global_outline.md", body)
             result = client.run_task(task)
             if result.get("exit_code") != 0:
+                _note(phase="failed", index=i, count=count,
+                      done=[d["id"] for d in drafts],
+                      message="第 %d 版生成失败（已完成的 %d 版保留）" % (i, len(drafts)))
                 return False, "第 %d 份方案生成失败" % i
             if not draft.exists():
+                _note(phase="failed", index=i, count=count,
+                      done=[d["id"] for d in drafts],
+                      message="第 %d 版没有产出文件" % i)
                 return False, "第 %d 份方案未产出 %s" % (i, draft.name)
             tmp = draft.read_text(encoding="utf-8")
             ok, errors = _check_text(tmp)
             rv = ov.review(str(draft), str(ROOT / "data" / "setting" / "setting.json"))
-            drafts.append({
+            item = {
                 "id": i, "name": draft.name,
                 "summary": rv.get("summary", {}),
                 "issues": rv.get("issues", []),
                 "valid": ok, "errors": errors,
-            })
+            }
+            drafts.append(item)
+            _note(phase="running", index=i, count=count,
+                  done=[d["id"] for d in drafts],
+                  latest={"id": i, "summary": rv.get("summary", {}),
+                          "chars": len(tmp), "valid": ok},
+                  message="第 %d / %d 版已生成" % (i, count))
             if i < count:
                 time.sleep(interval)          # 串行 + 间隔，避免限流
+        _note(phase="done", index=count, count=count,
+              done=[d["id"] for d in drafts], message="%d 版全部生成" % len(drafts))
         return True, {"drafts": drafts, "count": len(drafts)}
 
     return _fn
@@ -2444,6 +2477,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/state":
             # 实现已迁至 nf_api_domains.project（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_project.handle_state(self)))
+        elif p == "/onboarding/status":
+            # 新手序列引导（I-1）：下一步该点哪里 + 每步判据（零 token）
+            self._send(*_dom(dom_onboarding.handle_onboarding_status(self)))
         elif p == "/costs":
             rows = []
             db_path = ROOT / "logs" / "runs.db"
@@ -2711,6 +2747,12 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/setting/canon":
             # canon 快照元信息（默认不含全文，?full=1 才给）
             self._send(*_dom(dom_setting_state.handle_setting_canon(self)))
+        elif p == "/setting/provenance":
+            # 条目来源链路（F21）：哪一版进来 / 现在这个值从哪版起 / 哪个文件导入
+            self._send(*_dom(dom_setting_state.handle_setting_provenance(self)))
+        elif p == "/setting/names":
+            # 设定集条目名（界面补全用，零 token）
+            self._send(*_dom(dom_setting_state.handle_setting_names(self)))
         elif p == "/outline/graph":
             # 情节图数据（2026-11-02，视频②对标）：章=节点、顺序/共享角色=连线。
             # 零 token，纯解析 data/outline/chapters/*.md。

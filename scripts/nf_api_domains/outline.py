@@ -176,7 +176,8 @@ def handle_outline_drafts(h):
                 d["acts"] = _osr.parse_global(_rt(op.draft_path(d["id"])))["acts"]
             except Exception:                               # noqa: BLE001
                 pass        # 单份草稿坏掉不影响列表（用户要靠列表才能删它）
-        return 200, {"drafts": drafts, "files": df}
+        return 200, {"drafts": drafts, "files": df,
+                     "recommended": op.recommend_draft(drafts)}
     except Exception as e:                                  # noqa: BLE001
         return 500, {"error": type(e).__name__ + ": " + str(e)[:200]}
 

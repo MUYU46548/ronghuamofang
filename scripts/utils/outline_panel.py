@@ -567,6 +567,19 @@ def draft_files():
 
 
 def list_drafts():
+    """多方案清单（含“值不值得选”的可比字段）。
+
+    ## 为什么带 chars / 计数 / 时间 / score（I-2，2026-11-03）
+
+    作者反馈：三版生成完只看到一个列表，**不知道该选哪版**。并排对比要能回答
+    “哪一版更完整”，光有 OK/WARN/THIN 三个数不够 —— 短得离谱的稿子往往
+    “零问题”但也几乎没内容。所以这里同时给：
+      · `chars`     —— 正文字数（一眼看出是不是缩水稿）
+      · `plan_count` / `node_count` —— 章节规划与关键节点条数
+      · `created_at` —— 落盘时间（判断是不是上一轮残留）
+      · `score`     —— 可比分：ok*3 + warn*1 - thin*2（**只用于排序推荐**，
+                       不是质量结论；真正的评级仍在 outline_review）
+    """
     d = Path("data/outline")
     out = []
     if d.is_dir():
@@ -575,18 +588,47 @@ def list_drafts():
             if not m:
                 continue
             rv = _safe_review(p)
-            struct = osr.parse_global(read_text(p))
+            text = read_text(p)
+            struct = osr.parse_global(text)
+            summary = rv.get("summary", {}) or {}
+            try:
+                mtime = p.stat().st_mtime
+                created = time.strftime("%Y-%m-%d %H:%M", time.localtime(mtime))
+            except OSError:
+                created = ""
+            score = (int(summary.get("ok") or 0) * 3
+                     + int(summary.get("warn") or 0)
+                     - int(summary.get("thin") or 0) * 2)
             out.append({
                 "id": int(m.group(1)),
                 "name": p.name,
-                "summary": rv.get("summary", {}),
+                "summary": summary,
                 "expected_chapters": struct["expected_chapters"],
                 "nodes": struct["nodes"],
                 "plan": struct["plan"],
                 "acts": struct["acts"],
+                "chars": len(text or ""),
+                "node_count": len(struct["nodes"]),
+                "plan_count": len(struct["plan"]),
+                "created_at": created,
+                "score": score,
             })
     out.sort(key=lambda x: x["id"])
     return out
+
+
+def recommend_draft(drafts):
+    """推荐一版（只排序，不下质量结论）。返回 id 或 None。
+
+    规则：score 最高；并列取**字数更多**的那版（同样指标下内容更全）；
+    单份方案不标推荐（没有“选”的问题，标了反而像系统在替你决定）。
+    """
+    if not drafts or len(drafts) < 2:
+        return None
+    best = max(drafts, key=lambda d: (int(d.get("score") or 0), int(d.get("chars") or 0)))
+    if int(best.get("score") or 0) <= 0:
+        return None
+    return best["id"]
 
 
 def cleanup_drafts(keep=None):
