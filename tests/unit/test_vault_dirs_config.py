@@ -130,8 +130,9 @@ _ticket(vd=get_vault_dirs(), sd=sorted(get_skip_dirs()))
     check("G1 vault_dirs 五键齐全（characters/locations/factions/concepts/timeline）",
           set(vd.keys()) == {"characters", "locations", "factions", "concepts",
                              "timeline"}, f"→ {sorted(vd.keys())}")
-    check("G1 默认布局是通用虚构（不含任何数字前缀/私人目录名）",
-          vd["characters"] == "设定/人物" and vd["timeline"] == "年表", f"→ {vd}")
+    # 2026-11-03 作者拍板：出厂**不预设任何目录**（目录名是每个用户自己的库的事）。
+    check("G1 出厂不预设目录（五键全空，不假装配好了）",
+          all(v == "" for v in vd.values()), f"→ {vd}")
     check("G1 skip_dirs 默认四项",
           p["sd"] == [".agent_context", ".git", ".hermes", ".obsidian"],
           f"→ {p['sd']}")
@@ -245,6 +246,8 @@ _ticket(old=k(os.environ["OLD"]), new=k(os.environ["NEW"]),
         world=k(os.environ["WORLD"]), index=k(os.environ["INDEX"]),
         nopath=path_kind({"name": "x"}), nodict=path_kind(None))
 '''
+    # 2026-11-03：出厂不再预设目录，锚点测试必须**显式**配一个（这正是用户会做的事）
+    _write_local(root, "obsidian:\n  vault_dirs:\n    characters: '设定/人物'\n")
     env = {"OLD": OLD, "NEW": NEW, "WORLD": WORLD, "INDEX": INDEX}
     p, out, err = run_py(root, code, env)
     if p is None:
@@ -258,7 +261,8 @@ _ticket(old=k(os.environ["OLD"]), new=k(os.environ["NEW"]),
           p["nopath"] is None and p["nodict"] is None, f"→ {p['nopath']},{p['nodict']}")
 
     # 加兼容锚点后：旧布局恢复 True，且新布局不受影响
-    _write_local(root, "obsidian:\n  extra_character_anchors: ['" + OLD_ANCHOR + "']\n")
+    _write_local(root, "obsidian:\n  vault_dirs:\n    characters: '设定/人物'\n"
+                       "  extra_character_anchors: ['" + OLD_ANCHOR + "']\n")
     p2, out2, err2 = run_py(root, code, env)
     _reset_local(root)
     if p2 is None:
@@ -292,8 +296,8 @@ _ticket(n=len(sc["characters"]))
         check("G6 子进程产出结果", False, f"{out[-300:]} {err[-300:]}")
         shutil.rmtree(root, ignore_errors=True)
         return
-    check("G6 目录不存在有告警（提示去改 vault_dirs）",
-          "目录不存在" in out, f"→ {out[-300:]}")
+    check("G6 未指定目录时说清“不是故障”并给下一步",
+          "未指定" in out and "不是故障" in out, f"→ {out[-300:]}")
     check("G6 三类全空有汇总告警（下游注入恒空的可见化）",
           "扫描结果全空" in out, f"→ {out[-300:]}")
     check("G6 空 vault 不炸、返回空列表", p["n"] == 0, f"→ {p}")
@@ -318,8 +322,9 @@ _ticket(vd=get_vault_dirs(), sd=sorted(get_skip_dirs()))
         return
     check("G7 坏配置有告警（用户能发现自己的覆盖没生效）",
           "解析 config/system.local.yaml 失败" in out, f"→ {out[-300:]}")
-    check("G7 坏配置时安全回退默认值（不炸）",
-          p["vd"]["characters"] == "设定/人物" and len(p["sd"]) == 4, f"→ {p}")
+    # 2026-11-03：坏配置回退到"未指定"（空），不是回退到某个预设布局
+    check("G7 坏配置时安全回退为未指定（不炸、也不假装配好了）",
+          all(v == "" for v in p["vd"].values()) and len(p["sd"]) == 4, f"→ {p}")
     shutil.rmtree(root, ignore_errors=True)
 
 
@@ -388,6 +393,8 @@ def case_skip_dirs_hot_reload():
     sy = root / "config" / "system.yaml"
     sy.write_text(sy.read_text(encoding="utf-8").replace(
         'vault_path: ""', 'vault_path: "%s"' % v.as_posix()), encoding="utf-8")
+    # 2026-11-03：出厂不预设目录 —— 这个用例要测"排除项热更"，必须先显式给角色目录
+    _write_local(root, "obsidian:\n  vault_dirs:\n    characters: '设定/人物'\n")
 
     code = PRELUDE + '''
 import os
@@ -397,7 +404,10 @@ from utils.setting_schema import reset_obsidian_config_cache
 before = sorted(c["name"] for c in ob.scan_vault()["characters"])
 # 完全复刻 GUI 保存动作：写 local 覆盖 + 清配置缓存（handle_config_vault_skip_dirs）
 with open(os.path.join("config", "system.local.yaml"), "w", encoding="utf-8") as f:
-    f.write('obsidian:\\n  skip_dirs: ["旧稿"]\\n')
+    # 2026-11-03：出厂不预设目录 —— 模拟"GUI 保存排除项"时也要带上角色目录，
+    # 否则这次覆盖会把 vault_dirs 抹掉（真实 GUI 保存只改 skip_dirs，不动 vault_dirs）
+    f.write('obsidian:\\n  vault_dirs:\\n    characters: "设定/人物"\\n'
+            '  skip_dirs: ["旧稿"]\\n')
 reset_obsidian_config_cache()
 after = sorted(c["name"] for c in ob.scan_vault()["characters"])
 prev = ob.scan_vault_preview()

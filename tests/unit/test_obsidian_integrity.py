@@ -92,6 +92,13 @@ def make_vault(root):
         encoding="utf-8")
     (v / "年表" / "大事记.md").write_text(
         "---\nname: 大事记\n---\n某年冬，封锁开始。\n", encoding="utf-8")
+    # 2026-11-03：出厂不再预设 vault_dirs（作者拍板：目录名是每个用户自己的事）。
+    # 夹具在这里显式声明这五个目录 —— 真实用户也是在设置页点选/让 AI 提案后保存。
+    (root / "config" / "system.local.yaml").write_text(
+        "obsidian:\n  vault_dirs:\n"
+        "    characters: '设定/人物'\n    locations: '设定/地点'\n"
+        "    factions: '设定/势力'\n    concepts: '设定/概念'\n"
+        "    timeline: '年表'\n", encoding="utf-8")
     return v
 
 

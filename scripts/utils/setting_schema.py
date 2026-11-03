@@ -144,12 +144,16 @@ def is_locked(entry):
 # 默认值刻意**不撞任何数字前缀类真实结构**：目录落空时 obsidian_bridge 会打
 # 零扫告警，引导用户去改配置，而不是静默扫零。
 # ---------------------------------------------------------------------------
+# 出厂**不预设任何目录**（2026-11-03 作者拍板）：
+# 原来那五个值（"设定/人物" 之类）是把某个人的库当通例，换个人/换个库全失效，
+# 还会让用户以为"已经配好了"。现在留空 = 未指定 —— 由用户在设置页点选，
+# 或让 AI 先扫一遍（/config/vault_probe）给出提案，再由作者确认。
 _DEFAULT_VAULT_DIRS = {
-    "characters": "设定/人物",
-    "locations": "设定/地点",
-    "factions": "设定/势力",
-    "concepts": "设定/概念",
-    "timeline": "年表",
+    "characters": "",
+    "locations": "",
+    "factions": "",
+    "concepts": "",
+    "timeline": "",
 }
 _DEFAULT_SKIP_DIRS = (".obsidian", ".git", ".hermes", ".agent_context")
 
@@ -261,13 +265,18 @@ def is_uninjectable(body):
 
 
 def get_vault_dirs():
-    """vault 目录映射（五键齐全、str、非空；空/缺配置回退默认）。"""
+    """vault 目录映射（五键齐全、str；**未指定就是空串**，不再回退出厂默认）。
+
+    判据变化（2026-11-03）：出厂默认曾是"设定/人物"这类演示布局 —— 那是把某一个人的
+    库当通例，尤其在墨坊要发布的前提下不成立。现在：
+      · 空串 = 未指定（调用方必须显式处理，不许假装配好了）；
+      · 要精准就在设置页点选（写 system.local.yaml），或让 AI 扫一遍给提案。
+    """
     raw = _load_vault_dirs_raw()
     out = {}
-    for k, d in _DEFAULT_VAULT_DIRS.items():
+    for k in _DEFAULT_VAULT_DIRS:
         v = raw.get(k) if isinstance(raw, dict) else None
-        v = str(v).strip().strip("/\\") if v else ""
-        out[k] = v or d
+        out[k] = str(v).strip().strip("/\\") if v else ""
     return out
 
 

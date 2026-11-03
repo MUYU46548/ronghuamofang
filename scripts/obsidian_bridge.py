@@ -311,8 +311,13 @@ def scan_vault(vault_path=None):
     vd = get_vault_dirs()
 
     def _sub(rel):
-        """vault 下相对目录：`设定/人物` → vault/设定/人物（段数任意，按 `/` 或 `\\` 拆）。"""
-        return Path(vault, *[s for s in str(rel).replace("\\", "/").split("/") if s])
+        """vault 下相对目录：`设定/人物` → vault/设定/人物（段数任意，按 `/` 或 `\` 拆）。
+
+        **空串 = 未指定**（2026-11-03）：绝不能让空串回落成 vault 根 —— 那会把整个库
+        当成"角色目录"扫一遍。这里给一个必然不存在的占位，交给调用方的 exists() 判。
+        """
+        seg = [s for s in str(rel).replace("\\", "/").split("/") if s]
+        return Path(vault, *seg) if seg else Path(vault, "__未指定__")
 
     def _root_of(rel):
         """目录键的第一段（“设定/人物”→“设定”）：世界观散装兜底与角色根同源。"""
@@ -320,10 +325,18 @@ def scan_vault(vault_path=None):
         return seg[0] if seg else ""
 
     def _warn_missing(path, key, value):
-        """A1 修法 2：零扫告警——目录落空不再静默 continue。"""
+        """A1 修法 2：零扫告警——目录落空不再静默 continue。
+
+        2026-11-03：**未指定 ≠ 配错**。出厂不再预设目录，所以空值要说"这一类本轮不注入"
+        而不是"目录不存在"（后者会让用户以为配置坏了）。
+        """
+        if not str(value or "").strip():
+            print(f"[obsidian_bridge] 未指定 {key} 目录 —— 这一类本轮不注入（不是故障）。"
+                  "可在设置页“设定目录”点选，或让 AI 用 /config/vault_probe 扫一遍给提案。")
+            return
         print(f"[obsidian_bridge] ⚠️ 目录不存在、跳过：{path}（vault_dirs.{key}={value!r}）"
-              "——若与你的 vault 结构不符，请在 config/system.yaml 或 "
-              "config/system.local.yaml 的 obsidian.vault_dirs 填真实目录。")
+              "——若与你的 vault 结构不符，请在 config/system.local.yaml 的 "
+              "obsidian.vault_dirs 填真实目录（设置页“设定目录”也能点选）。")
 
     # 角色根 = vault_dirs.characters（默认“设定/人物”；用户真实结构走本地覆盖）。
     char_dirs = [

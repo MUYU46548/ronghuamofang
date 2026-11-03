@@ -191,6 +191,7 @@ try:
     from nf_api_domains import semantic_review as dom_semrev  # noqa: E402 (语义审稿 2026-11-03)
     from nf_api_domains import rewrite_studio as dom_studio    # noqa: E402 (改写工作室 2026-11-03)
     from nf_api_domains import vault_dirs as dom_vdirs         # noqa: E402 (设定目录 2026-11-03)
+    from nf_api_domains import vault_probe as dom_vprobe       # noqa: E402 (给 AI 的扫描证据 2026-11-03)
     from nf_api_domains import judge as dom_judge          # noqa: E402 (0.7.17 判定引擎：零 token)
 except Exception as _dom_err:                            # noqa: BLE001
     dom_chapters = None
@@ -214,6 +215,7 @@ except Exception as _dom_err:                            # noqa: BLE001
     dom_semrev = None
     dom_studio = None
     dom_vdirs = None
+    dom_vprobe = None
     dom_judge = None
     print("[nf_api] 域模块加载失败（端点将返回可行动错误）: " + str(_dom_err))
 
@@ -2627,6 +2629,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/config/vaults":
             # 已知库列表（A 模型：一次只有一个生效，这里只是书签）
             self._send(*_dom(dom_project.handle_config_vaults_get(self)))
+        elif p == "/config/vault_probe":
+            # 给 AI 的扫描证据包（目录/篇数/样本文件名/首行）——AI 提案、作者拍板
+            self._send(*_dom(dom_vprobe.handle_config_vault_probe(self)))
         elif p == "/config/vault_dirs":
             # 设定目录映射的候选清单（目录名取自用户库本身，2026-11-03）
             self._send(*_dom(dom_vdirs.handle_config_vault_dirs(self)))

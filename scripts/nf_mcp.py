@@ -303,6 +303,14 @@ MCP_TOOLS = [
         "_http": ("POST", "/rewrite/studio", None),
     },
     {
+        "name": "nf_vault_probe",
+        "description": "扫作者的知识库，返回**证据**（每个目录的 md 篇数 / 样本文件名 / 样本首行），"
+                       "用来判断 characters/locations/factions/concepts/timeline 各对应哪个目录。"
+                       "你只能给**提案**（用 nf_ask 或直接在回复里说），保存必须作者在设置页做。零 token。",
+        "inputSchema": {"type": "object", "properties": {}},
+        "_http": ("GET", "/config/vault_probe", None),
+    },
+    {
         "name": "nf_ask",
         "description": "向作者提问。**唯一能让你停下来问人的通道** —— 不写回复正文里，"
                        "落到工作区，作者在界面上回答，之后用 nf_get_answers 读。"

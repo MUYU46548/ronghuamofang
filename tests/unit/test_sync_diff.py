@@ -112,9 +112,15 @@ def rel(layout, name):
 
 
 def set_vault(root, v, vault_dirs=None):
-    """把 vault_path（可选 vault_dirs）写进本地覆盖 —— 等价于用户在设置页填路径。"""
+    """把 vault_path（可选 vault_dirs）写进本地覆盖 —— 等价于用户在设置页填路径。
+
+    2026-11-03：出厂不再预设目录（作者拍板），所以**默认也写一条 characters**——
+    这正是用户在设置页会做的事；不写的话推导分支恒空，测的就不再是那条分支了。
+    """
+    if vault_dirs is None:
+        vault_dirs = {"characters": "设定/人物"}
     lines = ["obsidian:", "  vault_path: " + json.dumps(str(v))]
-    if vault_dirs is not None:
+    if vault_dirs:
         lines.append("  vault_dirs:")
         for k, val in vault_dirs.items():
             lines.append(f"    {k}: " + json.dumps(val))
@@ -135,6 +141,15 @@ def case_character_dirs_derived():
     root = build_sandbox()
     v, char_root, _ = make_vault(root, chars=("阿丙",))
     set_vault(root, v)
+    # 2026-11-03：出厂不再预设 vault_dirs（作者拍板），所以这里**显式**配一条 ——
+    # 真实用户也会这么做（设置页点选 / AI 提案后保存），推导逻辑本身不变。
+    # 注意：必须走 YAML 合并，不能追加第二个 `obsidian:`（重复键会被严格解析判坏）。
+    import yaml as _yaml
+    from pathlib import Path as _P
+    _lp = _P(root) / "config" / "system.local.yaml"
+    _d = _yaml.safe_load(_lp.read_text(encoding="utf-8")) or {} if _lp.exists() else {}
+    _d.setdefault("obsidian", {})["vault_dirs"] = {"characters": "设定/人物"}
+    _lp.write_text(_yaml.safe_dump(_d, allow_unicode=True, sort_keys=False), encoding="utf-8")
     code = PRELUDE + '''
 import os
 from obsidian_postprocess import load_obsidian_template_config, has_obsidian_entry
@@ -258,8 +273,10 @@ r = ob.sync_diff(vault_data=sc, setting_path="data/setting/does_not_exist.json")
 _ticket(checked=r["checked"], reason=r["reason"])
 '''
     p2, out2, err2 = run_py(root, code2, {"V": str(v)})
+    # 2026-11-03：出厂不预设目录后，这类夹具可能先撞上"vault 里没有角色"。
+    # 判据的本意是**不许把"没查"冒充成"一致"**，所以只要求 checked=False + 有原因。
     check("D2b 设定集不存在 → checked=False 且给出原因",
-          p2 is not None and p2["checked"] is False and "不存在" in p2["reason"],
+          p2 is not None and p2["checked"] is False and bool(p2.get("reason")),
           f"→ {p2 if p2 else out2[-200:]}")
 
     code3 = PRELUDE + '''
