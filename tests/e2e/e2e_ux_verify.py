@@ -22,6 +22,8 @@ import io
 import json
 import os
 import sys
+
+import urllib.request
 from pathlib import Path
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
@@ -176,7 +178,7 @@ def _geom(page):
         return None
 
 
-def shot(page, name, full=False):
+def shot(page, name, full=False, keep_scroll=False):
     """截图到 Temp/gui_verify/ux/，**并自检这张图能不能作为证据用**。
 
     ## 为什么截图需要自检（2026-10-31 用户指出）
@@ -197,7 +199,26 @@ def shot(page, name, full=False):
     p = OUT / ("%s.png" % name)
     notes = []
     y0 = 0
-    if full:
+    # 2026-11-03：只重置 window 滚动**不够**。实测 A2/A3/A4/A5 顶栏在 y=-47：
+    # 那些面板是在**内部滚动容器**里滚的（点完东西后停在半路），而 `.topbar` 是
+    # sticky —— 它跟着内层容器走，window.scrollTo(0,0) 一点用没有，截出来的图
+    # 顶栏被切掉半行（用户会以为界面坏了）。
+    # ⚠️ 但"故意滚到可见再拍"的调用方要传 keep_scroll=True（D9/D10 那两处），
+    # 否则会把刚滚好的块又滚回去，后续几何断言就判成"不在视口内"。
+    if not keep_scroll:
+        try:
+            page.evaluate(
+                "() => {"
+                "  window.scrollTo(0, 0);"
+                "  document.querySelectorAll('*').forEach(el => {"
+                "    try { if (el.scrollTop) el.scrollTop = 0;"
+                "          if (el.scrollLeft) el.scrollLeft = 0; } catch (e) {}"
+                "  });"
+                "}"
+            )
+            page.wait_for_timeout(240)
+        except Exception:                                    # noqa: BLE001
+            notes.append("重置滚动容器失败")
         g = _geom(page)
         y0 = (g or {}).get("scrollY") or 0
         if y0:
@@ -621,10 +642,19 @@ def test_real(browser):
         check("版本号取自 console/package.json（非 dev）",
               ("v" + _pkg_ver) in atxt and "读取版本信息失败" not in atxt
               and "mock" not in atxt, atxt[:70].replace("\n", " | "))
-        # 路径断言**从 ROOT 推导**，不写死某台机器的绝对路径（旧实现硬编码了一个本机盘符路径：
-        # 换机器/换盘就假红，而且把私人路径写进了仓库源码 —— 发布纪律不允许）。
-        check("显示真实项目根路径", str(ROOT.name) in atxt and str(ROOT) in atxt,
-              "期望含 %s" % ROOT)
+        # 路径断言**从后端自报的 project_root 推导**，不写死本机路径、也不写死"仓库根"
+        # （2026-11-03 修）：打包态下 ROOT 是工作区，源码态才是仓库；按仓库根去断，
+        # 打包/多书场景必然假红。真正的保证是"界面显示的 = 后端真实在用的项目根"。
+        try:
+            with urllib.request.urlopen(REAL_API + "/about", timeout=5) as _r:
+                _real_root = (json.loads(_r.read().decode("utf-8"))
+                              .get("project_root") or "")
+        except Exception:                                    # noqa: BLE001
+            _real_root = ""
+        check("显示真实项目根路径",
+              bool(_real_root) and _real_root in atxt and str(Path(_real_root).name) in atxt,
+              "期望含后端自报的 project_root=%r；界面片段=%r"
+              % (_real_root, atxt[:120].replace("\n", " | ")))
         check("含快速上手 / 数据位置 / 许可区块",
               about.locator(".about-steps li").count() == 4 and about.locator(".ap-row").count() == 3
               and "MIT" in atxt)
@@ -1028,7 +1058,7 @@ def test_about_project(browser, mock_proc=None):
         blk = page.locator(".ac-block")
         blk.scroll_into_view_if_needed()
         page.wait_for_timeout(200)
-        shot(page, "D9_agent_connect")     # 先滚到可见再拍：拍的必须是新块本身
+        shot(page, "D9_agent_connect", keep_scroll=True)   # 先滚到可见再拍：拍的必须是新块本身
         bb = blk.bounding_box()
         check("配置块滚到可见后在视口内且不越界（几何断言）",
               bool(bb) and bb["x"] >= 0 and bb["x"] + bb["width"] <= 1440 + 2
@@ -1076,7 +1106,7 @@ def test_about_project(browser, mock_proc=None):
         h4d = page.locator("h4:has-text('诊断与调试')")
         h4d.scroll_into_view_if_needed()
         page.wait_for_timeout(200)
-        shot(page, "D10_diagnostics")
+        shot(page, "D10_diagnostics", keep_scroll=True)
         dbb = h4d.bounding_box()
         check("诊断块标题滚到可见后在视口内（几何断言）",
               bool(dbb) and dbb["x"] >= 0 and dbb["x"] + dbb["width"] <= 1440 + 2
