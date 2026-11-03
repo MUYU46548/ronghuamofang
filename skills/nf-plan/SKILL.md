@@ -34,6 +34,9 @@ metadata:
    手工整理过的大纲用 `nf_save_outline` 落盘（自带格式校验 + 旧版备份）。
 7. 质量存疑 → `nf_get_remedy` 拿补救建议；大纲版本回退 → `nf_restore_snapshot`。
 8. **有了方案先提案，别直接写**：`nf_plan_propose` 落到 idea 态（采用/写进正文/丢弃都由作者点）；`nf_plan_list` 读回状态 —— **作者没点 select 就不算采纳**。
+9. **要讨论一章怎么写，用讨论件**（2026-11-03）：`nf_discuss_open` 开题（章号 + 主题 + 待解决问题），`nf_discuss_say` 追加你的看法，`nf_discuss_list` / `nf_discuss_read` 读回作者说过什么。
+   作者定稿后，结论会自动进该章的写作提示词；**定稿晚于正文时那一章会被判待重写** —— 所以别在讨论没定稿前催着写。
+   **定稿（拍板）只能作者做**，你没有这个工具，不要试图绕过（调 `/discuss/decide` 会 403）。
 
 ## 判据（跑完怎么算完）
 

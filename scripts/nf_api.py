@@ -186,6 +186,7 @@ try:
     from nf_api_domains import plan as dom_plan            # noqa: E402 (丙0 规划四态状态机)
     from nf_api_domains import segments as dom_segments    # noqa: E402 (丙4 分段审批读写)
     from nf_api_domains import discuss as dom_discuss      # noqa: E402 (讨论落地协议)
+    from nf_api_domains import discuss_thread as dom_thread  # noqa: E402 (讨论件 2026-11-03)
     from nf_api_domains import judge as dom_judge          # noqa: E402 (0.7.17 判定引擎：零 token)
 except Exception as _dom_err:                            # noqa: BLE001
     dom_chapters = None
@@ -204,6 +205,7 @@ except Exception as _dom_err:                            # noqa: BLE001
     dom_plan = None
     dom_segments = None
     dom_discuss = None
+    dom_thread = None
     dom_judge = None
     print("[nf_api] 域模块加载失败（端点将返回可行动错误）: " + str(_dom_err))
 
@@ -2505,6 +2507,11 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/outline/discussion/brief":
             # 打包“讨论第 N 章”的自包含任务书（只读，供复制给外部 Agent）。
             self._send(*_dom(dom_discuss.handle_discussion_brief(self)))
+        elif p == "/discuss/list":
+            # 讨论件（2026-11-03）：讨论的产物是一份会传导到写作的数据，不是聊天记录。
+            self._send(*_dom(dom_thread.handle_discuss_list(self)))
+        elif p == "/discuss/read":
+            self._send(*_dom(dom_thread.handle_discuss_read(self)))
         elif p == "/outline/discussion/draft":
             # 提案全文预览（批准前必须看 diff，否则又是盲签）。
             self._send(*_dom(dom_discuss.handle_discussion_draft(self)))
@@ -3303,6 +3310,15 @@ class Handler(BaseHTTPRequestHandler):
                 # 不写不删沙盒文件、绝不碰 vault —— 决策权始终在用户手里。
                 # 必须把已读的 body 传进去：请求体是一次性流，handler 再读会挂死。
                 self._send(*_dom(dom_sandbox.handle_sandbox_review(self, body)))
+            elif p == "/discuss/open":
+                # 开讨论：写 data/discuss/NN/<主题>.md（只追加，不碰正文）
+                self._send(*_dom(dom_thread.handle_discuss_open(self, body)))
+            elif p == "/discuss/say":
+                # 追加一轮发言（AI 与作者都写同一份稿）
+                self._send(*_dom(dom_thread.handle_discuss_say(self, body)))
+            elif p == "/discuss/decide":
+                # 作者拍板 → 约束进写作提示词（与审批同族，Agent 不可代拍）
+                self._send(*_dom(dom_thread.handle_discuss_decide(self, body)))
             elif p == "/outline/discussion/apply":
                 # 讨论提案（P0-1 落地协议）：agent 可调用 —— 只写提案文件到
                 # data/outline/drafts/ 并登记 pending，不碰章大纲。批准那一步

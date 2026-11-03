@@ -106,6 +106,8 @@ temperature: 0.8
 
 # 本章任务：第 {{n}} 章
 
+{{discussion_block}}
+
 ## 上一章末尾衔接段（用于语气与节奏衔接）
 {{prev_tail}}
 

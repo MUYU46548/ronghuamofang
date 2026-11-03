@@ -171,6 +171,67 @@ MCP_TOOLS = [
         "_http": ("GET", "/plan/list", None),
     },
     {
+        "name": "nf_discuss_list",
+        "description": "列出讨论件（2026-11-03）：每条的章号/主题/状态（open|decided）/轮次/"
+                       "定稿时间。**讨论的结论会进写作提示词**，所以要先看这里再动笔 —— "
+                       "别自己假设讨论没发生过。零 token。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "chapter": {"type": "integer",
+                            "description": "只看某一章（可空 = 全书）"},
+            },
+        },
+        "_http": ("GET", "/discuss/list", None),
+    },
+    {
+        "name": "nf_discuss_read",
+        "description": "读一篇讨论的全文（轮次 + 【结论】）与机读状态。讨论只追加、不改写历史；"
+                       "定稿后的约束以 state.constraints 为准。零 token。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "chapter": {"type": "integer", "description": "章号"},
+                "topic": {"type": "string", "description": "讨论主题（与 list 返回的一致）"},
+            },
+            "required": ["chapter", "topic"],
+        },
+        "_http": ("GET", "/discuss/read", None),
+    },
+    {
+        "name": "nf_discuss_open",
+        "description": "开一个讨论（章号 + 主题 + 待解决问题）。之后用 nf_discuss_say 追加发言。"
+                       "讨论是写作的上游：作者定稿后，结论会自动进该章的写作提示词。零 token。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "chapter": {"type": "integer", "description": "讨论哪一章"},
+                "topic": {"type": "string", "description": "主题（如“结局要不要开信”）"},
+                "question": {"type": "string",
+                             "description": "待解决的问题（可空，写清能省一轮）"},
+            },
+            "required": ["chapter", "topic"],
+        },
+        "_http": ("POST", "/discuss/open", None),
+    },
+    {
+        "name": "nf_discuss_say",
+        "description": "在讨论里追加一轮发言（role=ai 或 author）。只追加、不改写，"
+                       "作者会看到你说过什么。**你不能替作者定稿**（decide 不开放）。零 token。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "chapter": {"type": "integer", "description": "章号"},
+                "topic": {"type": "string", "description": "讨论主题"},
+                "role": {"type": "string",
+                         "description": "谁在说：ai（默认）/ author / editor"},
+                "text": {"type": "string", "description": "这一轮的内容"},
+            },
+            "required": ["chapter", "topic", "text"],
+        },
+        "_http": ("POST", "/discuss/say", None),
+    },
+    {
         "name": "nf_ask",
         "description": "向作者提问。**唯一能让你停下来问人的通道** —— 不写回复正文里，"
                        "落到工作区，作者在界面上回答，之后用 nf_get_answers 读。"

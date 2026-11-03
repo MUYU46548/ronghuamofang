@@ -58,6 +58,8 @@ temperature: 0.8
 
 # 本群任务：第 {{n}} 章 · 段落群 {{g}}/{{k}}
 
+{{discussion_block}}
+
 ## 上文（上一群/上一章结尾，接着这里往下写）
 
 {{prev_tail}}

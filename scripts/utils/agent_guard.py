@@ -84,6 +84,10 @@ FORBIDDEN_IN_AGENT_MODE = frozenset({
     # 清理出厂样例（0.6.7）：移动用户工作区素材文件 = 破坏性写操作，
     # 只读的 /factory/list 不在此列（外部 Agent 可以盘点，不能动手）。
     "/factory/clean",
+    # 讨论定稿（2026-11-03 讨论构件）：拍板 = 决定"这一章按什么写"，与审批同族。
+    # 外部 Agent 可以开讨论、追加发言（/discuss/open|say），但不能替作者定结论 ——
+    # 否则"讨论留痕"就成了 Agent 自己写自己批。
+    "/discuss/decide",
     # 出厂测试项目一键还原（0.6.22）：清书状态 + 重铺素材 + 写回配置。
     # 与铺设端点完全同族（铺/还原是一对）。端点自身还要求 is_trusted_gui
     # （双因子）—— 只读的 GET /factory/project 不在此列（Agent 可盘点）。

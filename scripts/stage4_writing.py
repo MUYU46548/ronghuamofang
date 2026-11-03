@@ -774,8 +774,23 @@ def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, p
         print(f"[stage4] 叙事深化块组装失败（本章将无深化上下文）: "
               f"{type(e).__name__}: {e}")
         deepen_context = ""
+    # 讨论结论（2026-11-03 讨论构件）：作者拍板过的约束必须进任务文件 ——
+    # 这是"讨论真的落实到正文"的唯一机械保证。没有已定稿讨论时渲染成空串，
+    # 不占提示词；组装失败不阻断写作，但必须打印（静默丢弃 = 讨论白讨论）。
+    try:
+        from utils import discussion as _disc
+        discussion_block = _disc.render_for_prompt(n)
+        if discussion_block:
+            print("[stage4] 第%d章注入讨论结论（约束 %d 条）"
+                  % (n, sum(len(v) for v in _disc.load_constraints(n).values())))
+    except Exception as e:                              # noqa: BLE001
+        print(f"[stage4] ⚠ 讨论结论注入失败（本章将不带讨论约束）: "
+              f"{type(e).__name__}: {e}")
+        discussion_block = ""
+
     _, body = load_template("stage4_writing.md", {
         "n": n,
+        "discussion_block": discussion_block,
         "style_rules": style_rules,
         "para_rules": para_rules,
         "book_name": book.get("name", "未命名"),
@@ -1110,6 +1125,21 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     failed = progress.failed_chapters(4)
     failed_ns = {f["n"] for f in failed}
     todo = [n for n in range(1, total + 1) if n not in verified or n in failed_ns or n in skipped]
+
+    # 讨论定稿晚于正文 → 该章必须重写（2026-11-03 讨论构件，③"接着推进"的落点）。
+    # 判据只看 mtime：作者在讨论里改了结论、正文还是旧稿时，靠人记得"我改过"是不可靠的
+    # —— 2026-10-25《潮汐档案》03/05 章就是这么变成"讨论过、稿子没变"的。
+    try:
+        from utils import discussion as _disc
+        _stale = _disc.stale_chapters(raw_dir)
+        if _stale:
+            _stale_ns = sorted({n for n, _p, _at in _stale})
+            print("[stage4] 讨论已定稿但正文更旧 —— 这些章本轮重写：%s"
+                  % _stale_ns)
+            todo = sorted(set(todo) | set(_stale_ns))
+    except Exception as e:                              # noqa: BLE001
+        print(f"[stage4] ⚠ 讨论时效核对失败（本轮不据此重写）: "
+              f"{type(e).__name__}: {e}")
 
     # ---- 按范围完成 = 部分完成（2026-11-03，作者拍板）----
     # 判据只看**盘上事实**：raw/NN.md 是否合格（与断点续跑同一判据），不信 progress

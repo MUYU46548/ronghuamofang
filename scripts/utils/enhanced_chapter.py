@@ -126,9 +126,26 @@ def build_group_task(cfg, proj, n, group, groups, prev_tail,
         "path_output": part_path(n, group["idx"]).resolve(),
         "feedback": (("## 上一段群校验反馈（本轮必须修复）\n" + feedback)
                      if feedback else ""),
+        # 讨论结论（2026-11-03 讨论构件）：加强模式是**主要**写作路径，约束必须
+        # 也走这里 —— 只加在整章模板上等于对默认配置无效。
+        "discussion_block": _discussion_block(cfg, proj, n),
     }
     _, body = load_template("stage4_group.md", variables)
     return body
+
+
+def _discussion_block(cfg, proj, n):
+    """该章的讨论约束块（没有已定稿讨论 → 空串，不占提示词）。
+
+    抽成函数是为了可单测：约束有没有真的进任务文件，是这个构件唯一的实证。
+    """
+    try:
+        from utils import discussion
+        return discussion.render_for_prompt(n)
+    except Exception as e:                                   # noqa: BLE001
+        print(f"[enhanced] ⚠ 第{n}章讨论结论注入失败（本章不带讨论约束）: "
+              f"{type(e).__name__}: {e}")
+        return ""
 
 
 def _strip_parts(parts):
