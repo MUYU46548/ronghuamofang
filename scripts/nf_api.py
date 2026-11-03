@@ -2753,6 +2753,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/setting/names":
             # 设定集条目名（界面补全用，零 token）
             self._send(*_dom(dom_setting_state.handle_setting_names(self)))
+        elif p == "/setting/interaction":
+            # 两人同场互动约束（C 组“关系网驱动互动”，零 token、只读设定原文）
+            self._send(*_dom(dom_setting_state.handle_setting_interaction(self)))
         elif p == "/outline/graph":
             # 情节图数据（2026-11-02，视频②对标）：章=节点、顺序/共享角色=连线。
             # 零 token，纯解析 data/outline/chapters/*.md。

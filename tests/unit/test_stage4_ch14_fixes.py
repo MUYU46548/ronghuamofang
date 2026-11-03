@@ -370,8 +370,8 @@ def case_app_vue_fixes():
                       if "copyStagePrompt(s.stage)" in ln and "<button" in ln), "")
     check("复制任务按钮不再被 isRunning 禁用",
           copy_line != "" and ":disabled=\"isRunning\"" not in copy_line, copy_line[:150])
-    check("补救弹窗有\u300c复制全部建议\u300d按钮",
-          "copyRemedy" in src and "复制全部建议" in src)
+    check("补救弹窗有复制按钮（现名“复制全部”：含运行态+体检+建议）",
+          "copyRemedy" in src and "复制全部" in src)
     check("remedyAsText 拼装函数存在", "function remedyAsText()" in src)
     check("收件箱空态指明阶段3产物去向",
           "阶段 3（逐章大纲）不设审批门" in src)

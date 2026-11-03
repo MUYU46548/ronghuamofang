@@ -231,6 +231,25 @@ def handle_setting_names(h):
                  "characters": names("characters"), "world": names("world")}
 
 
+def handle_setting_interaction(h):
+    """GET /setting/interaction?a=&b= → 两人同场的互动约束（C 组，零 token）。
+
+    只读设定集里已有的关系原文；关系词命中不了就明说“未知”，
+    称呼没写就明说没写 —— 给的是**按关系基调的写作建议**，不是正典。
+    """
+    q = h._query()
+    a = str((q.get("a") or [""])[0]).strip()
+    b = str((q.get("b") or [""])[0]).strip()
+    if not a or not b:
+        return _bad("a / b 必填（两个角色名）")
+    try:
+        from utils import interaction
+        res = interaction.build(str(api.ROOT), a, b)
+    except Exception as e:                                    # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+    return (200 if res.get("ok") else 400), res
+
+
 # 本模块负责的端点（供自检与文档）
 ROUTES = (
     ("GET", "/setting/conflicts", handle_setting_conflicts),
@@ -238,4 +257,5 @@ ROUTES = (
     ("POST", "/setting/status", handle_setting_status),
     ("GET", "/setting/provenance", handle_setting_provenance),
     ("GET", "/setting/names", handle_setting_names),
+    ("GET", "/setting/interaction", handle_setting_interaction),
 )

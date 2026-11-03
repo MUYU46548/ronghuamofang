@@ -29,6 +29,7 @@ import VaultDirsPanel from "./VaultDirsPanel.vue";
 import ReviewLedgerPanel from "./ReviewLedgerPanel.vue";
 import SettingClosurePanel from "./SettingClosurePanel.vue";
 import SettingVersionsPanel from "./SettingVersionsPanel.vue";
+import InteractionPanel from "./InteractionPanel.vue";
 import PlotGraph from "./PlotGraph.vue";
 import PlotBoard from "./PlotBoard.vue";
 import TruncatedPanel from "./TruncatedPanel.vue";
@@ -302,6 +303,20 @@ function remedyAsText() {
   const rr = remedyResult.value;
   if (!rr) return "";
   const lines = [];
+  // 运行态与环境事实先写：外部 Agent 拿到这段不用再问“现在是不是在跑”
+  const run = rr.runner || {};
+  lines.push("[运行态] " + (run.why || "无记录"));
+  if (run.pid) lines.push(`  pid=${run.pid} since=${run.since || "?"} stage=${run.stage ?? "?"}`);
+  const f = rr.facts || {};
+  lines.push(`[环境] engine=${f.engine || "?"} python=${f.python || "?"}`);
+  // 体检明细（通过项也列，外部 Agent 才知道查过什么）
+  const items = (rr.doctor && rr.doctor.items) || [];
+  if (items.length) {
+    lines.push(`[体检] ${items.filter((x) => x.ok).length}/${items.length} 通过`);
+    for (const it of items) {
+      lines.push(`  ${it.ok ? "✓" : "✗"} ${it.name}：${it.detail}`);
+    }
+  }
   for (const r of (rr.remedies || [])) {
     lines.push(`${r.blocking ? "[阻塞]" : "[提醒]"} ${r.issue} → ${r.action}：${r.command}`);
   }
@@ -4911,27 +4926,69 @@ onUnmounted(() => {
     <button class="mini primary" :disabled="nextRunLocked" :title="nextRunLocked ? AGENT_LOCK_HINT : ''" @click.stop="runNextAction">执行</button>
   </div>
 
-  <!-- 一键补救结果弹窗 -->
+  <!-- 诊断（C 组“运行侧三态 → 诊断”的独立入口）：运行态 + 体检明细 + 补救建议 -->
   <div v-if="remedyOpen" class="drawer-mask" @click.self="remedyOpen = false">
-    <div class="dialog" style="width: min(560px, 94vw);">
-      <h3 style="margin:0 0 10px;">🩹 一键补救建议</h3>
-      <div v-if="remedyResult && remedyResult.issues && remedyResult.issues.length === 0" class="meta">
-        ✓ 未检测到问题，书档状态良好。
+    <div class="dialog diag-dlg">
+      <h3 style="margin:0 0 10px;">🩺 诊断</h3>
+
+      <!-- 运行态：现在到底在不在跑（比“状态卡上的 running”更可信） -->
+      <div class="diag-block">
+        <div class="diag-title">运行态</div>
+        <div class="diag-row">
+          <span class="pill" :class="remedyResult?.runner?.alive ? 'st-running'
+                                     : (remedyResult?.runner?.stale ? 'st-failed' : 'st-done')">
+            {{ remedyResult?.runner?.alive ? "在跑" : (remedyResult?.runner?.stale ? "失联残留" : "空闲") }}
+          </span>
+          <span class="meta diag-why">{{ remedyResult?.runner?.why || "没有运行记录" }}</span>
+        </div>
+        <div class="meta diag-facts">
+          <span>引擎 {{ remedyResult?.facts?.engine || "?" }}</span>
+          <span v-if="remedyResult?.runner?.pid">pid {{ remedyResult.runner.pid }}</span>
+          <span v-if="remedyResult?.runner?.since">开始于 {{ remedyResult.runner.since }}</span>
+          <span v-if="remedyResult?.runner?.stage != null">阶段 {{ remedyResult.runner.stage }}</span>
+        </div>
       </div>
-      <div v-else>
-        <div v-for="(r, i) in (remedyResult?.remedies || [])" :key="i"
-             style="padding: 8px 0; border-bottom: 1px solid var(--border);">
+
+      <!-- 体检明细：通过项也列出来，用户才知道"查了什么" -->
+      <div class="diag-block">
+        <div class="diag-title">
+          数据体检
+          <span class="meta">
+            {{ (remedyResult?.doctor?.items || []).filter((x) => x.ok).length }}
+            / {{ (remedyResult?.doctor?.items || []).length }} 通过
+          </span>
+        </div>
+        <div v-if="!(remedyResult?.doctor?.items || []).length" class="meta">
+          没有检查项（可能还没跑过任何阶段）。
+        </div>
+        <div v-for="(it, i) in (remedyResult?.doctor?.items || [])" :key="i" class="diag-item">
+          <span class="diag-mark" :class="{ ok: it.ok }">{{ it.ok ? "✓" : "✗" }}</span>
+          <span class="diag-name">{{ it.name }}</span>
+          <span class="meta diag-detail">{{ it.detail }}</span>
+          <span v-if="!it.ok && (remedyResult?.doctor?.blocking || []).includes(it.name)"
+                class="pill st-failed">阻塞</span>
+        </div>
+      </div>
+
+      <!-- 问题 → 建议 -->
+      <div class="diag-block">
+        <div class="diag-title">补救建议</div>
+        <div v-if="remedyResult && remedyResult.issues && remedyResult.issues.length === 0" class="meta">
+          ✓ 未检测到问题，书档状态良好。
+        </div>
+        <div v-for="(r, i) in (remedyResult?.remedies || [])" :key="'r' + i" class="diag-remedy">
           <div style="display:flex; align-items:center; gap:8px;">
-            <span :class="['pill', r.blocking ? 'st-failed' : 'st-warn']">{{ r.blocking ? '阻塞' : '提醒' }}</span>
+            <span :class="['pill', r.blocking ? 'st-failed' : 'st-warn']">{{ r.blocking ? "阻塞" : "提醒" }}</span>
             <b style="font-size:13px;">{{ r.issue }}</b>
           </div>
           <div class="meta" style="margin-top:4px;">{{ r.action }}</div>
           <code style="font-size:11px; color: var(--accent);">{{ r.command }}</code>
         </div>
       </div>
+
       <div class="dialog-actions">
         <span class="spacer"></span>
-        <button class="mini" @click="copyRemedy" title="把全部建议拼成一段纯文本复制（可直接贴给外部 Agent 或存档）">📋 复制全部建议</button>
+        <button class="mini" @click="copyRemedy" title="把运行态 + 体检明细 + 建议拼成一段纯文本复制（可直接贴给外部 Agent 或存档）">📋 复制全部</button>
         <button class="mini" @click="remedyOpen = false">关闭</button>
       </div>
     </div>
@@ -5682,6 +5739,8 @@ onUnmounted(() => {
       <SettingClosurePanel @say="say" />
       <!-- 设定版本（2026-11-02，视频③对标）：两版对照 + 一键恢复 -->
       <SettingVersionsPanel :api="api" @say="say" />
+      <!-- 两人同场互动约束（C 组，2026-11-03）：关系不只在图上，还要能落成写法 -->
+      <InteractionPanel :api="api" @say="say" />
     </section>
 
     <div v-if="settingEditor.open" class="drawer-mask" @click.self="settingEditor.open = false">
@@ -5909,8 +5968,13 @@ onUnmounted(() => {
 
       <div v-if="costSummary" class="cost-cards">
         <div class="cost-stat">
-          <div class="stat-label">累计费用</div>
-          <div class="stat-val">{{ fmtYuan(costSummary.totals.cost_yuan) }}</div>
+          <div class="stat-label">
+            {{ costSummary.totals.billing && costSummary.totals.billing.money_metered === false ? "累计费用（不计金额）" : "累计费用" }}
+          </div>
+          <div class="stat-val">
+            {{ costSummary.totals.billing && costSummary.totals.billing.money_metered === false
+               ? "订阅流量" : fmtYuan(costSummary.totals.cost_yuan) }}
+          </div>
           <div class="stat-sub">预算 {{ fmtYuan(state?.cost.limit_yuan || 0) }}</div>
         </div>
         <div class="cost-stat">
@@ -5921,7 +5985,25 @@ onUnmounted(() => {
         <div class="cost-stat">
           <div class="stat-label">输出 token</div>
           <div class="stat-val">{{ fmtNum(costSummary.totals.tokens_out) }}</div>
-          <div class="stat-sub">{{ costSummary.totals.calls }} 次调用</div>
+          <div class="stat-sub">
+            {{ costSummary.totals.calls }} 次调用
+            <template v-if="costSummary.totals.billing && costSummary.totals.billing.io_ratio">
+              · 入/出 {{ costSummary.totals.billing.io_ratio }}:1
+            </template>
+          </div>
+        </div>
+      </div>
+
+      <!-- 计价口径（F-4）：恒 0 不是免费；in/out 比例不是产出效率 -->
+      <div v-if="costSummary && costSummary.totals.billing" class="billing-note">
+        <div class="bn-line">
+          <span class="pill" :class="costSummary.totals.billing.money_metered ? 'st-done' : 'st-warn'">
+            {{ costSummary.totals.billing.money_metered ? "按量计价" : "订阅流量" }}
+          </span>
+          <span>{{ costSummary.totals.billing.note }}</span>
+        </div>
+        <div v-if="costSummary.totals.billing.io_ratio" class="bn-sub">
+          {{ costSummary.totals.billing.io_note }}
         </div>
       </div>
 

@@ -88,6 +88,20 @@ def main():
     check("L5 撤掉后回到“没有记录”", st["alive"] is False and st["stale"] is False, st)
     check("L5 runner 键被清掉", "runner" not in pm.data, pm.data.get("runner"))
 
+    print("\n【7】跨进程读取不丢 runner（2026-11-03 真机发现）")
+    liveness.mark_run_start(pm, stage=2)
+    path = str(tmp / "data" / "state" / "progress.json")
+    pm2 = ProgressManager(path)          # 模拟 GUI/另一个进程从盘上读
+    st = liveness.run_status(pm2)
+    check("L7 新进程读得到 runner", st.get("pid") == os.getpid(), st)
+    check("L7 不误判失联", st["alive"] is True and st["stale"] is False, st)
+    pm2.save()                            # 再存盘不许把标记抹掉（旧的过滤会抹）
+    pm3 = ProgressManager(path)
+    check("L7 再存盘后标记仍在",
+          (pm3.data.get("runner") or {}).get("pid") == os.getpid(),
+          pm3.data.get("runner"))
+    liveness.clear_run_marker(pm3)
+
     print("\n【6】接线")
     orch = (ROOT / "scripts" / "orchestrator.py").read_text(encoding="utf-8")
     check("L6 拿到锁后写标记", "mark_run_start(progress" in orch)

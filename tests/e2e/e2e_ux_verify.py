@@ -1233,6 +1233,72 @@ def test_about_project(browser, mock_proc=None):
         ctx5.close()
 
 
+    print("  --- 两人同场互动约束（C 组）---")
+    ctx6, page6, errs6, bad6 = new_page(browser, MOCK_API, "interaction")
+    try:
+        page6.locator(".tabs button:has-text('设定')").click()
+        page6.wait_for_timeout(1200)
+        card = page6.locator(".ix-card")
+        card.scroll_into_view_if_needed()
+        check("“”卡渲染", card.count() == 1, card.count())
+        ins = card.locator(".ix-row input")
+        check("两个角色输入框", ins.count() == 2, ins.count())
+        ins.nth(0).fill("主角甲")
+        ins.nth(1).fill("主角乙")
+        card.locator("button:has-text('生成约束')").click()
+        page6.wait_for_timeout(700)
+        res = card.locator(".ix-result")
+        check("约束卡生成", res.count() == 1, res.count())
+        rt = res.inner_text() if res.count() else ""
+        check("给出关系基调", "亲近" in rt, rt[:60].replace("\n", " | "))
+        check("列出设定依据（可复核）", "依据" in rt and "师兄" in rt)
+        check("称呼 / 禁忌 / 写法三块齐全",
+              "称呼" in rt and "别这样写" in rt and "写法" in rt)
+        card.scroll_into_view_if_needed()
+        page6.wait_for_timeout(200)
+        shot(page6, "D14_interaction", keep_scroll=True)
+        errs6_real = [e for e in errs6 if "404" not in e]
+        check("同场约束无 console 报错", not errs6_real, errs6_real[:3])
+    finally:
+        ctx6.close()
+
+    print("  --- 诊断抽屉（运行态 + 体检明细）---")
+    ctx7, page7, errs7, bad7 = new_page(browser, MOCK_API, "diagnose")
+    try:
+        page7.locator("button:has-text('补救')").first.click()
+        page7.wait_for_timeout(1500)
+        dlg = page7.locator(".diag-dlg")
+        check("诊断抽屉打开（不是只有建议列表）", dlg.count() == 1, dlg.count())
+        dt = dlg.inner_text() if dlg.count() else ""
+        check("有“”块", "运行态" in dt, dt[:60].replace("\n", " | "))
+        check("有“”全量计数", "数据体检" in dt and "通过" in dt)
+        check("有“”块", "补救建议" in dt)
+        shot(page7, "D15_diagnose")
+        errs7_real = [e for e in errs7 if "404" not in e]
+        check("诊断无 console 报错", not errs7_real, errs7_real[:3])
+    finally:
+        ctx7.close()
+
+
+    print("  --- 成本口径说明（F-4）---")
+    ctx8, page8, errs8, bad8 = new_page(browser, MOCK_API, "cost")
+    try:
+        page8.locator(".tabs button:has-text('成本')").click()
+        page8.wait_for_timeout(1200)
+        note = page8.locator(".billing-note")
+        check("成本页有计价口径说明", note.count() == 1, note.count())
+        nt = note.inner_text() if note.count() else ""
+        check("说明里写清按量/订阅", "刊例价" in nt or "订阅" in nt, nt[:60])
+        check("入/出比值有解释（不是产出效率）", "不是产出效率" in nt, nt[:80])
+        page8.locator(".cost-cards").scroll_into_view_if_needed()
+        page8.wait_for_timeout(200)
+        shot(page8, "D16_billing_note", keep_scroll=True)
+        errs8_real = [e for e in errs8 if "404" not in e]
+        check("成本页无 console 报错", not errs8_real, errs8_real[:3])
+    finally:
+        ctx8.close()
+
+
 def main():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=["--no-proxy-server"])

@@ -68,6 +68,30 @@ def handle_costs_summary(h):
             "tokens_in": tot[0], "tokens_out": tot[1], "cache_read": tot[2],
             "cost_yuan": round(tot[3], 4), "calls": tot[4], "estimated": tot[5],
         }
+        # 计价口径（F-4，2026-11-03）：`engine: hermes` 下 cost_yuan 恒 0 ——
+        # 那**不是“免费”**，而是订阅流量没有按量单价。不说明的话，成本页会
+        # 让人以为“跑了几百万 token 花了 0 元”，要么以为记账坏了，要么以为
+        # 成本可忽略（两种情况都会导致错误决策）。
+        # 同时把 43:1 这类 in/out 比例解释掉：输入远大于输出是正常的（每次请求
+        # 都要重发设定/大纲/前文），它不是“产出效率”。
+        try:
+            cfg, _ = api.load_all()
+            from utils.engine import resolve_engine
+            engine = resolve_engine(cfg)
+        except Exception:                                    # noqa: BLE001
+            engine = "unknown"
+        t_in, t_out = int(tot[0] or 0), int(tot[1] or 0)
+        totals["billing"] = {
+            "engine": engine,
+            "money_metered": engine != "hermes",
+            "note": ("engine=hermes：走订阅流量，金额不计（恒 0 是“没有按量单价”，"
+                     "不是免费）；止烧只看 token 闸门。"
+                     if engine == "hermes"
+                     else "engine=direct：按 provider 刊例价估算（未收录单价的模型记 0）。"),
+            "io_ratio": (round(t_in / t_out, 1) if t_out else None),
+            "io_note": ("输入:输出 比值偏大是正常的 —— 每次请求都要重发设定、大纲与前文；"
+                        "这个数不是产出效率，也不该拿来横向比较模型。"),
+        }
         return 200, {"by_stage": by_stage, "by_model": by_model, "totals": totals}
     finally:
         db.close()
@@ -463,36 +487,107 @@ def handle_agent_runs(h):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+def build_remedy(root):
+    """诊断全景（C 组“运行侧三态 → 诊断”的独立入口，2026-11-03）。
+
+    ## 与旧版的差别
+
+    旧版只把 doctor 的**失败项**翻成建议 —— 界面上看不到“查了什么、哪些通过”，
+    也看不到运行态（pid / 是否失联 / 引擎）。而“诊断”要回答的是
+    “现在到底怎么了”，所以这里一次给齐四块：
+
+      · `doctor`  全量体检明细（items / blocking / warnings），不只看失败项
+      · `runner`  运行态（alive / stale / pid / since / stage / why）
+      · `facts`   环境事实（引擎 / 解释器 / 数据根 / 日志 / 数据库）
+      · `issues` + `remedies`  沿用“问题 → 可执行命令”的旧口径
+
+    纯只读、零 token；不依赖 nf_api 模块级状态，便于单测。
+    """
+    from pathlib import Path
+    import sys
+
+    root = Path(root)
+    import nfctl
+    from utils.progress_manager import ProgressManager
+    from utils import liveness
+    from utils.engine import resolve_engine
+
+    doctor = nfctl.collect_doctor(root)
+
+    # 运行态（F02 liveness：pid 还活不活，而不是“GUI 内存里有没有 job”）
+    try:
+        prog = ProgressManager(root / "data" / "state" / "progress.json")
+        runner = liveness.run_status(prog)
+    except Exception as e:                                    # noqa: BLE001
+        runner = {"alive": False, "stale": False,
+                  "why": "运行态读不出来：" + type(e).__name__ + ": " + str(e)[:120]}
+
+    # 环境事实
+    cfg = {}
+    try:
+        from utils.config_io import load_pipeline_config
+        cfg, _proj = load_pipeline_config(root / "config" / "system.yaml",
+                                          root / "config" / "system.local.yaml",
+                                          root / "config" / "project.yaml")
+    except Exception:                                         # noqa: BLE001
+        pass
+    facts = {
+        "engine": resolve_engine(cfg),
+        "python": sys.executable,
+        "root": str(root),
+        "logs": str(root / "logs" / "runs.db"),
+        "progress": str(root / "data" / "state" / "progress.json"),
+        "progress_exists": (root / "data" / "state" / "progress.json").is_file(),
+    }
+
+    issues = []
+    for item in doctor.get("items", []):
+        if not item.get("ok"):
+            issues.append({
+                "name": item.get("name", ""),
+                "detail": item.get("detail", ""),
+                "blocking": item.get("name", "") in (doctor.get("blocking") or []),
+            })
+
+    remedies = []
+    for issue in issues:
+        name = issue["name"]
+        if "章节文件" in name:
+            remedies.append({"issue": name, "action": "重新运行对应阶段",
+                             "command": "python scripts/orchestrator.py --from N"})
+        elif "大纲" in name:
+            remedies.append({"issue": name, "action": "重新运行大纲阶段",
+                             "command": "python scripts/orchestrator.py --from 2"})
+        elif "成本" in name or "runs" in name:
+            remedies.append({"issue": name, "action": "检查数据库一致性",
+                             "command": "python scripts/nfctl.py doctor"})
+        elif "孤儿" in name:
+            remedies.append({"issue": name, "action": "清理或恢复文件",
+                             "command": "python scripts/nfctl.py doctor"})
+        else:
+            remedies.append({"issue": name, "action": "查看详情",
+                             "command": "python scripts/nfctl.py doctor"})
+
+    return {
+        "ok": True,
+        "doctor": {
+            "items": doctor.get("items", []),
+            "blocking": doctor.get("blocking", []),
+            "warnings": doctor.get("warnings", []),
+            "checked": len(doctor.get("items", [])),
+        },
+        "runner": runner,
+        "facts": facts,
+        "issues": issues,
+        "remedies": remedies,
+    }
+
+
 def handle_remedy(h):
-    """一键补救建议：检测当前书档问题并给出修复建议。"""
+    """GET /remedy → 诊断全景（运行态 + 体检明细 + 补救建议，零 token）。"""
     import nf_api as api
     try:
-        import nfctl
-        root = api.ROOT
-        doctor = nfctl.collect_doctor(root)
-        issues = []
-        for item in doctor.get("items", []):
-            if not item.get("ok"):
-                issues.append({
-                    "name": item.get("name", ""),
-                    "detail": item.get("detail", ""),
-                    "blocking": item.get("name", "") in doctor.get("blocking", []),
-                })
-        # 生成修复建议
-        remedies = []
-        for issue in issues:
-            name = issue["name"]
-            if "章节文件" in name:
-                remedies.append({"issue": name, "action": "重新运行对应阶段", "command": "python scripts/orchestrator.py --from N"})
-            elif "大纲" in name:
-                remedies.append({"issue": name, "action": "重新运行大纲阶段", "command": "python scripts/orchestrator.py --from 2"})
-            elif "成本" in name or "runs" in name:
-                remedies.append({"issue": name, "action": "检查数据库一致性", "command": "python scripts/nfctl.py doctor"})
-            elif "孤儿" in name:
-                remedies.append({"issue": name, "action": "清理或恢复文件", "command": "python scripts/nfctl.py doctor"})
-            else:
-                remedies.append({"issue": name, "action": "查看详情", "command": "python scripts/nfctl.py doctor"})
-        return 200, {"ok": True, "issues": issues, "remedies": remedies}
+        return 200, build_remedy(api.ROOT)
     except Exception as e:                                  # noqa: BLE001
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 

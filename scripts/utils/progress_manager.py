@@ -13,6 +13,10 @@ DEFAULT_PROGRESS = {
     "current_stage": 1,
     "stages": {},
     "last_modified": "",
+    # 运行态标记（F02）：{pid, since, stage}，由 liveness.mark_run_start 写入。
+    # 必须在这里登记 —— 下面 _load 只保留 base 里已有的键，漏登记会让
+    # **跨进程读取直接丢掉它**（见 _load 里的说明）。
+    "runner": {},
     "budget": {"limit_yuan": 300, "spent_yuan": 0.0, "paused": False},
 }
 
@@ -64,6 +68,16 @@ class ProgressManager:
             data = {}
         base = deepcopy(DEFAULT_PROGRESS)
         base.update({k: v for k, v in data.items() if k in base})
+        # 运行态标记必须原样带过（F02，2026-11-03 真机发现）：
+        # liveness.mark_run_start 把 `runner` 写进 progress.json，但这条白名单
+        # 过滤只放行 DEFAULT_PROGRESS 里登记过的键 —— 它当时没登记，于是
+        #   ① GUI（另一个进程）读盘时 runner 恒为空 → `/state.runner` 永远是
+        #      “没有记录中的 run”，失联判定形同虚设；
+        #   ② 更糟：下一次 save 用被过滤后的 data 覆盖写盘，**把盘上的 runner
+        #      抹掉** —— 记录直接丢。
+        # 这里显式重取一次，不依赖键名是否在默认表里（表已补，双保险）。
+        _runner = data.get("runner")
+        base["runner"] = _runner if isinstance(_runner, dict) else {}
         base["stages"] = {k: data.get("stages", {}).get(k, _new_stage()) for k in STAGE_KEYS}
         return base
 

@@ -263,7 +263,16 @@ class Handler(BaseHTTPRequestHandler):
             # 空 totals 会让它走“数据缺失不显示”分支 —— 那样 NaN 修复等于没被验到。
             return self._send(200, {"by_stage": [], "by_model": [], "totals": {
                 "cost_yuan": 3.75, "tokens_in": 128000, "tokens_out": 41000,
-                "calls": 26, "run_id": 20261024}})
+                "calls": 26, "run_id": 20261024,
+                # 计价口径（F-4）：缺这一段，成本页就只剩一个数字，
+                # 看不出“这是按量计价还是订阅流量”
+                "billing": {
+                    "engine": "direct", "money_metered": True,
+                    "note": "engine=direct：按 provider 刊例价估算（未收录单价的模型记 0）。",
+                    "io_ratio": 3.1,
+                    "io_note": "输入:输出 比值偏大是正常的 —— 每次请求都要重发设定、大纲与前文；这个数不是产出效率。",
+                },
+            }})
         if p == "/costs/rates":
             # 定价编辑器需要这个端点；空表 = 全部走源码刊例价
             return self._send(200, {"rates": {}, "source": "mock"})
@@ -552,6 +561,55 @@ class Handler(BaseHTTPRequestHandler):
                              {"v": 2, "label": "v2", "at": "2026-11-03 10:12"},
                              {"v": None, "label": "当前", "at": ""}],
                 "why": "",
+            })
+        if p == "/setting/interaction":
+            q = self._query()
+            a = str((q.get("a") or ["主角甲"])[0])
+            b = str((q.get("b") or ["主角乙"])[0])
+            return self._send(200, {
+                "ok": True, "a": a, "b": b, "found": True, "tone": "亲近",
+                "evidence": ["与主角乙是同门师兄弟，称其为“师兄”",
+                             "与主角甲同门，遇事挡在前面"],
+                "basis": [{"who": a, "text": "与主角乙是同门师兄弟，称其为“师兄”"},
+                          {"who": b, "text": "与主角甲同门，遇事挡在前面"}],
+                "guide": {
+                    "address": "用亲称或省姓（“师兄”），正式场合才连名带姓",
+                    "avoid": "全程敬语、生硬的“您”；也避免腻到失真",
+                    "writing": ["允许打断、抢话、把话说半句；",
+                                "关心落在具体动作（塞干粮、披衣），不宣言；",
+                                "吵架也不撤掉称呼的亲近。"],
+                },
+                "missing": [], "note": "",
+            })
+        if p == "/remedy":
+            # 诊断抽屉（C 组）：运行态 + 全量体检 + 建议。旧版只有建议，
+            # 新结构缺一块，界面上就会出现“体检 0/0 通过”的假空。
+            return self._send(200, {
+                "ok": True,
+                "doctor": {
+                    "items": [
+                        {"name": "全局大纲", "ok": True, "detail": "8,000 字"},
+                        {"name": "逐章大纲", "ok": True, "detail": "12 个文件"},
+                        {"name": "raw 章节文件", "ok": True, "detail": "12 个文件"},
+                        {"name": "checked 章节文件", "ok": True, "detail": "raw 12 / checked 12"},
+                        {"name": "refined 章节文件", "ok": False, "detail": "raw 12 / refined 10"},
+                    ],
+                    "blocking": [], "warnings": ["refined 章节文件"], "checked": 5,
+                },
+                "runner": {"alive": True, "stale": False, "pid": 4242,
+                           "since": "2026-11-03T20:12:00", "stage": 4,
+                           "why": "正在跑（pid 4242）"},
+                "facts": {"engine": "direct",
+                          "python": "C:/fake/venv/Scripts/python.exe",
+                          "root": "C:/fake/repo",
+                          "logs": "C:/fake/repo/logs/runs.db",
+                          "progress": "C:/fake/repo/data/state/progress.json",
+                          "progress_exists": True},
+                "issues": [{"name": "refined 章节文件",
+                            "detail": "raw 12 / refined 10", "blocking": False}],
+                "remedies": [{"issue": "refined 章节文件",
+                              "action": "重新运行对应阶段",
+                              "command": "python scripts/orchestrator.py --from 6"}],
             })
         if p == "/outline/chapters/list":
             # 分章页签（章节蓝图编辑器）的章节清单：喂两章，让视觉验收能真选中
