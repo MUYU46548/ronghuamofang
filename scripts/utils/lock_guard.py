@@ -51,6 +51,9 @@ EXEMPT_PREFIXES = (
     # 它写的是一个独立 json（下一章才读），不和流水线正在写的章抢同一个文件；
     # 写权限另有 agent_guard 把着（外部 Agent 不得插话）。
     "/intervene",
+    # “写完这章就停”（F04）：与 /intervene 同类 —— **它存在的意义就是流水线正在跑、
+    # 锁在 AI 手上时，人也能让它停**。被施工权拦掉等于没这个功能。
+    "/pipeline/finish_chapter",
 )
 
 OWNER_TEXT = {"pipeline": "AI 流水线", "human": "你"}

@@ -582,6 +582,19 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
             if _stop_requested():
                 print("[orchestrator] 阶段后收到停止请求，中断")
                 return _finalize("stopped", 4)
+            # “写完这章就停”（2026-11-02，F04）：stage4 会写完当前章、标完成、
+            # 状态回 pending 并写 paused_at，然后返回 False。
+            # **必须在这里拦**——再往下就是自动重试分支，会把刚停下的流水线重新拉起来。
+            _st_n = progress.data.get("stages", {}).get(str(n), {}) or {}
+            if _st_n.get("paused_at"):
+                print(f"[orchestrator] 阶段{n} 已按作者要求在本章结束后停手"
+                      f"（{_st_n['paused_at']}）；点运行会从断点继续")
+                try:
+                    _st_n.pop("paused_at", None)
+                    progress.save()
+                except Exception:                            # noqa: BLE001
+                    pass
+                return _finalize("paused", 4)
             if ok:
                 # 完成判定挂产物（2026-10-11 甲2）：0 行/缺失产物不许标"完成"。
                 # 判定域与写入端一致（阶段产物以相对路径写在进程 CWD 下）。

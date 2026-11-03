@@ -123,6 +123,26 @@ async function loadLock() {
     if (r.status === 200) lockState.value = r.data;
   } catch (e) { /* 顶栏状态坏了不该拖垮主界面 */ }
 }
+/* 写完这章就停（2026-11-02，F04）：与“停止”是两个动作 ——
+   停止立刻掐断（半截存残稿），这个等本章入稿、标完成后再停。 */
+const finishChapterOn = ref(false);
+async function loadFinishChapter() {
+  try {
+    const r = await apiOnce("/pipeline/finish_chapter", "GET");
+    if (r.status === 200) finishChapterOn.value = !!r.data.on;
+  } catch (e) { /* 只读状态 */ }
+}
+async function toggleFinishChapter() {
+  const want = !finishChapterOn.value;
+  const r = await api("/pipeline/finish_chapter", "POST", { on: want });
+  if (r.status === 200) {
+    finishChapterOn.value = !!r.data.on;
+    say(r.data.message || (want ? "已登记：这一章写完就停" : "已取消"));
+  } else {
+    say("没登记上：" + (r.data?.error || r.status));
+  }
+}
+
 /* 运行中插一句（2026-11-02，清单第 4 条）：只对下一章生效，用完即删。
    以前想改方向只能等它跑完再重写已写的章。 */
 const interveneOpen = ref(false);
@@ -222,6 +242,7 @@ async function refresh() {
     if (j && j.status === 200) lastJob.value = j.data;
     loadLock();        // L-5：界面必须自己说出"锁在谁手里"，与状态同频刷新
     loadIntervene();   // 清单第 4 条：有没有待用的插话
+    loadFinishChapter();  // F04：有没有登记“写完这章就停”
     // 成本页可见时同步刷新“当前运行”实时花费（与 state 同频 2.5s）
     if (tab.value === "cost") await refreshStreamingCost();
   } catch (e) {
@@ -1655,7 +1676,7 @@ async function stopJob() {
   if (r.status === 200) {
     // 2026-10-26：写作阶段改走流式，停止会在几秒内真正中断当前章（半截不落盘）。
     // 说清"会发生什么"，而不是一句含糊的"当前阶段完成后停止"。
-    say("已发送停止 —— 正在写的这一章会尽快中断（半截不入稿），已完成的章不受影响");
+    say("已发送停止 —— 立刻中断，正在写的这一章半截会存成残稿（可采纳或丢掉）；想等这一章写完再停，用“写完这章就停”，已完成的章不受影响");
   } else {
     say(`停止失败: ${r.data?.error || r.status}`);
   }
@@ -4938,6 +4959,12 @@ onUnmounted(() => {
     <span class="spacer"></span>
     <button class="mini" @click="interveneOpen = !interveneOpen"
             title="运行中改方向：只对下一章生效，不改大纲、不重写已写的章">✎ 插一句</button>
+    <button class="mini" :class="{ primary: finishChapterOn }" @click="toggleFinishChapter"
+            :title="finishChapterOn
+              ? '已登记：这一章写完后停手（点一下取消）'
+              : '把手上的这一章写完再停 —— 那一章是完整的、已入稿；点运行从下一章继续'">
+      {{ finishChapterOn ? "本章写完就停 · 已定" : "写完这章就停" }}
+    </button>
     <button class="mini danger" @click="stopJob">停止</button>
     <!-- 单章重写只报“本章 %”，不拿全书进度冒充；没有真实进度就什么都不报 -->
     <span v-if="scopeChapterPct !== null" class="run-pct">本章 {{ scopeChapterPct }}%</span>

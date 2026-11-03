@@ -2358,6 +2358,10 @@ class Handler(BaseHTTPRequestHandler):
         # 施工权状态（2026-11-02，P5 · L-5）：界面必须自己说出"锁在谁手里"。
         # 只读、不设副作用 —— 状态由锁文件本身决定，不另存一份内存变量
         # （另存就会出现"界面说在你手里、实际锁还在 AI 那"的分裂）。
+        if p == "/pipeline/finish_chapter":
+            from utils import pause_flag
+            self._send(200, {"ok": True, "on": pause_flag.is_requested(root=ROOT)})
+            return
         if p == "/intervene":
             # 界面显示"有没有待用的插话"（零 token，只读一个 json）
             from utils import intervene as _iv_mod
@@ -2999,6 +3003,18 @@ class Handler(BaseHTTPRequestHandler):
                 _data = _iv_mod.write(text, target_chapter=None, root=ROOT)
                 self._send(200, {"ok": True, **_data,
                                  "message": "已登记：下一章写作时生效，用完即删"})
+            elif p == "/pipeline/finish_chapter":
+                # “写完这章就停”（2026-11-02，F04）：与 /stop 是两个动作。
+                # /stop 立刻掐断（半截存残稿）；这个等本章入稿、标完成后再停。
+                from utils import pause_flag
+                on = bool(body.get("on", True))
+                if on:
+                    _d = pause_flag.request(root=ROOT)
+                    self._send(200, {"ok": True, "on": True, **_d,
+                                     "message": "已登记：这一章写完就停（那一章是完整的）"})
+                else:
+                    pause_flag.clear(root=ROOT)
+                    self._send(200, {"ok": True, "on": False, "message": "已取消"})
             elif p == "/lock/takeover":
                 # 人的绝对优先权（P5 · L-2）：接管只由界面发起（双因子）。
                 # 不动别人的进程 —— 流水线在下一章前的检查点自己看到 owner=human

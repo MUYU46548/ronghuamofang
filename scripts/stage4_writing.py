@@ -1149,6 +1149,14 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     # ---- 流式写作的字数回传（2026-10-26，用户第 3/4/6 条）----
     # 用户原话：“job 状态一直 running，我无法知道内部进度”“卡在 29% 让人觉得坏了”。
     # 有了流式回调，界面可以显示“正在写第 6 章 · 已 1200 字”，而不是一个死数字。
+    # 清掉上一轮的 paused_at：它只在"这一轮按暂停"时有意义，
+    # 留着会让下一次运行一开始就被 orchestrator 当成"已暂停"收尾。
+    try:
+        progress.data.setdefault("stages", {}).setdefault(str(4), {}).pop("paused_at", None)
+        progress.save()
+    except Exception:                                        # noqa: BLE001
+        pass
+
     _ch_state = {"chars": 0, "last_write": 0.0, "buf": []}
     # `buf`：本章已收到的**正文片段**（2026-11-02，不可用清单第 3 条）。
     # 只累计不给用户看 —— 用户按“停止”时把它落成残稿，这样"停一下"不再等于
@@ -1737,6 +1745,20 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         if _finalize(n, chap_path, result, check) == "budget":
             aborted = "budget"
             break
+        # “写完这章就停”（2026-11-02，F04）：与“中断”是两件事 ——
+        # 中断立刻掐断（半截存残稿），这个等本章入稿+标完成后再停。
+        # 放在 _finalize 之后：状态、摘要、记账都已经落好，断了也不丢东西。
+        try:
+            from utils import pause_flag
+            if pause_flag.is_requested():
+                _pl = pause_flag.consume()
+                print("[stage4] 收到“写完这章就停”：第%d章已完整入稿，就此停手"
+                      "（点运行会从第%d章继续）" % (n, n + 1))
+                _ = _pl
+                aborted = "paused"
+                break
+        except Exception:                                    # noqa: BLE001
+            pass
 
     # 阶段结束（无论 done/failed/中断）都清掉“正在写第 N 章”——
     # 否则断点续跑前 /state 会一直显示上一轮停在的那个章号，看起来像卡住了。
@@ -1755,6 +1777,16 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         pass
     if aborted:
         remaining_failed = progress.failed_chapters(4)
+        if aborted == "paused":
+            # 与 stopped 同口径：不是失败，是"在断点上下车"。
+            # paused_at 是给 orchestrator 看的信号：它必须**在自动重试之前**收尾，
+            # 否则"暂停"会被重试机制立刻续上（那就等于没停）。
+            progress.set_stage(4, "pending",
+                               paused_at=time.strftime("%Y-%m-%dT%H:%M:%S"))
+            return False, ("stage4 已按你的要求**在本章结束后停手**（本轮完成 %d 章）。"
+                           "刚写的那一章是完整的、已计入完成；"
+                           "点“运行”会从下一章继续（断点续跑，不重写已完成的章）"
+                           % done_this_round)
         if aborted == "stopped":
             # 用户主动中断 ≠ 章节失败（2026-10-26）：状态回到 pending，**不标 failed**。
             # 标 failed 会让界面显示“阶段 4 失败”，用户以为自己把东西弄坏了；
