@@ -591,7 +591,7 @@ def case_f7():
     # 表现成“F7 node 探测产出结果”失败（2026-10-07 实测）。
     helper_src = []
     for hname in ("function listFilesUnder(", "function copyMissingOnly(",
-                  "function sha256OfFile(",
+                  "function sha256OfFile(", "function countCodeDrift(",
                   "function recordFactoryManifest(", "function migrateConfigKeys(",
                   "function ensureEnhancedMode("):
         hs = src.find(hname)
@@ -756,17 +756,29 @@ def case_f7():
               "F7 播种后写 data/state/factory_manifest.json（含被复制文件 sha256）",
               f"实际={mani[:200]!r}")
 
-        # 幂等性：再跑一次，用户若是自己改过代码则不应被二次刷新
+        # 幂等性（2026-11-03 语义变更）：工作区的 scripts/ **不是用户资产**。
+        # 以前这条断言是"版本已是最新就不再覆盖（用户手改的代码保留）"——
+        # 正是这条语义把 0.7.29/0.7.30 的整次发版静默吃掉了：工作区与 payload
+        # 漂了 291 个文件，启动时一句"已是最新"就跳过，用户跑的还是首装那版。
+        # 现在的判据是**内容**：与安装包不一致 → 以安装包为准；一致 → 一个字节不动。
         (ws / "scripts" / "orchestrator.py").write_text("# USER-PATCHED\n",
-                                                       encoding="utf-8")
+                                                        encoding="utf-8")
         proc2 = subprocess.run([node, str(script)], capture_output=True, text=True,
                                encoding="utf-8", errors="replace", timeout=60)
         out2 = proc2.stdout or ""
         if "__RESULT__" in out2:
             payload2 = json.loads(out2.split("__RESULT__", 1)[1].splitlines()[0])
-            check(payload2["orch"] == "# USER-PATCHED",
-                  "F7 版本已是最新时不再覆盖（幂等：不反复回滚用户改动）",
+            check(payload2["orch"] == "# NEW-CODE",
+                  "F7 内容自检：工作区代码被改过 → 以安装包为准（代码不是用户资产）",
                   f"实际={payload2['orch']!r}")
+            # 内容已经一致 → 再跑一次不该再写盘（幂等：不每启动都重刷一遍）
+            before = (ws / "scripts" / "orchestrator.py").stat().st_mtime_ns
+            proc2b = subprocess.run([node, str(script)], capture_output=True, text=True,
+                                    encoding="utf-8", errors="replace", timeout=60)
+            after = (ws / "scripts" / "orchestrator.py").stat().st_mtime_ns
+            check("__RESULT__" in (proc2b.stdout or "") and before == after,
+                  "F7 内容一致时不再重写（幂等，不每次启动都刷一遍）",
+                  f"{before} → {after}")
         # 情形 ④（2026-11-03）：**种子版本没变**，只换安装包版本 → 代码也必须刷新。
         # 这是 0.7.29 / 0.7.30 被静默吃掉的路径：改了 scripts 却没 bump SEED_VERSION，
         # 新代码躺在 payload 里没人复制，工作区还在跑首装那一版（实测落后 291 个文件，

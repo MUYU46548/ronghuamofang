@@ -539,6 +539,42 @@ function sha256OfFile(p) {
   return require("crypto").createHash("sha256").update(fs.readFileSync(p)).digest("hex");
 }
 
+// payload 与工作区**逐文件按内容**比对（只用于代码目录）。
+// 返回 {missing, changed, samples}。
+//
+// 为什么按内容比、而不是只认版本号（2026-11-03）：版本号是**人填的**，
+// 忘填/填错就整次发版静默失效 —— 0.7.29/0.7.30 就是这样：payload 里是新代码，
+// 工作区还是 11-01 那一版，291 个文件不一致，界面上一个字都不提示。
+// sha256 比的是"盘上到底是什么"，这才是"这套软件真的装上了吗"的判据。
+// 代价：**工作区里的 scripts/ 不是用户资产** —— 手改过的会被下一次启动覆盖到
+// payload 的样子（prompts/ 不在此列，它仍走"保留用户改动"那套）。
+function countCodeDrift(srcDir, dstDir) {
+  const out = { missing: 0, changed: 0, samples: [] };
+  if (!fs.existsSync(srcDir) || !fs.existsSync(dstDir)) return out;
+  const walk = (rel) => {
+    for (const ent of fs.readdirSync(path.join(srcDir, rel), { withFileTypes: true })) {
+      if (ent.name === "__pycache__") continue;      // 解释器缓存，不是代码
+      const r = rel ? path.join(rel, ent.name) : ent.name;
+      if (ent.isDirectory()) { walk(r); continue; }
+      if (!ent.isFile()) continue;
+      const s = path.join(srcDir, r), t = path.join(dstDir, r);
+      try {
+        if (!fs.existsSync(t)) {
+          out.missing += 1;
+        } else if (sha256OfFile(s) !== sha256OfFile(t)) {
+          out.changed += 1;
+          if (out.samples.length < 5) out.samples.push(r);
+        }
+      } catch (e) {
+        out.changed += 1;                            // 读不动 = 按不一致处理（宁可多刷一次）
+        if (out.samples.length < 5) out.samples.push(r);
+      }
+    }
+  };
+  walk("");
+  return out;
+}
+
 function recordFactoryManifest(ws, relPaths) {
   if (!relPaths || !relPaths.length) return;
   try {
@@ -725,9 +761,24 @@ function seedWorkspace() {
   const packVersion = String(app.getVersion() || "");
   const firstRun = !fs.existsSync(seededMarker);
   const codeStale = seededVersion < SEED_VERSION || seededAppVersion !== packVersion;
-  const stale = codeStale;   // 下游“旧文件移除 / 日志文案”沿用同一判据
 
-  if (!firstRun && !codeStale) return;   // 情形 ③：无事可做
+  // 情形 ⑤：**内容自检** —— 不信版本号，直接按 sha256 比 payload 与工作区的 scripts/。
+  // 这是对"更新软件为什么不同步"的正面回答：同步与否由**盘上内容**决定，不再由
+  // 人有没有记得改一个常量决定。比不上的文件数 > 0 就当作该刷新。
+  let drift = { missing: 0, changed: 0, samples: [] };
+  if (!firstRun) {
+    try {
+      drift = countCodeDrift(path.join(payloadRoot, "scripts"),
+                             path.join(ws, "scripts"));
+    } catch (e) {
+      console.warn("[console] seedWorkspace: 代码自检失败，退回只看版本号:",
+                   e && e.message);
+    }
+  }
+  const driftCount = drift.missing + drift.changed;
+  const stale = codeStale || driftCount > 0;   // 下游“旧文件移除 / 日志文案”沿用同一判据
+
+  if (!firstRun && !stale) return;   // 情形 ③：无事可做
 
   // 本次**实际复制**的文件（相对路径）→ 收尾统一写进出厂清单
   const seededRels = [];
@@ -841,8 +892,13 @@ function seedWorkspace() {
   fs.writeFileSync(versionMarker, String(SEED_VERSION));
   fs.writeFileSync(appVersionMarker, packVersion);
   if (stale && !firstRun) {
-    console.log(`[console] seedWorkspace: 代码已刷新到 ${packVersion}`
-                + `（种子 v${seededVersion} → v${SEED_VERSION}；用户 data/ 未受影响）`);
+    const why = driftCount > 0
+      ? (`内容自检发现 ${driftCount} 个文件与安装包不一致`
+         + `（缺失 ${drift.missing} / 内容不同 ${drift.changed}`
+         + (drift.samples.length ? `，例如 ${drift.samples.slice(0, 3).join("、")}` : "")
+         + "）")
+      : `种子 v${seededVersion} → v${SEED_VERSION}`;
+    console.log(`[console] seedWorkspace: 代码已刷新到 ${packVersion}（${why}；用户 data/ 未受影响）`);
   }
 }
 // 技能随版本分发（2026-10-07，对齐方寸“升级后启动自动同步”）：
