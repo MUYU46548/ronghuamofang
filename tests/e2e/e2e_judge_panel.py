@@ -14,6 +14,7 @@ H. 无 console error / 无 4xx
 零 token（整条链不调模型）。用法：python tests/e2e/e2e_judge_panel.py
 """
 import io
+import json
 import os
 import re
 import shutil
@@ -22,6 +23,8 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -74,6 +77,22 @@ def check(name, cond, detail=""):
     (PASS if cond else FAIL).append(name)
     print("  [%s] %s%s" % ("PASS" if cond else "FAIL", name,
                            ("  → " + str(detail)[:240]) if detail else ""))
+
+
+def post_json(url, body, headers=None):
+    """直连 API 的 POST（e2e 里用来造/验数据，不经过界面）。"""
+    req = urllib.request.Request(url, data=json.dumps(body).encode("utf-8"), method="POST")
+    req.add_header("Content-Type", "application/json")
+    for k, v in (headers or {}).items():
+        req.add_header(k, v)
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            return r.status, json.loads(r.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        try:
+            return e.code, json.loads(e.read().decode("utf-8"))
+        except Exception:                                        # noqa: BLE001
+            return e.code, {}
 
 
 def build_workspace():
@@ -238,6 +257,62 @@ def main():
                 check("改阈值后版本变化", "第 2 版" in panel.inner_text(),
                       panel.inner_text()[:120])
             UX.shot(page, "JD2_caliber")
+
+            print("\n=== I. 第三条证据：模型先出、作者终裁（M4） ===")
+            # 越层：模型在提案里写档位 → 400，盘上不多一条候选
+            code, res = post_json(API + "/judge/feelings/propose",
+                                  {"chapter": 1, "items": [], "verdict": "可开始逐字改"})
+            check("模型带档位提案 → 400（越层拒收）",
+                  code == 400 and "越层" in str(res.get("error")),
+                  (code, str(res.get("error"))[:80]))
+            code, res = post_json(API + "/judge/feelings/propose", {
+                "chapter": 1, "model": "e2e",
+                "items": [{"paragraph_index": 1,
+                           "sentence": "他在档案室盖章。",
+                           "feeling": "打中了",
+                           "reason": "开篇一个动作就把处境立住了"}]})
+            check("合法提案 → 200 且记下 1 条待裁",
+                  code == 200 and len(res.get("added") or []) == 1, (code, res))
+            # 回整本再进单章，让界面重新拉 third_evidence
+            panel.locator("button:has-text('回整本')").click()
+            page.wait_for_timeout(600)
+            panel.locator("table.judge-table tbody tr").first.locator(
+                "button:has-text('看这章')").click()
+            page.wait_for_timeout(1000)
+            det3 = panel.inner_text()
+            check("单章出现“第三条证据（模型先出，你终裁）”",
+                  "第三条证据（模型先出，你终裁）" in det3, det3[:200])
+            check("候选显示为待裁（不是结论）", "待你裁 1 条" in det3, det3[:200])
+            check("写明模型写不了档位/终裁", "写不了档位" in det3)
+            UX.shot(page, "JD3_third")
+            # 元素级截图：整页截图里这一块常在折叠线以下（会被误读成"被截断"），
+            # 这里单独框住它，用来目检排版（间距/对齐/按钮是否清楚）。
+            block = panel.locator(".judge-third").first
+            if block.count():
+                block.scroll_into_view_if_needed()
+                page.wait_for_timeout(300)
+                block.screenshot(path=str(OUT / "JD3_third_block.png"))
+                box = block.bounding_box() or {}
+                check("第三条证据块有实际高度（内容真的渲染出来）",
+                      (box.get("height") or 0) > 60, box)
+            panel.locator(".judge-third-item button:has-text('采纳')").first.click()
+            page.wait_for_timeout(1400)
+            det4 = panel.inner_text()
+            check("采纳后没有待裁候选", "没有待裁候选" in det4, det4[:200])
+            check("采纳计数变 1", "采纳 1" in det4, det4[:160])
+            check("作者裁定计数含“来自模型 1 条”", "其中来自模型 1 条" in det4, det4[:200])
+            # 口径表：产出方一列必须可见（M4 验收①的自由面在界面上）
+            panel.locator("button:has-text('回整本')").click()
+            page.wait_for_timeout(500)
+            panel.locator("button:has-text('改标准')").click()
+            page.wait_for_timeout(1000)
+            cal2 = panel.inner_text()
+            check("口径表有“产出方 / 谁终裁”一列", "产出方 / 谁终裁" in cal2, cal2[:200])
+            check("J15（第三条证据）在表里且标明模型先出",
+                  "J15" in cal2 and "模型（先出候选）" in cal2, cal2[:240])
+            check("没有“未登记产出方”（新工作区自带产出方）",
+                  "未登记产出方" not in cal2, cal2[:200])
+            UX.shot(page, "JD4_caliber_producer")
 
             print("\n=== H. 干净度 ===")
             real_errs = [e for e in errs if "requestfailed" not in e]

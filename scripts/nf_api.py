@@ -2983,8 +2983,11 @@ class Handler(BaseHTTPRequestHandler):
             # 作者勾选记录（读侧不设闸）
             self._send(*_dom(dom_judge.handle_judge_events_get(self)))
         elif p == "/judge/caliber":
-            # 口径登记表 + 版本 + 消费方
+            # 口径登记表 + 版本 + 消费方 + 产出方（M4）
             self._send(*_dom(dom_judge.handle_judge_caliber(self)))
+        elif p == "/judge/feelings":
+            # 第三条证据（M4）：模型候选 + 作者终裁状态（读侧不设闸）
+            self._send(*_dom(dom_judge.handle_judge_feelings_get(self)))
         elif p == "/judge/destroy":
             # 三稿对照：哪一步把 6000 字削到 2000
             self._send(*_dom(dom_judge.handle_judge_destroy(self)))
@@ -3653,6 +3656,15 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/judge/caliber":
                 # 改口径（R04/F08）：改值即产新版本，旧版进 history
                 self._send(*_dom(dom_judge.handle_judge_caliber_set(self, body)))
+            elif p == "/judge/caliber/upgrade":
+                # M4 迁移：补登记产出方 / 补新判据（产新版本，旧版进 history）
+                self._send(*_dom(dom_judge.handle_judge_caliber_upgrade(self, body)))
+            elif p == "/judge/feelings/propose":
+                # 第三条证据：模型提案（只收证据；越层自裁 400）
+                self._send(*_dom(dom_judge.handle_judge_feelings_propose(self, body)))
+            elif p == "/judge/feelings/settle":
+                # 第三条证据：作者终裁（GUI-only，名单里另有第二道闸）
+                self._send(*_dom(dom_judge.handle_judge_feelings_settle(self, body)))
             elif p == "/judge/caliber/preview":
                 # 改口径前的影响面预览（R06）：一个字都不写
                 self._send(*_dom(dom_judge.handle_judge_caliber_preview(self, body)))

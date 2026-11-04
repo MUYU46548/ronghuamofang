@@ -167,8 +167,13 @@ def get_events(root, chapter):
 
 
 def set_sentence(root, chapter, paragraph_index, sentence, feeling, reason="",
-                 source="author"):
-    """F12：逐句裁定。二值 + 一句理由（`拿不准` 也要求理由），原句必须能在正文里定位。"""
+                 source="author", from_proposal=None):
+    """F12：逐句裁定。二值 + 一句理由（`拿不准` 也要求理由），原句必须能在正文里定位。
+
+    `from_proposal`（M4，2026-11-04）：这条作者裁定是从**模型提案**终裁来的
+    （提案 id 见 `proposals.feelings`）。留这个字段才答得出“最终结论里有多少条
+    是模型先出的”—— 否则 M4=B 落地之后，报告上分不清哪条是作者自己写的感受。
+    """
     if feeling not in ("打中了", "没打中", "拿不准"):
         return False, {"error": "感受类型只能是 打中了 / 没打中 / 拿不准"}
     if not str(sentence or "").strip():
@@ -185,6 +190,8 @@ def set_sentence(root, chapter, paragraph_index, sentence, feeling, reason="",
         "source": source,
         "at": _now(),
     }
+    if from_proposal:
+        item["from_proposal"] = str(from_proposal)
     doc["author"]["sentences"].append(item)
     doc["author"]["sentences"] = doc["author"]["sentences"][-2000:]
     save(root, doc)

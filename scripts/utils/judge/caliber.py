@@ -30,43 +30,88 @@ CONSUMERS = {
     "destroy.compare": "R02 三稿对照（销毁检测）",
     "author.events": "F03b 作者事件勾选（唯一硬门）",
     "budget.guard": "R01 预算—篇幅联动校验",
+    "model.feelings": "M4 第三条证据（模型提议 → 作者终裁）",
+}
+
+# 产出方（M4=B，2026-11-04 作者拍板）：每条判据必须写清**这条证据谁产的**。
+#
+# 为什么不能省：规则与模型混在同一张表里而不标产出方，出问题时无从审计 ——
+# “系统量出来的”和“模型猜出来的”读起来一模一样。M4 的验收正是这一条：
+# 第三条证据的产出方必须与作者所选一致，模型越层代裁必须打得回（见 feelings.py）。
+PRODUCERS = {
+    "rules": "规则（确定性，零 token）",
+    "model": "模型（先出候选）",
+    "author": "作者（终裁）",
+}
+
+# 谁定结论（settled_by）：规则判据由 verdict.decide 映射成档位；作者类由作者本人定。
+SETTLERS = {
+    "verdict.decide": "规则映射（三档结论）",
+    "author": "作者本人",
 }
 
 # 出厂口径（v1）。kind 只有五种：阈值 / 类型 / 计数 / 结构 / 不可自动判定。
+#
+# `producer` / `settled_by` 是**登记字段**（不是阈值）：改它算改口径描述，
+# 但不参与 `fingerprint`（指纹口径仍是 id+value）。见 needs_upgrade / upgrade。
 FACTORY = [
     {"id": "J01", "name": "每章最少字数", "kind": "阈值", "value": 5000,
-     "consumer": "rules.body_metrics", "note": "低于即记一条章级依据（不是合格门的唯一依据）"},
+     "consumer": "rules.body_metrics", "producer": "rules",
+     "settled_by": "verdict.decide",
+     "note": "低于即记一条章级依据（不是合格门的唯一依据）"},
     {"id": "J02", "name": "每章最多字数", "kind": "阈值", "value": 9000,
-     "consumer": "rules.body_metrics", "note": "高于只提示，不据此拒收"},
+     "consumer": "rules.body_metrics", "producer": "rules",
+     "settled_by": "verdict.decide", "note": "高于只提示，不据此拒收"},
     {"id": "J03", "name": "长句上限（字符）", "kind": "阈值", "value": 60,
-     "consumer": "rules.body_metrics", "note": "超过记一条句级缺陷"},
+     "consumer": "rules.body_metrics", "producer": "rules",
+     "settled_by": "verdict.decide", "note": "超过记一条句级缺陷"},
     {"id": "J04", "name": "复读句最少出现次数", "kind": "计数", "value": 3,
-     "consumer": "rules.body_metrics", "note": "同一句出现 ≥N 次记一条，带次数"},
+     "consumer": "rules.body_metrics", "producer": "rules",
+     "settled_by": "verdict.decide", "note": "同一句出现 ≥N 次记一条，带次数"},
     {"id": "J05", "name": "对话标签复现阈值", "kind": "计数", "value": 10,
-     "consumer": "rules.body_metrics", "note": "同一标签 ≥N 次记一条"},
+     "consumer": "rules.body_metrics", "producer": "rules",
+     "settled_by": "verdict.decide", "note": "同一标签 ≥N 次记一条"},
     {"id": "J06", "name": "伪具体·功能标准召回策略", "kind": "结构",
      "value": "unit_or_pure_action", "consumer": "rules.fake_concrete",
+     # 规则只召回候选；"这条算不算伪具体"由作者裁定 —— 两个字段各说一件事。
+     "producer": "rules", "settled_by": "author",
      "note": "只召回候选，是否成立由作者裁定（不可自动判定项）"},
     {"id": "J07", "name": "伪具体·可替换骨架最少命中", "kind": "计数", "value": 1,
-     "consumer": "rules.skeleton", "note": "换数字仍成立即算命中"},
+     "consumer": "rules.skeleton", "producer": "rules",
+     "settled_by": "verdict.decide", "note": "换数字仍成立即算命中"},
     {"id": "J08", "name": "章纲密度虚高·连续动作条数", "kind": "阈值", "value": 3,
-     "consumer": "rules.outline_density",
+     "consumer": "rules.outline_density", "producer": "rules",
+     "settled_by": "verdict.decide",
      "note": "同场景连续动作 ≥N 条且无状态变化 → 密度虚高（建议，不作合格门）；"
              "初值 3：本次《潮汐档案》第 1 章是 3 条连续动作 + 1 条有状态变化"},
     {"id": "J09", "name": "章纲事件落地最低匹配率", "kind": "阈值", "value": 0.5,
-     "consumer": "rules.outline_landing", "note": "低于则报未落地/章纲缺项"},
+     "consumer": "rules.outline_landing", "producer": "rules",
+     "settled_by": "verdict.decide", "note": "低于则报未落地/章纲缺项"},
     {"id": "J10", "name": "缺陷段占比阈值", "kind": "阈值", "value": 0.20,
-     "consumer": "verdict.decide",
+     "consumer": "verdict.decide", "producer": "rules",
+     "settled_by": "verdict.decide",
      "note": "≥ 即需定点重写（2026-10-29 作者拍板 20%）"},
     {"id": "J11", "name": "三稿缩减判销毁阈值", "kind": "阈值", "value": 0.05,
-     "consumer": "destroy.compare", "note": "raw→checked 缩减超 5% 判销毁"},
+     "consumer": "destroy.compare", "producer": "rules",
+     "settled_by": "verdict.decide", "note": "raw→checked 缩减超 5% 判销毁"},
     {"id": "J12", "name": "每章最少事件数（作者认定）", "kind": "不可自动判定",
-     "value": 2, "consumer": "author.events",
+     "value": 2, "consumer": "author.events", "producer": "author",
+     "settled_by": "author",
      "note": "系统不测事件数，只读作者四选一勾选"},
     {"id": "J13", "name": "token 系数", "kind": "阈值", "value": 1.6,
-     "consumer": "budget.guard", "note": "未实测标定，按保守值；标定后改"},
+     "consumer": "budget.guard", "producer": "rules",
+     "settled_by": "verdict.decide", "note": "未实测标定，按保守值；标定后改"},
     {"id": "J14", "name": "安全系数", "kind": "阈值", "value": 1.2,
-     "consumer": "budget.guard", "note": "未实测标定，按保守值"},
+     "consumer": "budget.guard", "producer": "rules",
+     "settled_by": "verdict.decide", "note": "未实测标定，按保守值"},
+    # M4=B（2026-11-04）：第三条证据（"这句打不打动人"）改由**模型先出候选**、
+    # 作者逐句终裁。规则不碰这一条 —— 它本来就是机器判不了的那一类。
+    # 模型写进来的只能是 `pending` 提案；终裁只认作者的动作（/judge/feelings/settle），
+    # 模型自己写档位/终裁一律 400（见 feelings.assert_proposal）。
+    {"id": "J15", "name": "第三条证据（感受标准）产出方", "kind": "不可自动判定",
+     "value": "model_then_author", "consumer": "model.feelings",
+     "producer": "model", "settled_by": "author",
+     "note": "M4=B：模型先出候选，作者逐句终裁；模型越层自裁一律拒收"},
 ]
 
 
@@ -211,9 +256,16 @@ def rollback(root, version, by="作者"):
 
 
 def describe(doc):
-    """给人看的口径卡（AC-05-1：每条判据一句人话 + 消费方）。"""
+    """给人看的口径卡（AC-05-1：每条判据一句人话 + 消费方 + **产出方**）。
+
+    产出方字段（M4，2026-11-04）必须随表出来：作者要在界面上看见
+    “这条是系统量的 / 这条是模型提的 / 这条是我拍的”，否则三条证据
+    在界面上长得一样，“谁替谁做了判断”就无从审计。
+    """
     out = []
     for c in (doc or {}).get("criteria") or []:
+        producer = c.get("producer")
+        settled = c.get("settled_by")
         out.append({
             "id": c.get("id"),
             "name": c.get("name"),
@@ -221,10 +273,96 @@ def describe(doc):
             "value": c.get("value"),
             "consumer": c.get("consumer"),
             "consumer_name": CONSUMERS.get(c.get("consumer"), "（无消费方）"),
+            "producer": producer or "",
+            # 未登记就明说未登记 —— 不拿出厂表悄悄顶上（那就成了“配了没人读”的反面：读了没配）
+            "producer_name": PRODUCERS.get(producer, "（未登记产出方）"),
+            "settled_by": settled or "",
+            "settled_by_name": SETTLERS.get(settled, "（未登记）"),
             "note": c.get("note", ""),
             "auto": c.get("kind") != "不可自动判定",
+            # 能被界面改值的只有“规则量出来的阈值/计数”—— 作者类与模型类都不是数字
+            "editable": bool(c.get("kind") != "不可自动判定" and producer != "author"
+                             and producer != "model"),
         })
     return out
+
+
+def needs_upgrade(doc):
+    """登记表还缺什么（M4 升级用）：只报告，不改口径。
+
+    老工作区的 `caliber.json` 是 v1 的 14 条，没有 `producer` / `settled_by`；
+    判定照跑（`values()` 只读 id→value），但界面上的“是谁产的”那一列会是空的。
+    补登记走 `upgrade()`（产新版本、旧版进 history），不在这里偷偷写盘。
+    """
+    crit = (doc or {}).get("criteria") or []
+    by_id = {c.get("id"): c for c in crit}
+    missing_meta = [c.get("id") for c in crit
+                    if not c.get("producer") or c.get("producer") not in PRODUCERS]
+    missing_ids = [c["id"] for c in FACTORY if c["id"] not in by_id]
+    return {"criteria_without_producer": missing_meta,
+            "missing_factory_ids": missing_ids,
+            "needed": bool(missing_meta or missing_ids)}
+
+
+def third_evidence(doc):
+    """第三条证据（producer=model）那几条判据 —— M4 的唯一读数入口。"""
+    return [{"id": c.get("id"), "name": c.get("name"), "value": c.get("value"),
+             "settled_by": c.get("settled_by"),
+             "settled_by_name": SETTLERS.get(c.get("settled_by"), "（未登记）"),
+             "consumer": c.get("consumer")}
+            for c in (doc or {}).get("criteria") or []
+            if c.get("producer") == "model"]
+
+
+def upgrade(root, by="升级补登记（M4：判据加产出方）"):
+    """把老口径补齐到出厂表：补 `producer`/`settled_by`，补**新登记的判据**（J15）。
+
+    ## 为什么是一次显式迁移，而不是读盘时自动顶上
+
+    口径模块的铁律是“判定时只读登记表，代码里不留回落默认值”。自动顶上会让
+    “表里没写”看起来像“表里写了”，而这恰恰是 M4 要防的：产出方必须是**登记过的**
+    事实，不是代码里的默认值。所以升级留一个显式入口（GUI 一个按钮 / POST 一次），
+    产新版本、旧版进 history —— 和改口径同一条版本链。
+
+    返回值里的 `filled` / `added` 让调用方能说清“到底改了什么”。
+    """
+    doc = load(root)
+    if not doc:
+        return False, {"error": "口径文件读不出来（%s）" % CALIBER_REL}
+    factory = {c["id"]: c for c in FACTORY}
+    crit = [dict(c) for c in doc.get("criteria") or []]
+    by_id = {c.get("id"): c for c in crit}
+    added, filled = [], []
+    for fid, fc in factory.items():
+        if fid not in by_id:
+            crit.append(dict(fc))
+            added.append(fid)
+            continue
+        for key in ("producer", "settled_by"):
+            if fc.get(key) and not by_id[fid].get(key):
+                by_id[fid][key] = fc[key]
+                filled.append("%s.%s" % (fid, key))
+    if not added and not filled:
+        return True, {"ok": True, "changed": False, "version": doc.get("version"),
+                      "message": "登记表已是最新（每条都有产出方）"}
+    fp = fingerprint(crit)
+    old = {k: v for k, v in doc.items() if k != "history"}
+    old["superseded_at"] = _now()
+    hist = list(doc.get("history") or []) + [old]
+    doc2 = {
+        "version": int(doc.get("version") or 1) + 1,
+        "fingerprint": fp,
+        "updated_at": _now(),
+        "updated_by": by,
+        "calibrated": doc.get("calibrated", False),
+        "criteria": crit,
+        "history": hist[-50:],
+    }
+    save_raw(root, doc2)
+    return True, {"ok": True, "changed": True, "version": doc2["version"],
+                  "fingerprint": fp, "added": added, "filled": filled,
+                  "criteria": crit}
+
 
 
 def require_ready(doc):

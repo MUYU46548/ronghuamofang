@@ -11,8 +11,12 @@
 | `GET /judge/events?chapter=` | 作者勾选记录 | 否 |
 | `POST /judge/events` | 作者勾“这章发生了几件事”（**唯一硬门，GUI-only**） | 否 |
 | `POST /judge/sentence` | 逐句裁定（打中了/没打中/拿不准 + 理由） | 否 |
-| `GET /judge/caliber` | 口径登记表 + 版本 + 消费方 | 否 |
+| `GET /judge/caliber` | 口径登记表 + 版本 + 消费方 + **产出方** | 否 |
 | `POST /judge/caliber` | 改口径（产新版本，旧版进 history） | 否 |
+| `POST /judge/caliber/upgrade` | 补登记产出方/新判据（M4 迁移，产新版本） | 否 |
+| `GET /judge/feelings?chapter=` | 第三条证据：模型候选 + 作者终裁状态 | 否 |
+| `POST /judge/feelings/propose` | 模型提案（**只收证据，越层自裁 400**） | 否 |
+| `POST /judge/feelings/settle` | 作者终裁（**GUI-only**：采纳/推翻/驳回） | 否 |
 | `GET /judge/destroy?n=` | 三稿对照（哪一步把 6000 字削到 2000） | 否 |
 
 ## 三条纪律
@@ -27,6 +31,7 @@ import nf_api as api
 from utils.judge import backtest as B
 from utils.judge import caliber as C
 from utils.judge import destroy as D
+from utils.judge import feelings as F
 from utils.judge import records as R
 from utils.judge import rules as RU
 from utils.judge import verdict as V
@@ -62,10 +67,21 @@ def handle_judge_report(h):
         _author = doc.get("author") or {}
         _br = {"book_reject": _author.get("book_reject"),
                "book_reject_history": _author.get("book_reject_history") or []}
+        # M4：第三条证据的产出方与进度（模型提了几条 / 作者裁了几条）。
+        # 报告页必须看得见 —— 看不见的“覆盖面最全”等于没做。
+        _third = F.summary(api.ROOT)
+        _prod = {"rules": 0, "model": 0, "author": 0, "missing": []}
+        for c in (cal or {}).get("criteria") or []:
+            p = c.get("producer")
+            if p in _prod:
+                _prod[p] += 1
+            else:
+                _prod["missing"].append(c.get("id"))
         if not run:
             return 200, {"ok": True, "exists": False, "caliber": cal_info,
                          "notices": [B.NOTICE_BACKTEST, B.NOTICE_NO_ARTIFACT],
                          "message": "还没有回测记录 —— 点“重跑判定”生成第一份",
+                         "third_evidence": _third, "producers": _prod,
                          **_br}
         return 200, {
             "ok": True, "exists": True, "run": run, "caliber": cal_info,
@@ -80,6 +96,8 @@ def handle_judge_report(h):
             "stale": bool(run.get("caliber_fingerprint")
                           and cal_info["fingerprint"]
                           and run["caliber_fingerprint"] != cal_info["fingerprint"]),
+            "third_evidence": _third,
+            "producers": _prod,
         }
     except Exception as e:                                     # noqa: BLE001
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
@@ -149,6 +167,8 @@ def handle_judge_chapter(h):
             "landing": analysis["outline"]["landing"],
             "destroy": d, "paragraphs": paras,
             "sentence_verdicts": sentences,
+            # M4：模型先出的第三条证据（本报告由 feelings 供，作者在此页终裁）
+            "third_evidence": F.snapshot(root, n),
             "notices": [B.NOTICE_BACKTEST, B.NOTICE_NO_ARTIFACT],
             "caliber": {"version": cal_doc.get("version"),
                         "fingerprint": cal_doc.get("fingerprint")},
@@ -247,9 +267,68 @@ def handle_judge_caliber(h):
                      "calibrated": doc.get("calibrated", False),
                      "criteria": C.describe(doc),
                      "empty": C.empty_criteria(doc),
+                     # M4：老工作区的表没有产出方 —— 明说“缺什么、要不要补”，
+                     # 不在读盘时偷偷写（改口径只有 POST 一条路，产新版本）
+                     "needs_upgrade": C.needs_upgrade(doc),
+                     "third_evidence": C.third_evidence(doc),
                      "history": [{"version": x.get("version"),
                                   "superseded_at": x.get("superseded_at")}
                                  for x in (doc.get("history") or [])]}
+    except Exception as e:                                     # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_judge_caliber_upgrade(h, body):
+    """M4 迁移：给老口径补 `producer`/`settled_by`，补新登记的判据（J15）。
+
+    为什么是显式按钮而不是读盘自动顶上：口径模块的铁律是“判定时只读登记表”，
+    自动顶替会让“表里没写”看起来像“表里写了”。见 caliber.upgrade 的说明。
+    """
+    try:
+        ok, d = C.upgrade(api.ROOT, by=(body or {}).get("by") or "GUI（补登记产出方）")
+        if not ok:
+            return 400, {"ok": False, "error": d.get("error")}
+        return 200, d
+    except Exception as e:                                     # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_judge_feelings_get(h):
+    """第三条证据：模型候选 + 作者终裁状态（`?chapter=n` 取单章）。"""
+    try:
+        q = _query(h)
+        ch = (q.get("chapter") or [None])[0]
+        n = int(ch) if ch else None
+        return 200, F.snapshot(api.ROOT, n)
+    except Exception as e:                                     # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_judge_feelings_propose(h, body):
+    """模型提案（Agent 可调用）：只收证据，越层自裁 400、一条都不落盘。"""
+    try:
+        body = body or {}
+        ok, payload = F.assert_no_overreach(body)
+        if not ok:
+            return 400, {"ok": False,
+                         "error": "越层：模型不得在提案里写 %s —— 那是作者终裁的位置"
+                                  % "、".join(payload)}
+        ok, res = F.propose(api.ROOT, body.get("chapter"), body.get("items") or [],
+                            model=str(body.get("model") or ""),
+                            note=str(body.get("note") or ""))
+        return (200 if ok else 400), res
+    except Exception as e:                                     # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_judge_feelings_settle(h, body):
+    """作者终裁（GUI-only）：采纳 / 推翻 / 驳回。外部 Agent 不得代签。"""
+    try:
+        body = body or {}
+        ok, res = F.settle(api.ROOT, body.get("chapter"),
+                           body.get("decisions") or [],
+                           by=str(body.get("by") or "作者"))
+        return (200 if ok else 400), res
     except Exception as e:                                     # noqa: BLE001
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
@@ -409,6 +488,10 @@ ROUTES = [
     ("POST", "/judge/sentence", handle_judge_sentence),
     ("GET", "/judge/caliber", handle_judge_caliber),
     ("POST", "/judge/caliber", handle_judge_caliber_set),
+    ("POST", "/judge/caliber/upgrade", handle_judge_caliber_upgrade),
+    ("GET", "/judge/feelings", handle_judge_feelings_get),
+    ("POST", "/judge/feelings/propose", handle_judge_feelings_propose),
+    ("POST", "/judge/feelings/settle", handle_judge_feelings_settle),
     ("POST", "/judge/caliber/preview", handle_judge_caliber_preview),
     ("GET", "/judge/destroy", handle_judge_destroy),
     ("GET", "/judge/artifact", handle_judge_artifact),

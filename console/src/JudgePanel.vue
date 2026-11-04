@@ -45,6 +45,16 @@ const rejectBusy = ref(false);
 const archiveBusy = ref(false);      // 一键归档
 const compareData = ref(null);       // I6 三稿对照（含三份正文）
 
+// M4（2026-11-04 作者拍板 B）：第三条证据 = 模型先出候选、作者逐条终裁。
+// 界面上守三条：① 候选只显示成“待你裁”，不许看起来像结论；
+// ② 终裁按钮是人点的（模型写不了 /judge/feelings/settle，越层直接 400）；
+// ③ 推翻与驳回必须留理由 —— 没有理由的推翻等于随手一点。
+const third = ref(null);             // 本章第三条证据（来自 /judge/chapter）
+const feelOpen = ref(null);          // 正在推翻/驳回的候选 id
+const feelAction = ref("override");
+const feelPick = ref("打中了");
+const feelWhy = ref("");
+
 // R05：这条判据在**这本书**里的一个真实例子（取自正文切句，不是人编的）
 function refFor(rid) {
   return (report.value && report.value.run && report.value.run.refs
@@ -169,9 +179,45 @@ async function openChapter(n) {
   busy.value = true; err.value = ""; openDefect.value = null;
   try {
     detail.value = await call("GET", "/judge/chapter?n=" + n);
+    third.value = detail.value.third_evidence || null;
     view.value = "detail";
   } catch (e) { err.value = String(e.message || e); }
   busy.value = false;
+}
+
+// 第三条证据：作者终裁（采纳 / 推翻 / 驳回）。
+// 采纳 = 认下模型的感受；推翻 = 你给感受与理由；驳回 = 这句根本不算证据。
+async function settleFeeling(p, action, extra) {
+  busy.value = true; err.value = "";
+  try {
+    const decisions = [Object.assign({ id: p.id, action }, extra || {})];
+    const d = await call("POST", "/judge/feelings/settle",
+                         { chapter: detail.value.chapter, decisions });
+    feelOpen.value = null; feelPick.value = "打中了"; feelWhy.value = "";
+    await openChapter(detail.value.chapter);
+    emit("say", d.message || "已终裁");
+  } catch (e) { err.value = String(e.message || e); }
+  busy.value = false;
+}
+
+function openFeelEditor(p, action) {
+  feelOpen.value = p.id;
+  feelAction.value = action;
+  feelPick.value = p.feeling || "打中了";
+  feelWhy.value = "";
+}
+
+function confirmFeel(p) {
+  const why = feelWhy.value.trim();
+  if (why.length < 4) {
+    emit("say", "理由至少 4 个字 —— 推翻与驳回都要留下“为什么”");
+    return;
+  }
+  if (feelAction.value === "override") {
+    settleFeeling(p, "override", { feeling: feelPick.value, reason: why });
+  } else {
+    settleFeeling(p, "reject", { reason: why });
+  }
 }
 
 // I6 三稿对照：原文 / 检查稿 / 润色稿并排。
@@ -229,6 +275,7 @@ async function onEventsSaved() {
   if (!detail.value) return;
   try {
     detail.value = await call("GET", "/judge/chapter?n=" + detail.value.chapter);
+    third.value = detail.value.third_evidence || null;
   } catch (e) { err.value = String(e.message || e); }
 }
 
@@ -271,6 +318,25 @@ async function saveCaliber() {
   try {
     const d = await call("POST", "/judge/caliber", { set });
     emit("say", d.message || ("已改为 v" + d.version));
+    await openCaliber();
+  } catch (e) { err.value = String(e.message || e); }
+  busy.value = false;
+}
+
+// M4 迁移（2026-11-04）：老工作区的口径表是 v1 的 14 条，没有“产出方”这一列。
+// 补登记是一次**显式**动作（产新版本、旧版进 history）——
+// 读盘时自动顶上会让“表里没写”看起来像“表里写了”，而 M4 要的正是登记过的事实。
+async function upgradeCaliber() {
+  busy.value = true; err.value = "";
+  try {
+    const d = await call("POST", "/judge/caliber/upgrade", {});
+    if (d.changed) {
+      emit("say", "已补登记 → v" + d.version
+        + "（新增 " + ((d.added || []).join("、") || "无")
+        + "；补产出方 " + (d.filled || []).length + " 项）");
+    } else {
+      emit("say", d.message || "登记表已是最新");
+    }
     await openCaliber();
   } catch (e) { err.value = String(e.message || e); }
   busy.value = false;
@@ -344,6 +410,19 @@ onMounted(loadReport);
       <div v-if="report && report.exists && report.evidence" class="meta judge-evidence">
         能力证据：{{ (report.evidence.capability || {}).note }} ·
         demo 证据：{{ demoText }}
+      </div>
+      <!-- M4 第三条证据（2026-11-04）：模型提了多少、你裁了多少 —— 看不见就等于没做 -->
+      <div v-if="report && report.third_evidence && report.third_evidence.total" class="meta">
+        第三条证据：模型提了 {{ report.third_evidence.total }} 条候选，你已终裁
+        {{ (report.third_evidence.counts.accepted || 0)
+           + (report.third_evidence.counts.overridden || 0)
+           + (report.third_evidence.counts.rejected || 0) }} 条
+        <template v-if="report.third_evidence.counts.pending">
+          · <b>{{ report.third_evidence.counts.pending }} 条待你裁</b>
+        </template>
+        · 判据产出方：规则 {{ (report.producers || {}).rules || 0 }} /
+        模型 {{ (report.producers || {}).model || 0 }} /
+        作者 {{ (report.producers || {}).author || 0 }}
       </div>
       <!-- B2 整本否掉：作者判定整本不行时，横幅常驻（可撤销） -->
       <div v-if="bookReject" class="judge-bookreject">
@@ -450,6 +529,43 @@ onMounted(loadReport);
                    @say="(m) => emit('say', m)"
                    @saved="onEventsSaved" />
 
+      <!-- 第三条证据（M4=B，2026-11-04）：模型先出候选，你终裁。候选不是结论。 -->
+      <div v-if="third && (third.total || (third.pending || []).length)" class="judge-third">
+        <div class="judge-third-head">
+          <b>第三条证据（模型先出，你终裁）</b>
+          <span v-if="third.counts.pending" class="judge-warn">待你裁 {{ third.counts.pending }} 条</span>
+          <span v-else class="meta">没有待裁候选</span>
+          <span class="meta">采纳 {{ third.counts.accepted }} · 推翻 {{ third.counts.overridden }}
+            · 驳回 {{ third.counts.rejected }}</span>
+          <span class="meta">你的裁定 {{ third.author_verdicts }} 条（其中来自模型
+            {{ third.author_from_model }} 条）</span>
+        </div>
+        <div class="meta">模型只提候选：它写不了档位，也写不了你的终裁（越层直接拒收）。</div>
+        <div v-for="p in third.pending" :key="p.id" class="judge-third-item">
+          <div class="judge-defect-row" @click="focusPara(p.paragraph_index)">
+            <span class="judge-para">第 {{ p.paragraph_index }} 段</span>
+            <span class="judge-rule">{{ p.feeling }}</span>
+            <span class="judge-quote">“{{ p.sentence }}”</span>
+          </div>
+          <div class="meta judge-third-why">理由：{{ p.reason }}</div>
+          <div class="judge-do">
+            <button class="mini primary" :disabled="busy" @click="settleFeeling(p, 'accept')">采纳</button>
+            <button class="mini" :disabled="busy" @click="openFeelEditor(p, 'override')">推翻…</button>
+            <button class="mini" :disabled="busy" @click="openFeelEditor(p, 'reject')">驳回…</button>
+          </div>
+          <div v-if="feelOpen === p.id" class="judge-do">
+            <select v-if="feelAction === 'override'" v-model="feelPick" class="judge-ev-class">
+              <option>打中了</option>
+              <option>没打中</option>
+              <option>拿不准</option>
+            </select>
+            <input v-model="feelWhy" class="judge-reason" placeholder="理由（至少 4 个字）" />
+            <button class="mini primary" :disabled="busy" @click="confirmFeel(p)">确定</button>
+            <button class="mini" @click="feelOpen = null">取消</button>
+          </div>
+        </div>
+      </div>
+
       <div class="judge-cols">
         <div class="judge-defects">
           <div v-for="d in detail.defects" :key="d.id + d.paragraph_index + d.rule_id"
@@ -545,6 +661,18 @@ onMounted(loadReport);
         <button class="mini primary" :disabled="busy" @click="saveCaliber">保存（产新版本）</button>
       </div>
       <div class="judge-notice">改标准会产新版本，旧结论保留为历史；改完要在报告页点“重跑判定”。</div>
+      <!-- M4 迁移（2026-11-04）：老表没有“产出方”。补登记是显式动作、产新版本。 -->
+      <div v-if="caliber.needs_upgrade && caliber.needs_upgrade.needed" class="judge-preview">
+        <b>这张表还缺“产出方”（M4）</b>
+        <div class="meta">
+          缺产出方：{{ (caliber.needs_upgrade.criteria_without_producer || []).join("、") || "无" }}
+          <template v-if="(caliber.needs_upgrade.missing_factory_ids || []).length">
+            · 未登记判据：{{ caliber.needs_upgrade.missing_factory_ids.join("、") }}
+          </template>
+        </div>
+        <div class="meta">补登记只补“谁产的 / 谁终裁”，不改任何阈值；产新版本，旧版进 history。</div>
+        <button class="mini primary" :disabled="busy" @click="upgradeCaliber">补登记产出方</button>
+      </div>
       <!-- R06 影响面预览：改数字立刻算，但点“保存”之前一个字都不写 -->
       <div v-if="preview" class="judge-preview">
         <b>影响面预览（还没生效）</b>
@@ -558,17 +686,19 @@ onMounted(loadReport);
       </div>
       <div v-if="err" class="judge-err">{{ err }}</div>
       <table class="judge-table">
-        <thead><tr><th>判据</th><th>值</th><th>类型</th><th>谁在读（消费方）</th>
-          <th>本书里的一个例子</th></tr></thead>
+        <thead><tr><th>判据</th><th>值</th><th>类型</th><th>产出方 / 谁终裁</th>
+          <th>谁在读（消费方）</th><th>本书里的一个例子</th></tr></thead>
         <tbody>
           <tr v-for="c in caliber.criteria" :key="c.id">
             <td>{{ c.id }} · {{ c.name }}</td>
             <td>
-              <input v-if="c.auto" v-model="calEdit[c.id]" class="judge-cal-input"
+              <input v-if="c.editable" v-model="calEdit[c.id]" class="judge-cal-input"
                      @input="onCalChange" />
+              <span v-else-if="c.producer === 'model'" class="meta">模型先出 · 你终裁</span>
               <span v-else class="meta">由你勾选（系统不测）</span>
             </td>
             <td>{{ c.kind }}</td>
+            <td class="meta">{{ c.producer_name }}<br />终裁：{{ c.settled_by_name }}</td>
             <td class="meta">{{ c.consumer_name }}</td>
             <td class="judge-ref">
               <template v-if="refFor(c.id)">
@@ -666,6 +796,12 @@ onMounted(loadReport);
 .judge-top { font-size: 12px; line-height: 1.7; }
 .judge-top-item { display: inline-block; margin-right: 10px; }
 .judge-events { border: 1px dashed var(--border); border-radius: 8px; padding: 8px 10px; margin: 8px 0; }
+/* ---- M4 第三条证据（模型先出、作者终裁）---- */
+.judge-third { border: 1px dashed var(--border); border-radius: 8px; padding: 8px 10px; margin: 8px 0; }
+.judge-third-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 4px; }
+.judge-third-item { border-top: 1px solid var(--border); padding: 4px 0; }
+.judge-third-item:first-of-type { border-top: 0; }
+.judge-third-why { padding: 0 0 4px 2px; }
 .judge-events-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .judge-event { display: flex; align-items: center; gap: 10px; padding: 3px 0; }
 .judge-event label { display: flex; align-items: center; gap: 6px; }

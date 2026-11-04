@@ -160,6 +160,10 @@ FORBIDDEN_IN_AGENT_MODE = frozenset({
     # 读侧 GET /judge/* 不拦（Agent 可看报告，不能替作者签字）。
     "/judge/events",
     "/judge/sentence",
+    # 第三条证据终裁（M4=B，2026-11-04 作者拍板）：模型**先出**候选，采纳/推翻/驳回
+    # 是作者的终裁动作。Agent 若能自提自裁，"模型先出、作者终裁"就退化成模型自说自话。
+    # 提案端 /judge/feelings/propose 不在此列 —— 那正是模型该干的活。
+    "/judge/feelings/settle",
     # 施工权（2026-11-02，P5）：夺锁与释放都是**人的动作**。外部 Agent 夺锁 =
     # 把作者正在改的书抢过来；释放 = 拆掉拦住别人的那道门。读侧 GET /lock 不拦
     # （Agent 该知道锁在谁手里，才好决定要不要等）。
