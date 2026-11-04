@@ -1512,7 +1512,7 @@ def act_rerun_chapter(cfg, n, through=6, refresh_judge=False):
         # runs.db 里记成 rerun，而不是一条看不出调用方的 stages=[4, 5, 6]
         os.environ["NF_RUN_PLAN"] = "rerun_ch%02d through=%d" % (n, _through)
         try:
-            rc = orch_run(from_stage=4, only_stage=None, stages=stages,
+            rc = orch_run(from_stage=4, stages=stages,
                           client=client, chapters={int(n)})
         except BaseException:
             _restore_chapter_after_failed_rewrite(n)

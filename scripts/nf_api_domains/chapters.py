@@ -547,7 +547,7 @@ def handle_chapters_rerun(h, body):
 
     与 `/chapters/rewrite`（只重写正文）不是一件事：
     本端点会把**这一章的** checked / checked_pending / refined / 逐章评审作废并重算，
-    其他章的三层稿与进度一律不动。阶段级「从阶段 N 重跑」仍是 `reject.py` 的整本语义。
+    其他章的三层稿与进度一律不动。阶段级“从阶段 N 重跑”仍是 `reject.py` 的整本语义。
     """
     try:
         body = body or {}

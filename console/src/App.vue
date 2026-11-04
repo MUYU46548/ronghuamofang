@@ -4531,7 +4531,7 @@ async function rewriteChapter(n) {
     "重写第 " + n + " 章？\n\n"
     + "· 会调用模型重新写整章（花 token，按当前字数口径与加强模式走）\n"
     + "· 旧稿先移到 data/chapters/rewrite_backup/，不满意可以捞回\n"
-    + "· 只换正文：检查稿与润色稿不会动；要把这一章的成品也换新，用「重跑…」\n"
+    + "· 只换正文：检查稿与润色稿不会动；要把这一章的成品也换新，用“重跑…”\n"
     + "· 会打开实时输出面板：模型聊天 + 本章正文（文件尾部）");
   if (!ok) return;
   rewriting.value = n;
@@ -4555,13 +4555,13 @@ async function rewriteChapter(n) {
 }
 
 /* ---- 单章重跑（2026-11-04，task-20261104-002） ---------------------------------
-   与「重写」不是一件事：重写只换 raw/NN.md；重跑把这一章的 checked /
+   与“重写”不是一件事：重写只换 raw/NN.md；重跑把这一章的 checked /
    checked_pending / refined / 逐章评审一起作废重算，**别的章一个字节不动**。
    影响面由后端 GET /chapters/rerun/plan 给（与真正执行走同一份 inventory）——
    界面上列的清单就是即将发生的动作，不让前端自己猜、也不让用户自己猜。 */
 const rerunDlg = ref({ open: false, n: 0, through: 6, items: [], busy: false });
 const RERUN_SCOPES = [
-  { through: 4, label: "只重写正文", desc: "只换 raw/NN.md（与「重写」等价，不碰下游）" },
+  { through: 4, label: "只重写正文", desc: "只换 raw/NN.md（与“重写”等价，不碰下游）" },
   { through: 5, label: "正文 + 检查稿", desc: "连检查稿与逐章评审一起重算" },
   { through: 6, label: "正文 + 检查 + 润色", desc: "成品层的这一章也换成新稿（最常用）" },
 ];
@@ -5679,7 +5679,7 @@ onUnmounted(() => {
                 title="就地编辑 / 段落批改（自带编辑器，写前自动备份）"
                 @click="openEditor(c.n)">编辑</button>
         <!-- 重写本章：走阶段 4 重写整章（会花 token）。旧稿先备份到 rewrite_backup/
-             ⚠️ 只换正文（2026-11-04 澄清文案）：检查稿/润色稿仍是旧的 —— 要连下游一起换用「重跑」。 -->
+             ⚠️ 只换正文（2026-11-04 澄清文案）：检查稿/润色稿仍是旧的 —— 要连下游一起换用“重跑”。 -->
         <button class="mini" :disabled="rewriting === c.n || isRunning || agentRunLocked"
                 :title="agentRunLocked ? AGENT_LOCK_HINT : (isRunning ? '流水线正在跑，等它结束再重写' : '只重写正文（走阶段 4；旧稿先备份；检查稿/润色稿不动）')"
                 @click="rewriteChapter(c.n)">
@@ -7638,7 +7638,7 @@ onUnmounted(() => {
     <div class="dialog" style="width: min(660px, 94vw);">
       <h3>重跑第 {{ rerunDlg.n }} 章</h3>
       <div class="meta" style="margin-top: 6px;">
-        「重写」只换正文；「重跑」把这一章的下游产物一起作废并重算。
+        “重写”只换正文；“重跑”把这一章的下游产物一起作废并重算。
         <b>别的章一个字节不动。</b>
       </div>
       <div style="margin-top: 10px;">
@@ -7661,7 +7661,7 @@ onUnmounted(() => {
       </table>
       <div class="meta" style="margin-top: 10px;">
         旧产物先移到 data/chapters/rerun_backup/；动手前自动打整轮快照（备份不了就不动）。
-        润色完成前阶段 6 会显示「按范围完成」，那是如实状态，不是失败。
+        润色完成前阶段 6 会显示“按范围完成”，那是如实状态，不是失败。
       </div>
       <div class="dialog-actions">
         <button class="mini" @click="closeRerunDialog">取消</button>

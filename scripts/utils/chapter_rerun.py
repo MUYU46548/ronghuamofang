@@ -3,9 +3,9 @@
 
 ## 它解决的是什么
 
-用户点「重写」只有**阶段 4** 会重跑：`raw/NN.md` 换了，`checked/NN.md`、
+用户点“重写”只有**阶段 4** 会重跑：`raw/NN.md` 换了，`checked/NN.md`、
 `refined/NN.md`、`data/review/NN.json`、`checked_pending/NN.md`（stage5 改稿提案）
-全是旧的。想把这一章的成品更新，就只能「从阶段 5 重跑」——而那是**整本**清空重算，
+全是旧的。想把这一章的成品更新，就只能“从阶段 5 重跑”——而那是**整本**清空重算，
 40 章的书等于为了 1 章重烧 39 章。
 
 本模块给的是**纵向、单章**的重跑：只把第 N 章的 4/5/6 产物作废并重算，
@@ -201,20 +201,25 @@ def settle(root=".", n=1, through=6, refresh_judge=False):
     return msgs
 
 
+def _project_cfg(root: Path):
+    """读 project.yaml（走 config_io 的严格 loader —— 配置类 YAML 不许裸 safe_load）。"""
+    try:
+        from utils.config_io import load_config_yaml
+        return load_config_yaml(root / "config" / "project.yaml") or {}
+    except Exception:                                        # noqa: BLE001
+        return {}
+
+
 def _book_total(root: Path):
     try:
-        cfg = (root / "config" / "project.yaml").read_text(encoding="utf-8-sig")
-        import yaml
-        return int((yaml.safe_load(cfg) or {}).get("book", {}).get("chapters") or 0) or None
+        return int((_project_cfg(root).get("book") or {}).get("chapters") or 0) or None
     except Exception:                                        # noqa: BLE001
         return None
 
 
 def _book_name(root: Path):
     try:
-        import yaml
-        cfg = (root / "config" / "project.yaml").read_text(encoding="utf-8-sig")
-        return ((yaml.safe_load(cfg) or {}).get("book", {}) or {}).get("name", "")
+        return ((_project_cfg(root).get("book") or {}) or {}).get("name", "")
     except Exception:                                        # noqa: BLE001
         return ""
 
