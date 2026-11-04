@@ -45,6 +45,16 @@
 `_post_stage` 里的这些都要模型或要人，self 分支一概不走：`auto_rewrite`、
 `review_after_stage4`、`semantic_review`、`setting_refine_auto`、`proofread`（LLM 路）。
 阶段前/后快照也不做（self 不改既有产物，任务书是新增文件）。
+
+**但“零 token 的确定性报告”必须照出**（2026-11-04 修）：`_self_stage()` 里的
+`_side_reports()` 会在两个“阶段已放行”分支各调一次，目前含阶段 1 的素材体检
+（`run_material_review` → `data/setting/material_review.md`）。判据是**要不要模型**，
+不是“是不是钩子”：素材体检是纯统计（读 `setting.json` + `normalized/`），零 token，
+与引擎无关 —— 此前它只在 `_post_stage(1)` 里生成，于是 self 下**永远没有这份报告**，
+而界面上一直挂着入口（作者第 13 条“打不开素材体检报告，文件不存在”的真根因之一）。
+之后再加零 token 报告，一律进 `_side_reports()`，别再各自在 self 分支里写一份。
+判据：`tests/unit/test_self_side_reports.py`（8 条，含反证：换成空实现则不生成）。
+
 **审批门照旧**：产物齐 → 标 done + `approved=False` → 下一阶段在审批门停下（退出码 3）。
 
 ### 对外可见的接口
