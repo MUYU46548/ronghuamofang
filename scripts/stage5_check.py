@@ -390,6 +390,65 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     return True, msg
 
 
+# ---------------------------------------------------------------- engine: self
+SELF_CRITERIA = ("每章 data/chapters/checked/NN.md 存在且是**有效修正稿**（不是空壳、"
+                 "与原稿结构可比），并在 data/review/batchN.json 里给出该批每章的"
+                 "七维评审记录（缺账本 = 视为没检查）")
+
+
+def _self_batches(cfg, proj):
+    """待检查章 + 分批（与 run_stage 同一套批大小口径，便于两份日志对得上）。"""
+    from utils.judge.budget import effective_max_tokens, items_per_request
+    from utils.verify_chapter import count_cn_words
+    from utils import writing_form as _wf
+    raw_dir = Path("data/chapters/raw")
+    checked_dir = Path("data/chapters/checked")
+    para_ok = _wf.applicability(proj).get("para_structure", True)
+    raw_files = sorted(raw_dir.glob("*.md"))
+    pending = [f for f in raw_files
+               if not is_usable_output(raw_dir / f.name, checked_dir / f.name,
+                                       para_structure=para_ok)]
+    if not pending:
+        return pending, []
+    words = {f.name: count_cn_words(f.read_text(encoding="utf-8")) for f in pending}
+    limit = effective_max_tokens(cfg, 5)
+    size = min(5, items_per_request(limit, max(words.values(), default=0), maximum=5))
+    return pending, [pending[i:i + size] for i in range(0, len(pending), size)]
+
+
+def self_done(cfg, proj, progress=None, **_):
+    """所有 raw 章都有**可用**的 checked 稿才算完成（空壳按未完成算）。"""
+    pending, _batches = _self_batches(cfg, proj)
+    if pending:
+        return False, ("还有 %d 章的检查稿缺失或不可用：%s"
+                       % (len(pending), [f.name for f in pending][:8]))
+    return True, "checked 稿齐备"
+
+
+def emit_tasks(cfg, proj, progress=None, task_dir=None, **_):
+    """产出阶段 5 的任务书：一批一份，**账本要求写进协议头**（缺账本会被判失败）。"""
+    from utils import self_tasks as st
+    raw_dir = Path("data/chapters/raw")
+    checked_dir = Path("data/chapters/checked")
+    pending, batches = _self_batches(cfg, proj)
+    if not pending:
+        return st.summarize(5, [], done=True, hint="checked 稿齐备，无需再检查")
+    tasks = []
+    for bi, batch in enumerate(batches, 1):
+        batch_files = "\n".join("- %s" % f.resolve() for f in batch)
+        body = build_check_task(proj, raw_dir, "data/setting/setting.json",
+                                checked_dir, batch_files, bi, len(batches))
+        targets = ["data/chapters/checked/%s" % f.name for f in batch]
+        tasks.append(st.write_task(
+            5, "batch%02d.md" % bi, body, targets, SELF_CRITERIA,
+            note=("本批 %d 章（%s）；评审账本必须写到 data/review/batch%d.json"
+                  % (len(batch), batch[0].name, bi)),
+            task_dir=task_dir, stage_name="检查"))
+    return st.summarize(5, tasks,
+                        hint="共 %d 批 / %d 章。写完 checked 与账本后重跑即校验并放行。"
+                             % (len(batches), len(pending)))
+
+
 def main():
     parser = argparse.ArgumentParser(description="NovelForge 阶段5：逻辑检查（P0 基础版）")
     parser.add_argument("--task-dir", default="data/state/tasks")

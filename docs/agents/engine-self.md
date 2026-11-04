@@ -1,8 +1,67 @@
 # engine: self —— 阶段只产任务书，由调用方执行
 
-> 状态：**设计已定，未实施**（2026-11-03）。台账 E#3 / E#4 挂着，本文是开工前的唯一依据。
+> 状态：**已实施**（2026-11-04）。设计稿留在下面当"为什么"的出处；
+> 实施口径见《实施记录》，两者不一致时以实施记录为准。
 > 为什么单独立文：这是本项目唯一一处“改错会让整条流水线语义变形”的改动，
 > 不能在会话末尾顺手开工（台账里已有“半途开工”的教训）。
+
+## 实施记录（2026-11-04）
+
+落地成**三件套**，比原设计的"两步"多一样东西，原因都写在下面：
+
+| 入口 | 位置 | 作用 |
+|---|---|---|
+| `emit_tasks(cfg, proj, progress=None, task_dir=None, **_extra)` | 阶段 1~6 各自模块 | **零 token** 产出任务书，返回 `{stage, tasks[{path,target,check}], hint, done, blocked}` |
+| `self_done(cfg, proj, progress=None, **_extra)` | 阶段 1~6 各自模块 | 判“产物真的齐了”，返回 `(bool, 原因)`。**没有它的阶段**回落 `missing_artifacts` |
+| `settle_self(...)` | 阶段 1 / 4 / 6 | 产物到位后的**确定性收尾**（补摘要补账 / 合并润色报告 / 碎片多批合并 / vault_links） |
+
+公共部分在 `scripts/utils/self_tasks.py`（协议头、`strip_protocol`、统一返回形状）。
+编排侧：`orchestrator._self_stage`（约 60 行），流程图就是设计里那三行。
+
+### 为什么不只用 `artifact_gate` 判完成（原设计漏的一点）
+
+`STAGE_ARTIFACTS[4]` 是 `data/chapters/raw` **目录非空** —— 对 self 模式这是致命的：
+写第 1 章就算“阶段 4 完成”，剩下 39 章直接被跳过。所以每个阶段都给了 `self_done`，
+判据与真跑同一份实现（阶段 4 = 每章 `is_chapter_complete`；阶段 5/6 = `is_usable_output`；
+阶段 2 = 结构 + 锚点；阶段 3 = 窗口内 `outline_ok`；阶段 1 = `validate_setting`）。
+
+### 与原设计的三处刻意差异
+
+1. **阶段 4 一章一交回**：每章任务书要吃“上一章末尾衔接段”与“滚动摘要”，
+   一次发 N 份等于后 N-1 份的上下文全是空的。所以 `emit_tasks(4)` 只出**下一个**
+   待写章；写完重跑再出下一章。`settle_self` 会把已落盘章的 `<!-- summary -->`
+   补进 `rolling.md`（只补**合格**的章 —— 半成品补摘要等于谎报完成）。
+2. **阶段 5 的账本要求写进协议头**：`build_check_task` 本来就要求 `data/review/batchN.json`，
+   self 模式下没人替执行方写，所以协议头的"合格判据"与附注明写这件事。
+   ⚠️ **已知边界**：`self_done(5)` 只判 checked 稿可用，不校验账本完整性 ——
+   账本缺了不会被 self 分支拦下（真跑里 `_verify_ledger` 会拦）。这是刻意的取舍：
+   账本是给判定引擎用的旁证，不是"检查做没做"的唯一凭据。
+3. **`make_client` 在 self 下直接 `RuntimeError`**：`resolve_engine` 把 `self` 列为合法引擎，
+   `make_client` 见到 `self` 立刻抛错。理由：静默回落 direct/hermes = "配了 self，
+   后台却在真花钱跑模型"，与整个卖点相反。任何阶段误走 `run_stage` 都会当场炸出来。
+
+### self 模式下**不执行**的既有钩子（如实声明）
+
+`_post_stage` 里的这些都要模型或要人，self 分支一概不走：`auto_rewrite`、
+`review_after_stage4`、`semantic_review`、`setting_refine_auto`、`proofread`（LLM 路）。
+阶段前/后快照也不做（self 不改既有产物，任务书是新增文件）。
+**审批门照旧**：产物齐 → 标 done + `approved=False` → 下一阶段在审批门停下（退出码 3）。
+
+### 对外可见的接口
+
+- `nfctl status`：`awaiting_external` 显示成 `[外]` + “任务书 N 份（等外部执行）”
+- `GET /state`：`stages[n].status = "awaiting_external"`，带 `tasks` / `task_hint`
+- 任务跑完（exit=3）时 `nf_api._rc_to_result` 说“任务书已生成（阶段 N，M 份）”，
+  不再冒充“等待审批”
+- 桌面端：设置页“运行引擎”第三张卡（只出任务书）；阶段徽标“等外部执行”
+- `estimate_tokens.py`：self 下预估恒 0 并注明“不调用任何模型”
+
+### 判据
+
+`tests/unit/test_engine_self.py`（15 条，`nfctl test` 会跑）：T1~T4 管任务书本身，
+S1~S5 管编排与回归（产物缺 → rc 3；重跑幂等；产物齐 → 直接 done；
+direct 不产 self 任务书；`make_client` 必须炸）。
+
 
 ## 要治的病
 

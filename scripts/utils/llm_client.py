@@ -1631,6 +1631,15 @@ def make_client(cfg, model_key="default", verbose=True):
     """按 config/system.yaml 构建客户端。model_key: default/architect/outliner/writer/checker/reviewer/polisher。"""
     _load_env_file()
     engine = resolve_engine(cfg)
+    if engine == "self":
+        # engine: self = **程序不调用任何模型**。走到这里说明有代码路径想发请求，
+        # 那是接线错误，必须当场炸掉：静默降级成 direct/hermes 会变成
+        # "配了 self，却在后台真花钱跑模型" —— 与本引擎的整个卖点相反。
+        # 处置：把那条路径挪进 orchestrator 的 self 分支（self_done / emit_tasks）。
+        raise RuntimeError(
+            "[client] engine: self 下不允许调用任何模型（本引擎只产任务书）。"
+            "发起调用的阶段代码走错了分支 —— 应在 orchestrator 的 self 分支里用 "
+            "emit_tasks/self_done，而不是 run_stage。")
     mspec = ((cfg or {}).get("model") or {}).get(model_key) or {}
     if isinstance(mspec, str):
         mspec = {"provider": "hermes", "id": mspec}

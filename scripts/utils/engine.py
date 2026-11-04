@@ -29,7 +29,10 @@ Key 校验、单价、模型、预算口径全都对着**另一个引擎**说话
 from __future__ import annotations
 
 DEFAULT_ENGINE = "direct"
-VALID_ENGINES = ("direct", "hermes")
+#: `self`（2026-11-04）：**不调用任何模型**，只产任务书交给外部执行。
+#: 它必须在这里算"已知引擎"，否则会被当成拼错的取值：打 WARN、再按 direct 执行
+#: —— 也就是"配了 self，实际偷偷按量计费跑模型"，正是本项目最忌讳的静默失真。
+VALID_ENGINES = ("direct", "hermes", "self")
 
 # 未知取值只提示一次（GUI 会反复调 estimate_tokens，不能每调一次刷一行）
 _WARNED = set()

@@ -128,7 +128,8 @@ class ProgressManager:
         # 只在转入 running 时写，其它状态保留上一次的值（便于事后看“这阶段跑了多久”）。
         if status == "running":
             st["started_at"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-        elif status in ("done", "failed", "stopped", "paused", "partial"):
+        elif status in ("done", "failed", "stopped", "paused", "partial",
+                        "awaiting_external"):
             # stopped/paused 也写 finished_at（2026-11-03）：这两种是**终态**，
             # 界面要能说“这一轮什么时候停的”。漏了它们，收尾改了状态却没有时间戳，
             # 事后无法判断是刚停的还是几分钟前停的。

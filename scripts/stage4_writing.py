@@ -2014,6 +2014,137 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     return True, f"stage4 完成（{total} 章）"
 
 
+# ---------------------------------------------------------------- engine: self
+def _self_target_words(cfg):
+    """本项目的单章字数区间（与 run_stage 取同一个键与同一个兜底）。"""
+    return tuple(cfg.get("chapter", {}).get("target_words", [2000, 3000])[:2])
+
+
+def _self_pending(cfg, proj, chapters=None):
+    """待写章号（与 run_stage 的断点判据同一条：`is_chapter_complete`）。
+
+    ⚠️ 刻意**不**复用 run_stage 内部的 todo 计算（那段还混着失败章/孤儿章/
+    讨论时效等只在"真跑"时才有意义的判据）。self 模式下"这章要不要写"只看
+    盘上正文合不合格 —— 这是唯一可信的事实，也是执行方唯一能影响的东西。
+    """
+    from utils import writing_form as _wf
+    total = int(proj.get("book", {}).get("chapters", 10))
+    para_ok = _wf.applicability(proj).get("para_structure", True)
+    tw = _self_target_words(cfg)
+    raw_dir = Path("data/chapters/raw")
+    pending = [n for n in range(1, total + 1)
+               if not is_chapter_complete(raw_dir / ("%02d.md" % n), *tw,
+                                          para_structure=para_ok)]
+    if chapters:
+        pending, _out = _apply_scope(pending, chapters)
+    return total, pending
+
+
+def self_done(cfg, proj, progress=None, chapters=None, **_):
+    """全部待写章都合格才算阶段 4 完成（**不能**用 raw 目录非空当判据）。"""
+    total, pending = _self_pending(cfg, proj, chapters)
+    if pending:
+        return False, ("还有 %d 章没写或不合格：%s" % (len(pending), pending[:8]))
+    return True, "全书 %d 章正文齐备" % total
+
+
+def settle_self(cfg=None, proj=None, progress=None, **_):
+    """把“正文已在盘、账未记”的章补账（零 token，确定性）。
+
+    为什么必须有：`engine: self` 下没人跑 run_stage，所以**摘要不会进
+    rolling.md、出场记录不会更新、progress 不会记完成**。而滚动摘要正是下一章
+    任务书的输入 —— 不补，第 N+1 章的任务书就会缺上一章的摘要。
+    只补"还没记过的"章（以 rolling.md 里有没有这一章为准），重复调用不重复记。
+    """
+    total = int(((proj or {}).get("book") or {}).get("chapters", 0) or 0)
+    raw_dir = Path("data/chapters/raw")
+    if not raw_dir.is_dir():
+        return
+    rolling_path = Path("data/summaries/rolling.md")
+    if not rolling_path.exists():
+        write_rolling(rolling_path, {"global_summary": "", "chapters": {}})
+    max_recent = int(((cfg or {}).get("chapter") or {}).get("summary_every", 5))
+    from utils import writing_form as _wf
+    para_ok = _wf.applicability(proj or {}).get("para_structure", True)
+    tw = _self_target_words(cfg or {})
+    settled = []
+    for p in sorted(raw_dir.glob("*.md")):
+        if not p.stem.isdigit():
+            continue
+        n = int(p.stem)
+        rolling = load_rolling(rolling_path)
+        if n in (rolling.get("chapters") or {}):
+            continue
+        # 只给**合格**的章补账：半成品正文补摘要 = 把"这章写完了"写进账本，
+        # 而它其实还缺字数/段落结构（那正是下一轮要重写的那一章）。
+        if not is_chapter_complete(p, *tw, para_structure=para_ok):
+            continue
+        try:
+            text = read_text(p)
+        except Exception as e:                              # noqa: BLE001
+            print("[stage4] 补账跳过第%d章（读取失败）：%s" % (n, type(e).__name__))
+            continue
+        sm = SUMMARY_RE.search(text)
+        summary = sm.group(1).strip() if sm else "（第%d章，未附摘要）" % n
+        try:
+            append_chapter_summary(rolling_path, n, summary, max_recent=max_recent)
+        except Exception as e:                              # noqa: BLE001
+            print("[stage4] 第%d章摘要补记失败：%s: %s" % (n, type(e).__name__, e))
+            continue
+        try:
+            sync_appearances_after_chapter(text, n, total or None)
+        except Exception as e:                              # noqa: BLE001
+            print("[stage4] 第%d章出场记录补记失败（不影响正文）：%s" % (n, type(e).__name__))
+        settled.append(n)
+        if progress is not None:
+            try:
+                progress.mark_chapter_done(n, stage=4)
+            except Exception as e:                          # noqa: BLE001
+                print("[stage4] 第%d章完成标记补记失败：%s" % (n, type(e).__name__))
+    if settled:
+        print("[stage4] 补账完成：第 %s 章的摘要/出场/完成标记已补（零 token）" % settled)
+
+
+def emit_tasks(cfg, proj, progress=None, task_dir=None, chapters=None, **_):
+    """产出阶段 4 的任务书：**一次只出下一章**。
+
+    为什么不是一次性把待写章都出完：每章任务书要吃“上一章末尾衔接段”和
+    “滚动摘要”，而这些只有上一章真写完之后才存在。一次发 20 份 = 后 19 份
+    的衔接段与摘要全是空的，写出来必然断气。写法因此定为"一章一交回"：
+    写完 → 重跑 → 出下一章任务书。
+    """
+    from utils import self_tasks as st
+    total, pending = _self_pending(cfg, proj, chapters)
+    if not pending:
+        return st.summarize(4, [], done=True, hint="全书 %d 章正文齐备" % total)
+
+    settle_self(cfg, proj, progress)          # 先把已落盘章的摘要补进 rolling.md
+    raw_dir = Path("data/chapters/raw")
+    rolling_path = Path("data/summaries/rolling.md")
+    if not rolling_path.exists():
+        write_rolling(rolling_path, {"global_summary": "", "chapters": {}})
+    n = pending[0]
+    prev_path = raw_dir / ("%02d.md" % (n - 1))
+    prev_tail = extract_prev_tail(prev_path, 4) if prev_path.exists() else []
+    outline_rel = "data/outline/chapters/%02d.md" % n
+    if not Path(outline_rel).exists():
+        print("[stage4] 提示：第%d章大纲不在滚动窗口内（缺 %s）—— 任务书按缺失继续，"
+              "建议先跑阶段 3 补齐" % (n, outline_rel))
+    body = build_chapter_task(cfg, proj, n, outline_rel, "data/setting/setting.json",
+                              "data/summaries/rolling.md", prev_tail)
+    low, high = _self_target_words(cfg)
+    criteria = ("data/chapters/raw/%02d.md 有标题、正文 %d~%d 字（含 10%% 容差），"
+                "文末保留 `<!-- summary: ... -->` 与 quality 注释；不得写占位符"
+                % (n, low, high))
+    task = st.write_task(4, "ch%02d.md" % n, body, ["data/chapters/raw/%02d.md" % n],
+                         criteria,
+                         note="本章写完再重跑 —— 下一章的任务书要用本章末尾衔接段与摘要",
+                         task_dir=task_dir, stage_name="写作")
+    return st.summarize(4, [task],
+                        hint="本次只出第 %d 章的任务书（待写 %d 章，全书 %d 章）。"
+                             "写完重跑即补账并出下一章。" % (n, len(pending), total))
+
+
 def main():
     parser = argparse.ArgumentParser(description="NovelForge 阶段4：逐章写作")
     parser.add_argument("--task-dir", default="data/state/tasks")

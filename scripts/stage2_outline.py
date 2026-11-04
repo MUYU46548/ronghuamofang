@@ -156,6 +156,37 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     return True, "stage2 完成（待审批）"
 
 
+# ---------------------------------------------------------------- engine: self
+#: engine: self 下阶段 2 的合格判据（与 run_stage 的校验线同一条）
+SELF_CRITERIA = ("data/outline/global.md 含“## 起 / ## 承 / ## 转 / ## 合”四节、"
+                 "“## 关键节点”与有效的“## 预计章节数”，且空泛（THIN）条目不超过 1 条")
+
+
+def self_done(cfg=None, proj=None, progress=None, **_):
+    """产物齐不齐：结构校验 + 锚点校验（与 run_stage 同一对判据，零 token）。"""
+    if not Path("data/outline/global.md").exists():
+        return False, "还没生成 data/outline/global.md"
+    ok, errs = check_global_outline("data/outline/global.md")
+    if not ok:
+        return False, "大纲结构未过：" + "；".join(errs)
+    ok_a, errs_a = check_outline_anchors("data/outline/global.md")
+    if not ok_a:
+        return False, "大纲锚点未过：" + "；".join(errs_a)
+    return True, "大纲校验通过"
+
+
+def emit_tasks(cfg, proj, progress=None, task_dir=None, **_):
+    """产出阶段 2 的任务书（零 token）。正文就是内部的 `build_task` —— 不加料、不删料。"""
+    from utils import self_tasks as st
+    task = st.write_task(2, "global_outline.md", build_task(cfg, proj),
+                         ["data/outline/global.md"], SELF_CRITERIA,
+                         note="写完可以先用 `python scripts/outline_review.py` 看体检报告，"
+                              "再重跑流水线放行（阶段 2 有审批门）",
+                         task_dir=task_dir, stage_name="整体大纲")
+    return st.summarize(2, [task],
+                        hint="大纲写完重跑：结构 / 锚点校验过就标完成，然后停下等审批。")
+
+
 def main():
     parser = argparse.ArgumentParser(description="NovelForge 阶段2：整体大纲")
     parser.add_argument("--task-dir", default="data/state/tasks")

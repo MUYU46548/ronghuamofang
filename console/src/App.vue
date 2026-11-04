@@ -2506,7 +2506,7 @@ const totalStages = computed(() => {
 const progressPercent = computed(() => progressPct.value);
 
 function statusBadge(s) {
-  return { pending: "待办", running: "进行中", done: "完成", failed: "失败", rejected: "已打回", retrying: "自动重试中", stopped: "已中断", partial: "按范围完成" }[s] || s;
+  return { pending: "待办", running: "进行中", done: "完成", failed: "失败", rejected: "已打回", retrying: "自动重试中", stopped: "已中断", partial: "按范围完成", awaiting_external: "等外部执行" }[s] || s;
 }
 function partsTitle(parts) {
   /* 段群进度（2026-11-03）：加强模式逐群落盘，拼装前这些字已经在盘上了。 */
@@ -6191,9 +6191,21 @@ onUnmounted(() => {
             <div class="eng-desc">由外部 Agent（编程工具里的助手）驱动，走你的订阅额度。</div>
             <div class="eng-tags"><span>走订阅</span><span>右下的角色模型不参与</span></div>
           </button>
+          <button class="eng-card" :class="{ on: models.engine === 'self' }"
+                  :disabled="engBusy" @click="switchEngine('self')">
+            <div class="eng-card-top">
+              <span class="eng-name">只出任务书</span>
+              <span v-if="models.engine === 'self'" class="eng-badge">使用中</span>
+            </div>
+            <div class="eng-desc">程序不调用任何模型：每阶段把任务书写到 data/state/tasks/self/，你执行完把产物写到位再点运行。</div>
+            <div class="eng-tags"><span>零 token</span><span>产物齐就直接放行</span></div>
+          </button>
         </div>
         <div class="meta eng-note" v-if="models.engine === 'hermes'">
           agent 模式下 model.* 不参与运行 —— 模型由外部 Agent 决定；止烧改看“预算与止烧”的 token 上限。
+        </div>
+        <div class="meta eng-note" v-else-if="models.engine === 'self'">
+          自任务模式下点了运行只会产出任务书（不花钱）：按任务书把产物写到指定路径，再点一次运行即续跑。
         </div>
         <div class="meta eng-note" v-else>
           直连模式下每个角色按下面的表格各取一个模型；<b>换供应商后请顺手确认模型</b>

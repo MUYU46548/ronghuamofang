@@ -291,6 +291,13 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
         print("[orchestrator] engine=hermes：LLM 走 agent 子会话（订阅流量，model.* 不适用）；"
               "cost 记 0 + 真实 token 留痕 → **￥ 预算熔断对本引擎不生效（刻意语义）**，"
               "止烧靠 token 级熔断")
+    elif _engine == "self":
+        # engine: self —— 程序**不调用任何模型**，只把每阶段写成任务书交外部执行；
+        # 下次运行时按盘上产物续跑（产物齐 = 阶段完成）。台词必须说清这一点，
+        # 否则用户会以为"跑了但什么都没发生"。
+        print("[orchestrator] engine=self：本引擎**不调用任何模型**。"
+              "每阶段产出任务书（data/state/tasks/self/stageN/）→ 你执行完把产物"
+              "写到指定路径 → 再跑一次即按产物续跑（零 token）")
     if _tl.get("enabled"):
         print(f"[orchestrator] token 级熔断：单请求输出上限="
               f"{_tl.get('per_request_max_tokens') or '不限'}"
@@ -586,6 +593,85 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
             progress.save()
             return 2
 
+        def _self_stage(n):
+            """engine: self 推进一步。返回 None = 本阶段已放行、继续下一阶段；否则返回退出码（已收尾）。
+
+            ## 判据只有一条：盘上的产物
+
+            不读"执行方说完成了"，也不看 token/耗时（self 下没有模型可记账）。
+            各阶段用**自己的** `self_done` 判"齐全"（例如阶段 4 要看每章是否合格，
+            而不是 raw 目录非空 —— 后者写一章就算"完成"，是真会漏掉几十章的坑）。
+
+            ## 顺序为什么是"先判完成、再出任务书"
+
+            产物齐 → 先做确定性收尾（补摘要/合并报告），再标 done 并继续；
+            产物缺 → 出任务书、标 `awaiting_external`、退出码 3（与审批门同码，
+            但 progress 里能看到 `awaiting_external`，nf_api/界面据此给不同台词）。
+            """
+            stg = STAGES[n]
+            extra = {"chapters": chapters} if (n == 4 and chapters) else {}
+
+            def _settle():
+                fn = getattr(stg, "settle_self", None)
+                if not fn:
+                    return
+                try:
+                    fn(cfg, proj, progress, **extra)
+                except Exception as e:                      # noqa: BLE001
+                    print(f"[orchestrator] 阶段{n} 收尾失败（不影响完成判定）: "
+                          f"{type(e).__name__}: {e}")
+
+            done_fn = getattr(stg, "self_done", None)
+            if done_fn:
+                _ok, _why = done_fn(cfg, proj, progress, **extra)
+            else:
+                _miss = missing_artifacts(n, ".")
+                _ok = not _miss
+                _why = ("缺产物：" + "、".join(_miss)) if _miss else "产物齐备"
+            if _ok:
+                _settle()
+                progress.mark_stage_done(n)
+                if n in _approval_stages(cfg):
+                    progress.set_approved(n, False)
+                print(f"[orchestrator] 阶段{n} 产物齐全（{_why}）→ 判完成，继续"
+                      + ("（本阶段有审批门，下一步会停下等你确认）"
+                         if n in _approval_stages(cfg) else ""))
+                return None
+
+            res = stg.emit_tasks(cfg, proj, progress, task_dir="data/state/tasks/self",
+                                  **extra)
+            if res.get("done"):
+                # 例如阶段 1 的"素材无变化，复用设定集"：没有任务要做。
+                _settle()
+                progress.mark_stage_done(n)
+                if n in _approval_stages(cfg):
+                    progress.set_approved(n, False)
+                print(f"[orchestrator] 阶段{n} 无需外部执行：{res.get('hint') or _why}")
+                return None
+            if res.get("blocked"):
+                err = res["blocked"]
+                progress.set_stage(n, "failed", error=err)
+                print(f"[orchestrator] 阶段{n} 无法生成任务书：{err}")
+                return _finalize("failed", 1)
+
+            tasks = res.get("tasks") or []
+            paths = [t.get("path") for t in tasks]
+            progress.set_stage(n, "awaiting_external",
+                               tasks=paths, task_hint=res.get("hint") or "")
+            print(f"\n[orchestrator] 阶段{n} 任务书已生成：{len(tasks)} 份"
+                  f"（engine=self：程序到此为止，**不调用模型**）")
+            for t in tasks:
+                tg = t.get("target")
+                tg_s = "、".join(tg) if isinstance(tg, list) else tg
+                print(f"  · {t.get('path')}  →  产物 {tg_s}")
+            if res.get("hint"):
+                print(f"[orchestrator] {res['hint']}")
+            print(f"[orchestrator] 执行完把产物写到上面这些路径，然后重跑："
+                  f"python scripts/orchestrator.py"
+                  f"{'' if only_stage is None else ' --stage %d' % n}"
+                  f"（self 模式下重跑零 token，产物齐就直接放行）")
+            return _finalize("waiting_external", 3)
+
         for n in order:
             _cur_stage["n"] = n
             # 用户中断（GUI“停止”）：每轮阶段开始前检查，置位则不再启动新阶段。
@@ -648,6 +734,13 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
             # 断点：已完成阶段跳过
             if progress.stage_status(n) == "done" and not only_stage:
                 print(f"[orchestrator] 阶段{n} 已完成，跳过")
+                continue
+            # ---- engine: self：不调模型。产物齐 → 判完成并继续；不齐 → 出任务书后停 ----
+            # 只有 1~6 有 emit_tasks（阶段 7/8 本来就是本地导出，照常走 run_stage）。
+            if _engine == "self" and hasattr(STAGES[n], "emit_tasks"):
+                _code = _self_stage(n)
+                if _code is not None:
+                    return _code
                 continue
             print(f"\n[orchestrator] ==== 开始阶段 {n} ====")
             # 安全护栏：阶段执行前快照，执行中崩掉可恢复

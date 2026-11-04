@@ -426,6 +426,85 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     return True, "stage6 完成"
 
 
+# ---------------------------------------------------------------- engine: self
+SELF_CRITERIA = ("data/chapters/refined/NN.md 存在且可用（不是空壳/残稿，字数与原稿偏差在"
+                 " stage6 的 20% 铁律内），并在 data/outline/polish_chNN.md 写出本章修改清单")
+
+
+def _self_pending(proj=None, **_):
+    checked_dir = Path("data/chapters/checked")
+    refined_dir = Path("data/chapters/refined")
+    files = sorted(checked_dir.glob("*.md"))
+    return [f for f in files
+            if not is_usable_output(checked_dir / f.name, refined_dir / f.name)]
+
+
+def self_done(cfg=None, proj=None, progress=None, **_):
+    """所有 checked 章都有可用的 refined 稿才算完成。"""
+    pending = _self_pending(proj)
+    if pending:
+        return False, ("还有 %d 章没润色或不可用：%s"
+                       % (len(pending), [f.name for f in pending][:8]))
+    return True, "润色稿齐备"
+
+
+def settle_self(cfg=None, proj=None, progress=None, **_):
+    """把逐章报告合并成 polish_report.md（GUI 的“润色体检报告”只认这个路径）。
+
+    `run_stage` 的分卷合并只认 polish_report_vol*.md；self 模式是**一章一份**
+    报告（与一次请求一章的粒度一致），所以这里按章号排序重建汇总文件。
+    覆盖写是安全的：汇总文件是从逐章报告派生的，不是增量日志。
+    """
+    files = sorted(Path("data/outline").glob("polish_ch*.md"),
+                   key=lambda p: int(re.sub(r"\D", "", p.stem) or 0))
+    if not files:
+        return
+    parts = ["# 润色修改清单（逐章合并）\n",
+             "> 由 engine: self 的逐章报告合并（%d 章）；原件见 polish_ch*.md。\n"
+             % len(files)]
+    for f in files:
+        try:
+            text = read_text(f).strip()
+        except Exception as e:                                # noqa: BLE001
+            print("[stage6] 合并报告跳过 %s：%s" % (f.name, type(e).__name__))
+            continue
+        if not text:
+            continue
+        parts.append("\n---\n\n## %s（%s）\n" % (f.stem, f.name))
+        parts.append(text)
+    try:
+        write_text("data/outline/polish_report.md", "\n".join(parts) + "\n")
+        print("[stage6] 逐章润色报告已合并 → data/outline/polish_report.md（%d 章）"
+              % len(files))
+    except Exception as e:                                    # noqa: BLE001
+        print("[stage6] 润色报告合并失败（不影响润色结果）：%s: %s" % (type(e).__name__, e))
+
+
+def emit_tasks(cfg, proj, progress=None, task_dir=None, **_):
+    """产出阶段 6 的任务书：**一章一份**（请求单元 = 容量单元，与 run_stage 同口径）。"""
+    from utils import self_tasks as st
+    checked_dir = Path("data/chapters/checked")
+    refined_dir = Path("data/chapters/refined")
+    refined_dir.mkdir(parents=True, exist_ok=True)
+    pending = _self_pending(proj)
+    if not pending:
+        return st.summarize(6, [], done=True, hint="润色稿齐备，无需再润色")
+    tasks = []
+    for f in pending:
+        n = int(f.stem)
+        report = "data/outline/polish_ch%02d.md" % n
+        body = build_polish_task(proj, checked_dir, refined_dir, [n],
+                                 vol_index=None, report_path=report)
+        tasks.append(st.write_task(
+            6, "ch%02d.md" % n, body, ["data/chapters/refined/%02d.md" % n],
+            SELF_CRITERIA,
+            note="本章的修改清单写到 %s（合并成 polish_report.md 由程序做）" % report,
+            task_dir=task_dir, stage_name="润色"))
+    return st.summarize(6, tasks,
+                        hint="共 %d 章待润色。写完重跑即校验、合并报告并放行（阶段 6 有审批门）。"
+                             % len(tasks))
+
+
 def main():
     parser = argparse.ArgumentParser(description="NovelForge 阶段6：基础润色（P1 分卷并行）")
     parser.add_argument("--task-dir", default="data/state/tasks")

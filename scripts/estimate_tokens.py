@@ -208,6 +208,16 @@ def estimate_stage(stage, cfg=None, proj=None, use_history=True):
                     "source": "deterministic"})
         return row
 
+    if resolve_engine(cfg) == "self":
+        # engine=self 全程不调用模型（程序只产任务书）→ 预估恒 0。
+        # 必须明说，否则用户看到"预计 ¥xx"会以为点运行就要花钱。
+        row = _mk_stage(stage, 0, 0, 0, cfg, role)
+        row.update({"provider": "self", "rate_known": True,
+                    "basis": ["engine=self：本引擎不调用任何模型（只产任务书）→ 零 token"],
+                    "chars_in": 0, "chars_out": 0, "chars_per_token": cpt,
+                    "source": "deterministic"})
+        return row
+
     hist = history_stats(stage) if use_history else None
     if hist and hist["avg_in"] > 0:
         t_in = round(hist["avg_in"] * calls)

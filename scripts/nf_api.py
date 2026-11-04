@@ -1253,16 +1253,26 @@ def _rc_to_result(rc):
     if rc == 4:
         return True, "用户中断（exit=4）"
     if rc == 3:
-        # 3 有两条来路：审批门暂停、**按范围完成（部分完成）**（2026-11-03）。
-        # 后者不是"审批"，说成审批会让作者去找一个不存在的确认按钮。
+        # 3 有三条来路：审批门暂停、**按范围完成（部分完成）**（2026-11-03）、
+        # **engine=self 等外部执行**（2026-11-04）。后两条都不是"审批"，
+        # 说成审批会让作者去找一个不存在的确认按钮。
         try:
             _pg = ProgressManager(ROOT / "data" / "state" / "progress.json")
-            _st4 = (getattr(_pg, "data", {}) or {}).get("stages", {}).get("4") or {}
+            _stages = (getattr(_pg, "data", {}) or {}).get("stages", {}) or {}
+            _st4 = _stages.get("4") or {}
         except Exception:                                    # noqa: BLE001
-            _st4 = {}
+            _stages, _st4 = {}, {}
         if _st4.get("status") == "partial":
             return True, ("按范围完成（部分）：还有第 %s 章没写 —— 补上范围再跑即可续写"
                           % (_st4.get("chapters_left") or []))
+        # engine=self：任务书已出，等外部把产物写到盘上（零 token，重跑即续）
+        _ext = [(k, v) for k, v in _stages.items()
+                if isinstance(v, dict) and v.get("status") == "awaiting_external"]
+        if _ext:
+            _k, _v = _ext[0]
+            _n = len(_v.get("tasks") or [])
+            return True, ("任务书已生成（阶段 %s，%d 份）—— 执行完把产物写到位再重跑即可"
+                          "（engine=self，重跑零 token）" % (_k, _n))
         return True, "exit=3（等待审批，属正常门暂停）"
     return (rc == 0), "exit=" + str(rc)
 
@@ -3607,10 +3617,11 @@ class Handler(BaseHTTPRequestHandler):
                 # 用户想从“直连”换到“Agent 子会话”（或反过来）只能手改 YAML，
                 # 而界面上那行字还写着“引擎与模型”，看起来能点。
                 eng = str(body.get("engine") or "").strip().lower()
-                if eng not in ("direct", "hermes"):
+                if eng not in ("direct", "hermes", "self"):
                     self._send(400, {"ok": False, "error":
-                        "engine 只能是 direct（直连模型，按量计费）或 hermes"
-                        "（Agent 子会话，走订阅）——收到 %r" % (body.get("engine"),)})
+                        "engine 只能是 direct（直连模型，按量计费）、hermes"
+                        "（Agent 子会话，走订阅）或 self（只出任务书，不调模型）"
+                        "——收到 %r" % (body.get("engine"),)})
                     return
                 try:
                     from utils.config_io import set_section_scalar
@@ -3625,18 +3636,23 @@ class Handler(BaseHTTPRequestHandler):
                         self._send(400, {"ok": False, "error": "写入失败：" + w_msg})
                         return
                     cur_cfg, _ = load_all()
+                    _label = {"hermes": "Agent 子会话（走订阅）",
+                              "self": "只出任务书（不调用任何模型）"}.get(
+                                  eng, "直连模型（按量计费）")
+                    _note = {
+                        "hermes": ("对下一次运行生效（不需要重启客户端）。"
+                                   "agent 模式下 config 的 model.* 不参与运行，"
+                                   "模型由外部 Agent 决定。"),
+                        "self": ("对下一次运行生效（不需要重启客户端）。"
+                                 "本引擎**不调用任何模型**：每阶段把任务书写到 "
+                                 "data/state/tasks/self/stageN/，执行完把产物写到位再重跑即可。"),
+                    }.get(eng, ("对下一次运行生效（不需要重启客户端）。"
+                                "直连按量计费，注意 system.yaml 的 "
+                                "budget.token_limit 止烧阈值。"))
                     self._send(200, {
                         "ok": True, "engine": eng,
-                        "message": "已切换引擎 → " + ("Agent 子会话（走订阅）"
-                                                    if eng == "hermes"
-                                                    else "直连模型（按量计费）"),
-                        "note": ("对下一次运行生效（不需要重启客户端）。"
-                                 "agent 模式下 config 的 model.* 不参与运行，"
-                                 "模型由外部 Agent 决定。"
-                                 if eng == "hermes" else
-                                 "对下一次运行生效（不需要重启客户端）。"
-                                 "直连按量计费，注意 system.yaml 的 "
-                                 "budget.token_limit 止烧阈值。"),
+                        "message": "已切换引擎 → " + _label,
+                        "note": _note,
                         "providers_count": len(cur_cfg.get("providers") or {}),
                     })
                 except Exception as e:                      # noqa: BLE001

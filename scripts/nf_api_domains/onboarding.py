@@ -54,6 +54,10 @@ def _model_ready(cfg):
     engine = str((cfg or {}).get("engine") or "").strip()
     if engine == "hermes":
         return True, "Hermes 子会话（凭据由 Hermes 管理）"
+    if engine == "self":
+        # 自任务模式不调用任何模型 → 没有 Key 也算就绪（否则新手引导会在
+        # “配好 API Key”这一步卡住，而这一步在 self 下根本不需要）。
+        return True, "自任务模式（只出任务书，不调用模型）"
     model = ((cfg or {}).get("model") or {}).get("default") or {}
     pid = str(model.get("provider") or "").strip()
     mid = str(model.get("id") or "").strip()

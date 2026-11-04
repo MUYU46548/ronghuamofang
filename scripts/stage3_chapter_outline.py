@@ -246,6 +246,70 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     return True, f"stage3 完成（{total} 章）"
 
 
+# ---------------------------------------------------------------- engine: self
+SELF_CRITERIA = ("每个目标章大纲文件含“核心事件 / 涉及角色 / 功能”并写出实质内容"
+                 "（新生成章还要“小目标 / 悬念钩子”）")
+
+
+def _self_window(cfg, proj):
+    """滚动窗口内的待补章号（与 run_stage 用同一批 helpers，判据只有一份）。"""
+    total = int(proj.get("book", {}).get("chapters", 10))
+    size = va.volume_size(cfg, proj)
+    limit = va.horizon(total, written_chapters(), size, va.rolling_volumes(cfg))
+    out_dir = Path("data/outline/chapters")
+    pending = [n for n in range(1, limit + 1) if not outline_ok(out_dir / f"{n:02d}.md")]
+    return total, limit, pending
+
+
+def self_done(cfg, proj, progress=None, **_):
+    """窗口内章大纲全部合格 → 阶段 3 可判完成（与 run_stage 的跳过判据同一条）。"""
+    total, limit, pending = _self_window(cfg, proj)
+    if pending:
+        return False, ("还有 %d 章没有合格大纲：%s" % (len(pending), pending[:8]))
+    return True, ("滚动窗口内（到第 %d 章，全书 %d 章）章大纲齐备" % (limit, total))
+
+
+def _self_groups(cfg, proj, pending):
+    """把待补章切批 —— **批不跨卷**（与 generate_chapters 同一切法）。
+
+    抽成函数只为一个原因：任务书的教学文本必须与真跑的分批一致，
+    测试要能对着同一份实现断言（各写一套迟早漂移）。
+    """
+    size = va.volume_size(cfg, proj)
+    groups, cur = [], []
+    for n in pending:
+        if cur and va.volume_of(n, size) != va.volume_of(cur[0], size):
+            groups.append(cur)
+            cur = []
+        cur.append(n)
+    if cur:
+        groups.append(cur)
+    return groups
+
+
+def emit_tasks(cfg, proj, progress=None, task_dir=None, **_):
+    """产出阶段 3 的任务书：一批一份，**批不跨卷**（与 generate_chapters 同一切法）。"""
+    from utils import self_tasks as st
+    total, limit, pending = _self_window(cfg, proj)
+    if not pending:
+        return st.summarize(3, [], done=True,
+                            hint="滚动窗口内（到第 %d 章）章大纲已齐备" % limit)
+    groups = _self_groups(cfg, proj, pending)
+
+    from utils.material_state import canon_or_setting
+    tasks = []
+    for bi, chs in enumerate(groups, 1):
+        body = build_batch_task(cfg, proj, chs, "data/outline/global.md", canon_or_setting())
+        targets = ["data/outline/chapters/%02d.md" % n for n in chs]
+        tasks.append(st.write_task(
+            3, "batch%02d.md" % bi, body, targets, SELF_CRITERIA,
+            note="本批 %d 章（第 %d–%d 章）" % (len(chs), chs[0], chs[-1]),
+            task_dir=task_dir, stage_name="分章大纲"))
+    return st.summarize(3, tasks,
+                        hint="共 %d 批 / %d 章（滚动窗口到第 %d 章，全书 %d 章）。"
+                             "写完重跑即校验并放行。" % (len(tasks), len(pending), limit, total))
+
+
 def main():
     parser = argparse.ArgumentParser(description="NovelForge 阶段3：逐章大纲")
     parser.add_argument("--task-dir", default="data/state/tasks")

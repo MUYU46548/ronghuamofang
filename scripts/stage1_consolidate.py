@@ -672,6 +672,136 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     return True, msg
 
 
+# ---------------------------------------------------------------- engine: self
+#: engine: self 下阶段 1 的合格判据（任务书头与 self_done 共用同一句话）
+SELF_CRITERIA = ("data/setting/setting.json 是有效 JSON 且含四个顶层键"
+                 "（characters / world / plot_fragments / timeline），characters 非空")
+
+
+def self_done(cfg=None, proj=None, progress=None, **_):
+    """engine: self 的完成判定：产物真的能用了才算做完（不调模型）。
+
+    只判 `validate_setting` —— 与 run_stage 校验的是同一个函数，不另立判据。
+    """
+    ok, errs = validate_setting("data/setting/setting.json")
+    if ok:
+        return True, "设定集校验通过"
+    return False, "设定集还没就绪：" + "；".join(errs)
+
+
+def settle_self(cfg=None, proj=None, progress=None, **_):
+    """产物已到位后要补的**确定性**收尾（零 token）。目前两件：
+
+    1. 碎片多批提炼结果 → 合并成 scraps_merge.json（原本由 run_stage 的
+       `run_scraps_merge` 在 Python 侧做，self 模式下没人做）；
+    2. 设定库引用索引 materials/vault_links.md（run_stage 里同一步）。
+
+    失败只打印、不抛 —— 收尾是增强，不该把"产物已经齐了"判成失败。
+    """
+    merged = None
+    try:
+        batch_files = sorted(Path("data/setting").glob("scraps_merge_b*.json"))
+        if batch_files and not Path(SCRAPS_MERGE).exists():
+            merged, merged_path = merge_scraps_batches([str(p) for p in batch_files], SCRAPS_MERGE)
+            print("[stage1] 碎片多批结果已合并 → %s（%d 个信息点）"
+                  % (merged_path, len(merged.get("points") or [])))
+    except Exception as e:                                    # noqa: BLE001
+        print("[stage1] 碎片批次合并失败（不影响设定集）：%s: %s" % (type(e).__name__, e))
+    try:
+        if Path("data/setting/setting.json").exists():
+            from build_vault_links import build_vault_links
+            vault_links = ((proj or {}).get("vault", {}) or {}).get(
+                "vault_links", "materials/vault_links.md")
+            total, srcs = build_vault_links(Path("data/setting/setting.json"), vault_links)
+            print("[stage1] 设定库引用索引：%d 条目 / %s 素材 → %s" % (total, srcs, vault_links))
+    except Exception as e:                                    # noqa: BLE001
+        print("[stage1] vault_links 生成失败（不影响设定集）：%s: %s" % (type(e).__name__, e))
+
+
+def emit_tasks(cfg, proj, progress=None, task_dir=None, with_scraps=None, **_):
+    """产出阶段 1 要外部执行的任务书（**零 token**）。返回 utils.self_tasks 的形状。
+
+    这里做的**只有确定性准备**：扫素材 / 去重 / 写 manifest / 碎片聚类索引 ——
+    与 run_stage 开头逐字相同的几步 —— 然后调用既有的 `build_*_task` 出任务书。
+    绝不调模型、绝不写设定集产物（产物是执行方的事）。
+
+    ⚠️ 顺带说明一个刻意的不对称：`run_stage` 在"素材无变化"时直接复用设定集，
+    这里也照做（`done=True`），但判据必须同时满足"设定集存在且有效" ——
+    只看指纹会把"刚出过任务书、产物还没写"误判成"无需执行"。
+    """
+    from utils import self_tasks as st
+
+    mats_cfg = proj.get("materials", {}) or {}
+    materials_dir = mats_cfg.get("dir", "materials/raw")
+    scraps_dir = mats_cfg.get("scraps_dir", SCRAPS_DIR_DEFAULT)
+    if with_scraps is None:
+        with_scraps = bool(mats_cfg.get("use_scraps", True))
+    manifest_path = Path("data/setting/materials_manifest.json")
+    normalized_dir = "data/setting/normalized"
+    setting_path = Path("data/setting/setting.json")
+
+    # ---- ① 原始碎片（确定性聚类）：缺哪批提哪批 ----------------------------
+    tasks = []
+    scraps_index, scraps_batches = None, []
+    if with_scraps:
+        scraps_index, scraps_batches, warnings = prepare_scraps(scraps_dir, SCRAPS_INDEX)
+        for w in warnings:
+            print("[stage1] [碎片] %s" % w)
+        if scraps_index and scraps_batches:
+            multi = len(scraps_batches) > 1
+            for i, batch in enumerate(scraps_batches, 1):
+                out = ("data/setting/scraps_merge_b%02d.json" % i) if multi else SCRAPS_MERGE
+                if Path(out).exists():
+                    continue
+                name = ("scraps_b%02d.md" % i) if multi else "scraps.md"
+                body = build_scraps_task(SCRAPS_INDEX, scraps_dir, out,
+                                         batch=batch if multi else None)
+                tasks.append(st.write_task(
+                    1, name, body, [out],
+                    "JSON 含 points 数组（conflicts / open_questions 若出现必须是数组）",
+                    note="碎片的其余批次尚未提炼时，先把它们都做完再重跑 —— "
+                         "多批结果由程序合并成 %s" % SCRAPS_MERGE,
+                    task_dir=task_dir, stage_name="素材归并（原始碎片）"))
+            if tasks:
+                # 碎片提炼没做完就出归并任务书，模型拿不到碎片结论 —— 先让碎片跑完。
+                return st.summarize(1, tasks,
+                                    hint="碎片提炼任务书已生成（%d 份）。做完重跑，"
+                                         "程序会先把多批结果合并，再出设定集归并任务书。"
+                                         % len(tasks))
+
+    # ---- ② 素材清单（扫描 + 去重 + 指纹）-----------------------------------
+    manifest = scan_materials(materials_dir, normalized_dir)
+    if not manifest and not scraps_index:
+        ok, _errs = validate_setting(setting_path)
+        if ok:
+            return st.summarize(1, [], done=True,
+                                hint="materials/raw 没有素材，但有有效的设定集 —— 直接复用")
+        return st.summarize(1, [], blocked=(
+            "materials/raw 没有素材（%s），也没有既有设定集：请先放素材。" % materials_dir))
+
+    manifest, removed = dedup(manifest)
+    extra_fp = [scraps_index["content_fingerprint"]] if scraps_index else []
+    sig = manifest_fingerprint(manifest, extra_fingerprints=extra_fp)
+    prev_sig = _load_prev_fingerprint(manifest_path)
+    _write_manifest(manifest, removed, manifest_path, sig)
+
+    setting_valid = setting_path.exists() and validate_setting(setting_path)[0]
+    if setting_valid and sig == prev_sig:
+        return st.summarize(1, [], done=True,
+                            hint="素材没有实质变化（指纹一致），设定集可直接复用")
+
+    extra_inputs = []
+    if Path(SCRAPS_MERGE).exists():
+        extra_inputs.append(SCRAPS_MERGE)
+    body = build_setting_task(proj, manifest_path, normalized_dir, extra_inputs=extra_inputs)
+    task = st.write_task(
+        1, "setting.md", body, ["data/setting/setting.json"], SELF_CRITERIA,
+        note=("素材 %d 条（去重 %d 条）" % (len(manifest), len(removed))),
+        task_dir=task_dir, stage_name="素材归并（设定集）")
+    return st.summarize(1, [task],
+                        hint="设定集写完重跑即可（会做有效性校验与状态标注）。")
+
+
 def main():
     parser = argparse.ArgumentParser(description="NovelForge 阶段1：素材梳理（确定性部分）")
     parser.add_argument("--materials", default="materials/raw")

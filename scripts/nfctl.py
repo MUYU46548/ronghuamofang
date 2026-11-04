@@ -334,13 +334,17 @@ def render_status(s: dict) -> str:
         lines.append("阶段: 读取失败 —— %s" % st["error"])
     else:
         lines.append("当前阶段: %s · %s" % (st.get("current"), st.get("name")))
-        mark = {"done": "[x]", "running": "[~]", "failed": "[!]", "pending": "[ ]"}
+        mark = {"done": "[x]", "running": "[~]", "failed": "[!]", "pending": "[ ]",
+                # engine: self —— 任务书已出，等外部把产物写到位（不是失败、也不是审批）
+                "awaiting_external": "[外]"}
         for k in sorted((st.get("stages") or {}).keys(), key=lambda x: int(x) if x.isdigit() else 99):
             row = st["stages"][k]
             nm = STAGE_NAMES.get(int(k), "?") if k.isdigit() else "?"
             extra = []
             if row.get("approved"):
                 extra.append("已审批")
+            if row.get("status") == "awaiting_external":
+                extra.append("任务书 %d 份（等外部执行）" % len(row.get("tasks") or []))
             if row.get("finished_at"):
                 extra.append(str(row["finished_at"])[:16])
             lines.append("  %s 阶段%s %s%s" % (
