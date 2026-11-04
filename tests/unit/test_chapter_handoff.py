@@ -162,6 +162,23 @@ def test_corrupt_recovery():
         shutil.rmtree(TMP, ignore_errors=True)
 
 
+def test_root_override():
+    print("\n[7] root 参数：索引必须写到 root 下（--root 场景不许写到 CWD）")
+    global TMP
+    TMP = Path(tempfile.mkdtemp(prefix="handoff_root_"))
+    try:
+        (TMP / "data" / "state").mkdir(parents=True)
+        (TMP / "config").mkdir(parents=True)
+        idx = build_index(root=TMP)
+        p = TMP / "data" / "state" / "chapter_handoff.json"
+        check("7.1 索引写到 root/data/state", p.exists(), str(p))
+        check("7.2 project_root = root",
+              Path(idx["work_identity"]["project_root"]) == TMP.resolve(),
+              idx["work_identity"]["project_root"])
+    finally:
+        shutil.rmtree(TMP, ignore_errors=True)
+
+
 def main():
     test_build()
     test_l1_no_content()
@@ -169,6 +186,7 @@ def main():
     test_l3_full()
     test_validate_bindings()
     test_corrupt_recovery()
+    test_root_override()
     print("\n总计: %d  通过: %d  失败: %d" % (len(PASS) + len(FAIL), len(PASS), len(FAIL)))
     if FAIL:
         print("失败项: %s" % "；".join(FAIL))

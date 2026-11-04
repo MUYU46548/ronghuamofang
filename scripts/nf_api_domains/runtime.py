@@ -687,6 +687,27 @@ def handle_handoff_export(h, body):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+def handle_handoff_index(h):
+    """GET /handoff/index → 构建并返回 L1 接手索引（**不含正文**）。
+
+    M8（2026-11-04 作者拍板）：新会话接手先读这一层——作品身份 + 章目录 +
+    stage + 绑定，要正文再走 L2/L3（`chapter_handoff.get_l2/get_l3_full`）。
+    索引写到 `<ROOT>/data/state/chapter_handoff.json`；每次调用重建，幂等。
+    """
+    try:
+        import chapter_handoff as ch
+        root = Path(api.ROOT)
+        ch.build_index(root=root,
+                       index_path=root / "data" / "state" / "chapter_handoff.json")
+        l1 = ch.list_l1(root=root)
+        return 200, {"ok": True, "total": l1.get("total", 0),
+                     "generated_at": l1.get("generated_at", ""),
+                     "work_identity": l1.get("work_identity", {}),
+                     "chapters": l1.get("chapters", [])}
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 ROUTES = (
     ("GET", "/jobs/{id}", handle_jobs),
     ("GET", "/review/report", handle_review_report),
@@ -715,5 +736,6 @@ ROUTES = (
     ("GET", "/foreshadow", handle_foreshadow),
     ("POST", "/foreshadow/status", handle_foreshadow_status),
     # 交接稿（2026-10-20，v0.10）
+    ("GET", "/handoff/index", handle_handoff_index),
     ("POST", "/handoff/export", handle_handoff_export),
 )

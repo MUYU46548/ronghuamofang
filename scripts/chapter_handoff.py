@@ -179,13 +179,13 @@ def build_index(progress=None, proj=None, index_path=None, root=None):
         "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "work_identity": {
             "book_name": (proj.get("book") or {}).get("name", ""),
-            "project_root": str(Path(".").resolve()),
+            "project_root": str(root.resolve()),
             "total_chapters": len({v["n"] for v in chapters.values()}),
         },
         "chapters": chapters,
     }
 
-    out_path = Path(index_path or INDEX_PATH)
+    out_path = Path(index_path) if index_path else (root / "data" / "state" / "chapter_handoff.json")
     out_path.parent.mkdir(parents=True, exist_ok=True)
     write_text(out_path, json.dumps(index, ensure_ascii=False, indent=1))
     return index
