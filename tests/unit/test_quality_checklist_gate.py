@@ -144,8 +144,9 @@ def case_orchestrator_blocks_on_nonzero():
     check("用子进程退出码判定", "subprocess.call([sys.executable, \"scripts/quality_checklist.py\"])" in src)
     check("非零 → _finalize(failed, 1)（阻断完成状态，不盖绿灯）",
           'if rc != 0' in src and '_finalize("failed", 1)' in src)
-    check("只在全流程收尾跑（单阶段重跑不误伤）",
-          'if only_stage is None and cfg.get("gates", {}).get("quality_gate", True):' in src)
+    check("只在全流程收尾跑（单阶段重跑 / 单章重跑不误伤）",
+          'only_stage is None and not chapters' in src
+          and 'cfg.get("gates", {}).get("quality_gate", True)' in src)
 
 
 def main():

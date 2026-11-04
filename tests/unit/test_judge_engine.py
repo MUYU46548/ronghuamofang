@@ -250,8 +250,19 @@ def main():
         B.run(tmp, book_name="回测夹具书")
         after2 = {p: p.stat().st_mtime_ns for p in (tmp / "data").rglob("*.json")}
         changed = [str(p) for p in after2 if after.get(p) != after2[p]]
+        # ⚠️ 不能要求 changed 非空（2026-11-04 修，实测随机红）：两次跑的输入完全一致时
+        # 记录内容可能逐字节相同（records 里的时间戳只到秒），写盘端一"内容未变不重写"
+        # 就只剩空列表 —— 用例于是随"两次跑是否落在同一秒"红绿跳。
+        # 判据改成：**动过的东西只能是 records.json**；再补一条确定性判据（改输入 → 必重写）。
         check("跑一次只动 records.json（F13 单一出口）",
-              changed and all(x.endswith("records.json") for x in changed), changed)
+              all(x.endswith("records.json") for x in changed), changed)
+        (raw_dir / "01.md").write_text(BODY + "\n\n他把灯吹灭了。", encoding="utf-8")
+        before3 = {p: p.stat().st_mtime_ns for p in (tmp / "data").rglob("*.json")}
+        B.run(tmp, book_name="回测夹具书")
+        after3 = {p: p.stat().st_mtime_ns for p in (tmp / "data").rglob("*.json")}
+        changed3 = [str(p) for p in after3 if before3.get(p) != after3[p]]
+        check("输入变了 → records.json 必被重写（且仍只写它）",
+              bool(changed3) and all(x.endswith("records.json") for x in changed3), changed3)
         src = "\n".join((ROOT / "scripts" / "utils" / "judge" / f).read_text(encoding="utf-8")
                         for f in ("rules.py", "verdict.py", "backtest.py", "destroy.py",
                                   "records.py", "caliber.py"))
