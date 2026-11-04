@@ -220,15 +220,77 @@ def _guidance(s):
     return out
 
 
+def read_source_text(path):
+    """读“作者交来的作品文件”→ 纯文本。返回 `(ok, text, err)`。
+
+    ## 为什么不能只用 `read_text`（2026-11-04，试跑第 3/4 条）
+    作者交的稿子通常是 **.docx / .pdf**，工具此前只收 .txt / .md，
+    而读文件走的是 `read_text` —— 对 docx/pdf 读出的是压缩包/PDF 的二进制，
+    `prose_char_count` 恒 0，于是报“有效正文不足 1000 字，拆解没有意义”。
+    作者看到的是一句与格式无关的废话（原话：“试图在参考作品拆解导入，
+    结果发现居然不支持 pdf？可实际中用最多的就是 pdf。这次先降级到 word 版运行”
+    —— word 版也没成，就是这一条）。
+
+    判据：**先按后缀抽出纯文本，再喂同一个 `split_chapters`**，
+    不为每种格式写一套拆章逻辑。
+
+    - `.txt / .md / .markdown / 无后缀`：按文本读（与原行为一致）
+    - `.docx`：python-docx（已在依赖里），按段落取，空段丢弃
+    - `.pdf`：PyMuPDF（**可选依赖**）。缺库 / 抽不出文本层时给可行动的错误，
+      **绝不静默当成空文件**（扫描件必须说清“需 OCR”）
+    """
+    p = Path(path)
+    ext = p.suffix.lower()
+    if ext in (".txt", ".md", ".markdown", ""):
+        try:
+            return True, read_text(p), ""
+        except Exception as e:                                 # noqa: BLE001
+            return False, "", "读取失败: %s: %s" % (type(e).__name__, e)
+    if ext == ".docx":
+        try:
+            import docx                                        # noqa: F401
+        except Exception:                                      # noqa: BLE001
+            return False, "", ("读 .docx 需要 python-docx：pip install python-docx"
+                               "（安装包自带的运行时里已有）")
+        try:
+            doc = docx.Document(str(p))
+            paras = [(x.text or "").strip() for x in doc.paragraphs]
+            return True, "\n\n".join(x for x in paras if x), ""
+        except Exception as e:                                 # noqa: BLE001
+            return False, "", "读取 .docx 失败: %s: %s" % (type(e).__name__, e)
+    if ext == ".pdf":
+        try:
+            # 新版 PyMuPDF 把包名改成 pymupdf，`fitz` 只是兼容别名（会打
+            # FutureWarning）—— 先认新名，再回落旧名，两个都不能少：
+            # 用户机器上装的可能是老版本（只有 fitz）。
+            try:
+                import pymupdf as fitz                            # noqa: F401
+            except Exception:                                     # noqa: BLE001
+                import fitz                                       # noqa: F401
+        except Exception:                                      # noqa: BLE001
+            return False, "", ("读 .pdf 需要 PyMuPDF（可选依赖）：pip install pymupdf；"
+                               "也可以先把 PDF 另存为 .docx / .txt 再拆解。")
+        try:
+            with fitz.open(str(p)) as doc:
+                text = "\n\n".join((page.get_text() or "") for page in doc)
+        except Exception as e:                                 # noqa: BLE001
+            return False, "", "读取 .pdf 失败: %s: %s" % (type(e).__name__, e)
+        if prose_char_count(text) < 100:
+            return False, "", ("这份 PDF 抽不出正文（多半是扫描件，没有文本层）—— "
+                              "请先 OCR 转文字，或另存为 .docx 再拆解。")
+        return True, text, ""
+    return False, "", ("不支持的文件类型 %s：只收 .txt / .md / .docx / .pdf"
+                       % (ext or "（无后缀）"))
+
+
 def decompose(path, out_path=None, root="."):
     """读文件 → 拆章 → 画像 → 落盘。返回 (ok, msg, profile)。"""
     p = Path(path)
     if not p.is_file():
         return False, "文件不存在: %s" % p, None
-    try:
-        text = read_text(p)
-    except Exception as e:                                     # noqa: BLE001
-        return False, "读取失败: %s: %s" % (type(e).__name__, e), None
+    ok, text, err = read_source_text(p)
+    if not ok:
+        return False, err, None
     if prose_char_count(text) < 1000:
         return False, "有效正文不足 1000 字，拆解没有意义（也容易算出误导性画像）", None
 
@@ -418,7 +480,7 @@ def load_snippets_block(root="."):
 def main(argv=None):
     import argparse
     ap = argparse.ArgumentParser(description="拆解真人作品的结构画像（零 token，不存原文）")
-    ap.add_argument("file", help="要拆解的文件（.txt / .md）")
+    ap.add_argument("file", help="要拆解的文件（.txt / .md / .docx / .pdf）")
     ap.add_argument("--out", default="", help="画像输出路径（默认 materials/style_profile.json）")
     ap.add_argument("--json", action="store_true", help="把画像打到 stdout")
     args = ap.parse_args(argv)

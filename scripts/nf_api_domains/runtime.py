@@ -460,7 +460,6 @@ def handle_decompose_candidates(h, body):
     那是"复制"不是"参考"。用户勾选之后才由 /decompose/snippets/save 写入。
     """
     from utils import style_profile as sp
-    from utils.file_io import read_text
     try:
         p = str(body.get("path") or "").strip()
         if not p:
@@ -470,7 +469,11 @@ def handle_decompose_candidates(h, body):
             return 404, {"ok": False, "error": "文件不存在: %s" % p}
         if path.stat().st_size > 5 * 1024 * 1024:
             return 400, {"ok": False, "error": "文件超过 5MB，请先分卷"}
-        text = read_text(path)
+        # 按后缀抽纯文本（.txt/.md/.docx/.pdf）—— 2026-11-04：此前一律 read_text，
+        # 作者交 .docx/.pdf 时读进来是二进制，候选片段必然为空（“提取候选片段失败”）。
+        ok_src, text, err_src = sp.read_source_text(path)
+        if not ok_src:
+            return 400, {"ok": False, "error": err_src}
         try:
             per_kind = max(1, min(int(body.get("per_kind") or 2), 3))
         except (TypeError, ValueError):

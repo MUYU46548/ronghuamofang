@@ -376,7 +376,7 @@ async function agreeDecompose() {
 async function pickDecomposeFile() {
   if (!window.mofangAPI?.openFileDialog) { say("文件选择需通过 Electron 启动"); return; }
   const r = await window.mofangAPI.openFileDialog({
-    title: "选择要拆解的作品（.txt / .md）", properties: ["openFile"],
+    title: "选择要拆解的作品（.txt / .md / .docx / .pdf）", properties: ["openFile"],
   });
   if (r.ok && r.paths?.length) decPath.value = r.paths[0];
   else if (!r.ok) say(r.error || "选择文件失败");
@@ -581,7 +581,7 @@ onMounted(() => {
         </div>
         <template v-else>
           <div class="art-row" style="margin-top:8px;">
-            <input v-model="decPath" class="text-input" placeholder="作品文件完整路径（.txt / .md）" />
+            <input v-model="decPath" class="text-input" placeholder="作品文件完整路径（.txt / .md / .docx / .pdf）" />
             <button class="mini" @click="pickDecomposeFile">浏览…</button>
             <button class="mini" :disabled="decBusy" @click="runDecomposeProfile">拆解为画像</button>
             <button class="mini" :disabled="decBusy" @click="runCandidates">提取候选片段</button>

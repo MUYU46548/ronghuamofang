@@ -184,15 +184,18 @@ def import_text(name, text, accept_license, source="粘贴", root=None,
 def import_path(path, name, accept_license, root=None):
     p = Path(str(path or "").strip())
     if not path:
-        return False, "path 必填（要导入的 .md / .txt 路径）", None
+        return False, "path 必填（要导入的 .md / .txt / .docx / .pdf 路径）", None
     if not p.exists() or not p.is_file():
         return False, "文件不存在：%s" % p, None
     if p.stat().st_size > MAX_CHARS * 4:
         return False, "文件太大（上限约 %d 字）" % MAX_CHARS, None
-    try:
-        text = p.read_text(encoding="utf-8", errors="replace")
-    except Exception as e:                                     # noqa: BLE001
-        return False, "读取失败：%s" % e, None
+    # 按后缀抽纯文本（2026-11-04）：此前一律 read_text，作者交 .docx/.pdf 时
+    # 读进来是二进制 → 正例导进去是乱码 / 直接失败。口径与“参考作品拆解”共用
+    # 一份（utils.style_profile.read_source_text），不再各自写一套。
+    from utils.style_profile import read_source_text
+    ok_src, text, err = read_source_text(p)
+    if not ok_src:
+        return False, err, None
     return import_text(name or p.stem, text, accept_license, source=str(p), root=root)
 
 
