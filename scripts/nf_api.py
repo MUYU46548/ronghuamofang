@@ -401,6 +401,28 @@ STREAMERS = {}
 STREAMERS_LOCK = threading.Lock()
 
 
+#: 确定**要调用模型**的 POST 端点（engine: self 下必然失败的那批）。
+#: 2026-11-04（试跑第 19/21 条）：作者为了避开 hermes 卡死切成了 self，
+#: 于是“AI 修订 / 提交精修 / 逐句候选 / 语义审稿”全废，而报错是开发者视角的。
+#: 只收**确实要模型**的：`/stage/N/run` 不在此列（self 下它本该出任务书，
+#: 那条分支在 orchestrator 里，不是失败）。
+NEEDS_MODEL_ENDPOINTS = frozenset({
+    "/refine/outline",          # 大纲精修
+    "/refine/chapter",          # 章节精修（“提交精修”）
+    "/refine/paragraph",        # 段落级定点重写
+    "/chapters/rewrite",        # 整章重写
+    "/auto_rewrite/run",        # 低分章自动重写
+    "/judge/feelings/propose",  # 第三条证据：模型出候选
+    "/outline/field/candidates",# 定向改写候选
+    "/review/semantic",         # 语义审稿
+})
+
+
+def needs_model_endpoint(path):
+    """该端点是否确定要模型（供 do_POST 前置拒绝用）。"""
+    return str(path or "") in NEEDS_MODEL_ENDPOINTS
+
+
 def _client_for_env(cfg, role):
     """真实模式 → make_client；测试模式（--allow-fake/NF_API_ALLOW_FAKE）→ FakeClient。"""
     if ALLOW_FAKE:
@@ -408,6 +430,20 @@ def _client_for_env(cfg, role):
         return FakeClient()
     from utils.llm_client import make_client
     return make_client(cfg, role)
+
+
+def _client_or_none_for_self(cfg, role="default"):
+    """self 引擎下返回 None —— 那条路径只出任务书，不碰模型。
+
+    2026-11-04（试跑第 19 条）：`/stage/N/run` 此前在这里构造客户端，self 下直接
+    RuntimeError 冒到端点 = 500（界面上就是“点了没反应/失败”）。而 self 的正确行为
+    是出任务书，`orchestrator.run()` 的 self 分支**根本不使用** client 参数。
+    其它要模型的路径仍走 `_client_for_env`（入口已前置拦下并给人话）。
+    """
+    from utils.engine import resolve_engine
+    if resolve_engine(cfg) == "self":
+        return None
+    return _client_for_env(cfg, role)
 
 
 # ---- Obsidian vault 联动（kb 端点共用） ----
@@ -1338,7 +1374,7 @@ def act_run_stage(cfg, only_stage, from_stage, chapters=None):
 
     ``chapters`` 只对阶段 4 有意义（2026-11-02，清单第 1 条“没法定跑到哪为止”）。
     """
-    client = _client_for_env(cfg, "default")
+    client = _client_or_none_for_self(cfg, "default")
 
     def _fn():
         return _rc_to_result(orch_run(from_stage=from_stage, only_stage=only_stage,
@@ -1683,7 +1719,7 @@ def act_run_stage_streamed(cfg, only_stage, from_stage, preview_job_id,
     未定义缺陷（S2）时消除的结构性温床：平行分支必然“改一处漏一处”。
     """
     def _fn():
-        client = _client_for_env(cfg, "default")
+        client = _client_or_none_for_self(cfg, "default")
         # 用真实的 job_id 替换占位
         real_job = CURRENT.get("id", preview_job_id)
         with STREAMERS_LOCK:
@@ -1705,7 +1741,7 @@ def act_run_stages(cfg, stages):
     与 `act_run_stage` 的差别只有“执行哪些阶段”这一个入参 —— `orch_run(stages=…)`
     内部走同一套已完成跳过 / 审批门 / 熔断 / 规划四态，这里不再复述一遍。
     """
-    client = _client_for_env(cfg, "default")
+    client = _client_or_none_for_self(cfg, "default")
     chosen = list(stages)
 
     def _fn():
@@ -3133,6 +3169,21 @@ class Handler(BaseHTTPRequestHandler):
                 # 非禁止操作也记录审计日志
                 _log_audit(p, "POST", 0, source=audit_src, detail="allowed")
 
+        # ---- engine: self 的前置拒绝（2026-11-04，试跑第 19/21 条）----
+        # 这些端点确定要调模型，self（只出任务书）下必然失败。失败时原先露出的是
+        # “发起调用的阶段代码走错了分支”—— 给开发者看的，作者只会读成“这软件坏了”。
+        # 在入口翻成人话 + 指出下一步，比让每个端点各写一遍可靠。
+        if needs_model_endpoint(p):
+            from utils.engine import needs_model_block_reason as _nmr
+            _cfg_e, _ = load_all()
+            _reason = _nmr(_cfg_e)
+            if _reason:
+                _log_audit(p, "POST", 400, source=("gui" if trusted_gui else audit_src),
+                           detail="engine-self")
+                self._send(400, {"ok": False, "error": _reason, "engine": "self",
+                                 "hint": "切引擎：设置 → 运行引擎（direct / hermes）"})
+                return
+
         # ---- 施工权裁决（2026-11-02，P5 · L-1）----
         # 不是"拦第二条流水线"，是**拦所有写入口**：段落重写、存稿、改设定、
         # 审批、打回、plan 落盘以前全是裸写，两个 agent 同时用必炸。
@@ -3155,7 +3206,12 @@ class Handler(BaseHTTPRequestHandler):
                                                                    _VALID_STAGES[-1])})
                     return
                 cfg, _ = load_all()
-                _client_for_env(cfg, "default")  # 测试模式预检（真实模式构造仅告警）
+                # self 下**不要**预构造客户端：它本来就不调模型，构造必抛
+                # （2026-11-04 实测：self 引擎下点“运行阶段”直接 500，而正确行为是
+                #   出任务书 —— 那条分支在 orchestrator 里）。
+                from utils.engine import resolve_engine as _re_stage
+                if _re_stage(cfg) != "self":
+                    _client_for_env(cfg, "default")  # 测试模式预检（真实模式构造仅告警）
                 only = int(rest)
                 from_stage = int(body.get("from_stage") or only)
                 if body.get("only_stage") is False:

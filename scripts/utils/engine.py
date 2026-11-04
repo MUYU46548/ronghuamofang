@@ -54,3 +54,29 @@ def resolve_engine(cfg):
         print("[engine] WARN 未知 engine=%r（支持：%s）→ 按 %s 执行"
               % (raw, " / ".join(VALID_ENGINES), DEFAULT_ENGINE))
     return DEFAULT_ENGINE
+
+
+# ---------------------------------------------------------------- engine: self 的前置拒绝
+# 2026-11-04，作者试跑第 19/21 条：“AI 修订也失败了…提交精修也失败了。"
+# 根因之一：他为了避开 hermes 十分钟卡死，把引擎切成了 self（只出任务书、不调模型），
+# 于是所有“要模型”的按钮必然失败 —— 而失败时给作者看的是给开发者看的那句
+# “发起调用的阶段代码走错了分支 —— 应在 orchestrator 的 self 分支里用 emit_tasks”。
+# 作者没走错分支，他只是点了按钮。
+NEEDS_MODEL_HINT = (
+    "当前运行引擎是“只出任务书”（engine: self）—— 这个功能要调用模型，所以在这里用不了。\n"
+    "要用它：在“设置 → 运行引擎”切到 direct（直连，按量计费）或 hermes（子会话，走订阅）。\n"
+    "不想换引擎也行：self 的全部产出都是任务书（data/state/tasks/self/），"
+    "把对应那一份交给外部执行方写，写完重跑即可。"
+)
+
+
+def needs_model_block_reason(cfg):
+    """`engine: self` 下“要模型”的端点应被前置拦下并给人话。返回空串 = 放行。
+
+    为什么在入口拦而不是让它抛：`make_client` 在 self 下**故意**抛错
+    （防“配了 self 却偷偷跑模型”的静默失真），但那条错误是**开发者视角**的。
+    作者看到它只会得出“这软件坏了”。入口这一层负责把它翻成人话 + 指出下一步。
+    """
+    if resolve_engine(cfg) == "self":
+        return NEEDS_MODEL_HINT
+    return ""
