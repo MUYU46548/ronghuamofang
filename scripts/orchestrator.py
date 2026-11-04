@@ -633,6 +633,26 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
                     print(f"[orchestrator] 阶段{n} 收尾失败（不影响完成判定）: "
                           f"{type(e).__name__}: {e}")
 
+            def _side_reports():
+                """零 token 的确定性附属报告 —— self 下也要出（2026-11-04）。
+
+                `_post_stage(1)` 会在阶段 1 成功后生成素材体检报告，但那条路只走
+                真跑分支；`engine: self` 是**独立分支**，判完完成就 return，
+                于是这份报告在 self 下**永远不生成**，而界面上「素材体检」那一行
+                一直挂着（作者第 13 条“打不开素材体检报告，文件不存在”的真根因之一）。
+
+                判据：**需不需要模型**。素材体检是纯确定性统计（读 setting.json +
+                normalized/），零 token，与引擎无关，必须出；而
+                auto_rewrite / review_after_stage4 / 校对这些要模型，self 下照旧不跑
+                （否则“self 零 token”这条承诺就破了）。
+                """
+                if n == 1:
+                    try:
+                        run_material_review(progress)
+                    except Exception as e:                  # noqa: BLE001
+                        print(f"[orchestrator] 素材体检报告生成失败（不影响流程）: "
+                              f"{type(e).__name__}: {e}")
+
             done_fn = getattr(stg, "self_done", None)
             if done_fn:
                 _ok, _why = done_fn(cfg, proj, progress, **extra)
@@ -642,6 +662,7 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
                 _why = ("缺产物：" + "、".join(_miss)) if _miss else "产物齐备"
             if _ok:
                 _settle()
+                _side_reports()
                 progress.mark_stage_done(n)
                 if n in _approval_stages(cfg):
                     progress.set_approved(n, False)
@@ -655,6 +676,7 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
             if res.get("done"):
                 # 例如阶段 1 的"素材无变化，复用设定集"：没有任务要做。
                 _settle()
+                _side_reports()
                 progress.mark_stage_done(n)
                 if n in _approval_stages(cfg):
                     progress.set_approved(n, False)
