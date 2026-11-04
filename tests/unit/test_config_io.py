@@ -329,6 +329,11 @@ SAFE_LOAD_ALLOWED = {
         "重复键由 _find_duplicate_keys 专门报）",
     "scripts/utils/setting_schema.py":
         "设定集/素材数据文件（不是配置）",
+    "scripts/questionnaire_lint.py":
+        "问卷围栏块（不是配置：只读问卷 markdown 里的 yaml question/decision 块；"
+        "已包在 except yaml.YAMLError 里，解析失败按题记为错误而不是抛栈）",
+    "scripts/questionnaire_collect.py":
+        "收卷器（同上：只读问卷/决策日志的围栏块，不是运行配置；解析失败按条跳过）",
 }
 
 
