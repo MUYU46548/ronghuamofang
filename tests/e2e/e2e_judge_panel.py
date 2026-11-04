@@ -189,6 +189,8 @@ def main():
             check("有事件勾选区", "这一章发生了几件事" in det)
             check("有缺陷清单或\u300c没命中任何规则\u300d",
                   ("第 " in det and "段" in det) or "没命中任何规则" in det)
+            check("没有候选时也显示第三条证据块（不许隐身）",
+                  "第三条证据（模型先出，你终裁）" in det and "还没有候选" in det, det[:200])
 
             print("\n=== E. 勾事件 → 档位出现 ===")
             # 2026-10-31：勾选区抽成 JudgeEvents 组件（分章页与判定详情共用一份），

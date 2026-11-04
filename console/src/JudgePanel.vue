@@ -530,7 +530,8 @@ onMounted(loadReport);
                    @saved="onEventsSaved" />
 
       <!-- 第三条证据（M4=B，2026-11-04）：模型先出候选，你终裁。候选不是结论。 -->
-      <div v-if="third && (third.total || (third.pending || []).length)" class="judge-third">
+      <!-- 没有候选时也要**显示这个块**：整块藏起来 = 用户以为功能没做（2026-11-04 补）。 -->
+      <div v-if="third" class="judge-third">
         <div class="judge-third-head">
           <b>第三条证据（模型先出，你终裁）</b>
           <span v-if="third.counts.pending" class="judge-warn">待你裁 {{ third.counts.pending }} 条</span>
@@ -541,6 +542,11 @@ onMounted(loadReport);
             {{ third.author_from_model }} 条）</span>
         </div>
         <div class="meta">模型只提候选：它写不了档位，也写不了你的终裁（越层直接拒收）。</div>
+        <div v-if="!third.total" class="meta judge-third-why">
+          还没有候选。让 Agent 提案（<code>POST /judge/feelings/propose</code>），
+          或跑 <code>python scripts/judge_feelings.py --chapter {{ detail.chapter }}</code>
+          （需要 engine: direct，且会花钱）；正式跑之前用 <code>--dry-run</code> 可零调用看提示词。
+        </div>
         <div v-for="p in third.pending" :key="p.id" class="judge-third-item">
           <div class="judge-defect-row" @click="focusPara(p.paragraph_index)">
             <span class="judge-para">第 {{ p.paragraph_index }} 段</span>

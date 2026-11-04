@@ -243,13 +243,20 @@ def main():
         check("回测只读 raw（checked/refined 不存在时标缺稿语义）",
               rep["chapters"][0]["destroy"]["shrink"].get("raw->checked") is None,
               rep["chapters"][0]["destroy"])
-        # ⚠️ 用 st_mtime_ns：st_mtime 只有秒级精度，两次回测落在同一秒内 →
-        # `changed` 恒为空 → 这条用例会**随机红**（2026-10-30 全量跑时实测复现，
-        # 单跑两次全绿）。判据本是“除 records.json 外没有别的写点”，不该被时钟精度绑架。
-        after = {p: p.stat().st_mtime_ns for p in (tmp / "data").rglob("*.json")}
+        # 判据用**内容哈希**，不用 mtime（2026-11-04 再修，全量跑实测随机红）：
+        #   · st_mtime 只有秒级精度 → 两次回测同秒内，`changed` 恒空；
+        #   · 改 st_mtime_ns 也只是把概率压低 —— Windows 的写时间更新是**延迟且可粗**的
+        #     （同一文件系统缓冲里两次写可能拿到同一个时间戳），全量并发跑时仍会偶发红。
+        # 判据本是“除 records.json 外没有别的写点”，本来就该看**内容**而不是时钟。
+        import hashlib
+
+        def _snap():
+            return {p: hashlib.sha256(p.read_bytes()).hexdigest()
+                    for p in (tmp / "data").rglob("*.json")}
+
+        after = _snap()
         B.run(tmp, book_name="回测夹具书")
-        after2 = {p: p.stat().st_mtime_ns for p in (tmp / "data").rglob("*.json")}
-        changed = [str(p) for p in after2 if after.get(p) != after2[p]]
+        changed = [str(p) for p, h in _snap().items() if after.get(p) != h]
         # ⚠️ 不能要求 changed 非空（2026-11-04 修，实测随机红）：两次跑的输入完全一致时
         # 记录内容可能逐字节相同（records 里的时间戳只到秒），写盘端一"内容未变不重写"
         # 就只剩空列表 —— 用例于是随"两次跑是否落在同一秒"红绿跳。
@@ -257,10 +264,9 @@ def main():
         check("跑一次只动 records.json（F13 单一出口）",
               all(x.endswith("records.json") for x in changed), changed)
         (raw_dir / "01.md").write_text(BODY + "\n\n他把灯吹灭了。", encoding="utf-8")
-        before3 = {p: p.stat().st_mtime_ns for p in (tmp / "data").rglob("*.json")}
+        before3 = _snap()
         B.run(tmp, book_name="回测夹具书")
-        after3 = {p: p.stat().st_mtime_ns for p in (tmp / "data").rglob("*.json")}
-        changed3 = [str(p) for p in after3 if before3.get(p) != after3[p]]
+        changed3 = [str(p) for p, h in _snap().items() if before3.get(p) != h]
         check("输入变了 → records.json 必被重写（且仍只写它）",
               bool(changed3) and all(x.endswith("records.json") for x in changed3), changed3)
         src = "\n".join((ROOT / "scripts" / "utils" / "judge" / f).read_text(encoding="utf-8")

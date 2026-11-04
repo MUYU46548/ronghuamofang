@@ -26,6 +26,7 @@ CHANGELOG”）。本文件从工程审查修复起正式启用。
   `POST /judge/caliber/upgrade`；报告页与单章页显示"模型提了几条 / 你裁了几条 /
   其中多少条来自模型"。
 - 界面：单章新增“第三条证据（模型先出，你终裁）”块（采纳/推翻/驳回 + 理由）；
+  **没有候选时也显示这个块并给出获取方式** —— 整块藏起来等于用户以为功能没做；
   改标准表新增“产出方 / 谁终裁”列。
 - 真跑入口：`python scripts/judge_feelings.py --chapter N`（`--dry-run` 零调用；
   `--print` 只看已有候选）。提示词 `prompts/judge_feelings.md`。
