@@ -2184,7 +2184,19 @@ kbd {
   font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
 }
 .prov-env { font-size: 11.5px; color: var(--muted); }
-.prov-actions { display: flex; gap: 6px; margin-top: 4px; }
+.prov-actions { display: flex; gap: 6px; margin-top: 4px; flex-wrap: wrap; }
+/* 新增/编辑服务商表单（2026-11-04，作者第 8 条“不能自定义”）：
+   虚线框 = “临时面板”，与卡片本身区分开，一眼能看出现在是在填表而不是在看清单。 */
+.prov-form {
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-top: 10px;
+  display: grid;
+  gap: 8px;
+  background: var(--field-inset);
+}
+.prov-form .art-row { flex-wrap: wrap; }
 
 /* 窄窗口：角色表退化为两行（角色/用途一行，两个下拉一行），不让下拉被压成 30px */
 @media (max-width: 720px) {

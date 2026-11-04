@@ -50,6 +50,9 @@ GET  /costs/streaming     当前 run 实时消耗 + 预算进度（GUI 成本页
 POST /models/switch       {role, model} → 切换模型
 GET  /models/cache        动态拉取的模型缓存（含手动添加的 _manual）
 POST /models/add          {name} → 手动把一个模型名写进缓存（GUI“手动添加”用）
+GET  /providers            服务商清单 + 内置预设 + 谁在用（不吐明文 Key）
+POST /providers/save      {id, base_url, api_key_env, models?} → 新增/更新（GUI-only）
+POST /providers/remove    {id} → 删除（GUI-only；在用则拒）
 GET  /scraps/list         原始碎片：按簇分组 + 时间轴 + 前瞻备忘（确定性，零 LLM）
 GET  /scraps/read         ?name= → 读取单个碎片正文
 POST /scraps/save         {name, content} → 写前备份后保存碎片
@@ -2641,6 +2644,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/models/cache":
             # 实现已迁至 nf_api_domains.models（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_models.handle_models_cache(self)))
+        elif p == "/providers":
+            # 服务商清单 + 内置预设 + 谁在用（只读，不吐明文 Key）。
+            self._send(*_dom(dom_models.handle_providers(self)))
         elif p == "/env/open":
             # 实现已迁至 nf_api_domains.misc（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_misc.handle_env_open(self)))
@@ -4342,6 +4348,12 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/models/switch":
                 # 实现已迁至 nf_api_domains.models（P2 拆分）；此处只做转发。
                 self._send(*_dom(dom_models.handle_models_switch(self, body)))
+            elif p == "/providers/save":
+                # 新增/更新服务商（GUI-only：改的是计费通道与密钥来源）
+                self._send(*_dom(dom_models.handle_providers_save(self, body)))
+            elif p == "/providers/remove":
+                # 删除服务商（GUI-only；在用的会被 provider_store 拒掉）
+                self._send(*_dom(dom_models.handle_providers_remove(self, body)))
             elif p == "/export/markdown":
                 # 实现已迁至 nf_api_domains.post_misc（P2 拆分）；此处只做转发。
                 self._send(*_dom(dom_post_misc.handle_export_markdown(self, body)))

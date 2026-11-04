@@ -88,6 +88,12 @@ FORBIDDEN_IN_AGENT_MODE = frozenset({
     # 外部 Agent 可以开讨论、追加发言（/discuss/open|say），但不能替作者定结论 ——
     # 否则"讨论留痕"就成了 Agent 自己写自己批。
     "/discuss/decide",
+    # 服务商增删改（2026-11-04，作者第 8 条）：改的是**计费通道与密钥来源**。
+    # 外部 Agent 静默把 base_url 指向别处，作者付的钱去哪都不知道 —— 与
+    # /config/token_limit 同族（都是\"别让 Agent 动自己的花销\"）。
+    # 只读的 GET /providers 不在此列（Agent 可以盘点有哪些服务商）。
+    "/providers/save",
+    "/providers/remove",
     # 出厂测试项目一键还原（0.6.22）：清书状态 + 重铺素材 + 写回配置。
     # 与铺设端点完全同族（铺/还原是一对）。端点自身还要求 is_trusted_gui
     # （双因子）—— 只读的 GET /factory/project 不在此列（Agent 可盘点）。

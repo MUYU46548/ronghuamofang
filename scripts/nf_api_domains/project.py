@@ -426,27 +426,13 @@ def handle_config_word_template_set(h, body):
 
 
 def _gui_only(h, what):
-    """设置类写入必须来自**可信的 GUI 本体**（来源头 + 主进程签发 token 双因子）。
+    """设置类写入必须来自**可信的 GUI 本体**（判据唯一实现：`_guard.gui_only`）。
 
-    为什么与 agent_mode 无关也要求：这些是**成本/安全相关的设置**。
-    外部 Agent 若能改预算与止烧阈值，就能抬高自己的闸门 —— 那等于没有闸门。
-
-    为什么不能只认 `X-Mofang-Source: gui`：该头任何本机进程都可伪造（2026-10-06
-    红队复现：伪造后 /project/archive/delete 返回 200 真删成功）。判据唯一实现是
-    `agent_guard.is_trusted_gui`，与 `nf_api.do_POST` 的禁用名单**共用同一份**，
-    否则两道闸各自漂移就重新裂出后门。
-
-    拒文**零通道名**（V5）：不提缺哪个头、该填什么值 —— 拒文本身是攻击面。
+    实现搬到 `nf_api_domains/_guard.py`（2026-11-04）：新增的“服务商增删改”
+    也要同一条判据，照抄一份就会各自漂移。这里保留这个名字，只为不动既有调用点。
     """
-    from utils import agent_guard
-    # 传 None / 无 headers 的调用方一律按“非 GUI”fail-closed（不 AttributeError 崩成 500）：
-    # 这些端点本就不该由无请求头的通道调用。
-    headers = getattr(h, "headers", None) or {}
-    if agent_guard.is_trusted_gui(headers):
-        return None
-    return 403, {"ok": False,
-                 "error": "%s 仅允许用户本人在桌面端手动修改；本次调用不是可信的 "
-                          "GUI 来源。请停手并报告用户。" % what}
+    from nf_api_domains._guard import gui_only
+    return gui_only(h, what)
 
 
 def handle_config_token_limit(h):

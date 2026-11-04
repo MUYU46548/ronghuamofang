@@ -381,6 +381,8 @@ stage4 也补了同一道校验（此前是唯一既不设上限、也不校验�
   - `/project/init`
   - `/config/agent_mode`（Agent 不得自行切换模式）
   - `/config/token_limit`（止烧阈值 —— Agent 不得抬高自己的闸门）
+  - `/providers/save`、`/providers/remove`（服务商增删改 = 改**计费通道与密钥来源**；
+    静默把 base_url 指向别处，作者付的钱去哪都不知道。只读 `GET /providers` 不拦）
   - `/factory/clean`（出厂样例清理 —— 移动用户素材文件；只读 `/factory/list` 不拦）
   - `/stage/skip`（跳过阶段会把状态标成 done+已审批+skipped —— 与审批同族，2026-10-16 补）
   - `/project/archive/delete`（删除归档 = 抹掉成书数据；端点另要求 `X-Mofang-Source: gui`）
@@ -399,6 +401,7 @@ stage4 也补了同一道校验（此前是唯一既不设上限、也不校验�
 **✅ 可调用**（查询类）：
 - `GET /state`、`/health`、`/about`
 - `GET /models`、`/models/available`、`/models/cache`、`/models/fetched`
+- `GET /providers`（服务商清单 + 内置预设 + 谁在用；**不吐明文 Key**，只给变量名与掩码）
 - `GET /config/project`、`/config/style_notes`、`/config/agent_mode`、`/config/target_words`
   （单章字数区间：当前值 + 出厂预设 + 合法区间）
 - `GET /config/vault_scan`（知识库扫描面：**顶层目录名取自用户库本身** + 各自篇数 +

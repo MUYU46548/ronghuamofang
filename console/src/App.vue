@@ -2,6 +2,7 @@
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { diffParagraphs } from "./diff.js";
 import { copyToClipboard } from "./clipboard.js";
+import { postJSON as guiPostJSON } from "./guiApi";
 import ReviewConsole from "./ReviewConsole.vue";
 import Stage5DiffPanel from "./Stage5DiffPanel.vue";
 import BenchmarkPanel from "./BenchmarkPanel.vue";
@@ -438,6 +439,8 @@ function switchTab(t) {
   if (t === "sandbox") {
     // 每次进来自查一次：产物可能在别处刚写完（徽标可能已过时）
     refreshSandboxBadge();
+  // 服务商预设（新增服务商时一键填表；只读端点，非 GUI 也能读）
+  loadProviderPresets();
     if (sandboxRef.value) sandboxRef.value.load(false);
   }
   if (t === "settings") {
@@ -1900,6 +1903,75 @@ function fmtBytes(b) {
   if (b < 1024) return b + " B";
   if (b < 1024 * 1024) return (b / 1024).toFixed(1) + " KB";
   return (b / 1024 / 1024).toFixed(2) + " MB";
+}
+
+/* ---------- 服务商增删改（2026-11-04，作者第 8 条）----------
+   原话：“只有这两坨小众预设吗…而且还他妈不能自定义，怎么反而还倒退了？”
+   后端三个端点：GET /providers（清单+预设+谁在用）、POST /providers/save、
+   POST /providers/remove（后两个 GUI-only：改的是计费通道与密钥来源）。 */
+const providerPresets = ref([]);
+const provForm = ref({ open: false, id: "", base_url: "", api_key_env: "", models: "" });
+const provBusy = ref(false);
+const provMsg = ref("");
+const provRemoveId = ref("");
+
+async function loadProviderPresets() {
+  const r = await api("/providers");
+  if (r.status === 200 && r.data && r.data.ok) providerPresets.value = r.data.presets || [];
+}
+function pickPreset(pid) {
+  const p = providerPresets.value.find((x) => x.id === pid);
+  if (!p) return;
+  provForm.value = { ...provForm.value, id: p.id, base_url: p.base_url,
+                     api_key_env: p.api_key_env };
+}
+function openProviderForm(pid) {
+  const cur = pid && providers.value ? providers.value[pid] : null;
+  provForm.value = cur
+    ? { open: true, id: pid, base_url: cur.base_url || "",
+        api_key_env: cur.api_key_env || "",
+        models: (cur.available_models || []).join(", ") }
+    : { open: true, id: "", base_url: "", api_key_env: "", models: "" };
+  provMsg.value = "";
+}
+async function saveProvider() {
+  if (provBusy.value) return;
+  provBusy.value = true;
+  provMsg.value = "";
+  try {
+    // 必须走 postJSON（双因子）：这两个端点是 GUI-only，手拼 fetch 会静默 403
+    const d = await guiPostJSON("/providers/save", { ...provForm.value });
+    if (d && d.ok) {
+      say(d.message || "已保存服务商");
+      provForm.value.open = false;
+      await refreshModels();
+      await loadProviderPresets();
+    } else {
+      provMsg.value = (d && d.error) || "保存失败";
+    }
+  } catch (e) {
+    provMsg.value = "保存失败：" + ((e && e.message) || e);
+  } finally {
+    provBusy.value = false;
+  }
+}
+async function removeProvider(pid) {
+  provBusy.value = true;
+  try {
+    const d = await guiPostJSON("/providers/remove", { id: pid });
+    if (d && d.ok) {
+      say(d.message || "已删除服务商");
+      provRemoveId.value = "";
+      await refreshModels();
+      await loadProviderPresets();
+    } else {
+      say((d && d.error) || "删除失败");
+    }
+  } catch (e) {
+    say("删除失败：" + ((e && e.message) || e));
+  } finally {
+    provBusy.value = false;
+  }
 }
 
 async function refreshModels() {
@@ -6393,6 +6465,14 @@ onUnmounted(() => {
                 <button class="mini" @click="startEnvEdit(pid)">替换</button>
                 <button class="mini" @click="saveEnvKey(pid, true)" title="删除 .env 里这一行">清除</button>
               </template>
+              <button class="mini" @click="openProviderForm(pid)" title="改地址 / 变量名 / 模型清单">编辑</button>
+              <button class="mini" :disabled="provBusy" @click="provRemoveId = pid"
+                      title="只删配置，不动任何书稿；正在被使用的服务商会被拒绝">删除</button>
+            </div>
+            <div v-if="provRemoveId === pid" class="art-row" style="margin-top:6px;">
+              <span class="meta" style="color: var(--bad)">确认删除服务商 {{ pid }}？</span>
+              <button class="mini" :disabled="provBusy" @click="removeProvider(pid)">确认删除</button>
+              <button class="mini" @click="provRemoveId = ''">取消</button>
             </div>
           </div>
           <div v-if="!providers || !Object.keys(providers).length" class="empty">
@@ -6406,6 +6486,37 @@ onUnmounted(() => {
                  @keyup.enter="saveEnvKey(envEditing)" />
           <button class="mini primary" @click="saveEnvKey(envEditing)">保存</button>
           <button class="mini" @click="cancelEnvEdit">取消</button>
+        </div>
+        <div class="art-row" style="margin-top: 10px;">
+          <button class="mini primary" @click="openProviderForm('')">＋ 新增服务商</button>
+          <span class="meta">
+            任何 OpenAI 兼容端点都能加（预设一键填地址与变量名；Key 仍用上面的"填入 Key"）。
+          </span>
+        </div>
+        <div v-if="provForm.open" class="prov-form">
+          <div class="art-row">
+            <select class="model-select" @change="pickPreset($event.target.value)">
+              <option value="">从常见预设选…（{{ providerPresets.length }} 家）</option>
+              <option v-for="pr in providerPresets" :key="pr.id" :value="pr.id">
+                {{ pr.name }}（{{ pr.id }}）
+              </option>
+            </select>
+            <span class="meta">预设只填地址与变量名，<b>不填模型名</b>（模型会下线，写死了必 404）</span>
+          </div>
+          <div class="art-row">
+            <input v-model="provForm.id" class="model-input" placeholder="id（全小写，如 myvendor）" />
+            <input v-model="provForm.base_url" class="model-input"
+                   placeholder="base_url（到 /v1 为止，不要带 /chat/completions）" />
+            <input v-model="provForm.api_key_env" class="model-input"
+                   placeholder="密钥变量名，如 MYVENDOR_API_KEY" />
+          </div>
+          <div class="art-row">
+            <input v-model="provForm.models" class="model-input grow"
+                   placeholder="模型名（逗号分隔，可留空 —— 之后用上面的“同步服务商模型”拉）" />
+            <button class="mini primary" :disabled="provBusy" @click="saveProvider">保存</button>
+            <button class="mini" @click="provForm.open = false">取消</button>
+          </div>
+          <div v-if="provMsg" class="meta" style="color: var(--bad); margin-top: 6px;">{{ provMsg }}</div>
         </div>
         <div class="meta" style="margin-top: 8px;">
           保存后<b>立即生效、无需重启</b>；已存值只显示前几位与后几位。

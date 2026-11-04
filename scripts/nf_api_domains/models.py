@@ -219,6 +219,71 @@ def handle_models_switch(h, body):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+# ---------------------------------------------------------------- 服务商（provider）
+# 2026-11-04，作者第 8 条：“只有这两坨小众预设吗…而且还他妈不能自定义，怎么反而还倒退了？”
+# 界面原来只能看 + 填 Key，providers 段只能手改 yaml。这三个端点补上增删改。
+# 写入一律走 utils.provider_store（**定点块写入**，保留 170+ 行注释），
+# 不用 yaml.dump 整份覆盖 —— 那会把止烧口径/思考模式实测记录一起抹掉。
+def handle_providers(h):
+    """`GET /providers` —— 服务商清单 + 内置预设 + 谁在用（不吐明文 Key）。"""
+    try:
+        from utils import provider_store as ps
+        return 200, ps.list_providers(api.ROOT)
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def _models_field(body):
+    """`models` 允许两种形态：list，或逗号/换行分隔的字符串（界面用后者）。"""
+    raw = body.get("models")
+    if raw is None:
+        return None
+    if isinstance(raw, list):
+        return [str(x).strip() for x in raw if str(x).strip()]
+    return [x.strip() for x in str(raw).replace("，", ",").replace("\n", ",").split(",")
+            if x.strip()]
+
+
+def handle_providers_save(h, body):
+    """`POST /providers/save {id, base_url, api_key_env, models?}` —— 新增或更新一条。
+
+    为什么 GUI-only：改服务商 = 改**计费通道与密钥来源**（与 /config/token_limit
+    同族）。外部 Agent 若能静默把 base_url 指向别处，作者付的钱去哪都不知道。
+    """
+    from nf_api_domains._guard import gui_only
+    deny = gui_only(h, "服务商配置")
+    if deny:
+        return deny
+    body = body or {}
+    try:
+        from utils import provider_store as ps
+        ok, msg, item = ps.save_provider(
+            api.ROOT, body.get("id"), body.get("base_url"),
+            body.get("api_key_env"), _models_field(body))
+        if not ok:
+            return 400, {"ok": False, "error": msg}
+        return 200, {"ok": True, "message": msg, "provider": item}
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_providers_remove(h, body):
+    """`POST /providers/remove {id}` —— 删除（在用的拒绝，先切走）。"""
+    from nf_api_domains._guard import gui_only
+    deny = gui_only(h, "删除服务商")
+    if deny:
+        return deny
+    body = body or {}
+    try:
+        from utils import provider_store as ps
+        ok, msg = ps.remove_provider(api.ROOT, body.get("id"))
+        if not ok:
+            return 400, {"ok": False, "error": msg}
+        return 200, {"ok": True, "message": msg}
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 # 本模块负责的端点（供自检与文档）
 ROUTES = (
     ("GET", "/models", handle_models),
@@ -227,4 +292,7 @@ ROUTES = (
     ("GET", "/models/cache", handle_models_cache),
     ("POST", "/models/add", handle_models_add),
     ("POST", "/models/switch", handle_models_switch),
+    ("GET", "/providers", handle_providers),
+    ("POST", "/providers/save", handle_providers_save),
+    ("POST", "/providers/remove", handle_providers_remove),
 )
