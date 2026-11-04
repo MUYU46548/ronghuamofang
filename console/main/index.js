@@ -379,10 +379,18 @@ function getWorkspaceSource() {
 //   · 前端（asar，不走种子）：项目页出厂徽标 / 启动提示词剥离说明书 /
 //     阶段复制改任务简报（原样贴模板会被外部 Agent 按红线判“模板不是任务”停工）。
 // **先 bump 再 electron-builder**。
-const SEED_VERSION = 77;   // 0.7.35: 代码随安装包版本刷新（工作区不再停在首装那一版）
+const SEED_VERSION = 78;   // 0.7.36: 代码随安装包版本刷新（工作区不再停在首装那一版）
                             //   · payload scripts：新 ask.py 域、nf_mcp 加 6 个工具、
                             //     chapters/content 缺省取最高存在层、agent_guard 加 /ask/answer
                             //   · 前端（asar）：顶栏“Agent 提问”+ 回答浮层
+                            // 0.7.36: M4 第三条证据（模型先出、作者终裁）+ 单章重跑 + 规划画布
+                            //   · payload scripts：utils/judge/feelings.py（新）、utils/judge/caliber.py
+                            //     （producer/settled_by + J15）、nf_api_domains/judge.py（feelings 三端点
+                            //     + caliber/upgrade）、utils/chapter_rerun.py（新）、
+                            //     agent_guard 加 /judge/feelings/settle
+                            //   · payload prompts：judge_feelings.md（新）
+                            //   · 前端（asar）：单章“第三条证据”块、改标准“产出方 / 谁终裁”列、
+                            //     规划四态画布视图、章节行“重跑…”范围单选
                             // 0.7.28: 写作提示词补叙事技术要求（治"写出来没劲"）
                             //   · payload prompts：stage4_writing.md 3240→5909 字符
                             //     （目标-阻碍-变化 / 展示不讲述 / 具体压倒抽象 /
