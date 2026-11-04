@@ -126,7 +126,7 @@ def case_prompts_are_in_sync():
 
 # ====================================================================== P5
 
-SANDBOX_FILES = ("stage5_check.py", "stage6_polish.py", "nf_api.py")
+SANDBOX_FILES = ("stage5_check.py", "stage5_gate.py", "stage6_polish.py", "nf_api.py")
 
 
 def build_sandbox(prefix="nf_proto_"):
@@ -218,7 +218,10 @@ class Stub:
                 "cache_read": 0, "cost_yuan": 0.0}
 
 progress = ProgressManager("data/state/progress.json")
-ok, msg = stage5_check.run_stage({}, {}, progress, None, None,
+# 这组判据测的是"兜底复制/报告缺失的告警"，与 stage5 改稿裁定闸无关：
+# 闸会把产物先写 checked_pending 并停在 awaiting_review，这里显式关掉。
+_CFG = {"gates": {"stage5_diff": "off"}}
+ok, msg = stage5_check.run_stage(_CFG, {}, progress, None, None,
                                  client=Stub(), task_dir="data/state/tasks")
 st = (progress.data.get("stages") or {}).get("5") or {}
 print("__RESULT__" + json.dumps(

@@ -25,6 +25,18 @@ from utils import review_ledger as rl
 REVIEW_DIR = Path("data/review")
 
 
+def gate_enabled(cfg):
+    """stage5 改稿裁定闸（2026-11-04 N1=B）。
+
+    `gates.stage5_diff: "block"`（默认）→ 模型改稿先落 checked_pending，
+    逐条裁定后才合成 checked/；`"off"` → 旧行为（直接写 checked/）。
+    engine:self 下不生效：任务书由外部执行方直接写盘，没有裁定回传通道。
+    """
+    if str((cfg or {}).get("engine", "")).lower() == "self":
+        return False
+    return str(((cfg or {}).get("gates") or {}).get("stage5_diff", "block")).lower() != "off"
+
+
 def _norm(path):
     """就地归一化章节文件的中文标点。幂等、零 token；失败只打印不阻断。
 
@@ -122,6 +134,11 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     raw_dir = Path("data/chapters/raw")
     checked_dir = Path("data/chapters/checked")
     checked_dir.mkdir(parents=True, exist_ok=True)
+    staged_dir = Path("data/chapters/checked_pending")
+    _gate_on = gate_enabled(cfg)
+    if _gate_on:
+        staged_dir.mkdir(parents=True, exist_ok=True)
+    _out_dir = staged_dir if _gate_on else checked_dir
 
     raw_files = sorted(raw_dir.glob("*.md"))
     if not raw_files:
@@ -139,6 +156,18 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     if stale:
         print(f"[stage5] {len(stale)} 章 checked 文件是空壳/残稿，将重跑: {stale[:8]}"
               + ("…" if len(stale) > 8 else ""))
+    _waiting = set()
+    if _gate_on:
+        import stage5_gate as _gate
+        _gate.apply_all()
+        _waiting = set(_gate.pending_chapters())
+        # 已经改过、在等作者勾的章不再重复调模型（重跑=接着等，不重烧）
+        pending = [f for f in pending if int(f.stem) not in _waiting]
+        if not pending and _waiting:
+            progress.set_stage(5, "awaiting_review", pending=sorted(_waiting),
+                               message="等待作者逐条裁定 stage5 改稿")
+            return True, ("stage5 等待裁定：%d 章（第 %s 章）—— 在“审稿”页逐条勾选后合成，再重跑续上"
+                          % (len(_waiting), "、".join(str(x) for x in sorted(_waiting)[:6])))
     if not pending:
         progress.mark_stage_done(5)
         return True, "stage5 跳过（checked 已存在且内容有效）"
@@ -190,7 +219,7 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         事故正是这样一路穿过去的。
         """
         return [f.name for f in batch
-                if not is_usable_output(raw_dir / f.name, checked_dir / f.name)]
+                if not is_usable_output(raw_dir / f.name, _out_dir / f.name)]
 
     # 文体（2026-10-20）：项目声明了 book.form 就按它的判据适用范围走
     from utils import writing_form as _wf
@@ -212,7 +241,7 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         batch_files = "\n".join(f"- {f.resolve()}" for f in batch)
         task = client.write_task(task_dir, f"stage5_check_batch{bi}.md",
                                  build_check_task(proj, raw_dir, "data/setting/setting.json",
-                                                  checked_dir, batch_files, bi, total_batches))
+                                                  _out_dir, batch_files, bi, total_batches))
         result = client.run_task(task)
         if cost and run_id:
             # 批间熔断（2026-10-01）：orchestrator 只在**阶段之间**查预算，
@@ -240,7 +269,7 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
             copied = []
             for name in missing:
                 src = raw_dir / name
-                dst = checked_dir / name
+                dst = _out_dir / name
                 if src.exists():
                     import shutil
                     shutil.copy2(src, dst)
@@ -264,7 +293,19 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         # 兜底复制（上面 shutil.copy2）搬来的是 raw 的内容，raw 已在 stage4 归一化过，
         # 再跑一次幂等、零成本；LLM 产出的 checked 则必须在这里清洗。
         for f in batch:
-            _norm(checked_dir / f.name)
+            _norm(_out_dir / f.name)
+        if _gate_on:
+            # 判定项与改稿同批生成；没有变化项 = noop，直接合成（不改原文）。
+            import stage5_gate as _gate2
+            for f in batch:
+                try:
+                    _gate2.write_proposal(int(f.stem))
+                except Exception as _e:                        # noqa: BLE001
+                    print(f"[stage5] 第{f.stem}章生成裁定项失败（不影响其他章）: "
+                          f"{type(_e).__name__}: {_e}")
+            _applied, _msgs = _gate2.apply_all()
+            if _applied:
+                print(f"[stage5] 已按既有裁定合成 {_applied} 章 → checked/")
         # 字数缩水记录（2026-11-02，清单第 7 条）：检查稿比原稿短超过 10% 要说出来。
         # 实测 raw/03.md 7184 → refined 2474 而用户毫不知情；以前这个数字只躺在
         # 判定报告里。不拦（润色本来就该删水），但必须看得见。
@@ -272,7 +313,7 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
             from utils import shrink_watch
             for f in batch:
                 _src = raw_dir / f.name
-                _dst = checked_dir / f.name
+                _dst = _out_dir / f.name
                 if not (_src.exists() and _dst.exists()):
                     continue
                 _d = shrink_watch.note(progress, 5, int(f.stem),
@@ -370,6 +411,19 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         progress.set_stage(5, "failed",
                            error="七维评审未通过（gates.review_ledger=block）：" + detail)
         return False, "stage5 失败：七维评审未通过（gates.review_ledger=block）"
+
+    _left = []
+    if _gate_on:
+        import stage5_gate as _gate3
+        _gate3.apply_all()
+        _left = _gate3.pending_chapters()
+    if _left:
+        progress.set_stage(5, "awaiting_review", pending=_left,
+                           warning="；".join(warnings) if warnings else None,
+                           message="等待作者逐条裁定 stage5 改稿")
+        print("[stage5] 等待作者裁定：第 " + "、".join(str(x) for x in _left[:10]) + " 章"
+              + ("…" if len(_left) > 10 else "") + " —— 在“审稿”页勾选后合成，再重跑即续上")
+        return True, ("stage5 完成改稿、等待裁定（%d 章）" % len(_left))
 
     if warnings:
         print("[stage5] " + "=" * 58)

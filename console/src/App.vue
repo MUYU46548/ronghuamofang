@@ -3,6 +3,7 @@ import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { diffParagraphs } from "./diff.js";
 import { copyToClipboard } from "./clipboard.js";
 import ReviewConsole from "./ReviewConsole.vue";
+import Stage5DiffPanel from "./Stage5DiffPanel.vue";
 import SandboxQueue from "./SandboxQueue.vue";
 import DiscussionQueue from "./DiscussionQueue.vue";
 import ParagraphRefinePanel from "./ParagraphRefinePanel.vue";
@@ -5641,6 +5642,7 @@ onUnmounted(() => {
 
     <!-- 审稿 -->
     <section v-if="tab === 'review'">
+      <Stage5DiffPanel @say="say" />
       <ReviewConsole @goto-refine="switchToRefine" />
     </section>
 

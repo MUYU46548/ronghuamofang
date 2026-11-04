@@ -189,6 +189,7 @@ try:
     from nf_api_domains import discuss_thread as dom_thread  # noqa: E402 (讨论件 2026-11-03)
     from nf_api_domains import lookup_tools as dom_lookup     # noqa: E402 (资料工具 2026-11-03)
     from nf_api_domains import semantic_review as dom_semrev  # noqa: E402 (语义审稿 2026-11-03)
+    from nf_api_domains import stage5 as dom_stage5        # noqa: E402 (stage5 改稿裁定闸 2026-11-04)
     from nf_api_domains import onboarding as dom_onboarding   # noqa: E402 (新手序列引导 I-1)
     from nf_api_domains import rewrite_studio as dom_studio    # noqa: E402 (改写工作室 2026-11-03)
     from nf_api_domains import vault_dirs as dom_vdirs         # noqa: E402 (设定目录 2026-11-03)
@@ -2883,6 +2884,12 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/book_extract/status":
             # 单个提炼目录的进度（GUI 轮询；零 token）
             self._send(*_dom(dom_book_extract.handle_book_extract_status(self)))
+        elif p == "/review/stage5/list":
+            # 待裁定清单（只读，不含正文）
+            self._send(*_dom(dom_stage5.handle_stage5_list(self)))
+        elif p == "/review/stage5/chapter":
+            # 单章裁定项（原文 + 模型改法，逐条）
+            self._send(*_dom(dom_stage5.handle_stage5_chapter(self)))
         elif p == "/judge/report":
             # 判定总账（0.7.17，零 token）：读最近一次回测记录，不重跑、不写盘
             self._send(*_dom(dom_judge.handle_judge_report(self)))
@@ -3515,6 +3522,12 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/book_extract/merge":
                 # 并进 setting.json：默认只预演，yes=true 才写（写前备份）
                 self._send(*_dom(dom_book_extract.handle_book_extract_merge(self, body)))
+            elif p == "/review/stage5/decide":
+                # 作者逐条勾“采用/不采用”（GUI-only，见 agent_guard）
+                self._send(*_dom(dom_stage5.handle_stage5_decide(self, body)))
+            elif p == "/review/stage5/apply":
+                # 合成 checked/NN.md（GUI-only）
+                self._send(*_dom(dom_stage5.handle_stage5_apply(self, body)))
             elif p == "/judge/run":
                 # 全量回测（零 token）：只读 raw，跑完只写 records.json
                 self._send(*_dom(dom_judge.handle_judge_run(self, body)))

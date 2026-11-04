@@ -227,6 +227,12 @@ gates:
   #   block = 任一章不完整、或整轮没有账本 → 阶段判失败（审稿门 fail-closed）。
   # 为什么默认 warn：真实模型的 JSON 合规率还没实测过，先报不拦。
   review_ledger: warn
+  # stage5 改稿裁定闸（2026-11-04，作者拍板 N1=B）：模型改稿先落
+  # data/chapters/checked_pending/，作者逐条勾"采用/不采用"后才合成 checked/。
+  #   block（默认）= 没勾完不进 stage6；orchestrator 退出码 3（等人工）
+  #   off = 旧行为：模型改完直接写 checked/
+  # engine:self 下不生效（任务书由外部执行方直接写盘，没有裁定回传通道）。
+  stage5_diff: block
   review_after_stage4: true
   review_after_stage5: false
   proofread_after_polish: false  # stage 5.5：润色后校对（默认关）

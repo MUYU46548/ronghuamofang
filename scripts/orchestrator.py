@@ -473,6 +473,15 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
                 snap.snapshot(f"stage{n}_done")  # 阶段成功 → 快照
             except Exception as e:
                 print(f"[orchestrator] 快照失败（不影响流程）: {e}")
+
+            # stage5 改稿裁定闸（2026-11-04 N1=B）：模型改稿已生成裁定项，
+            # 但还没被作者逐条勾选 —— 停下来等，不标 done、不进 stage6。
+            if n == 5 and progress.stage_status(5) == "awaiting_review":
+                _pend = (progress.data.get("stages", {}).get("5", {}) or {}).get("pending") or []
+                print("[orchestrator] stage5 改稿待裁定：第 %s 章 —— 在“审稿”页逐条勾选并合成后重跑即续上"
+                      % "、".join(str(x) for x in _pend[:10]))
+                db.finish_run(run_id, "waiting_review")
+                return 3
             # ④ 语义审稿（2026-11-03，窄口）：**默认关**（gates.semantic_review=false）。
             # 打开后，阶段 4 跑完会给"不合格 / 待重写"的章各开一个审稿讨论 + 任务书
             # （零 token，不调模型），然后停在等人工 —— 因为要不要改、怎么改是作者的事。

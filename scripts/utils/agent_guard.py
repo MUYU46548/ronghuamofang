@@ -105,6 +105,10 @@ FORBIDDEN_IN_AGENT_MODE = frozenset({
     # 外部 Agent 可以读（/judge/report 里带 book_reject），不可以代替作者签字。
     "/judge/book_reject",
     "/judge/book_reject/clear",
+    # stage5 改稿裁定（2026-11-04 N1=B）：逐条勾"采用/不采用"= 作者决定成品长什么样。
+    # 外部 Agent 可读清单与单章裁定项，但不能替作者勾，也不能自己合成 checked/。
+    "/review/stage5/decide",
+    "/review/stage5/apply",
     # 归档整本（搬家，不是删除）：同样是**作者的判断**，且它会搬空工作区。
     # 外部 Agent 想归档自己的产物，走 /project/archive（明确指定书名），
     # 不能借用判定页这条“按当前书名、连素材一起搬”的快捷通道。
