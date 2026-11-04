@@ -109,6 +109,12 @@ FORBIDDEN_IN_AGENT_MODE = frozenset({
     # 外部 Agent 可读清单与单章裁定项，但不能替作者勾，也不能自己合成 checked/。
     "/review/stage5/decide",
     "/review/stage5/apply",
+    # 判定基准集（2026-11-04，作者拍板 "用户自行从界面导入"）：正例稿是**作者的审美样本**。
+    # Agent 若能自己塞一份，"不误报"就变成"Agent 自选标准自判"——与代签审批同族。
+    # 读侧 GET /judge/benchmark 不拦（Agent 可以知道有没有基准）。
+    "/judge/benchmark/import",
+    "/judge/benchmark/remove",
+    "/judge/benchmark/restore",
     # 归档整本（搬家，不是删除）：同样是**作者的判断**，且它会搬空工作区。
     # 外部 Agent 想归档自己的产物，走 /project/archive（明确指定书名），
     # 不能借用判定页这条“按当前书名、连素材一起搬”的快捷通道。

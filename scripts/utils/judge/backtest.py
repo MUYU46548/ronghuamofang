@@ -252,6 +252,15 @@ def preview(root=".", changes=None):
     }
 
 
+def benchmark_count(root="."):
+    """基准集条目数（正例稿由作者从界面导入，见 utils/benchmark.py）。"""
+    try:
+        from utils import benchmark as _bench
+        return _bench.count(root)
+    except Exception:                                          # noqa: BLE001
+        return 0
+
+
 def run(root=".", book_name="", by="作者"):
     """跑一次全量回测：判定 + 汇总 + 落记录（唯一写点）。返回报告 payload。"""
     root = Path(root)
@@ -328,7 +337,10 @@ def run(root=".", book_name="", by="作者"):
     }
     words_min = int((cal_values or {}).get("J01", 5000))
     alerts = _detector_alerts((prev_run or {}).get("chapters"), chapters, words_min)
-    has_bench = (root / BENCHMARK_REL).is_dir()
+    # 基准集（2026-11-04）：判据是"清单里有没有条目"，不是"目录在不在"——
+    # 空目录曾让 verified 误报为 true。条目由作者从界面导入（utils/benchmark.py）。
+    _bench_n = benchmark_count(root)
+    has_bench = _bench_n > 0
     report = {
         "ok": True,
         "kind": "backtest",        "generated_at": datetime.now().isoformat(timespec="seconds"),
@@ -361,7 +373,7 @@ def run(root=".", book_name="", by="作者"):
         "evidence": {
             "capability": {
                 "verified": has_bench,
-                "note": ("基准集已配置：不误报以基准集为准" if has_bench
+                "note": ("基准集已配置（%d 份）：不误报以基准集为准" % _bench_n if has_bench
                          else "不误报未验证：没有基准集（R19），能力证据区为空"),
                 "items": [],
             },

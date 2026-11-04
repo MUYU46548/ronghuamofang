@@ -80,6 +80,19 @@ GUI 两个入口，勾选那块是**同一个组件**（`console/src/JudgeEvents
 
 - 不做成品失效与重出（F10 的 P0 形态是"比对 + 标已过期"，重出走 P1）。
 - 不做评审与改稿分离的三栏视图（F11，P1）。
-- 不做正例库（F21，P1）；F02 只召回候选，成立与否由作者裁定。
+- ~~不做正例库（F21，P1）~~ → 2026-11-04 已做（用户界面导入，见下节）；F02 只召回候选，成立与否由作者裁定。
 - 规则的**精度**未经真机标定：F02 侧重"不漏"（宁多报、由作者裁定），
   F04/F05 是结构启发式，阈值都在口径表里可改。
+
+## 正例集（F21，2026-11-04）
+
+判据是**清单里有没有条目**，不是"目录在不在"（空目录曾让 `verified` 误报为 true）。
+
+- 存储：`data/judge/benchmark/index.json` + `files/<sha12>.md` + `_removed/`（移除区，可恢复）。
+- 导入：**作者从审稿页导入**（选文件或粘贴正文，≥300 字），必须勾免责声明确认；
+  `accept_license` 与版本写进条目，可审计。
+- 写侧全部 GUI-only（`/judge/benchmark/import|remove|restore` 在 `FORBIDDEN_IN_AGENT_MODE`）：
+  正例是作者的审美样本，Agent 自选标准自判 = 代签。
+- "移除"只移到 `_removed/`，不删文件；`restore` 可恢复。
+- 回测报告 `evidence.capability.verified` 只在条目数 > 0 时为 true，并给出份数。
+- 判据：`tests/unit/test_benchmark.py`（28 项，含 API 层）。
