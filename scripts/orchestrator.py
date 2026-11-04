@@ -638,7 +638,7 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
 
                 `_post_stage(1)` 会在阶段 1 成功后生成素材体检报告，但那条路只走
                 真跑分支；`engine: self` 是**独立分支**，判完完成就 return，
-                于是这份报告在 self 下**永远不生成**，而界面上「素材体检」那一行
+                于是这份报告在 self 下**永远不生成**，而界面上“素材体检”那一行
                 一直挂着（作者第 13 条“打不开素材体检报告，文件不存在”的真根因之一）。
 
                 判据：**需不需要模型**。素材体检是纯确定性统计（读 setting.json +
