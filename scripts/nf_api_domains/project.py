@@ -40,6 +40,39 @@ def handle_state(h):
         return 500, {"error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+def handle_whoami(h):
+    """`GET /whoami` —— 服务端认为“你是谁”（2026-11-04，作者问“以后分得清谁在调用吗”）。
+
+    为什么要有它：作者点了按钮失败时，界面只有一句“失败/被拒”。他无法判断
+    究竟是“我不是作者”（来源闸）、还是“功能坏了”。这个端点把服务端的判定
+    原样说出来 —— 三种拒因、来源声明、有没有带令牌、当前引擎与 agent_mode。
+
+    **不含任何令牌值**（只报有无），也不泄露通道细节：它只回答“你是谁”。
+    """
+    headers = getattr(h, "headers", None) or {}
+    from utils import agent_guard
+    from utils.engine import resolve_engine
+    code, why = agent_guard.gui_refusal(headers)
+    cfg, _proj = api.load_all()
+    try:
+        claim = agent_guard.normalize_source(
+            headers.get(agent_guard.GUI_SOURCE_HEADER, ""))
+    except Exception:                                        # noqa: BLE001
+        claim = ""
+    return 200, {
+        "ok": True,
+        "trusted_gui": code is None,
+        "refusal_code": code,
+        "refusal_reason": why,
+        "source_claim": claim,
+        "token_present": bool(headers.get(agent_guard.GUI_TOKEN_HEADER, "")),
+        "agent_mode": bool(((cfg.get("gates") or {}).get("agent_mode"))),
+        "engine": resolve_engine(cfg),
+        "project_root": str(api.ROOT),
+        "note": ("这是服务端的判定，用来解释“为什么这个按钮只让作者点”；"
+                 "不含任何令牌值。"),
+    }
+
 def handle_project_list(h):
     """多书列表（data/books/ 归档 + 当前书）。"""
     try:
@@ -1678,6 +1711,7 @@ def handle_writing_rules_save(h, body):
 ROUTES = (
     ("GET", "/health", handle_health),
     ("GET", "/state", handle_state),
+    ("GET", "/whoami", handle_whoami),
     ("GET", "/project/list", handle_project_list),
     ("GET", "/project/status", handle_project_status),
     ("GET", "/project/archive/tree", handle_archive_tree),

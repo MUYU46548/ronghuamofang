@@ -188,3 +188,15 @@ Electron 控制台（`console/`）消费的就是这套端点，页签 ↔ 端�
 **注意**：GUI 启动时会探测 8765，被占用则**杀掉占用者**再起自己的后端
 （`console/main/index.js` 的 `startApi`）。所以手动起的服务可能被 GUI 顶掉 ——
 两边的"当前工作区"也可能不同（源码版 = 项目根，安装版 = `%APPDATA%\绒花墨坊\workspace`）。
+
+## 2026-11-04 新增 / 更正
+
+| 端点 | 方法 | 谁能调 | 说明 |
+|---|---|---|---|
+| `/whoami` | GET | 任何人 | 服务端认为“你是谁”：`trusted_gui` / `refusal_code`（三种拒因）/ `source_claim` / `token_present` / `engine` / `agent_mode`。**不含令牌值**。 |
+| `/providers` | GET | 任何人 | 服务商清单 + 内置预设（12 家）+ 谁在用 + Key 掩码。 |
+| `/providers/save` | POST | **仅 GUI**（双因子） | 新增/更新服务商；写 `config/system.yaml` 时**定点块替换**，注释不丢；非法 id/base_url/env 一律 400。 |
+| `/providers/remove` | POST | **仅 GUI**（双因子） | 删除服务商；正在被 `model.*` 使用的拒绝删除。 |
+
+⚠️ **上面“Agent 模式守卫”那一小段清单是历史示例，不是全集**：唯一真源是 `scripts/utils/agent_guard.py` 的 `FORBIDDEN_IN_AGENT_MODE`（20+ 条）。判某条能不能调，`grep` 那个集合，别照抄本文件的列表。
+

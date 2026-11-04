@@ -54,6 +54,11 @@ Python = `$NF/.venv/Scripts/python.exe`（下称 `python`）。
 - 大纲/设定/章节要体检或定向修订
 - 完书后要导出 Word、出摘要、写回 Obsidian
 - **不适用**：改 `console/` 前端或管线代码 → 用 `novelforge-gui` / `ai-novel-pipeline`
+  （开工先看 `novelforge-gui` 技能里的护栏参考：直角引号红线 / 工作区≠源码树 /
+  存在性判据单源 / 改完必跑）
+
+> 注：本卡在仓库里还有一份真源 `E:/CODE/CangKu/NovelForge/skills/worldbuilding/ronghuamofang/SKILL.md`，
+> 安装版升级会用发布版覆盖本文件。**改了本卡就要把同一改动落到仓库真源**（下一轮打包时带出），否则白改。
 
 ## 入口（三条通道：CLI / HTTP / MCP）
 
@@ -142,6 +147,11 @@ cd $NF && python scripts/nfctl.py check
 3. **改配置不擅自动手**：发现 `system.yaml` 重复键、模型不是白名单内 → 报告，不自行改。
 4. **两套工作区别混用**：Electron 源码版工作区 = 项目根；安装版 = `%APPDATA%\绒花墨坊\workspace`。
    两边的产物不能互相解释。GUI 启动时若发现 8765 被占会**杀掉占用者**。
+   ⚠ **工作区里也有一份 `scripts/` `prompts/` `config/` 的拷贝**：用户试跑期间“现场修”的东西
+   很可能**只落在工作区那份**，源码树 `E:\CODE\CangKu\NovelForge` 还是原样。
+   要修同一处前先 `diff -u scripts/<f> "$APPDATA/绒花墨坊/workspace/scripts/<f>"`，
+   把工作区里的补丁**搬回源码树并补用例**——既别把“已修”当“未修”重写一遍，
+   也别拿工作区做验证（用例跑的是仓库）。
 5. **提示词与代码分离**：调优改 `prompts/stageN_*.md`，不改脚本。
 
 ## 常用处方
@@ -154,6 +164,22 @@ cd $NF && python scripts/nfctl.py check
 **"大纲还有问题"** → `outline_review.py`（体检）+ `--trend`（有没有实质进展）
 → 把用户意见写成明确指令 → `refine_outline.py "意见"`（自动备份旧版）→ 再体检，用指标说明"好了没有"。
 `--trend` 判 `stalled`/`mixed` 时应换策略，而不是再空跑一轮。
+
+**用户说“某个 AI 功能一用就失败”** → **先看引擎，再看代码**：读 `config/system.yaml` 的
+`engine`（或 `nfctl api /state`）。`engine: self` = 程序**不调用任何模型**（只出任务书），
+所以“AI 修订 / 提交精修 / 整章重写 / 自动重写 / 语义审稿”这类按钮**必然失败**，不是坏了。
+处置：让用户切 direct/hermes，或把 `data/state/tasks/self/` 的任务书交外部执行。
+这类端点在 self 下会前置返回 400 + 人话；`/stage/N/run` 在 self 下出任务书而不是 500。
+仍然失败 → 再查端口与锁（`nfctl status` 的 runner、`data/state/run.lock`、8765 是否被别的客户端占用）。
+
+**用户说“点了没反应 / 它说我不是作者”** → 先分清是**引擎**还是**来源闸**，别直接改代码：
+
+- 要调模型的按钮：先按上一条查 `engine`；self 下它们本就不工作。
+- 作者拍板类（定稿 `/discuss/decide`、审批、手改正文、止烧/服务商设置）：后端要求 GUI 双因子。
+  拒文现在会分三态说清 —— `GUI_TOKEN_MISSING`（主进程没签发令牌，客户端刚启动）→ 让用户重启客户端；
+  `GUI_TOKEN_STALE`（升级/重启后旧页面还开着）→ 刷新或重启；`NOT_GUI`（真外部 Agent）→ 设计如此，不是故障。
+- 看不到拒文（只有“失败”两个字）时，要用户把界面那句话或“查看日志”最后十行发来；
+  没有拒文不要猜着改。换引擎前也告诉用户代价：direct 是按量计费，hermes 慢且单任务有墙钟上限。
 
 **审批门（阶段2 / 阶段6）** → 阶段2 审 `data/outline/global.md`（先 `outline_review.py`）；
 阶段6 审 `data/chapters/refined/`。报告 + 等用户明确同意 → `approve.py --stage N` → `orchestrator.py --from N`。
@@ -277,3 +303,14 @@ stage4 会自动发“读原稿、只补量”的扩写任务（每章每轮至�
 
 端点全清单与请求体形状：`references/api.md`（以 `scripts/nf_api.py` 头部 docstring 为准）。
 命令全表与风险标注：`$NF/AGENTS.md`。
+
+## 新增（2026-11-04 试跑复盘）
+
+**服务商要自己加** → 设置页“服务商与 API Key” →“＋ 新增服务商”（12 家预设一键填地址与变量名，任何 OpenAI 兼容端点都能填）。Agent 侧：`GET /providers` 只读（清单 + 预设 + 谁在用 + 掩码），`POST /providers/save|remove` 是 **GUI-only**（改的是计费通道与密钥来源），非 GUI 一律 403。
+
+**“它说我不是作者 / 点了没反应”** → 先 `python scripts/nfctl.py api /whoami`：服务端直接说出 `trusted_gui`、`refusal_code`（`GUI_TOKEN_MISSING` → 重启客户端；`GUI_TOKEN_STALE` → 刷新或重启；`NOT_GUI` → 真外部来源）、`engine`、`agent_mode`，**不含令牌值**。别靠猜，也别直接改代码。
+
+**engine: self 下“跑阶段”会怎样** → 出任务书（`data/state/tasks/self/stageN/`），不出正文；要模型的按钮（精修/重写/自动重写/语义审稿）前置返回 400 + 人话。要让 self 真写书，得把任务书交外部执行方，写完重跑。
+
+**“禁止 Agent 执行”那份清单只是示例** → 唯一真源是 `scripts/utils/agent_guard.py` 的 `FORBIDDEN_IN_AGENT_MODE`（20+ 条，含 `/providers/save|remove`、`/discuss/decide`、`/review/stage5/decide`、`/judge/events|sentence`、`/chapters/save`、`/stage/skip`、`/plan/*`）。判某条能不能调就 `grep` 那个集合 —— 卡里维护第二份清单必然与代码漂移。
+

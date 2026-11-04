@@ -402,6 +402,7 @@ stage4 也补了同一道校验（此前是唯一既不设上限、也不校验�
 - `GET /state`、`/health`、`/about`
 - `GET /models`、`/models/available`、`/models/cache`、`/models/fetched`
 - `GET /providers`（服务商清单 + 内置预设 + 谁在用；**不吐明文 Key**，只给变量名与掩码）
+- `GET /whoami`（服务端认为“你是谁”：可信 GUI / 三种拒因 + 来源声明 + 有无令牌 + 引擎 + agent_mode；**不含令牌值**。作者点按钮失败时靠它分清“我没权限”还是“功能坏了”）
 - `GET /config/project`、`/config/style_notes`、`/config/agent_mode`、`/config/target_words`
   （单章字数区间：当前值 + 出厂预设 + 合法区间）
 - `GET /config/vault_scan`（知识库扫描面：**顶层目录名取自用户库本身** + 各自篇数 +

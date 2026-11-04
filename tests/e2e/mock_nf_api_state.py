@@ -338,6 +338,18 @@ class Handler(BaseHTTPRequestHandler):
         p = self.path.split("?")[0].rstrip("/") or "/"
         if p == "/health":
             return self._send(200, {"ok": True, "current_job": None, "allow_fake": False})
+        if p == "/whoami":
+            # 服务端认为“你是谁”（2026-11-04）。e2e 只关心形状，固定返回“非 GUI”。
+            return self._send(200, {"ok": True, "trusted_gui": False,
+                                    "refusal_code": "NOT_GUI",
+                                    "refusal_reason": "（mock：e2e 不看文案）",
+                                    "source_claim": "", "token_present": False,
+                                    "agent_mode": False, "engine": "direct",
+                                    "project_root": "<mock>", "note": "mock"})
+        if p == "/providers":
+            # 只读端点：e2e 只验页面能渲染，不验真实配置。
+            return self._send(200, {"ok": True, "items": [], "presets": [],
+                                    "active": {}})
         if p == "/state":
             if COLD:
                 st = json.loads(json.dumps(STATE))
