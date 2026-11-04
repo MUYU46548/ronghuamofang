@@ -36,15 +36,16 @@ def scan(text, needles):
 
 
 def main():
-    stage4 = (ROOT / "prompts" / "stage4_writing.md").read_text(encoding="utf-8")
+    stage4_files = ("stage4_writing.md", "stage4_group.md",
+                    "stage4_refine.md", "stage4_expand.md")
+    texts = {n: (ROOT / "prompts" / n).read_text(encoding="utf-8") for n in stage4_files}
 
-    print("=== A. F15/F16：两处提示词锁已拆 ===")
-    check("stage4 不含\u300c%s\u300d" % LOCK_A, LOCK_A not in stage4,
-          scan(stage4, [LOCK_A]))
-    check("stage4 不含\u300c%s\u300d" % LOCK_B, LOCK_B not in stage4,
-          scan(stage4, [LOCK_B]))
+    print("=== A. F15/F16：两处提示词锁已拆（四个写作入口全覆盖） ===")
+    for n in stage4_files:
+        check("%s 不含“%s”" % (n, LOCK_A), LOCK_A not in texts[n], scan(texts[n], [LOCK_A]))
+        check("%s 不含“%s”" % (n, LOCK_B), LOCK_B not in texts[n], scan(texts[n], [LOCK_B]))
     # 反证：把锁写回一份临时文本，判据必须变红
-    fake = stage4 + "\n你是" + LOCK_A + "。\n可补充细节，但" + LOCK_B + "。\n"
+    fake = texts["stage4_group.md"] + "\n你是" + LOCK_A + "。\n可补充细节，但" + LOCK_B + "。\n"
     check("反证：锁加回去后扫描必红", scan(fake, [LOCK_A, LOCK_B]) == [LOCK_A, LOCK_B],
           scan(fake, [LOCK_A, LOCK_B]))
 
