@@ -248,7 +248,9 @@ def main():
 
         old_root = nf_api.ROOT
         nf_api._set_root(root)
-        saved_trusted = _guard.agent_guard.is_trusted_gui
+        # gui_only 现在走 gui_refusal（三种情形分说），所以打桩点改成“签发令牌”
+        # —— 不能再打桩 is_trusted_gui（那条路已不经过）。
+        saved_tok = _guard.agent_guard.issued_gui_token
         try:
             code, payload = dm.handle_providers_save(H(), {
                 "id": "hooked", "base_url": "https://hooked.example.com/v1",
@@ -256,16 +258,17 @@ def main():
             check("P9 无 GUI 双因子 → 403", code == 403, (code, payload))
             check("P9 403 时没写盘", "  hooked:" not in sysfile.read_text(encoding="utf-8"))
 
-            _guard.agent_guard.is_trusted_gui = lambda headers: True
+            _guard.agent_guard.issued_gui_token = lambda: "test-tok"
+            GUI_H = H({"X-Mofang-Source": "gui", "X-Mofang-Token": "test-tok"})
             try:
-                code2, payload2 = dm.handle_providers_save(H(), {
+                code2, payload2 = dm.handle_providers_save(GUI_H, {
                     "id": "hooked", "base_url": "https://hooked.example.com/v1",
                     "api_key_env": "HOOKED_API_KEY", "models": "h-1, h-2"})
                 check("P9 双因子通过 → 200", code2 == 200 and payload2.get("ok"),
                       (code2, payload2))
                 check("P9 真写进临时 root 的 system.yaml",
                       "  hooked:" in sysfile.read_text(encoding="utf-8"))
-                code3, payload3 = dm.handle_providers_save(H(), {
+                code3, payload3 = dm.handle_providers_save(GUI_H, {
                     "id": "BAD", "base_url": "nope", "api_key_env": "Y"})
                 check("P9 非法参数 → 400 且说清", code3 == 400 and payload3.get("error"),
                       (code3, payload3))
@@ -278,7 +281,7 @@ def main():
                       "sk-abcdefghijklmnop" not in str(payload4)
                       and "HOOKED_API_KEY" in str(payload4), str(payload4)[:200])
             finally:
-                _guard.agent_guard.is_trusted_gui = saved_trusted
+                _guard.agent_guard.issued_gui_token = saved_tok
         finally:
             nf_api._set_root(old_root)
     finally:

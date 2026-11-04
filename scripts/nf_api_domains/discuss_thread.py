@@ -114,10 +114,11 @@ def handle_discuss_decide(h, body):
     import nf_api as api
     from utils import agent_guard, discussion
 
-    if not agent_guard.is_trusted_gui(h.headers):
-        return 403, {"ok": False,
-                     "error": "定稿（拍板）只能由作者在界面上做 —— 外部 Agent 可以"
-                              "开讨论、追加发言，不能替你定结论"}
+    _code, _why = agent_guard.gui_refusal(h.headers)
+    if _code is not None:
+        # 三种情形分开说（2026-11-04）：桌面端没拿到令牌 / 令牌过期 / 真不是 GUI。
+        # 原先一律用一句通用拒文 —— 作者本人点了也读它。
+        return 403, {"ok": False, "code": _code, "error": "定稿（拍板）被拒：" + _why}
 
     body = body if isinstance(body, dict) else {}
     chapter = _int(body, "chapter")

@@ -25,12 +25,12 @@ def gui_only(h, what):
     """
     headers = getattr(h, "headers", None) or {}
     try:
-        ok = agent_guard.is_trusted_gui(headers)
+        code, why = agent_guard.gui_refusal(headers)
     except Exception:                                        # noqa: BLE001
-        ok = False                                           # 判据坏了也要 fail-closed
-    if ok:
+        code, why = "GUI_CHECK_FAILED", "界面来源校验失败（内部错误），请重启客户端再试。"
+    if code is None:
         return None
-    # 拒文零通道名（V5）：不提缺哪个头、该填什么值 —— 拒文本身是攻击面。
-    return 403, {"ok": False,
-                 "error": "%s 仅允许用户本人在桌面端手动修改；本次调用不是可信的 "
-                          "GUI 来源。请停手并报告用户。" % what}
+    # 2026-11-04：拒文按**三种真实情形**分开说（令牌没签发 / 过期 / 真不是 GUI）。
+    # 原先一律用一句通用拒文 —— 作者本人点了也读它，等于告诉他不是自己。
+    return 403, {"ok": False, "code": code,
+                 "error": "%s 被拒：%s" % (what, why)}

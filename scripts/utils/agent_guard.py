@@ -298,6 +298,42 @@ def is_trusted_gui(headers, token=None):
     return hmac.compare_digest(got, token)
 
 
+def gui_refusal(headers):
+    """解释“为什么这次 GUI-only 操作被拒”，并给作者下一步。返回 (code, message)。
+
+    2026-11-04（试跑第 19/21 条）：原先三种失败共用一句话
+    “只能由作者在界面上做”。可作者本人点了也看到这句 —— 等于告诉他自己不是自己。
+    实际情况分三种，处置完全不同：
+
+    1. **桌面端没拿到界面令牌**（主进程刚启动/没起来）→ 重启客户端；
+    2. **令牌过期/不匹配**（升级或主进程重启，旧页面还开着）→ 刷新或重启；
+    3. **真不是 GUI**（外部 Agent / CLI）→ 保持原话。
+
+    可信时返回 `(None, "")`。判据与 `is_trusted_gui` 共用同一个 token（不另立）。
+    """
+    # 三种入参都收：HTTP 的 email.Message（有 .get、大小写不敏感）、普通 dict、
+    # 以及 handler 对象（自己带 .headers）。第一版只判了 dict / handler，
+    # 于是 Message 被当成“没有来源头” → 真作者也被判 NOT_GUI（T14 当场变红）。
+    h = headers if hasattr(headers, "get") else (getattr(headers, "headers", None) or {})
+    token = issued_gui_token()
+    try:
+        src = normalize_source(h.get(GUI_SOURCE_HEADER, ""))
+    except Exception:                                        # noqa: BLE001
+        src = ""
+    if not token:
+        return ("GUI_TOKEN_MISSING",
+                "桌面端没有签发界面令牌（客户端刚启动、或主进程没起来时会这样）。"
+                "请重启绒花墨坊后再试；重启后仍然这样，把这句话发给我 —— 那是客户端令牌签发的问题。")
+    if src not in HUMAN_SOURCES:
+        return ("NOT_GUI",
+                "这个操作只能由作者在桌面上做（外部 Agent 可以开讨论、追加发言，不能替你定结论）。")
+    if not hmac.compare_digest(str(h.get(GUI_TOKEN_HEADER, "") or ""), token):
+        return ("GUI_TOKEN_STALE",
+                "界面令牌不匹配（客户端升级或主进程重启过，旧页面还开着）。"
+                "刷新页面或重启绒花墨坊后再试。")
+    return (None, "")
+
+
 def _proc_core(name):
     """进程名 → core（小写、去路径、去 .exe/.com 后缀）。"""
     base = os.path.basename(str(name or "")).strip().lower()
