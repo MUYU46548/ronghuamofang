@@ -7,7 +7,7 @@
 NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动长篇小说生成系统：机器包办苦力（素材归并→大纲→写作→检查→润色→Word），用户保留审批权和最终精修权。
 用户只做两件事：**放置素材** + **说"运行 NovelForge 项目"**。其余由系统自动执行，关键节点设审批门暂停等待人工确认。
 
-**执行引擎可切换**：`config/system.yaml` 的 `engine` 字段控制。`direct`=OpenAI 兼容直连（当前接 TokenHub，可随时换供应商），`hermes`=Hermes 子会话（备选）。所有调用点经 `make_client(cfg, role)` 取客户端，零调用点硬编码引擎。
+**执行引擎可切换**：`config/system.yaml` 的 `engine` 字段控制。`direct`=OpenAI 兼容直连（当前接 TokenHub，可随时换供应商），`hermes`=Hermes 子会话（备选），`self`=**只出任务书、不调用任何模型**（阶段 1~6 各把任务书写到 `data/state/tasks/self/stageN/`，执行方把产物写到位后重跑即按产物续跑；零 token，细节见 `docs/agents/engine-self.md`）。所有调用点经 `make_client(cfg, role)` 取客户端，零调用点硬编码引擎；`engine: self` 下 `make_client` **直接抛错** —— 防"配了 self、后台却偷偷按量跑模型"这类静默失真。
 
 **思考模式兼容（2026-09-14 起）**：glm-5.x / kimi 等模型默认进 thinking 模式时，正文会全进 `reasoning_content`、`content` 为空（且思考 token 吃掉 `max_tokens` 预算）→ 流水线产出空白。
 防线有三：① `providers.<id>.disable_thinking_models` 名单内模型自动注入“关闭思考”片段（候选顺序见 `disable_thinking_payloads`，TokenHub 实测首选 `thinking: {type: disabled}`；`reasoning_effort: none` 会被该平台拒收）；② 未列名单的思考模型由客户端自动探测并注入后重试；③ 兜底**只取协议块**（`===FILE:` / `===APPEND:` / `===DELETE:`）：reasoning_content 里找不到
@@ -42,6 +42,7 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 | 运维场景（失败/熔断/打回/升级） | `docs/agents/operations.md` |
 | 成书提炼（写完的书 → 正典四表 + 病灶词） | `docs/agents/book-extract.md` |
 | 判定引擎（三档结论 / 缺陷单 / 回测 / 口径） | `docs/agents/judge-engine.md` |
+| 自任务引擎 `engine: self`（任务书三件套 / 何时判完成） | `docs/agents/engine-self.md` |
 | 作者手册（**给用户看的**，改界面文案前先读这里的说法） | `console/src/help/*.md` |
 
 ### 两套文档，别混（2026-10-31 立）
@@ -204,6 +205,26 @@ stage5 的批大小由“装得下几章”反推（`judge.budget.items_per_requ
 `min(提示词声明, config 的 per_request_max_tokens)`（`judge.budget.effective_max_tokens`）；
 stage4 也补了同一道校验（此前是唯一既不设上限、也不校验的阶段）。
 细节 → `docs/agents/judge-engine.md`。
+
+## 自任务引擎（`engine: self`，2026-11-04 落地）
+
+**一句话**：程序**不调用任何模型**，只把"这一步该写什么、写到哪、什么样算合格"写成任务书；
+调用方执行完、把产物写到指定路径后，再跑一次即按**盘上产物**续跑。零 token。
+
+- 三件套（阶段 1~6 各自模块）：`emit_tasks`（出任务书，返回 `{stage,tasks[],hint,done,blocked}`）、
+  `self_done`（按产物判完成）、`settle_self`（确定性收尾：补滚动摘要/补账、合并润色报告、
+  碎片多批合并、vault_links）。公共件在 `utils/self_tasks.py`（协议头 + `strip_protocol`）。
+- 编排：`orchestrator._self_stage`。产物齐 → 标 done 继续（**审批门照旧**）；不齐 → 出任务书、
+  progress 标 `awaiting_external`、退出码 3。阶段 7/8 纯本地，照常 `run_stage`。
+- **判完成不许只看 `artifact_gate`**：`STAGE_ARTIFACTS[4]` 只是"raw 目录非空"，写一章就"完成"。
+  所以每阶段都有 `self_done`，判据与真跑同一份实现（阶段 4 = 每章 `is_chapter_complete`）。
+- 阶段 4 **一章一交回**（下一章任务书要吃上一章的衔接段与滚动摘要）；阶段 5 的账本
+  （`data/review/batchN.json`）要求写在协议头里 —— self 下 `self_done(5)` **不校验账本**（已声明边界）。
+- `make_client` 在 self 下**直接抛错**：任何阶段误走 `run_stage` 都会当场炸，不许静默降级成真花钱。
+- self 下**不跑**需要模型的既有钩子（`auto_rewrite` / `review_after_stage4` / `semantic_review` /
+  `setting_refine_auto` / LLM 校对），也不做阶段前后快照 —— 改动是新增任务书文件，不动既有产物。
+- 判据：`tests/unit/test_engine_self.py`（`nfctl test` 会跑）。
+细节 → `docs/agents/engine-self.md`。
 
 ## 外部 Agent 接入（Hermes skill + nfctl）
 
