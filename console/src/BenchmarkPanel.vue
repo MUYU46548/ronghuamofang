@@ -9,6 +9,7 @@
  */
 import { ref, computed, onMounted } from "vue";
 import { API } from "./apiBase.js";
+import { postJSON } from "./guiApi.js";
 
 const emit = defineEmits(["say"]);
 
@@ -40,15 +41,8 @@ async function get(pathUrl) {
   return d;
 }
 
-async function post(pathUrl, body) {
-  const r = await fetch(API + pathUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Mofang-Source": "gui" },
-    body: JSON.stringify(body),
-  });
-  const d = await r.json().catch(() => ({}));
-  if (r.status !== 200 || !d.ok) throw new Error(d.error || "HTTP " + r.status);
-  return d;
+async function post(path, body) {
+  return postJSON(path, body);
 }
 
 async function load() {

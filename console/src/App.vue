@@ -5,6 +5,7 @@ import { copyToClipboard } from "./clipboard.js";
 import ReviewConsole from "./ReviewConsole.vue";
 import Stage5DiffPanel from "./Stage5DiffPanel.vue";
 import BenchmarkPanel from "./BenchmarkPanel.vue";
+import PlanBoardPanel from "./PlanBoardPanel.vue";
 import SandboxQueue from "./SandboxQueue.vue";
 import DiscussionQueue from "./DiscussionQueue.vue";
 import ParagraphRefinePanel from "./ParagraphRefinePanel.vue";
@@ -5632,6 +5633,8 @@ onUnmounted(() => {
     <section v-if="tab === 'outline'">
       <OutlineView ref="outlineRef" :api="api" :is-busy="isRunning" :book-name="state ? state.book : ''"
                    @say="say" @structure-loaded="onStructureLoaded" />
+      <!-- 规划四态（2026-11-04，M9）：AI 提案停在构想，采用/丢弃/写进正文是作者动作 -->
+      <PlanBoardPanel @say="say" />
       <!-- 指南针（2026-10-21，roadmap 7.3）：全书终局锚点 -->
       <CompassPanel @say="say" />
       <!-- 情节图（2026-11-02，视频 v0.5 对标②）：按卷收起 / 选中只看相关 / 导成图片 -->
