@@ -93,9 +93,9 @@ def main():
                            ("written", "已写进正文"), ("dropped", "已丢弃")):
             col = canvas.locator("[data-col='%s']" % key)
             tiles = col.locator("[data-id]")
-            check("「%s」列张数 = %s" % (label, stats.get(key)),
+            check("“%s”列张数 = %s" % (label, stats.get(key)),
                   tiles.count() == (stats.get(key) or 0), tiles.count())
-            check("「%s」列标题可见" % label, label in col.inner_text())
+            check("“%s”列标题可见" % label, label in col.inner_text())
 
         # ---- 3. 在画布上点“采用” ----
         idea_col = canvas.locator("[data-col='idea']")
@@ -108,9 +108,9 @@ def main():
         check("点“采用”后后端状态真的变成 selected（同一份 plan.json）",
               after.get(target) == "selected", after.get(target))
         sel_col = canvas.locator("[data-col='selected']")
-        check("卡片换到「已采用」列",
+        check("卡片换到“已采用”列",
               sel_col.locator("[data-id='%s']" % target).count() == 1)
-        check("「构想」列少一张、「已采用」多一张",
+        check("“构想”列少一张、“已采用”多一张",
               idea_col.locator("[data-id]").count() == (stats2.get("idea") or 0)
               and sel_col.locator("[data-id]").count() == (stats2.get("selected") or 0),
               (stats2, idea_col.locator("[data-id]").count()))
