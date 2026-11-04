@@ -112,6 +112,32 @@ def deep_merge(base, override):
     return result
 
 
+def as_flag(value, default=True):
+    """把配置里的开关读成 bool —— 认 YAML 1.1 的 `off`/`on`。
+
+    ## 为什么必须有这一层（2026-11-04 实测）
+
+    YAML 1.1 把裸写的 `off` / `no` / `on` / `yes` 解析成**布尔**，
+    于是 `str(cfg["gates"]["stage5_diff"]).lower() != "off"` 这种写法
+    在用户写 `stage5_diff: off` 时得到 `"false"`，判据永远是"开" ——
+    配置里写着关，程序照着开跑，且没有任何提示。
+
+    认这几种写法：bool / "off,false,no,0,disabled,none" / 空串 → False；
+    "on,true,yes,1,enabled" → True；其余（如 `block` / `warn` 这类档位词）
+    返回 `default`（调用方本来就按"非关即开"处理）。
+    """
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    s = str(value).strip().lower()
+    if s in ("off", "false", "no", "0", "disabled", "none", ""):
+        return False
+    if s in ("on", "true", "yes", "1", "enabled"):
+        return True
+    return default
+
+
 def load_pipeline_config(system_path=SYSTEM_YAML, local_path=LOCAL_YAML,
                          project_path=PROJECT_YAML):
     """流水线的标准配置入口。返回 (cfg, proj)。

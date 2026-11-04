@@ -518,9 +518,79 @@ def handle_chapters_rewrite(h, body):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+def handle_chapters_rerun_plan(h):
+    """`GET /chapters/rerun/plan?n=3&through=6` —— 只读预览：这次会动哪些文件。
+
+    与真正执行走**同一份** `utils.chapter_rerun.inventory`，所以界面上的
+    “影响面”不会和实际行为漂移。零 token、不写盘。
+    """
+    try:
+        q = h._query()
+        n = int((q.get("n") or [0])[0] or 0)
+        through = int((q.get("through") or [6])[0] or 6)
+    except (TypeError, ValueError):
+        return 400, {"ok": False, "error": "n / through 必须是整数"}
+    if n < 1:
+        return 400, {"ok": False, "error": "n 必填且为正整数（章号）"}
+    if through not in (4, 5, 6):
+        return 400, {"ok": False, "error": "through 只能是 4/5/6"}
+    from utils import chapter_rerun
+    items = chapter_rerun.inventory(api.ROOT, n, through)
+    return 200, {"ok": True, "n": n, "through": through, "items": items,
+                 "layers": chapter_rerun.stage_layers(through),
+                 "note": "raw 会重写；其余层移到 data/chapters/rerun_backup/ 后按范围重算；"
+                         "别的章一个字节不动"}
+
+
+def handle_chapters_rerun(h, body):
+    """`POST /chapters/rerun {n, through, refresh_judge}` —— 单章纵向重跑（4→5→6）。
+
+    与 `/chapters/rewrite`（只重写正文）不是一件事：
+    本端点会把**这一章的** checked / checked_pending / refined / 逐章评审作废并重算，
+    其他章的三层稿与进度一律不动。阶段级「从阶段 N 重跑」仍是 `reject.py` 的整本语义。
+    """
+    try:
+        body = body or {}
+        try:
+            n = int(body.get("n"))
+        except (TypeError, ValueError):
+            return 400, {"ok": False, "error": "n 必填且为正整数（章号）"}
+        if n < 1:
+            return 400, {"ok": False, "error": "n 必填且为正整数（章号）"}
+        try:
+            through = int(body.get("through") if body.get("through") is not None else 6)
+        except (TypeError, ValueError):
+            return 400, {"ok": False, "error": "through 必须是 4/5/6"}
+        if through not in (4, 5, 6):
+            return 400, {"ok": False,
+                         "error": "through 只能是 4/5/6（4=只重写正文；5=+检查；6=+润色）"}
+        total = 0
+        try:
+            _, proj = api.load_all()
+            total = int((proj.get("book") or {}).get("chapters") or 0)
+        except Exception:                                    # noqa: BLE001
+            total = 0
+        if total and n > total:
+            return 400, {"ok": False, "error": "章号 %d 超过本书章数 %d" % (n, total)}
+        cfg, _ = api.load_all()
+        jid, err = api.start_job(
+            "rerun_ch%d" % n,
+            api.act_rerun_chapter(cfg, n, through, bool(body.get("refresh_judge"))))
+        if err:
+            return 409, {"ok": False, "error": err}
+        _scope = {4: "正文", 5: "正文+检查", 6: "正文+检查+润色"}[through]
+        return 202, {"ok": True, "job_id": jid, "chapter": n, "through": through,
+                     "message": "已开始重跑第 %d 章（范围：%s）。旧产物备份到 "
+                                "data/chapters/rerun_backup/，其他章不动" % (n, _scope)}
+    except Exception as e:                                   # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 ROUTES = (
     ("GET", "/chapters/layers", handle_chapters_layers),
     ("GET", "/chapters/content", handle_chapters_content),
+    ("GET", "/chapters/rerun/plan", handle_chapters_rerun_plan),
     ("POST", "/chapters/save", handle_chapters_save),
     ("POST", "/chapters/rewrite", handle_chapters_rewrite),
+    ("POST", "/chapters/rerun", handle_chapters_rerun),
 )

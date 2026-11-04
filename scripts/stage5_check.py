@@ -34,7 +34,11 @@ def gate_enabled(cfg):
     """
     if str((cfg or {}).get("engine", "")).lower() == "self":
         return False
-    return str(((cfg or {}).get("gates") or {}).get("stage5_diff", "block")).lower() != "off"
+    from utils.config_io import as_flag
+    # ⚠️ 不能只比字符串 "off"：YAML 1.1 把裸 `off` 解析成**布尔 False**
+    # （2026-11-04 实测：夹具写 stage5_diff: off，str(False)="false" != "off"
+    #  → 闸门照样打开，checked_pending 被写满）。判据统一走 as_flag。
+    return as_flag(((cfg or {}).get("gates") or {}).get("stage5_diff"), default=True)
 
 
 def _norm(path):
@@ -128,9 +132,18 @@ def _verify_ledger(batch, bi, app=None):
     return results, problems
 
 
-def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=None):
+def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=None,
+              chapters=None):
+    """`chapters` = 本轮只处理哪几章（单章重跑用，2026-11-04）。
+
+    **只缩"这一轮检查哪些章"**，不改断点/可用性/分批任何一条判据 ——
+    已有合格 checked 的章本来就会被跳过，这里只是让调用方明确说"只碰这几章"，
+    免得一次单章重跑把全书的检查稿都算进这一批（批次大小与 token 都会变）。
+    范围内做完但全书没齐 → 记 `partial`（与 stage4 同一套状态词），不虚报 done。
+    """
     client = client or make_client(cfg, "checker")
     task_dir = task_dir or "data/state/tasks"
+    _scope = {int(x) for x in (chapters or []) if str(x).isdigit()} or None
     raw_dir = Path("data/chapters/raw")
     checked_dir = Path("data/chapters/checked")
     checked_dir.mkdir(parents=True, exist_ok=True)
@@ -141,9 +154,15 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     _out_dir = staged_dir if _gate_on else checked_dir
 
     raw_files = sorted(raw_dir.glob("*.md"))
+    if _scope:
+        raw_files = [f for f in raw_files
+                     if f.stem.isdigit() and int(f.stem) in _scope]
+        print(f"[stage5] 限定范围：只检查 {sorted(_scope)} 章"
+              f"（盘上命中 {len(raw_files)} 章）")
     if not raw_files:
-        progress.set_stage(5, "failed", error="无 raw 章节")
-        return False, "stage5 失败：无 raw 章节"
+        _err = ("范围内没有 raw 章节：%s" % sorted(_scope)) if _scope else "无 raw 章节"
+        progress.set_stage(5, "failed", error=_err)
+        return False, "stage5 失败：" + _err
     # 断点：checked 中已存在**且内容有效**的章节跳过（空壳要重跑，见 is_usable_output）
     from utils import writing_form as _wf5
     _para_ok = _wf5.applicability(proj).get("para_structure", True)
@@ -169,6 +188,19 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
             return True, ("stage5 等待裁定：%d 章（第 %s 章）—— 在“审稿”页逐条勾选后合成，再重跑续上"
                           % (len(_waiting), "、".join(str(x) for x in sorted(_waiting)[:6])))
     if not pending:
+        # 单章重跑：本章本来就有合格 checked（无需调模型）——但也不能就此把阶段
+        # 标成 done，全书可能还有别的章没查。判据只看盘上事实。
+        if _scope:
+            _left_out = sorted(
+                int(f.stem) for f in sorted(raw_dir.glob("*.md"))
+                if not is_usable_output(raw_dir / f.name, checked_dir / f.name,
+                                        para_structure=_para_ok))
+            if _left_out:
+                progress.set_stage(5, "partial", partial_scope=sorted(_scope),
+                                   chapters_left=_left_out)
+                return True, ("stage5 本次无事可做（第 %s 章的检查稿已可用）；"
+                              "全书还有 %d 章没有合格检查稿 —— 阶段 5 不标完成"
+                              % (",".join(str(x) for x in sorted(_scope)), len(_left_out)))
         progress.mark_stage_done(5)
         return True, "stage5 跳过（checked 已存在且内容有效）"
 
@@ -424,6 +456,24 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         print("[stage5] 等待作者裁定：第 " + "、".join(str(x) for x in _left[:10]) + " 章"
               + ("…" if len(_left) > 10 else "") + " —— 在“审稿”页勾选后合成，再重跑即续上")
         return True, ("stage5 完成改稿、等待裁定（%d 章）" % len(_left))
+
+    # 单章重跑（_scope）：本轮只做了这几章 —— 全书没齐就不许标 done，
+    # 记 partial（与 stage4 同一套状态词），否则界面会说"检查完成"而其实只查了一章。
+    if _scope:
+        _left_out = sorted(
+            int(f.stem) for f in sorted(raw_dir.glob("*.md"))
+            if not is_usable_output(raw_dir / f.name, checked_dir / f.name,
+                                    para_structure=_para_ok))
+        if _left_out:
+            progress.set_stage(5, "partial", partial_scope=sorted(_scope),
+                               chapters_left=_left_out,
+                               warning="；".join(warnings) if warnings else None)
+            _msg = ("stage5 **按范围完成**（部分）：你要的第 %s 章已检查；"
+                    "全书还有 %d 章没有合格检查稿（%s）—— 阶段 5 不标完成"
+                    % (",".join(str(x) for x in sorted(_scope)), len(_left_out),
+                       ",".join(str(x) for x in _left_out[:10])))
+            print("[stage5] " + _msg)
+            return True, _msg
 
     if warnings:
         print("[stage5] " + "=" * 58)

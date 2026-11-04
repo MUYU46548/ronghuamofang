@@ -2008,10 +2008,11 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     # 整本齐 → done；只把你要的章写完、范围外还缺 → partial（不标完成）。
     if chapters:
         _verdict = _partial_or_done(chapters, "")
-        if _verdict is not None:
-            return _verdict, (f"stage4 按范围完成（本轮写了第 {done_this_round} 章）"
-                              if _verdict is False else
-                              f"stage4 完成（{total} 章）")
+        if _verdict is False:
+            return False, f"stage4 按范围完成（本轮写了第 {done_this_round} 章）"
+        # ⚠️ True 不能在这里 return（2026-11-04 修）：_partial_or_done 只在
+        # partial 分支里写 progress，True 分支什么都不写 —— 提前 return 会让
+        # 阶段状态永远停在 running（界面上像卡死），而正文其实已经写完。
     progress.set_stage(4, "done")
     return True, f"stage4 完成（{total} 章）"
 

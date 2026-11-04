@@ -4531,7 +4531,7 @@ async function rewriteChapter(n) {
     "重写第 " + n + " 章？\n\n"
     + "· 会调用模型重新写整章（花 token，按当前字数口径与加强模式走）\n"
     + "· 旧稿先移到 data/chapters/rewrite_backup/，不满意可以捞回\n"
-    + "· 检查稿与润色稿不会动；要看成品需重跑阶段 5/6/7\n"
+    + "· 只换正文：检查稿与润色稿不会动；要把这一章的成品也换新，用「重跑…」\n"
     + "· 会打开实时输出面板：模型聊天 + 本章正文（文件尾部）");
   if (!ok) return;
   rewriting.value = n;
@@ -4552,6 +4552,84 @@ async function rewriteChapter(n) {
     rewriting.value = null;
     say("重写出错：" + (e && e.message ? e.message : e));
   }
+}
+
+/* ---- 单章重跑（2026-11-04，task-20261104-002） ---------------------------------
+   与「重写」不是一件事：重写只换 raw/NN.md；重跑把这一章的 checked /
+   checked_pending / refined / 逐章评审一起作废重算，**别的章一个字节不动**。
+   影响面由后端 GET /chapters/rerun/plan 给（与真正执行走同一份 inventory）——
+   界面上列的清单就是即将发生的动作，不让前端自己猜、也不让用户自己猜。 */
+const rerunDlg = ref({ open: false, n: 0, through: 6, items: [], busy: false });
+const RERUN_SCOPES = [
+  { through: 4, label: "只重写正文", desc: "只换 raw/NN.md（与「重写」等价，不碰下游）" },
+  { through: 5, label: "正文 + 检查稿", desc: "连检查稿与逐章评审一起重算" },
+  { through: 6, label: "正文 + 检查 + 润色", desc: "成品层的这一章也换成新稿（最常用）" },
+];
+const RERUN_ACTION = { rewrite: "重写", move: "备份后重算", recompute: "重算" };
+
+async function loadRerunPlan() {
+  const d = rerunDlg.value;
+  try {
+    const r = await api("/chapters/rerun/plan?n=" + d.n + "&through=" + d.through);
+    d.items = (r.status === 200 && r.data && r.data.items) || [];
+  } catch (e) {
+    d.items = [];
+  }
+}
+async function openRerunDialog(n) {
+  if (agentRunGuard()) return;
+  rerunDlg.value = { open: true, n, through: 6, items: [], busy: false };
+  await loadRerunPlan();
+}
+function closeRerunDialog() {
+  if (!rerunDlg.value.busy) rerunDlg.value.open = false;
+}
+async function submitRerun() {
+  const d = rerunDlg.value;
+  if (d.busy) return;
+  d.busy = true;
+  try {
+    const r = await api("/chapters/rerun", "POST", { n: d.n, through: d.through });
+    if (r.status !== 202) {
+      say("重跑没起来：" + ((r.data && r.data.error) || r.status));
+      d.busy = false;
+      return;
+    }
+    const jid = r.data.job_id;
+    say("已开始重跑第 " + d.n + " 章 —— " + (r.data.message || "后台执行中"));
+    d.open = false;
+    d.busy = false;
+    _pollRerun(d.n, d.through, jid);
+  } catch (e) {
+    say("重跑请求失败：" + (e && e.message ? e.message : e));
+    d.busy = false;
+  }
+}
+function _pollRerun(n, through, jobId) {
+  const started = Date.now();
+  const scopeText = through >= 6 ? "正文/检查/润色" : (through >= 5 ? "正文/检查" : "正文");
+  const timer = setInterval(async () => {
+    if (Date.now() - started > 60 * 60 * 1000) {
+      clearInterval(timer);
+      say("第 " + n + " 章重跑等待超时（60 分钟）—— 请查看“日志”");
+      return;
+    }
+    let j;
+    try {
+      j = await api("/jobs/" + jobId);
+    } catch (e) {
+      return;                    // 单次抖动不终止
+    }
+    if (!j || j.status !== 200 || (j.data && j.data.state === "running")) return;
+    clearInterval(timer);
+    await onChapterSaved(n);
+    loadChapterQuality();
+    const ok = j.data && j.data.state === "ok";
+    say(ok
+      ? "第 " + n + " 章重跑完成（" + scopeText + "）" + (j.data.result ? "：" + j.data.result : "")
+      : "第 " + n + " 章重跑未完成：" + ((j.data && j.data.result) || (j.data && j.data.state) || "未知"));
+    refresh();
+  }, 2500);
 }
 
 async function loadChapterQuality() {
@@ -5600,12 +5678,18 @@ onUnmounted(() => {
         <button class="mini primary" :class="{ ghost: !(c.files.raw || c.files.checked || c.files.refined) }"
                 title="就地编辑 / 段落批改（自带编辑器，写前自动备份）"
                 @click="openEditor(c.n)">编辑</button>
-        <!-- 重写本章：走阶段 4 重写整章（会花 token）。旧稿先备份到 rewrite_backup/ -->
+        <!-- 重写本章：走阶段 4 重写整章（会花 token）。旧稿先备份到 rewrite_backup/
+             ⚠️ 只换正文（2026-11-04 澄清文案）：检查稿/润色稿仍是旧的 —— 要连下游一起换用「重跑」。 -->
         <button class="mini" :disabled="rewriting === c.n || isRunning || agentRunLocked"
-                :title="agentRunLocked ? AGENT_LOCK_HINT : (isRunning ? '流水线正在跑，等它结束再重写' : '重写整章（走阶段 4；旧稿先备份；会开实时输出）')"
+                :title="agentRunLocked ? AGENT_LOCK_HINT : (isRunning ? '流水线正在跑，等它结束再重写' : '只重写正文（走阶段 4；旧稿先备份；检查稿/润色稿不动）')"
                 @click="rewriteChapter(c.n)">
           {{ rewriting === c.n ? "重写中…" : "重写" }}
         </button>
+        <!-- 重跑本章（2026-11-04，task-20261104-002）：正文/检查/润色按范围一起重算，
+             别的章一个字节不动。影响面先列出来再确认（不靠用户猜）。 -->
+        <button class="mini" :disabled="isRunning || agentRunLocked"
+                :title="agentRunLocked ? AGENT_LOCK_HINT : (isRunning ? '流水线正在跑，等它结束再重跑' : '重跑本章：正文/检查/润色按范围重算，别的章不动（会花 token）')"
+                @click="openRerunDialog(c.n)">重跑…</button>
         <!-- 外部 Agent 的入口：复制**任务简报**（说清调哪个工具/端点、产物在哪、禁止直接写文件）。
              Agent 模式下 GUI 的运行类按钮会锁，但这份简报仍可复制（只读操作）。 -->
         <button v-if="agentMode" class="mini" @click="copyRewriteBrief(c.n)"
@@ -7547,6 +7631,47 @@ onUnmounted(() => {
                     :defaults="{ chapters: 12 }"
                     @close="newProjectOpen = false"
                     @created="onProjectCreated" />
+
+  <!-- 单章重跑（2026-11-04，task-20261104-002）：范围 + 影响面清单 + 确认。
+       走应用内对话框（不用 window.confirm）：破坏性动作要把"会动哪些文件"摆在眼前。 -->
+  <div v-if="rerunDlg.open" class="drawer-mask" @click.self="closeRerunDialog">
+    <div class="dialog" style="width: min(660px, 94vw);">
+      <h3>重跑第 {{ rerunDlg.n }} 章</h3>
+      <div class="meta" style="margin-top: 6px;">
+        「重写」只换正文；「重跑」把这一章的下游产物一起作废并重算。
+        <b>别的章一个字节不动。</b>
+      </div>
+      <div style="margin-top: 10px;">
+        <label v-for="opt in RERUN_SCOPES" :key="opt.through"
+               style="display: block; margin-top: 6px; cursor: pointer;">
+          <input type="radio" name="rerun-through" :value="opt.through"
+                 v-model.number="rerunDlg.through" @change="loadRerunPlan" />
+          <b>{{ opt.label }}</b>
+          <span class="meta"> —— {{ opt.desc }}</span>
+        </label>
+      </div>
+      <table v-if="rerunDlg.items.length" class="cost-table" style="margin-top: 10px;">
+        <tbody>
+          <tr v-for="it in rerunDlg.items" :key="it.path">
+            <td style="width: 92px;">{{ RERUN_ACTION[it.action] || it.action }}</td>
+            <td style="font-family: monospace;">{{ it.path }}</td>
+            <td style="width: 56px;">{{ it.exists ? "存在" : "暂无" }}</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="meta" style="margin-top: 10px;">
+        旧产物先移到 data/chapters/rerun_backup/；动手前自动打整轮快照（备份不了就不动）。
+        润色完成前阶段 6 会显示「按范围完成」，那是如实状态，不是失败。
+      </div>
+      <div class="dialog-actions">
+        <button class="mini" @click="closeRerunDialog">取消</button>
+        <span class="spacer"></span>
+        <button class="mini primary" :disabled="rerunDlg.busy" @click="submitRerun">
+          {{ rerunDlg.busy ? "提交中…" : "确认重跑（会花 token）" }}
+        </button>
+      </div>
+    </div>
+  </div>
 
   <!-- ② 快捷键说明 -->
   <div v-if="helpOpen" class="drawer-mask" @click.self="helpOpen = false">

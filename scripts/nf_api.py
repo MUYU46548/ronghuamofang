@@ -1480,6 +1480,75 @@ def act_rewrite_chapter(cfg, n):
     return _fn
 
 
+def act_rerun_chapter(cfg, n, through=6, refresh_judge=False):
+    """单章纵向重跑（2026-11-04，task-20261104-002）：第 N 章的 4→5→6。
+
+    ## 与 `/chapters/rewrite` 的区别
+
+    - `/chapters/rewrite`：**只重写正文**（阶段 4）。检查稿/润色稿/评审/判定仍是旧的，
+      界面文案也如实这么说 —— 适合"只想换一版正文，下游我自己再定"。
+    - 本动作：把**这一章的**下游一起作废并重算（`utils/chapter_rerun.prepare`），
+      其他章一个字节不动。适合"这一章成品我不满意，别的章别动"。
+
+    ## 为什么一次 run 跑 4/5/6 三个阶段
+
+    三次 `orch_run` 会在 `runs.db` 留三条彼此无关的记录，事后分不清是哪次重跑；
+    而 `stages=[4,5,6]` + `chapters={n}` 只开一条 run，`NF_SKIP_POST_STAGE=1`
+    也不触发整本审稿/自动重写。上游没放行（stage5 改稿待裁定）时由
+    orchestrator 的"上游未放行不许进下游"闸停下，退出码 3。
+    """
+    _through = 6 if int(through) >= 6 else (5 if int(through) >= 5 else 4)
+    stages = [s for s in (4, 5, 6) if s <= _through]
+    client = _client_for_env(cfg, "default")
+
+    def _fn():
+        from utils import chapter_rerun
+        prep = chapter_rerun.prepare(ROOT, n, _through)
+        had_old = any("rewrite_backup" in p for p in prep.get("moved") or [])
+        os.environ["NF_STAGE4_ONLY"] = str(n)
+        # 单章重跑不跑"跑完整阶段才该做"的后置钩子（审稿/自动重写/阶段快照）；
+        # 本轮自己的快照由 chapter_rerun.prepare 负责（import_guard）。
+        os.environ["NF_SKIP_POST_STAGE"] = "1"
+        # runs.db 里记成 rerun，而不是一条看不出调用方的 stages=[4, 5, 6]
+        os.environ["NF_RUN_PLAN"] = "rerun_ch%02d through=%d" % (n, _through)
+        try:
+            rc = orch_run(from_stage=4, only_stage=None, stages=stages,
+                          client=client, chapters={int(n)})
+        except BaseException:
+            _restore_chapter_after_failed_rewrite(n)
+            raise
+        finally:
+            os.environ.pop("NF_STAGE4_ONLY", None)
+            os.environ.pop("NF_SKIP_POST_STAGE", None)
+            os.environ.pop("NF_RUN_PLAN", None)
+
+        ok, detail = _rewrite_job_result(n, *_rc_to_result(rc), had_old)
+        notes = []
+        try:
+            notes = chapter_rerun.settle(ROOT, n, _through, refresh_judge=refresh_judge)
+        except Exception as e:                               # noqa: BLE001
+            notes = ["收尾重算失败（正文不受影响）：%s: %s" % (type(e).__name__, str(e)[:120])]
+
+        # 报**盘上事实**：这一步到底把哪几层重做了什么（别让用户猜）
+        try:
+            pg = ProgressManager(ROOT / "data" / "state" / "progress.json")
+            st5 = (pg.data.get("stages", {}) or {}).get("5", {}) or {}
+            st6 = (pg.data.get("stages", {}) or {}).get("6", {}) or {}
+            if st5.get("status") == "awaiting_review":
+                notes.append("第 %d 章改稿等待你逐条裁定（“审稿”页）—— 勾完再重跑本动作即续上" % n)
+            elif _through >= 6 and st6.get("status") != "done":
+                notes.append("第 %d 章润色未完成（阶段 6 状态：%s）"
+                             % (n, st6.get("status") or "未知"))
+        except Exception:                                    # noqa: BLE001
+            pass
+        if prep.get("backup_dir"):
+            notes.append("旧产物备份：%s" % prep["backup_dir"])
+        if notes:
+            detail = detail + "；" + "；".join(notes)
+        return ok, detail
+    return _fn
+
+
 def _rewrite_file_tail(n, q, stop_ev):
     """把正在写的第 n 章文件尾部推进 SSE 队列（2026-10-27）。
 
@@ -2886,6 +2955,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/chapters/content":
             # 单章单层正文全文（编辑器读取）—— nf_api_domains.chapters
             self._send(*_dom(dom_chapters.handle_chapters_content(self)))
+        elif p == "/chapters/rerun/plan":
+            # 单章重跑影响面预览（2026-11-04）：只读、零 token —— nf_api_domains.chapters
+            self._send(*_dom(dom_chapters.handle_chapters_rerun_plan(self)))
         elif p == "/book_extract/list":
             # 提炼目录盘点（0.7.13）：章数/已摘要/运行态/花费 —— nf_api_domains.book_extract
             self._send(*_dom(dom_book_extract.handle_book_extract_list(self)))
@@ -3529,6 +3601,10 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/chapters/rewrite":
                 # 重写整章（走阶段 4，花 token）：旧稿先备份，只跑这一章
                 self._send(*_dom(dom_chapters.handle_chapters_rewrite(self, body)))
+            elif p == "/chapters/rerun":
+                # 单章纵向重跑（4→5→6，花 token）：只作废/重算这一章，
+                # 其他章三层稿与进度一律不动（2026-11-04，task-20261104-002）
+                self._send(*_dom(dom_chapters.handle_chapters_rerun(self, body)))
             elif p == "/book_extract/preview":
                 # 成书提炼预演：只数标题/字数/预计调用数，**不写盘、不调模型**
                 self._send(*_dom(dom_book_extract.handle_book_extract_preview(self, body)))

@@ -343,17 +343,29 @@ def _run_one_volume(client, task_dir, vol_index, proj, checked_dir, refined_dir,
     return True, f"stage6 卷{vol_index} 完成（{len(vol_chapters)} 章）", vol_chapters
 
 
-def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=None):
+def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=None,
+              chapters=None):
+    """`chapters` = 本轮只润色哪几章（单章重跑用，2026-11-04）。
+
+    只缩"这一轮润色哪些章"；断点判据（refined 可用则跳过）一条不改。
+    范围内做完但全书没齐 → 记 `partial`，不虚报 done。
+    """
     client = client or make_client(cfg, "polisher")
     task_dir = task_dir or "data/state/tasks"
+    _scope = {int(x) for x in (chapters or []) if str(x).isdigit()} or None
     checked_dir = Path("data/chapters/checked")
     refined_dir = Path("data/chapters/refined")
     refined_dir.mkdir(parents=True, exist_ok=True)
 
     files = sorted(checked_dir.glob("*.md"))
+    if _scope:
+        files = [f for f in files if f.stem.isdigit() and int(f.stem) in _scope]
+        print(f"[stage6] 限定范围：只润色 {sorted(_scope)} 章"
+              f"（盘上命中 {len(files)} 章）")
     if not files:
-        progress.set_stage(6, "failed", error="无 checked 章节")
-        return False, "stage6 失败：无 checked 章节"
+        _err = ("范围内没有 checked 章节：%s" % sorted(_scope)) if _scope else "无 checked 章节"
+        progress.set_stage(6, "failed", error=_err)
+        return False, "stage6 失败：" + _err
     # 断点：refined 已存在**且内容有效**才跳过。只判 exists() 会让一次失败的润色
     # （LLM 没回协议块 → 产物空/极短）永久占位：重跑被跳过，成品里就留着那几章残稿。
     # 判据与 stage5 共用 utils.verify_chapter.is_usable_output（只有一份实现）。
@@ -365,12 +377,26 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     if stale:
         print(f"[stage6] {len(stale)} 章 refined 文件是空壳/残稿，将重跑: {stale[:8]}"
               + ("…" if len(stale) > 8 else ""))
+
+    def _left_unrefined():
+        """全书（不受本轮范围限制）还没有可用润色稿的章。判据与断点同一份。"""
+        return sorted(int(f.stem) for f in sorted(checked_dir.glob("*.md"))
+                      if not is_usable_output(checked_dir / f.name, refined_dir / f.name))
+
     if not pending:
         # 跳过路径也合并：老工作区只有分卷报告、GUI 产物概况读不到 polish_report.md 时，重跑一次即可自愈
         try:
             _merge_vol_reports()
         except Exception as e:  # noqa: BLE001 — 合并失败不阻塞跳过判定
             print(f"[stage6] 分卷报告合并失败（不影响流程）：{e}")
+        if _scope:
+            _left_out = _left_unrefined()
+            if _left_out:
+                progress.set_stage(6, "partial", partial_scope=sorted(_scope),
+                                   chapters_left=_left_out)
+                return True, ("stage6 本次无事可做（第 %s 章的润色稿已可用）；"
+                              "全书还有 %d 章没有可用润色稿 —— 阶段 6 不标完成"
+                              % (",".join(str(x) for x in sorted(_scope)), len(_left_out)))
         progress.mark_stage_done(6)
         return True, "stage6 跳过（refined 已存在且内容有效）"
 
@@ -423,6 +449,18 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         _merge_vol_reports()
     except Exception as e:  # noqa: BLE001 — 合并失败不把已完成的润色判成失败
         print(f"[stage6] 分卷报告合并失败（不影响润色结果）：{e}")
+    # 单章重跑：本轮只润了这几章 —— 全书没齐就不许标 done（与 stage4/5 同一套状态词）
+    if _scope:
+        _left_out = _left_unrefined()
+        if _left_out:
+            progress.set_stage(6, "partial", partial_scope=sorted(_scope),
+                               chapters_left=_left_out)
+            _msg = ("stage6 **按范围完成**（部分）：你要的第 %s 章已润色；"
+                    "全书还有 %d 章没有可用润色稿（%s）—— 阶段 6 不标完成"
+                    % (",".join(str(x) for x in sorted(_scope)), len(_left_out),
+                       ",".join(str(x) for x in _left_out[:10])))
+            print("[stage6] " + _msg)
+            return True, _msg
     progress.mark_stage_done(6)
     print(f"[stage6] 基础润色完成（{len(chapters)} 章，{len(vols)} 卷）")
     return True, "stage6 完成"

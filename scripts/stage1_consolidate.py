@@ -552,10 +552,13 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     try:
         from utils import coherence as coh
         gates = (cfg or {}).get("gates", {}) or {}
+        # YAML 1.1 陷阱（2026-11-04）：裸写 `setting_coherence: off` 会被解析成
+        # 布尔 False，`str(False).lower()` = "false" ≠ "off" → 用户写了关，程序照开。
+        _coh_mode = gates.get("setting_coherence", "warn")
         coh_report = coh.evaluate(
             json.loads(read_text(setting_path)),
             ((proj.get("book") or {}).get("user_outline") or "").strip(),
-            mode=str(gates.get("setting_coherence", "warn")).lower(),
+            mode="off" if _coh_mode is False else str(_coh_mode).lower(),
             min_ratio=float(gates.get("setting_coherence_min_ratio", 0.15)),
         )
         coh.write_report(coh_report)

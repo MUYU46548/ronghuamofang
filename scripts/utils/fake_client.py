@@ -424,23 +424,31 @@ def _write_review_ledger(text, name, raw_files):
 
 
 def _copy_raw_to_checked(text, name=""):
+    """stage5 fake：只把**本批** raw 复制到 checked（2026-11-04 修）。
+
+    ⚠️ 旧实现无视批范围，把 `raw/` 全量复制过去 —— 单章重跑时这是**破坏性**的：
+    范围外的章 checked 被原样覆盖，内容与 mtime 双双变化，下游据此判"上游改过、
+    必须重算"，一次重跑把全书都算了一遍（`test_chapter_rerun` 的哈希判据当场红）。
+    fake 的职责是"行为与真实模型同构"，不是"顺手把全书写一遍"。
+    """
     src, out = [], []
     raw = Path("data/chapters/raw")
+    targets = []
     if raw.exists():
-        for f in sorted(raw.glob("*.md")):
+        # 本批章节（任务文本里是 "- <绝对路径>.md" 行）；匹配不到就按全量算
+        for m in re.finditer(r"^-\s+(\S+\.md)\s*$", text, re.M):
+            p = Path(m.group(1))
+            if p.exists() and p.parent.name == "raw":
+                targets.append(p)
+        if not targets:
+            targets = sorted(raw.glob("*.md"))
+        for f in targets:
             dst = Path("data/chapters/checked") / f.name
             dst.parent.mkdir(parents=True, exist_ok=True)
             write_text(dst, read_text(f))
             src.append(f)
             out.append(dst)
-    # 本批章节（任务文本里是绝对路径列表行）；匹配不到就按全量算
-    batch = []
-    for m in re.finditer(r"^-\s+(\S+\.md)\s*$", text, re.M):
-        p = Path(m.group(1))
-        if p.exists() and p.parent.name == "raw":
-            batch.append(p)
-    if not batch:
-        batch = src
+    batch = targets or src
     if batch:
         _write_review_ledger(text, name, batch)
     report = Path("data/outline/check_report.md")
@@ -450,7 +458,13 @@ def _copy_raw_to_checked(text, name=""):
     return out
 
 
-def _copy_checked_to_refined(text):
+def _copy_checked_to_refined(text, name=""):
+    """stage6 fake：只润**任务里点名的那几章**（2026-11-04 修）。
+
+    范围来源按优先级：任务文件名 `_chNN.md`（真实 stage6 是一章一请求）→
+    任务正文的「第 N 章」→ 认不出才退回全量（旧行为）。
+    无视范围 = 单章重跑把全书 refined 重写一遍，与真实模型的行为不同构。
+    """
     out = []
     m = re.search("全文写入: ([^ \\n]+)/NN[.]md", text)
     if m:
@@ -459,7 +473,16 @@ def _copy_checked_to_refined(text):
         refined_dir = Path("data/chapters/refined")
     refined_dir.mkdir(parents=True, exist_ok=True)
     checked = Path("data/chapters/checked")
-    for f in sorted(checked.glob("*.md")):
+    files = sorted(checked.glob("*.md"))
+    nos = set()
+    mn = re.search(r"_ch(\d+)\.md$", name or "")
+    if mn:
+        nos.add(int(mn.group(1)))
+    if not nos:
+        nos = {int(x) for x in re.findall(r"第\s*(\d+)\s*章", text)}
+    if nos:
+        files = [f for f in files if f.stem.isdigit() and int(f.stem) in nos]
+    for f in files:
         dst = refined_dir / f.name
         write_text(dst, read_text(f))
         out.append(dst)
@@ -524,7 +547,7 @@ class FakeClient:
         elif name.startswith("stage5"):
             written = _copy_raw_to_checked(text, name)
         elif name.startswith("stage6"):
-            written = _copy_checked_to_refined(text)
+            written = _copy_checked_to_refined(text, name)
         else:
             written = _write_generic(text)
         est_in = max(1000, len(text) * 2 // 5)
@@ -569,7 +592,7 @@ class FakeClient:
         elif name.startswith("stage5"):
             written = _copy_raw_to_checked(text, name)
         elif name.startswith("stage6"):
-            written = _copy_checked_to_refined(text)
+            written = _copy_checked_to_refined(text, name)
         else:
             written = _write_generic(text)
         # 模拟流式输出

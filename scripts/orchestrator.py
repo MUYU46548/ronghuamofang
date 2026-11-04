@@ -438,8 +438,11 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
                   "已标记为 interrupted（强杀/崩溃留下的，不是活任务）")
 
         run_id = db.start_run(
-            plan_json=(f"stages={stages}" if stages
-                       else f"from={from_stage} only={only_stage}"))
+            # NF_RUN_PLAN：调用方（单章重跑）要说明"这是一次 rerun"，而不是
+            # 一条与整本 run 无法区分的 stages=[4, 5, 6] 记录。
+            plan_json=(os.environ.get("NF_RUN_PLAN") or
+                       (f"stages={stages}" if stages
+                        else f"from={from_stage} only={only_stage}")))
         # 运行态真相（F02，2026-11-03）：把本进程 pid 写进 progress。读取端
         # （/state、GUI）据此判断"running 是真的在跑，还是崩溃留下的"。
         liveness.mark_run_start(progress, stage=(only_stage or from_stage))
@@ -681,8 +684,25 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
                   f"（self 模式下重跑零 token，产物齐就直接放行）")
             return _finalize("waiting_external", 3)
 
-        for n in order:
+        for _idx, n in enumerate(order):
             _cur_stage["n"] = n
+            # 上游未放行就不许进下游（2026-11-04，单章重跑暴露的缺口）：
+            # 正常流程靠 `_post_stage` 的审批/裁定门停下；但单章重跑设了
+            # NF_SKIP_POST_STAGE（不跑整本审稿/自动重写），stage5 的
+            # “改稿待裁定 / 按范围完成”会被直接跨过去 —— 下游拿不到 checked
+            # 就以“无 checked 章节”失败，把一个正常的人工门伪装成故障。
+            # 判据只看**本次 order 里紧邻的上一个阶段**的落盘状态。
+            if _idx > 0:
+                _prev = order[_idx - 1]
+                _pst = (progress.data.get("stages", {}) or {}).get(str(_prev), {}) or {}
+                _pstat = _pst.get("status")
+                if _pstat in ("awaiting_review", "awaiting_external", "partial"):
+                    print(f"[orchestrator] 阶段{_prev} 尚未放行（{_pstat}）"
+                          f"—— 不再进入阶段{n}")
+                    return _finalize("waiting_review", 3)
+                if _pstat == "failed":
+                    print(f"[orchestrator] 阶段{_prev} 失败 —— 不再进入阶段{n}")
+                    return _finalize("failed", 1)
             # 用户中断（GUI“停止”）：每轮阶段开始前检查，置位则不再启动新阶段。
             # 已经跑完的阶段照常保留（断点续跑语义不变）。
             if _stop_requested():
@@ -761,12 +781,13 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
                     print(f"[orchestrator] 阶段前快照失败（不影响流程）: {e}")
             # 记录阶段开始时刻：自动重试前用它判定"这次失败之后有没有新的截断标记"
             _stage_started_iso = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
-            # 章范围（2026-11-02，清单第 1 条）只对阶段 4 有意义；其余阶段签名
+            # 章范围（2026-11-02，清单第 1 条）对阶段 4/5/6 有意义（2026-11-04 扩到 5/6：
+            # 单章重跑只重做这一章的检查与润色，不许整本重算）；其余阶段签名
             # 一致，多传会 TypeError，所以按阶段给。
             # ⚠️ 这个 dict 必须在**首次调用与自动重试**两处一起用（2026-11-03 修）：
             # 重试那行原先漏了它，于是"只写 1-3"的 run 一进重试就退化成整本跑 ——
             # 真机实测：限定 1-3 的 run 写完了 1-3 之后又去写第 4、5 章。
-            _extra = {"chapters": chapters} if (n == 4 and chapters) else {}
+            _extra = {"chapters": chapters} if (n in (4, 5, 6) and chapters) else {}
             ok, msg = STAGES[n].run_stage(cfg, proj, progress, db, cost, client=client,
                                           task_dir="data/state/tasks", run_id=run_id,
                                           **_extra)
@@ -902,9 +923,11 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
         # 完成通知发出后才发现整批章节是垃圾。章节产物存在 ≠ 章节产物合格。
         # 这里复用 quality_checklist.py（确定性、零 token），非零退出即红阻断。
         #
-        # 只在**全流程**收尾跑（only_stage 为空）：单阶段重跑（--stage N）时
-        # 全书未必齐备，拿整书清单去拦单阶段是误伤。
-        if only_stage is None and cfg.get("gates", {}).get("quality_gate", True):
+        # 只在**全流程**收尾跑（only_stage 为空且没有章范围）：单阶段重跑
+        # （--stage N）或单章重跑（chapters=[N]）时全书未必齐备，拿整书清单
+        # 去拦单章重跑是误伤（2026-11-04：单章重跑曾被它整轮判失败）。
+        if (only_stage is None and not chapters
+                and cfg.get("gates", {}).get("quality_gate", True)):
             try:
                 import subprocess
                 print("\n[orchestrator] 质量验收闸门：运行 scripts/quality_checklist.py ...")
