@@ -250,6 +250,60 @@ def handle_setting_interaction(h):
     return (200 if res.get("ok") else 400), res
 
 
+# ---------------------------------------------------------------------------
+# 设定引用过期（M10，2026-11-04）：条目记 sources（章号 + 版本），改章即待核
+# ---------------------------------------------------------------------------
+
+def handle_setting_stale(h):
+    """GET /setting/stale → 待核清单（零 token，**读时现算**，不写任何文件）。
+
+    `checked=false` 表示设定集缺失/损坏 = **根本没查**，此时 `items` 为空
+    不代表没有问题 —— 与冲突清单同一条语义红线。
+    """
+    try:
+        from utils import setting_stale as ss
+        return 200, ss.status(str(api.ROOT))
+    except Exception as e:                                    # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_setting_stale_link(h, body):
+    """POST /setting/stale/link {dry_run?} → 扫描章节，把现有引用补登记进条目。
+
+    **只增不改**：已登记的那一条哪怕章改过也不刷新版本 —— 否则“点一下扫描”
+    就把待核全洗白，机制等于摆设。机械动作，Agent 可调（不是作者的判断）。
+    """
+    body = body if isinstance(body, dict) else {}
+    try:
+        from utils import setting_stale as ss
+        rep = ss.link(str(api.ROOT), dry_run=bool(body.get("dry_run")))
+    except Exception as e:                                    # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+    return (200 if rep.get("ok") else 400), rep
+
+
+def handle_setting_stale_review(h, body):
+    """POST /setting/stale/review {name, kind?, chapters?[], action: confirm|drop}
+    → 作者逐条核对后的恢复（确认还成立 / 移除这条来源）。
+
+    **GUI-only（双因子）**：这是作者的判断 —— 外部 Agent 一条 POST 就能把
+    “引用可能已不成立”洗成“已核对”，与代签审批同族。读侧 GET /setting/stale
+    不拦（Agent 该看得见待核清单）。
+    """
+    from nf_api_domains.project import _gui_only
+    guard = _gui_only(h, "核对设定引用")
+    if guard:
+        return guard
+    body = body if isinstance(body, dict) else {}
+    try:
+        from utils import setting_stale as ss
+        return ss.review(str(api.ROOT), name=body.get("name"),
+                         kind=body.get("kind"), chapters=body.get("chapters"),
+                         action=body.get("action") or "confirm")
+    except Exception as e:                                    # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 # 本模块负责的端点（供自检与文档）
 ROUTES = (
     ("GET", "/setting/conflicts", handle_setting_conflicts),
@@ -258,4 +312,7 @@ ROUTES = (
     ("GET", "/setting/provenance", handle_setting_provenance),
     ("GET", "/setting/names", handle_setting_names),
     ("GET", "/setting/interaction", handle_setting_interaction),
+    ("GET", "/setting/stale", handle_setting_stale),
+    ("POST", "/setting/stale/link", handle_setting_stale_link),
+    ("POST", "/setting/stale/review", handle_setting_stale_review),
 )

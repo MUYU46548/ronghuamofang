@@ -2771,6 +2771,10 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/setting/interaction":
             # 两人同场互动约束（C 组“关系网驱动互动”，零 token、只读设定原文）
             self._send(*_dom(dom_setting_state.handle_setting_interaction(self)))
+        elif p == "/setting/stale":
+            # 设定引用过期清单（M10）：条目记 sources（章号 + 版本），读时现算。
+            # 零 token、不写文件；checked=false = 设定集缺失（“没查”≠“没问题”）。
+            self._send(*_dom(dom_setting_state.handle_setting_stale(self)))
         elif p == "/outline/graph":
             # 情节图数据（2026-11-02，视频②对标）：章=节点、顺序/共享角色=连线。
             # 零 token，纯解析 data/outline/chapters/*.md。
@@ -3456,6 +3460,14 @@ class Handler(BaseHTTPRequestHandler):
                 # status_source="human"，下一轮 stage1 的 apply_status 会跳过它。
                 # 同沙盒审核：必须传已读的 body（请求体是一次性流）。
                 self._send(*_dom(dom_setting_state.handle_setting_status(self, body)))
+            elif p == "/setting/stale/link":
+                # 把现有“条目 × 章节”引用补登记进 sources（只增不改，机械动作）。
+                # 已登记的那条哪怕章改过也不刷新 —— 待核只能由作者逐条确认。
+                self._send(*_dom(dom_setting_state.handle_setting_stale_link(self, body)))
+            elif p == "/setting/stale/review":
+                # 作者核对（confirm / drop）：GUI-only 双因子 + 禁用名单第二道闸。
+                # 实现内部已做 _gui_only，这里只是路由。
+                self._send(*_dom(dom_setting_state.handle_setting_stale_review(self, body)))
             elif p == "/config/project":
                 try:
                     self._send(200, {"ok": True, "config": pc_get_config()})

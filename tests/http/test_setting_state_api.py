@@ -15,6 +15,7 @@
 """
 import io
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -30,6 +31,9 @@ ROOT = Path(__file__).resolve().parents[2]
 PY = sys.executable
 PORT = 8918
 BASE = "http://127.0.0.1:%d" % PORT
+# GUI 双因子的第二因子：核对 /setting/stale/review 只认可信 GUI 来源。
+# 不注入时那条端点永远 403，就测不出"带对了 token 就能核对"。
+GUI_TOKEN = "setting-state-selftest-token"
 
 PASS, FAIL = [], []
 
@@ -40,12 +44,14 @@ def check(name, cond, detail=""):
                            ("  → " + str(detail)[:200]) if detail else ""))
 
 
-def req(method, path, body=None, timeout=20):
+def req(method, path, body=None, timeout=20, gui=False):
     data = (json.dumps(body or {}, ensure_ascii=False).encode("utf-8")
             if method == "POST" else None)
-    r = urllib.request.Request(BASE + path, data=data, method=method,
-                               headers={"Content-Type": "application/json",
-                                        "X-Mofang-Source": "test"})
+    headers = {"Content-Type": "application/json", "X-Mofang-Source": "test"}
+    if gui:
+        headers["X-Mofang-Source"] = "gui"
+        headers["X-Mofang-Token"] = GUI_TOKEN
+    r = urllib.request.Request(BASE + path, data=data, method=method, headers=headers)
     try:
         with urllib.request.urlopen(r, timeout=timeout) as resp:
             return resp.status, json.loads(resp.read().decode("utf-8"))
@@ -99,9 +105,11 @@ def build_project(with_setting=False):
 def main():
     tmp = build_project(with_setting=False)
     print("临时项目根:", tmp)
+    env = dict(os.environ)
+    env["NF_GUI_TOKEN"] = GUI_TOKEN
     proc = subprocess.Popen([str(PY), str(tmp / "scripts" / "nf_api.py"),
                              "--port", str(PORT), "--allow-fake"],
-                            cwd=str(tmp),
+                            cwd=str(tmp), env=env,
                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         up = False
@@ -220,6 +228,72 @@ def main():
         print("\n[T10] 空 name → 400（不 500）")
         code, d = req("POST", "/setting/status", {"action": "adopt"})
         check("T10 HTTP 400", code == 400, (code, d))
+
+        # ---------------- T11 设定引用：还没有章节 ----------------
+        # 这一段刻意换成**两个字以上**的条目名：单字名（甲/乙）在正文里必然误报，
+        # utils/setting_stale 不拿它去匹配（只计入 unlocatable）—— 用它测 link
+        # 会得到"登记 0 条"的假失败。
+        print("\n[T11] GET /setting/stale（有设定集，还没有章节正文）")
+        setting_p.write_text(json.dumps({
+            "characters": [{"id": "c101", "name": "甲某"}, {"id": "c102", "name": "乙某"}],
+            "world": {"locations": [], "factions": [], "magic_system": [], "items": []},
+            "plot_fragments": [], "timeline": [], "_meta": {"version": 2},
+        }, ensure_ascii=False, indent=2), encoding="utf-8")
+        code, d = req("GET", "/setting/stale")
+        check("T11 HTTP 200", code == 200, code)
+        check("T11 checked=true（设定集可读）", d.get("checked") is True, d)
+        check("T11 没进正文的条目只计数、不进待核清单",
+              d.get("items") == [] and d.get("counts", {}).get("absent") == 2, d.get("counts"))
+        code, d = req("POST", "/setting/stale/link", {})
+        check("T11 没有章节时 link 明确失败（不静默空跑）",
+              code == 400 and "章节" in (d.get("error") or ""), (code, d))
+
+        # ---------------- T12 扫描登记来源 ----------------
+        print("\n[T12] 写一章 → new；link → 登记章号 + 版本")
+        ch_dir = tmp / "data" / "chapters" / "raw"
+        ch_dir.mkdir(parents=True)
+        (ch_dir / "01.md").write_text("## 第1章\n\n甲某与乙某同行。\n", encoding="utf-8")
+        code, d = req("GET", "/setting/stale")
+        check("T12 未登记引用记 new（不冒充 stale）",
+              d.get("counts", {}).get("new") == 2, d.get("counts"))
+        code, d = req("POST", "/setting/stale/link", {})
+        check("T12 link HTTP 200 且登记 2 条",
+              code == 200 and d.get("added_pairs") == 2, (code, d))
+        code, d = req("GET", "/setting/stale")
+        check("T12 登记后 new=0 / stale=0",
+              d.get("counts", {}).get("new") == 0 and d.get("counts", {}).get("stale") == 0,
+              d.get("counts"))
+
+        # ---------------- T13 改章 → 待核 ----------------
+        print("\n[T13] 改第 1 章 → 引用它的条目待核")
+        (ch_dir / "01.md").write_text("## 第1章\n\n甲某一个人走了。\n", encoding="utf-8")
+        code, d = req("GET", "/setting/stale")
+        check("T13 2 条待核", d.get("counts", {}).get("stale") == 2, d.get("counts"))
+        names = {it["name"] for it in d.get("items") or [] if it["state"] == "stale"}
+        check("T13 待核清单点名甲某 / 乙某", names == {"甲某", "乙某"}, names)
+        row = [it for it in d.get("items") or [] if it["name"] == "甲某"][0]["sources"][0]
+        check("T13 来源行给出改过原因与前后版本",
+              "改过" in row.get("reason", "")
+              and row.get("recorded_version") != row.get("current_version"), row)
+
+        # ---------------- T14 核对是 GUI-only（双因子） ----------------
+        print("\n[T14] POST /setting/stale/review：非 GUI 403，双因子 200")
+        code, d = req("POST", "/setting/stale/review",
+                      {"name": "甲某", "chapters": [1], "action": "confirm"})
+        check("T14 非 GUI 来源 → 403（Agent 不得把待核洗成已核对）", code == 403, (code, d))
+        code, d = req("GET", "/setting/stale")
+        check("T14 403 之后待核数没变（真的没写）",
+              d.get("counts", {}).get("stale") == 2, d.get("counts"))
+        code, d = req("POST", "/setting/stale/review",
+                      {"name": "甲某", "chapters": [1], "action": "confirm"}, gui=True)
+        check("T14 双因子 GUI → 200", code == 200 and d.get("ok") is True, (code, d))
+        code, d = req("GET", "/setting/stale")
+        check("T14 核对后只剩 1 条待核（逐条核对，不连带）",
+              d.get("counts", {}).get("stale") == 1, d.get("counts"))
+        setting_after = json.loads(setting_p.read_text(encoding="utf-8"))
+        jia = [x for x in setting_after["characters"] if x["name"] == "甲某"][0]
+        check("T14 sources 落盘并带 confirmed_at",
+              bool((jia.get("sources") or [{}])[0].get("confirmed_at")), jia.get("sources"))
     finally:
         proc.terminate()
         try:

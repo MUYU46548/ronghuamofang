@@ -42,6 +42,7 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 | 运维场景（失败/熔断/打回/升级） | `docs/agents/operations.md` |
 | 成书提炼（写完的书 → 正典四表 + 病灶词） | `docs/agents/book-extract.md` |
 | 判定引擎（三档结论 / 缺陷单 / 回测 / 口径） | `docs/agents/judge-engine.md` |
+| 设定引用过期（条目记 sources / 改章即待核 / 谁的判断） | `docs/agents/setting-stale.md` |
 | stage5 改稿裁定闸（模型改稿 → 作者逐条勾 → 才合成） | `docs/agents/stage5-gate.md` |
 | 自任务引擎 `engine: self`（任务书三件套 / 何时判完成） | `docs/agents/engine-self.md` |
 | 作者手册（**给用户看的**，改界面文案前先读这里的说法） | `console/src/help/*.md` |

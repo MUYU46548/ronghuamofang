@@ -32,6 +32,7 @@ import VaultDirsPanel from "./VaultDirsPanel.vue";
 import ReviewLedgerPanel from "./ReviewLedgerPanel.vue";
 import SettingClosurePanel from "./SettingClosurePanel.vue";
 import SettingVersionsPanel from "./SettingVersionsPanel.vue";
+import SettingStalePanel from "./SettingStalePanel.vue";
 import InteractionPanel from "./InteractionPanel.vue";
 import PlotGraph from "./PlotGraph.vue";
 import PlotBoard from "./PlotBoard.vue";
@@ -5743,6 +5744,8 @@ onUnmounted(() => {
     <!-- 设定库闭环（2026-10-20）：素材冲突三态拍板（采纳/否决/待定）。
          端点早就有，GUI 一直缺 —— 没它等于"机器裁不了的分歧永远悬着"。 -->
     <section v-if="tab === 'story'">
+      <!-- 设定引用核对（M10，2026-11-04）：改完章之后，哪些设定条目该复查 -->
+      <SettingStalePanel :api="api" @say="say" />
       <SettingClosurePanel @say="say" />
       <!-- 设定版本（2026-11-02，视频③对标）：两版对照 + 一键恢复 -->
       <SettingVersionsPanel :api="api" @say="say" />

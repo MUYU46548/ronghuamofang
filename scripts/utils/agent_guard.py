@@ -123,6 +123,11 @@ FORBIDDEN_IN_AGENT_MODE = frozenset({
     # 外部 Agent 能"恢复"一次，就等于能抹掉作者刚改的设定；读侧
     # GET /setting/versions|diff 不拦（Agent 该看得见历史）。
     "/setting/restore",
+    # 设定引用核对（M10，2026-11-04）：改章后哪些设定条目已经"可能不成立"，
+    # 只有作者读过正文才能判断 —— Agent 一条 POST 就能把待核洗成"已核对"，
+    # 与代签审批同族。读侧 GET /setting/stale 与机械的 /setting/stale/link
+    # 不拦（Agent 可以看清单、可以补登记，不能替作者确认）。
+    "/setting/stale/review",
     # Word 稿导入（活二，2026-10-13）：一次性把**整本外部稿**写进
     # data/chapters/{raw,checked,refined}/，且 --overwrite 能盖掉已有章节
     # —— 与归档/恢复同档的批量写入，归用户点。预览走同一端点（GUI 一体），

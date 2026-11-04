@@ -26,6 +26,7 @@
 | 大纲体检 | `python scripts/outline_review.py`（确定性，标出空泛节点；默认附**与上一版对比**，`--no-compare` 关闭） |
 | 大纲迭代趋势 | `python scripts/outline_review.py --trend [--history 目录]`（确定性零 token：逐版本指标表 + **收敛判断** done/improving/stalled/mixed/insufficient，回答“还要不要再迭代一轮”） |
 | 设定体检（stage1后自动） | `python scripts/material_review.py`（确定性，**类型感知**：先按 `utils/setting_schema.is_character` 分开人物/非人物，再对人物标碎片/缺失维度，报告 data/setting/material_review.md） |
+| **设定引用过期（M10，零 token）** | `python scripts/setting_stale.py status`（谁在等核对、哪一章改过）· `link [--dry-run]`（扫描章节，把现有引用登记进设定条目，**只增不改**）· `confirm 名字 --chapter N`（作者核对通过）· `drop 名字 --chapter N`（章没了 / 误匹配 → 去掉来源）。`confirm`/`drop` 在 `agent_mode=true` 下 CLI 一律拒绝（与审批同族），请在桌面端“设定 → 设定引用核对”里点。细节 → `docs/agents/setting-stale.md` |
 | 从设定库导入设定 | `python scripts/obsidian_integrate.py scan [--vault 路径] [--output data/setting/setting.json]`（⚠️ **整体替换**语义：vault 内容覆盖现有设定集，`plot_fragments`/`timeline` 会清空；**覆盖前自动备份**到 `data/setting/history/setting_vN.json`。目录约定见 `obsidian_bridge.scan_vault` docstring） |
 | 扫描设定库（只读） | `python scripts/obsidian_bridge.py scan [--vault 路径]`（只扫不写，落 `data/state/obsidian_index.json`）；`config` 查看当前 vault/沙盒配置 |
 | 正典一致性检查 | `python scripts/obsidian_bridge.py check <文件>`（已实现：**疑似新角色**（启发式）+ **locked 违例**（确定性）；⚠️ `conflicts` **仍未实现**（需语义判断）。输出会显式标注；`checked=false` 表示**检查未生效**，不等于通过） |

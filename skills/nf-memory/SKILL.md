@@ -17,6 +17,7 @@ metadata:
 
 - canon 快照（已定稿设定集）：`nf_get_canon`
 - 设定冲突裁决：`nf_get_setting_conflicts` + `nf_set_material_status`
+- 设定引用待核（改过渡章之后）：`nf_get_setting_stale`
 - 全景与成本：`nf_get_state` / `nf_get_costs`
 
 ## 标准动线
@@ -26,6 +27,9 @@ metadata:
 2. `nf_get_costs` —— 成本按阶段/模型聚合。**给作者报成本时用它**，不要自己估。
 3. `nf_get_canon`（full=false）—— canon 元信息（冻结时间 + 条目数）。
    需要全文再传 full=true（可能几万字符，别默认拉全量）。
+4. `nf_get_setting_stale` —— 写新章之前先看一眼：哪些设定条目的依据章已经改过。
+   **待核条目不要当正典引用**（它可能已经不成立），也不要自己"确认" ——
+   核对与移除是作者在桌面端逐条点的，Agent 没有这个工具。
 
 ### 冲突裁决整理（Agent 整理，作者拍板）
 1. `nf_get_setting_conflicts` —— 拿“机器裁不了”的分歧清单。

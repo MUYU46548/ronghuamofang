@@ -730,6 +730,15 @@ MCP_TOOLS = [
         "_http": ("GET", "/setting/canon", None),
     },
     {
+        "name": "nf_get_setting_stale",
+        "description": "读设定引用待核清单（M10，零 token）：哪些设定条目的依据章改过了。"
+                       "条目带 sources（章号 + 正文版本），改章后对应条目自动出现在这里。"
+                       "⚠️ checked=false 表示设定集缺失 = **根本没查**，空清单不代表没问题。"
+                       "待核条目**不要当正典引用**；核对/移除归作者（没有对应写工具）。",
+        "inputSchema": {"type": "object", "properties": {}},
+        "_http": ("GET", "/setting/stale", None),
+    },
+    {
         "name": "nf_set_material_status",
         "description": "人工拍板：把设定集条目标为 adopted / rejected / uncertain。"
                        "reject 会**同时写墓碑**（按名字生效、不依赖条目，条目不存在也成功）；"

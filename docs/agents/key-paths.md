@@ -5,6 +5,11 @@
 > **纪律效力不变**：动这块代码/数据前按需读本文。
 
 - 设定集：`data/setting/setting.json`（四顶层键 characters/world/plot_fragments/timeline）
+  - **条目来源 `sources`（M10，2026-11-04）**：每个条目可选带
+    `[{chapter, version, layer, linked_at, confirmed_at}]`，版本 = 该章当前稿
+    （refined > checked > raw）正文 sha256 前 12 位。改章后 `GET /setting/stale`
+    **读时现算**出待核清单（不落状态文件）；补登记 `POST /setting/stale/link`（只增不改），
+    作者核对 `POST /setting/stale/review`（GUI-only）。细节 → `docs/agents/setting-stale.md`
 - 整体大纲：`data/outline/global.md`（审批门对象）
 - 大纲体检报告：`data/outline/review_report.md`（outline_review.py 生成）
 - 素材体检报告：`data/setting/material_review.md`（material_review.py 生成，stage1 后自动）

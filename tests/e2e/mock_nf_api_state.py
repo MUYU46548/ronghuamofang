@@ -60,6 +60,57 @@ def agent_forbidden():
     return [{"path": p, "why": AGENT_WHY.get(p, "用户拍板类操作 —— 判定权归用户")}
             for p in sorted(FORBIDDEN_IN_AGENT_MODE)]
 
+
+# ---- 设定引用过期（M10）：确定性喂“两条待核 + 一条新引用” ----
+# review / link 都会改这份状态，好让 e2e 能验到"点完之后界面确实变了"。
+STALE_STATE = {"linked": False, "reviewed": []}
+
+
+def stale_payload():
+    """GET /setting/stale 的 mock 回包（形状与 utils/setting_stale.status 一致）。"""
+    items = []
+    if "周砚清" not in STALE_STATE["reviewed"]:
+        items.append({
+            "kind": "characters", "group": "characters", "label": "角色",
+            "name": "周砚清", "state": "stale", "excerpt": "青石站巡道工，认刻度不认人",
+            "sources": [{
+                "chapter": 3, "state": "changed",
+                "recorded_version": "aa11bb22cc33", "recorded_layer": "refined",
+                "current_version": "dd44ee55ff66", "current_layer": "refined",
+                "mentioned_now": True, "mtime": 1793766000.0,
+                "reason": "第 3 章的正文改过（润色稿）",
+            }],
+            "new_chapters": [],
+        })
+    items.append({
+        "kind": "world.locations", "group": "locations", "label": "世界观",
+        "name": "青石站", "state": "stale", "excerpt": "两站台，二站台已封闭",
+        "sources": [{
+            "chapter": 7, "state": "missing",
+            "recorded_version": "0123456789ab", "recorded_layer": "checked",
+            "current_version": "", "current_layer": "",
+            "mentioned_now": False, "reason": "第 7 章已不存在",
+        }],
+        "new_chapters": [],
+    })
+    if not STALE_STATE["linked"]:
+        items.append({
+            "kind": "world.items", "group": "items", "label": "世界观",
+            "name": "停了的怀表", "state": "new", "excerpt": "停在 03:20 的怀表",
+            "sources": [], "new_chapters": [5],
+        })
+    stale = sum(1 for i in items if i["state"] == "stale")
+    new = sum(1 for i in items if i["state"] == "new")
+    return {
+        "ok": True, "checked": True, "reason": "", "chapters": 12,
+        "setting_path": "data/setting/setting.json", "setting_mtime": 1793766100.0,
+        "items": items,
+        "counts": {"entries": 26, "quoted": 9, "stale": stale, "new": new,
+                   "ok": 9 - stale, "absent": 16, "unlocatable": 1, "unnamed": 0},
+        "hint": ("有 %d 条设定的引用章改过了：逐条看一遍，确认还成立就点“已核对”；"
+                 "不成立的去改设定集本身。" % stale) if stale else "引用全部对得上当前正文。",
+    }
+
 # 设定集 mock：**必须用真实字段结构**，否则这两处修复等于没验：
 #   1. 角色真实字段是 traits[]/relations[]/experience，不是 snippet；
 #   2. 世界观众是 locations/items 等**分组数组**，真书的 world 下**没有 all 键** ——
@@ -281,6 +332,9 @@ class Handler(BaseHTTPRequestHandler):
                                     "pct": 24.7, "warn_ratio": 0.7, "tokens_in": 0, "tokens_out": 0})
         if p == "/config/project":
             return self._send(200, {"ok": True, "config": {"book": {"name": "验收用书", "chapters": 12}}})
+        if p == "/setting/stale":
+            # 设定引用过期（M10）：两条待核 + 一条新引用（形状与真后端一致）
+            return self._send(200, stale_payload())
         if p == "/onboarding/status":
             # 新手序列引导（I-1）：真后端按盘上事实算，mock 按固定剧本喂同一形状。
             # 关键：COLD 下必须只有 project 是 current（序列严格），
@@ -753,6 +807,36 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(400, {"ok": False, "error": "区间不合法"})
             return self._send(200, {"ok": True, "current": [lo, hi],
                                     "message": "已保存：单章 %d–%d 字" % (lo, hi)})
+
+        if p == "/setting/stale/link":
+            dry = bool(body.get("dry_run"))
+            added = [{"kind": "world.items", "group": "items",
+                      "name": "停了的怀表", "chapters": [5]}]
+            if dry:
+                return self._send(200, {"ok": True, "dry_run": True, "chapters": 12,
+                                        "entries": 26, "added": added, "added_pairs": 1,
+                                        "backup": "",
+                                        "message": "预演：会新增 1 条引用登记（未写盘）"})
+            STALE_STATE["linked"] = True
+            return self._send(200, {"ok": True, "dry_run": False, "chapters": 12,
+                                    "entries": 26, "added": added, "added_pairs": 1,
+                                    "backup": "data/setting/history/setting_v9.json",
+                                    "message": "已登记 1 条引用（涉及 1 个条目）"})
+
+        if p == "/setting/stale/review":
+            name = str(body.get("name") or "").strip()
+            if not name:
+                return self._send(400, {"ok": False, "error": "name 必填（要核对的条目名）"})
+            action = str(body.get("action") or "confirm")
+            if action == "confirm":
+                if name not in STALE_STATE["reviewed"]:
+                    STALE_STATE["reviewed"].append(name)
+                return self._send(200, {"ok": True, "name": name, "action": "confirm",
+                                        "chapters": [3], "skipped": [],
+                                        "message": "已核对第 3 章（这条设定不再待核）"})
+            return self._send(200, {"ok": True, "name": name, "action": "drop",
+                                    "chapters": list(body.get("chapters") or []), "skipped": [],
+                                    "message": "已移除该来源登记"})
 
         if p == "/stage/2/run-multi":
             # 多方案生成（I-2 视觉验收）：返回一个会递进的 mock job。

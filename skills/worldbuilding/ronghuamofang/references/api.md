@@ -51,6 +51,7 @@
 | `/scraps/read` | `?name=` 读单个碎片 |
 | `/setting/current` | 当前设定集 |
 | `/setting/appearances` | 角色出场统计 |
+| `/setting/stale` | 设定引用待核清单（M10，零 token）：条目记 `sources`（章号 + 正文版本），改章后**读时现算**。`checked=false` = 设定集缺失（**没查**，不等于没问题） |
 
 ### 大纲
 | 路径 | 说明 |
@@ -153,6 +154,8 @@
 | 路径 | 请求体 |
 |---|---|
 | `/setting/save` | 设定集写入 |
+| `/setting/stale/link` | `{dry_run?}` 扫描章节，把现有“条目 × 章节”引用补登记进 `sources`（**只增不改**，先备份）。机械动作，Agent 可用 |
+| `/setting/stale/review` | `{name, kind?, chapters?[], action: confirm\|drop}` 作者逐条核对（**GUI-only 双因子**：Agent 不得把待核洗成“已核对”） |
 | `/materials/add` / `/materials/new` / `/materials/save` | 素材卡增改 |
 | `/materials/delete` | 删除（破坏性） |
 | `/materials/remerge` | 触发重归并 |
