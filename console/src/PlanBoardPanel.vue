@@ -7,6 +7,10 @@
  *
  * 语义：AI 只能 propose，条目停在 idea；**采用 / 丢弃 / 写进正文都是作者动作**
  * （Agent 调用这四个端点会被 403）。
+ *
+ * 两个视图（2026-11-04，task-20261104-004）：清单 + 画布（四列看板）。
+ * **共用同一份 /plan/list 与同一组 /plan/* 写端点** —— 画布不是另一套状态，
+ * 在画布上点“采用”与在清单上点“采用”写的是同一条记录（data/state/plan.json）。
  */
 import { ref, computed, onMounted } from "vue";
 import { API } from "./apiBase.js";
@@ -20,10 +24,18 @@ const TABS = [
   ["written", "已写进正文", ""],
   ["dropped", "已丢弃", "可复活"],
 ];
+const VIEWS = [["list", "清单"], ["canvas", "画布"]];
+// 每种状态能做什么（清单与画布共用同一张表，别写两份）
+const ACTIONS = {
+  idea: [["select", "采用", "primary"], ["drop", "丢弃", "bad-btn"]],
+  selected: [["write", "写进正文", "primary"], ["drop", "丢弃", "bad-btn"]],
+  dropped: [["revive", "复活回构想", ""]],
+};
 
 const items = ref([]);
 const stats = ref({});
 const tab = ref("idea");
+const view = ref("list");
 const busy = ref(false);
 const err = ref("");
 const hint = ref("");
@@ -32,6 +44,11 @@ const refPath = ref("");
 const openWrite = ref("");       // 哪条在填"写进正文"的引用路径
 
 const shown = computed(() => items.value.filter((x) => x.status === tab.value));
+const byStatus = computed(() => {
+  const out = {};
+  for (const t of TABS) out[t[0]] = items.value.filter((x) => x.status === t[0]);
+  return out;
+});
 
 function say(m) {
   hint.value = m;
@@ -85,8 +102,11 @@ async function act(kind, it) {
     }
     reason.value = "";
     await load();
-    tab.value = kind === "select" ? "selected" : kind === "drop" ? "dropped"
-      : kind === "revive" ? "idea" : tab.value;
+    // 清单视图按动作跳栏（画布四列都在，不需要跳）
+    if (view.value === "list") {
+      tab.value = kind === "select" ? "selected" : kind === "drop" ? "dropped"
+        : kind === "revive" ? "idea" : tab.value;
+    }
   } catch (e) {
     err.value = String(e.message || e);
   } finally {
@@ -102,24 +122,31 @@ onMounted(load);
     <div class="card-head">
       <h3>规划四态（构想 → 采用 → 写进正文）</h3>
       <span class="spacer"></span>
+      <span class="views">
+        <button v-for="v in VIEWS" :key="v[0]" class="mini"
+                :class="{ primary: view === v[0] }" @click="view = v[0]">{{ v[1] }}</button>
+      </span>
       <input v-model="reason" class="reason" placeholder="理由（可选，会记进审计）" />
       <button class="mini" :disabled="busy" @click="load">刷新</button>
     </div>
 
     <p class="meta">
       AI 提的方案只会停在<b>构想</b>；<b>采用 / 丢弃 / 写进正文</b>都是你的动作。
-      外接 Agent 可以提案，但不能替你点这四个按钮。
+      外接 Agent 可以提案，但不能替你点这些按钮。清单与画布是同一份数据
+      （<code>data/state/plan.json</code>），在哪边点都一样。
     </p>
 
+    <div v-if="err" class="err">{{ err }}</div>
+    <div v-if="hint" class="meta">{{ hint }}</div>
+
+    <!-- ---------- 清单视图 ---------- -->
+    <template v-if="view === 'list'">
     <div class="tabs-sub">
       <button v-for="t in TABS" :key="t[0]" :class="{ on: tab === t[0] }" @click="tab = t[0]"
               :title="t[2]">
         {{ t[1] }}<span class="n">{{ stats[t[0]] || 0 }}</span>
       </button>
     </div>
-
-    <div v-if="err" class="err">{{ err }}</div>
-    <div v-if="hint" class="meta">{{ hint }}</div>
 
     <div v-if="!shown.length" class="meta">
       {{ tab === "idea" ? "没有待定的构想（AI 提方案时会出现在这里）。" : "这一栏是空的。" }}
@@ -155,12 +182,42 @@ onMounted(load);
         <span v-else class="meta">已落地，无需操作</span>
       </div>
     </div>
+    </template>
+
+    <!-- ---------- 画布视图（2026-11-04，task-20261104-004）---------- -->
+    <div v-else class="canvas" data-testid="plan-canvas">
+      <div v-for="t in TABS" :key="t[0]" class="col" :data-col="t[0]">
+        <div class="col-head">
+          <b>{{ t[1] }}</b>
+          <span class="n">{{ byStatus[t[0]].length }}</span>
+        </div>
+        <div v-if="!byStatus[t[0]].length" class="empty">空</div>
+        <div v-for="it in byStatus[t[0]]" :key="it.id" class="tile" :data-id="it.id">
+          <div class="tile-head"><strong>{{ it.title }}</strong></div>
+          <div v-if="it.summary" class="tile-sum">{{ it.summary }}</div>
+          <div class="meta">{{ it.source || "unknown" }} · {{ it.updated_at || "" }}</div>
+          <div v-if="it.ref_path" class="meta">已写进：{{ it.ref_path }}</div>
+          <div class="actions">
+            <button v-for="a in (ACTIONS[it.status] || [])" :key="a[0]" class="mini"
+                    :class="a[2]" :disabled="busy" :data-act="a[0]"
+                    @click="a[0] === 'write' ? (openWrite = openWrite === it.id ? '' : it.id) : act(a[0], it)">
+              {{ a[1] }}
+            </button>
+            <input v-if="openWrite === it.id && it.status === 'selected'" v-model="refPath"
+                   class="refpath" placeholder="data/chapters/raw/03.md" />
+            <button v-if="openWrite === it.id && it.status === 'selected'" class="mini primary"
+                    :disabled="busy" data-act="write-confirm" @click="act('write', it)">确认</button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .card { margin-bottom: 12px; }
 .reason { width: 200px; }
+.views { display: inline-flex; gap: 4px; margin-right: 8px; }
 .tabs-sub .n { margin-left: 4px; opacity: 0.7; }
 .item { border: 1px solid var(--border); border-radius: 6px; padding: 8px; margin-bottom: 8px; }
 .item-head { display: flex; align-items: center; gap: 6px; }
@@ -174,4 +231,22 @@ onMounted(load);
 .pill.selected { color: var(--accent); }
 .pill.written { color: var(--ok); }
 .pill.dropped { color: var(--muted-foreground); }
+
+/* 画布：四列等宽；窄窗口横向滚动，不把列压扁（压扁后标题全断行，等于没法看） */
+.canvas { display: grid; grid-template-columns: repeat(4, minmax(180px, 1fr)); gap: 8px;
+          margin-top: 10px; overflow-x: auto; }
+.col { border: 1px solid var(--border); border-radius: 6px; padding: 8px;
+       background: color-mix(in srgb, var(--card) 86%, transparent); min-height: 90px; }
+.col-head { display: flex; align-items: center; justify-content: space-between;
+            margin-bottom: 6px; font-size: 13px; }
+.col-head .n { opacity: 0.7; }
+.empty { color: var(--muted-foreground); font-size: 12px; padding: 4px 0; }
+.tile { border: 1px solid var(--border); border-radius: 6px; padding: 6px; margin-bottom: 6px;
+        background: var(--card); }
+.tile-head { font-size: 13px; }
+.tile-sum { font-size: 12px; margin-top: 3px; opacity: 0.9;
+            display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+            overflow: hidden; }
+.tile .actions { margin-top: 4px; }
+.tile .refpath { width: 100%; }
 </style>

@@ -205,6 +205,55 @@ LOGS = {"ok": True, "exists": True,
 
 
 DISCUSS = {"items": [], "stats": {"pending": 1, "approved": 0, "rejected": 0}}
+
+# 规划四态（2026-11-04，task-20261104-004）：画布视图的验收要有真数据。
+# **有状态**：POST select/drop/write/revive 改这里，GET /plan/list 读同一份 ——
+# 这样“在画布上点采用 → 卡片真的换列”才是真链路，而不是静态截图。
+PLAN_ITEMS = [
+    {"id": "idea-a1", "title": "让主角在第三章前拿到旧信", "status": "idea",
+     "summary": "把线索前置，避免到第五十章才解释这封信是谁留下的。",
+     "source": "ashi", "kind": "proposal", "updated_at": "2026-11-04 13:10", "ref_path": ""},
+    {"id": "idea-a2", "title": "把反派动机改成“保全妹妹”", "status": "idea",
+     "summary": "现在的动机太单薄；改成亲情动机后，第三卷的对峙才有重量。",
+     "source": "hermes", "kind": "proposal", "updated_at": "2026-11-04 13:20", "ref_path": ""},
+    {"id": "idea-b1", "title": "第一章结尾加一次夜巡", "status": "selected",
+     "summary": "为第三章的失踪案先埋一个目击者。",
+     "source": "ashi", "kind": "proposal", "updated_at": "2026-11-04 12:40", "ref_path": ""},
+    {"id": "idea-c1", "title": "让师父在第二卷就退场", "status": "written",
+     "summary": "已写进第二章结尾。",
+     "source": "hermes", "kind": "proposal", "updated_at": "2026-11-03 09:05",
+     "ref_path": "data/chapters/raw/02.md"},
+    {"id": "idea-d1", "title": "加入一段双线并叙", "status": "dropped",
+     "summary": "试写后节奏散了，先放弃。",
+     "source": "ashi", "kind": "proposal", "updated_at": "2026-11-02 18:30", "ref_path": ""},
+]
+PLAN_STATUS = ["idea", "selected", "written", "dropped"]
+
+
+def plan_payload():
+    stats = {k: 0 for k in PLAN_STATUS}
+    for it in PLAN_ITEMS:
+        stats[it["status"]] = stats.get(it["status"], 0) + 1
+    return {"ok": True,
+            "items": sorted(PLAN_ITEMS, key=lambda x: x.get("updated_at") or "", reverse=True),
+            "stats": stats}
+
+
+def plan_move(pid, new_status, ref_path=""):
+    """按状态机改一条；不在允许来源态 → None（调用方回 400，与真后端同一语义）。"""
+    allow = {"selected": ("idea",), "written": ("selected",),
+             "dropped": ("idea", "selected"), "idea": ("dropped",)}
+    for it in PLAN_ITEMS:
+        if it["id"] != pid:
+            continue
+        if it["status"] not in allow.get(new_status, ()):
+            return None
+        it["status"] = new_status
+        if ref_path:
+            it["ref_path"] = ref_path
+        it["updated_at"] = "2026-11-04 14:50"
+        return it
+    return None
 # 换行常量：demo 提案文案里拼真实换行用（对齐真后端的多行 markdown）
 NL = "\n"
 COLD = False   # --cold：全新工作区（所有阶段 pending + has_work=false）→ 冷启动引导
@@ -335,6 +384,9 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/setting/stale":
             # 设定引用过期（M10）：两条待核 + 一条新引用（形状与真后端一致）
             return self._send(200, stale_payload())
+        if p == "/plan/list":
+            # 规划四态（丙0/丙1）：清单版与画布版读同一份（2026-11-04 画布验收）
+            return self._send(200, plan_payload())
         if p == "/writing_rules":
             # 作品写作约束（M12）：有内容（让界面渲染出真文本与字数）
             txt = ("必须：全篇第三人称限知，跟随主视角\n"
@@ -808,6 +860,23 @@ class Handler(BaseHTTPRequestHandler):
         p = self.path.split("?")[0].rstrip("/") or "/"
         n = int(self.headers.get("Content-Length") or 0)
         body = json.loads(self.rfile.read(n).decode("utf-8")) if n else {}
+        if p in ("/plan/select", "/plan/drop", "/plan/revive", "/plan/write"):
+            # 规划四态写侧（2026-11-04）：允许来源态与真后端同一套 ——
+            # 清单与画布点按钮都走这里，“两个视图是否同源”在验收里看得见。
+            target = {"/plan/select": "selected", "/plan/drop": "dropped",
+                      "/plan/revive": "idea", "/plan/write": "written"}[p]
+            pid = str(body.get("id") or "")
+            ref = str(body.get("ref_path") or "")
+            if target == "written" and not ref:
+                return self._send(400, {"ok": False, "error": "写进正文必须给 ref_path"})
+            it = plan_move(pid, target, ref)
+            if not it:
+                return self._send(400, {"ok": False,
+                                        "error": "状态不允许：%s → %s（或 id 不存在）"
+                                                 % (pid, target)})
+            return self._send(200, {"ok": True, "item": it,
+                                    "stats": plan_payload()["stats"]})
+
         if p == "/config/target_words":
             # 保存单章字数区间（2026-11-03）：真实后端会校验区间并落列表，
             # mock 只回显 —— 但必须**回读同一份形状**，否则前端保存后回显空。
