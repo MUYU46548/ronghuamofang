@@ -169,7 +169,7 @@ def _providers_span(lines):
 
 def _id_span(lines, start, end, pid):
     """段内 `  <pid>:` 那个子块的 [a, b) 行号；没有则 None。"""
-    head = re.compile(r"^  %s:\s*(#.*)?$" % re.escape(pid))
+    head = re.compile(r"^  %s:[\s]*(#.*)?$" % re.escape(pid))
     a = None
     for i in range(start + 1, end):
         if head.match(lines[i].rstrip("\r")):

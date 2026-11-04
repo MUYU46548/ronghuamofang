@@ -239,7 +239,8 @@ def main():
 
         print("\n【P9】端点级：无头 403 / 双因子打桩后真写盘")
         import nf_api
-        from nf_api_domains import models as dm, _guard
+        from nf_api_domains import models as dm
+        from utils import gui_guard as _guard
 
         class H:
             def __init__(self, headers=None):

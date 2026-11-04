@@ -250,7 +250,7 @@ def handle_providers_save(h, body):
     为什么 GUI-only：改服务商 = 改**计费通道与密钥来源**（与 /config/token_limit
     同族）。外部 Agent 若能静默把 base_url 指向别处，作者付的钱去哪都不知道。
     """
-    from nf_api_domains._guard import gui_only
+    from utils.gui_guard import gui_only
     deny = gui_only(h, "服务商配置")
     if deny:
         return deny
@@ -269,7 +269,7 @@ def handle_providers_save(h, body):
 
 def handle_providers_remove(h, body):
     """`POST /providers/remove {id}` —— 删除（在用的拒绝，先切走）。"""
-    from nf_api_domains._guard import gui_only
+    from utils.gui_guard import gui_only
     deny = gui_only(h, "删除服务商")
     if deny:
         return deny

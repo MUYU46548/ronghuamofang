@@ -431,7 +431,7 @@ def _gui_only(h, what):
     实现搬到 `nf_api_domains/_guard.py`（2026-11-04）：新增的“服务商增删改”
     也要同一条判据，照抄一份就会各自漂移。这里保留这个名字，只为不动既有调用点。
     """
-    from nf_api_domains._guard import gui_only
+    from utils.gui_guard import gui_only
     return gui_only(h, what)
 
 

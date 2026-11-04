@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
-"""GUI-only 写入的唯一判据（域模块共用，2026-11-04）。
+"""GUI-only 写入的唯一判据（设置类端点共用，2026-11-04）。
 
 ## 为什么单独一个文件
+
+本模块住在 `utils/` 而不是 `nf_api_domains/`：它**不是域模块**（没有端点），
+放在域目录里会被 `test_api_domains` 的“孤立模块”判据抓（抓得对）。
 
 `_gui_only` 原来只在 `project.py` 里（token_limit / target_words 等设置类端点用）。
 新增“服务商增删改”也要同一条判据 —— 如果照抄一份到 `models.py`，两份判据迟早
