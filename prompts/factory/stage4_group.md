@@ -29,6 +29,7 @@ temperature: 0.8
 
 ## 文风要求（必须严格遵守）
 {{style_rules}}
+{{writing_rules}}
 
 ## 硬性禁止
 

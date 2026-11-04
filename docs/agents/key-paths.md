@@ -50,6 +50,11 @@
 - 章节修订历史：`data/chapters/history/`（refine_chapter.py 每次精修备份 chNN_vM.md）
 - 单章字数区间：`config/system.yaml` 的 `chapter.target_words`（**列表** `[low, high]`，出厂 [5000,9000]；
   `GET/POST /config/target_words` 读写，GUI 设置页同源。判据与边界见“止烧与安全闸门”节）
+- **作品级写作约束**：`data/writing_rules.md`（每本书一份，随书归档走；不进 Git）
+  - `GET/POST /writing_rules`；空文件/不存在 = **不注入**（`utils/writing_rules.block()` 返回空串）
+  - 注入点：`stage4_writing` / `stage4_group`（加强模式）/ `stage6_polish` 三个模板的 `{{writing_rules}}`
+  - 上限 6000 字（每章都要发一遍）；保存走备份 + 原子写 + 回读校验，超限**拒收**不截断
+  - GUI：文风页“作品写作约束”卡（`console/src/WritingRulesPanel.vue`）
 - 中文标点归一化：唯一实现 `scripts/utils/text_norm.py`，7 处挂载点（stage4/5/6 落盘后、
   refine_chapter / refine_paragraph 落盘后、stage7 合并兜底）。判据与护栏见专节
 - 校对报告：`data/outline/proofread_report.json` + `.md`（proofread.py / `POST /proofread/run` 产出；

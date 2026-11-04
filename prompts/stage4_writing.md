@@ -99,6 +99,8 @@ temperature: 0.8
 
 {{style_notes}}
 
+{{writing_rules}}
+
 ## 输出
 将正文写入文件: {{path_output}}
 

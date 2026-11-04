@@ -28,6 +28,7 @@ from utils.file_io import read_text, write_text, append_text
 from utils.cost_tracker import pause_detail as _pause_detail
 from utils.verify_chapter import count_cn_words, is_usable_output
 from utils.template_loader import load_template
+from utils.writing_rules import block as _writing_rules_block
 from utils.style_analyzer import (
     build_style_notes_section,
     extract_style_features,
@@ -188,6 +189,7 @@ def build_polish_task(proj, checked_dir, refined_dir, chapters, vol_index=None,
         "style_instruction": style_instruction,
         "style_samples": style_samples,
         "style_notes": style_notes,
+        "writing_rules": _writing_rules_block(),
         "polish_rules": _load_polish_rules(),
     })
     return body

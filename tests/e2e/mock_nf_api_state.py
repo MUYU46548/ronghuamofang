@@ -335,6 +335,16 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/setting/stale":
             # 设定引用过期（M10）：两条待核 + 一条新引用（形状与真后端一致）
             return self._send(200, stale_payload())
+        if p == "/writing_rules":
+            # 作品写作约束（M12）：有内容（让界面渲染出真文本与字数）
+            txt = ("必须：全篇第三人称限知，跟随主视角\n"
+                   "禁止：现代科技名词\n"
+                   "禁止：解释人物心理（用动作与对白代替）")
+            return self._send(200, {"ok": True, "exists": True, "text": txt,
+                                    "chars": len(txt), "max_chars": 6000,
+                                    "mtime": 1793766000.0,
+                                    "path": "data/writing_rules.md",
+                                    "note": "作品级写作约束（mock）"})
         if p == "/onboarding/status":
             # 新手序列引导（I-1）：真后端按盘上事实算，mock 按固定剧本喂同一形状。
             # 关键：COLD 下必须只有 project 是 current（序列严格），
@@ -807,6 +817,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(400, {"ok": False, "error": "区间不合法"})
             return self._send(200, {"ok": True, "current": [lo, hi],
                                     "message": "已保存：单章 %d–%d 字" % (lo, hi)})
+
+        if p == "/writing_rules":
+            txt = str(body.get("text") or "").strip()
+            if len(txt) > 6000:
+                return self._send(400, {"ok": False, "error": "太长：超过上限 6000 字"})
+            if not txt:
+                return self._send(200, {"ok": True, "message": "已清空作品写作约束", "cleared": True})
+            return self._send(200, {"ok": True, "chars": len(txt),
+                                    "message": "已保存（%d 字）" % len(txt)})
 
         if p == "/setting/stale/link":
             dry = bool(body.get("dry_run"))

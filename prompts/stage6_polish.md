@@ -43,3 +43,4 @@ temperature: 0.4
 {{style_instruction}}
 {{style_samples}}
 {{style_notes}}
+{{writing_rules}}

@@ -45,7 +45,9 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 BOOKS_DIR = PROJECT_ROOT / "data" / "books"
 DATA_DIR = PROJECT_ROOT / "data"
 ITEMS = ["progress.json", "setting", "outline", "chapters", "summaries",
-         "merged", "state", "materials_manifest.json"]
+         "merged", "state", "materials_manifest.json",
+         # 作品级写作约束（M12，2026-11-04）：每本书一份 —— 不归档就等于换书即丢。
+         "writing_rules.md"]
 
 # 书档级内容（在项目根下，不在 data/ 里）：换书就该跟着走。
 # 2026-10-01 之前只归档 data/ 的 8 项 → **换书会丢配置与素材卡**

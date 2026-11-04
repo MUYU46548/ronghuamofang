@@ -41,6 +41,7 @@ import ForeshadowPanel from "./ForeshadowPanel.vue";
 import HandoffPanel from "./HandoffPanel.vue";
 import CompassPanel from "./CompassPanel.vue";
 import WritingPresetsPanel from "./WritingPresetsPanel.vue";
+import WritingRulesPanel from "./WritingRulesPanel.vue";
 import OnboardingGuide from "./OnboardingGuide.vue";
 
 // 审批门通知偏好
@@ -5673,6 +5674,8 @@ onUnmounted(() => {
 
     <!-- 文风分析 + 章节节奏 -->
     <section v-if="tab === 'style'">
+      <!-- 作品写作约束（M12）：每本书一份，有内容才注入 stage4/stage6 -->
+      <WritingRulesPanel :api="api" @say="say" />
       <StylePanel @say="say" />
     </section>
 

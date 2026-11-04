@@ -129,9 +129,20 @@ def build_group_task(cfg, proj, n, group, groups, prev_tail,
         # 讨论结论（2026-11-03 讨论构件）：加强模式是**主要**写作路径，约束必须
         # 也走这里 —— 只加在整章模板上等于对默认配置无效。
         "discussion_block": _discussion_block(cfg, proj, n),
+        # 作品级写作约束（M12）：每本书一份；空文件渲染成空串，不占上下文。
+        "writing_rules": _writing_rules(),
     }
     _, body = load_template("stage4_group.md", variables)
     return body
+
+
+def _writing_rules():
+    """作品级写作约束块（空 = 空串）。包一层是为了读取失败时**不炸整章**。"""
+    try:
+        from utils.writing_rules import block
+        return block()
+    except Exception:                                        # noqa: BLE001
+        return ""
 
 
 def _discussion_block(cfg, proj, n):

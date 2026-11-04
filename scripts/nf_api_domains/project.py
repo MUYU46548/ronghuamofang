@@ -1649,6 +1649,45 @@ def handle_factory_preset_apply(h, body):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+# ---------------------------------------------------------------------------
+# 作品级写作约束（M12，2026-11-04）：每本书一份，随书走；空 = 不注入
+# ---------------------------------------------------------------------------
+
+def handle_writing_rules(h):
+    """GET /writing_rules → 这本书的作品写作约束（零 token）。
+
+    `exists=false` 是**正常状态**（作者还没写），不是故障 —— 界面必须明说“还没写”，
+    不能显示成“已配置但内容为空”（空配置会被读成“检查过了”）。
+    """
+    try:
+        from utils import writing_rules as wr
+        info = wr.load(str(api.ROOT))
+        info["ok"] = True
+        info["max_chars"] = wr.MAX_CHARS
+        info["note"] = "作品级写作约束：随书走，写进 stage4 / stage6 的写作任务；空则不注入"
+        return 200, info
+    except Exception as e:                                    # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_writing_rules_save(h, body):
+    """POST /writing_rules {text} → 保存（备份 + 原子写 + 回读校验）。
+
+    属**创作决策**（同 `chapter.target_words`）：Agent 可代设，不进禁止名单；
+    空文本 = 清空（删文件，而不是留一个空文件让它被误读成“已配置”）。
+    """
+    body = body if isinstance(body, dict) else {}
+    if "text" not in body:
+        return 400, {"ok": False, "error": "text 必填（空字符串 = 清空约束）"}
+    try:
+        from utils import writing_rules as wr
+        ok, msg, info = wr.save(body.get("text"), str(api.ROOT))
+        return (200 if ok else 400), {"ok": ok, "message": msg, **info,
+                                      "max_chars": wr.MAX_CHARS}
+    except Exception as e:                                    # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 # 本模块负责的端点（供自检与文档）
 ROUTES = (
     ("GET", "/health", handle_health),
@@ -1691,6 +1730,9 @@ ROUTES = (
     ("GET", "/config/writing_presets", handle_writing_presets_get),
     ("POST", "/config/writing_presets/save", handle_writing_presets_save),
     ("POST", "/config/writing_presets/apply", handle_writing_presets_apply),
+    # 作品级写作约束（M12，2026-11-04）：每本书一份，随书走；空文件不注入
+    ("GET", "/writing_rules", handle_writing_rules),
+    ("POST", "/writing_rules", handle_writing_rules_save),
     # 出厂预设（2026-10-21）：首跑向导“选预设”；apply 是破坏性动作（GUI 双因子）
     ("GET", "/factory/presets", handle_factory_presets_list),
     ("POST", "/factory/preset/apply", handle_factory_preset_apply),

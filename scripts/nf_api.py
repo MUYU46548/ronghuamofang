@@ -2692,6 +2692,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/config/writing_presets":
             # 写作预设清单 + 当前生效值 + 切换历史（只读）。
             self._send(*_dom(dom_project.handle_writing_presets_get(self)))
+        elif p == "/writing_rules":
+            # 作品级写作约束（M12）：每本书一份，空文件不注入（零 token）。
+            self._send(*_dom(dom_project.handle_writing_rules(self)))
         elif p == "/exports/history":
             # 最近导出（盘上事实：output/ 里实际有什么）—— 2026-10-26 用户第 10 条：
             # 阶段 8 由 orchestrator 跑、不经导出面板，前端内存记录永远空。
@@ -3633,6 +3636,9 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/config/writing_presets/apply":
                 # 切换预设：校验 → 留 history → 定向写回 project.yaml（含备份+回读）。
                 self._send(*_dom(dom_project.handle_writing_presets_apply(self, body)))
+            elif p == "/writing_rules":
+                # 作品级写作约束保存（创作决策：Agent 可代设；空 = 清空）。
+                self._send(*_dom(dom_project.handle_writing_rules_save(self, body)))
             elif p == "/factory/preset/apply":
                 # 铺设出厂预设（破坏性，会归档当前项目）：GUI 双因子，Agent 拒。
                 self._send(*_dom(dom_project.handle_factory_preset_apply(self, body)))
