@@ -269,6 +269,32 @@ def main():
     finally:
         nf_api._set_root(ROOT)
 
+    print("\n【G】阶段 done 后 error 必须清掉（试跑第 2 条）")
+    tmpg = tempfile.mkdtemp(prefix="nf_err_")
+    try:
+        _seed_workspace(tmpg)
+        _write_progress(tmpg, {"1": {
+            "status": "stopped",
+            "error": "已中断（你点了停止）—— 这一阶段没跑完"}})
+        nf_api._set_root(Path(tmpg))
+        pg = nf_api.ProgressManager(Path(tmpg) / "data/state/progress.json")
+        check("G0 前置：阶段 1 带着上一次中断的 error",
+              bool(pg.data["stages"]["1"].get("error")), pg.data["stages"]["1"])
+        pg.mark_stage_done(1)
+        pg2 = nf_api.ProgressManager(Path(tmpg) / "data/state/progress.json")
+        st1 = pg2.data["stages"]["1"]
+        check("G1 转 done 之后 error 不再残留（界面不再“完成了但有错”）",
+              st1.get("status") == "done" and not st1.get("error"), st1)
+        check("G2 finished_at 照写", bool(st1.get("finished_at")), st1)
+        # 反证：清 error 只对 done 生效 —— 失败态必须留着原因
+        pg2.set_stage(2, "failed", error="接口 400 Unsupported model")
+        st2 = nf_api.ProgressManager(
+            Path(tmpg) / "data/state/progress.json").data["stages"]["2"]
+        check("G3 failed 仍保留 error（不许顺手清掉）",
+              st2.get("error") == "接口 400 Unsupported model", st2)
+    finally:
+        nf_api._set_root(ROOT)
+
     print("\n" + "=" * 66)
     print("通过 %d / 失败 %d" % (len(PASS), len(FAIL)))
     if FAIL:

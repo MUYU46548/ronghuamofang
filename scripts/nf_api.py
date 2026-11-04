@@ -996,6 +996,54 @@ def _chapter_target_words(cfg):
         return [5000, 9000]
 
 
+def _artifact_paths(book_name=""):
+    """产物速览的盘上事实（2026-11-04，作者第二次提这件事）。
+
+    ## 治的病
+    旧实现是前端拼的一串**固定相对路径**，只有 Word 那行查了 `latestDocx`：
+    · 设定集/素材体检/整体大纲/素材清单 四行**从不看盘** —— 文件不存在照样给
+      “预览 / 打开”两个按钮，点了报错（作者第 13 条“经典打不开素材体检报告，
+      文件不存在”）；
+    · Word 行的路径是 `output/{书名}_完整版.docx` **拼出来的**，而 `missing`
+      问的是 `output/` 里最新那个 docx（可能是**上一本书**的残留）→ 结果就是
+      “按钮可点、路径不存在”（作者第 20 条，第二次提）。
+    判据必须只有一份：**盘上有什么就说什么**，路径也用盘上那个真实文件名。
+
+    返回 `[{key,label,path,exists}]`；Word 只认**当前这本书**的成品
+    （`output/` 里别的书的 docx 不算 —— 那是换书残留，点开就是另一本书）。
+    """
+    items = [
+        ("setting", "设定集", "data/setting/setting.json"),
+        ("material_review", "素材体检", "data/setting/material_review.md"),
+        ("outline", "整体大纲", "data/outline/global.md"),
+        ("manifest", "素材清单", "data/setting/materials_manifest.json"),
+    ]
+    out = []
+    for key, label, rel in items:
+        out.append({"key": key, "label": label, "path": rel,
+                    "exists": (ROOT / rel).is_file()})
+    # Word 成品：扫盘 → 只留当前书名的那些 → 取最新
+    book = (book_name or "").strip()
+    want = "output/" + (book + "_完整版.docx" if book else "")
+    best = None
+    out_dir = ROOT / "output"
+    if out_dir.is_dir():
+        for f in out_dir.glob("*.docx"):
+            if not f.is_file():
+                continue
+            if book and not f.name.startswith(book):
+                continue
+            if best is None or f.stat().st_mtime > best.stat().st_mtime:
+                best = f
+    if best is not None:
+        out.append({"key": "word", "label": "Word 成品",
+                    "path": "output/" + best.name, "exists": True})
+    else:
+        out.append({"key": "word", "label": "Word 成品",
+                    "path": want or "output/", "exists": False})
+    return out
+
+
 def build_state():
     # 2026-09-29：这里原写死相对路径 "data/state/progress.json" —— 依赖进程 CWD。    # `--root` 场景（自动化验收 / 多书隔离）下 CWD 仍是发起进程的目录，
     # 于是 /state 会**静默读到另一个项目的 progress.json**：返回 200、内容却是别人的，
@@ -1049,6 +1097,9 @@ def build_state():
         archived = []
     return {
         "book": (load_all()[1] or {}).get("book", {}).get("name", ""),
+        # 产物速览（2026-11-04）：**盘上事实**。前端不再自己拼路径 ——
+        # 拼出来的路径会“按钮可点、文件不存在”（作者第 13/20 条）。
+        "artifacts": _artifact_paths((_proj or {}).get("book", {}).get("name", "")),
         # 单章目标字数：前端算“本章写到哪”的分母（拿不到 chapter 里的值就回落
         # 出厂下限 5000）。2026-10-27：没有它，单章重写只能显示一个假百分比。
         "chapter_target_words": _chapter_target_words(_cfg),

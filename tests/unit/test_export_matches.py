@@ -96,6 +96,28 @@ def main():
     rep = check_export_matches_source(tmp / "nope.docx", {1: BODY1})
     check("X5b 文件不存在 → 不抛、判不一致", rep["ok"] is False, rep)
 
+    print("\n【5b】源稿的三种归一化差异不算差异（2026-11-04 试跑假红）")
+    # 源稿带 HTML 注释（合并时被剥）+ 半角引号（合并时归一）+ ## 标题前缀
+    src_with_comment = ("## 第1章 归舟\n\n" + BODY1 + "\n\n<!-- quality: 8.5 -->\n"
+                        "<!-- summary: 邮局里一封信 -->\n")
+    d = make_docx(tmp / "comment.docx", ["第1章 归舟", BODY1])
+    rep = check_export_matches_source(d, {1: src_with_comment})
+    check("X7 源稿的 quality/summary 注释不造成假红", rep["ok"] is True, rep)
+
+    half_quoted = "他说\"三块都还了\"，然后把账本合上。"
+    d = make_docx(tmp / "quote.docx", ["他说“三块都还了”，然后把账本合上。"])
+    rep = check_export_matches_source(d, {1: half_quoted})
+    check("X8 源稿半角引号 vs 成品中文引号 → 不算差异", rep["ok"] is True, rep)
+
+    d = make_docx(tmp / "head.docx", ["第1章 归舟", BODY1])
+    rep = check_export_matches_source(d, {1: "## 第1章 归舟\n\n" + BODY1})
+    check("X9 源稿的 ## 前缀不算差异", rep["ok"] is True, rep)
+
+    # 反证：真差异仍然要红（归一化不许把闸门弄瞎）
+    d = make_docx(tmp / "really-wrong.docx", ["第1章 归舟", BODY1[:20]])
+    rep = check_export_matches_source(d, {1: "## 第1章 归舟\n\n" + BODY1})
+    check("X9b 归一化后真截断仍然报红", rep["ok"] is False, rep)
+
     print("\n【6】接线")
     s7 = (ROOT / "scripts" / "stage7_convert.py").read_text(encoding="utf-8")
     check("X6 stage7 调了逐章核对", "check_export_matches_source(" in s7)

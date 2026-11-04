@@ -202,6 +202,27 @@ def _flat(s):
     return re.sub(r"\s+", "", s or "")
 
 
+def _source_body(s):
+    """把源稿归一成"成品里应当出现的那段正文"（2026-11-04，试跑实测假红）。
+
+    首跑报 0/12 章一致，而解包 docx 复查成品完整（2719 段 / 57741 字符 /
+    12 个章标题）—— 假红的根因是"拿未归一化的源去比已归一化的成品"：
+
+    ① 源稿末尾带 `<!-- quality: … -->` / `<!-- summary: … -->` 注释，
+       合并时被剥掉，不先去掉就永远比不中；
+    ② 源稿正文里的半角 `"` 在合并阶段被归一成中文引号；
+    ③ md 章标题的 `## ` 前缀在成品里不存在。
+
+    三处都不是内容差异。这里**复用合并阶段那一个函数**（`text_norm.
+    normalize_chinese_punctuation`，stage7 第 78 行调的就是它）而不是再写一份
+    引号配对 —— 否则"合并用的口径"和"核对照的口径"又会分成两份，下次各自漂移。
+    """
+    s = re.sub(r"<!--.*?-->", "", s or "", flags=re.S)
+    s = re.sub(r"^[ \t]*#{1,6}[ \t]*", "", s, flags=re.M)
+    from utils.text_norm import normalize_chinese_punctuation
+    return normalize_chinese_punctuation(s)
+
+
 def check_export_matches_source(docx_path, chapters, limit=8):
     """逐章核对：每一章的正文（去空白后）必须**原样**出现在成品里。
 
@@ -215,7 +236,7 @@ def check_export_matches_source(docx_path, chapters, limit=8):
     doc = _flat(docx_plain_text(docx_path))
     items = []
     for n in sorted((chapters or {}), key=lambda x: int(x)):
-        src = _flat(chapters[n])
+        src = _flat(_source_body(chapters[n]))
         if not src:
             continue
         if src in doc:

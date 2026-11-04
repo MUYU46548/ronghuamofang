@@ -137,6 +137,12 @@ class ProgressManager:
             # 是一轮的终态（这一轮不会再动），但不等于阶段完成 —— 本书还有章没写。
             st["finished_at"] = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
         st.update(extra)
+        # 阶段完成 = 这一轮的事说完了：上一次失败/中断留下的 error 必须清掉
+        # （2026-11-04，试跑第 2 条：阶段 1 已是 `status: done`，`error` 还留着
+        #  “已中断（你点了停止）—— 这一阶段没跑完”，界面看起来像“完成了但有错”）。
+        # 只清本阶段这一个字段，不动别的阶段。
+        if status == "done" and "error" not in extra:
+            st.pop("error", None)
         self.save()
 
     def mark_stage_done(self, stage):

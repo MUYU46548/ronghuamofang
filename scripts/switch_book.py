@@ -52,7 +52,11 @@ ITEMS = ["progress.json", "setting", "outline", "chapters", "summaries",
 # 书档级内容（在项目根下，不在 data/ 里）：换书就该跟着走。
 # 2026-10-01 之前只归档 data/ 的 8 项 → **换书会丢配置与素材卡**
 # （`config/project.yaml` 里的书名/类型/章节数，`materials/` 里的素材与素材卡）。
-ROOT_ITEMS = ["config", "materials"]
+# 2026-11-04 补 `output`：成品 docx / 分卷 markdown 是**这本书的交付物**，
+#   不归档就永久留在 output/ 里 —— 换书后界面的“Word 成品”会指着上一本书
+#   （作者实测：新建《测试用书1104》后点开成品，看到的是《潮汐档案》的
+#   “第9章划号”，而产物速览写的是新书路径）。换书即搬走，成品跟书走。
+ROOT_ITEMS = ["config", "materials", "output"]
 
 # 应用级配置：描述"这台机器怎么跑"（引擎/模型/预算/vault 路径），本质**不随书变**。
 # 归档时仍存进书档（便于回溯"当时用的哪套配置"），但会立刻复制一份回工作区 ——

@@ -12,13 +12,18 @@
       <label v-for="k in keys" :key="k" class="vd-row">
         <span class="vd-k">{{ labels[k] }}</span>
         <select v-model="picked[k]">
-          <option value="">（不用这一类）</option>
+          <option value="">（这一类不读）</option>
           <option v-for="c in candidates" :key="c.path || '__root'" :value="c.path">
             {{ c.path || "（库根）" }}{{ c.md ? " · " + c.md + " 篇" : "" }}
           </option>
         </select>
       </label>
     </div>
+    <p class="muted vd-hint">
+      每一行 = 设定集里的一类条目，右边选它在你的库（Obsidian 等 markdown 库）里
+      <b>对应哪个目录</b>；选“这一类不读”= 这类条目不从库里读，只用素材卡里的内容。
+      留空的那几类不会报错，也不会凭空补字。
+    </p>
   </div>
 </template>
 

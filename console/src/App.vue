@@ -613,11 +613,15 @@ const exportCfg = ref({ format: "both", volSize: 5, includeFrontmatter: true });
 const exporting = ref(false);
 const exportMsg = ref("");
 const exportHistory = ref([]);
-/* 最新 Word 成品（顶栏“📕 成品”按钮）：exportHistory 按 mtime 倒序取第一条 word。
-   没有就返回空串 → 按钮不出现（不给一个点了报错的死按钮）。 */
+/* 最新 Word 成品（顶栏“📕 成品”按钮）：**只认当前这本书**的成品，判据是
+   `/state` 的 `artifacts`（后端扫 output/ 得到，且按书名过滤）。
+   2026-11-04：旧实现取 `exportHistory` 里第一条 word —— 那是**整个 output/ 目录**
+   的最新 docx，换书后旧书的成品还躺在那里，于是顶栏“成品”打开的是上一本书
+   （作者实测：点开看到的章标题是上本书的“第9章划号”），而产物速览里写的却是
+   新书路径。两处必须同源。 */
 const latestDocx = computed(() => {
-  const it = (exportHistory.value || []).find((x) => x.kind === "word");
-  return it ? (it.rel || it.path) : "";
+  const w = (state.value?.artifacts || []).find((a) => a.key === "word" && a.exists);
+  return w ? w.path : "";
 });
 
 async function runExport() {
@@ -4747,18 +4751,20 @@ async function openArtifact(rel) {
   if (!r.ok) say(r.error);
 }
 
-const artifacts = computed(() => [
-  { label: "设定集", path: "data/setting/setting.json" },
-  { label: "素材体检", path: "data/setting/material_review.md" },
-  { label: "整体大纲", path: "data/outline/global.md" },
-  { label: "素材清单", path: "data/setting/materials_manifest.json" },
-  // Word 成品（2026-11-03，作者第 7 条）：**还不知道有没有就先说“尚未产出”**。
-  // 原话：“我正在跑新项目，Word成品写在这里是什么意思？点了还不存在。哪怕变成
-  // 灰色或者写个尚未产出我也就饶了你了。”判据用 latestDocx —— 它是扫 output/ 的
-  // 盘上事实，不是自己造的记录；没有 docx 时按钮置灰，不给一个点了报错的死按钮。
-  { label: "Word 成品", path: "output/" + (state.value?.book || "") + "_完整版.docx",
-    missing: !latestDocx.value },
-]);
+const artifacts = computed(() => {
+  const list = state.value?.artifacts;
+  if (Array.isArray(list) && list.length) return list;
+  // 后端不可达（浏览器预览 / 服务没起）时给一份**全部标不存在**的骨架：
+  // 宁可四个“尚未产出”，也不要四个点了报错的死按钮。
+  return [
+    { key: "setting", label: "设定集", path: "data/setting/setting.json", exists: false },
+    { key: "material_review", label: "素材体检", path: "data/setting/material_review.md", exists: false },
+    { key: "outline", label: "整体大纲", path: "data/outline/global.md", exists: false },
+    { key: "manifest", label: "素材清单", path: "data/setting/materials_manifest.json", exists: false },
+    { key: "word", label: "Word 成品",
+      path: "output/" + (state.value?.book || "") + "_完整版.docx", exists: false },
+  ];
+});
 
 async function checkForUpdates() {
   if (!window.mofangAPI?.updaterCheck) {
@@ -5542,12 +5548,13 @@ onUnmounted(() => {
 
       <div class="card">
         <h3>产物速览</h3>
-        <div v-for="a in artifacts" :key="a.path" class="art-row">
+        <div v-for="a in artifacts" :key="a.key || a.path" class="art-row">
           <span class="art-label">{{ a.label }}</span>
           <span class="art-path">{{ a.path }}</span>
           <span class="spacer"></span>
-          <!-- 尚未产出就直说，别给能点的死按钮（2026-11-03，作者第 7 条） -->
-          <span v-if="a.missing" class="art-miss">尚未产出</span>
+          <!-- 尚未产出就直说，别给能点的死按钮（2026-11-03 第 7 条 → 2026-11-04 第 20 条
+               再提：判据统一由后端按盘上事实上报 `exists`，前端不再自己猜） -->
+          <span v-if="!a.exists" class="art-miss">尚未产出</span>
           <template v-else>
             <button class="mini" @click="preview(a.path)">预览</button>
             <button class="mini" @click="openArtifact(a.path)">打开</button>

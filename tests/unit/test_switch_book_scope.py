@@ -65,6 +65,10 @@ def build_root(prefix="nf_sb_"):
     (root / "materials" / "raw").mkdir(parents=True)
     (root / "materials" / "raw" / "素材.md").write_text("素材正文\n", encoding="utf-8")
     (root / "materials" / "vault_links.md").write_text("链接\n", encoding="utf-8")
+    # 成品出口（2026-11-04）：docx / 分卷 markdown 是**这本书的交付物**，
+    # 不随书归档就会永久留在 output/ 里 —— 换书后界面的“Word 成品”指着上一本书。
+    (root / "output").mkdir()
+    (root / "output" / "测试书_完整版.docx").write_text("fake docx", encoding="utf-8")
     (root / "data" / "setting").mkdir(parents=True)
     (root / "data" / "setting" / "setting.json").write_text("{}", encoding="utf-8")
     (root / "data" / "progress.json").write_text(
@@ -170,6 +174,9 @@ def main():
         check("书档目录已建立", dest.is_dir(), str(dest))
         check("书档内出现 config/", (dest / "config").is_dir())
         check("书档内出现 materials/", (dest / "materials").is_dir())
+        check("书档内出现 output/（成品跟书走，2026-11-04）",
+              (dest / "output").is_dir()
+              and (dest / "output" / "测试书_完整版.docx").exists())
         check("书档内出现 data 产物（setting/ 与 progress.json）",
               (dest / "setting").is_dir() and (dest / "progress.json").exists())
         meta = {}
@@ -178,7 +185,8 @@ def main():
         except Exception:                                  # noqa: BLE001
             pass
         check("_meta.json 记录了 root_items 与格式版本",
-              meta.get("root_items") == ["config", "materials"] and meta.get("format") == 2,
+              meta.get("root_items") == ["config", "materials", "output"]
+              and meta.get("format") == 2,
               str(meta))
 
         # ---------------- 2. 应用级配置必须留在工作区 ----------------
@@ -199,6 +207,8 @@ def main():
               skel.read_text(encoding="utf-8")[:160] if skel.exists() else "(文件不存在)")
         check("工作区**不再有** materials/（书档级已归档）",
               not (root / "materials").exists())
+        check("工作区**不再有** output/（旧书成品不残留，2026-11-04）",
+              not (root / "output").exists())
         check("工作区 data/ 产物已清空（progress.json 不在）",
               not (root / "data" / "progress.json").exists())
 
@@ -213,6 +223,8 @@ def main():
         check("materials/ 已恢复（素材文件在位）",
               (root / "materials" / "raw" / "素材.md").exists())
         check("data/progress.json 已恢复", (root / "data" / "progress.json").exists())
+        check("output/ 已恢复（成品回到工作区）",
+              (root / "output" / "测试书_完整版.docx").exists())
         check("恢复后 config/system.yaml 未被弄丢",
               (root / "config" / "system.yaml").exists())
     finally:

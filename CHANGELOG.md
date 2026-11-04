@@ -9,6 +9,48 @@ CHANGELOG”）。本文件从工程审查修复起正式启用。
 
 ## [Unreleased]
 
+### 修复：界面在说假话（2026-11-04 试跑第二轮）
+
+同一本书的试跑里，作者第二次提“产物速览挂着不存在的文件”。查下去发现是**一条链**：
+
+- `output/` 不在换书归档清单里（`switch_book.ROOT_ITEMS`）→ 换书后上一本书的
+  `{旧书名}_完整版.docx` 永远留在工作区；
+- “产物速览”四行（设定集/素材体检/整体大纲/素材清单）是前端**拼**的相对路径，
+  **从不看盘** —— 文件不存在照样给“预览 / 打开”，点了报错；
+- Word 行的路径按当前书名拼，而“存不存在”问的是 `output/` 里最新的 docx（= 旧书的），
+  于是“按钮可点、路径不存在”；顶栏“📕 成品”打开的也是旧书成品
+  （作者看到的“第9章划号”是上一本书的章标题）。
+
+修法：判据只留一份 —— `nf_api._artifact_paths()` 按盘上事实回报，`/state` 带
+`artifacts`（Word 只认当前书名的成品，并按 mtime 取最新），前端按 `exists` 渲染；
+`output/` 进 `ROOT_ITEMS`，成品随书归档/恢复。判据：`test_artifact_truth.py`（18 条，
+含“别书的 docx 不冒充本书成品”）+ `test_switch_book_scope`（output 归档与恢复）。
+
+### 修复：阶段 5 的完成判据不验账本
+
+`SELF_CRITERIA` 与任务书写着“缺账本 = 视为没检查”，但 `self_done()` 只看
+`checked/NN.md` 可不可用 —— 一份没写账本的“检查”照样判完成（试跑实测：4 批全绿、
+七维 8.14 分，`data/review/` 里一条记录都没有）。新增 `_ledger_gaps()`：账本缺失/
+不可解析/漏章/举证不完整一律判未完成。判据：`test_stage5_ledger.py`（12 条）。
+
+### 修复：导出逐章核对把“归一化差异”当成了内容差异
+
+假红（0/12 章一致，成品其实完整）的修法此前只落在了**工作区副本**里，源码树没有。
+现在落地 `export_check._source_body()`，并改为复用合并阶段那一个函数
+（`text_norm.normalize_chinese_punctuation`）—— 合并口径与核对照口径只剩一份。
+判据：`test_export_matches` X7/X8/X9 + 反证 X9b（真截断仍要红）。
+
+### 修复：其余三处口径
+
+- `progress_manager.set_stage`：转 `done` 时清掉上一次失败/中断留下的 `error`
+  （界面不再显示“完成了但有错”）；`failed` 仍保留原因。
+- 字数口径：安装包骨架 `config/project.yaml` 的 `target_words` 9000/3 → 300000/40
+  （与 `project.yaml.example` 对齐，注释写明它只是参考值）；`quality_checklist`
+  的均摊判据改用 `chapter.target_words` 中位，总量与章数漂移不再把合格章判红。
+- 文案：“不会上传到绒花墨坊的服务器”（根本没有服务器）→ 说真话；设定目录的
+  “（不用这一类）”→“这一类不读”并补一句解释。手册补“产物速览显示的就是盘上有的”
+  “篇幅：单章写多少字”“章标题长什么样”。
+
 ### 修复：判定面板的写按钮“点了没反应”（0.7.38）
 
 `agent_mode: true` 时，`/judge/feelings/settle`、`/judge/events`、`/judge/sentence` 都要求

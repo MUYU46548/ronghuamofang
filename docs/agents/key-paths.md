@@ -26,6 +26,11 @@
   - **恢复**：`python scripts/snapshot.py --restore <ID> --yes`。默认 dry-run；
     恢复前自动存 `pre_restore` 快照作折返点；快照外的文件默认保留。
 - 多书归档：`data/books/{书名}/`（switch_book.py 归档/恢复；切换前 orchestrator 会提示书名不一致）
+  - 归档清单 = `data/` 的 9 项（`switch_book.ITEMS`：progress.json / setting / outline / chapters /
+    summaries / merged / state / materials_manifest.json / writing_rules.md）+ 项目根三项
+    `ROOT_ITEMS = config / materials / output`。**`output/` 2026-11-04 才进清单** ——
+    此前成品永远留在工作区，换书后界面的“Word 成品”指着上一本书（试跑实测：
+    新建《测试用书1104》后点开成品，看到的是《潮汐档案》的章标题）
   - **查看 / 删除**：`GET /project/archive/tree|file`（只读）、`POST /project/archive/delete`
     （GUI 来源头 + 逐字书名确认；默认移入下条的回收站，`purge=true` 才真删）
   - 归档回收站：`data/books/_trash/{书名}__{时间戳}/`（删除的默认落点，要彻底清除手工删该目录；

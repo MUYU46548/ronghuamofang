@@ -520,13 +520,83 @@ def _self_batches(cfg, proj):
     return pending, [pending[i:i + size] for i in range(0, len(pending), size)]
 
 
+def _ledger_gaps(proj):
+    """self 模式的账本判据（2026-11-04，试跑 P1-5）。
+
+    ## 治的病
+    `SELF_CRITERIA` 与任务书里都写着“缺账本 = 视为没检查”，但 `self_done`
+    只问 checked 稿可不可用 —— 于是一份**根本没写账本**的“检查”照样判完成：
+    阶段 5 是绿的，`data/review/` 里却一条七维记录都没有（试跑实测：4 批
+    全部 `complete=True`，账本要靠人手工抽句填）。判据不验账本 = 这条闸门不存在。
+
+    ## 判据（全部确定性、零模型）
+    ① `data/review/` 下必须有 `batch*.json`，且每份都能解析成账本；
+    ② 每章的 raw 原文必须在某一份账本里有评审记录（缺章 = 这一章没检查）；
+    ③ 该章的七维举证必须 `complete`（引句逐字命中原文、维度不缺）。
+    任一不满足都返回人话问题清单，由 `self_done` 判未完成。
+    """
+    from utils import review_ledger as rl
+    from utils import writing_form as _wf
+    raw_dir = Path("data/chapters/raw")
+    raws = sorted(raw_dir.glob("*.md"))
+    if not raws:
+        return []
+    texts = {}
+    for f in raws:
+        no = _chapter_no(f)
+        if no is None:
+            continue
+        try:
+            texts[no] = read_text(f)
+        except Exception:                                     # noqa: BLE001
+            texts[no] = ""
+    if not texts:
+        return []
+    if not REVIEW_DIR.is_dir():
+        return ["data/review/ 下没有任何评审账本（缺账本 = 这一阶段没检查）"]
+    app = _wf.applicability(proj) or {}
+    dims, questions = app.get("review_dims"), app.get("aesthetic")
+    covered, bad, incomplete = {}, [], []
+    for p in sorted(REVIEW_DIR.glob("batch*.json")):
+        try:
+            payload = rl.load_payload(read_text(p))
+            results, _unknown = rl.validate_payload(payload, texts,
+                                                    dims=dims, questions=questions)
+        except Exception as e:                                # noqa: BLE001
+            bad.append("%s（%s）" % (p.name, type(e).__name__))
+            continue
+        for r in results:
+            covered.setdefault(r["chapter"], r)
+    problems = []
+    if bad:
+        problems.append("%d 份账本不可用：%s" % (len(bad), "、".join(bad[:5])))
+    missing = sorted(set(texts) - set(covered))
+    if missing:
+        problems.append("%d 章没有七维评审记录（%s）"
+                        % (len(missing), "、".join("第%d章" % n for n in missing[:8])))
+    incomplete = sorted(n for n, r in covered.items() if not r.get("complete"))
+    if incomplete:
+        problems.append("%d 章七维举证不完整（%s）"
+                        % (len(incomplete),
+                           "、".join("第%d章" % n for n in incomplete[:8])))
+    return problems
+
+
 def self_done(cfg, proj, progress=None, **_):
-    """所有 raw 章都有**可用**的 checked 稿才算完成（空壳按未完成算）。"""
+    """所有 raw 章都有**可用**的 checked 稿、且账本覆盖全书才算完成。
+
+    2026-11-04（试跑 P1-5）：只验 checked 稿等于给“没检查”发通行证 ——
+    账本判据（`_ledger_gaps`）必须一起进完成判定。
+    """
     pending, _batches = _self_batches(cfg, proj)
     if pending:
         return False, ("还有 %d 章的检查稿缺失或不可用：%s"
                        % (len(pending), [f.name for f in pending][:8]))
-    return True, "checked 稿齐备"
+    gaps = _ledger_gaps(proj)
+    if gaps:
+        return False, ("检查稿齐备，但检查记录不完整（缺账本 = 视为没检查）："
+                       + "；".join(gaps))
+    return True, "checked 稿齐备，七维评审账本已覆盖全书"
 
 
 def emit_tasks(cfg, proj, progress=None, task_dir=None, **_):
