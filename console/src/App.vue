@@ -4964,29 +4964,39 @@ onUnmounted(() => {
       </button>
     </div>
     <nav class="tabs">
+      <!-- 页签分组（2026-11-04 用户拍板 A）：17 个页签原来一串排到底，找不到东西。
+           只做**分组**，标签、顺序、点击行为都不改 —— 不打乱既有习惯，不动既有 e2e 选择器。
+           用 `.tab-group` 而不是插一条分隔线：分隔线在换行时会被甩到行尾，
+           分组用 border-left 挂在组上，换行时跟着组一起走。 -->
+      <div class="tab-group" role="group" aria-label="写作" title="写作">
       <button :class="{ active: tab === 'pipeline' }" @click="switchTab('pipeline')">流水线</button>
       <button :class="{ active: tab === 'chapters' }" @click="switchTab('chapters'); !chaptersLoaded && loadChapters()">章节</button>
       <button :class="{ active: tab === 'materials' }" @click="switchTab('materials'); loadMaterials()">素材</button>
       <button :class="{ active: tab === 'story' }" @click="switchTab('story'); loadSetting()">设定</button>
       <button :class="{ active: tab === 'outline' }" @click="switchTab('outline')">大纲</button>
       <button :class="{ active: tab === 'outline_chapters' }" @click="switchTab('outline_chapters'); loadOutlineChapters()">分章</button>
+      </div>
+      <div class="tab-group" role="group" aria-label="审校" title="审校">
       <button :class="{ active: tab === 'review' }" @click="switchTab('review')">审稿</button>
       <button :class="{ active: tab === 'refine' }" @click="switchTab('refine')">精修</button>
       <button :class="{ active: tab === 'sandbox' }" @click="switchTab('sandbox'); loadSandboxQueue()">
         审核<span v-if="reviewPending" class="badge">{{ reviewPending }}</span>
       </button>
       <button :class="{ active: tab === 'proofread' }" @click="switchTab('proofread')">校对</button>
+      <button :class="{ active: tab === 'style' }" @click="switchTab('style')">文风</button>
+      </div>
+      <div class="tab-group" role="group" aria-label="系统" title="系统">
+      <button :class="{ active: tab === 'cost' }" @click="switchTab('cost')">成本</button>
       <button @click="asksOpen = !asksOpen; loadAgentAsks()" title="外接 Agent 提出的问题（回答后 Agent 能读到）">
         Agent 提问<span v-if="askPending" class="badge">{{ askPending }}</span>
       </button>
-      <button :class="{ active: tab === 'style' }" @click="switchTab('style')">文风</button>
-      <button :class="{ active: tab === 'cost' }" @click="switchTab('cost')">成本</button>
       <button :class="{ active: tab === 'inbox' }" @click="switchTab('inbox')">
         收件箱<span v-if="pendingGates.length" class="badge">{{ pendingGates.length }}</span>
       </button>
       <button :class="{ active: tab === 'project' }" @click="switchTab('project')">项目</button>
       <button :class="{ active: tab === 'settings' }" @click="switchTab('settings')">设置</button>
       <button :class="{ active: tab === 'export' }" @click="switchTab('export')">导出</button>
+      </div>
     </nav>
     <div class="conn" :class="{ on: online }">{{ online ? "已连接" : "离线" }}</div>
     <button class="mini global-refresh-btn" @click="globalRefresh" title="全局刷新（所有页签数据）">↻</button>
