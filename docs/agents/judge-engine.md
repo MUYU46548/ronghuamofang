@@ -96,3 +96,61 @@ GUI 两个入口，勾选那块是**同一个组件**（`console/src/JudgeEvents
 - "移除"只移到 `_removed/`，不删文件；`restore` 可恢复。
 - 回测报告 `evidence.capability.verified` 只在条目数 > 0 时为 true，并给出份数。
 - 判据：`tests/unit/test_benchmark.py`（28 项，含 API 层）。
+
+## 第三条证据（M4=B，2026-11-04 作者拍板）
+
+> 问卷原话（`docs/questionnaires/20261104-宪法层-r2.md` M4）：证据由**模型先出**、作者**终裁**；
+> 越层代裁的判据要被打回。验收 = ① 判据清单标明产出方 ② 越层写入被拒 ③ 真跑一次模型能产合格证据。
+
+### 判断分三层，每层只有一个写入口
+
+| 层 | 谁 | 能写什么 | 写不进什么 |
+|---|---|---|---|
+| 规则 | `utils/judge/rules.py` | 依据（字数/句长/复读/密度/落地） | 档位、分数、作者裁定 |
+| 模型 | `utils/judge/feelings.py` | `pending` 候选（段号 + 原句 + 感受 + 理由） | 档位 / status / source / 终裁 → **400** |
+| 作者 | 界面“第三条证据”/ `POST /judge/feelings/settle` | 采纳 / 推翻 / 驳回（推翻与驳回都必须给理由） | —— |
+
+### 判据清单带产出方（`producer` / `settled_by`）
+
+- `caliber.FACTORY` 现 15 条，每条 `producer ∈ {rules, model, author}`、
+  `settled_by ∈ {verdict.decide, author}`。J12（事件数）= 作者产作者裁；
+  **J15（第三条证据）= 模型产、作者裁**。
+- `GET /judge/caliber` 经 `describe()` 逐条给 `producer_name` / `settled_by_name`；
+  界面“改标准”新增“产出方 / 谁终裁”一列。
+- **老工作区（v1 的 14 条、无 producer）不自动顶上**：`needs_upgrade` 只报缺什么，
+  `POST /judge/caliber/upgrade` 显式补登记（产新版本、旧版进 history、不动任何阈值）。
+  为什么不做读盘兜底：口径模块的铁律是"判定时只读登记表"；自动顶替会让"表里没写"
+  看起来像"表里写了"，而 M4 要的正是**登记过的事实**。
+
+### 越层一律拒收（验收②）
+
+`POST /judge/feelings/propose`（Agent 可调用）顶层只收 `chapter/items/model/note`，
+条目只收 `paragraph_index/sentence/feeling/reason`。带 `verdict` / `status` /
+`settled_by` / `source` / `book_reject` / `quality` / `score` / `checked` … 任一 →
+**400 且整批不落盘**（不许"部分接受"，静默丢弃比报错更糟）。
+
+证据本身还要过三关（与缺陷单同一把尺）：原句必须在 raw 正文里定位到（先按句子、
+再退化为"整段包含"——跨句引用也认，但**不许编造**）、段号必须与正文一致、理由 ≥4 字。
+落盘状态一律 `pending`：模型提案**不会**自动变成作者裁定。
+
+### 终裁只认作者
+
+- `POST /judge/feelings/settle` 列进 `FORBIDDEN_IN_AGENT_MODE`（Agent → 403）：
+  采纳 / 推翻 / 驳回；**已终裁的不许再裁**（不覆盖）；正文改过、原句定位不到 → 拒。
+- 作者裁定仍走 `records.set_sentence(..., source="author", from_proposal=<提案 id>)`，
+  报告才数得出"最终结论里有多少条是模型先出的"（`third_evidence.author_from_model`）。
+- 提案与终裁都写 `records.json` 的 `proposals.feelings` —— F13 单一出口不破。
+
+### 真跑一次（验收③，要花钱）
+
+```bash
+python scripts/judge_feelings.py --chapter 3 --dry-run   # 零调用：看提示词与预估
+python scripts/judge_feelings.py --chapter 3             # 一次 direct 调用 → 合格候选落盘
+python scripts/judge_feelings.py --chapter 3 --print     # 只看已有候选与终裁状态
+```
+
+提示词 `prompts/judge_feelings.md`（明写"不许评档位/分数、不许编造原句"）。
+`engine: self|hermes` 下不跑真调用（self 按设计禁调模型），`--dry-run` 仍可用。
+
+判据：`tests/unit/test_judge_third_evidence.py`（73 项，含越层/编造/终裁/单一出口/CLI 预演）
++ `tests/e2e/e2e_judge_panel.py` §I（真机：提案 → 待你裁 → 采纳 → 计数变化 → 口径表带产出方）。

@@ -9,6 +9,28 @@ CHANGELOG”）。本文件从工程审查修复起正式启用。
 
 ## [Unreleased]
 
+### 第三条证据：模型先出、作者终裁（M4=B）
+
+判定引擎的第三条证据（"这句打不打动人"）以前只有作者能出（J12 裁定入口）。问卷 M4 选 B
+之后改成：**模型先出候选，作者逐条终裁**，并把"谁产的"写进判据清单。
+
+- `caliber` 每条判据新增 `producer`（rules/model/author）与 `settled_by`；
+  新登记 **J15 第三条证据 = 模型产、作者裁**；老工作区的 v1 表靠
+  `needs_upgrade` 只报告 + `POST /judge/caliber/upgrade` 显式补登记（产新版本，不动阈值）。
+- 新模块 `utils/judge/feelings.py`：模型只能写 `pending` 候选；**越层**（payload/条目里带
+  `verdict`/`status`/`source`/`book_reject`… ）→ 400 且整批不落盘；编造引文、段号对不上、
+  理由为空同样整批拒收。终裁只认作者（采纳/推翻/驳回，推翻与驳回必须给理由，
+  已终裁不许覆盖，正文改过则旧提案失效）。
+- 端点：`GET /judge/feelings`、`POST /judge/feelings/propose`（Agent 可调）、
+  `POST /judge/feelings/settle`（`FORBIDDEN_IN_AGENT_MODE`，Agent 403）、
+  `POST /judge/caliber/upgrade`；报告页与单章页显示"模型提了几条 / 你裁了几条 /
+  其中多少条来自模型"。
+- 界面：单章新增“第三条证据（模型先出，你终裁）”块（采纳/推翻/驳回 + 理由）；
+  改标准表新增“产出方 / 谁终裁”列。
+- 真跑入口：`python scripts/judge_feelings.py --chapter N`（`--dry-run` 零调用；
+  `--print` 只看已有候选）。提示词 `prompts/judge_feelings.md`。
+- 判据：`tests/unit/test_judge_third_evidence.py`（73）+ `tests/e2e/e2e_judge_panel.py` §I。
+
 ### 作品写作约束：每本书一份，写什么就按什么来（M12）
 
 写作约束以前散在风格笔记、提示词和讨论结论里，新开的 agent 会话不知道这本书的规矩。现在：

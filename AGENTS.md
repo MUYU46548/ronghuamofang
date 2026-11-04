@@ -199,6 +199,11 @@ CLI：`python scripts/judge.py run` → `report` / `chapter N` / `destroy N` / `
 产物：口径 `data/judge/caliber.json`、判定记录 `data/judge/records.json`（**只有这一个写点**）。
 三条界：① 规则只产依据，档位只在 `verdict.decide`；② 阈值只在口径表（代码里硬编码 = 造空判据）；
 ③ 事件勾选与逐句裁定是**作者本人**动作（`/judge/events`、`/judge/sentence` 对 Agent 403）。
+**第三条证据（M4=B，2026-11-04）**：判据清单每条带 `producer`（rules/model/author）与
+`settled_by`；J15 = **模型先出候选、作者终裁**（`/judge/feelings/propose` 只收证据，
+带档位/终裁 → 400；终裁 `/judge/feelings/settle` 对 Agent 403）。老口径表缺产出方时
+`needs_upgrade` 只报告，`POST /judge/caliber/upgrade` 显式补登记（产新版本）。
+真跑：`python scripts/judge_feelings.py --chapter N`（`--dry-run` 零调用）。
 同时拆了三处锁：stage4 的“擅长克制叙事”“不得新增关键情节”、无范文的“中立克制”兜底；
 stage5/6 的 `max_tokens` 抬到 **40000/25000**，并在开跑前做**预算—篇幅联动校验**（装不下不发请求）。
 **容量口径（2026-10-30 修）**：判据一律按**本次请求实际要产出的总字数**算，不是单章最大字数 ——
