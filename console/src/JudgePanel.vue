@@ -10,6 +10,7 @@
  */
 import { ref, computed, onMounted, nextTick } from "vue";
 import { API } from "./apiBase.js";
+import { postJSON } from "./guiApi.js";
 import JudgeEvents from "./JudgeEvents.vue";
 
 // archived：归档搬空了工作区 —— 外层要重载项目列表/阶段/章节（2026-10-31）
@@ -119,9 +120,12 @@ async function clearBookReject() {
 }
 
 async function call(method, path, body) {
-  const opt = { method, headers: { "Content-Type": "application/json" } };
-  if (body !== undefined) opt.body = JSON.stringify(body);
-  const r = await fetch(API + path, opt);
+  // 写请求必须走 guiApi.postJSON（2026-11-04 修）：它带 X-Mofang-Source + 主进程签发的
+  // X-Mofang-Token。自己拼 fetch 只带 Content-Type → agent_mode=true 时被 /judge/events、
+  // /judge/sentence、/judge/feelings/settle 这些**作者专属写端点**判成“非受信来源”403，
+  // 而按钮看起来“点了没反应”（错误显示在面板顶部，用户正滚在下面）。
+  if (method === "POST") return postJSON(path, body);
+  const r = await fetch(API + path);
   const d = await r.json().catch(() => ({}));
   if (r.status >= 400) throw new Error(d.error || ("HTTP " + r.status));
   return d;
@@ -196,7 +200,12 @@ async function settleFeeling(p, action, extra) {
     feelOpen.value = null; feelPick.value = "打中了"; feelWhy.value = "";
     await openChapter(detail.value.chapter);
     emit("say", d.message || "已终裁");
-  } catch (e) { err.value = String(e.message || e); }
+  } catch (e) {
+    const m = String(e.message || e);
+    err.value = m;
+    // 错误同时走 toast：面板的错误行在顶部，用户正滚在下面时看不见 = “点了没反应”
+    emit("say", "终裁没成功：" + m);
+  }
   busy.value = false;
 }
 

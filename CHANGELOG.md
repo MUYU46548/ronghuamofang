@@ -9,6 +9,18 @@ CHANGELOG”）。本文件从工程审查修复起正式启用。
 
 ## [Unreleased]
 
+### 修复：判定面板的写按钮“点了没反应”（0.7.38）
+
+`agent_mode: true` 时，`/judge/feelings/settle`、`/judge/events`、`/judge/sentence` 都要求
+桌面端**双因子**（`X-Mofang-Source: gui` + 主进程签发的 `X-Mofang-Token`）。而
+`JudgePanel.vue` 与 `JudgeEvents.vue` 自己拼 `fetch`，只带 `Content-Type` → 后端 403；
+错误行又渲染在面板顶部，用户正滚在第三条证据那一块，于是表现为“采纳点了五六次没任何反应”。
+
+- 写请求统一走 `console/src/guiApi.js` 的 `postJSON`（唯一带双因子头的入口）；
+- 终裁失败同时 `emit("say", …)` 弹 toast，不再让错误只躺在页面顶部；
+- 判据：`test_judge_third_evidence` 加 4 条静态守卫（两面板必须用 postJSON、不得手拼 POST fetch）
+  + 真机验证（临时根 + agent_mode=true + 自铸 token：无头 403 / 带头 200）。
+
 ### 第三条证据：模型先出、作者终裁（M4=B）
 
 判定引擎的第三条证据（"这句打不打动人"）以前只有作者能出（J12 裁定入口）。问卷 M4 选 B

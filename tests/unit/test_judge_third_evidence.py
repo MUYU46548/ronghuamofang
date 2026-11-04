@@ -263,6 +263,22 @@ def main():
     check("Agent 模式下读侧 /judge/feelings 不拦",
           not AG.is_forbidden_in_agent_mode("/judge/feelings"))
 
+    # 前端双因子（2026-11-04 实测事故：点“采纳”五六次没反应）
+    # agent_mode=true 时 /judge/feelings/settle、/judge/events、/judge/sentence 都要求
+    # 来源头 + 主进程签发的 token。面板自己拼 fetch 只带 Content-Type → 403，
+    # 而错误行在面板顶部、用户滚在下面 → 表现为“按钮坏了”。
+    jp = (ROOT / "console" / "src" / "JudgePanel.vue").read_text(encoding="utf-8")
+    je = (ROOT / "console" / "src" / "JudgeEvents.vue").read_text(encoding="utf-8")
+    check("JudgePanel 的写请求走 guiApi.postJSON",
+          'from "./guiApi.js"' in jp and "postJSON(path, body)" in jp)
+    check("JudgeEvents 的写请求走 guiApi.postJSON",
+          'from "./guiApi.js"' in je and 'postJSON("/judge/events"' in je)
+    check("两处都不再手拼 POST fetch",
+          'method: "POST"' not in jp and 'method: "POST"' not in je,
+          [n for n, t in (("JudgePanel", jp), ("JudgeEvents", je)) if 'method: "POST"' in t])
+    check("终裁失败会走 toast（错误不能只在面板顶部）",
+          'emit("say", "终裁没成功：' in jp)
+
     print("\n=== I. 提示词与 CLI（零 token 预演） ===")
     prompt = ROOT / "prompts" / "judge_feelings.md"
     ptext = prompt.read_text(encoding="utf-8") if prompt.exists() else ""

@@ -29,7 +29,7 @@
  *    不能合并成一个数字（AC-24-7 同一精神）。
  */
 import { ref, computed, watch } from "vue";
-import { API } from "./apiBase.js";
+import { postJSON } from "./guiApi.js";
 
 const props = defineProps({
   chapter: { type: Number, required: true },
@@ -126,15 +126,12 @@ async function save() {
       const t = String(evd.value[i] || "").trim();
       if (t) evidences[i] = t;
     });
-    const r = await fetch(API + "/judge/events", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chapter: props.chapter, checked: idx,
-                             classes, evidences, rejected: rj,
-                             total: props.events.length }),
+    // 写请求走 guiApi.postJSON：带双因子头（agent_mode=true 时 /judge/events 是
+    // 作者专属写端点，自己拼 fetch 会被 403，界面表现为“点了没反应”）。
+    const d = await postJSON("/judge/events", {
+      chapter: props.chapter, checked: idx, classes, evidences, rejected: rj,
+      total: props.events.length,
     });
-    const d = await r.json().catch(() => ({}));
-    if (r.status >= 400) throw new Error(d.error || ("HTTP " + r.status));
     emit("say", "第 " + props.chapter + " 章：认定 " + idx.length + " 件事"
                 + (unproven.value ? "（其中 " + unproven.value + " 条没填证据，不算进 "
                                     + props.eventMin + " 件）" : "")

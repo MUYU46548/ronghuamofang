@@ -379,7 +379,7 @@ function getWorkspaceSource() {
 //   · 前端（asar，不走种子）：项目页出厂徽标 / 启动提示词剥离说明书 /
 //     阶段复制改任务简报（原样贴模板会被外部 Agent 按红线判“模板不是任务”停工）。
 // **先 bump 再 electron-builder**。
-const SEED_VERSION = 79;   // 0.7.37: 代码随安装包版本刷新（含第三条证据块的空态补丁）
+const SEED_VERSION = 80;   // 0.7.38: 判定面板写请求改走 guiApi.postJSON（agent_mode 下不再 403）
                             //   · payload scripts：新 ask.py 域、nf_mcp 加 6 个工具、
                             //     chapters/content 缺省取最高存在层、agent_guard 加 /ask/answer
                             //   · 前端（asar）：顶栏“Agent 提问”+ 回答浮层
