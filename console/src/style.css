@@ -363,10 +363,10 @@ body {
   .topbar .topbar-tools .mini { font-size: 12px; padding: 4px 8px; }
   /* 暗色下组标题/副标题必须提亮：opacity 0.7 的淡灰压在深底上只有约 3:1，
      实测“看不清、像禁用文字”。分隔线同理 —— 看不见线，分组就没了。 */
-  .is-dark .topbar .tab-group-title { opacity: 0.95; }
-  .is-dark .topbar .brand-sub-btn { color: var(--muted); }
-  .is-dark .topbar .tab-group + .tab-group { border-top-color: rgba(255, 255, 255, 0.14); }
-  .is-dark .topbar .topbar-tools { border-top-color: rgba(255, 255, 255, 0.14); }
+  .is-dark .topbar .tab-group-title { opacity: 1; color: #b9bdd4; }
+  .is-dark .topbar .brand-sub-btn { color: #a8acc4; }
+  .is-dark .topbar .tab-group + .tab-group { border-top-color: rgba(255, 255, 255, 0.26); }
+  .is-dark .topbar .topbar-tools { border-top-color: rgba(255, 255, 255, 0.20); }
   .topbar .global-refresh-btn { margin-left: 0; }
 }
 .badge {
@@ -1733,6 +1733,9 @@ kbd {
 /* ---- 品牌可点击（LOGO → 关于；书名 → 项目页签） ---- */
 .brand-btn {
   display: flex; align-items: center; gap: 10px;
+  /* ⚠️ 必须显式给 color：button 不继承父级，暗色主题下默认黑字压在深底上
+     = 品牌名几乎看不见（2026-11-05 侧栏改造后截图目检抓出）。 */
+  color: var(--ink);
   border: none; background: transparent; padding: 4px 6px; margin-left: -6px;
   border-radius: 10px; cursor: pointer; text-align: left;
 }
