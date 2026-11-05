@@ -35,6 +35,68 @@ const emit = defineEmits(["say"]);
 const n = ref(1);
 const outline = ref({ loading: false, content: "", error: "" });
 const ledger = ref({ loading: false, data: null, error: "" });
+// 设定卡（2026-11-05，照 SP-1026 的工作台补）：右栏要能同时看到
+// “这一章用到哪些设定卡”，否则改正文时还得切到设定页签去查人。
+const setting = ref(null);
+const appear = ref({});
+// 切章前的未保存拦截（2026-11-05）：编辑器里改到一半点“下一章”，此前会直接
+// 换章、改动无声消失（顶部只写了一行灰字提醒，等于没拦）。现在先问，再切。
+const editorRef = ref(null);
+const pendingSwitch = ref(null);
+
+function requestChapter(x) {
+  if (!x || x === n.value) return;
+  if (editorRef.value && editorRef.value.dirty) {
+    pendingSwitch.value = x;
+    return;
+  }
+  n.value = x;
+}
+async function saveThenSwitch() {
+  try { await editorRef.value?.save?.(); } catch (e) { /* 保存失败就不切，错误在编辑器里 */ return; }
+  if (editorRef.value && editorRef.value.dirty) return;
+  const t = pendingSwitch.value;
+  pendingSwitch.value = null;
+  if (t) n.value = t;
+}
+function discardThenSwitch() {
+  const t = pendingSwitch.value;
+  pendingSwitch.value = null;
+  if (t) n.value = t;
+}
+
+async function loadSettingCards() {
+  const r = await props.api("/setting/current");
+  setting.value = (r.status === 200 && r.data && r.data.ok) ? (r.data.setting || null) : null;
+  const a = await props.api("/setting/appearances");
+  if (a.status === 200 && a.data && a.data.ok) {
+    const d = a.data;
+    const out = {};
+    for (const [k, v] of Object.entries(d)) {
+      // 跳过端点自带的元字段（ok / alias / hint），其余键就是角色名
+      if (k === "ok" || k === "alias" || k === "hint" || !v || typeof v !== "object") continue;
+      out[k] = v;
+    }
+    appear.value = out;
+  } else {
+    appear.value = {};
+  }
+}
+
+// 本章出场的设定卡：appearances 的 per_chapter 里有这一章，就算出场。
+const chapterCards = computed(() => {
+  const per = {};
+  for (const [name, st] of Object.entries(appear.value || {})) {
+    const hits = (st && st.per_chapter && st.per_chapter[String(n.value)]) || 0;
+    if (!hits) continue;
+    const card = ((setting.value || {}).characters || [])
+      .find((c) => c && (c.name === name || (Array.isArray(c.alias) && c.alias.includes(name))));
+    per[name] = { name, hits, level: (st && st.level) || "background",
+                  kind: (card && (card.type || card.kind)) || "人物",
+                  alias: (card && Array.isArray(card.alias) && card.alias) || [] };
+  }
+  return Object.values(per).sort((a, b) => (b.hits || 0) - (a.hits || 0));
+});
 
 const chapterOptions = computed(() => props.chapters || []);
 
@@ -42,6 +104,20 @@ function qualityOf(no) {
   const q = props.quality ? props.quality[no] : null;
   return q == null ? null : q;
 }
+// 章状态点（照 SP-1026 的三色点）：绿=润色稿在、橙=只有检查稿、灰=只有原稿
+function dotClass(c) {
+  const f = c.files || {};
+  if (f.refined) return "dot-done";
+  if (f.checked) return "dot-warn";
+  return "dot-todo";
+}
+function dotTitle(c) {
+  const f = c.files || {};
+  if (f.refined) return "润色稿已就绪";
+  if (f.checked) return "只有检查稿，未润色";
+  return "只有原稿";
+}
+
 function qualityClass(q) {
   if (q == null) return "st-pending";
   if (q >= 7) return "st-done";
@@ -104,7 +180,7 @@ const aestheticItems = computed(() => {
 function go(delta) {
   const i = chapterOptions.value.findIndex((c) => c.n === n.value);
   const target = chapterOptions.value[i + delta];
-  if (target) n.value = target.n;
+  if (target) requestChapter(target.n);
 }
 const canPrev = computed(() => {
   const i = chapterOptions.value.findIndex((c) => c.n === n.value);
@@ -121,6 +197,7 @@ onMounted(() => {
   if (chapterOptions.value.length) n.value = chapterOptions.value[0].n;
   loadOutline();
   loadLedger();
+  loadSettingCards();
 });
 </script>
 
@@ -134,7 +211,8 @@ onMounted(() => {
       </div>
       <div class="desk-chap-list">
         <button v-for="c in chapterOptions" :key="c.n" class="desk-chap"
-                :class="{ on: c.n === n }" @click="n = c.n">
+                :class="{ on: c.n === n }" @click="requestChapter(c.n)">
+          <span class="desk-chap-dot" :class="dotClass(c)" :title="dotTitle(c)"></span>
           <span class="desk-chap-no">{{ c.n }}</span>
           <span class="desk-chap-name">第 {{ c.n }} 章</span>
           <span v-if="qualityOf(c.n) != null" class="pill" :class="qualityClass(qualityOf(c.n))">
@@ -158,7 +236,16 @@ onMounted(() => {
           <span class="meta">改完记得保存（Ctrl+S）；不保存就切章会丢</span>
         </div>
         <div class="desk-mid-body">
-          <ChapterEditor :api="api" :n="n" embedded @say="(m) => emit('say', m)" />
+          <!-- 未保存拦截条：切章/翻章前出现，三个按钮就是全部出口 -->
+          <div v-if="pendingSwitch != null" class="desk-unsaved">
+            <b>这一章有未保存的改动</b>
+            <span class="meta">切到第 {{ pendingSwitch }} 章前先决定怎么处理</span>
+            <span class="spacer"></span>
+            <button class="mini" @click="pendingSwitch = null">留在这章</button>
+            <button class="mini danger" @click="discardThenSwitch">丢弃改动并切换</button>
+            <button class="mini primary" @click="saveThenSwitch">保存并切换</button>
+          </div>
+          <ChapterEditor ref="editorRef" :api="api" :n="n" embedded @say="(m) => emit('say', m)" />
         </div>
       </template>
       <!-- 没有章节时不渲染编辑器：否则它会对不存在的章反复报 404，
@@ -177,6 +264,23 @@ onMounted(() => {
 
     <!-- 右：写作依据（大纲 + 七维评审） -->
     <aside class="desk-right">
+      <div class="desk-block">
+        <div class="desk-block-title">
+          本章出场
+          <span class="meta">{{ chapterCards.length }} 个角色</span>
+        </div>
+        <div v-if="!chapterCards.length" class="meta desk-dims-note">
+          这一章还没有出场统计（<code>appearances.json</code> 由阶段 4 每章完成后更新）。
+        </div>
+        <div v-else class="desk-cards">
+          <div v-for="c in chapterCards" :key="c.name" class="desk-card">
+            <span class="desk-card-dot" :class="'lv-' + c.level"></span>
+            <span class="desk-card-name">{{ c.name }}</span>
+            <span class="desk-card-meta">{{ c.kind }} · 出场 {{ c.hits }} 次</span>
+          </div>
+        </div>
+      </div>
+
       <div class="desk-block">
         <div class="desk-block-title">这一章本来要写成什么</div>
         <div v-if="outline.loading" class="meta">读取中…</div>
@@ -216,8 +320,8 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.desk { display: flex; gap: 12px; height: calc(100vh - 210px); min-height: 420px; }
-.desk-left { flex: none; width: 176px; display: flex; flex-direction: column; min-height: 0; }
+.desk { display: flex; gap: 10px; height: calc(100vh - 210px); min-height: 420px; font-size: 13px; }
+.desk-left { flex: none; width: 220px; display: flex; flex-direction: column; min-height: 0; }
 .desk-left-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
 .desk-chap-list { flex: 1; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
 .desk-chap {
@@ -229,10 +333,29 @@ onMounted(() => {
 .desk-chap:hover { background: rgba(107, 138, 253, 0.08); }
 .desk-chap.on { background: rgba(107, 138, 253, 0.16); font-weight: 600; }
 .desk-chap-no { flex: none; width: 22px; text-align: right; color: var(--muted, #888); font-size: 11px; }
+/* 章状态点（照 SP-1026 的三色点）：一眼看出这章写到哪一层 */
+.desk-chap-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--border); }
+.desk-chap-dot.dot-done { background: var(--ok, #2e8b57); }
+.desk-chap-dot.dot-warn { background: var(--warn, #b8860b); }
+.desk-chap-dot.dot-todo { background: var(--border); }
+/* 本章出场卡：名 + 类型 + 本章次数 */
+.desk-cards { display: flex; flex-direction: column; gap: 4px; }
+.desk-card { display: flex; align-items: baseline; gap: 8px; font-size: 12.5px; }
+.desk-card-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--muted, #888); }
+.desk-card-dot.lv-major { background: var(--accent); }
+.desk-card-dot.lv-minor { background: var(--warn, #b8860b); }
+.desk-card-name { flex: 1; }
+.desk-card-meta { flex: none; color: var(--muted, #888); font-size: 11.5px; }
 .desk-chap-name { flex: 1; }
 .desk-empty { padding: 10px; line-height: 1.7; }
 
 .desk-mid { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.desk-unsaved {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin-bottom: 6px; padding: 6px 10px;
+  border: 1px solid var(--warn, #b8860b); border-radius: 8px;
+  background: rgba(184, 134, 11, 0.08); font-size: 12.5px;
+}
 .desk-mid-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
 .desk-mid-body { flex: 1; min-height: 0; display: flex; }
 .desk-empty-mid {
@@ -240,7 +363,7 @@ onMounted(() => {
   border: 1px dashed var(--border); border-radius: 10px;
 }
 
-.desk-right { flex: none; width: 288px; overflow: auto; display: flex; flex-direction: column; gap: 12px; }
+.desk-right { flex: none; width: 280px; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
 .desk-block { padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; }
 .desk-block-title { font-weight: 600; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
 .desk-outline {

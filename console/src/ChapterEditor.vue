@@ -64,6 +64,9 @@ const mode = ref("edit");            // edit | batch
 const text = ref("");
 const savedText = ref("");
 const dirty = computed(() => text.value !== savedText.value);
+// 审阅台切章前要能问一句“有未保存的改动”——把 dirty 暴露出去，
+// 不让父组件靠猜（猜错就是用户改的一整章凭空消失）。
+defineExpose({ dirty, save });
 
 const paras = ref([]);
 const parasLoading = ref(false);
@@ -368,8 +371,11 @@ onUnmounted(() => {
           </div>
         </div>
 
-        <!-- 右：批注 / 字数 / 版本信息 -->
-        <div class="ce-side">
+        <!-- 右：批注 / 字数 / 版本信息
+             ⚠️ 内联进审阅台时**只在“段落批注”模式出现**：审阅台本身已有右栏
+             （本章出场 / 大纲 / 七维），再并一列卡会变成四列“一堆重叠的卡片”
+             （2026-11-05 用户实测原话）。编辑模式让正文吃满宽度。 -->
+        <div v-if="!embedded || mode === 'paras'" class="ce-side">
           <div class="ce-side-block">
             <div class="ce-side-title">这一层</div>
             <div class="meta">{{ LAYER_LABEL[layer] }} · {{ LAYER_HINT[layer] }}</div>
@@ -423,6 +429,11 @@ onUnmounted(() => {
 /* 内联形态（审阅台中栏）：尺寸由父容器决定，不设遮罩 */
 .ce-embed { flex: 1; min-width: 0; min-height: 0; display: flex; }
 .ce-embedded { width: 100%; height: 100%; min-height: 0; }
+/* 内联进审阅台时，中栏本来就只有 1fr，再让侧卡占 300px 会把正文压到 400px 宽
+   （2026-11-05 截图目检：正文区不宽反而一堆辅助卡，正是“更难用”的来源）。
+   内联形态把侧卡收到 240、内边距收到 8px，正文多出约 100px。 */
+.ce-embedded .ce-body { padding: 8px 10px 10px; gap: 8px; }
+.ce-embedded .ce-side { width: 240px; gap: 8px; }
 .ce-layer-pills { display: inline-flex; gap: 6px; margin-left: 4px; }
 .ce-pill { padding: 2px 8px; }
 .ce-pill.on { background: var(--accent, #6b8afd); color: #fff; border-color: transparent; }

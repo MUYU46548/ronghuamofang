@@ -379,7 +379,11 @@ function getWorkspaceSource() {
 //   · 前端（asar，不走种子）：项目页出厂徽标 / 启动提示词剥离说明书 /
 //     阶段复制改任务简报（原样贴模板会被外部 Agent 按红线判“模板不是任务”停工）。
 // **先 bump 再 electron-builder**。
-const SEED_VERSION = 86;   // 0.7.44: 阶段 5 结构指标（文学抽样提示）+ 审稿账本分块
+const SEED_VERSION = 87;   // 0.7.45: 审阅台照 SP-1026 改（本章出场 / 状态点 / 切章拦截）
+                            //   · 前端（asar）：ChapterDesk 三栏（左 220 / 中 1fr / 右 280）、
+                            //     右栏“本章出场”、左栏三色状态点、未保存切章拦截条；
+                            //     ChapterEditor 内联时侧栏只在“段落批注”模式出现
+                            //   · payload scripts：无改动
                             //   · payload scripts：utils/judge/structure.py（六项确定性指标）、
                             //     judge_structure.py、nf_api_domains/runtime.py（GET /review/structure）、
                             //     stage5_check.py（自动落盘 structure.json|md）、
