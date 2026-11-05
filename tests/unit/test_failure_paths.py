@@ -692,6 +692,10 @@ def case_f7():
                         src).group(0) + "\n"
             + re.search(r"const SEED_FORCE_REFRESH_SUBDIRS = \[[^\]]*\];",
                         src).group(0) + "\n"
+            # 2026-11-05：产品说明类文件（kickoff）随版本刷新 —— 也是 seedWorkspace
+            # 依赖的常量；漏抽 → 探针 ReferenceError → __RESULT__ 不出现（假红）。
+            + re.search(r"const SEED_FORCE_REFRESH_FILES = \[[^\]]*\];",
+                        src).group(0) + "\n"
             + helper_body
             + fn_body + "\n"
             "seedWorkspace();\n"

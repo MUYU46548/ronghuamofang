@@ -62,9 +62,16 @@ def related(a, b):
     return inter >= MIN_OVERLAP and (inter / len(ga)) >= MIN_COVER
 
 
-def _load_status():
+def _load_status(path=None):
+    """读作者的人工标记（closed/abandoned）。
+
+    `path` 显式给出时按它读 —— `GET /chapters/context` 这类**带 --root 的只读视图**
+    必须读目标项目的状态文件，不能用进程 CWD 的相对路径（否则会给另一本书的伏笔
+    判“已回收”，而这里返回的是自认为准确的数字）。
+    """
     try:
-        data = json.loads(STATUS_PATH.read_text(encoding="utf-8"))
+        p = Path(path) if path else STATUS_PATH
+        data = json.loads(p.read_text(encoding="utf-8"))
         return data if isinstance(data, dict) else {}
     except (OSError, ValueError):
         return {}
@@ -103,10 +110,12 @@ def _read_chapters(outline_dir):
     return out
 
 
-def collect(outline_dir=None, stale_after=None, latest_chapter=None):
+def collect(outline_dir=None, stale_after=None, latest_chapter=None,
+            status_path=None):
     """生成台账。返回 dict（含 items / summary / notes）。
 
     `latest_chapter` 用于算"多久没推进"；不传则取章大纲的最大章号。
+    `status_path` 显式指定人工标记文件（只读视图 / `--root` 场景用）。
     """
     outline_dir = outline_dir or OUTLINE_DIR
     chapters = _read_chapters(outline_dir)
@@ -122,7 +131,7 @@ def collect(outline_dir=None, stale_after=None, latest_chapter=None):
         }
 
     latest = int(latest_chapter or chapters[-1][0])
-    human = _load_status()
+    human = _load_status(status_path)
     items, seen = [], set()
     for no, hook, _body in chapters:
         if not hook:

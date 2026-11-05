@@ -85,9 +85,11 @@ def handle_costs_summary(h):
             "engine": engine,
             "money_metered": engine != "hermes",
             "note": ("engine=hermes：走订阅流量，金额不计（恒 0 是“没有按量单价”，"
-                     "不是免费）；止烧只看 token 闸门。"
+                     "不是免费）；token 计数来自子会话回传的 usage 实测，"
+                     "止烧只看 token 闸门。"
                      if engine == "hermes"
-                     else "engine=direct：按 provider 刊例价估算（未收录单价的模型记 0）。"),
+                     else "engine=direct：按 provider 刊例价估算（未收录单价的模型记 0）；"
+                          "token 计数来自接口回传的 usage 实测。"),
             "io_ratio": (round(t_in / t_out, 1) if t_out else None),
             "io_note": ("输入:输出 比值偏大是正常的 —— 每次请求都要重发设定、大纲与前文；"
                         "这个数不是产出效率，也不该拿来横向比较模型。"),
@@ -592,9 +594,42 @@ def handle_remedy(h):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
-# 本模块负责的端点（供自检与文档；实际分发在 nf_api.do_GET 的 elif 链里）
+# 上下文包（2026-11-05，零 token 只读）
+def handle_chapters_context(h):
+    """GET /chapters/context?n=N[&full=1] → 这一章写作时的上下文包（零 token）。
+
+    2026-11-05（试跑第 23 条 + SP-1026 的 context-pack）：写作时到底喂了什么，
+    此前只有日志里一行 `[stage4] 第N章记忆：...`。这里把同一份 `memory_policy`
+    的 stats 直接摊到界面上：命中卡数（四维分列）、开着的伏笔、字数预算用了多少。
+
+    `full=1` 才回 `block` 原文 —— 默认不回：它可能几千字，面板只要读数。
+    """
+    import nf_api as api
+    q = h._query()
+    try:
+        n = int((q.get("n") or ["0"])[0])
+    except (TypeError, ValueError):
+        n = 0
+    if n <= 0:
+        return 400, {"ok": False, "error": "n 必填且为正整数（章号）"}
+    full = (q.get("full") or ["0"])[0] not in ("0", "", "false", "False")
+    try:
+        from utils import context_report as cr
+        cfg, _proj = api.load_all()
+        pack = cr.chapter_pack(api.ROOT, n, cfg)
+        if not full:
+            pack.pop("block", None)
+        # 召回的逐条理由对作者有用（“这条为什么在这里”），给前 12 条
+        pack["recalled"] = (pack.get("recalled") or [])[:12]
+        pack["ok"] = True
+        return 200, pack
+    except Exception as e:                                     # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 ROUTES = (
     ("GET", "/costs/summary", handle_costs_summary),
+    ("GET", "/chapters/context", handle_chapters_context),
     ("GET", "/costs/streaming", handle_costs_streaming),
     ("GET", "/costs/rates", handle_costs_rates),
     ("POST", "/costs/rates", handle_costs_rates_save),

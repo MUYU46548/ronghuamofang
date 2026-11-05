@@ -63,6 +63,17 @@
 - **MCP**：`scripts/nf_mcp_stdio_bridge.py`（标准 MCP 客户端接入，工具数量以
   `nf_mcp.MCP_TOOLS` 为准）。
 
+### 审批门在哪（唯一判据，别自己猜）
+
+- **有效审批门以 `GET /state` 的 `approval_stages` 为准**（后端由 `utils.approval_policy`
+  从 `config/system.yaml` 的 `gates.require_approval` 与 `gates.material_autonomy` 算出）。
+  出厂默认是**阶段 2（整体大纲）和阶段 6（润色）**；陪跑模式下另加**阶段 1（素材→设定集）**。
+- **阶段 3（逐章大纲）没有审批门**：阶段 2 放行后它跑完会**直接进阶段 4**。
+  你在日志里看不到“等待审批”是正常现象，不要去找一个不存在的确认动作，
+  也不要把“要不要在阶段 3 停一下”当成可选项 —— 它不在闸门集合里。
+- 其余阶段（4 写作 / 5 逻辑检查 / 7 Word / 8 导出）同样不设门。
+- 闸门出现时 orchestrator 退出码为 `3`；是否放行只能由用户在桌面端完成（见下条红线）。
+
 ### 权限红线（违反即失败，无例外）
 
 - **审批与打回永远属于用户**：`approve.py` / `reject.py`、`POST /approve`、`POST /reject`

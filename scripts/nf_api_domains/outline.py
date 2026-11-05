@@ -100,7 +100,7 @@ def handle_outline_trend(h):
         series = ov.review_series(global_md, setting)
         status, note = ov.convergence_verdict(series, window=window)
         cmp = ov.compare_with_previous(global_md, setting)
-        return 200, {
+        out = {
             "series": series,
             "window": window,
             "status": status,
@@ -108,6 +108,26 @@ def handle_outline_trend(h):
             "compare": cmp,          # None = 无历史备份（不假装已对比）
             "has_backup": ov.latest_backup() is not None,
         }
+        # 只有 1 版时（试跑第 18 条）：**不能只回一句“历史版本不足”** —— 那在界面上
+        # 等于“这个功能没有”。趋势判断要 ≥2 版，但单版体检本身就是结论，必须一起给。
+        if status == "insufficient":
+            try:
+                rev = ov.review(global_md, setting)
+                s = rev.get("summary") or {}
+                out["summary"] = {
+                    "verdict": s.get("verdict"), "total": s.get("total"),
+                    "ok": s.get("ok"), "warn": s.get("warn"), "thin": s.get("thin"),
+                }
+                out["issues"] = (rev.get("issues") or [])[:5]
+                out["thin_items"] = [e.get("title") for e in
+                                     (rev.get("nodes") or []) + (rev.get("plan") or [])
+                                     if e.get("level") == "THIN"][:5]
+                out["next_step"] = ("改这一版（提意见精修）→ 再跑一次体检；"
+                                    "两版之后这里会出现逐版趋势。")
+            except Exception as e:                          # noqa: BLE001
+                # 单版摘要失败不该让整个趋势接口变 500：主结论已经有了。
+                out["summary_error"] = type(e).__name__ + ": " + str(e)[:160]
+        return 200, out
     except FileNotFoundError as e:
         return 400, {"error": "大纲不存在（先跑 stage2）: " + str(e)[:120]}
     except Exception as e:                                  # noqa: BLE001
@@ -130,7 +150,14 @@ def handle_outline_advise(h):
             window = max(2, min(int((q.get("window") or ["3"])[0]), 20))
         except (TypeError, ValueError):
             window = 3
-        adv = oa.advise(window=window)
+        adv = oa.advise(
+            # 路径一律经 ROOT（2026-11-05）：advise 的默认值是 CWD 相对路径，
+            # `--root` 场景（切书档 / 自动化验收 / 桌面端 spawn）会去读**另一个项目**，
+            # 实测表现是 400“整体大纲不存在: data/outline/global.md”，而文件明明在。
+            global_path=str(api.ROOT / "data" / "outline" / "global.md"),
+            setting_path=str(api.ROOT / "data" / "setting" / "setting.json"),
+            history_dir=str(api.ROOT / "data" / "outline" / "history"),
+            window=window)
         if adv.get("error"):
             return 400, adv
         return 200, adv

@@ -141,6 +141,28 @@ async function loadOutline() {
   }
 }
 
+/* 上下文包（2026-11-05，SP-1026）：这一章写作时到底注入了什么。
+   数据来自 GET /chapters/context，与 stage4 用的是同一份 memory_policy 统计 ——
+   面板不再自己算一遍“大概多少”。 */
+const ctx = ref({ loading: false, data: null, error: "" });
+const ctxOpen = ref(false);
+async function loadContext() {
+  ctx.value = { loading: true, data: null, error: "" };
+  const r = await props.api("/chapters/context?n=" + n.value);
+  if (r.status === 200 && r.data && r.data.ok) {
+    ctx.value = { loading: false, data: r.data, error: "" };
+  } else {
+    ctx.value = { loading: false, data: null,
+                  error: (r.data && r.data.error) || "读取上下文包失败" };
+  }
+}
+const ctxSummary = computed(() => (ctx.value.data && ctx.value.data.summary) || null);
+function dimText(by) {
+  const L = { foreshadow: "伏笔", character: "角色", state: "状态", relation: "关系" };
+  const parts = Object.entries(by || {}).map(([k, v]) => (L[k] || k) + (v || 0));
+  return parts.length ? parts.join(" / ") : "无";
+}
+
 async function loadLedger() {
   ledger.value = { loading: true, data: null, error: "" };
   const r = await props.api("/review/ledger?chapter=" + n.value);
@@ -194,12 +216,13 @@ const canNext = computed(() => {
   return i >= 0 && i < chapterOptions.value.length - 1;
 });
 
-watch(n, () => { loadOutline(); loadLedger(); });
+watch(n, () => { loadOutline(); loadLedger(); loadContext(); });
 
 onMounted(() => {
   if (chapterOptions.value.length) n.value = chapterOptions.value[0].n;
   loadOutline();
   loadLedger();
+  loadContext();
   loadSettingCards();
 });
 </script>
@@ -282,6 +305,53 @@ onMounted(() => {
             <span class="desk-card-meta">{{ c.kind }} · 出场 {{ c.hits }} 次</span>
           </div>
         </div>
+      </div>
+
+      <div class="desk-block">
+        <div class="desk-block-title">
+          上下文包
+          <span class="meta" v-if="ctxSummary">命中 {{ ctxSummary.recalled }} 条 · 开伏笔 {{ ctxSummary.open_foreshadows }}</span>
+        </div>
+        <div v-if="ctx.loading" class="meta">读取中…</div>
+        <div v-else-if="!ctx.data" class="meta">{{ ctx.error }}</div>
+        <template v-else-if="ctxSummary">
+          <div class="desk-ctx-grid">
+            <div class="desk-ctx-item">
+              <b>{{ ctxSummary.recalled }}</b><span>命中卡</span>
+              <em>{{ dimText(ctxSummary.by_dim) }}</em>
+            </div>
+            <div class="desk-ctx-item">
+              <b>{{ ctxSummary.open_foreshadows }}</b><span>开伏笔</span>
+              <em v-if="ctxSummary.stale_foreshadows">{{ ctxSummary.stale_foreshadows }} 条超期</em>
+              <em v-else>无超期</em>
+            </div>
+            <div class="desk-ctx-item">
+              <b>{{ ctxSummary.chars }}</b><span>上下文字数</span>
+              <em v-if="ctxSummary.budget">
+                预算 L2 {{ ctxSummary.allocated ? ctxSummary.allocated.rolling : 0 }}/{{ ctxSummary.budget.rolling_chars }}
+                · L3 {{ ctxSummary.allocated ? ctxSummary.allocated.recall : 0 }}/{{ ctxSummary.budget.recall_chars }}
+              </em>
+            </div>
+          </div>
+          <div v-if="ctxSummary.candidates" class="meta desk-dims-note">
+            候选 {{ ctxSummary.candidates }} 条，按预算/top-K 未注入 {{ ctxSummary.dropped }} 条；
+            滚动摘要取了 {{ ctxSummary.rolling_chapters }} 章<template v-if="ctxSummary.rolling_omitted">（另有 {{ ctxSummary.rolling_omitted }} 章被裁）</template>。
+          </div>
+          <button class="mini" @click="ctxOpen = !ctxOpen">
+            {{ ctxOpen ? "收起明细" : "看注入了哪几条" }}
+          </button>
+          <div v-if="ctxOpen" class="desk-ctx-list">
+            <div v-for="(c, i) in ctx.data.recalled" :key="i" class="desk-ctx-row">
+              <span class="pill">{{ { foreshadow: '伏笔', character: '角色', state: '状态', relation: '关系' }[c.dim] || c.dim }}</span>
+              <span class="desk-ctx-text">{{ c.text }}</span>
+              <span class="meta">{{ c.why }}</span>
+            </div>
+            <div v-if="!ctx.data.recalled || !ctx.data.recalled.length" class="meta">
+              这一章没有召回到相关历史 —— 不是漏了：候选都没有与本章大纲相关到阈值。
+            </div>
+          </div>
+          <div v-if="ctx.data.hint" class="meta desk-dims-note">{{ ctx.data.hint }}</div>
+        </template>
       </div>
 
       <div class="desk-block">
@@ -380,6 +450,21 @@ onMounted(() => {
 .desk-dim-score { flex: none; width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
 .desk-dim-score.na { width: 56px; color: var(--muted, #888); }
 .desk-dims-note { margin-top: 8px; line-height: 1.6; }
+/* 上下文包（2026-11-05）：三个读数一行摆开，明细默认收起 —— 右栏本来就窄，
+   一上来堆十几条召回会把它撑成第二页正文。 */
+.desk-ctx-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.desk-ctx-item {
+  min-width: 0; padding: 6px 8px; border-radius: 7px;
+  background: rgba(155, 143, 196, 0.08); border: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 1px;
+}
+.desk-ctx-item b { font-size: 16px; line-height: 1.2; }
+.desk-ctx-item span { font-size: 11px; color: var(--muted); }
+.desk-ctx-item em { font-style: normal; font-size: 10.5px; color: var(--muted); overflow-wrap: anywhere; }
+.desk-ctx-list { margin-top: 6px; display: flex; flex-direction: column; gap: 5px; }
+.desk-ctx-row { font-size: 12px; line-height: 1.6; }
+.desk-ctx-row .pill { margin-right: 5px; }
+.desk-ctx-text { overflow-wrap: anywhere; }
 .st-done { color: var(--ok, #2e8b57); }
 .st-warn { color: var(--warn, #b8860b); }
 .st-failed { color: var(--bad); }

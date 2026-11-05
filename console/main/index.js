@@ -379,7 +379,7 @@ function getWorkspaceSource() {
 //   · 前端（asar，不走种子）：项目页出厂徽标 / 启动提示词剥离说明书 /
 //     阶段复制改任务简报（原样贴模板会被外部 Agent 按红线判“模板不是任务”停工）。
 // **先 bump 再 electron-builder**。
-const SEED_VERSION = 88;   // 0.8.0: 导航搬到左侧（三组竖排）+ 审阅台工作台化
+const SEED_VERSION = 89;   // 0.8.1: 审批门口径 + token/上下文可见 + 上下文包 + 设定名高亮
                             //   · 前端（asar）：左侧 216px 导航（写作/审校/系统 + 底部工具栏）、
                             //     顶部只留情境状态条；审阅台右栏“本章出场”、三色状态点、
                             //     未保存切章拦截；ChapterEditor 内联时侧栏只在批注模式出现
@@ -488,6 +488,11 @@ const SEED_KEEP_USER_EDITS = ["prompts"];
 // 例外：`prompts/factory/` 是**出厂副本**，必须随版本刷新 ——
 // 它不是用户内容，而且不刷新的话“还原出厂默认”会把用户退回上一版的提示词。
 const SEED_FORCE_REFRESH_SUBDIRS = ["factory"];
+// 例外（2026-11-05）：`prompts/agent_kickoff.md` 是**产品说明**，不是创作资产 ——
+// 它写的是“这个软件怎么用、审批门在哪”。它停在旧版时，外部 Agent 会按错的规则干活
+// （试跑第 20 条：旧版一个字都没提审批门，Agent 只能猜，于是“阶段 3 没有门”被当成 bug）。
+// 所以它随版本刷新；真被用户手改过时先备份到 `prompts/history/`，不静默吞掉。
+const SEED_FORCE_REFRESH_FILES = ["prompts/agent_kickoff.md"];
 
 // ---- 出厂清单（0.6.7 出厂/用户数据分治）----
 // 播种把哪些文件**实际复制**进工作区，就往 data/state/factory_manifest.json 记哪些
@@ -539,6 +544,31 @@ function copyMissingOnly(base, srcDir, dstDir, out, topLevel, prevFiles, stats) 
       continue;
     }
     if (!ent.isFile()) continue;
+    const relDst = path.relative(base, d).split(path.sep).join("/");
+    if (SEED_FORCE_REFRESH_FILES.includes(relDst)) {
+      // 产品说明类文件：随版本刷新；若用户手改过，先留一份再覆盖。
+      let cur = null;
+      try { cur = sha256OfFile(d); } catch (e) { cur = null; }
+      const next = sha256OfFile(s);
+      if (cur && cur !== next) {
+        try {
+          const hist = path.join(dstDir, "history");
+          fs.mkdirSync(hist, { recursive: true });
+          const stamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14);
+          fs.copyFileSync(d, path.join(hist, ent.name.replace(/\.md$/, "") + ".before-refresh-" + stamp + ".md"));
+        } catch (e) {
+          console.warn("[console] seedWorkspace: 备份 " + relDst + " 失败:", e && e.message);
+        }
+      }
+      if (cur !== next) {
+        fs.copyFileSync(s, d);
+        out.push(relDst);
+        stats.updated += 1;
+      } else {
+        stats.kept += 1;
+      }
+      continue;
+    }
     if (!fs.existsSync(d)) {
       fs.copyFileSync(s, d);
       out.push(path.relative(base, d));

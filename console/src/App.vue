@@ -556,7 +556,7 @@ const hasUnfinishedJob = computed(() => {
   // 当前有运行中的 job，或存在未完成/待审批的 stage
   if (state.value.current_job) return true;
   const stages = state.value.stages || [];
-  return stages.some((s) => s.status === "running" || (s.status === "done" && !s.approved));
+  return stages.some((s) => s.status === "running" || (s.status === "done" && !s.approved && isGate(s.stage)));
 });
 const quitDlg = ref({ open: false, agreed: false, busy: false });
 
@@ -2422,9 +2422,21 @@ const stageList = computed(() => {
   if (!state.value) return [];
   return state.value.stages.map((s) => ({ ...s, name: STAGE_NAMES[s.stage] || "" }));
 });
+/* 审批门集合（2026-11-05，试跑第 20 条）：
+   **唯一判据在后端**（/state.approval_stages ← utils.approval_policy）。
+   此前前端按 “done 且未 approved” 判，阶段 3（逐章大纲）跑完也长出“确认/待审批”，
+   而 orchestrator 根本不为阶段 3 停 —— 用户点了放行，流水线毫无变化（“原因不明”）。
+   后端没给字段（旧版）才回落到出厂口径 [2, 6]。 */
+const approvalStages = computed(() => {
+  const g = state.value && state.value.approval_stages;
+  return Array.isArray(g) ? g.map(Number) : [2, 6];
+});
+function isGate(stage) { return approvalStages.value.includes(Number(stage)); }
+const gateListText = computed(() =>
+  approvalStages.value.slice().sort((a, b) => a - b).join("、"));
 const pendingGates = computed(() => {
   if (!state.value) return [];
-  return state.value.stages.filter((s) => s.status === "done" && !s.approved);
+  return state.value.stages.filter((s) => s.status === "done" && !s.approved && isGate(s.stage));
 });
 const isRunning = computed(() => !!state.value?.current_job);
 /* 当前在跑的阶段（没有则 null）。页面里多处要“现在在干嘛”，统一从这里取。 */
@@ -2635,6 +2647,7 @@ async function fixInvalid(kind, invalidMap) {
 }
 function fmtYuan(v) { return "¥" + Number(v || 0).toFixed(4); }
 function fmtNum(v) { return Number(v || 0).toLocaleString("zh-CN"); }
+/* 体积一律用既有的 fmtBytes（App.vue:1915），别再写第二份 —— 名字撞车会直接编译失败。 */
 function fmtTime(iso) { return (iso || "").replace("T", " "); }
 
 /* ============================================================
@@ -2717,7 +2730,7 @@ const quickEstError = ref("");
 const nextAction = computed(() => {
   if (!state.value) return null;
   const stages = state.value.stages || [];
-  const gate = stages.find((s) => s.status === "done" && !s.approved);
+  const gate = stages.find((s) => s.status === "done" && !s.approved && isGate(s.stage));
   if (gate) {
     return { kind: "approve", stage: gate.stage,
              label: "确认阶段 " + gate.stage + "·" + (STAGE_NAMES[gate.stage] || ""),
@@ -2740,7 +2753,7 @@ const nextActions = computed(() => {
   const acts = [];
   if (!state.value) return acts;
   const stages = state.value.stages || [];
-  const gate = stages.find((s) => s.status === "done" && !s.approved);
+  const gate = stages.find((s) => s.status === "done" && !s.approved && isGate(s.stage));
   const pend = stages.find((s) => s.status !== "done");
   if (gate) {
     acts.push({ id: "approve:" + gate.stage, kind: "approve", stage: gate.stage,
@@ -5551,7 +5564,13 @@ onUnmounted(() => {
                  后端按记录里的 pid 判活（命令行起的 run 也能判对），s.stale 就是结论。 -->
             <span v-if="s.status === 'running' && (s.stale || !isRunning)" class="pill st-rej"
                   :title="s.stale_why || 'GUI 没有后台任务在跑。若你是在命令行跑流水线，请忽略；否则这是上次异常中断留下的状态 —— 点“运行”续跑（已完成章节不会重写），或“打回”重来。'">状态残留</span>
-            <span v-if="s.status === 'done' && !s.approved" class="pill st-gate">待审批</span>
+            <span v-if="s.status === 'done' && !s.approved && isGate(s.stage)" class="pill st-gate">待审批</span>
+            <!-- 阶段 3 这类无门阶段跑完就直说“没有审批动作”，别让它看起来像漏了一步
+                 （2026-11-05 试跑第 20 条：用户以为 AI 说“阶段 3 没有审批门”是个 bug）。 -->
+            <span v-if="s.status === 'done' && !isGate(s.stage)" class="pill st-nogate"
+                  :title="'本阶段不设审批门：跑完直接进下一阶段。审批门只有阶段 ' + gateListText + '（判据见 config/system.yaml 的 gates.require_approval）'">
+              无需审批
+            </span>
             <!-- 2026-11-03（作者拍板）：按章范围跑完 = 部分完成，绝不是"完成"。
                  点"运行"就按剩余章续写（断点续跑，不重写已完成的章）。 -->
             <span v-if="s.status === 'partial'" class="pill st-gate"
@@ -5615,8 +5634,8 @@ onUnmounted(() => {
             <button class="mini" :disabled="isRunning || agentRunLocked" :title="agentRunLocked ? AGENT_LOCK_HINT : (s.stage === 4 && chapterScopeDraft ? '只写 ' + chapterScopeDraft : '')" @click="runStage(s.stage, chapterScopeDraft)">运行</button>
             <button class="mini" :disabled="isRunning" @click="runStageStream(s.stage)" title="实时流式输出，可随时中断">流式运行</button>
             <button v-if="agentMode && STAGE_TASK_INFO[s.stage]" class="mini" @click="copyStagePrompt(s.stage)" title="复制“执行本阶段”的任务简报给外部 Agent（项目根 + 命令 + 产物 + 退出码）。复制是只读操作，运行中也可用。阶段 7/8 是确定性步骤、无提示词模板，但同样可以复制任务。">复制任务</button>
-            <button v-if="s.status === 'done' && !s.approved" class="mini primary" @click="approve(s.stage)">确认</button>
-            <button v-else-if="s.approved" class="mini" @click="approve(s.stage, true)">撤销</button>
+            <button v-if="s.status === 'done' && !s.approved && isGate(s.stage)" class="mini primary" @click="approve(s.stage)">确认</button>
+            <button v-else-if="s.approved && isGate(s.stage)" class="mini" @click="approve(s.stage, true)">撤销</button>
             <!-- 2026-10-11 #9 收口：stage1 陪跑闸是合法审批点，后端 /reject 本就收 1-7，
                  这里不再用 >=2 把 stage1 的打回入口挡在门外 -->
             <button v-if="s.status !== 'pending'" class="mini danger" :disabled="isRunning" @click="openReject(s.stage)">打回</button>
@@ -5831,7 +5850,8 @@ onUnmounted(() => {
     <!-- 大纲（结构化视图 / 节点精修 / 版本对比 / 多方案） -->
     <section v-if="tab === 'outline'">
       <OutlineView ref="outlineRef" :api="api" :is-busy="isRunning" :book-name="state ? state.book : ''"
-                   @say="say" @structure-loaded="onStructureLoaded" />
+                   @say="say" @structure-loaded="onStructureLoaded"
+                   @open-refine="refineOpen = true" />
       <!-- 规划四态（2026-11-04，M9）：AI 提案停在构想，采用/丢弃/写进正文是作者动作 -->
       <PlanBoardPanel @say="say" />
       <!-- 指南针（2026-10-21，roadmap 7.3）：全书终局锚点 -->
@@ -6039,7 +6059,7 @@ onUnmounted(() => {
         </button>
         <span class="meta">{{ notifyChannelLabel() }} · 撞门自动跳转收件箱</span>
       </div>
-      <div v-if="!pendingGates.length" class="empty">暂无待审项 —— 审批门只在阶段 2（大纲）和 6（润色）设置；阶段 3（逐章大纲）不设审批门，产物在“大纲 / 分章”页签查看；阶段跑完后想复核可去“章节”页签</div>
+      <div v-if="!pendingGates.length" class="empty">暂无待审项 —— 审批门只在阶段 {{ gateListText }}（判据：config/system.yaml 的 gates.require_approval / material_autonomy）。阶段 3（逐章大纲）不设审批门，产物在“大纲 / 分章”页签查看；其余阶段跑完直接进下一阶段</div>
       <div v-for="s in pendingGates" :key="s.stage" class="gate-card">
         <div class="gate-head">
           <span class="stage-no">{{ s.stage }}</span>
@@ -6155,9 +6175,32 @@ onUnmounted(() => {
             <div class="stat-sub">限额 {{ fmtYuan(streamingCost.limit_yuan) }}</div>
           </div>
           <div class="cost-stat">
-            <div class="stat-label">本次 token（入 / 出）</div>
-            <div class="stat-val sm">{{ fmtNum(streamingCost.tokens_in) }} / {{ fmtNum(streamingCost.tokens_out) }}</div>
-            <div class="stat-sub">cache_read {{ fmtNum(streamingCost.cache_read) }}</div>
+            <div class="stat-label">本次 token（入 / 出 / 合计）</div>
+            <div class="stat-val sm">{{ fmtNum(streamingCost.tokens_in) }} / {{ fmtNum(streamingCost.tokens_out) }} / {{ fmtNum(streamingCost.tokens_total) }}</div>
+            <div class="stat-sub">
+              cache_read {{ fmtNum(streamingCost.cache_read) }}
+              <template v-if="streamingCost.token_pct !== null && streamingCost.token_pct !== undefined">
+                · 占 token 闸门 <b>{{ streamingCost.token_pct }}%</b>
+                <template v-if="streamingCost.token_limit && streamingCost.token_limit.max_total_tokens">
+                  （上限 {{ fmtNum(streamingCost.token_limit.max_total_tokens) }}）
+                </template>
+              </template>
+              <template v-else>· token 闸门未启用</template>
+            </div>
+          </div>
+          <!-- 上下文占用（2026-11-05，试跑第 23 条）：token 数只说明“花了多少”，
+               这里说明“一次请求到底带了多大上下文”—— 后者才是篇幅/成本的主因。
+               单次最大输入取本 run 里最重那一次，不取平均（平均会被小调用稀释）。 -->
+          <div class="cost-stat">
+            <div class="stat-label">上下文占用（单次最大输入）</div>
+            <div class="stat-val sm">{{ fmtNum(streamingCost.max_call_tokens_in) }} token</div>
+            <div class="stat-sub" v-if="streamingCost.context">
+              盘上上下文 {{ fmtNum(streamingCost.context.total_chars) }} 字
+              <template v-if="streamingCost.context.task_book">
+                · 任务书 {{ streamingCost.context.task_book.files }} 份 / {{ fmtBytes(streamingCost.context.task_book.bytes) }}
+              </template>
+            </div>
+            <div class="stat-sub" v-else>—</div>
           </div>
           <div class="cost-stat">
             <div class="stat-label">预算剩余</div>
@@ -6173,6 +6216,22 @@ onUnmounted(() => {
         <div class="meta">
           已用 {{ costBarPct.toFixed(2) }}% 预算 · 预警线 {{ (Number(streamingCost.warn_ratio || 0.7) * 100).toFixed(0) }}%
           <span v-if="streamingCost.yield_yuan_per_min"> · 平均 {{ fmtYuan(streamingCost.yield_yuan_per_min) }}/分钟</span>
+        </div>
+        <!-- 上下文来源（2026-11-05，试跑第 23 条）：写作的 token 大头是“每次重发设定/大纲/前文”，
+             把这些来源的字数摆出来，作者才知道该压缩哪一块。 -->
+        <div v-if="streamingCost.context && streamingCost.context.sources && streamingCost.context.sources.length"
+             class="ctx-sources">
+          <div class="meta">
+            上下文来源（盘上字数）：
+            <span v-for="s in streamingCost.context.sources" :key="s.path" class="ctx-src"
+                  :title="s.path + (s.exists ? '' : '（缺失）') + (s.note ? ' · ' + s.note : '')">
+              {{ s.name }} {{ fmtNum(s.chars) }} 字<span v-if="!s.exists" class="ctx-miss">（缺）</span>
+            </span>
+          </div>
+          <div v-if="streamingCost.context.note" class="meta">{{ streamingCost.context.note }}</div>
+        </div>
+        <div v-if="streamingCost.engine === 'hermes'" class="meta">
+          订阅制：本次没有按量计费金额，只有 token 计数（来自子会话回传的 usage 实测）。
         </div>
       </div>
 

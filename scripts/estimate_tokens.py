@@ -307,6 +307,14 @@ def _heuristic_stage(stage, cfg, proj, calls, cpt, role):
         basis = tiny + ["每章输入 = 待润色正文 + 设定集（按需读取 %d 字符）+ 风格参考"
                         " + 提示词" % setting,
                         "每章输出 ≈ 正文等量（±20% 铁律）"]
+    elif stage in (7, 8):
+        # 阶段 7（Word 转换）/ 8（Markdown 导出）是**确定性步骤，不调用模型** ——
+        # 此前这里直接 raise → `/estimate?stage=8` 返回 500，客户端的选阶段预估
+        # 每进一次页签就在控制台留一条 500（2026-11-05 截图验收时抓到）。
+        # 正确答复是 0，并说清为什么是 0。
+        inp, out = 0, 0
+        calls = 0
+        basis = ["阶段 %d 是确定性导出（不调用模型），token 与费用都是 0" % stage]
     else:
         raise ValueError("未知阶段: %r" % stage)
 

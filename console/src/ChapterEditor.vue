@@ -60,7 +60,7 @@ const target = ref([0, 0]);
 const mtime = ref(0);
 const mtimeText = ref("");
 
-const mode = ref("edit");            // edit | batch
+const mode = ref("edit");            // edit | read | batch
 const text = ref("");
 const savedText = ref("");
 const dirty = computed(() => text.value !== savedText.value);
@@ -78,6 +78,100 @@ const refineResult = ref(null);
 let refineTimer = null;
 
 const areaRef = ref(null);
+
+/* ---------- 设定卡与正文高亮（2026-11-05，SP-1026 工作台收尾） ----------
+ * 用户要的是“读正文时点人名就能看卡”，而不是切到设定页签再搜。
+ * 实现刻意**不动编辑态**：textarea 里没法做富文本高亮，硬做（contenteditable /
+ * 透明层叠字）会牺牲输入法与撤销。所以加一个只读的“阅读”模式：
+ *   · 名字来自 /setting/current（角色含别名、物品、地点、势力）；
+ *   · 点击名字 → 右栏出这张卡的关键字段（不跳页）；
+ *   · 名字按长度降序匹配，长名优先（“总账房”不该被“总账”劈开）。
+ */
+const settingCards = ref({});      // name -> {kind, label, lines}
+const cardSel = ref("");           // 当前点开的设定名
+const settingLoad = ref({ loading: false, error: "", count: 0 });
+
+function _cardLines(e, kind) {
+  const out = [];
+  if (kind === "角色") {
+    if (e.role) out.push(["定位", String(e.role)]);
+    if (Array.isArray(e.traits) && e.traits.length) out.push(["特征", e.traits.join("；")]);
+    if (Array.isArray(e.relations) && e.relations.length) {
+      out.push(["关系", e.relations.map((r) => (r.with || r.name || "?") + "：" + (r.desc || r.type || "")).join("；")]);
+    }
+    if (e.experience) out.push(["经历", String(e.experience)]);
+  } else {
+    for (const k of ["desc", "detail", "summary", "type", "note"]) {
+      if (e[k]) { out.push(["说明", String(e[k])]); break; }
+    }
+    if (e.parent) out.push(["归属", String(e.parent)]);
+  }
+  return out;
+}
+
+function _put(map, name, card) {
+  const n = String(name || "").trim();
+  if (!n || n.length < 2) return;      // 单字名会把正文切碎（“风”“雨”），不做高亮
+  if (!map[n]) map[n] = card;
+}
+
+async function loadSettingCards() {
+  if (settingLoad.value.count) return;         // 一次会话读一次就够
+  settingLoad.value = { loading: true, error: "", count: 0 };
+  const r = await props.api("/setting/current");
+  if (r.status !== 200 || !r.data || !r.data.ok) {
+    settingLoad.value = { loading: false, count: 0,
+                          error: (r.data && r.data.error) || "读取设定集失败（阶段 1 还没跑？）" };
+    return;
+  }
+  const s = r.data.setting || {};
+  const map = {};
+  for (const c of s.characters || []) {
+    if (!c || typeof c !== "object") continue;
+    const card = { kind: "角色", label: c.name || "", lines: _cardLines(c, "角色") };
+    _put(map, c.name, card);
+    for (const al of c.aliases || []) {
+      if (al && al !== c.name) _put(map, al, { ...card, label: c.name, alias: al });
+    }
+  }
+  const world = s.world || {};
+  for (const [key, kind] of [["items", "物品"], ["locations", "地点"], ["factions", "势力"]]) {
+    for (const e of world[key] || []) {
+      if (e && typeof e === "object") _put(map, e.name, { kind, label: e.name, lines: _cardLines(e, kind) });
+    }
+  }
+  settingCards.value = map;
+  settingLoad.value = { loading: false, error: "", count: Object.keys(map).length };
+}
+
+const nameRe = computed(() => {
+  const names = Object.keys(settingCards.value).sort((a, b) => b.length - a.length);
+  if (!names.length) return null;
+  const esc = (x) => x.split("").map((ch) => ("^$.*+?()[]{}|" + String.fromCharCode(92)).includes(ch) ? String.fromCharCode(92) + ch : ch).join("");
+  try { return new RegExp(names.map(esc).join("|"), "g"); } catch (e) { return null; }
+});
+
+/* 阅读模式的分段：每段文字切成 [{t, hit}]，点 hit 的 span 看卡。
+   用 exec 循环而不是 split（split 带捕获组时，段首命中会多出一个空串，奇偶就错了）。 */
+function segments(p) {
+  const re = nameRe.value;
+  if (!re) return [{ t: p, hit: false }];
+  re.lastIndex = 0;
+  const out = [];
+  let last = 0, m;
+  while ((m = re.exec(p)) !== null) {
+    if (m.index > last) out.push({ t: p.slice(last, m.index), hit: false });
+    out.push({ t: m[0], hit: true });
+    last = m.index + m[0].length;
+    if (!m[0].length) re.lastIndex += 1;    // 防御：空匹配不卡死
+  }
+  if (last < p.length) out.push({ t: p.slice(last), hit: false });
+  return out;
+}
+const readParas = computed(() =>
+  String(text.value || "").split(/\n+/).filter((p) => p.trim()));
+function pickName(nm) { cardSel.value = nm; }
+const cardNow = computed(() => (cardSel.value ? settingCards.value[cardSel.value] : null));
 
 const layerInfo = computed(() => layers.value[layer.value] || {});
 const canBatch = computed(() => !!layer.value && layer.value === currentLayer.value);
@@ -278,6 +372,7 @@ async function switchMode(m) {
   }
   mode.value = m;
   if (m === "batch") await loadParas();
+  if (m === "read") await loadSettingCards();
 }
 
 function tryClose() {
@@ -305,6 +400,7 @@ watch(() => props.n, async (nv, ov) => {
   refineResult.value = null;
   selPara.value = null;
   feedback.value = "";
+  cardSel.value = "";
   await loadLayers();
 });
 
@@ -340,6 +436,11 @@ onUnmounted(() => {
         <span v-if="dirty" class="ce-dirty">未保存</span>
         <span class="spacer"></span>
         <button class="mini" :disabled="refining" :class="{ on: mode === 'edit' }" @click="switchMode('edit')">编辑</button>
+        <!-- 阅读模式（2026-11-05）：只读正文 + 设定名高亮，点名字看卡。
+             单开一个模式而不是把 textarea 换成富文本：输入法/撤销不能牺牲。 -->
+        <button class="mini" :disabled="refining" :class="{ on: mode === 'read' }"
+                :title="'只读正文，设定名可点（' + (settingLoad.count || 0) + ' 张卡）'"
+                @click="switchMode('read')">阅读</button>
         <button class="mini" :disabled="refining" :class="{ on: mode === 'batch' }"
                 :title="canBatch ? '按段落挑选并提意见，让模型只重写这一段' : '批注只在当前层开放'"
                 @click="switchMode('batch')">段落批注</button>
@@ -360,6 +461,22 @@ onUnmounted(() => {
             <textarea ref="areaRef" v-model="text" class="ce-textarea" spellcheck="false"
                       placeholder="正文（Ctrl+S 保存）。缺“## 第N章”会自动补。"></textarea>
           </div>
+          <div v-else-if="mode === 'read'" class="ce-read">
+            <div v-if="settingLoad.loading" class="meta">读取设定集…</div>
+            <div v-else-if="settingLoad.error" class="meta">{{ settingLoad.error }}</div>
+            <div v-else-if="!settingLoad.count" class="meta">
+              设定集里没有可高亮的条目（角色 / 物品 / 地点 / 势力都为空）。
+            </div>
+            <div v-else class="meta ce-read-hint">
+              点文中的名字看设定卡（共 {{ settingLoad.count }} 个可点名，含别名）。
+            </div>
+            <p v-for="(p, i) in readParas" :key="i" class="ce-read-p">
+              <template v-for="(sg, j) in segments(p)" :key="j">
+                <span v-if="sg.hit" class="ce-name" :title="'看设定卡：' + sg.t" @click="pickName(sg.t)">{{ sg.t }}</span>
+                <template v-else>{{ sg.t }}</template>
+              </template>
+            </p>
+          </div>
           <div v-else class="ce-paras">
             <div v-if="parasLoading" class="meta">读取段落…</div>
             <div v-else-if="!paras.length" class="meta">这一段没有可编辑的段落</div>
@@ -371,11 +488,26 @@ onUnmounted(() => {
           </div>
         </div>
 
-        <!-- 右：批注 / 字数 / 版本信息
-             ⚠️ 内联进审阅台时**只在“段落批注”模式出现**：审阅台本身已有右栏
+        <!-- 右：批注 / 设定卡 / 字数 / 版本信息
+             ⚠️ 内联进审阅台时**编辑模式不出现侧栏**：审阅台本身已有右栏
              （本章出场 / 大纲 / 七维），再并一列卡会变成四列“一堆重叠的卡片”
-             （2026-11-05 用户实测原话）。编辑模式让正文吃满宽度。 -->
-        <div v-if="!embedded || mode === 'paras'" class="ce-side">
+             （2026-11-05 用户实测原话）。编辑模式让正文吃满宽度；
+             “段落批注”与“阅读”（点名字看卡）才需要这一列。 -->
+        <div v-if="!embedded || mode !== 'edit'" class="ce-side">
+          <!-- 设定卡（2026-11-05）：阅读模式点名字后出现在这里。
+               与正文同屏，不跳页 —— 否则“查一下这个人是谁”要先离开这一章。 -->
+          <div v-if="cardNow" class="ce-side-block ce-card">
+            <div class="ce-side-title">
+              <span class="pill">{{ cardNow.kind }}</span>
+              {{ cardNow.label }}
+              <span v-if="cardNow.alias" class="meta">（别名 {{ cardNow.alias }}）</span>
+            </div>
+            <div v-for="(kv, i) in cardNow.lines" :key="i" class="ce-card-row">
+              <b>{{ kv[0] }}</b><span>{{ kv[1] }}</span>
+            </div>
+            <div v-if="!cardNow.lines.length" class="meta">这张卡没有可展示的字段（设定集里只登记了名字）。</div>
+            <button class="mini ce-card-close" @click="cardSel = ''">关闭卡片</button>
+          </div>
           <div class="ce-side-block">
             <div class="ce-side-title">这一层</div>
             <div class="meta">{{ LAYER_LABEL[layer] }} · {{ LAYER_HINT[layer] }}</div>
@@ -456,6 +588,26 @@ onUnmounted(() => {
   border: 1px solid var(--border); border-radius: 8px;
   background: var(--field-inset, #fff); color: var(--ink);
 }
+/* 阅读模式（2026-11-05）：与编辑态同一套排版，正文可点名字 */
+.ce-read {
+  flex: 1; min-width: 0; overflow: auto; padding: 12px 16px;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--field-inset, #fff);
+  font-family: "Source Han Serif SC", "Noto Serif SC", "Songti SC", serif;
+  font-size: 15px; line-height: 1.95; color: var(--ink);
+}
+.ce-read-hint { margin-bottom: 8px; }
+.ce-read-p { margin: 0 0 0.85em; text-indent: 2em; }
+.ce-name {
+  cursor: pointer; text-indent: 0;
+  border-bottom: 1px dashed rgba(155, 143, 196, 0.85);
+  background: rgba(155, 143, 196, 0.14); padding: 0 1px; border-radius: 2px;
+}
+.ce-name:hover { background: rgba(155, 143, 196, 0.3); }
+.ce-card { border-color: rgba(155, 143, 196, 0.6); }
+.ce-card-row { font-size: 12.5px; line-height: 1.65; margin-top: 4px; }
+.ce-card-row b { display: inline-block; min-width: 34px; color: var(--muted); font-weight: 600; }
+.ce-card-close { margin-top: 8px; }
 .ce-paras {
   flex: 1; overflow: auto; border: 1px solid var(--border); border-radius: 8px;
   background: var(--field-inset, #fff);

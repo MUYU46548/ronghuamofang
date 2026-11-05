@@ -1110,6 +1110,13 @@ def build_state():
                 _s["stale"] = True
                 _s["stale_why"] = _run.get("why")
     gates = (_cfg or {}).get("gates", {})
+    # 审批门集合（2026-11-05，试跑第 20 条）：**唯一判据**在 utils.approval_policy，
+    # 这里只把结论透出去，前端不再自己拼“阶段几有门”。
+    # 起因：界面按 “done 且未 approved” 判待审批，于是阶段 3（逐章大纲）跑完也长出一个
+    # “确认”按钮，而 orchestrator 的审批门里根本没有 3 —— 用户按了放行，流水线却
+    # 什么也没发生（AI 也说“阶段 3 没有审批门，原因不明”）。
+    from utils.approval_policy import approval_stages as _approval_stages
+    _approval = [int(s) for s in _approval_stages(gates)]
     cost_spent, calls, est = 0.0, 0, 0
     tokens_used, tokens_run = 0, None
     db_path = ROOT / "logs" / "runs.db"
@@ -1160,6 +1167,8 @@ def build_state():
         # 运行态（F02）：{alive, stale, pid, since, stage, why}
         "runner": _run,
         "gates": gates,
+        # 有效审批门（阶段号数组）：前端只认这个，别再按 “done 且未 approved” 猜。
+        "approval_stages": _approval,
         "cost": {"spent_yuan": round(cost_spent, 4),
                  "calls": calls, "estimated_entries": est,
                  "limit_yuan": budget.get("limit_yuan", 300)},
@@ -1180,6 +1189,36 @@ def build_state():
         # 哪怕 system.yaml 里明明是 true（用户完全看不出真实权限状态）。
         "agent_mode": bool((gates or {}).get("agent_mode", False)),
     }
+
+
+def _fill_token_ctx(out, cfg, budget):
+    """给 /costs/streaming 补 token 闸门读数与上下文来源（2026-11-05）。
+
+    两处早退（没 runs.db / 没有 run）也要带着这两块返回 —— 空库时成本页仍要能
+    说“这里没有账”，而不是整块卡片消失。
+    """
+    try:
+        from utils.cost_tracker import normalize_token_limit as _norm
+        tl = _norm(budget.get("token_limit"))
+        out["token_limit"] = tl
+        mx = int(tl.get("max_total_tokens") or 0)
+        out["token_pct"] = (round(out.get("tokens_total", 0) / mx * 100, 2)
+                            if tl.get("enabled") and mx else None)
+    except Exception:                                          # noqa: BLE001
+        out["token_limit"] = {}
+        out["token_pct"] = None
+    try:
+        from utils import context_report as _cr
+        out["context"] = _cr.snapshot(ROOT, cfg)
+    except Exception as e:                                     # noqa: BLE001
+        out["context"] = {"sources": [], "total_chars": 0,
+                          "error": type(e).__name__ + ": " + str(e)[:160]}
+    try:
+        from utils.engine import resolve_engine
+        out["engine"] = resolve_engine(cfg)
+    except Exception:                                          # noqa: BLE001
+        out["engine"] = "unknown"
+    return out
 
 
 def build_streaming_cost():
@@ -1203,6 +1242,10 @@ def build_streaming_cost():
         "job_started_at": cur_job.get("started_at"),
         "run_id": None, "run_status": None, "run_started_at": None,
         "spent_yuan": 0.0, "tokens_in": 0, "tokens_out": 0, "cache_read": 0,
+        # token 可见性（2026-11-05，试跑第 23 条）：合计 / 单次最大输入（≈上下文规模）
+        # / 占总闸门比例 —— 作者此前只能看到钱（hermes 下还恒 0）。
+        "tokens_total": 0, "max_call_tokens_in": 0,
+        "token_limit": {}, "token_pct": None,
         "calls": 0, "estimated_calls": 0,
         "limit_yuan": limit_yuan, "warn_ratio": budget.get("warn_ratio", 0.7),
         "pct": 0.0, "budget_left": limit_yuan,
@@ -1211,7 +1254,7 @@ def build_streaming_cost():
 
     db_path = ROOT / "logs" / "runs.db"
     if not db_path.exists():
-        return out
+        return _fill_token_ctx(out, cfg, budget)
     db = RunDB(db_path)
     try:
         # 取**最新一条 run**：有 job 在跑时最新 run 就是当前 run；
@@ -1219,19 +1262,24 @@ def build_streaming_cost():
         row = db.conn.execute(
             "SELECT id, started_at, status FROM runs ORDER BY id DESC LIMIT 1").fetchone()
         if row is None:
-            return out
+            return _fill_token_ctx(out, cfg, budget)
         run_id, started_at, status = row[0], row[1], row[2]
         agg = db.conn.execute(
             "SELECT COALESCE(SUM(tokens_in),0), COALESCE(SUM(tokens_out),0),"
             " COALESCE(SUM(cache_read),0), COALESCE(SUM(cost_yuan),0), COUNT(*),"
-            " COALESCE(SUM(estimated),0) FROM cost_log WHERE run_id=?",
+            " COALESCE(SUM(estimated),0), COALESCE(MAX(tokens_in),0)"
+            " FROM cost_log WHERE run_id=?",
             (run_id,)).fetchone()
         out.update({
             "run_id": run_id, "run_status": status, "run_started_at": started_at,
             "tokens_in": int(agg[0]), "tokens_out": int(agg[1]), "cache_read": int(agg[2]),
             "spent_yuan": round(float(agg[3]), 6),
             "calls": int(agg[4]), "estimated_calls": int(agg[5]),
+            # 单次请求最大输入 = 这一轮里“上下文最重那一次”的规模（≈实际上下文占用）。
+            # 不是平均值：平均值会把一章写作和一次关键词调用混在一起，看着很轻。
+            "max_call_tokens_in": int(agg[6]),
         })
+        out["tokens_total"] = out["tokens_in"] + out["tokens_out"]
         # 已耗时只在真有 job 在跑时给：否则“最后一次 run 至今”会算出几十小时的假时长
         t0 = None
         if out["running"]:
@@ -1252,7 +1300,7 @@ def build_streaming_cost():
     out["pct"] = round(out["spent_yuan"] / limit_yuan * 100, 2) if limit_yuan > 0 else 0.0
     if out["elapsed_s"] >= 30:
         out["yield_yuan_per_min"] = round(out["spent_yuan"] / (out["elapsed_s"] / 60.0), 6)
-    return out
+    return _fill_token_ctx(out, cfg, budget)
 
 
 def _notify_stream_done(job_id, state, detail):
@@ -3129,6 +3177,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/remedy":
             # 实现已迁至 nf_api_domains.misc（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_misc.handle_remedy(self)))
+        elif p == "/chapters/context":
+            # 上下文包（2026-11-05，零 token 只读）：这一章写作时会注入什么
+            self._send(*_dom(dom_misc.handle_chapters_context(self)))
         elif p == "/costs/streaming":
             # 实现已迁至 nf_api_domains.misc（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_misc.handle_costs_streaming(self)))

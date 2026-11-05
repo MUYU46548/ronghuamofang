@@ -173,6 +173,10 @@ STATE = {
         {"stage": 7, "status": "pending", "approved": None},
     ],
     "cost": {"spent_yuan": 12.3456, "limit_yuan": 50.0, "calls": 42, "estimated_entries": 3},
+    # 有效审批门（2026-11-05）：前端只认这个字段；阶段 3 有产物但**没有门**，
+    # mock 里保留这个组合，验收时才能看出“阶段 3 不会长出确认按钮”。
+    "approval_stages": [2, 6],
+    "gates": {"agent_mode": False, "require_approval": [2, 6], "material_autonomy": True},
     "budget": {"paused": False,
                # token 闸门观测面（2026-10-03）：真后端 /state 也带这几个字段，
                # mock 不补的话流水线条上的“token 闸门”一行在视觉验收里恒不渲染。
@@ -389,8 +393,50 @@ class Handler(BaseHTTPRequestHandler):
             # 定价编辑器需要这个端点；空表 = 全部走源码刊例价
             return self._send(200, {"rates": {}, "source": "mock"})
         if p == "/costs/streaming":
-            return self._send(200, {"running": False, "spent_yuan": 12.3456, "limit_yuan": 50.0,
-                                    "pct": 24.7, "warn_ratio": 0.7, "tokens_in": 0, "tokens_out": 0})
+            # 形状与真后端一致（2026-11-05）：token 合计 / 占闸门比例 / 单次最大输入 /
+            # 上下文来源 —— 少一个，成本页的“用量”视图在验收截图里就是空白。
+            return self._send(200, {
+                "ok": True, "running": False, "spent_yuan": 12.3456, "limit_yuan": 50.0,
+                "pct": 24.7, "warn_ratio": 0.7,
+                "tokens_in": 412345, "tokens_out": 98765, "cache_read": 301122,
+                "tokens_total": 511110, "max_call_tokens_in": 48211,
+                "token_limit": {"enabled": True, "max_total_tokens": 10000000,
+                                "per_request_max_tokens": 50000},
+                "token_pct": 5.11, "engine": "hermes",
+                "context": {
+                    "sources": [
+                        {"name": "设定集", "path": "data/setting/setting.json", "chars": 43984, "exists": True},
+                        {"name": "整体大纲", "path": "data/outline/global.md", "chars": 3030, "exists": True},
+                        {"name": "滚动摘要", "path": "data/summaries/rolling.md", "chars": 3531, "exists": True},
+                        {"name": "一致性账本", "path": "data/state/story_state.json", "chars": 0, "exists": False},
+                    ],
+                    "total_chars": 50545,
+                    "task_book": {"files": 32, "bytes": 816298},
+                    "note": "上面是**盘上原文**字数（不是一次请求的注入量）。",
+                },
+                "calls": 12, "estimated_calls": 0,
+            })
+        if p == "/chapters/context":
+            # 上下文包（2026-11-05）：审阅台右栏的读数（形状与 /chapters/context 一致）
+            return self._send(200, {
+                "ok": True, "chapter": int((self._query().get("n") or ["1"])[0]),
+                "outline_chars": 455, "hint": "",
+                "summary": {
+                    "recalled": 6, "candidates": 25, "dropped": 19,
+                    "by_dim": {"foreshadow": 5, "character": 1},
+                    "rolling_chapters": 4, "rolling_omitted": 0,
+                    "chars": 2105,
+                    "budget": {"rolling_chars": 2600, "recall_chars": 2400,
+                               "rolling_window": 8, "recall_top_k": 6},
+                    "allocated": {"rolling": 971, "recall": 1109},
+                    "open_foreshadows": 4, "stale_foreshadows": 0,
+                },
+                "foreshadow": {"total": 12, "open": 4, "stale": 0, "items": [], "note": ""},
+                "recalled": [
+                    {"dim": "foreshadow", "text": "结局三案：岑砚把自己的声音存进叠景", "why": "命中：岑砚"},
+                    {"dim": "character", "chapter": 1, "text": "第1章：岑砚夜里在渡口接到第三只沉木箱", "why": "命中：岑砚"},
+                ],
+            })
         if p == "/config/project":
             return self._send(200, {"ok": True, "config": {"book": {"name": "验收用书", "chapters": 12}}})
         if p == "/setting/stale":

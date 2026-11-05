@@ -329,8 +329,28 @@
           <!-- 收敛判定 -->
           <div class="ov-adv-verdict" :class="'v-' + (advise.verdict || '')">
             <div class="ov-adv-vhead">
-              <span class="pill" :class="verdictPill(advise.verdict)">{{ verdictLabel(advise.verdict) }}</span>
-              <span class="ov-adv-note">{{ advise.note }}</span>
+              <!-- 只有 1 个版本时（2026-11-05，试跑第 18 条）：不要把“样本不足”当结论摆在
+                   最前面 —— 用户看到的就是“没功能”。先给**本次体检**的结论与主要问题，
+                   “趋势要 ≥2 版才有意义”降级成附注；再给“改这一版 / 再跑体检”的下一步。 -->
+              <span v-if="singleOnly" class="pill" :class="verdictPill(advise.metrics && advise.metrics.verdict)">
+                本次体检 {{ (advise.metrics && advise.metrics.verdict) || "—" }}
+              </span>
+              <span v-else class="pill" :class="verdictPill(advise.verdict)">{{ verdictLabel(advise.verdict) }}</span>
+              <span v-if="!singleOnly" class="ov-adv-note">{{ advise.note }}</span>
+              <span v-else class="ov-adv-note">
+                {{ (advise.metrics && (advise.metrics.thin || advise.metrics.issues))
+                   ? "这一版还有需要处理的地方（见下方逐条建议）。"
+                   : "这一版体检没有结构性问题，可以直接开工。" }}
+              </span>
+              <span class="spacer"></span>
+              <template v-if="singleOnly">
+                <button class="mini" @click="$emit('open-refine')">改这一版（提意见）</button>
+                <button class="mini primary" :disabled="advLoading" @click="loadAdvise(true)">再跑体检</button>
+              </template>
+            </div>
+            <div v-if="singleOnly" class="ov-adv-foot">
+              趋势判断要 ≥2 个版本才有意义（现有 {{ (trend && trend.series && trend.series.length) || 1 }} 版）——
+              这不影响上面的单版体检结论；改一版再跑，这里就会出现逐版对比。
             </div>
             <div class="meta" v-if="advise.metrics">
               关键节点 {{ advise.metrics.total || 0 }} 条
@@ -445,7 +465,7 @@ const props = defineProps({
   isBusy: { type: Boolean, default: false },
   bookName: { type: String, default: "" },
 });
-const emit = defineEmits(["say", "structure-loaded"]);
+const emit = defineEmits(["say", "structure-loaded", "open-refine"]);
 
 const structure = ref(null);
 const raw = ref("");
@@ -1085,6 +1105,8 @@ const advOpen = ref(false);
 const advLoading = ref(false);
 const advise = ref(null);
 const trend = ref(null);
+/* 只有一个版本（趋势无从判断）：界面转成“单版体检 + 下一步”，见 drawer 里的注释。 */
+const singleOnly = computed(() => !!(trend.value && trend.value.status === "insufficient"));
 const advBusy = ref("");
 
 /** 顶部按钮是否高亮：有结构性硬问题或有碎片条目时提示“这里有事要做”。 */
