@@ -69,12 +69,15 @@ async function loadSettingCards() {
   const r = await props.api("/setting/current");
   setting.value = (r.status === 200 && r.data && r.data.ok) ? (r.data.setting || null) : null;
   const a = await props.api("/setting/appearances");
+  // ⚠️ 形状是 {ok, alias, generated_at, total_chapters, characters:{名字:{per_chapter}}, new_candidates}。
+  // 第一版把**顶层**每个键当角色遍历（characters 是个 dict，没有 per_chapter）→ 恒为 0 个角色。
+  // 角色表在 `.characters` 下面（2026-11-05 用户实测“本章出场 0 个角色”抓出）。
   if (a.status === 200 && a.data && a.data.ok) {
-    const d = a.data;
+    const src = a.data.characters && typeof a.data.characters === "object"
+      ? a.data.characters : {};
     const out = {};
-    for (const [k, v] of Object.entries(d)) {
-      // 跳过端点自带的元字段（ok / alias / hint），其余键就是角色名
-      if (k === "ok" || k === "alias" || k === "hint" || !v || typeof v !== "object") continue;
+    for (const [k, v] of Object.entries(src)) {
+      if (!v || typeof v !== "object") continue;
       out[k] = v;
     }
     appear.value = out;
