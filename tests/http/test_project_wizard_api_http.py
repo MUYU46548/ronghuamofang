@@ -234,6 +234,24 @@ def main():
               book.get("name") == "向导书" and book.get("genre") == "都市"
               and book.get("chapters") == 7 and book.get("style_notes") == "口语化", book)
 
+        # 引擎选择（2026-11-05，卡片 -029）：向导第二步选的那档必须真写进 system.yaml，
+        # 且**注释不能被抹掉**（历史上整份 dump 把 170 行注释写没过）。
+        sys_p = tmp / "config" / "system.yaml"
+        before_txt = sys_p.read_text(encoding="utf-8")
+        code, d = req("POST", "/project/init", {"name": "向导书2", "type": "都市",
+                                                "chapters": 8, "engine": "direct"})
+        after_txt = sys_p.read_text(encoding="utf-8")
+        eng_line = [ln for ln in after_txt.splitlines() if ln.startswith("engine:")]
+        check("向导选的引擎真写进 system.yaml",
+              code == 200 and eng_line == ["engine: direct"], (code, eng_line))
+        check("写引擎没抹掉配置注释（定向改写）",
+              after_txt.count("#") >= before_txt.count("#") - 2,
+              (before_txt.count("#"), after_txt.count("#")))
+        code, d = req("POST", "/project/init", {"name": "向导书3", "chapters": 8,
+                                                "engine": "nope"})
+        check("非法引擎值 → 400 且说清可选值",
+              code == 400 and "self" in (d.get("error") or ""), (code, d))
+
         print("\n=== 6. GET /about（关于弹窗数据）===")
         code, d = req("GET", "/about")
         check("GET /about → 200", code == 200 and d.get("ok"), (code, str(d)[:160]))

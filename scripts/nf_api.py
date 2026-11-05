@@ -4044,6 +4044,28 @@ class Handler(BaseHTTPRequestHandler):
                     )
                 else:
                     ok, msg = sb_mod.init_empty()
+                # 向导第二步的“运行引擎”选择（2026-11-05，卡片 -029）：
+                # 默认值隐式继承她的 hermes，导致第一次跑就 10 分钟起步；让作者在向导里
+                # 明确选一次，并把每档的代价写在界面上。写配置必须走定向改写（保注释）。
+                eng = str(body.get("engine") or "").strip().lower()
+                if ok and eng:
+                    if eng not in ("self", "direct", "hermes"):
+                        ok, msg = False, ("引擎取值不合法：" + eng
+                                          + "（可选 self / direct / hermes）")
+                    else:
+                        try:
+                            from utils.config_io import set_section_scalars
+                            # 顶层键要传**空元组**：传 "" 会被当成“名为空字符串的段”，
+                            # 写出来的 YAML 解析不回顶层（本项目踩过同类坑）。
+                            eok, emsg = set_section_scalars(
+                                (), {"engine": eng},
+                                path=ROOT / "config" / "system.yaml")
+                            if not eok:
+                                ok, msg = False, ("书籍信息已保存，但引擎没写进去："
+                                                  + str(emsg))
+                        except Exception as e:                     # noqa: BLE001
+                            ok, msg = False, ("书籍信息已保存，但引擎没写进去："
+                                              + str(e))
                 self._send(200 if ok else 400, {"ok": ok, "message": msg}
                            if ok else {"ok": False, "error": msg})
             # ---- 审稿→修稿闭环 ----

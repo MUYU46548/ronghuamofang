@@ -1745,6 +1745,8 @@ const initWizardStep = ref(1);
 const initBookName = ref("");
 const initBookType = ref("奇幻");
 const initChapters = ref(10);
+// 运行引擎：向导里必须显式选一次（卡片 -029）。空串 = 没选 → 不许提交。
+const initEngine = ref("");
 const initStyleNotes = ref("");
 
 async function checkInitWizard() {
@@ -1754,6 +1756,7 @@ async function checkInitWizard() {
     const book = cfg.data.config?.book || {};
     if (!book.name || book.name === "示例书名（待填写）" || !book.chapters) {
       showInitWizard.value = true;
+      initEngine.value = "";   // 每次都必须显式选，不继承上一次
       initBookName.value = book.name === "示例书名（待填写）" ? "" : (book.name || "");
       initBookType.value = book.type || "奇幻";
       initChapters.value = book.chapters || 10;
@@ -1764,6 +1767,7 @@ async function checkInitWizard() {
 
 async function submitInitWizard() {
   if (!initBookName.value.trim()) return say("请填写书名");
+  if (!initEngine.value) return say("请选择运行引擎（不选会默认走最慢的那档）");
   if (initChapters.value < 1 || initChapters.value > 999) return say("章节数须在 1-999 之间");
   if (!window.confirm(
       `确认初始化项目？\n\n书名：${initBookName.value}\n类型：${initBookType.value}\n章节数：${initChapters.value}\n\n将写入 config/project.yaml。`)) return;
@@ -1772,6 +1776,7 @@ async function submitInitWizard() {
     type: initBookType.value,
     chapters: initChapters.value,
     style_notes: initStyleNotes.value,
+    engine: initEngine.value,
   });
   if (r.status === 200 && r.data.ok) {
     showInitWizard.value = false;
@@ -8073,6 +8078,20 @@ onUnmounted(() => {
       <div class="art-row" style="margin: 8px 0;">
         <span class="art-label">章节数 *</span>
         <input v-model.number="initChapters" type="number" min="1" max="999" class="text-input" style="width: 100px;" />
+      </div>
+      <div class="art-row" style="margin: 8px 0; align-items: flex-start;">
+        <span class="art-label">运行引擎 *</span>
+        <div style="flex: 1;">
+          <select v-model="initEngine" class="model-select">
+            <option value="">请选择（不选不能开始）</option>
+            <option value="self">只出任务书（self）—— 零 token、不调模型，任务书交外部执行</option>
+            <option value="direct">直连（direct）—— 按量计费，速度正常，最可控</option>
+            <option value="hermes">子会话（hermes）—— 走订阅不按量，但每次调用慢（实测单步可到十分钟）</option>
+          </select>
+          <div class="meta" style="margin-top: 4px;">
+            选错了也能改：设置 → 运行引擎。第一次试跑建议 <b>direct</b> 或 <b>self</b>。
+          </div>
+        </div>
       </div>
       <div class="art-row" style="margin: 8px 0;">
         <span class="art-label">风格笔记</span>

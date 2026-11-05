@@ -365,6 +365,30 @@ def test_post_chat_oneshot():
 
 # ------------------------------------------------------------ 源码级回归锁
 
+def test_scope_rule():
+    """子会话执行边界（卡片 -015）：只禁无关目录，**不许**禁掉作者的设定库。"""
+    print("· 执行边界：该读的照读，不该翻的不翻")
+    c = HermesClient(hermes_bin="hermes")
+    cmd = c._build_cmd(Path("task.md"))
+    q = cmd[cmd.index("-q") + 1]
+    check("-q 提示里带执行边界", "【执行边界】" in q, q[-80:])
+    check("明确允许读工作区外的设定库 / 参考书",
+          "设定库" in q and "工作区之外" in q, q[-200:])
+    check("明确点名 Hermes 自己的目录不要翻",
+          "Hermes 自己的目录" in q and "hermes" in q.lower(), q[-200:])
+    check("禁的是装依赖 / 联网 / 改 .git",
+          "安装依赖" in q and "联网" in q and ".git" in q)
+    # 反向锁：出现“不要读本地目录 / 只读工作区”这类一刀切说法，等于让模型拿不到设定
+    bad = ("不要读取任何本地目录", "不要读本地目录", "只读工作区内的文件")
+    hit = [b for b in bad if b in q]
+    check("没有一刀切禁读（会害模型读不到设定）", not hit, hit)
+
+    from utils.llm_client import ONE_SHOT_PREFIX
+    check("单轮直答是另一条口径（材料已内联，不用翻文件）",
+          "材料已经全部在下面" in ONE_SHOT_PREFIX
+          and "不要读取任何本地目录" not in ONE_SHOT_PREFIX, ONE_SHOT_PREFIX)
+
+
 def test_source_guards():
     print("· 源码级回归锁（防改回去）")
     orch = (ROOT / "scripts" / "orchestrator.py").read_text(encoding="utf-8")
@@ -386,6 +410,7 @@ def main():
     test_stream_and_stop()
     test_cost_and_make_client()
     test_post_chat_oneshot()
+    test_scope_rule()
     test_source_guards()
     print("-" * 66)
     print(f"PASS {len(PASS)} / FAIL {len(FAIL)}")
