@@ -5076,7 +5076,7 @@ onUnmounted(() => {
       <button :class="{ active: tab === 'proofread' }" @click="switchTab('proofread')">校对</button>
       <button :class="{ active: tab === 'style' }" @click="switchTab('style')">文风</button>
       </div>
-      <div class="tab-group tab-group-aux" role="group" aria-label="系统与工具" title="系统与工具">
+      <div class="tab-group" role="group" aria-label="系统" title="系统">
       <button :class="{ active: tab === 'cost' }" @click="switchTab('cost')">成本</button>
       <button @click="asksOpen = !asksOpen; loadAgentAsks()" title="外接 Agent 提出的问题（回答后 Agent 能读到）">
         Agent 提问<span v-if="askPending" class="badge">{{ askPending }}</span>
