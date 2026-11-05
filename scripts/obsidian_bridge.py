@@ -88,6 +88,36 @@ def is_vault_configured():
     return get_vault_path() is not None
 
 
+# ---- 扫描状态三态（2026-11-05，试跑 P2-4）------------------------------------
+# 病：每跑一次阶段 2/4 就打三条 `未指定 xxx 目录` + 一条 `vault 已启用但扫描结果全空`，
+# 用户以为坏了。根因是把"没配"（正常）和"配错"（真故障）说成同一句警告。
+#
+# 三态（判据只有这一处，日志与界面都取它）：
+#   disabled     vault 路径都没填 → **完全静默**（不用 Obsidian 联动是合法选择）
+#   unconfigured vault 填了、五类目录都没填 → 提示一次"本轮不注入，在哪配"
+#   mismatch     配了目录但一条都扫不出来 → 真正的配置不匹配，要说清改哪一项
+#   ok           扫到了东西
+VAULT_STATES = ("disabled", "unconfigured", "mismatch", "ok")
+
+_WARNED = set()
+
+
+def _warn_once(tag, msg):
+    """同一进程内同类警告只打一次 —— 40 章跑下来不该刷 40 遍。"""
+    if tag in _WARNED:
+        return
+    _WARNED.add(tag)
+    print(msg)
+
+
+def vault_dirs_state():
+    """只看配置的静态状态：disabled / unconfigured / configured。"""
+    if get_vault_path() is None:
+        return "disabled"
+    vd = get_vault_dirs()
+    return "configured" if any(str(v or "").strip() for v in vd.values()) else "unconfigured"
+
+
 def scan_vault_preview(vault_path=None):
     """扫描面预览：vault 顶层目录清单 + 各自 .md 数 + 是否被排除。
 
@@ -120,6 +150,8 @@ def scan_vault_preview(vault_path=None):
         # 未配置也要把**默认项**给出去：GUI 要区分"谁排除的"，
         # 否则用户看到 .obsidian 被排除会以为是自己设的
         return {"vault_path": None, "configured": False, "top_dirs": [],
+                # state 三态（2026-11-05）：界面按它说“没启用 / 启用了但没配目录 / 正常”
+                "state": "disabled" if vault is None else "unconfigured",
                 "root_files": 0, "scanned": 0, "total": 0,
                 "skip_dirs": sorted(skip), "user_skip_dirs": user_skip,
                 "default_skip_dirs": sorted(set(_DEFAULT_SKIP_DIRS))}
@@ -146,6 +178,8 @@ def scan_vault_preview(vault_path=None):
                 for k, v in sorted(counts.items(), key=lambda x: -x[1]["files"])]
     return {
         "vault_path": str(vault.resolve()), "configured": True,
+        # 目录一个都没配 → 扫描面正常但“检索其实什么都不会注入”，界面要说得出来
+        "state": "unconfigured" if vault_dirs_state() == "unconfigured" else "ok",
         "top_dirs": top_dirs, "root_files": root_files,
         "scanned": scanned, "total": total,
         "skip_dirs": sorted(skip),
@@ -309,6 +343,15 @@ def scan_vault(vault_path=None):
     # 早先版本把父目录同时放进 char/world 两处，靠"角色优先"的排除规则决出归属，
     # 会把“散装说明”这类条目判成角色。
     vd = get_vault_dirs()
+    _dirs_configured = any(str(v or "").strip() for v in vd.values())
+    if not _dirs_configured:
+        # 三态里的 unconfigured：vault 路径填了、五类目录都没填。
+        # 只提示一次，且明确说“不是故障、在哪配”—— 旧版每类各刷一条，
+        # 用户每天看到 3 条警告，以为软件坏了（试跑 P2-4）。
+        _warn_once(
+            "vault-unconfigured",
+            "[obsidian_bridge] 知识库目录五类都没配 —— 本轮不注入 vault 词条（不是故障）。"
+            "要接库：设置页“设定目录”点选，或 config/system.local.yaml 的 obsidian.vault_dirs。")
 
     def _sub(rel):
         """vault 下相对目录：`设定/人物` → vault/设定/人物（段数任意，按 `/` 或 `\` 拆）。
@@ -327,16 +370,22 @@ def scan_vault(vault_path=None):
     def _warn_missing(path, key, value):
         """A1 修法 2：零扫告警——目录落空不再静默 continue。
 
-        2026-11-03：**未指定 ≠ 配错**。出厂不再预设目录，所以空值要说"这一类本轮不注入"
-        而不是"目录不存在"（后者会让用户以为配置坏了）。
+        2026-11-03：**未指定 ≠ 配错**。出厂不再预设目录，所以空值要说“这一类本轮不注入”
+        而不是“目录不存在”（后者会让用户以为配置坏了）。
+        2026-11-05（试跑 P2-4）：两者各自**只提示一次**；五类全没配时只出一条
+        “都没配”的说明（见 scan_vault 顶部），不再每类刷一遍。
         """
+        if not _dirs_configured:
+            return                      # 全没配：顶部那条统一说明已经讲清楚了
         if not str(value or "").strip():
-            print(f"[obsidian_bridge] 未指定 {key} 目录 —— 这一类本轮不注入（不是故障）。"
-                  "可在设置页“设定目录”点选，或让 AI 用 /config/vault_probe 扫一遍给提案。")
+            _warn_once("vault-nodir:" + key,
+                       f"[obsidian_bridge] {key} 目录未指定 —— 这一类本轮不注入（不是故障）。"
+                       "可在设置页“设定目录”点选，或让 AI 用 /config/vault_probe 扫一遍给提案。")
             return
-        print(f"[obsidian_bridge] ⚠️ 目录不存在、跳过：{path}（vault_dirs.{key}={value!r}）"
-              "——若与你的 vault 结构不符，请在 config/system.local.yaml 的 "
-              "obsidian.vault_dirs 填真实目录（设置页“设定目录”也能点选）。")
+        _warn_once("vault-missing:" + key,
+                   f"[obsidian_bridge] 目录不存在、跳过：{path}（vault_dirs.{key}={value!r}）"
+                   "——若与你的 vault 结构不符，请在 config/system.local.yaml 的 "
+                   "obsidian.vault_dirs 填真实目录（设置页“设定目录”也能点选）。")
 
     # 角色根 = vault_dirs.characters（默认“设定/人物”；用户真实结构走本地覆盖）。
     char_dirs = [
@@ -551,12 +600,19 @@ def scan_vault(vault_path=None):
 
     # A1 修法 2：零扫汇总告警。vault 已启用却三类全空 ≈ vault_dirs 与真实
     # 结构不匹配（旧版此时静默返回全空、下游注入恒空——F4 的近亲）。
-    if not (characters or world_entries or timeline_entries):
-        print("[obsidian_bridge] ⚠️ vault 已启用但扫描结果全空——大概率是 "
-              "obsidian.vault_dirs 与你的 vault 真实结构不匹配。"
-              "每人 Obsidian 布局不同：请在 config/system.yaml 或 "
-              "config/system.local.yaml 的 obsidian.vault_dirs 里填入你的"
-              "真实目录（角色/地点/势力/概念/年表五键），无需改代码。")
+    # 2026-11-05：只有**配了目录**才说这句。五类全没配是 unconfigured（正常），
+    # 那句“扫描结果全空”只会让人以为坏了。
+    state = "unconfigured"
+    if _dirs_configured:
+        if not (characters or world_entries or timeline_entries):
+            state = "mismatch"
+            _warn_once("vault-empty",
+                       "[obsidian_bridge] 配了 vault 目录但一条都扫不出来 —— 大概率是 "
+                       "obsidian.vault_dirs 与你的真实结构不匹配。每人 Obsidian 布局不同："
+                       "请在 config/system.local.yaml 的 obsidian.vault_dirs 里填你的"
+                       "真实目录（角色/地点/势力/概念/年表五键），无需改代码。")
+        else:
+            state = "ok"
 
     return {
         "characters": characters,
@@ -565,6 +621,8 @@ def scan_vault(vault_path=None):
         "meta": {
             "vault_path": str(vault.resolve()),
             "built_at": datetime.now().isoformat(),
+            "state": state,
+            "dirs_configured": _dirs_configured,
             "character_count": len(characters),
             "world_count": len(world_entries),
             "timeline_count": len(timeline_entries),

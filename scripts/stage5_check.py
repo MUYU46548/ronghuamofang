@@ -439,6 +439,13 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                       % (len(_need), "、".join("第%d章" % n for n in _need[:10])))
             else:
                 print("[stage5] 结构指标：本轮无越线项（仍建议抽读一章，指标不等于评价）")
+            # 对话段占比超上限（2026-11-05，试跑第 26 条）：**只报告不拦** ——
+            # 篇幅配比是创作决策，超了标出来，改不改由作者定。
+            _over = (_sres.get("summary") or {}).get("over_dialogue_max") or []
+            if _over:
+                print("[stage5] 对话段占比超过上限（%d%%）：%s —— 只报告，不影响验收"
+                      % (round(((_sres.get("summary") or {}).get("dialogue_max") or 0) * 100),
+                         "、".join("第%d章" % n for n in _over[:10])))
         else:
             warnings.append("结构指标跳过：" + str(_sres.get("error")))
     except Exception as e:                                    # noqa: BLE001

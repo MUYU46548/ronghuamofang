@@ -2887,6 +2887,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/config/target_words":
             # 单章字数区间读取（chapter.target_words）+ 出厂预设 + 合法区间。
             self._send(*_dom(dom_project.handle_config_target_words(self)))
+        elif p == "/config/book_target_words":
+            # 全书目标字数（book.target_words）+ 与章数/单章区间的推算关系。
+            self._send(*_dom(dom_project.handle_book_target_words(self)))
         elif p == "/config/title_format":
             # 章标题格式读取（chapter.title_format）。用户第 12 条要求格式可自定义。
             self._send(*_dom(dom_project.handle_config_title_format(self)))
@@ -3874,6 +3877,9 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/config/target_words":
                 # 单章字数区间设置（创作决策，非安全闸门；越界值一律 400 拒绝）。
                 self._send(*_dom(dom_project.handle_config_target_words_set(self, body)))
+            elif p == "/config/book_target_words":
+                # 全书目标字数（创作决策；写盘走 set_book_fields，保注释 + 备份 + 回读）。
+                self._send(*_dom(dom_project.handle_book_target_words_set(self, body)))
             elif p == "/config/title_format":
                 # 章标题格式设置（创作决策；必须含 {n}，否则 400）。
                 self._send(*_dom(dom_project.handle_config_title_format_set(self, body)))

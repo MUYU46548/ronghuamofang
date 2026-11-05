@@ -75,6 +75,32 @@ def block(root=None):
     return BLOCK_TITLE + "\n" + text
 
 
+def numeric_block(cfg=None):
+    """篇幅配比的**硬指标**（2026-11-05，试跑第 26 条）。
+
+    为什么单独一段而不是写进 writing_rules.md：那是我手写的自由文本，作者可以不写；
+    这是产品口径（`chapter.max_dialogue_ratio`，默认 0.35），有默认值、能被阶段 5
+    实测核对。两段并存：作者写的规矩在前，数值指标在后。
+
+    0 / 缺省值非法 → 不注入（= 关闭），不编一个数字。
+    """
+    try:
+        chap = (cfg or {}).get("chapter") or {}
+        raw = chap.get("max_dialogue_ratio")
+        v = float(raw) if raw is not None else 0.35
+    except (TypeError, ValueError):
+        v = 0.35
+    if not (0 < v <= 1):
+        return ""
+    pct = int(round(v * 100))
+    return (
+        "\n\n## 篇幅配比硬指标（超线会被作者当成问题章）\n"
+        "- **含对白的段落不超过全章段落的 %d%%**。对话是用来推进冲突的，不是用来凑字数。\n"
+        "- 每段对话前后要有动作、环境或内心反应；连续两段以上纯对白、中间没有动作插入，"
+        "读起来就是“说话记录”。\n" % pct
+    )
+
+
 def _backup(p, root=None):
     """旧版进 history（按时间戳，留最近 MAX_HISTORY 份）。"""
     if not p.exists():

@@ -1603,6 +1603,11 @@ body {
   background: rgba(155, 143, 196, 0.10); color: var(--ink);
   border: 1px solid rgba(155, 143, 196, 0.35);
 }
+/* 知识库扫描三态里的“启用了但没配目录”（2026-11-05）：说人话，别用报错红 */
+.vault-state-warn {
+  padding: 8px 10px; border-left: 2px solid var(--warn);
+  background: rgba(184, 134, 11, 0.08); line-height: 1.7;
+}
 
 /* ---- ② 命令面板 ---- */
 /* .drawer-mask 默认是右对齐抽屉（justify-content: flex-end），命令面板必须居中靠上：

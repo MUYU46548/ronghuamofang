@@ -228,6 +228,21 @@ def evaluate(metrics, limits):
     return triggered, na
 
 
+def _dialogue_max(root):
+    """读 `chapter.max_dialogue_ratio`（默认 0.35；0/非法 = 不限）。
+
+    只读一次、失败回落默认 —— 阶段 5 不该因为一个配置读不到就整段指标消失。
+    """
+    try:
+        from utils.config_io import load_config_yaml
+        cfg = load_config_yaml(str(Path(root) / "config" / "system.yaml")) or {}
+        raw = ((cfg.get("chapter") or {}).get("max_dialogue_ratio"))
+        v = float(raw) if raw is not None else 0.35
+        return v if 0 < v <= 1 else 0.0
+    except Exception:                                          # noqa: BLE001
+        return 0.35
+
+
 def collect(root, chapter_dir=None, limit=None):
     """扫 `data/chapters/raw/` 逐章算指标。零 token、只读。
 
@@ -240,6 +255,10 @@ def collect(root, chapter_dir=None, limit=None):
         return {"ok": False, "error": "缺口径：data/judge/caliber.json 不存在或读不出来"}
     limits = cal.values(doc)
     missing = [c for c in ("J16", "J17", "J18", "J19", "J20", "J21") if c not in limits]
+    # 对话段占比**上限**（2026-11-05，试跑第 26 条）：这是**产品约束**不是判据 ——
+    # 与 J20（低于线=对话太少）方向相反；超了只把该章标进“需人工抽样”，
+    # 不判合格、不拦阶段 5（篇幅配比是创作决策）。
+    dmax = _dialogue_max(root)
 
     chapters, skipped = [], []
     files = sorted(cdir.glob("[0-9][0-9].md")) if cdir.exists() else []
@@ -257,17 +276,25 @@ def collect(root, chapter_dir=None, limit=None):
             continue
         m = measure(text)
         trig, na = evaluate(m, limits)
+        cover = m.get("dialogue_cover")
+        over = bool(dmax and cover is not None and cover > dmax)
         chapters.append({
             "chapter": no,
             "metrics": m,
             "triggered": trig,
             "na": na,
+            # 超上限是**独立告警**，不并进 needs_sampling（那个字段的语义是
+            # “判据 J16–J21 被触发”）；阶段 5 会单独列出来。
+            "over_dialogue_max": over,
+            "dialogue_max": dmax,
             "needs_sampling": bool(trig),
         })
 
     summary = {
         "chapters": len(chapters),
         "needs_sampling": [c["chapter"] for c in chapters if c["needs_sampling"]],
+        "over_dialogue_max": [c["chapter"] for c in chapters if c.get("over_dialogue_max")],
+        "dialogue_max": dmax,
         "triggered_count": {},
         "metrics_mean": {},
     }
@@ -304,6 +331,12 @@ def render_markdown(result):
               % (s.get("chapters", 0), len(s.get("needs_sampling") or []),
                  ("（第 " + "、".join(str(n) for n in s["needs_sampling"]) + " 章）")
                  if s.get("needs_sampling") else ""), ""]
+    if s.get("over_dialogue_max"):
+        lines.append(
+            "\n对话段占比超过上限（`chapter.max_dialogue_ratio` = %.0f%%）：第 %s 章 —— "
+            "**只是提示，不判合格**；改不改是作者的决定。"
+            % ((s.get("dialogue_max") or 0) * 100,
+               "、".join(str(n) for n in s["over_dialogue_max"])))
     if s.get("metrics_mean"):
         parts = []
         for d in DIMENSIONS:

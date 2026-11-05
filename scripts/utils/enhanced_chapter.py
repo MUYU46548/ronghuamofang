@@ -130,7 +130,9 @@ def build_group_task(cfg, proj, n, group, groups, prev_tail,
         # 也走这里 —— 只加在整章模板上等于对默认配置无效。
         "discussion_block": _discussion_block(cfg, proj, n),
         # 作品级写作约束（M12）：每本书一份；空文件渲染成空串，不占上下文。
-        "writing_rules": _writing_rules(),
+        # 另接一段数值硬指标（对话段占比上限，2026-11-05）：加强模式是默认写作路径，
+        # 只改整章模板等于对默认配置无效。
+        "writing_rules": _writing_rules() + _dialogue_ratio_block(cfg),
     }
     _, body = load_template("stage4_group.md", variables)
     return body
@@ -141,6 +143,15 @@ def _writing_rules():
     try:
         from utils.writing_rules import block
         return block()
+    except Exception:                                        # noqa: BLE001
+        return ""
+
+
+def _dialogue_ratio_block(cfg):
+    """对话段占比上限（2026-11-05，试跑第 26 条）：失败不炸整章。"""
+    try:
+        from utils.writing_rules import numeric_block
+        return numeric_block(cfg)
     except Exception:                                        # noqa: BLE001
         return ""
 

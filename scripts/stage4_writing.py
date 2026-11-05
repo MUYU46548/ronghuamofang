@@ -25,6 +25,20 @@ from utils.verify_chapter import check_chapter, count_cn_words, is_chapter_compl
 from utils.summary_chain import append_chapter_summary, extract_prev_tail, compress_recent, load_rolling, write_rolling
 from utils.template_loader import load_template
 from utils.writing_rules import block as _writing_rules_block
+
+
+def _dialogue_ratio_block(cfg):
+    """对话段占比上限（2026-11-05，试跑第 26 条）：接在作品约束后面。
+
+    失败不炸整章（作者没配就用默认 35%，配坏了就当没有）。
+    """
+    try:
+        from utils.writing_rules import numeric_block
+        return numeric_block(cfg)
+    except Exception:                                          # noqa: BLE001
+        return ""
+
+
 from utils.style_analyzer import (
     MIN_TEXT_LEN as STYLE_REF_MIN_PROSE, extract_style_samples, build_style_notes_section,
     prose_char_count,
@@ -805,7 +819,7 @@ def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, p
         "style_reference": style_text,
         "style_samples": style_samples,
         "style_notes": style_notes,
-        "writing_rules": _writing_rules_block(),
+        "writing_rules": _writing_rules_block() + _dialogue_ratio_block(cfg),
         "kb_context": kb_context,
         "citations_block": citations_block,
         "chapter_samples": chapter_samples_block,

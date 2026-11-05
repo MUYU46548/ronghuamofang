@@ -555,6 +555,63 @@ def _validate_target_words(body):
     return True, "", {"low": low, "high": high}
 
 
+def handle_book_target_words(h):
+    """读全书目标字数（config/project.yaml 的 book.target_words）+ 三者关系。
+
+    试跑 P1-2：“GUI 改的是 chapter.target_words，全书字数在界面上没有任何入口，
+    只能手改 yaml。”——这里给读口，写口在下一个函数。
+    """
+    try:
+        from utils.project_config import get_project_config
+        proj = get_project_config() or {}
+        book = proj.get("book") or {}
+        cfg = api.load_all()[0]
+        tw = ((cfg.get("chapter") or {}).get("target_words")) or []
+        lo, hi = (int(tw[0]), int(tw[-1])) if tw else (0, 0)
+        chapters = int(book.get("chapters") or 0) or 0
+        mid = (lo + hi) // 2 if lo and hi else 0
+        return 200, {
+            "ok": True,
+            "current": int(book.get("target_words") or 0),
+            "chapters": chapters,
+            "chapter_target_words": [lo, hi],
+            # 三者关系（供界面直接显示“12 章 × 7000 ≈ 84000”）
+            "suggested": (chapters * mid) if (chapters and mid) else 0,
+            "mid_chapter_words": mid,
+            "path": "config/project.yaml",
+            "field": "book.target_words",
+            "note": ("全书目标字数只用于**总体提示与显示**；实际篇幅由章数与单章区间决定。"
+                     "三者差得太远时表格会提示，但不会拦你写。"),
+        }
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_book_target_words_set(h, body):
+    """写全书目标字数。**必须**走 set_book_fields（定向改写 + 备份 + 回读校验）。
+
+    整份 dump 会吃掉 project.yaml 的注释 —— 这是本仓历史事故（见 AGENTS.md）。
+    """
+    try:
+        raw = body.get("target_words")
+        if raw is None or str(raw).strip() == "":
+            return 400, {"ok": False, "error": "target_words 必填（整数，3000-20000000）"}
+        try:
+            n = int(str(raw).strip())
+        except (TypeError, ValueError):
+            return 400, {"ok": False, "error": "target_words 必须是整数"}
+        if not (3000 <= n <= 20000000):
+            return 400, {"ok": False,
+                         "error": "全书目标字数须在 3000-20000000 之间（当前 %d）" % n}
+        from utils.project_config import set_book_fields
+        ok, msg = set_book_fields({"target_words": n})
+        if not ok:
+            return 400, {"ok": False, "error": msg}
+        return 200, {"ok": True, "target_words": n, "message": msg or "已保存"}
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 def handle_config_target_words(h):
     """读单章字数区间（chapter.target_words）+ 出厂预设 + 合法区间。
 
@@ -1730,6 +1787,9 @@ ROUTES = (
     ("POST", "/config/token_limit", handle_config_token_limit_set),
     ("GET", "/config/target_words", handle_config_target_words),
     ("POST", "/config/target_words", handle_config_target_words_set),
+    # 全书目标字数（2026-11-05，试跑第 24 条）：界面此前只能改单章区间
+    ("GET", "/config/book_target_words", handle_book_target_words),
+    ("POST", "/config/book_target_words", handle_book_target_words_set),
     # 章标题格式（2026-10-26，用户第 12 条）：创作决策，Agent 可代设
     ("GET", "/config/title_format", handle_config_title_format),
     ("POST", "/config/title_format", handle_config_title_format_set),

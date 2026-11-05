@@ -450,6 +450,7 @@ function switchTab(t) {
     loadForm();                // 文体：可能在别处改过（外部 Agent 也能写）
     loadTokenLimit();          // 止烧阈值：每次进设置页都重读（可能在别处改过）
     loadTargetWords();         // 单章字数区间：同上（可能在别处改过 / 配置被手改）
+    loadBookWords();           // 全书目标字数（2026-11-05）：与章数/单章区间一起显示
     loadTitleFormat();         // 章标题格式：同上
     loadEnhancedMode();        // 加强模式开关：同上
     loadAgentConnect();        // 接入其他 Agent：路径/MCP 状态每次重探（垫片可能刚代拉）
@@ -3598,6 +3599,60 @@ const targetWords = ref({
   bounds: {}, preset: [],
   form: { low: 5000, high: 9000 },
 });
+/* 全书目标字数（2026-11-05，试跑第 24 条）：book.target_words 此前在界面上没有入口。
+   它与章数、单章区间三者是**推算关系**，所以这里把三个数一起摆出来，
+   差得太远时只提示、不拦（创作决策不该被闸门锁死）。 */
+const bookWords = ref({
+  loading: true, busy: false, ok: true, msg: "",
+  chapters: 0, mid: 0, suggested: 0, current: 0,
+  form: { value: 0 },
+});
+async function loadBookWords() {
+  bookWords.value.loading = true;
+  try {
+    const r = await api('/config/book_target_words', 'GET');
+    if (r.status === 200 && r.data.ok) {
+      bookWords.value.chapters = Number(r.data.chapters || 0);
+      bookWords.value.mid = Number(r.data.mid_chapter_words || 0);
+      bookWords.value.suggested = Number(r.data.suggested || 0);
+      bookWords.value.current = Number(r.data.current || 0);
+      bookWords.value.form = { value: Number(r.data.current || 0) };
+      bookWords.value.msg = "";
+      bookWords.value.ok = true;
+    } else {
+      bookWords.value.msg = "读取失败: " + (r.data.error || r.status);
+      bookWords.value.ok = false;
+    }
+  } catch (e) {
+    bookWords.value.msg = "读取失败: " + (e.message || e);
+    bookWords.value.ok = false;
+  } finally {
+    bookWords.value.loading = false;
+  }
+}
+const bookWordsGap = computed(() => {
+  const s = bookWords.value.suggested;
+  const c = Number(bookWords.value.form.value || 0);
+  if (!s || !c) return 0;
+  return Math.round((c - s) / s * 100);
+});
+async function saveBookWords() {
+  const v = parseInt(bookWords.value.form.value, 10);
+  bookWords.value.busy = true;
+  try {
+    const r = await api('/config/book_target_words', 'POST', { target_words: v });
+    bookWords.value.ok = !!(r.status === 200 && r.data.ok);
+    bookWords.value.msg = bookWords.value.ok
+      ? (r.data.message || "已保存") : ("保存失败: " + (r.data.error || r.status));
+    if (bookWords.value.ok) { bookWords.value.current = v; await loadBookWords(); }
+  } catch (e) {
+    bookWords.value.ok = false;
+    bookWords.value.msg = "保存失败: " + (e.message || e);
+  } finally {
+    bookWords.value.busy = false;
+  }
+}
+
 async function loadTargetWords() {
   targetWords.value.loading = true;
   try {
@@ -6736,8 +6791,46 @@ onUnmounted(() => {
         </div>
       </template>
 
+      <!-- 全书目标字数（2026-11-05，试跑第 24 条）：此前只能手改 project.yaml。
+           三者（章数 / 单章区间 / 全书目标）是推算关系，一起摆出来才看得出对不对。 -->
+      <h4 style="margin-top: 20px;">全书目标字数</h4>
+      <div class="meta" style="line-height: 1.8; margin-bottom: 8px;">
+        全书目标只用于整体提示与显示；实际篇幅由<b>章数</b>与<b>单章区间</b>决定。
+        三者推算：<b>{{ bookWords.chapters || "—" }} 章 × 单章中位 {{ bookWords.mid || "—" }} 字
+        ≈ {{ bookWords.suggested ? bookWords.suggested.toLocaleString("zh-CN") : "—" }} 字</b>
+        <span v-if="bookWordsGap && Math.abs(bookWordsGap) >= 25"
+              style="color: var(--warn);">
+          · 你填的数与推算差 {{ bookWordsGap > 0 ? "+" : "" }}{{ bookWordsGap }}%
+          （差太多不影响写作，但总量目标会失真）
+        </span>
+      </div>
+      <div v-if="bookWords.loading" class="meta">读取中…</div>
+      <template v-else>
+        <div class="tw-grid">
+          <label class="tw-field">
+            <span class="label">全书目标字数（字）</span>
+            <input type="number" v-model="bookWords.form.value" min="3000" max="20000000" />
+            <span class="meta">当前实际：{{ (bookWords.current || 0).toLocaleString("zh-CN") }} 字</span>
+          </label>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center; margin-top: 10px;">
+          <button class="mini primary" :disabled="bookWords.busy" @click="saveBookWords">
+            {{ bookWords.busy ? '保存中…' : '保存全书目标' }}
+          </button>
+          <button class="mini" :disabled="bookWords.busy || !bookWords.suggested"
+                  title="按章数 × 单章中位填进去（不自动保存）"
+                  @click="bookWords.form.value = bookWords.suggested">
+            按推算填入
+          </button>
+        </div>
+        <div v-if="bookWords.msg" class="meta tl-msg"
+             :style="{ color: bookWords.ok ? 'var(--ok)' : 'var(--bad)', marginTop: '6px' }">
+          {{ bookWords.msg }}
+        </div>
+      </template>
+
       <!-- 章标题格式（chapter.title_format）：用户 2026-10-26 第 12 条要求“格式自定义” -->
-      <h4 style="margin-top: 20px;">章标题格式</h4>
+      <h4 style="margin-top: 20px;" id="title-format">章标题格式（排版 / Word 相关）</h4>
       <div class="meta" style="line-height: 1.8; margin-bottom: 8px;">
         只影响<b>章标题行</b>（如“第10章潜七十二”→“第10章 潜七十二”），不改正文。
         <code>{n}</code> = 章号（必需，缺了会拒绝保存），<code>{title}</code> = 章名（可省略）。
@@ -7109,6 +7202,12 @@ onUnmounted(() => {
         还没有库路径 —— 在上面“库在哪”填好并保存，这里就会列出扫描面。
         <button class="mini" @click="loadVaultScan" style="margin-left: 8px;">重新读取</button>
       </div>
+      <!-- 三态（2026-11-05）：没启用 / 启用了但五类目录都没配 / 正常。
+           旧版把“没配”也当故障，每次跑流水线刷三条警告（试跑 P2-4）。 -->
+      <div v-else-if="vaultScan.data.state === 'unconfigured'" class="meta vault-state-warn">
+        库路径有了，但<b>五类目录一个都没配</b> —— 写作时不会从库里注入任何词条
+        （不是故障）。去上面的“设定目录”逐类点选，或让 AI 扫一遍给提案。
+      </div>
       <template v-else>
         <div class="meta" style="margin-bottom: 6px;">
           共 <b>{{ vaultScan.data.total }}</b> 篇，其中
@@ -7353,6 +7452,13 @@ onUnmounted(() => {
       <div class="card-head">
         <h3>多平台导出</h3>
         <span class="meta">Markdown 分卷 + Word 成品</span>
+        <!-- 2026-11-05（试跑第 22 条）：作者三次找不到“章标题长什么样在哪改”。
+             成品旁边给一句路径，比只在设置页里埋一个 h4 有用。 -->
+        <span class="spacer"></span>
+        <button class="mini" @click="switchTab('settings')"
+                title="章标题长什么样（第10章 潜七十二 / 第10章潜七十二）在“设置 → 章标题格式”">
+          章标题样式在哪改
+        </button>
       </div>
 
       <div class="export-grid">

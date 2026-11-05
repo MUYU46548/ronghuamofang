@@ -296,11 +296,24 @@ _ticket(n=len(sc["characters"]))
         check("G6 子进程产出结果", False, f"{out[-300:]} {err[-300:]}")
         shutil.rmtree(root, ignore_errors=True)
         return
-    check("G6 未指定目录时说清“不是故障”并给下一步",
-          "未指定" in out and "不是故障" in out, f"→ {out[-300:]}")
-    check("G6 三类全空有汇总告警（下游注入恒空的可见化）",
-          "扫描结果全空" in out, f"→ {out[-300:]}")
+    check("G6 未配目录时说清“不是故障”并给下一步",
+          "不是故障" in out and ("设置页" in out or "system.local.yaml" in out), f"→ {out[-300:]}")
+    # 2026-11-05（试跑 P2-4）：五类全没配时**只出一条**说明（旧版每类各刷一条，用户以为坏了）
+    check("G6 五类全没配只出一条说明（不刷屏）",
+          out.count("[obsidian_bridge]") == 1, f"→ {out[-300:]}")
     check("G6 空 vault 不炸、返回空列表", p["n"] == 0, f"→ {p}")
+
+    # 配了目录却扫不出 → 这才是真正的“配置不匹配”，必须说清改哪一项
+    _write_local(root, "obsidian:\n  vault_dirs:\n    characters: Nope\n")
+    p2, out2, err2 = run_py(root, code, {"V": str(v)})
+    _reset_local(root)
+    if p2 is None:
+        check("G6 配错场景子进程产出结果", False, f"{out2[-300:]} {err2[-300:]}")
+    else:
+        check("G6 配了目录却扫不出 → 说清是配置不匹配",
+              "一条都扫不出来" in out2, f"→ {out2[-300:]}")
+        check("G6 配错时指出改哪一项", "obsidian.vault_dirs" in out2, f"→ {out2[-300:]}")
+        check("G6 配错时不炸、仍返回空列表", p2["n"] == 0, f"→ {p2}")
     shutil.rmtree(root, ignore_errors=True)
 
 
