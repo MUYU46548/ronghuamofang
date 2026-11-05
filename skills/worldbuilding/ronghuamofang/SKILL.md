@@ -57,7 +57,7 @@ Python = `$NF/.venv/Scripts/python.exe`（下称 `python`）。
   （开工先看 `novelforge-gui` 技能里的护栏参考：直角引号红线 / 工作区≠源码树 /
   存在性判据单源 / 改完必跑）
 
-> 注：本卡在仓库里还有一份真源 `E:/CODE/CangKu/NovelForge/skills/worldbuilding/ronghuamofang/SKILL.md`，
+> 注：本卡在仓库里还有一份真源（`skills/worldbuilding/ronghuamofang/SKILL.md`，随安装包分发），
 > 安装版升级会用发布版覆盖本文件。**改了本卡就要把同一改动落到仓库真源**（下一轮打包时带出），否则白改。
 
 ## 入口（三条通道：CLI / HTTP / MCP）
@@ -148,7 +148,7 @@ cd $NF && python scripts/nfctl.py check
 4. **两套工作区别混用**：Electron 源码版工作区 = 项目根；安装版 = `%APPDATA%\绒花墨坊\workspace`。
    两边的产物不能互相解释。GUI 启动时若发现 8765 被占会**杀掉占用者**。
    ⚠ **工作区里也有一份 `scripts/` `prompts/` `config/` 的拷贝**：用户试跑期间“现场修”的东西
-   很可能**只落在工作区那份**，源码树 `E:\CODE\CangKu\NovelForge` 还是原样。
+   很可能**只落在工作区那份**，源码树（仓库根）还是原样。
    要修同一处前先 `diff -u scripts/<f> "$APPDATA/绒花墨坊/workspace/scripts/<f>"`，
    把工作区里的补丁**搬回源码树并补用例**——既别把“已修”当“未修”重写一遍，
    也别拿工作区做验证（用例跑的是仓库）。
@@ -299,7 +299,8 @@ stage4 会自动发“读原稿、只补量”的扩写任务（每章每轮至�
 
 绒花墨坊**没有 agent 层**：`engine: direct` 是纯 API 直连，无工具调用、无自主多轮、无记忆。
 “多轮迭代”全靠外部驱动 —— **Hermes 是脑，它是手**。
-它也不生成"N 个可选开工方案"这类创作决策，`outline_advisor.py` 只给候选方向与依据。
+但它**会生成候选**（开局方案 3 条走向 / 章级方向样例 3 种写法，见下节），只是“选哪条”归作者：选定落提案/写 chosen 文件，批准才生效。
+结构层面的“该往哪改”仍是 `outline_advisor.py` 给依据、人来定。
 
 端点全清单与请求体形状：`references/api.md`（以 `scripts/nf_api.py` 头部 docstring 为准）。
 命令全表与风险标注：`$NF/AGENTS.md`。
@@ -314,3 +315,33 @@ stage4 会自动发“读原稿、只补量”的扩写任务（每章每轮至�
 
 **“禁止 Agent 执行”那份清单只是示例** → 唯一真源是 `scripts/utils/agent_guard.py` 的 `FORBIDDEN_IN_AGENT_MODE`（20+ 条，含 `/providers/save|remove`、`/discuss/decide`、`/review/stage5/decide`、`/judge/events|sentence`、`/chapters/save`、`/stage/skip`、`/plan/*`）。判某条能不能调就 `grep` 那个集合 —— 卡里维护第二份清单必然与代码漂移。
 
+
+## 走向生成 / 方向样例（2026-11-05：**已经有了**，别再当“没做”重做）
+
+作者原话：“无法生成走向，无法生成多方案对比。” 核实结果：**界面和端点早就在**（分章页
+“选写作方向”2026-10-18 起、大纲页“开局方案”2026-10-20 起），死的是**单轮调用链**。
+
+| 入口 | 端点 | 落到哪 |
+|---|---|---|
+| 大纲页“开局方案”（整本书走向，3 条，每条必带“代价”） | `GET /outline/variants` · `POST /outline/variants/generate` · `/pick` · `/clear` | `data/outline/open_variants.json` + `open_variant_chosen.md`（stage2 读）；候选同时进规划本 `data/state/plan_state.json`（`kind=branch_variant`），选定 → `selected` |
+| 分章页“选写作方向”（同一章 3 种写法：基调/视角/节奏） | `POST /outline/sample/candidates` · `/submit` · `/current` | 落提案 `data/outline/drafts/`，**审核页批准**才写回章大纲（写前 `.bak` 备份） |
+
+**命门（2026-11-05 已修，勿回退）**：`branch_samples` / `open_variants` / `field_refine` /
+`book_extract` 全都调 `client._post_chat(...)`，而 `HermesClient` 此前**没有这个方法** →
+`engine: hermes`（作者当前配置）下三处功能全部
+`AttributeError: 'HermesClient' object has no attribute '_post_chat'`，job 直接 failed，
+界面上就是“点了没反应”。修法：给 HermesClient 补单轮直答
+（`hermes chat --query-file + --oneshot + --max-turns 1`，返回 4 元组与直连引擎同契约）。
+判据：`tests/unit/test_hermes_client.py`（`test_post_chat_oneshot`）+
+`tests/http/test_outline_branches_api_http.py`（39 条，2026-11-05）。
+
+**三个坑**：
+
+1. **self 引擎**下这两个端点必须 400 + 人话（已在 `NEEDS_MODEL_ENDPOINTS`），不是 500。
+2. **hermes 下每次点一次 = 一个子会话**（实测 16～52s，约 2.7 万 prompt token 的子会话上下文）。
+   不是自动调用，但也不便宜；批量点之前先想清楚。
+3. 规划本路径**一律由 `api.ROOT` 派生** —— `plan_state` 的默认值是 cwd 相对，
+   `--root` 场景下会静默读写另一个项目（2026-11-05 一并修了 `nf_api_domains/plan.py`）。
+
+**下次别重查**：`grep -rn "sample/candidates\|variants/generate" scripts/` 有实现就是有；
+先跑一次真机（临时 root + 非 8765 端口），把“没做 / 入口找不到 / 拒因劝退”三种真相分开。

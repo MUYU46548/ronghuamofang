@@ -9,6 +9,38 @@ CHANGELOG”）。本文件从工程审查修复起正式启用。
 
 ## [Unreleased]
 
+### 修复：走向 / 方向样例在 hermes 引擎下全军覆没（2026-11-05 试跑第三轮）
+
+作者说“无法生成走向，无法生成多方案对比”。核实：**界面和端点都在**（分章页“选写作方向”、
+大纲页“开局方案”），死的是单轮调用链 —— `branch_samples` / `open_variants` /
+`field_refine` / `book_extract` 都调 `client._post_chat(...)`，而 `HermesClient` 根本没有
+这个方法。真机复现（临时 root + 18791 端口）：两条端点 job 都是
+`AttributeError: 'HermesClient' object has no attribute '_post_chat'`，界面上就是“点了没反应”。
+而作者当前配置正是 `engine: hermes`。
+
+- `HermesClient` 补 `_post_chat`：走 `hermes chat --query-file + --oneshot + --max-turns 1`
+  （提示词不经 shell、不受命令行长度限制），返回 4 元组与直连引擎同契约；
+  空回复 / 非零退出**抛错**，不许当成功。实测 6 秒回话，usage 正常回。
+- 两条要模型的端点进 `NEEDS_MODEL_ENDPOINTS`：self 引擎下由 500 变 400 + 人话。
+- 并排对比不再“三坨文本让你自己找不同”：卡片底部给字数 / 均句长 / 对话句数 / 与其它方向的
+  相似度；三条几乎一样时高亮各自独有的说法（差太远则不全亮，免得满屏高亮没重点）。
+- 选定链路补全并验收：方向样例 → 提案 → **审核页批准才写回章大纲**（写前 `.bak`）；
+  开局方案 → 3 条候选进规划本（`kind=branch_variant`）→ 选定转 `selected`，同时写
+  `open_variant_chosen.md` 给阶段 2。
+- 顺手修 `nf_api_domains/plan.py` 的路径：原先不传 `state_path`，走 cwd 相对，
+  `--root` 场景会静默读写另一个项目的规划本（与“路径 IO 必须经 ROOT”同一条纪律）。
+
+补 `_post_chat` 之后连带暴露并修掉的三处“说假话”：
+
+- `FakeClient._post_chat` 认不出的提示词原先回 `{"ok": true}` → 成书提炼拿到空壳 JSON 还报
+  “提炼完成 3 章、角色 0”。现在**直接报错**（说清“没有离线假实现，改用直连或先预演”）。
+- 成书提炼收尾状态：三章全失败也写 `partial` + `done=3/3`。现在按“真摘要成功的章数”判 ——
+  0 章成功 = `failed`、`done=0`，GUI 不再显示“部分完成但什么都没成”。
+- `docs/agents/book-extract.md` 的“需要 engine: direct、hermes 只能预演”已过期：两种引擎都行。
+
+判据：`test_hermes_client.py`（单轮直答 13 条）+ `tests/http/test_outline_branches_api_http.py`
+（39 条：self 400 人话 / 参数校验 / 202→job ok→三张卡 / 选定落提案 / 批准才改大纲 / 规划留痕）。
+
 ### 修复：界面在说假话（2026-11-04 试跑第二轮）
 
 同一本书的试跑里，作者第二次提“产物速览挂着不存在的文件”。查下去发现是**一条链**：

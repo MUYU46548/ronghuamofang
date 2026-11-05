@@ -14,8 +14,9 @@
  *
  * 关键交互：三个方向**并排对比**（不是下拉），因为“直观可选”的前提是能一眼
  * 看出差别；选定后可就地改，提交的是编辑框里的文本。 */
-import { ref, watch, onMounted } from "vue";
+import { ref, computed, watch, onMounted } from "vue";
 import { API } from "./apiBase.js";
+import { postJSON } from "./guiApi.js";
 
 const props = defineProps({
   chapter: { type: Number, default: 0 },
@@ -53,23 +54,95 @@ function say(msg) {
   toastTimer = setTimeout(() => (toast.value = ""), 5000);
 }
 
-async function apiCall(path, method = "GET", body = null) {
-  const opt = { method, headers: { "Content-Type": "application/json" } };
-  if (body) opt.body = JSON.stringify(body);
-  const r = await fetch(API + path, opt);
+async function getJSON(path) {
+  const r = await fetch(API + path, { headers: { "X-Mofang-Source": "gui" } });
   let data = {};
   try { data = await r.json(); } catch (e) { /* 空响应 */ }
   return { status: r.status, data };
 }
+
+/* 差异度量（2026-11-05）：三张卡并排不等于“可比” —— 用户原话是
+   “不许三坨文本让人自己找不同”。高亮 + 这排数字回答“差在哪”。 */
+const HIGHLIGHT_K = 8;      // 独有片段的最小长度：短于 8 字的差异大多是虚词噪声
+const HIGHLIGHT_MAX = 0.55; // 独有比例超过这个值 = 三条本来就完全不同，全亮等于没重点
+
+function shingleSet(text, k) {
+  const clean = String(text || "").replace(/\s+/g, "");
+  const set = new Set();
+  for (let i = 0; i + k <= clean.length; i++) set.add(clean.slice(i, i + k));
+  return set;
+}
+
+function textStats(text) {
+  const s = String(text || "").trim();
+  const chars = s.replace(/\s/g, "").length;
+  const sentences = s.split(/[。！？…]+/).map(x => x.trim()).filter(Boolean);
+  const avg = sentences.length ? Math.round(chars / sentences.length) : 0;
+  const talk = sentences.filter(x => /[“"]/.test(x)).length;
+  return { chars, avg, talk };
+}
+
+const compare = computed(() => {
+  const list = samples.value;
+  const sets = list.map(s => shingleSet(s.text, 4));
+  return list.map((s, i) => {
+    const st = textStats(s.text);
+    let sim = 0;
+    let cnt = 0;
+    sets.forEach((other, j) => {
+      if (j === i) return;
+      let inter = 0;
+      other.forEach(g => { if (sets[i].has(g)) inter += 1; });
+      const union = sets[i].size + other.size - inter || 1;
+      sim += inter / union;
+      cnt += 1;
+    });
+    return { ...st, sim: cnt ? Math.round((sim / cnt) * 100) : 0 };
+  });
+});
+
+const segments = computed(() => {
+  const list = samples.value;
+  if (list.length < 2) return list.map(s => [{ t: s.text || "", hi: false }]);
+  const sets = list.map(s => shingleSet(s.text, HIGHLIGHT_K));
+  return list.map((s, i) => {
+    const others = new Set();
+    sets.forEach((st, j) => { if (j !== i) st.forEach(g => others.add(g)); });
+    const text = s.text || "";
+    const clean = [];
+    const where = [];                      // clean 下标 → 原文下标（空白不占位）
+    for (let p = 0; p < text.length; p++) {
+      if (!/\s/.test(text[p])) { clean.push(text[p]); where.push(p); }
+    }
+    const mark = new Array(text.length).fill(false);
+    for (let p = 0; p + HIGHLIGHT_K <= clean.length; p++) {
+      const gram = clean.slice(p, p + HIGHLIGHT_K).join("");
+      if (others.has(gram)) continue;
+      for (let q = p; q < p + HIGHLIGHT_K; q++) mark[where[q]] = true;
+    }
+    const ratio = clean.length ? mark.filter(Boolean).length / clean.length : 0;
+    if (ratio > HIGHLIGHT_MAX) return [{ t: text, hi: false }];
+    const out = [];
+    let buf = "";
+    let cur = null;
+    for (let p = 0; p < text.length; p++) {
+      const hi = mark[p];
+      if (cur === null) { cur = hi; buf = text[p]; }
+      else if (hi === cur) buf += text[p];
+      else { out.push({ t: buf, hi: cur }); buf = text[p]; cur = hi; }
+    }
+    if (buf) out.push({ t: buf, hi: cur });
+    return out;
+  });
+});
 
 /* 读这一章已经选过哪些方向（面板打开时刷新一次） */
 async function loadExisting() {
   if (!props.chapter) { existing.value = []; return; }
   loadingExisting.value = true;
   try {
-    const r = await apiCall("/outline/sample/current", "POST", { chapter: props.chapter });
-    if (r.status === 200 && r.data.ok) existing.value = r.data.samples || [];
-    else existing.value = [];
+    const d = await postJSON("/outline/sample/current", { chapter: props.chapter });
+    existing.value = d.samples || [];
   } catch (e) {
     existing.value = [];
   } finally {
@@ -80,7 +153,7 @@ async function loadExisting() {
 async function pollJob(jobId, tries = 150) {
   for (let i = 0; i < tries; i++) {
     await new Promise(r => setTimeout(r, 2000));
-    const r = await apiCall("/jobs/" + jobId);
+    const r = await getJSON("/jobs/" + jobId);
     if (r.status !== 200) { say("查询任务状态失败"); return null; }
     if (r.data.state !== "running") return r.data;
   }
@@ -97,11 +170,11 @@ async function generate() {
   editedText.value = "";
   meta.value = null;
   try {
-    const r = await apiCall("/outline/sample/candidates", "POST", {
+    const r = await postJSON("/outline/sample/candidates", {
       chapter: props.chapter, kind: kind.value, note: note.value,
     });
-    if (r.status !== 202) { say(r.data.error || "提交失败"); return; }
-    const done = await pollJob(r.data.job_id);
+    if (!r.job_id) { say("提交失败：后端没有返回任务号"); return; }
+    const done = await pollJob(r.job_id);
     if (done && done.state === "ok") {
       const p = done.result || {};
       samples.value = p.samples || [];
@@ -132,12 +205,12 @@ async function submit() {
   submitting.value = true;
   try {
     const s = chosenIdx.value >= 0 ? samples.value[chosenIdx.value] : null;
-    const r = await apiCall("/outline/sample/submit", "POST", {
+    const d = await postJSON("/outline/sample/submit", {
       chapter: props.chapter, kind: kind.value,
       label: s ? (s.label || "") : "",
       text, why: s ? (s.why || "") : "", note: note.value,
     });
-    if (r.status === 200 && r.data.ok) {
+    if (d.ok) {
       say("已落提案待审 —— 去“审核”页签批准后才会进这章的写作参照");
       samples.value = [];
       chosenIdx.value = -1;
@@ -145,7 +218,7 @@ async function submit() {
       await loadExisting();
       emit("say", "sample_submitted");
     } else {
-      say(r.data.error || "提交失败");
+      say(d.error || "提交失败");
     }
   } catch (e) {
     say("提交失败: " + (e.message || e));
@@ -194,7 +267,12 @@ onMounted(() => { if (props.open) loadExisting(); });
 
     <!-- 并排对比：三张卡片横向排，差别一眼可见 -->
     <div v-if="samples.length" class="bs-cands">
-      <div class="bs-label">方向 {{ samples.length }} 个（并排对比，点卡片选定）</div>
+      <div class="bs-label">
+        方向 {{ samples.length }} 个（并排对比，点卡片选定）
+        <span v-if="samples.length > 1" class="bs-legend">
+          · 高亮 = 这条独有的说法；三条差得太远时不全亮，改看卡片底部的数字
+        </span>
+      </div>
       <div class="bs-card-row">
         <div v-for="(s, i) in samples" :key="i"
              class="bs-card" :class="{ on: chosenIdx === i }" @click="pick(i)">
@@ -202,7 +280,18 @@ onMounted(() => { if (props.open) loadExisting(); });
             <span class="bs-card-no">{{ s.label || "方向 " + (i + 1) }}</span>
             <span v-if="s.why" class="bs-card-why">{{ s.why }}</span>
           </div>
-          <div class="bs-card-text">{{ s.text }}</div>
+          <div class="bs-card-text">
+            <template v-for="(seg, k) in segments[i]" :key="k">
+              <mark v-if="seg.hi" class="bs-hi">{{ seg.t }}</mark>
+              <template v-else>{{ seg.t }}</template>
+            </template>
+          </div>
+          <div class="bs-card-stats">
+            <span><b>{{ compare[i].chars }}</b> 字</span>
+            <span>均句长 <b>{{ compare[i].avg }}</b> 字</span>
+            <span>对话 <b>{{ compare[i].talk }}</b> 句</span>
+            <span v-if="samples.length > 1">与其它相似 <b>{{ compare[i].sim }}%</b></span>
+          </div>
         </div>
       </div>
 
@@ -261,6 +350,14 @@ onMounted(() => { if (props.open) loadExisting(); });
 .bs-actions { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 .bs-meta { font-size: 12px; color: var(--muted); }
 .bs-label { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.bs-legend { color: var(--muted); }
+.bs-hi { background: var(--accent-soft); color: inherit; border-radius: 2px; padding: 0 1px; }
+.bs-card-stats { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0;
+                 margin-top: 8px; padding-top: 8px;
+                 border-top: 1px dashed var(--border); font-size: 11.5px;
+                 color: var(--muted); font-variant-numeric: tabular-nums; }
+.bs-card-stats span + span::before { content: "·"; margin: 0 6px; color: var(--muted); }
+.bs-card-stats b { color: var(--ink); font-weight: 600; }
 .bs-cands { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
 /* 三列并排 —— 横向滚动兜底，窄窗口不会挤成一条 */
 .bs-card-row { display: flex; gap: 10px; margin-bottom: 12px; overflow-x: auto;
@@ -274,7 +371,7 @@ onMounted(() => { if (props.open) loadExisting(); });
 .bs-card-no { font-size: 13px; font-weight: 600; color: var(--accent); }
 .bs-card-why { font-size: 12px; color: var(--muted); }
 .bs-card-text { font-size: 13px; line-height: 1.7; white-space: pre-wrap;
-                max-height: 260px; overflow-y: auto; }
+                max-height: 260px; overflow-y: auto; padding-right: 4px; }
 .bs-edit { margin-bottom: 12px; }
 .bs-existing { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
 .bs-ex-item { padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px;

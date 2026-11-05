@@ -30,7 +30,9 @@ export async function postJSON(path, body) {
     body: JSON.stringify(body || {}),
   });
   const data = await r.json().catch(() => ({}));
-  if (r.status !== 200 || data.ok === false) {
+  // 2xx 都算提交成功：有些写端点是异步的（202 + job_id，例：/outline/sample/candidates），
+  // 把 202 当失败会让"点了生成"直接弹一句 HTTP 202 —— 看着像坏了。
+  if (r.status < 200 || r.status >= 300 || data.ok === false) {
     throw new Error(data.error || "HTTP " + r.status);
   }
   return data;

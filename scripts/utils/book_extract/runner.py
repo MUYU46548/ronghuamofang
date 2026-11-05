@@ -480,9 +480,21 @@ def run(camp: str | Path, call: Callable[[str], str], *,
             write_text(camp / "cost.json",
                        json.dumps(stats, ensure_ascii=False, indent=2))
         result["report"] = str(_report(camp, manifest, result))
-        _state(camp, state="done" if not result["failed"] else "partial",
-               stage=99, stage_name="完成", done=total_chapters,
-               total=total_chapters,
+        # 收尾状态要说实话（2026-11-05）：
+        # ① 三章全失败也算 "partial" —— 界面上是“部分完成、done 3/3”，可实际一章都没成；
+        # ② done 恒填 total_chapters，等于把“失败的章”也算成做完了。
+        # 现在按“第②步真摘要成功的章数”判：0 章成功 = failed，剩下的才算 partial。
+        st2 = (result.get("stages") or {}).get("2") or {}
+        done2 = int(st2.get("done") or 0) if 2 in stages else total_chapters
+        if not result["failed"]:
+            final_state = "done"
+        elif 2 in stages and done2 == 0:
+            final_state = "failed"
+        else:
+            final_state = "partial"
+        _state(camp, state=final_state,
+               stage=99, stage_name=("失败" if final_state == "failed" else "完成"),
+               done=done2, total=total_chapters,
                error=";" .join(result["failed"][:3]))
         return result
     except BaseException as e:                                 # noqa: BLE001

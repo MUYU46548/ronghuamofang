@@ -170,6 +170,26 @@ def generate(proj, setting_path="data/setting/setting.json", note="",
         "cost_yuan": cost,
         "variants": clean,
     }
+    # 候选 = idea（规划四态，2026-11-05 补齐卡片第 4 项）：
+    # 三条走向在规划板上留痕；`pick` 选中的那条再转 selected。
+    # ⚠️ 路径必须由 root 派生 —— plan_state 的默认值是 cwd 相对路径，
+    #    `--root <书B>` 时会静默写到**另一个项目**的规划本上。
+    try:
+        from utils import plan_state as ps
+        sp = Path(root) / ps.PLAN_STATE
+        ap = Path(root) / ps.PLAN_AUDIT
+        sp.parent.mkdir(parents=True, exist_ok=True)
+        for v in clean:
+            iid, _entry = ps.propose(
+                "开局方案：%s" % v["title"],
+                "主线：%s；冲突：%s；代价：%s"
+                % (v["spine"], v["conflict"], v["risk"]),
+                source="open_variants", kind="branch_variant",
+                context={"variant_id": v["id"], "tone": v["tone"]},
+                state_path=str(sp), audit_path=str(ap))
+            v["plan_id"] = iid
+    except Exception as e:                                     # noqa: BLE001
+        print("[open_variants] 规划四态留痕失败（不影响产出）：%s" % e)
     p = variants_path(root)
     p.parent.mkdir(parents=True, exist_ok=True)
     write_text(p, json.dumps(payload, ensure_ascii=False, indent=2))
@@ -198,6 +218,18 @@ def pick(variant_id, root="."):
             break
     if not chosen:
         return False, "没有 id=%s 的方案" % variant_id, None
+
+    # 选定 = selected（规划四态）。失败只告警：真正生效的是下面写的 chosen 文件，
+    # 规划本只是留痕，不能因为留痕失败就把“作者选定”这一步判失败。
+    if chosen.get("plan_id"):
+        try:
+            from utils import plan_state as ps
+            ps.select(str(chosen["plan_id"]), operator="user",
+                      reason="在开局方案里选定这一条",
+                      state_path=str(Path(root) / ps.PLAN_STATE),
+                      audit_path=str(Path(root) / ps.PLAN_AUDIT))
+        except Exception as e:                                 # noqa: BLE001
+            print("[open_variants] 规划四态转 selected 失败（不影响选定）：%s" % e)
 
     lines = [
         "# 作者选定的开局方案",

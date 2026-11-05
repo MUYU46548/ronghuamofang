@@ -67,9 +67,10 @@ python scripts/book_extract.py merge old-book --yes       # 真写（先备份 h
 
 ## 边界（如实说）
 
-- **需要 `engine: direct`**：管线走 `client._post_chat()`（任意提示词调用）。
-  Hermes 子会话没有这个入口 —— 那种引擎下只能用 `--dry-run` 出规模，
-  或先切直连。报错会直说，不会静默降级。
+- **引擎要求**：管线走 `client._post_chat()`（任意提示词调用）。`direct` 与 `hermes` 都行
+  （2026-11-05 起 `HermesClient` 也有 `_post_chat`：一次 `--query-file + --oneshot` 单轮子会话）；
+  `engine: self` 下不调模型，只能预演。
+  报错会直说，不会静默降级。
 - **不自动写正典**：提炼出来的卡先落在 `data/book_extract/`，`merge` 是显式动作。
   理由与“回写设定库只进沙盒”同源：哪个设定更对是创作决策。
 - **只检测不改写**：⑦ 不给改写建议，①/③/⑨ 的矛盾只单列，不替作者取舍。

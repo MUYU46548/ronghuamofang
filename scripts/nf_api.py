@@ -414,6 +414,8 @@ NEEDS_MODEL_ENDPOINTS = frozenset({
     "/auto_rewrite/run",        # 低分章自动重写
     "/judge/feelings/propose",  # 第三条证据：模型出候选
     "/outline/field/candidates",# 定向改写候选
+    "/outline/sample/candidates",  # 章级写作方向样例（2026-11-05）
+    "/outline/variants/generate",  # 开局方案 / 故事走向（2026-11-05）
     "/review/semantic",         # 语义审稿
 })
 

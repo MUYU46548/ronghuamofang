@@ -113,7 +113,32 @@ def test_build_cmd():
     check("toolsets 空串 = 逃生门（不加 -t，全量工具）", "-t" not in cmd3)
 
 
-# -------------------------------------------------------------- 协议解析
+def _stub_query_ok(tmp):
+    """单轮直答的健康桩：init + text + result（结果走 result.text）。"""
+    return _bat(tmp, "stub_query_ok.bat", [
+        "@echo off",
+        'echo {"type": "system", "subtype": "init", "model": "stub-model"}',
+        'echo {"type": "text", "text": "ANSWER_"}',
+        'echo {"type": "text", "text": "OK"}',
+        'echo {"type": "result", "exit_code": 0, "text": "ANSWER_OK", '
+        '"tokens": {"input": 321, "output": 45}}',
+    ])
+
+
+def _stub_query_empty(tmp):
+    """退出 0 但没有任何正文（模型把答案写进文件时的样子）。"""
+    return _bat(tmp, "stub_query_empty.bat", [
+        "@echo off",
+        'echo {"type": "result", "exit_code": 0, "text": "", '
+        '"tokens": {"input": 10, "output": 0}}',
+    ])
+
+
+def _stub_query_fail(tmp):
+    return _bat(tmp, "stub_query_fail.bat", ["@echo off", "exit /b 1"])
+
+
+# ------------------------------------------------------------ 单轮直答
 
 def test_parse_and_finish():
     print("· _parse_stream_json / _finish：干净文本 + 真实 usage + 成本语义")
@@ -292,6 +317,52 @@ def test_cost_and_make_client():
     check("engine=hermes 装配默认超时 900", client.timeout == 900)
 
 
+def test_post_chat_oneshot():
+    print("· _post_chat：单轮直答（走向 / 方向样例 / 定向改写都靠它）")
+    c = HermesClient()
+    cmd = c._build_query_cmd(Path("q.md"))
+    check("用 --query-file（提示词不经 shell 解释）", "--query-file" in cmd)
+    check("带 --oneshot（答完即退）", "--oneshot" in cmd)
+    check("回合上限 1（单轮任务不跑工具循环）",
+          "--max-turns" in cmd and cmd[cmd.index("--max-turns") + 1] == "1")
+    check("沿用 toolset=file", "-t" in cmd and cmd[cmd.index("-t") + 1] == "file")
+    check("默认不传 -m（agent 内部模型）", "-m" not in cmd)
+
+    q = HermesClient._render_query([
+        {"role": "system", "content": "SYS_PART"},
+        {"role": "user", "content": "写三个方向"},
+    ])
+    check("提示词带单轮前置说明（否则子会话跑去写文件）", "单轮直答" in q)
+    check("system 与 user 都在提示词里", "SYS_PART" in q and "写三个方向" in q)
+
+    tmp = tempfile.mkdtemp(prefix="nf_hc_")
+    try:
+        ok = HermesClient(hermes_bin=str(_stub_query_ok(tmp)))
+        text, usage, model, finish = ok._post_chat([{"role": "user", "content": "hi"}])
+        check("返回 4 元组文本", text == "ANSWER_OK", extra=repr(text))
+        check("usage 键名与直连引擎一致",
+              usage.get("prompt_tokens") == 321 and usage.get("completion_tokens") == 45)
+        check("model 取自 init 事件", model == "stub-model", extra=str(model))
+        check("正常收尾 finish=stop", finish == "stop", extra=str(finish))
+
+        empty = HermesClient(hermes_bin=str(_stub_query_empty(tmp)))
+        try:
+            empty._post_chat([{"role": "user", "content": "hi"}])
+            check("空回复必须报错（不许当成功）", False, extra="没有抛异常")
+        except RuntimeError as e:
+            check("空回复必须报错（不许当成功）", "没有返回文本" in str(e),
+                  extra=str(e)[:80])
+
+        bad = HermesClient(hermes_bin=str(_stub_query_fail(tmp)))
+        try:
+            bad._post_chat([{"role": "user", "content": "hi"}])
+            check("子会话非零退出必须报错", False, extra="没有抛异常")
+        except RuntimeError as e:
+            check("子会话非零退出必须报错", "单轮调用失败" in str(e), extra=str(e)[:80])
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 # ------------------------------------------------------------ 源码级回归锁
 
 def test_source_guards():
@@ -314,6 +385,7 @@ def main():
     test_run_task_with_stubs()
     test_stream_and_stop()
     test_cost_and_make_client()
+    test_post_chat_oneshot()
     test_source_guards()
     print("-" * 66)
     print(f"PASS {len(PASS)} / FAIL {len(FAIL)}")

@@ -516,6 +516,61 @@ class FakeClient:
     provider = "fake"
     model = "fake"
 
+    def _post_chat(self, messages, temperature=None, max_tokens=None):
+        """单轮直调的假实现（2026-11-05）。
+
+        为什么要有：走向生成 / 方向样例 / 定向改写候选都走 `client._post_chat`，
+        而 FakeClient 只有 run_task → `--allow-fake` 下这些端点的 job 全是
+        `AttributeError`，HTTP 层就永远只能测到“进 202”，测不到“出三张卡”。
+        这里按提示词里要的字段名回对应的 JSON 形状，让整条链路可离线验。
+
+        与真客户端同契约：返回 (text, usage, model, finish_reason)。
+        """
+        blob = "\n".join(str((m or {}).get("content") or "") for m in (messages or []))
+        # 按提示词里**要求输出的字段名**分派（不用自然语言关键词 ——
+        # “方向/候选”这类词在别的提示词里也会出现，误判会让用例以错形状失败）。
+        if '"candidates"' in blob:
+            payload = {"candidates": [
+                {"text": "候选 %d 的内容。" % i, "why": "理由 %d" % i}
+                for i in (1, 2, 3)]}
+        elif '"variants"' in blob:
+            payload = {"variants": [
+                {"title": "方案 %d" % i,
+                 "hook": "第一画面 %d" % i,
+                 "spine": "主线 %d" % i,
+                 "conflict": "冲突 %d" % i,
+                 "tone": "基调 %d" % i,
+                 "risk": "代价 %d" % i,
+                 "chapters_hint": "前 3 章 %d" % i}
+                for i in (1, 2, 3)]}
+        elif '"samples"' in blob:
+            texts = [
+                "阿禾在药柜夹层里摸到那本账本。他没有立刻抽出来，先用指腹沿封皮刮了一圈，"
+                "确认没有夹着别的东西。前堂有人咳嗽，他把抽屉推回去，装作在找一味药。",
+                "阿禾在药柜夹层里摸到那本账本。他跪坐在地砖上，一页页翻过去，"
+                "父亲的字从工整变成潦草，最后一页只剩半个名字。读到第三遍才发现自己在屏气。",
+                "“你在找什么？”母亲在里屋问。阿禾在药柜夹层里摸到那本账本，"
+                "手指按住那个硬角，说在找秤砣。他没有开灯，把账本塞进怀里，"
+                "听见自己的心跳比脚步还响。",
+            ]
+            payload = {"samples": [
+                {"label": ["冷峻白描", "内聚焦慢镜", "对话推进"][i],
+                 "text": texts[i],
+                 "why": ["适合冷硬悬疑：不解释、只给动作",
+                         "适合心理向：把时间压在一页纸上",
+                         "适合人物关系向：让台词带出压力"][i]}
+                for i in range(3)]}
+        else:
+            # 认不出来的提示词**不许假装成功**（2026-11-05）：早先这里回 `{"ok": true}`，
+            # 于是成书提炼这类"要模型出结构化结果"的链路在假客户端下拿到一个空壳 JSON，
+            # 跑完还报"提炼完成 3 章、角色 0"—— 正是用例里那条"不静默空跑"要防的事。
+            raise RuntimeError(
+                "[fake_client] 这个任务没有离线假实现（只模拟方向样例 / 开局方案 / "
+                "字段候选三种单轮调用）：测这条链路请改用直连引擎（direct）连真模型，"
+                "或者先跑预演（dry-run）看调用数。")
+        text = json.dumps(payload, ensure_ascii=False)
+        return text, {"prompt_tokens": 100, "completion_tokens": 50}, "fake", "stop"
+
     def write_task(self, task_dir, name, content):
         task_dir = Path(task_dir)
         task_dir.mkdir(parents=True, exist_ok=True)

@@ -64,6 +64,7 @@
 | `/outline/trend` | 迭代趋势：每轮指标 + 与上一版对比 + **收敛判定**（零 token） |
 | `/outline/advise` | 开工方向建议：按严重度排序的候选方案 + 可执行 next_step（零 token） |
 | `/outline/chapters/list` / `/outline/chapters/get` | 逐章大纲 |
+| `/outline/variants` | 开局方案（整书走向 3 条，每条带 risk）+ `chosen` 是否已选定 |
 
 ### 章节 / 审稿 / 校对
 | 路径 | 说明 |
@@ -150,6 +151,15 @@
 | `/proofread/run` | `{scope?, llm?, dry_run?, report?}` |
 | `/snapshot` | `{label?}` 手动快照 |
 | `/appearances/refresh` | 重算出场统计 |
+
+### 走向 / 方向样例（2026-11-05：都在，别再当“没做”）
+| 路径 | 请求体 / 说明 |
+|---|---|
+| `/outline/sample/candidates` | 章级方向样例（基调/视角/节奏，**要模型**）→ `job_id`，产物是 3 条样例，不碰正文 |
+| `/outline/sample/submit` | 选定的方向落提案（`data/outline/drafts/`，审核页批准才写回章大纲） |
+| `/outline/sample/current` | 读某章已批准的方向样例 |
+| `/outline/variants/generate` | 生成 3 条整书走向（**要模型**，每条必带 risk）→ `job_id`；候选同时进 `plan_state`（kind=branch_variant） |
+| `/outline/variants/pick` | 选定一条 → 写 `data/outline/open_variant_chosen.md`（stage2 读），并把该条 idea 转 `selected` |
 
 ### 内容 / 配置写入
 | 路径 | 请求体 |

@@ -26,6 +26,18 @@ def _bad_request(msg):
     return 400, {"error": msg}
 
 
+def _paths():
+    """规划本的读写路径，**一律由 api.ROOT 派生**（2026-11-05）。
+
+    此前各 handler 直接调 `propose(...)` / `list_items()` 不传 state_path，
+    而 plan_state 的默认值是 `data/state/plan_state.json`（**cwd 相对**）——
+    `--root <书B>` 且 cwd 不是书B 时，界面写进的是 A、读的是 B，且不报错。
+    与 AGENTS 里“路径 IO 必须经 ROOT”同一条纪律。
+    """
+    from utils import plan_state as ps
+    return str(api.ROOT / ps.PLAN_STATE), str(api.ROOT / ps.PLAN_AUDIT)
+
+
 def handle_propose(h, body=None):
     """POST /plan/propose {title, summary, source?, kind?, context?}"""
     body = body if isinstance(body, dict) else {}
@@ -36,9 +48,11 @@ def handle_propose(h, body=None):
     context = body.get("context") or {}
     if not title:
         return _bad_request("title 不能为空")
+    sp, ap = _paths()
     try:
         iid, entry = propose(title, summary, source=source, kind=kind,
-                              context=context if isinstance(context, dict) else {})
+                              context=context if isinstance(context, dict) else {},
+                              state_path=sp, audit_path=ap)
         return 200, {"ok": True, "id": iid, "entry": entry}
     except ValueError as e:
         return _bad_request(str(e))
@@ -51,7 +65,9 @@ def handle_select(h, body=None):
     reason = str(body.get("reason") or "")
     if not iid:
         return _bad_request("id 不能为空")
-    ok, msg, entry = select(iid, operator="user", reason=reason)
+    sp, ap = _paths()
+    ok, msg, entry = select(iid, operator="user", reason=reason,
+                            state_path=sp, audit_path=ap)
     if not ok:
         return 400, {"ok": False, "error": msg}
     return 200, {"ok": True, "message": msg, "entry": entry}
@@ -65,7 +81,9 @@ def handle_write(h, body=None):
     reason = str(body.get("reason") or "")
     if not iid:
         return _bad_request("id 不能为空")
-    ok, msg, entry = write(iid, ref_path, operator="user", reason=reason)
+    sp, ap = _paths()
+    ok, msg, entry = write(iid, ref_path, operator="user", reason=reason,
+                           state_path=sp, audit_path=ap)
     if not ok:
         return 400, {"ok": False, "error": msg}
     return 200, {"ok": True, "message": msg, "entry": entry}
@@ -78,7 +96,9 @@ def handle_drop(h, body=None):
     reason = str(body.get("reason") or "")
     if not iid:
         return _bad_request("id 不能为空")
-    ok, msg, entry = drop(iid, operator="user", reason=reason)
+    sp, ap = _paths()
+    ok, msg, entry = drop(iid, operator="user", reason=reason,
+                          state_path=sp, audit_path=ap)
     if not ok:
         return 400, {"ok": False, "error": msg}
     return 200, {"ok": True, "message": msg, "entry": entry}
@@ -91,7 +111,9 @@ def handle_revive(h, body=None):
     reason = str(body.get("reason") or "")
     if not iid:
         return _bad_request("id 不能为空")
-    ok, msg, entry = revive(iid, operator="user", reason=reason)
+    sp, ap = _paths()
+    ok, msg, entry = revive(iid, operator="user", reason=reason,
+                            state_path=sp, audit_path=ap)
     if not ok:
         return 400, {"ok": False, "error": msg}
     return 200, {"ok": True, "message": msg, "entry": entry}
@@ -102,14 +124,16 @@ def handle_list(h):
     status = h._query().get("status", [None])[0]
     if status and status not in VALID_STATUSES:
         return _bad_request("status 必须是 %s 之一" % list(VALID_STATUSES))
-    items = list_items(status=status or None)
-    return 200, {"items": items, "count": len(items), "stats": stats()}
+    sp, _ap = _paths()
+    items = list_items(status=status or None, state_path=sp)
+    return 200, {"items": items, "count": len(items), "stats": stats(state_path=sp)}
 
 
 def handle_get(h):
     """GET /plan/get?id=<idea_id>"""
     iid = h._query().get("id", [""])[0]
-    entry = get(iid)
+    sp, _ap = _paths()
+    entry = get(iid, state_path=sp)
     if entry is None:
         return 404, {"error": "未找到: " + iid}
     return 200, entry
@@ -117,7 +141,9 @@ def handle_get(h):
 
 def handle_stats(h):
     """GET /plan/stats"""
-    return 200, {"stats": stats(), "labels": {s: LABELS.get(s, s) for s in VALID_STATUSES}}
+    sp, _ap = _paths()
+    return 200, {"stats": stats(state_path=sp),
+                 "labels": {s: LABELS.get(s, s) for s in VALID_STATUSES}}
 
 
 ROUTES = (

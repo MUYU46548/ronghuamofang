@@ -56,6 +56,14 @@ ensure_utf8_stdout()
 BS = chr(92)          # 反斜杠字符（源码零字面量纪律）
 NEWLINE = chr(10)     # 换行字符
 
+# 单轮直答（hermes 引擎的 `_post_chat`）前置说明：子会话有文件工具，但**答案必须在回复里**。
+# 不写这段时模型会按任务文件的习惯去 write_file，调用方拿到空文本 → 白烧一次子会话。
+ONE_SHOT_PREFIX = (
+    "这是一次**单轮直答**调用：请直接在这条回复里输出最终结果（正文 / JSON）。\n"
+    "不要调用任何工具，不要写文件，不要解释你的思考过程。\n"
+    "你用 write_file 写出来的东西不会被读取 —— 那等于没有回答。\n"
+    "------------------------------------------------------------")
+
 # ---------------------------------------------------------------- 正则（动态构造）
 
 SEP = "[" + re.escape(BS) + "/]"                       # 匹配分隔符：\ 或 /
@@ -1275,6 +1283,92 @@ class HermesClient:
             cmd += ["-m", eff_model]
         return cmd
 
+    def _build_query_cmd(self, query_path, model=None):
+        """单轮直答的命令：`--query-file` + 单回合。
+
+        为什么不复用 `_build_cmd`：那是"给任务文件路径，让子会话自己去读"。单轮
+        调用要的是"提示词原样送到模型面前、答案直接回在这条消息里"。`--query-file`
+        正好解决这个（任意文本不经 shell 解释，引号/换行/`$(...)` 原样保留；
+        Windows 命令行长度上限也不再是问题）。
+
+        `--max-turns 1`：单轮任务不该有工具循环。1 表示最多一次工具迭代 ——
+        模型若坚持读文件还能补救，但不会在盘上连写三份。
+        """
+        query_path = Path(query_path).resolve()
+        cmd = [self.hermes_bin, "chat", "--query-file", str(query_path),
+               "--oneshot", "--format", "stream-json", "--max-turns", "1"]
+        if self.toolsets:
+            cmd += ["-t", str(self.toolsets)]
+        eff_model = model or self.model
+        if eff_model:
+            cmd += ["-m", eff_model]
+        return cmd
+
+    @staticmethod
+    def _render_query(messages):
+        """把 chat 消息压成一段提示词（system 在前，user 标角色）。"""
+        parts = []
+        for m in messages or []:
+            if not isinstance(m, dict):
+                continue
+            role = str(m.get("role") or "user").lower()
+            content = str(m.get("content") or "")
+            if role == "system":
+                parts.append(content)
+            else:
+                parts.append("【" + ("作者" if role == "user" else role) + "】"
+                             + content)
+        return ONE_SHOT_PREFIX + NEWLINE + NEWLINE + (NEWLINE + NEWLINE).join(parts)
+
+    def _post_chat(self, messages, temperature=None, max_tokens=None):
+        """单轮直调（hermes 引擎）：要一段文本、不要落盘的调用方走这里。
+
+        为什么必须有（2026-11-05 真机复现）：`branch_samples` / `open_variants` /
+        `field_refine` / `book_extract` 都写 `client._post_chat(...)`，而本类此前
+        只有 run_task —— hermes 引擎（作者当前配置）下这些功能全部
+        `AttributeError: 'HermesClient' object has no attribute '_post_chat'`。
+        界面上就是"生成走向 / 生成方向样例 / 定向改写候选"点了没反应。
+        复现：临时 root + 18791 端口，`/outline/variants/generate` 与
+        `/outline/sample/candidates` 两条 job 都 failed 于该异常。
+
+        契约与 OpenAICompatClient 对齐（改这里要同时看那边）：返回 4 元组
+        `(text, usage, model, finish_reason)`；usage 键名 `prompt_tokens` /
+        `completion_tokens`；`finish_reason == "length"` 表示输出不完整、调用方
+        必须判失败。hermes 没有 max_tokens 旋钮 → 正常只会是 "stop"，若收尾事件
+        带了截断字段则如实透出。
+
+        与 run_task 的分工：run_task = 子会话**干活**（读写盘、落产物）；
+        本方法 = 子会话**只回一段文本**。要落产物的一律走 run_task。
+        """
+        import shutil as _shutil
+        import tempfile as _tempfile
+
+        query = self._render_query(messages)
+        tmpdir = _tempfile.mkdtemp(prefix="nf_oneshot_")
+        qpath = Path(tmpdir) / "query.md"
+        try:
+            write_text(qpath, query)
+            res = self._run_once(qpath, cmd=self._build_query_cmd(qpath))
+        finally:
+            _shutil.rmtree(tmpdir, ignore_errors=True)
+
+        if int(res.get("exit_code") or 0) != 0:
+            detail = (res.get("error") or res.get("stderr_tail")
+                      or res.get("stdout_tail") or "")
+            raise RuntimeError("[llm_client] hermes 单轮调用失败（exit=%s）：%s"
+                               % (res.get("exit_code"), str(detail)[:300]))
+        text = res.get("stdout_tail") or ""
+        if not text.strip():
+            raise RuntimeError(
+                "[llm_client] hermes 单轮调用没有返回文本（子会话可能把答案写进了"
+                "文件而没有回复）。检查 hermes 的 toolset 设置，或改用 run_task。")
+        usage = {"prompt_tokens": int(res.get("tokens") or 0),
+                 "completion_tokens": int(res.get("tokens_out") or 0)}
+        finish = str(res.get("finish_reason") or "").lower()
+        finish = "length" if finish in ("length", "max_tokens",
+                                        "max_output_tokens") else "stop"
+        return text, usage, res.get("model") or "hermes-default", finish
+
     @staticmethod
     def _parse_stream_json(raw):
         """JSONL → (result事件或None, init事件或None, text事件列表, session_id或None)。
@@ -1363,6 +1457,10 @@ class HermesClient:
         # “是否熔断”由 CostTracker.status_detail 一元判据决定）。
         if self.note_request_tokens(t_out):
             out["request_tokens_over"] = True
+        # 收尾事件里若有截断标记就带出来（hermes 通常没有这个字段，取不到留空）。
+        # `_post_chat` 靠它把 "length" 透给调用方 —— 那是"不落盘"的判据。
+        out["finish_reason"] = str((result or {}).get("finish_reason")
+                                   or (result or {}).get("stop_reason") or "")
         return out
 
     @staticmethod
@@ -1409,10 +1507,12 @@ class HermesClient:
             res["resumed_fallback"] = True
         return res
 
-    def _run_once(self, task_file, workdir=None, model=None, session_id=None):
+    def _run_once(self, task_file, workdir=None, model=None, session_id=None,
+                  cmd=None):
+        """跑一次子会话。`cmd` 非空时直接用它（单轮直答走 `_build_query_cmd`）。"""
         import subprocess
         task_path = Path(task_file)
-        cmd = self._build_cmd(task_path, model, session_id)
+        cmd = cmd or self._build_cmd(task_path, model, session_id)
         try:
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
                                     stderr=subprocess.PIPE, text=True,
