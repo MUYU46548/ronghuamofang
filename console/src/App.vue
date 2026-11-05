@@ -4913,6 +4913,12 @@ const topbarRef = ref(null);
 function syncTopbarHeight() {
   const el = topbarRef.value;
   if (!el) return;
+  // 侧栏导航（≥900px）时 topbar 是 fixed 的竖向面板，它的“高度”= 整屏，
+  // 再写进 --topbar-h 会把内容顶下去一大段 —— 这种情况一律归零。
+  if (window.innerWidth >= 900) {
+    document.documentElement.style.setProperty("--topbar-h", "0px");
+    return;
+  }
   const h = Math.round(el.getBoundingClientRect().height);
   if (h > 0) document.documentElement.style.setProperty("--topbar-h", h + "px");
 }
@@ -5060,6 +5066,7 @@ onUnmounted(() => {
            用 `.tab-group` 而不是插一条分隔线：分隔线在换行时会被甩到行尾，
            分组用 border-left 挂在组上，换行时跟着组一起走。 -->
       <div class="tab-group" role="group" aria-label="写作" title="写作">
+        <span class="tab-group-title">写作</span>
       <button :class="{ active: tab === 'pipeline' }" @click="switchTab('pipeline')">流水线</button>
       <button :class="{ active: tab === 'chapters' }" @click="switchTab('chapters'); !chaptersLoaded && loadChapters()">章节</button>
       <button :class="{ active: tab === 'materials' }" @click="switchTab('materials'); loadMaterials()">素材</button>
@@ -5068,6 +5075,7 @@ onUnmounted(() => {
       <button :class="{ active: tab === 'outline_chapters' }" @click="switchTab('outline_chapters'); loadOutlineChapters()">分章</button>
       </div>
       <div class="tab-group" role="group" aria-label="审校" title="审校">
+        <span class="tab-group-title">审校</span>
       <button :class="{ active: tab === 'review' }" @click="switchTab('review')">审稿</button>
       <button :class="{ active: tab === 'refine' }" @click="switchTab('refine')">精修</button>
       <button :class="{ active: tab === 'sandbox' }" @click="switchTab('sandbox'); loadSandboxQueue()">
@@ -5077,6 +5085,7 @@ onUnmounted(() => {
       <button :class="{ active: tab === 'style' }" @click="switchTab('style')">文风</button>
       </div>
       <div class="tab-group" role="group" aria-label="系统" title="系统">
+        <span class="tab-group-title">系统</span>
       <button :class="{ active: tab === 'cost' }" @click="switchTab('cost')">成本</button>
       <button @click="asksOpen = !asksOpen; loadAgentAsks()" title="外接 Agent 提出的问题（回答后 Agent 能读到）">
         Agent 提问<span v-if="askPending" class="badge">{{ askPending }}</span>
@@ -5089,6 +5098,7 @@ onUnmounted(() => {
       <button :class="{ active: tab === 'export' }" @click="switchTab('export')">导出</button>
       </div>
     </nav>
+    <div class="topbar-tools">
     <div class="conn" :class="{ on: online }">{{ online ? "已连接" : "离线" }}</div>
     <button class="mini global-refresh-btn" @click="globalRefresh" title="全局刷新（所有页签数据）">↻</button>
     <!-- 打开成品（2026-10-26，用户第 11 条：“连个打开成品的按钮都没有，还好有命令面板
@@ -5099,6 +5109,7 @@ onUnmounted(() => {
     <button class="mini" @click="runRemedy" title="一键补救：检测问题并给出修复建议">🩹 补救</button>
     <button class="mini" @click="openRunLog" title="运行日志（nf_api / 流水线输出尾部）—— 排障第一入口">📋 日志</button>
     <div v-if="agentMode" class="agent-mode-badge" title="Agent 模式已开启 —— 外部 Agent 可通过 HTTP API 调用">⚡ Agent</div>
+    </div>
   </header>
 
   <!-- 全局"下一步"提示条 -->
