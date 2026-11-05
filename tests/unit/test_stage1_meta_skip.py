@@ -40,6 +40,7 @@ def main():
 
         def w(rel, text):
             p = root / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(text, encoding="utf-8")
             return p
 
@@ -66,6 +67,12 @@ def main():
         meta_d = w("00_大纲收束索引.md",
                    "# 遗声 · 大纲收束索引 v2（自动生成，未改动任何源文件）\n\n"
                    "> 沙盒文件总数：**84** 篇。按 9 维聚类，反推世界支柱与大纲骨架占位。\n")
+        # 仓库自带的 materials/raw/README.md：标题是目录路径（不是“Readme”），
+        # 正文是“此目录默认空 / 格式 / 快速上手”。2026-11-05 对账时实测：
+        # 旧判据认不出，会被当成素材喂进归并 → 按文件名直接判元。
+        meta_e = w("doc/README.md",
+                   "# materials/raw/\n\n此目录默认空。结构化素材卡放在此处供流水线消费。\n\n"
+                   "## 格式\n\n每张卡片是一个独立的 Markdown 文件。\n")
 
         print("== 1. 元文件识别 ==")
         check("登记表被判为元文件", _is_meta_file(meta_a))
@@ -73,6 +80,7 @@ def main():
         check("readme 被判为元文件", _is_meta_file(meta_c))
         check("自动生成的收束索引被判为元文件（OB34 实测形态）",
               _is_meta_file(meta_d))
+        check("目录路径当标题的 README 也判元文件", _is_meta_file(meta_e))
 
         print("== 2. 真素材不被误跳（保守判据） ==")
         check("角色卡不判元（正文含\u300c计划\u300d也不算）", not _is_meta_file(real_a))

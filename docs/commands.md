@@ -26,6 +26,7 @@
 | 大纲体检 | `python scripts/outline_review.py`（确定性，标出空泛节点；默认附**与上一版对比**，`--no-compare` 关闭） |
 | 大纲迭代趋势 | `python scripts/outline_review.py --trend [--history 目录]`（确定性零 token：逐版本指标表 + **收敛判断** done/improving/stalled/mixed/insufficient，回答“还要不要再迭代一轮”） |
 | 设定体检（stage1后自动） | `python scripts/material_review.py`（确定性，**类型感知**：先按 `utils/setting_schema.is_character` 分开人物/非人物，再对人物标碎片/缺失维度，报告 data/setting/material_review.md） |
+| **索引与实物对账（零 token）** | `python scripts/index_reconcile.py [--json] [--dir KEY=PATH ...]` · `python scripts/nfctl.py reconcile [--json]`（同一份数据）。素材目录里的登记表（如 `00_大纲收束索引.md`、`碎片填充计划.md`）声称的**篇数/日期** vs 盘上实物 → 差异清单；`verdict` ∈ consistent / mismatch / no_meta。篇数**就地**比、日期**跨目录**比（碎片登记表常放在 raw 里），维度只回显不判。退出码 1 = 发现不一致。GUI：素材页顶部横幅（`GET /materials/reconcile`）。细节 → `docs/agents/index-reconcile.md` |
 | **设定引用过期（M10，零 token）** | `python scripts/setting_stale.py status`（谁在等核对、哪一章改过）· `link [--dry-run]`（扫描章节，把现有引用登记进设定条目，**只增不改**）· `confirm 名字 --chapter N`（作者核对通过）· `drop 名字 --chapter N`（章没了 / 误匹配 → 去掉来源）。`confirm`/`drop` 在 `agent_mode=true` 下 CLI 一律拒绝（与审批同族），请在桌面端“设定 → 设定引用核对”里点。细节 → `docs/agents/setting-stale.md` |
 | 从设定库导入设定 | `python scripts/obsidian_integrate.py scan [--vault 路径] [--output data/setting/setting.json]`（⚠️ **整体替换**语义：vault 内容覆盖现有设定集，`plot_fragments`/`timeline` 会清空；**覆盖前自动备份**到 `data/setting/history/setting_vN.json`。目录约定见 `obsidian_bridge.scan_vault` docstring） |
 | 扫描设定库（只读） | `python scripts/obsidian_bridge.py scan [--vault 路径]`（只扫不写，落 `data/state/obsidian_index.json`）；`config` 查看当前 vault/沙盒配置 |

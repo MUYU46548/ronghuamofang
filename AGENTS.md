@@ -36,6 +36,7 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 | 中文标点归一化（幂等/保守/保护区） | `docs/agents/text-norm.md` |
 | 文体（form）与判据适用范围 | `docs/agents/writing-forms.md` |
 | 知识库扫描通用化（禁私例当通例） | `docs/agents/kb-scan.md` |
+| 索引与实物对账（登记表 vs 盘上实物） | `docs/agents/index-reconcile.md` |
 | 长篇规模能力（评审账本/记忆/卷弧/伏笔/残稿） | `docs/agents/long-form.md` |
 | 提示词前缀纪律（改 stage*.md 前必读） | `docs/agents/prompt-prefix.md` |
 | 关键路径（数据与产物的真源） | `docs/agents/key-paths.md` |
@@ -165,7 +166,7 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 
 | 目的 | 命令（workdir=项目根，用 .venv python） |
 |------|------|
-| **只读全景 / 自检** | `python scripts/nfctl.py status` · `check` · `doctor` · `test` · **`release-check`（发版前一条命令跑全套）** · `api <GET路径>` |
+| **只读全景 / 自检** | `python scripts/nfctl.py status` · `check` · `doctor` · `test` · **`reconcile`（索引与实物对账）** · **`release-check`（发版前一条命令跑全套）** · `api <GET路径>` |
 | 跑流水线 | `python scripts/orchestrator.py`（`--from N` 续跑 · `--stage N` 只跑某阶段 · `--dry-run` 零 token 预演 · `--verbose` 落请求原文） |
 | 审批 / 打回 | `python scripts/approve.py --stage N`（`--revoke` 撤销；阶段 1 审批 = 冻结 canon）· `python scripts/reject.py --stage N "原因"` |
 | 换书 | `python scripts/switch_book.py --list` / `--archive` / `--restore "书名"`（均需 `--yes`；归档含 `config/` 与 `materials/`） |
@@ -409,6 +410,8 @@ stage4 也补了同一道校验（此前是唯一既不设上限、也不校验�
   是否被排除 + 用户排除项/默认项分列。目录名一律不写进代码 —— 见“知识库扫描通用化”）
 - `GET /outline/structure`、`/outline/trend`、`/outline/advise`、`/outline/history`、`/outline/diff`
 - `GET /outline/segments`（丙4 分段审阅：分段清单 + 每段正文 + 放行判据回显；**读侧不设闸**）
+- `GET /materials/reconcile`（索引与实物对账：登记表声称的篇数/日期 vs 盘上实物；
+  `verdict` ∈ consistent | mismatch | no_meta，零 token 只读）
 - `GET /sandbox/queue`、`/sandbox/file`
 - `GET /review/report`、`/review/decisions`
 - `GET /chapters/quality`、`/chapters/history`

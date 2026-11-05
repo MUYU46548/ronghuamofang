@@ -1796,6 +1796,11 @@ const materialDir = ref("");
 const newMaterialName = ref("");
 const newMaterialContent = ref("");
 const newMaterialOpen = ref(false);
+// 索引与实物对账（2026-11-05，P2-3）：素材目录里躺着 `00_大纲收束索引.md` 这类
+// 登记表，声称 96 篇而实际只有 41 篇。管线读素材一直以文件系统为准，但作者看索引
+// 会以为齐了。这里把差异摆在页首 —— 以实物为准，别信登记表。
+const materialReconcile = ref(null);
+const reconcileOpen = ref(false);
 
 async function loadMaterials() {
   const r = await api("/materials/list");
@@ -1806,6 +1811,9 @@ async function loadMaterials() {
   } else {
     say("加载失败: " + (r.data.error || r.status));
   }
+  // 对账失败不影响素材列表（它是提示，不是依赖）。
+  const rc = await api("/materials/reconcile");
+  materialReconcile.value = rc.status === 200 ? rc.data : null;
 }
 
 async function addMaterial() {
@@ -7344,6 +7352,40 @@ onUnmounted(() => {
         <button class="mini" @click="newMaterialOpen = !newMaterialOpen">新建素材</button>
         <button class="mini primary" @click="triggerReMerge">触发重归并</button>
         <button class="mini" @click="loadMaterials">刷新</button>
+      </div>
+
+      <!-- 索引与实物对账（2026-11-05）：素材目录里常混着 `00_大纲收束索引.md`、
+           `碎片填充计划.md` 这类登记表，声称的篇数/日期和盘上实物对不上。管线读素材
+           一律扫文件系统（登记表不参与生产），但作者看索引会以为素材齐了 —— 这里
+           在页首明说“以实物为准”，差异明细可展开。 -->
+      <div v-if="materialReconcile && materialReconcile.verdict !== 'no_meta'"
+           style="margin-bottom: 12px; padding: 8px 10px; border-radius: 8px; line-height: 1.7;"
+           :style="{ border: '1px solid var(--border)',
+                     borderLeft: '3px solid ' + (materialReconcile.verdict === 'mismatch' ? 'var(--warn)' : 'var(--ok)') }">
+        <div v-if="materialReconcile.verdict === 'mismatch'">
+          <b style="color: var(--warn);">索引与实物不一致</b>
+          <span class="meta" style="margin-left: 8px;">以实物为准 —— 管线读素材扫的是文件系统，登记表不参与生产</span>
+          <button class="mini" style="margin-left: 8px;" @click="reconcileOpen = !reconcileOpen">
+            {{ reconcileOpen ? '收起明细' : '看明细' }}
+          </button>
+          <div class="meta" style="margin-top: 4px;">{{ materialReconcile.summary }}</div>
+          <div v-if="reconcileOpen" style="margin-top: 8px; font-size: 12px;">
+            <div v-for="m in materialReconcile.meta_files" :key="m.path" style="margin-bottom: 8px;">
+              <div>
+                <b>{{ m.name }}</b>
+                <span class="meta" style="margin-left: 6px;">{{ m.consistent ? '一致' : '有差异' }}</span>
+                <span class="meta" style="margin-left: 6px;">{{ m.path }}</span>
+              </div>
+              <div v-for="(issue, idx) in m.issues" :key="idx" class="meta">· {{ issue }}</div>
+              <div v-if="m.diff.dates_missing.length" class="meta">
+                找不到的日期：{{ m.diff.dates_missing.slice(0, 12).join('、') }}{{ m.diff.dates_missing.length > 12 ? ' …等 ' + m.diff.dates_missing.length + ' 个' : '' }}
+              </div>
+            </div>
+          </div>
+        </div>
+        <div v-else class="meta">
+          索引与实物一致（{{ materialReconcile.meta_files.length }} 份登记表，{{ materialReconcile.actual.dates_total }} 个日期）
+        </div>
       </div>
 
       <div class="tabs-sub">

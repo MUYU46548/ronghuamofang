@@ -46,11 +46,20 @@ FRAG_C = "买菜找零.txt"
 
 
 def build_workspace(tag="ws"):
-    """搭一个最小项目目录：prompts/ + config/ + 碎片目录；素材卡指向真实目录（只读）。"""
+    """搭一个最小项目目录：prompts/ + config/ + 素材卡 + 碎片目录。
+
+    素材卡目录**自建在 tmp 里**，不指向真实仓库 —— 那里只有出厂 `README.md`，
+    把它当“素材卡”是假依赖：2026-11-05 `README.md` 被判成元文件（目录说明）后，
+    这个夹具立刻因“materials/raw 为空”整片变红。测试不该依赖仓库数据状态。
+    """
     tmp = Path(tempfile.mkdtemp(prefix="stage1_scraps_%s_" % tag))
     shutil.copytree(ROOT / "prompts", tmp / "prompts")
     (tmp / "config").mkdir()
-    real_raw = (ROOT / "materials" / "raw").resolve()
+    mats = tmp / "materials" / "raw"
+    mats.mkdir(parents=True)
+    (mats / "角色卡甲.md").write_text(
+        "# 角色卡\n\n- 名称：甲\n- 身份：巡道工\n", encoding="utf-8")
+    real_raw = mats.resolve()
     (tmp / "config" / "project.yaml").write_text(
         "book:\n"
         "  name: \"测试书\"\n"

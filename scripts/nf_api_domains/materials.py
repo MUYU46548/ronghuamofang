@@ -45,6 +45,29 @@ def handle_materials_read(h, name):
         return 400, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+def handle_materials_reconcile(h):
+    """索引与实物对账（GET /materials/reconcile，零 token，只读）。
+
+    为什么放读侧：它只回答“登记表说的和盘上有的差多少”，不修任何东西。
+    管线的真源一直是文件系统（stage1 扫盘 + `utils.meta_detect` 排元文件），
+    这个端点只是把“元文件会骗人”这件事摆到作者面前。
+
+    返回 `verdict` ∈ consistent | mismatch | no_meta；前端据此显示横幅。
+    """
+    try:
+        from utils.index_reconcile import reconcile
+        scraps = api.scraps_dir_path()
+        scraps_rel = str(scraps)
+        try:
+            scraps_rel = str(scraps.relative_to(api.ROOT)).replace("\\", "/")
+        except ValueError:
+            pass
+        return 200, reconcile(api.ROOT, [("raw", "materials/raw"),
+                                         ("scraps", scraps_rel)])
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 def handle_scraps_list(h):
     """原始碎片列表：按簇分组 + 时间轴 + 前瞻备忘（确定性，零 LLM）。
 
@@ -133,6 +156,7 @@ def handle_setting_appearances(h):
 # 本模块负责的端点（供自检与文档）
 ROUTES = (
     ("GET", "/materials/list", handle_materials_list),
+    ("GET", "/materials/reconcile", handle_materials_reconcile),
     ("GET", "/materials/read/{name}", handle_materials_read),
     ("GET", "/scraps/list", handle_scraps_list),
     ("GET", "/scraps/read", handle_scraps_read),

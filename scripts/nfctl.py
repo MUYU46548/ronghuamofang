@@ -20,6 +20,8 @@
     python scripts/nfctl.py homo   [--json]         # 同质化/退化报告（stage4 自动生成，零 token 只读）
     python scripts/nfctl.py cliche [--chapter N|--file F] [--wordlist W]
                                      # 病灶词扫描（成书提炼⑦，零 token 只读；默认全书逐章）
+    python scripts/nfctl.py reconcile [--json]
+                                     # 索引与实物对账（登记表声称的篇数/日期 vs 盘上实物；零 token 只读）
     python scripts/nfctl.py serve  [--port 8766]    # 启动本地调试看板（零依赖）
     python scripts/nfctl.py api <GET路径> [--json]  # 只读转发到 nf_api（服务需在跑）
     python scripts/nfctl.py model-check [provider] [--live]
@@ -883,6 +885,31 @@ def render_cliche(d: dict) -> str:
     return "\n".join(lines)
 
 
+# ---------------------------------------------------------------- reconcile
+def render_reconcile(d: dict) -> str:
+    """索引与实物对账的人读摘要（与 `scripts/index_reconcile.py` 同一份数据）。"""
+    posts = (d.get("actual") or {}).get("posts") or {}
+    lines = ["索引与实物对账：%s" % {
+        "mismatch": "不一致（以实物为准）",
+        "consistent": "一致",
+        "no_meta": "没有登记表，无需对账",
+    }.get(d.get("verdict"), d.get("verdict"))]
+    if posts:
+        lines.append("  实物：%s · 日期 %s 个"
+                     % (" · ".join("%s %d 篇" % (k, v) for k, v in posts.items()),
+                        (d.get("actual") or {}).get("dates_total", 0)))
+    for m in d.get("meta_files") or []:
+        lines.append("  [%s] %s" % ("差异" if not m.get("consistent") else "OK  ", m.get("path")))
+        for issue in m.get("issues") or []:
+            lines.append("    - " + issue)
+    if d.get("verdict") == "mismatch":
+        lines.append("  提示：管线读素材扫的是文件系统，登记表不参与生产 —— "
+                     "别按索引的数字判断素材齐没齐。")
+    for w in d.get("warnings") or []:
+        lines.append("  [WARN] " + w)
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------- homogeneity
 def collect_homogeneity(root: Path) -> dict:
     """汇总 stage4/stage6 落盘的同质化报告（只读，零 token）。
@@ -1666,6 +1693,8 @@ def main(argv=None):
                       help="只检查某个 provider（省略则检查全部）")
     p_mc.add_argument("--live", action="store_true",
                       help="额外对每个在用模型发一次最小请求（默认不发，零 token）")
+    p_hd = sub.add_parser("reconcile", parents=[common],
+                          help="索引与实物对账（登记表声称的篇数/日期 vs 盘上实物；零 token 只读）")
     p_ho = sub.add_parser("handoff", parents=[common],
                           help="导出交接稿（第N章后；确定性拼装，零 token，可直接粘给任何模型）")
     p_ho.add_argument("--chapter", type=int, default=None,
@@ -1742,6 +1771,17 @@ def main(argv=None):
                 print("\n" + "=" * 62)
                 print(data["text"])
         return 0
+
+    if args.cmd == "reconcile":
+        from utils.index_reconcile import reconcile
+        proj = _read_yaml(root / "config" / "project.yaml", {}) or {}
+        scraps_rel = ((proj.get("materials") or {}).get("scraps_dir")
+                      or "materials/original_scraps")
+        data = reconcile(root, [("raw", "materials/raw"), ("scraps", scraps_rel)])
+        print(json.dumps(data, ensure_ascii=False, indent=2) if as_json
+              else render_reconcile(data))
+        # 不一致 → 退出码 1：Agent 能据此判断“素材没齐”，不必自己解析文本。
+        return 0 if data["verdict"] != "mismatch" else 1
 
     if args.cmd == "test":
         data = run_tests(root, pattern=args.pattern, verbose=args.verbose)

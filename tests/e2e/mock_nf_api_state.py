@@ -513,6 +513,16 @@ class Handler(BaseHTTPRequestHandler):
                                     "artifacts": table[stage]})
         if p == "/materials/list":
             return self._send(200, {"count": 3, "items": [], "dir": "materials/raw"})
+        if p == "/materials/reconcile":
+            # 素材页顶部横幅的数据源（零 token 对账）。mock 环境没有登记表 →
+            # no_meta，前端按设计不显示横幅。缺它会让每次切素材页都留一条 404。
+            return self._send(200, {"ok": True, "verdict": "no_meta",
+                                    "consistent": False,
+                                    "summary": "素材目录里没有登记表（索引/清单），无需对账",
+                                    "checked_at": "2026-01-01 00:00:00",
+                                    "actual": {"posts": {"raw": 0, "scraps": 0},
+                                               "dates": {}, "dates_total": 0},
+                                    "meta_files": [], "warnings": []})
         if p == "/sandbox/queue":
             return self._send(200, {"ok": True, "pending": [], "items": [], "orphans": []})
         if p == "/estimate":

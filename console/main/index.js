@@ -379,7 +379,11 @@ function getWorkspaceSource() {
 //   · 前端（asar，不走种子）：项目页出厂徽标 / 启动提示词剥离说明书 /
 //     阶段复制改任务简报（原样贴模板会被外部 Agent 按红线判“模板不是任务”停工）。
 // **先 bump 再 electron-builder**。
-const SEED_VERSION = 84;   // 0.7.42: 向导选引擎 + 子会话执行边界（别再白翻 Hermes 目录）
+const SEED_VERSION = 85;   // 0.7.43: 索引与实物对账（素材页顶部横幅 + nfctl reconcile）
+                            //   · payload scripts：utils/meta_detect.py（元文件判据单一实现）、
+                            //     utils/index_reconcile.py、index_reconcile.py、
+                            //     nf_api_domains/materials.py（GET /materials/reconcile）
+                            //   · 前端（asar）：素材页顶部“索引与实物不一致”横幅
                             //   · payload scripts：新 ask.py 域、nf_mcp 加 6 个工具、
                             //     chapters/content 缺省取最高存在层、agent_guard 加 /ask/answer
                             //   · 前端（asar）：顶栏“Agent 提问”+ 回答浮层

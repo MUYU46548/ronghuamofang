@@ -9,6 +9,26 @@ CHANGELOG”）。本文件从工程审查修复起正式启用。
 
 ## [Unreleased]
 
+### 新增：索引与实物对账（试跑第 23/29 条，P2-3）
+
+- **问题**：素材目录里的登记表会骗人 —— `00_大纲收束索引.md` 声称 96 篇 / 9 维齐全，
+  实际 41 篇；`碎片填充计划.md` 登记 24 个日期，与碎片目录里 18 个日期无一重合。
+  管线本身以文件系统为准（`stage1` 扫盘 + 元文件排除），但这会让作者以为素材齐了。
+- **新增** `scripts/index_reconcile.py` + `utils/index_reconcile.py`（零 token、只读）：
+  声称篇数 / 日期 vs 实物 → 差异清单；`verdict` ∈ `consistent | mismatch | no_meta`。
+  - 篇数**就地**比（元文件所在目录的实物数）；日期**跨目录**比（碎片登记表常放在 raw 里，
+    就地比会假报“无一重合”）；维度只回显不判（文件系统证明不了）。
+  - 退出码：0 一致/无登记表、1 不一致、2 读取失败。
+- **判据单一化**：`_is_meta_file` 与素材扫描规则抽到 `utils/meta_detect.py`，
+  `stage1_consolidate` 改为 import（保留 `_is_meta_file` 别名）—— 两条路径不许各写一套。
+  顺带补一条：文件名是 `README/说明/读我` 直接判元（仓库自带 `materials/raw/README.md`
+  标题写 `# materials/raw/`，原判据认不出，会被当素材喂进归并）。
+- **可见**：`GET /materials/reconcile` + 素材页顶部横幅（不一致 → 警示 + 可展开明细，
+  一致 → 一行淡显，无登记表 → 不显示）；`nfctl reconcile [--json]` 同一个数据源。
+- 判据：`test_index_reconcile`（14 条，含“声称 10 / 实物 3 → 差 -7”、跨目录日期命中、
+  `no_meta` 不冒充 `consistent`、CLI 退出码）、
+  `test_materials_reconcile_api_http`（15 条，含**只读性**：请求前后素材文件不变）。
+
 ### 修复：向导里选引擎 + 子会话别再白翻 Hermes 目录（试跑第 22/29 条）
 
 - **向导第二步加“运行引擎”**（必选，三档各写一句代价）：此前默认值隐式继承 `hermes`，
