@@ -1212,9 +1212,11 @@ def test_about_project(browser, mock_proc=None):
     try:
         page5.locator(".tabs button:has-text('设定')").click()
         page5.wait_for_timeout(1200)
-        page5.locator(".prov-input").scroll_into_view_if_needed()
+        # 只认“设定条目来源”那个输入框：InteractionPanel 也用了同名 class
+        # （角色 A / 角色 B），裸 .prov-input 会命中 3 个 → strict mode 直接炸（2026-11-05 实测）。
+        page5.locator('input[list="prov-names"]').scroll_into_view_if_needed()
         check("“”块渲染", page5.locator(".prov-block").count() == 1)
-        page5.locator(".prov-input").fill("主角甲")
+        page5.locator('input[list="prov-names"]').fill("主角甲")
         page5.locator(".prov-row button:has-text('追溯')").click()
         page5.wait_for_timeout(700)
         res = page5.locator(".prov-result")
