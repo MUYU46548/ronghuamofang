@@ -693,7 +693,7 @@ def handle_config_title_format(h):
             "field": "chapter.title_format",
             "placeholders": {"{n}": "章号（必需）", "{title}": "章名（可省略）"},
             "note": ("只影响章标题行的渲染（流水线落盘后与 stage7 合并时归一化），"
-                     "不改正文。留空回落默认。改完对下一次落盘/合并生效。"),
+                     "不改正文。留空回落默认。改完对下一次保存 / 合并生效。"),
         }
     except Exception as e:                                  # noqa: BLE001
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
@@ -1406,18 +1406,18 @@ def handle_config_agent_mode_set(h, body):
 #    而漂移的表现正是用户 2026-10-24 抱怨的“客户端里分不清哪些走 Agent 哪些走内部”。
 _AGENT_PATH_NOTES = {
     "/approve": "审批放行 —— 判定权归用户，Agent 不得代批",
-    "/reject": "打回重跑 —— 同审批族，会清下游产物",
+    "/reject": "打回重跑 —— 同审批族，会清掉后面阶段生成的文件",
     "/project/create": "新建项目 —— 会归档当前项目并清空工作区",
     "/project/archive": "归档当前项目 —— 搬空工作区到书库",
     "/project/restore": "恢复归档书 —— 覆盖当前工作区",
-    "/project/init": "首启初始化 —— 写入工作区骨架",
+    "/project/init": "首启初始化 —— 写入工作区的基础文件",
     "/project/archive/delete": "删除归档 —— 抹掉成书数据（进回收站）",
     "/config/agent_mode": "切换 Agent 模式本身 —— Agent 不得开关自己的模式",
-    "/config/token_limit": "止烧阈值 —— Agent 不得抬高烧钱上限",
+    "/config/token_limit": "花超就停的上限 —— Agent 不得抬高它",
     "/factory/clean": "清理出厂样例 —— 移动用户素材文件",
     "/factory/preset/apply": "铺设出厂预设 —— 快照+归档+铺素材，同新建项目",
     "/factory/project/reset": "出厂项目还原 —— 清书状态+重铺素材",
-    "/stage/skip": "跳过阶段 —— 会把 approved 真写进 progress.json",
+    "/stage/skip": "跳过阶段 —— 会把该阶段标成已审批（写进 progress.json）",
     "/import/docx": "导入整本 Word 稿 —— 批量覆盖章节文件",
     "/outline/segments/set": "分段审批标记 —— 勾一段等于替用户读一段",
     "/outline/discussion/review": "讨论提案审批 —— 会写回章大纲",

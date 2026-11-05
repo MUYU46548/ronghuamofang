@@ -124,7 +124,7 @@ def handle_sandbox_file(h):
     sandbox = get_sandbox_dir()
     full = Path(sandbox) / rel
     if not full.exists():
-        return 404, {"error": "沙盒中不存在该产物: " + rel}
+        return 404, {"error": "沙盒里没有这个文件: " + rel}
     try:
         # 二次防线：即使用户配置把沙盒指到别处，也确认解析后的路径仍在沙盒内
         if not full.resolve().is_relative_to(Path(sandbox).resolve()):

@@ -136,7 +136,7 @@ onMounted(load);
 <template>
   <div class="card">
     <div class="card-head">
-      <h3>判定正例集（基准集）</h3>
+      <h3>判定对照稿（基准集）</h3>
       <span v-if="verified" class="pill ok">已配置 {{ entries.length }} 份</span>
       <span v-else class="pill warn">未配置 · “不误报”无法验证</span>
       <span class="spacer"></span>
@@ -144,7 +144,7 @@ onMounted(load);
     </div>
 
     <p class="meta">
-      正例 = 你自己认可的好稿。判定器拿它做对照，才能说“没误报”。
+      对照稿 = 你自己认可的好稿。判定器拿它做对照，才能说“没误报”。
       稿子只存在本机项目目录 <code>data/judge/benchmark/</code>，不上传、不进代码仓库，
       随时可以移除（移除不删原件副本，可恢复）。
     </p>
@@ -172,7 +172,7 @@ onMounted(load);
         v-model="pasted"
         class="grow"
         rows="5"
-        placeholder="把正例正文粘在这里（至少 300 字）"
+        placeholder="把对照稿正文粘在这里（至少 300 字）"
       ></textarea>
 
       <div class="row">
@@ -192,7 +192,7 @@ onMounted(load);
         <button class="mini bad-btn" :disabled="busy" @click="removeEntry(e)">移除</button>
       </div>
     </div>
-    <div v-else class="meta">还没有正例稿。</div>
+    <div v-else class="meta">还没有对照稿。</div>
 
     <details v-if="removed.length" class="removed">
       <summary>已移除（{{ removed.length }}）—— 可恢复</summary>

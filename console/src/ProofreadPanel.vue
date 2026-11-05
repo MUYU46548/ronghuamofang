@@ -111,7 +111,7 @@ async function runProofread() {
   const opts = [];
   opts.push("范围：" + (scope.value || "自动（润色稿 > 检查稿 > 原稿）"));
   opts.push("确定性检查：标点 / 错字 / 格式 / 节奏（零 token）");
-  if (useLlm.value) opts.push("LLM 语义校对：开启（会消耗 token）");
+  if (useLlm.value) opts.push("AI 语义校对：开启（会消耗 token）");
   if (!window.confirm("确定运行校对？\n\n" + opts.join("\n"))) return;
   running.value = true;
   try {
@@ -152,7 +152,7 @@ async function refineChapter(c) {
   if (!list.length) return say("请先勾选本章至少一条建议");
   if (!window.confirm(
     `确定按 ${list.length} 条建议精修第 ${c.n} 章？\n\n`
-    + "· 复用章节精修链路（同 refine_chapter）\n"
+    + "· 复用章节精修流程（同一个接口 refine_chapter）\n"
     + "· 旧稿自动备份到 data/chapters/history/\n"
     + "· ±20% 字数铁律仍然生效")) return;
   refining.value = c.n;
@@ -160,7 +160,7 @@ async function refineChapter(c) {
     const r = await api("/refine/chapter", "POST", {
       chapter: c.n, feedback: buildFeedback(list), dry_run: false,
     });
-    if (r.status === 202) say(`第 ${c.n} 章精修已提交（job ${r.data.job_id}）`);
+    if (r.status === 202) say(`第 ${c.n} 章精修已提交（任务号 ${r.data.job_id}）`);
     else say("提交失败: " + (r.data.error || r.status));
   } catch (e) {
     say("错误: " + (e.message || e));
@@ -176,17 +176,17 @@ onMounted(() => loadReport(true));
   <div class="proofread-panel">
     <div class="card">
       <div class="card-head">
-        <h3>校对（stage 5.5 · 润色后、交付前）</h3>
+        <h3>校对（润色后、交付前）</h3>
         <span class="spacer"></span>
         <select v-model="scope" class="model-select" title="校对哪一版稿件">
           <option value="">自动（润色稿优先）</option>
-          <option value="refined">润色稿 refined</option>
-          <option value="checked">检查稿 checked</option>
-          <option value="raw">原稿 raw</option>
+          <option value="refined">润色稿</option>
+          <option value="checked">检查稿</option>
+          <option value="raw">原稿</option>
         </select>
-        <label class="llm-toggle" title="LLM 语义校对会消耗 token，默认关闭">
+        <label class="llm-toggle" title="AI 语义校对会消耗 token，默认关闭">
           <input type="checkbox" v-model="useLlm" />
-          LLM 语义校对
+          AI 语义校对
         </label>
         <button class="mini primary" :disabled="running" @click="runProofread">
           {{ running ? "校对中…" : "运行校对" }}
@@ -195,7 +195,7 @@ onMounted(() => loadReport(true));
       </div>
       <div class="meta">
         确定性检查（标点配对 / 省略号破折号统一 / 全半角 / 高频错字 / 的地得 / 别名混用 / 字数节奏）
-        零 token 开销；LLM 语义校对负责设定矛盾、称谓混乱、病句，需显式开启。
+        零 token 开销；AI 语义校对负责设定矛盾、称谓混乱、病句，需显式开启。
       </div>
     </div>
 
@@ -305,7 +305,7 @@ onMounted(() => loadReport(true));
       <div class="card meta">
         报告文件：data/outline/proofread_report.json / .md ·
         确定性部分完全离线，不消耗 token ·
-        “按建议精修”走既有章节精修链路（自动备份 + ±20% 字数铁律）
+        “按建议精修”走现有的章节精修流程（自动备份 + ±20% 字数铁律）
       </div>
     </template>
   </div>

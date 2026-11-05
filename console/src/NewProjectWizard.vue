@@ -248,7 +248,7 @@ async function submit() {
             </span>
           </label>
           <div v-if="!form.archive_current" class="wiz-warn">
-            未勾选归档时无法继续：工作区还有数据，创建会被拒绝（系统不会静默清空书稿）。
+            未勾选归档时无法继续：工作区还有数据，创建会被拒绝（系统不会不吭声就把书稿清空）。
             勾选上面的归档即可继续。
           </div>
           <div class="meta" style="margin-top:10px;">

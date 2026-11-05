@@ -172,7 +172,7 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 | 审批 / 打回 | `python scripts/approve.py --stage N`（`--revoke` 撤销；阶段 1 审批 = 冻结 canon）· `python scripts/reject.py --stage N "原因"` |
 | 换书 | `python scripts/switch_book.py --list` / `--archive` / `--restore "书名"`（均需 `--yes`；归档含 `config/` 与 `materials/`） |
 | **副产物管理** | `python scripts/artifacts.py`（看清楚）· `--export <id\|all> --to <目录>`（导出）· `--clean <id,…> --yes`（清理，默认 dry-run） |
-| **提交前门禁** | `python scripts/quality_gate.py`（未定义名/语法错零容忍）· `python scripts/leak_scan.py --list ci/blacklist.txt`（发布前/CI；**已含未跟踪文件**，提交前跑一次即可，不必先 `git add`） |
+| **提交前门禁** | `python scripts/quality_gate.py`（未定义名/语法错零容忍）· `python scripts/leak_scan.py --list ci/blacklist.txt`（发布前/CI；**已含未跟踪文件**，提交前跑一次即可，不必先 `git add`）· **`python scripts/ui_copy_audit.py --check`（界面文案黑话清零；改文案后 `--write` 刷新清单）** |
 
 > 其余 90+ 条命令（各阶段脚本、体检、精修、沙盒审核、成本、拆书、MCP 自检、各种自检用例…）
 > 见 **`docs/commands.md`**。

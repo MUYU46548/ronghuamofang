@@ -49,7 +49,7 @@
       </div>
       <div class="meta" style="margin-top: 6px;">
         通过 / 驳回<strong>只改审核状态</strong>，不动沙盒里的文件，也<strong>不会写入 Obsidian</strong>。
-        粘贴进 vault 的动作始终由你手工完成；审错了点“退回待审”可无损撤回。
+        粘贴进知识库的动作始终由你手工完成；审错了点“退回待审”可无损撤回。
       </div>
       <div class="sb-stats">
         <span class="pill st-gate">待审 {{ stats.pending || 0 }}</span>
@@ -83,8 +83,8 @@
     <div class="card sb-list-card">
       <div v-if="loading && !items.length" class="empty">加载中…</div>
       <div v-else-if="!items.length" class="empty">
-        <template v-if="showAll">沙盒里还没有产物</template>
-        <template v-else>没有待审产物 ✅<br /><span class="meta">有新产物写入沙盒时会出现在这里</span></template>
+        <template v-if="showAll">沙盒里还没有待审文件</template>
+        <template v-else>没有待审文件 ✅<br /><span class="meta">有新文件写进沙盒时会出现在这里</span></template>
       </div>
       <div v-else class="sb-list">
         <div v-for="it in items" :key="it.path" class="sb-item" :class="'sb-' + it.status">
@@ -119,7 +119,7 @@
     <div v-if="rejectOpen" class="drawer-mask" @click.self="rejectOpen = false">
       <div class="dialog">
         <h3>驳回“{{ rejectTarget && rejectTarget.path }}”</h3>
-        <div class="meta">驳回原因会记进审核状态库（不进产物文件），你自己回头也看得懂。</div>
+        <div class="meta">驳回原因会记进审核状态库（不写进文件本身），你自己回头也看得懂。</div>
         <textarea v-model="rejectNote" rows="3"
                   placeholder="例如：第二节与设定冲突 / 人物称谓不统一"></textarea>
         <div class="dialog-actions">

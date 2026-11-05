@@ -11,7 +11,7 @@
   <div class="card ix-card">
     <div class="card-head">
       <h3>两人同场</h3>
-      <span class="meta">按设定里的关系，给出这两人同场时的称呼 / 禁忌 / 写法约束（零 token，不是正典）</span>
+      <span class="meta">按设定里的关系，给出这两人同场时的称呼 / 禁忌 / 写法约束（零 token，不是定稿设定）</span>
       <span class="spacer"></span>
       <button v-if="res && res.ok && res.found" class="mini" @click="copyIt">📋 复制为写作约束</button>
     </div>

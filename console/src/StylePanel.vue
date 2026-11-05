@@ -214,7 +214,7 @@ async function analyze(autoFallback = true) {
         }
       }
       feat.value = null;
-      err.value = r.data.hint || "未配置范文，且项目尚无章节产物可分析";
+      err.value = r.data.hint || "未配置范文，且项目还没有章节文件可分析";
       say(err.value);
       return;
     }
@@ -551,7 +551,7 @@ onMounted(() => {
         </div>
         <div class="meta">
           写作时模仿它的节奏、用词与句式。<b>给 2~3 个场景切片</b>（对白 / 动作 / 内省各一）
-          比给一整章更有效 —— 系统只抽 3 段做 few-shot。粘贴后点“保存”即可，无需改配置。
+          比给一整章更有效 —— 系统只抽 3 段当示例。粘贴后点“保存”即可，无需改配置。
         </div>
         <div class="meta ref-consent-line">
           <span v-if="refConsent.agreed" class="ref-ok">已同意样例稿使用声明</span>
@@ -585,7 +585,7 @@ onMounted(() => {
         </div>
         <div class="meta">
           可选功能：分析一部<b>你有权使用</b>的作品，提取结构与节奏，喂给写作阶段当数值约束。
-          <b>不保存原文</b>；片段只有勾选才落盘。
+          <b>不保存原文</b>；片段只有勾选才会保存到文件。
         </div>
         <div v-if="!decConsent" class="art-row" style="margin-top:8px;">
           <button class="mini primary" @click="decDeclOpen = true">阅读并同意声明</button>
@@ -701,7 +701,7 @@ onMounted(() => {
             <div class="meter"><div class="meter-in" :style="{ width: pct(sentLen.short) }"></div></div>
             <div class="kv"><span>长句（&gt;40 字）占比</span><b>{{ pct(sentLen.long) }}</b></div>
             <div class="meter"><div class="meter-in alt" :style="{ width: pct(sentLen.long) }"></div></div>
-            <div class="kv"><span>爆发度（burstiness）</span><b>{{ num(sentLen.burstiness, 2) }}</b></div>
+            <div class="kv"><span>句子长短起伏（爆发度）</span><b>{{ num(sentLen.burstiness, 2) }}</b></div>
             <div class="kv"><span>短句连发段数</span><b>{{ f.short_burst_count ?? "-" }}</b></div>
             <div class="meta">句数 {{ f.sentence_count }} · 段落 {{ f.paragraph_count }}</div>
           </div>
@@ -896,13 +896,13 @@ onMounted(() => {
             {{ homoBusy ? "读取中…" : "刷新" }}</button>
         </div>
         <div class="meta">
-          确定性指标，<b>零 token、只报不拦</b>：复读、短语反复、对话同腔、句式单调、比喻堆砌、感官锁死。
-          stage4（初稿）与 stage6（润色）落盘后自动生成报告。
+          确定性指标，<b>零 token、只报不拦</b>：复读、短语反复、对话同腔、句式单调、比喻堆砌、感官描写总用同一种。
+          初稿（阶段 4）与润色（阶段 6）写完后自动生成报告。
           <b>告警不等于判废</b> —— 它只说"这里像机器在打转"，改不改由人定。
         </div>
         <div v-if="homoErr" class="empty" style="padding:14px 0;">{{ homoErr }}</div>
         <div v-else-if="!homo || !(homo.chapters || []).length" class="meta" style="padding:10px 0;">
-          还没有报告 —— 跑过 stage4 之后每章自动生成；也可在命令行单独测一章：
+          还没有报告 —— 跑过写作（阶段 4）之后每章自动生成；也可在命令行单独测一章：
           <code>python scripts/utils/homogeneity.py 章节.md --names 角色1,角色2</code>
         </div>
         <table v-else class="cost-table homo-table">

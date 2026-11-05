@@ -66,8 +66,8 @@ def main():
     print("\n【U4】统计照旧展示")
     check("顶部显示两段缩减率（原→检 / 检→润）",
           "raw->checked" in PANEL and "checked->refined" in PANEL)
-    check("越过阈值时明说\u300c疑似整章重生成\u300d",
-          "疑似整章重生成" in PANEL)
+    check("越过界线时明说\u300c疑似整章重新生成\u300d",
+          "疑似整章重新生成" in PANEL)
 
     print("\n【U5】样式只吃主题变量")
     block = CSS[CSS.find(".jc-wrap"):CSS.find(".jc-wrap") + 2200] if ".jc-wrap" in CSS else ""

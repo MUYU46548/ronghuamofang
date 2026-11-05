@@ -325,7 +325,7 @@ onUnmounted(() => {
   <div class="review-console">
     <!-- 头部 -->
     <div class="review-head">
-      <h3>审稿 → 修稿闭环</h3>
+      <h3>审稿 → 修稿（一路走完）</h3>
       <div class="head-actions">
         <button class="mini" :disabled="loading" @click="runReview">
           {{ loading ? "审查中…" : "运行审查" }}
@@ -471,7 +471,7 @@ onUnmounted(() => {
           {{ running ? "精修中…" : "运行批量精修" }}
         </button>
         <span class="hint">
-          决策保存到 review_report.decisions.json<template v-if="decisionsDirty"> ·
+          决策已保存（下次打开这份报告还在）<template v-if="decisionsDirty"> ·
             <b>有改动未保存，运行精修时会自动先保存</b></template>
         </span>
       </section>

@@ -153,7 +153,7 @@ async function loadContext() {
     ctx.value = { loading: false, data: r.data, error: "" };
   } else {
     ctx.value = { loading: false, data: null,
-                  error: (r.data && r.data.error) || "读取上下文包失败" };
+                  error: (r.data && r.data.error) || "读取这一章的资料清单失败" };
   }
 }
 const ctxSummary = computed(() => (ctx.value.data && ctx.value.data.summary) || null);
@@ -173,7 +173,7 @@ async function loadLedger() {
     const single = d.chapter != null && (d.dims || d.aesthetic);
     ledger.value = single
       ? { loading: false, data: d, error: "" }
-      : { loading: false, data: null, error: "这一章还没有七维评审（阶段 5 跑过才有）" };
+      : { loading: false, data: null, error: "这一章还没有七维评审（从七个角度做的检查，阶段 5 跑过才有）" };
   } else {
     ledger.value = {
       loading: false, data: null,
@@ -309,33 +309,33 @@ onMounted(() => {
 
       <div class="desk-block">
         <div class="desk-block-title">
-          上下文包
-          <span class="meta" v-if="ctxSummary">命中 {{ ctxSummary.recalled }} 条 · 开伏笔 {{ ctxSummary.open_foreshadows }}</span>
+          这一章带了哪些资料
+          <span class="meta" v-if="ctxSummary">用到 {{ ctxSummary.recalled }} 条 · 未回收伏笔 {{ ctxSummary.open_foreshadows }}</span>
         </div>
         <div v-if="ctx.loading" class="meta">读取中…</div>
         <div v-else-if="!ctx.data" class="meta">{{ ctx.error }}</div>
         <template v-else-if="ctxSummary">
           <div class="desk-ctx-grid">
             <div class="desk-ctx-item">
-              <b>{{ ctxSummary.recalled }}</b><span>命中卡</span>
+              <b>{{ ctxSummary.recalled }}</b><span>用到的设定卡</span>
               <em>{{ dimText(ctxSummary.by_dim) }}</em>
             </div>
             <div class="desk-ctx-item">
-              <b>{{ ctxSummary.open_foreshadows }}</b><span>开伏笔</span>
-              <em v-if="ctxSummary.stale_foreshadows">{{ ctxSummary.stale_foreshadows }} 条超期</em>
-              <em v-else>无超期</em>
+              <b>{{ ctxSummary.open_foreshadows }}</b><span>未回收伏笔</span>
+              <em v-if="ctxSummary.stale_foreshadows">{{ ctxSummary.stale_foreshadows }} 条过期没回收</em>
+              <em v-else>没有过期的</em>
             </div>
             <div class="desk-ctx-item">
               <b>{{ ctxSummary.chars }}</b><span>上下文字数</span>
               <em v-if="ctxSummary.budget">
-                预算 L2 {{ ctxSummary.allocated ? ctxSummary.allocated.rolling : 0 }}/{{ ctxSummary.budget.rolling_chars }}
-                · L3 {{ ctxSummary.allocated ? ctxSummary.allocated.recall : 0 }}/{{ ctxSummary.budget.recall_chars }}
+                前情摘要 {{ ctxSummary.allocated ? ctxSummary.allocated.rolling : 0 }}/{{ ctxSummary.budget.rolling_chars }} 字
+                · 检索 {{ ctxSummary.allocated ? ctxSummary.allocated.recall : 0 }}/{{ ctxSummary.budget.recall_chars }} 字
               </em>
             </div>
           </div>
           <div v-if="ctxSummary.candidates" class="meta desk-dims-note">
-            候选 {{ ctxSummary.candidates }} 条，按预算/top-K 未注入 {{ ctxSummary.dropped }} 条；
-            滚动摘要取了 {{ ctxSummary.rolling_chapters }} 章<template v-if="ctxSummary.rolling_omitted">（另有 {{ ctxSummary.rolling_omitted }} 章被裁）</template>。
+            找到 {{ ctxSummary.candidates }} 条，超出字数上限没放进来 {{ ctxSummary.dropped }} 条；
+            前情摘要用了 {{ ctxSummary.rolling_chapters }} 章<template v-if="ctxSummary.rolling_omitted">（另有 {{ ctxSummary.rolling_omitted }} 章被裁）</template>。
           </div>
           <button class="mini" @click="ctxOpen = !ctxOpen">
             {{ ctxOpen ? "收起明细" : "看注入了哪几条" }}
@@ -347,7 +347,7 @@ onMounted(() => {
               <span class="meta">{{ c.why }}</span>
             </div>
             <div v-if="!ctx.data.recalled || !ctx.data.recalled.length" class="meta">
-              这一章没有召回到相关历史 —— 不是漏了：候选都没有与本章大纲相关到阈值。
+              这一章没有检索到相关历史 —— 不是漏了：找到的内容都和本章大纲关系不够近。
             </div>
           </div>
           <div v-if="ctx.data.hint" class="meta desk-dims-note">{{ ctx.data.hint }}</div>

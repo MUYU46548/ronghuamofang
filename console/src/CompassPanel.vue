@@ -102,7 +102,7 @@ defineExpose({ load });
   <div class="cnp">
     <div class="cnp-head">
       <b>指南针</b>
-      <span class="meta">全书往哪去：终局方向 + 活跃长线（最多 5 条）。写偏时以它为锚</span>
+      <span class="meta">全书往哪去：终局方向 + 活跃长线（最多 5 条）。写偏了就照它校准</span>
       <span class="spacer"></span>
       <button class="mini" :disabled="busy" @click="save">保存</button>
     </div>
@@ -128,13 +128,13 @@ defineExpose({ load });
       <div v-for="(w, i) in data.warnings" :key="i" class="meta">· {{ w }}</div>
     </div>
     <div v-if="exists && data.problems && data.problems.length" class="cnp-warn">
-      <div class="meta"><b>当前存盘的指南针有异常</b>（保存新版本可修复）：</div>
+      <div class="meta"><b>当前保存的指南针有异常</b>（保存新版本可修复）：</div>
       <div v-for="(p, i) in data.problems" :key="i" class="meta">· {{ p }}</div>
     </div>
     <div v-if="historyNote" class="meta cnp-hist">{{ historyNote }}</div>
     <div v-if="!exists && !busy" class="meta cnp-empty">
-      还没设过指南针。长篇建议在开写前锚定一次 —— global.md 是第 1 天定的，
-      写到第 100 章时它是唯一还能对得上的锚。
+      还没设过指南针。长篇建议在开写前先定一次 —— global.md 是第 1 天定的，
+      写到第 100 章时它是唯一还能对得上的参照。
     </div>
   </div>
 </template>

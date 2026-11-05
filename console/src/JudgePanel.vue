@@ -6,7 +6,7 @@
  * 1. **不允许出现分数**。档位只有三档 + 不可判定；没有 total/quality/score。
  * 2. **任何"判不了"都不得显示"合格"**：未勾事件 → 明说"还没判（你还没勾完）"。
  * 3. 页头两句固定串必须常显：
- *    “存量回测判定，非新跑拦截”“本报告不改变现有成品文件”。
+ *    “这是拿现有稿件补跑的判定，不是新跑时的拦截”“本报告不改变现有成品文件”。
  */
 import { ref, computed, onMounted, nextTick } from "vue";
 import { API } from "./apiBase.js";
@@ -252,11 +252,11 @@ const compareCols = computed(() => {
   if (!d) return [];
   const texts = d.texts || {};
   const words = (d.destroy && d.destroy.words) || {};
-  const why = { checked: "没跑过检查阶段（stage5）", refined: "没跑过润色阶段（stage6）" };
+  const why = { checked: "没跑过检查阶段（阶段 5）", refined: "没跑过润色阶段（阶段 6）" };
   return [
-    { key: "raw", title: "原文（stage4 落盘）", only: false },
-    { key: "checked", title: "检查稿（stage5）", only: true },
-    { key: "refined", title: "润色稿（stage6）", only: true },
+    { key: "raw", title: "原文（写作阶段生成的）", only: false },
+    { key: "checked", title: "检查稿（阶段 5）", only: true },
+    { key: "refined", title: "润色稿（阶段 6）", only: true },
   ].map((c) => {
     const t = texts[c.key];
     const present = typeof t === "string" && t.trim().length > 0;
@@ -351,7 +351,7 @@ async function upgradeCaliber() {
   busy.value = false;
 }
 
-const noticeA = "存量回测判定，非新跑拦截";
+const noticeA = "这是拿现有稿件补跑的判定，不是新跑时的拦截";
 const noticeB = "本报告不改变现有成品文件";
 
 const summaryLine = computed(() => {
@@ -402,8 +402,8 @@ onMounted(loadReport);
         <span v-if="report && report.exists" class="judge-sum">{{ summaryLine }}</span>
         <span v-else class="meta">还没跑过回测</span>
         <span class="spacer"></span>
-        <span v-if="report && report.stale" class="judge-stale" title="口径改过，旧结论不成立">
-          ⚠ 口径已变，需重判
+        <span v-if="report && report.stale" class="judge-stale" title="判定标准改过，旧结论不再成立">
+          ⚠ 判定标准改过了，需重判
         </span>
         <span v-if="report && report.exists" class="meta">
           v{{ report.caliber.version }} · {{ report.run.at }}
@@ -447,9 +447,9 @@ onMounted(loadReport);
 
       <!-- R1 判据失效告警（评审高危项）：命中骤降时出声，不判档 -->
       <div v-if="alerts.length" class="judge-alert">
-        <b>⚠ 判据可能已失效，建议人工抽检</b>
+        <b>⚠ 判定标准可能已失效，建议人工抽检</b>
         <div v-for="a in alerts" :key="a.chapter" class="meta">{{ a.note }}</div>
-        <div class="meta">系统分不清“稿子真改好了”和“判据对新腔调睡着了”——
+        <div class="meta">系统分不清“稿子真改好了”和“判定标准对新腔调睡着了”——
           这里只提醒你抽检一章，不改任何结论。</div>
       </div>
 
@@ -635,7 +635,7 @@ onMounted(loadReport);
         </span>
         <span class="spacer"></span>
         <span class="meta">阈值 {{ Math.round((compareData.destroy.threshold || 0) * 100) }}%
-          <template v-if="compareData.destroy.destroyed"> · 越过阈值（疑似整章重生成）</template>
+          <template v-if="compareData.destroy.destroyed"> · 越过界线（疑似整章重新生成）</template>
         </span>
       </div>
       <div class="judge-notice">
@@ -685,7 +685,7 @@ onMounted(loadReport);
             · 未登记判据：{{ caliber.needs_upgrade.missing_factory_ids.join("、") }}
           </template>
         </div>
-        <div class="meta">补登记只补“谁产的 / 谁终裁”，不改任何阈值；产新版本，旧版进 history。</div>
+        <div class="meta">补登记只补“谁产的 / 谁终裁”，不改任何界线；产新版本，旧版进 history。</div>
         <button class="mini primary" :disabled="busy" @click="upgradeCaliber">补登记产出方</button>
       </div>
       <!-- R06 影响面预览：改数字立刻算，但点“保存”之前一个字都不写 -->
@@ -701,7 +701,7 @@ onMounted(loadReport);
       </div>
       <div v-if="err" class="judge-err">{{ err }}</div>
       <table class="judge-table">
-        <thead><tr><th>判据</th><th>值</th><th>类型</th><th>产出方 / 谁终裁</th>
+        <thead><tr><th>条目</th><th>值</th><th>类型</th><th>产出方 / 谁终裁</th>
           <th>谁在读（消费方）</th><th>本书里的一个例子</th></tr></thead>
         <tbody>
           <tr v-for="c in caliber.criteria" :key="c.id">

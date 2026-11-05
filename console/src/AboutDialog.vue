@@ -123,7 +123,7 @@ const STEPS = [
         <template v-else-if="info">
           <p class="about-lead">
             输入混沌素材，输出结构化长篇小说（Markdown → Word）：七阶段流水线自主执行，
-            你只保留审批权（暂停 / 打回 / 重跑），成本逐笔记账并可熔断。
+            你只保留审批权（暂停 / 打回 / 重跑），每一笔都记账，花超了会自动停。
           </p>
 
           <h4 class="about-h">快速上手</h4>

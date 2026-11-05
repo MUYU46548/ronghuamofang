@@ -260,7 +260,7 @@ def handle_judge_caliber(h):
     try:
         doc = C.load(api.ROOT)
         if not doc:
-            return 500, {"ok": False, "error": "口径文件读不出来"}
+            return 500, {"ok": False, "error": "判定标准文件读不出来"}
         return 200, {"ok": True, "version": doc.get("version"),
                      "fingerprint": doc.get("fingerprint"),
                      "updated_at": doc.get("updated_at"),

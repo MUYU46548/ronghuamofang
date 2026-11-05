@@ -166,7 +166,7 @@ async function save() {
     <div v-if="events.length" class="je-guide">
       只数<b>改变了状态</b>的事：处境 / 知道的事 / 关系 / 目标变了。
       单纯走动、查看、说话<b>不算</b>。
-      一章至少 <b>{{ eventMin }} 件</b>才算不是水章 —— 这是“有没有推进”的人工闸门，
+      一章至少 <b>{{ eventMin }} 件</b>才算不是凑数的章 —— 这是“有没有推进”的人工关卡，
       系统自己测不了。
     </div>
 

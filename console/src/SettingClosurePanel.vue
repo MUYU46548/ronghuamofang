@@ -107,13 +107,13 @@ defineExpose({ load });
 <template>
   <div class="card">
     <div class="card-head">
-      <h3>素材裁决（设定库闭环）</h3>
+      <h3>素材裁决（把设定库这摊收干净）</h3>
       <span class="spacer"></span>
       <span class="meta" v-if="data && data.audited_at">审计于 {{ String(data.audited_at).replace("T", " ") }}</span>
       <button class="mini" :disabled="busy" @click="load">{{ busy ? "读取中…" : "重新审计" }}</button>
     </div>
     <div class="meta">
-      机器裁不了的字段分歧（同名卡在不同素材里说法不一）。拍板会写进设定集与墓碑：
+      机器裁不了的字段分歧（同名卡在不同素材里说法不一）。拍板会写进设定集和否决记录：
       <b>否决按名字生效</b>（下次归并不会再把它带回来）。
     </div>
 
@@ -131,7 +131,7 @@ defineExpose({ load });
         <span class="sc-stat" :class="{ 'sc-bad': conflicts.length }">
           <b>{{ conflicts.length }}</b> 处待裁决</span>
         <span class="sc-stat"><b>{{ counts.adopted ?? 0 }}</b> 已采纳</span>
-        <span class="sc-stat"><b>{{ tombstones.length }}</b> 条墓碑</span>
+        <span class="sc-stat"><b>{{ tombstones.length }}</b> 条否决记录</span>
       </div>
 
       <div v-if="!groups.length" class="meta sc-ok">没有待裁决分歧。</div>

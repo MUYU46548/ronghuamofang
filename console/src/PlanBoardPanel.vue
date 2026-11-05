@@ -126,7 +126,7 @@ onMounted(load);
         <button v-for="v in VIEWS" :key="v[0]" class="mini"
                 :class="{ primary: view === v[0] }" @click="view = v[0]">{{ v[1] }}</button>
       </span>
-      <input v-model="reason" class="reason" placeholder="理由（可选，会记进审计）" />
+      <input v-model="reason" class="reason" placeholder="理由（可选，会记进操作记录）" />
       <button class="mini" :disabled="busy" @click="load">刷新</button>
     </div>
 
@@ -179,7 +179,7 @@ onMounted(load);
         <template v-else-if="it.status === 'dropped'">
           <button class="mini" :disabled="busy" @click="act('revive', it)">复活回构想</button>
         </template>
-        <span v-else class="meta">已落地，无需操作</span>
+        <span v-else class="meta">已写进正文，无需操作</span>
       </div>
     </div>
     </template>

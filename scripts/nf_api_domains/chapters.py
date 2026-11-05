@@ -438,7 +438,7 @@ def handle_chapters_save(h, body):
         warn = ""
         if words < tw[0]:
             warn = "字数 %d 低于下限 %d 字（%s）—— 下游体检会因此报不合格" % (
-                words, tw[0], "按当前篇幅口径")
+                words, tw[0], "按当前篇幅标准")
         elif words > tw[1]:
             warn = "字数 %d 超过上限 %d 字" % (words, tw[1])
 
@@ -580,7 +580,7 @@ def handle_chapters_rerun(h, body):
             return 409, {"ok": False, "error": err}
         _scope = {4: "正文", 5: "正文+检查", 6: "正文+检查+润色"}[through]
         return 202, {"ok": True, "job_id": jid, "chapter": n, "through": through,
-                     "message": "已开始重跑第 %d 章（范围：%s）。旧产物备份到 "
+                     "message": "已开始重跑第 %d 章（范围：%s）。旧文件备份到 "
                                 "data/chapters/rerun_backup/，其他章不动" % (n, _scope)}
     except Exception as e:                                   # noqa: BLE001
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}

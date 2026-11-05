@@ -64,7 +64,7 @@ def main():
           "{{" not in brief and "}}" not in brief,
           brief[brief.find("{{"):brief.find("{{") + 60] if "{{" in brief else "")
     for key, label in (("orchestrator.py --stage", "执行命令"),
-                       ("预期产物", "产物"),
+                       ("预期生成的文件", "要生成的文件"),
                        ("退出码", "退出码"),
                        ("项目根", "项目根")):
         check("简报含" + label + "（" + key + "）", key in brief)

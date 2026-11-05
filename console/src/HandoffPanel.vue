@@ -90,7 +90,7 @@ onMounted(() => {});
         · {{ result.path }}
       </div>
       <div v-if="problems.length" class="hnp-problems">
-        <div class="meta"><b>缺料</b>（稿里已明说哪里是空的，接手方不会拿到编造的内容）：</div>
+        <div class="meta"><b>缺资料</b>（稿里已明说哪里是空的，接手方不会拿到编造的内容）：</div>
         <div v-for="(p, i) in problems" :key="i" class="meta">· {{ p }}</div>
       </div>
       <pre class="hnp-preview">{{ result.text }}</pre>

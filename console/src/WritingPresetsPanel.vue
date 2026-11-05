@@ -44,7 +44,7 @@ function captureCurrent() {
   // 把"当前生效值"填进保存表单（预设最常见的来源就是此刻的配置）
   newId.value = "";
   captureNote.value = JSON.stringify(current.value, null, 1);
-  emit("say", "已把当前生效值贴到下方 JSON 框 —— 改个 id 保存即成新预设");
+  emit("say", "已把当前生效值贴到下方输入框 —— 改个 id 保存即成新预设");
 }
 
 async function saveFromJson() {
@@ -52,7 +52,7 @@ async function saveFromJson() {
   try {
     obj = JSON.parse(captureNote.value || "{}");
   } catch (e) {
-    emit("say", "JSON 解析失败：" + e);
+    emit("say", "数据格式解析失败：" + e);
     return;
   }
   if (!newId.value.trim()) {
@@ -143,7 +143,7 @@ defineExpose({ load });
     </div>
 
     <div v-if="captureNote !== ''" class="wpp-capture">
-      <label class="meta">新预设 id（小写字母/数字/中划线）+ 内容（只收写作要求；
+      <label class="meta">新预设名（小写字母/数字/中划线）+ 内容（只收写作要求；
         书名/章数/作者不进预设）</label>
       <div class="wpp-row">
         <input v-model="newId" placeholder="如 noir" class="wpp-id" />

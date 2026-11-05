@@ -211,7 +211,7 @@ async function submit() {
       text, why: s ? (s.why || "") : "", note: note.value,
     });
     if (d.ok) {
-      say("已落提案待审 —— 去“审核”页签批准后才会进这章的写作参照");
+      say("已变成待审提案 —— 去“审核”页签批准后才会进这章的写作参照");
       samples.value = [];
       chosenIdx.value = -1;
       editedText.value = "";

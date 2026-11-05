@@ -93,7 +93,7 @@ async function api(path, method = "GET", body = null) {
   const r = await apiOnce(path, method, body);
   if (r.status === 409 && r.data?.code === "LOCKED" && r.data?.can_takeover) {
     const yes = window.confirm(
-      (r.data.error || "施工权不在这边") + "\n\n要接管吗？\n"
+      (r.data.error || "改稿权不在这边") + "\n\n要接管吗？\n"
       + "· 流水线会在下一章开始前停手，不会打断正在写的那一章\n"
       + "· 已写完的章全部保留\n"
       + "· 接管后由你说了算，改完点“释放”AI 才能继续"
@@ -104,7 +104,7 @@ async function api(path, method = "GET", body = null) {
       say("接管失败：" + (t.data?.error || t.status));
       return r;
     }
-    say("已接管施工权 —— 流水线会在下一章前停手");
+    say("已接管改稿 —— 流水线会在下一章前停手");
     loadLock();
     return await apiOnce(path, method, body);   // 只重试一次，不循环
   }
@@ -191,16 +191,16 @@ async function sendIntervene() {
 }
 async function takeOverLock() {
   const yes = window.confirm(
-    "接管施工权？\n\n· 流水线会在下一章开始前停手（正在写的那一章会写完）\n"
+    "接管改稿？\n\n· 流水线会在下一章开始前停手（正在写的那一章会写完）\n"
     + "· 已写完的章全部保留\n· 改完点“释放”AI 才能继续");
   if (!yes) return;
   const r = await apiOnce("/lock/takeover", "POST", {});
-  say(r.status === 200 ? "已接管施工权" : ("接管失败：" + (r.data?.error || r.status)));
+  say(r.status === 200 ? "已接管改稿" : ("接管失败：" + (r.data?.error || r.status)));
   loadLock();
 }
 async function releaseLock() {
   const r = await apiOnce("/lock/release", "POST", {});
-  say(r.status === 200 ? "已释放施工权，AI 可以继续" : ("释放失败：" + (r.data?.error || r.status)));
+  say(r.status === 200 ? "已交还改稿，AI 可以继续" : ("释放失败：" + (r.data?.error || r.status)));
   loadLock();
 }
 
@@ -1026,10 +1026,10 @@ function openOutlineTab() {
 async function openMultiDraftDlg() {
   const count = parseInt(window.prompt("生成几份方案？（2-5，推荐 3）", "3"), 10);
   if (isNaN(count) || count < 2 || count > 5) return say("取消");
-  if (!window.confirm(`确定生成 ${count} 份大纲方案？\n\n生成后可在收件箱对比拼合。`)) return;
+  if (!window.confirm(`确定生成 ${count} 份大纲方案？\n\n生成后可在收件箱对比合并。`)) return;
   const r = await api("/stage/2/run-multi", "POST", { count });
   if (r.status === 202) {
-    say(`已提交多方案生成（${count} 份，job ${r.data.job_id}）`);
+    say(`已提交多方案生成（${count} 份，任务号 ${r.data.job_id}）`);
     setTimeout(() => openDraftsDlg(count), 100);
   } else {
     say("提交失败: " + (r.data.error || r.status));
@@ -1097,7 +1097,7 @@ async function saveForm() {
   if (!next || next === formCurrent.value) return;
   const opt = formOpts.value.find((o) => o.code === next) || {};
   const warnLine = opt.style_wired === false
-    ? "\n\n注意：这个文体的**写法指导**还没接，写作提示词仍沿用叙事口径"
+    ? "\n\n注意：这个文体的**写法指导**还没接，写作提示词仍沿用叙事的写法"
       + "（检查项已按文体生效，但写出来的文风不会自动变）。"
     : "";
   if (!window.confirm(
@@ -1176,7 +1176,7 @@ async function loadWordTemplate() {
   // 当前值指向的模板不在 templates/（被移走/改名）时**明说**，不静默显示空
   wordTplMsg.value = r.data.current && !r.data.current_exists
     ? "注意：当前配置的模板文件不在 templates/ —— " + r.data.current
-    + "（阶段7 会静默退回硬编码样式，出口校验也会判无基线）"
+    + "（阶段7 会不提示地退回程序内置样式，出口校验也会判定没有基准）"
     : "";
 }
 
@@ -1486,7 +1486,7 @@ async function doRunStage(n, chapters = null) {
   const body = {};
   if (n === 4 && chapters) body.chapters = chapters;
   const r = await api("/stage/" + n + "/run", "POST", body);
-  if (r.status === 202) say("已提交 阶段" + n + "（job " + r.data.job_id + "），进度见顶栏");
+  if (r.status === 202) say("已提交 阶段" + n + "（任务号 " + r.data.job_id + "），进度见顶栏");
   else say("提交失败: " + (r.data.error || r.status));
   refresh();
 }
@@ -1567,7 +1567,7 @@ async function runPublish() {
   }
   if (!window.confirm("确定要生成最终 Word 全书？\n\n将生成到 output/ 目录。")) return;
   const r = await api("/stage/7/run", "POST", {});
-  if (r.status === 202) say("已提交生成 Word 成品（job " + r.data.job_id + "）");
+  if (r.status === 202) say("已提交生成 Word 成品（任务号 " + r.data.job_id + "）");
   else say("提交失败: " + (r.data.error || r.status));
   refresh();
 }
@@ -2015,10 +2015,10 @@ async function deleteMaterial(name, idx) {
 
 async function triggerReMerge() {
   if (!window.confirm(
-      "确定触发素材重归并？\\n\\n将重新扫描 materials/raw/，更新 manifest 和设定集（阶段1）。")) return;
+      "确定触发素材重归并？\\n\\n将重新扫描 materials/raw/，更新素材清单和设定集（阶段 1）。")) return;
   const a = await api("/materials/remerge", "POST", {});
   if (a.status === 202) {
-    say("已触发重归并（job " + a.data.job_id + "）");
+    say("已触发重新整理（任务号 " + a.data.job_id + "）");
   } else {
     say("触发失败: " + (a.data.error || a.status));
   }
@@ -2176,7 +2176,7 @@ async function refreshFetchedModels() {
 // 角色的用途说明（设置页“角色模型”表格用）。键必须与 config/system.yaml
 // 的 model.* 一致 —— 多出/缺少的角色在表格里会露出英文键名，那本身就是提示。
 const ROLE_USE = {
-  default: "兜底（未单独指定的调用）",
+  default: "默认（没单独指定角色时用它）",
   architect: "设定 / 世界观",
   outliner: "大纲",
   writer: "正文写作",
@@ -2738,7 +2738,7 @@ function partsTitle(parts) {
   /* 段群进度（2026-11-03）：加强模式逐群落盘，拼装前这些字已经在盘上了。 */
   return Object.entries(parts || {})
     .map(([n, v]) => `第 ${n} 章：${v.done}/${v.total || "?"} 群 · 约 ${v.words || 0} 字`)
-    .join("\n") + "\n\n点“运行”会从断点接着写（已落盘的群不重调）。";
+    .join("\n") + "\n\n点“运行”会从断点接着写（已写入的段落群不会重跑）。";
 }
 /* F17：不合格章的三条出路。都调既有端点，失败就照实说（不静默）。 */
 async function fixInvalid(kind, invalidMap) {
@@ -2854,7 +2854,7 @@ const nextAction = computed(() => {
   if (gate) {
     return { kind: "approve", stage: gate.stage,
              label: "确认阶段 " + gate.stage + "·" + (STAGE_NAMES[gate.stage] || ""),
-             hint: "审批门：审阅产物后放行" };
+             hint: "审批门：看过生成的文件再放行" };
   }
   const pend = stages.find((s) => s.status !== "done");
   if (pend) {
@@ -2878,7 +2878,7 @@ const nextActions = computed(() => {
   if (gate) {
     acts.push({ id: "approve:" + gate.stage, kind: "approve", stage: gate.stage,
                 label: "确认阶段 " + gate.stage + "·" + (STAGE_NAMES[gate.stage] || "") + "（放行）",
-                desc: "审批门 —— 可先去收件箱预览产物" });
+                desc: "审批门 —— 可先去收件箱预览生成的文件" });
   }
   if (pend) {
     acts.push({ id: "run:" + pend.stage, kind: "run", stage: pend.stage,
@@ -2893,14 +2893,14 @@ const nextActions = computed(() => {
   if (stages[5] && (stages[5].status === "done" || stages[5].status === "running")) {
     acts.push({ id: "tab:proofread", kind: "tab", tab: "proofread",
                 label: "去校对（标点/错字/章节节奏）",
-                desc: "零 token 确定性体检，交付 Word 前必跑" });
+                desc: "零 token 的确定性检查，交付 Word 前必跑" });
   }
   if (stages.length && stages.every((s) => s.status === "done")) {
     acts.push({ id: "publish", kind: "publish",
                 label: "生成 Word 成品", desc: "输出 output/{书名}_完整版.docx" });
   }
   acts.push({ id: "tab:chapters", kind: "tab", tab: "chapters",
-              label: "浏览章节产物", desc: "raw / checked / refined 逐章对比" });
+              label: "浏览章节文件", desc: "raw / checked / refined 逐章对比" });
   return acts;
 });
 
@@ -2959,10 +2959,10 @@ async function runQuickStage() {
 async function doRunStages(stages) {
   const r = await api("/stages/run", "POST", { stages });
   if (r.status === 202) {
-    say("已提交 " + stages.length + " 道工序（job " + r.data.job_id + "），进度见顶栏");
+    say("已提交 " + stages.length + " 道工序（任务号 " + r.data.job_id + "），进度见顶栏");
   } else if (r.status === 409 && Array.isArray(r.data.problems)) {
     // 后端执行前统一拦下并给全三要素，原样摊给用户（不跑一半才报）
-    say("无法执行（缺上游产物）：" + r.data.problems.join(" ｜ "));
+    say("无法执行（缺上一阶段的文件）：" + r.data.problems.join(" ｜ "));
   } else {
     say("提交失败: " + (r.data.error || r.status));
   }
@@ -3347,7 +3347,7 @@ function reenableNextPopup() {
 /* ---------- ① 手动快照 ---------- */
 async function doSnapshot() {
   const r = await api("/snapshot", "POST", { label: "手动快照" });
-  if (r.status === 202 && r.data.job_id) say("快照任务已提交（job " + r.data.job_id + "）");
+  if (r.status === 202 && r.data.job_id) say("快照任务已提交（任务号 " + r.data.job_id + "）");
   else say("快照失败: " + (r.data?.error || r.status));
   refresh();
 }
@@ -3367,7 +3367,7 @@ async function submitSkipStage() {
   d.busy = false;
   if (r.status === 200 && r.data.ok) {
     say(r.data.message);
-    if (r.data.missing?.length) d.warn = "缺失产物：" + r.data.missing.join("、");
+    if (r.data.missing?.length) d.warn = "缺这些文件：" + r.data.missing.join("、");
     skipDlg.value = { open: false, stage: null, reason: "", agreed: false, busy: false, warn: "" };
     refresh();
   } else {
@@ -3567,7 +3567,7 @@ const commands = computed(() => {
   for (let n = 1; n <= 7; n++) {
     cs.push({ id: "stage.run:" + n, group: "运行阶段",
               label: "运行阶段 " + n + " · " + (STAGE_NAMES[n] || ""),
-              desc: (state.value?.stages?.[n - 1]?.status === "done" ? "该阶段已完成，重跑会覆盖产物" : "带运行前费用预估"),
+              desc: (state.value?.stages?.[n - 1]?.status === "done" ? "该阶段已完成，重跑会覆盖已有文件" : "带运行前费用预估"),
               keywords: "stage 阶段 " + n });
   }
   for (let n = 1; n <= 7; n++) {
@@ -3587,10 +3587,10 @@ const commands = computed(() => {
                   desc: s.status === "failed" ? "上次失败" : "已被打回", keywords: "retry 重试 " + s.stage });
         cs.push({ id: "skip:" + s.stage, group: "错误恢复",
                   label: "跳过阶段 " + s.stage + "（标记完成继续跑）",
-                  desc: "不生成产物，仅放行后续阶段", keywords: "skip 跳过 " + s.stage });
+                  desc: "不生成文件，只放行后续阶段", keywords: "skip 跳过 " + s.stage });
         cs.push({ id: "reject:" + s.stage, group: "错误恢复",
                   label: "回退 / 打回阶段 " + s.stage,
-                  desc: "清理该阶段及下游产物（history/ 可回退）", keywords: "reject 打回 回退 " + s.stage });
+                  desc: "清理该阶段及后续阶段的文件（history/ 里还有备份可回退）", keywords: "reject 打回 回退 " + s.stage });
       }
     }
   }
@@ -3614,7 +3614,7 @@ const commands = computed(() => {
               keywords: "theme 主题 " + th.name });
   }
   for (const a2 of artifacts.value) {
-    cs.push({ id: "open:" + a2.path, group: "打开产物", label: "打开 " + a2.label,
+    cs.push({ id: "open:" + a2.path, group: "打开文件", label: "打开 " + a2.label,
               desc: a2.path, keywords: "open 打开 " + a2.label });
   }
   return cs;
@@ -4403,8 +4403,8 @@ function stageTaskBrief(stage) {
         "读它可以了解任务细节，但**不要**手工填充占位符、不要把模板原文当任务执行；",
       ]
     : [
-        "说明：本阶段是**确定性步骤**（无 LLM 调用、无提示词模板），",
-        "它只把盘上已有章节做格式转换 —— 跑完直接核对“预期产物”是否生成即可。",
+        "说明：本阶段是**确定性步骤**（不调用模型、没有提示词模板），",
+        "它只把盘上已有章节做格式转换 —— 跑完直接核对“预期生成的文件”在不在即可。",
       ];
   return [
     "# 任务：执行绒花墨坊 阶段 " + stage + " —— " + info.name,
@@ -4414,12 +4414,12 @@ function stageTaskBrief(stage) {
     "  · HTTP（推荐，桌面客户端在跑即可用）：POST http://127.0.0.1:8765/stage/" + stage + "/run （agent_mode 已开时）",
     cliLine,
     "  · GUI：流水线页签 → 阶段 " + stage + " →“运行”（Agent 模式下已锁定，请用前两条）",
-    "- 预期产物：" + info.out,
-    "- 退出码：0=完成 · 1=阶段失败 · 2=预算熔断 · 3=等审批（报告后停下等用户） · 4=被中断",
+    "- 预期生成的文件：" + info.out,
+    "- 退出码：0=完成 · 1=阶段失败 · 2=预算用完自动停 · 3=等审批（报告后停下等用户） · 4=被中断",
     "",
     ...bg,
-    "管线状态文件（progress.json / runs.db / data/outline / data/chapters …）只有",
-    "orchestrator 能写，手写产物 = 试跑不合格；审批与打回归用户（approve/reject 不碰）。",
+    "流水线状态文件（progress.json / runs.db / data/outline / data/chapters …）只有",
+    "orchestrator 能写，手写文件 = 试跑不合格；审批与打回归用户（approve/reject 不碰）。",
   ].join("\n");
 }
 
@@ -4431,7 +4431,7 @@ async function copyStagePrompt(stage) {
     return;
   }
   copyText(stageTaskBrief(stage),
-    "阶段 " + stage + " 任务简报已复制（命令 + 产物 + 退出码）");
+    "阶段 " + stage + " 任务简报已复制（命令 + 要生成的文件 + 退出码）");
 }
 /* 人机分界：`## 提示词正文` 之前的“用法”引言是写给**人**看的（从哪复制、
    占位符怎么换），不是任务开场白的一部分。展示（文本框）与复制都走这一个函数，
@@ -4499,8 +4499,8 @@ const acSelfText = computed(() => {
     '3）自检：连接后列出工具，应看到 25 个 nf_* 白名单工具（如 nf_get_state / nf_run_stage）；',
     '   再向用户汇报：配置写到哪了、怎么验证的。',
     '',
-    '红线：审批/打回不经过 MCP（403 是设计）；不伪造来源头、不改 gates/提示词/模型；',
-    '管线状态文件只有 orchestrator 能写 —— 禁止手写产物冒充执行。',
+    '禁止项：审批/打回不经过 MCP（403 是设计）；不伪造来源头、不改 gates/提示词/模型；',
+    '流水线状态文件只有 orchestrator 能写 —— 禁止手写文件冒充执行。',
   ].join('\n');
 });
 function copySelfInstall() {
@@ -4794,7 +4794,7 @@ function copyRewriteBrief(n) {
     "2) HTTP POST /chapters/rewrite，body 里 n=" + n + "（可选 stream 为 true）",
     "",
     "预期：旧稿移到 data/chapters/rewrite_backup/；完成后 data/chapters/raw/" + nn + ".md 更新。",
-    "状态：GET /state 看 stage 4；或 GET /jobs/任务号。",
+    "状态：GET /state 看阶段 4；或 GET /jobs/任务号。",
     "禁止：不要用 write_file 直接覆盖 data/chapters/raw 或 checked 或 refined —— 会绕过拼装、校验与备份。",
     "说明：重写只改 raw；要出成品需再跑阶段 5、6、7。",
   ].join("\n");
@@ -4805,7 +4805,7 @@ async function rewriteChapter(n) {
   if (agentRunGuard()) return;
   const ok = window.confirm(
     "重写第 " + n + " 章？\n\n"
-    + "· 会调用模型重新写整章（花 token，按当前字数口径与加强模式走）\n"
+    + "· 会调用模型重新写整章（花 token，按当前字数标准与加强模式走）\n"
     + "· 旧稿先移到 data/chapters/rewrite_backup/，不满意可以捞回\n"
     + "· 只换正文：检查稿与润色稿不会动；要把这一章的成品也换新，用“重跑…”\n"
     + "· 会打开实时输出面板：模型聊天 + 本章正文（文件尾部）");
@@ -4818,7 +4818,7 @@ async function rewriteChapter(n) {
       rewriting.value = null;
       return;
     }
-    say("已开始重写第 " + n + " 章（job " + r.data.job_id + "）—— 实时输出见下方面板");
+    say("已开始重写第 " + n + " 章（任务号 " + r.data.job_id + "）—— 实时输出见下方面板");
     if (r.data.stream) {
       _openRewriteStream(n, r.data.job_id);
     } else {
@@ -4930,7 +4930,7 @@ const viewDoc = ref(null);     // { title, content }
 const diffView = ref(null);     // { title, raw, refined }
 const diffComputed = ref([]);   // [{type, raw, refined}]
 function openDoc(title, content) {
-  if (!content) return say("该产物尚未生成");
+  if (!content) return say("这份文件还没生成");
   viewDoc.value = { title, content };
 }
 function openDiff(title, raw, refined) {
@@ -5030,7 +5030,7 @@ const artifacts = computed(() => {
   // 宁可四个“尚未产出”，也不要四个点了报错的死按钮。
   return [
     { key: "setting", label: "设定集", path: "data/setting/setting.json", exists: false },
-    { key: "material_review", label: "素材体检", path: "data/setting/material_review.md", exists: false },
+    { key: "material_review", label: "素材检查", path: "data/setting/material_review.md", exists: false },
     { key: "outline", label: "整体大纲", path: "data/outline/global.md", exists: false },
     { key: "manifest", label: "素材清单", path: "data/setting/materials_manifest.json", exists: false },
     { key: "word", label: "Word 成品",
@@ -5334,7 +5334,7 @@ onUnmounted(() => {
       <!-- 体检明细：通过项也列出来，用户才知道"查了什么" -->
       <div class="diag-block">
         <div class="diag-title">
-          数据体检
+          数据检查
           <span class="meta">
             {{ (remedyResult?.doctor?.items || []).filter((x) => x.ok).length }}
             / {{ (remedyResult?.doctor?.items || []).length }} 通过
@@ -5370,7 +5370,7 @@ onUnmounted(() => {
 
       <div class="dialog-actions">
         <span class="spacer"></span>
-        <button class="mini" @click="copyRemedy" title="把运行态 + 体检明细 + 建议拼成一段纯文本复制（可直接贴给外部 Agent 或存档）">📋 复制全部</button>
+        <button class="mini" @click="copyRemedy" title="把运行状态 + 检查明细 + 建议拼成一段纯文本复制（可直接贴给外部 Agent 或存档）">📋 复制全部</button>
         <button class="mini" @click="remedyOpen = false">关闭</button>
       </div>
     </div>
@@ -5407,11 +5407,11 @@ onUnmounted(() => {
   <!-- 施工权（2026-11-02，P5 · L-5）：谁在写这本书，界面自己说。
        原来两个 agent 同时用必炸 —— 锁只在 orchestrator 一处，写端点全裸写。 -->
   <div v-if="lockState.held" class="lockbar" :class="{ human: lockState.owner === 'human' }">
-    <span>🔒 施工权：{{ lockState.text }}</span>
+    <span>🔒 谁在改这本书：{{ lockState.text }}</span>
     <span class="meta" v-if="lockState.cmd">{{ lockState.cmd }}</span>
     <span class="spacer"></span>
     <button v-if="lockState.owner !== 'human'" class="mini" @click="takeOverLock"
-            title="把施工权拿过来；流水线会在下一章开始前停手，已写完的章保留">我来改（接管）</button>
+            title="把改稿权拿过来；流水线会在下一章开始前停手，已写完的章保留">我来改（接管）</button>
     <button v-else class="mini primary" @click="releaseLock"
             title="释放后 AI 才能继续写">改完了，让 AI 继续</button>
   </div>
@@ -5598,7 +5598,7 @@ onUnmounted(() => {
         </div>
         <!-- token 级熔断（hermes 下金额恒 0，真正的止烧闸门是 token）：不显示就等于让用户盲调阈值 -->
         <div class="ps-item" v-if="state.budget && state.budget.token_limit">
-          <span class="ps-label">token 闸门</span>
+          <span class="ps-label">token 用量上限</span>
           <span class="ps-value" :class="{ 'bad-val': (state.budget.token_pct || 0) >= 70 }">
             <template v-if="!state.budget.token_limit.enabled">未启用</template>
             <template v-else>
@@ -5671,7 +5671,7 @@ onUnmounted(() => {
         <span class="meta">字</span>
         <button class="mini" :disabled="targetWords.busy || targetWords.loading"
                 @click="saveTargetWords"
-                title="保存后，下一次写作与校验立即按新口径（总量仍由章数控制）">保存</button>
+                title="保存后，下一次写作与校验立即按新标准（总量仍由章数控制）">保存</button>
         <span v-if="targetWords.msg" class="meta words-msg"
               :class="{ bad: !targetWords.ok }">{{ targetWords.msg }}</span>
         <span class="spacer"></span>
@@ -5742,7 +5742,7 @@ onUnmounted(() => {
             <!-- 阶段 3 这类无门阶段跑完就直说“没有审批动作”，别让它看起来像漏了一步
                  （2026-11-05 试跑第 20 条：用户以为 AI 说“阶段 3 没有审批门”是个 bug）。 -->
             <span v-if="s.status === 'done' && !isGate(s.stage)" class="pill st-nogate"
-                  :title="'本阶段不设审批门：跑完直接进下一阶段。审批门只有阶段 ' + gateListText + '（判据见 config/system.yaml 的 gates.require_approval）'">
+                  :title="'本阶段不设审批门：跑完直接进下一阶段。审批门只有阶段 ' + gateListText + '（哪些阶段设门见 config/system.yaml 的 gates.require_approval）'">
               无需审批
             </span>
             <!-- 2026-11-03（作者拍板）：按章范围跑完 = 部分完成，绝不是"完成"。
@@ -5751,7 +5751,7 @@ onUnmounted(() => {
                   :title="s.chapters_left && s.chapters_left.length ? ('还有第 ' + s.chapters_left.join('、') + ' 章没写。把剩下的章号填进范围再跑即可续写。') : '按章范围跑完，整本还没齐'">
               还有 {{ (s.chapters_left || []).length || '?' }} 章没写
             </span>
-            <span v-if="s.skipped" class="pill st-skip" title="人工跳过，未生成产物">已跳过</span>
+            <span v-if="s.skipped" class="pill st-skip" title="人工跳过，没有生成文件">已跳过</span>
             <span v-if="s.rejected" class="pill st-rej" :title="s.rejected">打回: {{ s.rejected.slice(0, 12) }}</span>
             <span v-if="s.needs_rewrite && s.needs_rewrite.length" class="pill st-rej"
                   :title="'未达质量线的章节：' + s.needs_rewrite.join('、')">
@@ -5782,7 +5782,7 @@ onUnmounted(() => {
             <!-- 段群进度进账（2026-11-03）：加强模式逐群落盘，拼装前这些字在盘上、
                  却不在任何界面里 —— 用户以为"这章没写"。 -->
             <span v-if="countKeys(s.parts)" class="pill st-gate" :title="partsTitle(s.parts)">
-              未拼装 {{ countKeys(s.parts) }} 章（段群已落盘）
+              未拼装 {{ countKeys(s.parts) }} 章（段落群已写入）
             </span>
             <span v-if="countKeys(s.partial)" class="pill st-gate"
                   :title="whyTitle(s.partial, 'partial')">
@@ -5807,7 +5807,7 @@ onUnmounted(() => {
           <div class="stage-actions">
             <button class="mini" :disabled="isRunning || agentRunLocked" :title="agentRunLocked ? AGENT_LOCK_HINT : (s.stage === 4 && chapterScopeDraft ? '只写 ' + chapterScopeDraft : '')" @click="runStage(s.stage, chapterScopeDraft)">运行</button>
             <button class="mini" :disabled="isRunning" @click="runStageStream(s.stage)" title="实时流式输出，可随时中断">流式运行</button>
-            <button v-if="agentMode && STAGE_TASK_INFO[s.stage]" class="mini" @click="copyStagePrompt(s.stage)" title="复制“执行本阶段”的任务简报给外部 Agent（项目根 + 命令 + 产物 + 退出码）。复制是只读操作，运行中也可用。阶段 7/8 是确定性步骤、无提示词模板，但同样可以复制任务。">复制任务</button>
+            <button v-if="agentMode && STAGE_TASK_INFO[s.stage]" class="mini" @click="copyStagePrompt(s.stage)" title="复制“执行本阶段”的任务简报给外部 Agent（项目根 + 命令 + 要生成的文件 + 退出码）。复制是只读操作，运行中也可用。阶段 7/8 是确定性步骤、无提示词模板，但同样可以复制任务。">复制任务</button>
             <button v-if="s.status === 'done' && !s.approved && isGate(s.stage)" class="mini primary" @click="approve(s.stage)">确认</button>
             <button v-else-if="s.approved && isGate(s.stage)" class="mini" @click="approve(s.stage, true)">撤销</button>
             <!-- 2026-10-11 #9 收口：stage1 陪跑闸是合法审批点，后端 /reject 本就收 1-7，
@@ -5836,7 +5836,7 @@ onUnmounted(() => {
       </div>
 
       <div class="card">
-        <h3>产物速览</h3>
+        <h3>生成的文件</h3>
         <div v-for="a in artifacts" :key="a.key || a.path" class="art-row">
           <span class="art-label">{{ a.label }}</span>
           <span class="art-path">{{ a.path }}</span>
@@ -5859,11 +5859,11 @@ onUnmounted(() => {
     <!-- 章节 -->
     <section v-if="tab === 'chapters'" class="card">
       <div class="card-head">
-        <h3>章节产物（raw → checked → refined）</h3>
+        <h3>章节文件（原稿 → 检查稿 → 润色稿）</h3>
         <!-- 审阅台（2026-10-26，用户第 2 条）：左章列表 / 中正文编辑 / 右大纲+七维，
              把“适合审阅、精修、讨论的形态”放进同一屏。列表视图保持原样。 -->
         <button class="mini" :class="{ primary: chapterView === 'desk' }"
-                title="三栏审阅台：章列表 + 正文编辑/批注 + 本章大纲与七维评审"
+                title="三栏审阅台：章列表 + 正文编辑/批注 + 本章大纲与七维评审（七个角度的检查）"
                 @click="toggleChapterView">
           {{ chapterView === "desk" ? "回到列表" : "审阅台" }}
         </button>
@@ -5894,9 +5894,9 @@ onUnmounted(() => {
                  @keyup.enter="previewDocxImport" />
           <button class="mini" @click="pickImportDocx" title="用系统对话框挑文件">浏览…</button>
           <select v-model="importTier" class="model-select" title="落位档 = 起点：导入到哪一层，就从哪道工序开始用">
-            <option value="raw">毛坯 raw（从检查起可用）</option>
-            <option value="checked">校对过 checked（从润色起可用）</option>
-            <option value="refined">润过 refined（直接出稿）</option>
+            <option value="raw">原稿（从“逻辑检查”这步开始就能用）</option>
+            <option value="checked">检查稿（从“润色”这步开始就能用）</option>
+            <option value="refined">润色稿（可以直接出成品）</option>
           </select>
           <label class="import-opt"><input type="checkbox" v-model="importSingle" /> 整本当一章</label>
           <input v-model="importSplitBy" class="import-split"
@@ -5904,7 +5904,7 @@ onUnmounted(() => {
           <label class="import-opt" title="目标层已有同名章节时才用得上；覆盖前会先打 before-import 快照">
             <input type="checkbox" v-model="importOverwrite" /> 允许覆盖同名章节
           </label>
-          <button class="mini" :disabled="docxBusy || !importPath.trim()" @click="previewDocxImport">预检（不落盘）</button>
+          <button class="mini" :disabled="docxBusy || !importPath.trim()" @click="previewDocxImport">预检（只看清单，不写入文件）</button>
           <button class="mini primary" :disabled="docxBusy || !importPreview" @click="confirmDocxImport">确认导入</button>
         </div>
         <div v-if="importPreview" class="import-preview">
@@ -5951,7 +5951,7 @@ onUnmounted(() => {
           <div class="meta">{{ extractStatus.detail }}</div>
         </div>
         <div v-if="extractCamp" class="import-row">
-          <button class="mini" @click="previewExtractMerge">合并预览（不写盘）</button>
+          <button class="mini" @click="previewExtractMerge">合并预览（不写入文件）</button>
           <button v-if="extractMerge && !extractMerge.written" class="mini primary" @click="confirmExtractMerge">
             确认并进设定集
           </button>
@@ -5976,7 +5976,7 @@ onUnmounted(() => {
       <QualityTrend :chapters="Object.keys(chapterQuality).map(n => ({n: +n, quality: chapterQuality[n]}))"
                     :threshold="chapterThreshold" class="qt-wrap"
                     @gotoReview="switchTab('review')" @gotoRefine="switchTab('review')" />
-      <div v-if="!chaptersLoaded" class="empty">点击"重新探测"加载章节产物</div>
+      <div v-if="!chaptersLoaded" class="empty">点击“重新探测”加载章节文件</div>
       <div v-for="c in chapters" :key="c.n" class="chap-row">
         <span class="stage-no lit">{{ c.n }}</span>
         <span class="chap-name">第 {{ c.n }} 章</span>
@@ -6256,7 +6256,7 @@ onUnmounted(() => {
           </span>
           <span class="spacer"></span>
           <button class="mini primary" @click="approve(s.stage)">确认放行</button>
-          <button class="mini" v-if="s.stage === 2" @click="openOutlineTab">查看结构化大纲</button>
+          <button class="mini" v-if="s.stage === 2" @click="openOutlineTab">查看大纲结构</button>
           <button class="mini" v-if="s.stage === 2" @click="openMultiDraftDlg">多方案对比</button>
           <button class="mini" v-if="s.stage === 2" @click="refineOpen = true">精修意见</button>
           <button class="mini" v-if="s.stage === 6" @click="gotoFromInbox('chapters'); loadChapters()">章节润色稿</button>
@@ -6265,21 +6265,21 @@ onUnmounted(() => {
         </div>
         <div class="gate-files">
           <button class="mini" v-if="s.stage === 1" @click="preview('data/setting/setting.json')">设定集原文</button>
-          <button class="mini" v-if="s.stage === 1" @click="preview('data/setting/material_review.md')">素材体检报告</button>
+          <button class="mini" v-if="s.stage === 1" @click="preview('data/setting/material_review.md')">素材检查报告</button>
           <button class="mini" v-if="s.stage === 2" @click="preview('data/outline/global.md')">预览原文</button>
-          <button class="mini" v-if="s.stage === 2" @click="preview('data/outline/review_report.md')">体检报告</button>
-          <button class="mini" v-if="s.stage === 6" @click="preview('data/outline/polish_report.md')">润色体检报告</button>
+          <button class="mini" v-if="s.stage === 2" @click="preview('data/outline/review_report.md')">检查报告</button>
+          <button class="mini" v-if="s.stage === 6" @click="preview('data/outline/polish_report.md')">润色检查报告</button>
         </div>
         <!-- 产物摘要（2026-10-24：改读后端 /gate/artifacts，目录阶段也给得出章节数/字数） -->
         <div v-if="gateArtifacts[s.stage] && gateArtifacts[s.stage].length" class="gate-artifacts">
-          <span class="meta">产物概况：</span>
+          <span class="meta">生成情况：</span>
           <span v-for="a in gateArtifacts[s.stage]" :key="a.path" class="gate-artifact-pill"
                 :title="a.path + (a.exists ? '' : '（缺失）')">
             {{ a.path.split('/').slice(-1)[0] }}<template v-if="!a.exists">（缺失）</template><span v-else-if="a.kind === 'dir'"> ({{ a.files }} 篇 · {{ fmtTok(a.chars) }} 字)</span><span v-else> ({{ a.lines }} 行)</span>
-            <span v-if="a.agent" class="agent-tag" title="此产物由外部 Agent 生成">⚡Agent</span>
+            <span v-if="a.agent" class="agent-tag" title="这份文件由外部 Agent 生成">⚡Agent</span>
           </span>
         </div>
-        <div v-else-if="gateArtifacts[s.stage] === undefined" class="meta">产物概况：读取中…</div>
+        <div v-else-if="gateArtifacts[s.stage] === undefined" class="meta">生成情况：读取中…</div>
         <!-- Stage 2: 大纲体检评分 -->
         <div v-if="s.stage === 2 && outlineSummary" class="gate-score">
           <span class="score-label">大纲评分:</span>
@@ -6321,7 +6321,7 @@ onUnmounted(() => {
           <div v-if="segReview.invalidations" class="meta">
             大纲改过 {{ segReview.invalidations }} 次 —— 每次改动都把全部分段打回未通过（旧审核不为新内容背书）
           </div>
-          <div class="meta">偏好终端的话同一套判据在 CLI：<code>python scripts/segment_cli.py list</code></div>
+          <div class="meta">习惯用命令行的话，同一套判定在命令行也能跑：<code>python scripts/segment_cli.py list</code></div>
         </div>
       </div>
     </section>
@@ -6363,12 +6363,12 @@ onUnmounted(() => {
             <div class="stat-sub">
               cache_read {{ fmtNum(streamingCost.cache_read) }}
               <template v-if="streamingCost.token_pct !== null && streamingCost.token_pct !== undefined">
-                · 占 token 闸门 <b>{{ streamingCost.token_pct }}%</b>
+                · 占 token 用量上限 <b>{{ streamingCost.token_pct }}%</b>
                 <template v-if="streamingCost.token_limit && streamingCost.token_limit.max_total_tokens">
                   （上限 {{ fmtNum(streamingCost.token_limit.max_total_tokens) }}）
                 </template>
               </template>
-              <template v-else>· token 闸门未启用</template>
+              <template v-else>· token 用量上限未启用</template>
             </div>
           </div>
           <!-- 上下文占用（2026-11-05，试跑第 23 条）：token 数只说明“花了多少”，
@@ -6414,7 +6414,7 @@ onUnmounted(() => {
           <div v-if="streamingCost.context.note" class="meta">{{ streamingCost.context.note }}</div>
         </div>
         <div v-if="streamingCost.engine === 'hermes'" class="meta">
-          订阅制：本次没有按量计费金额，只有 token 计数（来自子会话回传的 usage 实测）。
+          订阅制：本次没有按量计费金额，只有 token 计数（来自那次调用回传的用量）。
         </div>
       </div>
 
@@ -6632,12 +6632,12 @@ onUnmounted(() => {
               <span v-if="models.engine === 'direct'" class="eng-badge">使用中</span>
             </div>
             <div class="eng-desc">程序自己调 API 接口，按用量计费。需要先备好 API Key。</div>
-            <div class="eng-tags"><span>按 token 计费</span><span>止烧阈值有效</span></div>
+            <div class="eng-tags"><span>按 token 计费</span><span>上限有效</span></div>
           </button>
           <button class="eng-card" :class="{ on: models.engine === 'hermes' }"
                   :disabled="engBusy" @click="switchEngine('hermes')">
             <div class="eng-card-top">
-              <span class="eng-name">Agent 子会话</span>
+              <span class="eng-name">外部助手（走订阅）</span>
               <span v-if="models.engine === 'hermes'" class="eng-badge">使用中</span>
             </div>
             <div class="eng-desc">由外部 Agent（编程工具里的助手）驱动，走你的订阅额度。</div>
@@ -6649,19 +6649,19 @@ onUnmounted(() => {
               <span class="eng-name">只出任务书</span>
               <span v-if="models.engine === 'self'" class="eng-badge">使用中</span>
             </div>
-            <div class="eng-desc">程序不调用任何模型：每阶段把任务书写到 data/state/tasks/self/，你执行完把产物写到位再点运行。</div>
-            <div class="eng-tags"><span>零 token</span><span>产物齐就直接放行</span></div>
+            <div class="eng-desc">程序不调用任何模型：每阶段把任务书写到 data/state/tasks/self/，你执行完把文件写到位再点运行。</div>
+            <div class="eng-tags"><span>零 token</span><span>文件齐了就直接放行</span></div>
           </button>
         </div>
         <div class="meta eng-note" v-if="models.engine === 'hermes'">
-          agent 模式下 model.* 不参与运行 —— 模型由外部 Agent 决定；止烧改看“预算与止烧”的 token 上限。
+          agent 模式下 model.* 不参与运行 —— 模型由外部 Agent 决定；花超自动停要看“预算与止烧”里的 token 上限。
         </div>
         <div class="meta eng-note" v-else-if="models.engine === 'self'">
-          自任务模式下点了运行只会产出任务书（不花钱）：按任务书把产物写到指定路径，再点一次运行即续跑。
+          自任务模式下点了运行只会产出任务书（不花钱）：按任务书把文件写到指定路径，再点一次运行即续跑。
         </div>
         <div class="meta eng-note" v-else>
           直连模式下每个角色按下面的表格各取一个模型；<b>换供应商后请顺手确认模型</b>
-          （模型名不通用，换了 provider 却留着旧模型名会直接 404）。
+          （模型名不通用，换了供应商却留着旧模型名会直接 404）。
         </div>
       </div>
 
@@ -6833,16 +6833,18 @@ onUnmounted(() => {
           <div class="set-pane" v-show="settingsTab === 'budget'">
 
       <!-- 止烧阈值（token 级熔断）：hermes 下金额阈值无效，止烧全靠这几个值 -->
-      <h4 style="margin-top: 16px;">预算与止烧（token 级熔断）</h4>
+      <h4 style="margin-top: 16px;">预算与止烧（花超了自动停）</h4>
       <div class="meta" style="line-height: 1.8; margin-bottom: 8px;">
-        engine: hermes 走订阅流量，<b>金额阈值恒不生效</b>（记账恒 0）—— 止烧靠这里的 token 上限。
-        越界值会被拒绝（设成 0/负数等于让闸门消失）。改动对<b>下一次运行</b>生效。
+        外部助手（hermes）走订阅流量，<b>金额上限在这条通道上不生效</b>（记账一直是 0）——
+        花超了要靠这里填的 token 上限来停。
+        越界值会被拒绝；想关掉限制就取消上面的勾选，别填 0 或负数（那等于把这条线取消）。
+        改动对<b>下一次运行</b>生效。
       </div>
       <div v-if="tokenLimit.loading" class="meta">读取中…</div>
       <template v-else>
         <div class="tl-grid">
           <label class="tl-field">
-            <span class="label">启用 token 级熔断</span>
+            <span class="label">启用 token 上限（超了就停）</span>
             <input type="checkbox" v-model="tokenLimit.form.enabled" />
           </label>
           <label class="tl-field">
@@ -6861,11 +6863,11 @@ onUnmounted(() => {
             <span class="meta">区间 {{ tokenLimit.bounds.warn_ratio?.join(' ~ ') }}</span>
           </label>
           <label class="tl-field" style="grid-column: 1 / -1;">
-            <span class="label">hermes 单次子会话超限也熔断</span>
+            <span class="label">外部助手单次调用超限也停</span>
             <span style="display: flex; gap: 8px; align-items: center;">
               <input type="checkbox" v-model="tokenLimit.form.per_request_pause_hermes" />
-              <span class="meta">默认关：实测一次 stage1 子会话输出就有 1.8 万 token，
-                单次判据更容易误停（误停比不停更贵）。</span>
+              <span class="meta">默认关：实测一次素材归并（阶段 1）输出就有 1.8 万 token，
+                按单次调用判断更容易误停（误停比不停更贵）。</span>
             </span>
           </label>
         </div>
@@ -6884,9 +6886,9 @@ onUnmounted(() => {
       </template>
 
       <!-- 单章字数区间（chapter.target_words）：写作阶段按它约束篇幅，校验按它判定 -->
-      <h4 style="margin-top: 20px;">单章字数（篇幅口径）</h4>
+      <h4 style="margin-top: 20px;">单章字数（篇幅标准）</h4>
       <div class="meta" style="line-height: 1.8; margin-bottom: 8px;">
-        写作提示词按它约束篇幅，章节校验与收尾闸门按它判定。
+        写作提示词按它约束篇幅，章节校验与收尾检查按它判定。
         <b>全书总量请用章数控制</b>（如要 ≥20 万字就写 ≥40 章），不要靠抬高这里。
         越界值会被拒绝。改动对<b>下一次运行</b>生效。
       </div>
@@ -6962,7 +6964,7 @@ onUnmounted(() => {
       <div class="meta" style="line-height: 1.8; margin-bottom: 8px;">
         只影响<b>章标题行</b>（如“第10章潜七十二”→“第10章 潜七十二”），不改正文。
         <code>{n}</code> = 章号（必需，缺了会拒绝保存），<code>{title}</code> = 章名（可省略）。
-        改动对<b>下一次落盘 / 合并</b>生效；已生成的 docx 需重跑阶段 7。
+        改动对<b>下一次保存 / 合并</b>生效；已生成的 docx 需重跑阶段 7。
       </div>
       <div v-if="titleFormat.loading" class="meta">读取中…</div>
       <template v-else>
@@ -6989,7 +6991,7 @@ onUnmounted(() => {
       <h4 style="margin-top: 20px;">加强模式（单章拆段落群生成）</h4>
       <div class="meta" style="line-height: 1.8; margin-bottom: 8px;">
         开启后单章改为“章 → 段落群”分批生成（每群约 {{ enhancedMode.groupWords }} 字）：
-        逐群生成、每群立即落盘（段群级断点续跑）、拼装成章后走同一套校验。
+        逐段群生成、每段群立刻写入文件（写到哪算到哪，下次接着写）、拼装成章后走同一套校验。
         <b>字数达标率更高，但每章调用次数与成本也更高</b>。关闭时整章单发。
         改动对<b>下一次运行</b>生效。
       </div>
@@ -6999,11 +7001,11 @@ onUnmounted(() => {
            style="margin-bottom: 8px; padding: 8px 10px; line-height: 1.8;
                   border-left: 2px solid var(--warn, #b8860b);
                   background: rgba(184, 134, 11, 0.08);">
-        当前篇幅口径是单章 {{ targetWords.form.low }}–{{ targetWords.form.high }} 字，
+        当前篇幅标准是单章 {{ targetWords.form.low }}–{{ targetWords.form.high }} 字，
         但加强模式关着。弱模型整章单发常常写到两三千字就收尾，再怎么重试也一样长
         （同一个模型、同一个目标，只会再短一次）。建议开启 —— 拆群后每群只背
         {{ enhancedMode.groupWords }} 字，拼起来才够。
-        <br />不开启也能跑：出现字数不足时，阶段 4 会自动兜底转加强模式重试一次。
+        <br />不开启也能跑：出现字数不足时，阶段 4 会自动改用加强模式再试一次。
       </div>
       <div v-if="enhancedMode.loading" class="meta">读取中…</div>
       <template v-else>
@@ -7035,7 +7037,7 @@ onUnmounted(() => {
       <div class="gate-notify-row">
         <div>
           <div class="label">允许外部 Agent 通过 HTTP API 调用</div>
-          <div class="meta">开启后，Hermes 等外部 Agent 可调用绒花墨坊 API 进行大纲草拟、设定起草等操作。<br>⚠️ 禁止性操作（审批/打回/归档/恢复/项目创建）仍只允许在 GUI 内手动执行。<br>Agent 生成的大纲/产物自动进入待审批状态，需在桌面端确认。</div>
+          <div class="meta">开启后，Hermes 等外部 Agent 可调用绒花墨坊 API 进行大纲草拟、设定起草等操作。<br>⚠️ 禁止性操作（审批/打回/归档/恢复/项目创建）仍只允许在 GUI 内手动执行。<br>Agent 生成的大纲/文件自动进入待审批状态，需在桌面端确认。</div>
         </div>
         <button class="mini" :class="{ primary: agentMode }" @click="toggleAgentMode">
           {{ agentMode ? '已开启' : '已关闭' }}
@@ -7064,8 +7066,8 @@ onUnmounted(() => {
       <h4 style="margin-top: 16px;">接入其他 Agent（MCP 配置生成）</h4>
       <div class="meta" style="margin-bottom: 8px;">
         标准 MCP 客户端（Hermes / Claude Code / Cline / Cursor）配置一次即可接入；
-        后端未启动时垫片会<b>自动代拉</b> nf_api（逃生门：环境变量
-        <code>NF_BRIDGE_NO_AUTOSTART=1</code>）。审批/打回等红线操作<b>不经过 MCP</b>，
+        后端没启动时转接程序会<b>自动把它拉起来</b> nf_api（不想让它自动拉起就设环境变量
+        <code>NF_BRIDGE_NO_AUTOSTART=1</code>）。审批/打回等禁止操作<b>不经过 MCP</b>，
         外部 Agent 拿不到 —— 这是设计，不是故障。
         <template v-if="agentConnect">
           <br>MCP 8766：
@@ -7105,7 +7107,7 @@ onUnmounted(() => {
             启动提示词（kickoff）—— 复制给外部 Agent 作开场白
           </div>
           <div class="meta">
-            单一事实源 <code>prompts/agent_kickoff.md</code>；复制时自动把
+            唯一来源 <code>prompts/agent_kickoff.md</code>；复制时自动把
             <code>&#123;&#123;PROJECT_ROOT&#125;&#125;</code> 占位符替换为项目根。
             防“AI 从头重建本项目 / 擅自绕过审批守卫”的第一道闸。
           </div>
@@ -7147,7 +7149,7 @@ onUnmounted(() => {
       <h4 style="margin-top: 16px;">文体（book.form）</h4>
       <div class="meta" style="margin-bottom: 8px;">
         决定<strong>哪些检查项适用</strong>：散文不会被要求“情节连贯 / 人物关系”，
-        也不会被要求“小目标 / 悬念钩子”；叙事小说按全套判据走。
+        也不会被要求“小目标 / 悬念钩子”；叙事小说按全套检查项走。
         只影响之后运行的阶段，已写好的章节不会被重新判定。
       </div>
       <div class="provider-row">
@@ -7166,7 +7168,7 @@ onUnmounted(() => {
       </div>
       <div v-if="formPick && formOpts.find(o => o.code === formPick && o.style_wired === false)"
            class="meta" style="margin-top: 4px;">
-        注意：该文体的**写法指导**尚未接入 —— 检查项会按文体生效，但写作提示词仍用叙事口径。
+        注意：该文体的**写法指导**尚未接入 —— 检查项会按文体生效，但写作提示词仍按叙事来写。
       </div>
 
       <!-- 用户风格笔记 -->
@@ -7321,7 +7323,7 @@ onUnmounted(() => {
       </div>
 
       <div class="meta" style="margin: 12px 0 8px;">
-        写作时的正典检索会读这个库。下面列出库里扫到的目录 ——
+        写作时会从这个库里检索你定稿的设定。下面列出库里扫到的目录 ——
         <b>勾掉的目录不进检索</b>（比如参考作品、草稿区）。目录名取自你的库本身，
         不需要改任何配置文件。
       </div>
@@ -7339,7 +7341,7 @@ onUnmounted(() => {
       <template v-else>
         <div class="meta" style="margin-bottom: 6px;">
           共 <b>{{ vaultScan.data.total }}</b> 篇，其中
-          <b>{{ vaultScan.data.scanned }}</b> 篇进入正典检索
+          <b>{{ vaultScan.data.scanned }}</b> 篇进入检索范围
           <span v-if="vaultScan.data.root_files">
             （另有 {{ vaultScan.data.root_files }} 篇在库根目录，不在任何子目录下）</span>
         </div>
@@ -7675,7 +7677,7 @@ onUnmounted(() => {
                      borderLeft: '3px solid ' + (materialReconcile.verdict === 'mismatch' ? 'var(--warn)' : 'var(--ok)') }">
         <div v-if="materialReconcile.verdict === 'mismatch'">
           <b style="color: var(--warn);">索引与实物不一致</b>
-          <span class="meta" style="margin-left: 8px;">以实物为准 —— 管线读素材扫的是文件系统，登记表不参与生产</span>
+          <span class="meta" style="margin-left: 8px;">以实物为准 —— 流水线读素材只看文件夹里的文件，登记表不参与生产</span>
           <button class="mini" style="margin-left: 8px;" @click="reconcileOpen = !reconcileOpen">
             {{ reconcileOpen ? '收起明细' : '看明细' }}
           </button>
@@ -7760,11 +7762,11 @@ onUnmounted(() => {
         <span class="spacer"></span>
         <button class="mini" :disabled="matBusy" @click="matMove('scraps')"
                 title="搬到 materials/original_scraps/（原始碎片：自由命名、私人数据）">
-          → 移到原始碎片
+          → 移到原始碎片（只留档）
         </button>
         <button class="mini" :disabled="matBusy" @click="matMove('cards')"
-                title="搬到 materials/raw/（结构化卡片：阶段 1 归并时会被读）">
-          → 移到结构化卡片
+                title="搬到 materials/raw/（结构化卡片：阶段 1 整理素材时会被读）">
+          → 移到结构化卡片（阶段 1 会读）
         </button>
         <button class="mini danger" :disabled="matBusy" @click="matDeleteBatch"
                 :title="matConfirmDelete ? '再点一次确认删除（进回收站，可撤回）' : '第一次点是选中确认，再点一次才真删'">
@@ -8012,7 +8014,7 @@ onUnmounted(() => {
           <div class="cost-stat">
             <div class="stat-label">预计调用</div>
             <div class="stat-val">{{ estDialog.data.totals.calls }}</div>
-            <div class="stat-sub">次 LLM 请求</div>
+            <div class="stat-sub">次模型请求</div>
           </div>
           <div class="cost-stat">
             <div class="stat-label">输入 token</div>
@@ -8087,7 +8089,7 @@ onUnmounted(() => {
   <div v-if="rejectOpen" class="drawer-mask" @click.self="rejectOpen = false">
     <div class="dialog">
       <h3>打回阶段 {{ rejectStage }}</h3>
-      <div class="meta">将清理该阶段及下游产物（history/ 快照保留可回退），并撤销其审批。</div>
+      <div class="meta">将清理该阶段及后续阶段生成的文件（history/ 快照保留可回退），并撤销其审批。</div>
       <textarea v-model="rejectReason" rows="3" placeholder="打回原因（记录到 progress.json）"></textarea>
       <div class="dialog-actions">
         <button class="mini" @click="rejectOpen = false">取消</button>
@@ -8100,7 +8102,7 @@ onUnmounted(() => {
   <div v-if="refineOpen" class="drawer-mask" @click.self="refineOpen = false">
     <div class="dialog">
       <h3>大纲精修（增量修订）</h3>
-      <div class="meta">不重跑 stage2；自动备份旧版到 data/outline/history/。</div>
+      <div class="meta">不重跑阶段 2；自动备份旧版到 data/outline/history/。</div>
       <textarea v-model="refineFeedback" rows="4" placeholder="例如：第3章侧重主角；合的部分收太快，加一场过渡"></textarea>
       <div class="dialog-actions">
         <button class="mini" @click="refineOpen = false">取消</button>
@@ -8158,7 +8160,7 @@ onUnmounted(() => {
     <div class="dialog" style="width: min(660px, 94vw);">
       <h3>重跑第 {{ rerunDlg.n }} 章</h3>
       <div class="meta" style="margin-top: 6px;">
-        “重写”只换正文；“重跑”把这一章的下游产物一起作废并重算。
+        “重写”只换正文；“重跑”把这一章后续生成的文件一起作废并重算。
         <b>别的章一个字节不动。</b>
       </div>
       <div style="margin-top: 10px;">
@@ -8180,7 +8182,7 @@ onUnmounted(() => {
         </tbody>
       </table>
       <div class="meta" style="margin-top: 10px;">
-        旧产物先移到 data/chapters/rerun_backup/；动手前自动打整轮快照（备份不了就不动）。
+        旧文件先移到 data/chapters/rerun_backup/；动手前自动打整轮快照（备份不了就不动）。
         润色完成前阶段 6 会显示“按范围完成”，那是如实状态，不是失败。
       </div>
       <div class="dialog-actions">
@@ -8249,7 +8251,7 @@ onUnmounted(() => {
       <h3>退出绒花墨坊？</h3>
       <div v-if="quitDlg.busy" class="meta" style="line-height: 1.8; margin-bottom: 10px;">
         当前有正在运行的流水线，或存在<b>待审批阶段</b>。<br>
-        · 退出会中止正在运行的任务（已完成阶段的产物保留，重跑从断点续上）<br>
+        · 退出会中止正在运行的任务（已完成阶段生成的文件保留，重跑从断点续上）<br>
         · 待审批阶段不受影响，下次打开仍停在审批门
       </div>
       <div v-else class="meta" style="line-height: 1.8; margin-bottom: 10px;">
@@ -8271,13 +8273,13 @@ onUnmounted(() => {
   <div v-if="skipDlg.open" class="drawer-mask" @click.self="skipDlg.open = false">    <div class="dialog" style="width: min(560px, 92vw);">
       <h3>跳过阶段 {{ skipDlg.stage }} · {{ STAGE_NAMES[skipDlg.stage] }}</h3>
       <div class="meta" style="line-height: 1.8; margin-bottom: 10px;">
-        跳过只会把该阶段标记为“已完成 + 已审批”，<b>不会生成任何产物</b>：<br>
-        · 该阶段应有的产物若缺失，后续阶段可能直接失败<br>
+        跳过只会把该阶段标记为“已完成 + 已审批”，<b>不会生成任何文件</b>：<br>
+        · 该阶段该生成的文件若缺失，后续阶段可能直接失败<br>
         · progress.json 里会记下 skipped 标记，之后仍可用“打回”回到原状态
       </div>
       <label style="display: flex; gap: 8px; align-items: flex-start; margin-bottom: 10px;">
         <input type="checkbox" v-model="skipDlg.agreed" />
-        <span>我确认跳过该阶段，并接受后续阶段可能因产物缺失而失败</span>
+        <span>我确认跳过该阶段，并接受后续阶段可能因文件缺失而失败</span>
       </label>
       <label class="meta">跳过原因（记录到 progress.json，可留空）</label>
       <textarea v-model="skipDlg.reason" rows="2" placeholder="例如：素材不足，先放行后续阶段"></textarea>
@@ -8473,7 +8475,7 @@ onUnmounted(() => {
             <option value="">请选择（不选不能开始）</option>
             <option value="self">只出任务书（self）—— 零 token、不调模型，任务书交外部执行</option>
             <option value="direct">直连（direct）—— 按量计费，速度正常，最可控</option>
-            <option value="hermes">子会话（hermes）—— 走订阅不按量，但每次调用慢（实测单步可到十分钟）</option>
+            <option value="hermes">外部助手（hermes）—— 走订阅不按量，但每次调用慢（实测单步可到十分钟）</option>
           </select>
           <div class="meta" style="margin-top: 4px;">
             选错了也能改：设置 → 运行引擎。第一次试跑建议 <b>direct</b> 或 <b>self</b>。

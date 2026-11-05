@@ -134,7 +134,7 @@ onMounted(load);
 <template>
   <div class="card">
     <div class="card-head">
-      <h3>stage5 改稿裁定</h3>
+      <h3>阶段 5 改稿裁定</h3>
       <span v-if="pending.length" class="pill warn">{{ pending.length }} 章待定</span>
       <span class="spacer"></span>
       <button class="mini" :disabled="busy" @click="load">刷新</button>
@@ -142,7 +142,7 @@ onMounted(load);
     </div>
 
     <p class="meta">
-      模型改稿先落 <code>data/chapters/checked_pending/</code>，逐条勾“采用/不采用”后才合成
+      模型改稿先放在这里 <code>data/chapters/checked_pending/</code>，逐条勾“采用/不采用”后才合成
       <code>data/chapters/checked/</code>。没勾完不会进阶段 6。
     </p>
 

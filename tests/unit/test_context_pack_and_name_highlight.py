@@ -156,7 +156,7 @@ def main():
 
     print("\n[C8] 审阅台显示上下文包")
     check("调 /chapters/context", '"/chapters/context?n="' in desk)
-    check("三读数：命中 / 开伏笔 / 预算", "命中卡" in desk and "开伏笔" in desk and "预算 L2" in desk)
+    check("三读数：用到的设定卡 / 未回收伏笔 / 字数", "用到的设定卡" in desk and "未回收伏笔" in desk and "前情摘要" in desk)
     check("明细可展开", "看注入了哪几条" in desk)
 
     print("\n" + "=" * 70)

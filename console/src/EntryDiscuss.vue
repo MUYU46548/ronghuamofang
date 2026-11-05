@@ -60,7 +60,7 @@
           <!-- 写回设定集：复用 /setting/status（adopt / reject），素材没有状态字段 -->
           <div v-if="isSetting" class="ed-writeback">
             <div class="ed-title">写回设定集</div>
-            <div class="meta">把这条的状态改成已采用 / 已否决（与“设定 → 闭环拍板”同一套判据）。</div>
+            <div class="meta">把这条的状态改成已采用 / 已否决（与“设定 → 素材裁决”同一套规则）。</div>
             <input v-model="reason" class="text-input" placeholder="理由（否决必填）" />
             <button class="mini primary" :disabled="busy" @click="writeback('adopt')">标为已采用</button>
             <button class="mini danger" :disabled="busy || !reason.trim()" @click="writeback('reject')">标为已否决</button>

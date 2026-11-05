@@ -221,7 +221,7 @@
         </div>
         <div class="meta" style="margin:6px 0 10px;">
           动笔前先定故事走向。三张卡的 <b>结构必须不同</b>，每张都写了“代价”——
-          只写优点的方案等于没有选择。选定后 stage2 按它生成全书大纲；
+          只写优点的方案等于没有选择。选定后阶段 2 按它生成全书大纲；
           不选就按 project.yaml 的 user_outline 走。
         </div>
         <div v-if="!variants.length" class="empty">
@@ -256,7 +256,7 @@
           <button class="mini" :disabled="multiRunning" @click="runMulti">
             {{ multiRunning ? (multiProgressText || ("生成中… 已 " + _fmtElapsed(multiElapsed))) : "生成 3 版" }}
           </button>
-          <button class="mini" :disabled="!drafts.length" @click="compose">拼合为最终版</button>
+          <button class="mini" :disabled="!drafts.length" @click="compose">合并为最终版</button>
           <button class="mini danger" :disabled="!drafts.length" @click="discardDrafts">放弃并清理</button>
           <button class="mini" @click="closeMulti">关闭</button>
         </div>
@@ -345,7 +345,7 @@
               <span class="spacer"></span>
               <template v-if="singleOnly">
                 <button class="mini" @click="$emit('open-refine')">改这一版（提意见）</button>
-                <button class="mini primary" :disabled="advLoading" @click="loadAdvise(true)">再跑体检</button>
+                <button class="mini primary" :disabled="advLoading" @click="loadAdvise(true)">再检查一次</button>
               </template>
             </div>
             <div v-if="singleOnly" class="ov-adv-foot">
@@ -367,13 +367,13 @@
           <div v-if="trend && trend.series && trend.series.length" class="ov-adv-sec">
             <div class="ov-adv-sec-title">
               迭代趋势
-              <span class="meta">（最近 {{ trend.window }} 轮；key = 问题数 + 碎片数，越小越好）</span>
+              <span class="meta">（最近 {{ trend.window }} 轮；看“问题 + 空泛条目”的总数，越小越好）</span>
             </div>
             <table class="ov-trend">
               <thead>
                 <tr>
-                  <th>版本</th><th>单版体检</th><th>问题</th><th>碎片</th>
-                  <th>平均分</th><th>key</th><th>变化</th>
+                  <th>版本</th><th>本轮检查</th><th>问题</th><th>空泛条目</th>
+                  <th>平均分</th><th>合计</th><th>变化</th>
                 </tr>
               </thead>
               <tbody>
@@ -432,7 +432,7 @@
                   <button v-if="a.entry_id" class="mini primary"
                           :disabled="advBusy === a.entry_id"
                           @click="runNextStep(a, o)"
-                          :title="'提交节点精修（feedback 由体检缺失维度自动生成）：' + (a.suggested_feedback || '')">
+                          :title="'提交节点精修（修订意见由检查里缺的那几项自动生成）：' + (a.suggested_feedback || '')">
                     {{ advBusy === a.entry_id ? "提交中…" : "AI 精修此条" }}
                   </button>
                   <span v-else class="meta">无法定位条目 id，请手工处理</span>
@@ -655,7 +655,7 @@ async function onReorder({ group, from, to, fromId, toId }) {
   });
   raw.value = newRaw;
   await refreshStructureOnly();
-  say("已调整顺序（记得点保存写盘）");
+  say("已调整顺序（记得点保存写进文件）");
 }
 
 /* ---------- 内联编辑（任务1） ---------- */
@@ -668,7 +668,7 @@ function onInlineEdit({ id, text }) {
   raw.value = newRaw;
   if (selId.value === id) { propText.value = text; propDirty.value = false; }
   refreshStructureOnly();
-  say("已内联修改（点“保存”写盘）");
+  say("已内联修改（点“保存”写进文件）");
 }
 
 function escapeRe(s) {
@@ -685,7 +685,7 @@ function saveEntry() {
   raw.value = newRaw;
   propDirty.value = false;
   refreshStructureOnly();
-  say("已更新此条（点“保存”写盘）");
+  say("已更新此条（点“保存”写进文件）");
 }
 function revertEntry() {
   propText.value = sel.value ? sel.value.text : "";
@@ -766,7 +766,7 @@ async function submitAi() {
       return;
     }
     const jid = r.data.job_id;
-    say("已提交节点修订（job " + jid + "）—— 由本项目引擎直接调用模型，"
+    say("已提交节点修订（任务号 " + jid + "）—— 由本项目引擎直接调用模型，"
         + "不是 Hermes 后台任务；进度看右侧按钮上的计时");
     let polls = 0;
     await new Promise((resolve) => {
@@ -916,7 +916,7 @@ async function pickVariant(v) {
   say(r.data.message || "已选定");
 }
 async function clearVariant() {
-  if (!window.confirm("放弃已选定的开局方案？stage2 会回到 project.yaml 的 user_outline。")) return;
+  if (!window.confirm("放弃已选定的开局方案？阶段 2 会回到 config/project.yaml 里你自己写的大纲。")) return;
   const r = await props.api("/outline/variants/clear", "POST", {});
   if (r.status !== 200) { say("取消失败: " + (r.data.error || r.status)); return; }
   varChosen.value = false;
@@ -937,7 +937,7 @@ const recReasons = computed(() => {
   const hit = ranking.value.find((r) => r.id === recommendedId.value);
   return hit && hit.reasons && hit.reasons.length
     ? hit.reasons.join("、")
-    : "OK 更多、THIN 更少、字数更全";
+    : "合格条目更多、空泛条目更少、字数更完整";
 });
 function draftReasons(id) {
   const hit = ranking.value.find((r) => r.id === id);
@@ -1074,15 +1074,15 @@ async function compose() {
     d.plan.forEach((_, i) => { if (checked.value["p" + d.id + "_" + i]) sels.push({ draft: d.id, kind: "plan", index: i }); });
   });
   if (!sels.length) return say("请至少勾选一个条目");
-  if (!window.confirm("按勾选拼合为最终 global.md？\n\n· 将覆盖当前大纲（先自动备份）\n· 拼合后清理临时方案文件")) return;
+  if (!window.confirm("按勾选合并为最终 global.md？\n\n· 将覆盖当前大纲（先自动备份）\n· 合并后清理临时方案文件")) return;
   const r = await props.api("/outline/compose", "POST", { selections: sels, act_source: actSource.value, cleanup: true });
-  if (r.status !== 200 || !r.data.ok) { say("拼合失败: " + (r.data.error || r.status)); return; }
+  if (r.status !== 200 || !r.data.ok) { say("合并失败: " + (r.data.error || r.status)); return; }
   multiOpen.value = false;
   drafts.value = [];
   if (r.data.warnings && r.data.warnings.length) {
-    say("已拼合（注意：" + r.data.warnings.join("；") + "）");
+    say("已合并（注意：" + r.data.warnings.join("；") + "）");
   } else {
-    say("已拼合为最终版");
+    say("已合并为最终版");
   }
   await load(false);
 }
@@ -1176,7 +1176,7 @@ async function runNextStep(action) {
   const eid = action.entry_id;
   if (!eid) return;
   const fb = action.suggested_feedback
-    || "按体检缺失维度补全信息（加具体事件、冲突或场景）";
+    || "按检查里缺的那几项补全信息（加具体事件、冲突或场景）";
   if (!window.confirm("对“" + (action.target || eid) + "”提交 AI 精修？\n\n"
       + "修订意见：" + fb + "\n\n"
       + "· 只改这一条，不动其他内容\n"

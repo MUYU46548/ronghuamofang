@@ -188,7 +188,7 @@ def compute_steps(snap):
             "id": "stage4",
             "title": "阶段 4 · 逐章写作",
             "done": done(4, raw_ch > 0),
-            "evidence": ("已落盘 %d 章" % raw_ch) if raw_ch else "还没有正文",
+            "evidence": ("已写 %d 章" % raw_ch) if raw_ch else "还没有正文",
             "how": "“”→ 执行下一步（会一章一章写）；进度看章节页签",
             "action": {"kind": "tab", "tab": "pipeline", "spot": "flow-run"},
         },

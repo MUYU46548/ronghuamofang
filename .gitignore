@@ -87,6 +87,11 @@ console/runtime/
 /*.jpg
 .agent_context/
 
+# 界面文案全量清单是**生成物**（每次改文案都要重刷，且逐字镜像 UI，会带出
+# 已在源码里合法存在的署名行）：不进 Git，跑 --write 即得。
+# 工具与判定留档（scripts/ui_copy_audit.py、docs/ui-copy-decisions.md）照常入库。
+docs/ui-copy-audit.md
+
 # ===== 泄露门禁词表（真词表是敏感层，只在本机/CI secret，绝不入库）=====
 ci/blacklist.txt
 ci/fictional-map.txt

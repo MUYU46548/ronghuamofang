@@ -93,7 +93,7 @@ defineExpose({ load });
 <template>
   <div class="fsp">
     <div class="fsp-head">
-      <b>伏笔台账</b>
+      <b>伏笔清单</b>
       <span class="meta" v-if="data">
         共 {{ summary.total || 0 }} 条 · 未推进 {{ summary.open || 0 }}
         · 已推进 {{ summary.advanced || 0 }} · 已回收 {{ summary.closed || 0 }}
@@ -106,7 +106,7 @@ defineExpose({ load });
     <div v-if="err" class="meta err-line">{{ err }}</div>
 
     <div v-else-if="data && !items.length" class="meta fsp-empty">
-      还没有可抽取的伏笔。台账来自**章大纲的“悬念钩子”**（阶段 3 每章一条），
+      还没有可抽取的伏笔。清单来自**章大纲的“悬念钩子”**（阶段 3 每章一条），
       跑过阶段 3 之后这里会列出每章埋下的线。
     </div>
 

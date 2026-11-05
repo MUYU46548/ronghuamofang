@@ -45,7 +45,7 @@
             </button>
             <button
               class="mini"
-              title="打包本章讨论任务书（章大纲 + 设定 + 上一章 + 初稿 + 摘要）到剪贴板，粘贴给你的 Agent 开聊。结论会以提案落回审核页签，你批准才写回大纲"
+              title="打包本章讨论任务书（章大纲 + 设定 + 上一章 + 初稿 + 摘要）到剪贴板，粘贴给你的 Agent 开聊。结论会作为提案回到审核页签，你批准才写回大纲"
               @click="openDiscuss"
             >
               讨论此章
@@ -183,8 +183,8 @@
         <h3>讨论第 {{ currentN }} 章</h3>
         <div class="meta">
           打包本章讨论任务书到剪贴板（含章大纲 + 相关角色设定 + 上一章末尾 +
-          本章初稿 + 滚动摘要 + 提交端点与红线），粘贴给你的 Agent 即可开聊。
-          结论会以提案落回“审核”页签，<strong>你批准才写回大纲</strong>。
+          本章初稿 + 滚动摘要 + 提交方式与禁止项），粘贴给你的 Agent 即可开聊。
+          结论会作为提案回到“审核”页签，<strong>你批准才写回大纲</strong>。
         </div>
         <textarea v-model="discussNote" rows="3"
                   placeholder="想讨论什么？（留空 = 让 Agent 先自己提可讨论的问题）"></textarea>
@@ -440,7 +440,7 @@ function markDirty() {
 /* 打包本章讨论任务书到剪贴板。用户切到 Agent 桌面端粘贴即可开聊 —— 复用他已
    有的讨论端（多轮记忆、能真读文件、能跑体检），不在墨坊里重造一个聊天框。
    任务书自包含：章大纲 + 相关角色设定 + 上一章末尾 + 本章初稿 + 滚动摘要 +
-   提交端点与红线。结论经 POST /outline/discussion/apply 落提案，用户回墨坊在
+   提交方式与禁止项。结论经 POST /outline/discussion/apply 落提案，用户回墨坊在
    审核页签批准才写回大纲 —— 讨论发生在哪都行，落地与审批固定在这。
 
    ⚠️ 意见输入**不能用 window.prompt** —— Electron 禁用原生对话框，prompt()
@@ -469,7 +469,7 @@ async function discussThisChapter() {
     await copyToClipboard(r.data.brief);
     discussOpen.value = false;
     say(`已复制第 ${currentN.value} 章讨论任务书（${r.data.chars} 字）—— `
-      + '粘贴给你的 Agent 即可开聊；结论会落回“审核”页签待你批准');
+      + '粘贴给你的 Agent 即可开聊；结论会作为提案回到“审核”页签等你批准');
   } catch (e) {
     say('打包失败: ' + (e.message || e));
   } finally {
@@ -525,7 +525,7 @@ function onSampleEvent(kind) {
   // 你在“审核”页签批准），所以这里只提示，不重载当前章 —— 重载会把你正在
   // 编辑的未保存内容冲掉。
   if (kind === "sample_submitted") {
-    say("方向样例已落提案 —— 去“审核”页签批准后生效");
+    say("方向样例已变成提案 —— 去“审核”页签批准后生效");
   }
 }
 

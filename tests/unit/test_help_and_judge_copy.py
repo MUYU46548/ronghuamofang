@@ -26,6 +26,7 @@ import io
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
@@ -171,6 +172,54 @@ def main():
     check("端点把 rejected 回传给界面（reload 后标记还在）",
           '"rejected": i in rejected' in dom and '"rejected": bool(i in _a_rejected)' in dom)
     check("judged / total 进度也回传", '"judged"' in dom and '"total_events"' in dom)
+
+    print("\n【H7】界面文案黑话清零（task-20261104-010）")
+    audit = ROOT / "scripts" / "ui_copy_audit.py"
+    check("黑话检查工具存在（scripts/ui_copy_audit.py）", audit.is_file())
+    if audit.is_file():
+        src = audit.read_text(encoding="utf-8")
+        check("黑名单不是空的（空名单 = 假清零）", "BANNED = [" in src and "落盘" in src)
+        check("名单只查可见文案（注释被剥掉）", "strip_comments" in src)
+        p = subprocess.run([sys.executable, str(audit), "--check"],
+                           capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", timeout=180, cwd=str(ROOT))
+        out = (p.stdout or "") + (p.stderr or "")
+        check("全仓库可见文案 0 命中", p.returncode == 0, out[-600:])
+        check("确实是 0 命中（不是一条都没扫到）",
+              "命中 0 条" in out and "扫描" in out, out[-300:])
+    inv = ROOT / "docs" / "ui-copy-audit.md"
+    # 清单是生成物（不进 Git，见 .gitignore）：用例**现场生成一份**再验，不依赖提交物
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td) / "audit.md"
+        p2 = subprocess.run([sys.executable, str(audit), "--write", "--out", str(tmp)],
+                            capture_output=True, text=True, encoding="utf-8",
+                            errors="replace", timeout=180, cwd=str(ROOT))
+        ok = tmp.is_file() and tmp.stat().st_size > 20000
+        head = tmp.read_text(encoding="utf-8")[:400] if tmp.is_file() else ""
+        check("工具能现场生成全量清单（模板 + 属性 + 提示串）",
+              ok and "| 行 | 类型 | 文案 |" in head and "合计 **" in head,
+              (p2.stdout or p2.stderr or "")[-300:])
+    check("默认落点仍是 docs/ui-copy-audit.md（作者照 --write 就能看）",
+          "--out" in audit.read_text(encoding="utf-8") and str(inv).endswith("ui-copy-audit.md"))
+    plan = ROOT / "docs" / "ui-copy-decisions.md"
+    check("判定与改法留档（docs/ui-copy-decisions.md）",
+          plan.is_file() and "自造词" in plan.read_text(encoding="utf-8"))
+
+    print("\n【H8】术语手册（界面上不懂的词有地方查）")
+    terms = HELP / "09-terms.md"
+    check("手册里有《界面上那些词，到底指什么》", terms.is_file())
+    if terms.is_file():
+        tt = terms.read_text(encoding="utf-8")
+        for word in ("审批门", "判定", "三档", "回测", "断点续跑", "快照",
+                     "正典", "外部助手", "七维", "审美五问", "上下文包", "MCP"):
+            check("术语篇解释“%s”" % word, word in tt)
+        check("术语篇自己就是人话（没有拿黑话解释黑话）",
+              "落盘" not in tt and "口径" not in tt)
+    rules = (HELP / "08-writing-rules.md").read_text(encoding="utf-8")
+    check("手册不再说“全书目标字数界面入口还没做”（0.8.2 已有入口）",
+          "界面入口还没做" not in rules and "设置 → 全书目标字数" in rules)
+    check("手册与界面同名：篇幅标准（不是篇幅口径）",
+          "篇幅标准" in rules and "篇幅口径" not in rules)
 
     print("\n" + "=" * 66)
     print("合计: %d 通过 / %d 失败" % (len(PASS), len(FAIL)))

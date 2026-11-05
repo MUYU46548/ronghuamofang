@@ -121,25 +121,25 @@ defineExpose({ load });
 <template>
   <div class="card">
     <div class="card-head">
-      <h3>审稿账本（逻辑七维 + 结构指标）</h3>
+      <h3>审稿账本（七维流程 + 结构指标）</h3>
       <span class="spacer"></span>
       <!-- 举证数与均分只在下面的“逻辑七维（流程）”块里显示一次 ——
            卡片头再说一遍会和块内重复，同屏两个“均分”反而让人以为是两个分。 -->
       <button class="mini" :disabled="busy" @click="load">{{ busy ? "读取中…" : "刷新" }}</button>
     </div>
     <div class="meta">
-      这一页有两件事，别混着看：<b>逻辑七维</b>=流程（引句能不能对上原文、维缺不缺）；
+      这一页有两件事，别混着看：<b>七维流程</b>（七个角度的检查）=流程（引句能不能对上原文、维缺不缺）；
       <b>结构指标</b>=文学抽样提示（对白与段落形态）。两者都<b>不给文学分</b> —— 写得好不好只能你自己看。
     </div>
 
     <div v-if="err" class="empty" style="padding:14px 0;">{{ err }}</div>
     <div v-else-if="!data" class="meta" style="padding:10px 0;">读取中…</div>
     <div v-else-if="!rows.length" class="meta" style="padding:10px 0;">
-      还没有账本 —— 跑过 stage5（逻辑检查）之后每章自动生成。
+      还没有账本 —— 跑过逻辑检查（阶段 5）之后每章自动生成。
     </div>
     <template v-else>
       <div class="rl-block-head">
-        <b>逻辑七维（流程）</b>
+        <b>七维流程（七个角度的检查）</b>
         <span class="meta">完整举证 {{ completeCount }} / {{ rows.length }} 章
           <template v-if="sum.mean != null"> · 流程均分 {{ sum.mean }}（不代表写得好）</template>
         </span>
@@ -169,7 +169,7 @@ defineExpose({ load });
         </tbody>
       </table>
       <div class="meta" style="margin-top:6px;">
-        “未举证”= 该维的引用在本章原文里找不到（或引得太短/分数越界），按判据不计分。
+        “未举证”= 该维的引用在本章原文里找不到（或引得太短/分数越界），按规则不计分。
       </div>
     </template>
 
@@ -230,7 +230,7 @@ defineExpose({ load });
            另开一块、独立判据（一问一句，同一句只算第一处）；老账本没有这块 → 整块不显示。 -->
       <template v-if="aesRows().length">
         <div class="rl-aes-head">
-          <b>审美五问</b>
+          <b>审美五问（五个审美问题）</b>
           <span class="meta">
             {{ detail.aesthetic_complete ? "五问齐全" : "有未举证的问题" }}
             <template v-if="detail.aesthetic?.mean != null"> · 均分 {{ detail.aesthetic.mean }}</template>

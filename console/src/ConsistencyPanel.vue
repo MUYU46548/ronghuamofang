@@ -60,14 +60,14 @@ defineExpose({ load });
       <button class="mini" :disabled="busy" @click="load">{{ busy ? "读取中…" : "刷新" }}</button>
     </div>
     <div class="meta">
-      跨章事实账本：死亡 / 物品去向 / 时间锚。stage4 每章落盘后增量更新，<b>零 token、只报不拦</b>。
+      跨章事实账本：谁死了 / 东西去哪了 / 时间点。每次写作完成后自动更新，<b>零 token、只报不拦</b>。
       冲突会给出章号与原文证据 —— 改哪一句由你定。
     </div>
 
     <div v-if="err" class="empty" style="padding:14px 0;">{{ err }}</div>
     <div v-else-if="!state" class="meta" style="padding:10px 0;">读取中…</div>
     <div v-else-if="!state.events" class="meta" style="padding:10px 0;">
-      还没有账本 —— 跑过 stage4 之后每章自动生成。
+      还没有账本 —— 跑过写作（阶段 4）之后每章自动生成。
     </div>
     <template v-else>
       <div class="cs-summary">

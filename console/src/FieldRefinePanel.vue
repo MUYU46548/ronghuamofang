@@ -142,7 +142,7 @@ async function submit() {
       why, note: note.value,
     });
     if (r.status === 200 && r.data.ok) {
-      say("已落提案待审 —— 去“审核”页签批准后才会写回章大纲");
+      say("已变成待审提案 —— 去“审核”页签批准后才会写回章大纲");
       candidates.value = [];
       chosenIdx.value = -1;
       editedText.value = "";
@@ -166,7 +166,7 @@ onMounted(() => { /* 不自动加载：用户填了章号才有意义 */ });
       <h3>定向改写（候选对比）</h3>
       <div class="fr-hint">
         选一个章大纲字段 → 写句意见 → 挑一个候选。<strong>不直接写稿</strong>：
-        提交后进“审核”页签待审，你批准才写回。Hermes 不在场时用这条轻链路。
+        提交后进“审核”页签待审，你批准才写回。Hermes 不在场时用这条轻量通道。
       </div>
     </div>
 

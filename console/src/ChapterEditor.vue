@@ -325,7 +325,7 @@ async function submitRefine() {
       return;
     }
     const jid = r.data.job_id;
-    emit("say", "已提交段落重写（job " + jid + "）—— 只改第 " + (selPara.value + 1) + " 段");
+    emit("say", "已提交段落重写（任务号 " + jid + "）—— 只改第 " + (selPara.value + 1) + " 段");
     let polls = 0;
     await new Promise((resolve) => {
       const poll = setInterval(async () => {
@@ -546,7 +546,7 @@ onUnmounted(() => {
           <div class="ce-side-block">
             <div class="ce-side-title">说明</div>
             <div class="meta">
-              保存只落盘：不改阶段状态、不打分、不跑体检。旧稿会自动备份到
+              保存只写文件：不改阶段状态、不打分、不跑体检。旧稿会自动备份到
               <code>data/chapters/history/</code>，用“章节 → 历史”可回退。
             </div>
           </div>

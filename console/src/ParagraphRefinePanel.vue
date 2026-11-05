@@ -190,7 +190,7 @@ async function runRefine() {
       dry_run: false,
     });
     if (r.status === 202) {
-      say(`已提交: ${r.data.job_id}`);
+      say(`已提交，任务号 ${r.data.job_id}`);
       await pollJob(r.data.job_id);
     } else if (r.status === 400) {
       say(`参数错误: ${r.data.error}`);
@@ -545,7 +545,7 @@ onMounted(() => {
               {{ running ? "执行中..." : "执行重写" }}
             </button>
             <button class="mini" :disabled="running || !feedback.trim()" @click="runDryRun">
-              dry-run（预览）
+              只看不改（dry-run）
             </button>
           </div>
 

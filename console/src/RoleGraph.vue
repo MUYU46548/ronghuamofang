@@ -184,7 +184,7 @@ function build() {
       [
         d.name + (d.ghost ? "（未入册，仅出现在别人的关系描述里）" : ""),
         d.role ? "定位：" + d.role : "",
-        d.locked ? "🔒 locked（设定集硬约束）" : "",
+        d.locked ? "🔒 锁定（设定集里写死，不可违逆）" : "",
         `出场：${d.total} 次 / ${d.chapters} 章` + (d.first ? `（首见第 ${d.first} 章）` : ""),
         `分级：${levelStyle(d.level).label}`,
         `关系数：${d.degree}`,

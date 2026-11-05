@@ -182,7 +182,7 @@ async function promote() {
   busy.value = false;
   if (r.status !== 200 || !r.data.ok) { say("生成失败：" + (r.data.error || r.status)); return; }
   const bak = r.data.backup ? `（覆盖前已备份：${r.data.backup}）` : "";
-  say(`已写入 ${r.data.path}${bak} —— 下次跑 stage1 时进入设定归并`);
+  say(`已写入 ${r.data.path}${bak} —— 下次跑素材归并（阶段 1）时进入设定集`);
   saveLS();
 }
 
@@ -218,7 +218,7 @@ onMounted(() => { loadLS(); load(); });
         碎片 {{ stats.scrap_count }} 个 / 簇 {{ stats.cluster_count }} 个（合并簇 {{ stats.merged_cluster_count }}）/
         前瞻备忘 {{ stats.lookahead_count }} 条
         <span v-if="list.index_stale" style="color: var(--warn);">
-          · 有改动尚未反映到索引（下次跑 stage1 会自动刷新）
+          · 有改动尚未反映到索引（下次跑素材归并（阶段 1）会自动刷新）
         </span>
       </div>
       <div v-if="list.warnings?.length" class="meta" style="color: var(--warn); margin-bottom: 10px;">

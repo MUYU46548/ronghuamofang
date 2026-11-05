@@ -92,7 +92,7 @@ async function adopt(it) {
 }
 
 async function clearMark(no) {
-  if (!window.confirm(`确认第 ${no} 章已经补齐/改好？\n\n清除标记后，系统会重新按正常判据判定这一章是否完成。`)) return;
+  if (!window.confirm(`确认第 ${no} 章已经补齐/改好？\n\n清除标记后，系统会重新按正常标准判定这一章是否完成。`)) return;
   busy.value = true;
   try {
     const r = await post("/truncated/clear", { chapter: no });
