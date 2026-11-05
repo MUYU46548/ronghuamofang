@@ -988,6 +988,8 @@ body {
   display: flex; gap: 10px; flex-wrap: wrap;
   font-size: 11.5px; color: var(--muted); margin-top: 3px;
 }
+/* 每版“它凭什么”一句（2026-11-05）：小一号、强调色，跟指标行分开但不抢眼 */
+.ov-multi-why { font-size: 11.5px; color: var(--accent); margin-top: 4px; line-height: 1.5; }
 .ov-multi-head { display: flex; align-items: center; gap: 8px; }
 /* 开局方案卡片：字段名 + 内容；“代价”单独用警示色左边线，让取舍一眼可见 */
 .ov-var-body { font-size: 13px; line-height: 1.72; margin: 8px 0 10px; }

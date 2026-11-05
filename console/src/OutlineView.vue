@@ -263,7 +263,7 @@
         <div v-if="!drafts.length" class="empty">尚无方案 —— 点击“生成 3 版”串行生成（约需数分钟）</div>
         <div v-else class="ov-multi">
           <div v-if="recommendedId" class="ov-multi-hint meta">
-            推荐“”：OK 更多、THIN 更少、字数更全。只是排序建议，最终由你定。
+            推荐“{{ recLabel }}”：{{ recReasons }}。只是排序建议，最终由你定。
           </div>
           <div v-for="d in drafts" :key="d.id" class="ov-multi-col" :class="{ 'is-rec': recommendedId === d.id }">
             <div class="ov-multi-head">
@@ -272,6 +272,9 @@
               <span class="pill" :class="verdictClass(d.summary && d.summary.verdict)">
                 {{ d.summary && d.summary.verdict }}
               </span>
+            </div>
+            <div v-if="draftReasons(d.id).length" class="ov-multi-why meta">
+              {{ draftReasons(d.id).join(" · ") }}
             </div>
             <div class="ov-multi-meta">
               <span>{{ fmtNum(d.chars) }} 字</span>
@@ -908,6 +911,18 @@ const multiRunning = ref(false);
 const multiElapsed = ref(0);       // 已等待秒数（用户要看“还在动”）
 const multiProgress = ref(null);   // 后端逐版进度（I-2）：第几版 / 共几版 / 已完成哪几版
 const recommendedId = ref(null);   // 后端给的排序建议（不是质量结论）
+const ranking = ref([]);            // 排序 + 逐条理由（后端 rank_drafts）
+const recLabel = computed(() => (recommendedId.value ? "方案 " + recommendedId.value : ""));
+const recReasons = computed(() => {
+  const hit = ranking.value.find((r) => r.id === recommendedId.value);
+  return hit && hit.reasons && hit.reasons.length
+    ? hit.reasons.join("、")
+    : "OK 更多、THIN 更少、字数更全";
+});
+function draftReasons(id) {
+  const hit = ranking.value.find((r) => r.id === id);
+  return (hit && hit.reasons) || [];
+}
 let multiTimer = null;
 const checked = ref({});
 
@@ -956,6 +971,7 @@ async function loadDrafts() {
   }
   drafts.value = raw.filter((d) => Array.isArray(d.nodes) && Array.isArray(d.plan));
   recommendedId.value = (r.data && r.data.recommended) || null;
+  ranking.value = (r.data && r.data.ranking) || [];
   // 默认勾选与“四节来源”都落在推荐版上（I-2）：推荐只是排序建议，但**默认值**
   // 必须与它一致 —— 否则界面上出现“推荐方案 2、默认选方案 1”的自相矛盾，
   // 用户会以为系统在乱指。作者随时可以改勾选。

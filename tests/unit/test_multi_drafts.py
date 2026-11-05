@@ -118,6 +118,26 @@ def main():
             bad = [{"id": 1, "score": 0, "chars": 10},
                    {"id": 2, "score": -3, "chars": 20}]
             check("不硬编推荐", op.recommend_draft(bad) is None)
+
+            print("\n[M3b] 排序理由（2026-11-05：借鉴 SP-1026 择优器，理由是算出来的）")
+            rows = op.rank_drafts(drafts)
+            check("每版都有理由条目",
+                  len(rows) == len(drafts) and all(r.get("reasons") for r in rows), rows)
+            check("排序按分数降序",
+                  [r["score"] for r in rows] == sorted([r["score"] for r in rows], reverse=True),
+                  [r["score"] for r in rows])
+            top = rows[0]
+            check("榜首理由说得出是哪一项占优（OK / THIN / 字数）",
+                  any(k in "".join(top["reasons"]) for k in ("OK", "THIN", "字数")),
+                  top["reasons"])
+            check("理由只写事实不写质量结论（不出现“更好”“优秀”）",
+                  not any(w in "".join(top["reasons"]) for w in ("更好", "优秀", "最佳")),
+                  top["reasons"])
+            check("同输入同输出（确定性）",
+                  [r["id"] for r in op.rank_drafts(drafts)] == [r["id"] for r in rows])
+            check("空列表返回 []", op.rank_drafts([]) == [])
+            check("单份也给行（只是不推荐）",
+                  len(op.rank_drafts(drafts[:1])) == 1)
         finally:
             os.chdir(old_cwd)
 

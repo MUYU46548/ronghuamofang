@@ -617,18 +617,71 @@ def list_drafts():
     return out
 
 
+def rank_drafts(drafts):
+    """多方案排序 + **逐条理由**（2026-11-05，借鉴 SP-1026 的择优器）。
+
+    为什么补理由：现在界面只说“推荐方案 2：OK 更多、THIN 更少、字数更全”，
+    那是**写死的广告词**，到底哪一项占优得自己数。这里按同一份数据算出
+    “这版在哪些项上排第一”，前端直接展示，作者不用自己比对。
+
+    与 SP-1026 `selector.scoreCandidate` 的差别（别照抄那边）：那边打的是**正文**
+    （病灶密度 / 预算偏离 / 风格偏离），这里只有大纲的结构化统计（OK/WARN/THIN +
+    字数），所以理由只写“相对其它版的事实”，不写绝对质量结论 —— 评级仍在
+    `outline_review`。
+
+    返回 [{id, score, chars, reasons[]}]，按（score 降、chars 降、id 升）排序，
+    同输入同输出（不依赖 dict 顺序）。
+    """
+    if not drafts:
+        return []
+    def _n(d, key):
+        try:
+            return int((d.get("summary") or {}).get(key) or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    def _chars(d):
+        try:
+            return int(d.get("chars") or 0)
+        except (TypeError, ValueError):
+            return 0
+
+    oks = {d["id"]: _n(d, "ok") for d in drafts}
+    thins = {d["id"]: _n(d, "thin") for d in drafts}
+    chars = {d["id"]: _chars(d) for d in drafts}
+    best_ok = max(oks.values())
+    min_thin = min(thins.values())
+    max_chars = max(chars.values())
+
+    rows = []
+    for d in drafts:
+        i = d["id"]
+        reasons = []
+        if oks[i] == best_ok and oks[i] > 0:
+            reasons.append("OK 最多（%d 条）" % oks[i])
+        if thins[i] == min_thin:
+            reasons.append("THIN 最少（%d 处）" % thins[i])
+        if chars[i] == max_chars and max_chars > 0:
+            reasons.append("字数最全（%s 字）" % format(chars[i], ","))
+        if not reasons:
+            reasons.append("各项都不占优")
+        rows.append({"id": i, "score": int(d.get("score") or 0),
+                     "chars": chars[i], "reasons": reasons})
+    rows.sort(key=lambda r: (-r["score"], -r["chars"], r["id"]))
+    return rows
+
+
 def recommend_draft(drafts):
     """推荐一版（只排序，不下质量结论）。返回 id 或 None。
 
     规则：score 最高；并列取**字数更多**的那版（同样指标下内容更全）；
     单份方案不标推荐（没有“选”的问题，标了反而像系统在替你决定）。
+    排序与理由的唯一实现在 `rank_drafts`。
     """
-    if not drafts or len(drafts) < 2:
+    rows = rank_drafts(drafts)
+    if len(rows) < 2:
         return None
-    best = max(drafts, key=lambda d: (int(d.get("score") or 0), int(d.get("chars") or 0)))
-    if int(best.get("score") or 0) <= 0:
-        return None
-    return best["id"]
+    return rows[0]["id"] if rows[0]["score"] > 0 else None
 
 
 def cleanup_drafts(keep=None):

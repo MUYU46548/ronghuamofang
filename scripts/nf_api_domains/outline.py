@@ -177,7 +177,10 @@ def handle_outline_drafts(h):
             except Exception:                               # noqa: BLE001
                 pass        # 单份草稿坏掉不影响列表（用户要靠列表才能删它）
         return 200, {"drafts": drafts, "files": df,
-                     "recommended": op.recommend_draft(drafts)}
+                     "recommended": op.recommend_draft(drafts),
+                     # 排序 + 逐条理由（2026-11-05，借鉴 SP-1026 择优器）：
+                     # 前端拿它显示“这版为什么被推荐”，别再写死一句广告词。
+                     "ranking": op.rank_drafts(drafts)}
     except Exception as e:                                  # noqa: BLE001
         return 500, {"error": type(e).__name__ + ": " + str(e)[:200]}
 
