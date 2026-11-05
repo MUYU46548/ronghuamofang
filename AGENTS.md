@@ -37,6 +37,7 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动
 | 文体（form）与判据适用范围 | `docs/agents/writing-forms.md` |
 | 知识库扫描通用化（禁私例当通例） | `docs/agents/kb-scan.md` |
 | 索引与实物对账（登记表 vs 盘上实物） | `docs/agents/index-reconcile.md` |
+| 界面改动（截图目检 / 参考稿 / 已踩坑） | `docs/agents/ui-review.md` |
 | 长篇规模能力（评审账本/记忆/卷弧/伏笔/残稿） | `docs/agents/long-form.md` |
 | 提示词前缀纪律（改 stage*.md 前必读） | `docs/agents/prompt-prefix.md` |
 | 关键路径（数据与产物的真源） | `docs/agents/key-paths.md` |
