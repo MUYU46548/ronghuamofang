@@ -31,6 +31,7 @@ CONSUMERS = {
     "author.events": "F03b 作者事件勾选（唯一硬门）",
     "budget.guard": "R01 预算—篇幅联动校验",
     "model.feelings": "M4 第三条证据（模型提议 → 作者终裁）",
+    "rules.structure_metrics": "F06 结构指标（文学质量抽样提示：只提示抽样，不判合格）",
 }
 
 # 产出方（M4=B，2026-11-04 作者拍板）：每条判据必须写清**这条证据谁产的**。
@@ -112,6 +113,33 @@ FACTORY = [
      "value": "model_then_author", "consumer": "model.feelings",
      "producer": "model", "settled_by": "author",
      "note": "M4=B：模型先出候选，作者逐句终裁；模型越层自裁一律拒收"},
+    # 结构指标（F06，2026-11-05）：治“七维 8.14 分、对白却全是单回合问答”。
+    # 这六条**只提示人工抽样**，不判合格 —— 所以 settled_by 是 author：
+    # 机器给证据，判断是作者的。阈值是提示线，不是合格线。
+    {"id": "J16", "name": "问号占对白下限", "kind": "阈值", "value": 0.15,
+     "consumer": "rules.structure_metrics", "producer": "rules",
+     "settled_by": "author",
+     "note": "低于此线 → 对白全是陈述句，提示抽样（初值 0.15：实测 1269 句对白仅 33 句问号 = 2.6%）"},
+    {"id": "J17", "name": "连续单回合问答上限", "kind": "计数", "value": 10,
+     "consumer": "rules.structure_metrics", "producer": "rules",
+     "settled_by": "author",
+     "note": "连续“问→答”超过此组数 → 对话死板，提示抽样"},
+    {"id": "J18", "name": "角色间平均句长差下限（字）", "kind": "阈值", "value": 8,
+     "consumer": "rules.structure_metrics", "producer": "rules",
+     "settled_by": "author",
+     "note": "不同角色说话长度差小于此值 → 声音同质，提示抽样（每人 ≥3 句才参与）"},
+    {"id": "J19", "name": "格言式单句密度上限", "kind": "阈值", "value": 0.15,
+     "consumer": "rules.structure_metrics", "producer": "rules",
+     "settled_by": "author",
+     "note": "独立成段的短警句占非对白段比例超此值 → 说教味，提示抽样"},
+    {"id": "J20", "name": "对话段占比下限", "kind": "阈值", "value": 0.10,
+     "consumer": "rules.structure_metrics", "producer": "rules",
+     "settled_by": "author",
+     "note": "含对白的段落占比低于此值 → 通篇叙述，提示抽样（无对白文体判 N/A，不据此提示）"},
+    {"id": "J21", "name": "平均段长上限（字）", "kind": "阈值", "value": 220,
+     "consumer": "rules.structure_metrics", "producer": "rules",
+     "settled_by": "author",
+     "note": "段落平均字数超此值 → 手机阅读吃力，提示抽样"},
 ]
 
 

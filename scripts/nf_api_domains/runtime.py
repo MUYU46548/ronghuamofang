@@ -400,6 +400,29 @@ def handle_review_ledger(h):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+def handle_review_structure(h):
+    """结构指标（文学质量抽样提示，2026-11-05，零 token 只读）。
+
+    `GET /review/structure` → 六项结构指标 + 每章是否“需人工抽样”
+
+    数据由 stage5 落盘（`utils.judge.structure` → `data/review/structure.json`），
+    本端点**只读不重算** —— 与 `/review/ledger` 同一条纪律：看板不制造结论。
+    阈值在 `data/judge/caliber.json`（J16–J21），缺判据时如实返回 `missing_criteria`，
+    不回落默认值。
+    """
+    base = Path(api.ROOT) / "data" / "review"
+    p = base / "structure.json"
+    try:
+        if not p.exists():
+            return 200, {"ok": True, "exists": False,
+                         "hint": "还没算过结构指标 —— 跑一次阶段 5（逻辑检查）之后自动生成；"
+                                 "或 python scripts/judge_structure.py 单独跑"}
+        data = json.loads(p.read_text(encoding="utf-8"))
+        return 200, dict({"ok": True, "exists": True}, **data)
+    except Exception as e:                                     # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 def handle_story_state(h):
     """一致性账本（P3，零 token 只读）。
 
@@ -726,6 +749,7 @@ ROUTES = (
     ("GET", "/homogeneity", handle_homogeneity),
     ("GET", "/story_state", handle_story_state),
     ("GET", "/review/ledger", handle_review_ledger),
+    ("GET", "/review/structure", handle_review_structure),
     ("GET", "/decompose/consent", handle_decompose_consent),
     ("GET", "/decompose/snippets", handle_decompose_snippets),
     ("GET", "/chapters/history", handle_chapters_history),

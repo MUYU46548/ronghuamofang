@@ -70,6 +70,27 @@ GUI 两个入口，勾选那块是**同一个组件**（`console/src/JudgeEvents
   `counted_events` = 勾了 + 分了类 + 有证据句（R24 AC-24-2 的“不计入下限”）。
   **判档目前按 `events`**，切到 `counted_events` 是有意留给人拍板的一次改动（见 verdict.py 注释）。
 
+## 六项结构指标（F06，2026-11-05）
+
+七维评审（`utils/review_ledger`）只验“引句能否逐字命中原文 + 维不缺”，**不判断好坏**。
+实测：七维 8.14 分、4 批 `complete=True`，同一份文本 1269 句对白里只有 33 句问号，
+几乎全是单回合问答 —— 读者一眼看出的问题，账本一个字都没说。
+
+`utils/judge/structure.py` 补这一半（零 token、纯确定性）：
+问号占对白 / 连续单回合问答 / 角色间平均句长差 / 极短独立段密度 / 对话段占比 / 平均段长。
+越线**只标“需人工抽样”并点名章节**，不判合格、不给文学分、不合成总分。
+
+- 阈值：口径表 J16–J21（`consumer = rules.structure_metrics`，`settled_by = author`）。
+  缺判据 = 缺口径：如实返回 `missing_criteria`，**不回落默认值**；老工作区先跑
+  `POST /judge/caliber/upgrade` 显式补登记。
+- 出口：stage5 自动落盘 `data/review/structure.json|md`；`GET /review/structure`（只读，
+  不重算）；`python scripts/judge_structure.py [--json|--chapter N|--write]`。
+- 界面：审稿账本把“逻辑七维（流程）”与“结构指标（文学抽样）”分成两块，
+  流程均分明确标“不代表写得好”。
+- 不适用：全文没有对白 → 与对白相关的四项判 N/A（散文/书信不会被判“对白少”）。
+- 判据：`tests/unit/test_structure_metrics.py`（25 条，含“把 J16 改严 → 同一文本立刻触发”
+  的反向锁，证明代码里没有写死数字）、`tests/http/test_review_structure_api_http.py`。
+
 ## 证据分级（R18）
 
 报告带两个区，**不许混**：

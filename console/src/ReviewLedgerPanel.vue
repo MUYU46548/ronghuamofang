@@ -22,6 +22,9 @@ const err = ref("");
 const pick = ref(null);      // 选中的章号
 const detail = ref(null);
 const detailErr = ref("");
+// 结构指标（2026-11-05）：七维只验“引句能否对上原文”，不判断好坏。这块把
+// “对白死板 / 段落形态”这类**可确定性算**的东西摆出来，只提示人工抽样。
+const struct = ref(null);
 
 async function load() {
   busy.value = true;
@@ -38,6 +41,13 @@ async function load() {
     }
   } catch (e) {
     err.value = String(e);
+  }
+  try {
+    const r2 = await fetch(API + "/review/structure");
+    const d2 = await r2.json().catch(() => ({}));
+    struct.value = r2.status === 200 && d2.ok ? d2 : null;
+  } catch (e) {
+    struct.value = null;
   }
   busy.value = false;
 }
@@ -60,6 +70,24 @@ const dims = computed(() => data.value?.dimensions || []);
 const rows = computed(() => data.value?.chapters || []);
 const sum = computed(() => data.value?.summary || {});
 const completeCount = computed(() => rows.value.filter((r) => r.complete).length);
+
+// 结构指标（文学抽样提示）
+const structDims = computed(() => struct.value?.dimensions || []);
+const structSum = computed(() => struct.value?.summary || {});
+const structNeed = computed(() => structSum.value.needs_sampling || []);
+const structRows = computed(() => (struct.value?.chapters || []).filter((c) => c.needs_sampling));
+
+function fmtMetric(d, v) {
+  if (v == null) return "—";
+  return d.unit === "比例" ? (v * 100).toFixed(1) + "%" : Number(v).toFixed(1);
+}
+
+function triggerText(t) {
+  const d = structDims.value.find((x) => x.code === t.code);
+  const line = d && d.unit === "比例" ? (t.limit * 100).toFixed(1) + "%" : t.limit;
+  const val = d && d.unit === "比例" ? (t.value * 100).toFixed(1) + "%" : t.value;
+  return `${t.label} ${val}（${t.direction === "min" ? "低于" : "高于"}线 ${line}）`;
+}
 
 function scoreCls(v) {
   if (v == null) return "rl-unverified";
@@ -93,17 +121,15 @@ defineExpose({ load });
 <template>
   <div class="card">
     <div class="card-head">
-      <h3>七维评审账本</h3>
+      <h3>审稿账本（逻辑七维 + 结构指标）</h3>
       <span class="spacer"></span>
-      <span class="meta" v-if="rows.length">
-        完整举证 {{ completeCount }} / {{ rows.length }} 章
-        <template v-if="sum.mean != null"> · 均分 {{ sum.mean }}</template>
-      </span>
+      <!-- 举证数与均分只在下面的“逻辑七维（流程）”块里显示一次 ——
+           卡片头再说一遍会和块内重复，同屏两个“均分”反而让人以为是两个分。 -->
       <button class="mini" :disabled="busy" @click="load">{{ busy ? "读取中…" : "刷新" }}</button>
     </div>
     <div class="meta">
-      stage5 的逻辑检查结论：七维逐维打分，<b>每一维都必须引用本章原文里真实存在的句子</b>，
-      对不上原文的那一维<b>不计分</b>（不是扣分）。点章节看举证与未举证原因。
+      这一页有两件事，别混着看：<b>逻辑七维</b>=流程（引句能不能对上原文、维缺不缺）；
+      <b>结构指标</b>=文学抽样提示（对白与段落形态）。两者都<b>不给文学分</b> —— 写得好不好只能你自己看。
     </div>
 
     <div v-if="err" class="empty" style="padding:14px 0;">{{ err }}</div>
@@ -112,12 +138,18 @@ defineExpose({ load });
       还没有账本 —— 跑过 stage5（逻辑检查）之后每章自动生成。
     </div>
     <template v-else>
+      <div class="rl-block-head">
+        <b>逻辑七维（流程）</b>
+        <span class="meta">完整举证 {{ completeCount }} / {{ rows.length }} 章
+          <template v-if="sum.mean != null"> · 流程均分 {{ sum.mean }}（不代表写得好）</template>
+        </span>
+      </div>
       <table class="rl-table">
         <thead>
           <tr>
             <th>章</th>
             <th v-for="d in dims" :key="d.code">{{ d.label }}</th>
-            <th>逻辑均分</th>
+            <th title="七维流程分：只反映举证与维度是否齐全，不代表文学质量">流程均分</th>
             <th>审美</th>
           </tr>
         </thead>
@@ -140,6 +172,43 @@ defineExpose({ load });
         “未举证”= 该维的引用在本章原文里找不到（或引得太短/分数越界），按判据不计分。
       </div>
     </template>
+
+    <!-- 结构指标（2026-11-05）：与七维并列的**另一件事** —— 七维验“引句对不对”，
+         这块算“对白/段落形态是否可疑”。只提示人工抽样，不给文学分、不合成总分。 -->
+    <div class="rl-split">
+      <div class="rl-block-head">
+        <b>结构指标（文学抽样提示）</b>
+        <span class="meta" v-if="struct && struct.exists">
+          需抽样 {{ structNeed.length }} 章 · 只提示抽样，不判合格、不合成总分
+        </span>
+      </div>
+      <div v-if="!struct || struct.exists === false" class="meta" style="padding:6px 0;">
+        {{ (struct && struct.hint) || "还没有结构指标 —— 跑过阶段 5（逻辑检查）之后自动生成。" }}
+      </div>
+      <template v-else>
+        <div v-if="struct.missing_criteria && struct.missing_criteria.length"
+             class="meta" style="color: var(--warn); padding: 4px 0;">
+          口径表缺 {{ struct.missing_criteria.join("、") }} —— 这几项本轮不判（先升级口径表）。
+        </div>
+        <div class="rl-metrics">
+          <div v-for="d in structDims" :key="d.code" class="rl-metric">
+            <div class="rl-metric-label">{{ d.label }}</div>
+            <div class="rl-metric-value">{{ fmtMetric(d, (structSum.metrics_mean || {})[d.code]) }}</div>
+            <div class="meta">全书均值 · 触发 {{ (structSum.triggered_count || {})[d.code] || 0 }} 章</div>
+          </div>
+        </div>
+        <div v-if="structNeed.length" class="rl-need">
+          <div class="meta" style="margin-bottom: 4px;">需人工抽样（点章号看七维明细）：</div>
+          <div v-for="c in structRows" :key="c.chapter" class="rl-need-row">
+            <button class="mini" @click="openChapter(c.chapter)">第 {{ c.chapter }} 章</button>
+            <span class="meta">{{ c.triggered.map(triggerText).join("；") }}</span>
+          </div>
+        </div>
+        <div v-else class="meta" style="padding: 4px 0;">
+          本轮没有越线项 —— 指标不等于评价，仍建议抽读一章。
+        </div>
+      </template>
+    </div>
 
     <div v-if="detail" class="rl-detail">
       <div class="card-head">
@@ -197,6 +266,23 @@ defineExpose({ load });
 .rl-warn { color: var(--warn); }
 .rl-bad { color: var(--bad); font-weight: 600; }
 .rl-unverified { color: var(--muted); opacity: 0.7; font-size: 11.5px; }
+
+.rl-block-head {
+  display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap;
+  margin: 14px 0 2px;
+}
+.rl-split { margin-top: 16px; padding-top: 10px; border-top: 1px dashed var(--border); }
+.rl-metrics {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px; margin: 8px 0;
+}
+.rl-metric {
+  border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px;
+  background: var(--field-dim);
+}
+.rl-metric-label { font-size: 12px; color: var(--muted); }
+.rl-metric-value { font-size: 18px; font-weight: 600; line-height: 1.4; }
+.rl-need-row { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; margin: 4px 0; }
 
 .rl-detail { margin-top: 14px; border-top: 1px solid var(--border); padding-top: 10px; }
 .rl-aes-head {

@@ -379,7 +379,12 @@ function getWorkspaceSource() {
 //   · 前端（asar，不走种子）：项目页出厂徽标 / 启动提示词剥离说明书 /
 //     阶段复制改任务简报（原样贴模板会被外部 Agent 按红线判“模板不是任务”停工）。
 // **先 bump 再 electron-builder**。
-const SEED_VERSION = 85;   // 0.7.43: 索引与实物对账（素材页顶部横幅 + nfctl reconcile）
+const SEED_VERSION = 86;   // 0.7.44: 阶段 5 结构指标（文学抽样提示）+ 审稿账本分块
+                            //   · payload scripts：utils/judge/structure.py（六项确定性指标）、
+                            //     judge_structure.py、nf_api_domains/runtime.py（GET /review/structure）、
+                            //     stage5_check.py（自动落盘 structure.json|md）、
+                            //     utils/judge/caliber.py（J16–J21）
+                            //   · 前端（asar）：审稿账本拆“逻辑七维（流程）/ 结构指标（文学抽样）”
                             //   · payload scripts：utils/meta_detect.py（元文件判据单一实现）、
                             //     utils/index_reconcile.py、index_reconcile.py、
                             //     nf_api_domains/materials.py（GET /materials/reconcile）

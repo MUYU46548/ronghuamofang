@@ -419,6 +419,31 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     if ledger_problems:
         warnings.extend(ledger_problems)
 
+    # 结构指标（2026-11-05，F06）：七维只验“引句能否逐字命中原文”，**不判断好坏**。
+    # 实测七维 8.14 分 / 4 批 complete=True，同一份文本 1269 句对白仅 33 句问号。
+    # 这里补另一半：确定性结构指标，超线标“需人工抽样”—— 不判合格、不给文学分、
+    # 不合成总分（一个 8.14 混着流程分与文学分，作者就不知道该看哪里）。
+    try:
+        from utils.judge import structure as _structure
+        _sres = _structure.collect(Path("."))
+        if _sres.get("ok"):
+            _structure.write(REVIEW_DIR, _sres)
+            _need = (_sres.get("summary") or {}).get("needs_sampling") or []
+            _miss = _sres.get("missing_criteria") or []
+            if _miss:
+                warnings.append("结构指标缺口径 %s —— 这几项本轮不判"
+                                "（先升级口径表：POST /judge/caliber/upgrade）"
+                                % "、".join(_miss))
+            if _need:
+                print("[stage5] 结构指标：需人工抽样 %d 章（%s）—— 明细 data/review/structure.md"
+                      % (len(_need), "、".join("第%d章" % n for n in _need[:10])))
+            else:
+                print("[stage5] 结构指标：本轮无越线项（仍建议抽读一章，指标不等于评价）")
+        else:
+            warnings.append("结构指标跳过：" + str(_sres.get("error")))
+    except Exception as e:                                    # noqa: BLE001
+        warnings.append("结构指标计算失败（不影响主流程）：%s" % type(e).__name__)
+
     # 伏笔联动（2026-10-21）：悬空钩子（埋了没推进/没回收）并进"带警告完成"。
     # 零 token、确定性；只报不拦 —— 悬空不等于写错，留给作者在台账里拍板。
     try:

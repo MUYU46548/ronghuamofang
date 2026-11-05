@@ -3023,6 +3023,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/story_state":
             # P3 一致性账本（零 token 只读）：?chapter=N 只看那一章。
             self._send(*_dom(dom_runtime.handle_story_state(self)))
+        elif p == "/review/structure":
+            # 结构指标（文学质量抽样提示，零 token 只读）：数据由 stage5 落盘。
+            self._send(*_dom(dom_runtime.handle_review_structure(self)))
         elif p == "/review/ledger":
             # 七维评审账本（2026-10-20，零 token 只读）：?chapter=N 取单章明细。
             self._send(*_dom(dom_runtime.handle_review_ledger(self)))

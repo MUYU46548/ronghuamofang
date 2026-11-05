@@ -59,11 +59,17 @@ def tmp_root():
 
 
 def old_caliber(root):
-    """模拟存量工作区：v1 的 14 条，既没有 producer 也没有 J15。"""
+    """模拟存量工作区：v1 的 14 条（J01–J14），既没有 producer，也没有 J15 与结构指标。
+
+    为什么按 id 白名单取而不是“去掉 J15”：出厂表会长（J16–J21 是 2026-11-05 加的
+    结构指标），存量工作区永远只有它出厂那天的 14 条 —— 用 id 集合表达才不会被
+    以后新增的判据拖红。
+    """
     doc = C.load(str(root))
     keep = ("id", "name", "kind", "value", "consumer", "note")
+    v1_ids = {"J%02d" % i for i in range(1, 15)}
     doc["criteria"] = [{k: v for k, v in c.items() if k in keep}
-                       for c in doc["criteria"] if c["id"] != "J15"]
+                       for c in doc["criteria"] if c["id"] in v1_ids]
     doc["version"] = 1
     doc["history"] = []
     C.save_raw(str(root), doc)
@@ -92,7 +98,9 @@ def main():
           by_id["J15"])
     check("J15 的消费方是 model.feelings", by_id["J15"]["consumer"] == "model.feelings",
           by_id["J15"]["consumer"])
-    check("出厂表 15 条（14 + 第三条证据）", len(C.FACTORY) == 15, len(C.FACTORY))
+    check("出厂表判据 id 不重复", len(ids) == len(set(ids)), ids)
+    check("J01–J15（判断）与 J16–J21（结构指标）都在出厂表",
+          {"J%02d" % i for i in range(1, 22)} <= set(ids), sorted(ids))
 
     root = tmp_root()
     doc = C.load(str(root))
@@ -117,8 +125,9 @@ def main():
     need = C.needs_upgrade(old)
     check("老表 needs_upgrade=True", need["needed"] is True, need)
     check("老表缺 J15", "J15" in need["missing_factory_ids"], need["missing_factory_ids"])
-    check("老表 14 条都缺产出方", len(need["criteria_without_producer"]) == 14,
-          len(need["criteria_without_producer"]))
+    check("老表每条都缺产出方（14 条）",
+          len(need["criteria_without_producer"]) == len(old["criteria"]) == 14,
+          (len(need["criteria_without_producer"]), len(old["criteria"])))
     odesc = {x["id"]: x for x in C.describe(old)}
     check("缺登记就显示“未登记产出方”（不拿出厂表顶替）",
           odesc["J01"]["producer_name"] == "（未登记产出方）", odesc["J01"]["producer_name"])
@@ -129,7 +138,8 @@ def main():
     after = C.values(C.load(str(root2)))
     check("upgrade 成功", ok and up["changed"] is True, up.get("message"))
     check("upgrade 产新版本（版本 +1）", up["version"] >= 3, up["version"])
-    check("upgrade 的 filled 覆盖 14 条 × 2 字段", len(up["filled"]) == 28, len(up["filled"]))
+    check("upgrade 的 filled 覆盖 14 条 × 2 字段",
+          len(up["filled"]) == 14 * 2, len(up["filled"]))
     check("upgrade 不覆盖作者改过的阈值", before["J10"] == after["J10"] == 0.3,
           (before["J10"], after["J10"]))
     check("upgrade 后 J15 补上", "J15" in after, sorted(after))

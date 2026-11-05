@@ -207,6 +207,12 @@ CLI：`python scripts/judge.py run` → `report` / `chapter N` / `destroy N` / `
 真跑：`python scripts/judge_feelings.py --chapter N`（`--dry-run` 零调用）。
 同时拆了三处锁：stage4 的“擅长克制叙事”“不得新增关键情节”、无范文的“中立克制”兜底；
 stage5/6 的 `max_tokens` 抬到 **40000/25000**，并在开跑前做**预算—篇幅联动校验**（装不下不发请求）。
+**六项结构指标（F06，2026-11-05）**：七维只验“引句能否命中原文”，不判断好坏 —— 实测 8.14 分、
+4 批 complete，同一份文本 1269 句对白仅 33 句问号。`utils/judge/structure.py` 补六项确定性指标
+（问号占对白 / 连续单回合问答 / 角色句长差 / 极短独立段密度 / 对话段占比 / 平均段长），阈值在口径表
+**J16–J21**（缺判据 = 缺口径，不回落默认值），越线**只标“需人工抽样”并点名章节**，
+不给文学分、不合成总分。出口：stage5 落盘 `data/review/structure.json|md`、`GET /review/structure`、
+`python scripts/judge_structure.py`。
 **容量口径（2026-10-30 修）**：判据一律按**本次请求实际要产出的总字数**算，不是单章最大字数 ——
 stage5 的批大小由“装得下几章”反推（`judge.budget.items_per_request`），stage6 改成**一章一次请求**
 （旧实现整卷一次发，40 章要一口气回 13 章全文，任何 max_tokens 都装不下）；实际上限取
