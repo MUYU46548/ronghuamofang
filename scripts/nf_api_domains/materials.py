@@ -153,9 +153,84 @@ def handle_setting_appearances(h):
         return 500, {"error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+def handle_materials_move(h, body):
+    """POST /materials/move {names:[...], to:"cards"|"scraps"} → 批量移动（可撤回）。
+
+    2026-11-05（试跑第 6 条）：作者把素材误拖进“结构化素材”后无法撤回。
+    这里一次给三件：批量、目标明确、可撤回（日志见 utils.materials_ops）。
+    """
+    import nf_api as api
+    try:
+        from utils import materials_ops as ops
+        names = body.get("names") or []
+        if not isinstance(names, list) or not names:
+            return 400, {"ok": False, "error": "names 必填（文件名数组）"}
+        to = str(body.get("to") or "").strip()
+        ok, res = ops.move_many(api.ROOT, names, to)
+        if not ok:
+            return 400, {"ok": False, **res}
+        res["ok"] = True
+        return 200, res
+    except Exception as e:                                     # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_materials_delete(h, body):
+    """POST /materials/delete {name} 或 {names:[...], confirm:true} → 删除（进回收站，可撤回）。
+
+    2026-11-05（试跑第 6 条）：删除改成**可撤回** —— 文件搬进
+    `data/state/materials_trash/<ts>/`，`/materials/undo` 能搬回来。
+    · 单条（`name`）沿用老形状，界面上的“删除”按钮不用带 confirm；
+    · 批量（`names` 且 >1）必须 `confirm: true`（界面二次确认后带）。
+    """
+    import nf_api as api
+    try:
+        from utils import materials_ops as ops
+        if isinstance(body.get("names"), list) and body["names"]:
+            names = body["names"]
+        elif body.get("name"):
+            names = [body["name"]]
+        else:
+            return 400, {"ok": False, "error": "name 或 names 必填"}
+        if len(names) > 1 and not body.get("confirm"):
+            return 400, {"ok": False,
+                         "error": "批量删除需要 confirm=true（界面二次确认后带上）"}
+        ok, res = ops.delete_many(api.ROOT, names)
+        res["ok"] = bool(ok)
+        return (200 if ok else 400), res
+    except Exception as e:                                     # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_materials_undo_get(h):
+    """GET /materials/undo → 可撤回的操作清单（新的在前，最多 20 条）。"""
+    import nf_api as api
+    try:
+        from utils import materials_ops as ops
+        return 200, {"ok": True, "entries": ops.journal(api.ROOT)}
+    except Exception as e:                                     # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_materials_undo(h, body):
+    """POST /materials/undo → 撤回最近一步（移动搬回原目录 / 删除从回收站搬回）。"""
+    import nf_api as api
+    try:
+        from utils import materials_ops as ops
+        ok, res = ops.undo_last(api.ROOT)
+        res["ok"] = bool(ok)
+        return (200 if ok else 400), res
+    except Exception as e:                                     # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 # 本模块负责的端点（供自检与文档）
 ROUTES = (
     ("GET", "/materials/list", handle_materials_list),
+    ("POST", "/materials/move", handle_materials_move),
+    ("POST", "/materials/delete", handle_materials_delete),
+    ("GET", "/materials/undo", handle_materials_undo_get),
+    ("POST", "/materials/undo", handle_materials_undo),
     ("GET", "/materials/reconcile", handle_materials_reconcile),
     ("GET", "/materials/read/{name}", handle_materials_read),
     ("GET", "/scraps/list", handle_scraps_list),

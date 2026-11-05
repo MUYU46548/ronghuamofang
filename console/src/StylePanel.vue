@@ -105,6 +105,10 @@ const punctuationRows = computed(() => {
  * 字数口径由后端算（prose_char_count，与 stage4 判“是否只有占位符”同源）。
  */
 const refState = ref(null);      // GET /config/style_reference
+const refBlockEl = ref(null);    // “范文正文”那块（入口跳转用）
+function scrollToReference() {
+  refBlockEl.value?.scrollIntoView({ behavior: "smooth", block: "start" });
+}
 const refText = ref("");
 const refDirty = ref(false);
 const refSaving = ref(false);
@@ -235,7 +239,14 @@ async function analyze(autoFallback = true) {
 async function pickFile() {
   if (!window.mofangAPI?.openFileDialog) { say("文件选择需通过 Electron 启动"); return; }
   const r = await window.mofangAPI.openFileDialog({
-    title: "选择范文 / 参考文本", properties: ["openFile"],
+    title: "选择范文 / 参考文本（.txt / .md / .docx）",
+    properties: ["openFile"],
+    // 2026-11-05（试跑第 9 条）：默认过滤器里混着 .doc 与图片，选进来必然分析失败。
+    // 只列真正能分析的三种，其余走“所有文件”并在后端给出可读原因。
+    filters: [
+      { name: "可分析的文本", extensions: ["txt", "md", "markdown", "docx"] },
+      { name: "所有文件", extensions: ["*"] },
+    ],
   });
   if (r.ok && r.paths?.length) { filePath.value = r.paths[0]; source.value = "path"; }
   else if (!r.ok) say(r.error || "选择文件失败");
@@ -529,9 +540,9 @@ onMounted(() => {
         </select>
       </div>
       <!-- 范文正文：一键粘贴。属于用户数据（工作区文件，随书档归档） -->
-      <div class="card">
+      <div class="card" ref="refBlockEl" id="style-reference">
         <div class="card-head">
-          <h3>范文正文</h3>
+          <h3>范文正文（“分析范文”读的就是这里）</h3>
           <span class="spacer"></span>
           <button class="mini" :disabled="refSaving" @click="saveReference(false)">
             {{ refSaving ? "保存中…" : "保存" }}</button>
@@ -646,11 +657,17 @@ onMounted(() => {
           </label>
         </div>
         <div v-else class="meta">
-          取 config/project.yaml 的 <b>book.style_reference</b>；未配置可在“设置”页写入风格笔记，
-          或改用“指定文件”。<b>未配置时自动回退为分析项目章节</b>。
+          取 config/project.yaml 的 <b>book.style_reference</b>（默认指向本页上方“范文正文”保存的那个文件）。
+          <button class="mini" style="margin-left: 8px;" @click="scrollToReference">去配范文</button>
+          <b>未配置时自动回退为分析项目章节</b>。
         </div>
 
         <div v-if="note" class="note">{{ note }}</div>
+        <div class="meta" style="margin-top: 6px;">
+          范文在哪配：<b>本页下方“范文正文”</b>框直接粘贴并保存（不用改配置文件）。
+          也支持从文件分析：选“指定文件”（.txt / .md / .docx）。
+          <button class="mini" style="margin-left: 8px;" @click="scrollToReference">去配范文</button>
+        </div>
         <div v-if="err" class="empty" style="padding:14px 0;">{{ err }}</div>
       </div>
 

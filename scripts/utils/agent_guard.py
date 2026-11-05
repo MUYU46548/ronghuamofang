@@ -88,6 +88,9 @@ FORBIDDEN_IN_AGENT_MODE = frozenset({
     # 外部 Agent 可以开讨论、追加发言（/discuss/open|say），但不能替作者定结论 ——
     # 否则"讨论留痕"就成了 Agent 自己写自己批。
     "/discuss/decide",
+    # 条目级讨论定稿（2026-11-05，试跑第 16 条）：同族 —— Agent 可以开题/发言
+    # （/discuss/entry/open|say），不能替作者给一条设定盖结论。
+    "/discuss/entry/decide",
     # 服务商增删改（2026-11-04，作者第 8 条）：改的是**计费通道与密钥来源**。
     # 外部 Agent 静默把 base_url 指向别处，作者付的钱去哪都不知道 —— 与
     # /config/token_limit 同族（都是\"别让 Agent 动自己的花销\"）。

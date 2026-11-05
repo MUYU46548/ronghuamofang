@@ -2300,7 +2300,29 @@ def act_style_analyze(body):
             return {"ok": False, "error": "文件不存在: " + raw}
         if p.stat().st_size > 8 * 1024 * 1024:
             return {"ok": False, "error": "文件超过 8MB 上限"}
-        text = nf_read_text(p)
+        # 2026-11-05（试跑第 9 条）：作者选“指定文件”分析失败 —— 实测是
+        # 选了 Word 文档：直接按文本读会抛 UnicodeDecodeError，接口 500，
+        # 界面上只剩一句英文异常。这里按类型分流，并在不支持时说清怎么办。
+        ext = p.suffix.lower()
+        if ext == ".docx":
+            try:
+                from import_docx import extract_text as _docx_text
+                text = _docx_text(p)
+            except Exception as e:                             # noqa: BLE001
+                return {"ok": False,
+                        "error": "Word 文档读不出来（%s）：%s；可另存为 .txt / .md 再分析"
+                                 % (type(e).__name__, str(e)[:120])}
+        elif ext in (".txt", ".md", ".markdown", ".text", ""):
+            try:
+                text = nf_read_text(p)
+            except UnicodeDecodeError:
+                return {"ok": False,
+                        "error": "这个文件不是纯文本（按 UTF-8/GBK/UTF-16 都解不开）："
+                                 "支持 .txt / .md / .docx；从 PDF 复制的请先另存为文本"}
+        else:
+            return {"ok": False,
+                    "error": "不支持的文件类型 %s：只支持 .txt / .md / .docx"
+                             "（PDF、.doc 请先导出/另存为文本）" % (ext or "（无扩展名）")}
         label = raw
     elif src == "chapter":
         try:
@@ -2793,6 +2815,9 @@ class Handler(BaseHTTPRequestHandler):
             self._send(*_dom(dom_studio.handle_rewrite_studio_list(self)))
         elif p == "/review/semantic/list":
             self._send(*_dom(dom_semrev.handle_review_semantic_list(self)))
+        elif p == "/discuss/entry":
+            # 条目级讨论（2026-11-05，试跑第 16 条）：素材/设定条目上的商量
+            self._send(*_dom(dom_discuss.handle_entry_discuss_list(self)))
         elif p == "/discuss/read":
             self._send(*_dom(dom_thread.handle_discuss_read(self)))
         elif p == "/outline/discussion/draft":
@@ -2927,6 +2952,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/materials/list":
             # 实现已迁至 nf_api_domains.materials（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_materials.handle_materials_list(self)))
+        elif p == "/materials/undo":
+            # 可撤回的素材操作清单（新的在前）
+            self._send(*_dom(dom_materials.handle_materials_undo_get(self)))
         elif p == "/materials/reconcile":
             # 索引与实物对账（零 token，只读）：把“登记表会骗人”摆给作者看。
             self._send(*_dom(dom_materials.handle_materials_reconcile(self)))
@@ -3680,6 +3708,15 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(*_dom(dom_studio.handle_rewrite_studio(self, body)))
             elif p == "/review/semantic":
                 self._send(*_dom(dom_semrev.handle_review_semantic(self, body)))
+            elif p == "/discuss/entry/open":
+                # 条目级讨论：开题（只写 data/state/entry_discuss.json，不碰设定集）
+                self._send(*_dom(dom_discuss.handle_entry_discuss_open(self, body)))
+            elif p == "/discuss/entry/say":
+                # 条目级讨论：追加一轮（AI 与作者都写同一份稿）
+                self._send(*_dom(dom_discuss.handle_entry_discuss_say(self, body)))
+            elif p == "/discuss/entry/decide":
+                # 条目级讨论：作者定稿（与审批同族，Agent 不可代拍）
+                self._send(*_dom(dom_discuss.handle_entry_discuss_decide(self, body)))
             elif p == "/discuss/say":
                 # 追加一轮发言（AI 与作者都写同一份稿）
                 self._send(*_dom(dom_thread.handle_discuss_say(self, body)))
@@ -4336,19 +4373,15 @@ class Handler(BaseHTTPRequestHandler):
                 except Exception as e:
                     self._send(400, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]})
             elif p == "/materials/delete":
-                # 删除素材（body: {name}）
-                name = str(body.get("name") or "").strip()
-                if not name:
-                    self._send(400, {"ok": False, "error": "name 必填"})
-                    return
-                try:
-                    from utils.materials_manager import MaterialsManager
-                    mm = MaterialsManager(ROOT / "materials" / "raw")
-                    res = mm.delete(name)
-                    res["ok"] = True
-                    self._send(200, res)
-                except Exception as e:
-                    self._send(400, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]})
+                # 删除素材（body: {name} 或 {names:[...], confirm:true}）
+                # 2026-11-05：改走归档回收站（可撤回）；单条沿用老形状。
+                self._send(*_dom(dom_materials.handle_materials_delete(self, body)))
+            elif p == "/materials/move":
+                # 批量移动（结构化卡片 ↔ 原始碎片），可撤回
+                self._send(*_dom(dom_materials.handle_materials_move(self, body)))
+            elif p == "/materials/undo":
+                # 撤回最近一步（移动搬回原目录 / 删除从回收站搬回）
+                self._send(*_dom(dom_materials.handle_materials_undo(self, body)))
             elif p == "/materials/remerge":
                 # 触发 stage1 重归并（清 fingerprint + 跑 stage1）
                 try:

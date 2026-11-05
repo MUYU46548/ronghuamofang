@@ -29,6 +29,7 @@ import QualityTrend from "./QualityTrend.vue";
 import ConsistencyPanel from "./ConsistencyPanel.vue";
 import JudgePanel from "./JudgePanel.vue";
 import DiscussThreadPanel from "./DiscussThreadPanel.vue";
+import EntryDiscuss from "./EntryDiscuss.vue";
 import VaultDirsPanel from "./VaultDirsPanel.vue";
 import ReviewLedgerPanel from "./ReviewLedgerPanel.vue";
 import SettingClosurePanel from "./SettingClosurePanel.vue";
@@ -1803,6 +1804,16 @@ const newMaterialOpen = ref(false);
 const materialReconcile = ref(null);
 const reconcileOpen = ref(false);
 
+/* ---------- 条目讨论入口（2026-11-05，试跑第 16 条） ----------
+   素材卡 / 设定条目上各一个“讨论”；结论落 data/state/entry_discuss.json，
+   定稿后可在同一个抽屉里“写回设定集”（走 /setting/status）。 */
+const edTarget = ref(null);      // {kind, name, label} | null
+const edRef = ref(null);
+function openEntryDiscuss(kind, name, label) {
+  edTarget.value = { kind, name, label: label || name };
+  nextTick(() => edRef.value?.show?.());
+}
+
 async function loadMaterials() {
   const r = await api("/materials/list");
   if (r.status === 200) {
@@ -1815,6 +1826,118 @@ async function loadMaterials() {
   // 对账失败不影响素材列表（它是提示，不是依赖）。
   const rc = await api("/materials/reconcile");
   materialReconcile.value = rc.status === 200 ? rc.data : null;
+  loadMatUndo();       // 可撤回操作清单（失败不影响列表）
+}
+
+/* ---------- 素材多选 / 批量搬运 / 撤回（2026-11-05，试跑第 6 条） ----------
+   病：作者把素材误拖进“结构化卡片”，狂按撤回键无效，也没有任何批量入口。
+   实现取“浏览器文件管理器那一套”最小可用集：
+     点选 / Ctrl 加选 / Shift 连选 / 全选 → 底部批量条（移动 · 删除 · 取消）
+   + 每次搬运/删除都进撤回栈（后端记日志，删除是搬进回收站、不是真删）。 */
+const matSel = ref([]);            // 选中的文件名
+const matLastIdx = ref(-1);        // Shift 连选的锚点
+const matUndo = ref([]);           // 可撤回的操作（新的在前）
+const matBusy = ref(false);
+const matConfirmDelete = ref(false);
+
+function matIsSel(name) { return matSel.value.includes(name); }
+function matRowClick(m, idx, ev) {
+  const shift = !!(ev && ev.shiftKey);
+  const meta = !!(ev && (ev.ctrlKey || ev.metaKey));
+  if (shift && matLastIdx.value >= 0) {
+    const a = Math.min(matLastIdx.value, idx), b = Math.max(matLastIdx.value, idx);
+    const range = materials.value.slice(a, b + 1).map((x) => x.name);
+    matSel.value = Array.from(new Set([...matSel.value, ...range]));
+    return;
+  }
+  if (meta) {
+    matSel.value = matIsSel(m.name)
+      ? matSel.value.filter((x) => x !== m.name)
+      : [...matSel.value, m.name];
+    matLastIdx.value = idx;
+    return;
+  }
+  // 普通点击 = 只选这一条（再点一次取消）
+  matSel.value = (matSel.value.length === 1 && matIsSel(m.name)) ? [] : [m.name];
+  matLastIdx.value = idx;
+  matConfirmDelete.value = false;
+}
+function matSelectAll() {
+  matSel.value = materials.value.map((m) => m.name);
+  matLastIdx.value = materials.value.length - 1;
+}
+function matClearSel() { matSel.value = []; matConfirmDelete.value = false; }
+
+async function loadMatUndo() {
+  const r = await api("/materials/undo");
+  matUndo.value = (r.status === 200 && r.data.ok) ? (r.data.entries || []) : [];
+}
+async function matMove(to) {
+  if (!matSel.value.length || matBusy.value) return;
+  matBusy.value = true;
+  try {
+    const r = await api("/materials/move", "POST", { names: matSel.value, to });
+    if (r.status === 200 && r.data.ok) {
+      const n = (r.data.moved || []).length;
+      const skip = (r.data.skipped || []).length;
+      say("已移动 " + n + " 个到" + (to === "cards" ? "结构化卡片" : "原始碎片")
+          + (skip ? "（" + skip + " 个跳过：" + r.data.skipped[0].reason + "）" : ""));
+      matClearSel();
+      await loadMaterials();
+      await loadMatUndo();
+    } else {
+      say("移动失败: " + (r.data.error || r.status));
+    }
+  } catch (e) {
+    say("移动失败: " + (e.message || e));
+  } finally {
+    matBusy.value = false;
+  }
+}
+async function matDeleteBatch() {
+  if (!matSel.value.length || matBusy.value) return;
+  // 第一次点 = 武装确认（应用内确认，不用 window.confirm）
+  if (!matConfirmDelete.value) { matConfirmDelete.value = true; return; }
+  matBusy.value = true;
+  try {
+    const r = await api("/materials/delete", "POST",
+                        { names: matSel.value, confirm: true });
+    if (r.status === 200 && r.data.ok) {
+      const n = (r.data.deleted || []).length;
+      say("已删除 " + n + " 个（进回收站，可撤回）");
+      matClearSel();
+      await loadMaterials();
+      await loadMatUndo();
+    } else {
+      say("删除失败: " + (r.data.error || r.status));
+    }
+  } catch (e) {
+    say("删除失败: " + (e.message || e));
+  } finally {
+    matBusy.value = false;
+    matConfirmDelete.value = false;
+  }
+}
+async function matUndoLast() {
+  if (!matUndo.value.length || matBusy.value) return;
+  matBusy.value = true;
+  try {
+    const r = await api("/materials/undo", "POST", {});
+    if (r.status === 200 && r.data.ok) {
+      const n = (r.data.undone || []).length;
+      say("已撤回一步（搬回 " + n + " 个文件）"
+          + ((r.data.skipped || []).length ? "；" + r.data.skipped[0].reason : ""));
+      matClearSel();
+      await loadMaterials();
+      await loadMatUndo();
+    } else {
+      say("撤回失败: " + ((r.data && r.data.error) || r.status));
+    }
+  } catch (e) {
+    say("撤回失败: " + (e.message || e));
+  } finally {
+    matBusy.value = false;
+  }
 }
 
 async function addMaterial() {
@@ -1881,17 +2004,13 @@ async function saveMaterialEdit() {
   }
 }
 
-async function deleteMaterial(name) {
-  if (!window.confirm(
-      "确定删除“" + name + "”？\\n\\n仅删除 raw/ 副本，不影响设定集。history/ 快照保留。")) return;
-  const a = await api("/materials/delete", "POST", { name });
-  if (a.status === 200 && a.data.ok) {
-    say("已删除: " + a.data.name);
-    if (materialEdit.value?.name === name) materialEdit.value = null;
-    loadMaterials();
-  } else {
-    say("删除失败: " + (a.data.error || a.status));
-  }
+async function deleteMaterial(name, idx) {
+  // 2026-11-05：不再用 window.confirm（Electron 原生框不可靠），改成
+  // “选中 + 武装确认”——批量条里的“确认删除”是第二步；文件进回收站、可撤回。
+  matSel.value = [name];
+  matLastIdx.value = (typeof idx === "number" ? idx : -1);
+  matConfirmDelete.value = true;
+  say("已选中 1 个文件：点批量条里的“确认删除”执行（进回收站，可撤回）");
 }
 
 async function triggerReMerge() {
@@ -5761,6 +5880,11 @@ onUnmounted(() => {
       <!-- 讨论（2026-11-03 讨论构件）：讨论的结论会进写作提示词；定稿晚于正文 →
            该章判待重写。产品定义 04 §2.1：不新增顶层页签，挂在章节页签里。 -->
       <DiscussThreadPanel :api="api" :chapters="chapters" :default-chapter="1" />
+      <!-- 条目讨论（2026-11-05，试跑第 16 条）：素材卡 / 设定条目上点“讨论”打开这里。
+           与章节讨论是两套状态机（章节结论进提示词，条目结论只落 state、由作者写回设定集）。 -->
+      <EntryDiscuss v-if="edTarget" ref="edRef" :api="api" :kind="edTarget.kind"
+                    :name="edTarget.name" :kind-label="edTarget.label"
+                    @say="say" @close="edTarget = null" />
       <!-- 活二 Word 导入：外部稿 → 当作"已写好的章节"。两段式：预检（不落盘）→ 确认 -->
       <details class="import-box" :open="!!importPath || !!importPreview || !!importResult">
         <summary>导入 Word 稿（外部稿件 → raw / checked / refined）</summary>
@@ -6011,6 +6135,10 @@ onUnmounted(() => {
             {{ (item.description || item.detail || item.experience || item.role || item.snippet || '').slice(0, 60) || '（无描述）' }}
           </div>
           <span class="spacer"></span>
+          <!-- 讨论（2026-11-05，试跑第 16 条）：想改这条设定时先商量，结论能写回状态 -->
+          <button class="mini" @click.stop="openEntryDiscuss(settingTab, item.name || '未命名',
+                    { characters: '角色', world: '世界观', concepts: '概念', timeline: '时间线' }[settingTab] || settingTab)"
+                  title="对这条开讨论：结论落 data/state/entry_discuss.json，定稿后可写回设定集">讨论</button>
           <button class="mini danger" @click.stop="removeSettingItem(settingTab, idx)">删除</button>
         </div>
       </div>
@@ -7526,6 +7654,13 @@ onUnmounted(() => {
         <span class="spacer"></span>
         <button class="mini" @click="addMaterial">添加素材</button>
         <button class="mini" @click="newMaterialOpen = !newMaterialOpen">新建素材</button>
+        <!-- 撤回（2026-11-05，试跑第 6 条）：作者误拖后“狂按撤回键无效”。
+             这里给一个真的撤回栈：移动搬回原目录、删除从回收站搬回。 -->
+        <button class="mini" :disabled="matBusy || !matUndo.length"
+                :title="matUndo.length ? ('撤回：' + matUndo[0].label + ' ' + matUndo[0].count + ' 个文件') : '暂无可撤回的操作'"
+                @click="matUndoLast">
+          ↶ 撤回上一步<span v-if="matUndo.length" class="meta">（{{ matUndo.length }}）</span>
+        </button>
         <button class="mini primary" @click="triggerReMerge">触发重归并</button>
         <button class="mini" @click="loadMaterials">刷新</button>
       </div>
@@ -7618,20 +7753,54 @@ onUnmounted(() => {
         </div>
         <div class="meta">快速体验：复制 examples/sample-book/materials/raw/* 到 materials/raw/</div>
       </div>
+      <!-- 批量操作条（2026-11-05）：选中才有，写明“会搬去哪”，不再拖完才知道扔错 -->
+      <div v-if="matSel.length" class="mat-batch">
+        <b>已选 {{ matSel.length }} 个</b>
+        <span class="meta">点选 / Ctrl 加选 / Shift 连选</span>
+        <span class="spacer"></span>
+        <button class="mini" :disabled="matBusy" @click="matMove('scraps')"
+                title="搬到 materials/original_scraps/（原始碎片：自由命名、私人数据）">
+          → 移到原始碎片
+        </button>
+        <button class="mini" :disabled="matBusy" @click="matMove('cards')"
+                title="搬到 materials/raw/（结构化卡片：阶段 1 归并时会被读）">
+          → 移到结构化卡片
+        </button>
+        <button class="mini danger" :disabled="matBusy" @click="matDeleteBatch"
+                :title="matConfirmDelete ? '再点一次确认删除（进回收站，可撤回）' : '第一次点是选中确认，再点一次才真删'">
+          {{ matConfirmDelete ? "确认删除（可撤回）" : "删除" }}
+        </button>
+        <button class="mini" :disabled="matBusy" @click="matClearSel">取消选择</button>
+      </div>
+
       <table v-if="materials.length" class="cost-table">
         <thead>
-          <tr><th>名称</th><th>类型</th><th>大小</th><th>修改时间</th><th>操作</th></tr>
+          <tr>
+            <th style="width: 28px;">
+              <input type="checkbox" :checked="matSel.length === materials.length && materials.length > 0"
+                     title="全选" @change="matSel.length === materials.length ? matClearSel() : matSelectAll()" />
+            </th>
+            <th>名称</th><th>类型</th><th>大小</th><th>修改时间</th><th>操作</th>
+          </tr>
         </thead>
         <tbody>
-          <tr v-for="m in materials" :key="m.name">
+          <tr v-for="(m, idx) in materials" :key="m.name"
+              class="mat-row" :class="{ 'is-sel': matIsSel(m.name) }"
+              @click="matRowClick(m, idx, $event)">
+            <td>
+              <input type="checkbox" :checked="matIsSel(m.name)"
+                     @click.stop="matRowClick(m, idx, $event)" />
+            </td>
             <td><span style="margin-right: 6px;">{{ materialIcon(m) }}</span>{{ m.name }}</td>
             <td>{{ materialKindLabel(m) }}{{ m.ext }}</td>
             <td>{{ fmtBytes(m.size) }}</td>
             <td>{{ m.modified }}</td>
             <td>
-              <button class="mini" v-if="m.kind === 'text'" @click="openMaterialEdit(m.name)">编辑</button>
-              <button class="mini" @click="openArtifact('materials/raw/' + m.name)">打开</button>
-              <button class="mini danger" @click="deleteMaterial(m.name)">删除</button>
+              <button class="mini" v-if="m.kind === 'text'" @click.stop="openMaterialEdit(m.name)">编辑</button>
+              <button class="mini" @click.stop="openEntryDiscuss('materials', m.name, '素材')"
+                      title="对这份素材开讨论：结论落 data/state/entry_discuss.json（不会自动进提示词）">讨论</button>
+              <button class="mini" @click.stop="openArtifact('materials/raw/' + m.name)">打开</button>
+              <button class="mini danger" @click.stop="deleteMaterial(m.name, idx)">删除</button>
             </td>
           </tr>
         </tbody>

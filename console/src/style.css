@@ -1603,6 +1603,16 @@ body {
   background: rgba(155, 143, 196, 0.10); color: var(--ink);
   border: 1px solid rgba(155, 143, 196, 0.35);
 }
+/* 素材批量条（2026-11-05）：粘在列表上方，选中才出现 */
+.mat-batch {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin: 10px 0; padding: 8px 10px; border-radius: 8px;
+  border: 1px solid rgba(155, 143, 196, 0.45);
+  background: rgba(155, 143, 196, 0.10);
+}
+.mat-row { cursor: pointer; }
+.mat-row:hover { background: rgba(155, 143, 196, 0.06); }
+.mat-row.is-sel { background: rgba(155, 143, 196, 0.16); }
 /* 知识库扫描三态里的“启用了但没配目录”（2026-11-05）：说人话，别用报错红 */
 .vault-state-warn {
   padding: 8px 10px; border-left: 2px solid var(--warn);

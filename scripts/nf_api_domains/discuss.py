@@ -151,7 +151,71 @@ def _queue_snapshot():
 
 
 # 域模块负责的端点（供自检与文档）。注意 review 是 POST 且在禁用名单里。
+def handle_entry_discuss_list(h):
+    """GET /discuss/entry?kind=&name= → 条目级讨论（不带 name 时列全部）。
+
+    2026-11-05（试跑第 16 条）：素材/设定条目上原本没有任何讨论入口。
+    """
+    try:
+        from utils import entry_discuss as ed
+        q = h._query()
+        kind = (q.get("kind") or [""])[0]
+        name = (q.get("name") or [""])[0]
+        items = ed.list_threads(api.ROOT, kind or None, name or None)
+        return 200, {"ok": True, "items": items,
+                     "note": "条目讨论的结论**不会**自动进章节写作提示词；"
+                             "定稿后由作者点“写回设定集”（改条目状态）。"}
+    except Exception as e:                                     # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_entry_discuss_open(h, body):
+    """POST /discuss/entry/open {kind, name, topic} → 开一条条目讨论。"""
+    try:
+        from utils import entry_discuss as ed
+        ok, res = ed.open_thread(api.ROOT, body.get("kind"), body.get("name"),
+                                 body.get("topic"))
+        res["ok"] = bool(ok)
+        return (200 if ok else 400), res
+    except Exception as e:                                     # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_entry_discuss_say(h, body):
+    """POST /discuss/entry/say {kind, name, role, text} → 追加一轮（只追加）。"""
+    try:
+        from utils import entry_discuss as ed
+        ok, res = ed.say(api.ROOT, body.get("kind"), body.get("name"),
+                         body.get("role"), body.get("text"))
+        res["ok"] = bool(ok)
+        return (200 if ok else 400), res
+    except Exception as e:                                     # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_entry_discuss_decide(h, body):
+    """POST /discuss/entry/decide {kind, name, must, must_not, summary} → 作者定稿。
+
+    ⚠️ 这是**作者拍板**（与审批同族）：进 `FORBIDDEN_IN_AGENT_MODE` —— Agent 可以开题、
+    可以发言，但不能替作者定稿。
+    """
+    try:
+        from utils import entry_discuss as ed
+        ok, res = ed.decide(api.ROOT, body.get("kind"), body.get("name"),
+                            {"must": body.get("must"),
+                             "must_not": body.get("must_not"),
+                             "summary": body.get("summary")})
+        res["ok"] = bool(ok)
+        return (200 if ok else 400), res
+    except Exception as e:                                     # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 ROUTES = (
+    ("GET", "/discuss/entry", handle_entry_discuss_list),
+    ("POST", "/discuss/entry/open", handle_entry_discuss_open),
+    ("POST", "/discuss/entry/say", handle_entry_discuss_say),
+    ("POST", "/discuss/entry/decide", handle_entry_discuss_decide),
     ("GET", "/outline/discussion/brief", handle_discussion_brief),
     ("POST", "/outline/discussion/apply", handle_discussion_apply),
     ("POST", "/outline/discussion/review", handle_discussion_review),
