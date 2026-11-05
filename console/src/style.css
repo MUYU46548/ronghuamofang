@@ -361,6 +361,12 @@ body {
     border-top: 1px solid var(--border);
   }
   .topbar .topbar-tools .mini { font-size: 12px; padding: 4px 8px; }
+  /* 暗色下组标题/副标题必须提亮：opacity 0.7 的淡灰压在深底上只有约 3:1，
+     实测“看不清、像禁用文字”。分隔线同理 —— 看不见线，分组就没了。 */
+  .is-dark .topbar .tab-group-title { opacity: 0.95; }
+  .is-dark .topbar .brand-sub-btn { color: var(--muted); }
+  .is-dark .topbar .tab-group + .tab-group { border-top-color: rgba(255, 255, 255, 0.14); }
+  .is-dark .topbar .topbar-tools { border-top-color: rgba(255, 255, 255, 0.14); }
   .topbar .global-refresh-btn { margin-left: 0; }
 }
 .badge {

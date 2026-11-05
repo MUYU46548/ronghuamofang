@@ -10,7 +10,7 @@
 2. 浏览器里没有 Electron 的 `window.mofangAPI`：用 `page.add_init_script` 注入最小
    `readPreview`（`config/project.yaml` 给 `chapters: N`，`data/chapters/*/NN.md` 给夹具正文），
    再用 `page.route` 覆盖审阅台依赖的端点。
-3. 参考稿：`E:/CODE/CangKu/SP-1026`（写作工作台 v0）。照它的**结构**抄 ——
+3. 参考稿：与本仓库**同级**的 `SP-1026`（写作工作台 v0，纯前端原型）。照它的**结构**抄 ——
    三栏 `240 / 1fr / 280`、13px 字号、6–8px 圆角、白底 1px 边、状态三色点、信息密度克制。
    **不要自己发明配色或加装饰**（顶栏那次加灰底块 + 组前竖线，用户判“更丑”）。
 
