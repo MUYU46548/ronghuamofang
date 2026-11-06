@@ -467,38 +467,38 @@ class Handler(BaseHTTPRequestHandler):
                               "action": action})
 
             if COLD:
-                _step("project", "建项目", "“”页签 → ＋ 新建项目；填书名 / 类型 / 章数",
+                _step("project", "建项目", "“项目”页签 → ＋ 新建项目；填书名 / 类型 / 章数",
                       {"kind": "new_project"}, "current", "还没有项目")
-                _step("materials", "放素材", "“”页签 → 放素材卡到 materials/raw/",
+                _step("materials", "放素材", "“素材”页签 → 放素材卡到 materials/raw/",
                       {"kind": "tab", "tab": "materials"}, "todo", "素材卡 0 张 / 碎片 0 条")
                 for sid, title, how, action in (
-                        ("model", "配模型", "“”→ 模型与引擎", {"kind": "tab", "tab": "settings", "settings_tab": "models"}),
-                        ("stage1", "阶段 1 · 素材 → 设定集", "“”→ 执行下一步", {"kind": "tab", "tab": "pipeline", "spot": "flow-run"}),
-                        ("stage2", "阶段 2 · 整体大纲", "“”", {"kind": "tab", "tab": "outline"}),
-                        ("gate", "审批放行", "“”→ 通过", {"kind": "tab", "tab": "inbox", "spot": "gate-list"}),
-                        ("stage4", "阶段 4 · 逐章写作", "“”", {"kind": "tab", "tab": "pipeline", "spot": "flow-run"}),
-                        ("export", "导出成品", "“”页签", {"kind": "tab", "tab": "export"})):
+                        ("model", "配模型", "“设置”→ 模型与引擎", {"kind": "tab", "tab": "settings", "settings_tab": "models"}),
+                        ("stage1", "阶段 1 · 素材 → 设定集", "“流水线”→ 执行下一步", {"kind": "tab", "tab": "pipeline", "spot": "flow-run"}),
+                        ("stage2", "阶段 2 · 整体大纲", "“大纲”", {"kind": "tab", "tab": "outline"}),
+                        ("gate", "审批放行", "“收件箱”→ 通过", {"kind": "tab", "tab": "inbox", "spot": "gate-list"}),
+                        ("stage4", "阶段 4 · 逐章写作", "“流水线”", {"kind": "tab", "tab": "pipeline", "spot": "flow-run"}),
+                        ("export", "导出成品", "“导出”页签", {"kind": "tab", "tab": "export"})):
                     _step(sid, title, how, action, "todo",
                           "阶段 2 / 6 完成时会在这里停一次（阶段 3 不设门）" if sid == "gate" else "")
                 done_n = 0
             else:
-                _step("project", "建项目", "“”页签 → ＋ 新建项目", {"kind": "new_project"},
+                _step("project", "建项目", "“项目”页签 → ＋ 新建项目", {"kind": "new_project"},
                       "done", "书名：验收用书")
-                _step("materials", "放素材", "“”页签", {"kind": "tab", "tab": "materials"},
+                _step("materials", "放素材", "“素材”页签", {"kind": "tab", "tab": "materials"},
                       "done", "素材卡 6 张 / 碎片 2 条")
-                _step("model", "配模型", "“”→ 模型与引擎",
+                _step("model", "配模型", "“设置”→ 模型与引擎",
                       {"kind": "tab", "tab": "settings", "settings_tab": "models"},
                       "done", "direct / glm-5.3")
-                _step("stage1", "阶段 1 · 素材 → 设定集", "“”→ 执行下一步",
+                _step("stage1", "阶段 1 · 素材 → 设定集", "“流水线”→ 执行下一步",
                       {"kind": "tab", "tab": "pipeline", "spot": "flow-run"}, "done", "设定集已生成")
-                _step("stage2", "阶段 2 · 整体大纲", "“”",
+                _step("stage2", "阶段 2 · 整体大纲", "“大纲”",
                       {"kind": "tab", "tab": "outline"}, "done", "大纲已生成")
-                _step("gate", "审批放行", "“”→ 逐个点“”；不满意就“”并写原因",
+                _step("gate", "审批放行", "“收件箱”→ 逐个点“确认放行”；不满意就“打回”并写原因",
                       {"kind": "tab", "tab": "inbox", "spot": "gate-list"},
                       "current", "有 1 处等你审：阶段 6（阶段 3 不设门）")
-                _step("stage4", "阶段 4 · 逐章写作", "“”",
+                _step("stage4", "阶段 4 · 逐章写作", "“流水线”",
                       {"kind": "tab", "tab": "pipeline", "spot": "flow-run"}, "done", "已落盘 12 章")
-                _step("export", "导出成品", "“”页签", {"kind": "tab", "tab": "export"},
+                _step("export", "导出成品", "“导出”页签", {"kind": "tab", "tab": "export"},
                       "todo", "还没有 Word 成品")
                 done_n = 6
             return self._send(200, {"ok": True, "book": "" if COLD else "验收用书",
@@ -696,7 +696,7 @@ class Handler(BaseHTTPRequestHandler):
                                     "characters": ["主角甲", "主角乙", "沈砚", "程砧"],
                                     "world": ["雾港", "风神城"]})
         if p == "/setting/versions":
-            # F21 展示需要：给两版历史，让“”能说清“从哪版起”
+            # F21 展示需要：给两版历史，让“版本历史”能说清“从哪版起”
             return self._send(200, {"ok": True,
                                     "live": {"exists": True,
                                              "counts": {"characters": 4, "world": 2}},

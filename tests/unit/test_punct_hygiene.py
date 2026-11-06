@@ -106,6 +106,33 @@ def main():
     check("H4 直角引号被判 error（不是 warning）", bool(errs), (errs, warns))
     check("H4 error 里说清是什么", "直角引号" in joined, joined)
 
+    # ---- H5 控制字符零命中（2026-11-06）----
+    #
+    # 事故：一次批量文案替换把“设置 / 项目 / 流水线 / 收件箱 / 确认放行”等
+    # **界面短语**换成了 U+0001 哨兵，却再没换回来。落到 5 个文件、~50 处，
+    # 其中 `nf_api_domains/onboarding.py` 是**生产代码**：新手引导卡片上直接
+    # 显示成 `“”页签 → ＋ 新建项目`（引号里是空的），肉眼一眼能看出不对，
+    # 但没有任何判据拦它 —— 直到真机 e2e 才暴露。
+    #
+    # 这类哨兵是**不可见字符**：搜索、diff、代码评审全都看不见，靠人眼是不可靠的。
+    # 所以立一条确定性判据：源码/文档里不许出现除 \t \n \r 之外的控制字符。
+    ctrl = {chr(c) for c in range(0x00, 0x20)} - {"\t", "\n", "\r"}
+    ctrl |= {chr(0x7F)}
+    ctrl_bad = []
+    for rel in files:
+        p = ROOT / rel
+        if not p.is_file() or p.suffix.lower() in (
+                ".png", ".jpg", ".ico", ".docx", ".dotx", ".pdf", ".lock"):
+            continue
+        try:
+            t = p.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        hit = sorted({hex(ord(c)) for c in t if c in ctrl})
+        if hit:
+            ctrl_bad.append("%s %s" % (rel, hit))
+    check("H5 源码/文档零控制字符（U+0001 一类哨兵不得残留）", not ctrl_bad, ctrl_bad[:6])
+
     print("-" * 66)
     print("通过 %d / 失败 %d" % (len(PASS), len(FAIL)))
     if FAIL:

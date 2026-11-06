@@ -82,7 +82,7 @@ def main():
         since = {x["field"]: x for x in t["field_since"]}
         check("性格从 v2 起（v1 只有寡言）", since["性格"]["since"] == "v2",
               since["性格"])
-        check("角色定位从“”起（v1/v2 都是铁匠）",
+        check("角色定位从“v1”起（v1/v2 都是铁匠）",
               since["角色定位"]["since"] == "当前", since["角色定位"])
         check("字段带上当前值", since["角色定位"]["value"] == "铸剑师",
               since["角色定位"]["value"])

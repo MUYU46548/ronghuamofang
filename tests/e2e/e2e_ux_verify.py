@@ -526,6 +526,18 @@ def test_real(browser):
     print("  真后端推导：下一可运行阶段=%s · 待审批门=%s" % (run_stage, gate_stage))
     ctx, page, errs, bad = new_page(browser, REAL_API, "real")
     try:
+        # 环境前提（2026-11-06 补）：真后端必须指向**已初始化**的书籍工作区。
+        # 未初始化（`config/project.yaml` 还是示例书名）时 App 会自动弹
+        # “项目初始化向导”—— 它是 `.drawer-mask` 全屏遮罩，后面所有点击都被它吃掉，
+        # 表现为 `.flow-quick .qstage` 点击超时（看着像 UI 坏了，其实是前提不成立）。
+        # 按项目纪律“未执行 ≠ 失败”：显式跳过并说清怎么补齐前提，不要假装验过。
+        _wizard = page.locator(".drawer-mask:has-text('项目初始化向导')")
+        if _wizard.count() and _wizard.first.is_visible():
+            print("  [SKIP] B 段前提不成立：真后端工作区未初始化"
+                  "（首屏弹出“项目初始化向导”遮挡工作流条）。")
+            print("         补齐：先在桌面端走完初始化 / 让 config/project.yaml 填真实书名与章节数，"
+                  "再跑本脚本。")
+            return
         nxt = page.locator(".flow-next b").first.inner_text()
         if is_gate:
             check("真数据：下一步 = 确认阶段 %s（审批门优先）" % gate_stage,
@@ -885,8 +897,9 @@ def test_about_project(browser, mock_proc=None):
         page.wait_for_timeout(700)
         strip = page.locator(".ps-item").all_inner_texts()
         joined = " | ".join(strip)
-        check("流水线条显示\u300ctoken 闸门\u300d（不能只显示 ¥0.0）",
-              any(("token 闸门" in t) for t in strip), joined[:160])
+        check("流水线条显示\u300ctoken 用量上限\u300d（不能只显示 ¥0.0）",
+              any(("token 用量上限" in t) or ("token 闸门" in t) for t in strip),
+              joined[:160])
         check("显示 token 已用 / 上限（数字真的来自 /state）",
               "116,599" in joined and "10,000,000" in joined, joined[:200])
         shot(page, "D8_token_gate_strip")
@@ -1122,7 +1135,7 @@ def test_about_project(browser, mock_proc=None):
     try:
         check("全新工作区显示序列引导卡", page2.locator(".ob-card").count() == 1,
               page2.locator(".ob-card").count())
-        check("给出唯一的“”",
+        check("给出唯一的“当前步”",
               "下一步：建项目" in (page2.locator(".ob-next-title").inner_text()
                                 if page2.locator(".ob-next-title").count() else ""),
               page2.locator(".ob-next-title").inner_text()
@@ -1133,7 +1146,7 @@ def test_about_project(browser, mock_proc=None):
         page2.wait_for_timeout(350)
         check("展开后 8 步齐全", page2.locator(".ob-step").count() == 8,
               page2.locator(".ob-step").count())
-        check("只有一个“”（序列严格）",
+        check("只有一个“当前步”（序列严格）",
               page2.locator(".ob-step.is-current").count() == 1,
               page2.locator(".ob-step.is-current").count())
         check("当前步写明点了哪里",
@@ -1141,7 +1154,7 @@ def test_about_project(browser, mock_proc=None):
         shot(page2, "D6_onboarding_cold")
         page2.locator(".ob-step.is-current button:has-text('带我去')").click()
         page2.wait_for_timeout(500)
-        check("“”真的打开了新建项目向导",
+        check("“带我去”真的打开了新建项目向导",
               page2.locator(".drawer-mask .dialog").count() >= 1,
               page2.locator(".drawer-mask .dialog").count())
         errs2_real = [e for e in errs2 if "404" not in e]
@@ -1149,7 +1162,7 @@ def test_about_project(browser, mock_proc=None):
     finally:
         ctx2.close()
 
-    print("  --- 审批门抢“”+ 带我去高亮 ---")
+    print("  --- 审批门抢“当前步”+ 带我去高亮 ---")
     ctx3, page3, errs3, bad3 = new_page(browser, MOCK_API, "gate-guide")
     try:
         check("有未审批阶段时，下一步 = 审批放行",
@@ -1215,7 +1228,7 @@ def test_about_project(browser, mock_proc=None):
         # 只认“设定条目来源”那个输入框：InteractionPanel 也用了同名 class
         # （角色 A / 角色 B），裸 .prov-input 会命中 3 个 → strict mode 直接炸（2026-11-05 实测）。
         page5.locator('input[list="prov-names"]').scroll_into_view_if_needed()
-        check("“”块渲染", page5.locator(".prov-block").count() == 1)
+        check("“设定条目来源”块渲染", page5.locator(".prov-block").count() == 1)
         page5.locator('input[list="prov-names"]').fill("主角甲")
         page5.locator(".prov-row button:has-text('追溯')").click()
         page5.wait_for_timeout(700)
@@ -1223,7 +1236,7 @@ def test_about_project(browser, mock_proc=None):
         check("追溯结果渲染", res.count() == 1, res.count())
         rt = res.inner_text() if res.count() else ""
         check("说明最早出现在哪一版", "最早出现在 v1" in rt, rt[:80].replace("\n", " | "))
-        check("字段级“”可读", "从这个版本起" in rt and "性格" in rt and "v2" in rt)
+        check("字段级“来源”可读", "从这个版本起" in rt and "性格" in rt and "v2" in rt)
         check("导入来源显示文件路径", "materials/raw/主角甲_角色卡.md" in rt)
         check("改动记录列出字段", "改动记录" in rt and "简介" in rt)
         page5.locator(".prov-block").scroll_into_view_if_needed()
@@ -1242,7 +1255,7 @@ def test_about_project(browser, mock_proc=None):
         page6.wait_for_timeout(1200)
         card = page6.locator(".ix-card")
         card.scroll_into_view_if_needed()
-        check("“”卡渲染", card.count() == 1, card.count())
+        check("“两人同场互动”卡渲染", card.count() == 1, card.count())
         ins = card.locator(".ix-row input")
         check("两个角色输入框", ins.count() == 2, ins.count())
         ins.nth(0).fill("主角甲")
@@ -1272,9 +1285,10 @@ def test_about_project(browser, mock_proc=None):
         dlg = page7.locator(".diag-dlg")
         check("诊断抽屉打开（不是只有建议列表）", dlg.count() == 1, dlg.count())
         dt = dlg.inner_text() if dlg.count() else ""
-        check("有“”块", "运行态" in dt, dt[:60].replace("\n", " | "))
-        check("有“”全量计数", "数据体检" in dt and "通过" in dt)
-        check("有“”块", "补救建议" in dt)
+        check("有“诊断”块", "运行态" in dt, dt[:60].replace("\n", " | "))
+        check("有“数据检查”全量计数",
+              ("数据检查" in dt or "数据体检" in dt) and "通过" in dt)
+        check("有“建议”块", "补救建议" in dt)
         shot(page7, "D15_diagnose")
         errs7_real = [e for e in errs7 if "404" not in e]
         check("诊断无 console 报错", not errs7_real, errs7_real[:3])

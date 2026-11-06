@@ -128,6 +128,15 @@ def main():
     check("action.kind 合法",
           all(s["action"].get("kind") in ("tab", "new_project") for s in r["steps"]),
           [s["action"] for s in r["steps"]])
+    # 2026-11-06：how 必须真的**点名**一个界面控件，不能是空引号。
+    # 事故：一次批量替换把“项目 / 素材 / 设置 / 流水线”等短语换成 U+0001 哨兵，
+    # 界面上就成了 `“”页签 → ＋ 新建项目`（引号里空的），而 O8 只查了非空字符串，
+    # 一路放行到真机 e2e 才暴露。判据：每条 how 至少有一个**非空**的中文引号短语。
+    import re as _re
+    bad_how = [s["id"] for s in r["steps"]
+               if not _re.search("“([^”]+)”", s.get("how") or "")]
+    check("每条 how 都点名了具体控件（引号里不许是空）", not bad_how,
+          [(s["id"], s.get("how")) for s in r["steps"] if s["id"] in bad_how][:4])
 
     print("\n[O9] snapshot 只读盘上事实")
     import nf_api as api

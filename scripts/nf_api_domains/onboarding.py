@@ -1,17 +1,17 @@
 # -*- coding: utf-8 -*-
-"""新手引导（I-1，2026-11-03）：把“”变成后端可判定的序列。
+"""新手引导（I-1，2026-11-03）：把“下一步该干什么”变成后端可判定的序列。
 
 ## 要治的病
 
 作者原话：\"随便找个破游戏的新手教程都更好\"。旧界面只有一张静态五步卡：
-五条并列的文本，没有“”，第一次跑阶段 4、
+五条并列的文本，没有“下一步”，第一次跑阶段 4、
 遇到审批门时仍要人猜。
 
 ## 口径（确定性、零 token）
 
 - 每一步的 `state` 只有三种：`done` / `current` / `todo`；
 - **序列严格**：第一个非 done 的才是 `current`，其后全是 `todo` —— 不让界面
-  同时亮起三个“”；
+  同时亮起三个“当前步”；
 - 判据全部来自盘上事实（project.yaml / materials 目录 / progress.json /
   output/*.docx），不调模型、不猜；
 - 审批门独立成一步（`gate`）：存在 `done && !approved` 的阶段时它排到写作
@@ -21,7 +21,7 @@
 
 ## 为什么判据不写在界面里
 
-界面里判“”只能调一堆端点再拼，且同一件事会与后端各写一份口径
+界面里判“下一步”只能调一堆端点再拼，且同一件事会与后端各写一份口径
 （\"素材 3 张\"与\"素材 0 张\"同时出现是这类事故的典型症状）。这里一份判据，
 `/onboarding/status` 直接回给界面和外部 Agent，谁都不用猜。
 """
@@ -134,7 +134,7 @@ def compute_steps(snap):
             "done": bool(book) and book != PLACEHOLDER_BOOK,
             "evidence": ("书名：%s" % book) if book and book != PLACEHOLDER_BOOK
                         else ("书名还是占位符" if book else "还没有项目"),
-            "how": "“”页签 → ＋ 新建项目；填书名 / 类型 / 章数",
+            "how": "“项目”页签 → ＋ 新建项目；填书名 / 类型 / 章数",
             "action": {"kind": "new_project"},
         },
         {
@@ -144,7 +144,7 @@ def compute_steps(snap):
             "evidence": "素材卡 %d 张 / 碎片 %d 条" % (
                 int(snap.get("materials_cards") or 0),
                 int(snap.get("materials_scraps") or 0)),
-            "how": "“”页签 → 放素材卡到 materials/raw/；随手写的碎片丢进 original_scraps/",
+            "how": "“素材”页签 → 放素材卡到 materials/raw/；随手写的碎片丢进 original_scraps/",
             "action": {"kind": "tab", "tab": "materials"},
         },
         {
@@ -152,7 +152,7 @@ def compute_steps(snap):
             "title": "配模型",
             "done": bool(snap.get("model_ready")),
             "evidence": str(snap.get("model_why") or ""),
-            "how": "“”→ 模型与引擎：引擎 / 供应商 / 默认模型",
+            "how": "“设置”→ 模型与引擎：引擎 / 供应商 / 默认模型",
             "action": {"kind": "tab", "tab": "settings", "settings_tab": "models"},
         },
         {
@@ -160,7 +160,7 @@ def compute_steps(snap):
             "title": "阶段 1 · 素材 → 设定集",
             "done": done(1, snap.get("setting_exists")),
             "evidence": "设定集已生成" if snap.get("setting_exists") else "还没有设定集",
-            "how": "“”→ 一键工作流 → ⏎ 执行下一步",
+            "how": "“流水线”→ 一键工作流 → ⏎ 执行下一步",
             "action": {"kind": "tab", "tab": "pipeline", "spot": "flow-run"},
         },
         {
@@ -168,7 +168,7 @@ def compute_steps(snap):
             "title": "阶段 2 · 整体大纲",
             "done": done(2, snap.get("outline_exists")),
             "evidence": "大纲已生成" if snap.get("outline_exists") else "还没有大纲",
-            "how": "同上“”；想先在“”页用体检报告看问题",
+            "how": "同上“流水线”；想先在“大纲”页用体检报告看问题",
             "action": {"kind": "tab", "tab": "outline"},
         },
         {
@@ -181,7 +181,7 @@ def compute_steps(snap):
                             str(n) for n in (1, 2, 3, 4, 5, 6, 7, 8)
                             if (stages.get(n) or {}).get("approved")))
                               or "阶段 2 / 6 完成时会在这里停一次（阶段 3 不设门）"),
-            "how": "“”→ 逐个点“”；不满意就“”并写原因",
+            "how": "“收件箱”→ 逐个点“确认放行”；不满意就“打回”并写原因",
             "action": {"kind": "tab", "tab": "inbox", "spot": "gate-list"},
         },
         {
@@ -189,7 +189,7 @@ def compute_steps(snap):
             "title": "阶段 4 · 逐章写作",
             "done": done(4, raw_ch > 0),
             "evidence": ("已写 %d 章" % raw_ch) if raw_ch else "还没有正文",
-            "how": "“”→ 执行下一步（会一章一章写）；进度看章节页签",
+            "how": "“流水线”→ 执行下一步（会一章一章写）；进度看章节页签",
             "action": {"kind": "tab", "tab": "pipeline", "spot": "flow-run"},
         },
         {
@@ -197,7 +197,7 @@ def compute_steps(snap):
             "title": "导出成品",
             "done": bool(snap.get("word_exists")),
             "evidence": "output/ 已有 Word" if snap.get("word_exists") else "还没有 Word 成品",
-            "how": "“”→ 📄 Word 成品；或“”页签选范围",
+            "how": "“流水线”→ 📄 Word 成品；或“导出”页签选范围",
             "action": {"kind": "tab", "tab": "export"},
         },
     ]
@@ -220,7 +220,7 @@ def compute_steps(snap):
             s["state"] = "todo"
 
     if gate_open:
-        # gate 之前的一律按事实标 done（跑到哪就是哪），gate 才是唯一的“”
+        # gate 之前的一律按事实标 done（跑到哪就是哪），gate 才是唯一的“当前步”
         for s in steps:
             if s["id"] == "gate":
                 break
