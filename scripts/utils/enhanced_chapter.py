@@ -258,7 +258,7 @@ def write_chapter_groups(cfg, proj, n, client, task_dir,
     should_stop()：群与群之间的停止判据（缺省不查；stage4 传 _stop_requested）。
     """
     book_cfg = cfg.get("chapter", {})
-    low, high = book_cfg.get("target_words", [2000, 3000])[:2]
+    low, high = book_cfg.get("target_words", [4000, 7200])[:2]
     groups = plan_groups(low, high, book_cfg.get("enhanced_group_words"))
     d = parts_dir(n)
     d.mkdir(parents=True, exist_ok=True)

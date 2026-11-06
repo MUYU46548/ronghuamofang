@@ -102,7 +102,7 @@ def build(chapter=None, root="."):
         syscfg = load_config_yaml(str(root / SYSTEM_PATH)) or {}
     except Exception:                                        # noqa: BLE001
         syscfg = {}
-    tw = ((syscfg.get("chapter") or {}).get("target_words")) or [5000, 9000]
+    tw = ((syscfg.get("chapter") or {}).get("target_words")) or [4000, 7200]
 
     from utils import writing_form as _wf
     _app = _wf.applicability(proj)

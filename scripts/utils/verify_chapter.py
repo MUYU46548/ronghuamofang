@@ -265,13 +265,15 @@ class ChapterCheck:
 
 
 def count_cn_words(text):
-    """粗略字数统计：去除空白与 Markdown 符号后的字符数（含中英文）。"""
-    stripped = re.sub(r"[#*`>_|\[\]()!\-]", "", text)
-    stripped = re.sub(r"\s+", "", stripped)
-    return len(stripped)
+    """字数口径见 `utils/word_count.py`：只计汉字（唯一实现，勿在此另写一份）。"""
+    try:
+        from utils.word_count import count_cn_words as _c
+    except ImportError:          # 直接 python scripts/utils/verify_chapter.py
+        from word_count import count_cn_words as _c
+    return _c(text)
 
 
-def is_chapter_complete(path, target_min=1200, target_max=3500, para_structure=True):
+def is_chapter_complete(path, target_min=4000, target_max=7200, para_structure=True):
     """检查章节是否真正完成（非空、无截断、字数达标、无占位符、标题格式正确、**非退化**）。
 
     与 check_chapter() 互补：check_chapter 返回详细报告，

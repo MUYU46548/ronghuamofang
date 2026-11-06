@@ -97,7 +97,7 @@ def _target_words():
             return [int(tw[0]), int(tw[1])]
     except Exception:                                        # noqa: BLE001
         pass
-    return [5000, 9000]
+    return [4000, 7200]
 
 
 def _count_words(text):

@@ -132,7 +132,7 @@ def deterministic_checks(chapter_path, outline_path):
 
     # 字数范围检查（使用配置默认值）
     cfg = _load_cfg()
-    target = cfg.get("chapter", {}).get("target_words", [2000, 3000])
+    target = cfg.get("chapter", {}).get("target_words", [4000, 7200])
     result["word_ok"] = target[0] <= result["word_count"] <= target[1]
     result["target_min"] = target[0]
     result["target_max"] = target[1]

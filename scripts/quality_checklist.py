@@ -33,8 +33,9 @@ PROJECT = ROOT / "config" / "project.yaml"
 
 
 def count_cn_words(text):
-    """统计中文字符数。"""
-    return len(re.findall(r'[\u4e00-\u9fff]', text))
+    """字数口径见 `utils/word_count.py`：只计汉字（唯一实现，勿在此另写一份）。"""
+    from utils.word_count import count_cn_words as _c
+    return _c(text)
 
 
 def check_structure(chapter_file, chapter_no):

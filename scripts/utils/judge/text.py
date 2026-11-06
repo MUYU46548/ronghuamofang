@@ -59,10 +59,9 @@ def split_sentences(para: str) -> list:
 
 
 def count_cn_words(text: str) -> int:
-    """字数口径与全仓一致（`verify_chapter.count_cn_words`：去空白与 Markdown 符号后的字符数）。"""
-    stripped = re.sub(r"[#*`>_|\[\]()!\-]", "", text or "")
-    stripped = re.sub(r"\s+", "", stripped)
-    return len(stripped)
+    """字数口径见 `utils/word_count.py`：只计汉字（唯一实现，勿在此另写一份）。"""
+    from ..word_count import count_cn_words as _c
+    return _c(text)
 
 
 def iter_sentences(text: str):

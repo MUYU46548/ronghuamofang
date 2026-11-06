@@ -240,7 +240,7 @@ def _heuristic_stage(stage, cfg, proj, calls, cpt, role):
     """无历史时的字符折算兜底（对大文件施加流水线一致的内联上限）。"""
     book = proj.get("book") or {}
     chap = cfg.get("chapter") or {}
-    tw = chap.get("target_words") or [1200, 3500]
+    tw = chap.get("target_words") or [4000, 7200]
     mid_words = int((int(tw[0]) + int(tw[-1])) / 2) if tw else 2200
     n_chapters = int(book.get("chapters") or 0) or 12
     p = prompt_chars(stage)

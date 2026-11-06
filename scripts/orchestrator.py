@@ -47,6 +47,7 @@ from utils.config_io import load_pipeline_config
 from utils.engine import resolve_engine
 from utils import error_contract
 from utils import liveness
+from utils import book_cost
 
 import stage1_consolidate as s1
 import stage2_outline as s2
@@ -388,6 +389,12 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
             db.finish_run(run_id, status)
         except Exception as e:                              # noqa: BLE001
             print(f"[orchestrator] 警告：写 runs 状态失败（{e}），交由 finally 兜底")
+        # 本书成本账（2026-11-05）：机器侧读数自动刷新；Agent 侧花费由执行方
+        # 用 `python scripts/book_cost.py record --yuan N` 补 —— 读不到就不猜。
+        try:
+            book_cost.auto_record(Path.cwd(), db=db)
+        except Exception as e:                              # noqa: BLE001
+            print(f"[orchestrator] 警告：本书成本账写入失败（{e}）")
         finished = True
         return code
 

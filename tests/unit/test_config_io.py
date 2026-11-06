@@ -163,8 +163,11 @@ def case_targeted_write():
             check("目标键的新注释生效（不留矛盾说明）",
                   "单轮累计（改过）" in text and "单轮累计\n" not in text)
             check("回读校验通过（写后能解析且值一致）", "已更新" in msg, msg)
-            check("写前有备份", (tmp / "config" / "history").exists()
-                  and list((tmp / "config" / "history").glob("*.yaml")), msg)
+            # 备份目录跟着**配置文件**走（`p.parent/history`），不跟 CWD ——
+            # 否则 `--root`/临时项目会把备份落到运行目录里（2026-11-05 修）。
+            # 本用例的配置就写在 tmp 根，所以备份在 tmp/history。
+            check("写前有备份", (tmp / "history").exists()
+                  and list((tmp / "history").glob("*.yaml")), msg)
 
             # 注意类型：传 bool 才会写成 `false`；传字符串 "false" 会被 YAML 引号保护成
             # `'false'`（那是**字符串**，不是布尔）—— 所以设置页必须先把表单值转成真类型，

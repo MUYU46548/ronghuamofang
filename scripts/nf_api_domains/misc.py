@@ -255,7 +255,7 @@ def handle_chapters_verify(h):
 
     try:
         cfg, proj = api.load_all()
-        target_words = cfg.get("chapter", {}).get("target_words", [2000, 3000])
+        target_words = cfg.get("chapter", {}).get("target_words", [4000, 7200])
         total = int(proj.get("book", {}).get("chapters", 10))
         raw_dir = api.ROOT / "data" / "chapters" / "raw"
         chapters = []

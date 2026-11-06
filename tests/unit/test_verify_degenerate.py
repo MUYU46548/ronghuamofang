@@ -40,7 +40,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "scripts"
 from utils.verify_chapter import (  # noqa: E402
     MAX_NGRAM_REPEAT_RATIO, MAX_SINGLE_PARA_RATIO, MIN_PARAGRAPHS,
     MIN_RATIO_BODY_CHARS, ChapterCheck, check_chapter, check_degenerate,
-    is_chapter_complete,
+    is_chapter_complete, count_cn_words,
 )
 
 PASS, FAIL = [], []
@@ -80,24 +80,23 @@ _POOL = [
 
 
 def _filler(min_chars):
-    """生成 ≥min_chars 字、段长自然波动的**不重复**填充。"""
-    out, total = [], 0
-    for i in range(120):
-        s = _POOL[i % len(_POOL)]
-        if i >= len(_POOL):
-            s = s.rstrip("。") + "，" + _POOL[(i * 7 + 3) % len(_POOL)]
-        out.append(s)
-        total += len(s)
-        if total >= min_chars:
-            break
-    return "\n\n".join(out)
+    """生成 ≥min_chars **汉字**、段长自然波动的填充。
+
+    2026-11-05 口径：字数只计汉字（`utils/word_count.py`）。原来这里按 `len()`
+    计字符，2200 的 pad 实际只有 ~1900 汉字 → 样本低于 2000 下限，A3 整片假红。
+    填充直接复用 `utils.fake_client._words_para`（已验证 400–12000 字无退化项），
+    夹具不再自己维护第二套语料。
+    """
+    from utils.fake_client import _words_para
+    return _words_para(min_chars)
 
 
-def sample(target_lines, pad_to=2200):
-    """靶向段落 + 不重复填充，组成字数落在 [2000,3000] 的样本。"""
+def sample(target_lines, pad_to=2400):
+    """靶向段落 + 不重复填充，组成汉字数落在 [2000,3000] 的样本。"""
     body = "\n\n".join(target_lines)
-    if len(body) < pad_to:
-        body += "\n\n" + _filler(pad_to - len(body))
+    have = count_cn_words(body)
+    if have < pad_to:
+        body += "\n\n" + _filler(pad_to - have)
     return TITLE + body + "\n\n<!-- quality: 7/10 -->\n"
 
 
@@ -171,7 +170,7 @@ def _make_sample(name, tmpdir):
     if DEGEN_SAMPLES[name] is None:
         txt = (TITLE
                + ("他沿着街道一直往前走，路灯一盏一盏亮起来，"
-                  "行人在他身边经过，没有人回头看他一眼。" * 55)
+                  "行人在他身边经过，没有人回头看他一眼。" * 60)
                + "\n\n<!-- quality: 7/10 -->\n")
     elif name == "标点灌水":
         # 纯标点，不填充：确保 content_ratio 直接反映“标点灌水”这一特征。
@@ -217,8 +216,17 @@ def main():
             hit = any(kw in d for d in r.degenerate)
             check(f"A2 {name} 由靶向判据（{kw}）命中", hit,
                   f"→ {r.degenerate}")
-            check(f"A3 {name} 字数在区间内（排除字数判据干扰）",
-                  2000 <= r.word_count <= 3000, f"→ {r.word_count}")
+            if name == "标点灌水":
+                # 纯标点样本按“只计汉字”口径天然没有 2000 汉字（旧断言“字数在区间内”
+                # 是“按字符计字数”的遗留）。这里改判：比率判据**没有被**
+                # MIN_RATIO_BODY_CHARS 整体跳过 —— 即“标点灌水”这一条确实被执行了，
+                # 而不是因为样本太短被略过。
+                check(f"A3 {name} 比率判据未被跳过（排除字数判据干扰）",
+                      not r.degen_metrics.get("ratio_skipped"),
+                      f"→ metrics={r.degen_metrics}")
+            else:
+                check(f"A3 {name} 字数在区间内（排除字数判据干扰）",
+                      2000 <= r.word_count <= 3000, f"→ {r.word_count}")
             check(f"A4 {name} 计入 result.errors 且 ok=False",
                   (not r.ok) and any(d.startswith("退化：") for d in r.errors),
                   f"→ ok={r.ok} errors={r.errors}")

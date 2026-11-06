@@ -53,7 +53,7 @@
   卡数 / 大纲实体落点 / 前两个宇宙零词重叠 / 脱敏声明 / 文件名与专名一致）。
   它存在的意义是**换一整套专名，判据照样成立** —— 一套夹具证明不了流水线不过拟合
 - 章节修订历史：`data/chapters/history/`（refine_chapter.py 每次精修备份 chNN_vM.md）
-- 单章字数区间：`config/system.yaml` 的 `chapter.target_words`（**列表** `[low, high]`，出厂 [5000,9000]；
+- 单章字数区间：`config/system.yaml` 的 `chapter.target_words`（**列表** `[low, high]`，出厂 [4000,7200]（只计汉字；2026-11-05 口径折算）；
   `GET/POST /config/target_words` 读写，GUI 设置页同源。判据与边界见“止烧与安全闸门”节）
 - **作品级写作约束**：`data/writing_rules.md`（每本书一份，随书归档走；不进 Git）
   - `GET/POST /writing_rules`；空文件/不存在 = **不注入**（`utils/writing_rules.block()` 返回空串）

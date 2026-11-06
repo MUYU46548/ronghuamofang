@@ -621,7 +621,7 @@ def _style_blocks(proj):
 
 
 def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, prev_tail):
-    target = cfg.get("chapter", {}).get("target_words", [2000, 3000])
+    target = cfg.get("chapter", {}).get("target_words", [4000, 7200])
     tail_section = "\n\n".join(prev_tail) if prev_tail else "（无上一章，本章为开篇）"
     book = proj.get("book", {})
 
@@ -1132,7 +1132,7 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     _para_ok = _wf4.applicability(proj).get("para_structure", True)
     verified = [n for n in completed
                 if is_chapter_complete(raw_dir / f"{n:02d}.md",
-                                       *cfg.get("chapter", {}).get("target_words", [2000, 3000]),
+                                       *cfg.get("chapter", {}).get("target_words", [4000, 7200]),
                                        para_structure=_para_ok)]
     skipped = set(completed) - set(verified)
     if skipped:
@@ -1160,7 +1160,7 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     # ---- 按范围完成 = 部分完成（2026-11-03，作者拍板）----
     # 判据只看**盘上事实**：raw/NN.md 是否合格（与断点续跑同一判据），不信 progress
     # 的完成标记 —— 标记可能因崩溃而落后于文件。
-    _tw_scope = cfg.get("chapter", {}).get("target_words", [2000, 3000])[:2]
+    _tw_scope = cfg.get("chapter", {}).get("target_words", [4000, 7200])[:2]
 
     def _done_ns():
         done = set(progress.completed_chapters(4))
@@ -1235,7 +1235,7 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     # rolling.md，下一章就会拿不到本章摘要。而 append_chapter_summary 是同章
     # 覆盖语义 —— 这里补一次是安全的；真正会污染全局摘要的是“重调 LLM 重跑整章”
     # （多压一行进 global_summary）。所以判据是：正文合格 → 只补账，不重写。
-    _tw = cfg.get("chapter", {}).get("target_words", [2000, 3000])[:2]
+    _tw = cfg.get("chapter", {}).get("target_words", [4000, 7200])[:2]
     _raw_seen = {int(p.stem) for p in raw_dir.glob("*.md") if p.stem.isdigit()}
     orphan_ns = sorted(
         n for n in _raw_seen
@@ -1290,7 +1290,7 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         return True, "stage4 跳过（已完成）"
 
     progress.set_stage(4, "running")
-    low, high = cfg.get("chapter", {}).get("target_words", [2000, 3000])[:2]
+    low, high = cfg.get("chapter", {}).get("target_words", [4000, 7200])[:2]
     # R01 预算—篇幅联动（2026-10-30 补齐）：stage4 此前是唯一**既没有容量校验、
     # 也从不设 max_tokens** 的阶段（提示词里的 25000 无人读取）。装不下时模型会
     # 自己删内容，表现为“每章都短一截”，而 finish_reason 还是 stop —— 既有那道
@@ -2034,7 +2034,7 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
 # ---------------------------------------------------------------- engine: self
 def _self_target_words(cfg):
     """本项目的单章字数区间（与 run_stage 取同一个键与同一个兜底）。"""
-    return tuple(cfg.get("chapter", {}).get("target_words", [2000, 3000])[:2])
+    return tuple(cfg.get("chapter", {}).get("target_words", [4000, 7200])[:2])
 
 
 def _self_pending(cfg, proj, chapters=None):

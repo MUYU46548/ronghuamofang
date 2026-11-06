@@ -1026,16 +1026,16 @@ def runtime_form():
 
 
 def _chapter_target_words(cfg):
-    """单章字数区间（整数二元组，读坏了一律回落出厂 [5000, 9000]）。
+    """单章字数区间（整数二元组，读坏了一律回落出厂 [4000, 7200]）。
 
     只在 /state 里给前端当“本章进度”的分母，不参与写作判定 —— 写作侧的真源
     仍是 config 的 chapter.target_words（stage4 自己读）。
     """
     try:
-        tw = (cfg or {}).get("chapter", {}).get("target_words") or [5000, 9000]
+        tw = (cfg or {}).get("chapter", {}).get("target_words") or [4000, 7200]
         return [int(tw[0]), int(tw[1])]
     except (TypeError, ValueError, IndexError, KeyError):
-        return [5000, 9000]
+        return [4000, 7200]
 
 
 def _artifact_paths(book_name=""):

@@ -21,6 +21,7 @@ import re
 from pathlib import Path
 
 from utils.file_io import read_text, write_text
+from utils.word_count import count_cn_words
 
 NUM = "[0-9]+"
 NUM2 = "[0-9]{2}"   # 任务文件名里的两位章号（stage4_ch01.md）
@@ -131,19 +132,34 @@ _BODY_CORPUS = [
 ]
 
 
+_CN_DIGITS = "零一二三四五六七八九"
+
+
+def _cn_number(n):
+    """整数逐位转汉字（如 137 → 一三七）。
+
+    为什么不用阿拉伯数字（2026-11-05）：字数口径改为只计汉字后，打散句的
+    唯一性必须由**汉字**提供。阿拉伯数字每位只占 1 字符且被字数口径排除在外，
+    章长到 12000 字时模板 12-gram 重复率爬到 35%（撞退化门）；换成汉字数字
+    并把槽位加长到 4 个，重复率降到 0.13~0.19（400~12000 实测）。
+    """
+    return "".join(_CN_DIGITS[int(c)] for c in str(n))
+
+
 def _distinct_filler(k):
-    """逐句唯一的打散句（含三个递增数，长度 >12 字）。
+    """逐句唯一的打散句（四个递增序号，全部汉字数字）。
 
     为什么要它：12-gram 重复率是按**滑动窗口**算的。短句库里每句 <12 字时，
     窗口会跨句取字，只要相邻句序稳定，窗口就会整段复现 → 循环复用句库必然
-    推高重复率。把三个递增序号塞进同一句、且让每 12 字窗口都至少含一个序号，
+    推高重复率。把四个递增序号塞进同一句、且让每个 12 字窗口都至少含一个序号，
     复用就不可能形成相同窗口。
     """
-    a = k + 1
-    b = (k * 7 + 3) % 9973
-    c = (k * 13 + 5) % 4999
-    return (f"他第{a}次推开那扇旧门，数着第{b}颗星，"
-            f"又把第{c}块砖挪回原位，像是把日子重新码了一遍。")
+    a = _cn_number(k * 137 + 11)
+    b = _cn_number(k * 977 + 3)
+    c = _cn_number(k * 31 + 7)
+    d = _cn_number(k * 1319 + 5)
+    return (f"他第{a}次推开那扇旧门，数着第{b}颗星，又把第{c}块砖挪回原位，"
+            f"像是把第{d}天的日子重新码了一遍。")
 
 
 def _words_para(min_words):
@@ -162,25 +178,30 @@ def _words_para(min_words):
     现策略：**够用就用句库**（保真、不影响既有用例）；**超出容量就整段改用
     逐句唯一的打散句**，任意长度下重复率都压在阈值内。
 
-    ⚠️ 已验证的有效区间：**400–12000 字均无退化项**（check_degenerate 实测）。
-    20000 字起打散句里的取模序号开始回绕，复读率回升到 36%（略超 35% 上限）
-    —— 需要更大规模时把 `_distinct_filler` 的模数调大即可。
+    ⚠️ 已验证的有效区间（2026-11-05 复核，**汉字口径**）：**400–30000 字均无退化项**
+    （12-gram 重复率 0.13~0.21，上限 0.35），覆盖 `chapter.target_words` 的合法边界。
+    需要更大规模时把 `_distinct_filler` 的槽位长度调大即可。
+
+    第三个坑（2026-11-05 修）：字数口径改为**只计汉字**后，本函数还按 `len()`
+    计字符 —— 标点被算进目标，4000 字的下限实际只生成 3013 个汉字，stage4
+    判“字数不在 [4000, 7200] 区间”→ 一批 stage4 端到端用例整片假红。
+    **夹具必须与产品同口径**（`utils.word_count.count_cn_words`）。
     """
     corpus = _BODY_CORPUS
     need = max(int(min_words), 400)
-    cap = sum(len(s) for s in corpus)
+    cap = sum(count_cn_words(s) for s in corpus)
     out, total, i = [], 0, 0
     if need <= cap:
         while total < need:
             s = corpus[i % len(corpus)]
             out.append(s)
-            total += len(s)
+            total += count_cn_words(s)
             i += 1
     else:
         while total < need:
             s = _distinct_filler(i)
             out.append(s)
-            total += len(s)
+            total += count_cn_words(s)
             i += 1
     # 每 2 句成一段：产生真实段落结构（段数 >= MIN_PARAGRAPHS）
     paras = ["".join(out[j:j + 2]) for j in range(0, len(out), 2)]

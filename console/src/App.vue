@@ -5675,7 +5675,7 @@ onUnmounted(() => {
         <span v-if="targetWords.msg" class="meta words-msg"
               :class="{ bad: !targetWords.ok }">{{ targetWords.msg }}</span>
         <span class="spacer"></span>
-        <span class="meta">要一章不少于 8000 字 → 下限填 8000</span>
+        <span class="meta">要一章不少于 8000 汉字 → 下限填 8000</span>
       </div>
 
       <div class="flow-quick">

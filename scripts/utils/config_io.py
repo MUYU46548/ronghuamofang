@@ -321,7 +321,9 @@ def set_section_scalars(section_path, values, path=SYSTEM_YAML, comments=None,
 
     backup = None
     try:
-        bdir = Path(BACKUP_DIR)
+        # 备份目录**跟着配置文件走**，不跟 CWD：`--root`/测试里写临时项目时，
+        # CWD 相对路径会把备份落到别的项目里（真事故：迁移脚本备份到了运行目录）。
+        bdir = p.parent / "history"
         bdir.mkdir(parents=True, exist_ok=True)
         backup = bdir / ("%s_%s.yaml" % (p.stem, datetime.now().strftime("%Y%m%d_%H%M%S")))
         shutil.copy2(p, backup)

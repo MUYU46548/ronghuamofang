@@ -112,6 +112,8 @@
 | **泄露门禁（发布前必跑 / CI 自动）** | `python scripts/leak_scan.py --list ci/blacklist.txt [--json]`（扫**被跟踪文件**里的私人词：真名 / 作品词 / 本机路径 / 私人 vault 目录结构。**fail-closed**：词表缺失·为空·条目 <20 条 → exit 2；**非二进制文件读不到也算失败**（没扫到 ≠ 通过）。退出码 0 零命中 / 1 有命中或读不到 / 2 词表不可用）。词表：本机 `ci/blacklist.txt`（已 gitignore）+ CI secret `LEAK_BLACKLIST`；仓库里只有零真值的 `ci/blacklist.example`。**替换映射表**（真值 ↔ 虚构值）在私有的 `ci/fictional-map.txt`（已 gitignore）——它同时是词表损坏时的容灾重建来源。路径豁免写在词表里（`allow: LICENSE # 理由`）且**会被打印出来** —— 静默豁免等于开后门。⚠️ 取文件列表必须 `git -c core.quotepath=false ls-files`：默认会转义非 ASCII 文件名，导致中文名文件被**静默跳过**（本仓实测少报过 ~60 处） |
 | **发布树卫生** | `config/project.yaml.example` 是模板（`project.yaml` 发布后不再随仓库分发，缺文件会让新克隆首跑崩 —— `load_project_yaml` 没有兜底）；CI 的 `leak-gate` 任务同时拦“运行产物被跟踪”（`logs/`·`data/`·`output/`·`history/`·`materials/raw/*.md`） |
 | **界面文案黑话清零** | `python scripts/ui_copy_audit.py --check`（扫 `console/src/*.vue` 里**用户看得见的字**：模板节点 / 提示属性 / 脚本提示串，注释不算。命中 `BANNED` 即退 1；`--write` 刷新 `docs/ui-copy-audit.md` 全量清单；改法与判定口径见 `docs/ui-copy-decisions.md`） |
+| **字数口径（只计汉字）** | `python scripts/migrate_word_caliber.py [--root <工作区>] [--yes]`（把旧出厂值 `[5000, 9000]` 折算成 `[4000, 7200]`；只动恰好等于旧出厂值的配置，用户自调值不动；写前自动备份）· 唯一实现 `utils/word_count.py` |
+| **本书成本账** | `python scripts/book_cost.py [show\|auto\|record --yuan N --note …]`（机器侧：章数 / 汉字数 / 阶段时间 / 墨坊 token 与费用，跑完自动 upsert；Agent 侧花费读不到，由执行方自报，未报显示“未上报”，不猜） |
 | kb / 模型端点契约自检 | `python tests/http/test_kb_and_models_api_http.py`（vault 未配置 → /kb/* 给可行动 400；白名单两级校验与 strict=false 逃生门，27 断言） |
 | 重试路径回归自检 | `python tests/unit/test_orchestrator_retry.py`（S1 回归：阶段失败不得抛异常、runs 不得留 running 脏行、finish_run_if_running 幂等，13 断言） |
 | 流式跑阶段回归自检 | `python tests/unit/test_stream_stage.py`（S2 回归：流式/非流式共用退出码翻译、无平行分支，18 断言） |

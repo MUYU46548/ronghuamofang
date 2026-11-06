@@ -30,7 +30,7 @@
   "n": 3,
   "current_layer": "refined",
   "last_modified_layer": "refined",
-  "target_words": [5000, 9000],
+  "target_words": [4000, 7200],
   "layers": {
     "raw":     { "exists": true, "words": 2410, "title": "第3章 井底来的箱子", "mtime": 1792… },
     "checked": { "exists": true, "words": 2398, "title": "…", "mtime": 1792… },
