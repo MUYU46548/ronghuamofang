@@ -99,3 +99,19 @@
 - 判据：`tests/unit/test_write_lock.py`（26 条，W1~W10）。反证必须改 `lock_guard`
   的兜底，改 `run_lock` 不会红（因为判定不在那儿）。
 
+
+## 凭据缺失（`engine: direct` 且环境变量没有 Key）
+
+**表现（2026-11-06 之前）**：`make_client` 只打一行 WARN“客户端构造成功，实际调用时才会报错”
+→ 阶段跑到**第一轮真请求**才 401，报错埋在阶段深处，界面只说“阶段失败”。
+用户会去翻模型、翻提示词、翻素材 —— 全都不是原因。
+
+**现在**：`make_client` 抛 `MissingCredentialError`（`utils/llm_client.py`），报错里写清
+provider id / 环境变量名 / 三条修法（`.env` 加一行、改 `engine: hermes`、改 `engine: self`），
+**不回显任何密钥值**。
+
+- 离线预演（`--dry-run` / 估算 / 只想构造客户端看看）设 `NF_ALLOW_MISSING_KEY=1` 放行 ——
+  放行时明确打印“真调用会失败”。
+- `engine: hermes` 不需要 Key（走订阅），`engine: self` 也不需要（只出任务书）—— 两者都不受影响。
+- 判据：`tests/unit/test_missing_credential.py`（6 条：抛哪个异常 / 报错内容 / 逃生门 / 不误伤 hermes）。
+- 相关：`python scripts/nfctl.py check` 早就有“API Key 已配置”一项（启动前体检用它看全景）。

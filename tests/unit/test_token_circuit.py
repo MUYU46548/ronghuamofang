@@ -412,8 +412,13 @@ def case_request_cap_at_call_point():
     # make_client 接线（chdir 到空目录：避免读到项目 .env）
     tmp = Path(tempfile.mkdtemp(prefix="token_cap_"))
     origin = os.getcwd()
+    _env_backup = os.environ.get("NF_ALLOW_MISSING_KEY")
     try:
         os.chdir(tmp)
+        # 本组只验“上限接线”，不验凭据（NOPE_KEY 故意不存在）。
+        # 2026-11-06 起缺凭据会抛 MissingCredentialError（启动失败态），
+        # 所以这里显式放行 —— 不设它，这组用例会因为“没配 Key”而红，与上线无关。
+        os.environ["NF_ALLOW_MISSING_KEY"] = "1"
         hc = make_client({"engine": "hermes",
                           "hermes": {"timeout": 5, "max_turns": 2},
                           "budget": {"token_limit": {"enabled": True,
@@ -441,6 +446,10 @@ def case_request_cap_at_call_point():
               dc0.request_max_tokens is None, getattr(dc0, "request_max_tokens", None))
     finally:
         os.chdir(origin)
+        if _env_backup is None:
+            os.environ.pop("NF_ALLOW_MISSING_KEY", None)
+        else:
+            os.environ["NF_ALLOW_MISSING_KEY"] = _env_backup
         shutil.rmtree(tmp, ignore_errors=True)
 
 

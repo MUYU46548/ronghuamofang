@@ -462,6 +462,16 @@ DEFAULT_DISABLE_THINKING_PAYLOADS = (
 )
 
 
+class MissingCredentialError(RuntimeError):
+    """直连引擎的环境变量里没有凭据（2026-11-06，C2：启动失败态）。
+
+    为什么单列一个异常类而不是 `print WARN`：旧实现"构造成功、调用时才 401"，
+    于是失败点在**第一轮真请求**，报错埋在某个阶段深处，用户看不出是没配 Key。
+    单列类名让 orchestrator / nf_api 能把"配置问题"与"模型胡写"分开报，
+    也让前置检查有地方可挂。消息里只写**变量名**与修法，绝不回显密钥值。
+    """
+
+
 class OpenAICompatClient:
     """OpenAI 兼容 Chat Completions 直连客户端。
 
@@ -1800,8 +1810,21 @@ def make_client(cfg, model_key="default", verbose=True):
     if not base_url:
         raise SystemExit("[client] provider " + provider_id + " 缺 base_url（检查 config/system.yaml）")
     if not api_key:
-        print("[client] WARN 未设 " + str(prov.get("api_key_env", "?")) +
-              "（项目 .env，不入 git）；客户端构造成功，实际调用时才会报错")
+        # 2026-11-06（C2：凭据缺失的启动失败态）：原来是 WARN 一句“实际调用时才会报错”，
+        # 于是模型请求要等到**第一轮真调用**才 401，报错还埋在某个阶段深处，看不出是没配 Key。
+        # 现按“启动即失败”处理，并把修复办法直接写在报错里（不打印任何密钥值）。
+        _env = str(prov.get("api_key_env", "") or "").strip()
+        _hint = (
+            "[client] 引擎=direct，但 provider “%s” 的凭据为空（环境变量 %s 没有值）。\n"
+            "  修法一：在项目 .env 里加一行（该文件不入 git）：%s=<你的 Key>\n"
+            "  修法二：把 config/system.yaml 的 engine 改成 hermes（走订阅，不需要 Key）\n"
+            "          或 self（只出任务书，零 token）\n"
+            "  只想离线预演（--dry-run / 估算）时，设 NF_ALLOW_MISSING_KEY=1 可跳过本检查。"
+            % (provider_id, _env or "（未配置 api_key_env）", _env or "XXX_API_KEY"))
+        if os.environ.get("NF_ALLOW_MISSING_KEY") == "1":
+            print("[client] WARN 凭据为空（已按 NF_ALLOW_MISSING_KEY=1 放行；真调用会失败）")
+        else:
+            raise MissingCredentialError(_hint)
 
     # 模型白名单校验（strict=False：只报警不拦，但记录日志）
     # 这是防御性成本框架的一部分：用户免费体验包按模型领取，未经确认不得指定/更换付费模型
