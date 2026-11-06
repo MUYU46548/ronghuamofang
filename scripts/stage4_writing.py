@@ -828,6 +828,9 @@ def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, p
         "world_context": world_context,
         "min_words": target[0],
         "max_words": target[1],
+        # 目标字数给一点余量（只计汉字口径，2026-11-06）：模型若严格卡着下限写，
+        # 一次删改就掉到线下，白挨一轮打回。+8% 是"够删两段"的量级。
+        "target_words": int(round(int(target[0]) * 1.08)),
         "path_output": Path(f"data/chapters/raw/{n:02d}.md").resolve(),
     })
     return body
@@ -850,6 +853,10 @@ def build_expand_task(cfg, proj, n, cur_words, low, high):
     variables = {
         "n": n, "cur_words": cur_words,
         "min_words": low, "max_words": high,
+        # 目标值 +5% 余量、以及"这一轮至少要补多少" —— 只计汉字口径（2026-11-06）。
+        # 只写"达到下限"时模型容易贴着线补，补完仍差几个字 → 白折一轮。
+        "target_words": int(round(int(low) * 1.05)),
+        "need_words": max(0, int(round(int(low) * 1.05)) - int(cur_words)),
         "path_draft": draft, "style_notes": style_notes,
     }
     try:
@@ -859,10 +866,12 @@ def build_expand_task(cfg, proj, n, cur_words, low, high):
         print("[stage4] 提示：prompts/stage4_expand.md 缺失（装机端 payload 未更新？）"
               "—— 用内置扩写指令兜底")
         return (
-            "# 阶段 4 任务：扩写第 {n} 章至字数下限\n\n"
-            "现有稿件只有 {cur_words} 字，低于要求下限 {min_words} 字。"
+            "# 阶段 4 任务：扩写第 {n} 章至汉字下限\n\n"
+            "现有稿件只有 {cur_words} 个汉字，低于要求下限 {min_words} 个汉字"
+            "（只数汉字：标点、空格、数字、英文字母都不算）。"
             "请先用 read_file 读取现有稿件，然后在保留既有情节、结构、对话的"
-            "前提下扩写正文，使总字数达到 {min_words}~{max_words} 字之间。\n\n"
+            "前提下扩写正文，使正文汉字数达到 {target_words} 个左右"
+            "（合格区间 {min_words}~{max_words}）；这一次至少要净增 {need_words} 个汉字。\n\n"
             "## 扩写要求\n"
             "- 只增不删：既有段落全部保留，扩写内容插在语义衔接处\n"
             "- 扩写手法：补充动作细节、环境的具体感官呈现、对话的往还回合、"

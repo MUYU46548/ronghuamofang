@@ -146,7 +146,10 @@ class _Base:
     def _respond(self, name, text):
         n = int(re.search(r"stage4_ch(\d+)", name).group(1))
         is_group = "_g" in name
-        mm = re.search(r"字数 (\d+)-(\d+) 字", text)
+        # 2026-11-06：模板改口径后写“篇幅 4000-7200 个汉字”，旧写法“字数 X-Y 字”也认 ——
+        # 夹具不许因措辞变化就退化成 fallback（那会让“拆群足量”这条验收凭空变红）。
+        mm = (re.search(r"(\d+)-(\d+)\s*个?汉字", text)
+              or re.search(r"字数 (\d+)-(\d+) 字", text))
         low = int(mm.group(1)) if mm else 1300
         chars = low if is_group else 1300
         out = re.search(r"写入文件: ([^ \n]+[.]md)", text)

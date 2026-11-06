@@ -115,11 +115,39 @@ def t_migration():
             shutil.rmtree(tmp, ignore_errors=True)
 
 
+def t_prompts():
+    """提示词里的字数口径必须与判定同源（2026-11-06，A3 字数达标根因）。
+
+    病：判定只计汉字，而 stage4 的任务模板写的是“字数 4000-7200 字” ——
+    模型按含标点理解，写满 4000 字只有 ~3100 汉字，天生差四分之一，
+    全靠打回/扩写硬补；边界章就停在 3847~4512 那种“补了一半”的位置。
+    """
+    print("\n【5】写作提示词必须说“汉字”，并给余量")
+    root = Path(__file__).resolve().parents[2]
+    for rel in ("prompts/stage4_writing.md", "prompts/stage4_group.md",
+                "prompts/stage4_expand.md"):
+        t = (root / rel).read_text(encoding="utf-8")
+        check("%s 说清只数汉字" % rel, "汉字" in t)
+        check("%s 没有再写裸的“字数 X 字”" % rel,
+              "字数 {{min_words}}-{{max_words}} 字" not in t
+              and "{{quota_low}}-{{quota_high}} 字" not in t)
+
+    # 真渲染一次扩写任务：目标值/需净增数必须是算出来的数，不是占位符
+    from stage4_writing import build_expand_task
+    body = build_expand_task({"chapter": {"target_words": [4000, 7200]}},
+                             {"book": {"name": "夹具"}}, 3, 3200, 4000, 7200)
+    check("扩写任务含“至少净增 N 个汉字”", "至少" in body and "净增" in body, body[:120])
+    check("扩写任务的目标值已渲染（不留 {{}}）", "{{" not in body)
+    check("扩写任务给出 4200 目标（4000×1.05）", "4200" in body,
+          [ln for ln in body.splitlines() if "4200" in ln][:1])
+
+
 def main():
     t_count()
     t_single_impl()
     t_preset()
     t_migration()
+    t_prompts()
     print("\n" + "=" * 60)
     print("  通过 %d / 失败 %d" % (len(PASS), len(FAIL)))
     for f in FAIL:

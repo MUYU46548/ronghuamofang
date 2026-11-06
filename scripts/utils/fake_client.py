@@ -277,7 +277,10 @@ def _write_chapter_outlines(text):
 def _write_chapter(text, name):
     m = re.search("写入文件: ([^ \\n]+[.]md)", text)
     out_path = Path(m.group(1)) if m else Path("data/chapters/raw") / name
-    mm = re.search("字数 (" + NUM + ")-(" + NUM + ") 字", text)
+    # 任务里的字数区间：2026-11-06 起模板写成“正文 **4000-7200 个汉字**”
+    # （只计汉字口径），旧写法“字数 4000-7200 字”也认 —— 夹具不许因措辞变化而假红。
+    mm = (re.search(r"(\d+)-(\d+)\s*个?汉字", text)
+          or re.search("字数 (" + NUM + ")-(" + NUM + ") 字", text))
     min_w = int(mm.group(1)) if mm else 300
     chap = ""
     nm = re.search("第(" + NUM + ") 章", name) or re.search("ch(" + NUM2 + ")", name)
