@@ -73,15 +73,29 @@ def check(name, cond, detail=""):
 #   若要真正覆盖，需要给浏览器加一层文件桥（例如带 CORS 头的只读静态服务），
 #   那属于验收基建的独立议题，别顺手塞进本脚本。
 PRELOAD_SHIM_JS = """
+const readPreviewFallback = async (p) => (p === "prompts/agent_kickoff.md"
+    ? { ok: true, size: 64, content: "# kickoff\\n\\n项目根：{{PROJECT_ROOT}}\\n\\n禁止从头重建本项目。\\n" }
+    : { ok: false, error: "e2e harness: 无文件桥（readPreview 是 Electron 独有 IPC）" })
 window.mofangAPI = window.mofangAPI || {
   // GUI 双因子的第二因子（2026-10-06 加固）：真机由 Electron 主进程经 IPC 签发。
   // 验收环境没有主进程 → 由 new_page 注入 window.__NF_GUI_TOKEN__（与后端
   // NF_GUI_TOKEN 同值）。不给这个值的话，_gui_only 类端点（归档删除、止烧阈值）
   // 在浏览器垫片下**永远 403**，看着像前端 bug（e2e_new_features 踩过）。
   getGuiToken: async () => window.__NF_GUI_TOKEN__ || "",
-  readPreview: async (p) => (p === "prompts/agent_kickoff.md"
-    ? { ok: true, size: 64, content: "# kickoff\\n\\n项目根：{{PROJECT_ROOT}}\\n\\n禁止从头重建本项目。\\n" }
-    : { ok: false, error: "e2e harness: 无文件桥（readPreview 是 Electron 独有 IPC）" }),
+  // 2026-11-06（B7）：给章节文件一条假文件桥 —— 没有它，审阅台左栏永远空着，
+  // 中栏编辑器根本不渲染，**审阅台的列宽/行宽无从验收**（真缺陷会一直躲在这里）。
+  _nfChapterText: (n) => "## 第" + n + "章 验收章" + String.fromCharCode(10, 10)
+    + Array.from({ length: 40 }, () => "他推门进来的时候，屋檐上的水线正连成了串，"
+      + "地上积了一小滩暗色的水。她停下脚步，侧过脸朝窗外的天色看了一眼，随即收回视线。")
+      .join(String.fromCharCode(10, 10)),
+  readPreview: async (p) => {
+    const _m = p.match(/^data\/chapters\/(raw|checked|refined)\/(\d+)\.md$/);
+    if (_m) {
+      return { ok: true, size: 2048,
+               content: window.mofangAPI._nfChapterText(Number(_m[2])) };
+    }
+    return readPreviewFallback(p);
+  },
   openArtifact: async () => ({ ok: true }),
   openFile: async () => ({ ok: true }),
   revealInFolder: async () => ({ ok: true }),
@@ -521,6 +535,17 @@ def real_next():
 
 def test_real(browser):
     print("\n=== B. 真后端（8799）：真数据上的工作流 / 预估 / 日志 ===")
+    # 前提一：8799 得在跑。没起时 `real_next()` 拿不到 /state，后面 `.flow-next`
+    # 会以 30s 超时的形式炸掉整轮 —— 那是**没执行**，不是产品坏了。
+    try:
+        with urllib.request.urlopen(REAL_API + "/health", timeout=3) as r:
+            alive = r.status == 200
+    except Exception:                                        # noqa: BLE001
+        alive = False
+    if not alive:
+        print("  [SKIP] B 段前提不成立：%s 没有在跑（真后端未启动）。" % REAL_API)
+        print("         启动：python scripts/nf_api.py --port 8799")
+        return
     run_stage, gate_stage = real_next()
     is_gate = bool(gate_stage) and (run_stage is None or gate_stage < run_stage)
     print("  真后端推导：下一可运行阶段=%s · 待审批门=%s" % (run_stage, gate_stage))
@@ -1131,36 +1156,47 @@ def test_about_project(browser, mock_proc=None):
         ctx.close()
 
     print("  --- 新手序列引导（I-1，2026-11-03）---")
-    ctx2, page2, errs2, bad2 = new_page(browser, COLD_API, "cold")
+    # 前提：8797 是同一个 mock 的 --cold 实例。没起时整段只能空跑，
+    # 会连报“引导卡不存在”这种假红 —— 按项目纪律：未执行 ≠ 失败。
     try:
-        check("全新工作区显示序列引导卡", page2.locator(".ob-card").count() == 1,
-              page2.locator(".ob-card").count())
-        check("给出唯一的“当前步”",
-              "下一步：建项目" in (page2.locator(".ob-next-title").inner_text()
-                                if page2.locator(".ob-next-title").count() else ""),
-              page2.locator(".ob-next-title").inner_text()
-              if page2.locator(".ob-next-title").count() else "(缺)")
-        check("收起态不铺步骤（先一句“下一步”，不糊一脸）",
-              page2.locator(".ob-step").count() == 0)
-        page2.locator(".ob-card button:has-text('全部步骤')").click()
-        page2.wait_for_timeout(350)
-        check("展开后 8 步齐全", page2.locator(".ob-step").count() == 8,
-              page2.locator(".ob-step").count())
-        check("只有一个“当前步”（序列严格）",
-              page2.locator(".ob-step.is-current").count() == 1,
-              page2.locator(".ob-step.is-current").count())
-        check("当前步写明点了哪里",
-              page2.locator(".ob-step.is-current .ob-step-how").count() == 1)
-        shot(page2, "D6_onboarding_cold")
-        page2.locator(".ob-step.is-current button:has-text('带我去')").click()
-        page2.wait_for_timeout(500)
-        check("“带我去”真的打开了新建项目向导",
-              page2.locator(".drawer-mask .dialog").count() >= 1,
-              page2.locator(".drawer-mask .dialog").count())
-        errs2_real = [e for e in errs2 if "404" not in e]
-        check("引导无 console 报错", not errs2_real, errs2_real[:3])
-    finally:
-        ctx2.close()
+        with urllib.request.urlopen(COLD_API + "/health", timeout=3) as r:
+            _cold_alive = r.status == 200
+    except Exception:                                        # noqa: BLE001
+        _cold_alive = False
+    if not _cold_alive:
+        print("  [SKIP] 序列引导段前提不成立：%s 没有在跑。" % COLD_API)
+        print("         启动：python tests/e2e/mock_nf_api_state.py --port 8797 --cold")
+    if _cold_alive:
+        ctx2, page2, errs2, bad2 = new_page(browser, COLD_API, "cold")
+        try:
+            check("全新工作区显示序列引导卡", page2.locator(".ob-card").count() == 1,
+                  page2.locator(".ob-card").count())
+            check("给出唯一的“当前步”",
+                  "下一步：建项目" in (page2.locator(".ob-next-title").inner_text()
+                                    if page2.locator(".ob-next-title").count() else ""),
+                  page2.locator(".ob-next-title").inner_text()
+                  if page2.locator(".ob-next-title").count() else "(缺)")
+            check("收起态不铺步骤（先一句“下一步”，不糊一脸）",
+                  page2.locator(".ob-step").count() == 0)
+            page2.locator(".ob-card button:has-text('全部步骤')").click()
+            page2.wait_for_timeout(350)
+            check("展开后 8 步齐全", page2.locator(".ob-step").count() == 8,
+                  page2.locator(".ob-step").count())
+            check("只有一个“当前步”（序列严格）",
+                  page2.locator(".ob-step.is-current").count() == 1,
+                  page2.locator(".ob-step.is-current").count())
+            check("当前步写明点了哪里",
+                  page2.locator(".ob-step.is-current .ob-step-how").count() == 1)
+            shot(page2, "D6_onboarding_cold")
+            page2.locator(".ob-step.is-current button:has-text('带我去')").click()
+            page2.wait_for_timeout(500)
+            check("“带我去”真的打开了新建项目向导",
+                  page2.locator(".drawer-mask .dialog").count() >= 1,
+                  page2.locator(".drawer-mask .dialog").count())
+            errs2_real = [e for e in errs2 if "404" not in e]
+            check("引导无 console 报错", not errs2_real, errs2_real[:3])
+        finally:
+            ctx2.close()
 
     print("  --- 审批门抢“当前步”+ 带我去高亮 ---")
     ctx3, page3, errs3, bad3 = new_page(browser, MOCK_API, "gate-guide")
