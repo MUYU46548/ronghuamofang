@@ -5590,7 +5590,21 @@ onUnmounted(() => {
         </div>
         <div class="ps-item">
           <span class="ps-label">预计费用</span>
-          <span class="ps-value">{{ nextAction ? nextAction.hint : '—' }}</span>
+          <span class="ps-value">
+            <!-- 2026-11-06 修：这一格原来显示 nextAction.hint（"审批门：看过生成的文件再放行"）——
+                 那是“下一步”的说明，不是钱。现在只放**真预估**：
+                 勾选条已算过就用它（/estimate 同源），否则退“按已完成阶段均值估的剩余”，
+                 两者都没有就明说没有，不拿别的字段顶。 -->
+            <template v-if="quickEstLoading">预估中…</template>
+            <template v-else-if="quickEstData">
+              {{ fmtYuan(quickEstData.totals.cost_yuan) }}
+              <span class="meta">（勾选 {{ quickStages.length }} 件）</span>
+            </template>
+            <template v-else-if="estimatedRemainingCost">约 ¥{{ estimatedRemainingCost }}
+              <span class="meta">（按已完成阶段均值估）</span>
+            </template>
+            <template v-else>未估算</template>
+          </span>
         </div>
         <div class="ps-item">
           <span class="ps-label">累计花费</span>
