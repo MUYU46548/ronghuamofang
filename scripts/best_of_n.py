@@ -13,8 +13,9 @@ import sys
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-if str(SCRIPT_DIR) not in sys.path:
-    sys.path.insert(0, str(SCRIPT_DIR))
+# 模块级自举（打包态 embeddable python 的 sys.path 不含脚本目录）：
+# 必须写成**顶层语句**，护栏只认模块级 `sys.path.insert(...)`，包在 if 里的不算。
+sys.path.insert(0, str(SCRIPT_DIR))
 
 from utils.best_of_n import main                                        # noqa: E402
 
