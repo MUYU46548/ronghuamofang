@@ -280,6 +280,37 @@ MULTI_STARTED = {}   # 多方案 mock job 的起始时刻（逐版进度按秒�
 DEFAULT_WT = "templates/小说格式模板V1.3.dotx"
 WT = {"current": DEFAULT_WT}
 
+# 词表（B1，2026-11-06）：**有状态** mock —— “保存 → 回读生效档位”必须是真链路。
+# 无状态的话界面永远显示“内置 20 条”，保存了也看不出来，视觉验收等于没验。
+WL = {"cliche": "", "compliance": ""}
+_WL_BUILTIN = 20
+
+
+def wordlists_payload():
+    cl_terms = len([l for l in WL["cliche"].splitlines()
+                    if l.strip() and not l.strip().startswith("#")])
+    co_terms = len([l for l in WL["compliance"].splitlines()
+                    if l.strip() and not l.strip().startswith("#")])
+    if cl_terms:
+        cl_src, cl_label, cl_warn = "gui", "界面词表", ""
+    else:
+        cl_src, cl_label = "builtin", "内置 20 条"
+        cl_warn = "已回落内置 %d 条病灶词" % _WL_BUILTIN
+    return {
+        "ok": True,
+        "cliche": {"text": WL["cliche"], "path": "data/wordlists/cliche.txt",
+                   "exists": True, "terms": cl_terms or _WL_BUILTIN,
+                   "source": cl_src, "source_label": cl_label, "warning": cl_warn,
+                   "error": ""},
+        "compliance": {"text": WL["compliance"], "path": "data/wordlists/compliance.txt",
+                       "exists": True, "terms": co_terms,
+                       "source": "gui" if co_terms else "unconfigured",
+                       "source_label": "界面词表" if co_terms else "未配置（不检查）",
+                       "warning": "", "error": ""},
+        "format_note": "一行一条；# 开头是注释；regex: 前缀表示正则。",
+        "limits": {"max_chars": 200000, "max_line_chars": 200},
+    }
+
 # 知识库扫描面（2026-10-24）：**有状态** mock —— “勾掉目录 → 保存 → 列表状态变化”
 # 必须是真链路。排除态由 exclude 现算（与真后端同构），不写死在条目里，
 # 否则保存后界面不变，视觉验收看到的是假绿。
@@ -672,6 +703,10 @@ class Handler(BaseHTTPRequestHandler):
             # 知识库扫描面（设置 → 风格与提示词）：目录名取自用户库本身，
             # 排除态现算 —— 保存后必须看到列表变化，否则视觉验收是假绿。
             return self._send(200, vault_scan_payload())
+
+        if p == "/config/wordlists":
+            # 词表（B1）：有状态回显，保存后“生效档位”必须真的变。
+            return self._send(200, wordlists_payload())
 
         if p == "/config/word_template":
             # Word 成品模板面板（设置 → Word 模板，件五）：确定性清单，
@@ -1151,6 +1186,26 @@ class Handler(BaseHTTPRequestHandler):
                                     "message": "已更新扫描排除项",
                                     "scan": vault_scan_payload(),
                                     "note": "对下一次检索生效。"})
+
+        if p == "/config/wordlists":
+            # 词表（B1）：收 cliche / compliance 两个字符串，未知字段 400（与真后端同口径）。
+            unknown = [k for k in body if k not in ("cliche", "compliance")]
+            if unknown:
+                return self._send(400, {"ok": False,
+                                        "error": "未知字段 %s（只接受 cliche / compliance）"
+                                                 % "、".join(sorted(unknown))})
+            if "cliche" not in body and "compliance" not in body:
+                return self._send(400, {"ok": False, "error": "至少要传 cliche 或 compliance"})
+            for k in ("cliche", "compliance"):
+                if k in body:
+                    WL[k] = str(body.get(k) or "")
+            payload = wordlists_payload()
+            payload["saved"] = [{"label": k, "path": "data/wordlists/%s.txt" % k,
+                                 "terms": payload[k]["terms"], "warning": ""}
+                                for k in ("cliche", "compliance")]
+            payload["message"] = "；".join("%s %d 条" % (k, payload[k]["terms"])
+                                          for k in ("cliche", "compliance"))
+            return self._send(200, payload)
 
         if p == "/config/word_template":
             # Word 模板面板（件五）：**有状态** mock —— 选完再读必须能看到新值，

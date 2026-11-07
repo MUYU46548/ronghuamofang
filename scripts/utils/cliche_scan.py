@@ -46,14 +46,37 @@ def config_wordlist_path(cfg: Optional[Dict[str, Any]] = None) -> Optional[str]:
 
 
 def scan_text(text: str, wordlist_path: Optional[str] = None,
-              cfg: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """扫描一段正文，返回原版口径的报告（总字数/命中/排行）。"""
-    path = wordlist_path or config_wordlist_path(cfg)
-    try:
-        terms = load_wordlist(path)
-    except (OSError, ValueError):
-        terms = load_wordlist(None)      # 词表坏了回落默认：扫描本身不该因配置炸掉
-    return _scanner.scan(text, wordlist=terms)
+              cfg: Optional[Dict[str, Any]] = None,
+              root: str = ".") -> Dict[str, Any]:
+    """扫描一段正文，返回原版口径的报告（总字数/命中/排行）。
+
+    词表优先级（2026-11-06 起唯一实现 `utils/wordlists.py`）：
+    **显式路径 > 界面词表 `data/wordlists/cliche.txt` > config 路径 > 内置 20 条**。
+    以前这里只认 config，于是界面上能编词表、扫描却不理会 —— 两份词表两套口径，
+    作者改完以为生效了。生效档位与告警跟着报告一起回（`wordlist_source` / `wordlist_warning`），
+    免得“用了哪一档”只能靠猜。
+    """
+    from utils import wordlists as _wl
+    source = ""
+    warning = ""
+    if wordlist_path:
+        try:
+            terms = load_wordlist(wordlist_path)
+            source = "explicit"
+        except (OSError, ValueError) as e:
+            terms = load_wordlist(None)
+            source = "builtin"
+            warning = "指定词表不可用（%s），已回落内置 20 条" % e
+    else:
+        info = _wl.load_cliche(root, cfg)
+        terms = info["terms"]
+        source = info["source"]
+        warning = info["warning"]
+    rep = _scanner.scan(text, wordlist=terms)
+    rep["wordlist_source"] = source
+    if warning:
+        rep["wordlist_warning"] = warning
+    return rep
 
 
 def chapter_path(n: int, root: str | Path = ".") -> Optional[Path]:
@@ -71,7 +94,7 @@ def scan_chapter(n: int, root: str | Path = ".", wordlist_path: Optional[str] = 
     p = chapter_path(n, root)
     if p is None:
         raise FileNotFoundError("第 %d 章没有任何一层正文（refined/checked/raw）" % n)
-    rep = scan_text(p.read_text(encoding="utf-8"), wordlist_path, cfg)
+    rep = scan_text(p.read_text(encoding="utf-8"), wordlist_path, cfg, root=str(root))
     rep["file"] = str(p)
     return rep
 

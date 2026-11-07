@@ -2912,6 +2912,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/config/target_words":
             # 单章字数区间读取（chapter.target_words）+ 出厂预设 + 合法区间。
             self._send(*_dom(dom_project.handle_config_target_words(self)))
+        elif p == "/config/wordlists":
+            # 词表读取（B1）：病灶词 / 合规词两份自定义表的原文 + 生效档位。
+            self._send(*_dom(dom_project.handle_config_wordlists(self)))
         elif p == "/config/book_target_words":
             # 全书目标字数（book.target_words）+ 与章数/单章区间的推算关系。
             self._send(*_dom(dom_project.handle_book_target_words(self)))
@@ -3914,6 +3917,9 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/config/target_words":
                 # 单章字数区间设置（创作决策，非安全闸门；越界值一律 400 拒绝）。
                 self._send(*_dom(dom_project.handle_config_target_words_set(self, body)))
+            elif p == "/config/wordlists":
+                # 词表设置（创作决策：改的是“哪些词算病灶/合规”，不是安全闸门）。
+                self._send(*_dom(dom_project.handle_config_wordlists_set(self, body)))
             elif p == "/config/book_target_words":
                 # 全书目标字数（创作决策；写盘走 set_book_fields，保注释 + 备份 + 回读）。
                 self._send(*_dom(dom_project.handle_book_target_words_set(self, body)))

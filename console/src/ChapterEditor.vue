@@ -612,7 +612,7 @@ onUnmounted(() => {
 /* 正文测量上限（B7，2026-11-06）：730px ≈ 46 个汉字/行（15px 字 + 32px 内边距 + 2px 边框）。
    为什么要有上限：栏宽放开后（左/右栏可收起），1920 视口下正文能到 80+ 字/行 ——
    那是另一头的不适（眼睛回扫距离过长）。上限 + 居中 = 宽度够读、又不拉成横幅。
-   数值不是拍脑袋：Task 判据是「≥45 汉字/行」，46 是“达标且稳定”的最小值。 */
+   数值不是拍脑袋：Task 判据是“≥45 汉字/行”，46 是“达标且稳定”的最小值。 */
 .ce-textarea {
   flex: 1; width: 100%; max-width: 730px; margin: 0 auto; resize: none; padding: 14px 16px;
   font-family: "Source Han Serif SC", "Noto Serif SC", "Songti SC", serif;

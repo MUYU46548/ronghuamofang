@@ -614,6 +614,52 @@ def handle_book_target_words_set(h, body):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+def handle_config_wordlists(h):
+    """`GET /config/wordlists` —— 病灶词 / 合规词两份自定义表。
+
+    返回的是**原文**（界面要能编辑）+ 生效档位（哪一档真在用）+ 条数 + 告警。
+    为什么不只回条数：作者改完表最想知道的是“现在到底按哪张表在扫”，
+    而那取决于文件在不在、表是不是空的（空 → 回落内置 20 条并告警）。
+    """
+    try:
+        from utils import wordlists as wl
+        cfg = api.load_all()[0]
+        return 200, wl.describe(api.ROOT, cfg)
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_config_wordlists_set(h, body):
+    """写词表（`data/wordlists/{cliche,compliance}.txt`）。
+
+    不设 GUI-only：它是**创作决策**（哪些词算病灶、哪些词是合规红线），
+    与 target_words / vault_skip_dirs 同档 —— Agent 可代配，但参数校验要严：
+    · 只收 cliche / compliance 两个字符串字段（未知字段一律 400，静默忽略等于
+      “我以为存了”）；必须至少传一个；
+    · 超长 / 超宽行 / 含不可见控制字符 → 400 并说清哪一行；
+    · 空表**允许保存**（明确表态“不用自定义词表”），由 load 侧回落内置并告警。
+    """
+    if not isinstance(body, dict):
+        return 400, {"ok": False, "error": "请求体必须是 JSON 对象"}
+    unknown = [k for k in body if k not in ("cliche", "compliance")]
+    if unknown:
+        return 400, {"ok": False,
+                     "error": "未知字段 %s（只接受 cliche / compliance）"
+                              % "、".join(sorted(unknown))}
+    if "cliche" not in body and "compliance" not in body:
+        return 400, {"ok": False, "error": "至少要传 cliche 或 compliance"}
+    try:
+        from utils import wordlists as wl
+        res = wl.save(api.ROOT, body.get("cliche"), body.get("compliance"))
+        # 写后回读：界面拿到的是“盘上现在是什么、按哪一档生效”，不是写入参数的复读。
+        res.update(wl.describe(api.ROOT, api.load_all()[0]))
+        return 200, res
+    except ValueError as e:
+        return 400, {"ok": False, "error": str(e)}
+    except OSError as e:
+        return 500, {"ok": False, "error": "写盘失败：" + str(e)[:200]}
+
+
 def handle_config_target_words(h):
     """读单章字数区间（chapter.target_words）+ 出厂预设 + 合法区间。
 
@@ -1789,6 +1835,9 @@ ROUTES = (
     ("POST", "/config/token_limit", handle_config_token_limit_set),
     ("GET", "/config/target_words", handle_config_target_words),
     ("POST", "/config/target_words", handle_config_target_words_set),
+    # 词表（B1，2026-11-06）：病灶词 / 合规词可在界面编辑；写入口 = 创作决策，非安全闸门
+    ("GET", "/config/wordlists", handle_config_wordlists),
+    ("POST", "/config/wordlists", handle_config_wordlists_set),
     # 全书目标字数（2026-11-05，试跑第 24 条）：界面此前只能改单章区间
     ("GET", "/config/book_target_words", handle_book_target_words),
     ("POST", "/config/book_target_words", handle_book_target_words_set),

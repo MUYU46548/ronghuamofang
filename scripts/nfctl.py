@@ -844,7 +844,7 @@ def collect_cliche(root: Path, chapter=None, file=None, wordlist=None) -> dict:
         p = Path(file)
         if not p.is_absolute():
             p = root / file
-        rep = scan_text(p.read_text(encoding="utf-8"), wordlist)
+        rep = scan_text(p.read_text(encoding="utf-8"), wordlist, root=str(root))
         rep["file"] = str(p)
         return rep
     if chapter:
@@ -872,6 +872,15 @@ def render_cliche(d: dict) -> str:
         return format_report(d)
     lines = ["病灶词扫描：%d 章，命中 %d 次（零 token，只报不拦）"
              % (len(d["chapters"]), d["total_hits"])]
+    # “你用的是哪张词表”必须在输出里，不然改完界面词表却看不出生效没有（B1）。
+    src = next((r.get("wordlist_source") for r in d["chapters"] if r.get("wordlist_source")), "")
+    if src:
+        label = {"gui": "界面词表 data/wordlists/cliche.txt", "config": "配置文件指定的词表",
+                 "builtin": "内置 20 条", "explicit": "命令行指定的词表"}.get(src, src)
+        lines.append("  词表：%s" % label)
+    warn = next((r.get("wordlist_warning") for r in d["chapters"] if r.get("wordlist_warning")), "")
+    if warn:
+        lines.append("  ⚠ %s" % warn)
     for r in d["chapters"]:
         if r.get("error"):
             lines.append("  第%s章：%s" % (r.get("chapter"), r["error"]))

@@ -38,6 +38,7 @@ sys.path.insert(0, str(SCRIPT_DIR))
 from utils.file_io import read_text, write_text          # noqa: E402
 from utils.verify_chapter import count_cn_words          # noqa: E402
 from utils.config_io import load_config_yaml
+from utils import wordlists as wordlists_util            # noqa: E402
 
 # ---- 明鉴（MingJian）规则库：搬运层，见 utils/mingjian_rules.py ----
 # 明鉴的 TYPO_DICT 覆盖率约为本库的两倍，且带 PUNCT_RULES（方括号/半角括号规范）。
@@ -364,6 +365,23 @@ def check_format(text, chapter_no, setting, start_idx=300):
     return out
 
 
+def check_compliance(text, chapter_no, terms, start_idx=400):
+    """自定义合规词表（`data/wordlists/compliance.txt`，一行一条）。
+
+    **只报告、不阻断**（severity=info）：合规要求是作者自己定的，机器不能替他判定
+    “这个词不能写”。命中的原句一并给出来，方便他直接看上下文判断。
+    """
+    if not terms:
+        return []
+    out = []
+    for i, hit in enumerate(wordlists_util.compliance_hits(text, terms)):
+        out.append(_mk(chapter_no, "%d_%d" % (start_idx, i), "compliance", "info",
+                       "合规词命中：“%s”%d 次" % (hit["name"], hit["count"]),
+                       location="…".join(hit["samples"][:2]),
+                       suggestion="你自己定的合规要求；改不改由你判断（不阻断验收）"))
+    return out
+
+
 def chapter_rhythm(text):
     """单章节奏指标（确定性，零 LLM）。"""
     paras = [p.strip() for p in text.split("\n\n")
@@ -592,6 +610,8 @@ def run_proofread(scope=None, report_path=DEFAULT_REPORT, use_llm=False,
 
     setting = load_setting()
     tmin, tmax = load_target_range()
+    compliance = wordlists_util.load_compliance(".")
+    comp_terms = compliance["terms"]
     chapters, metrics = [], {}
     total = 0
     all_text_parts = []
@@ -604,6 +624,7 @@ def run_proofread(scope=None, report_path=DEFAULT_REPORT, use_llm=False,
         findings += check_punctuation(text, n)
         findings += check_confusables(text, n)
         findings += check_format(text, n, setting)
+        findings += check_compliance(text, n, comp_terms)
         m = chapter_rhythm(text)
         metrics[n] = m
         if m["word_count"] < tmin or m["word_count"] > tmax:
@@ -667,6 +688,12 @@ def run_proofread(scope=None, report_path=DEFAULT_REPORT, use_llm=False,
         },
         "rhythm": rhythm,
         "chapters": chapters,
+        "wordlists": {
+            "compliance": {"source": compliance["source"],
+                           "terms": len(comp_terms),
+                           "warning": compliance["warning"],
+                           "note": "只报告不阻断；在“设置 → 词表”里编辑"},
+        },
     }
 
     out = Path(report_path)
@@ -689,7 +716,11 @@ def format_report(report):
          "- 校对对象：data/chapters/%s/" % report["scope"],
          "- 字数目标：%d-%d" % tuple(report["target_words"]),
          "- 问题统计：**%d** 条（错误 %d / 警告 %d / 提示 %d）"
-         % (s["issues"], s["error"], s["warn"], s["info"]), ""]
+         % (s["issues"], s["error"], s["warn"], s["info"])]
+    cmp_ = ((report.get("wordlists") or {}).get("compliance") or {})
+    if cmp_.get("terms"):
+        L.append("- 合规词表：%d 条（只报告，不阻断验收）" % cmp_["terms"])
+    L.append("")
     r = report.get("rhythm") or {}
     wc = r.get("word_count") or {}
     if wc:

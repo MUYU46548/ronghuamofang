@@ -1016,6 +1016,28 @@ def test_about_project(browser, mock_proc=None):
               wsel.input_value() == "templates/小说格式模板V1.3.dotx", wsel.input_value())
         shot(page, "D12_word_template_applied")
 
+        print("  --- 词表面板（B1：保存 → 生效档位真的变）---")
+        page.locator(".set-nav-btn", has_text="风格与提示词").click()
+        page.wait_for_timeout(450)
+        wlp = page.locator(".wl-panel")
+        check("词表面板渲染（病灶 / 合规两块输入框 + 说明）",
+              wlp.count() == 1 and wlp.locator("textarea.wl-text").count() == 2,
+              (wlp.count(), wlp.locator("textarea.wl-text").count()))
+        check("初始档位 = 内置 20 条（未配置自定义表时明说）",
+              "内置 20 条" in wlp.inner_text(), wlp.inner_text()[:120].replace("\n", " | "))
+        wlp.locator("textarea.wl-text").nth(0).fill("微微一笑\n眸光\n眼里闪过一丝\n")
+        page.wait_for_timeout(200)
+        check("改动后出现\u300c未保存\u300d提示（不保存就不生效，得先看见）",
+              wlp.locator(".pill.st-gate").count() >= 1)
+        wlp.locator("button:has-text('保存')").click()
+        page.wait_for_timeout(800)
+        wl_txt = wlp.inner_text()
+        check("保存后档位变成\u300c界面词表\u300d（写→读是真链路，不是静态面板）",
+              "界面词表" in wl_txt, wl_txt[:180].replace("\n", " | "))
+        check("保存后回显生效 3 条", "实际生效 3 条" in wl_txt,
+              wl_txt[:220].replace("\n", " | "))
+        shot(page, "D13_wordlists")
+
         print("  --- 主题颜色：亮色/暗色分排 + 文字标识（2026-10-06 用户反馈）---")
         page.locator(".set-nav-btn", has_text="外观与更新").click()
         page.wait_for_timeout(250)
@@ -1376,7 +1398,7 @@ _DESK_MEASURE_JS = r"""
 def test_desk_width(browser):
     """B7（2026-11-06）：审阅台正文必须 ≥45 汉字/行。
 
-    用户原话「正文不是主视觉」。此前 e2e 进不去审阅台（mock 不返章节正文），
+    用户原话“正文不是主视觉”。此前 e2e 进不去审阅台（mock 不返章节正文），
     所以这条缺陷在自动化里**结构上不可见** —— 补完 mock 的 /chapters/layers|content
     与章节文件假桥之后，这里把它钉成判据：三档视口 × 编辑/阅读两态。
     """

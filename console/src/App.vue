@@ -44,6 +44,7 @@ import HandoffPanel from "./HandoffPanel.vue";
 import CompassPanel from "./CompassPanel.vue";
 import WritingPresetsPanel from "./WritingPresetsPanel.vue";
 import WritingRulesPanel from "./WritingRulesPanel.vue";
+import WordlistsPanel from "./WordlistsPanel.vue";
 import OnboardingGuide from "./OnboardingGuide.vue";
 
 // 审批门通知偏好
@@ -7379,6 +7380,9 @@ onUnmounted(() => {
                 v-if="vaultScan.msg">{{ vaultScan.msg }}</span>
         </div>
       </template>
+      <!-- 词表（B1，2026-11-06）：病灶词 / 合规词此前只能改配置文件，
+           作者改完看不见生效没有。放在这里（风格与提示词）因为它决定“机器怎么看你的文字”。 -->
+      <WordlistsPanel :api="api" @say="say" />
           </div><!-- /set-pane prompt -->
           <div class="set-pane" v-show="settingsTab === 'word'">
 
