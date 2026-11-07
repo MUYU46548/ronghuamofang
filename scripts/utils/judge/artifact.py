@@ -18,7 +18,16 @@ from . import text as T
 
 DOCX_DIR = "output"
 CHAP_RE = re.compile(r"第\s*(\d+)\s*章")
-WORD_TOLERANCE = 0.01        # 字数差 1% 以内算一致（文档格式会带来少量误差）
+WORD_TOLERANCE = 0.005       # 字数差 0.5% 以内算一致（文档格式会带来少量误差）
+# 流水线自己的元数据注释（`<!-- summary: … -->` / `<!-- quality: … -->`）。
+# 它们只给机器看，**不会出现在给读者的成品里** —— 比对字数时必须先剥掉，
+# 否则每章都少 150~250 个汉字，R07 会把每一本正常导出成品的书判成"已过期"
+# （2026-11-07 实测：测试用书1104 12 章全红，差值恰好等于注释里的汉字数）。
+COMMENT_RE = re.compile(r"<!--.*?-->", re.S)
+
+
+def strip_internal_comments(text):
+    return COMMENT_RE.sub("", text or "")
 
 
 def _docx_text(path):
@@ -79,19 +88,25 @@ def status(root="."):
     rows, evidence, stale_chapters = [], [], []
     raw_dir = root / "data" / "chapters" / "raw"
     refined_dir = root / "data" / "chapters" / "refined"
-    for src in sorted(raw_dir.glob("*.md")):
-        if not src.stem.isdigit():
-            continue
-        n = int(src.stem)
-        refined = refined_dir / src.name
-        source = refined if refined.exists() else src
+    # 章号清单取 raw ∪ refined：只按 raw 列会漏掉“raw 被清理、只剩成品层”的工作区，
+    # 那种情况下循环一次都不跑 → 直接报“一致”（假绿，比报错更糟）。
+    stems = {p.stem for p in raw_dir.glob("*.md") if p.stem.isdigit()}
+    stems |= {p.stem for p in refined_dir.glob("*.md") if p.stem.isdigit()}
+    for stem in sorted(stems, key=int):
+        n = int(stem)
+        refined = refined_dir / ("%s.md" % stem)
+        raw = raw_dir / ("%s.md" % stem)
+        source = refined if refined.exists() else raw
         src_text = source.read_text(encoding="utf-8")
-        src_words = T.count_cn_words(src_text)
+        # 两边都剥掉内部注释再数字数：成品里本来就没有它们（见 COMMENT_RE 的说明）。
+        src_words = T.count_cn_words(strip_internal_comments(src_text))
         got = per.get(n)
-        docx_words = T.count_cn_words(got) if got else 0
+        docx_words = T.count_cn_words(strip_internal_comments(got)) if got else 0
         src_mtime = source.stat().st_mtime
         word_gap = abs(docx_words - src_words)
-        words_differ = got is None or word_gap > max(30, src_words * WORD_TOLERANCE)
+        # 容差：0.5%（且不少于 10 字）。原来是 1% / ≥30 字 —— 实测那是**太松**：
+        # 成品里真丢一整段对白（30~60 字）都会被容差吃掉，判据形同不存在。
+        words_differ = got is None or word_gap > max(10, src_words * WORD_TOLERANCE)
         time_later = src_mtime > doc_mtime + 60
         row = {
             "chapter": n,
