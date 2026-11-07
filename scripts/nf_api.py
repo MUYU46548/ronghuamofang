@@ -2915,6 +2915,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/config/wordlists":
             # 词表读取（B1）：病灶词 / 合规词两份自定义表的原文 + 生效档位。
             self._send(*_dom(dom_project.handle_config_wordlists(self)))
+        elif p == "/config/best_of_n":
+            # 多写几版（B2）：当前档位 + 允许档位 + 代价说明。
+            self._send(*_dom(dom_project.handle_config_best_of_n(self)))
         elif p == "/config/book_target_words":
             # 全书目标字数（book.target_words）+ 与章数/单章区间的推算关系。
             self._send(*_dom(dom_project.handle_book_target_words(self)))
@@ -3142,6 +3145,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/chapters/content":
             # 单章单层正文全文（编辑器读取）—— nf_api_domains.chapters
             self._send(*_dom(dom_chapters.handle_chapters_content(self)))
+        elif p == "/chapters/candidates":
+            # Best-of-N 候选（B2）：这章多写了几版、各多少分、哪版被选中 —— 只读
+            self._send(*_dom(dom_chapters.handle_chapters_candidates(self)))
         elif p == "/chapters/rerun/plan":
             # 单章重跑影响面预览（2026-11-04）：只读、零 token —— nf_api_domains.chapters
             self._send(*_dom(dom_chapters.handle_chapters_rerun_plan(self)))
@@ -3823,6 +3829,9 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/chapters/rewrite":
                 # 重写整章（走阶段 4，花 token）：旧稿先备份，只跑这一章
                 self._send(*_dom(dom_chapters.handle_chapters_rewrite(self, body)))
+            elif p == "/chapters/candidates/apply":
+                # 采用某个候选（B2）：与手改正文同族 —— 零 token 覆盖正文，故 GUI-only
+                self._send(*_dom(dom_chapters.handle_chapters_candidates_apply(self, body)))
             elif p == "/chapters/rerun":
                 # 单章纵向重跑（4→5→6，花 token）：只作废/重算这一章，
                 # 其他章三层稿与进度一律不动（2026-11-04，task-20261104-002）
@@ -3920,6 +3929,9 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/config/wordlists":
                 # 词表设置（创作决策：改的是“哪些词算病灶/合规”，不是安全闸门）。
                 self._send(*_dom(dom_project.handle_config_wordlists_set(self, body)))
+            elif p == "/config/best_of_n":
+                # 多写几版（创作/成本取向；上限 5，越界 400 —— 不许静默截断）
+                self._send(*_dom(dom_project.handle_config_best_of_n_set(self, body)))
             elif p == "/config/book_target_words":
                 # 全书目标字数（创作决策；写盘走 set_book_fields，保注释 + 备份 + 回读）。
                 self._send(*_dom(dom_project.handle_book_target_words_set(self, body)))

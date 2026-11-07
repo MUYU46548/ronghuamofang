@@ -45,6 +45,7 @@ import CompassPanel from "./CompassPanel.vue";
 import WritingPresetsPanel from "./WritingPresetsPanel.vue";
 import WritingRulesPanel from "./WritingRulesPanel.vue";
 import WordlistsPanel from "./WordlistsPanel.vue";
+import CandidatesPanel from "./CandidatesPanel.vue";
 import OnboardingGuide from "./OnboardingGuide.vue";
 
 // 审批门通知偏好
@@ -5889,6 +5890,9 @@ onUnmounted(() => {
       <ChapterDesk v-if="chapterView === 'desk'" :api="api" :chapters="chapters"
                    :quality="chapterQuality" @say="say" />
       <template v-else>
+      <!-- 多写几版再挑（B2，2026-11-06）：低分章重写时生成 3 个候选，
+           这里三栏并排看分数与扣分理由，也可改用另一版。 -->
+      <CandidatesPanel :api="api" :chapters="chapters" @say="say" />
       <!-- 判定报告（P0，0.7.17）：整本一页 → 单章详情 → 合格标准。
            放在章节页签顶部（产品定义 04 §2.1：不新增顶层页签）。 -->
       <JudgePanel @say="say" @archived="onBookArchived" @goto-paragraph="gotoParagraph" />

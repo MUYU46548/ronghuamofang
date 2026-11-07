@@ -260,12 +260,38 @@ def run_auto_rewrite(cfg, proj, progress, db=None, cost=None, run_id=None,
 
         sink = []
         proxy = _RecordingClient(client, sink)
+        # Best-of-N（B2，2026-11-06）：低分章重写时多写几版再挑。
+        # 只在真正改稿时用（dry-run 仍走单次任务书预览）；打分是确定性的、零 token，
+        # 花的是“多写 N 版”的调用钱 —— 所以 gates.best_of_n 默认 0，由作者按章开关。
+        n_best = 0
         try:
-            ok, msg, backup = br.run_single_refine(
-                cfg, proj, n, feedback, client=proxy, task_dir=task_dir, dry_run=dry_run)
-        except Exception as e:   # 单章异常不阻断整体
-            ok, msg, backup = False, f"{type(e).__name__}: {str(e)[:150]}", None
-            print(f"[auto_rewrite] 第{n}章 异常：{msg}")
+            n_best = int(gates.get("best_of_n", 0) or 0)
+        except (TypeError, ValueError):
+            n_best = 0
+        if n_best >= 2 and not dry_run:
+            from utils import best_of_n as bon
+            try:
+                res = bon.run_best_of_n(cfg, proj, n, feedback, n=n_best,
+                                        client=proxy, task_dir=task_dir)
+                ok = bool(res.get("ok"))
+                msg = str(res.get("message") or "")
+                backup = Path(res["backup"]) if res.get("backup") else None
+                stats.setdefault("best_of_n", {})[str(n)] = {
+                    "chosen": res.get("chosen"),
+                    "score": res.get("chosen_score"),
+                    "candidates": res.get("candidates"),
+                }
+                print(f"[auto_rewrite] 第{n}章 择优：{msg}")
+            except Exception as e:   # 择优失败不阻断整体，如实记
+                ok, msg, backup = False, f"Best-of-N 失败：{type(e).__name__}: {str(e)[:150]}", None
+                print(f"[auto_rewrite] 第{n}章 {msg}")
+        else:
+            try:
+                ok, msg, backup = br.run_single_refine(
+                    cfg, proj, n, feedback, client=proxy, task_dir=task_dir, dry_run=dry_run)
+            except Exception as e:   # 单章异常不阻断整体
+                ok, msg, backup = False, f"{type(e).__name__}: {str(e)[:150]}", None
+                print(f"[auto_rewrite] 第{n}章 异常：{msg}")
 
         # 成本归集（复用 run_id，使 cost_report --by-chapter 可见）
         if cost is not None and run_id is not None:

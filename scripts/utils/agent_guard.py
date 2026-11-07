@@ -161,6 +161,10 @@ FORBIDDEN_IN_AGENT_MODE = frozenset({
     # 双因子 GUI 来源（与止烧阈值/Agent 模式同档），这里是 mode=true 下的第二道闸。
     # 读侧 GET /chapters/layers|content 不拦（Agent 可读，不能替用户改稿）。
     "/chapters/save",
+    # 采用 Best-of-N 候选（B2，2026-11-06）：同样是零 token 直接覆盖正文，
+    # 只是内容来自“多写几版”里的另一版。候选可以由 Agent 生成，
+    # “哪一版进书里”必须作者自己拍板 —— 与本条完全同族，故一并拦。
+    "/chapters/candidates/apply",
     # 段落手改（2026-11-02，清单第 8 条）：与 /chapters/save 完全同族 ——
     # 只是粒度更细。Agent 能替作者改一段，就能替作者改整章。
     "/chapters/paragraph/save",

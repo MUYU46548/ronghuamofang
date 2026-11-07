@@ -1443,6 +1443,50 @@ def test_desk_width(browser):
         ctx.close()
 
 
+def test_candidates(browser):
+    """B2（2026-11-06）：候选稿三栏并排 —— 分数、扣分理由、采用链路。
+
+    为什么要单独一段：这一整块是“多写几版再挑”的**唯一人眼入口**，
+    它能坏的地方（后端没返分数、理由空、采用按钮点了没反应）都不会让后端用例变红。
+    """
+    print("\n=== G. 候选稿对比（B2）===")
+    ctx, page, errs, bad = new_page(browser, MOCK_API, "cand")
+    try:
+        page.locator("nav.tabs button", has_text="章节").first.click()
+        page.wait_for_timeout(900)
+        panel = page.locator(".cand-panel")
+        check("章节页有候选面板（多写几版再挑）", panel.count() == 1, panel.count())
+        check("面板里能直接开关“重写时多写 N 版”（用户不必改配置文件）",
+              panel.locator("select").count() >= 2, panel.locator("select").count())
+        panel.locator("button:has-text('查看候选')").first.click()
+        page.wait_for_timeout(900)
+        cols = page.locator(".cand-col")
+        check("三栏并排（3 个候选）", cols.count() == 3, cols.count())
+        scores = [cols.nth(i).locator(".cand-score").inner_text() for i in range(cols.count())]
+        check("每栏都有分数", all(s.strip() not in ("", "—") for s in scores), scores)
+        check("分数从高到低排（最该看的在最左）",
+              [float(s) for s in scores] == sorted([float(s) for s in scores], reverse=True), scores)
+        check("每栏都有逐条扣分理由（不是只给个数）",
+              all(cols.nth(i).locator(".cand-reasons li").count() >= 2 for i in range(cols.count())),
+              [cols.nth(i).locator(".cand-reasons li").count() for i in range(cols.count())])
+        check("自动选中的那版有标记", cols.locator(".pill:has-text('自动选中')").count() == 1)
+        shot(page, "G1_candidates")
+        btn = cols.nth(1).locator("button.cand-apply")
+        btn.click()
+        page.wait_for_timeout(300)
+        check("采用是两步确认（先问一句再动手，不用原生弹窗）",
+              "确认" in btn.inner_text(), btn.inner_text())
+        btn.click()
+        page.wait_for_timeout(800)
+        check("采用后按钮变成“已采用”（写→读回环）",
+              "已采用" in cols.nth(1).locator("button.cand-apply").inner_text(),
+              cols.nth(1).locator("button.cand-apply").inner_text())
+        check("候选链路无 4xx", not [x for x in bad if "candidates" in x or "best_of_n" in x],
+              [x for x in bad if "candidates" in x or "best_of_n" in x][:3])
+    finally:
+        ctx.close()
+
+
 def main():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=["--no-proxy-server"])
@@ -1452,6 +1496,7 @@ def main():
             test_dark(browser)
             test_about_project(browser)
             test_desk_width(browser)
+            test_candidates(browser)
         finally:
             browser.close()
 

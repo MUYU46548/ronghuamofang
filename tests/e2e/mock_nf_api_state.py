@@ -285,6 +285,42 @@ WT = {"current": DEFAULT_WT}
 WL = {"cliche": "", "compliance": ""}
 _WL_BUILTIN = 20
 
+# Best-of-N（B2，2026-11-06）：有状态，才能验“三栏并排 → 用这版 → 已采用”是活链路。
+CAND = {"applied": ""}
+BON = {"value": 0}
+
+
+def _cand_text(tag, chars):
+    para = ("他推门进来的时候，屋檐上的水线正连成了串，地上积了一小滩暗色的水。"
+            "她停下脚步，侧过脸朝窗外的天色看了一眼，随即收回视线。")
+    body = "\n\n".join([para] * max(1, chars // 66))
+    return "## 第1章 验收章（%s）\n\n%s" % (tag, body)
+
+
+def candidates_payload(n):
+    if int(n) != 1:
+        return {"ok": True, "exists": False, "n": int(n), "candidates": [],
+                "note": "第 %s 章还没做过“多写几版再挑”" % n}
+    return {
+        "ok": True, "exists": True, "n": 1, "chosen": "cand2", "chosen_score": 84.5,
+        "target_words": [4000, 7200],
+        "applied_by_author": CAND["applied"],
+        "candidates": [
+            {"id": "cand1", "status": "ok", "score": 71.0, "words": 3180,
+             "reasons": ["字数低于区间 4,000 汉字（3,180 汉字，差 20.5%）",
+                         "病灶词 6 次（1.9 次/千字）", "复读偏高（12-gram 重复覆盖 18.0%，上限 35%）"],
+             "text": _cand_text("cand1", 3180)},
+            {"id": "cand2", "status": "ok", "score": 84.5, "words": 4260,
+             "reasons": ["字数在区间内（4,260 汉字，区间 4,000–7,200）",
+                         "没命中病灶词", "平均段长偏短（62 汉字/段，舒适区 80–250）"],
+             "text": _cand_text("cand2", 4260)},
+            {"id": "cand3", "status": "ok", "score": 66.5, "words": 5240,
+             "reasons": ["字数在区间内（5,240 汉字，区间 4,000–7,200）",
+                         "病灶词 14 次（2.7 次/千字）", "离目标中值（5,600 汉字）6%"],
+             "text": _cand_text("cand3", 5240)},
+        ],
+    }
+
 
 def wordlists_payload():
     cl_terms = len([l for l in WL["cliche"].splitlines()
@@ -703,6 +739,17 @@ class Handler(BaseHTTPRequestHandler):
             # 知识库扫描面（设置 → 风格与提示词）：目录名取自用户库本身，
             # 排除态现算 —— 保存后必须看到列表变化，否则视觉验收是假绿。
             return self._send(200, vault_scan_payload())
+
+        if p == "/chapters/candidates":
+            n = (self._query().get("n") or ["1"])[0]
+            return self._send(200, candidates_payload(n))
+
+        if p == "/config/best_of_n":
+            # Best-of-N 开关（B2）：有状态 —— 改完再读必须看到新值。
+            return self._send(200, {"ok": True, "current": BON["value"], "presets": [0, 2, 3, 5],
+                                    "bounds": {"min": 0, "max": 5},
+                                    "path": "config/system.yaml", "field": "gates.best_of_n",
+                                    "note": "0 = 关闭；N = 低分章重写时多写 N 版再挑。"})
 
         if p == "/config/wordlists":
             # 词表（B1）：有状态回显，保存后“生效档位”必须真的变。
@@ -1186,6 +1233,29 @@ class Handler(BaseHTTPRequestHandler):
                                     "message": "已更新扫描排除项",
                                     "scan": vault_scan_payload(),
                                     "note": "对下一次检索生效。"})
+
+        if p == "/config/best_of_n":
+            # Best-of-N 开关：只收 0 / 2~5，与真后端同口径（越界 400，不静默截断）。
+            try:
+                v = int((body or {}).get("value"))
+            except (TypeError, ValueError):
+                return self._send(400, {"ok": False, "error": "value 必须是整数（0 或 2~5）"})
+            if v != 0 and not (2 <= v <= 5):
+                return self._send(400, {"ok": False,
+                                        "error": "只能设 0（关）或 2~5 版；%d 超出范围" % v})
+            BON["value"] = v
+            return self._send(200, {"ok": True, "current": v,
+                                    "message": "已设为 %s" % ("关闭" if v == 0 else "%d 版" % v)})
+
+        if p == "/chapters/candidates/apply":
+            # Best-of-N（B2）：采用某一版 —— 有状态，回读要能看出“你在用哪版”。
+            cid = str((body or {}).get("id") or "").strip()
+            if not cid:
+                return self._send(400, {"ok": False, "error": "id 必填（cand1 / cand2 / …）"})
+            CAND["applied"] = cid
+            return self._send(200, {"ok": True, "n": int((body or {}).get("n") or 1),
+                                    "id": cid, "words": 4260,
+                                    "message": "已采用 %s（旧稿备份：ch01_v3.md）" % cid})
 
         if p == "/config/wordlists":
             # 词表（B1）：收 cliche / compliance 两个字符串，未知字段 400（与真后端同口径）。

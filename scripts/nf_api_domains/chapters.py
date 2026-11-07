@@ -30,6 +30,7 @@
    改完 stage 6 仍是 done（产物还在），但下游成品需要重跑阶段 7。
 3. **落盘前备份旧稿 + 归一化标点**，与流水线同一套 `utils/text_norm`（幂等）。
 """
+import json
 import queue
 import re
 import threading
@@ -586,9 +587,95 @@ def handle_chapters_rerun(h, body):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+def handle_chapters_candidates(h):
+    """`GET /chapters/candidates?n=3` —— 这一章的 Best-of-N 候选（B2）。
+
+    返回每个候选的分数与**逐条理由**（打分器 `utils/candidate_score`：确定性、零 token），
+    外加胜者是哪个、候选正文（界面要并排读）。
+    没有候选 → `exists:false`（不是错误：这章没做过择优）。
+    """
+    try:
+        from utils import best_of_n as bon
+        qs = h._query()
+        try:
+            n = int((qs.get("n") or ["0"])[0])
+        except (TypeError, ValueError):
+            return 400, {"ok": False, "error": "n 必填且为章节号"}
+        if n < 1:
+            return 400, {"ok": False, "error": "n 必填且为章节号"}
+        res = bon.load_result(n)
+        if not res:
+            return 200, {"ok": True, "exists": False, "n": n, "candidates": [],
+                         "note": "这一章还没做过“多写几版再挑”（设置里 gates.best_of_n 打开后，"
+                                 "低分章重写时才会生成候选）"}
+        # 正文随结果一起给：界面要三栏并排读，不该再按 path 去读盘（浏览器没有那条通道）
+        for c in res.get("candidates") or []:
+            cid = str(c.get("id") or "")
+            p = api.ROOT / "data" / "state" / "candidates" / ("ch%02d" % n) / (cid + ".md")
+            try:
+                c["text"] = p.read_text(encoding="utf-8") if p.exists() else ""
+            except OSError:
+                c["text"] = ""
+        res["exists"] = True
+        return 200, res
+    except Exception as e:                                   # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_chapters_candidates_apply(h, body):
+    """`POST /chapters/candidates/apply {n, id}` —— 采用某个候选（B2）。
+
+    为什么与 `/chapters/save` 同族（GUI-only 双因子 + FORBIDDEN_IN_AGENT_MODE）：
+    它同样是**零 token 直接覆盖正文**，只是内容来自“多写几版”里的另一版。
+    谁来定哪一版写进书里，是作者的决定 —— Agent 能生成候选，不能替作者拍板。
+    """
+    from nf_api_domains.project import _gui_only
+    guard = _gui_only(h, "采用候选稿")
+    if guard:
+        return guard
+    try:
+        body = body or {}
+        try:
+            n = int(body.get("n"))
+        except (TypeError, ValueError):
+            return 400, {"ok": False, "error": "n 必填且为章节号"}
+        cid = str(body.get("id") or "").strip()
+        if not cid:
+            return 400, {"ok": False, "error": "id 必填（cand1 / cand2 / …）"}
+        cdir = api.ROOT / "data" / "state" / "candidates" / ("ch%02d" % n)
+        src = cdir / (cid + ".md")
+        if not src.exists():
+            return 404, {"ok": False, "error": "候选不存在：%s" % cid}
+        text = src.read_text(encoding="utf-8")
+        if not text.strip():
+            return 400, {"ok": False, "error": "这个候选是空的（生成时失败了），不能采用"}
+        target = _chapter_path(n, _current_layer(n) or "raw")
+        if not target.exists():
+            return 404, {"ok": False, "error": "第 %d 章没有可覆盖的正文" % n}
+        backup = _backup(n, target)
+        target.write_text(text, encoding="utf-8")
+        # 记一笔“作者最终选了哪版”，与自动择优的 chosen 分开记（人的选择覆盖机器选择）
+        meta_p = cdir / "result.json"
+        if meta_p.exists():
+            try:
+                meta = json.loads(meta_p.read_text(encoding="utf-8"))
+                meta["applied_by_author"] = cid
+                meta_p.write_text(json.dumps(meta, ensure_ascii=False, indent=2),
+                                  encoding="utf-8")
+            except (OSError, ValueError):
+                pass
+        return 200, {"ok": True, "n": n, "id": cid, "backup": backup,
+                     "words": _count_words(text),
+                     "message": "已采用 %s（旧稿备份：%s）" % (cid, backup)}
+    except Exception as e:                                   # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 ROUTES = (
     ("GET", "/chapters/layers", handle_chapters_layers),
     ("GET", "/chapters/content", handle_chapters_content),
+    ("GET", "/chapters/candidates", handle_chapters_candidates),
+    ("POST", "/chapters/candidates/apply", handle_chapters_candidates_apply),
     ("GET", "/chapters/rerun/plan", handle_chapters_rerun_plan),
     ("POST", "/chapters/save", handle_chapters_save),
     ("POST", "/chapters/rewrite", handle_chapters_rewrite),

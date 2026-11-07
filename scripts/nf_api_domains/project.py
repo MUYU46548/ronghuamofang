@@ -614,6 +614,65 @@ def handle_book_target_words_set(h, body):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+def handle_config_best_of_n(h):
+    """`GET /config/best_of_n` —— 低分章重写时“多写几版再挑”的开关（B2）。
+
+    只回当前值 + 允许的档位 + 一句代价说明：这项是**花钱换质量**的选择
+    （N 版 = N 倍 token），作者拍板，不由系统默认打开。
+    """
+    try:
+        cfg = api.load_all()[0]
+        raw = ((cfg.get("gates") or {}).get("best_of_n", 0))
+        try:
+            cur = int(raw or 0)
+        except (TypeError, ValueError):
+            cur = 0
+        return 200, {
+            "ok": True,
+            "current": cur,
+            "presets": [0, 2, 3, 5],
+            "bounds": {"min": 0, "max": 5},
+            "path": "config/system.yaml",
+            "field": "gates.best_of_n",
+            "note": ("0 = 关闭。设成 N（2~5）= 低分章重写时生成 N 个候选，"
+                     "按字数 / 病灶词 / 段落 / 复读 / 预算五项打分挑最好的那版；"
+                     "候选全部留在 data/state/candidates/chNN/，可逐个对比。"
+                     "⚠️ 开一次 = N 倍模型调用，建议只对少数章开。"),
+        }
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_config_best_of_n_set(h, body):
+    """写 `gates.best_of_n`（0 或 2~5）。
+
+    为什么允许 Agent 代设：它是**创作/成本取向**（多花 N 倍钱换更稳的一版），
+    不是止烧闸门 —— 但它确实放大开销，所以上限锁死 5，且越界一律 400，
+    不接受"我传 50 你悄悄按 5 算"这种静默失真。
+    """
+    try:
+        body = body or {}
+        raw = body.get("value", body.get("best_of_n"))
+        try:
+            n = int(raw)
+        except (TypeError, ValueError):
+            return 400, {"ok": False, "error": "value 必须是整数（0 或 2~5）"}
+        if n != 0 and not (2 <= n <= 5):
+            return 400, {"ok": False,
+                         "error": "只能设 0（关）或 2~5 版；%d 超出范围" % n}
+        from utils.config_io import set_section_scalars
+        sys_yaml = api.ROOT / "config" / "system.yaml"
+        if not sys_yaml.exists():
+            return 400, {"ok": False, "error": "config/system.yaml 不存在"}
+        ok, msg = set_section_scalars(("gates",), {"best_of_n": n}, path=sys_yaml)
+        if not ok:
+            return 400, {"ok": False, "error": "写入失败：" + msg}
+        return 200, {"ok": True, "current": n, "message": "已设为 %s（%s）"
+                     % ("关闭" if n == 0 else "%d 版" % n, msg)}
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 def handle_config_wordlists(h):
     """`GET /config/wordlists` —— 病灶词 / 合规词两份自定义表。
 
@@ -1838,6 +1897,9 @@ ROUTES = (
     # 词表（B1，2026-11-06）：病灶词 / 合规词可在界面编辑；写入口 = 创作决策，非安全闸门
     ("GET", "/config/wordlists", handle_config_wordlists),
     ("POST", "/config/wordlists", handle_config_wordlists_set),
+    # Best-of-N（B2，2026-11-06）：多写几版再挑的开关（0 = 关，2~5 = 版数）
+    ("GET", "/config/best_of_n", handle_config_best_of_n),
+    ("POST", "/config/best_of_n", handle_config_best_of_n_set),
     # 全书目标字数（2026-11-05，试跑第 24 条）：界面此前只能改单章区间
     ("GET", "/config/book_target_words", handle_book_target_words),
     ("POST", "/config/book_target_words", handle_book_target_words_set),
