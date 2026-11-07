@@ -50,7 +50,7 @@ materials:
   use_scraps: true
 '''
 
-DEFAULT = "templates/小说格式模板V1.3.dotx"
+DEFAULT = "templates/出厂预设模板.docx"
 
 
 def check(name, cond, detail=""):
@@ -134,7 +134,7 @@ def main():
               (code, str(d)[:180]))
         names = [f["name"] for f in d.get("files", [])]
         check("列出 templates/ 下的 .dotx/.docx（含出厂模板与备用）",
-              "小说格式模板V1.3.dotx" in names and "备用模板.docx" in names, names)
+              "出厂预设模板.docx" in names and "备用模板.docx" in names, names)
         check("非模板扩展名不进清单（说明.txt 被滤掉）", "说明.txt" not in names, names)
         check("条目带 size/mtime/path 三件套",
               all({"name", "size", "mtime", "path"} <= set(f) for f in d.get("files", [])),

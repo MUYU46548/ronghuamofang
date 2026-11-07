@@ -32,7 +32,7 @@ def check(name, cond, detail=""):
                            ("  -> " + str(detail)[:200]) if detail else ""))
 
 
-TEMPLATE = ROOT / "templates" / "小说格式模板V1.3.dotx"
+TEMPLATE = ROOT / "templates" / "出厂预设模板.docx"
 
 MD = """# 测试书
 

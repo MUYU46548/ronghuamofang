@@ -980,7 +980,7 @@ def test_about_project(browser, mock_proc=None):
         check("下拉列出 mock 清单的 2 个模板",
               wsel.locator("option").count() == 2, wsel.locator("option").count())
         check("当前值 = 出厂模板（GET 回读真的接上了）",
-              wsel.input_value() == "templates/小说格式模板V1.3.dotx", wsel.input_value())
+              wsel.input_value() == "templates/出厂预设模板.docx", wsel.input_value())
         check("四个按钮齐全（重新读取 / 打开模板目录 / 恢复默认 / 应用）",
               all(wpane.locator("button:has-text('%s')" % b).count() >= 1
                   for b in ("重新读取", "打开模板目录", "恢复默认", "应用")),
@@ -1013,7 +1013,7 @@ def test_about_project(browser, mock_proc=None):
         wpane.locator("button:has-text('恢复默认')").click()
         page.wait_for_timeout(600)
         check("恢复默认回到出厂模板",
-              wsel.input_value() == "templates/小说格式模板V1.3.dotx", wsel.input_value())
+              wsel.input_value() == "templates/出厂预设模板.docx", wsel.input_value())
         shot(page, "D12_word_template_applied")
 
         print("  --- 词表面板（B1：保存 → 生效档位真的变）---")

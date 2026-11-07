@@ -76,7 +76,8 @@
       },
       {
         "from": "../templates",
-        "to": "payload/templates"
+        "to": "payload/templates",
+        "filter": ["**/*", "!小说格式模板V1.3.dotx"]
       },
       {
         "from": "../skills",

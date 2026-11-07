@@ -277,7 +277,7 @@ MULTI_STARTED = {}   # 多方案 mock job 的起始时刻（逐版进度按秒�
 
 # Word 成品模板面板（件五）的**有状态**当前值：POST 改、GET 读，
 # 这样“选模板 → 应用 → 下拉回读新值”在视觉验收里是真链路而不是静态截图。
-DEFAULT_WT = "templates/小说格式模板V1.3.dotx"
+DEFAULT_WT = "templates/出厂预设模板.docx"
 WT = {"current": DEFAULT_WT}
 
 # 词表（B1，2026-11-06）：**有状态** mock —— “保存 → 回读生效档位”必须是真链路。
@@ -792,8 +792,8 @@ class Handler(BaseHTTPRequestHandler):
                 "default": DEFAULT_WT,
                 "current_exists": True,
                 "files": [
-                    {"name": "小说格式模板V1.3.dotx", "size": 28815,
-                     "mtime": "2026-08-13 19:54", "path": "templates/小说格式模板V1.3.dotx"},
+                    {"name": "出厂预设模板.docx", "size": 36780,
+                     "mtime": "2026-11-07 15:43", "path": "templates/出厂预设模板.docx"},
                     {"name": "备用模板.docx", "size": 14336,
                      "mtime": "2026-10-11 08:00", "path": "templates/备用模板.docx"},
                 ],

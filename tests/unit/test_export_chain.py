@@ -18,7 +18,7 @@
    - 成品层兜底：伪造"占位符替换失败"的 docx → 后校验拦下并删除文件
 3. **判据单元**：check_merged_md / check_template / check_docx_output
    各自的边界（协议标记/绝对路径泄漏/章号重复/缺 Heading 1 样式）。
-4. **挂账兑现**：占位模板（templates/小说格式模板V1.3.dotx）已就位，
+4. **挂账兑现**：出厂预设模板（templates/出厂预设模板.docx）已就位，
    用户自有模板到手后改 book.word_template 即插即用（本用例走的就是
    配置指定模板的路径，证明"换模板不改代码"）。
 
@@ -71,15 +71,15 @@ def _chapter(n, chars=2400):
     return ("## 第%d章 测试章\n\n" % n) + _gen_body(chars, 7 + n) + "\n"
 
 
-def build_workspace(total=3, word_template="templates/小说格式模板V1.3.dotx"):
+def build_workspace(total=3, word_template="templates/出厂预设模板.docx"):
     """临时工作区：3 章占位素材 + 占位模板（复制自仓库）。"""
     tmp = Path(tempfile.mkdtemp(prefix="expchain_"))
     (tmp / "config").mkdir()
     tmpl_rel = ""
     if word_template:
         (tmp / "templates").mkdir()
-        shutil.copy2(ROOT / "templates" / "小说格式模板V1.3.dotx",
-                     tmp / "templates" / "小说格式模板V1.3.dotx")
+        shutil.copy2(ROOT / "templates" / "出厂预设模板.docx",
+                     tmp / "templates" / "出厂预设模板.docx")
         tmpl_rel = word_template
     proj = ['book:', '  name: "导出链测试书"', '  chapters: %d' % total]
     if tmpl_rel:
@@ -257,7 +257,7 @@ def case_units():
         "# 书\n\n## 第1章 x\n\n| a | b |\n| - | - |\n正文。\n")
     check("复杂元素只警告不拦（导出时降级）",
           errs == [] and any("表格" in w for w in warns), (errs, warns))
-    errs, _ = check_template(ROOT / "templates" / "小说格式模板V1.3.dotx")
+    errs, _ = check_template(ROOT / "templates" / "出厂预设模板.docx")
     check("占位模板（V1.3）过样式校验 —— 挂账模板即插即用", errs == [], errs)
 
 

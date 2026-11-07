@@ -372,7 +372,7 @@ def handle_config_style_reference_set(h, body):
 # 件五（GUI 模板入口，A 方案）后端：清单来自磁盘 templates/，当前值来自
 # project.yaml 的 book.word_template —— 两者**分开回**：当前值指向的模板可能
 # 已被移走（配置陈旧），前端据此提示“文件不在”而不是让下拉悄悄显示空值。
-DEFAULT_WORD_TEMPLATE = "templates/小说格式模板V1.3.dotx"   # 出厂默认（恢复默认的落点）
+DEFAULT_WORD_TEMPLATE = "templates/出厂预设模板.docx"   # 出厂预设（不含作者私人模板）
 TPL_DIR = "templates"      # 模板目录名（配置值里存的是 `templates/<文件名>`）
 TPL_PREFIX = TPL_DIR + "/"
 
