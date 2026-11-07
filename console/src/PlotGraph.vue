@@ -25,7 +25,10 @@ const loading = ref(false);
 const host = ref(null);
 let sim = null;
 
-const VOL_COLORS = ["#6b7fd7", "#d78a6b", "#6bbfa6", "#b98fd7", "#d7c46b", "#7fa6d7"];
+// 卷分类色（B4）：改引用 style.css 的 --viz-*，图表才会跟着主题明暗切换。
+// D3 必须用 .style() 而不是 .attr()：属性值不认 var()，内联样式才认。
+const VOL_COLORS = ["var(--viz-1)", "var(--viz-2)", "var(--viz-3)",
+                    "var(--viz-4)", "var(--viz-5)", "var(--viz-6)"];
 
 function colorOf(vol) { return VOL_COLORS[(vol - 1) % VOL_COLORS.length]; }
 
@@ -94,14 +97,14 @@ function render() {
     .attr("xmlns", "http://www.w3.org/2000/svg")
     .attr("width", W).attr("height", H)
     .attr("viewBox", `0 0 ${W} ${H}`)
-    .style("background", "#ffffff");
+    .style("background", "var(--card)");
 
-  svg.append("rect").attr("width", W).attr("height", H).attr("fill", "#ffffff");
+  svg.append("rect").attr("width", W).attr("height", H).style("fill", "var(--card)");
 
   const link = svg.append("g").selectAll("line").data(links).join("line")
-    .attr("stroke", (d) => {
-      if (keep && !(keep.has(d.source.id) || keep.has(d.source)) ) return "#e8e8ee";
-      return d.kind === "seq" ? "#9aa0b5" : "#c9a3e0";
+    .style("stroke", (d) => {
+      if (keep && !(keep.has(d.source.id) || keep.has(d.source)) ) return "var(--border)";
+      return d.kind === "seq" ? "var(--muted)" : "var(--accent)";
     })
     .attr("stroke-width", (d) => (d.kind === "seq" ? 1.6 : 1))
     .attr("stroke-dasharray", (d) => (d.kind === "role" ? "4 3" : null));
@@ -112,15 +115,15 @@ function render() {
 
   node.append("circle")
     .attr("r", (d) => 10 + Math.min(8, (d.events || []).length * 2))
-    .attr("fill", (d) => colorOf(d.vol))
+    .style("fill", (d) => colorOf(d.vol))
     .attr("fill-opacity", (d) => (keep && !keep.has(d.id) ? 0.18 : 0.92))
-    .attr("stroke", (d) => (picked.value === d.id ? "#333" : "#ffffff"))
+    .style("stroke", (d) => (picked.value === d.id ? "var(--ink)" : "var(--card)"))
     .attr("stroke-width", (d) => (picked.value === d.id ? 2.5 : 1.5));
 
   node.append("text")
     .text((d) => "第" + d.n + "章")
     .attr("text-anchor", "middle").attr("dy", 26)
-    .attr("font-size", 11).attr("fill", "#3a3f4b")
+    .attr("font-size", 11).style("fill", "var(--ink)")
     .attr("fill-opacity", (d) => (keep && !keep.has(d.id) ? 0.25 : 1));
 
   sim = forceSimulation(nodes)

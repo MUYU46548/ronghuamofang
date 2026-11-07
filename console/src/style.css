@@ -236,28 +236,13 @@ body {
 /* 柔光斑背景 */
 .bg-blobs { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
 .blob { position: absolute; border-radius: 50%; filter: blur(70px); opacity: 0.38; }
-.blob-a { width: 420px; height: 420px; background: #cfc6ec; top: -120px; left: -80px; }
-.blob-b { width: 380px; height: 380px; background: #cdd9ee; bottom: -120px; right: -60px; }
-.theme-dark .blob-a { background: #4a4f8a; }
-.theme-dark .blob-b { background: #3a3560; }
-.theme-purple .blob-a { background: #cfc6ec; }
-.theme-purple .blob-b { background: #cdd9ee; }
-.theme-pink .blob-a { background: #f0c8d4; }
-.theme-pink .blob-b { background: #f8dde3; }
-.theme-blue .blob-a { background: #bed6f0; }
-.theme-blue .blob-b { background: #dde6f2; }
-.theme-green .blob-a { background: #c8e0d0; }
-.theme-green .blob-b { background: #dce8e0; }
-.theme-gray .blob-a { background: #d4d4da; }
-.theme-gray .blob-b { background: #e4e4ea; }
-.theme-orange .blob-a { background: #f7dcbc; }
-.theme-orange .blob-b { background: #f5e6d3; }
-.theme-night-blue .blob-a { background: #1e3a5f; }
-.theme-night-blue .blob-b { background: #162030; }
-.theme-night-green .blob-a { background: #1e3d2e; }
-.theme-night-green .blob-b { background: #162019; }
-.theme-night-warm .blob-a { background: #3d3530; }
-.theme-night-warm .blob-b { background: #2d2b2a; }
+/* 柔光斑（B4，2026-11-07）：颜色由主题强调色+底色派生，不再每个主题手写两条。
+   以前新增一个主题必须记得补两行 background，忘了就沿用上一个主题的斑 —— 看着像“串色”，
+   而且这 22 行是整套 UI 里最典型的“天天自创”。 */
+.blob-a { width: 420px; height: 420px; top: -120px; left: -80px;
+  background: color-mix(in srgb, var(--accent) 42%, var(--bg)); }
+.blob-b { width: 380px; height: 380px; bottom: -120px; right: -60px;
+  background: color-mix(in srgb, var(--accent) 24%, var(--bg)); }
 
 /* 顶栏 */
 .topbar {
@@ -279,7 +264,7 @@ body {
 .brand { display: flex; align-items: center; gap: 10px; }
 .brand-mark {
   width: 38px; height: 38px; border-radius: 10px;
-  background: #9b8fc4; color: #fff;   /* 与 --accent 统一（原 #6B5B94 深紫，与应用强调色不一致） */
+  background: var(--accent); color: #fff;   /* 与 --accent 统一（B4：不再写死品牌紫） */
   display: grid; place-items: center; font-size: 22px; font-weight: 700;
   font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", serif;
 }
@@ -363,8 +348,8 @@ body {
   .topbar .topbar-tools .mini { font-size: 12px; padding: 4px 8px; }
   /* 暗色下组标题/副标题必须提亮：opacity 0.7 的淡灰压在深底上只有约 3:1，
      实测“看不清、像禁用文字”。分隔线同理 —— 看不见线，分组就没了。 */
-  .is-dark .topbar .tab-group-title { opacity: 1; color: #b9bdd4; }
-  .is-dark .topbar .brand-sub-btn { color: #a8acc4; }
+  .is-dark .topbar .tab-group-title { opacity: 1; color: var(--muted); }
+  .is-dark .topbar .brand-sub-btn { color: var(--muted); }
   .is-dark .topbar .tab-group + .tab-group { border-top-color: rgba(255, 255, 255, 0.26); }
   .is-dark .topbar .topbar-tools { border-top-color: rgba(255, 255, 255, 0.20); }
   .topbar .global-refresh-btn { margin-left: 0; }
@@ -676,8 +661,8 @@ body {
 .mini:disabled:hover { border-color: var(--border); color: var(--ink); }
 .mini:hover { border-color: var(--accent); color: var(--accent); }
 .mini.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-.mini.primary:hover { background: #8a7db6; }
-.is-dark .mini.primary:hover { background: #6a70c0; }
+.mini.primary:hover { background: color-mix(in srgb, var(--accent) 86%, #000); }
+.is-dark .mini.primary:hover { background: color-mix(in srgb, var(--accent) 78%, #000); }
 .mini.danger { color: var(--ink-bad); }
 .mini.danger:hover { border-color: var(--bad); }
 
@@ -1761,8 +1746,8 @@ kbd {
   line-height: 1.6;
 }
 .rate-import-err {
-  border-left: 3px solid #d48ca0;
-  background: rgba(212, 140, 160, 0.10);
+  border-left: 3px solid var(--bad);
+  background: color-mix(in srgb, var(--bad) 10%, transparent);
   color: var(--ink);
 }
 .rate-import-warn {
@@ -2779,4 +2764,55 @@ kbd {
   padding-top: 8px;
   border-top: 1px solid var(--border);
   line-height: 1.7;
+}
+
+/* ============================================================
+   数据可视化调色板（B4 阶段 1，2026-11-07）
+   ------------------------------------------------------------
+   图表（章节走向图 / 角色关系图 / 剧情板）用的是分类色，不能直接套 --accent，
+   但**必须随主题明暗切换** —— 否则暗色主题下一块白底、节点一圈近白色，
+   这正是“暗色下看不清”的老毛病。
+
+   规矩：颜色只在这里定义；组件里一律 `var(--viz-*)`（D3 用 .style() 而不是 .attr()，
+   浏览器会跟着主题类实时重算，不必手工重画）。
+   ============================================================ */
+:root {
+  --viz-1: #6b7fd7;
+  --viz-2: #d78a6b;
+  --viz-3: #6bbfa6;
+  --viz-4: #b98fd7;
+  --viz-5: #d7c46b;
+  --viz-6: #7fa6d7;
+  --viz-gold: #c9a26a;
+  /* 角色关系图的节点底色（浅色主题：近白、彼此差一点） */
+  --viz-node-1: #f3f1fa;
+  --viz-node-2: #f5f4fb;
+  --viz-node-3: #f7f7fa;
+  --viz-node-4: #fafafc;
+  --viz-node-5: #f2f3f7;
+  /* 剧情板的便利贴 / 卷色 */
+  --viz-note-bg: #fff8d6;
+  --viz-note-edge: #d9a600;
+  --viz-volume-edge: #c4b5fd;
+  --viz-dot-ok: #3b82f6;
+}
+:root.is-dark {
+  /* 暗色下把分类色整体提亮一档（原色在深底上糊成一团） */
+  --viz-1: #8f9ee6;
+  --viz-2: #e2a184;
+  --viz-3: #7fd0b8;
+  --viz-4: #c9a4e2;
+  --viz-5: #e2d287;
+  --viz-6: #93b7e2;
+  --viz-gold: #d4aa6a;
+  /* 节点底色跟主题走：暗底 + 一点强调色，不再用近白 */
+  --viz-node-1: color-mix(in srgb, var(--accent) 16%, var(--card));
+  --viz-node-2: color-mix(in srgb, var(--accent) 12%, var(--card));
+  --viz-node-3: color-mix(in srgb, var(--accent) 8%, var(--card));
+  --viz-node-4: color-mix(in srgb, var(--accent) 4%, var(--card));
+  --viz-node-5: color-mix(in srgb, var(--accent) 20%, var(--card));
+  --viz-note-bg: color-mix(in srgb, var(--warn) 22%, var(--card));
+  --viz-note-edge: var(--warn);
+  --viz-volume-edge: color-mix(in srgb, var(--accent) 60%, var(--border));
+  --viz-dot-ok: var(--accent);
 }

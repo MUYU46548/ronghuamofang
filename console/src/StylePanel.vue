@@ -1105,8 +1105,10 @@ onMounted(() => {
 .bar-val { width: 96px; text-align: right; font-size: 11.5px; color: var(--muted); }
 .chips { display: flex; flex-wrap: wrap; gap: 5px; margin: 4px 0 6px; }
 .chip { background: var(--accent-soft); color: var(--ink); border-radius: 999px; padding: 2px 9px; font-size: 12px; }
-.drift-summary { font-size: 13px; padding: 8px 10px; border-radius: 8px; background: rgba(127, 174, 143, 0.12); color: #4e7d5e; }
-.drift-summary.bad { background: rgba(201, 162, 106, 0.14); color: #8f6b33; }
+.drift-summary { font-size: 13px; padding: 8px 10px; border-radius: 8px; background: color-mix(in srgb, var(--ok) 12%, transparent);
+  color: color-mix(in srgb, var(--ok) 72%, var(--ink)); }
+.drift-summary.bad { background: color-mix(in srgb, var(--warn) 14%, transparent);
+  color: color-mix(in srgb, var(--warn) 72%, var(--ink)); }
 .bad-val { color: var(--bad); }
 .ok-val { color: var(--ok); }
 /* 柱状图 + 趋势线共用坐标系：.bars 与 .trend-svg 同高同起点（0-100% 一一对应） */

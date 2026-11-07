@@ -135,7 +135,8 @@ onMounted(load);
 .pboard-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .pboard-hint { color: var(--muted); font-size: 12px; }
 .pboard-vols { display: flex; flex-direction: column; gap: 16px; margin-top: 10px; }
-.pboard-vol { border: 1px solid #C4B5FD; background: color-mix(in srgb, #C4B5FD 8%, transparent);
+.pboard-vol { border: 1px solid var(--viz-volume-edge);
+  background: color-mix(in srgb, var(--viz-volume-edge) 8%, transparent);
               border-radius: 12px; padding: 10px 12px; }
 .pboard-vol > header { display: flex; gap: 8px; align-items: center; cursor: pointer; }
 .pboard-vt { font-weight: 600; font-size: 13px; }
@@ -152,11 +153,11 @@ onMounted(load);
              display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .pcard-foot { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
 .pcard-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--border); }
-.pcard-dot.ok { background: #3B82F6; }
-.pcard-dot.talk { background: #C9A26A; }
+.pcard-dot.ok { background: var(--viz-dot-ok); }
+.pcard-dot.talk { background: var(--viz-gold); }
 .parrow { align-self: center; color: var(--muted); }
 .pboard-stickies { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
-.sticky { background: #FFFBEB; border: 1px solid #FDE68A; border-radius: 8px; padding: 8px 10px;
+.sticky { background: var(--viz-note-bg); border: 1px solid var(--viz-note-edge); border-radius: 8px; padding: 8px 10px;
           text-align: left; cursor: pointer; display: flex; flex-direction: column; gap: 2px;
           font-size: 12px; max-width: 240px; }
 .pboard-talk { margin-top: 12px; }

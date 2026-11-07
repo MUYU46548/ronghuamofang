@@ -74,7 +74,10 @@ function radiusScale(maxTotal) {
 }
 
 const STATUS_FILL = {
-  major: "#f3f1fa", minor: "#f5f4fb", background: "#f7f7fa", absent: "#fafafc", ghost: "#f2f3f7",
+  // B4：节点底色改引用 --viz-node-*（暗色主题下由 style.css 换成 accent 调出来的深色），
+  // 原来的近白 fill 在暗色主题上是一块块白斑。
+  major: "var(--viz-node-1)", minor: "var(--viz-node-2)", background: "var(--viz-node-3)",
+  absent: "var(--viz-node-4)", ghost: "var(--viz-node-5)",
 };
 
 function lockBadge(g, r) {
@@ -83,10 +86,10 @@ function lockBadge(g, r) {
   const bx = r * 0.45, by = -r - bh * 0.1;
   g.append("rect")
     .attr("x", bx).attr("y", by).attr("width", bw).attr("height", bh)
-    .attr("rx", 1.5).attr("fill", "#c9a26a");
+    .attr("rx", 1.5).style("fill", "var(--viz-gold)");
   g.append("path")
     .attr("d", `M${bx + bw * 0.2},${by} a${bw * 0.3},${bw * 0.3} 0 0 1 ${bw * 0.6},0`)
-    .attr("fill", "none").attr("stroke", "#c9a26a").attr("stroke-width", 1.2);
+    .style("fill", "none").style("stroke", "var(--viz-gold)").attr("stroke-width", 1.2);
 }
 
 function applyHighlight() {
@@ -148,7 +151,7 @@ function build() {
     .data(linkCopy)
     .join("line")
     .attr("class", (d) => "rg-link" + (d.ghost ? " ghostlink" : ""))
-    .attr("stroke", (d) => relationTypeOf(d.type).color)
+    .style("stroke", (d) => relationTypeOf(d.type).color)
     .attr("stroke-width", (d) => (d.entries.length > 1 ? 2 : 1.4))
     .attr("stroke-linecap", "round")
     .attr("opacity", 0.55);
@@ -167,7 +170,7 @@ function build() {
   nodeSel
     .append("circle")
     .attr("r", (d) => rScale(d.total))
-    .attr("fill", (d) => STATUS_FILL[d.level] || "#f7f7fa")
+    .style("fill", (d) => STATUS_FILL[d.level] || "var(--viz-node-3)")
     .attr("stroke", (d) => levelStyle(d.level).stroke)
     .attr("stroke-width", (d) => levelStyle(d.level).width)
     .attr("stroke-dasharray", (d) => levelStyle(d.level).dash);
@@ -439,8 +442,8 @@ const levelLegend = [
   /* 白色描边垫底：节点密集时标签互相压字也能读 */
   paint-order: stroke; stroke: #fff; stroke-width: 3px; stroke-linejoin: round;
 }
-:deep(.rg-node.ghost .rg-label) { fill: #9aa0ad; font-style: italic; }
+:deep(.rg-node.ghost .rg-label) { fill: var(--muted); font-style: italic; }
 :deep(.rg-node.dim) { opacity: 0.22; }
 :deep(.rg-node.hl circle) { stroke: var(--accent); stroke-width: 2.6; }
-:deep(.rg-node.sel circle) { fill: #e6e2f3; stroke: var(--accent); stroke-width: 3; }
+:deep(.rg-node.sel circle) { fill: var(--viz-node-5); stroke: var(--accent); stroke-width: 3; }
 </style>

@@ -840,8 +840,8 @@ onMounted(loadReport);
 .judge-para-body { margin-bottom: 8px; }
 /* 指到即到（F07）：点到的那一段给个明显的底，不然滚过去了也看不出来是哪段 */
 .judge-para-body.judge-para-focus {
-  background: #fff8d6;
-  box-shadow: inset 3px 0 0 #d9a600;
+  background: var(--viz-note-bg);
+  box-shadow: inset 3px 0 0 var(--viz-note-edge);
   border-radius: 4px;
   padding-left: 6px;
   margin-left: -6px;
