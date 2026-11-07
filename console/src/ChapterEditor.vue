@@ -241,6 +241,8 @@ async function loadContent() {
   target.value = r.data.target_words || target.value;
   refineResult.value = null;
   selPara.value = null;
+  // 批注跟着章节/层走（B5）：换了章或换了层，右侧那份列表必须跟着换。
+  loadAnnotations();
 }
 
 async function loadParas() {
@@ -306,6 +308,55 @@ async function loadLayersQuiet() {
     layers.value = r.data.layers || {};
     currentLayer.value = r.data.current_layer || currentLayer.value;
   }
+}
+
+/* ---------- 段落批注（B5，2026-11-06） ----------
+ * 改之前：意见写完就交给模型，**一个字都不留**；正文一改，谁也不知道昨天的意见指哪。
+ * 现在：批注存“引用原文 + 段落号 + 前后文指纹”，打开章节时按当前正文重定位 ——
+ *   命中原文 → 位置更新；只有前后文对得上 → 标“这一段被改过”；
+ *   都对不上 → 标红“引用的原句已改/已删”，不悄悄指到别的段。
+ * 只提示、不自动改批注内容（改不改是作者的决定）。
+ */
+const ann = ref({ loading: false, items: [], drifted: 0, missing: 0, total: 0, msg: "" });
+
+async function loadAnnotations() {
+  ann.value = { ...ann.value, loading: true, msg: "" };
+  const r = await props.api("/chapters/annotations?n=" + props.n + "&layer=" + encodeURIComponent(layer.value));
+  if (r.status === 200 && r.data && r.data.ok) {
+    ann.value = { loading: false, items: r.data.annotations || [], total: r.data.total || 0,
+                  drifted: r.data.drifted || 0, missing: r.data.missing || 0, msg: "" };
+  } else {
+    ann.value = { loading: false, items: [], total: 0, drifted: 0, missing: 0,
+                  msg: (r.data && r.data.error) || "读取批注失败" };
+  }
+}
+
+async function saveAnnotation() {
+  if (selPara.value === null) {
+    emit("say", "先在左边点选一个段落，再记批注");
+    return;
+  }
+  const note = feedback.value.trim();
+  if (!note) {
+    emit("say", "批注内容是空的 —— 先写一句要改什么");
+    return;
+  }
+  const r = await props.api("/chapters/annotations", "POST",
+                            { n: props.n, action: "add", para_index: selPara.value,
+                              note, layer: layer.value });
+  if (r.status === 200 && r.data && r.data.ok) {
+    emit("say", "已记下这条批注（不交给模型，稍后可在右侧列表回看）");
+    await loadAnnotations();
+  } else {
+    emit("say", "记批注失败：" + ((r.data && r.data.error) || ("HTTP " + r.status)));
+  }
+}
+
+async function resolveAnnotation(a) {
+  const r = await props.api("/chapters/annotations", "POST",
+                            { n: props.n, action: "resolve", id: a.id });
+  if (r.status === 200 && r.data && r.data.ok) await loadAnnotations();
+  else emit("say", "标记失败：" + ((r.data && r.data.error) || ("HTTP " + r.status)));
 }
 
 function pickPara(p) {
@@ -564,11 +615,47 @@ onUnmounted(() => {
                       @click="submitRefine">
                 {{ refining ? ("重写中… 已 " + fmtElapsed(refineElapsed)) : "让 AI 只改这一段" }}
               </button>
+              <!-- 只为记下来、不交给模型（B5）：批注以前写完就没了 -->
+              <button class="mini ce-batch-btn" :disabled="refining || selPara === null || !feedback.trim()"
+                      title="只记下来：不调用模型、不改正文，稍后在这块列表里回看"
+                      @click="saveAnnotation">只记下这条批注</button>
               <div v-if="refining" class="meta">只重写选中的那一段，其余段落原样保留；完成后正文会自动刷新。</div>
               <div v-if="refineResult" class="ce-ok">
                 第 {{ (selPara === null ? 0 : selPara + 1) }} 段已重写
               </div>
             </template>
+          </div>
+
+          <div class="ce-side-block">
+            <div class="ce-side-title">
+              记下的批注
+              <span class="meta" v-if="ann.total">（{{ ann.total }} 条<template v-if="ann.missing"> · <b class="ce-ann-bad">{{ ann.missing }} 条已失效</b></template><template v-if="ann.drifted"> · {{ ann.drifted }} 条位置变了</template>）</span>
+            </div>
+            <div v-if="ann.loading" class="meta">读取中…</div>
+            <div v-else-if="ann.msg" class="meta">{{ ann.msg }}</div>
+            <div v-else-if="!ann.items.length" class="meta">
+              还没记过。选了段落、写好意见后点“只记下这条批注”就会留在这里（不调用模型）。
+            </div>
+            <div v-else class="ce-ann-list">
+              <div v-for="a in ann.items" :key="a.id" class="ce-ann"
+                   :class="{ bad: a.status === 'missing', warn: a.drift && a.status !== 'missing',
+                             done: a.status === 'resolved' }">
+                <div class="ce-ann-head">
+                  <span class="pill">第 {{ (a.para_index || 0) + 1 }} 段</span>
+                  <span class="meta">{{ a.created_at }}</span>
+                  <span v-if="a.status === 'missing'" class="ce-ann-bad">引用的原句已改/已删</span>
+                  <span v-else-if="a.drift" class="ce-ann-warn">{{ a.why || "位置变了" }}</span>
+                  <span v-if="a.status === 'resolved'" class="meta">· 已处理</span>
+                </div>
+                <div class="ce-ann-note">{{ a.note }}</div>
+                <div class="ce-ann-quote" v-if="a.current_text">
+                  现在这一段：{{ a.current_text.slice(0, 60) }}…
+                </div>
+                <button v-if="a.status === 'open'" class="mini" @click="resolveAnnotation(a)">
+                  标为已处理
+                </button>
+              </div>
+            </div>
           </div>
 
           <div class="ce-side-block">
@@ -677,6 +764,20 @@ onUnmounted(() => {
   background: var(--field-inset, #fff); color: var(--ink);
 }
 .ce-batch-btn { margin-top: 8px; width: 100%; }
+/* 记下的批注（B5）：失效的必须**看得见**（红），位置变了是提醒（黄）。 */
+.ce-ann-list { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.ce-ann {
+  padding: 6px 8px; border: 1px solid var(--border); border-radius: 7px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.ce-ann.bad { border-color: var(--bad); background: rgba(200, 60, 60, 0.06); }
+.ce-ann.warn { border-color: var(--warn, #b8860b); background: rgba(184, 134, 11, 0.06); }
+.ce-ann.done { opacity: 0.6; }
+.ce-ann-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 11.5px; }
+.ce-ann-note { font-size: 12.5px; line-height: 1.6; }
+.ce-ann-quote { font-size: 11.5px; line-height: 1.5; color: var(--muted, #888); }
+.ce-ann-bad { color: var(--bad); }
+.ce-ann-warn { color: var(--warn, #b8860b); }
 .ce-ok {
   margin-top: 8px; padding: 6px 8px; font-size: 12px;
   border-left: 2px solid var(--ok, #2e8b57); background: rgba(46, 139, 87, 0.1);

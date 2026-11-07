@@ -671,11 +671,91 @@ def handle_chapters_candidates_apply(h, body):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+def handle_chapters_annotations(h):
+    """`GET /chapters/annotations?n=3&layer=refined` —— 段落批注 + 漂移判定（B5）。
+
+    为什么要重新定位：批注存的是“引用原文 + 段落号 + 前后文指纹”，
+    正文一改，光靠段落号就会指到别的段落。这里每次读都按当前正文重定位：
+    命中原文 → 更新段落号；只有前后文对上 → 标 `drift`（这一段被改过）；
+    都对不上 → `status="missing"`（界面标红，说清原句已不在）。
+    """
+    try:
+        from utils import annotations as ann
+        qs = h._query()
+        try:
+            n = int((qs.get("n") or ["0"])[0])
+        except (TypeError, ValueError):
+            return 400, {"ok": False, "error": "n 必填且为章节号"}
+        layer = (qs.get("layer") or [""])[0] or (_current_layer(n) or "refined")
+        if layer not in LAYERS:
+            return 400, {"ok": False, "error": "layer 须为 raw / checked / refined"}
+        p = _chapter_path(n, layer)
+        paras = None
+        if p.exists():
+            paras = ann.split_paragraphs(p.read_text(encoding="utf-8"))
+        return 200, ann.list_for_chapter(api.ROOT, n, paras)
+    except Exception as e:                                   # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_chapters_annotations_set(h, body):
+    """`POST /chapters/annotations {n, action, ...}` —— 挂注 / 标已处理 / 删除（B5）。
+
+    action:
+      - `add`：{n, para_index, note, layer?} —— 记下引用原文与相邻指纹；
+      - `resolve`：{n, id} —— 标“已处理”（保留留痕，不删）；
+      - `delete`：{n, id} —— 写错了才用。
+
+    不设 GUI-only：批注是**作者的笔记**，不是改稿动作（不碰正文一个字）；
+    Agent 代记一条批注不会让书稿变形，但也别指望它替你判断哪条该处理 ——
+    `resolve` 同样放行（只是标记状态，正文不变）。
+    """
+    try:
+        from utils import annotations as ann
+        body = body or {}
+        try:
+            n = int(body.get("n"))
+        except (TypeError, ValueError):
+            return 400, {"ok": False, "error": "n 必填且为章节号"}
+        if n < 1:
+            return 400, {"ok": False, "error": "n 必填且为章节号"}
+        action = str(body.get("action") or "").strip()
+        if action == "add":
+            layer = str(body.get("layer") or "").strip() or (_current_layer(n) or "refined")
+            if layer not in LAYERS:
+                return 400, {"ok": False, "error": "layer 须为 raw / checked / refined"}
+            p = _chapter_path(n, layer)
+            if not p.exists():
+                return 404, {"ok": False, "error": "第 %d 章的 %s 稿不存在" % (n, layer)}
+            paras = ann.split_paragraphs(p.read_text(encoding="utf-8"))
+            try:
+                item = ann.add(api.ROOT, n, body.get("note"), body.get("para_index"),
+                               paras, layer=layer)
+            except ValueError as e:
+                return 400, {"ok": False, "error": str(e)}
+            return 200, {"ok": True, "annotation": item, "message": "已记下这条批注"}
+        if action in ("resolve", "delete"):
+            aid = str(body.get("id") or "").strip()
+            if not aid:
+                return 400, {"ok": False, "error": "id 必填"}
+            done = (ann.resolve if action == "resolve" else ann.remove)(api.ROOT, n, aid)
+            if not done:
+                return 404, {"ok": False, "error": "没有这条批注：%s" % aid}
+            return 200, {"ok": True, "id": aid,
+                         "message": "已标记为处理完" if action == "resolve" else "已删除"}
+        return 400, {"ok": False,
+                     "error": "action 须为 add / resolve / delete（收到 %r）" % action}
+    except Exception as e:                                   # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 ROUTES = (
     ("GET", "/chapters/layers", handle_chapters_layers),
     ("GET", "/chapters/content", handle_chapters_content),
     ("GET", "/chapters/candidates", handle_chapters_candidates),
     ("POST", "/chapters/candidates/apply", handle_chapters_candidates_apply),
+    ("GET", "/chapters/annotations", handle_chapters_annotations),
+    ("POST", "/chapters/annotations", handle_chapters_annotations_set),
     ("GET", "/chapters/rerun/plan", handle_chapters_rerun_plan),
     ("POST", "/chapters/save", handle_chapters_save),
     ("POST", "/chapters/rewrite", handle_chapters_rewrite),

@@ -3148,6 +3148,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/chapters/candidates":
             # Best-of-N 候选（B2）：这章多写了几版、各多少分、哪版被选中 —— 只读
             self._send(*_dom(dom_chapters.handle_chapters_candidates(self)))
+        elif p == "/chapters/annotations":
+            # 段落批注 + 漂移判定（B5）：每次读都按当前正文重定位 —— 只读批注文件
+            self._send(*_dom(dom_chapters.handle_chapters_annotations(self)))
         elif p == "/chapters/rerun/plan":
             # 单章重跑影响面预览（2026-11-04）：只读、零 token —— nf_api_domains.chapters
             self._send(*_dom(dom_chapters.handle_chapters_rerun_plan(self)))
@@ -3832,6 +3835,9 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/chapters/candidates/apply":
                 # 采用某个候选（B2）：与手改正文同族 —— 零 token 覆盖正文，故 GUI-only
                 self._send(*_dom(dom_chapters.handle_chapters_candidates_apply(self, body)))
+            elif p == "/chapters/annotations":
+                # 段落批注（B5）：挂注 / 标已处理 / 删除 —— 笔记类，不动正文
+                self._send(*_dom(dom_chapters.handle_chapters_annotations_set(self, body)))
             elif p == "/chapters/rerun":
                 # 单章纵向重跑（4→5→6，花 token）：只作废/重算这一章，
                 # 其他章三层稿与进度一律不动（2026-11-04，task-20261104-002）

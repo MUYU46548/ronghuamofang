@@ -289,6 +289,21 @@ _WL_BUILTIN = 20
 CAND = {"applied": ""}
 BON = {"value": 0}
 
+# 段落批注（B5）：一条正常、一条“原句已改”（漂移）、一条“已失效”（标红）——
+# 三种状态同时在场，界面才验证得了“红/黄/正常”分得开。
+ANN = {"items": [
+    {"id": "a1", "note": "开头要再慢一点", "para_index": 0, "status": "open",
+     "created_at": "2026-11-06 10:00", "quote": "他推门进来的时候", "drift": False,
+     "current_text": "他推门进来的时候，屋檐上的水线正连成了串。"},
+    {"id": "a2", "note": "这段收尾太急", "para_index": 2, "status": "open",
+     "created_at": "2026-11-06 10:05", "quote": "她停下脚步", "drift": True,
+     "why": "段落位置变了（从第 3 段移到第 4 段）",
+     "current_text": "她停下脚步，侧过脸朝窗外的天色看了一眼。"},
+    {"id": "a3", "note": "这句话我删了，别再提", "para_index": 5, "status": "missing",
+     "created_at": "2026-11-06 10:09", "quote": "早已删掉的一句", "drift": False,
+     "why": "引用的原句在这一层里找不到（已被改写或删除）", "current_text": ""},
+]}
+
 
 def _cand_text(tag, chars):
     para = ("他推门进来的时候，屋檐上的水线正连成了串，地上积了一小滩暗色的水。"
@@ -743,6 +758,19 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/chapters/candidates":
             n = (self._query().get("n") or ["1"])[0]
             return self._send(200, candidates_payload(n))
+
+        if p == "/chapters/annotations":
+            # 段落批注（B5）：三种状态同时给（正常 / 位置变了 / 已失效），
+            # 界面才验得出“红黄分得开、失效的确实标红”。
+            return self._send(200, {"ok": True,
+                                    "chapter": int((self._query().get("n") or ["1"])[0]),
+                                    "total": len(ANN["items"]),
+                                    "open": len([a for a in ANN["items"]
+                                                 if a["status"] == "open"]),
+                                    "drifted": len([a for a in ANN["items"] if a.get("drift")]),
+                                    "missing": len([a for a in ANN["items"]
+                                                    if a["status"] == "missing"]),
+                                    "annotations": ANN["items"], "relocated": True})
 
         if p == "/config/best_of_n":
             # Best-of-N 开关（B2）：有状态 —— 改完再读必须看到新值。
@@ -1246,6 +1274,30 @@ class Handler(BaseHTTPRequestHandler):
             BON["value"] = v
             return self._send(200, {"ok": True, "current": v,
                                     "message": "已设为 %s" % ("关闭" if v == 0 else "%d 版" % v)})
+
+        if p == "/chapters/annotations":
+            # 段落批注（B5）写入口：add / resolve / delete（与真后端同三种 action）。
+            b = body or {}
+            act = str(b.get("action") or "")
+            if act == "add":
+                note = str(b.get("note") or "").strip()
+                if not note:
+                    return self._send(400, {"ok": False, "error": "批注内容不能为空"})
+                item = {"id": "a%d" % (len(ANN["items"]) + 1), "note": note,
+                        "para_index": int(b.get("para_index") or 0), "status": "open",
+                        "created_at": "2026-11-06 12:00", "quote": "（新增）", "drift": False,
+                        "current_text": ""}
+                ANN["items"].append(item)
+                return self._send(200, {"ok": True, "annotation": item,
+                                        "message": "已记下这条批注"})
+            if act == "resolve":
+                for a in ANN["items"]:
+                    if a["id"] == str(b.get("id")):
+                        a["status"] = "resolved"
+                        return self._send(200, {"ok": True, "id": a["id"],
+                                                "message": "已标记为处理完"})
+                return self._send(404, {"ok": False, "error": "没有这条批注"})
+            return self._send(400, {"ok": False, "error": "action 须为 add / resolve / delete"})
 
         if p == "/chapters/candidates/apply":
             # Best-of-N（B2）：采用某一版 —— 有状态，回读要能看出“你在用哪版”。
