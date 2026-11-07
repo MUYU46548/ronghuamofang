@@ -224,7 +224,6 @@ onMounted(load);
 .summary { margin-top: 4px; white-space: pre-wrap; }
 .actions { display: flex; gap: 6px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
 .refpath { width: 260px; }
-.spacer { flex: 1; }
 .err { color: var(--bad); margin: 6px 0; }
 .bad-btn { color: var(--bad); }
 .pill.idea { color: var(--warn); }

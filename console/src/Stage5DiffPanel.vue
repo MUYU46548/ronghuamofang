@@ -220,7 +220,6 @@ onMounted(load);
 .new { border-left: 3px solid var(--ok); padding: 4px 8px; }
 pre { white-space: pre-wrap; margin: 4px 0; font-family: inherit; }
 .actions { display: flex; gap: 6px; margin-top: 6px; }
-.spacer { flex: 1; }
 .err { color: var(--bad); margin: 6px 0; }
 .ok-btn { color: var(--ok); }
 .bad-btn { color: var(--bad); }

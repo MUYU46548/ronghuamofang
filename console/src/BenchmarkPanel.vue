@@ -216,7 +216,6 @@ onMounted(load);
 .grow { flex: 1; min-width: 0; }
 .item { display: flex; align-items: center; gap: 8px; padding: 4px 0; border-top: 1px solid var(--border); }
 .name { font-weight: 600; }
-.spacer { flex: 1; }
 .err { color: var(--bad); margin: 6px 0; }
 .bad-btn { color: var(--bad); }
 .removed { margin-top: 8px; }

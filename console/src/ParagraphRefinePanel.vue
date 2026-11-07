@@ -616,7 +616,6 @@ onMounted(() => {
 .mini.primary { background: var(--accent); color: #fff; }
 .mini:disabled { opacity: 0.5; cursor: not-allowed; }
 .mini.danger { background: var(--bad); color: #fff; }
-.spacer { flex: 1; }
 .para-body { display: flex; gap: 12px; min-height: 450px; }
 
 /* --- 全文视图 --- */

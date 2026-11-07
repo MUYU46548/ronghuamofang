@@ -312,7 +312,6 @@ onMounted(() => loadReport(true));
 </template>
 
 <style scoped>
-.spacer { flex: 1; }
 .llm-toggle { display: flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--muted); }
 .stat-row { display: flex; gap: 14px; flex-wrap: wrap; }
 .cost-stat { flex: 1; min-width: 120px; background: var(--bg); border-radius: 10px; padding: 10px 12px; }

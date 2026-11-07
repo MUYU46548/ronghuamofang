@@ -1086,7 +1086,6 @@ onMounted(() => {
 .ref-path { font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; color: var(--muted); }
 .ref-ok { color: var(--ok); }
 .ref-warn { color: var(--warn, #b45309); }
-.spacer { flex: 1; }
 .llm-toggle { display: flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--muted); }
 .stat-row { display: flex; gap: 12px; flex-wrap: wrap; }
 .cost-stat { flex: 1; min-width: 118px; background: var(--bg); border-radius: 10px; padding: 10px 12px; }

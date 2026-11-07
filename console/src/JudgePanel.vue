@@ -738,7 +738,6 @@ onMounted(loadReport);
 .judge { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; }
 .judge-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .judge-bar b { font-size: 14px; }
-.spacer { flex: 1; }
 .judge-sum { font-weight: 600; }
 .judge-notice { font-size: 12px; color: var(--warn); margin: 6px 0; }
 .judge-err { font-size: 12px; color: var(--bad); margin: 6px 0; }

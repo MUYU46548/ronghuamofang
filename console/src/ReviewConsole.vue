@@ -606,7 +606,6 @@ onUnmounted(() => {
   color: var(--muted);
   font-size: 10px;
 }
-.spacer { flex: 1; }
 
 .chapter-body {
   padding: 12px 16px;
