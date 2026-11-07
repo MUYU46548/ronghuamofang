@@ -419,6 +419,10 @@ body {
 
 /* 布局 */
 .content { position: relative; z-index: 1; padding: 20px 24px; max-width: 1320px; margin: 0 auto; }
+/* 审阅台专用宽度（B7，2026-11-06）：三栏本身就是为“同时看正文+依据”设计的，
+   1320 是给表单/卡片页的上限，套在审阅台上会把正文挤成 27 字/行（1680 视口实测）。
+   只放宽这一种视图，不动其它页面的栅格 —— 全局栅格归 UI 统一（B4）那一轮再定。 */
+.content.content-wide { max-width: 1560px; }
 .backbar { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
 .grid-2 { display: grid; grid-template-columns: 1.25fr 1fr; gap: 16px; }
 @media (max-width: 980px) { .grid-2 { grid-template-columns: 1fr; } }

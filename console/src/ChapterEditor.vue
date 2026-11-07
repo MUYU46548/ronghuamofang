@@ -78,6 +78,18 @@ const refineResult = ref(null);
 let refineTimer = null;
 
 const areaRef = ref(null);
+/* 侧栏开关（B7，2026-11-06）：内联进审阅台时**默认收起**。
+ * 理由与编辑态同一句（见模板 496 行注释）：审阅台本身已经有右栏，再并一列，
+ * 正文就被挤到 27 字/行（1680 视口实测）。侧栏内容不是没了 —— 点名字看卡、
+ * 切到“段落批注”都会自动展开，也可以手动点开。
+ * 抽屉形态（非内联）默认展开：那里只有它一个侧栏。 */
+const sideOpen = ref(!props.embedded);
+// 用户手动动过侧栏没有：动过就一直尊重（切模式不再擅自收起/展开）。
+const sideTouched = ref(false);
+function toggleSide() {
+  sideOpen.value = !sideOpen.value;
+  sideTouched.value = true;
+}
 
 /* ---------- 设定卡与正文高亮（2026-11-05，SP-1026 工作台收尾） ----------
  * 用户要的是“读正文时点人名就能看卡”，而不是切到设定页签再搜。
@@ -170,7 +182,11 @@ function segments(p) {
 }
 const readParas = computed(() =>
   String(text.value || "").split(/\n+/).filter((p) => p.trim()));
-function pickName(nm) { cardSel.value = nm; }
+function pickName(nm) {
+  cardSel.value = nm;
+  // 侧栏收着的时候点了名字 = 想看这张卡：自动展开，不然点了没反应（2026-11-06 B7）。
+  sideOpen.value = true;
+}
 const cardNow = computed(() => (cardSel.value ? settingCards.value[cardSel.value] : null));
 
 const layerInfo = computed(() => layers.value[layer.value] || {});
@@ -371,8 +387,13 @@ async function switchMode(m) {
     return;
   }
   mode.value = m;
-  if (m === "batch") await loadParas();
-  if (m === "read") await loadSettingCards();
+  // 批注框住在侧栏里 —— 批注态强制展开，否则“收起侧栏”会把它一起收掉，等于没入口。
+  if (m === "batch") { sideOpen.value = true; await loadParas(); }
+  if (m === "read") {
+    // 阅读态默认让正文吃满（这是用户抱怨 27 字/行的那一屏）；用户自己开过就不动他。
+    if (!sideTouched.value) sideOpen.value = false;
+    await loadSettingCards();
+  }
 }
 
 function tryClose() {
@@ -444,6 +465,13 @@ onUnmounted(() => {
         <button class="mini" :disabled="refining" :class="{ on: mode === 'batch' }"
                 :title="canBatch ? '按段落挑选并提意见，让模型只重写这一段' : '批注只在当前层开放'"
                 @click="switchMode('batch')">段落批注</button>
+        <!-- 侧栏开关（B7）：内联时默认收起，正文优先；点名字看卡会自动展开它。
+             批注态禁用 —— 批注框在侧栏里，收起它等于把唯一入口收没了。 -->
+        <button v-if="embedded && mode !== 'edit'" class="mini" :class="{ on: sideOpen }"
+                :disabled="mode === 'batch'"
+                :title="mode === 'batch' ? '批注框在侧栏里，这一态不能收'
+                       : (sideOpen ? '收起侧栏，正文更宽' : '展开侧栏（设定卡 / 这一层 / 段落批注框）')"
+                @click="toggleSide">{{ sideOpen ? "收起侧栏" : "侧栏" }}</button>
         <button class="mini primary" :disabled="!dirty || busy" @click="save">
           {{ busy ? "保存中…" : "保存" }}
         </button>
@@ -493,7 +521,7 @@ onUnmounted(() => {
              （本章出场 / 大纲 / 七维），再并一列卡会变成四列“一堆重叠的卡片”
              （2026-11-05 用户实测原话）。编辑模式让正文吃满宽度；
              “段落批注”与“阅读”（点名字看卡）才需要这一列。 -->
-        <div v-if="!embedded || mode !== 'edit'" class="ce-side">
+        <div v-if="(!embedded || mode !== 'edit') && sideOpen" class="ce-side">
           <!-- 设定卡（2026-11-05）：阅读模式点名字后出现在这里。
                与正文同屏，不跳页 —— 否则“查一下这个人是谁”要先离开这一章。 -->
           <div v-if="cardNow" class="ce-side-block ce-card">
@@ -581,8 +609,12 @@ onUnmounted(() => {
 .ce-body { flex: 1; display: flex; min-height: 0; gap: 12px; padding: 10px 12px 12px; }
 .ce-main { flex: 1; min-width: 0; display: flex; }
 .ce-edit-wrap { flex: 1; display: flex; }
+/* 正文测量上限（B7，2026-11-06）：730px ≈ 46 个汉字/行（15px 字 + 32px 内边距 + 2px 边框）。
+   为什么要有上限：栏宽放开后（左/右栏可收起），1920 视口下正文能到 80+ 字/行 ——
+   那是另一头的不适（眼睛回扫距离过长）。上限 + 居中 = 宽度够读、又不拉成横幅。
+   数值不是拍脑袋：Task 判据是「≥45 汉字/行」，46 是“达标且稳定”的最小值。 */
 .ce-textarea {
-  flex: 1; width: 100%; resize: none; padding: 14px 16px;
+  flex: 1; width: 100%; max-width: 730px; margin: 0 auto; resize: none; padding: 14px 16px;
   font-family: "Source Han Serif SC", "Noto Serif SC", "Songti SC", serif;
   font-size: 15px; line-height: 1.9;
   border: 1px solid var(--border); border-radius: 8px;
@@ -591,6 +623,7 @@ onUnmounted(() => {
 /* 阅读模式（2026-11-05）：与编辑态同一套排版，正文可点名字 */
 .ce-read {
   flex: 1; min-width: 0; overflow: auto; padding: 12px 16px;
+  max-width: 730px; margin: 0 auto;
   border: 1px solid var(--border); border-radius: 8px;
   background: var(--field-inset, #fff);
   font-family: "Source Han Serif SC", "Noto Serif SC", "Songti SC", serif;

@@ -261,6 +261,18 @@ def plan_move(pid, new_status, ref_path=""):
 # 换行常量：demo 提案文案里拼真实换行用（对齐真后端的多行 markdown）
 NL = "\n"
 COLD = False   # --cold：全新工作区（所有阶段 pending + has_work=false）→ 冷启动引导
+
+# ---- 章节正文（B7，2026-11-06）----
+# 审阅台“一行多少字”只能靠真渲染量出来。假后端没有工作区目录，只能给确定性的中文正文；
+# 与 e2e 垫片 `_nfChapterText` 同形（左栏章列表来自 IPC 假桥、中栏正文来自 /chapters/content，
+# 两边内容一致才不会让人怀疑“打开的不是同一章”）。
+_MOCK_PARA = ("他推门进来的时候，屋檐上的水线正连成了串，地上积了一小滩暗色的水。"
+              "她停下脚步，侧过脸朝窗外的天色看了一眼，随即收回视线。")
+
+
+def chapter_text(n):
+    """第 n 章的假正文：一个章标题 + 40 个自然段（每段 66 个汉字，足够量行宽）。"""
+    return "## 第%d章 验收章\n\n%s" % (n, "\n\n".join([_MOCK_PARA] * 40))
 MULTI_STARTED = {}   # 多方案 mock job 的起始时刻（逐版进度按秒推进）
 
 # Word 成品模板面板（件五）的**有状态**当前值：POST 改、GET 读，
@@ -436,6 +448,42 @@ class Handler(BaseHTTPRequestHandler):
                     {"dim": "foreshadow", "text": "结局三案：岑砚把自己的声音存进叠景", "why": "命中：岑砚"},
                     {"dim": "character", "chapter": 1, "text": "第1章：岑砚夜里在渡口接到第三只沉木箱", "why": "命中：岑砚"},
                 ],
+            })
+        if p in ("/chapters/layers", "/chapters/content", "/chapters/paragraphs"):
+            # 三层正文 / 单层全文 / 段落列表（B7，2026-11-06）：缺这三条时审阅台中栏
+            # 恒停在“读取中”或直接报错，**列宽与行宽在 e2e 里根本量不到**。
+            try:
+                n = int((self._query().get("n") or ["1"])[0])
+            except (TypeError, ValueError):
+                return self._send(400, {"ok": False, "error": "n 必填且为章节号"})
+            if n < 1:
+                return self._send(400, {"ok": False, "error": "n 必填且为章节号"})
+            text = chapter_text(n)
+            words = sum(1 for ch in text if "\u4e00" <= ch <= "\u9fff")
+            if p == "/chapters/paragraphs":
+                paras = [{"index": i, "text": _MOCK_PARA, "chars": len(_MOCK_PARA)}
+                         for i in range(40)]
+                return self._send(200, {"ok": True, "chapter": n, "layer": "refined",
+                                        "count": len(paras), "paragraphs": paras})
+            meta = {"exists": True, "chars": len(text),
+                    "bytes": len(text.encode("utf-8")), "words": words,
+                    "title": "第%d章 验收章" % n,
+                    "mtime": 1762300000.0, "mtime_text": "2026-11-06 10:00"}
+            if p == "/chapters/content":
+                want = ((self._query().get("layer") or ["refined"])[0] or "refined").strip()
+                if want not in ("raw", "checked", "refined"):
+                    return self._send(400, {"ok": False,
+                                            "error": "layer 须为 raw / checked / refined"})
+                body = dict(meta, ok=True, n=n, layer=want, content=text)
+                return self._send(200, body)
+            layers = {}
+            for lay in ("raw", "checked", "refined"):
+                layers[lay] = dict(meta, layer=lay,
+                                   path="data/chapters/%s/%02d.md" % (lay, n))
+            return self._send(200, {
+                "ok": True, "n": n, "layers": layers, "current_layer": "refined",
+                "last_modified_layer": "refined", "target_words": [4000, 7200],
+                "note": "raw=原稿 · checked=逻辑检查后 · refined=润色后（成品层，编辑器默认打开）",
             })
         if p == "/config/project":
             return self._send(200, {"ok": True, "config": {"book": {"name": "验收用书", "chapters": 12}}})

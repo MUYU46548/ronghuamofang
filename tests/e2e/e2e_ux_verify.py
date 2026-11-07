@@ -1351,6 +1351,76 @@ def test_about_project(browser, mock_proc=None):
         ctx8.close()
 
 
+_DESK_MEASURE_JS = r"""
+() => {
+  // 一行放得下几个汉字：clientWidth 减左右 padding，再除以一个汉字的实际步进宽度。
+  // 为什么不数截图：标点/数字宽度不同，目测一遍一个数，两个人数两个数。
+  const per = (el) => {
+    const c = getComputedStyle(el);
+    const cw = el.clientWidth - (parseFloat(c.paddingLeft) || 0) - (parseFloat(c.paddingRight) || 0);
+    const cv = document.createElement('canvas').getContext('2d');
+    cv.font = c.fontWeight + ' ' + c.fontSize + ' ' + c.fontFamily;
+    const g = cv.measureText('\u6c49').width;
+    return g > 0 ? Math.floor(cw / g) : 0;
+  };
+  const out = {};
+  const ta = document.querySelector('.ce-textarea');
+  if (ta) out.edit = per(ta);
+  const rp = document.querySelector('.ce-read-p');
+  if (rp) out.read = per(rp);
+  return out;
+}
+"""
+
+
+def test_desk_width(browser):
+    """B7（2026-11-06）：审阅台正文必须 ≥45 汉字/行。
+
+    用户原话「正文不是主视觉」。此前 e2e 进不去审阅台（mock 不返章节正文），
+    所以这条缺陷在自动化里**结构上不可见** —— 补完 mock 的 /chapters/layers|content
+    与章节文件假桥之后，这里把它钉成判据：三档视口 × 编辑/阅读两态。
+    """
+    print("\n=== F. 审阅台正文列宽（B7）===")
+    ctx, page, errs, bad = new_page(browser, MOCK_API, "desk")
+    try:
+        first = True
+        for w in (1366, 1680, 1920):
+            page.set_viewport_size({"width": w, "height": 940})
+            page.wait_for_timeout(400)
+            if first:
+                page.locator("nav.tabs button", has_text="章节").first.click()
+                page.wait_for_timeout(700)
+                first = False
+            if page.locator("button:has-text('审阅台')").count():
+                page.locator("button:has-text('审阅台')").first.click()
+            try:
+                page.wait_for_selector(".ce-textarea", timeout=6000)
+            except Exception:                                 # noqa: BLE001
+                check("审阅台在 %d 宽下可进入（中栏编辑器渲染）" % w, False,
+                      "中栏没渲染（章节假桥或 /chapters/content 没接上）")
+                continue
+            page.wait_for_timeout(500)
+            e = page.evaluate(_DESK_MEASURE_JS)
+            page.screenshot(path=str(OUT / ("desk_width_%d_edit.png" % w)))
+            check("%d 宽 · 编辑态正文 ≥45 汉字/行" % w, (e.get("edit") or 0) >= 45,
+                  "实测 %s 字/行" % e.get("edit"))
+            page.locator("button:has-text('阅读')").first.click()
+            page.wait_for_timeout(800)
+            r = page.evaluate(_DESK_MEASURE_JS)
+            page.screenshot(path=str(OUT / ("desk_width_%d_read.png" % w)))
+            check("%d 宽 · 阅读态正文 ≥45 汉字/行" % w, (r.get("read") or 0) >= 45,
+                  "实测 %s 字/行" % r.get("read"))
+            page.locator("button:has-text('编辑')").first.click()
+            page.wait_for_timeout(300)
+        # 只钉“章节链路”的 4xx：mock 里 /review/ledger、/setting/appearances 之类还没造，
+        # 那些 404 是本段之外的覆盖缺口（右栏显示“读取失败”），不该让这条判据变成噪声。
+        chapter_bad = [x for x in bad if "/chapters/" in x]
+        check("审阅台章节链路无 4xx（layers / content / paragraphs）", not chapter_bad,
+              chapter_bad[:3])
+    finally:
+        ctx.close()
+
+
 def main():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=["--no-proxy-server"])
@@ -1359,6 +1429,7 @@ def main():
             test_real(browser)
             test_dark(browser)
             test_about_project(browser)
+            test_desk_width(browser)
         finally:
             browser.close()
 

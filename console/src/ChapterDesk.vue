@@ -22,7 +22,7 @@
  * 不做“自动修好”。右栏只摆事实（大纲要求、七维得分、未举证项），改不改、
  * 怎么改由用户决定 —— 中栏的编辑器与批注就是给他的动作。
  */
-import { ref, computed, onMounted, watch } from "vue";
+import { ref, computed, onMounted, onUnmounted, watch } from "vue";
 import ChapterEditor from "./ChapterEditor.vue";
 
 const props = defineProps({
@@ -43,6 +43,45 @@ const appear = ref({});
 // 换章、改动无声消失（顶部只写了一行灰字提醒，等于没拦）。现在先问，再切。
 const editorRef = ref(null);
 const pendingSwitch = ref(null);
+
+/* ---------- 栏宽（B7，2026-11-06）：让正文成为主视觉 ----------
+ * 用户原话「正文不是主视觉」。先量后改（Temp/probe_b7.py 真渲染读数）：
+ *   1680 视口 → 审阅台只有 1230 宽（外层 `.content` 卡在 1320），左 220 + 右 280 一夹，
+ *   正文列 710；阅读/批注态再减编辑器侧栏 240 → 只剩 408px ≈ **27 字/行**。
+ *   而 1920 视口下审阅台**还是** 1230 —— 视口再宽也没用，是外层上限，不是栏宽。
+ *
+ * 所以三处一起改（任何一处单独改都不够）：
+ *   ① 审阅台打开时 `.content` 放宽到 1560（只影响这一视图，不动其它页面的栅格）；
+ *   ② 左章列表 / 右依据栏都能收起，状态记 localStorage（下次还是你上次的布局）；
+ *   ③ 窗口不够宽（审阅台 < 1220px，正文算下来不足 45 字/行）时**自动收右栏**，
+ *      但不覆盖用户手动选择（手动展开过就尊重），且给出可点的解释。
+ * 正文列自己有 46 汉字测量上限（ChapterEditor），免得宽屏拉成 70+ 字/行 —— 那是另一头的不适。
+ */
+const LEFT_KEY = "mofang_desk_left";
+const RIGHT_KEY = "mofang_desk_right";
+const leftOpen = ref(localStorage.getItem(LEFT_KEY) !== "0");
+const rightOpen = ref(localStorage.getItem(RIGHT_KEY) !== "0");
+const rightTouched = ref(localStorage.getItem(RIGHT_KEY) != null);
+const deskEl = ref(null);
+const deskW = ref(0);
+const autoNarrow = computed(() => deskW.value > 0 && deskW.value < 1220);
+// 用户手动动过 → 完全按他的选择；没动过 → 窄了就自动收右栏（宽度省下来给正文）。
+// ⚠️ 这里别写成 `|| rightTouched`：那等于“动过就永远显示”，点收起没反应（2026-11-06 实测抓到）。
+const rightShown = computed(() => (rightTouched.value ? rightOpen.value : !autoNarrow.value));
+function toggleLeft() {
+  leftOpen.value = !leftOpen.value;
+  localStorage.setItem(LEFT_KEY, leftOpen.value ? "1" : "0");
+}
+function toggleRight() {
+  // 先按“当前显示状态”取反，再改 touched —— 反了的话状态已经被 touched 改写，
+  // 读到的 rightShown 是改后的值，点击会变成空操作（2026-11-06 实测踩到）。
+  const next = !rightShown.value;
+  rightTouched.value = true;
+  rightOpen.value = next;
+  localStorage.setItem(RIGHT_KEY, next ? "1" : "0");
+}
+let deskRO = null;
+onUnmounted(() => { if (deskRO) deskRO.disconnect(); });
 
 function requestChapter(x) {
   if (!x || x === n.value) return;
@@ -224,13 +263,19 @@ onMounted(() => {
   loadLedger();
   loadContext();
   loadSettingCards();
+  // 量的是审阅台自身的宽度（不是视口）：内容区上限一变，这套判据自动跟着变，
+  // 不需要再维护一份“多少 px 视口该收哪栏”的魔数表。
+  if (typeof ResizeObserver !== "undefined" && deskEl.value) {
+    deskRO = new ResizeObserver((ents) => { deskW.value = ents[0].contentRect.width; });
+    deskRO.observe(deskEl.value);
+  }
 });
 </script>
 
 <template>
-  <div class="desk">
-    <!-- 左：章列表 -->
-    <aside class="desk-left">
+  <div class="desk" ref="deskEl">
+    <!-- 左：章列表（可收起，见下方 `.desk-rail`） -->
+    <aside v-if="leftOpen" class="desk-left">
       <div class="desk-left-head">
         <b>章节</b>
         <span class="meta">{{ chapterOptions.length }} 章</span>
@@ -255,11 +300,16 @@ onMounted(() => {
     <section class="desk-mid">
       <template v-if="chapterOptions.length">
         <div class="desk-mid-head">
+          <button class="mini desk-toggle" :title="leftOpen ? '收起章列表，正文更宽' : '展开章列表'"
+                  @click="toggleLeft">{{ leftOpen ? "⇤ 章列表" : "⇥ 章列表" }}</button>
           <button class="mini" :disabled="!canPrev" @click="go(-1)">← 上一章</button>
           <b>第 {{ n }} 章</b>
           <button class="mini" :disabled="!canNext" @click="go(1)">下一章 →</button>
           <span class="spacer"></span>
+          <span v-if="autoNarrow && !rightShown" class="meta">窗口较窄，依据栏已自动收起</span>
           <span class="meta">改完记得保存（Ctrl+S）；不保存就切章会丢</span>
+          <button class="mini desk-toggle" :title="rightShown ? '收起写作依据栏，正文更宽' : '展开写作依据栏（大纲 / 出场 / 七维）'"
+                  @click="toggleRight">{{ rightShown ? "依据栏 ⇥" : "⇤ 依据栏" }}</button>
         </div>
         <div class="desk-mid-body">
           <!-- 未保存拦截条：切章/翻章前出现，三个按钮就是全部出口 -->
@@ -288,8 +338,8 @@ onMounted(() => {
       </div>
     </section>
 
-    <!-- 右：写作依据（大纲 + 七维评审） -->
-    <aside class="desk-right">
+    <!-- 右：写作依据（大纲 + 七维评审）。可收起：窗口不宽时它会把正文挤到 27 字/行。 -->
+    <aside v-if="rightShown" class="desk-right">
       <div class="desk-block">
         <div class="desk-block-title">
           本章出场
@@ -429,7 +479,8 @@ onMounted(() => {
   border: 1px solid var(--warn, #b8860b); border-radius: 8px;
   background: rgba(184, 134, 11, 0.08); font-size: 12.5px;
 }
-.desk-mid-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.desk-mid-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
+.desk-toggle { flex: none; }
 .desk-mid-body { flex: 1; min-height: 0; display: flex; }
 .desk-empty-mid {
   margin: auto; max-width: 420px; padding: 18px 20px; line-height: 1.9;

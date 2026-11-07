@@ -5491,7 +5491,7 @@ onUnmounted(() => {
     </div>
   </div>
 
-  <main class="content">
+  <main class="content" :class="{ 'content-wide': tab === 'chapters' && chapterView === 'desk' }">
     <!-- 预算暂停横幅 -->
     <div v-if="state?.budget?.paused" class="budget-banner">
       <span>⚠️ 预算已超限（已用 {{ fmtYuan(state.cost.spent_yuan) }} / 限额 {{ fmtYuan(state.cost.limit_yuan) }}）</span>
