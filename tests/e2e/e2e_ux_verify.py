@@ -1434,6 +1434,12 @@ def test_desk_width(browser):
                   "实测 %s 字/行" % r.get("read"))
             page.locator("button:has-text('编辑')").first.click()
             page.wait_for_timeout(300)
+        # C3（2026-11-07）：跑完流水线/重写后批注会失效 —— 必须在标题行就看得见，
+        # 不能“点进段落批注才知道”。mock 里固定给 1 条已失效 + 1 条位置变了。
+        pill = page.locator(".ce-ann-alert")
+        check("批注失效在标题行直接点名（不用点进批注模式才发现）",
+              pill.count() >= 1 and "批注" in pill.first.inner_text(),
+              pill.first.inner_text() if pill.count() else "（没有提示元素）")
         # 只钉“章节链路”的 4xx：mock 里 /review/ledger、/setting/appearances 之类还没造，
         # 那些 404 是本段之外的覆盖缺口（右栏显示“读取失败”），不该让这条判据变成噪声。
         chapter_bad = [x for x in bad if "/chapters/" in x]

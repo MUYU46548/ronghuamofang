@@ -506,6 +506,14 @@ onUnmounted(() => {
         </span>
         <span class="ce-wordbadge" :class="wordBadge.cls">{{ wordBadge.text }}</span>
         <span v-if="dirty" class="ce-dirty">未保存</span>
+        <!-- C3（2026-11-07）：跑完流水线/重写后，之前挂在这段上的批注会失效或漂移。
+             以前这件事**只有点进“段落批注”才知道**，等于没告知；这里在标题行直接点名。 -->
+        <button v-if="ann.missing" class="mini ce-ann-alert"
+                :title="'正文被重写过，' + ann.missing + ' 条批注引用的原句已经找不到；点一下看是哪几条'"
+                @click="switchMode('batch')">{{ ann.missing }} 条批注已失效</button>
+        <button v-else-if="ann.drifted" class="mini ce-ann-alert warn"
+                :title="ann.drifted + ' 条批注的位置变了（正文改过），点一下看是哪几条'"
+                @click="switchMode('batch')">{{ ann.drifted }} 条批注位置变了</button>
         <span class="spacer"></span>
         <button class="mini" :disabled="refining" :class="{ on: mode === 'edit' }" @click="switchMode('edit')">编辑</button>
         <!-- 阅读模式（2026-11-05）：只读正文 + 设定名高亮，点名字看卡。
@@ -778,6 +786,8 @@ onUnmounted(() => {
 .ce-ann-quote { font-size: 11.5px; line-height: 1.5; color: var(--muted, #888); }
 .ce-ann-bad { color: var(--bad); }
 .ce-ann-warn { color: var(--warn, #b8860b); }
+.ce-ann-alert { color: var(--bad); border-color: var(--bad); }
+.ce-ann-alert.warn { color: var(--warn, #b8860b); border-color: var(--warn, #b8860b); }
 .ce-ok {
   margin-top: 8px; padding: 6px 8px; font-size: 12px;
   border-left: 2px solid var(--ok, #2e8b57); background: rgba(46, 139, 87, 0.1);
