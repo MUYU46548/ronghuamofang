@@ -116,3 +116,7 @@ deliverables/
 # 范文原文（book.style_reference 指向它）：是作者真实作品正文，含作品词，
 # 入库即泄露门红灯。换文件名时记得在下面再加一条（路径是单值，改一处即可）
 materials/style_sample.md
+
+# 作者私人 Word 模板（2026-11-07 移出仓库）：不进 Git、不进安装包。
+# 你的模板请放自己电脑上（例如 文档/自定义 Office 模板），在“设置 → Word 模板”里选。
+templates/小说格式模板V1.3.dotx
