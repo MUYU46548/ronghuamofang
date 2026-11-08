@@ -1035,7 +1035,7 @@ def test_about_project(browser, mock_proc=None):
               "内置 20 条" in wlp.inner_text(), wlp.inner_text()[:120].replace("\n", " | "))
         # 2026-11-08：先显式重读一次并等它落地，再输入。
         # 面板挂载时的首次 GET 可能还在飞；此时 fill 会被随后到达的响应覆盖，
-        # 「未保存」徽标一闪即消（本轮 e2e 就是在这里假红，单独跑同样步骤却正常）。
+        # “未保存”徽标一闪即消（本轮 e2e 就是在这里假红，单独跑同样步骤却正常）。
         wlp.locator("button:has-text('重新读取')").click()
         page.wait_for_timeout(700)
         wlp.locator("textarea.wl-text").nth(0).fill("微微一笑\n眸光\n眼里闪过一丝\n")
@@ -1043,7 +1043,7 @@ def test_about_project(browser, mock_proc=None):
         check("改动后出现\u300c未保存\u300d提示（不保存就不生效，得先看见）",
               wlp.locator(".pill.st-gate").count() >= 1)
         save_btn = wlp.locator("button:has-text('保存')")
-        check("有改动时「保存」可点（没有改动才该禁用）", save_btn.count() == 1 and not save_btn.is_disabled())
+        check("有改动时“保存”可点（没有改动才该禁用）", save_btn.count() == 1 and not save_btn.is_disabled())
         if save_btn.is_disabled():
             return   # 干净失败：不再用 30s 超时把整轮拖死
         save_btn.click()
