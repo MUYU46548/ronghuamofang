@@ -59,6 +59,123 @@ def _target_words(cfg) -> tuple[int, int]:
 
 
 # ---------------------------------------------------------------- 任务书
+# ---------------------------------------------------------------- 段落（改一段）
+def para_draft_path(n: int, idx: int) -> Path:
+    return Path(DRAFT_DIR) / ("para_%02d_p%d.md" % (n, idx))
+
+
+def _split_paras(n: int):
+    import refine_paragraph as rp
+    path = rp._pick_chapter_path(n)
+    if path is None:
+        return None, None, []
+    return path, rp, rp.split_paragraphs(read_text(path))
+
+
+def write_paragraph_task(cfg, proj, n: int, idx: int, feedback: str = "") -> dict:
+    """只改一段：出任务书。外部只写**这一段的改后文本**到草稿文件。"""
+    if not str(feedback or "").strip():
+        raise ValueError("改一段必须写意见（不写就不知道要改成什么）")
+    path, rp, paras = _split_paras(n)
+    if path is None:
+        raise FileNotFoundError("第 %d 章不存在（raw/checked/refined 均无）" % n)
+    if idx < 0 or idx >= len(paras):
+        raise ValueError("段落号越界：第 %d 章共 %d 段，请求索引 %d" % (n, len(paras), idx))
+    target = paras[idx]
+    prev_p = paras[idx - 1] if idx > 0 else ""
+    next_p = paras[idx + 1] if idx + 1 < len(paras) else ""
+    draft = para_draft_path(n, idx)
+    task = Path(TASK_DIR) / ("refine_para_ch%02d_p%d_%s.md" % (n, idx, _stamp()))
+    body = "\n".join([
+        "# 只改第 %d 章的第 %d 段" % (n, idx + 1),
+        "",
+        "## 干什么",
+        "",
+        "只重写**下面这一段**，别动别的段、别动整章。",
+        "作者的意见：%s" % feedback.strip(),
+        "",
+        "## 写到哪里（只写这一个文件）",
+        "",
+        "- 目标：`%s`" % draft.as_posix(),
+        "- 文件里只放**这一段改后的正文**：不要标题、不要空行、不要解释、不要代码块。",
+        "- 正式稿由作者点“采用”才换；**不要**改 `data/chapters/` 下任何文件。",
+        "",
+        "## 判据",
+        "",
+        "1. 非空、且只有一段（不含空行）；",
+        "2. 与原文不同（原样复制会被判没改）；",
+        "3. 篇幅在原文的 0.6 ~ 1.8 倍之间（只数汉字），不许借机把整章塞进来。",
+        "",
+        "## 原文（要改的就是这一段）",
+        "",
+        "````text",
+        target,
+        "````",
+        "",
+        "## 上下文（**不要改**这两段，只用来接得上）",
+        "",
+        "上一段：",
+        "````text",
+        (prev_p or "（没有上一段）"),
+        "````",
+        "",
+        "下一段：",
+        "````text",
+        (next_p or "（没有下一段）"),
+        "````",
+        "",
+    ])
+    write_text(task, body)
+    return {"n": n, "index": idx, "task": task.as_posix(), "draft": draft.as_posix(),
+            "before_words": _count_cn(target)}
+
+
+def check_paragraph_draft(n: int, idx: int) -> dict:
+    """核这一段草稿。返回 {ok, reasons, before, after, words}。"""
+    _, _, paras = _split_paras(n)
+    before = paras[idx] if 0 <= idx < len(paras) else ""
+    draft = para_draft_path(n, idx)
+    out = {"ok": False, "reasons": [], "before": before, "after": "",
+           "exists": draft.is_file(), "draft": draft.as_posix()}
+    if not draft.is_file():
+        out["reasons"].append("草稿还没生成：" + draft.as_posix())
+        return out
+    after = read_text(draft).strip()
+    out["after"] = after
+    if not after:
+        out["reasons"].append("草稿是空的")
+        return out
+    if "\n\n" in after:
+        out["reasons"].append("草稿里有空行（按段落保存不能夹空行，那会变成两段）")
+    if re.sub(r"\s+", "", after) == re.sub(r"\s+", "", before):
+        out["reasons"].append("改后与原文一模一样（没改）")
+    bw, aw = _count_cn(before) or 1, _count_cn(after)
+    if not (0.6 * bw <= aw <= 1.8 * bw):
+        out["reasons"].append("篇幅 %d 字不在原文 %d 字的 0.6~1.8 倍之间" % (aw, bw))
+    out["ok"] = not out["reasons"]
+    return out
+
+
+def apply_paragraph_draft(n: int, idx: int) -> tuple:
+    """采用这一段草稿：走 refine_paragraph.save_paragraph_text（备份 + 段落历史 + 标点归一）。"""
+    info = check_paragraph_draft(n, idx)
+    if not info.get("ok"):
+        return False, "草稿没过判据：" + "；".join(info["reasons"])
+    import refine_paragraph as rp
+    ok, msg = rp.save_paragraph_text(n, idx, info["after"], note="AI 段落改写（采用）")
+    if ok:
+        para_draft_path(n, idx).unlink(missing_ok=True)
+    return ok, msg
+
+
+def drop_paragraph_draft(n: int, idx: int) -> tuple:
+    draft = para_draft_path(n, idx)
+    if draft.is_file():
+        draft.unlink()
+        return True, "已放弃这一段的草稿（正文未改动）"
+    return True, "本来就没有这一段的草稿"
+
+
 def chapter_task_path(n: int) -> Path:
     return Path(TASK_DIR) / ("rewrite_ch%02d_%s.md" % (n, _stamp()))
 

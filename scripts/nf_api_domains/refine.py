@@ -623,7 +623,137 @@ def handle_self_action_drop(h, body):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+# ---------------------------------------------------------------- 改一段：候选 → 采用（P1-5）
+def _para_ids(body):
+    try:
+        ch = int(body.get("chapter") or 0)
+        pi = int(body.get("paragraph_index"))
+    except (TypeError, ValueError):
+        return None, None, (400, {"ok": False, "error": "chapter(>=1) 与 paragraph_index(>=0) 必填"})
+    if ch < 1 or pi < 0:
+        return None, None, (400, {"ok": False, "error": "chapter(>=1) 与 paragraph_index(>=0) 必填"})
+    return ch, pi, None
+
+
+def handle_paragraph_preview(h, body):
+    """`POST /chapters/paragraph/preview` —— 只算不落：返回 job_id，算完读 pending 看“改前/改后”。
+
+    为什么是 job：模型改一段要几十秒，同步请求会把界面卡住；
+    结果不进正文，只进 `data/state/para_pending.json`，等作者点“采用”。
+    """
+    body = body or {}
+    ch, pi, bad = _para_ids(body)
+    if bad:
+        return bad
+    fb = str(body.get("feedback") or "").strip()
+    if not fb:
+        return 400, {"ok": False, "error": "feedback 必填（要改什么）"}
+    try:
+        cfg, proj = api.load_all()
+        from utils.engine import resolve_engine, needs_model_block_reason
+        if resolve_engine(cfg) == "self":
+            from utils import self_actions as sa
+            try:
+                info = sa.write_paragraph_task(cfg, proj, ch, pi, fb)
+            except (ValueError, FileNotFoundError) as e:
+                return 400, {"ok": False, "error": str(e)}
+            return 202, dict(info, ok=True, mode="self",
+                             message="自任务模式：已出这一段的改写任务书（不调用模型）：%s。"
+                                     "外部写到 %s，写完回来点“采用”。"
+                                     % (info["task"], info["draft"]))
+        _why = needs_model_block_reason(cfg)
+        if _why:
+            return 400, {"ok": False, "error": _why}
+        client = api._client_for_env(cfg, "polisher")
+
+        def _fn():
+            import refine_paragraph as rp
+            ok, msg, rec = rp.preview_paragraph(cfg, proj, ch, pi, fb, client=client)
+            return ok, (msg if not ok else {"message": msg, "rec": rec})
+
+        jid, err = api.start_job("preview_para_ch%d_p%d" % (ch, pi), _fn)
+        if err:
+            return 409, {"ok": False, "error": err}
+        return 202, {"ok": True, "job_id": jid, "chapter": ch, "index": pi,
+                     "message": "正在生成候选（只算不落，正文一个字不动）"}
+    except Exception as e:                                   # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_paragraph_pending(h):
+    """`GET /chapters/paragraph/pending?chapter=3&index=5` —— 读待采用的候选（改前/改后）。"""
+    try:
+        q = h._query()
+        try:
+            ch = int(q.get("chapter") or 0)
+            pi = int(q.get("index"))
+        except (TypeError, ValueError):
+            return 400, {"ok": False, "error": "chapter 与 index 必填"}
+        import refine_paragraph as rp
+        rec = rp.get_pending(ch, pi)
+        if not rec:
+            # self 模式：候选是外部写的草稿文件（不是模型返回的文本）
+            from utils import self_actions as sa
+            info = sa.check_paragraph_draft(ch, pi)
+            if info.get("exists"):
+                return 200, {"ok": True, "exists": True, "mode": "self",
+                             "rec": {"chapter": ch, "index": pi,
+                                     "before": info["before"], "after": info["after"],
+                                     "ok": info["ok"], "reasons": info["reasons"]},
+                             "note": "这是外部写的草稿（data/self_drafts/），正文尚未改动。"}
+            return 200, {"ok": True, "exists": False,
+                         "message": "没有待采用的候选（正文就是原样）"}
+        # 顺带给出同一个“被谁改过”的证据：这一段是不是还在原位置
+        return 200, {"ok": True, "exists": True, "rec": rec,
+                     "note": "候选只存在 data/state/para_pending.json，正文尚未改动。"}
+    except Exception as e:                                   # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_paragraph_apply(h, body):
+    """`POST /chapters/paragraph/apply {chapter, paragraph_index, confirm:true}` —— 采用候选。"""
+    body = body or {}
+    if body.get("confirm") is not True:
+        return 400, {"ok": False, "error": "采用会改正文，必须带 confirm: true"}
+    ch, pi, bad = _para_ids(body)
+    if bad:
+        return bad
+    try:
+        import refine_paragraph as rp
+        ok, msg = rp.apply_pending(ch, pi)
+        if not ok and "没有待采用的候选" in str(msg):
+            from utils import self_actions as sa
+            if sa.para_draft_path(ch, pi).is_file():
+                ok, msg = sa.apply_paragraph_draft(ch, pi)
+        return (200 if ok else 400), {"ok": ok, "message": msg, "error": "" if ok else msg,
+                                      "chapter": ch, "index": pi}
+    except Exception as e:                                   # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_paragraph_drop(h, body):
+    """`POST /chapters/paragraph/drop {chapter, paragraph_index}` —— 放弃候选（正文不动）。"""
+    body = body or {}
+    ch, pi, bad = _para_ids(body)
+    if bad:
+        return bad
+    try:
+        import refine_paragraph as rp
+        ok, msg = rp.drop_pending(ch, pi)
+        from utils import self_actions as sa
+        if sa.para_draft_path(ch, pi).is_file():
+            _o, _m = sa.drop_paragraph_draft(ch, pi)
+            ok, msg = True, "已放弃候选与草稿（正文未改动）"
+        return 200, {"ok": ok, "message": msg}
+    except Exception as e:                                   # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 ROUTES = (
+    ("POST", "/chapters/paragraph/preview", handle_paragraph_preview),
+    ("GET", "/chapters/paragraph/pending", handle_paragraph_pending),
+    ("POST", "/chapters/paragraph/apply", handle_paragraph_apply),
+    ("POST", "/chapters/paragraph/drop", handle_paragraph_drop),
     ("POST", "/self/action/rewrite_chapter", handle_self_rewrite_chapter),
     ("GET", "/self/actions", handle_self_actions_list),
     ("POST", "/self/action/apply", handle_self_action_apply),

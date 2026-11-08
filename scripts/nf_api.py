@@ -3226,6 +3226,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/chapters/paragraphs":
             # 段落级读取（P0 精修轴）
             self._send(*_dom(dom_refine.handle_chapters_paragraphs(self)))
+        elif p == "/chapters/paragraph/pending":
+            # 改一段：读待采用的候选（改前/改后；模型候选或 self 草稿）
+            self._send(*_dom(dom_refine.handle_paragraph_pending(self)))
         elif p == "/self/actions":
             # 按钮级派单：有哪些草稿、判据过没过（2026-11-08）
             self._send(*_dom(dom_refine.handle_self_actions_list(self)))
@@ -3704,6 +3707,13 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/refine/outline/node":
                 # 实现已迁至 nf_api_domains.refine（P2 拆分）；此处只做转发。
                 self._send(*_dom(dom_refine.handle_refine_outline_node(self, body)))
+            elif p == "/chapters/paragraph/preview":
+                # 改一段：只算不落（候选进 para_pending.json，正文不动）
+                self._send(*_dom(dom_refine.handle_paragraph_preview(self, body)))
+            elif p == "/chapters/paragraph/apply":
+                self._send(*_dom(dom_refine.handle_paragraph_apply(self, body)))
+            elif p == "/chapters/paragraph/drop":
+                self._send(*_dom(dom_refine.handle_paragraph_drop(self, body)))
             elif p == "/self/action/rewrite_chapter":
                 # self 下整章重写出任务书（不调模型，草稿由外部写）
                 self._send(*_dom(dom_refine.handle_self_rewrite_chapter(self, body)))

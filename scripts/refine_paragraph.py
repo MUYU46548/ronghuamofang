@@ -21,6 +21,7 @@ import argparse
 import json
 import re
 import shutil
+import time
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -351,13 +352,17 @@ def build_paragraph_task(cfg, proj, chapter, paragraph_index, paragraph_text, fe
 
 
 def run_paragraph_refine(cfg, proj, chapter, paragraph_index, feedback, client=None,
-                          task_dir=None, dry_run=False, outline_path="data/outline/chapters"):
+                          task_dir=None, dry_run=False, outline_path="data/outline/chapters",
+                          preview=False):
     """段落级定点重生成。
 
     Args:
         chapter: 章节号
         paragraph_index: 段落号（0-indexed，按空行切分后的顺序）
         feedback: 修改意见
+        preview: True = **只算不落**（2026-11-08，P1-5）：模型改完先回滚整章，
+                 把“改前 / 改后”交出去，作者点“采用”才写盘。
+                 不预览的话这个过程是改完直接落盘 —— 作者没得选。
     """
     client = client or make_client(cfg, "polisher")
     task_dir = task_dir or "data/state/tasks"
@@ -412,6 +417,17 @@ def run_paragraph_refine(cfg, proj, chapter, paragraph_index, feedback, client=N
     # 提取改写后的目标段落
     rewritten_paragraph = after_paras[paragraph_index] if paragraph_index < len(after_paras) else ""
 
+    if preview:
+        # 只算不落：把整章回滚到刚才那份备份，候选段落交给调用方（作者采纳才写）。
+        # 刻意不写段落历史 —— 没采纳的版本进历史会变成噪音，还会被当成“改过”。
+        shutil.copy2(backup, chap_path)
+        # ⚠️ 必须整体包一层括号：上一版写成 `return True, (msg),` 换行再接 backup…，
+        # Python 只把前两个当返回值（2 元组），调用方 5 元解包直接 ValueError。
+        return (True, ("第 %d 章 #%d 已生成候选（未落盘，等作者采用）"
+                      % (chapter, paragraph_index)),
+                backup, version, {"index": paragraph_index, "before": target_paragraph,
+                                  "after": rewritten_paragraph, "preview": True})
+
     # 保存段落历史
     hist_record = save_paragraph_history(chapter, paragraph_index, target_paragraph, rewritten_paragraph, feedback)
 
@@ -419,6 +435,76 @@ def run_paragraph_refine(cfg, proj, chapter, paragraph_index, feedback, client=N
           f"全章 {before_words}→{after_words} 字 ({after_words - before_words:+d})")
     print(f"[refine_para] 段落历史: h{hist_record['id']}（{target_paragraph[:30]}... → {rewritten_paragraph[:30]}...）")
     return True, f"第 {chapter} 章 #{paragraph_index} 重写完成（v{version}, h{hist_record['id']}）", backup, version, hist_record
+
+
+# ---------------------------------------------------------------- 改一段：候选 → 采用 / 放弃
+# 2026-11-08（P1-5）：以前模型改完**直接写盘**，作者只能事后去段落历史里退回。
+# 现在两段式：preview 只算不落（整章回滚，候选存 para_pending.json），
+# 作者看着“改前 / 改后”点“采用”才走 save_paragraph_text（备份 + 段落历史 + 标点归一）。
+PENDING_PATH = Path("data/state/para_pending.json")
+
+
+def _load_pending():
+    try:
+        d = json.loads(read_text(PENDING_PATH))
+        items = d.get("items") if isinstance(d, dict) else None
+        return [x for x in (items or []) if isinstance(x, dict)]
+    except Exception:                                        # noqa: BLE001
+        return []
+
+
+def _save_pending(items):
+    PENDING_PATH.parent.mkdir(parents=True, exist_ok=True)
+    write_text(PENDING_PATH, json.dumps({"items": items}, ensure_ascii=False, indent=2))
+
+
+def preview_paragraph(cfg, proj, chapter, paragraph_index, feedback, client=None):
+    """生成候选但不落盘。返回 (ok, msg, rec)。rec 里是改前/改后与备份位置。"""
+    ok, msg, backup, version, info = run_paragraph_refine(
+        cfg, proj, chapter, paragraph_index, feedback, client=client, preview=True)
+    if not ok:
+        return False, msg, None
+    rec = {
+        "chapter": int(chapter), "index": int(paragraph_index),
+        "before": info.get("before", ""), "after": info.get("after", ""),
+        "feedback": feedback, "backup": str(backup) if backup else "",
+        "version": version, "at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    items = [x for x in _load_pending()
+             if not (int(x.get("chapter") or 0) == int(chapter)
+                     and int(x.get("index") or 0) == int(paragraph_index))]
+    items.append(rec)
+    _save_pending(items)
+    return True, msg, rec
+
+
+def get_pending(chapter, paragraph_index):
+    for x in _load_pending():
+        if (int(x.get("chapter") or 0) == int(chapter)
+                and int(x.get("index") or 0) == int(paragraph_index)):
+            return x
+    return None
+
+
+def apply_pending(chapter, paragraph_index):
+    """采用候选：走 save_paragraph_text（备份 + 段落历史 + 标点归一，判据全在那一处）。"""
+    rec = get_pending(chapter, paragraph_index)
+    if not rec:
+        return False, "没有待采用的候选（先点“让 AI 只改这一段”）"
+    ok, msg = save_paragraph_text(int(chapter), int(paragraph_index),
+                                  rec.get("after") or "", note="AI 段落改写（采用）")
+    if ok:
+        drop_pending(chapter, paragraph_index)
+    return ok, msg
+
+
+def drop_pending(chapter, paragraph_index):
+    """放弃候选：正文一个字节不动（候选从未落盘）。"""
+    items = [x for x in _load_pending()
+             if not (int(x.get("chapter") or 0) == int(chapter)
+                     and int(x.get("index") or 0) == int(paragraph_index))]
+    _save_pending(items)
+    return True, "已放弃候选（正文未改动）"
 
 
 def main():

@@ -234,7 +234,10 @@ def main():
     check("编辑器带 Ctrl+S", "ctrlKey" in editor and "save()" in editor)
     check("编辑器支持内联形态（审阅台中栏复用同一实现）",
           "embedded" in editor and "ce-embedded" in editor)
-    check("段落批注走 /refine/paragraph", "/refine/paragraph" in editor)
+    # 2026-11-08（P1-5）：段落批注从“改完直接落盘”改成“候选 → 采用”，
+    # 判据随之变成：预览与采用两个端点都接上（只接一个就成半截功能）。
+    check("段落批注走“候选 → 采用”（preview + apply）",
+          "/chapters/paragraph/preview" in editor and "/chapters/paragraph/apply" in editor)
 
     desk = (ROOT / "console" / "src" / "ChapterDesk.vue").read_text(encoding="utf-8")
     check("审阅台三栏：章列表 / 正文 / 大纲与评审",

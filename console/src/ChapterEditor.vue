@@ -380,6 +380,48 @@ function pickPara(p) {
   refineResult.value = null;
 }
 
+/* 改一段：候选 → 采用（2026-11-08，P1-5）。
+   以前模型改完直接写盘，作者只能事后去历史里退回。现在改成“只算不落”：
+   候选进 para_pending.json（self 模式是外部写的草稿），看着改前/改后点采用才写。 */
+const cand = ref(null);        // {exists, rec:{before,after,ok,reasons}}
+const candBusy = ref(false);
+async function loadCandidate() {
+  if (selPara.value === null) { cand.value = null; return; }
+  try {
+    const r = await props.api("/chapters/paragraph/pending?chapter=" + props.n
+                              + "&index=" + selPara.value);
+    cand.value = (r.status === 200 && r.data && r.data.exists) ? r.data : null;
+  } catch (e) { cand.value = null; }
+}
+async function applyCandidate() {
+  if (selPara.value === null) return;
+  candBusy.value = true;
+  try {
+    const r = await props.api("/chapters/paragraph/apply", "POST",
+                              { chapter: props.n, paragraph_index: selPara.value, confirm: true });
+    if (r.status === 200 && r.data && r.data.ok) {
+      emit("say", "已采用这一段（旧版进了段落历史，可回退）");
+      cand.value = null;
+      await loadContent();
+      await loadLayersQuiet();
+      if (mode.value === "batch") await loadParas();
+      emit("saved", props.n);
+    } else {
+      emit("say", "采用失败：" + ((r.data && (r.data.error || r.data.message)) || r.status));
+    }
+  } finally { candBusy.value = false; }
+}
+async function dropCandidate() {
+  if (selPara.value === null) return;
+  candBusy.value = true;
+  try {
+    const r = await props.api("/chapters/paragraph/drop", "POST",
+                              { chapter: props.n, paragraph_index: selPara.value });
+    emit("say", r.status === 200 ? "已放弃候选（正文一个字没动）" : "放弃失败");
+    cand.value = null;
+  } finally { candBusy.value = false; }
+}
+
 async function submitRefine() {
   if (refining.value) return;
   if (selPara.value === null) {
@@ -397,14 +439,19 @@ async function submitRefine() {
   clearInterval(refineTimer);
   refineTimer = setInterval(() => { refineElapsed.value += 1; }, 1000);
   try {
-    const r = await props.api("/refine/paragraph", "POST", {
+    const r = await props.api("/chapters/paragraph/preview", "POST", {
       chapter: props.n,
       paragraph_index: selPara.value,
       feedback: feedback.value.trim(),
-      dry_run: false,
     });
     if (r.status !== 202) {
       err.value = (r.data && r.data.error) || ("提交失败 HTTP " + r.status);
+      return;
+    }
+    if (r.data && r.data.mode === "self") {
+      emit("say", "已出这一段的任务书（不调用模型）：" + (r.data.task || "")
+        + " —— 外部写到 " + (r.data.draft || "") + "，写完回这里点“看候选”。");
+      await loadCandidate();
       return;
     }
     const jid = r.data.job_id;
@@ -427,8 +474,13 @@ async function submitRefine() {
         clearInterval(poll);
         const st = j.data && j.data.state;
         if (st === "ok") {
-          refineResult.value = j.data.result || { ok: true };
-          feedback.value = "";
+          await loadCandidate();
+          if (!cand.value) {
+            err.value = "候选没生成（详情看日志）";
+          } else {
+            refineResult.value = j.data.result || { ok: true };
+            feedback.value = "";
+          }
         } else {
           err.value = "段落重写失败：" + ((j.data && j.data.result) || "未知错误");
         }
@@ -656,9 +708,31 @@ onUnmounted(() => {
               <button class="mini ce-batch-btn" :disabled="refining || selPara === null || !feedback.trim()"
                       title="只记下来：不调用模型、不改正文，稍后在这块列表里回看"
                       @click="saveAnnotation">只记下这条批注</button>
-              <div v-if="refining" class="meta">只重写选中的那一段，其余段落原样保留；完成后正文会自动刷新。</div>
-              <div v-if="refineResult" class="ce-ok">
-                第 {{ (selPara === null ? 0 : selPara + 1) }} 段已重写
+              <div v-if="refining" class="meta">只重写选中的那一段；生成的是**候选**，你点“采用”才写进正文。</div>
+              <!-- 改一段：改前/改后并排 + 采用/放弃（2026-11-08，P1-5） -->
+              <div v-if="cand" class="ce-cand">
+                <div class="ce-cand-head">
+                  <b>这一段：改前 / 改后</b>
+                  <span v-if="cand.rec && cand.rec.ok === false" class="ce-cand-bad">
+                    还不能采用：{{ (cand.rec.reasons || []).join("；") }}</span>
+                  <span class="spacer"></span>
+                  <button class="mini" :disabled="candBusy" @click="loadCandidate"
+                          title="重新读一次候选（自任务模式下，外部刚写完草稿时用）">刷新候选</button>
+                  <button class="mini primary" :disabled="candBusy || (cand.rec && cand.rec.ok === false)"
+                          @click="applyCandidate">采用</button>
+                  <button class="mini" :disabled="candBusy" @click="dropCandidate">放弃</button>
+                </div>
+                <div class="ce-diff">
+                  <div class="ce-diff-col">
+                    <div class="ce-diff-t">改前</div>
+                    <p>{{ cand.rec.before }}</p>
+                  </div>
+                  <div class="ce-diff-col">
+                    <div class="ce-diff-t">改后</div>
+                    <p>{{ cand.rec.after }}</p>
+                  </div>
+                </div>
+                <div class="meta">采用 = 换进正文（旧版进段落历史，可回退）；放弃 = 正文一个字不动。</div>
               </div>
             </template>
           </div>
@@ -772,6 +846,16 @@ onUnmounted(() => {
   background: rgba(155, 143, 196, 0.16);
   box-shadow: inset 0 -1px 0 rgba(155, 143, 196, 0.55);
 }
+/* 改一段的候选对比（P1-5）：两栏并排，窄了就上下堆 */
+.ce-cand { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-top: 10px; }
+.ce-cand-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.ce-cand-head .spacer { flex: 1; }
+.ce-cand-bad { color: var(--bad, #c77); font-size: 12px; }
+.ce-diff { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 900px) { .ce-diff { grid-template-columns: 1fr; } }
+.ce-diff-col { border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; background: var(--bg); }
+.ce-diff-col p { margin: 6px 0 0; font-size: 13px; line-height: 1.75; white-space: pre-wrap; }
+.ce-diff-t { font-size: 11px; color: var(--muted); letter-spacing: 0.08em; }
 .ce-card { border-color: rgba(155, 143, 196, 0.6); }
 .ce-card-row { font-size: 12.5px; line-height: 1.65; margin-top: 4px; }
 .ce-card-row b { display: inline-block; min-width: 34px; color: var(--muted); font-weight: 600; }
