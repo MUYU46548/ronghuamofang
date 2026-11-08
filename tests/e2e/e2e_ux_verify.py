@@ -618,7 +618,11 @@ def test_real(browser):
             # → 被 agentRunGuard 拦下吃锁定 toast，**不弹**预估框。此前这条断言
             # 只认“弹预估框”，真后端开 agent_mode 时必假红 —— 按新语义分流。
             print("  --- Space = 执行下一步（Agent 模式：应吃锁定提示，不弹预估）---")
-            page.locator("body").click(position={"x": 700, "y": 700})
+            # 2026-11-08：不要用“点 body 某个坐标”来清焦点 —— 内容区改成单档 1600px 后，
+            # (700,700) 正好落到“重估”按钮上，焦点被按钮抢走，Space 触发的是按钮而不是
+            # 全局快捷键（B2 断言因此假红，截图里“重估”带焦点环）。
+            # 这里显式清掉 activeElement，才是“焦点不在任何控件上”的真实前提。
+            page.evaluate("() => { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); }")
             page.keyboard.press(" ")
             page.wait_for_timeout(1200)
             check("Agent 模式下 Space 吃锁定提示（运行锁生效）",
@@ -629,7 +633,11 @@ def test_real(browser):
             shot(page, "B2_space_locked_by_agent_mode")
         else:
             print("  --- Space = 执行下一步（走费用预估确认，不真花钱）---")
-            page.locator("body").click(position={"x": 700, "y": 700})
+            # 2026-11-08：不要用“点 body 某个坐标”来清焦点 —— 内容区改成单档 1600px 后，
+            # (700,700) 正好落到“重估”按钮上，焦点被按钮抢走，Space 触发的是按钮而不是
+            # 全局快捷键（B2 断言因此假红，截图里“重估”带焦点环）。
+            # 这里显式清掉 activeElement，才是“焦点不在任何控件上”的真实前提。
+            page.evaluate("() => { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); }")
             page.keyboard.press(" ")
             page.wait_for_timeout(1800)
             check("Space 打开运行前预估确认框",
@@ -1025,11 +1033,20 @@ def test_about_project(browser, mock_proc=None):
               (wlp.count(), wlp.locator("textarea.wl-text").count()))
         check("初始档位 = 内置 20 条（未配置自定义表时明说）",
               "内置 20 条" in wlp.inner_text(), wlp.inner_text()[:120].replace("\n", " | "))
+        # 2026-11-08：先显式重读一次并等它落地，再输入。
+        # 面板挂载时的首次 GET 可能还在飞；此时 fill 会被随后到达的响应覆盖，
+        # 「未保存」徽标一闪即消（本轮 e2e 就是在这里假红，单独跑同样步骤却正常）。
+        wlp.locator("button:has-text('重新读取')").click()
+        page.wait_for_timeout(700)
         wlp.locator("textarea.wl-text").nth(0).fill("微微一笑\n眸光\n眼里闪过一丝\n")
-        page.wait_for_timeout(200)
+        page.wait_for_timeout(300)
         check("改动后出现\u300c未保存\u300d提示（不保存就不生效，得先看见）",
               wlp.locator(".pill.st-gate").count() >= 1)
-        wlp.locator("button:has-text('保存')").click()
+        save_btn = wlp.locator("button:has-text('保存')")
+        check("有改动时「保存」可点（没有改动才该禁用）", save_btn.count() == 1 and not save_btn.is_disabled())
+        if save_btn.is_disabled():
+            return   # 干净失败：不再用 30s 超时把整轮拖死
+        save_btn.click()
         page.wait_for_timeout(800)
         wl_txt = wlp.inner_text()
         check("保存后档位变成\u300c界面词表\u300d（写→读是真链路，不是静态面板）",
