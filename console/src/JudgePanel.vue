@@ -322,6 +322,17 @@ async function saveSentence(d) {
   busy.value = false;
 }
 
+/* 事件分类表（J22）原来只长在“改标准”那张大表的某一行里，作者报“不知道在哪里加”。
+   给它一个直达入口：从报告页或改标准页都能一键滚到那一行（0.9.1 验收第 4 条）。 */
+async function jumpJ22() {
+  if (!caliber.value) await openCaliber();
+  else view.value = "caliber";
+  setTimeout(() => {
+    const el = document.getElementById("j22");
+    if (el) el.scrollIntoView({ block: "center" });
+  }, 80);
+}
+
 async function openCaliber() {
   busy.value = true; err.value = "";
   try {
@@ -432,6 +443,8 @@ onMounted(loadReport);
         <button class="mini primary" :disabled="busy" @click="runBacktest">
           {{ report && report.exists ? "重跑判定" : "开始回测" }}</button>
         <button class="mini" :disabled="busy" @click="openCaliber">改标准</button>
+        <button class="mini" :disabled="busy" @click="jumpJ22"
+                title="“这一章发生的事改变了什么”那几类（人物处境/信息占有/关系/目标…）就在这里加删改">事件分类表</button>
         <button class="mini" :disabled="busy || !report || !report.exists"
                 @click="exportList">导出清单</button>
       </div>
@@ -696,6 +709,7 @@ onMounted(loadReport);
         <b>合格标准</b>
         <span class="meta">现在生效：第 {{ caliber.version }} 版（{{ caliber.fingerprint }}）</span>
         <span class="spacer"></span>
+        <button class="mini" @click="jumpJ22" title="滚到 J22 事件分类表：勾选事件时那几类就是这张表">跳到事件分类表</button>
         <button class="mini primary" :disabled="busy" @click="saveCaliber">保存（产新版本）</button>
       </div>
       <div class="judge-notice">改标准会产新版本，旧结论保留为历史；改完要在报告页点“重跑判定”。</div>
@@ -727,7 +741,7 @@ onMounted(loadReport);
         <thead><tr><th>条目</th><th>值</th><th>类型</th><th>产出方 / 谁终裁</th>
           <th>谁在读（消费方）</th><th>本书里的一个例子</th></tr></thead>
         <tbody>
-          <tr v-for="c in caliber.criteria" :key="c.id">
+          <tr v-for="c in caliber.criteria" :key="c.id" :id="c.id === 'J22' ? 'j22' : undefined">
             <td>{{ c.id }} · {{ c.name }}</td>
             <td>
               <!-- 事件分类表（J22）：这是**作者的判断维度**，所以不是只读标签，

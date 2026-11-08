@@ -225,6 +225,15 @@ async function releaseLock() {
 const tab = ref("pipeline");
 const state = ref(null);
 const models = ref(null);
+/* 自任务引擎（engine: self）判定（2026-11-08，0.9.1 验收第 9/13/16 条）。
+   self = 程序不调用任何模型，只出任务书。凡“要模型”的按钮在这个模式下必然不可用，
+   旧行为是点下去才弹一句“用不了”，作者只会以为软件坏了。这里做成**常驻一条说明 +
+   按钮直接禁用并给理由**，不让人反复试。
+   注意：/stage/N/run 不在禁用范围 —— self 下它本该出任务书（那是它的正常工作）。 */
+const selfEngine = computed(() => !!models.value && models.value.engine === "self");
+const SELF_ENGINE_HINT = "当前引擎是“自任务”（engine: self，只出任务书、不调模型），"
+  + "这个功能要调用模型。切引擎：设置 → 引擎与模型（direct 按量计费 / hermes 走订阅）；"
+  + "不想切也行 —— 大纲精修与整章重写已经改成出任务书（写出草稿，你点采用才写回正式稿）。";
 const modelOptions = ref([]); // 动态从 /models/available 加载（**全量**，供搜索框计数）
 // 模型下拉**按角色所在的 provider 过滤**。此前只取 providers 里的“第一个”的
 // available_models，于是**新增一个供应商后，它的模型根本不进下拉** ——
@@ -494,6 +503,7 @@ const fontSize = ref(parseInt(localStorage.getItem("mofang_font_size") || "14"))
 const SETTINGS_TABS = [
   { id: "model", name: "引擎与模型" },
   { id: "budget", name: "预算与止烧" },
+  { id: "approval", name: "审批门" },
   { id: "notify", name: "通知与退出" },
   { id: "agent", name: "Agent 接入" },
   { id: "prompt", name: "风格与提示词" },
@@ -513,8 +523,55 @@ function selectSettingsTab(id) {
   if (id === "diag") loadFactory();
   // Word 模板清单每次进都要重扫磁盘（用户可能刚往 templates/ 里放了新模板）
   if (id === "word") loadWordTemplate();
+  // 审批门每次进都重读：它可能被别的窗口/手工改过
+  if (id === "approval") loadApprovalGates();
   // 知识库扫描面：每次进都重扫（用户可能刚改过库目录）
   if (id === "prompt") { loadVaultCfg(); loadVaults(); loadVaultScan(); }
+}
+
+/* ---------- 审批门（2026-11-08，0.9.1 验收第 10/12 条） ----------
+   作者问“阶段 3 / 阶段 4 为什么无需审批”。事实是门由 gates.require_approval 决定
+   （出厂 [2, 6]），但此前只有手改 config/system.yaml 一条路 —— 界面上既看不到
+   “哪几个阶段会停下来等你”，也改不了。这里给一张勾选表。
+   写口在后端是**审批族**：只允许 GUI 来源，外部 Agent 不得替作者减少确认点。 */
+const gateCfg = ref({ loading: false, saving: false, stages: [], factory: [2, 6],
+                      names: {}, note: "", msg: "", error: "" });
+async function loadApprovalGates() {
+  gateCfg.value.loading = true; gateCfg.value.error = ""; gateCfg.value.msg = "";
+  try {
+    const r = await api("/config/approval_gates");
+    if (r.status === 200 && r.data) {
+      gateCfg.value.stages = r.data.stages || [];
+      gateCfg.value.factory = r.data.factory || [2, 6];
+      gateCfg.value.names = r.data.names || {};
+      gateCfg.value.note = r.data.note || "";
+    } else {
+      gateCfg.value.error = (r.data && r.data.error) || ("HTTP " + r.status);
+    }
+  } catch (e) { gateCfg.value.error = String(e.message || e); }
+  gateCfg.value.loading = false;
+}
+function toggleGateStage(n) {
+  const cur = gateCfg.value.stages.slice();
+  const i = cur.indexOf(n);
+  if (i >= 0) cur.splice(i, 1); else cur.push(n);
+  cur.sort((a, b) => a - b);
+  gateCfg.value.stages = cur;
+}
+async function saveApprovalGates() {
+  gateCfg.value.saving = true; gateCfg.value.error = ""; gateCfg.value.msg = "";
+  try {
+    const r = await api("/config/approval_gates", "POST", { stages: gateCfg.value.stages });
+    if (r.status === 200 && r.data) {
+      gateCfg.value.stages = r.data.stages || [];
+      gateCfg.value.msg = r.data.message || "已保存";
+      if (r.data.note) gateCfg.value.note = r.data.note;
+      await refresh();
+    } else {
+      gateCfg.value.error = (r.data && r.data.error) || ("HTTP " + r.status);
+    }
+  } catch (e) { gateCfg.value.error = String(e.message || e); }
+  gateCfg.value.saving = false;
 }
 
 const THEMES = [
@@ -1617,8 +1674,16 @@ const refineFeedback = ref("");
 async function submitRefine() {
   const r = await api("/refine/outline", "POST", { feedback: refineFeedback.value });
   refineOpen.value = false;
+  // 自任务模式（engine: self）不调模型，改出任务书 —— 必须把**文件路径**报出来，
+  // 否则作者只会看到一句“已提交”，却不知道东西在哪、下一步该干什么（2026-11-08）。
+  if (r.status === 202 && r.data && r.data.mode === "self") {
+    say("已出大纲精修任务书（不调用模型）：" + (r.data.task || "")
+        + "。交给外部执行方改 data/outline/global.md，写完回来点“运行”（阶段 2）复核。");
+    refresh();
+    return;
+  }
   if (r.status === 202) say("精修任务已提交，跑完可在流水线页签看到状态");
-  else say("提交失败: " + (r.data.error || ""));
+  else say("提交失败: " + ((r.data && r.data.error) || ""));
   refresh();
 }
 
@@ -2800,7 +2865,11 @@ async function fixInvalid(kind, invalidMap) {
   const path = kind === "expand" ? "/refine/chapter" : "/chapters/rewrite";
   try {
     const r = await api(path, "POST", body);
-    if (r.status === 200) {
+    // self 模式：这两个动作都改成“出任务书”（草稿 + 你采用才落盘），没有 job（2026-11-08）
+    if (r.status === 202 && r.data && r.data.mode === "self") {
+      say(`第 ${n} 章：已出任务书（不调模型）\n${r.data.task}\n`
+          + `交给外部执行方写到 ${r.data.draft}，写完回章节页点“采用草稿”。`);
+    } else if (r.status === 200 || r.status === 202) {
       say(kind === "expand" ? `第 ${n} 章开始补长（进度看流水线页）` : `第 ${n} 章开始重写（旧稿已备份）`);
       setTimeout(loadState, 1200);
     } else {
@@ -3608,6 +3677,9 @@ const commands = computed(() => {
             desc: "归档当前项目 → 建空工作区 → 写 project.yaml", keywords: "new project 新建 项目 向导" });
   cs.push({ id: "snapshot", group: "工作流", label: "手动快照",
             desc: "history/ 留存一份当前状态，可回退", keywords: "snapshot 备份" });
+  cs.push({ id: "desk", group: "章节", label: "打开审阅台（逐段改稿）",
+            desc: "左章列表 / 中正文 / 右大纲与评审；也可以点章节列表里每章的“审阅”",
+            keywords: "审阅台 desk 改稿 段落" });
 
   for (let n = 1; n <= 7; n++) {
     cs.push({ id: "stage.run:" + n, group: "运行阶段",
@@ -3677,6 +3749,7 @@ async function runCommand(id) {
   if (id === "flow.stream") return runPipelineStreamFull();
   if (id === "publish") return runPublish();
   if (id === "snapshot") return doSnapshot();
+  if (id === "desk") return openDesk(1);
   if (id === "refresh") { await refresh(); return say("已刷新状态"); }
   if (id === "logs") return openRunLog();
   if (id === "help") { helpOpen.value = true; return; }
@@ -4754,12 +4827,23 @@ async function loadChapters() {
   chaptersLoaded.value = true;
   // 加载质量评分
   loadChapterQuality();
+  // 自任务草稿（有就显示“草稿 N 字 / 采用 / 放弃”）
+  loadSelfDrafts();
 }
 /* ---------- 章节编辑器（2026-10-26，用户第 1 条“没有自带编辑器”） ---------- */
 const editorN = ref(null);
 /* 章节页签的两个视图：list（原有列表）/ desk（三栏审阅台）。
    默认列表 —— 不给老用户换掉他熟悉的界面；想审阅时再切。 */
 const chapterView = ref("list");
+// 2026-11-08：从某一章直接进审阅台（此前只能从章节页右上角那个小按钮进，
+// 用户反馈“根本找不到”）。这里带上章号，打开后中栏就是这一章。
+const deskChapter = ref(1);
+function openDesk(chapter) {
+  deskChapter.value = Number(chapter) || 1;
+  switchTab("chapters");
+  if (!chaptersLoaded.value) loadChapters();
+  chapterView.value = "desk";
+}
 function toggleChapterView() {
   chapterView.value = chapterView.value === "desk" ? "list" : "desk";
   // 进审阅台时确保章节列表已加载（否则左栏空着，用户以为坏了）
@@ -4929,8 +5013,54 @@ function copyRewriteBrief(n) {
   copyText(text, "重写任务简报已复制（第 " + n + " 章）");
 }
 
+/* 按钮级派单（2026-11-08，暮雨：“这些全是有用的东西，不能点还有什么意义”）：
+   self 模式下点“重写”不再禁用，也不报错 —— 改成出自包含任务书，外部写成草稿，
+   他点“采用草稿”才换正式稿（先备份）。正式稿在采纳之前一个字节不动。 */
+const selfDrafts = ref({});          // n -> {ok, words, reasons, mtime, path}
+async function loadSelfDrafts() {
+  try {
+    const r = await api("/self/actions");
+    if (r.status === 200 && r.data) {
+      const m = {};
+      (r.data.items || []).forEach((it) => { m[it.n] = it; });
+      selfDrafts.value = m;
+    }
+  } catch (e) { /* 草稿列表不是主路径，失败就当作没有草稿 */ }
+}
+async function selfRewriteChapter(n) {
+  const r = await api("/self/action/rewrite_chapter", "POST", { n });
+  if (r.status === 202 && r.data) {
+    say("已出第 " + n + " 章的重写任务书：" + r.data.task
+        + " —— 交给外部执行方写到 " + r.data.draft + "，写完回来点“采用草稿”。");
+    loadSelfDrafts();
+  } else {
+    say("出任务书失败：" + ((r.data && r.data.error) || r.status));
+  }
+}
+async function applySelfDraft(n) {
+  const ok = window.confirm("采用第 " + n + " 章的草稿？\n\n"
+    + "· 正式稿会被草稿整份替换；旧稿先备份到 data/chapters/rewrite_backup/\n"
+    + "· 检查稿 / 润色稿不会动（要连下游一起换，用“重跑…”）");
+  if (!ok) return;
+  const r = await api("/self/action/apply", "POST", { n, confirm: true });
+  if (r.status === 200) {
+    say("已采用第 " + n + " 章的草稿（旧稿备份到 " + (r.data.backup || "无") + "）");
+    await onChapterSaved(n);
+    loadChapterQuality();
+    loadSelfDrafts();
+  } else {
+    say("采用失败：" + ((r.data && r.data.error) || r.status));
+  }
+}
+async function dropSelfDraft(n) {
+  if (!window.confirm("放弃第 " + n + " 章的草稿？（正式稿不会动）")) return;
+  const r = await api("/self/action/drop", "POST", { n });
+  say(r.status === 200 ? "已放弃草稿（正式稿未动）" : ("放弃失败：" + ((r.data && r.data.error) || r.status)));
+  loadSelfDrafts();
+}
 async function rewriteChapter(n) {
   if (agentRunGuard()) return;
+  if (selfEngine.value) return selfRewriteChapter(n);
   const ok = window.confirm(
     "重写第 " + n + " 章？\n\n"
     + "· 会调用模型重新写整章（花 token，按当前字数标准与加强模式走）\n"
@@ -5415,15 +5545,27 @@ onUnmounted(() => {
     </nav>
     <div class="topbar-tools">
     <div class="conn" :class="{ on: online }">{{ online ? "已连接" : "离线" }}</div>
-    <button class="mini global-refresh-btn" @click="globalRefresh" title="全局刷新（所有页签数据）">↻</button>
+    <!-- 2026-11-08（0.9.1 验收第 1 条）：宽屏（≥900px）时这一整块不是顶栏，
+         而是左侧竖栏的最底部。原来四个动作 + 连接态 + 徽标共用一个会折行的 flex，
+         216px 宽里折成参差两行（作者原话：成品、补救等按钮挤在一起，弄个对称的四宫格也就算了）。
+         这里把四个动作收进 .tools-grid：宽屏是 2×2 对称格，窄屏仍是横排。 -->
+    <div class="tools-grid">
     <!-- 打开成品（2026-10-26，用户第 11 条：“连个打开成品的按钮都没有，还好有命令面板
          救了你”）。原来的入口埋在“流水线 → 产物速览”卡片底部，用户找不到。
          只在 output/ 里真有 docx 时出现 —— 没有成品就不给一个点了报错的按钮。 -->
-    <button v-if="latestDocx" class="mini" @click="openArtifact(latestDocx)"
-            :title="'用系统默认程序打开最新 Word 成品：' + latestDocx">📕 成品</button>
+    <!-- 2026-11-08：改成**常驻**（没有成品时禁用）。原来 v-if 藏起来，
+         侧栏四宫格就只剩三格、右下空着 —— 作者要的是对称四宫格。
+         保持“不可点”的原意：没有 docx 时按钮是禁用的，悬停说明什么时候才有。 -->
+    <button class="mini" :disabled="!latestDocx" @click="openArtifact(latestDocx)"
+            :title="latestDocx ? ('用系统默认程序打开最新 Word 成品：' + latestDocx)
+                            : '还没有成品 —— 阶段 7 导出 Word 之后这里才能点'">📕 成品</button>
     <button class="mini" @click="runRemedy" title="一键补救：检测问题并给出修复建议">🩹 补救</button>
     <button class="mini" @click="openRunLog" title="运行日志（nf_api / 流水线输出尾部）—— 排障第一入口">📋 日志</button>
+    <button class="mini global-refresh-btn" @click="globalRefresh" title="全局刷新（所有页签数据）">↻ 刷新</button>
+    </div><!-- /tools-grid -->
     <div v-if="agentMode" class="agent-mode-badge" title="Agent 模式已开启 —— 外部 Agent 可通过 HTTP API 调用">⚡ Agent</div>
+    <!-- 自任务模式徽标（2026-11-08）：与 ⚡ Agent 并列，一眼看出“AI 按钮为什么不可用”。 -->
+    <div v-if="selfEngine" class="pill st-gate" title="自任务引擎（engine: self）：不调用模型，只出任务书，所以 AI 类按钮不可用">◻ 自任务</div>
     </div>
   </header>
 
@@ -5434,6 +5576,18 @@ onUnmounted(() => {
     <span class="na-hint">{{ nextRunLocked ? AGENT_LOCK_HINT : nextAction.hint }}</span>
     <span class="spacer"></span>
     <button class="mini primary" :disabled="nextRunLocked" :title="nextRunLocked ? AGENT_LOCK_HINT : ''" @click.stop="runNextAction">执行</button>
+  </div>
+
+  <!-- 自任务模式常驻说明（2026-11-08，0.9.1 验收第 9/13/16 条）：
+       self 下“提精修 / 精修大纲 / 整章重写 / 运行审查 / 自动重写 / 语义审稿”必然不可用。
+       旧行为是点下去才报一句“用不了”，作者点三四次以为软件坏了。先在这里说清楚。 -->
+  <div v-if="selfEngine" class="self-mode-bar">
+    <span class="smb-icon">◻</span>
+    <span class="smb-text"><b>自任务模式：只出任务书，不调模型</b> —— 
+      提精修 / 段落重写 / 运行审查 / 自动重写 / 语义审稿 这些要用模型的功能用不了；
+      大纲精修与整章重写改成了“出任务书 → 写草稿 → 你采用才落盘”。
+      任务书在 data/state/tasks/self/，交给外部执行方写、写完重跑即可。</span>
+    <button class="mini" @click="switchTab('settings')" title="设置 → 引擎与模型：direct（按量计费）/ hermes（走订阅）">去切引擎</button>
   </div>
 
   <!-- 诊断（C 组“运行侧三态 → 诊断”的独立入口）：运行态 + 体检明细 + 补救建议 -->
@@ -5976,6 +6130,12 @@ onUnmounted(() => {
             <!-- 2026-10-11 #9 收口：stage1 陪跑闸是合法审批点，后端 /reject 本就收 1-7，
                  这里不再用 >=2 把 stage1 的打回入口挡在门外 -->
             <button v-if="s.status !== 'pending'" class="mini danger" :disabled="isRunning" @click="openReject(s.stage)">打回</button>
+            <!-- 2026-11-08（0.9.1 验收第 6 条）：作者问“我想跳过某些阶段，软件里有没有入口”。
+                 原先只有**失败/打回之后**的恢复区才有“跳过此阶段”，正常待办的阶段找不到入口。
+                 这里给待办阶段补一个显式入口，仍走同一套确认框（勾选护栏 + 事后回报缺了哪些产物）。 -->
+            <button v-if="s.status === 'pending'" class="mini" :disabled="isRunning"
+                    title="跳过这一阶段：只标记“完成 + 已审批”，不会生成任何文件；下游缺什么就没什么（确认框会先列出这一跳会缺哪些东西）"
+                    @click="openSkipDlg(s.stage)">跳过</button>
           </div>
           <!-- 错误恢复一级入口（UX-3）：失败/被打回/跳过的恢复动作直接摆在卡片上 -->
           <div v-if="s.status === 'failed' || s.status === 'rejected' || s.skipped || (s.needs_rewrite && s.needs_rewrite.length)"
@@ -6030,12 +6190,14 @@ onUnmounted(() => {
                 @click="toggleChapterView">
           {{ chapterView === "desk" ? "回到列表" : "审阅台" }}
         </button>
+        <button v-if="chapterView !== 'desk'" class="mini" @click="openDesk(1)"
+                title="打开审阅台并从头开始（也可以点下面每一章的“审阅”）">打开审阅台</button>
         <button class="mini" @click="loadChapters">重新探测</button>
         <button class="mini" @click="loadChapterQuality" title="刷新质量评分">质量</button>
       </div>
 
-      <ChapterDesk v-if="chapterView === 'desk'" :api="api" :chapters="chapters"
-                   :quality="chapterQuality" @say="say" />
+      <ChapterDesk v-if="chapterView === 'desk'" :api="api" :chapters="chapters" :self-engine="selfEngine"
+                   :quality="chapterQuality" :initial-chapter="deskChapter" @say="say" />
       <template v-else>
       <!-- 多写几版再挑（B2，2026-11-06）：低分章重写时生成 3 个候选，
            这里三栏并排看分数与扣分理由，也可改用另一版。 -->
@@ -6155,17 +6317,31 @@ onUnmounted(() => {
         <button class="mini primary" :class="{ ghost: !(c.files.raw || c.files.checked || c.files.refined) }"
                 title="就地编辑 / 段落批改（自带编辑器，写前自动备份）"
                 @click="openEditor(c.n)">编辑</button>
+        <button class="mini" title="在这一章打开三栏审阅台：左章列表 / 中正文 / 右大纲与评审"
+                @click="openDesk(c.n)">审阅</button>
+        <!-- 自任务草稿（2026-11-08）：外部写完不一定合格 —— 判据过没过在这里一眼看到，
+             采用才换正式稿，放弃则一个字不动。 -->
+        <template v-if="selfDrafts[c.n]">
+          <span class="pill" :class="selfDrafts[c.n].ok ? 'st-gate' : ''"
+                :title="selfDrafts[c.n].ok ? '草稿已通过检查，可以采用' : ('草稿还不合格：' + (selfDrafts[c.n].reasons || []).join('；'))">
+            草稿 {{ selfDrafts[c.n].words || 0 }} 字{{ selfDrafts[c.n].ok ? "" : "（未过）" }}</span>
+          <button class="mini primary" :disabled="!selfDrafts[c.n].ok" @click="applySelfDraft(c.n)"
+                  title="用这份草稿替换正式稿（旧稿先备份到 rewrite_backup）">采用草稿</button>
+          <button class="mini" @click="dropSelfDraft(c.n)" title="丢掉草稿，正式稿一个字不动">放弃</button>
+        </template>
         <!-- 重写本章：走阶段 4 重写整章（会花 token）。旧稿先备份到 rewrite_backup/
              ⚠️ 只换正文（2026-11-04 澄清文案）：检查稿/润色稿仍是旧的 —— 要连下游一起换用“重跑”。 -->
+        <!-- 2026-11-08（0.9.1 验收第 13/16 条）：self 下这条必然失败 —— 直接禁用并说清原因，
+             不再让作者点一次才被告知“用不了”。 -->
         <button class="mini" :disabled="rewriting === c.n || isRunning || agentRunLocked"
-                :title="agentRunLocked ? AGENT_LOCK_HINT : (isRunning ? '流水线正在跑，等它结束再重写' : '只重写正文（走阶段 4；旧稿先备份；检查稿/润色稿不动）')"
+                :title="selfEngine ? '自任务模式：出一份重写任务书给外部执行方，写完回来点“采用草稿”（正式稿在你采纳前不动）' : (agentRunLocked ? AGENT_LOCK_HINT : (isRunning ? '流水线正在跑，等它结束再重写' : '只重写正文（走阶段 4；旧稿先备份；检查稿/润色稿不动）'))"
                 @click="rewriteChapter(c.n)">
           {{ rewriting === c.n ? "重写中…" : "重写" }}
         </button>
         <!-- 重跑本章（2026-11-04，task-20261104-002）：正文/检查/润色按范围一起重算，
              别的章一个字节不动。影响面先列出来再确认（不靠用户猜）。 -->
-        <button class="mini" :disabled="isRunning || agentRunLocked"
-                :title="agentRunLocked ? AGENT_LOCK_HINT : (isRunning ? '流水线正在跑，等它结束再重跑' : '重跑本章：正文/检查/润色按范围重算，别的章不动（会花 token）')"
+        <button class="mini" :disabled="isRunning || agentRunLocked || selfEngine"
+                :title="selfEngine ? SELF_ENGINE_HINT : (agentRunLocked ? AGENT_LOCK_HINT : (isRunning ? '流水线正在跑，等它结束再重跑' : '重跑本章：正文/检查/润色按范围重算，别的章不动（会花 token）'))"
                 @click="openRerunDialog(c.n)">重跑…</button>
         <!-- 外部 Agent 的入口：复制**任务简报**（说清调哪个工具/端点、产物在哪、禁止直接写文件）。
              Agent 模式下 GUI 的运行类按钮会锁，但这份简报仍可复制（只读操作）。 -->
@@ -6188,7 +6364,7 @@ onUnmounted(() => {
 
       <!-- 章节编辑器（2026-10-26）：就地编辑 + 段落批改，写前自动备份。
            放在 template 外 —— 列表视图与审阅台都要能随时打开它。 -->
-      <ChapterEditor v-if="editorN" :api="api" :n="editorN"
+      <ChapterEditor v-if="editorN" :self-engine="selfEngine" :api="api" :n="editorN"
                      @say="say" @close="editorN = null" @saved="onChapterSaved" />
     </section>
 
@@ -6212,7 +6388,7 @@ onUnmounted(() => {
     <section v-if="tab === 'review'">
       <Stage5DiffPanel @say="say" />
       <BenchmarkPanel @say="say" />
-      <ReviewConsole @goto-refine="switchToRefine" />
+      <ReviewConsole :self-engine="selfEngine" @goto-refine="switchToRefine" />
     </section>
 
     <!-- 精修（段落级定点重写 + 字段级定向改写） -->
@@ -7196,6 +7372,34 @@ onUnmounted(() => {
         </div>
       </template>
           </div><!-- /set-pane budget -->
+          <!-- 审批门（2026-11-08，0.9.1 验收第 10/12 条）：勾上的阶段跑完停一次等你确认。
+               此前只能手改 config/system.yaml，作者因此不知道阶段 3/4 为什么不停。 -->
+          <div class="set-pane" v-show="settingsTab === 'approval'">
+      <h4 style="margin-top: 16px;">审批门：哪些阶段跑完要停下来等你确认</h4>
+      <div class="meta" style="line-height: 1.8; margin-bottom: 10px;">
+        勾上的阶段跑完会停在“收件箱”，你点 <b>确认</b> 才往下走；没勾的阶段跑完直接进下一阶段。
+        <b>出厂默认只勾阶段 2 和 6</b>。阶段 1 另外受“素材库陪跑”影响（关着的时候归并完也会停一次）。
+        全部不勾 = 一路自动跑到底，中间没有确认点。
+      </div>
+      <div v-if="gateCfg.loading" class="meta">读取中…</div>
+      <template v-else>
+        <div class="gate-grid">
+          <label v-for="n in 6" :key="'gate' + n" class="gate-row">
+            <input type="checkbox" :checked="gateCfg.stages.includes(n)"
+                   @change="toggleGateStage(n)" />
+            <span>阶段 {{ n }} · {{ gateCfg.names[n] || '' }}</span>
+            <span v-if="gateCfg.factory.includes(n)" class="meta">出厂默认就勾</span>
+          </label>
+        </div>
+        <div class="meta" style="margin: 8px 0 10px;">{{ gateCfg.note }}</div>
+        <button class="mini primary" :disabled="gateCfg.saving" @click="saveApprovalGates">
+          {{ gateCfg.saving ? "保存中…" : "保存" }}</button>
+        <button class="mini" :disabled="gateCfg.saving" @click="loadApprovalGates">重新读取</button>
+        <span v-if="gateCfg.msg" class="meta" style="margin-left: 10px;">{{ gateCfg.msg }}</span>
+        <span v-if="gateCfg.error" class="meta" style="margin-left: 10px; color: var(--bad)">{{ gateCfg.error }}</span>
+      </template>
+          </div>
+
           <div class="set-pane" v-show="settingsTab === 'agent'">
 
       <!-- P1: Agent 模式开关 -->

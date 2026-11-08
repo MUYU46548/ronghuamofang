@@ -207,7 +207,8 @@ def main():
         # 2026-10-27 实测：`if (agentRunGuard()) return;  const ok = ...` 写在同一行，
         # 重写函数**刚进去就返回**（死代码被压缩器整段丢掉，按钮点了没反应）。
         check("重写在 agent guard 之后没有提前 return（不是死代码）",
-              "if (agentRunGuard()) return;\n  const ok" in app_vue,
+              "if (agentRunGuard()) return;\n  if (selfEngine.value) return selfRewriteChapter(n);\n"
+              "  const ok" in app_vue,
               app_vue[app_vue.find("async function rewriteChapter"):][:120])
     finally:
         os.chdir(origin)

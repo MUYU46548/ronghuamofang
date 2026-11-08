@@ -408,8 +408,12 @@ STREAMERS_LOCK = threading.Lock()
 #: 只收**确实要模型**的：`/stage/N/run` 不在此列（self 下它本该出任务书，
 #: 那条分支在 orchestrator 里，不是失败）。
 NEEDS_MODEL_ENDPOINTS = frozenset({
-    "/refine/outline",          # 大纲精修
-    "/refine/chapter",          # 章节精修（“提交精修”）
+    # 2026-11-08（0.9.1 验收第 9 条）：`/refine/outline` **不再**在这里 ——
+    # self 模式下它改走“出任务书”（refine.py 的 build_self_refine_task），
+    # 否则作者想“让外部 agent 改大纲”就永远只能得到一句“用不了”。
+    "/refine/outline/node",     # 逐节点精修（仍要模型：没有任务书路径）
+    # 2026-11-08（0.9.1 验收第 9 条同族）：“提精修”改走按钮级派单（出任务书 + 草稿），
+    # 不再前置拒绝 —— 否则作者想“让外部 agent 精修一章”就永远只能得到一句“用不了”。
     "/refine/paragraph",        # 段落级定点重写
     "/chapters/rewrite",        # 整章重写
     "/auto_rewrite/run",        # 低分章自动重写
@@ -418,6 +422,12 @@ NEEDS_MODEL_ENDPOINTS = frozenset({
     "/outline/sample/candidates",  # 章级写作方向样例（2026-11-05）
     "/outline/variants/generate",  # 开局方案 / 故事走向（2026-11-05）
     "/review/semantic",         # 语义审稿
+    # 2026-11-08（0.9.1 验收第 13 条）：下面两条此前漏登记，作者在 self 下点
+    # “运行审查”得到的是**静默失败** —— 请求进了 job 创建，`_client_for_env`
+    # 抛 RuntimeError 被兜底成 500/无提示，界面上既没有报告也没有人话。
+    # 与其它“要模型”的按钮同族，必须在这里前置拦下并说清楚。
+    "/review/run",              # 章节审查（reviewer 模型逐章找缺陷）
+    "/batch_refine/run",        # 批量精修（polisher 模型按决策改稿）
 })
 
 
@@ -2923,6 +2933,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/config/target_words":
             # 单章字数区间读取（chapter.target_words）+ 出厂预设 + 合法区间。
             self._send(*_dom(dom_project.handle_config_target_words(self)))
+        elif p == "/config/approval_gates":
+            # 审批门读取（gates.require_approval）：哪些阶段停下来等确认（2026-11-08）。
+            self._send(*_dom(dom_project.handle_config_approval_gates(self)))
         elif p == "/config/wordlists":
             # 词表读取（B1）：病灶词 / 合规词两份自定义表的原文 + 生效档位。
             self._send(*_dom(dom_project.handle_config_wordlists(self)))
@@ -3213,6 +3226,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/chapters/paragraphs":
             # 段落级读取（P0 精修轴）
             self._send(*_dom(dom_refine.handle_chapters_paragraphs(self)))
+        elif p == "/self/actions":
+            # 按钮级派单：有哪些草稿、判据过没过（2026-11-08）
+            self._send(*_dom(dom_refine.handle_self_actions_list(self)))
         elif p == "/chapters/paragraph/history":
             # 段落改写历史
             self._send(*_dom(dom_refine.handle_paragraph_history(self)))
@@ -3688,6 +3704,14 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/refine/outline/node":
                 # 实现已迁至 nf_api_domains.refine（P2 拆分）；此处只做转发。
                 self._send(*_dom(dom_refine.handle_refine_outline_node(self, body)))
+            elif p == "/self/action/rewrite_chapter":
+                # self 下整章重写出任务书（不调模型，草稿由外部写）
+                self._send(*_dom(dom_refine.handle_self_rewrite_chapter(self, body)))
+            elif p == "/self/action/apply":
+                # 采用草稿 = 替换正式稿（先备份；必须 confirm: true）
+                self._send(*_dom(dom_refine.handle_self_action_apply(self, body)))
+            elif p == "/self/action/drop":
+                self._send(*_dom(dom_refine.handle_self_action_drop(self, body)))
             elif p == "/refine/outline/undo":
                 # 实现已迁至 nf_api_domains.refine（P2 拆分）；此处只做转发。
                 self._send(*_dom(dom_refine.handle_refine_outline_undo(self)))
@@ -3952,6 +3976,9 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/config/target_words":
                 # 单章字数区间设置（创作决策，非安全闸门；越界值一律 400 拒绝）。
                 self._send(*_dom(dom_project.handle_config_target_words_set(self, body)))
+            elif p == "/config/approval_gates":
+                # 审批门设置（审批族：只允许 GUI 来源 —— Agent 不得替作者减少确认点）。
+                self._send(*_dom(dom_project.handle_config_approval_gates_set(self, body)))
             elif p == "/config/wordlists":
                 # 词表设置（创作决策：改的是“哪些词算病灶/合规”，不是安全闸门）。
                 self._send(*_dom(dom_project.handle_config_wordlists_set(self, body)))
@@ -3976,6 +4003,10 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/config/vaults/remove":
                 # 从列表移出（只删书签，不动笔记文件）
                 self._send(*_dom(dom_project.handle_config_vaults_remove(self, body)))
+            elif p == "/config/vaults/dirs":
+                # 给某个库配五类目录（2026-11-08，0.9.1 验收第 2 条）：
+                # 当前库写 local 配置，其余库写 vaults.json（每个库一套）。
+                self._send(*_dom(dom_project.handle_config_vaults_dirs_set(self, body)))
             elif p == "/config/vaults/enable":
                 # 多库同时读：某库是否参与扫描（当前库不许关）
                 self._send(*_dom(dom_project.handle_config_vaults_enable(self, body)))

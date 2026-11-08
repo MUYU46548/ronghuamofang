@@ -167,10 +167,51 @@ def case_wiring():
     check("后端写死只落 materials/raw", 'api.ROOT / "materials" / "raw"' in dom, None)
 
 
+def case_worldbook_with_name():
+    """真 ST 世界书导出**顶层就带 name / description / originalData**。
+
+    2026-11-08 的缺陷：旧实现"先按角色卡试"，而角色卡判据是"有没有 name"，
+    于是这种世界书会被静默导成一张空壳角色卡（条目全丢、不报错）。
+    用例钉住两件事：① parse_card 明确拒绝；② import_file 走世界书分支、停用条目计数。
+    """
+    print("\n【3b】带 name/description 的真 ST 世界书：不许被当成角色卡")
+    real = {
+        "name": "浊河灯录",
+        "description": "ST 导出确实带这一层顶层描述（不是角色卡的设定）",
+        "entries": WORLDBOOK["entries"],
+        "originalData": {"entries": []},
+        "scan_depth": 4,
+        "token_budget": 2048,
+    }
+    with tempfile.TemporaryDirectory() as td:
+        p = Path(td) / "浊河灯录.json"
+        p.write_text(json.dumps(real, ensure_ascii=False), encoding="utf-8")
+        err = ""
+        try:
+            TI.parse_card(p)
+        except ValueError as e:
+            err = str(e)
+        check("parse_card 明确拒绝世界书", "世界书" in err, err)
+
+        out = Path(td) / "raw"
+        r = TI.import_file(p, out_dir=out)
+        files = list(out.glob("*.md"))
+        check("导入走世界书分支", r["ok"] and r.get("kind") == "worldbook", r)
+        check("条目数与内容进来", r.get("entries") == 2 and len(files) == 1, r.get("entries"))
+        check("落的是世界书素材卡", bool(files) and "（世界书）" in files[0].name,
+              [f.name for f in files])
+        check("停用条目被计数", r.get("disabled_entries") == 1, r.get("disabled_entries"))
+        if files:
+            body = files[0].read_text(encoding="utf-8")
+            check("停用条目的正文没混进来", "这条停用了" not in body, body[:120])
+            check("启用条目按节落盘", "## 潮汐" in body and "## 旧规" in body, body[:120])
+
+
 def main():
     case_json_card()
     case_png_card()
     case_worldbook()
+    case_worldbook_with_name()
     case_write_rules()
     case_sanitize()
     case_wiring()

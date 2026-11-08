@@ -81,6 +81,9 @@ FORBIDDEN_IN_AGENT_MODE = frozenset({
     # Agent 不得抬高自己的闸门（2026-10-03）：止烧阈值 = 成本与安全设置。
     # 不拦的话，外部 Agent 只要 POST 一次把上限调到天上，"止烧"就是摆设。
     "/config/token_limit",
+    # 审批门（2026-11-08，验收第 10/12 条）：哪些阶段停下来等作者确认 = 审批族本身。
+    # 让 Agent 改这个，等于让它给自己减确认点 —— 与 /approve、/reject 同一档。
+    "/config/approval_gates",
     # 清理出厂样例（0.6.7）：移动用户工作区素材文件 = 破坏性写操作，
     # 只读的 /factory/list 不在此列（外部 Agent 可以盘点，不能动手）。
     "/factory/clean",

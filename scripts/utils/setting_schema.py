@@ -264,6 +264,24 @@ def is_uninjectable(body):
     return len(s) < UNINJECTABLE_MIN_CHARS
 
 
+def normalize_vault_dirs(raw):
+    """把“五类目录”的任意写法收成**固定五键、全 str**（唯一的归一化实现）。
+    
+    为什么要有（2026-11-08，0.9.1 验收第 2 条）：多库开始**按库**存目录后，
+    同一份映射会从两个地方来（当前库在 system.local.yaml，其他库在 vaults.json），
+    两边各写一遍解析就会各自漂移 —— 少一个键、多一个斜杠、None 与 "" 混用，
+    结果就是“这个库明明配了却扫空”。所以只留这一处：
+      · 缺键 → ""；· None → ""；· 前后空白与首尾斜杠去掉；
+      · 与本表无关的键**直接丢弃**（不把别人的结构带进来）。
+    """
+    src = raw if isinstance(raw, dict) else {}
+    out = {}
+    for k in _DEFAULT_VAULT_DIRS:
+        v = src.get(k)
+        out[k] = str(v).strip().strip("/\\") if v else ""
+    return out
+
+
 def get_vault_dirs():
     """vault 目录映射（五键齐全、str；**未指定就是空串**，不再回退出厂默认）。
 
@@ -272,12 +290,7 @@ def get_vault_dirs():
       · 空串 = 未指定（调用方必须显式处理，不许假装配好了）；
       · 要精准就在设置页点选（写 system.local.yaml），或让 AI 扫一遍给提案。
     """
-    raw = _load_vault_dirs_raw()
-    out = {}
-    for k in _DEFAULT_VAULT_DIRS:
-        v = raw.get(k) if isinstance(raw, dict) else None
-        out[k] = str(v).strip().strip("/\\") if v else ""
-    return out
+    return normalize_vault_dirs(_load_vault_dirs_raw())
 
 
 def _load_vault_dirs_raw():

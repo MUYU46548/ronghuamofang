@@ -4,6 +4,9 @@ import { ref, computed, onMounted, onUnmounted } from "vue";
 import { API } from "./apiBase.js";
 
 const emit = defineEmits(['goto-refine']);
+// 自任务引擎（engine: self）下“运行审查”必然失败 —— 父组件把引擎态传进来，
+// 按钮直接禁用并说清原因，别让作者点一次才被告知用不了（0.9.1 验收第 13 条）。
+const props = defineProps({ selfEngine: { type: Boolean, default: false } });
 
 async function api(path, method = "GET", body = null) {
   const opt = { method, headers: { "Content-Type": "application/json" } };
@@ -327,7 +330,9 @@ onUnmounted(() => {
     <div class="review-head">
       <h3>审稿 → 修稿（一路走完）</h3>
       <div class="head-actions">
-        <button class="mini" :disabled="loading" @click="runReview">
+        <button class="mini" :disabled="loading || props.selfEngine"
+                :title="props.selfEngine ? '当前引擎是自任务（engine: self，不调模型），审查要用模型。切到 direct / hermes 再用，或在外部执行方里跑。' : ''"
+                @click="runReview">
           {{ loading ? "审查中…" : "运行审查" }}
         </button>
         <button class="mini" @click="loadReport">刷新报告</button>
@@ -336,7 +341,11 @@ onUnmounted(() => {
 
     <!-- 无报告提示 -->
     <div v-if="!report" class="empty">
-      暂无审查报告 —— 点击"运行审查"开始分析章节
+      <template v-if="props.selfEngine">
+        当前是自任务引擎（engine: self，不调用模型），审查这一步用不了。<br>
+        要用它：设置 → 引擎与模型 切到 direct / hermes，或把阶段 5 的任务书交给外部执行方。
+      </template>
+      <template v-else>暂无审查报告 —— 点击"运行审查"开始分析章节</template>
     </div>
 
     <!-- 报告内容 -->

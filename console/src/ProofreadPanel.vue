@@ -160,8 +160,18 @@ async function refineChapter(c) {
     const r = await api("/refine/chapter", "POST", {
       chapter: c.n, feedback: buildFeedback(list), dry_run: false,
     });
-    if (r.status === 202) say(`第 ${c.n} 章精修已提交（任务号 ${r.data.job_id}）`);
-    else say("提交失败: " + (r.data.error || r.status));
+    // self 模式不调模型：后端出的是**任务书**，没有 job —— 必须把路径报出来（2026-11-08），
+    // 否则作者只会看到一句“已提交”，却不知道东西在哪。
+    if (r.status === 202 && r.data && r.data.mode === "self") {
+      say(`第 ${c.n} 章：已出精修任务书（不调模型）
+${r.data.task}
+`
+          + `交给外部执行方写到 ${r.data.draft}，写完回章节页点“采用草稿”。`);
+    } else if (r.status === 202) {
+      say(`第 ${c.n} 章精修已提交（任务号 ${r.data.job_id}）`);
+    } else {
+      say("提交失败: " + ((r.data && r.data.error) || r.status));
+    }
   } catch (e) {
     say("错误: " + (e.message || e));
   } finally {

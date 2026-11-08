@@ -346,11 +346,20 @@ body {
     border: 0; padding: 0 2px; text-align: left; font-weight: 400;
   }
   .topbar .topbar-tools {
-    display: flex; flex-wrap: wrap; align-items: center; gap: 4px;
-    margin-top: auto; padding-top: 10px;
+    display: block; margin-top: auto; padding-top: 10px;
     border-top: 1px solid var(--border);
   }
-  .topbar .topbar-tools .mini { font-size: 12px; padding: 4px 8px; }
+  .topbar .topbar-tools .conn { display: block; margin-bottom: 6px; padding-left: 2px; }
+  .topbar .topbar-tools .mini { font-size: 12px; padding: 5px 6px; }
+  /* 2×2 对称格：每格等宽、文字居中；“刷新”放在第 4 格。
+     没有成品时（output/ 里没有 docx）第 1 格空着，栅格仍是两列，不会退化成参差行。 */
+  .topbar .tools-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+  }
+  .topbar .tools-grid .mini { width: 100%; text-align: center; white-space: nowrap; }
+  /* 徽标（⚡Agent / ◻自任务）各占一整行，跟格子分开，别挤在最后一格旁边 */
+  .topbar .topbar-tools .agent-mode-badge,
+  .topbar .topbar-tools .pill { margin: 6px 0 0; width: 100%; text-align: center; justify-content: center; }
   /* 暗色下组标题/副标题必须提亮：opacity 0.7 的淡灰压在深底上只有约 3:1，
      实测“看不清、像禁用文字”。分隔线同理 —— 看不见线，分组就没了。 */
   .is-dark .topbar .tab-group-title { opacity: 1; color: var(--muted); }
@@ -366,6 +375,10 @@ body {
 .conn { font-size: 12px; color: var(--muted); }
 .conn.on { color: var(--ok); }
 .global-refresh-btn { margin-left: 4px; font-size: 14px; }
+/* 侧栏底部的四个动作（成品 / 补救 / 日志 / 刷新）。
+   窄屏时它们在横向顶栏里排一行；宽屏时顶栏变成左侧竖栏，这里换成 2×2 对称格
+   （2026-11-08，0.9.1 验收第 1 条：216px 宽里 flex-wrap 会折成参差两行）。 */
+.tools-grid { display: flex; align-items: center; gap: 8px; }
 /* Agent 模式开关条（流水线首页常驻）。
    开启时用左侧粗色条 + 呼吸点标记 —— 这个开关影响"外部 Agent 能不能调本机 API"，
    状态必须一眼可见，不能用默认灰按钮糊过去。 */
@@ -662,6 +675,18 @@ body {
 .mini:disabled:hover { border-color: var(--border); color: var(--ink); }
 .mini:hover { border-color: var(--accent); color: var(--accent); }
 .mini.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* 选中态（2026-11-08，0.9.1 验收第 14 条）。
+   全仓有 20+ 个切换按钮写的是 class="mini" + :class="{ on: ... }"（编辑 / 阅读 / 段落批注、
+   评审面板的过滤、风格预设……），但 style.css 里**从来没有 .mini.on 规则** ——
+   点下去只有 :hover 的一点颜色变化，选中与未选中长得一模一样。
+   作者原话：“点了编辑三四次，编辑按钮还在，没有任何提示，所以我到底有没有选中编辑？”
+   判据只一条：选中 = 实心强调色 + 白字。放在 .mini.primary 之后，
+   让后面更具体的（.qstage.on 等）继续按自己的样式走。 */
+.mini.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.mini.on:hover { color: #fff; border-color: var(--accent); filter: brightness(1.06); }
+.mini.on:disabled { opacity: 0.55; }
+.mini.on:disabled:hover { color: #fff; border-color: var(--accent); }
 .mini.primary:hover { background: color-mix(in srgb, var(--accent) 86%, #000); }
 .is-dark .mini.primary:hover { background: color-mix(in srgb, var(--accent) 78%, #000); }
 .mini.danger { color: var(--ink-bad); }
@@ -1893,6 +1918,35 @@ kbd {
 .next-action-bar .na-label { font-weight: 600; font-size: 13px; }
 .next-action-bar .na-hint { color: var(--muted-foreground); font-size: 12px; }
 .next-action-bar .spacer { flex: 1; }
+
+/* 自任务引擎（engine: self）常驻提示条（2026-11-08，0.9.1 验收第 9/13/16 条）。
+   为什么要有：self 下所有“要模型”的按钮必然不可用，旧行为是**点下去才弹一句
+   “用不了”**，作者点三四次只会得出“这软件坏了”。这里在顶上常驻一行先说清楚，
+   并给一条“去切引擎”的路。不用红色 —— 它不是错误状态，是一种工作模式。 */
+.self-mode-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 16px;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  border-left: 3px solid var(--warn);
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+.self-mode-bar .smb-icon { color: var(--warn); font-size: 13px; }
+.self-mode-bar b { color: var(--ink); font-weight: 600; font-size: 13px; }
+.self-mode-bar .smb-text { flex: 1; min-width: 0; line-height: 1.5; }
+.self-mode-bar .smb-text b { margin-right: 2px; }
+.self-mode-bar button.mini { flex: 0 0 auto; white-space: nowrap; }
+
+/* 审批门勾选表（2026-11-08）：一列六行，别做成一行六个 —— 窄窗口会折得没法看。 */
+.gate-grid { display: grid; grid-template-columns: 1fr; gap: 4px; max-width: 520px; }
+.gate-row { display: flex; align-items: center; gap: 8px; font-size: 13px;
+  padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); cursor: pointer; }
+.gate-row:hover { background: var(--field-hover); }
+.gate-row input[type="checkbox"] { width: 15px; height: 15px; }
+.gate-row .meta { margin-left: auto; font-size: 11px; }
 
 /* 运行进度条 */
 .runbar .run-cost { color: var(--warn); font-size: 12px; }

@@ -302,7 +302,7 @@ def extract_terms(text):
     return terms
 
 
-def scan_vault(vault_path=None, skip_dirs=None, tag_root=None):
+def scan_vault(vault_path=None, skip_dirs=None, tag_root=None, dirs=None):
     """扫描 Obsidian vault，建立结构化索引。
 
     多库（2026-11-07，B3 B 模型）时由 `scan_vault_multi()` 逐根调用本函数：
@@ -313,6 +313,10 @@ def scan_vault(vault_path=None, skip_dirs=None, tag_root=None):
     - `tag_root`：给条目路径加前缀（非当前库用库名），避免两个库有同名相对路径
       时在 `inject_context` 的 dict key 上互相覆盖。当前库不加前缀
       （既有 canon/locked 比对依赖原样的相对路径）。
+    - `dirs`：**这个库自己的**五类目录（2026-11-08，0.9.1 验收第 2 条）。
+      不给（None）= 用当前库的全局映射（单库行为逐字不变）；给空 dict = 明确"这个库没配"，
+      照实返回 `meta.dirs_configured=false`，由调用方去说"这个库扫不到东西是因为没配目录"。
+      ⚠️ 旧实现所有库共用一套目录，两个库结构不同时辅库必然扫空 —— 而且**不报错**。
 
     返回 {
         "characters": [{name, path, tags, type, locked, relations, snippet}],
@@ -360,7 +364,8 @@ def scan_vault(vault_path=None, skip_dirs=None, tag_root=None):
     # （总纲/说明/索引页）绝大多数不是人物，归入 world 更合理（见下）。
     # 早先版本把父目录同时放进 char/world 两处，靠"角色优先"的排除规则决出归属，
     # 会把“散装说明”这类条目判成角色。
-    vd = get_vault_dirs()
+    from utils.setting_schema import normalize_vault_dirs as _nd
+    vd = _nd(dirs) if dirs is not None else get_vault_dirs()
     _dirs_configured = any(str(v or "").strip() for v in vd.values())
     if not _dirs_configured:
         # 三态里的 unconfigured：vault 路径填了、五类目录都没填。
@@ -688,8 +693,10 @@ def get_vault_roots():
     primary = _get_vault_path()
     if primary is None:
         return []
+    from utils.setting_schema import normalize_vault_dirs as _nd0
     roots = [{"path": str(primary), "name": primary.name, "primary": True,
-              "skip_dirs": None, "enabled": True}]
+              "skip_dirs": None, "enabled": True, "dirs": _nd0(get_vault_dirs()),
+              "dirs_source": "local"}]
     if get_vault_model() != "multi":
         return roots
     # ⚠️ 书签文件必须跟着**项目根**走，不能跟 CWD 走。
@@ -722,11 +729,19 @@ def get_vault_roots():
         if not Path(p).is_dir():
             roots.append({"path": p, "name": it.get("name") or Path(p).name,
                           "primary": False, "skip_dirs": [], "enabled": True,
+                          "dirs": _nd0(it.get("dirs")), "dirs_source": "bookmark",
                           "missing": True})
             continue
         seen.add(key)
+        _own = _nd0(it.get("dirs"))
+        _has_own = any(v for v in _own.values())
         roots.append({"path": p, "name": it.get("name") or Path(p).name,
                       "primary": False, "skip_dirs": list(it.get("skip_dirs") or []),
+                      # 2026-11-08（0.9.1 验收第 2 条）：**每个库可以有自己的五类目录**。
+                      # 没单独配 → 沿用当前库那一套（老用户两个库结构相同，不能突然扫空）；
+                      # 沿用时 source=inherited，界面据此提示“结构不同就单独配”。
+                      "dirs": _own if _has_own else _nd0(get_vault_dirs()),
+                      "dirs_source": "bookmark" if _has_own else "inherited",
                       "enabled": True})
     return roots
 
@@ -743,6 +758,8 @@ def scan_vault_multi():
         return scan_vault()          # 未配置：沿用原有报错（说清在哪配）
     merged = {"characters": [], "world": [], "timeline": []}
     conflicts, dead, per = [], [], []
+    unconfigured = []                 # 没配五类目录的库（扫了也等于没扫）
+    suspect = []                      # 沿用当前库目录却一条没扫到（多半结构不同）
     seen_names = {}                  # 归一名 -> 先出现的库名
     for r in roots:
         if r.get("missing"):
@@ -752,15 +769,31 @@ def scan_vault_multi():
             continue
         try:
             data = scan_vault(r["path"], skip_dirs=r.get("skip_dirs"),
-                              tag_root=(None if r["primary"] else r["name"]))
+                              tag_root=(None if r["primary"] else r["name"]),
+                              # 2026-11-08（0.9.1 验收第 2 条）：**这个库自己的**五类目录。
+                              # 不传的话所有库共用当前库那一套，结构不同的库必然扫空且不报错。
+                              dirs=r.get("dirs"))
         except Exception:                                      # noqa: BLE001
             dead.append({"path": r["path"], "name": r["name"], "error": "扫描失败"})
             continue
+        _d = (data.get("meta") or {}).get("dirs_configured")
         per.append({"path": r["path"], "name": r["name"], "primary": bool(r["primary"]),
                     "state": (data.get("meta") or {}).get("state"),
+                    # 这个库配了目录没有（界面要能说"它扫不到是因为没配"，
+                    # 而不是让作者以为多库坏了 —— 0.9.1 验收第 2 条）。
+                    "dirs_configured": bool(_d),
+                    "dirs_source": r.get("dirs_source") or ("local" if r["primary"] else "bookmark"),
+                    "dirs": r.get("dirs") or {},
                     "characters": len(data["characters"]),
                     "world": len(data["world"]),
                     "timeline": len(data["timeline"])})
+        if not _d:
+            unconfigured.append({"path": r["path"], "name": r["name"]})
+        elif (r.get("dirs_source") == "inherited"
+              and not (data["characters"] or data["world"] or data["timeline"])):
+            # 沿用了当前库的目录，却一条都没扫到 → 多半是这个库结构不同。
+            # 不判失败（可能真的是空库），但要点名，否则又回到"扫空且不报错"。
+            suspect.append({"path": r["path"], "name": r["name"]})
         for kind in ("characters", "world", "timeline"):
             for e in data[kind]:
                 nm = normalize_term(e.get("name") or "")
@@ -782,6 +815,8 @@ def scan_vault_multi():
         "vaults": per,
         "conflicts": conflicts,
         "dead_roots": dead,
+        "unconfigured_vaults": unconfigured,
+        "suspect_inherited_vaults": suspect,
         "state": "ok",
         "dirs_configured": any(str(v or "").strip() for v in get_vault_dirs().values()),
         "character_count": len(merged["characters"]),

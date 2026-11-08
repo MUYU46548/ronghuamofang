@@ -17,6 +17,71 @@ from utils.branch_samples import BRANCH_KINDS
 from utils.field_refine import FIELD_LABELS
 
 
+# ---------------------------------------------------------------- 大纲精修（self 模式下出任务书）
+# 2026-11-08（0.9.1 验收第 9 条）：作者在 self 模式下点“AI 精修大纲”，得到的是
+# 一句“用不了”——因为 self 不调用模型。可他的真实用法就是**让外部 agent 改大纲**：
+# “绒花墨坊和外部 agent 很多时候是断开的”。这里把这条路接上：
+#   self → 备份当前大纲 + 写一份任务书（含当前大纲全文与你的意见）→ 外部写回
+#          data/outline/global.md → 再跑阶段 2 即按体检判据校验。
+#   其余引擎 → 原样走模型精修，一个字节不改。
+def build_self_refine_task(cfg, fb):
+    """self 模式的大纲精修任务书（零 token）。返回 (task_path, backup_path) 或抛错。"""
+    from utils import self_tasks as st
+    from pathlib import Path
+    import refine_outline as ro
+    from utils.file_io import read_text
+    version = ro.next_version(ro.HISTORY_DIR)
+    backup = ro.backup_current(ro.GLOBAL, ro.HISTORY_DIR, version)
+    current = read_text(ro.GLOBAL)
+    body = "\n".join([
+        "## 这一份要干什么",
+        "",
+        "按下面这条意见改**整本书的大纲**（不是某一章），改完写回同一个文件。",
+        "",
+        "## 你的意见",
+        "",
+        fb.strip(),
+        "",
+        "## 写回哪里",
+        "",
+        "- 目标文件：`data/outline/global.md`（**原地覆盖**；旧版已备份到 `%s`）" % backup.as_posix(),
+        "- 不要新建文件、不要改文件名；改完不要再复制一份到别处。",
+        "",
+        "## 硬约束（违反任何一条，阶段 2 的体检会报出来）",
+        "",
+        "1. **章节数不变**：`config/project.yaml` 的 `book.chapters` 是几章，就还是几章；",
+        "2. **每个章节节点都要有具体事件**（不是“继续调查 / 遇到阻力”这类空话）；",
+        "3. **保留卷 / 章的结构标题**，不要删卷、不要把多章合并成一章；",
+        "4. 中文标点：双引号用 “ ”，不用直角引号；不要写 `---` 分隔线；",
+        "5. 只改大纲，**不要动** `data/setting/`、`data/chapters/` 里的任何文件。",
+        "",
+        "## 改完之后",
+        "",
+        "- 回到绒花墨坊点一次“运行”（阶段 2）：程序只看文件，会按体检判据校验结构、",
+        "  锚点与章节数；不合格会说清是哪一条，并允许再改一版。",
+        "- 旧版可回退：`%s`。" % backup.as_posix(),
+        "",
+        "## 当前大纲全文（改这份）",
+        "",
+        "````markdown",
+        current.rstrip(),
+        "````",
+        "",
+    ])
+    crit = ("data/outline/global.md 已按意见改写；章节节点数 = book.chapters；"
+            "每个章节节点有具体事件；结构标题与卷划分保留；旧版在 data/outline/history/"
+            "global_v%d.md" % version)
+    task = st.write_task(2, "refine_outline_v%d.md" % version, body,
+                         ["data/outline/global.md"], crit,
+                         note="外部改写；写完回绒花墨坊点“运行”（阶段 2）复核。",
+                         stage_name="大纲精修")
+    # write_task 返回的是 path / target / check 三个字段的描述（不是 Path 对象）——
+    # 对外只给路径串：把 dict 直接 str() 出去，接口里就会把这个描述当文件名传出去
+    # （第一版踩过，界面上显示成一串花括号）。
+    task_path = Path(task["path"]) if isinstance(task, dict) else Path(str(task))
+    return task_path, backup
+
+
 def handle_refine_outline(h, body):
     """大纲精修：{feedback, dry_run?} → job_id"""
     fb = str(body.get("feedback") or "")
@@ -24,6 +89,13 @@ def handle_refine_outline(h, body):
         return 400, {"error": "feedback 必填"}
     try:
         cfg, _ = api.load_all()
+        from utils.engine import resolve_engine
+        if resolve_engine(cfg) == "self":
+            task, backup = build_self_refine_task(cfg, fb)
+            return 202, {"mode": "self", "task": str(task), "backup": str(backup),
+                         "message": "自任务模式：已出大纲精修任务书（不调用模型）。"
+                                    "把 %s 交给外部执行方，写完回这里点运行复核。" % task,
+                         "hint": "任务书含当前大纲全文与你的意见；旧版已备份到 " + str(backup)}
         api._client_for_env(cfg, "default")
         jid, err = api.start_job("refine_outline",
                                  lambda: api.act_refine_outline(fb, bool(body.get("dry_run"))))
@@ -74,7 +146,19 @@ def handle_refine_chapter(h, body):
     if not fb.strip() or not (1 <= ch <= 999):
         return 400, {"error": "chapter(>=1) 与 feedback 必填"}
     try:
-        cfg, _ = api.load_all()
+        cfg, proj = api.load_all()
+        from utils.engine import resolve_engine
+        if resolve_engine(cfg) == "self":
+            # self：不调模型 → 出任务书（走按钮级派单，草稿 + 你采用才落盘）。
+            from utils import self_actions as sa
+            try:
+                info = sa.write_chapter_task(cfg, proj, ch, fb, kind="refine")
+            except (ValueError, FileNotFoundError) as e:
+                return 400, {"ok": False, "error": str(e)}
+            return 202, dict(info, ok=True, mode="self",
+                             message="自任务模式：已出第 %d 章的精修任务书（不调用模型）：%s。"
+                                     "交给外部执行方写到 %s，写完回来点“采用草稿”。"
+                                     % (ch, info["task"], info["draft"]))
         api._client_for_env(cfg, "default")
         jid, err = api.start_job("refine_ch" + str(ch),
                                  lambda: api.act_refine_chapter(ch, fb, bool(body.get("dry_run"))))
@@ -459,7 +543,91 @@ def handle_style_drift_post(h, body):
 
 
 # 本模块负责的端点（供自检与文档）
+# ---------------------------------------------------------------- 按钮级派单（engine: self）
+# 2026-11-08：作者问“这些按钮如果不能点还有什么意义”。答案是补一条按钮级通道：
+# 点一次 → 出自包含任务书 → 外部写成**草稿** → 他点“采用”才换正式稿。
+# 每一条都只认盘上事实（草稿在不在、合不合判据），不认“我写完了”这句话。
+def handle_self_rewrite_chapter(h, body):
+    """`POST /self/action/rewrite_chapter {n, feedback?}` —— 整章重写：出任务书。"""
+    body = body or {}
+    try:
+        n = int(body.get("n") or 0)
+    except (TypeError, ValueError):
+        return 400, {"ok": False, "error": "n 必填且为章号（整数）"}
+    if not (1 <= n <= 999):
+        return 400, {"ok": False, "error": "章号必须是 1~999"}
+    try:
+        cfg, proj = api.load_all()
+        from utils import self_actions as sa
+        try:
+            info = sa.write_chapter_task(cfg, proj, n, str(body.get("feedback") or ""))
+        except FileNotFoundError as e:
+            return 400, {"ok": False, "error": str(e)}
+        return 202, dict(info, ok=True, mode="self",
+                         message="已出第 %d 章的整章重写任务书（不调用模型）：%s。"
+                                 "交给外部执行方写到 %s，写完回来点“采用草稿”。"
+                                 % (n, info["task"], info["draft"]))
+    except Exception as e:                                   # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_self_actions_list(h):
+    """`GET /self/actions` —— 有哪些草稿、判据过没过、多大。"""
+    try:
+        cfg, _ = api.load_all()
+        from utils import self_actions as sa
+        items = sa.list_drafts(cfg)
+        return 200, {"ok": True, "items": items, "count": len(items),
+                     "note": "草稿在 data/self_drafts/；采用才换正式稿（先备份旧稿）。"}
+    except Exception as e:                                   # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_self_action_apply(h, body):
+    """`POST /self/action/apply {n}` —— 采用第 n 章的草稿（先备份旧稿）。"""
+    body = body or {}
+    if body.get("confirm") is not True:
+        return 400, {"ok": False, "error": "要用草稿替换正式稿，必须带 confirm: true"}
+    try:
+        n = int(body.get("n") or 0)
+    except (TypeError, ValueError):
+        return 400, {"ok": False, "error": "n 必填且为章号（整数）"}
+    try:
+        from utils import self_actions as sa
+        cfg, _ = api.load_all()
+        info = sa.check_chapter_draft(n, cfg)
+        if not info.get("ok"):
+            return 400, {"ok": False, "error": "草稿没过判据，不能采用：" + "；".join(info["reasons"]),
+                         "check": info}
+        done = sa.apply_chapter_draft(n)
+        return 200, dict(done, ok=True,
+                         message="已采用第 %d 章的草稿（旧稿备份到 %s）"
+                                 % (n, done.get("backup") or "（原本没有正文）"))
+    except FileNotFoundError as e:
+        return 400, {"ok": False, "error": str(e)}
+    except Exception as e:                                   # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_self_action_drop(h, body):
+    """`POST /self/action/drop {n}` —— 放弃草稿（正式稿一个字不动）。"""
+    body = body or {}
+    try:
+        n = int(body.get("n") or 0)
+    except (TypeError, ValueError):
+        return 400, {"ok": False, "error": "n 必填且为章号（整数）"}
+    try:
+        from utils import self_actions as sa
+        return 200, dict(sa.drop_chapter_draft(n), ok=True)
+    except Exception as e:                                   # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 ROUTES = (
+    ("POST", "/self/action/rewrite_chapter", handle_self_rewrite_chapter),
+    ("GET", "/self/actions", handle_self_actions_list),
+    ("POST", "/self/action/apply", handle_self_action_apply),
+    ("POST", "/self/action/drop", handle_self_action_drop),
     ("POST", "/refine/outline", handle_refine_outline),
     ("POST", "/refine/outline/node", handle_refine_outline_node),
     ("POST", "/refine/outline/undo", handle_refine_outline_undo),

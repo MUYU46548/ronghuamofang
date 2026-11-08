@@ -44,6 +44,38 @@ PNG_SIG = b"\x89PNG\r\n\x1a\n"
 CARD_TEXTS = ("chara", "ccv3", "card")
 _BAD = re.compile(r'[\\/:*?"<>|\r\n\t]')
 
+# 角色卡有、世界书没有的字段（用于“先判形状”）。
+CARD_MARKERS = ("personality", "scenario", "first_mes", "mes_example",
+                "character_book", "creator_notes")
+
+
+def _looks_like_worldbook(obj):
+    """这份 JSON 像不像 SillyTavern 世界书。
+
+    **为什么需要这道形状判据（2026-11-08 修）**：真实 ST 世界书导出**顶层就带**
+    `name` / `description` / `originalData`（见 ST 的 world-info 导出格式），
+    旧实现“有 name 就按角色卡收”会把世界书整份当成一张空壳角色卡：
+    只生成 `《世界书名》（酒馆角色卡）.md`，六条设定一条都不进去，
+    而且 **不报错** —— 测试清单 C 节正好会踩到。
+
+    判据回到形状本身：
+      · v2 角色卡一定有 `data` 对象（世界书没有）→ 直接排除；
+      · 世界书的 `entries` 是**对象且键全为数字串**（ST 的原生形状），或者是数组
+        （Agnai / RoleCall 那类导出）。
+    """
+    if not isinstance(obj, dict):
+        return False
+    if isinstance(obj.get("data"), dict):
+        return False
+    # v1 平铺角色卡若恰好夹带 entries，也不能算世界书
+    if any(k in obj for k in CARD_MARKERS):
+        return False
+    entries = obj.get("entries")
+    if isinstance(entries, dict):
+        keys = [str(k) for k in list(entries)[:20]]
+        return all(k.isdigit() for k in keys) if keys else True
+    return isinstance(entries, list)
+
 
 def _now():
     return datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
@@ -95,6 +127,8 @@ def parse_card(path):
             raise ValueError("不是合法的 JSON：%s" % e)
     if not isinstance(obj, dict):
         raise ValueError("角色卡顶层必须是对象")
+    if _looks_like_worldbook(obj):
+        raise ValueError("这是世界书（顶层 entries），不是角色卡 —— 请按世界书导入")
     data = obj.get("data") if isinstance(obj.get("data"), dict) else obj
     if not str(data.get("name") or "").strip():
         raise ValueError("角色卡没有 name 字段")
@@ -222,17 +256,30 @@ def import_file(path, out_dir="materials/raw", dry_run=False, overwrite=False):
             docs = [(_safe_name(card["name"]) + "（酒馆角色卡）.md", card_markdown(card))]
             result["kind"] = "card-png"
         else:
-            # 先按角色卡试，失败再按世界书试 —— 两者都是 .json，判据是字段形状
+            # 先判**形状**，再按角色卡/世界书解析。
+            # 2026-11-08：旧实现“先按角色卡试”，而真 ST 世界书顶层就有 name，
+            # 于是一份世界书会被静默导成一张空壳角色卡（条目全丢、不报错）。
             try:
-                card = parse_card(p)
-                docs = [(_safe_name(card["name"]) + "（酒馆角色卡）.md", card_markdown(card))]
-                result["kind"] = "card-json"
-            except ValueError:
+                _obj = json.loads(p.read_bytes().decode("utf-8-sig"))
+            except Exception:                  # noqa: BLE001
+                _obj = None                    # 坏文件交给 parse_card 报原文错误
+            if _looks_like_worldbook(_obj):
                 wb = parse_worldbook(p)
                 docs = [(_safe_name(wb["name"]) + "（世界书）.md", worldbook_markdown(wb))]
                 result["kind"] = "worldbook"
                 result["entries"] = len(wb["entries"])
                 result["disabled_entries"] = wb["disabled"]
+            else:
+                try:
+                    card = parse_card(p)
+                    docs = [(_safe_name(card["name"]) + "（酒馆角色卡）.md", card_markdown(card))]
+                    result["kind"] = "card-json"
+                except ValueError:
+                    wb = parse_worldbook(p)
+                    docs = [(_safe_name(wb["name"]) + "（世界书）.md", worldbook_markdown(wb))]
+                    result["kind"] = "worldbook"
+                    result["entries"] = len(wb["entries"])
+                    result["disabled_entries"] = wb["disabled"]
     except ValueError as e:
         return {"ok": False, "error": str(e), "source": str(p)}
 

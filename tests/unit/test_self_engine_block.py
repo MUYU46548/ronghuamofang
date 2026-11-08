@@ -77,8 +77,24 @@ def main():
     check("B3 清单与路由一致", not missing, missing)
     check("B3 清单至少覆盖用户点过的 4 个按钮",
           all(x in nf_api.NEEDS_MODEL_ENDPOINTS for x in
-              ("/refine/chapter", "/refine/outline", "/chapters/rewrite",
-               "/auto_rewrite/run")), sorted(nf_api.NEEDS_MODEL_ENDPOINTS))
+              ("/refine/outline/node", "/chapters/rewrite",
+               "/review/semantic", "/auto_rewrite/run")), sorted(nf_api.NEEDS_MODEL_ENDPOINTS))
+    # 2026-11-08（0.9.1 验收第 9 条）：大纲精修在 self 下**不再拦**，
+    # 它改走“出任务书”（见 tests/unit/test_self_refine_outline.py）。
+    # 谁把它加回名单，就等于把外部 agent 改大纲这条路重新堵死。
+    # 2026-11-08：提精修（/refine/chapter）也改成了按钮级派单（任务书 + 草稿）。
+    check("B3.0b /refine/chapter 不在名单（self 下要能出任务书）",
+          "/refine/chapter" not in nf_api.NEEDS_MODEL_ENDPOINTS,
+          sorted(nf_api.NEEDS_MODEL_ENDPOINTS))
+    check("B3.0 /refine/outline 不在名单（self 下要能出任务书）",
+          "/refine/outline" not in nf_api.NEEDS_MODEL_ENDPOINTS,
+          sorted(nf_api.NEEDS_MODEL_ENDPOINTS))
+    # 2026-11-08（0.9.1 验收第 13 条）：作者在 self 下点“运行审查”，此前是静默失败
+    # （进 job 创建 → _client_for_env 抛 → 500/无提示）。这两条必须同族前置拦下。
+    check("B3.1 /review/run 与 /batch_refine/run 已登记（不再静默 500）",
+          all(x in nf_api.NEEDS_MODEL_ENDPOINTS for x in
+              ("/review/run", "/batch_refine/run")),
+          sorted(nf_api.NEEDS_MODEL_ENDPOINTS))
 
     print("\n【B4】/stage/N/run 不在清单（self 下该出任务书，不是失败）")
     check("B4 清单不含 /stage/4/run",

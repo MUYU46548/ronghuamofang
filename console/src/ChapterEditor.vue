@@ -36,6 +36,9 @@ import { ref, computed, onMounted, onUnmounted, nextTick, watch } from "vue";
 const props = defineProps({
   api: { type: Function, required: true },
   n: { type: Number, required: true },
+  // 自任务引擎（engine: self）：段落重写要调模型，必然失败 —— 按钮直接禁用并说清原因
+  // （2026-11-08，0.9.1 验收第 16 条：作者点“让 AI 只改这一段”只得到一句“用不了”）。
+  selfEngine: { type: Boolean, default: false },
   // embedded=true：不画遮罩、不占满屏，作为“审阅台”的中栏内联使用。
   // 同一份实现服务两个场景，避免“抽屉版”和“内联版”两份代码漂移。
   embedded: { type: Boolean, default: false },
@@ -189,8 +192,12 @@ function segments(p) {
   if (last < p.length) out.push({ t: p.slice(last), hit: false });
   return out;
 }
+/* 阅读模式不吃 Markdown 记号（2026-11-08，0.9.1 验收第 15 条同族）：
+   原来标题行原样显示成“## 第1章 验收章”—— 读者看到的是源文件的记号，不是正文。
+   这里把标题行单独认出来：去掉 # 记号，按标题排版（正文仍逐字不变）。 */
 const readParas = computed(() =>
-  String(text.value || "").split(/\n+/).filter((p) => p.trim()));
+  String(text.value || "").split(/\n+/).filter((p) => p.trim())
+    .map((raw) => ({ t: raw.replace(/^#{1,6}\s*/, ""), head: /^#{1,6}\s+/.test(raw) })));
 function pickName(nm) {
   cardSel.value = nm;
   // 侧栏收着的时候点了名字 = 想看这张卡：自动展开，不然点了没反应（2026-11-06 B7）。
@@ -524,13 +531,18 @@ onUnmounted(() => {
                 :title="ann.drifted + ' 条批注的位置变了（正文改过），点一下看是哪几条'"
                 @click="switchMode('batch')">{{ ann.drifted }} 条批注位置变了</button>
         <span class="spacer"></span>
-        <button class="mini" :disabled="refining" :class="{ on: mode === 'edit' }" @click="switchMode('edit')">编辑</button>
+        <!-- 选中态要有两种证据（2026-11-08，0.9.1 验收第 14 条）：样式（.mini.on 实心强调色）
+             + aria-pressed。此前只剩 :hover 的一点色差，作者点四次也不知道选没选中。 -->
+        <button class="mini" :disabled="refining" :class="{ on: mode === 'edit' }"
+                :aria-pressed="mode === 'edit'" @click="switchMode('edit')">编辑</button>
         <!-- 阅读模式（2026-11-05）：只读正文 + 设定名高亮，点名字看卡。
              单开一个模式而不是把 textarea 换成富文本：输入法/撤销不能牺牲。 -->
         <button class="mini" :disabled="refining" :class="{ on: mode === 'read' }"
+                :aria-pressed="mode === 'read'"
                 :title="'只读正文，设定名可点（' + (settingLoad.count || 0) + ' 张卡）'"
                 @click="switchMode('read')">阅读</button>
         <button class="mini" :disabled="refining" :class="{ on: mode === 'batch' }"
+                :aria-pressed="mode === 'batch'"
                 :title="canBatch ? '按段落挑选并提意见，让模型只重写这一段' : '批注只在当前层开放'"
                 @click="switchMode('batch')">段落批注</button>
         <!-- 侧栏开关（B7）：内联时默认收起，正文优先；点名字看卡会自动展开它。
@@ -566,8 +578,8 @@ onUnmounted(() => {
             <div v-else class="meta ce-read-hint">
               点文中的名字看设定卡（共 {{ settingLoad.count }} 个可点名，含别名）。
             </div>
-            <p v-for="(p, i) in readParas" :key="i" class="ce-read-p">
-              <template v-for="(sg, j) in segments(p)" :key="j">
+            <p v-for="(p, i) in readParas" :key="i" class="ce-read-p" :class="{ 'ce-read-h': p.head }">
+              <template v-for="(sg, j) in segments(p.t)" :key="j">
                 <span v-if="sg.hit" class="ce-name" :title="'看设定卡：' + sg.t" @click="pickName(sg.t)">{{ sg.t }}</span>
                 <template v-else>{{ sg.t }}</template>
               </template>
@@ -634,7 +646,9 @@ onUnmounted(() => {
               </div>
               <textarea v-model="feedback" class="ce-feedback" :disabled="refining"
                         placeholder="这一段要怎么改？例如：把结尾的总结句删掉，改成她没说出口的动作描写。"></textarea>
-              <button class="mini primary ce-batch-btn" :disabled="refining || selPara === null"
+              <button class="mini primary ce-batch-btn"
+                      :disabled="refining || selPara === null || props.selfEngine"
+                      :title="props.selfEngine ? '当前引擎是自任务（engine: self，不调模型），段落重写要用模型。切到 direct / hermes 再用。' : ''"
                       @click="submitRefine">
                 {{ refining ? ("重写中… 已 " + fmtElapsed(refineElapsed)) : "让 AI 只改这一段" }}
               </button>
@@ -745,12 +759,19 @@ onUnmounted(() => {
 }
 .ce-read-hint { margin-bottom: 8px; }
 .ce-read-p { margin: 0 0 0.85em; text-indent: 2em; }
+.ce-read-h { text-indent: 0; font-weight: 700; font-size: 17px; margin: 0 0 1em; letter-spacing: 0.02em; }
+/* 设定名高亮（2026-11-08 改，0.9.1 验收第 15 条）。
+   原来给每个名字都加“虚线下划线 + 淡紫底”—— 一页正文里几十条横线，
+   读起来像校样符号，作者原话：“这种东西就不该在任何正经文本里出现，完全不符合书面用法”。
+   现在默认**与正文一模一样**（不画线、不改底色），只在鼠标移上去时才提示可点；
+   可点与否由光标 + 面板顶部的说明（共 N 个可点名）承担，不靠给正文画线。 */
 .ce-name {
-  cursor: pointer; text-indent: 0;
-  border-bottom: 1px dashed rgba(155, 143, 196, 0.85);
-  background: rgba(155, 143, 196, 0.14); padding: 0 1px; border-radius: 2px;
+  cursor: pointer; text-indent: 0; border-radius: 2px;
 }
-.ce-name:hover { background: rgba(155, 143, 196, 0.3); }
+.ce-name:hover {
+  background: rgba(155, 143, 196, 0.16);
+  box-shadow: inset 0 -1px 0 rgba(155, 143, 196, 0.55);
+}
 .ce-card { border-color: rgba(155, 143, 196, 0.6); }
 .ce-card-row { font-size: 12.5px; line-height: 1.65; margin-top: 4px; }
 .ce-card-row b { display: inline-block; min-width: 34px; color: var(--muted); font-weight: 600; }

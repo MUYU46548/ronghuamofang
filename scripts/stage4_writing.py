@@ -2141,6 +2141,53 @@ def settle_self(cfg=None, proj=None, progress=None, **_):
         print("[stage4] 补账完成：第 %s 章的摘要/出场/完成标记已补（零 token）" % settled)
 
 
+# ---------------------------------------------------------------- 派单记账 / 越界检测（2026-11-08）
+# 0.9.1 验收第 11 条：作者在界面里设了“只写 1-5 章”，结果盘上十章的正文全写完了。
+# 盘上事实是：任务书**只发了 ch01**（progress.stages.4.tasks 只有一份），
+# 多出来的九章是外部执行方自己写的。管线控制不了别人的手，但**必须记账** ——
+# 否则“按章范围跑”就永远只是一句口头约定，事后没人知道哪几章是没被派过的。
+# 判据只认盘上事实：上一份任务书派的章、派发时已合格的章、现在合格的章，三者做差集。
+_DISPATCH_PATH = Path("data/state/self_dispatch.json")
+
+
+def find_overrun(issued, before, done):
+    """多出来、且**没被派过**的章号（纯函数：判据只有一处，用例直接钉它）。
+
+    issued = 上一份任务书派发的章号；before = 派发那一刻已合格的章；
+    done   = 现在合格的章。先取“这次新增合格的”，再减掉“派过的”，剩下的就是越界。
+    """
+    return sorted(set(done) - set(before) - set(issued))
+
+
+def overrun_warning(issued, before, done):
+    """越界时给人话（空串 = 没越界）。不判失败 —— 多写的章可能质量不差，
+    但它们的上下文是缺的，作者必须知道，不能默默当成本轮成果。"""
+    extra = find_overrun(issued, before, done)
+    if not extra:
+        return ""
+    _issued = "、".join(str(x) for x in sorted(issued)) or "（无）"
+    _extra = "、".join(str(x) for x in extra)
+    return ("越界：上一份任务书只派了第 %s 章，盘上却多出第 %s 章。"
+            "这些章没有拿到管线给的“上一章衔接段 + 滚动摘要”，建议重写，至少逐章对照检查。"
+            % (_issued, _extra))
+
+
+def _read_dispatch():
+    try:
+        return json.loads(_DISPATCH_PATH.read_text(encoding="utf-8"))
+    except Exception:                                        # noqa: BLE001
+        return {}
+
+
+def _write_dispatch(data):
+    try:
+        _DISPATCH_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _DISPATCH_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2),
+                                  encoding="utf-8")
+    except Exception as e:                                   # noqa: BLE001
+        print("[stage4] WARN 派单记账写不进去（不影响写作）：%s" % e)
+
+
 def emit_tasks(cfg, proj, progress=None, task_dir=None, chapters=None, **_):
     """产出阶段 4 的任务书：**一次只出下一章**。
 
@@ -2151,8 +2198,17 @@ def emit_tasks(cfg, proj, progress=None, task_dir=None, chapters=None, **_):
     """
     from utils import self_tasks as st
     total, pending = _self_pending(cfg, proj, chapters)
+    done_now = [n for n in range(1, total + 1) if n not in pending]
+    # 越界检测要在**派新单之前**做：拿“上一次派了哪几章”对“现在盘上多了哪几章”。
+    _prev = _read_dispatch()
+    _warn = overrun_warning(_prev.get("issued") or [], _prev.get("complete") or [], done_now)
+    if _warn:
+        print("[stage4] " + _warn)
     if not pending:
-        return st.summarize(4, [], done=True, hint="全书 %d 章正文齐备" % total)
+        _write_dispatch({"stage": 4, "issued": [], "complete": done_now,
+                         "at": time.strftime("%Y-%m-%dT%H:%M:%S"), "last_overrun": _warn})
+        return st.summarize(4, [], done=True,
+                            hint=("全书 %d 章正文齐备" % total) + (("；" + _warn) if _warn else ""))
 
     settle_self(cfg, proj, progress)          # 先把已落盘章的摘要补进 rolling.md
     raw_dir = Path("data/chapters/raw")
@@ -2174,11 +2230,20 @@ def emit_tasks(cfg, proj, progress=None, task_dir=None, chapters=None, **_):
                 % (n, low, high))
     task = st.write_task(4, "ch%02d.md" % n, body, ["data/chapters/raw/%02d.md" % n],
                          criteria,
-                         note="本章写完再重跑 —— 下一章的任务书要用本章末尾衔接段与摘要",
+                         note="本章写完再重跑 —— 下一章的任务书要用本章末尾衔接段与摘要。"
+                              "**本轮只交这一章**：不要替后面几章一次写完（那些章的任务书会缺" 
+                              "上一章衔接段与滚动摘要，写出来必然断气，事后也要整批重算）。",
                          task_dir=task_dir, stage_name="写作")
+    # 派单记账：记住“这一次只派了第 n 章”和“派发那一刻盘上已合格哪几章”，
+    # 下一轮就能算出“多出来且没派过”的章（0.9.1 验收第 11 条）。
+    _total2, _pending2 = _self_pending(cfg, proj, chapters)
+    _done2 = [i for i in range(1, _total2 + 1) if i not in _pending2]
+    _write_dispatch({"stage": 4, "issued": [n], "complete": _done2,
+                     "at": time.strftime("%Y-%m-%dT%H:%M:%S"), "last_overrun": _warn})
     return st.summarize(4, [task],
                         hint="本次只出第 %d 章的任务书（待写 %d 章，全书 %d 章）。"
-                             "写完重跑即补账并出下一章。" % (n, len(pending), total))
+                             "写完重跑即补账并出下一章。" % (n, len(pending), total)
+                             + (("；" + _warn) if _warn else ""))
 
 
 def main():

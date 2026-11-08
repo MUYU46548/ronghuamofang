@@ -261,6 +261,7 @@ def plan_move(pid, new_status, ref_path=""):
 # 换行常量：demo 提案文案里拼真实换行用（对齐真后端的多行 markdown）
 NL = "\n"
 COLD = False   # --cold：全新工作区（所有阶段 pending + has_work=false）→ 冷启动引导
+ENGINE = "direct"   # --engine：视觉验收要拍“自任务模式”提示条时传 self
 
 # ---- 章节正文（B7，2026-11-06）----
 # 审阅台“一行多少字”只能靠真渲染量出来。假后端没有工作区目录，只能给确定性的中文正文；
@@ -460,10 +461,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(200, st)
             return self._send(200, STATE)
         if p == "/models":
-            return self._send(200, {"engine": "direct", "model": {"default": "glm-5.3"},
+            return self._send(200, {"engine": ENGINE, "model": {"default": "glm-5.3"},
                                     "providers": ["tokenhub"], "gates": {}})
         if p == "/models/available":
-            return self._send(200, {"engine": "direct",
+            return self._send(200, {"engine": ENGINE,
                                     "available_models": ["glm-5.3", "mock-model-b"],
                                     "providers": ["tokenhub"], "has_key": True})
         if p == "/costs":
@@ -643,6 +644,16 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"ok": True, "current": [5000, 9000],
                                     "preset": [5000, 9000],
                                     "bounds": {"low": [500, 20000], "high": [500, 30000]}})
+        if p == "/config/approval_gates":
+            # 审批门（2026-11-08）：设置页新增的勾选表。回一份与出厂默认一致的形状，
+            # 让视觉验收能真读到值（缺这条会显示“读取失败”，把新面板误判成坏面板）。
+            return self._send(200, {"ok": True, "stages": [2, 6], "factory": [2, 6],
+                                    "names": {"1": "素材归并", "2": "整体大纲", "3": "逐章大纲",
+                                              "4": "逐章写作", "5": "逻辑检查", "6": "润色"},
+                                    "path": "config/system.yaml",
+                                    "field": "gates.require_approval",
+                                    "material_autonomy": False,
+                                    "note": "mock：勾上的阶段跑完停下来等你确认。"})
         if p == "/config/token_limit":
             # 止烧阈值面板（设置页）：回一份**与出厂预设一致**的数据，
             # 让视觉验收能真读到值，而不是只看到"读取失败"。
@@ -750,6 +761,38 @@ class Handler(BaseHTTPRequestHandler):
                 "current": {"title": "验收用书", "sample_title": "验收用书",
                             "is_sample": True},
             })
+        if p == "/config/vault_dirs":
+            # 设定目录面板（2026-11-08 起还要显示“其他库的目录”）
+            return self._send(200, {"ok": True,
+                                    "current": {"characters": "设定/人物", "locations": "设定/地点",
+                                                "factions": "", "concepts": "", "timeline": ""},
+                                    "candidates": [{"path": ""}, {"path": "设定/人物", "md": 12},
+                                                   {"path": "设定/地点", "md": 7}],
+                                    "note": "mock：每行选这一类条目在库里的目录。"})
+        if p == "/config/vaults":
+            return self._send(200, {"ok": True, "model": "multi",
+                                    "current": "C:/mock/甲库", "count": 3,
+                                    "active_count": 2,
+                                    "items": [
+                                        {"path": "C:/mock/甲库", "name": "甲库", "exists": True,
+                                         "enabled": True, "active": True, "current": True,
+                                         "dirs": {"characters": "设定/人物", "locations": "设定/地点",
+                                                  "factions": "", "concepts": "", "timeline": ""},
+                                         "dirs_configured": True, "dirs_source": "local"},
+                                        # 乙库：自己没配目录 → 沿用当前库那一套（界面显示 info 徽标）
+                                        {"path": "C:/mock/乙库", "name": "乙库", "exists": True,
+                                         "enabled": True, "active": True, "current": False,
+                                         "dirs": {"characters": "设定/人物", "locations": "设定/地点",
+                                                  "factions": "", "concepts": "", "timeline": ""},
+                                         "dirs_configured": True, "dirs_source": "inherited"},
+                                        # 丙库：停了（不参与扫描），用来看“配了也不读”的提示
+                                        {"path": "C:/mock/丙库", "name": "丙库", "exists": True,
+                                         "enabled": False, "active": False, "current": False,
+                                         "dirs": {"characters": "角色", "locations": "", "factions": "",
+                                                  "concepts": "", "timeline": ""},
+                                         "dirs_configured": True, "dirs_source": "bookmark"},
+                                    ],
+                                    "note": "mock：当前库永远参与，其余库按启用开关一起读。"})
         if p == "/config/vault_scan":
             # 知识库扫描面（设置 → 风格与提示词）：目录名取自用户库本身，
             # 排除态现算 —— 保存后必须看到列表变化，否则视觉验收是假绿。
@@ -1103,6 +1146,22 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"ok": True, "item": it,
                                     "stats": plan_payload()["stats"]})
 
+        if p == "/config/vaults/dirs":
+            dirs = body.get("dirs") or {}
+            if not isinstance(dirs, dict):
+                return self._send(400, {"ok": False, "error": "dirs 必须是对象"})
+            for k, v in dirs.items():
+                if v and (str(v).startswith("/") or ".." in str(v)):
+                    return self._send(400, {"ok": False, "error": "%s 只能是库内相对目录" % k})
+            return self._send(200, {"ok": True, "current": body.get("path"),
+                                    "items": [], "message": "已保存这个库的目录（mock）"})
+        if p == "/config/approval_gates":
+            stages = body.get("stages")
+            if not isinstance(stages, list):
+                return self._send(400, {"ok": False, "error": "stages 必须是整数列表"})
+            clean = sorted({int(x) for x in stages})
+            return self._send(200, {"ok": True, "stages": clean,
+                                    "message": "已保存：审批门 %s" % clean})
         if p == "/config/target_words":
             # 保存单章字数区间（2026-11-03）：真实后端会校验区间并落列表，
             # mock 只回显 —— 但必须**回读同一份形状**，否则前端保存后回显空。
@@ -1440,7 +1499,11 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("--port", type=int, default=8798)
     ap.add_argument("--cold", action="store_true", help="全新工作区状态（测冷启动引导）")
+    # 2026-11-08：视觉验收要能看到“自任务模式”常驻提示条与禁用态，
+    # 所以引擎可指定（默认 direct，与既有 e2e 基线一致）。
+    ap.add_argument("--engine", default="direct", choices=["direct", "hermes", "self"])
     a = ap.parse_args()
     COLD = a.cold
+    ENGINE = a.engine
     print("mock nf_api on 127.0.0.1:%d (cold=%s)" % (a.port, COLD), flush=True)
     ThreadingHTTPServer(("127.0.0.1", a.port), Handler).serve_forever()

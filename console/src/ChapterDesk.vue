@@ -29,10 +29,14 @@ const props = defineProps({
   api: { type: Function, required: true },
   chapters: { type: Array, default: () => [] },
   quality: { type: Object, default: () => ({}) },
+  // 从列表里某一章的“审阅”按钮进来时，中栏直接开这一章（2026-11-08）。
+  initialChapter: { type: Number, default: 1 },
+  // 透传给内联编辑器：self 引擎下段落重写不可用（按钮禁用 + 说明）
+  selfEngine: { type: Boolean, default: false },
 });
 const emit = defineEmits(["say"]);
 
-const n = ref(1);
+const n = ref(props.initialChapter > 0 ? props.initialChapter : 1);
 const outline = ref({ loading: false, content: "", error: "" });
 const ledger = ref({ loading: false, data: null, error: "" });
 // 设定卡（2026-11-05，照 SP-1026 的工作台补）：右栏要能同时看到
@@ -321,7 +325,7 @@ onMounted(() => {
             <button class="mini danger" @click="discardThenSwitch">丢弃改动并切换</button>
             <button class="mini primary" @click="saveThenSwitch">保存并切换</button>
           </div>
-          <ChapterEditor ref="editorRef" :api="api" :n="n" embedded @say="(m) => emit('say', m)" />
+          <ChapterEditor ref="editorRef" :api="api" :n="n" :self-engine="selfEngine" embedded @say="(m) => emit('say', m)" />
         </div>
       </template>
       <!-- 没有章节时不渲染编辑器：否则它会对不存在的章反复报 404，

@@ -779,6 +779,89 @@ def handle_config_target_words_set(h, body):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+# ---------------------------------------------------------------- 审批门（2026-11-08）
+# 作者验收第 10/12 条：“阶段 3 为什么无需审批？阶段 4 怎么也无需审批？”
+# 事实是这两处**确实没有门** —— 门由 gates.require_approval 决定（出厂 [2, 6]），
+# 但此前只有手改 YAML 一条路，界面上既看不到“门在哪”，也改不了。
+# 这里给读口 + 写口：写口是 **审批族**，只允许 GUI 来源（Agent 不得替作者减少审批点，
+# 否则“审批记录”就成了 Agent 自己写自己批）。
+GATE_STAGE_NAMES = {1: "素材归并", 2: "整体大纲", 3: "逐章大纲", 4: "逐章写作",
+                5: "逻辑检查", 6: "润色"}
+
+
+def handle_config_approval_gates(h):
+    """读“哪些阶段设审批门”（gates.require_approval）+ 出厂默认 + 阶段名。"""
+    try:
+        cfg = api.load_all()[0]
+        g = cfg.get("gates") or {}
+        raw = g.get("require_approval")
+        cur = []
+        if isinstance(raw, (list, tuple)):
+            for x in raw:
+                try:
+                    n = int(x)
+                except (TypeError, ValueError):
+                    continue
+                if 1 <= n <= 6 and n not in cur:
+                    cur.append(n)
+        cur.sort()
+        return 200, {
+            "ok": True,
+            "stages": cur,
+            "factory": [2, 6],
+            "names": GATE_STAGE_NAMES,
+            "path": "config/system.yaml",
+            "field": "gates.require_approval",
+            "material_autonomy": bool(g.get("material_autonomy", False)),
+            "note": ("跑完这些阶段会停下来等你确认；没设门的阶段跑完直接进下一阶段。"
+                     "阶段 1 另外受 gates.material_autonomy 影响（false = 归并完也停一次）。"
+                     "改完对下一次运行生效。"),
+        }
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_config_approval_gates_set(h, body):
+    """写审批门清单。校验只有一条：stage 必须是 1~6 的整数，越界 400 说清区间。
+
+    不做“至少留一个门”这种自作主张的限制：作者可以全关（全部自动往下跑），
+    但那是他的显式选择，界面上会写明“关掉之后没有确认点”。
+    """
+    guard = _gui_only(h, "审批门（gates.require_approval）")
+    if guard:
+        return guard
+    body = body or {}
+    stages = body.get("stages")
+    if not isinstance(stages, (list, tuple)):
+        return 400, {"ok": False, "error": "stages 必须是整数列表，例：[2, 6]"}
+    clean = []
+    for x in stages:
+        try:
+            n = int(x)
+        except (TypeError, ValueError):
+            return 400, {"ok": False, "error": "阶段号必须是整数 1~6，收到：%r" % (x,)}
+        if not (1 <= n <= 6):
+            return 400, {"ok": False, "error": "阶段号只能是 1~6，收到：%d" % n}
+        if n not in clean:
+            clean.append(n)
+    clean.sort()
+    try:
+        from utils.config_io import set_section_scalars
+        sys_yaml = api.ROOT / "config" / "system.yaml"
+        if not sys_yaml.exists():
+            return 400, {"ok": False, "error": "config/system.yaml 不存在"}
+        ok, msg = set_section_scalars(("gates",), {"require_approval": clean},
+                                      path=sys_yaml)
+        if not ok:
+            return 400, {"ok": False, "error": "写入失败：" + msg}
+        return 200, {"ok": True, "stages": clean,
+                     "message": "已更新审批门（" + msg + "）",
+                     "note": ("关掉的阶段跑完会直接进下一阶段，没有确认点 —— "
+                              "产物仍能在对应页签里看。对下一次运行生效。")}
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 TITLE_FORMAT_DEFAULT = "第{n}章 {title}"
 
 
@@ -1147,15 +1230,21 @@ def _vaults_public():
     try:
         from obsidian_bridge import get_vault_model, get_vault_roots
         model = get_vault_model()
+        _roots = [r for r in get_vault_roots() if not r.get("missing")]
         active_paths = {str(r["path"]).replace("\\", "/").rstrip("/").lower()
-                        for r in get_vault_roots() if not r.get("missing")}
+                        for r in _roots}
+        # 目录来源：local（当前库）/ bookmark（这个库自己配过）/ inherited（沿用当前库）
+        src_by_path = {str(r["path"]).replace("\\", "/").rstrip("/").lower():
+                       (r.get("dirs_source") or ("local" if r.get("primary") else "bookmark"))
+                       for r in _roots}
     except Exception:                                        # noqa: BLE001
-        model, active_paths = "single", set()
+        model, active_paths, src_by_path = "single", set(), {}
     items = []
     for it in doc["items"]:
         from pathlib import Path as _P
         p = _P(it["path"])
         enabled = bool(it.get("enabled", True))
+        _dirs_of_item = _vault_dirs_for(it["path"], cur)
         items.append({
             "path": it["path"],
             "name": it.get("name") or p.name,
@@ -1169,6 +1258,15 @@ def _vaults_public():
                        str(it["path"]).replace("\\", "/").rstrip("/").lower() in active_paths),
             "current": _same_path(it["path"], cur),
             "added_at": it.get("added_at"),
+            # 五类目录按库独立（2026-11-08，0.9.1 验收第 2 条）：
+            # 当前库的真源是 system.local.yaml（与“设定目录”面板同一份），
+            # 其余库存在 vaults.json 的 dirs 里。界面据此逐库显示，
+            # 没配的库要明说“这个库没配目录”，不能让它静默扫空。
+            "dirs": _dirs_of_item,
+            "dirs_configured": any(v for v in _dirs_of_item.values()),
+            "dirs_source": src_by_path.get(
+                str(it["path"]).replace("\\", "/").rstrip("/").lower(),
+                "local" if _same_path(it["path"], cur) else "bookmark"),
         })
     note = ("多库同时读：当前库永远参与，其余库按“启用”开关与列表顺序一起读；"
             "同名条目以当前库优先，冲突在“检查同名冲突”里点名。"
@@ -1181,6 +1279,101 @@ def _vaults_public():
             "model": model,
             "active_count": len([x for x in items if x["active"]]),
             "note": note}
+
+
+VAULT_DIR_KEYS = ("characters", "locations", "factions", "concepts", "timeline")
+
+
+def _vault_dirs_for(path, cur):
+    """取**某个库**的五类目录（当前库 → local 配置；其他库 → 书签里的 dirs）。
+
+    为什么要有这个函数（2026-11-08，0.9.1 验收第 2 条）：多库能同时读了，但
+    “角色/地点/势力/概念/年表”五类目录一直是**全局一套**（`obsidian.vault_dirs`），
+    两个库结构不同时辅库必然扫空，而且不报错 —— 作者只会看到“同名冲突一条都没有”。
+    """
+    try:
+        from utils.setting_schema import normalize_vault_dirs
+    except Exception:                                        # noqa: BLE001
+        return {k: "" for k in VAULT_DIR_KEYS}
+    if _same_path(path, cur):
+        try:
+            from obsidian_bridge import get_vault_dirs
+            return normalize_vault_dirs(get_vault_dirs())
+        except Exception:                                    # noqa: BLE001
+            return {k: "" for k in VAULT_DIR_KEYS}
+    for it in _load_vaults_doc()["items"]:
+        if _same_path(it["path"], path):
+            return normalize_vault_dirs(it.get("dirs"))
+    return {k: "" for k in VAULT_DIR_KEYS}
+
+
+def _clean_vault_dirs(raw):
+    """校验并归一化“五类目录”入参。返回 (ok, msg, dirs)。
+
+    只收五个键（未知键 400，**不静默忽略**：静默忽略 = 用户以为存了其实没存）；
+    值必须是**库内相对目录**：绝对路径 / 盘符 / `..` 一律拒 —— 那些会把扫描带出库外。
+    """
+    from utils.setting_schema import normalize_vault_dirs
+    if not isinstance(raw, dict):
+        return False, "dirs 必须是对象（例：{\"characters\": \"设定/人物\"}）", None
+    unknown = [k for k in raw if k not in VAULT_DIR_KEYS]
+    if unknown:
+        return False, "不认识的目录键：%s（只能是 %s）" % (
+            "、".join(unknown), "、".join(VAULT_DIR_KEYS)), None
+    for k, v in raw.items():
+        sv = str(v or "").strip()
+        if not sv:
+            continue
+        bad = (sv.startswith("/") or sv.startswith("\\") or ".." in sv.split("/")
+               or ".." in sv.split("\\") or (len(sv) > 1 and sv[1] == ":"))
+        if bad:
+            return False, ("%s 只能是库内相对目录（例：设定/人物），"
+                           "不能是绝对路径、盘符或带 ..：%r" % (k, sv)), None
+    return True, "", normalize_vault_dirs(raw)
+
+
+def handle_config_vaults_dirs_set(h, body):
+    """`POST /config/vaults/dirs {path, dirs}` —— 给**某一个库**配五类目录。
+
+    - 当前库：写 `system.local.yaml` 的 `obsidian.vault_dirs`（与“设定目录”面板同源）；
+    - 其余库：写 `vaults.json` 该条目的 `dirs`（每个库各存一套）。
+    不设 GUI-only：这是**创作决策**（我的库长什么样），不是安全闸门。
+    """
+    body = body or {}
+    raw_path = str(body.get("path") or "").strip()
+    if not raw_path:
+        return 400, {"ok": False, "error": "path 必填（要配哪个库）"}
+    ok, msg, dirs = _clean_vault_dirs(body.get("dirs"))
+    if not ok:
+        return 400, {"ok": False, "error": msg}
+    cur = _current_vault_path()
+    if _same_path(raw_path, cur):
+        try:
+            from utils.config_io import set_section_scalars
+            ok2, wmsg = set_section_scalars(("obsidian",), {"vault_dirs": dirs},
+                                            path=_ensure_local_yaml())
+            if not ok2:
+                return 400, {"ok": False, "error": "写入失败：" + wmsg}
+            from utils.setting_schema import reset_obsidian_config_cache
+            reset_obsidian_config_cache()
+            return 200, dict(_vaults_public(),
+                             message="已保存当前库的五类目录（%s）" % wmsg)
+        except Exception as e:                               # noqa: BLE001
+            return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+    doc = _load_vaults_doc()
+    hit = None
+    for it in doc["items"]:
+        if _same_path(it["path"], raw_path):
+            hit = it
+            break
+    if hit is None:
+        return 400, {"ok": False,
+                     "error": "这个库不在列表里（先“加入我的库”，再配它的目录）"}
+    hit["dirs"] = dirs
+    _save_vaults_doc(doc)
+    return 200, dict(_vaults_public(),
+                     message="已保存“%s”的五类目录（存在 vaults.json，不动你的库）"
+                             % (hit.get("name") or hit["path"]))
 
 
 def handle_config_vaults_get(h):
@@ -1989,6 +2182,8 @@ ROUTES = (
     ("POST", "/config/token_limit", handle_config_token_limit_set),
     ("GET", "/config/target_words", handle_config_target_words),
     ("POST", "/config/target_words", handle_config_target_words_set),
+    ("GET", "/config/approval_gates", handle_config_approval_gates),
+    ("POST", "/config/approval_gates", handle_config_approval_gates_set),
     # 词表（B1，2026-11-06）：病灶词 / 合规词可在界面编辑；写入口 = 创作决策，非安全闸门
     ("GET", "/config/wordlists", handle_config_wordlists),
     ("POST", "/config/wordlists", handle_config_wordlists_set),
@@ -2009,6 +2204,7 @@ ROUTES = (
     ("POST", "/config/vault", handle_config_vault_set),
     ("GET", "/config/vaults", handle_config_vaults_get),
     ("POST", "/config/vaults/add", handle_config_vaults_add),
+    ("POST", "/config/vaults/dirs", handle_config_vaults_dirs_set),
     ("POST", "/config/vaults/switch", handle_config_vaults_switch),
     ("POST", "/config/vaults/remove", handle_config_vaults_remove),
     # 多库同时读（2026-11-07，B3 B 模型）：启用开关 / 模型切换 / 冲突体检
