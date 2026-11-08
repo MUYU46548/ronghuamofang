@@ -256,6 +256,16 @@ def case_scope_and_entry():
     for code in ("narrative", "essay", "letter", "episodic"):
         check("P9 %s：已接入" % code, WF.style_files_exist(code) is True,
               WF.style_files_exist(code))
+    # 2026-11-08：`style_prompt_wired` 从“写死 False”改成按文件存在判定。
+    # 写死 False 时 stage5 会在书信/单元接入之后仍打印“写法指导尚未接入”。
+    for code in ("narrative", "essay", "letter", "episodic"):
+        check("P9 %s：applicability 报已接入" % code,
+              WF.applicability(form=code).get("style_prompt_wired") is True,
+              WF.applicability(form=code).get("style_prompt_wired"))
+    src_wf = Path(WF.__file__).read_text(encoding="utf-8")
+    check("P9 不再把 style_prompt_wired 写死 False",
+          'spec["style_prompt_wired"] = False' not in src_wf)
+
     # 反证：把工作目录换到没有 prompts/style 的临时目录，“正文非空”仍然成立，
     # 但 style_files_exist 必须说 False —— 证明它判的是文件，不是回落出的文字。
     _cwd = os.getcwd()
@@ -315,7 +325,10 @@ def main():
     check("P3 essay 不做深化/分卷/伏笔",
           not e["deepen"] and not e["volume"] and not e["foreshadow"])
     check("P3 essay 不要求提角色名", e["must_mention_character"] is False)
-    check("P3 说明里写明写法指导未接（不假装支持）", e["style_prompt_wired"] is False)
+    # 2026-11-08（B8）：散文/书信/单元的写法指导都已接入，这个标志按文件存在判定；
+    # 原来写死 False 会让 stage5 一直说“尚未接入”（假状态）。
+    check("P3 essay 的写法指导已接入（按文件存在判定）", e["style_prompt_wired"] is True,
+          e["style_prompt_wired"])
 
     ov = WF.applicability({"book": {"form": "essay",
                                    "form_overrides": {"review_dims": ["commonsense", "reference"],

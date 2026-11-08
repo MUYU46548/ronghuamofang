@@ -44,6 +44,10 @@
 `prompts/style/letter_{style,para}.md`、`episodic_{style,para}.md`。
 两者不再回落叙事，`style_files_exist` 对四种文体都为真（用例 `test_writing_form` P7/P9）。
 
+**`style_prompt_wired` 已改成按文件存在判定**（2026-11-08）：原来写死 `False`，
+stage5 会照这句打印“本文件体的写法指导尚未接入”——书信/单元接入之后仍在说没接入，
+等于给用户一个假状态。现在它与 `style_blocks()` 同源（文件在 = 接入）。
+
 **“等真实样本”这条欠账改成了“自己造样本”**（2026-11-07 作者拍板）：
 样本在 `examples/samples/`——
 - `forms/`：书信 / 单元 / 散文各一篇最小样本，用来校准写法指导与 N/A 判据；

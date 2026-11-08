@@ -45,7 +45,6 @@ FORMS = {
         "volume": True,
         "must_mention_character": True,
         "para_structure": True,
-        "style_prompt": "stage4_style_narrative.md",
     },
     "letter": {
         "label": "书信 / 日记体",
@@ -58,7 +57,6 @@ FORMS = {
         "volume": True,
         "must_mention_character": True,
         "para_structure": True,
-        "style_prompt": "stage4_style_letter.md",
     },
     "episodic": {
         "label": "单元 / 日常流",
@@ -71,7 +69,6 @@ FORMS = {
         "volume": False,
         "must_mention_character": True,
         "para_structure": True,
-        "style_prompt": "stage4_style_episodic.md",
     },
     "essay": {
         "label": "散文 / 随笔集",
@@ -84,7 +81,6 @@ FORMS = {
         "volume": False,
         "must_mention_character": False,
         "para_structure": False,                   # 散文允许极短篇、单段长文
-        "style_prompt": "stage4_style_essay.md",
     },
 }
 DEFAULT_FORM = "narrative"
@@ -148,8 +144,11 @@ def applicability(proj=None, form=None):
     spec["code"] = code
     spec["warning"] = warning
     spec["overrides_applied"] = applied
-    # 尚未接入的部分要说出来（不假装支持）
-    spec["style_prompt_wired"] = False
+    # 写法指导是否**真的存在**（2026-11-08 修）。
+    # 这里原来写死 False，stage5 于是照这句打印“本文件体的写法指导尚未接入”——
+    # 书信/单元接入之后它还在说没接入，等于给用户一个假状态。
+    # 判据必须与 `style_blocks()` 同源：文件在 = 接入。
+    spec["style_prompt_wired"] = style_files_exist(code)
     return spec
 
 

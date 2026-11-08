@@ -172,6 +172,21 @@ async function toggleFinishChapter() {
 const interveneOpen = ref(false);
 const interveneDraft = ref("");
 const intervenePending = ref(null);
+/* 裁定账本（2026-11-08，竞品三路之三）：插话用完即删，删了就查不到；
+ * 这里读 `data/state/intervene_history.jsonl`，让“我在第几章插过什么、哪一章用掉的”
+ * 事后还能回看。零 token、只读。 */
+const interveneHist = ref([]);
+const interveneHistOpen = ref(false);
+async function loadInterveneHistory() {
+  try {
+    const r = await apiOnce("/intervene/history?limit=30", "GET");
+    if (r.status === 200) interveneHist.value = r.data.items || [];
+  } catch (e) { /* 旁证：读不到不影响主界面 */ }
+}
+function toggleInterveneHistory() {
+  interveneHistOpen.value = !interveneHistOpen.value;
+  if (interveneHistOpen.value) loadInterveneHistory();
+}
 async function loadIntervene() {
   try {
     const r = await apiOnce("/intervene", "GET");
@@ -187,6 +202,7 @@ async function sendIntervene() {
     interveneDraft.value = "";
     interveneOpen.value = false;
     loadIntervene();
+    if (interveneHistOpen.value) loadInterveneHistory();
   } else {
     say("没登记上：" + (r.data?.error || r.status));
   }
@@ -4149,6 +4165,11 @@ async function saveVaultPath() {
     if (vaultCfg.value.ok) {
       vaultCfg.value.data = r.data;
       vaultCfg.value.path = r.data.path || p;
+      // 2026-11-08：保存路径时顺手把当前库登记进书签列表。
+      // 否则“我的库”是空的（它只列书签），多库开关与冲突检查根本没有入口——
+      // 界面上看不出来的功能等于没做。失败不拦保存（登记只是便利）。
+      try { await api("/config/vaults/add", "POST", { path: vaultCfg.value.path }); }
+      catch (e) { /* 已在列表 / 目录不可用：保存本身已成功 */ }
       // 路径变了 → 扫描面与库列表都要刷（否则下面还列着旧库的目录）
       await loadVaults();
       await loadVaultScan();
@@ -4158,6 +4179,25 @@ async function saveVaultPath() {
     vaultCfg.value.msg = "保存失败: " + (e.message || e);
   }
   vaultCfg.value.busy = false;
+}
+
+/* 把一个库加入“我的库”书签（2026-11-08）：此前 **前端从不调用 /config/vaults/add**，
+ * 书签只能手改 json —— 多库同时读在界面上等于没有入口。 */
+async function addVaultEntry() {
+  const p = (vaultCfg.value.path || "").trim();
+  if (!p) return say("先把库路径填上（或点“选文件夹…”）");
+  vaults.value.busy = true;
+  try {
+    const r = await api("/config/vaults/add", "POST", { path: p });
+    vaults.value.ok = !!(r.status === 200 && r.data.ok);
+    vaults.value.msg = vaults.value.ok ? (r.data.message || "已加入我的库")
+      : ("加入失败: " + (r.data.error || r.status));
+    if (vaults.value.ok) await loadVaults();
+  } catch (e) {
+    vaults.value.ok = false;
+    vaults.value.msg = "加入失败: " + (e.message || e);
+  }
+  vaults.value.busy = false;
 }
 
 async function clearVaultPath() {
@@ -5519,6 +5559,23 @@ onUnmounted(() => {
       <button class="mini primary" @click="sendIntervene">登记</button>
       <button class="mini" @click="interveneOpen = false">取消</button>
     </template>
+    <button class="mini" @click="toggleInterveneHistory"
+            title="看插话记录：什么时候登记过什么、哪一章用掉的（用完即删，只有这里查得到）">
+      {{ interveneHistOpen ? "收起记录" : "记录" }}
+    </button>
+  </div>
+
+  <!-- 插话记录（2026-11-08）：只追加的流水，倒序；用完即删的指令也留痕 -->
+  <div v-if="interveneHistOpen" class="lockbar" style="display: block; border-color: var(--border);">
+    <div style="font-size: 12.5px; margin-bottom: 6px;">
+      <b>插话记录</b><span class="meta">（最近 30 条；登记 / 被哪一章用掉）</span>
+    </div>
+    <div v-if="!interveneHist.length" class="meta">还没有记录。</div>
+    <div v-for="(h, i) in interveneHist" :key="i" style="font-size: 12px; line-height: 1.7;">
+      <span class="pill">{{ h.action === "used" ? "已用掉" : "登记" }}</span>
+      <span class="meta">{{ h.at }}</span>
+      <span style="margin-left: 6px;">{{ (h.instruction || "").slice(0, 80) }}</span>
+    </div>
   </div>
 
   <!-- 运行进度条（全局） -->
@@ -5723,6 +5780,10 @@ onUnmounted(() => {
         <span v-if="isRunning" class="pill st-running">运行中</span>
         <span class="spacer"></span>
         <button class="mini" @click="paletteOpen = true" title="Ctrl+K 搜索所有操作">⌘K 命令面板</button>
+        <button class="mini" @click="toggleInterveneHistory"
+                title="插话记录：什么时候登记过什么、哪一章用掉的（用完即删，只有这里查得到）">
+          {{ interveneHistOpen ? "收起插话记录" : "插话记录" }}
+        </button>
         <button class="mini" @click="helpOpen = true" title="快捷键说明">? 快捷键</button>
       </div>
 
@@ -7387,6 +7448,9 @@ onUnmounted(() => {
           <button class="mini" :disabled="vaultCfg.busy" @click="pickVaultDir">选文件夹…</button>
           <button class="mini primary" :disabled="vaultCfg.busy || !vaultCfg.path.trim()"
                   @click="saveVaultPath">{{ vaultCfg.busy ? "保存中…" : "保存路径" }}</button>
+          <button class="mini" :disabled="vaults.busy || !vaultCfg.path.trim()"
+                  title="把上面这个目录登记进“我的库”（多库同时读要先在列表里）"
+                  @click="addVaultEntry">加入我的库</button>
           <button class="mini" v-if="vaultCfg.data && vaultCfg.data.configured"
                   :disabled="vaultCfg.busy" @click="clearVaultPath">清空</button>
         </div>

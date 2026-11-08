@@ -104,6 +104,9 @@ def main():
     api_src = (ROOT / "scripts" / "nf_api.py").read_text(encoding="utf-8")
     check("I6 API 有登记端点", 'p == "/intervene"' in api_src)
     check("I6 API 能读裁定账本", 'p == "/intervene/history"' in api_src)
+    gui = (ROOT / "console" / "src" / "App.vue").read_text(encoding="utf-8")
+    check("I6 界面上有“插话记录”入口（不是只有接口）",
+          "插话记录" in gui and '"/intervene/history?limit=30"' in gui)
     check("I6 没在跑时拒收", "现在没有流水线在跑" in api_src)
 
     print("-" * 66)

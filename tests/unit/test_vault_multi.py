@@ -228,6 +228,10 @@ def main():
     app = (ROOT / "console" / "src" / "App.vue").read_text(encoding="utf-8")
     api_dom = (ROOT / "scripts" / "nf_api_domains" / "project.py").read_text(encoding="utf-8")
     check("界面有“检查同名冲突”按钮", "检查同名冲突" in app)
+    check("界面能往书签列表里加库（此前前端从不调 /config/vaults/add）",
+          "加入我的库" in app and '"/config/vaults/add"' in app)
+    check("保存库路径时顺手登记进列表（否则“我的库”永远是空的）",
+          'api("/config/vaults/add", "POST", { path: vaultCfg.value.path })' in app)
     check("界面有启用/停用开关", "toggleVault" in app and "停用" in app)
     check("界面能切模型", "setVaultModel" in app and "多库同时读" in app)
     check("界面不再写“同一时刻只有一个生效”",

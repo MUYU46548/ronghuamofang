@@ -797,7 +797,9 @@ def inject_context(query, vault_data=None, top_k=5, max_chars=500):
     返回格式化的上下文字符串，可直接注入提示词模板。
     """
     if vault_data is None:
-        vault_data = scan_vault()
+        # 多库同时读（2026-11-08）：写作输入与扫描面必须同源，
+        # 否则“界面说读了两个库、实际只注入了当前库”。
+        vault_data = scan_vault_multi()
 
     query_terms = extract_terms(query)
     if not query_terms:
@@ -929,7 +931,8 @@ def check_locked_violations(vault_data=None, setting_path=None):
               "checked": False, "reason": "", "setting_path": ""}
 
     if vault_data is None:
-        vault_data = scan_vault()
+        # locked 是“写作必须遵守”的硬约束：任何一个启用库里的 locked 条目都算数。
+        vault_data = scan_vault_multi()
 
     locked = [c for c in (vault_data or {}).get("characters", []) if c.get("locked")]
     result["locked_total"] = len(locked)
@@ -1039,6 +1042,9 @@ def sync_diff(vault_data=None, setting_path=None):
         "missing": [], "added": [], "renamed": [], "lock_lost": [],
     }
     if vault_data is None:
+        # ⚠️ 这里**刻意只扫当前库**：sync_diff 比的是“库里的条目 vs 已导入的设定集”，
+        # 而“导入设定集”是单库整体替换语义（A 模型）。把辅库条目混进来，会把
+        # “这个库还没导入过”报成一堆假缺失。写作/审核那几处才用 scan_vault_multi。
         vault_data = scan_vault()
     vchars = list((vault_data or {}).get("characters", []))
     result["vault_total"] = len(vchars)
@@ -1153,7 +1159,8 @@ def check_consistency(text, vault_data=None):
     据此区分“查过且没问题”与“根本没查”。
     """
     if vault_data is None:
-        vault_data = scan_vault()
+        # 审稿一致性对照的也是“写作时实际读到的那些库”。
+        vault_data = scan_vault_multi()
 
     conflicts = []
     warnings = []
