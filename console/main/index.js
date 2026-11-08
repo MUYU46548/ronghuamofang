@@ -379,7 +379,14 @@ function getWorkspaceSource() {
 //   · 前端（asar，不走种子）：项目页出厂徽标 / 启动提示词剥离说明书 /
 //     阶段复制改任务简报（原样贴模板会被外部 Agent 按红线判“模板不是任务”停工）。
 // **先 bump 再 electron-builder**。
-const SEED_VERSION = 89;   // 0.8.1: 审批门口径 + token/上下文可见 + 上下文包 + 设定名高亮
+const SEED_VERSION = 90;   // 0.9.0: 多库同时读 + 内容区单档 + 事件分类表归作者 + 文体样本 + 竞品三路
+                            //   · payload scripts：obsidian_bridge/kb_index/stage4 多库（当前库优先 + 冲突点名）；
+                            //     writing_form 的 style_prompt_wired 改按文件存在判定；intervene 裁定账本；
+                            //     tavern_import（酒馆角色卡/世界书导入）；ai_voice（零 token AI 腔扫描）
+                            //   · payload prompts：新增 letter/episodic 写法指导（style + para 四份）
+                            //   · payload examples/samples：自造文体样本与 AI 腔对照
+                            //   · 前端（asar）：内容区单档 1600px、多库面板（启用/停用/冲突检查/加入我的库）、
+                            //     段落快捷改法、酒馆导入按钮、插话记录、判定事件分类表编辑器
                             //   · 前端（asar）：左侧 216px 导航（写作/审校/系统 + 底部工具栏）、
                             //     顶部只留情境状态条；审阅台右栏“本章出场”、三色状态点、
                             //     未保存切章拦截；ChapterEditor 内联时侧栏只在批注模式出现
