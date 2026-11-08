@@ -35,6 +35,11 @@
   /* 等宽字体（代码块 / 提示词编辑器）。此前 App.vue 直接写 `var(--mono)`，
      该变量从未定义 → 声明无效、退回默认比例字体（代码块看着不齐也算"丑"）。 */
   --mono: ui-monospace, "Cascadia Code", "Consolas", "Source Han Sans SC", monospace;
+  /* 内容区宽度：**全局唯一一档**（B4 阶段 3，2026-11-07 作者拍板）。
+     旧口径分两档：普通页 1320 / 审阅台 1560（靠一个附加类切换）——
+     作者要求“统一一个标准，而且不应该太窄”。现在只留一个变量，
+     所有页面（含审阅台三栏）都跟它走；改宽度就改这一行。 */
+  --content-max: 1600px;
   --ink-ok: #4e7d5e;
   --ink-bad: #9e4f4f;
   --ink-warn: #8f6b33;
@@ -402,12 +407,8 @@ body {
   50% { opacity: 0.6; }
 }
 
-/* 布局 */
-.content { position: relative; z-index: 1; padding: 20px 24px; max-width: 1320px; margin: 0 auto; }
-/* 审阅台专用宽度（B7，2026-11-06）：三栏本身就是为“同时看正文+依据”设计的，
-   1320 是给表单/卡片页的上限，套在审阅台上会把正文挤成 27 字/行（1680 视口实测）。
-   只放宽这一种视图，不动其它页面的栅格 —— 全局栅格归 UI 统一（B4）那一轮再定。 */
-.content.content-wide { max-width: 1560px; }
+/* 布局 —— 内容区宽度只有一档（--content-max，见 :root）。 */
+.content { position: relative; z-index: 1; padding: 20px 24px; max-width: var(--content-max); margin: 0 auto; }
 .backbar { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
 .grid-2 { display: grid; grid-template-columns: 1.25fr 1fr; gap: 16px; }
 @media (max-width: 980px) { .grid-2 { grid-template-columns: 1fr; } }
@@ -2686,6 +2687,8 @@ kbd {
   border-radius: 8px;
 }
 .vault-item.gone { opacity: .6; }
+/* 多库：停用的库不参与扫描 —— 视觉上压暗一档，但**不藏起来**（藏起来=用户以为书签丢了） */
+.vault-item.off { opacity: .62; }
 .vault-item-main { flex: 1; min-width: 0; }
 .vault-item-name {
   font-size: 13px;

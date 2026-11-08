@@ -85,8 +85,10 @@ def main():
     print("\n【U3】组件守住三条硬约束")
     check("0 事件 → 明说为什么勾不了（2026-10-31 改文案：指出该去改章纲，而不是干说“不可勾选”）",
           "还没写" in comp and "核心事件" in comp and "不可判定" in comp)
-    check("四类必填：勾了没分类会拦下（保存前检查 unclassified）",
-          "unclassified" in comp and "四类必选一类" in comp)
+    # 2026-11-08：分类表已改成口径 J22（作者可增删类），界面上不再写死“四类”，
+    # 所以判据从“字符串里有四类”改成“未分类会被拦下 + 选项来自后端 props”。
+    check("必填：勾了没分类会拦下（保存前检查 unclassified）",
+          "unclassified" in comp and "classes: { type: Array" in comp)
     check("两个计数分开算（checkedCount / countedCount）",
           "checkedCount" in comp and "countedCount" in comp)
     check("界面上把差别摊开（勾了 N 件 · 计入下限 M / min）",

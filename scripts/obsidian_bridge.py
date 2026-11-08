@@ -302,8 +302,17 @@ def extract_terms(text):
     return terms
 
 
-def scan_vault(vault_path=None):
+def scan_vault(vault_path=None, skip_dirs=None, tag_root=None):
     """扫描 Obsidian vault，建立结构化索引。
+
+    多库（2026-11-07，B3 B 模型）时由 `scan_vault_multi()` 逐根调用本函数：
+
+    - `skip_dirs`：本次扫描的排除目录（None = 用全局 `get_skip_dirs()`，
+      即默认四项 + 当前库的本地追加项）；给值时以“默认四项 + 这批”为准 ——
+      每个库自己的排除项存在 `vaults.json` 里，不该被当前库的配置带过去。
+    - `tag_root`：给条目路径加前缀（非当前库用库名），避免两个库有同名相对路径
+      时在 `inject_context` 的 dict key 上互相覆盖。当前库不加前缀
+      （既有 canon/locked 比对依赖原样的相对路径）。
 
     返回 {
         "characters": [{name, path, tags, type, locked, relations, snippet}],
@@ -325,7 +334,16 @@ def scan_vault(vault_path=None):
     # 排除集合**在调用时取**（不是 import 时的模块级快照）——
     # 用户在 GUI 勾掉一个目录后，下一次 scan_vault 就必须跟着变。
     # 见上方 `_skip_dirs` 变量处的说明（2026-10-31 修“界面已排除、实际仍收”）。
-    skip = get_skip_dirs()
+    if skip_dirs is None:
+        skip = get_skip_dirs()
+    else:
+        from utils.setting_schema import _DEFAULT_SKIP_DIRS
+        skip = set(_DEFAULT_SKIP_DIRS) | {str(s).strip() for s in skip_dirs if str(s).strip()}
+
+    def _rel(md_file):
+        """条目路径（多库时非当前库加库名前缀，见 docstring）。"""
+        r = md_file.relative_to(vault).as_posix()
+        return ("%s/%s" % (tag_root, r)) if tag_root else r
 
     # 角色目录。⚠️ 2026-09-21 修复**跨类目污染与重复**：
     # 原写法把**父目录**（设定根）也放进列表并配 `rglob`，于是它递归扫到了
@@ -451,7 +469,7 @@ def scan_vault(vault_path=None):
             if not desc:
                 plain = re.sub(r'[#*`\[\]]', '', body).strip()
                 desc = plain[:200].replace('\n', ' ').strip()
-            rel_path = str(md_file.relative_to(vault))
+            rel_path = _rel(md_file)
             characters.append({
                 "name": name,
                 "path": rel_path,
@@ -511,7 +529,7 @@ def scan_vault(vault_path=None):
                     break
             plain = re.sub(r'[#*`\[\]]', '', body).strip()
             snippet = plain[:300].replace('\n', ' ').strip()
-            rel_path = str(md_file.relative_to(vault))
+            rel_path = _rel(md_file)
             world_entries.append({
                 "name": name,
                 "path": rel_path,
@@ -556,7 +574,7 @@ def scan_vault(vault_path=None):
                     break
             plain = re.sub(r'[#*`\[\]]', '', body).strip()
             snippet = plain[:300].replace('\n', ' ').strip()
-            rel_path = str(md_file.relative_to(vault))
+            rel_path = _rel(md_file)
             timeline_entries.append({
                 "name": name,
                 "path": rel_path,
@@ -628,6 +646,149 @@ def scan_vault(vault_path=None):
             "timeline_count": len(timeline_entries),
         },
     }
+
+
+# ---------------------------------------------------------------- 多库同时读（B3 B 模型，2026-11-07）
+#
+# ## 为什么改（作者原话）
+#
+# “多库同时生效 B（多库一起读），用户本来就可能不止一个库。”
+# 此前只有 A 模型：书签能登记多个库，但同一时刻只有 `vault_path` 那一个参与扫描。
+#
+# ## 口径（先定死，别“看情况”）
+#
+# 1. **优先级 = 当前库第一，然后按书签顺序**：同名条目（同一个角色/地点/概念
+#    来自两个库）由靠前的库赢，被覆盖的那条记进 `meta.conflicts` 并在界面点名。
+# 2. **每个库用自己的排除项**（`vaults.json` 的 `skip_dirs`），不把当前库的
+#    本地排除项带到别的库上；默认四项（.obsidian 等）所有库共用。
+# 3. **默认只关不掉当前库**：`enabled` 缺省为 true（作者要的就是“一起读”），
+#    但当前库永远参与扫描 —— 否则写作输入会突然变成空。
+# 4. **门控**：`obsidian.vault_model = multi` 才多根扫描；`single` = 回到旧行为。
+#    缺省为 multi（2026-11-07 作者拍板）。
+VAULTS_STATE_REL = "data/state/vaults.json"
+VAULT_MODELS = ("single", "multi")
+
+
+def get_vault_model():
+    """当前扫描模型：single（一次一个）/ multi（同时读，默认）。"""
+    raw = str(load_obsidian_config().get("vault_model") or "").strip().lower()
+    return raw if raw in VAULT_MODELS else "multi"
+
+
+def _norm_path(p):
+    return str(p or "").replace("\\", "/").rstrip("/").lower()
+
+
+def get_vault_roots():
+    """本次扫描要读的所有根（按优先级）。返回 [{path,name,primary,skip_dirs,enabled}]。
+
+    单库模型 / 只有当前库时返回一个元素 —— 与改动前逐字等价。
+    坏掉的 `vaults.json` 不抛：书签丢了只是少读一个库，不该让写作失败。
+    """
+    primary = _get_vault_path()
+    if primary is None:
+        return []
+    roots = [{"path": str(primary), "name": primary.name, "primary": True,
+              "skip_dirs": None, "enabled": True}]
+    if get_vault_model() != "multi":
+        return roots
+    # ⚠️ 书签文件必须跟着**项目根**走，不能跟 CWD 走。
+    # 2026-11-08 实测：`nf_api.py --root <别的项目>` 时，本函数按 CWD 读到了
+    # 仓库自己的 vaults.json —— 界面显示“乙库已启用”但 active_count=0，两边对不上。
+    # 与 `_read_yaml_config` 同一条纪律：显式 ROOT 优先，CWD 兜底。
+    try:
+        from utils import config_io as _cio
+        _base = getattr(_cio, "ROOT", None)
+    except Exception:                                          # noqa: BLE001
+        _base = None
+    fp = (Path(_base) / VAULTS_STATE_REL) if _base else Path(VAULTS_STATE_REL)
+    if not fp.is_file():
+        return roots
+    try:
+        doc = json.loads(fp.read_text(encoding="utf-8"))
+    except Exception:                                          # noqa: BLE001
+        return roots
+    seen = {_norm_path(primary)}
+    for it in (doc.get("items") or []):
+        if not isinstance(it, dict) or not it.get("path"):
+            continue
+        p = str(it["path"])
+        key = _norm_path(p)
+        if key in seen:
+            continue
+        if not it.get("enabled", True):
+            continue
+        # 目录不在了就跳过 —— 但要让调用方看得见（meta.dead_roots），不能静默少读
+        if not Path(p).is_dir():
+            roots.append({"path": p, "name": it.get("name") or Path(p).name,
+                          "primary": False, "skip_dirs": [], "enabled": True,
+                          "missing": True})
+            continue
+        seen.add(key)
+        roots.append({"path": p, "name": it.get("name") or Path(p).name,
+                      "primary": False, "skip_dirs": list(it.get("skip_dirs") or []),
+                      "enabled": True})
+    return roots
+
+
+def scan_vault_multi():
+    """多根扫描 + 同名条目去重（当前库优先）。
+
+    合并结果与 `scan_vault()` 同形（characters / world / timeline / meta），
+    多出来的 meta 字段：`vault_model`、`vaults`（每库篇数）、`conflicts`（被覆盖的条目）、
+    `dead_roots`（书签里目录已不在的库）。调用方不需要改渲染逻辑。
+    """
+    roots = get_vault_roots()
+    if not roots:
+        return scan_vault()          # 未配置：沿用原有报错（说清在哪配）
+    merged = {"characters": [], "world": [], "timeline": []}
+    conflicts, dead, per = [], [], []
+    seen_names = {}                  # 归一名 -> 先出现的库名
+    for r in roots:
+        if r.get("missing"):
+            dead.append({"path": r["path"], "name": r["name"]})
+            per.append({"path": r["path"], "name": r["name"], "primary": False,
+                        "state": "missing", "characters": 0, "world": 0, "timeline": 0})
+            continue
+        try:
+            data = scan_vault(r["path"], skip_dirs=r.get("skip_dirs"),
+                              tag_root=(None if r["primary"] else r["name"]))
+        except Exception:                                      # noqa: BLE001
+            dead.append({"path": r["path"], "name": r["name"], "error": "扫描失败"})
+            continue
+        per.append({"path": r["path"], "name": r["name"], "primary": bool(r["primary"]),
+                    "state": (data.get("meta") or {}).get("state"),
+                    "characters": len(data["characters"]),
+                    "world": len(data["world"]),
+                    "timeline": len(data["timeline"])})
+        for kind in ("characters", "world", "timeline"):
+            for e in data[kind]:
+                nm = normalize_term(e.get("name") or "")
+                if nm and nm in seen_names:
+                    conflicts.append({"name": e.get("name"), "kind": kind,
+                                      "kept": seen_names[nm], "dropped": r["name"]})
+                    continue
+                if nm:
+                    seen_names[nm] = r["name"]
+                e2 = dict(e)
+                e2["vault"] = r["name"]
+                e2["vault_path"] = r["path"]
+                merged[kind].append(e2)
+    primary_root = roots[0]
+    merged["meta"] = {
+        "vault_path": primary_root["path"],
+        "built_at": datetime.now().isoformat(),
+        "vault_model": get_vault_model(),
+        "vaults": per,
+        "conflicts": conflicts,
+        "dead_roots": dead,
+        "state": "ok",
+        "dirs_configured": any(str(v or "").strip() for v in get_vault_dirs().values()),
+        "character_count": len(merged["characters"]),
+        "world_count": len(merged["world"]),
+        "timeline_count": len(merged["timeline"]),
+    }
+    return merged
 
 
 def inject_context(query, vault_data=None, top_k=5, max_chars=500):

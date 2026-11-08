@@ -25,6 +25,10 @@ import time
 from pathlib import Path
 
 REL = Path("data") / "state" / "intervene.json"
+# 裁定账本（2026-11-08，竞品三路之三：抄 ainovel 的“判定落盘可回放”）。
+# 指令本身用完即删，删了就没痕迹；这里留一条**只追加**的流水，
+# 让“我在第几章插过什么、它到底被哪一章用掉了”事后可查。
+HIST_REL = Path("data") / "state" / "intervene_history.jsonl"
 
 
 def path(root=None):
@@ -49,6 +53,43 @@ def read(root=None):
         return None
 
 
+def _hist_path(root=None):
+    return (Path(root) / HIST_REL) if root else HIST_REL
+
+
+def _append_history(entry, root=None):
+    """追加一条裁定流水。写失败**不抛**：账本是旁证，不能拖垮写作。"""
+    p = _hist_path(root)
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        entry = dict(entry)
+        entry.setdefault("at", time.strftime("%Y-%m-%dT%H:%M:%S"))
+        with open(p, "a", encoding="utf-8") as fp:
+            fp.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except Exception:                                        # noqa: BLE001
+        pass
+
+
+def history(root=None, limit=50):
+    """最近的裁定流水（倒序）。坏行跳过，不抛。"""
+    p = _hist_path(root)
+    if not p.is_file():
+        return []
+    out = []
+    try:
+        for line in p.read_text(encoding="utf-8", errors="ignore").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                out.append(json.loads(line))
+            except Exception:                                # noqa: BLE001
+                continue
+    except Exception:                                        # noqa: BLE001
+        return []
+    return list(reversed(out[-int(limit or 50):]))
+
+
 def write(instruction, target_chapter=None, root=None):
     """登记一条指令。返回 dict（原样回给调用方做回执）。"""
     text = (instruction or "").strip()
@@ -62,6 +103,7 @@ def write(instruction, target_chapter=None, root=None):
     p = path(root)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+    _append_history({"action": "set", **data}, root=root)
     return data
 
 
@@ -73,6 +115,7 @@ def consume(root=None):
             path(root).unlink(missing_ok=True)
         except OSError:
             pass
+        _append_history({"action": "used", **data}, root=root)
     return data
 
 

@@ -12,9 +12,13 @@ import json
 from datetime import datetime
 from pathlib import Path
 
+from . import caliber as C
+
 RECORDS_REL = "data/judge/records.json"
 SCHEMA = 1
 
+# ⚠️ 分类名**不在这里定**（2026-11-07）：分类表是口径表 J22 的数据，作者在 GUI 里增删改。
+# 这个常量只给“老口径还没登记 J22”的兼容读法用（见 caliber.event_classes）。
 EVENT_CLASSES = ["人物处境", "信息占有", "关系", "目标"]
 
 
@@ -93,8 +97,15 @@ def set_events(root, chapter, checked, classes=None, evidence="", evidences=None
     doc = load(root)
     checked = [int(x) for x in (checked or [])]
     rejected = [int(x) for x in (rejected or []) if int(x) not in checked]
+    # 分类名只认口径表 J22（作者可改）。不在表里 → 明确报错，不静默丢
+    # （静默丢 = 作者以为分类生效了，判定却按“没分类”算 —— 少算一件还不吭声）。
+    allowed = {c["key"] for c in C.event_classes(C.load(root))[0]}
+    unknown = sorted({str(v) for v in (classes or {}).values() if str(v) not in allowed})
+    if unknown:
+        raise ValueError("分类不在“改标准 → 事件分类表”里：%s（先在那里加这一类，或改选已有分类）"
+                         % "、".join(unknown))
     classes = {str(k): v for k, v in (classes or {}).items()
-               if v in EVENT_CLASSES}
+               if v in allowed}
     evidences = {str(k): str(v).strip() for k, v in (evidences or {}).items()
                  if str(v).strip()}
     counted = [i for i in checked if classes.get(str(i)) and evidences.get(str(i))]

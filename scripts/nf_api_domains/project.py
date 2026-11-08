@@ -1047,15 +1047,17 @@ def handle_config_vault_set(h, body):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
-# ---------------------------------------------------------------- 多库（A 模型，2026-10-31）
-# 用户拍板选 A：**一次只有一个库生效**，界面上快速切换（Obsidian 式）。
+# ---------------------------------------------------------------- 多库（B 模型，2026-11-07）
+# 2026-10-31 曾拍板 A（一次只有一个库生效）；2026-11-07 作者明确改口：
+# “多库同时生效 B（多库一起读），用户本来就可能不止一个库。” → 现在默认 B。
 #
-# ## 为什么这个模型
+# ## 口径（唯一规则，后端实现，前端只回显）
 #
-# 三家成熟产品（Obsidian / Joplin / DEVONthink）的调研写在 roadmap 附录。选 A 的理由：
-# 本项目导入设定集是**整体替换**语义。同时挂多个库、同名条目并存，会让"沈砚"出现两次，
-# 一次误合并就覆盖掉用户手写的条目 —— 那是改用户的设定，不是功能。
-# A 只把"换库"做顺，风险为零。
+# - 当前库永远参与扫描；其余书签按 `enabled`（vaults.json 逐项）一起读；
+# - 同名条目 **当前库优先**，被覆盖的写进 `meta.conflicts` 并在界面点名 ——
+#   不做“看情况自动合并”（误合并 = 改用户的设定）；
+# - 每个库用自己的排除项；停用/启用只改扫描范围，不动任何笔记文件；
+# - `obsidian.vault_model: single` 可退回旧行为（书签一个都不删）。
 #
 # ## 存哪、谁是权威
 #
@@ -1139,27 +1141,46 @@ def _apply_vault(path, skip_dirs):
 
 
 def _vaults_public():
-    """给界面看的列表：当前库 + 每项是否还在盘上。"""
+    """给界面看的列表：当前库 + 每项是否还在盘上 + 多库模型下的启用状态。"""
     doc = _load_vaults_doc()
     cur = _current_vault_path()
+    try:
+        from obsidian_bridge import get_vault_model, get_vault_roots
+        model = get_vault_model()
+        active_paths = {str(r["path"]).replace("\\", "/").rstrip("/").lower()
+                        for r in get_vault_roots() if not r.get("missing")}
+    except Exception:                                        # noqa: BLE001
+        model, active_paths = "single", set()
     items = []
     for it in doc["items"]:
         from pathlib import Path as _P
         p = _P(it["path"])
+        enabled = bool(it.get("enabled", True))
         items.append({
             "path": it["path"],
             "name": it.get("name") or p.name,
             "exists": p.is_dir(),
             "looks_like_obsidian": (p / ".obsidian").is_dir() if p.is_dir() else False,
             "skip_dirs": it.get("skip_dirs") or [],
+            "enabled": enabled,
+            # active = 本轮扫描真的会读它（当前库永远 active）
+            "active": _same_path(it["path"], cur) or
+                      (model == "multi" and enabled and
+                       str(it["path"]).replace("\\", "/").rstrip("/").lower() in active_paths),
             "current": _same_path(it["path"], cur),
             "added_at": it.get("added_at"),
         })
+    note = ("多库同时读：当前库永远参与，其余库按“启用”开关与列表顺序一起读；"
+            "同名条目以当前库优先，冲突在“检查同名冲突”里点名。"
+            "开关只影响扫描范围，不改任何笔记文件。"
+            if model == "multi" else
+            "单库模式：同一时刻只有一个库生效；切换会保留每个库自己的排除项。"
+            "换库不影响任何笔记文件。")
     return {"ok": True, "current": cur, "items": items,
             "count": len(items),
-            "model": "single",      # 一次只有一个库生效（A 模型）
-            "note": ("同一时刻只有一个库生效；切换会保留每个库自己的排除项。"
-                     "换库不影响任何笔记文件。")}
+            "model": model,
+            "active_count": len([x for x in items if x["active"]]),
+            "note": note}
 
 
 def handle_config_vaults_get(h):
@@ -1194,6 +1215,8 @@ def handle_config_vaults_add(h, body):
         "path": p.as_posix(),
         "name": str(body.get("name") or "").strip() or p.name,
         "skip_dirs": [],
+        # 多库（2026-11-07）：加入即参与扫描；想只登记不读，界面上关掉开关。
+        "enabled": True,
         "added_at": __import__("datetime").datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
     })
     _save_vaults_doc(doc)
@@ -1266,6 +1289,78 @@ def handle_config_vaults_remove(h, body):
     _save_vaults_doc(doc)
     return 200, dict(_vaults_public(),
                      message="已从列表移出（笔记文件一个都没动）")
+
+
+def handle_config_vaults_enable(h, body):
+    """`POST /config/vaults/enable {path, enabled}` —— 某库是否参与“同时读”。
+
+    当前库不许关：它不是“另一个库”，关掉等于写作输入突然变空，
+    而界面上看不出为什么（要停用当前库，请先切到别的库）。
+    """
+    body = body or {}
+    raw = str(body.get("path") or "").strip()
+    if not raw:
+        return 400, {"ok": False, "error": "path 必填"}
+    if "enabled" not in body:
+        return 400, {"ok": False, "error": "enabled 必填（true / false）"}
+    enabled = bool(body.get("enabled"))
+    doc = _load_vaults_doc()
+    item = next((it for it in doc["items"] if _same_path(it["path"], raw)), None)
+    if item is None:
+        return 400, {"ok": False, "error": "这个库不在列表里"}
+    if _same_path(raw, _current_vault_path()) and not enabled:
+        return 400, {"ok": False,
+                     "error": "当前库不能关 —— 它是“当前在用的库”，关掉写作时就没有知识库输入了。"
+                              "想停用它，先切到别的库。"}
+    item["enabled"] = enabled
+    _save_vaults_doc(doc)
+    return 200, dict(_vaults_public(),
+                     message=("已启用“%s”（下章写作起参与扫描）" if enabled
+                              else "已停用“%s”（笔记文件一个都没动）")
+                             % (item.get("name") or item["path"]))
+
+
+def handle_config_vaults_model(h, body):
+    """`POST /config/vaults/model {model}` —— single / multi 切换。
+
+    写 `config/system.local.yaml` 的 `obsidian.vault_model`（不进 Git）。
+    **切到 single 不会删任何书签**，只是回到“一次读一个”。
+    """
+    body = body or {}
+    model = str(body.get("model") or "").strip().lower()
+    if model not in ("single", "multi"):
+        return 400, {"ok": False, "error": "model 只能是 single 或 multi"}
+    from utils.config_io import set_section_scalars
+    from utils.setting_schema import reset_obsidian_config_cache
+    ok, msg = set_section_scalars(("obsidian",), {"vault_model": model},
+                                  path=_ensure_local_yaml())
+    if not ok:
+        return 400, {"ok": False, "error": "保存失败：%s" % msg}
+    reset_obsidian_config_cache()
+    return 200, dict(_vaults_public(),
+                     message=("多库同时读已开启（当前库 + 已启用的库一起扫描）"
+                              if model == "multi" else "已切回单库模式（一次只读一个）"))
+
+
+def handle_config_vaults_scan(h):
+    """`GET /config/vaults/scan` —— 多库扫描体检（零 token）。
+
+    返回每库篇数、同名冲突（当前库优先，被覆盖的点名）、书签里已不在的目录。
+    **不返回全部条目**：那是几千条，界面只需要计数与冲突清单。
+    """
+    try:
+        from obsidian_bridge import scan_vault_multi
+        data = scan_vault_multi()
+        meta = data.get("meta") or {}
+        return 200, {"ok": True, "model": meta.get("vault_model"),
+                     "vaults": meta.get("vaults") or [],
+                     "conflicts": meta.get("conflicts") or [],
+                     "dead_roots": meta.get("dead_roots") or [],
+                     "counts": {"characters": len(data.get("characters") or []),
+                                "world": len(data.get("world") or []),
+                                "timeline": len(data.get("timeline") or [])}}
+    except Exception as e:                                   # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
 # system.local.yaml 可能从来没被创建过（用户没改过本地覆盖）——写入前先补骨架。
@@ -1916,6 +2011,10 @@ ROUTES = (
     ("POST", "/config/vaults/add", handle_config_vaults_add),
     ("POST", "/config/vaults/switch", handle_config_vaults_switch),
     ("POST", "/config/vaults/remove", handle_config_vaults_remove),
+    # 多库同时读（2026-11-07，B3 B 模型）：启用开关 / 模型切换 / 冲突体检
+    ("POST", "/config/vaults/enable", handle_config_vaults_enable),
+    ("POST", "/config/vaults/model", handle_config_vaults_model),
+    ("GET", "/config/vaults/scan", handle_config_vaults_scan),
     # 加强模式（第一波防御 · 任务三，2026-10-22）：单章拆段落群生成开关
     ("GET", "/config/enhanced_mode", handle_config_enhanced_mode),
     ("POST", "/config/enhanced_mode", handle_config_enhanced_mode_set),

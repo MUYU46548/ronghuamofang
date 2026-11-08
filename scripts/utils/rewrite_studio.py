@@ -78,6 +78,15 @@ def build(mode, chapter, excerpt="", root="."):
         "",
         "**不要做的事**：%s。" % spec["bad"],
         "",
+    ]
+    # 去 AI 腔：先把机器能确定性扫到的“形状”摆出来（零 token）。
+    # 没有这一段时，模型只会泛泛地说“这里有 AI 腔”，作者也无从核对；
+    # 有了它，任务书里是**原文片段**，改完能对得上。
+    if mode == "dehumanize":
+        from utils import ai_voice
+        parts += ["## 机器先扫了一遍（证据，不是结论）", "",
+                  ai_voice.report_markdown(ai_voice.scan_text(body_text)), ""]
+    parts += [
         "## 材料%s" % ("（只讨论这一段）" if excerpt else "（本章正文，来自 %s）" % src.as_posix()),
         "",
         body_text,

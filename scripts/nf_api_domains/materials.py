@@ -225,8 +225,35 @@ def handle_materials_undo(h, body):
 
 
 # 本模块负责的端点（供自检与文档）
+def handle_materials_import_tavern(h, body):
+    """导入酒馆角色卡 / 世界书（竞品三路之二，2026-11-07）。
+
+    `{paths:[...]}` 或 `{path:"..."}`；`dry_run` 只报告不落盘。
+    **只写 materials/raw**：导入是“把料放进来”，归并仍走阶段 1 与作者审批。
+    同名素材卡默认不覆盖（素材是作者的数据）——要覆盖必须显式 `overwrite:true`。
+    """
+    try:
+        body = body or {}
+        paths = body.get("paths") or ([body.get("path")] if body.get("path") else [])
+        paths = [str(x) for x in paths if str(x or "").strip()]
+        if not paths:
+            return 400, {"ok": False, "error": "paths 必填（角色卡 .png/.json 或世界书 .json）"}
+        from utils import tavern_import as TI
+        out = api.ROOT / "materials" / "raw"
+        results = [TI.import_file(p, out_dir=out, dry_run=bool(body.get("dry_run")),
+                                  overwrite=bool(body.get("overwrite")))
+                   for p in paths]
+        ok = all(r.get("ok") for r in results)
+        return (200 if ok else 400), {"ok": ok, "results": results,
+                                      "written": sum(len(r.get("written") or []) for r in results),
+                                      "skipped": sum(len(r.get("skipped") or []) for r in results)}
+    except Exception as e:                                   # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 ROUTES = (
     ("GET", "/materials/list", handle_materials_list),
+    ("POST", "/materials/import_tavern", handle_materials_import_tavern),
     ("POST", "/materials/move", handle_materials_move),
     ("POST", "/materials/delete", handle_materials_delete),
     ("GET", "/materials/undo", handle_materials_undo_get),

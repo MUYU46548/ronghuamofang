@@ -110,11 +110,34 @@ def _h1_is_topic(h1s, candidate):
     return bool(s) and s.lower() not in _GENERIC_H1
 
 
+def _norm_roots(vault_path):
+    """把 str / list 统一成 [(Path, skip_dirs|None)]。"""
+    if isinstance(vault_path, (list, tuple)):
+        out = []
+        for x in vault_path:
+            if isinstance(x, dict):
+                p, sk = x.get("path"), x.get("skip_dirs")
+            else:
+                p, sk = x, None
+            if p:
+                out.append((Path(p), sk))
+        return out
+    return [(Path(vault_path), None)] if vault_path else []
+
+
+def _skip_for(skip_dirs):
+    """某根本次生效的排除集合。None = 全局（默认 + 当前库本地追加）。"""
+    if skip_dirs is None:
+        return get_skip_dirs()
+    from utils.setting_schema import _DEFAULT_SKIP_DIRS
+    return set(_DEFAULT_SKIP_DIRS) | {str(s).strip() for s in skip_dirs if str(s).strip()}
+
+
 def build_index(vault_path, out_path=None, progress=None, persist=True):
-    """构建知识库倒排索引。
+    """构建知识库倒排索引（支持一个或多个 vault 根）。
 
         Args:
-            vault_path: vault 根目录
+            vault_path: vault 根目录，或 `[{"path","skip_dirs"}]` 列表（多库，2026-11-07）
         out_path: 索引输出路径（默认 data/state/kb_index.pkl）
         progress: 可选进度回调 (current, total, filename)
         persist: 是否落盘 pkl（默认 True）。stage4 逐章召回用**内存索引**，
@@ -123,28 +146,43 @@ def build_index(vault_path, out_path=None, progress=None, persist=True):
     Returns:
         index dict
     """
-    vault = Path(vault_path)
-    md_files = list(vault.rglob("*.md"))
+    roots = _norm_roots(vault_path)
+    if not roots:
+        raise ValueError("没有可索引的 vault 根")
 
-    # 跳过 Obsidian 配置和插件目录（A1 配置化：get_skip_dirs 与 bridge 同源，
-    # 此前两处清单漂移——本处少跳过了一个目录，模板目录会被误索引）
-    skip_dirs = get_skip_dirs()
-    md_files = [
-        f for f in md_files
-        if not any(part in skip_dirs for part in f.relative_to(vault).parts)
-    ]
+    # 每个根按**自己的**排除项收集（多库时不能让当前库的本地排除项串台）
+    per_root = []
+    for root, sk in roots:
+        skip = _skip_for(sk)
+        files = [f for f in root.rglob("*.md")
+                 if not any(part in skip for part in f.relative_to(root).parts)]
+        per_root.append([root, files])
+    multi = len(per_root) > 1
+
+    tasks, labels = [], set()
+    for ri, (root, files) in enumerate(per_root):
+        label = root.name or ("vault%d" % ri)
+        while label in labels:              # 两个库同名：加序号区分，不许互相覆盖
+            label = "%s#%d" % (root.name or "vault", ri)
+        labels.add(label)
+        tasks += [(f, root, label) for f in files]
 
     index = {
-        "terms": {},           # term -> [entry_path, ...]
-        "entries": {},         # entry_path -> {name, title, tags, snippet, term_count}
-        "vault_path": str(vault.resolve()),
+        "terms": {},           # term -> [entry_key, ...]
+        "entries": {},         # entry_key -> {name, title, tags, snippet, term_count, root, rel}
+        "vault_path": str(per_root[0][0].resolve()),
+        "vaults": [{"path": str(r.resolve()), "name": r.name, "files": len(f)}
+                   for r, f in per_root],
         "built_at": datetime.now().isoformat(),
-        "total_files": len(md_files),
+        "total_files": len(tasks),
+        "conflicts": [],
+        "skipped_same_name": [],
     }
+    seen_names = {}
 
-    for i, f in enumerate(md_files):
+    for i, (f, vault, _label) in enumerate(tasks):
         if progress:
-            progress(i + 1, len(md_files), f.name)
+            progress(i + 1, len(tasks), f.name)
 
         try:
             text = f.read_text(encoding='utf-8', errors='ignore')
@@ -197,7 +235,17 @@ def build_index(vault_path, out_path=None, progress=None, persist=True):
         all_text = f"{name} {' '.join(tags)} {body}"
         terms = extract_terms(all_text)
 
-        rel_path = str(f.relative_to(vault))
+        rel_path = f.relative_to(vault).as_posix()
+        # 多库：同名条目只留先出现的（当前库在最前 → 当前库优先）。被覆盖的记下来，
+        # 不静默吞 —— “这条设定来自哪个库”必须永远可回答。
+        _nm = normalize_term(name)
+        if multi and _nm:
+            if _nm in seen_names:
+                index["skipped_same_name"].append(
+                    {"name": name, "kept": seen_names[_nm], "dropped": _label})
+                continue
+            seen_names[_nm] = _label
+        entry_key = ("%s/%s" % (_label, rel_path)) if multi else rel_path
 
         # 条目名本身作为精确词加入（优先匹配）
         name_term = normalize_term(name)
@@ -208,15 +256,19 @@ def build_index(vault_path, out_path=None, progress=None, persist=True):
         for term in terms:
             if term not in index["terms"]:
                 index["terms"][term] = []
-            if rel_path not in index["terms"][term]:
-                index["terms"][term].append(rel_path)
+            if entry_key not in index["terms"][term]:
+                index["terms"][term].append(entry_key)
 
-        index["entries"][rel_path] = {
+        index["entries"][entry_key] = {
             "name": name,
             "title": name,
             "tags": tags[:10],
             "snippet": snippet,
-            "path": rel_path,
+            "path": entry_key,
+            "rel": rel_path,
+            # 绝对根：多库时同一条 key 不再是“相对某个根”，重读正文要靠这一项
+            "root": str(vault.resolve()),
+            "vault": _label,
             "term_count": len(terms),
         }
 
@@ -281,12 +333,15 @@ def search(query, index=None, top_k=5, vault_path=None):
     ranked = sorted(scores.items(), key=lambda x: -x[1])[:top_k]
 
     results = []
-    vault = Path(vault_path) if vault_path else Path(index.get("vault_path", "") or ".")
+    vault = Path(vault_path) if vault_path and not isinstance(vault_path, (list, tuple)) \
+        else Path(index.get("vault_path", "") or ".")
 
     for path, score in ranked:
         entry = index["entries"].get(path, {})
-        # 尝试重新读取 snippet（保持最新）
-        full_path = vault / path
+        # 尝试重新读取 snippet（保持最新）。多库时每条自带绝对根与相对路径，
+        # 不能拿主根去拼 "库名/相对路径"（那个目录根本不存在）。
+        base = Path(entry["root"]) if entry.get("root") else vault
+        full_path = base / entry.get("rel", path)
         snippet = entry.get("snippet", "")
         if full_path.exists():
             try:
@@ -311,15 +366,16 @@ def search(query, index=None, top_k=5, vault_path=None):
 _MEM_CACHE = {"key": None, "index": None}
 
 
-def _vault_fingerprint(vault):
+def _vault_fingerprint(vault, skip_dirs=None):
     """vault 指纹：根路径 + 可索引文件数 + 最新 mtime。
 
     收集判据与 `build_index` 完全同源（都走 `get_skip_dirs`），指纹对不上就说明
     收集面变了（文件增删 / 改名 / 用户改了 skip_dirs 配置），必须重建索引。
     """
     vault = Path(vault)
+    skip = _skip_for(skip_dirs)
     md = [f for f in vault.rglob("*.md")
-          if not any(p in get_skip_dirs() for p in f.relative_to(vault).parts)]
+          if not any(p in skip for p in f.relative_to(vault).parts)]
     newest = max((f.stat().st_mtime for f in md if f.exists()), default=0.0)
     return (str(vault.resolve()), len(md), round(newest, 3))
 
@@ -348,17 +404,20 @@ def recall(query, vault_path, top_k=5, max_chars=600):
     """
     if not query or not str(query).strip() or not vault_path:
         return []
-    vault = Path(vault_path)
-    if not vault.exists():
+    roots = [(p, sk) for p, sk in _norm_roots(vault_path) if p.exists()]
+    if not roots:
         return []
 
     try:
-        key = _vault_fingerprint(vault)
+        # 多库指纹 = 每根的指纹按顺序拼起来：任一库文件变了都重建，
+        # 也不会因为“第一个库没变”而漏掉第二个库的新增。
+        key = tuple(_vault_fingerprint(p, sk) for p, sk in roots)
         if _MEM_CACHE["key"] != key:
-            _MEM_CACHE["index"] = build_index(str(vault), persist=False)
+            _MEM_CACHE["index"] = build_index(
+                [{"path": str(p), "skip_dirs": sk} for p, sk in roots], persist=False)
             _MEM_CACHE["key"] = key
         idx = _MEM_CACHE["index"]
-        hits = search(query, index=idx, top_k=top_k, vault_path=str(vault))
+        hits = search(query, index=idx, top_k=top_k, vault_path=str(roots[0][0]))
     except Exception:                                          # noqa: BLE001
         return []
 

@@ -1960,6 +1960,33 @@ async function addMaterial() {
   loadMaterials();
 }
 
+/* 酒馆资料导入（2026-11-07，竞品三路之二）：角色卡 .png/.json、世界书 .json。
+ * 只写 materials/raw，同名素材卡默认不覆盖；归并仍走阶段 1 与作者审批。 */
+async function importTavern() {
+  if (!window.mofangAPI?.openFileDialog) {
+    say("文件选择需通过 Electron 启动");
+    return;
+  }
+  const r = await window.mofangAPI.openFileDialog({
+    title: "导入酒馆角色卡 / 世界书（.png / .json）",
+    properties: ["openFile", "multiSelections"],
+    filters: [{ name: "酒馆资料", extensions: ["png", "json"] }],
+  });
+  if (!r.ok) return say(r.error || "选择文件失败");
+  const a = await api("/materials/import_tavern", "POST", { paths: r.paths || [] });
+  if (a.status === 200 && a.data.ok) {
+    let msg = `已导入 ${a.data.written} 张素材卡`;
+    if (a.data.skipped) msg += `，跳过 ${a.data.skipped} 个同名（不覆盖）`;
+    say(msg);
+  } else {
+    const why = (a.data.results || [])
+      .map((x) => x.error || ((x.skipped || [])[0] || {}).why || "")
+      .filter(Boolean).join("；");
+    say("导入失败: " + (a.data.error || why || a.status));
+  }
+  loadMaterials();
+}
+
 async function createMaterial() {
   const name = newMaterialName.value.trim();
   if (!name) return;
@@ -3919,12 +3946,13 @@ const vaultScan = ref({ loading: false, busy: false, ok: true, msg: "", data: nu
 const vaultCfg = ref({ loading: false, busy: false, ok: true, msg: "",
                        path: "", data: null });
 
-/* 多库（A 模型，2026-10-31 用户拍板）：**一次只有一个库生效**，这里只是书签列表。
- * 为什么不做"同时挂载"：导入设定集是整体替换语义，两个库都有"沈砚"时，
- * 一次误合并就覆盖掉用户手写的条目 —— 那是改设定，不是功能。
- * 当前库的真源仍是 system.local.yaml 的 vault_path；vaults.json 只存书签与每库排除项。 */
+/* 多库：2026-11-07 作者拍板改 B 模型（**多库同时读**）。
+ * 口径（写死在后端，前端只回显，别在界面上另算一套）：
+ *   - 当前库永远参与扫描，其余库按 enabled 开关（vaults.json 逐项）一起读；
+ *   - 同名条目以当前库优先，被覆盖的在“检查同名冲突”里点名；
+ *   - 停用/启用只改扫描范围，笔记文件一个都不动。 */
 const vaults = ref({ loading: false, busy: false, ok: true, msg: "", items: [],
-                     current: "" });
+                     current: "", model: "multi", activeCount: 0, scan: null });
 
 /* Agent 提问通道（2026-10-31）：外接 Agent 通过 MCP 的 nf_ask 提问，
  * 落在工作区 data/state/questions.json。**回答只能人点** ——
@@ -3971,6 +3999,8 @@ async function loadVaults() {
     if (r.status === 200 && r.data.ok) {
       vaults.value.items = r.data.items || [];
       vaults.value.current = r.data.current || "";
+      vaults.value.model = r.data.model || "multi";
+      vaults.value.activeCount = r.data.active_count || 0;
       vaults.value.ok = true;
     } else {
       vaults.value.ok = false;
@@ -3981,6 +4011,62 @@ async function loadVaults() {
     vaults.value.msg = "读取库列表失败: " + (e.message || e);
   }
   vaults.value.loading = false;
+}
+
+// 多库开关：只影响“这次扫描读不读它”，不改任何笔记文件。
+async function toggleVault(item) {
+  if (!item || item.current) return;
+  vaults.value.busy = true;
+  try {
+    const r = await api("/config/vaults/enable", "POST",
+                        { path: item.path, enabled: !item.enabled });
+    vaults.value.ok = !!(r.status === 200 && r.data.ok);
+    vaults.value.msg = vaults.value.ok ? (r.data.message || "已更新")
+      : ("没改成: " + (r.data.error || r.status));
+    if (vaults.value.ok) await loadVaults();
+  } catch (e) {
+    vaults.value.ok = false;
+    vaults.value.msg = "没改成: " + (e.message || e);
+  }
+  vaults.value.busy = false;
+}
+
+// single ↔ multi：切到 single 不删任何书签，只是回到“一次读一个”。
+async function setVaultModel(model) {
+  vaults.value.busy = true;
+  try {
+    const r = await api("/config/vaults/model", "POST", { model });
+    vaults.value.ok = !!(r.status === 200 && r.data.ok);
+    vaults.value.msg = vaults.value.ok ? (r.data.message || "已更新")
+      : ("没改成: " + (r.data.error || r.status));
+    if (vaults.value.ok) await loadVaults();
+  } catch (e) {
+    vaults.value.ok = false;
+    vaults.value.msg = "没改成: " + (e.message || e);
+  }
+  vaults.value.busy = false;
+}
+
+// 多库体检：每库篇数 + 同名冲突（当前库优先，被覆盖的点名）+ 书签里失效的目录。
+async function checkVaultConflicts() {
+  vaults.value.busy = true;
+  try {
+    const r = await api("/config/vaults/scan", "GET");
+    if (r.status === 200 && r.data.ok) {
+      vaults.value.scan = r.data;
+      const n = (r.data.conflicts || []).length;
+      vaults.value.ok = true;
+      vaults.value.msg = n ? ("扫到 " + n + " 条同名条目（已按当前库优先取用）")
+        : "没扫到同名条目";
+    } else {
+      vaults.value.ok = false;
+      vaults.value.msg = "体检失败: " + (r.data.error || r.status);
+    }
+  } catch (e) {
+    vaults.value.ok = false;
+    vaults.value.msg = "体检失败: " + (e.message || e);
+  }
+  vaults.value.busy = false;
 }
 
 async function switchVault(item) {
@@ -5493,7 +5579,7 @@ onUnmounted(() => {
     </div>
   </div>
 
-  <main class="content" :class="{ 'content-wide': tab === 'chapters' && chapterView === 'desk' }">
+  <main class="content">
     <!-- 预算暂停横幅 -->
     <div v-if="state?.budget?.paused" class="budget-banner">
       <span>⚠️ 预算已超限（已用 {{ fmtYuan(state.cost.spent_yuan) }} / 限额 {{ fmtYuan(state.cost.limit_yuan) }}）</span>
@@ -7312,19 +7398,35 @@ onUnmounted(() => {
              v-if="vaultCfg.msg">{{ vaultCfg.msg }}</div>
       </div>
 
-      <!-- 我的库（A 模型）：一次只有一个生效，切换是"换当前库"而不是"同时读多个" -->
+      <!-- 我的库（2026-11-07 改 B 模型）：多库同时读，当前库永远参与 -->
       <div class="vault-list-box" v-if="vaults.items.length">
         <div class="eng-head" style="margin-bottom: 6px;">
           <span class="eng-label">我的库</span>
           <span class="meta">共 {{ vaults.items.length }} 个 ·
-            <b>同一时刻只有一个生效</b>（切换只换"当前用哪个"，笔记文件不动）</span>
+            <template v-if="vaults.model === 'multi'">
+              <b>同时读 {{ vaults.activeCount }} 个</b>（当前库 + 已启用的库）
+            </template>
+            <template v-else>
+              <b>单库模式：一次只有一个生效</b>（切换只换“当前用哪个”）
+            </template>
+            · 只改扫描范围，笔记文件不动</span>
+          <span class="spacer"></span>
+          <button class="mini" :disabled="vaults.busy"
+                  @click="setVaultModel(vaults.model === 'multi' ? 'single' : 'multi')">
+            {{ vaults.model === 'multi' ? '改成单库模式' : '改成多库同时读' }}
+          </button>
+          <button class="mini" :disabled="vaults.busy" @click="checkVaultConflicts">
+            检查同名冲突
+          </button>
         </div>
         <div v-for="it in vaults.items" :key="it.path" class="vault-item"
-             :class="{ 'on': it.current, 'gone': !it.exists }">
+             :class="{ 'on': it.current, 'gone': !it.exists, off: !it.active }">
           <div class="vault-item-main">
             <div class="vault-item-name">
               {{ it.name }}
               <span v-if="it.current" class="vault-badge">正在使用</span>
+              <span v-else-if="it.active" class="vault-badge">参与扫描</span>
+              <span v-else class="vault-badge bad">已停用</span>
               <span v-if="!it.exists" class="vault-badge bad">目录不在了</span>
             </div>
             <div class="vault-item-path">{{ it.path }}</div>
@@ -7332,6 +7434,10 @@ onUnmounted(() => {
           <span class="meta" v-if="it.skip_dirs && it.skip_dirs.length">
             排除 {{ it.skip_dirs.length }} 个目录
           </span>
+          <button class="mini" v-if="vaults.model === 'multi' && !it.current"
+                  :disabled="vaults.busy || !it.exists" @click="toggleVault(it)">
+            {{ it.enabled ? '停用' : '启用' }}
+          </button>
           <button class="mini" v-if="!it.current" :disabled="vaults.busy || !it.exists"
                   @click="switchVault(it)">切到这个库</button>
           <button class="mini" v-if="!it.current" :disabled="vaults.busy"
@@ -7339,12 +7445,26 @@ onUnmounted(() => {
         </div>
         <div class="meta tl-msg" :class="vaults.ok ? 'ok' : 'bad'"
              v-if="vaults.msg">{{ vaults.msg }}</div>
+        <div v-if="vaults.scan" class="meta" style="margin-top: 6px;">
+          扫描面：角色 {{ vaults.scan.counts.characters }} · 世界观 {{ vaults.scan.counts.world }}
+          · 年表 {{ vaults.scan.counts.timeline }}
+          <template v-if="(vaults.scan.dead_roots || []).length">
+            · <b class="bad">{{ vaults.scan.dead_roots.length }} 个书签目录不在了</b>
+          </template>
+          <div v-for="c in (vaults.scan.conflicts || []).slice(0, 8)"
+               :key="c.name + c.kind" class="meta">
+            同名“{{ c.name }}”：用 {{ c.kept }} 的，忽略 {{ c.dropped }} 的
+          </div>
+          <div v-if="(vaults.scan.conflicts || []).length > 8" class="meta">
+            …另有 {{ vaults.scan.conflicts.length - 8 }} 条，完整清单在 data 里
+          </div>
+        </div>
       </div>
 
       <div class="meta" style="margin: 12px 0 8px;">
-        写作时会从这个库里检索你定稿的设定。下面列出库里扫到的目录 ——
+        写作时会从<b>当前库 + 已启用的库</b>里检索你定稿的设定。下面列出<b>当前库</b>扫到的目录 ——
         <b>勾掉的目录不进检索</b>（比如参考作品、草稿区）。目录名取自你的库本身，
-        不需要改任何配置文件。
+        不需要改任何配置文件。每个库的排除项各自独立保存。
       </div>
       <div v-if="vaultScan.loading" class="meta">读取中…</div>
       <div v-else-if="!vaultScan.data || !vaultScan.data.configured" class="meta">
@@ -7677,6 +7797,10 @@ onUnmounted(() => {
         <span class="meta">{{ materials.length }} 个素材</span>
         <span class="spacer"></span>
         <button class="mini" @click="addMaterial">添加素材</button>
+        <button class="mini" @click="importTavern"
+                title="导入酒馆（SillyTavern）角色卡 .png/.json 或世界书 .json，落成 materials/raw 的素材卡；同名不覆盖">
+          导入酒馆资料
+        </button>
         <button class="mini" @click="newMaterialOpen = !newMaterialOpen">新建素材</button>
         <!-- 撤回（2026-11-05，试跑第 6 条）：作者误拖后“狂按撤回键无效”。
              这里给一个真的撤回栈：移动搬回原目录、删除从回收站搬回。 -->

@@ -100,11 +100,30 @@ def case_graphs_use_style_not_attr():
     check("SVG 属性里没有写死的颜色", not bad, bad[:5])
 
 
+def case_content_width_single_lane():
+    print("\n【5】内容区宽度只有一档（B4 阶段 3，避免“大页面窄一档、审阅台宽一档”再分叉）")
+    css = (SRC / "style.css").read_text(encoding="utf-8")
+    defs = re.findall(r"--content-max\s*:\s*([0-9]+)px", css)
+    check("--content-max 只定义一次（当前 %s）" % (defs or "无"), len(defs) == 1, defs)
+    if defs:
+        check("宽度不小于 1560px（作者：不应该太窄）", int(defs[0]) >= 1560, defs[0])
+    m = re.search(r"\.content\s*\{[^}]*max-width\s*:\s*([^;]+);", css, re.S)
+    check(".content 的 max-width 走 var(--content-max)",
+          bool(m) and "var(--content-max)" in m.group(1), m.group(1).strip() if m else "没找到 .content 规则")
+    stray = []
+    for f in _components():
+        for no, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
+            if "content-wide" in line:
+                stray.append("%s:%d" % (f.name, no))
+    check("不再有第二档 .content-wide", not stray, stray[:5])
+
+
 def main():
     case_no_raw_hex()
     case_dark_theme_covers_viz()
     case_referenced_vars_exist()
     case_graphs_use_style_not_attr()
+    case_content_width_single_lane()
     print("\n" + "=" * 60)
     print("  通过 %d / 失败 %d" % (len(PASS), len(FAIL)))
     for f in FAIL:

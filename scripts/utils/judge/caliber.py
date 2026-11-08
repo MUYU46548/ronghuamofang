@@ -140,6 +140,19 @@ FACTORY = [
      "consumer": "rules.structure_metrics", "producer": "rules",
      "settled_by": "author",
      "note": "段落平均字数超此值 → 手机阅读吃力，提示抽样"},
+    # 事件分类表（2026-11-07，作者点名“判定勾选是用户做，不是开发的时候写死”）。
+    # 以前这四个分类名写死在 `utils/judge/records.py` 与 `JudgeEvents.vue` 两处，
+    # 作者想加一类（比如“时间”“地点”）只能改源码 —— 那是开发替作者定判断维度。
+    # 现在它是口径表里的一条**数据**：GUI 可增删改，判定只认表里的名字。
+    {"id": "J22", "name": "事件分类表", "kind": "结构",
+     "value": [
+         {"key": "人物处境", "eg": "被抓 / 受伤 / 被辞退 / 身份暴露"},
+         {"key": "信息占有", "eg": "得知真相 / 被瞒住 / 误会解开"},
+         {"key": "关系", "eg": "结盟 / 翻脸 / 背叛"},
+         {"key": "目标", "eg": "决定复仇 / 放弃 / 改主意"},
+     ],
+     "consumer": "author.events", "producer": "author", "settled_by": "author",
+     "note": "勾选事件时“它改变了什么”的选项；作者可增删改，判定只认这张表"},
 ]
 
 
@@ -191,6 +204,37 @@ def values(doc):
     return {c.get("id"): c.get("value") for c in (doc or {}).get("criteria") or []}
 
 
+# 老口径（v1）里没有 J22 时用的四个分类名。**只在读旧口径时生效**，
+# 来源会明确标成 legacy，界面照实说“分类表还没登记进口径”，不假装是作者定的。
+LEGACY_EVENT_CLASSES = ["人物处境", "信息占有", "关系", "目标"]
+
+
+def event_classes(doc):
+    """作者事件分类表 → (classes, source)。
+
+    `source` 两值：
+      - `caliber`：来自口径表 J22（作者可改，这是正常态）；
+      - `legacy`：老口径还没补登记，暂用出厂四个名字 —— 界面必须显示“未登记”，
+        并在“改标准”页给补登记按钮（`upgrade()` 会补 J22）。
+    """
+    for c in (doc or {}).get("criteria") or []:
+        if c.get("id") != "J22":
+            continue
+        v = c.get("value")
+        out = []
+        for item in (v if isinstance(v, list) else []):
+            if isinstance(item, dict):
+                key = str(item.get("key") or "").strip()
+                eg = str(item.get("eg") or "")
+            else:
+                key, eg = str(item or "").strip(), ""
+            if key:
+                out.append({"key": key, "eg": eg})
+        if out:
+            return out, "caliber"
+    return [{"key": k, "eg": ""} for k in LEGACY_EVENT_CLASSES], "legacy"
+
+
 def empty_criteria(doc):
     """空判据：consumer 缺失或不在白名单里（R04 AC-04-1）。"""
     bad = []
@@ -219,6 +263,32 @@ def coerce_value(current, new):
     return new
 
 
+def normalize_event_classes(value):
+    """把界面/接口传来的分类表收成 `[{key, eg}]`；不合法抛 ValueError。
+
+    这条是**作者的判断维度**，所以校验从严：空表、重名、空名字一律拒收
+    （静默丢掉一个分类 = 作者以为自己改成了，判定却按旧表跑）。
+    """
+    if not isinstance(value, list):
+        raise ValueError("事件分类表必须是列表")
+    out, seen = [], set()
+    for item in value:
+        if isinstance(item, dict):
+            key = str(item.get("key") or "").strip()
+            eg = str(item.get("eg") or "").strip()
+        else:
+            key, eg = str(item or "").strip(), ""
+        if not key:
+            raise ValueError("分类名不能为空")
+        if key in seen:
+            raise ValueError("分类名重复：%s" % key)
+        seen.add(key)
+        out.append({"key": key, "eg": eg})
+    if not out:
+        raise ValueError("至少要保留一个分类")
+    return out
+
+
 def update(root, changes, by="作者"):
     """改口径：只接受已登记的 id；改值即产新版本，旧版本进 history（只读）。
 
@@ -234,6 +304,12 @@ def update(root, changes, by="作者"):
         return False, {"error": "未登记的判据 id：%s（先登记再改值）" % "、".join(unknown)}
     clean = {}
     for k, v in (changes or {}).items():
+        if k == "J22":
+            try:
+                clean[k] = normalize_event_classes(v)
+            except ValueError as e:
+                return False, {"error": "事件分类表不合法：%s" % e}
+            continue
         try:
             clean[k] = coerce_value(by_id[k].get("value"), v)
         except (TypeError, ValueError):

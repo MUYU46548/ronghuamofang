@@ -2695,6 +2695,17 @@ class Handler(BaseHTTPRequestHandler):
             from utils import pause_flag
             self._send(200, {"ok": True, "on": pause_flag.is_requested(root=ROOT)})
             return
+        if p == "/intervene/history":
+            # 裁定账本（2026-11-08，竞品三路之三）：每次插话/被取走都留一条，
+            # 用完即删的指令也有痕迹可回放。
+            from utils import intervene as _iv_mod
+            q = self._query()
+            try:
+                lim = int((q.get("limit") or ["30"])[0])
+            except (TypeError, ValueError):
+                lim = 30
+            self._send(200, {"ok": True, "items": _iv_mod.history(root=ROOT, limit=lim)})
+            return
         if p == "/intervene":
             # 界面显示"有没有待用的插话"（零 token，只读一个 json）
             from utils import intervene as _iv_mod
@@ -2927,8 +2938,11 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/config/vault":
             # 库路径现状（含来源 / 篇数 / 是否像 Obsidian 库）
             self._send(*_dom(dom_project.handle_config_vault_get(self)))
+        elif p == "/config/vaults/scan":
+            # 多库体检：每库篇数 + 同名冲突 + 失效目录（零 token）
+            self._send(*_dom(dom_project.handle_config_vaults_scan(self)))
         elif p == "/config/vaults":
-            # 已知库列表（A 模型：一次只有一个生效，这里只是书签）
+            # 已知库列表（多库：当前库 + 已启用库一起读；这里含启用状态与模型）
             self._send(*_dom(dom_project.handle_config_vaults_get(self)))
         elif p == "/config/vault_probe":
             # 给 AI 的扫描证据包（目录/篇数/样本文件名/首行）——AI 提案、作者拍板
@@ -3088,9 +3102,15 @@ class Handler(BaseHTTPRequestHandler):
                 from utils import kb_index
                 if not _vault_ready(self):
                     return
-                vault_path = str(_kb_vault_path())
-                idx = kb_index.build_index(vault_path, str(ROOT / "data" / "state" / "kb_index.pkl"))
-                self._send(200, {"ok": True, "total_files": idx["total_files"], "terms": len(idx["terms"])})
+                # 2026-11-07（B3 B 模型）：多个库同时建索引。
+                from obsidian_bridge import get_vault_roots
+                roots = [{"path": r["path"], "skip_dirs": r.get("skip_dirs")}
+                         for r in get_vault_roots() if not r.get("missing")]
+                idx = kb_index.build_index(roots, str(ROOT / "data" / "state" / "kb_index.pkl"))
+                self._send(200, {"ok": True, "total_files": idx["total_files"],
+                                 "terms": len(idx["terms"]),
+                                 "vaults": idx.get("vaults") or [],
+                                 "conflicts": len(idx.get("skipped_same_name") or [])})
             except Exception as e:
                 self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
         elif p == "/proofread/report":
@@ -3951,11 +3971,17 @@ class Handler(BaseHTTPRequestHandler):
                 # 加入库列表（只登记，不切换）
                 self._send(*_dom(dom_project.handle_config_vaults_add(self, body)))
             elif p == "/config/vaults/switch":
-                # 换库（A 模型唯一动作：回写当前库排除项 → 切换 → 套用目标库排除项）
+                # 换当前库（回写当前库排除项 → 切换 → 套用目标库排除项；多库模型下只影响优先级）
                 self._send(*_dom(dom_project.handle_config_vaults_switch(self, body)))
             elif p == "/config/vaults/remove":
                 # 从列表移出（只删书签，不动笔记文件）
                 self._send(*_dom(dom_project.handle_config_vaults_remove(self, body)))
+            elif p == "/config/vaults/enable":
+                # 多库同时读：某库是否参与扫描（当前库不许关）
+                self._send(*_dom(dom_project.handle_config_vaults_enable(self, body)))
+            elif p == "/config/vaults/model":
+                # single / multi（写 system.local.yaml，不进 Git）
+                self._send(*_dom(dom_project.handle_config_vaults_model(self, body)))
             elif p == "/config/vault_dirs":
                 self._send(*_dom(dom_vdirs.handle_config_vault_dirs_save(self, body)))
             elif p == "/config/vault_skip_dirs":
@@ -4348,6 +4374,9 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(200, {"ok": True, "count": 0, "path": str(dec_path),
                                      "warning": "未收到有效决策（action 须为 accept/ignore）："
                                                 "批量精修前请至少接受一条审查发现"})
+            elif p == "/materials/import_tavern":
+                # 酒馆角色卡 / 世界书导入（只写 materials/raw，同名不覆盖）
+                self._send(*_dom(dom_materials.handle_materials_import_tavern(self, body)))
             elif p == "/materials/add":
                 # 添加素材：从外部路径复制到 raw/  (body: {src_path, overwrite?})
                 src_path = str(body.get("src_path") or "").strip()

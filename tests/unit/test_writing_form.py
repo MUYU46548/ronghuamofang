@@ -84,9 +84,14 @@ def case_essay_wiring():
     check("P7 散文段落块允许一句一段", "一句一段是合法的" in pa_e, pa_e[:80])
     check("P7 叙事段落块要求按情节单元", "情节单元" in pa_n, pa_n[:80])
     check("P7 两者都不为空且 no warning", not w_n and not w_e and st_e and pa_e)
+    # 2026-11-07（B8）：书信/单元的写法指导已接入 —— 不再回落叙事。
     st_l, pa_l, w_l = WF.style_blocks("letter", chosen="letter")
-    check("P7 未接的文体回落叙事并告警",
-          st_l == st_n and "尚未接入" in w_l, (len(st_l), w_l[:40]))
+    check("P7 书信走自己的写法指导（不再回落叙事）",
+          st_l != st_n and not w_l and "书信" in st_l, (len(st_l), w_l[:40]))
+    check("P7 书信段落块讲信纸停顿", "信纸" in pa_l, pa_l[:50])
+    st_ep, pa_ep, w_ep = WF.style_blocks("episodic", chosen="episodic")
+    check("P7 单元走自己的写法指导（不再回落叙事）",
+          st_ep != st_n and not w_ep and "一件小事" in st_ep, (len(st_ep), w_ep[:40]))
 
     # 真跑一遍 stage4 的任务构造（essay vs narrative）
     tmp = Path(tempfile.mkdtemp(prefix="nf_style_"))
@@ -247,15 +252,20 @@ def case_scope_and_entry():
     ok_empty, _ = PC.set_book_fields({"form": "  "})
     check("P9 空值拒写", not ok_empty)
 
-    print("\\n[P9] \u300c写法指导是否接入\u300d不能靠回落正文判断（会假报已接入）")
-    check("P9 叙事：已接入", WF.style_files_exist("narrative") is True)
-    check("P9 散文：已接入", WF.style_files_exist("essay") is True)
-    check("P9 书信：**未**接入（尽管 style_blocks 会回落出非空正文）",
-          WF.style_files_exist("letter") is False, WF.style_files_exist("letter"))
-    check("P9 单元：未接入", WF.style_files_exist("episodic") is False)
-    st_l, _pa_l, _w_l = WF.style_blocks("letter", chosen="letter")
-    check("P9 且回落时确实返回了非空正文（说明为什么不能拿非空当判据）",
-          len(st_l) > 0, len(st_l))
+    print("\\n[P9] \u300c写法指导是否接入\u300d判的是文件存在，不是“正文非空”")
+    for code in ("narrative", "essay", "letter", "episodic"):
+        check("P9 %s：已接入" % code, WF.style_files_exist(code) is True,
+              WF.style_files_exist(code))
+    # 反证：把工作目录换到没有 prompts/style 的临时目录，“正文非空”仍然成立，
+    # 但 style_files_exist 必须说 False —— 证明它判的是文件，不是回落出的文字。
+    _cwd = os.getcwd()
+    _tmp = Path(tempfile.mkdtemp(prefix="nf_style_missing_"))
+    try:
+        os.chdir(_tmp)
+        check("P9 反证：缺文件时 style_files_exist 为 False",
+              WF.style_files_exist("letter") is False, WF.style_files_exist("letter"))
+    finally:
+        os.chdir(_cwd)
 
 def main():
     print("=" * 62)

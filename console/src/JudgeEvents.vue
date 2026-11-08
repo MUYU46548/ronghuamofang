@@ -38,16 +38,22 @@ const props = defineProps({
   hint: { type: String, default: "" },          // “像同一场戏”的字面提示
   eventMin: { type: Number, default: 2 },
   densityNote: { type: String, default: "" },   // 章纲密度等只提示不改档的话
+  // 分类表来自口径表 J22（作者可改）。空 = 老接口/老口径 → 用出厂四类兜底，
+  // 并在下面显式提示“去改标准里定”，不假装那是作者定的。
+  classes: { type: Array, default: () => [] },
+  classSource: { type: String, default: "caliber" },
 });
 const emit = defineEmits(["say", "saved"]);
 
-// 四类：名字 + 一行例子（例子进 title，选中后显示在按钮下方）
-const CLASSES = [
+// 出厂四类：只在接口没给分类表时兜底（正常态由后端按 J22 送上来）
+const FALLBACK_CLASSES = [
   { key: "人物处境", eg: "被抓 / 受伤 / 被辞退 / 身份暴露" },
   { key: "信息占有", eg: "得知真相 / 被瞒住 / 误会解开" },
   { key: "关系", eg: "结盟 / 翻脸 / 背叛" },
   { key: "目标", eg: "决定复仇 / 放弃 / 改主意" },
 ];
+const CLASSES = computed(() =>
+  (props.classes && props.classes.length ? props.classes : FALLBACK_CLASSES));
 
 const checked = ref({});   // {index(0-based): true}
 const rejected = ref({});  // {index: true} —— 明确判定“这不算一件事”
@@ -110,7 +116,7 @@ async function save() {
   if (unclassified.value.length) {
     // R24 AC-24-1：类别空 → 不可提交，并说清缺哪几条
     err.value = "第 " + unclassified.value.map((k) => Number(k) + 1).join("、")
-      + " 条勾了但没说它改变了什么（四类必选一类）";
+      + " 条勾了但没说它改变了什么（下面选一类）";
     return;
   }
   busy.value = true;
@@ -169,6 +175,10 @@ async function save() {
       一章至少 <b>{{ eventMin }} 件</b>才算不是凑数的章 —— 这是“有没有推进”的人工关卡，
       系统自己测不了。
     </div>
+    <div v-if="events.length && classSource === 'legacy'" class="je-hint">
+      分类表还是出厂的四个名字（还没登记进你的判定标准）。
+      想加一类“时间”“地点”之类，去 章节 → 判定 → 改标准 → 事件分类表 —— 那里归你定。
+    </div>
 
     <div v-if="!events.length" class="je-empty">
       这一章章纲还没写“核心事件”—— 先回上面把它写清，这里才有得勾。
@@ -203,7 +213,7 @@ async function save() {
           </div>
           <div class="je-eg">
             {{ (CLASSES.find((c) => c.key === cls[ev.n - 1]) || {}).eg
-               || "四类必选一类（鼠标放上去有例子）" }}
+               || "选一类（鼠标放上去有例子）" }}
           </div>
           <input v-model="evd[ev.n - 1]" class="je-evidence"
                  placeholder="哪句原文能看出它变了（可留空 —— 留空不算进下限）" />

@@ -72,6 +72,15 @@ const paras = ref([]);
 const parasLoading = ref(false);
 const selPara = ref(null);
 const feedback = ref("");
+/* 快捷改法（2026-11-07，竞品三路之一）：书童的“选中一段 → 润色/扩写/改成对话/续写”。
+ * 这里不另开一套改写通道 —— 只是把常用意见**填进那个输入框**，作者仍可改字、仍要点
+ * “让 AI 只改这一段”才动手。填而不发，是为了不让一次误点花掉一次调用。 */
+const QUICK_EDITS = [
+  { label: "润色", text: "润色这一段：保留全部信息与事实，只收紧句子、去掉重复的形容，不新增情节。" },
+  { label: "扩写", text: "扩写这一段：补具体的感官细节（看到/听到/手上的触感），不新增人物与情节，篇幅增加不超过三成。" },
+  { label: "改成对话", text: "把这一段改成两人对话：保留原有信息与顺序，用说话人的动作代替旁白说明。" },
+  { label: "往下续", text: "保留原段落不动，在它后面接着往下写两百字左右：动作或对话推进，不要总结，不要煽情。" },
+];
 const refining = ref(false);
 const refineElapsed = ref(0);
 const refineResult = ref(null);
@@ -617,6 +626,12 @@ onUnmounted(() => {
               <div class="meta" v-else>
                 已选第 <b>{{ selPara + 1 }}</b> 段（{{ paras[selPara] ? paras[selPara].chars : 0 }} 字）
               </div>
+              <div class="ce-quick">
+                <button v-for="q in QUICK_EDITS" :key="q.label" class="mini ce-quick-btn"
+                        :disabled="refining || selPara === null"
+                        :title="q.text" @click="feedback = q.text">{{ q.label }}</button>
+                <span class="meta">点一下把意见填进下面（不会立刻花钱）</span>
+              </div>
               <textarea v-model="feedback" class="ce-feedback" :disabled="refining"
                         placeholder="这一段要怎么改？例如：把结尾的总结句删掉，改成她没说出口的动作描写。"></textarea>
               <button class="mini primary ce-batch-btn" :disabled="refining || selPara === null"
@@ -689,6 +704,10 @@ onUnmounted(() => {
    内联形态把侧卡收到 240、内边距收到 8px，正文多出约 100px。 */
 .ce-embedded .ce-body { padding: 8px 10px 10px; gap: 8px; }
 .ce-embedded .ce-side { width: 240px; gap: 8px; }
+/* 快捷改法在**内联侧栏**里只有 240px 宽：4 个按钮按 12px 字号会挤到第二行，
+   留一个孤零零的“往下续”很难看（2026-11-08 截图目检）。11px + 紧内边距一行放得下。 */
+.ce-quick { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin: 4px 0 6px; }
+.ce-quick-btn { font-size: 11px; padding: 2px 6px; }
 .ce-layer-pills { display: inline-flex; gap: 6px; margin-left: 4px; }
 .ce-pill { padding: 2px 8px; }
 .ce-pill.on { background: var(--accent, #6b8afd); color: #fff; border-color: transparent; }

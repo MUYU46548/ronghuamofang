@@ -173,6 +173,7 @@
              两处各写一份必然漂移。 -->
         <JudgeEvents :chapter="currentN" :events="judgeEvents" :hint="judgeHint"
                      :event-min="judgeMin"
+                     :classes="judgeClasses" :class-source="judgeClassSource"
                      @say="say" @saved="() => loadJudgeEvents(currentN)" />
       </div>
     </div>
@@ -227,6 +228,10 @@ const dirty = ref({});           // {n: true} 各章节脏状态
 // 那套完整分析（三稿对照、骨架命中），分章页不需要。
 const judgeEvents = ref([]);
 const judgeHint = ref("");
+// 分类表（作者在口径 J22 里定的）：章纲页与判定页必须拿到同一份，
+// 否则同一章在两处点出来的分类名会不一样。
+const judgeClasses = ref([]);
+const judgeClassSource = ref("caliber");
 const judgeMin = ref(2);
 
 // 表单
@@ -292,12 +297,14 @@ async function loadCurrent() {
 
 // 章纲事件 + 作者已勾记录（轻读）。章纲刚存过就要重拉：事件列表可能变了。
 async function loadJudgeEvents(n) {
-  if (!n) { judgeEvents.value = []; judgeHint.value = ""; return; }
+  if (!n) { judgeEvents.value = []; judgeHint.value = ""; judgeClasses.value = []; return; }
   const r = await api(`/judge/events?chapter=${n}&outline=1`);
   if (r.status === 200 && r.data.ok) {
     judgeEvents.value = r.data.outline_events || [];
     judgeHint.value = r.data.event_hint || "";
     judgeMin.value = r.data.event_min || 2;
+    judgeClasses.value = r.data.event_classes || [];
+    judgeClassSource.value = r.data.event_class_source || "caliber";
   } else {
     // 判定引擎不可用（例如还没跑过回测）不该让人以为"这章没有事件"
     judgeEvents.value = [];

@@ -149,13 +149,31 @@ async function exportList() {
   busy.value = false;
 }
 
+// 值可能是数字/字符串，也可能是**列表**（J22 事件分类表）。比较一律走 JSON，
+// 否则 [{}] 与 [{}] 的 String() 都是 "[object Object]" —— 改没改都判成“没改”。
+function sameValue(a, b) {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
 function caliberChanges() {
   const set = {};
   (caliber.value?.criteria || []).forEach((c) => {
     const v = calEdit.value[c.id];
-    if (v !== undefined && String(v) !== String(c.value)) set[c.id] = v;
+    if (v !== undefined && !sameValue(v, c.value)) set[c.id] = v;
   });
   return set;
+}
+
+// 事件分类表（J22）编辑：加一类 / 删一类。分类名与例子都归作者定。
+function addEventClass() {
+  if (!Array.isArray(calEdit.value.J22)) calEdit.value.J22 = [];
+  calEdit.value.J22.push({ key: "", eg: "" });
+  onCalChange();
+}
+function removeEventClass(i) {
+  if (!Array.isArray(calEdit.value.J22)) return;
+  calEdit.value.J22.splice(i, 1);
+  onCalChange();
 }
 
 let previewTimer = null;
@@ -309,7 +327,10 @@ async function openCaliber() {
   try {
     caliber.value = await call("GET", "/judge/caliber");
     const e = {};
-    (caliber.value.criteria || []).forEach((c) => { e[c.id] = c.value; });
+    (caliber.value.criteria || []).forEach((c) => {
+      // 列表要深拷贝：直接赋引用会把“编辑中”的值写进 caliber 原对象，取消都撤不回去
+      e[c.id] = Array.isArray(c.value) ? JSON.parse(JSON.stringify(c.value)) : c.value;
+    });
     calEdit.value = e;
     view.value = "caliber";
   } catch (e) { err.value = String(e.message || e); }
@@ -320,7 +341,7 @@ async function saveCaliber() {
   const set = {};
   (caliber.value.criteria || []).forEach((c) => {
     const v = calEdit.value[c.id];
-    if (v !== undefined && String(v) !== String(c.value)) set[c.id] = v;
+    if (v !== undefined && !sameValue(v, c.value)) set[c.id] = v;
   });
   if (!Object.keys(set).length) { emit("say", "没有改动"); return; }
   busy.value = true; err.value = "";
@@ -532,6 +553,8 @@ onMounted(loadReport);
       <!-- 事件勾选（F03b）：唯一硬门，系统不替作者数。
            2026-10-31 抽成 JudgeEvents 组件 —— 分章页（I3 的原位置）用的是同一份实现。 -->
       <JudgeEvents :chapter="detail.chapter" :events="detail.outline_events"
+                   :classes="detail.event_classes || []"
+                   :class-source="detail.event_class_source || 'caliber'"
                    :hint="detail.event_hint || ''"
                    :event-min="detail.event_min || 2"
                    :density-note="detail.density && detail.density.flagged ? detail.density.reason : ''"
@@ -707,7 +730,20 @@ onMounted(loadReport);
           <tr v-for="c in caliber.criteria" :key="c.id">
             <td>{{ c.id }} · {{ c.name }}</td>
             <td>
-              <input v-if="c.editable" v-model="calEdit[c.id]" class="judge-cal-input"
+              <!-- 事件分类表（J22）：这是**作者的判断维度**，所以不是只读标签，
+                   而是可增删改的列表。改完保存 = 产新口径版本，旧版进 history。 -->
+              <div v-if="c.id === 'J22'" class="judge-classedit">
+                <div v-for="(row, i) in (calEdit.J22 || [])" :key="i" class="judge-classrow">
+                  <input v-model="row.key" class="judge-cal-input" placeholder="分类名"
+                         @input="onCalChange" />
+                  <input v-model="row.eg" class="judge-cal-input" placeholder="一句例子（可空）"
+                         @input="onCalChange" />
+                  <button class="mini" title="删掉这一类" @click="removeEventClass(i)">删</button>
+                </div>
+                <div class="meta">勾选事件时“它改变了什么”就按这张表出选项；判定只认表里的名字。</div>
+                <button class="mini" @click="addEventClass">＋ 加一类</button>
+              </div>
+              <input v-else-if="c.editable" v-model="calEdit[c.id]" class="judge-cal-input"
                      @input="onCalChange" />
               <span v-else-if="c.producer === 'model'" class="meta">模型先出 · 你终裁</span>
               <span v-else class="meta">由你勾选（系统不测）</span>
@@ -736,6 +772,9 @@ onMounted(loadReport);
 
 <style scoped>
 .judge { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; }
+.judge-classedit { display: flex; flex-direction: column; gap: 6px; min-width: 260px; }
+.judge-classrow { display: flex; align-items: center; gap: 6px; }
+.judge-classrow .judge-cal-input { flex: 1; min-width: 80px; }
 .judge-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .judge-bar b { font-size: 14px; }
 .judge-sum { font-weight: 600; }

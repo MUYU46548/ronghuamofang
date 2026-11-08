@@ -163,6 +163,10 @@ def handle_judge_chapter(h):
             "metrics": analysis["metrics"], "outline_events": ev_rows,
             "event_hint": RU.similar_events_hint(events),
             "event_min": int(vals.get("J12", 2)),
+            # 分类表是**作者在口径表里定的**（J22），不是代码里的常量。
+            # source=legacy 说明老口径还没补登记；界面据此说“去改标准里补”。
+            "event_classes": C.event_classes(cal_doc)[0],
+            "event_class_source": C.event_classes(cal_doc)[1],
             "density": analysis["outline"]["density"],
             "landing": analysis["outline"]["landing"],
             "destroy": d, "paragraphs": paras,
@@ -217,6 +221,8 @@ def handle_judge_events_get(h):
                 payload["event_hint"] = RU.similar_events_hint(evs)
                 payload["event_min"] = int(
                     C.values(C.load(api.ROOT)).get("J12", 2))
+                payload["event_classes"] = C.event_classes(C.load(api.ROOT))[0]
+                payload["event_class_source"] = C.event_classes(C.load(api.ROOT))[1]
             return 200, payload
         return 200, {"ok": True,
                      "events": (R.load(api.ROOT).get("author") or {}).get("events") or {}}
@@ -238,6 +244,9 @@ def handle_judge_events_set(h, body):
                           (body or {}).get("rejected") or [],
                           (body or {}).get("total"))
         return 200, {"ok": True, "events": ev}
+    except ValueError as e:
+        # 分类名不在作者自己的分类表里（典型：改标准删了一类，旧界面还拿着它）
+        return 400, {"ok": False, "error": str(e)}
     except Exception as e:                                     # noqa: BLE001
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 

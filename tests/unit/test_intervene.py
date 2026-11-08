@@ -74,6 +74,18 @@ def main():
         check("I3 consume 之后文件没了", not p.exists())
         check("I3 再读就是 None", intervene.read(root=root) is None)
 
+        # ---- I7 裁定账本（2026-11-08，竞品三路之三）：用完即删也要留痕 ----
+        hist = intervene.history(root=root)
+        acts = [h.get("action") for h in hist]
+        check("I7 登记与取走都进流水", "set" in acts and "used" in acts, acts)
+        check("I7 流水里能看见插过什么",
+              any("第七章要收尾" in str(h.get("instruction")) for h in hist), hist[:3])
+        check("I7 流水是倒序（最近的在最前）", acts and acts[0] == "used", acts)
+        check("I7 再写一条也进流水",
+              intervene.write("再插一句", root=root) and
+              intervene.history(root=root)[0].get("action") == "set",
+              intervene.history(root=root)[:2])
+
         # ---- I5 渲染 ----
         block = intervene.render_block({"instruction": "少写景，多写对话\n结尾留白"})
         check("I5 标明作者当场要求", "作者当场要求" in block)
@@ -91,6 +103,7 @@ def main():
           "注入应发生在 write_task 之前")
     api_src = (ROOT / "scripts" / "nf_api.py").read_text(encoding="utf-8")
     check("I6 API 有登记端点", 'p == "/intervene"' in api_src)
+    check("I6 API 能读裁定账本", 'p == "/intervene/history"' in api_src)
     check("I6 没在跑时拒收", "现在没有流水线在跑" in api_src)
 
     print("-" * 66)

@@ -648,7 +648,7 @@ def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, p
     kb_context = ""
     try:
         from obsidian_bridge import (
-            scan_vault, inject_context, is_vault_configured, get_vault_path)
+            scan_vault_multi, inject_context, is_vault_configured, get_vault_roots)
         if not is_vault_configured():
             _kb_notice_once(
                 "[stage4] 提示：未配置 obsidian.vault_path，本次写作**未启用**知识库"
@@ -658,8 +658,17 @@ def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, p
             rm = re.search(r"涉及角色[：:]\s*(.+)", outline_text)
             query = rm.group(1)[:100] if rm else outline_text[:100]
 
-            # 通道A（既有）：name/tags 精确匹配 —— 标准布局下快、带 locked 语义
-            ctx_a = inject_context(query, vault_data=scan_vault(), top_k=5)
+            # 通道A（既有）：name/tags 精确匹配 —— 标准布局下快、带 locked 语义。
+            # 2026-11-07 起走 scan_vault_multi：多库同时读（当前库优先，同名条目在
+            # meta.conflicts 里点名）；只有一个库时与旧实现逐字等价。
+            vault_data = scan_vault_multi()
+            ctx_a = inject_context(query, vault_data=vault_data, top_k=5)
+            _conf = (vault_data.get("meta") or {}).get("conflicts") or []
+            if _conf:
+                _kb_notice_once(
+                    "[stage4] 多库提示：%d 条同名条目来自多个库，已按“当前库优先”取用"
+                    "（被覆盖的写在扫描 metadata 的 conflicts 里，可在设置页“检查同名冲突”看）：%s"
+                    % (len(_conf), "、".join(str(c.get("name")) for c in _conf[:5])))
 
             # 通道B（2026-10-24）：**全文倒排召回** —— 扫描准入靠目录名的老通道
             # 对非标准布局的 vault 一条都扫不到（实测某真实库 scan_vault = 0 条），
@@ -670,8 +679,9 @@ def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, p
             ctx_b = ""
             try:
                 from utils import kb_index
-                hits = kb_index.recall(query, get_vault_path(),
-                                       top_k=5, max_chars=600)
+                _roots = [{"path": r["path"], "skip_dirs": r.get("skip_dirs")}
+                          for r in get_vault_roots() if not r.get("missing")]
+                hits = kb_index.recall(query, _roots, top_k=5, max_chars=600)
                 b_parts = []
                 for _p, name, snip, score in hits:
                     if name and name in ctx_a:      # A 已覆盖的不重复注入
