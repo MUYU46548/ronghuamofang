@@ -531,7 +531,9 @@ function switchTab(t) {
     if (settingsTab.value === "diag") loadFactory();   // 出厂内容：停在诊断页时重读
   }
   if (t === "materials") loadMaterials();
-  if (t === "chapters" && !chaptersLoaded.value) loadChapters();
+  // 每次进章节页都按盘上重读（问题总账第 7 条）：CLI / 外部 Agent / 阶段重跑会改这些文件，
+  // “加载过一次就永远不重读”等于让界面自己当第二份真源。40 章 = 120 次本地请求，约几百毫秒。
+  if (t === "chapters") loadChapters();
   if (t === "story") loadSetting();
   if (t === "outline_chapters") loadOutlineChapters();
   if (t === "export") refreshExportState();
@@ -4890,30 +4892,79 @@ async function submitFactoryClean() {
   }
 }
 
-async function loadChapters() {
-  // 章数从 config/project.yaml 读（白名单允许 config/*.yaml）
-  let total = 3;
-  const cfg = await window.mofangAPI.readPreview("config/project.yaml");
-  if (cfg.ok) {
-    const m = cfg.content.match(/^\s*chapters:\s*(\d+)/m);
-    if (m) total = parseInt(m[1], 10);
-    // 读取质量阈值
-    const tm = cfg.content.match(/quality_threshold:\s*([\d.]+)/);
-    if (tm) chapterThreshold.value = parseFloat(tm[1]);
+/* ---------- 章节列表：三层正文的**单一取数入口**（问题总账第 7 条，2026-11-12） ----------
+ *
+ * 病：每个章节行以前都用 `window.mofangAPI.readPreview()`（Electron 主进程 IPC）把全书
+ * 3×N 个文件全文读进内存，且**只在保存那一刻**刷这一行。于是有两处第二真源：
+ *   ① 浏览器 / headless 验收里没有这个通道，垫片只能编字符串 —— 界面数字来自假数据；
+ *   ② CLI、外部 Agent、阶段重跑改了盘上的章，界面永远不知道（要手动重载整页）。
+ * 现在统一走 HTTP `/chapters/content`，与编辑器、与盘上同一份真相（都由 ROOT 派生）。
+ */
+async function reloadChapterRow(n) {
+  const files = { raw: null, checked: null, refined: null };
+  // 先问“哪一层存在”，再取正文：不存在的层直接不请求。
+  // 早先无条件三连取会用 404 表示“没有这一层”，浏览器控制台满屏红字、
+  // 而“失败请求”里也混进了一堆正常的“没这一层”。
+  const meta = await api("/chapters/layers?n=" + n);
+  const layers = (meta.status === 200 && meta.data && meta.data.ok)
+    ? (meta.data.layers || {}) : {};
+  for (const layer of ["raw", "checked", "refined"]) {
+    if (!(layers[layer] && layers[layer].exists)) continue;
+    const r = await api("/chapters/content?n=" + n + "&layer=" + layer);
+    files[layer] = (r.status === 200 && r.data && r.data.ok) ? (r.data.content || "") : null;
   }
+  return { n, files };
+}
+
+/* 盘上被改过之后的**唯一收口**：重读这一行 + 让打开着的编辑器重读（见 chapterEpoch）。
+   `bumpEditor=false` 用于“编辑器自己刚保存”的那一次 —— 它已经自己回读过了，
+   再触发一次只会多读一遍盘（同一个真相读两次也是浪费）。 */
+async function afterExternalChapterWrite(n, why, bumpEditor = true) {
+  const cur = chapters.value.find((c) => c.n === n);
+  if (cur) {
+    const row = await reloadChapterRow(n);
+    cur.files = row.files;
+  }
+  if (bumpEditor) chapterEpoch.value += 1;   // ChapterEditor 监听它 → 从盘上重读当前章
+  loadChapterQuality();
+  if (why) say(why);
+}
+
+let chaptersLoading = false;
+
+async function loadChapters() {
+  if (chaptersLoading) return;          // 连点页签/审阅按钮时别并发读三遍
+  chaptersLoading = true;
+  try {
+    await _loadChapters();
+  } finally {
+    chaptersLoading = false;
+  }
+}
+
+async function _loadChapters() {
+  // 章数从 /config/project 读（HTTP，与“项目”页签同一来源）。
+  // 旧实现读 `config/project.yaml` 文本再正则 —— 浏览器里没有文件通道时章数恒为 3，
+  // 40 章的书只列出 3 行且不报错。
+  let total = 3;
+  const cfg = await api("/config/project");
+  if (cfg.status === 200 && cfg.data && cfg.data.ok) {
+    const book = (cfg.data.config || {}).book || {};
+    if (book.chapters) total = Number(book.chapters) || 3;
+  }
+  // 质量阈值仍从 config/project.yaml 文本里读（没有对应端点）；读不到用默认 6，
+  // **不因此中断章节列表**（以前 IPC 抛错会让整段列表都不生成）。
+  try {
+    const raw = await (window.mofangAPI && window.mofangAPI.readPreview
+      ? window.mofangAPI.readPreview("config/project.yaml") : Promise.resolve({ ok: false }));
+    if (raw && raw.ok) {
+      const tm = String(raw.content || "").match(/quality_threshold:\s*([\d.]+)/);
+      if (tm) chapterThreshold.value = parseFloat(tm[1]);
+    }
+  } catch (e) { /* 阈值只影响配色，读不到就用默认值 */ }
   const list = [];
   for (let n = 1; n <= total; n++) {
-    const nn = String(n).padStart(2, "0");
-    const files = {};
-    for (const [k, rel] of Object.entries({
-      raw: "data/chapters/raw/" + nn + ".md",
-      checked: "data/chapters/checked/" + nn + ".md",
-      refined: "data/chapters/refined/" + nn + ".md",
-    })) {
-      const r = await window.mofangAPI.readPreview(rel);
-      files[k] = r.ok ? r.content : null;
-    }
-    list.push({ n, files });
+    list.push(await reloadChapterRow(n));
   }
   chapters.value = list;
   chaptersLoaded.value = true;
@@ -4924,6 +4975,10 @@ async function loadChapters() {
 }
 /* ---------- 章节编辑器（2026-10-26，用户第 1 条“没有自带编辑器”） ---------- */
 const editorN = ref(null);
+/* 外部写盘计数器（问题总账第 7 条）：历史回退 / 整章重写 / 别处改稿之后 +1，
+   打开着的 ChapterEditor 监听它 → 从盘上重读。没有它，编辑器里的 `text` 就是
+   第二份真源：盘上已经回退成 v2，界面还在显示 v3，下一次保存再撞 409。 */
+const chapterEpoch = ref(0);
 /* 章节页签的两个视图：list（原有列表）/ desk（三栏审阅台）。
    默认列表 —— 不给老用户换掉他熟悉的界面；想审阅时再切。 */
 const chapterView = ref("list");
@@ -4945,20 +5000,12 @@ function openEditor(n) {
   editorN.value = n;
 }
 /* 保存后只重载这一章的三层（loadChapters 会把全书 3×N 个文件全读一遍，
-   40 章就是 120 次 IPC —— 改一个字刷新整本书的列表太重）。 */
+   40 章就是 120 次请求 —— 改一个字刷新整本书的列表太重）。
+   2026-11-12：改为走 `afterExternalChapterWrite` 的同一入口（HTTP 取数 +
+   通知打开着的编辑器），不再用 Electron 独有的 `readPreview`；顺带把失败说出来，
+   而不是静默留一份旧行。 */
 async function onChapterSaved(n) {
-  const nn = String(n).padStart(2, "0");
-  const cur = chapters.value.find((c) => c.n === n);
-  if (!cur) return;
-  for (const [k, rel] of Object.entries({
-    raw: "data/chapters/raw/" + nn + ".md",
-    checked: "data/chapters/checked/" + nn + ".md",
-    refined: "data/chapters/refined/" + nn + ".md",
-  })) {
-    const r = await window.mofangAPI.readPreview(rel);
-    cur.files[k] = r.ok ? r.content : null;
-  }
-  loadChapterQuality();
+  await afterExternalChapterWrite(n, "", false);
 }
 
 /* ---- 重写本章（2026-10-26，用户：“如何整章重写？我想随便找一章跑”） ----
@@ -4973,7 +5020,8 @@ const rewriting = ref(null);        // 正在重写的章号（null = 没在重�
 /* 重写完成后的统一收尾（SSE 与轮询两条路共用，避免两份逻辑漂移）。 */
 async function _reportRewrite(n, state, result) {
   rewriting.value = null;
-  await onChapterSaved(n);
+  // 重写是“盘上变了”最典型的一次：列表行 + 打开着的编辑器（也许正开着这一章）都要重读。
+  await afterExternalChapterWrite(n, "", true);
   loadChapterQuality();
   if (state !== "ok") {
     say("第 " + n + " 章重写失败：" + (result || "未知错误"));
@@ -5327,8 +5375,9 @@ async function restoreChapterVersion(v) {
   histBusy.value = false;
   if (r.status === 200 && r.data.ok) {
     histOpen.value = false;
-    say(r.data.message);
-    await loadChapters();
+    // 2026-11-12（第 7 条）：回退也是“盘上变了”。以前这里只 loadChapters()，
+    // 打开着的编辑器仍在显示回退前的稿子（下次保存还会撞 409）。
+    await afterExternalChapterWrite(n, r.data.message || ("已回退第 " + n + " 章"));
   } else {
     say("回退失败: " + (r.data?.message || r.data?.error || r.status));
   }
@@ -6298,6 +6347,7 @@ onUnmounted(() => {
       </div>
 
       <ChapterDesk v-if="chapterView === 'desk'" :api="api" :chapters="chapters" :self-engine="selfEngine"
+                   :epoch="chapterEpoch"
                    :quality="chapterQuality" :initial-chapter="deskChapter" @say="say" />
       <template v-else>
       <!-- 多写几版再挑（B2，2026-11-06）：低分章重写时生成 3 个候选，
@@ -6466,6 +6516,7 @@ onUnmounted(() => {
       <!-- 章节编辑器（2026-10-26）：就地编辑 + 段落批改，写前自动备份。
            放在 template 外 —— 列表视图与审阅台都要能随时打开它。 -->
       <ChapterEditor v-if="editorN" :self-engine="selfEngine" :api="api" :n="editorN"
+                     :epoch="chapterEpoch"
                      @say="say" @close="editorN = null" @saved="onChapterSaved" />
     </section>
 

@@ -525,12 +525,12 @@ def handle_chapters_history(h):
         if not str(raw_n).strip().isdigit():
             return 400, {"ok": False, "error": "n 必填且为章节号（如 ?n=3）"}
         n = int(raw_n)
-        versions = api.refine_ch_mod.list_versions(n)
-        target = api.refine_ch_mod._pick_chapter_path(n)
+        versions = api.refine_ch_mod.list_versions(n, root=api.ROOT)
+        target = api.refine_ch_mod._pick_chapter_path(n, root=api.ROOT)
         return 200, {
             "ok": True, "n": n,
             "current": str(target) if target else None,
-            "history_dir": str(api.refine_ch_mod.HISTORY_DIR),
+            "history_dir": str(api.refine_ch_mod._history_dir(api.ROOT)),
             "count": len(versions),
             "versions": versions,
         }

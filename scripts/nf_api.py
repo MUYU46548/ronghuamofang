@@ -1995,7 +1995,7 @@ def act_refine_chapter(chapter, feedback, dry_run):
     cfg, proj = load_all()
     ok, msg = refine_chapter.run_refine(cfg, proj, chapter, feedback or "",
                                         client=_client_for_env(cfg, "default"),
-                                        dry_run=dry_run)
+                                        dry_run=dry_run, root=ROOT)
     return ok, msg
 
 
@@ -4063,7 +4063,9 @@ class Handler(BaseHTTPRequestHandler):
                     self._send(400, {"error": "version 必填且为版本号"})
                     return
                 n, ver = int(raw_n), int(raw_v)
-                ok_r, msg_r = refine_ch_mod.restore_version(n, ver)
+                # 2026-11-12（路B 实测）：历史上这里不传 root，restore 用 CWD 相对路径 →
+                # `--root` 下回退写到**另一个项目**。现在一律显式传 ROOT。
+                ok_r, msg_r = refine_ch_mod.restore_version(n, ver, root=ROOT)
                 self._send(200 if ok_r else 400, {"ok": ok_r, "message": msg_r})
             elif p == "/snapshot":
                 label = str(body.get("label") or "")

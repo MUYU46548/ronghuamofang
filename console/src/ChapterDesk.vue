@@ -33,6 +33,9 @@ const props = defineProps({
   initialChapter: { type: Number, default: 1 },
   // 透传给内联编辑器：self 引擎下段落重写不可用（按钮禁用 + 说明）
   selfEngine: { type: Boolean, default: false },
+  // 外部写盘计数器（问题总账第 7 条）：历史回退 / 整章重写后，中栏编辑器要按盘上重读。
+  // 不传下去 = 审阅台上显示的还是回退前的稿子（“两份真源”最典型的一处）。
+  epoch: { type: Number, default: 0 },
 });
 const emit = defineEmits(["say"]);
 
@@ -325,7 +328,7 @@ onMounted(() => {
             <button class="mini danger" @click="discardThenSwitch">丢弃改动并切换</button>
             <button class="mini primary" @click="saveThenSwitch">保存并切换</button>
           </div>
-          <ChapterEditor ref="editorRef" :api="api" :n="n" :self-engine="selfEngine" embedded @say="(m) => emit('say', m)" />
+          <ChapterEditor ref="editorRef" :api="api" :n="n" :self-engine="selfEngine" :epoch="epoch" embedded @say="(m) => emit('say', m)" />
         </div>
       </template>
       <!-- 没有章节时不渲染编辑器：否则它会对不存在的章反复报 404，

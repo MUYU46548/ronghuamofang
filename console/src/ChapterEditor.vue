@@ -42,6 +42,9 @@ const props = defineProps({
   // embedded=true：不画遮罩、不占满屏，作为“审阅台”的中栏内联使用。
   // 同一份实现服务两个场景，避免“抽屉版”和“内联版”两份代码漂移。
   embedded: { type: Boolean, default: false },
+  // 外部写盘计数器（问题总账第 7 条）：父组件在“历史回退 / 整章重写 / 别处改稿”
+  // 之后 +1。没有它，本组件里的 `text` 就是第二份真源：盘上已回退，界面还显示旧稿。
+  epoch: { type: Number, default: 0 },
 });
 const emit = defineEmits(["say", "close", "saved"]);
 
@@ -69,7 +72,8 @@ const savedText = ref("");
 const dirty = computed(() => text.value !== savedText.value);
 // 审阅台切章前要能问一句“有未保存的改动”——把 dirty 暴露出去，
 // 不让父组件靠猜（猜错就是用户改的一整章凭空消失）。
-defineExpose({ dirty, save });
+// reload：外部写盘后按盘上重读（父组件也可以用 epoch 触发，见 watch）；dirty 时不静默覆盖。
+defineExpose({ dirty, save, reload: () => reloadFromDisk() });
 
 const paras = ref([]);
 const parasLoading = ref(false);
@@ -282,6 +286,18 @@ async function switchLayer(l) {
   if (mode.value === "batch") await loadParas();
 }
 
+/* 按盘上重读（外部写盘后用）。**有未保存改动时不静默覆盖** —— 直接覆盖等于把
+   作者刚打的字丢掉，而这正是“两份真源”最伤人的那一种表现。 */
+async function reloadFromDisk() {
+  if (dirty.value) {
+    warn.value = "盘上这一章已经被别的操作改过，但你这里有未保存的改动 —— "
+      + "先保存或丢弃，再点“重新加载”。";
+    return false;
+  }
+  await loadLayers();
+  return true;
+}
+
 async function save() {
   if (busy.value || !dirty.value) return;
   busy.value = true;
@@ -300,7 +316,8 @@ async function save() {
       err.value = (r.data && r.data.error) || ("保存失败 HTTP " + r.status);
       return;
     }
-    text.value = text.value;            // 服务端已归一化，重新读一次才是真相
+    // 服务端会做标点归一化、缺章标题自动补 —— **落盘的才是真相**，所以重读一次
+    // （以前这里写的是 `text.value = text.value;`，看着像重读，其实什么也没做）。
     await loadContent();
     if (r.data.title_added) {
       emit("say", "已保存（缺章标题，已按格式自动补上）");
@@ -601,6 +618,13 @@ function onKey(e) {
 }
 
 watch(mode, () => { nextTick(() => { if (areaRef.value) areaRef.value.focus(); }); });
+// 外部写盘（问题总账第 7 条）：历史回退 / 整章重写 / 别处改稿 → 父组件 +1 epoch。
+// 有未保存改动时**不覆盖**，只在告知栏里说清（静默覆盖 = 作者的字凭空消失）。
+watch(() => props.epoch, async (nv, ov) => {
+  if (nv === ov) return;
+  const ok = await reloadFromDisk();
+  if (ok) emit("say", "盘上这一章变了，已按最新内容重新读取");
+});
 // 审阅台里左右栏切换章号 → 同一实例换内容（不重建组件，避免遮罩闪一下）
 watch(() => props.n, async (nv, ov) => {
   if (nv === ov) return;

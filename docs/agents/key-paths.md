@@ -53,6 +53,12 @@
   卡数 / 大纲实体落点 / 前两个宇宙零词重叠 / 脱敏声明 / 文件名与专名一致）。
   它存在的意义是**换一整套专名，判据照样成立** —— 一套夹具证明不了流水线不过拟合
 - 章节修订历史：`data/chapters/history/`（refine_chapter.py 每次精修备份 chNN_vM.md）
+  ⚠️ **读写两侧都得跟 ROOT**（2026-11-12 修）：保存走 `nf_api_domains/chapters._history_dir()`（= `api.ROOT`），
+  而列版本 / 回退原来走 `refine_chapter.HISTORY_DIR` 与 `_pick_chapter_path()` 的 **CWD 相对**路径 →
+  `--root` 下“历史页永远空、回退写到另一个项目”。现在这些函数接受**显式 `root=`**，API 侧一律传 `api.ROOT`，
+  不传 = 老行为（cwd）。**别改成模块级全局** —— 任何在进程内 `import nf_api` 的代码都会把它钉死，
+  用例 `chdir` 到沙盒后就找不到章（这条是被 `test_stage4_ch14_fixes` 当场打回后定下的）。
+  判据 `tests/unit/test_ui_state_sources.py` B 段。⚠️ `refine_paragraph`（段落精修历史）**仍是旧写法**，未修。
 - 单章字数区间：`config/system.yaml` 的 `chapter.target_words`（**列表** `[low, high]`，出厂 [4000,7200]（只计汉字；2026-11-05 口径折算）；
   `GET/POST /config/target_words` 读写，GUI 设置页同源。判据与边界见“止烧与安全闸门”节）
 - **作品级写作约束**：`data/writing_rules.md`（每本书一份，随书归档走；不进 Git）

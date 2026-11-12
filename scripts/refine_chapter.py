@@ -32,7 +32,27 @@ from utils.template_loader import load_template
 from utils.config_io import load_config_yaml
 from utils.text_norm import normalize_chapter_file
 
+#: 兼容旧引用（外部有 `refine_chapter.HISTORY_DIR` 的读法）；**新代码请走 `_history_dir()`**。
 HISTORY_DIR = Path("data/chapters/history")
+
+
+def _base(root=None):
+    """路径基准：显式传 `root`（API 侧一律传 `api.ROOT`），否则用当前目录（CLI 直跑）。
+
+    ## 为什么是显式参数，不是模块级全局（2026-11-12，路B 实测后改）
+
+    先试过“模块级 `ROOT` + `nf_api._set_root` 刷新”，当场被既有用例打回：任何在
+    进程内 `import nf_api` 的代码（测试、工具脚本）都会把全局钉死在仓库根，
+    之后用例 `os.chdir(沙盒)` 再调本模块就找不到章节 —— **隐式全局会隔着几层
+    改别人的行为**。改成显式参数后：不传 = 老行为（cwd），传了 = 跟那个根走，
+    调用点一眼看得出用的是哪个项目（与 `setting_versions.list_versions(root=...)` 同一套写法）。
+    """
+    return Path(root) if root else Path(".")
+
+
+def _history_dir(root=None):
+    """章节历史目录（跟 `root` 走，默认 cwd）。"""
+    return _base(root) / "data" / "chapters" / "history"
 QUALITY_RE = re.compile(r"<!--\s*quality:\s*(\d+(?:\.\d+)?)")
 VERSION_RE = re.compile(r"^ch(\d{2})_v(\d+)\.md$")
 
@@ -54,34 +74,35 @@ def _norm(path, chapter=None):
         print(f"[refine_ch] 第{chapter}章标点归一化（{detail}）")
 
 
-def _pick_chapter_path(n):
-    """按 refined > checked > raw 优先级定位章节文件。"""
+def _pick_chapter_path(n, root=None):
+    """按 refined > checked > raw 优先级定位章节文件（跟 `root` 走，默认 cwd）。"""
+    base = _base(root)
     for d in ("data/chapters/refined", "data/chapters/checked", "data/chapters/raw"):
-        p = Path(d) / f"{n:02d}.md"
+        p = base / d / f"{n:02d}.md"
         if p.exists():
             return p
     return None
 
 
-def _next_version(chapter):
+def _next_version(chapter, root=None):
     """该章已有备份数 + 1。"""
-    HISTORY_DIR.mkdir(parents=True, exist_ok=True)
-    nums = [int(m.group(1)) for p in HISTORY_DIR.glob(f"ch{chapter:02d}_v*.md")
+    _history_dir(root).mkdir(parents=True, exist_ok=True)
+    nums = [int(m.group(1)) for p in _history_dir(root).glob(f"ch{chapter:02d}_v*.md")
             if (m := re.match(rf"ch{chapter:02d}_v(\d+)\.md", p.name))]
     return (max(nums) + 1) if nums else 1
 
 
 # ---------------------------------------------------------------- 版本回退
 
-def list_versions(chapter):
+def list_versions(chapter, root=None):
     """列出某章的历史版本（新 → 旧）。
 
     返回 [{"version", "file", "size", "words", "mtime", "quality"}]。
     只认 chNN_vM.md，且只认属于本章的（避免读到 ch1 的 v12 误配 ch12）。
     """
-    HISTORY_DIR.mkdir(parents=True, exist_ok=True)
+    _history_dir(root).mkdir(parents=True, exist_ok=True)
     out = []
-    for p in HISTORY_DIR.glob(f"ch{chapter:02d}_v*.md"):
+    for p in _history_dir(root).glob(f"ch{chapter:02d}_v*.md"):
         m = VERSION_RE.match(p.name)
         if not m or int(m.group(1)) != chapter:
             continue
@@ -103,7 +124,7 @@ def list_versions(chapter):
     return out
 
 
-def restore_version(chapter, version):
+def restore_version(chapter, version, root=None):
     """把第 chapter 章回退到历史版本 version。
 
     安全纪律：
@@ -112,14 +133,14 @@ def restore_version(chapter, version):
     - 当前稿不存在（raw/checked/refined 皆无）→ 报错不动作。
     返回 (ok, message)。
     """
-    history = HISTORY_DIR / f"ch{chapter:02d}_v{int(version)}.md"
+    history = _history_dir(root) / f"ch{chapter:02d}_v{int(version)}.md"
     if not history.exists():
         avail = [v["version"] for v in list_versions(chapter)]
         return False, ("第 %d 章无 v%s 版本（现有：%s）"
                        % (chapter, version,
                           "、".join("v%d" % v for v in avail) or "无任何备份"))
 
-    target = _pick_chapter_path(chapter)
+    target = _pick_chapter_path(chapter, root)
     if target is None:
         # 当前无章节文件：恢复到最高优先级目录（refined 优先）
         for d in ("data/chapters/refined", "data/chapters/checked", "data/chapters/raw"):
@@ -132,8 +153,8 @@ def restore_version(chapter, version):
 
     saved_note = ""
     if target.exists():
-        keep = _next_version(chapter)
-        keep_path = HISTORY_DIR / f"ch{chapter:02d}_v{keep}.md"
+        keep = _next_version(chapter, root)
+        keep_path = _history_dir(root) / f"ch{chapter:02d}_v{keep}.md"
         shutil.copy2(target, keep_path)
         saved_note = "；回退前当前稿已存为 v%d" % keep
 
@@ -166,15 +187,15 @@ def build_task(cfg, proj, chapter, feedback, version, chap_path, outline_path):
 
 
 def run_refine(cfg, proj, chapter, feedback, client=None, task_dir=None,
-               dry_run=False, outline_path="data/outline/chapters"):
+               dry_run=False, outline_path="data/outline/chapters", root=None):
     client = client or make_client(cfg, "default")
-    chap_path = _pick_chapter_path(chapter)
+    chap_path = _pick_chapter_path(chapter, root)
     if chap_path is None:
         return False, f"第 {chapter} 章不存在（raw/checked/refined 均无）"
 
-    version = _next_version(chapter)
-    HISTORY_DIR.mkdir(parents=True, exist_ok=True)
-    backup = HISTORY_DIR / f"ch{chapter:02d}_v{version}.md"
+    version = _next_version(chapter, root)
+    _history_dir(root).mkdir(parents=True, exist_ok=True)
+    backup = _history_dir(root) / f"ch{chapter:02d}_v{version}.md"
     shutil.copy2(chap_path, backup)
     print(f"[refine_ch] 已备份 → {backup}（v{version}）")
 
