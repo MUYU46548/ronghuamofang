@@ -22,6 +22,7 @@ nf_api（--allow-fake），所有读写都落在临时目录。
 import ast
 import io
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -37,6 +38,8 @@ ROOT = Path(__file__).resolve().parents[2]
 PY = sys.executable
 PORT = 8931
 BASE = "http://127.0.0.1:%d" % PORT
+#: 夹具里扮演"作者在界面上点"的那个令牌（服务端用同一个 NF_GUI_TOKEN 配对）
+GUI_TOKEN = "httpcase-token"
 
 PASS, FAIL = [], []
 
@@ -47,10 +50,14 @@ def check(name, cond, detail=""):
                            ("  → " + str(detail)[:220]) if detail else ""))
 
 
-def req(method, path, body=None, timeout=60):
+def req(method, path, body=None, timeout=60, gui=False):
     data = json.dumps(body or {}, ensure_ascii=False).encode("utf-8") if method == "POST" else None
+    headers = {"Content-Type": "application/json"}
+    if gui:
+        # 双因子：来源头 + 主进程签发的令牌（服务端用 NF_GUI_TOKEN 配对）
+        headers.update({"X-Mofang-Source": "gui", "X-Mofang-Token": GUI_TOKEN})
     r = urllib.request.Request(BASE + path, data=data, method=method,
-                               headers={"Content-Type": "application/json"})
+                               headers=headers)
     try:
         with urllib.request.urlopen(r, timeout=timeout) as resp:
             return resp.status, json.loads(resp.read().decode("utf-8"))
@@ -244,7 +251,8 @@ def main():
     print("临时项目根:", tmp)
     proc = subprocess.Popen([str(PY), str(tmp / "scripts" / "nf_api.py"),
                              "--port", str(PORT), "--allow-fake"],
-                            cwd=str(tmp), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            cwd=str(tmp), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                            env=dict(os.environ, NF_GUI_TOKEN=GUI_TOKEN))
     try:
         for _ in range(60):
             try:
@@ -402,15 +410,39 @@ def main():
 
         print("\n=== 5b. 本轮修好的两个断线端点 ===")
         GOOD_CH = "# 第1章 测试大纲\n\n- 核心事件：主角收到一封旧信\n- 涉及角色：苏芷（女主）\n"
-        code, d = req("POST", "/outline/chapters/save", {"n": 1, "content": GOOD_CH})
+        # 2026-11-12：这两个写端点按来源分叉（GUI 写正式路径 / 其他来源写候选区），
+        # 所以"作者在界面上存"这一路要带双因子令牌，否则测的是另一条路。
+        code, d = req("POST", "/outline/chapters/save", {"n": 1, "content": GOOD_CH}, gui=True)
         check("POST /outline/chapters/save → 200（此前 404，ChapterBlueprint 保存全废）",
               code == 200 and d.get("ok"), (code, str(d)[:180]))
         check("单章大纲落到 data/outline/chapters/01.md",
               (tmp / "data" / "outline" / "chapters" / "01.md").read_text(encoding="utf-8") == GOOD_CH)
-        code, d = req("POST", "/outline/chapters/save", {"n": 1, "content": GOOD_CH + "\n- 补一段\n"})
+        code, d = req("POST", "/outline/chapters/save",
+                      {"n": 1, "content": GOOD_CH + "\n- 补一段\n"}, gui=True)
         baks = list((tmp / "data" / "outline" / "chapters").glob("01_v*.bak"))
         check("重复保存会先备份旧版（破坏性操作可回退）",
               code == 200 and len(baks) == 1, [p.name for p in baks])
+
+        print("\n=== 5c. 同一端点：非 GUI 来源只写候选区（2026-11-12 产物闸）===")
+        GOOD_CH3 = GOOD_CH.replace("第1章", "第3章")
+        code, d = req("POST", "/outline/chapters/save", {"n": 3, "content": GOOD_CH3})
+        cand3 = tmp / "data" / "_pending" / "stage3" / "data" / "outline" / "chapters" / "03.md"
+        check("非 GUI 写单章大纲 → 200 且说明进了候选区",
+              code == 200 and d.get("candidate"), (code, str(d)[:160]))
+        check("候选文件真的在", cand3.exists())
+        check("正式路径没被创建（agent 不能直写章大纲）",
+              not (tmp / "data" / "outline" / "chapters" / "03.md").exists())
+
+        GOOD_G = ("## 起\n雨夜。\n\n## 承\n暗格。\n\n## 转\n对峙。\n\n## 合\n收束。\n\n"
+                  "## 关键节点\n- 暗格被发现\n\n## 预计章节数\n3\n")
+        code, d = req("POST", "/outline/save", {"content": GOOD_G})
+        cand2 = tmp / "data" / "_pending" / "stage2" / "data" / "outline" / "global.md"
+        check("非 GUI 保存整份大纲 → 200 且进候选区",
+              code == 200 and d.get("candidate"), (code, str(d)[:160]))
+        check("候选大纲真的在", cand2.exists())
+        formal_g = tmp / "data" / "outline" / "global.md"
+        check("正式大纲没被这次写入改掉",
+              (not formal_g.exists()) or formal_g.read_text(encoding="utf-8") != GOOD_G)
         code, d = req("POST", "/outline/chapters/save", {"n": 2, "content": "没有必需字段"})
         check("缺\u300c核心事件\u300d→ 400", code == 400 and "核心事件" in str(d.get("error")),
               (code, str(d)[:180]))

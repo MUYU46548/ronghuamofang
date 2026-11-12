@@ -2403,6 +2403,24 @@ def act_style_analyze(body):
 #: 相对数据路径”（函数实参里出现 `data/...` 字面量会被抓 —— 那种地方最容易
 #: 绕过 ROOT 的语义），所以字面量只出现在赋值里。
 OUTLINE_REL = "data/outline/global.md"
+#: 单章大纲的正式相对路径（`%02d` 由章号填）。
+CHAPTER_OUTLINE_REL = "data/outline/chapters/%02d.md"
+
+
+def _outline_write_target(h, stage, rel):
+    """大纲类写入的落点：可信 GUI → 正式路径；其余来源 → 产物闸候选区。
+
+    为什么要分叉（2026-11-12）：`/outline/save`、`/outline/chapters/save` 是给界面
+    面板用的，但 agent 也能调。产物闸只认作者批过的版本 —— agent 直接写正式路径
+    的结果是"原文件被覆盖，而程序不承认这一版"，两头都占坏处。
+    非 GUI 来源因此写候选区，与 AGENTS.md 写的"写入沙盒/草稿类，产物自动进入待审"一致。
+    返回 `(绝对路径, 是否候选)`。
+    """
+    from utils.gui_guard import is_trusted_gui
+    if is_trusted_gui(h):
+        return ROOT / rel, False
+    from utils import product_gate as _pg
+    return _pg.pending_path(ROOT, stage, rel), True
 
 
 def _note_author_edit(h, stage, rel):
@@ -2423,8 +2441,12 @@ def _note_author_edit(h, stage, rel):
         return False
 
 
-def act_outline_save(content):
-    """保存整份大纲：先校验格式完整性，通过才写盘（写前备份）。"""
+def act_outline_save(content, target=None):
+    """保存整份大纲：先校验格式完整性，通过才写盘（写前备份）。
+
+    `target` 给了就写那个路径（产物闸候选区用）：不写历史、不碰正式稿，
+    校验不过就把刚写的候选删掉。凭空造候选不留痕，正式稿一个字节不动。
+    """
     import stage2_outline as s2
     import refine_outline as ro
     from utils.file_io import write_text as _wt
@@ -2433,6 +2455,20 @@ def act_outline_save(content):
         return False, "内容为空"
     if len(content.encode("utf-8")) > 2 * 1024 * 1024:
         return False, "内容超过 2MB 上限"
+
+    if target:
+        dest = Path(target)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        _wt(str(dest), content)
+        ok, errors = s2.check_global_outline(str(dest))
+        if not ok:
+            try:
+                dest.unlink()
+            except OSError:
+                pass
+            return False, "格式校验失败，未写入候选区: " + "; ".join(errors)
+        return True, {"candidate": str(dest),
+                      "message": "已写入候选区 —— 你在界面上批准后才会换进大纲"}
 
     version = ro.next_version(HISTORY_DIR)
     backup = ro.backup_current(GLOBAL, HISTORY_DIR, version)
@@ -3652,10 +3688,13 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(*_dom(dom_outline.handle_compass_save(self, body)))
             # ---- 大纲结构化面板（任务1/2/3/4）----
             elif p == "/outline/save":
-                ok, res = act_outline_save(body.get("content"))
+                _dest, _is_cand = _outline_write_target(self, 2, OUTLINE_REL)
+                ok, res = act_outline_save(body.get("content"),
+                                           target=str(_dest) if _is_cand else None)
                 if ok:
                     res["ok"] = True
-                    _note_author_edit(self, 2, OUTLINE_REL)
+                    if not _is_cand:
+                        _note_author_edit(self, 2, OUTLINE_REL)
                     self._send(200, res)
                 else:
                     self._send(400, {"ok": False, "error": res})
@@ -3689,15 +3728,25 @@ class Handler(BaseHTTPRequestHandler):
                         return
                     # 注：shutil / datetime 均已在模块顶层导入（勿在 do_POST 内再写裸 import，
                     # 否则该名会成为整个函数的局部名，遮蔽模块级同名对象 —— 本项目踩过此坑）
-                    chapters_dir = ROOT / "data" / "outline" / "chapters"
-                    chapters_dir.mkdir(parents=True, exist_ok=True)
-                    path = chapters_dir / f"{n:02d}.md"
-                    if path.exists():
+                    # 落点按来源分叉（2026-11-12）：可信 GUI → 正式路径（并留作者批准记录）；
+                    # 其他来源 → 产物闸候选区，正式稿一个字节不动。
+                    _dest, _is_cand = _outline_write_target(
+                        self, 3, CHAPTER_OUTLINE_REL % n)
+                    path = _dest
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    if not _is_cand and path.exists():
                         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-                        bak = chapters_dir / f"{n:02d}_v{ts}.bak"
+                        bak = path.parent / f"{n:02d}_v{ts}.bak"
                         shutil.copy2(path, bak)
                     path.write_text(content, encoding="utf-8")
-                    self._send(200, {"ok": True, "n": n, "file": path.name})
+                    if _is_cand:
+                        self._send(200, {"ok": True, "n": n, "file": path.name,
+                                         "candidate": str(path),
+                                         "message": "已写入候选区 —— 你在界面上批准后"
+                                                    "才会换进分章大纲"})
+                    else:
+                        _note_author_edit(self, 3, CHAPTER_OUTLINE_REL % n)
+                        self._send(200, {"ok": True, "n": n, "file": path.name})
                 except Exception as e:
                     self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
             elif p == "/outline/variants/generate":
