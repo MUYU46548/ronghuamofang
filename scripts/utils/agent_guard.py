@@ -121,6 +121,10 @@ FORBIDDEN_IN_AGENT_MODE = frozenset({
     # 外部 Agent 可读清单与单章裁定项，但不能替作者勾，也不能自己合成 checked/。
     "/review/stage5/decide",
     "/review/stage5/apply",
+    # 产物闸（2026-11-11，用户拍板"界面决定、对话干活"）：agent 可以写候选，
+    # 但"这一版算不算"只能作者点。这是那条决定在代码里的落点 ——
+    # 若能自己批，候选区就成了摆设，锁等于没有。读侧 GET 不拦（agent 该知道有没有待批）。
+    "/review/products/decide",
     # 判定基准集（2026-11-04，作者拍板 "用户自行从界面导入"）：正例稿是**作者的审美样本**。
     # Agent 若能自己塞一份，"不误报"就变成"Agent 自选标准自判"——与代签审批同族。
     # 读侧 GET /judge/benchmark 不拦（Agent 可以知道有没有基准）。

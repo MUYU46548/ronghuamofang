@@ -1678,6 +1678,19 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description="绒花墨坊 Agent 只读控制台", parents=[common])
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("status", parents=[common], help="一屏全景（离线，不需要 nf_api）")
+    p_beat = sub.add_parser("beat", parents=[common],
+                            help="报一步进度（执行方用：界面上看得见“现在在做什么、停了多久”）")
+    p_beat.add_argument("kind", nargs="?", default="run",
+                        help="动作类型：read / write / check / run / review / wait / done")
+    p_beat.add_argument("target", nargs="?", default="", help="在做哪一件（如：第 3 章）")
+    p_beat.add_argument("--note", default="", help="补充一句（如：写 data/chapters/raw/03.md）")
+    sub.add_parser("beat-status", parents=[common], help="读当前进度（不启动服务）")
+    p_prod = sub.add_parser("products", parents=[common],
+                            help="产物闸：看等批的版本 / 把现有产物搬进候选区（搬完仍需界面批准）")
+    p_prod.add_argument("action", nargs="?", default="list", choices=["list", "adopt"],
+                        help="list=列等批的版本；adopt=把正式路径上现有的产物搬进候选区（不自动批准）")
+    p_prod.add_argument("--stage", type=int, default=None,
+                        help="只处理某个阶段（1~6；不填=全部）")
     sub.add_parser("check", parents=[common], help="环境自检（含 YAML 重复键）")
     sub.add_parser("doctor", parents=[common], help="数据一致性自检（产物完整性/孤儿文件/数据库）")
     sub.add_parser("homo", parents=[common],
@@ -1735,6 +1748,64 @@ def main(argv=None):
     if args.cmd == "status":
         data = collect_status(root)
         print(json.dumps(data, ensure_ascii=False, indent=2) if as_json else render_status(data))
+        return 0
+
+    if args.cmd == "beat":
+        # 执行方报一步（2026-11-11，“过程可见”）：界面读的就是它。
+        # 放在 nfctl 而不是另起脚本 —— 执行方只该记一个入口。
+        from utils import activity as _act
+        e = _act.beat(root, args.kind, args.target, note=args.note)
+        print("[nfctl] 已记一步：%s · %s（%s）"
+              % (_act.KIND_LABEL.get(e.get("kind"), e.get("kind")),
+                 e.get("target"), e.get("at")))
+        return 0
+
+    if args.cmd == "beat-status":
+        from utils import activity as _act
+        st = _act.status(root)
+        print(json.dumps(st, ensure_ascii=False, indent=2) if as_json else st.get("summary", ""))
+        return 0
+
+    if args.cmd == "products":
+        # 产物闸（2026-11-12）：a) 看有哪些版本在等作者点头；b) 把**升级前就有的**
+        # 正式产物搬进候选区。adopt 刻意不自动批准 —— 自动批准等于这把锁是假的。
+        from utils import product_gate as _pg
+        stages = [args.stage] if args.stage else sorted(_pg.REGISTERED_STAGES)
+        if args.action == "list":
+            rows = []
+            for s in stages:
+                for rel in _pg.product_rels(root, s):
+                    st = _pg.status(root, s, rel)
+                    if st["state"] == "no_pending":
+                        continue
+                    rows.append({"stage": s, "label": _pg.stage_label(s), "rel": rel,
+                                 "state": st["state"], "why": st["why"]})
+            if as_json:
+                print(json.dumps({"ok": True, "items": rows}, ensure_ascii=False, indent=2))
+            elif rows:
+                for r in rows:
+                    print("阶段%d %s · %s · %s" % (r["stage"], r["label"], r["rel"], r["state"]))
+                    print("   " + r["why"])
+            else:
+                print("[nfctl] 没有等作者批准的版本。")
+            return 0
+        moved, skipped = [], []
+        for s in stages:
+            for rel in _pg.formal_rels(root, s):
+                if _pg.pending_path(root, s, rel).exists():
+                    skipped.append((s, rel))
+                    continue
+                ok, msg, _info = _pg.import_legacy(root, s, rel)
+                (moved if ok else skipped).append((s, rel))
+                if not ok:
+                    print("[nfctl] 跳过 %s：%s" % (rel, msg))
+        print("[nfctl] 已搬进候选区 %d 份；已有候选、跳过 %d 份" % (len(moved), len(skipped)))
+        for s, rel in moved[:20]:
+            print("  · 阶段%d %s" % (s, rel))
+        if len(moved) > 20:
+            print("  · …还有 %d 份" % (len(moved) - 20))
+        print("[nfctl] 它们**还没被批准**：去界面“审稿 → 等你点头的版本”逐份批；"
+              "批完重跑流水线才会被采用。")
         return 0
 
     if args.cmd == "check":

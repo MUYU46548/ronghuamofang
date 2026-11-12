@@ -158,33 +158,54 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
 
 # ---------------------------------------------------------------- engine: self
 #: engine: self 下阶段 2 的合格判据（与 run_stage 的校验线同一条）
-SELF_CRITERIA = ("data/outline/global.md 含“## 起 / ## 承 / ## 转 / ## 合”四节、"
-                 "“## 关键节点”与有效的“## 预计章节数”，且空泛（THIN）条目不超过 1 条")
+#: 2026-11-12：产物**不再直接写正式路径** —— 先写候选区、作者批准、程序才合成。
+SELF_TARGET = "data/outline/global.md"
+SELF_CRITERIA = ("产物写到候选区（路径见上），内容含“## 起 / ## 承 / ## 转 / ## 合”四节、"
+                 "“## 关键节点”与有效的“## 预计章节数”，且空泛（THIN）条目不超过 1 条；"
+                 "作者在界面上批准后，程序才把它合成到 data/outline/global.md")
 
 
 def self_done(cfg=None, proj=None, progress=None, **_):
-    """产物齐不齐：结构校验 + 锚点校验（与 run_stage 同一对判据，零 token）。"""
-    if not Path("data/outline/global.md").exists():
-        return False, "还没生成 data/outline/global.md"
-    ok, errs = check_global_outline("data/outline/global.md")
+    """产物齐不齐：先合成**作者批准过**的候选，再做结构校验 + 锚点校验（零 token）。
+
+    2026-11-12（产物闸）：执行方写候选区，作者批准后程序才合成到正式路径。
+    未批准的候选不算大纲 —— 否则"执行方写完就自动成了全书大纲"，作者一个点都不作主。
+    """
+    from utils import product_gate as pg
+    rel = SELF_TARGET
+    st = pg.status(".", 2, rel)
+    if st["state"] in ("pending", "stale"):
+        return False, st["why"]
+    if st["state"] == "approved":
+        ok, msg, _info = pg.promote(".", 2, rel)
+        if not ok:
+            return False, msg
+        print("[stage2] %s" % msg)
+    elif not Path(rel).exists():
+        return False, "整体大纲还没就绪：" + st["why"]
+    elif not pg.approved_formal(".", 2, rel):
+        return False, pg.legacy_hint(2, rel)
+    ok, errs = check_global_outline(rel)
     if not ok:
         return False, "大纲结构未过：" + "；".join(errs)
-    ok_a, errs_a = check_outline_anchors("data/outline/global.md")
+    ok_a, errs_a = check_outline_anchors(rel)
     if not ok_a:
         return False, "大纲锚点未过：" + "；".join(errs_a)
-    return True, "大纲校验通过"
+    return True, "大纲校验通过（已按批准版本合成）"
 
 
 def emit_tasks(cfg, proj, progress=None, task_dir=None, **_):
     """产出阶段 2 的任务书（零 token）。正文就是内部的 `build_task` —— 不加料、不删料。"""
     from utils import self_tasks as st
+    from utils import product_gate as pg
     task = st.write_task(2, "global_outline.md", build_task(cfg, proj),
-                         ["data/outline/global.md"], SELF_CRITERIA,
-                         note="写完可以先用 `python scripts/outline_review.py` 看体检报告，"
-                              "再重跑流水线放行（阶段 2 有审批门）",
+                         [pg.pending_rel(2, SELF_TARGET)], SELF_CRITERIA,
+                         note="写完可以先用 `python scripts/outline_review.py` 看体检报告；"
+                              "产物写候选区，作者在界面上批准后才会被采用（阶段 2 另有审批门）",
                          task_dir=task_dir, stage_name="整体大纲")
     return st.summarize(2, [task],
-                        hint="大纲写完重跑：结构 / 锚点校验过就标完成，然后停下等审批。")
+                        hint="大纲写完重跑：候选要经作者批准，程序才会合成；"
+                             "校验过就标完成，然后停下等审批。")
 
 
 def main():

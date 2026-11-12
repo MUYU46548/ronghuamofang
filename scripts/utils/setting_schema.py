@@ -635,11 +635,21 @@ def base_name(name):
     return s or str(name or "").strip()
 
 
+#: 单条原文注入的字符上限（2026-11-11）。作者口径是“全读，不差那点上下文预算”，
+#: 这个上限只为拦住“一条十万字的笔记把整章提示词撑爆”，不是省 token。
+#: 超了就截断，并在卡里写明“还有 N 字没进”——绝不静默丢。
+FULL_TEXT_CAP = 20000
+
+
 def build_character_card(nc, warn_locked=True):
     """归一后的角色 → 注入写作任务的角色卡文本。
 
     这里**不省略任何有值的字段**：`kind`（身份）与 `traits`（性格）必须落地，
     这正是修复“真实流水线下 traits 全丢”的关键。
+
+    2026-11-11：vault 来源的条目带 `body`（原文全文）时，**注入正文**而不是 200 字简介。
+    此前链条上有四处截断（扫描 200 字、拼卡 200 字、世界条目 300 字、总预算 3000 字），
+    结果是“设定都在盘上，但一个字也没进提示词”。
     """
     parts = ["**%s**" % nc["name"]]
     if nc.get("kind"):
@@ -650,7 +660,17 @@ def build_character_card(nc, warn_locked=True):
         parts.append("能力：%s" % "、".join(nc["abilities"]))
     if nc.get("relations"):
         parts.append("关系：%s" % "、".join(nc["relations"]))
-    if nc.get("snippet"):
+    raw = nc.get("raw") if isinstance(nc.get("raw"), dict) else {}
+    body = str((raw or {}).get("body") or "").strip()
+    if body:
+        if len(body) > FULL_TEXT_CAP:
+            parts.append("原文（共 %d 字，只注入了前 %d 字，余 %d 字没进 —— 需要时按 path 分段读）"
+                         % (len(body), FULL_TEXT_CAP, len(body) - FULL_TEXT_CAP))
+            parts.append(body[:FULL_TEXT_CAP])
+        else:
+            parts.append("原文（%d 字，写作时以它为准）：" % len(body))
+            parts.append(body)
+    elif nc.get("snippet"):
         parts.append("简介：%s" % nc["snippet"][:200].replace("\n", " "))
     if nc.get("locked") and warn_locked:
         parts.append("⚠ locked 条目，绝对不可违逆")

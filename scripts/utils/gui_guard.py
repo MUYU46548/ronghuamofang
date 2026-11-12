@@ -17,6 +17,21 @@
 from utils import agent_guard
 
 
+def is_trusted_gui(h):
+    """这次请求是不是**可信 GUI 本体**发的（只读判定，从不抛）。
+
+    与 `gui_only` 同一判据，只是把"拒绝并回话"换成"是/否"。
+    用途：同一份数据既有"界面写正式路径"也有"agent 写候选区"两条通道时，
+    按来源决定要不要按"作者亲手改过"留痕。
+    """
+    headers = getattr(h, "headers", None) or {}
+    try:
+        code, _why = agent_guard.gui_refusal(headers)
+    except Exception:                                        # noqa: BLE001
+        return False
+    return code is None
+
+
 def gui_only(h, what):
     """设置类写入必须来自**可信的 GUI 本体**。允许时返回 None，否则返回 (403, payload)。
 

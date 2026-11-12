@@ -434,6 +434,17 @@ def handle_chapters_save(h, body):
         p.write_text(content, encoding="utf-8")
         st = p.stat()
 
+        # 作者亲手改的稿 = 他自己批过的那一版（产物闸，2026-11-12）。
+        # 不留这条痕，下一次自任务运行会把正式路径上的稿子判成"没批过"，
+        # 逼作者去 import_legacy —— 那等于把他自己的手稿当可疑物。
+        try:
+            from utils import product_gate as _pg
+            _stage = {"raw": 4, "checked": 5, "refined": 6}[layer]
+            _pg.record_author_write(api.ROOT, _stage,
+                                    "data/chapters/%s/%02d.md" % (layer, n))
+        except Exception:                                    # noqa: BLE001
+            pass
+
         tw = _target_words()
         words = _count_words(content)
         warn = ""

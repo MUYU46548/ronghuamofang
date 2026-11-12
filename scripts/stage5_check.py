@@ -527,9 +527,11 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
 
 
 # ---------------------------------------------------------------- engine: self
-SELF_CRITERIA = ("每章 data/chapters/checked/NN.md 存在且是**有效修正稿**（不是空壳、"
+#: 2026-11-12：产物**不再直接写正式路径** —— 先写候选区、作者批准、程序才合成。
+SELF_CRITERIA = ("产物写到候选区（路径见上），每章内容须是**有效修正稿**（不是空壳、"
                  "与原稿结构可比），并在 data/review/batchN.json 里给出该批每章的"
-                 "七维评审记录（缺账本 = 视为没检查）")
+                 "七维评审记录（缺账本 = 视为没检查）；"
+                 "作者在界面上批准后，程序才把它合成到 data/chapters/checked/NN.md")
 
 
 def _self_batches(cfg, proj):
@@ -552,8 +554,8 @@ def _self_batches(cfg, proj):
     return pending, [pending[i:i + size] for i in range(0, len(pending), size)]
 
 
-def _ledger_gaps(proj):
-    """self 模式的账本判据（2026-11-04，试跑 P1-5）。
+def _ledger_state(proj):
+    """self 模式的账本判据（2026-11-04，试跑 P1-5）。返回 `(problems, 缺账章的章号)`。
 
     ## 治的病
     `SELF_CRITERIA` 与任务书里都写着“缺账本 = 视为没检查”，但 `self_done`
@@ -565,14 +567,17 @@ def _ledger_gaps(proj):
     ① `data/review/` 下必须有 `batch*.json`，且每份都能解析成账本；
     ② 每章的 raw 原文必须在某一份账本里有评审记录（缺章 = 这一章没检查）；
     ③ 该章的七维举证必须 `complete`（引句逐字命中原文、维度不缺）。
-    任一不满足都返回人话问题清单，由 `self_done` 判未完成。
+
+    第二个返回值是给 `emit_tasks` 用的：稿子齐、账本缺时**不能**报“无需再检查”
+    —— 那等于用一句“做完了”把缺证据的阶段放过去（2026-11-12 实测踩到：
+    checked 齐了但账本没写，emit_tasks 返回 done，阶段直接标完成）。
     """
     from utils import review_ledger as rl
     from utils import writing_form as _wf
     raw_dir = Path("data/chapters/raw")
     raws = sorted(raw_dir.glob("*.md"))
     if not raws:
-        return []
+        return [], []
     texts = {}
     for f in raws:
         no = _chapter_no(f)
@@ -583,12 +588,13 @@ def _ledger_gaps(proj):
         except Exception:                                     # noqa: BLE001
             texts[no] = ""
     if not texts:
-        return []
+        return [], []
     if not REVIEW_DIR.is_dir():
-        return ["data/review/ 下没有任何评审账本（缺账本 = 这一阶段没检查）"]
+        return (["data/review/ 下没有任何评审账本（缺账本 = 这一阶段没检查）"],
+                sorted(texts))
     app = _wf.applicability(proj) or {}
     dims, questions = app.get("review_dims"), app.get("aesthetic")
-    covered, bad, incomplete = {}, [], []
+    covered, bad = {}, []
     for p in sorted(REVIEW_DIR.glob("batch*.json")):
         try:
             payload = rl.load_payload(read_text(p))
@@ -611,15 +617,29 @@ def _ledger_gaps(proj):
         problems.append("%d 章七维举证不完整（%s）"
                         % (len(incomplete),
                            "、".join("第%d章" % n for n in incomplete[:8])))
-    return problems
+    return problems, sorted(set(missing) | set(incomplete))
+
+
+def _ledger_gaps(proj):
+    """账本问题清单（人话）。判据只有一份：`_ledger_state`。"""
+    return _ledger_state(proj)[0]
 
 
 def self_done(cfg, proj, progress=None, **_):
-    """所有 raw 章都有**可用**的 checked 稿、且账本覆盖全书才算完成。
+    """所有 raw 章都有**作者批准过**的 checked 稿、且账本覆盖全书才算完成。
 
-    2026-11-04（试跑 P1-5）：只验 checked 稿等于给“没检查”发通行证 ——
+    2026-11-04（试跑 P1-5）：只验 checked 稿等于给"没检查"发通行证 ——
     账本判据（`_ledger_gaps`）必须一起进完成判定。
+    2026-11-12（产物闸）：先合成作者批准的候选；未批准的检查稿不算数 ——
+    否则执行方"检查"完就直接改写了正文链路的下一环，作者没机会逐章看。
     """
+    from utils import product_gate as pg
+    promoted = pg.promote_approved(".", 5)
+    if promoted:
+        print("[stage5] 已按批准合成检查稿：%s" % "、".join(sorted(promoted)))
+    pend = pg.pending_note(".", 5)
+    if pend:
+        return False, ("检查稿候选已就位，**等作者批准**（%s）" % pend["pending"])
     pending, _batches = _self_batches(cfg, proj)
     if pending:
         return False, ("还有 %d 章的检查稿缺失或不可用：%s"
@@ -628,31 +648,47 @@ def self_done(cfg, proj, progress=None, **_):
     if gaps:
         return False, ("检查稿齐备，但检查记录不完整（缺账本 = 视为没检查）："
                        + "；".join(gaps))
-    return True, "checked 稿齐备，七维评审账本已覆盖全书"
+    return True, "checked 稿齐备（已按批准版本合成），七维评审账本已覆盖全书"
 
 
 def emit_tasks(cfg, proj, progress=None, task_dir=None, **_):
     """产出阶段 5 的任务书：一批一份，**账本要求写进协议头**（缺账本会被判失败）。"""
     from utils import self_tasks as st
+    from utils import product_gate as pg
     raw_dir = Path("data/chapters/raw")
     checked_dir = Path("data/chapters/checked")
     pending, batches = _self_batches(cfg, proj)
-    if not pending:
+    _ledger_only = not pending
+    _gaps, _missing_ledger = _ledger_state(proj)
+    if not pending and not _missing_ledger:
         return st.summarize(5, [], done=True, hint="checked 稿齐备，无需再检查")
+    if not pending:
+        # 稿子齐、账本缺：**不是**"无需再检查"（缺账本 = 视为没检查）。
+        # 按缺账本的章重出检查任务 —— 任务书正文本来就要求"写账本"，
+        # 而候选内容没变时作者已批准的 sha 仍然对得上，不需要重批。
+        raw_dir0 = Path("data/chapters/raw")
+        files = [raw_dir0 / ("%02d.md" % n) for n in _missing_ledger]
+        files = [f for f in files if f.exists()]
+        size = min(5, max(1, len(files)))
+        batches = [files[i:i + size] for i in range(0, len(files), size)]
+        pending = files
     tasks = []
     for bi, batch in enumerate(batches, 1):
         batch_files = "\n".join("- %s" % f.resolve() for f in batch)
         body = build_check_task(proj, raw_dir, "data/setting/setting.json",
                                 checked_dir, batch_files, bi, len(batches))
-        targets = ["data/chapters/checked/%s" % f.name for f in batch]
+        targets = [pg.pending_rel(5, "data/chapters/checked/%s" % f.name) for f in batch]
         tasks.append(st.write_task(
             5, "batch%02d.md" % bi, body, targets, SELF_CRITERIA,
-            note=("本批 %d 章（%s）；评审账本必须写到 data/review/batch%d.json"
+            note=("本批 %d 章（%s）；评审账本必须写到 data/review/batch%d.json；"
+                  "检查稿写候选区，作者批准后才合成"
                   % (len(batch), batch[0].name, bi)),
             task_dir=task_dir, stage_name="检查"))
     return st.summarize(5, tasks,
-                        hint="共 %d 批 / %d 章。写完 checked 与账本后重跑即校验并放行。"
-                             % (len(batches), len(pending)))
+                        hint=("共 %d 批 / %d 章。%s写完重跑：候选要经作者批准才会合成。"
+                              % (len(batches), len(pending),
+                                 "**检查稿已齐，缺的是评审账本**（缺账本 = 视为没检查）—— "
+                                 if _ledger_only else "")))
 
 
 def main():

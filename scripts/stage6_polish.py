@@ -482,8 +482,10 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
 
 
 # ---------------------------------------------------------------- engine: self
-SELF_CRITERIA = ("data/chapters/refined/NN.md 存在且可用（不是空壳/残稿，字数与原稿偏差在"
-                 " stage6 的 20% 铁律内），并在 data/outline/polish_chNN.md 写出本章修改清单")
+#: 2026-11-12：产物**不再直接写正式路径** —— 先写候选区、作者批准、程序才合成。
+SELF_CRITERIA = ("产物写到候选区（路径见上），内容须可用（不是空壳/残稿，字数与原稿偏差在"
+                 " stage6 的 20% 铁律内），并在 data/outline/polish_chNN.md 写出本章修改清单；"
+                 "作者在界面上批准后，程序才把它合成到 data/chapters/refined/NN.md")
 
 
 def _self_pending(proj=None, **_):
@@ -495,12 +497,23 @@ def _self_pending(proj=None, **_):
 
 
 def self_done(cfg=None, proj=None, progress=None, **_):
-    """所有 checked 章都有可用的 refined 稿才算完成。"""
+    """所有 checked 章都有**作者批准过**的 refined 稿才算完成。
+
+    2026-11-12（产物闸）：先合成批准的候选；未批准的润色稿不算数 ——
+    否则执行方一改完就直接覆盖了成品链，作者看到的已经是改后的稿。
+    """
+    from utils import product_gate as pg
+    promoted = pg.promote_approved(".", 6)
+    if promoted:
+        print("[stage6] 已按批准合成润色稿：%s" % "、".join(sorted(promoted)))
+    pend = pg.pending_note(".", 6)
+    if pend:
+        return False, ("润色稿候选已就位，**等作者批准**（%s）" % pend["pending"])
     pending = _self_pending(proj)
     if pending:
         return False, ("还有 %d 章没润色或不可用：%s"
                        % (len(pending), [f.name for f in pending][:8]))
-    return True, "润色稿齐备"
+    return True, "润色稿齐备（已按批准版本合成）"
 
 
 def settle_self(cfg=None, proj=None, progress=None, **_):
@@ -538,6 +551,7 @@ def settle_self(cfg=None, proj=None, progress=None, **_):
 def emit_tasks(cfg, proj, progress=None, task_dir=None, **_):
     """产出阶段 6 的任务书：**一章一份**（请求单元 = 容量单元，与 run_stage 同口径）。"""
     from utils import self_tasks as st
+    from utils import product_gate as pg
     checked_dir = Path("data/chapters/checked")
     refined_dir = Path("data/chapters/refined")
     refined_dir.mkdir(parents=True, exist_ok=True)
@@ -551,13 +565,15 @@ def emit_tasks(cfg, proj, progress=None, task_dir=None, **_):
         body = build_polish_task(proj, checked_dir, refined_dir, [n],
                                  vol_index=None, report_path=report)
         tasks.append(st.write_task(
-            6, "ch%02d.md" % n, body, ["data/chapters/refined/%02d.md" % n],
+            6, "ch%02d.md" % n, body,
+            [pg.pending_rel(6, "data/chapters/refined/%02d.md" % n)],
             SELF_CRITERIA,
-            note="本章的修改清单写到 %s（合并成 polish_report.md 由程序做）" % report,
+            note="本章的修改清单写到 %s（合并成 polish_report.md 由程序做）；"
+                 "润色稿写候选区，作者批准后才合成" % report,
             task_dir=task_dir, stage_name="润色"))
     return st.summarize(6, tasks,
-                        hint="共 %d 章待润色。写完重跑即校验、合并报告并放行（阶段 6 有审批门）。"
-                             % len(tasks))
+                        hint="共 %d 章待润色。写完重跑：候选要经作者批准才会合成"
+                             "（阶段 6 另有审批门）。" % len(tasks))
 
 
 def main():

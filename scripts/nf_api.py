@@ -194,6 +194,8 @@ try:
     from nf_api_domains import lookup_tools as dom_lookup     # noqa: E402 (资料工具 2026-11-03)
     from nf_api_domains import semantic_review as dom_semrev  # noqa: E402 (语义审稿 2026-11-03)
     from nf_api_domains import stage5 as dom_stage5        # noqa: E402 (stage5 改稿裁定闸 2026-11-04)
+    from nf_api_domains import products as dom_products    # noqa: E402 (产物闸：候选 → 作者批准 2026-11-11)
+    from nf_api_domains import activity as dom_activity    # noqa: E402 (执行方进度：过程可见 2026-11-11)
     from nf_api_domains import benchmark as dom_bench      # noqa: E402 (判定正例集 2026-11-04)
     from nf_api_domains import onboarding as dom_onboarding   # noqa: E402 (新手序列引导 I-1)
     from nf_api_domains import rewrite_studio as dom_studio    # noqa: E402 (改写工作室 2026-11-03)
@@ -2397,6 +2399,30 @@ def act_style_analyze(body):
 
 # ---- 大纲结构化面板（任务1/2/3/4） ----
 
+#: 整体大纲的正式相对路径。提成常量：`test_root_path_discipline` 判“裸传的
+#: 相对数据路径”（函数实参里出现 `data/...` 字面量会被抓 —— 那种地方最容易
+#: 绕过 ROOT 的语义），所以字面量只出现在赋值里。
+OUTLINE_REL = "data/outline/global.md"
+
+
+def _note_author_edit(h, stage, rel):
+    """界面亲手写的正式产物 = **作者已批准的那一版**（产物闸，2026-11-12）。
+
+    产物闸只认"批过的 sha"。作者在大纲面板里直接改并保存，比"批准候选"更直接；
+    不留痕的话，下一次自任务运行会把它判成"正式路径上有产物但没批过"，
+    逼作者去 import_legacy（等于把他的手稿当可疑物）。
+    **只在来源是可信 GUI 时留痕**：agent 调同一端点写进来的东西必须仍走候选区。
+    """
+    try:
+        from utils.gui_guard import is_trusted_gui
+        if not is_trusted_gui(h):
+            return False
+        from utils import product_gate as _pg
+        return _pg.record_author_write(ROOT, stage, rel, by="gui-edit")
+    except Exception:                                        # noqa: BLE001
+        return False
+
+
 def act_outline_save(content):
     """保存整份大纲：先校验格式完整性，通过才写盘（写前备份）。"""
     import stage2_outline as s2
@@ -3196,6 +3222,15 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/review/stage5/list":
             # 待裁定清单（只读，不含正文）
             self._send(*_dom(dom_stage5.handle_stage5_list(self)))
+        elif p == "/review/products/pending":
+            # 产物闸：已登记阶段的候选与状态（只读；批准动作在 POST 那边）
+            self._send(*_dom(dom_products.handle_products_list(self)))
+        elif p == "/review/products/content":
+            # 产物闸：候选正文（只读，有上限 —— 批准前先看一眼）
+            self._send(*_dom(dom_products.handle_products_content(self)))
+        elif p == "/activity":
+            # 执行方在做哪一步（只读；写入在 POST /activity/beat）
+            self._send(*_dom(dom_activity.handle_activity_get(self)))
         elif p == "/review/stage5/chapter":
             # 单章裁定项（原文 + 模型改法，逐条）
             self._send(*_dom(dom_stage5.handle_stage5_chapter(self)))
@@ -3620,6 +3655,7 @@ class Handler(BaseHTTPRequestHandler):
                 ok, res = act_outline_save(body.get("content"))
                 if ok:
                     res["ok"] = True
+                    _note_author_edit(self, 2, OUTLINE_REL)
                     self._send(200, res)
                 else:
                     self._send(400, {"ok": False, "error": res})
@@ -3627,6 +3663,7 @@ class Handler(BaseHTTPRequestHandler):
                 ok, res = act_outline_restore(body.get("version"))
                 if ok:
                     res["ok"] = True
+                    _note_author_edit(self, 2, OUTLINE_REL)
                     self._send(200, res)
                 else:
                     self._send(400, {"ok": False, "error": res})
@@ -3914,6 +3951,12 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/review/stage5/apply":
                 # 合成 checked/NN.md（GUI-only）
                 self._send(*_dom(dom_stage5.handle_stage5_apply(self, body)))
+            elif p == "/review/products/decide":
+                # 产物闸：作者批准/驳回某一版候选（GUI-only，见 agent_guard）
+                self._send(*_dom(dom_products.handle_products_decide(self, body)))
+            elif p == "/activity/beat":
+                # 执行方报一步（agent 也可调：这是记录，不是审批）
+                self._send(*_dom(dom_activity.handle_activity_beat(self, body)))
             elif p == "/judge/benchmark/import":
                 # 导入正例（GUI-only，必须带免责声明确认）
                 self._send(*_dom(dom_bench.handle_benchmark_import(self, body)))

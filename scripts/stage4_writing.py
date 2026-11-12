@@ -45,7 +45,7 @@ from utils.style_analyzer import (
 )
 from utils.progress_manager import ProgressManager
 from utils.setting_schema import (
-    base_name, build_character_card, normalize_character,
+    FULL_TEXT_CAP, base_name, build_character_card, normalize_character,
 )
 from utils.config_io import load_config_yaml
 from utils.text_norm import normalize_chapter_file
@@ -415,7 +415,56 @@ def _involved_names(outline_text):
     return out
 
 
-def _extract_world_context(setting_path, outline_text, involved=None, budget=4500):
+def _iter_setting_entries(setting):
+    """设定集里所有“条目”对象（角色 / 世界观四类 / 时间线），只出 dict。"""
+    chars = setting.get("characters") or []
+    if isinstance(chars, list):
+        for e in chars:
+            if isinstance(e, dict):
+                yield e
+    world = setting.get("world") or {}
+    if isinstance(world, dict):
+        for k in ("locations", "factions", "concepts", "magic_system", "items"):
+            for e in (world.get(k) or []):
+                if isinstance(e, dict):
+                    yield e
+    elif isinstance(world, list):
+        for e in world:
+            if isinstance(e, dict):
+                yield e
+    for e in (setting.get("timeline") or []):
+        if isinstance(e, dict):
+            yield e
+
+
+def _expand_links(setting, names, limit=60):
+    """一跳扩散：命中条目在 vault 里用 `[[链接]]` 直接指向的条目名。
+
+    2026-11-11：作者问“模型是不是根本不会举一反三”。不是不会 —— 是**没人告诉它“三”是什么**：
+    vault 的双向链接在清洗正文时被删掉（`re.sub(r'[#*`\\[\\]]', '', body)`），注入时又只判
+    “条目名有没有出现在本章大纲”。现在把直接关联的一跳带上，并标注“未必在本章出场”。
+
+    只跳**一跳**：两跳会迅速滑成“整个设定集都相关”（那等于没筛），也会把预算吃光。
+    """
+    hit = {str(n).strip() for n in (names or []) if str(n).strip()}
+    out = []
+    seen = set()
+    for ent in _iter_setting_entries(setting):
+        nm = str(ent.get("name") or "").strip()
+        if not nm or nm not in hit:
+            continue
+        for lk in (ent.get("links") or []):
+            lk = str(lk).strip()
+            if not lk or lk in hit or lk in seen:
+                continue
+            seen.add(lk)
+            out.append(lk)
+            if len(out) >= limit:
+                return out
+    return out
+
+
+def _extract_world_context(setting_path, outline_text, involved=None, budget=200000):
     """从 setting.json 提取与本章相关的 world / timeline / plot_fragments 条目，**内联**进任务。
 
     ## 为什么必须内联（2026-10-18 P1）
@@ -453,16 +502,23 @@ def _extract_world_context(setting_path, outline_text, involved=None, budget=450
             return True
         return False
 
-    def _render(entry, name_field="name", desc_field="desc", desc_cap=300):
+    def _render(entry, name_field="name", desc_field="desc", desc_cap=300, related=False):
         name = str(entry.get(name_field) or "").strip()
         if not name:
             return None
         typ = str(entry.get("type") or "").strip()
-        desc = str(entry.get(desc_field) or "").strip()
-        if len(desc) > desc_cap:
-            desc = desc[:desc_cap] + "…"
+        # 2026-11-11：有条目原文（vault 扫描存进来的 body）就用原文，摘要只作回退。
+        # “全读”是作者口径 —— 只保留前 300 字等于几十万字词条一个字都没用上。
+        body = str(entry.get("body") or "").strip()
+        cap = FULL_TEXT_CAP if body else desc_cap
+        desc = body or str(entry.get(desc_field) or "").strip()
+        raw_len = len(desc)
+        if raw_len > cap:
+            desc = desc[:cap] + "…（共 %d 字，余 %d 字未注入）" % (raw_len, raw_len - cap)
         locked = "（locked，不可违逆）" if entry.get("locked") else ""
         head = f"- {name}" + (f"（{typ}）" if typ else "") + locked
+        if related:
+            head += "（关联项，未必在本章出场）"
         return head + (f"：{desc}" if desc else "")
 
     world = setting.get("world") or {}
@@ -486,9 +542,20 @@ def _extract_world_context(setting_path, outline_text, involved=None, budget=450
             return
         block = f"### {title}\n" + "\n".join(lines)
         if total + len(block) > budget:
+            # 2026-11-11：以前这里是**静默 return** —— 整块设定被丢掉，没人知道。
+            # 作者要的是“全读”，所以超预算必须出声（宁可日志吵，不可悄悄少喂）。
+            print("[stage4] 设定注入超预算，这一块没进去：%s（%d 字；已用 %d / %d）"
+                  % (title, len(block), total, budget))
             return
         sections.append(block)
         total += len(block)
+
+    # 直接命中（名字出现在本章大纲）+ 一跳关联（命中条目 `[[链接]]` 指向的条目）
+    # 2026-11-11：只判“名字在不在大纲里”等于要求作者把每条相关设定都写进大纲，
+    # 否则模型看不到任何关联 —— 那正是“不会举一反三”的真相。
+    _all_names = [str(e.get("name") or "").strip() for e in _iter_setting_entries(setting)]
+    _direct = {n for n in _all_names if n and n in outline}
+    _related = set(_expand_links(setting, _direct))
 
     for label, entries in buckets:
         lines = []
@@ -496,9 +563,9 @@ def _extract_world_context(setting_path, outline_text, involved=None, budget=450
             if not isinstance(e, dict):
                 continue
             name = str(e.get("name") or "")
-            if not name or name not in outline:
+            if not name or (name not in outline and name not in _related):
                 continue
-            lines.append(_render(e))
+            lines.append(_render(e, related=(name not in outline)))
         _push(f"本章相关{label}", lines)
 
     # 时间线：locked 事件是硬约束，漏了会把年份/因果写错
@@ -542,7 +609,7 @@ def _extract_world_context(setting_path, outline_text, involved=None, budget=450
             + "\n\n".join(sections))
 
 
-def _extract_character_cards_for_chapter(setting_path, outline_path, budget=3000):
+def _extract_character_cards_for_chapter(setting_path, outline_path, budget=200000):
     """从 setting.json 提取当前章节涉及的角色卡片段。
 
     匹配逻辑：从大纲解析“涉及角色”，与 setting.json 的 characters 逐个匹配，
@@ -564,20 +631,30 @@ def _extract_character_cards_for_chapter(setting_path, outline_path, budget=3000
         if not involved:
             return ""
 
-        cards = []
+        # 一跳关联（2026-11-11）：本章大纲点名的人 + 他们 `[[链接]]` 直接指向的人。
+        # 只点名、不带关联 = 模型看不到“和这件事有关的一圈”，这是“不会举一反三”的真相。
+        related = _expand_links(setting, involved)
+
+        direct_cards, related_cards = [], []
         for char in raw_characters:
             nc = normalize_character(char)
             if not nc:
                 continue
             # 精确名 / id / 别名根名 三种匹配都认
-            if not _name_matches(nc, involved):
-                continue
-            cards.append(build_character_card(nc))
+            if _name_matches(nc, involved):
+                direct_cards.append(build_character_card(nc))
+            elif related and _name_matches(nc, related):
+                related_cards.append(build_character_card(nc))
 
-        if not cards:
+        if not direct_cards and not related_cards:
             return ""
-        return ("### 本章涉及角色卡（写作时严格遵循，禁止违背性格/关系/禁止行为）\n\n"
-                + "\n\n".join(cards))
+        parts = ["### 本章涉及角色卡（写作时严格遵循，禁止违背性格/关系/禁止行为）", ""]
+        parts.extend(direct_cards)
+        if related_cards:
+            parts.append("（以下为**关联角色**：本章大纲没直接点名，但被上面某位的链接指向 —— "
+                         "未必出场，需要时再用）")
+            parts.extend(related_cards)
+        return "\n\n".join(parts)
     except Exception:
         return ""
 
@@ -600,6 +677,10 @@ def _name_matches(nc, involved):
 
 
 _STYLE_WARNED = set()
+
+#: 写作进度心跳的节流状态（2026-11-11，过程可见）：章号 → 上次报的秒。
+#: 段群每落一次盘都报会把 activity.json 刷爆，而人只需要知道“在写第几章、多少字”。
+_BEAT_STATE = {"chapter": None, "at": 0.0}
 
 
 def _style_blocks(proj):
@@ -1425,6 +1506,18 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                     progress.save()
                 # 段群进度进账（2026-11-03）：按盘上 gK.md 的个数与合计字数
                 _note_parts(chapter_no)
+                # 过程可见（2026-11-11）：写的时候也报一步，界面才看得见“在写第几章、多少字”。
+                # 同章 30 秒最多一条。失败一律吞掉 —— 报进度不该影响写作。
+                try:
+                    _now = time.time()
+                    if (_BEAT_STATE.get("chapter") != chapter_no
+                            or _now - float(_BEAT_STATE.get("at") or 0) >= 30):
+                        _BEAT_STATE.update({"chapter": chapter_no, "at": _now})
+                        from utils import activity as _act
+                        _act.beat(".", "write", "第 %d 章" % chapter_no,
+                                  note="盘上已写 %d 字" % int(words))
+                except Exception:                            # noqa: BLE001
+                    pass
             except Exception:                                # noqa: BLE001
                 pass
         return _on_file
@@ -2076,8 +2169,38 @@ def _self_pending(cfg, proj, chapters=None):
     return total, pending
 
 
+def _promote_chapter_candidates(cfg, proj, chapters=None):
+    """把**已批准**的正文候选合进 `data/chapters/raw/`（产物闸，2026-11-11）。
+
+    未批准的留在候选区（执行方写 `data/_pending/stage4/data/chapters/raw/NN.md`），
+    程序不把它当正文 —— 这样“agent 写完就自动成了正文”这条捷径被堵死。
+    返回已合成的章号。合成动作本身走 `product_gate.promote_approved`（唯一实现）。
+    """
+    from utils import product_gate as pg
+    try:
+        total = int((proj or {}).get("book", {}).get("chapters", 0) or 0)
+    except (TypeError, ValueError):
+        return []
+    rels = ["data/chapters/raw/%02d.md" % n for n in range(1, total + 1)]
+    done = []
+    for rel in pg.promote_approved(".", 4, rels):
+        try:
+            done.append(int(rel.rsplit("/", 1)[-1].split(".")[0]))
+        except (TypeError, ValueError, IndexError):
+            continue
+    if done:
+        print("[stage4] 已按批准合成正文：第 %s 章"
+              % "、".join(str(x) for x in done))
+    return done
+
+
 def self_done(cfg, proj, progress=None, chapters=None, **_):
-    """全部待写章都合格才算阶段 4 完成（**不能**用 raw 目录非空当判据）。"""
+    """全部待写章都合格才算阶段 4 完成（**不能**用 raw 目录非空当判据）。
+
+    2026-11-11（产物闸）：先合成**已批准**的候选，再判合格 ——
+    未批准的候选不算正文，否则“执行方写完就自动成稿”等于没人能作主。
+    """
+    _promote_chapter_candidates(cfg, proj, chapters)
     total, pending = _self_pending(cfg, proj, chapters)
     if pending:
         return False, ("还有 %d 章没写或不合格：%s" % (len(pending), pending[:8]))
@@ -2225,10 +2348,13 @@ def emit_tasks(cfg, proj, progress=None, task_dir=None, chapters=None, **_):
     body = build_chapter_task(cfg, proj, n, outline_rel, "data/setting/setting.json",
                               "data/summaries/rolling.md", prev_tail)
     low, high = _self_target_words(cfg)
-    criteria = ("data/chapters/raw/%02d.md 有标题、正文 %d~%d 字（含 10%% 容差），"
+    criteria = ("候选文件有标题、正文 %d~%d 个汉字（含 10%% 容差），"
                 "文末保留 `<!-- summary: ... -->` 与 quality 注释；不得写占位符"
-                % (n, low, high))
-    task = st.write_task(4, "ch%02d.md" % n, body, ["data/chapters/raw/%02d.md" % n],
+                "（**作者在界面上批准后**，程序才把它合成到 data/chapters/raw/%02d.md）"
+                % (low, high, n))
+    from utils import product_gate as _pg
+    task = st.write_task(4, "ch%02d.md" % n, body,
+                         [_pg.pending_rel(4, "data/chapters/raw/%02d.md" % n)],
                          criteria,
                          note="本章写完再重跑 —— 下一章的任务书要用本章末尾衔接段与摘要。"
                               "**本轮只交这一章**：不要替后面几章一次写完（那些章的任务书会缺" 

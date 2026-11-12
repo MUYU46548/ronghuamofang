@@ -212,7 +212,25 @@ onMounted(load);
 .disc-text { font-size: 12px; color: var(--muted-foreground); line-height: 1.6; }
 .ack { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 12px; }
 .form { display: flex; flex-direction: column; gap: 6px; }
-.row { display: flex; gap: 6px; align-items: center; }
+/* 输入框外观（2026-11-11，第三次提同一处）：
+   此前 .grow 只管宽度，这两个框是**浏览器默认样式**（白底、系统边框、内边距不对），
+   跟全站输入框（--field 底 + 6px 圆角 + 1px 边框 + 13px 字）放在一起就格格不入。
+   根因是这个组件没引项目里那套控件外观 —— 不是配色问题，是没定义。 */
+.form input:not([type="checkbox"]),
+.form textarea {
+  padding: 8px 10px;
+  font-size: 13px;
+  line-height: 1.6;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--field);
+  color: var(--ink);
+}
+.form input:not([type="checkbox"]):focus,
+.form textarea:focus { outline: none; border-color: var(--accent); }
+/* 一行 = 一个输入框 + 一个按钮：必须**同高**（原 align-items:center + 各自 padding，
+   导致右侧按钮比输入框矮一截，看着像悬浮在半空）。 */
+.row { display: flex; gap: 6px; align-items: stretch; }
 .grow { flex: 1; min-width: 0; }
 .item { display: flex; align-items: center; gap: 8px; padding: 4px 0; border-top: 1px solid var(--border); }
 .name { font-weight: 600; }

@@ -378,6 +378,10 @@ async function resolveAnnotation(a) {
 function pickPara(p) {
   selPara.value = p.index;
   refineResult.value = null;
+  // 换段落就收起上一段的历史，免得“回到这版”打在同号不同段的版本上
+  histOpen.value = false;
+  histConfirm.value = 0;
+  histBusy.value = false;
 }
 
 /* 改一段：候选 → 采用（2026-11-08，P1-5）。
@@ -420,6 +424,71 @@ async function dropCandidate() {
     emit("say", r.status === 200 ? "已放弃候选（正文一个字没动）" : "放弃失败");
     cand.value = null;
   } finally { candBusy.value = false; }
+}
+
+/* 回到上一版（2026-11-11，0.9.1“让界面不撒谎”）。
+   候选卡上那句“旧版进段落历史，可回退”此前只兑现了一半：历史确实在存，
+   但回退按钮住在“精修”页签 —— 承诺与入口分居两屏，改一句话最后还是得换页签。
+   这里就地读同一份历史、就地回退：复用 GET /chapters/paragraph/history
+   与已有的 POST /chapters/paragraph/restore，**不新建端点、不新建页面**。
+   回退语义按后端实现：恢复到那条历史记录的“改前”版本，且当前这段会先存成
+   一条新历史（回退本身也能退）。 */
+const paraHist = ref([]);
+const histOpen = ref(false);
+const histBusy = ref(false);
+const histConfirm = ref(0);        // 两步确认：第一次点只问，第二次才动手
+
+function cut(s, n) {
+  const t = String(s || "").replace(/\s+/g, " ").trim();
+  return t.length > n ? t.slice(0, n) + "…" : t;
+}
+
+async function toggleParaHistory() {
+  if (selPara.value === null) { emit("say", "先点选一个段落"); return; }
+  if (histOpen.value) { histOpen.value = false; return; }
+  histBusy.value = true;
+  try {
+    const r = await props.api("/chapters/paragraph/history?n=" + props.n + "&p=" + selPara.value);
+    if (r.status === 200 && r.data && r.data.ok) {
+      paraHist.value = r.data.history || [];
+      histOpen.value = true;
+      if (!paraHist.value.length) emit("say", "这一段还没有历史版本 —— 采用过或回退过才会留下");
+    } else {
+      emit("say", "读历史失败：" + ((r.data && r.data.error) || ("HTTP " + r.status)));
+    }
+  } catch (e) {
+    emit("say", "读历史出错：" + (e && e.message ? e.message : e));
+  } finally {
+    histBusy.value = false;
+  }
+}
+
+async function restorePara(h) {
+  if (histConfirm.value !== h.id) {
+    histConfirm.value = h.id;
+    emit("say", "再点一次就回到 h" + h.id + " 的改前版本（当前这段会先存成一条新历史，回退本身也能退）");
+    return;
+  }
+  histConfirm.value = 0;
+  histBusy.value = true;
+  try {
+    const r = await props.api("/chapters/paragraph/restore", "POST", {
+      chapter: props.n, paragraph_index: selPara.value, history_id: h.id,
+    });
+    if (r.status === 200 && r.data && r.data.ok) {
+      emit("say", "已回到 h" + h.id + " 的改前版本（当前这段已先存为一条新历史）");
+      cand.value = null;
+      histOpen.value = false;
+      await loadContent();
+      await loadLayersQuiet();
+      if (mode.value === "batch") await loadParas();
+      emit("saved", props.n);
+    } else {
+      emit("say", "回退失败：" + ((r.data && (r.data.message || r.data.error)) || ("HTTP " + r.status)));
+    }
+  } finally {
+    histBusy.value = false;
+  }
 }
 
 async function submitRefine() {
@@ -709,20 +778,29 @@ onUnmounted(() => {
                       title="只记下来：不调用模型、不改正文，稍后在这块列表里回看"
                       @click="saveAnnotation">只记下这条批注</button>
               <div v-if="refining" class="meta">只重写选中的那一段；生成的是**候选**，你点“采用”才写进正文。</div>
-              <!-- 改一段：改前/改后并排 + 采用/放弃（2026-11-08，P1-5） -->
-              <div v-if="cand" class="ce-cand">
+              <!-- 改一段：改前/改后并排 + 采用/放弃（2026-11-08，P1-5）
+                   2026-11-11 补第三个动作“回到上一版”：历史一直在存，入口原来在“精修”页签
+                   —— 承诺与按钮分居两屏。现在整块的条件是 cand || histOpen：采用之后
+                   候选没了，历史仍可展开（“后悔”最常发生在点完采用之后）。 -->
+              <div v-if="cand || histOpen" class="ce-cand">
                 <div class="ce-cand-head">
-                  <b>这一段：改前 / 改后</b>
-                  <span v-if="cand.rec && cand.rec.ok === false" class="ce-cand-bad">
+                  <b v-if="cand">这一段：改前 / 改后</b>
+                  <b v-else>这一段的历史</b>
+                  <span v-if="cand && cand.rec && cand.rec.ok === false" class="ce-cand-bad">
                     还不能采用：{{ (cand.rec.reasons || []).join("；") }}</span>
                   <span class="spacer"></span>
-                  <button class="mini" :disabled="candBusy" @click="loadCandidate"
+                  <button v-if="cand" class="mini" :disabled="candBusy" @click="loadCandidate"
                           title="重新读一次候选（自任务模式下，外部刚写完草稿时用）">刷新候选</button>
-                  <button class="mini primary" :disabled="candBusy || (cand.rec && cand.rec.ok === false)"
+                  <button class="mini" :disabled="candBusy || histBusy || selPara === null"
+                          @click="toggleParaHistory"
+                          title="这一段的历次改动都在段落历史里；点开就地回退，不用切到“精修”页签">
+                    {{ histOpen ? "收起历史" : "回到上一版" }}
+                  </button>
+                  <button v-if="cand" class="mini primary" :disabled="candBusy || (cand.rec && cand.rec.ok === false)"
                           @click="applyCandidate">采用</button>
-                  <button class="mini" :disabled="candBusy" @click="dropCandidate">放弃</button>
+                  <button v-if="cand" class="mini" :disabled="candBusy" @click="dropCandidate">放弃</button>
                 </div>
-                <div class="ce-diff">
+                <div v-if="cand" class="ce-diff">
                   <div class="ce-diff-col">
                     <div class="ce-diff-t">改前</div>
                     <p>{{ cand.rec.before }}</p>
@@ -732,7 +810,24 @@ onUnmounted(() => {
                     <p>{{ cand.rec.after }}</p>
                   </div>
                 </div>
-                <div class="meta">采用 = 换进正文（旧版进段落历史，可回退）；放弃 = 正文一个字不动。</div>
+                <div v-if="cand" class="meta">采用 = 换进正文（旧版进段落历史，用“回到上一版”就地退）；放弃 = 正文一个字不动。</div>
+                <div v-if="histOpen" class="ce-hist">
+                  <div v-if="!paraHist.length" class="meta">
+                    这一段还没有历史版本 —— 采用过、回退过才会留下。
+                  </div>
+                  <div v-for="h in paraHist" :key="h.id" class="ce-hist-item">
+                    <span class="pill">h{{ h.id }}</span>
+                    <span class="meta">{{ h.timestamp }}</span>
+                    <span class="meta">{{ h.original_chars }} → {{ h.rewritten_chars }} 字</span>
+                    <span class="ce-hist-text" :title="h.original">{{ cut(h.original, 40) }}</span>
+                    <button class="mini" :disabled="histBusy"
+                            :class="{ danger: histConfirm === h.id }"
+                            :title="'恢复到 h' + h.id + ' 的改前版本；当前这段会先存成一条新历史'"
+                            @click="restorePara(h)">
+                      {{ histConfirm === h.id ? "确认回到这版？" : "回到这版" }}
+                    </button>
+                  </div>
+                </div>
               </div>
             </template>
           </div>
@@ -856,6 +951,17 @@ onUnmounted(() => {
 .ce-diff-col { border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; background: var(--bg); }
 .ce-diff-col p { margin: 6px 0 0; font-size: 13px; line-height: 1.75; white-space: pre-wrap; }
 .ce-diff-t { font-size: 11px; color: var(--muted); letter-spacing: 0.08em; }
+/* 段落历史（2026-11-11）：一行一版，就地回退。刻意不用表格 —— 侧栏很窄，表格会横滚。 */
+.ce-hist { margin-top: 10px; border-top: 1px dashed var(--border); padding-top: 8px; }
+.ce-hist-item {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 5px 0; border-bottom: 1px solid var(--border);
+}
+.ce-hist-item:last-child { border-bottom: none; }
+.ce-hist-text {
+  flex: 1; min-width: 120px; font-size: 12.5px; color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .ce-card { border-color: rgba(155, 143, 196, 0.6); }
 .ce-card-row { font-size: 12.5px; line-height: 1.65; margin-top: 4px; }
 .ce-card-row b { display: inline-block; min-width: 34px; color: var(--muted); font-weight: 600; }

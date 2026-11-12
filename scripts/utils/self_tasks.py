@@ -67,8 +67,9 @@ def render_header(stage, name, targets, criteria, check=None, note=None):
         lines.append("  - `%s`" % t)
     lines.append("- 合格判据：%s" % criteria)
     lines.append("- 自检命令：`%s`" % (check or CHECK_CMD))
-    lines.append("- 交回方式：按上面的路径把产物写进项目；不要写到别处，也不要在对话里"
-                 "复述“已完成”就算数 —— 程序只认盘上的产物，不认执行方的成功报告。")
+    lines.append("- 交回方式：按上面的路径把产物写进**候选区**；不要写到别处，也不要"
+                 "在对话里复述“已完成”就算数 —— 程序只认作者批准过的候选版本，"
+                 "不认执行方的成功报告。")
     if note:
         lines.append("- 附注：%s" % note)
     lines.append("")

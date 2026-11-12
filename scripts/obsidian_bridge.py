@@ -302,6 +302,27 @@ def extract_terms(text):
     return terms
 
 
+#: 词条之间的双向链接（2026-11-11）。此前清洗正文时 `re.sub(r'[#*`\[\]]', '', body)`
+#: 把 `[[阿禾的师父]]` 变成纯文字，**链接语义直接消失** —— 作者在 Obsidian 里写下的
+#: 关联关系，系统一个字都没留。结果就是“模型不会举一反三”：不是不会，是没人告诉它
+#: 这条词条和哪几条有关。这里先把关系抽出来存成 `links`，注入时才能做一跳扩散。
+_WIKILINK_RE = re.compile(r"\[\[([^\]\|#]+)(?:[#\|][^\]]*)?\]\]")
+
+
+def extract_wikilinks(text, limit=50):
+    """从正文里抽 `[[目标]]` / `[[目标|别名]]` / `[[目标#小节]]` 的目标名（去重、保序）。"""
+    out, seen = [], set()
+    for m in _WIKILINK_RE.finditer(text or ""):
+        name = m.group(1).strip()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        out.append(name)
+        if len(out) >= limit:
+            break
+    return out
+
+
 def scan_vault(vault_path=None, skip_dirs=None, tag_root=None, dirs=None):
     """扫描 Obsidian vault，建立结构化索引。
 
@@ -471,8 +492,12 @@ def scan_vault(vault_path=None, skip_dirs=None, tag_root=None, dirs=None):
                 if v:
                     desc = v if isinstance(v, str) else str(v[0])
                     break
+            # 全文（2026-11-11）：`snippet` 只是索引用的摘要，写作时要的是**原文**。
+            # 此前只存前 200~300 字且把换行压成空格，几十万字的词条实际只有开头进了
+            # 提示词，后面全丢（作者原话：“有效信息 0 个字”）。这里把正文整段存进
+            # `body`（保留换行/列表结构），注入时以它为准，snippet 继续当索引。
+            plain = re.sub(r'[#*`\[\]]', '', body).strip()
             if not desc:
-                plain = re.sub(r'[#*`\[\]]', '', body).strip()
                 desc = plain[:200].replace('\n', ' ').strip()
             rel_path = _rel(md_file)
             characters.append({
@@ -483,6 +508,8 @@ def scan_vault(vault_path=None, skip_dirs=None, tag_root=None, dirs=None):
                 "locked": locked,
                 "relations": relations[:20],
                 "snippet": desc[:300],
+                "body": plain,
+                "links": extract_wikilinks(body),
                 "source": "vault",
             })
 
@@ -541,6 +568,8 @@ def scan_vault(vault_path=None, skip_dirs=None, tag_root=None, dirs=None):
                 "tags": tags[:10],
                 "type": type_,
                 "snippet": snippet,
+                "body": plain,          # 全文（2026-11-11）：摘要只作索引，注入用正文
+                "links": extract_wikilinks(body),
                 "source": "vault",
             })
 
@@ -585,6 +614,8 @@ def scan_vault(vault_path=None, skip_dirs=None, tag_root=None, dirs=None):
                 "path": rel_path,
                 "tags": tags[:10],
                 "snippet": snippet,
+                "body": plain,          # 全文（2026-11-11）：同世界观条目
+                "links": extract_wikilinks(body),
                 "source": "vault",
             })
 

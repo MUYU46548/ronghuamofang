@@ -63,7 +63,7 @@ def _w(p, text):
     p.write_text(text, encoding="utf-8")
 
 
-def make_ws():
+def make_ws(approve=True):
     ws = Path(tempfile.mkdtemp(prefix="nf_selfrep_"))
     _w(ws / "config" / "system.yaml",
        "engine: self\nchapter:\n  target_words: [5000, 9000]\n  quality_threshold: 6\n"
@@ -75,8 +75,17 @@ def make_ws():
     _w(ws / "materials" / "raw" / "01.md", "主角是药铺学徒阿禾，父亲三年前失踪。\n")
     shutil.copytree(ROOT / "prompts", ws / "prompts")
     (ws / "logs").mkdir(parents=True, exist_ok=True)
-    _w(ws / "data" / "setting" / "setting.json",
-       json.dumps(SETTING, ensure_ascii=False, indent=2))
+    # 2026-11-11 产物闸：程序只认**作者批准过**的候选版本，直写正式路径已经不算数。
+    # 夹具因此改成"候选 + 批准"（approve=True 模拟作者已经批过）；
+    # approve=False 用来验"没批就不判完成"——这条是新语义的防回潮判据。
+    from utils import product_gate as pg
+    rel = "data/setting/setting.json"
+    body = json.dumps(SETTING, ensure_ascii=False, indent=2)
+    if approve:
+        _w(ws / rel, body)                       # 模拟"历史上已有正式产物"
+    _w(pg.pending_path(ws, 1, rel), body)        # 候选
+    if approve:
+        pg.record_approval(ws, 1, rel, by="fixture")
     return ws
 
 
@@ -84,6 +93,20 @@ def main():
     print("=" * 66)
     print("engine=self 也要出确定性报告")
     import orchestrator
+
+    print("\n【R0】候选没批准 → 不判完成、不出报告（产物闸的防回潮判据）")
+    ws0 = make_ws(approve=False)
+    cwd0 = os.getcwd()
+    try:
+        os.chdir(ws0)
+        rc0 = orchestrator.run(from_stage=1)
+        check("R0 候选未批 → 阶段不判完成（退出码 3）", rc0 == 3, rc0)
+        check("R0 正式路径没被写（候选不许自动合成）",
+              not Path("data/setting/setting.json").exists())
+        check("R0 也就没有体检报告（报告只在判完成后才出）",
+              not Path("data/setting/material_review.md").exists())
+    finally:
+        os.chdir(cwd0)
 
     print("\n【R1】engine=self 跑阶段 1 → 素材体检报告必须生成")
     ws = make_ws()

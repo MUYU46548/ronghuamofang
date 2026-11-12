@@ -276,11 +276,51 @@ function say(msg) {
   toastTimer = setTimeout(() => (toast.value = ""), 4500);
 }
 
+/* 执行方在做哪一步（2026-11-11，“过程可见”）。
+   作者原话“踢一脚跑一下”：AI 干活时看不见走到哪步、卡在哪。
+   这里只读心跳、不判断成败：超时（后端默认 180 秒）标黄，不阻断任何流程 ——
+   把“没心跳”当成失败，会让离线跑批的人无辜被拦。 */
+const activity = ref(null);
+const activityText = computed(() => {
+  const a = activity.value;
+  if (!a || !a.current) return "";
+  const s = a.idle_seconds;
+  const ago = s == null ? "" : (s < 60 ? s + " 秒前" : Math.floor(s / 60) + " 分钟前");
+  return (a.summary || "") + (ago ? " · " + ago : "");
+});
+const activityTitle = computed(() => {
+  const a = activity.value;
+  if (!a || !a.current) return "执行方还没报过进度";
+  const last = (a.current.at || "") + "（" + (a.current.note || a.summary || "") + "）";
+  const head = a.stale
+    ? "⚠ 可能卡住了：已超过 " + Math.round((a.warn_seconds || 180) / 60) + " 分钟没有动静\n" : "";
+  return head + "最后一步 " + last;
+});
+
+/* 执行方卡住时主动出声（2026-11-11）：界面变黄是“看得见”，系统通知才是“听得见”。
+   作者原话“不催不动”。只在**从正常转超时**那一刻提醒一次，之后每 10 分钟最多一次 ——
+   前端每 2.5 秒刷一次 /activity，不节流会把通知刷成瀑布。 */
+let _staleNotifiedAt = 0;
+function maybeNotifyStale(cur) {
+  if (!cur || !cur.stale) return;
+  const now = Date.now();
+  if (now - _staleNotifiedAt < 10 * 60 * 1000) return;
+  _staleNotifiedAt = now;
+  const mins = Math.floor((cur.idle_seconds || 0) / 60);
+  try {
+    window.mofangAPI?.notifyGate?.({
+      title: "绒花墨坊：执行方可能卡住了",
+      body: (cur.summary || "没有进度") + "；已经 " + mins + " 分钟没有动静。",
+    });
+  } catch (e) { /* 通知失败不影响界面：它只是提示 */ }
+}
+
 async function refresh() {
   try {
-    const [s, m, j] = await Promise.all([
+    const [s, m, j, act] = await Promise.all([
       api("/state"), api("/models"),
       state.value && state.value.current_job ? api("/jobs/" + state.value.current_job) : Promise.resolve(null),
+      api("/activity").catch(() => null),
     ]);
     if (s.status === 200) {
       state.value = s.data; online.value = true; budgetPaused.value = !!s.data?.budget?.paused;
@@ -288,6 +328,10 @@ async function refresh() {
       noteJobTransition(s.data);
     }
     if (m.status === 200) models.value = m.data;
+    if (act && act.status === 200 && act.data) {
+      activity.value = act.data;
+      maybeNotifyStale(act.data);
+    }
     if (j && j.status === 200) lastJob.value = j.data;
     guideReloadKey.value += 1;   // 引导的“下一步”跟着状态换（每 2.5s 一次，只读端点）
     loadLock();        // L-5：界面必须自己说出"锁在谁手里"，与状态同频刷新
@@ -5013,7 +5057,7 @@ function copyRewriteBrief(n) {
   copyText(text, "重写任务简报已复制（第 " + n + " 章）");
 }
 
-/* 按钮级派单（2026-11-08，暮雨：“这些全是有用的东西，不能点还有什么意义”）：
+/* 按钮级派单（2026-11-08，作者：“这些全是有用的东西，不能点还有什么意义”）：
    self 模式下点“重写”不再禁用，也不报错 —— 改成出自包含任务书，外部写成草稿，
    他点“采用草稿”才换正式稿（先备份）。正式稿在采纳之前一个字节不动。 */
 const selfDrafts = ref({});          // n -> {ok, words, reasons, mtime, path}
@@ -5543,8 +5587,21 @@ onUnmounted(() => {
       <button :class="{ active: tab === 'export' }" @click="switchTab('export')">导出</button>
       </div>
     </nav>
+    <!-- 顶栏右侧的“下一步”（2026-11-11，作者要的方案 A）：原来是一条横贯全宽的紫色横幅，
+         占一整行、还和 Agent 徽标说同一件事。收成这里一个按钮，完整说明进 title。 -->
+    <div v-if="nextAction && !isRunning" class="next-inline">
+      <button class="mini primary" :disabled="nextRunLocked"
+              :title="(nextRunLocked ? AGENT_LOCK_HINT : (nextAction.hint || '')) + '｜' + nextAction.label"
+              @click="runNextAction">▶ {{ nextAction.label }}</button>
+    </div>
     <div class="topbar-tools">
     <div class="conn" :class="{ on: online }">{{ online ? "已连接" : "离线" }}</div>
+    <!-- 执行方进度（2026-11-11，“过程可见”）：一眼看见“现在在做什么、停了多久”。
+         超时只标黄并说明，不弹窗、不阻断 —— 离线跑批不该被拦。 -->
+    <div v-if="activity && activity.current" class="activity-pill"
+         :class="{ warn: activity.stale }" :title="activityTitle">
+      <span class="ap-dot"></span>{{ activityText }}
+    </div>
     <!-- 2026-11-08（0.9.1 验收第 1 条）：宽屏（≥900px）时这一整块不是顶栏，
          而是左侧竖栏的最底部。原来四个动作 + 连接态 + 徽标共用一个会折行的 flex，
          216px 宽里折成参差两行（作者原话：成品、补救等按钮挤在一起，弄个对称的四宫格也就算了）。
@@ -5563,20 +5620,12 @@ onUnmounted(() => {
     <button class="mini" @click="openRunLog" title="运行日志（nf_api / 流水线输出尾部）—— 排障第一入口">📋 日志</button>
     <button class="mini global-refresh-btn" @click="globalRefresh" title="全局刷新（所有页签数据）">↻ 刷新</button>
     </div><!-- /tools-grid -->
-    <div v-if="agentMode" class="agent-mode-badge" title="Agent 模式已开启 —— 外部 Agent 可通过 HTTP API 调用">⚡ Agent</div>
-    <!-- 自任务模式徽标（2026-11-08）：与 ⚡ Agent 并列，一眼看出“AI 按钮为什么不可用”。 -->
-    <div v-if="selfEngine" class="pill st-gate" title="自任务引擎（engine: self）：不调用模型，只出任务书，所以 AI 类按钮不可用">◻ 自任务</div>
+    <div v-if="agentMode" class="agent-mode-badge" title="Agent 模式已开启：运行由外部 Agent 驱动，如需手动运行请先到“流水线”页关闭 Agent 模式">外部驱动</div>
+    <!-- 自任务模式徽标（2026-11-08）：与“外部驱动”同款中性药丸（2026-11-11 统一）——
+         之前它是唯一一块橙黄实心，比徽标本身还抢眼。 -->
+    <div v-if="selfEngine" class="agent-mode-badge" title="自任务引擎（engine: self）：不调用模型，只出任务书，所以 AI 类按钮不可用">自任务</div>
     </div>
   </header>
-
-  <!-- 全局"下一步"提示条 -->
-  <div v-if="nextAction && !isRunning" class="next-action-bar" @click="nextRunLocked ? null : runNextAction()">
-    <span class="na-icon">▶</span>
-    <span class="na-label">{{ nextAction.label }}</span>
-    <span class="na-hint">{{ nextRunLocked ? AGENT_LOCK_HINT : nextAction.hint }}</span>
-    <span class="spacer"></span>
-    <button class="mini primary" :disabled="nextRunLocked" :title="nextRunLocked ? AGENT_LOCK_HINT : ''" @click.stop="runNextAction">执行</button>
-  </div>
 
   <!-- 自任务模式常驻说明（2026-11-08，0.9.1 验收第 9/13/16 条）：
        self 下“提精修 / 精修大纲 / 整章重写 / 运行审查 / 自动重写 / 语义审稿”必然不可用。
@@ -6395,7 +6444,7 @@ onUnmounted(() => {
     <section v-if="tab === 'refine'">
       <FieldRefinePanel />
       <div class="refine-sep"></div>
-      <ParagraphRefinePanel :focus="refineFocus" />
+      <ParagraphRefinePanel :focus="refineFocus" :self-engine="selfEngine" />
     </section>
 
     <!-- 审核（沙盒产物审核队列：通过/驳回只改状态，不写文件、不碰 vault） -->

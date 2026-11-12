@@ -2,6 +2,10 @@
 import { ref, computed, onMounted, onUnmounted } from "vue";
 
 import { API } from "./apiBase.js";
+// 写请求必须走 guiApi（2026-11-11）：`agent_mode: true` 时写端点要双因子
+// （来源头 + 主进程签发的 token）。本文件原来的 api() 只带 Content-Type，
+// 于是"批准"在真实 GUI 里也会 403 —— 正是用户最恨的"点了没用"。
+import { postJSON } from "./guiApi.js";
 
 const emit = defineEmits(['goto-refine']);
 // 自任务引擎（engine: self）下“运行审查”必然失败 —— 父组件把引擎态传进来，
@@ -322,6 +326,95 @@ onUnmounted(() => {
   if (progressTimer) { clearInterval(progressTimer); progressTimer = null; }
   clearTimeout(toastTimer);
 });
+/* 产物待批（2026-11-11，产物闸）：执行方（agent / 模型）写的是**候选**，
+   不是成品。作者在这里点批 —— 为什么放在审稿页签：这一页就是"做决定"的地方
+   （对应"界面决定、对话干活"）。批准端点仅 GUI，agent 调用会被 403。 */
+const products = ref([]);
+const prodMsg = ref("");
+const prodBusy = ref("");
+const prodConfirm = ref("");     // 两步确认：第一次点只问，第二次才动手
+/* 批准前先看一眼（2026-11-12）：看不到内容就点"批准"，只能靠猜 —— 那不叫作主。
+   只读候选区，分阶段给出"比原稿改了几段"（阶段 5 最有用的一个数）。 */
+const prodView = ref({});
+const prodViewBusy = ref("");
+
+function prodKey(it) { return it.stage + "|" + it.rel; }
+
+function stateLabel(s) {
+  return ({ pending: "等批准", stale: "改过，需重批",
+            approved: "已批准", rejected: "已驳回" })[s] || s;
+}
+
+async function loadProducts(silent = false) {
+  try {
+    const r = await api("/review/products/pending");
+    if (r.status === 200 && r.data && r.data.ok) {
+      products.value = r.data.items || [];
+      if (!silent) prodMsg.value = "";
+    } else {
+      prodMsg.value = "读不到待批的版本：" + ((r.data && r.data.error) || r.status);
+    }
+  } catch (e) {
+    prodMsg.value = "读不到待批的版本（出错）：" + e.message;
+  }
+}
+
+async function decideProduct(it, action) {
+  const key = prodKey(it) + "|" + action;
+  if (prodConfirm.value !== key) {
+    prodConfirm.value = key;
+    prodMsg.value = action === "approve"
+      ? "再点一次就批准这一版；下次运行时会换进你的稿子"
+      : "再点一次就驳回这一版（你的稿子不动，这份还留着，可改完再批）";
+    return;
+  }
+  prodConfirm.value = "";
+  prodBusy.value = prodKey(it);
+  try {
+    const d = await postJSON("/review/products/decide",
+                             { stage: it.stage, rel: it.rel, action });
+    prodMsg.value = d.message || "已记下";
+    await loadProducts(true);      // 静默刷新：别把刚收到的提示一句话就抹掉
+  } catch (e) {
+    prodMsg.value = "没生效：" + e.message;
+  } finally {
+    prodBusy.value = "";
+  }
+}
+
+async function togglePreview(it) {
+  const key = prodKey(it);
+  if (prodView.value[key]) {
+    const next = { ...prodView.value };
+    delete next[key];
+    prodView.value = next;
+    return;
+  }
+  prodViewBusy.value = key;
+  try {
+    const r = await api("/review/products/content?stage=" + it.stage +
+                        "&rel=" + encodeURIComponent(it.rel));
+    if (r.status === 200 && r.data && r.data.ok) {
+      prodView.value = { ...prodView.value, [key]: r.data };
+    } else {
+      prodMsg.value = "看不到这份内容：" + ((r.data && r.data.error) || r.status);
+    }
+  } catch (e) {
+    prodMsg.value = "看不到这份内容（出错）：" + e.message;
+  } finally {
+    prodViewBusy.value = "";
+  }
+}
+
+function viewMeta(v) {
+  const bits = [];
+  if (typeof v.chars === "number") bits.push(v.chars + " 字");
+  if (typeof v.changed_paragraphs === "number") bits.push("比原稿改了 " + v.changed_paragraphs + " 段");
+  if (v.truncated) bits.push("只显示前 " + (v.text || "").length + " 字");
+  return bits.join(" · ");
+}
+
+onMounted(() => { loadProducts(); });
 </script>
 
 <template>
@@ -338,6 +431,47 @@ onUnmounted(() => {
         <button class="mini" @click="loadReport">刷新报告</button>
       </div>
     </div>
+
+    <!-- 产物待批（2026-11-11 产物闸）：执行方写候选，作者在这里点批。
+         放在"无报告提示"之前，因为它跟有没有审查报告无关 —— 只要有候选就该看得见。 -->
+    <section class="card product-gate">
+      <h4>
+        等你点头的版本
+        <span v-if="products.length" class="meta">（{{ products.length }}）</span>
+      </h4>
+      <div class="meta prod-note">
+        执行方（agent 或模型）写出来的东西先放在一边，<b>还没进你的稿子</b>。
+        你点“批准”之后，下次运行才会把它换进稿子；点“驳回”你的稿子一个字都不动，
+        那份东西还留着，可以改完再批。
+      </div>
+      <div v-if="prodMsg" class="meta prod-msg">{{ prodMsg }}</div>
+      <div v-if="!products.length" class="meta">没有等你点头的版本。</div>
+      <div v-for="it in products" :key="prodKey(it)" class="prod-item">
+        <div class="prod-row">
+          <span class="pill">{{ it.label || ("阶段 " + it.stage) }}</span>
+          <code class="prod-path">{{ it.rel }}</code>
+          <span class="prod-state" :class="'prod-st-' + it.state">{{ stateLabel(it.state) }}</span>
+          <span class="spacer"></span>
+          <button class="mini" :disabled="prodViewBusy === prodKey(it)"
+                  @click="togglePreview(it)">
+            {{ prodView[prodKey(it)] ? "收起" : (prodViewBusy === prodKey(it) ? "读取中…" : "看一眼") }}
+          </button>
+          <button class="mini primary"
+                  :disabled="prodBusy === prodKey(it)"
+                  :class="{ danger: prodConfirm === prodKey(it) + '|approve' }"
+                  :title="it.why || ''"
+                  @click="decideProduct(it, 'approve')">
+            {{ prodConfirm === prodKey(it) + "|approve" ? "确认批准？" : "批准" }}
+          </button>
+          <button class="mini" :disabled="prodBusy === prodKey(it)"
+                  @click="decideProduct(it, 'reject')">驳回</button>
+        </div>
+        <div v-if="prodView[prodKey(it)]" class="prod-view">
+          <div class="meta">{{ viewMeta(prodView[prodKey(it)]) }}</div>
+          <pre>{{ prodView[prodKey(it)].text }}</pre>
+        </div>
+      </div>
+    </section>
 
     <!-- 无报告提示 -->
     <div v-if="!report" class="empty">
@@ -474,7 +608,8 @@ onUnmounted(() => {
         </button>
         <button
           class="mini primary"
-          :disabled="running || !hasDecision"
+          :disabled="running || !hasDecision || props.selfEngine"
+          :title="props.selfEngine ? '当前引擎是自任务（engine: self，不调模型），批量精修要逐个调用模型。切到 direct / hermes 再用。' : ''"
           @click="runBatchRefine"
         >
           {{ running ? "精修中…" : "运行批量精修" }}
@@ -492,6 +627,31 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+/* 产物待批（2026-11-11）：一行一个候选，路径要能读全（不许截断成看不出来源）。 */
+.product-gate { margin-bottom: 14px; }
+.prod-note { line-height: 1.7; margin: 4px 0 8px; }
+.prod-msg { color: var(--warn, #b8860b); margin: 4px 0; }
+.prod-row {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 8px 0; border-top: 1px solid var(--border);
+}
+.prod-row .spacer { flex: 1; }
+.prod-item { border-top: 1px solid var(--border); }
+.prod-item .prod-row { border-top: none; }
+.prod-view { padding: 0 0 10px; }
+.prod-view pre {
+  max-height: 320px; overflow: auto; white-space: pre-wrap; word-break: break-word;
+  margin: 6px 0 0; padding: 10px 12px; font-size: 12px; line-height: 1.7;
+  background: var(--card); border: 1px solid var(--border); border-radius: 6px;
+  color: var(--ink);
+}
+.prod-path { font-size: 12px; color: var(--muted); word-break: break-all; }
+.prod-state { font-size: 12px; }
+.prod-st-pending { color: var(--accent); }
+.prod-st-stale { color: var(--warn, #b8860b); }
+.prod-st-approved { color: var(--ok, #2e8b57); }
+.prod-st-rejected { color: var(--bad); }
+
 .review-console {
   position: relative;
 }

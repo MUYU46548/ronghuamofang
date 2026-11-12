@@ -298,7 +298,8 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
         # 否则用户会以为"跑了但什么都没发生"。
         print("[orchestrator] engine=self：本引擎**不调用任何模型**。"
               "每阶段产出任务书（data/state/tasks/self/stageN/）→ 你执行完把产物"
-              "写到指定路径 → 再跑一次即按产物续跑（零 token）")
+              "写到**候选区**（data/_pending/stageN/）→ 作者批准后程序合成到正式路径"
+              "→ 再跑一次续跑（零 token）")
     if _tl.get("enabled"):
         print(f"[orchestrator] token 级熔断：单请求输出上限="
               f"{_tl.get('per_request_max_tokens') or '不限'}"
@@ -678,6 +679,34 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
                          if n in _approval_stages(cfg) else ""))
                 return None
 
+            # 候选已就位、只差作者批准 → **不重出任务书**，把"在等谁"说清楚。
+            # 2026-11-11（产物闸）：产物不再直接写正式路径，先写候选区、作者批准才合成。
+            # 这一段是那个语义在流程里的落点 —— 少了它，作者会看到"任务书已生成"，
+            # 以为执行方没干活，实际是自己在等自己。
+            _pend = None
+            try:
+                from utils import product_gate as _pg
+                _rels = []
+                for _st in sorted(_pg.REGISTERED_STAGES):
+                    if int(_st) == int(n):
+                        _rels = _pg.product_rels(".", _st)
+                for _rel in _rels:
+                    _stt = _pg.status(".", n, _rel)
+                    if _stt.get("state") in ("pending", "stale"):
+                        _pend = _stt
+                        break
+            except Exception:                               # noqa: BLE001
+                _pend = None
+            if _pend:
+                progress.set_stage(n, "awaiting_external", awaiting="author_review",
+                                   candidate=_pend.get("pending") or "",
+                                   task_hint=_pend.get("why") or "")
+                print(f"[orchestrator] 阶段{n} 候选已就位，**等作者批准**："
+                      f"{_pend.get('pending')}")
+                print(f"[orchestrator] {_pend.get('why')}")
+                print("[orchestrator] 批准之后重跑本命令，程序会把批准过的那一版合成到正式路径。")
+                return _finalize("waiting_external", 3)
+
             res = stg.emit_tasks(cfg, proj, progress, task_dir="data/state/tasks/self",
                                   **extra)
             if res.get("done"):
@@ -707,10 +736,10 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
                 print(f"  · {t.get('path')}  →  产物 {tg_s}")
             if res.get("hint"):
                 print(f"[orchestrator] {res['hint']}")
-            print(f"[orchestrator] 执行完把产物写到上面这些路径，然后重跑："
+            print(f"[orchestrator] 执行完把产物写到上面这些路径（候选区），然后重跑："
                   f"python scripts/orchestrator.py"
                   f"{'' if only_stage is None else ' --stage %d' % n}"
-                  f"（self 模式下重跑零 token，产物齐就直接放行）")
+                  f"（self 模式下重跑零 token；**候选要经作者批准，程序才会合成到正式路径**）")
             return _finalize("waiting_external", 3)
 
         for _idx, n in enumerate(order):

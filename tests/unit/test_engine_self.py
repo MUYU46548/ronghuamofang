@@ -188,6 +188,18 @@ def t_group(ws):
               heads and all(h[2] for h in heads),
               [h for h in heads if not h[2]][:3])
 
+        # T5：产物路径必须是**候选区**（2026-11-12 产物闸：阶段 1~6 全部登记）。
+        # 漏一个阶段 = 那个阶段的执行方又能直接写正式路径，锁就是假的。
+        bad_t = []
+        for n, r in results.items():
+            for t in r.get("tasks") or []:
+                tg = t.get("target")
+                tg = tg if isinstance(tg, list) else [tg]
+                for x in tg:
+                    if not str(x).startswith("data/_pending/"):
+                        bad_t.append((n, x))
+        check("T5 阶段 1~6 的产物路径都在候选区（不许直写正式路径）", not bad_t, bad_t[:5])
+
         # T3：去掉协议头后与既有 build_*_task 逐字一致
         #   —— 每个阶段都用**它自己的**判据/分批函数重算，避免"测试里另写一套切法"。
         pairs = [(r["path"], s2.build_task(cfg, proj)) for r in (results[2].get("tasks") or [])]
@@ -280,7 +292,11 @@ def s_group(ws):
               bool(before) and _sha(tasks2[0]) == before)
 
         # 产物补齐 → 阶段 1 done，接着为阶段 2 出任务书
-        _w("data/setting/setting.json", json.dumps(SETTING, ensure_ascii=False, indent=2))
+        # 2026-11-12：产物闸下"补齐"= 执行方写候选 + 作者批准（直写正式路径已经不算数）
+        from utils import product_gate as _pg
+        _body = json.dumps(SETTING, ensure_ascii=False, indent=2)
+        _w(_pg.pending_path(".", 1, "data/setting/setting.json"), _body)
+        _pg.record_approval(".", 1, "data/setting/setting.json", by="fixture")
         rc3 = orchestrator.run(from_stage=1)
         pg = ProgressManager("data/state/progress.json")
         s1 = pg.data["stages"]["1"]

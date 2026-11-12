@@ -247,8 +247,10 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
 
 
 # ---------------------------------------------------------------- engine: self
-SELF_CRITERIA = ("每个目标章大纲文件含“核心事件 / 涉及角色 / 功能”并写出实质内容"
-                 "（新生成章还要“小目标 / 悬念钩子”）")
+#: 2026-11-12：产物**不再直接写正式路径** —— 先写候选区、作者批准、程序才合成。
+SELF_CRITERIA = ("产物写到候选区（路径见上），每个目标章大纲含“核心事件 / 涉及角色 / 功能”"
+                 "并写出实质内容（新生成章还要“小目标 / 悬念钩子”）；"
+                 "作者在界面上批准后，程序才把它合成到 data/outline/chapters/NN.md")
 
 
 def _self_window(cfg, proj):
@@ -262,7 +264,18 @@ def _self_window(cfg, proj):
 
 
 def self_done(cfg, proj, progress=None, **_):
-    """窗口内章大纲全部合格 → 阶段 3 可判完成（与 run_stage 的跳过判据同一条）。"""
+    """先合成**作者批准过**的章大纲候选，再判窗口内是否齐备（判据同 run_stage）。
+
+    2026-11-12（产物闸）：未批准的候选不算大纲 —— 否则执行方写完就直接往下写正文，
+    而作者连"这一章要写什么"都还没点头。
+    """
+    from utils import product_gate as pg
+    promoted = pg.promote_approved(".", 3)
+    if promoted:
+        print("[stage3] 已按批准合成章大纲：%s" % "、".join(sorted(promoted)))
+    pend = pg.pending_note(".", 3)
+    if pend:
+        return False, ("章大纲候选已就位，**等作者批准**（%s）" % pend["pending"])
     total, limit, pending = _self_window(cfg, proj)
     if pending:
         return False, ("还有 %d 章没有合格大纲：%s" % (len(pending), pending[:8]))
@@ -297,17 +310,20 @@ def emit_tasks(cfg, proj, progress=None, task_dir=None, **_):
     groups = _self_groups(cfg, proj, pending)
 
     from utils.material_state import canon_or_setting
+    from utils import product_gate as pg
     tasks = []
     for bi, chs in enumerate(groups, 1):
         body = build_batch_task(cfg, proj, chs, "data/outline/global.md", canon_or_setting())
-        targets = ["data/outline/chapters/%02d.md" % n for n in chs]
+        targets = [pg.pending_rel(3, "data/outline/chapters/%02d.md" % n) for n in chs]
         tasks.append(st.write_task(
             3, "batch%02d.md" % bi, body, targets, SELF_CRITERIA,
-            note="本批 %d 章（第 %d–%d 章）" % (len(chs), chs[0], chs[-1]),
+            note="本批 %d 章（第 %d–%d 章）；产物写候选区，作者批准后才会被采用"
+                 % (len(chs), chs[0], chs[-1]),
             task_dir=task_dir, stage_name="分章大纲"))
     return st.summarize(3, tasks,
                         hint="共 %d 批 / %d 章（滚动窗口到第 %d 章，全书 %d 章）。"
-                             "写完重跑即校验并放行。" % (len(tasks), len(pending), limit, total))
+                             "写完重跑即校验；候选要经作者批准才会合成。"
+                             % (len(tasks), len(pending), limit, total))
 
 
 def main():

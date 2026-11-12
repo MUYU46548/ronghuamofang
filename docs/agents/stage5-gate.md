@@ -45,8 +45,28 @@ raw/NN.md ──(模型改)──▶ checked_pending/NN.md ──(逐条裁定)�
   - 有未裁定的章 → `progress.stages.5.status = "awaiting_review"`，orchestrator **退出码 3**（与审批门同码，等待人工）。
   - 再点运行 → stage5 发现已有提案，**不再重复调模型**，继续等；勾完合成后重跑才往下走。
 - `gates.stage5_diff: off` → 旧行为（直接写 `checked/`）。
-- `engine: self` → **闸不生效**：任务书由外部执行方直接写盘，没有裁定回传通道。这是已声明的边界，不是 bug。
 - 模型没产出有效改稿时的兜底（复制 raw → 暂存）仍然保留：产物与 raw 相同 → 0 裁定项 → 自动合成，同时保留"本章未经检查"的警告。
+
+### `engine: self` 下走产物闸（2026-11-12 改，原"闸不生效"的例外已拆掉）
+
+原来这里写的是"self 下闸不生效：任务书由外部执行方直接写盘，没有裁定回传通道"。
+2026-11-11 起那条前提不再成立：**执行方写候选区，作者批准，程序才合成**
+（`utils/product_gate`，与阶段 1/2/3/4/6 同一道门）。
+
+self 下的形状因此是：
+
+```
+raw/NN.md ──(外部执行方检查)──▶ data/_pending/stage5/data/chapters/checked/NN.md
+                                          │
+                                          ├── 界面上“看一眼”：只读预览 + 改了几段
+                                          └── 作者批准 ──▶ checked/NN.md
+```
+
+- **逐段裁定不适用于 self**（不是因为锁失效，而是因为 self 下没有"程序驱动的模型改稿"这一步：
+  执行方交回的就是整稿）。作者的决定是**整章批准 / 驳回**，批准前可以看 diff 条数。
+- 未批准的候选**不进 `checked/`**：`self_done(5)` 先 `promote_approved()` 再判
+  "checked 稿可用 + 七维账本覆盖全书"，两条都要过。
+- 需要逐段勾的场合继续用 direct / hermes 引擎的那套（`gates.stage5_diff`）。
 
 ---
 
@@ -85,6 +105,8 @@ python scripts/stage5_gate.py apply --all
 
 ```
 tests/unit/test_stage5_gate.py   23 项（含 API 层；未勾完拒绝、全拒=原文、stale、noop）
+tests/unit/test_product_gate_stages.py  【C】组（self：候选未批不进 checked、批准后合成、
+                                         账本仍缺仍判未完成）
 test_api_domains                 路由契约
 test_judge_locks                 防"拆锁"回退
 nfctl test                       全量

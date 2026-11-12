@@ -617,18 +617,45 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
 
 # ---------------------------------------------------------------- engine: self
 #: engine: self 下阶段 1 的合格判据（任务书头与 self_done 共用同一句话）
-SELF_CRITERIA = ("data/setting/setting.json 是有效 JSON 且含四个顶层键"
-                 "（characters / world / plot_fragments / timeline），characters 非空")
+#: 2026-11-11：产物**不再直接写正式路径** —— 先写候选区、作者批准、程序才合成。
+SELF_TARGET = "data/setting/setting.json"
+SELF_CRITERIA = ("产物写到候选区（路径见上），内容须是有效 JSON 且含四个顶层键"
+                 "（characters / world / plot_fragments / timeline），characters 非空；"
+                 "作者在界面上批准后，程序才把它合成到 data/setting/setting.json")
 
 
 def self_done(cfg=None, proj=None, progress=None, **_):
-    """engine: self 的完成判定：产物真的能用了才算做完（不调模型）。
+    """engine: self 的完成判定：**作者批准过的**产物才算做完（不调模型）。
 
-    只判 `validate_setting` —— 与 run_stage 校验的是同一个函数，不另立判据。
+    2026-11-11 改：此前只看正式路径上那个文件在不在、是不是有效 JSON ——
+    执行方（外部 agent）直接写正式路径就算完成，全流程没有一个人能作主。
+    现在过 `utils/product_gate`：候选 → 作者批准 → 合成，程序只承认批准过的那一版。
+    锁在这一处，是因为所有调用方（orchestrator / CLI / 将来任何壳）都要经过它。
+
+    兼容说明：正式路径上已有产物、候选区却没有（升级前的老项目）→ 提示把现有
+    产物搬进候选区，**不自动批准**。自动批准等于这把锁是假的。
     """
-    ok, errs = validate_setting("data/setting/setting.json")
+    from utils import product_gate as pg
+    rel = SELF_TARGET
+    root = Path(".")
+    st = pg.status(root, 1, rel)
+    if st["state"] == "pending":
+        return False, ("设定集候选已就位，**等作者批准**（%s）。批准后程序才会把它"
+                       "合成到正式路径。" % st["pending"])
+    if st["state"] == "stale":
+        return False, st["why"]
+    if st["state"] == "approved":
+        ok, msg, _info = pg.promote(root, 1, rel)
+        if not ok:
+            return False, msg
+        print("[stage1] %s" % msg)
+    elif not Path(rel).exists():
+        return False, "设定集还没就绪：" + st["why"]
+    else:
+        return False, pg.legacy_hint(1, rel)
+    ok, errs = validate_setting(rel)
     if ok:
-        return True, "设定集校验通过"
+        return True, "设定集校验通过（已按批准版本合成）"
     return False, "设定集还没就绪：" + "；".join(errs)
 
 
@@ -728,8 +755,13 @@ def emit_tasks(cfg, proj, progress=None, task_dir=None, with_scraps=None, **_):
     prev_sig = _load_prev_fingerprint(manifest_path)
     _write_manifest(manifest, removed, manifest_path, sig)
 
+    from utils import product_gate as pg
     setting_valid = setting_path.exists() and validate_setting(setting_path)[0]
-    if setting_valid and sig == prev_sig:
+    # ⚠️ "直接复用"这条捷径必须同时满足"正式路径上那一版是作者批过的"。
+    # 只看"文件在 + 指纹没变"的话，绕过候选区直写正式路径也同样被判完成 ——
+    # 锁只锁合成，旁边这条捷径就成了后门（2026-11-12 补，见 self_done 的说明）。
+    reusable = setting_valid and pg.approved_formal(".", 1, SELF_TARGET)
+    if reusable and sig == prev_sig:
         return st.summarize(1, [], done=True,
                             hint="素材没有实质变化（指纹一致），设定集可直接复用")
 
@@ -738,8 +770,9 @@ def emit_tasks(cfg, proj, progress=None, task_dir=None, with_scraps=None, **_):
         extra_inputs.append(SCRAPS_MERGE)
     body = build_setting_task(proj, manifest_path, normalized_dir, extra_inputs=extra_inputs)
     task = st.write_task(
-        1, "setting.md", body, ["data/setting/setting.json"], SELF_CRITERIA,
-        note=("素材 %d 条（去重 %d 条）" % (len(manifest), len(removed))),
+        1, "setting.md", body, [pg.pending_rel(1, SELF_TARGET)], SELF_CRITERIA,
+        note=("素材 %d 条（去重 %d 条）；产物写候选区，作者批准后才会被采用"
+              % (len(manifest), len(removed))),
         task_dir=task_dir, stage_name="素材归并（设定集）")
     return st.summarize(1, [task],
                         hint="设定集写完重跑即可（会做有效性校验与状态标注）。")
