@@ -428,6 +428,18 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         _sres = _structure.collect(Path("."))
         if _sres.get("ok"):
             _structure.write(REVIEW_DIR, _sres)
+            # 2026-11-12（问题总账第 6 条）：越线只"提示抽样"仍然是一句结论。
+            # 把它变成可作答的问题（要问什么 / 选项 / 默认），作者在界面上点，
+            # "重写这一章"会进待重写清单，下次阶段 4 真会重出这一章的任务书。
+            try:
+                from utils import ask as _ask
+                _added, _skipped = _ask.collect_structure_questions(Path("."), _sres)
+                if _added:
+                    print("[stage5] 要你定的事：新增 %d 条（结构指标越线，界面“要你定的事”里答）"
+                          % _added)
+            except Exception as e:                            # noqa: BLE001
+                print("[stage5] 结构指标转问题失败（不影响检查稿）：%s: %s"
+                      % (type(e).__name__, e))
             _need = (_sres.get("summary") or {}).get("needs_sampling") or []
             _miss = _sres.get("missing_criteria") or []
             if _miss:

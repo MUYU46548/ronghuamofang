@@ -4125,6 +4125,30 @@ async function answerAsk(item, text) {
   }
 }
 
+/* 选项按钮（2026-11-12）：选项可能是字符串（老通道）或 {value,label,note}（判据生成的）。
+ * 点按钮走 value，自由输入走 answer —— 两条都记在同一条问题里。 */
+function optValue(o) { return typeof o === "string" ? o : String((o && o.value) || ""); }
+function optLabel(o) { return typeof o === "string" ? o : String((o && o.label) || optValue(o)); }
+function optNote(o) { return typeof o === "string" ? "" : String((o && o.note) || ""); }
+function optKey(o, i) { return optValue(o) || ("opt" + i); }
+
+async function answerAskValue(item, o) {
+  const v = optValue(o);
+  if (!v) return;
+  try {
+    const r = await api("/ask/answer", "POST", { id: item.id, value: v });
+    if (r.status === 200 && r.data.ok) {
+      const eff = r.data.effect ? "（会按你的选择去做）" : "";
+      say("已记下你的选择" + eff);
+      await loadAgentAsks();
+    } else {
+      say("回答失败: " + (r.data.error || r.status));
+    }
+  } catch (e) {
+    say("回答失败: " + (e.message || e));
+  }
+}
+
 async function loadVaults() {
   vaults.value.loading = true;
   try {
@@ -5576,8 +5600,8 @@ onUnmounted(() => {
       <div class="tab-group" role="group" aria-label="系统" title="系统">
         <span class="tab-group-title">系统</span>
       <button :class="{ active: tab === 'cost' }" @click="switchTab('cost')">成本</button>
-      <button @click="asksOpen = !asksOpen; loadAgentAsks()" title="外接 Agent 提出的问题（回答后 Agent 能读到）">
-        Agent 提问<span v-if="askPending" class="badge">{{ askPending }}</span>
+      <button @click="asksOpen = !asksOpen; loadAgentAsks()" title="Agent 与检查结果要你作主的事（回答后 Agent 能读到）">
+        要你定的事<span v-if="askPending" class="badge">{{ askPending }}</span>
       </button>
       <button :class="{ active: tab === 'inbox' }" @click="switchTab('inbox')">
         收件箱<span v-if="pendingGates.length" class="badge">{{ pendingGates.length }}</span>
@@ -5710,7 +5734,7 @@ onUnmounted(() => {
   <!-- Agent 提问浮层（2026-10-31）：最小可用版 —— 问题 + 选项 + 自由回答 -->
   <div v-if="asksOpen" class="ask-panel">
     <div class="ask-head">
-      <b>Agent 的提问</b>
+      <b>要你定的事</b>
       <span class="meta" v-if="askPending">{{ askPending }} 条待回答</span>
       <span class="meta" v-else>没有待回答的问题</span>
       <span class="spacer"></span>
@@ -5720,8 +5744,12 @@ onUnmounted(() => {
       <div class="ask-q">{{ q.question }}</div>
       <div class="ask-ctx" v-if="q.context">{{ q.context }}</div>
       <div class="ask-opts" v-if="q.options && q.options.length">
-        <button v-for="o in q.options" :key="o" class="mini"
-                @click="answerAsk(q, o)">{{ o }}</button>
+        <button v-for="(o, oi) in q.options" :key="optKey(o, oi)" class="mini"
+                :class="{ primary: optValue(o) === q.default }"
+                :title="optNote(o)"
+                @click="answerAskValue(q, o)">
+          {{ optLabel(o) }}<span v-if="optValue(o) === q.default" class="ask-def">（默认）</span>
+        </button>
       </div>
       <div class="ask-row">
         <input v-model="askDraft[q.id]" class="ask-input"

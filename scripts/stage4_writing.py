@@ -2164,6 +2164,18 @@ def _self_pending(cfg, proj, chapters=None):
     pending = [n for n in range(1, total + 1)
                if not is_chapter_complete(raw_dir / ("%02d.md" % n), *tw,
                                           para_structure=para_ok)]
+    # 作者点名要重写的章（`data/state/rewrite_queue.json`，由"要你定的事"作答产生）：
+    # 它和"没写"一样要重出一份任务书 —— 否则面板上点了"重写这一章"什么也不会发生。
+    try:
+        from utils import ask as _ask
+        queued = [n for n in _ask.queue_rewrites(".") if 1 <= n <= total and n not in pending]
+        if queued:
+            pending = sorted(pending + queued)
+            print("[stage4] 作者要求重写：第 %s 章（作答应出任务书）"
+                  % "、".join(str(x) for x in queued))
+    except Exception as e:                                    # noqa: BLE001
+        print("[stage4] 读重写清单失败（不影响其它待写章）：%s: %s"
+              % (type(e).__name__, e))
     if chapters:
         pending, _out = _apply_scope(pending, chapters)
     return total, pending
@@ -2191,6 +2203,13 @@ def _promote_chapter_candidates(cfg, proj, chapters=None):
     if done:
         print("[stage4] 已按批准合成正文：第 %s 章"
               % "、".join(str(x) for x in done))
+        # 新版本已落正式路径 → 这一章不再"等重写"（否则每一轮都会再派一次）
+        try:
+            from utils import ask as _ask
+            _ask.clear_rewrites(".", done)
+        except Exception as e:                                # noqa: BLE001
+            print("[stage4] 重写清单出队失败（不影响正文）：%s: %s"
+                  % (type(e).__name__, e))
     return done
 
 

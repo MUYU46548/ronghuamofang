@@ -1691,6 +1691,10 @@ def main(argv=None):
                         help="list=列等批的版本；adopt=把正式路径上现有的产物搬进候选区（不自动批准）")
     p_prod.add_argument("--stage", type=int, default=None,
                         help="只处理某个阶段（1~6；不填=全部）")
+    p_q = sub.add_parser("questions", parents=[common],
+                         help="要你定的事：列清单 / 从结构指标生成（**作答只归界面**）")
+    p_q.add_argument("action", nargs="?", default="list", choices=["list", "refresh"],
+                     help="list=看等作者定的清单；refresh=按 data/review/structure.json 生成")
     sub.add_parser("check", parents=[common], help="环境自检（含 YAML 重复键）")
     sub.add_parser("doctor", parents=[common], help="数据一致性自检（产物完整性/孤儿文件/数据库）")
     sub.add_parser("homo", parents=[common],
@@ -1806,6 +1810,34 @@ def main(argv=None):
             print("  · …还有 %d 份" % (len(moved) - 20))
         print("[nfctl] 它们**还没被批准**：去界面“审稿 → 等你点头的版本”逐份批；"
               "批完重跑流水线才会被采用。")
+        return 0
+
+    if args.cmd == "questions":
+        # 要作者定的事（2026-11-12，问题总账第 6 条）：这里只读 + 生成。
+        # **不给 answer 子命令**：作答是作者的判断，只走界面（agent 调会 403）。
+        from utils import ask as _ask
+        if args.action == "refresh":
+            added, skipped = _ask.collect_structure_questions(root)
+            print("[nfctl] 结构指标 → 问题：新增 %d / 已在清单 %d" % (added, skipped))
+        items = _ask.open_items(root)
+        if as_json:
+            print(json.dumps({"items": items, "counts": _ask.summary(root)},
+                             ensure_ascii=False, indent=2))
+        elif not items:
+            print("[nfctl] 没有要作者定的事。")
+        else:
+            for q in items:
+                where = ("阶段%s" % q.get("stage")) if q.get("stage") else "—"
+                if q.get("chapter"):
+                    where += " 第%s章" % q.get("chapter")
+                print("· [%s] %s" % (where, q.get("question")))
+                if q.get("why"):
+                    print("   依据：%s" % q.get("why"))
+                print("   选项：%s（默认 %s）"
+                      % (" / ".join("%s=%s" % (o.get("value"), o.get("label"))
+                                    for o in (q.get("options") or [])),
+                         q.get("default")))
+            print("[nfctl] 作答只归界面（顶栏“要你定的事”）；agent 调 /ask/answer 会 403。")
         return 0
 
     if args.cmd == "check":
