@@ -201,13 +201,20 @@ def run_checks(docx, template, md_path=None, expect_title=None, expect_author=No
 def main():
     ensure_utf8_stdout()
     ap = argparse.ArgumentParser(description="Word 成品 × 模板规格校验（零 LLM）")
+    # --root（2026-11-12，走“路C 出 Word”时补）：本脚本默认把 **脚本所在仓库** 当项目根，
+    # 于是 `nf_api --root <另一个工作区>` 导出的成品，会被拿**别人书的书名/模板**当基线 →
+    # “书名已填”必然假红（实测：docx 里是“路C目检”，基线却是仓库自带的示例书名）。
+    # 与其它 CLI 工具同一口径：不传 = 老行为（脚本所在仓库），传了 = 校验那个工作区。
+    ap.add_argument("--root", default=str(ROOT),
+                    help="项目根（默认本脚本所在仓库；校验别的工作区时显式传）")
     ap.add_argument("--docx", help="成品 docx（默认 output/<书名>_完整版.docx）")
     ap.add_argument("--template", help="模板（默认取 config/project.yaml book.word_template）")
-    ap.add_argument("--md", default=str(ROOT / "data" / "merged" / "book.md"),
-                    help="章节映射比对源（默认 data/merged/book.md）")
+    ap.add_argument("--md", help="章节映射比对源（默认 data/merged/book.md）")
     args = ap.parse_args()
 
-    proj = load_config_yaml(str(ROOT / "config" / "project.yaml")) or {}
+    root = Path(args.root).resolve()
+    md_path = args.md or str(root / "data" / "merged" / "book.md")
+    proj = load_config_yaml(str(root / "config" / "project.yaml")) or {}
     book = proj.get("book", {})
     tmpl = args.template or (book.get("word_template") or "").strip()
     if not tmpl:
@@ -215,13 +222,13 @@ def main():
         return 1
     tmpl_path = Path(tmpl)
     if not tmpl_path.is_absolute():
-        tmpl_path = ROOT / tmpl_path
+        tmpl_path = root / tmpl_path
     if not tmpl_path.exists():
         print("FAIL: 模板不存在: %s" % tmpl_path)
         return 1
-    docx = args.docx or str(ROOT / "output" / ("%s_完整版.docx" % book.get("name", "未命名")))
+    docx = args.docx or str(root / "output" / ("%s_完整版.docx" % book.get("name", "未命名")))
 
-    run_checks(docx, tmpl_path, md_path=args.md,
+    run_checks(docx, tmpl_path, md_path=md_path,
                expect_title=book.get("name"), expect_author=book.get("author"))
 
     print("\n[template_check] PASS=%d FAIL=%d" % (len(PASS), len(FAIL)))

@@ -345,7 +345,7 @@ def handle_paragraph_restore(h, body):
         return 400, {"error": "chapter(>=1)、paragraph_index(>=0)、history_id(>=1) 必填"}
     try:
         import refine_paragraph
-        ok, msg = refine_paragraph.restore_paragraph_version(ch, pi, hid)
+        ok, msg = refine_paragraph.restore_paragraph_version(ch, pi, hid, root=api.ROOT)
         return (200 if ok else 400), {"ok": ok, "message": msg}
     except Exception as e:
         return 500, {"error": type(e).__name__ + ": " + str(e)[:200]}
@@ -367,7 +367,7 @@ def handle_paragraph_save(h, body):
         return 400, {"error": "chapter(>=1)、paragraph_index(>=0)、text 必填"}
     try:
         import refine_paragraph
-        ok, msg = refine_paragraph.save_paragraph_text(ch, pi, text)
+        ok, msg = refine_paragraph.save_paragraph_text(ch, pi, text, root=api.ROOT)
         return (200 if ok else 400), {"ok": ok, "message": msg,
                                       "chapter": ch, "paragraph_index": pi}
     except Exception as e:                                # noqa: BLE001
@@ -427,7 +427,7 @@ def handle_paragraph_history(h):
         return 400, {"error": "n(>=1)、p(>=0) 必填"}
     try:
         import refine_paragraph
-        records = refine_paragraph.list_paragraph_history(ch, pi)
+        records = refine_paragraph.list_paragraph_history(ch, pi, root=api.ROOT)
         return 200, {"ok": True, "chapter": ch, "paragraph_index": pi, "count": len(records), "history": records}
     except Exception as e:
         return 500, {"error": type(e).__name__ + ": " + str(e)[:200]}
@@ -449,7 +449,7 @@ def handle_paragraph_diff(h):
 
         if h1 and h2:
             # 两个历史版本对比
-            records = refine_paragraph.list_paragraph_history(ch, pi)
+            records = refine_paragraph.list_paragraph_history(ch, pi, root=api.ROOT)
             r1 = next((r for r in records if r.get("id") == int(h1)), None)
             r2 = next((r for r in records if r.get("id") == int(h2)), None)
             if not r1 or not r2:
@@ -470,7 +470,7 @@ def handle_paragraph_diff(h):
             if pi >= len(paras):
                 return 400, {"error": f"段落 #{pi} 不存在（共 {len(paras)} 段）"}
             current = paras[pi]
-            records = refine_paragraph.list_paragraph_history(ch, pi)
+            records = refine_paragraph.list_paragraph_history(ch, pi, root=api.ROOT)
             if not records:
                 return 404, {"error": "暂无历史记录"}
             latest = records[0]
@@ -511,7 +511,7 @@ def handle_style_drift(h):
         if pi >= len(paras):
             return 400, {"error": f"段落 #{pi} 不存在"}
         current = paras[pi]
-        records = refine_paragraph.list_paragraph_history(ch, pi)
+        records = refine_paragraph.list_paragraph_history(ch, pi, root=api.ROOT)
         if not records:
             return 404, {"error": "暂无历史记录，无法对比"}
         latest = records[0]
@@ -668,7 +668,8 @@ def handle_paragraph_preview(h, body):
 
         def _fn():
             import refine_paragraph as rp
-            ok, msg, rec = rp.preview_paragraph(cfg, proj, ch, pi, fb, client=client)
+            ok, msg, rec = rp.preview_paragraph(cfg, proj, ch, pi, fb, client=client,
+                                                root=api.ROOT)
             return ok, (msg if not ok else {"message": msg, "rec": rec})
 
         jid, err = api.start_job("preview_para_ch%d_p%d" % (ch, pi), _fn)
@@ -690,7 +691,7 @@ def handle_paragraph_pending(h):
         except (TypeError, ValueError):
             return 400, {"ok": False, "error": "chapter 与 index 必填"}
         import refine_paragraph as rp
-        rec = rp.get_pending(ch, pi)
+        rec = rp.get_pending(ch, pi, root=api.ROOT)
         if not rec:
             # self 模式：候选是外部写的草稿文件（不是模型返回的文本）
             from utils import self_actions as sa
@@ -720,7 +721,7 @@ def handle_paragraph_apply(h, body):
         return bad
     try:
         import refine_paragraph as rp
-        ok, msg = rp.apply_pending(ch, pi)
+        ok, msg = rp.apply_pending(ch, pi, root=api.ROOT)
         if not ok and "没有待采用的候选" in str(msg):
             from utils import self_actions as sa
             if sa.para_draft_path(ch, pi).is_file():
@@ -739,7 +740,7 @@ def handle_paragraph_drop(h, body):
         return bad
     try:
         import refine_paragraph as rp
-        ok, msg = rp.drop_pending(ch, pi)
+        ok, msg = rp.drop_pending(ch, pi, root=api.ROOT)
         from utils import self_actions as sa
         if sa.para_draft_path(ch, pi).is_file():
             _o, _m = sa.drop_paragraph_draft(ch, pi)

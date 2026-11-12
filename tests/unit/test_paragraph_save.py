@@ -10,7 +10,10 @@
 ## 判据（每条都能变红）
 
 - M1 改第 2 段：只有第 2 段变，其它段一字不动
-- M2 整章有备份（`.history/chXX_vN.md`）
+- M2 整章有备份（`data/chapters/history/chXX_vN.md`）
+  ⚠️ 2026-11-12 修正断言路径：原实现写的是 `data/chapters.history`（**少了分隔符**，
+  与文档/`refine_chapter` 两处都不一致，用户在文档指的位置找不到备份）；本用例当年
+  照抄了那个错路径，等于把 bug 锁成了“预期”。现在两处统一到 `data/chapters/history/`。
 - M3 旧内容进段落历史（手改也可回退）
 - M4 空内容拒写
 - M5 内容含空行拒写（那会变成两段）
@@ -70,7 +73,7 @@ def main():
             check("M1 旧内容不在了", "第二段原文，要改这一句。" not in after)
 
             # ---- M2 整章备份 ----
-            baks = list(Path("data/chapters.history").glob("ch03_v*.md"))
+            baks = list(Path("data/chapters/history").glob("ch03_v*.md"))
             check("M2 有整章备份", len(baks) >= 1, [b.name for b in baks])
             check("M2 备份是改之前的", baks and baks[0].read_text(encoding="utf-8") == before)
 

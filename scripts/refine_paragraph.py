@@ -36,8 +36,39 @@ from utils.template_loader import load_template
 from utils.config_io import load_config_yaml
 from utils.text_norm import normalize_chapter_file
 
-HISTORY_DIR = Path("data/chapters.history")
+#: 老常量只剩兼容用（外部若有引用不致崩）。**新代码一律走下面的函数**。
+#: ⚠️ 注意老值写的是 `data/chapters.history`（**少了分隔符**，是笔误）——
+#: 于是整章备份一直落在 `data/chapters.history/chNN_vM.md`，与文档写的
+#: `data/chapters/history/` 不是一处，用户在文档指的位置找不到“回退用的备份”。
+#: 2026-11-12 一并改正：写入/读取都走 `data/chapters/history/`（旧目录里的
+#: 历史备份不会被自动搬迁 —— 那是备份，不是正典；需要时可手工复制过来）。
+HISTORY_DIR = Path("data/chapters/history")
 PARA_HISTORY_DIR = Path("data/chapters/para_history")
+
+
+def _base(root=None):
+    """路径基准：显式 `root`（API 侧一律传 `api.ROOT`），否则 cwd（CLI 直跑）。
+
+    与 `refine_chapter._base` 同一口径 —— 理由见那边的 docstring：
+    模块级全局会被任何在进程内 `import nf_api` 的代码钉死，之后用例
+    `chdir` 到沙盒就找不到章（2026-11-12 被 `test_stage4_ch14_fixes` 当场打回）。
+    """
+    return Path(root) if root else Path(".")
+
+
+def _history_dir(root=None):
+    """整章历史备份目录（跟 `root` 走）。"""
+    return _base(root) / "data" / "chapters" / "history"
+
+
+def _para_history_dir(root=None):
+    """段落改写历史目录（跟 `root` 走）。"""
+    return _base(root) / "data" / "chapters" / "para_history"
+
+
+def _pending_path(root=None):
+    """待采用候选（`para_pending.json`）路径（跟 `root` 走）。"""
+    return _base(root) / "data" / "state" / "para_pending.json"
 QUALITY_RE = re.compile(r"<!--\s*quality:\s*(\d+(?:\.\d+)?)")
 VERSION_RE = re.compile(r"^ch(\d{2})_v(\d+)\.md$")
 PARA_HISTORY_RE = re.compile(r"^ch(\d{2})_p(\d+)_h(\d+)\.json$")
@@ -60,10 +91,11 @@ def _norm(path, chapter=None):
         print(f"[refine_p] 第{chapter}章标点归一化（{detail}）")
 
 
-def _pick_chapter_path(n):
-    """按 refined > checked > raw 优先级定位章节文件。"""
+def _pick_chapter_path(n, root=None):
+    """按 refined > checked > raw 优先级定位章节文件（跟 `root` 走，默认 cwd）。"""
+    base = _base(root)
     for d in ("data/chapters/refined", "data/chapters/checked", "data/chapters/raw"):
-        p = Path(d) / f"{n:02d}.md"
+        p = base / d / f"{n:02d}.md"
         if p.exists():
             return p
     return None
@@ -163,29 +195,31 @@ def verify_untouched(before, after, index):
     return problems
 
 
-def _next_version(chapter):
+def _next_version(chapter, root=None):
     """该章已有备份数 + 1。"""
-    HISTORY_DIR.mkdir(parents=True, exist_ok=True)
-    nums = [int(m.group(1)) for p in HISTORY_DIR.glob(f"ch{chapter:02d}_v*.md")
+    _history_dir(root).mkdir(parents=True, exist_ok=True)
+    nums = [int(m.group(1)) for p in _history_dir(root).glob(f"ch{chapter:02d}_v*.md")
             if (m := re.match(rf"ch{chapter:02d}_v(\d+)\.md", p.name))]
     return (max(nums) + 1) if nums else 1
 
 
-def _next_para_history_id(chapter, paragraph_index):
+def _next_para_history_id(chapter, paragraph_index, root=None):
     """该段落的下一个历史 ID。"""
-    PARA_HISTORY_DIR.mkdir(parents=True, exist_ok=True)
+    d = _para_history_dir(root)
+    d.mkdir(parents=True, exist_ok=True)
     pattern = f"ch{chapter:02d}_p{paragraph_index}_h*.json"
     nums = []
-    for p in PARA_HISTORY_DIR.glob(pattern):
+    for p in d.glob(pattern):
         m = PARA_HISTORY_RE.match(p.name)
         if m and int(m.group(1)) == chapter and int(m.group(2)) == paragraph_index:
             nums.append(int(m.group(3)))
     return (max(nums) + 1) if nums else 1
 
 
-def save_paragraph_history(chapter, paragraph_index, original_text, rewritten_text, feedback):
+def save_paragraph_history(chapter, paragraph_index, original_text, rewritten_text, feedback,
+                           root=None):
     """保存段落改写历史。"""
-    hid = _next_para_history_id(chapter, paragraph_index)
+    hid = _next_para_history_id(chapter, paragraph_index, root)
     record = {
         "id": hid,
         "chapter": chapter,
@@ -197,18 +231,20 @@ def save_paragraph_history(chapter, paragraph_index, original_text, rewritten_te
         "original_chars": len(original_text),
         "rewritten_chars": len(rewritten_text),
     }
-    PARA_HISTORY_DIR.mkdir(parents=True, exist_ok=True)
-    path = PARA_HISTORY_DIR / f"ch{chapter:02d}_p{paragraph_index}_h{hid}.json"
+    d = _para_history_dir(root)
+    d.mkdir(parents=True, exist_ok=True)
+    path = d / f"ch{chapter:02d}_p{paragraph_index}_h{hid}.json"
     write_text(path, json.dumps(record, ensure_ascii=False, indent=2))
     return record
 
 
-def list_paragraph_history(chapter, paragraph_index):
+def list_paragraph_history(chapter, paragraph_index, root=None):
     """列出某段落的改写历史（新 → 旧）。"""
-    PARA_HISTORY_DIR.mkdir(parents=True, exist_ok=True)
+    d = _para_history_dir(root)
+    d.mkdir(parents=True, exist_ok=True)
     pattern = f"ch{chapter:02d}_p{paragraph_index}_h*.json"
     records = []
-    for p in PARA_HISTORY_DIR.glob(pattern):
+    for p in d.glob(pattern):
         m = PARA_HISTORY_RE.match(p.name)
         if not m:
             continue
@@ -223,7 +259,7 @@ def list_paragraph_history(chapter, paragraph_index):
     return records
 
 
-def restore_paragraph_version(chapter, paragraph_index, history_id):
+def restore_paragraph_version(chapter, paragraph_index, history_id, root=None):
     """回退段落到指定历史版本。
     
     安全纪律：
@@ -231,12 +267,12 @@ def restore_paragraph_version(chapter, paragraph_index, history_id):
     - 历史记录不存在 → 报错不动作
     - 当前段落位置不匹配 → 报错不动作
     """
-    history_file = PARA_HISTORY_DIR / f"ch{chapter:02d}_p{paragraph_index}_h{history_id}.json"
+    history_file = _para_history_dir(root) / f"ch{chapter:02d}_p{paragraph_index}_h{history_id}.json"
     if not history_file.exists():
-        avail = [r.get("id") for r in list_paragraph_history(chapter, paragraph_index)]
+        avail = [r.get("id") for r in list_paragraph_history(chapter, paragraph_index, root)]
         return False, f"段落 #{paragraph_index} 无历史 h{history_id}（现有：{avail or '无'}）"
 
-    chap_path = _pick_chapter_path(chapter)
+    chap_path = _pick_chapter_path(chapter, root)
     if chap_path is None:
         return False, f"第 {chapter} 章不存在"
 
@@ -260,15 +296,16 @@ def restore_paragraph_version(chapter, paragraph_index, history_id):
         pass  # 不阻断，但下方提示
 
     # 保存当前段落为新历史（回退前的快照）
-    save_paragraph_history(chapter, paragraph_index, current_text, target_text, f"回退前快照 → h{history_id}")
+    save_paragraph_history(chapter, paragraph_index, current_text, target_text,
+                           f"回退前快照 → h{history_id}", root)
 
     # 替换段落：**只换这一段**，其余字节原样（F11 未改动段逐字不变的硬要求）。
     # 老写法 "\n\n".join(...) 会顺手把所有分隔符规范化，改一段等于重排全章。
     new_text = replace_segment(full_text, paragraph_index, target_text)
 
     # 备份整章后写入
-    version = _next_version(chapter)
-    backup = HISTORY_DIR / f"ch{chapter:02d}_v{version}.md"
+    version = _next_version(chapter, root)
+    backup = _history_dir(root) / f"ch{chapter:02d}_v{version}.md"
     shutil.copy2(chap_path, backup)
     write_text(chap_path, new_text)
     # 中文标点归一化（2026-10-18）：历史版本里可能带着修复前的脏标点，
@@ -278,7 +315,7 @@ def restore_paragraph_version(chapter, paragraph_index, history_id):
     return True, f"段落 #{paragraph_index} 已回退到 h{history_id}（整章备份 v{version}）"
 
 
-def save_paragraph_text(chapter, paragraph_index, new_text, note="手改"):
+def save_paragraph_text(chapter, paragraph_index, new_text, note="手改", root=None):
     """作者直接改这一段并保存（2026-11-02，不可用清单第 8 条）。
 
     ## 为什么要有它
@@ -301,7 +338,7 @@ def save_paragraph_text(chapter, paragraph_index, new_text, note="手改"):
     if "\n\n" in body:
         return False, "这一段里有空行。按段落保存时不能夹空行（那会变成两段）"
 
-    chap_path = _pick_chapter_path(chapter)
+    chap_path = _pick_chapter_path(chapter, root)
     if chap_path is None:
         return False, f"第 {chapter} 章不存在"
 
@@ -314,11 +351,11 @@ def save_paragraph_text(chapter, paragraph_index, new_text, note="手改"):
     if current == body:
         return True, "内容没变，未写入"
 
-    save_paragraph_history(chapter, paragraph_index, current, body, note)
+    save_paragraph_history(chapter, paragraph_index, current, body, note, root)
 
     # 只替换这一段（其余字节原样）—— 见 replace_segment 的 docstring
-    version = _next_version(chapter)
-    backup = HISTORY_DIR / f"ch{chapter:02d}_v{version}.md"
+    version = _next_version(chapter, root)
+    backup = _history_dir(root) / f"ch{chapter:02d}_v{version}.md"
     shutil.copy2(chap_path, backup)
     new_full = replace_segment(full_text, paragraph_index, body)
     # 写盘前硬校验（F11，2026-11-03）：除了目标段，其余字节必须一字不动。
@@ -333,7 +370,8 @@ def save_paragraph_text(chapter, paragraph_index, new_text, note="手改"):
                   % (paragraph_index, len(current), len(body), version))
 
 
-def build_paragraph_task(cfg, proj, chapter, paragraph_index, paragraph_text, feedback, version, chap_path, outline_path):
+def build_paragraph_task(cfg, proj, chapter, paragraph_index, paragraph_text, feedback, version,
+                          chap_path, outline_path, root=None):
     """生成段落级定点重写任务文件。"""
     current_full = read_text(chap_path)
     meta, body = load_template("stage4_refine_paragraph.md", {
@@ -343,7 +381,7 @@ def build_paragraph_task(cfg, proj, chapter, paragraph_index, paragraph_text, fe
         "feedback": feedback,
         "paragraph_text": paragraph_text,
         "path_outline": Path(outline_path).resolve(),
-        "path_setting": Path("data/setting/setting.json").resolve(),
+        "path_setting": (_base(root) / "data" / "setting" / "setting.json").resolve(),
         "path_chapter": Path(chap_path).resolve(),
     })
     body = body.replace("{{current_chapter}}", current_full)
@@ -352,8 +390,8 @@ def build_paragraph_task(cfg, proj, chapter, paragraph_index, paragraph_text, fe
 
 
 def run_paragraph_refine(cfg, proj, chapter, paragraph_index, feedback, client=None,
-                          task_dir=None, dry_run=False, outline_path="data/outline/chapters",
-                          preview=False):
+                          task_dir=None, dry_run=False, outline_path=None,
+                          preview=False, root=None):
     """段落级定点重生成。
 
     Args:
@@ -366,7 +404,8 @@ def run_paragraph_refine(cfg, proj, chapter, paragraph_index, feedback, client=N
     """
     client = client or make_client(cfg, "polisher")
     task_dir = task_dir or "data/state/tasks"
-    chap_path = _pick_chapter_path(chapter)
+    outline_path = outline_path or str(_base(root) / "data" / "outline" / "chapters")
+    chap_path = _pick_chapter_path(chapter, root)
     if chap_path is None:
         return False, f"第 {chapter} 章不存在（raw/checked/refined 均无）", None, None, None
 
@@ -377,19 +416,20 @@ def run_paragraph_refine(cfg, proj, chapter, paragraph_index, feedback, client=N
 
     target_paragraph = paragraphs[paragraph_index]
 
-    version = _next_version(chapter)
-    HISTORY_DIR.mkdir(parents=True, exist_ok=True)
-    backup = HISTORY_DIR / f"ch{chapter:02d}_v{version}.md"
+    version = _next_version(chapter, root)
+    _history_dir(root).mkdir(parents=True, exist_ok=True)
+    backup = _history_dir(root) / f"ch{chapter:02d}_v{version}.md"
     shutil.copy2(chap_path, backup)
     print(f"[refine_para] 已备份 → {backup}（v{version}）")
 
     outline = Path(outline_path) / f"{chapter:02d}.md"
     if not outline.exists():
-        outline = Path("data/outline/global.md")
+        outline = _base(root) / "data" / "outline" / "global.md"
 
     task = client.write_task(task_dir, f"stage4_refine_ch{chapter:02d}_p{paragraph_index}.md",
                              build_paragraph_task(cfg, proj, chapter, paragraph_index,
-                                                  target_paragraph, feedback, version, chap_path, outline))
+                                                  target_paragraph, feedback, version, chap_path,
+                                                  outline, root))
     print(f"[refine_para] 任务文件: {task}")
     print(f"[refine_para] 目标段落 (#{paragraph_index}, {len(target_paragraph)} 字):")
     print(f"  {target_paragraph[:80]}{'...' if len(target_paragraph) > 80 else ''}")
@@ -429,7 +469,8 @@ def run_paragraph_refine(cfg, proj, chapter, paragraph_index, feedback, client=N
                                   "after": rewritten_paragraph, "preview": True})
 
     # 保存段落历史
-    hist_record = save_paragraph_history(chapter, paragraph_index, target_paragraph, rewritten_paragraph, feedback)
+    hist_record = save_paragraph_history(chapter, paragraph_index, target_paragraph,
+                                         rewritten_paragraph, feedback, root)
 
     print(f"[refine_para] 第 {chapter} 章 #{paragraph_index} 重写完成："
           f"全章 {before_words}→{after_words} 字 ({after_words - before_words:+d})")
@@ -441,27 +482,29 @@ def run_paragraph_refine(cfg, proj, chapter, paragraph_index, feedback, client=N
 # 2026-11-08（P1-5）：以前模型改完**直接写盘**，作者只能事后去段落历史里退回。
 # 现在两段式：preview 只算不落（整章回滚，候选存 para_pending.json），
 # 作者看着“改前 / 改后”点“采用”才走 save_paragraph_text（备份 + 段落历史 + 标点归一）。
+#: 兼容旧引用；真用请走 `_pending_path(root)`。
 PENDING_PATH = Path("data/state/para_pending.json")
 
 
-def _load_pending():
+def _load_pending(root=None):
     try:
-        d = json.loads(read_text(PENDING_PATH))
+        d = json.loads(read_text(_pending_path(root)))
         items = d.get("items") if isinstance(d, dict) else None
         return [x for x in (items or []) if isinstance(x, dict)]
     except Exception:                                        # noqa: BLE001
         return []
 
 
-def _save_pending(items):
-    PENDING_PATH.parent.mkdir(parents=True, exist_ok=True)
-    write_text(PENDING_PATH, json.dumps({"items": items}, ensure_ascii=False, indent=2))
+def _save_pending(items, root=None):
+    p = _pending_path(root)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    write_text(p, json.dumps({"items": items}, ensure_ascii=False, indent=2))
 
 
-def preview_paragraph(cfg, proj, chapter, paragraph_index, feedback, client=None):
+def preview_paragraph(cfg, proj, chapter, paragraph_index, feedback, client=None, root=None):
     """生成候选但不落盘。返回 (ok, msg, rec)。rec 里是改前/改后与备份位置。"""
     ok, msg, backup, version, info = run_paragraph_refine(
-        cfg, proj, chapter, paragraph_index, feedback, client=client, preview=True)
+        cfg, proj, chapter, paragraph_index, feedback, client=client, preview=True, root=root)
     if not ok:
         return False, msg, None
     rec = {
@@ -470,40 +513,40 @@ def preview_paragraph(cfg, proj, chapter, paragraph_index, feedback, client=None
         "feedback": feedback, "backup": str(backup) if backup else "",
         "version": version, "at": time.strftime("%Y-%m-%dT%H:%M:%S"),
     }
-    items = [x for x in _load_pending()
+    items = [x for x in _load_pending(root)
              if not (int(x.get("chapter") or 0) == int(chapter)
                      and int(x.get("index") or 0) == int(paragraph_index))]
     items.append(rec)
-    _save_pending(items)
+    _save_pending(items, root)
     return True, msg, rec
 
 
-def get_pending(chapter, paragraph_index):
-    for x in _load_pending():
+def get_pending(chapter, paragraph_index, root=None):
+    for x in _load_pending(root):
         if (int(x.get("chapter") or 0) == int(chapter)
                 and int(x.get("index") or 0) == int(paragraph_index)):
             return x
     return None
 
 
-def apply_pending(chapter, paragraph_index):
+def apply_pending(chapter, paragraph_index, root=None):
     """采用候选：走 save_paragraph_text（备份 + 段落历史 + 标点归一，判据全在那一处）。"""
-    rec = get_pending(chapter, paragraph_index)
+    rec = get_pending(chapter, paragraph_index, root)
     if not rec:
         return False, "没有待采用的候选（先点“让 AI 只改这一段”）"
     ok, msg = save_paragraph_text(int(chapter), int(paragraph_index),
-                                  rec.get("after") or "", note="AI 段落改写（采用）")
+                                  rec.get("after") or "", note="AI 段落改写（采用）", root=root)
     if ok:
-        drop_pending(chapter, paragraph_index)
+        drop_pending(chapter, paragraph_index, root)
     return ok, msg
 
 
-def drop_pending(chapter, paragraph_index):
+def drop_pending(chapter, paragraph_index, root=None):
     """放弃候选：正文一个字节不动（候选从未落盘）。"""
-    items = [x for x in _load_pending()
+    items = [x for x in _load_pending(root)
              if not (int(x.get("chapter") or 0) == int(chapter)
                      and int(x.get("index") or 0) == int(paragraph_index))]
-    _save_pending(items)
+    _save_pending(items, root)
     return True, "已放弃候选（正文未改动）"
 
 

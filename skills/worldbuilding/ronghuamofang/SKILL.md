@@ -203,6 +203,9 @@ stage4 会自动发“读原稿、只补量”的扩写任务（每章每轮至�
 **Word 成品出口校验** → `python scripts/template_check.py`（零 LLM，15 项：占位符零残留 /
 章节 heading 逐条映射 / 样式与模板逐字一致 / 页面设置一致 / 无直写格式覆盖 / TOC 域 / 章前分页）。
 基线 = `config/project.yaml` 的 `book.word_template`，可用 `--docx` / `--template` / `--md` 指定。
+**校验 `--root` 启动的工作区时必须加 `--root <那个工作区>`**（2026-11-12 补）：本脚本默认把
+**脚本所在仓库**当项目根，不加就会拿仓库自带的书名/模板当基线 → “书名已填”必然假红
+（实测：docx 里是“路C目检”，基线却是“示例书名（待填写）”）。
 退出码 0 才算成品过关；**stage7 重跑会覆盖 `output/*.docx`**。
 
 **换 Word 模板** → 用户一律走 **GUI：设置 →“Word 模板”**（下拉列 `templates/` 下

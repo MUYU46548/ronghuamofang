@@ -58,7 +58,10 @@
   `--root` 下“历史页永远空、回退写到另一个项目”。现在这些函数接受**显式 `root=`**，API 侧一律传 `api.ROOT`，
   不传 = 老行为（cwd）。**别改成模块级全局** —— 任何在进程内 `import nf_api` 的代码都会把它钉死，
   用例 `chdir` 到沙盒后就找不到章（这条是被 `test_stage4_ch14_fixes` 当场打回后定下的）。
-  判据 `tests/unit/test_ui_state_sources.py` B 段。⚠️ `refine_paragraph`（段落精修历史）**仍是旧写法**，未修。
+  判据 `tests/unit/test_ui_state_sources.py` B 段。
+  `refine_paragraph`（段落历史 / 回退 / 手改 / 候选）**同批已收**：同样收 `root=`，
+  并修掉 `HISTORY_DIR` 的路径笔误（原值 `data/chapters.history` 少个分隔符，整章备份一直落在别处）。
+  判据 `tests/unit/test_paragraph_paths.py`。
 - 单章字数区间：`config/system.yaml` 的 `chapter.target_words`（**列表** `[low, high]`，出厂 [4000,7200]（只计汉字；2026-11-05 口径折算）；
   `GET/POST /config/target_words` 读写，GUI 设置页同源。判据与边界见“止烧与安全闸门”节）
 - **作品级写作约束**：`data/writing_rules.md`（每本书一份，随书归档走；不进 Git）

@@ -2005,7 +2005,7 @@ def act_refine_paragraph(chapter, paragraph_index, feedback, dry_run):
     ok, msg, backup, version = refine_paragraph.run_paragraph_refine(
         cfg, proj, chapter, paragraph_index, feedback or "",
         client=_client_for_env(cfg, "polisher"),
-        dry_run=dry_run)
+        dry_run=dry_run, root=ROOT)
     return ok, msg
 
 
@@ -2153,7 +2153,8 @@ def act_branch_current(chapter):
 def act_paragraph_restore(chapter, paragraph_index, history_id):
     """回退段落到历史版本"""
     import refine_paragraph
-    ok, msg = refine_paragraph.restore_paragraph_version(chapter, paragraph_index, history_id)
+    ok, msg = refine_paragraph.restore_paragraph_version(chapter, paragraph_index, history_id,
+                                                         root=ROOT)
     return ok, msg
 
 
