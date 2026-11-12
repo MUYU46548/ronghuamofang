@@ -56,6 +56,11 @@ SOURCE_RE = re.compile(r"^>\s*来源\s*[:：]\s*(.+?)\s*$", re.M)
 # 这些字段各卡写法差异大、也不构成正典矛盾，永远归 auto（不打扰人）
 LOW_RISK_FIELDS = ("英文名", "别名", "旧名", "曾用名")
 
+#: 时期字段（问题总账第 8 条，2026-11-12）。素材卡写作 `- 时期：早期` / `- 时代：后期`；
+#: 英文键（era/period）也认，一律小写比较。**值本身不参与冲突比对** ——
+#: 它是“这张卡说的是哪一期”，用来把比较面缩到同一期。
+PERIOD_FIELD_KEYS = ("时期", "时代", "年代", "阶段", "era", "period", "时间点")
+
 
 # ---------------------------------------------------------------- 卡片解析
 
@@ -125,6 +130,62 @@ def collect_cards(materials_dir=None):
 
 # ---------------------------------------------------------------- 冲突判定
 
+def card_period(card):
+    """这张素材卡说的是哪一期（`""` = 没写）。
+
+    只读 `fields` 里的时期键，**不猜**：没写就是没写，绝不按文件名/日期推断。
+    """
+    fields = (card or {}).get("fields") or {}
+    for k, v in fields.items():
+        if str(k).strip().lower() in {x.lower() for x in PERIOD_FIELD_KEYS}:
+            if not _is_empty_value(v):
+                return str(v).strip()
+    return ""
+
+
+def _compare_same_period(group, period=""):
+    """**同一期**的若干张卡之间的字段分歧（判据与历史上完全一致）。
+
+    `period` 只写进结果里当出处标注，不参与判断。
+    """
+    fields = []
+    for c in group:
+        for k in c["fields"]:
+            if k not in fields:
+                fields.append(k)
+
+    out = []
+    for field in fields:
+        if str(field).strip().lower() in {x.lower() for x in PERIOD_FIELD_KEYS}:
+            continue        # 时期本身不是被比较的“内容”，否则“早期 vs 后期”会被判矛盾
+        vals = []
+        for c in group:
+            v = c["fields"].get(field)
+            if v is None or _is_empty_value(v):
+                continue
+            vals.append({"value": v, "source": c["source"] or c["file"],
+                         "file": c["file"], "kind": c["kind"]})
+        if len(vals) < 2:
+            continue
+        uniq = {re.sub(r"\s+", "", v["value"]) for v in vals}
+        if len(uniq) < 2:
+            continue
+        severity = "review"
+        if field in LOW_RISK_FIELDS:
+            severity = "auto"
+        else:
+            # 一方是另一方的子串 → 信息量有包含关系，可取更全者
+            norm = [re.sub(r"\s+", "", v["value"]) for v in vals]
+            if any(a != b and a in b for a in norm for b in norm):
+                severity = "auto"
+        item = {"name": group[0]["name"], "field": field,
+                "severity": severity, "values": vals}
+        if period:
+            item["period"] = period
+        out.append(item)
+    return out
+
+
 def detect_conflicts(cards):
     """同名卡在不同字段上的分歧。返回 [conflict]。
 
@@ -132,6 +193,11 @@ def detect_conflicts(cards):
       - 某字段在 ≥2 张卡上都有**非空**值、且去掉空格后字面不同 → 潜在冲突；
       - 若其中一个是另一个的子串（如“神明”vs“神明（月面）”）或属低风险字段 → `auto`；
       - 否则 → `review`（机器裁不了，必须报人）。
+
+    **时期分组（2026-11-12，第 8 条）**：卡上写了 `时期` / `时代` / `阶段`（或 era/period）
+    时，只在**同一期**内比较 —— “早期外观可见、后期收进皮下”是设定在演变，不是矛盾。
+    跨期的差异不在这里报，交给 `detect_evolutions()` 单列（那是给人看的“演变说明”，
+    不是红灯）。**一张卡都没写时期时行为与改动前逐字一致**（全部落进同一个 `""` 桶）。
     """
     by_name = {}
     for c in cards:
@@ -141,10 +207,46 @@ def detect_conflicts(cards):
     for name, group in sorted(by_name.items()):
         if len(group) < 2:
             continue
+        buckets = {}
+        for c in group:
+            buckets.setdefault(card_period(c), []).append(c)
+        for period, sub in buckets.items():
+            if len(sub) < 2:
+                continue
+            conflicts.extend(_compare_same_period(sub, period))
+    return conflicts
+
+
+def detect_evolutions(cards):
+    """同名条目在**不同时期**的不同取值 —— 这是演变，不是冲突。
+
+    为什么必须单列出来：分组后跨期差异不再进冲突清单，如果就这样丢掉，
+    作者会以为“系统没意见”，而实际情况可能是**其中一张卡根本没写时期**、
+    两张卡本来就该打架。所以：
+
+      · 两侧都写了时期、值不同 → 正常演变（`suspect=False`）；
+      · 任一侧没写时期 → 标 `suspect=True` 并写明“有一条没标时期，判不出是演变还是矛盾”，
+        **报人但不算红灯**（它不进 `review_conflicts`，也不阻塞任何阶段）。
+    """
+    by_name = {}
+    for c in cards:
+        by_name.setdefault(c["name"], []).append(c)
+
+    out = []
+    for name, group in sorted(by_name.items()):
+        if len(group) < 2:
+            continue
+        periods = {card_period(c) for c in group}
+        marked = {p for p in periods if p}
+        # 触发条件：至少两个不同时期（正常演变），或“有时期 + 有卡没标”（判不出的那种）。
+        # 一条时期都没有 → 老数据，本函数保持沉默（兼容性红线）。
+        if len(marked) < 2 and not (marked and "" in periods):
+            continue
         fields = []
         for c in group:
             for k in c["fields"]:
-                if k not in fields:
+                if k not in fields and str(k).strip().lower() not in {
+                        x.lower() for x in PERIOD_FIELD_KEYS}:
                     fields.append(k)
         for field in fields:
             vals = []
@@ -152,24 +254,20 @@ def detect_conflicts(cards):
                 v = c["fields"].get(field)
                 if v is None or _is_empty_value(v):
                     continue
-                vals.append({"value": v, "source": c["source"] or c["file"],
-                             "file": c["file"], "kind": c["kind"]})
+                vals.append({"period": card_period(c), "value": v,
+                             "source": c["source"] or c["file"], "file": c["file"]})
             if len(vals) < 2:
                 continue
-            uniq = {re.sub(r"\s+", "", v["value"]) for v in vals}
-            if len(uniq) < 2:
+            if len({re.sub(r"\s+", "", v["value"]) for v in vals}) < 2:
                 continue
-            severity = "review"
-            if field in LOW_RISK_FIELDS:
-                severity = "auto"
-            else:
-                # 一方是另一方的子串 → 信息量有包含关系，可取更全者
-                norm = [re.sub(r"\s+", "", v["value"]) for v in vals]
-                if any(a != b and a in b for a in norm for b in norm):
-                    severity = "auto"
-            conflicts.append({"name": name, "field": field,
-                              "severity": severity, "values": vals})
-    return conflicts
+            unmarked = [v for v in vals if not v["period"]]
+            item = {"name": name, "field": field, "kind": "evolution",
+                    "suspect": bool(unmarked), "values": vals}
+            if unmarked:
+                item["note"] = ("有 %d 条卡没写时期，判不出这是演变还是矛盾：%s"
+                                % (len(unmarked), "、".join(v["file"] for v in unmarked)))
+            out.append(item)
+    return out
 
 
 def summarize_conflicts(conflicts):
@@ -258,6 +356,7 @@ def audit(setting_path=None, materials_dir=None, tombstone_path=None):
     cards = collect_cards(materials_dir)
     conflicts = detect_conflicts(cards)
     summary = summarize_conflicts(conflicts)
+    evolutions = detect_evolutions(cards)
     stones = load_tombstones(tombstone_path)
 
     result = {
@@ -270,6 +369,11 @@ def audit(setting_path=None, materials_dir=None, tombstone_path=None):
         "conflicts": conflicts,
         "conflict_summary": summary,
         "review_conflicts": [c for c in conflicts if c["severity"] == "review"],
+        # 演变（第 8 条）：跨时期的不同取值。**不是红灯**，但也不许悄悄吞掉 ——
+        # 任一侧没写时期的会带 suspect=True，读的人能分清“设定本来就在变”和“有人漏标”。
+        "evolutions": evolutions,
+        "evolution_count": len(evolutions),
+        "evolution_suspect": [e for e in evolutions if e.get("suspect")],
         "by_name": {},
         "counts": {STATUS_ADOPTED: 0, STATUS_REJECTED: 0, STATUS_UNCERTAIN: 0},
         "tombstones": sorted(stones["entries"].keys()),

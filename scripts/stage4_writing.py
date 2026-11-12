@@ -46,6 +46,7 @@ from utils.style_analyzer import (
 from utils.progress_manager import ProgressManager
 from utils.setting_schema import (
     FULL_TEXT_CAP, base_name, build_character_card, normalize_character,
+    normalize_period, period_lines,
 )
 from utils.config_io import load_config_yaml
 from utils.text_norm import normalize_chapter_file
@@ -519,7 +520,13 @@ def _extract_world_context(setting_path, outline_text, involved=None, budget=200
         head = f"- {name}" + (f"（{typ}）" if typ else "") + locked
         if related:
             head += "（关联项，未必在本章出场）"
-        return head + (f"：{desc}" if desc else "")
+        text = head + (f"：{desc}" if desc else "")
+        # 时期（2026-11-12，第 8 条）：世界观条目同样会演变（早期有、后期取消）。
+        # 以前它只能挤在一句话里，模型无从判断该取哪一版；现在分期列出。
+        plines = period_lines(normalize_period(entry), outline)
+        if plines:
+            text += "\n" + "\n".join("  " + ln for ln in plines)
+        return text
 
     world = setting.get("world") or {}
     if isinstance(world, dict):
@@ -627,7 +634,8 @@ def _extract_character_cards_for_chapter(setting_path, outline_path, budget=2000
         if not raw_characters:
             return ""
 
-        involved = _involved_names(_safe_read(outline_path, budget=8000))
+        outline_text = _safe_read(outline_path, budget=8000)
+        involved = _involved_names(outline_text)
         if not involved:
             return ""
 
@@ -642,9 +650,9 @@ def _extract_character_cards_for_chapter(setting_path, outline_path, budget=2000
                 continue
             # 精确名 / id / 别名根名 三种匹配都认
             if _name_matches(nc, involved):
-                direct_cards.append(build_character_card(nc))
+                direct_cards.append(build_character_card(nc, chapter_text=outline_text))
             elif related and _name_matches(nc, related):
-                related_cards.append(build_character_card(nc))
+                related_cards.append(build_character_card(nc, chapter_text=outline_text))
 
         if not direct_cards and not related_cards:
             return ""

@@ -38,7 +38,7 @@ temperature: 0.3
 
 ## 输出格式（setting.json，JSON 文件）
 {
-  "characters": [{"id": "...", "name": "...", "role": "...", "traits": [...], "relations": [...], "records": ["..."]}],
+  "characters": [{"id": "...", "name": "...", "role": "...", "traits": [...], "relations": [...], "records": ["..."], "period": "（可选）这条只在哪一时期成立", "phases": [{"era": "早期", "note": "这一期的状态"}]}],
   "world": {"locations": [], "factions": [], "magic_system": [], "items": []},
   "plot_fragments": [{"id": "f001", "source": "素材名", "summary": "...", "status": "unused"}],
   "timeline": [{"event": "...", "year": null, "locked": false}],
@@ -49,6 +49,12 @@ temperature: 0.3
 - 四个顶层键必须全部存在（characters/world/plot_fragments/timeline）
 - 每条目保留 source 溯源字段
 - locked=true 表示硬约束（后续写作不可违逆），仅对明确的设定库条目使用
+- **演变型设定必须写 `phases`**（2026-11-12 补）：同一个对象在不同时期状态不同
+  （例：早期外观上看得见、后期收进皮下只能靠专用设备识别；早期归某司管、后期该司撤销），
+  写成 `"phases": [{"era": "早期", "note": "外观可见"}, {"era": "后期", "note": "收进皮下，需专用设备识别"}]`。
+  **不要**把两个时期塞进同一句话（冲突检查会按字面判成矛盾 —— 写对了还挨红），
+  也**不要**拆成两个不同名的条目（那样永远没人把它们放在一起比）。
+  只有一期的条目可写 `"period": "卷三"` 这类单值；确实不分期就别写这两个键。
 - **证词体原文逐字保留**（2026-10-24 OB34 素材实测后补）：素材里以“记录1 /
   记录2 / ——某某”形式出现的多视角证词、他人评述、宇宙内文献，是**风格与
   人物侧面的原始载体**。归并时把每条完整原文放进该角色的 `records` 数组

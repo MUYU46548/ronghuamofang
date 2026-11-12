@@ -884,6 +884,15 @@ function openSettingEditor(key, idx) {
   if (key === 'world') {
     copy._factsInput = Array.isArray(copy.locked_facts) ? copy.locked_facts.join('\n') : '';
   }
+  if (key === 'characters' || key === 'world') {
+    // 时期 / 演变（2026-11-12，第 8 条）：演变切片按“时期：这一期的状态”每行一条，
+    // 与 traits/records 同一套人机界面约定（数组 ↔ 多行文本）。
+    copy._phasesInput = Array.isArray(copy.phases)
+      ? copy.phases.map(p => (p && typeof p === 'object'
+          ? [p.era, p.note].filter(Boolean).join('：')
+          : String(p || ''))).filter(Boolean).join('\n')
+      : '';
+  }
   settingEditor.value = { open: true, key, idx, item: copy,
                           group: copy._worldGroup || '' };
 }
@@ -899,6 +908,21 @@ function closeSettingEditor() {
     const tagsStr = (item._tagsInput || '').trim();
     item.tags = tagsStr ? tagsStr.split(',').map(t => t.trim()).filter(Boolean) : [];
     delete item._tagsInput;
+    // 时期 / 演变（第 8 条）：一行一期，“时期：这一期的状态”。
+    // 存回 JSON 用 { era, note }（与 setting_schema.normalize_period 认的形态一致），
+    // 空行丢弃 —— 否则下游会把空字符串当“有值”，演变清单里冒出一堆空条目。
+    const phases = (item._phasesInput || '').split('\n')
+      .map(s => s.trim()).filter(Boolean)
+      .map(line => {
+        const i = line.search(/[：:]/);
+        return i > 0
+          ? { era: line.slice(0, i).trim(), note: line.slice(i + 1).trim() }
+          : { era: line, note: '' };
+      }).filter(p => p.era || p.note);
+    if (phases.length) item.phases = phases; else delete item.phases;
+    delete item._phasesInput;
+    const per = String(item.period || '').trim();
+    if (per) item.period = per; else delete item.period;
   }
   if (key === 'characters') {
     item.traits = (item._traitsInput || '').split('\n').map(s => s.trim()).filter(Boolean);
@@ -6601,6 +6625,11 @@ onUnmounted(() => {
             <textarea v-model="settingEditor.item.experience" class="prompt-text" style="width: 100%; min-height: 120px; margin-bottom: 12px;" placeholder="年龄、经历、能力、习惯…" @input="settingDirty = true"></textarea>
             <label>关系（每行：目标 | 类型 | 备注）</label>
             <textarea v-model="settingEditor.item._relationsInput" class="prompt-text" style="width: 100%; min-height: 88px; margin-bottom: 12px;" placeholder="如：&#10;韩拙 | 上下级 | 知道他有事瞒我&#10;林小满 | 同盟 | 因同一件旧事站到一边" @input="settingDirty = true"></textarea>
+            <!-- 时期（2026-11-12，第 8 条）：不写 = 不分期，行为与以前完全一致 -->
+            <label>时期（可选：这条设定只在哪一时期成立）</label>
+            <input v-model="settingEditor.item.period" data-field="period" class="text-input" style="width: 100%; margin-bottom: 12px;" placeholder="如：卷一 / 战后 / 早期" @input="settingDirty = true" />
+            <label>演变（可选：每行一期，写成“时期：这一期的状态”）</label>
+            <textarea v-model="settingEditor.item._phasesInput" data-field="phases" class="prompt-text" style="width: 100%; min-height: 88px; margin-bottom: 12px;" placeholder="同一个角色/物品在不同时期状态不同时填这里，写作时按本章所处时期选用。&#10;如：&#10;早期：外观可见&#10;后期：收进皮下，只能用专用设备识别" @input="settingDirty = true"></textarea>
             <label>证词 / 他人评述（原文逐字保留，空行分条）</label>
             <textarea v-model="settingEditor.item._recordsInput" class="prompt-text" style="width: 100%; min-height: 110px; margin-bottom: 12px;" placeholder="素材里的多视角证词、他人评述、宇宙内文献。&#10;一条一段，条与条之间空一行。&#10;原文照抄，不要摘要 —— 语气和人物侧面就活在这些细节里。" @input="settingDirty = true"></textarea>
           </template>
@@ -6616,6 +6645,10 @@ onUnmounted(() => {
             </label>
             <label>详述</label>
             <textarea v-model="settingEditor.item.detail" class="prompt-text" style="width: 100%; min-height: 150px; margin-bottom: 12px;" placeholder="世界观条目详述..." @input="settingDirty = true"></textarea>
+            <label>时期（可选：这条设定只在哪一时期成立）</label>
+            <input v-model="settingEditor.item.period" data-field="period" class="text-input" style="width: 100%; margin-bottom: 12px;" placeholder="如：卷一 / 战后 / 早期" @input="settingDirty = true" />
+            <label>演变（可选：每行一期，写成“时期：这一期的状态”）</label>
+            <textarea v-model="settingEditor.item._phasesInput" data-field="phases" class="prompt-text" style="width: 100%; min-height: 88px; margin-bottom: 12px;" placeholder="早期有、后期取消的设定填这里，写作时按本章所处时期选用。&#10;如：&#10;早期：各站配专职司秤&#10;后期：司秤撤销，改由县署兼管" @input="settingDirty = true"></textarea>
             <label>不可违逆的事实（每行一条）</label>
             <textarea v-model="settingEditor.item._factsInput" class="prompt-text" style="width: 100%; min-height: 72px;" placeholder="如：&#10;二站台已封闭&#10;铁栏杆锈死" @input="settingDirty = true"></textarea>
           </template>

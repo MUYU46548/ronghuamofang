@@ -35,7 +35,7 @@ V_RE = re.compile(r"^setting_v(\d+)\.json$")
 
 #: 与 setting_versions.CHAR_FIELDS 同口径（两边都改了才算改完）
 CHAR_FIELDS = (("role", "角色定位"), ("traits", "性格"), ("relations", "关系"),
-               ("snippet", "简介"), ("locked", "锁定"))
+               ("snippet", "简介"), ("locked", "锁定"), ("period", "时期"))
 
 
 def _root(root):
@@ -109,6 +109,9 @@ def _field_value(e, key):
         return ""
     if key == "role":
         return e.get("role") or e.get("kind") or ""
+    if key == "period":
+        from utils.setting_schema import period_cell
+        return period_cell(e)
     return e.get(key)
 
 

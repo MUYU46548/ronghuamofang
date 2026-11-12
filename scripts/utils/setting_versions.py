@@ -21,13 +21,17 @@ import shutil
 import time
 from pathlib import Path
 
+from utils.setting_schema import period_cell
+
 LIVE_REL = Path("data") / "setting" / "setting.json"
 HIST_REL = Path("data") / "setting" / "history"
 V_RE = re.compile(r"^setting_v(\d+)\.json$")
 
 #: 参与逐字段对照的角色字段（按 setting_schema 的统一形态取）
+#: `period` 走 `setting_schema.period_cell` 现算（条目里可能写作 `时期` / `phases`，
+#: 直接 `entry.get("period")` 会读空 —— 版本对照会把“改了时期”显示成没改）。
 CHAR_FIELDS = (("role", "角色定位"), ("traits", "性格"), ("relations", "关系"),
-               ("snippet", "简介"), ("locked", "锁定"))
+               ("snippet", "简介"), ("locked", "锁定"), ("period", "时期"))
 
 
 def _root(root):
@@ -126,14 +130,20 @@ def _field_rows(kind_label, older, newer):
     """一条条目的字段级变化。返回 [{field, label, from, to}]。"""
     rows = []
     if kind_label == "character":
-        pairs = [(k, lb, older.get(k), newer.get(k)) for k, lb in CHAR_FIELDS]
-        # setting_schema 的 role 在原始条目里可能叫 kind
-        pairs = [(k, lb,
-                  older.get(k) if k != "role" else (older.get("role") or older.get("kind")),
-                  newer.get(k) if k != "role" else (newer.get("role") or newer.get("kind")))
-                 for k, lb, _a, _b in pairs]
+        pairs = []
+        for k, lb in CHAR_FIELDS:
+            if k == "period":
+                # 时期可能写作 `period` / `时期` / `phases` —— 统一由 schema 现算
+                pairs.append((k, lb, period_cell(older), period_cell(newer)))
+            elif k == "role":
+                # setting_schema 的 role 在原始条目里可能叫 kind
+                pairs.append((k, lb, older.get("role") or older.get("kind"),
+                              newer.get("role") or newer.get("kind")))
+            else:
+                pairs.append((k, lb, older.get(k), newer.get(k)))
     else:
-        pairs = [("snippet", "描述", older.get("snippet"), newer.get("snippet"))]
+        pairs = [("snippet", "描述", older.get("snippet"), newer.get("snippet")),
+                 ("period", "时期", period_cell(older), period_cell(newer))]
     for key, label, a, b in pairs:
         if _norm_val(a) != _norm_val(b):
             rows.append({"field": key, "label": label,

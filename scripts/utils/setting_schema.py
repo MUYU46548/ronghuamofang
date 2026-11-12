@@ -44,6 +44,17 @@ _SNIPPET_KEYS = ("snippet", "summary", "desc", "description", "简介")
 _RELATION_KEYS = ("relations", "relation", "relations_src", "关系")
 _LOCKED_KEYS = ("locked", "lock", "immutable")
 
+#: 时期（演变）字段。**两种写法都要认**：
+#:   · 单值：`period: "早期"` / `时期: 后期` / `era: 卷一前` —— 条目整体只属于某一时期；
+#:   · 切片：`phases: [{"era": "早期", "note": "外观可见"}, ...]` —— 同一条目分期不同状态。
+#: 为什么不只在提示词里加一个键：真实数据两个生产者（stage1 归并 / vault 扫描）都会
+#: 被作者手改，写法必然发散；schema 层认得多，下游才不需要各自再猜一遍。
+_PERIOD_KEYS = ("period", "era", "时期", "时代", "年代", "阶段")
+_PHASE_KEYS = ("phases", "periods", "演变", "时期演变", "演化", "阶段演变")
+#: `phases` 单项里除“时期 / 说明”之外，还允许直接平铺字段（模型常写成扁平结构）。
+_PHASE_META_KEYS = ("era", "period", "时期", "时代", "阶段", "name", "label",
+                    "note", "desc", "description", "说明", "描述", "summary", "fields")
+
 # 能力词表（与 material_review.ABILITY_WORDS 同源，避免两处漂移）
 ABILITY_WORDS = (
     "能力", "使用", "掌控", "牵引", "冰封", "战斗", "剑", "法术", "魔法",
@@ -132,6 +143,180 @@ def is_locked(entry):
     “同一判据写两遍、只修一处”的亏）。
     """
     return _truthy_locked(entry)
+
+
+# ---------------------------------------------------------------------------
+# 时期 / 演变（问题总账第 8 条，2026-11-12）
+#
+# 病：`setting_schema` 只有 name/role/snippet/abilities/relations/locked/tags/sources，
+# 没有时间维度。于是“早期外观可见、后期收进皮下”这种演变型设定**两种写法都出错**：
+#   · 塞进同一条目同一句话 → `material_state.detect_conflicts` 按字面判成矛盾（假阳性，
+#     写对了还挨红）；
+#   · 拆成两个不同名条目 → 永不互相比对（假阴性，错的那条也看不见）。
+#
+# 口径：**只加可选字段，不改既有语义**。
+#   · 条目没写时期 → 下游行为与改动前逐字一致（旧数据一个字节都不用动）；
+#   · 条目写了时期 → 冲突只在**同一时期**内比较；跨时期的差异进“演变”清单，
+#     不判红（那是设定本来就在变），但**任一侧没写时期**时标 `suspect`，让它报人。
+# ---------------------------------------------------------------------------
+
+def _period_label(value):
+    """把 `period` / `era` 的任意写法收成一个标签字符串（收不成返回 ""）。
+
+    | 写法 | 结果 |
+    |---|---|
+    | `"早期"` | `早期` |
+    | `{"label": "早期"}` / `{"era": "早期"}` | `早期` |
+    | `{"from": "早期", "to": "后期"}` | `早期→后期` |
+    | `["早期", "后期"]`（错写成列表） | `""` —— 列表是 phases 的写法，不拿来当标签 |
+    """
+    if isinstance(value, dict):
+        for k in ("label", "name", "era", "period", "时期", "时代"):
+            v = value.get(k)
+            if isinstance(v, str) and v.strip():
+                return v.strip()
+        a = value.get("from") or value.get("start") or value.get("起")
+        b = value.get("to") or value.get("end") or value.get("止")
+        a = str(a).strip() if a else ""
+        b = str(b).strip() if b else ""
+        if a and b:
+            return "%s→%s" % (a, b)
+        return a or b
+    if isinstance(value, (list, tuple, set)):
+        return ""
+    return str(value or "").strip()
+
+
+def _normalize_phase(raw):
+    """一个时期切片 → `{"era": str, "note": str, "fields": dict}`（认不出返回 None）。
+
+    容忍三种写法（都是模型/作者实际会写的）：
+      · `"早期：外观可见"`（字符串，冒号前是时期）
+      · `{"era": "早期", "note": "外观可见"}`
+      · `{"era": "早期", "外观": "可见", "识别方式": "专用设备"}`（扁平字段）
+    """
+    if isinstance(raw, str):
+        s = raw.strip()
+        if not s:
+            return None
+        m = re.match(r"^(.{1,24}?)[：:]\s*(.+)$", s, re.S)
+        if m:
+            return {"era": m.group(1).strip(), "note": m.group(2).strip(), "fields": {}}
+        return {"era": s, "note": "", "fields": {}}
+    if not isinstance(raw, dict):
+        return {"era": str(raw).strip(), "note": "", "fields": {}} if str(raw).strip() else None
+
+    era = ""
+    for k in ("era", "period", "时期", "时代", "阶段", "name", "label"):
+        v = raw.get(k)
+        if isinstance(v, str) and v.strip():
+            era = v.strip()
+            break
+    note = ""
+    for k in ("note", "desc", "description", "说明", "描述", "summary"):
+        v = raw.get(k)
+        if isinstance(v, str) and v.strip():
+            note = v.strip()
+            break
+    fields = {}
+    if isinstance(raw.get("fields"), dict):
+        for k, v in raw["fields"].items():
+            s = str(v).strip() if v is not None else ""
+            if s:
+                fields[str(k).strip()] = s
+    for k, v in raw.items():
+        if k in _PHASE_META_KEYS or k == "fields":
+            continue
+        s = str(v).strip() if v is not None else ""
+        if s and s not in ("[]", "{}"):
+            fields[str(k).strip()] = s
+    if not era and not note and not fields:
+        return None
+    return {"era": era, "note": note, "fields": fields}
+
+
+def normalize_period(entry):
+    """条目 → `{"label": str, "phases": [...]}`（唯一实现，下游一律调它）。
+
+    `label` 是“这条设定属于哪一时期”（单值），`phases` 是“同一对象分期不同状态”。
+    两者可同时存在（`period: "卷三"` + `phases: [...]`）。**不做语义推断** ——
+    没写就是空，不猜、不按名字猜。
+    """
+    if not isinstance(entry, dict):
+        return {"label": "", "phases": []}
+    raw_label = _first(entry, _PERIOD_KEYS)
+    label = _period_label(raw_label)
+    raw_phases = None
+    for k in _PHASE_KEYS:
+        v = entry.get(k)
+        if v:
+            raw_phases = v
+            break
+    if raw_phases is None and isinstance(raw_label, (list, tuple)):
+        raw_phases = raw_label          # 把 phases 写进 period 的错写法也认
+    phases = [p for p in (_normalize_phase(x) for x in _raw_list(raw_phases)) if p]
+    return {"label": label, "phases": phases}
+
+
+def period_cell(entry):
+    """条目的时期 → 一行文本（版本对照 / 溯源用；无时期返回 `""`）。
+
+    与 `period_lines` 分工：这个只给**表格式对照**（一格里说得清），
+    那个给写作任务（要分点 + 选用规则）。取数仍走 `normalize_period`，不另写一份读法。
+    """
+    p = normalize_period(entry)
+    if p["label"]:
+        return p["label"]
+    bits = []
+    for ph in p["phases"]:
+        era = str(ph.get("era") or "").strip()
+        note = str(ph.get("note") or "").strip()
+        if era or note:
+            bits.append(("%s：%s" % (era, note)) if era and note else (era or note))
+    return "；".join(bits)
+
+
+def period_lines(period, chapter_text=""):
+    """时期信息 → 注入用文本行（写作任务里用；无时期返回 `[]`）。
+
+    `chapter_text`（本章大纲）里如果出现某个时期名，会给那一期打“← 本章”标记 ——
+    **只标号，不替作者判断**：大纲没提到时期时明确说“按与本章描写相符的那一期写”，
+    而不是让模型自己在几期里挑一个顺手的。
+    """
+    if not isinstance(period, dict):
+        return []
+    label = str(period.get("label") or "").strip()
+    phases = [p for p in (period.get("phases") or []) if isinstance(p, dict)]
+    if not label and not phases:
+        return []
+    hint = str(chapter_text or "")
+    out = []
+    if label and not phases:
+        out.append("时期：%s（**这条设定只在这一时期成立**，别把别的时期的写法混进来）"
+                   % label)
+    elif label:
+        out.append("所属时期：%s" % label)
+    if phases:
+        out.append("演变（同一对象在不同时期状态不同 —— **只写本章所处时期的那一版，"
+                   "不得把不同时期混用**）：")
+        seen_hit = False
+        for p in phases:
+            era = str(p.get("era") or "").strip()
+            txt = str(p.get("note") or "").strip()
+            flds = p.get("fields") or {}
+            if flds:
+                more = "；".join("%s：%s" % (k, v) for k, v in flds.items())
+                txt = (txt + "；" + more) if txt else more
+            mark = ""
+            if era and hint and era in hint:
+                mark = "　← 本章大纲提到这个时期，按这一版写"
+                seen_hit = True
+            out.append("- %s：%s%s" % (era or "（未标时期）", txt or "（未写状态）", mark))
+        if hint and not seen_hit:
+            out.append("（本章大纲没写具体时期 —— 按与本章描写相符的那一期写；"
+                       "确实判不出来时取**最早**出现的那一期，并且别把状态写成永恒不变）")
+    return out
+
 
 
 # ---------------------------------------------------------------------------
@@ -551,6 +736,7 @@ def normalize_character(entry, kind_hint="characters"):
 
     rels = _raw_list(_first(entry, _RELATION_KEYS))
     relations = [t for t in (_rel_to_text(r) for r in rels) if t]
+    period = normalize_period(entry)
 
     return {
         "name": name,
@@ -561,6 +747,9 @@ def normalize_character(entry, kind_hint="characters"):
         "relations": relations,
         "snippet": snippet,
         "locked": _truthy_locked(entry),
+        # 时期（2026-11-12，第 8 条）：没写就是 ""/[]，下游行为与改动前一致
+        "period": period["label"],
+        "phases": period["phases"],
         "source": str(entry.get("source", "") or "").strip(),
         "is_character": is_character(entry, kind_hint),
         "raw": entry,
@@ -641,7 +830,7 @@ def base_name(name):
 FULL_TEXT_CAP = 20000
 
 
-def build_character_card(nc, warn_locked=True):
+def build_character_card(nc, warn_locked=True, chapter_text=""):
     """归一后的角色 → 注入写作任务的角色卡文本。
 
     这里**不省略任何有值的字段**：`kind`（身份）与 `traits`（性格）必须落地，
@@ -650,6 +839,10 @@ def build_character_card(nc, warn_locked=True):
     2026-11-11：vault 来源的条目带 `body`（原文全文）时，**注入正文**而不是 200 字简介。
     此前链条上有四处截断（扫描 200 字、拼卡 200 字、世界条目 300 字、总预算 3000 字），
     结果是“设定都在盘上，但一个字也没进提示词”。
+
+    2026-11-12（第 8 条）：条目带时期 / 演变切片时，把每期状态分行列出并写清
+    “只写本章所处时期的那一版”—— 以前这类条目要么被压成一句话（模型取错时期），
+    要么被冲突检查判成矛盾。`chapter_text` 传本章大纲，用来给命中时期打“← 本章”标记。
     """
     parts = ["**%s**" % nc["name"]]
     if nc.get("kind"):
@@ -660,6 +853,11 @@ def build_character_card(nc, warn_locked=True):
         parts.append("能力：%s" % "、".join(nc["abilities"]))
     if nc.get("relations"):
         parts.append("关系：%s" % "、".join(nc["relations"]))
+    period = {"label": nc.get("period") or "", "phases": nc.get("phases") or []}
+    if not period["label"] and not period["phases"]:
+        # `nc` 可能来自旧缓存/别处构造 → 现算一次（单一实现仍是 normalize_period）
+        period = normalize_period(nc.get("raw") if isinstance(nc.get("raw"), dict) else {})
+    parts.extend(period_lines(period, chapter_text))
     raw = nc.get("raw") if isinstance(nc.get("raw"), dict) else {}
     body = str((raw or {}).get("body") or "").strip()
     if body:

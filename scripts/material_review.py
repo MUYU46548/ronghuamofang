@@ -317,6 +317,15 @@ def format_state_section(rep):
     if auto:
         lines.append(f"- 可自动归并的分歧：{len(auto)} 处"
                      "（信息量有包含关系，或英文名/别名这类低风险字段）")
+    evo = rep.get("evolutions") or []
+    if evo:
+        lines.append(f"- 跨时期演变：{len(evo)} 处（**不是冲突**，是设定在不同时期本来就不一样；"
+                     "已按时期分开比较）")
+        for it in evo:
+            vals = " → ".join(("%s【%s】" % (v["value"], v["period"] or "未标时期"))
+                              for v in it["values"])
+            flag = "　⚠️ " + it["note"] if it.get("suspect") else ""
+            lines.append(f"    - `{it['name']}` / {it['field']}：{vals}{flag}")
     if rep["tombstones"]:
         lines.append("- 墓碑（**不得复活**）：" + "、".join(rep["tombstones"]))
     lines.append("")
@@ -344,6 +353,12 @@ def print_state_summary(rep):
             print(f"  …另有 {len(rev) - 10} 处，见 data/setting/merge_audit.json")
     else:
         print("[material_review] 状态：无待裁决分歧")
+    evo = rep.get("evolutions") or []
+    if evo:
+        sus = [e for e in evo if e.get("suspect")]
+        print(f"[material_review] 跨时期演变 {len(evo)} 处（不是冲突）"
+              + (f"，其中 {len(sus)} 处有一条卡没标时期、判不出是演变还是矛盾："
+                 "、".join(e["name"] + "/" + e["field"] for e in sus[:5]) if sus else ""))
 
 
 def main():
@@ -386,6 +401,9 @@ def main():
             vals = "  vs  ".join(v["value"] + "[" + v["file"] + "]"
                                  for v in it["values"])
             print(f"  · {it['name']} / {it['field']}：{vals}")
+        evo = rep.get("evolutions") or []
+        if evo:
+            print(f"[material_review] 另：跨时期演变 {len(evo)} 处（不是冲突，不计入退出码）")
         return 1 if rev else 0
 
     if not Path(args.setting).exists():
@@ -410,6 +428,8 @@ def main():
                 "reason": state.get("reason", ""),
                 "counts": state.get("counts"),
                 "review_conflicts": len(state.get("review_conflicts") or []),
+                "evolutions": len(state.get("evolutions") or []),
+                "evolution_suspect": len(state.get("evolution_suspect") or []),
                 "tombstones": state.get("tombstones"),
             }
         print(json.dumps(payload, ensure_ascii=False))

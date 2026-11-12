@@ -85,12 +85,27 @@ def handle_setting_conflicts(h):
     except Exception as e:                                    # noqa: BLE001
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
     rev = report.get("review_conflicts") or []
+    # 演变（第 8 条）：跨时期的不同取值。**不是冲突**，但读的人要能分清
+    # “设定本来就在变”和“有人漏标时期”（后者 suspect=True）。
+    evo = report.get("evolutions") or []
+    evo_slim = []
+    for e in evo[:50]:
+        evo_slim.append({
+            "name": e.get("name"), "field": e.get("field"),
+            "suspect": bool(e.get("suspect")), "note": e.get("note") or "",
+            "values": [{"period": v.get("period") or "",
+                        "value": str(v.get("value") or "")[:200]}
+                       for v in (e.get("values") or [])],
+        })
     return 200, {
         "ok": True,
         "checked": bool(report.get("checked")),
         "reason": report.get("reason") or "",
         "review_conflicts": [_slim_conflict(c) for c in rev],
         "review_count": len(rev),
+        "evolutions": evo_slim,
+        "evolution_count": len(evo),
+        "evolution_suspect": sum(1 for e in evo if e.get("suspect")),
         "counts": report.get("counts"),
         "tombstones": report.get("tombstones"),
         "card_count": report.get("card_count"),
