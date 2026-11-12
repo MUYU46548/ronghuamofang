@@ -707,8 +707,16 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
                 print("[orchestrator] 批准之后重跑本命令，程序会把批准过的那一版合成到正式路径。")
                 return _finalize("waiting_external", 3)
 
-            res = stg.emit_tasks(cfg, proj, progress, task_dir="data/state/tasks/self",
-                                  **extra)
+            try:
+                res = stg.emit_tasks(cfg, proj, progress, task_dir="data/state/tasks/self",
+                                     **extra)
+            except Exception as e:                          # noqa: BLE001
+                # 任务书构造失败（最常见的成因是"输入文件段格式不认"或材料读不出来）。
+                # 以前这里会直接把异常抛穿整个 run —— 界面只看到"崩了"，不知道卡在哪。
+                err = "阶段%d 任务书生成失败：%s: %s" % (n, type(e).__name__, str(e)[:300])
+                progress.set_stage(n, "failed", error=err)
+                print("[orchestrator] " + err)
+                return _finalize("failed", 1)
             if res.get("done"):
                 # 例如阶段 1 的"素材无变化，复用设定集"：没有任务要做。
                 _settle()
@@ -733,7 +741,13 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
             for t in tasks:
                 tg = t.get("target")
                 tg_s = "、".join(tg) if isinstance(tg, list) else tg
-                print(f"  · {t.get('path')}  →  产物 {tg_s}")
+                _extra = ""
+                if t.get("inlined"):
+                    _extra = "（已内联 %d 个输入文件，无需自己去读）" % t["inlined"]
+                if t.get("missing"):
+                    _extra += "（**缺 %d 个输入**：%s）" % (len(t["missing"]),
+                                                         "、".join(str(x) for x in t["missing"][:3]))
+                print(f"  · {t.get('path')}  →  产物 {tg_s}{_extra}")
             if res.get("hint"):
                 print(f"[orchestrator] {res['hint']}")
             print(f"[orchestrator] 执行完把产物写到上面这些路径（候选区），然后重跑："

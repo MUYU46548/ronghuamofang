@@ -203,9 +203,28 @@ def case_non_ascii_filenames_scanned():
 
     if not cjk_files:
         return
-    probe_file = cjk_files[0]
+    # 2026-11-12：**先跳过二进制**再取探针。仓库里中文名的文件不止 md
+    # （docs/ 下还有 .docx），旧实现直接拿 cjk_files[0] 读 UTF-8 →
+    # 命中二进制当场 UnicodeDecodeError（这条用例依赖仓库内容，脆得很）。
+    _BIN = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".pdf", ".docx", ".xlsx",
+            ".pptx", ".zip", ".7z", ".rar", ".exe", ".dll", ".db", ".sqlite", ".pyc",
+            ".mp3", ".mp4", ".wav"}
+    probe_file, text = None, ""
+    for cand in cjk_files:
+        if cand.suffix.lower() in _BIN:
+            continue
+        try:
+            text = cand.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            continue
+        if text.strip():
+            probe_file = cand
+            break
+    check("L7 能从中文字名的**文本**文件里取到探针", bool(probe_file),
+          "→ 跳过二进制后没有可读的中文件名文件")
+    if not probe_file:
+        return
     # 从该文件正文里取一个 3-4 字的中文词当探针（避开标题行与标点）
-    text = probe_file.read_text(encoding="utf-8")
     m = re.search(r"[一-鿿]{3,4}", text)
     probe = m.group(0) if m else None
     check("L7 能从中文名文件里取到探针词", bool(probe), f"→ {probe_file.name}")

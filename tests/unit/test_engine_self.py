@@ -254,10 +254,32 @@ def t_group(ws):
                 same.append((path, False))
                 continue
             got = st.strip_protocol(p.read_text(encoding="utf-8"))
-            same.append((Path(path).name, got == body))
-        check("T3 去掉协议头后与 build_*_task 逐字相同（无 self 专用分叉）",
+            # 2026-11-12：任务书现在会内联输入（材料靠注入）。期望值走**同一份实现**，
+            # 这样"没有 self 专用分叉文本"这条判据仍然成立。
+            from utils.llm_client import inline_inputs
+            want = inline_inputs(body, note=st.INLINE_NOTE)[0]
+            same.append((Path(path).name, got == want))
+        check("T3 去掉协议头后与 build_*_task（经同一份内联）逐字相同",
               same and all(s[1] for s in same),
               [s for s in same if not s[1]][:3])
+
+        # T6：任务书必须**自包含**（材料靠注入，不靠路径）。
+        # 病：以前只写"输入文件：materials/raw/…（用 read_file 读取）"，
+        # 执行方拿到任务书先 grep 整个仓库找线索 —— 找到别的书、别的稿，或者按文件名猜。
+        print("\nT6：任务书自包含（材料靠注入，不靠路径）")
+        still_paths, has_marker, has_content = [], 0, 0
+        for n, r in results.items():
+            for t in r.get("tasks") or []:
+                text = Path(t["path"]).read_text(encoding="utf-8")
+                if "（用 read_file 读取）" in text:
+                    still_paths.append((n, Path(t["path"]).name))
+                if "## 内联输入" in text:
+                    has_marker += 1
+                if "===== 文件:" in text:
+                    has_content += 1
+        check("T6 不再有“自己去 read_file 读”的段落", not still_paths, still_paths[:4])
+        check("T6 任务书里真有【内联输入】区", has_marker > 0, has_marker)
+        check("T6 内联区带真实文件内容（有 ===== 文件: 标记）", has_content > 0, has_content)
     finally:
         for n, fn in saved.items():
             stages[n].make_client = fn

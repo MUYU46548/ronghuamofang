@@ -2342,8 +2342,12 @@ def emit_tasks(cfg, proj, progress=None, task_dir=None, chapters=None, **_):
     total, pending = _self_pending(cfg, proj, chapters)
     done_now = [n for n in range(1, total + 1) if n not in pending]
     # 越界检测要在**派新单之前**做：拿“上一次派了哪几章”对“现在盘上多了哪几章”。
+    # 还没有派单记录（第一次进 self / 刚 adopt 完）时**不判越界** —— 那时盘上的章
+    # 是作者自己写的或升级前就有的，拿“没派过”当越界会给他一句假警告。
     _prev = _read_dispatch()
-    _warn = overrun_warning(_prev.get("issued") or [], _prev.get("complete") or [], done_now)
+    _warn = ""
+    if _prev:
+        _warn = overrun_warning(_prev.get("issued") or [], _prev.get("complete") or [], done_now)
     if _warn:
         print("[stage4] " + _warn)
     if not pending:

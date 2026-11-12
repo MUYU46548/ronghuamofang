@@ -207,7 +207,7 @@ def format_input_section_error(diag, task_path=None):
     return NEWLINE.join(lines)
 
 
-def inline_inputs(body, char_limit=220000, task_path=None):
+def inline_inputs(body, char_limit=220000, task_path=None, note=None):
     """把“输入文件”段引用的文件内容内联进正文。返回 (new_body, [缺失路径])。
 
     **格式不符 = 明确报错**（P1，2026-10-03）：段落里出现“有路径、但解析器不认”的行
@@ -254,7 +254,7 @@ def inline_inputs(body, char_limit=220000, task_path=None):
             missing.append(p + " (" + str(e) + ")")
     if parts:
         body = body.replace("（用 read_file 读取）",
-                            "（本次调用为直连引擎，无文件工具；下列引用文件的内容已内联于文末【内联输入】区，直接使用）")
+                            note or ("（本次调用为直连引擎，无文件工具；下列引用文件的内容已内联于文末【内联输入】区，直接使用）"))
         inlined = (NEWLINE * 2).join(x[1] for x in parts)
         body = body.rstrip() + NEWLINE * 2 + "## 内联输入" + NEWLINE * 2 + inlined + NEWLINE
     if missing:

@@ -10,14 +10,29 @@
 本模块只做三件事，全部是确定性文件 IO：
 
 1. `write_task(...)` —— 给任务书加“交回协议”头（目标产物 / 合格判据 / 自检命令）
-   后落盘；
+   后落盘，**并把“输入文件”段引用的材料内联进正文**（见下）；
 2. `strip_protocol(text)` —— 去掉协议头，取回**原任务书正文**（与各阶段
    `build_*_task` 的产物逐字相同 —— 任务书不许出现"self 专用版本"的分叉文本）；
 3. `summarize(...)` —— 统一 `emit_tasks` 的返回形状。
 
+## 材料靠注入，不靠路径（2026-11-12，问题总账第 2 条）
+
+以前任务书只写“输入文件：`materials/raw/…`（用 read_file 读取）”—— 等于把找料
+这一步丢给执行方。实测后果：AI 拿到任务书先 `grep` 整个仓库找线索，找到别的书、
+别的稿，或者干脆按文件名猜。四颗钉子的第 ③ 条就是"材料靠注入不靠路径"。
+
+现在 `write_task` 直接调 `llm_client.inline_inputs()`（**与直连引擎同一份实现**）：
+把“## 输入文件”段列出的文件内容整段贴到文末【内联输入】区，执行方不用去读盘。
+路径仍保留（作为出处），但正文里那句"（用 read_file 读取）"会被换成
+"已内联，直接用"。
+
+同一段内出现"有路径但格式不认"的行时，`inline_inputs` 会抛
+`InputSectionFormatError` —— 这里**不吞**：材料构造错了当场停，比让执行方
+基于空输入写一整章便宜得多。
+
 ## 为什么单独立模块
 
-它被 6 个阶段共用，且要能被单测直接打（判据 T1~T4 见
+它被 6 个阶段共用，且要能被单测直接打（判据 T1~T6 见
 `tests/unit/test_engine_self.py`）。放进任一 stage 模块都会让其余五个反向依赖。
 
 ## 交回协议为什么这么写
@@ -26,6 +41,11 @@
 第一句就写明这一点：报告会撒谎，产物不会；写错路径等于没写。
 """
 from pathlib import Path
+
+#: 内联时替换“（用 read_file 读取）”的那句话。与直连引擎的说法分开写：
+#: 直连下确实"没有文件工具"，self 下是"程序已经把料摆好了，别再去找"。
+INLINE_NOTE = ("（本次为自任务引擎：下列文件的内容**已由程序内联在文末【内联输入】区**，"
+               "直接使用；不要再自己去仓库里找文件，也不要按文件名猜内容）")
 
 #: 任务书根目录（相对项目根）。刻意与 hermes 的 `data/state/tasks/` 分开：
 #: 两者混在一个目录里，清理任务文件时会把另一引擎的产物一起删掉。
@@ -77,16 +97,37 @@ def render_header(stage, name, targets, criteria, check=None, note=None):
 
 
 def write_task(stage, name, body, targets, criteria, check=None, note=None,
-               task_dir=None, stage_name=None):
-    """把任务书正文加协议头后落盘。返回任务记录：
+               task_dir=None, stage_name=None, inline=True):
+    """把任务书正文**内联材料 + 加协议头**后落盘。返回任务记录：
 
-    `{"path": 相对路径, "target": 产物相对路径或列表, "check": 自检命令}`
+    `{"path": 相对路径, "target": 产物路径(或列表), "check": 自检命令,
+      "inlined": 内联了几个文件, "missing": [没找到的输入]}`
+
+    **材料靠注入**（2026-11-12）：正文里的“## 输入文件”段由
+    `llm_client.inline_inputs()` 展开（与直连引擎同一份实现）—— 执行方拿到的是
+    一份自包含的任务书，不需要去仓库里找文件。找不到的输入照实列在文末，
+    不让执行方基于空输入硬写。
 
     **幂等**：同一 stage/name 再写一次是覆盖（内容一致时逐字节相同），
     这样"产物还缺 → 重跑再出任务书"不会留下第二份说法不同的任务书。
     """
     d = stage_dir(stage, task_dir)
     p = d / name
+    inlined, missing = 0, []
+    if inline and body:
+        from utils.llm_client import inline_inputs
+        try:
+            refs = None
+            from utils.llm_client import extract_input_paths
+            refs = extract_input_paths(body)
+            body, missing = inline_inputs(body, task_path=p.as_posix(), note=INLINE_NOTE)
+            inlined = len(refs or []) - len(missing or [])
+        except Exception as e:                                # noqa: BLE001
+            # 格式不认 / 读不出来：**不吞**。材料构造错了必须当场停 ——
+            # 让执行方基于空输入写一整章，比这里报错贵得多。
+            print("[self_tasks] ERROR 任务书输入段无法内联（%s）：%s: %s"
+                  % (name, type(e).__name__, str(e)[:400]))
+            raise
     header = render_header(stage, stage_name or "阶段%s" % stage, targets,
                            criteria, check=check, note=note)
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -94,7 +135,9 @@ def write_task(stage, name, body, targets, criteria, check=None, note=None,
     tg = _as_list(targets)
     return {"path": p.as_posix(),
             "target": tg[0] if len(tg) == 1 else tg,
-            "check": check or CHECK_CMD}
+            "check": check or CHECK_CMD,
+            "inlined": inlined,
+            "missing": list(missing or [])}
 
 
 def strip_protocol(text):
