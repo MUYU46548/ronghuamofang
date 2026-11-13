@@ -109,6 +109,12 @@ def handle_setting_conflicts(h):
         "counts": report.get("counts"),
         "tombstones": report.get("tombstones"),
         "card_count": report.get("card_count"),
+        # 0 张卡的时候最容易被读成“没有冲突”（实测工作区 46 份素材一份都没被认出来，
+        # 界面照样显示“没有待裁决分歧”）。这里把“没扫到”与“确实没有”分开说。
+        "hint": ("一份素材卡都没认出来（0 张）—— 卡片要写成“# 角色：名字”这样的标题，"
+                 "字段写在“## 基本信息”下面的“- 字段：值”。"
+                 "这不是“没有冲突”，是根本没扫到。"
+                 if not report.get("card_count") else ""),
         "audited_at": report.get("audited_at"),
         "audit_path": str(p["audit"]),
     }

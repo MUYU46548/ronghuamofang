@@ -143,6 +143,23 @@ def main():
               all(v.get("file") for c in d.get("review_conflicts") or []
                   for v in c["values"]), d.get("review_conflicts"))
 
+        # ---------------- T1b 0 张卡 ≠ 没有冲突（假绿防线） ----------------
+        print("\n[T1b] 素材卡一份都没认出来时，不许报“没有分歧”")
+        raw_dir = tmp / "materials" / "raw"
+        stash = tmp / "materials" / "_stash"
+        shutil.move(str(raw_dir), str(stash))
+        raw_dir.mkdir()
+        code, d = req("GET", "/setting/conflicts")
+        check("T1b HTTP 200", code == 200, code)
+        check("T1b card_count=0（一份卡都没认出来）", d.get("card_count") == 0, d.get("card_count"))
+        check("T1b hint 明说“不是没有冲突，是没扫到”",
+              "认出来" in (d.get("hint") or "") and "没有冲突" in (d.get("hint") or ""),
+              d.get("hint"))
+        shutil.rmtree(str(raw_dir))
+        shutil.move(str(stash), str(raw_dir))
+        code, d = req("GET", "/setting/conflicts")
+        check("T1b 素材卡放回去又能扫到（3 张）", d.get("card_count") == 3, d.get("card_count"))
+
         # ---------------- T2 canon：未冻结 ----------------
         print("\n[T2] GET /setting/canon（尚未冻结）")
         code, d = req("GET", "/setting/canon")

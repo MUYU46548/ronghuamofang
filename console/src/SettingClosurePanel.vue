@@ -134,7 +134,11 @@ defineExpose({ load });
         <span class="sc-stat"><b>{{ tombstones.length }}</b> 条否决记录</span>
       </div>
 
-      <div v-if="!groups.length" class="meta sc-ok">没有待裁决分歧。</div>
+      <div v-if="!groups.length && !data.card_count" class="meta sc-warn">
+        没有待裁决分歧 —— 但这不等于素材之间没矛盾：这次一份素材卡都没认出来。
+        {{ data.hint }}
+      </div>
+      <div v-else-if="!groups.length" class="meta sc-ok">没有待裁决分歧。</div>
 
       <div v-for="g in groups" :key="g.name + g.field" class="sc-item">
         <div class="sc-head">
@@ -173,6 +177,8 @@ defineExpose({ load });
 .sc-stat b { font-size: 16px; }
 .sc-bad { color: var(--bad); }
 .sc-ok { color: var(--ok); }
+/* 0 张素材卡：这是“没扫到”，不是“没矛盾”——用警告色，别用绿。 */
+.sc-warn { color: var(--warn, #b8860b); line-height: 1.7; }
 .sc-unchecked {
   margin: 10px 0; padding: 10px 12px; border-radius: 8px;
   border-left: 3px solid var(--warn); background: var(--field-dim);
