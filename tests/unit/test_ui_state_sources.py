@@ -148,6 +148,7 @@ def case_save_then_reread():
     app = read("App.vue")
     out = read("OutlineView.vue")
     rev = read("ReviewConsole.vue")
+    vdp = read("VaultDirsPanel.vue")
 
     ls = func_body(app, "loadSetting")
     check("C1 去掉一次性门闩（原来进了设定页就永远不重读）",
@@ -186,6 +187,12 @@ def case_save_then_reread():
           "decisions.value[" in hyd and "d.action" in hyd, hyd[:240])
     check("C15 审稿决策保存后重读",
           "await loadSavedDecisions()" in func_body(rev, "saveDecisions"))
+
+    sp = func_body(app, "savePrompt")
+    check("C16 提示词保存后回读正文 + 备份链（编辑器不能停在提交值）",
+          "await openPrompt(" in sp and "await loadPromptList()" in sp, sp[-260:])
+    check("C17 知识库目录保存后按盘上重读（后端会归一化路径）",
+          "await load();" in func_body(vdp, "save"))
 
 
 for fn in (case_source_contract, case_history_follows_root, case_save_then_reread):

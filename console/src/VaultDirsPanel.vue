@@ -144,7 +144,10 @@ async function save() {
   busy.value = true;
   try {
     const d = payload(await props.api("/config/vault_dirs", "POST", picked.value));
-    orig.value = { ...picked.value };
+    // 保存后按盘上重读（问题总账第 7 条）：后端会把值归一化（去空格/反斜杠/首尾斜杠），
+    // 且只认可真实存在的目录。拿本地 picked 当"已保存的样子"，界面与 system.local.yaml
+    // 里的真实映射会一直差一个规范化的距离（dirty 判定也跟着错）。
+    await load();
     msg.value = d.message || "已保存";
   } catch (e) {
     msg.value = "保存失败：" + e.message;

@@ -2752,7 +2752,10 @@ async function savePrompt() {
   }
   promptDirty.value = false;
   say("已保存 " + promptName.value + (r.backup ? "（备份: " + r.backup + "）" : ""));
-  loadPromptList();
+  // 保存后按盘上重读（问题总账第 7 条）：编辑器里那份必须等于 prompts/ 里的那份，
+  // 顺带把备份链刷成盘上的真实列表（回滚下拉不能停在保存前）。
+  await loadPromptList();
+  if (promptName.value) await openPrompt(promptName.value);
 }
 
 /* ⚠️ 这张表必须与后端 STAGE_NAMES / orchestrator.STAGES 同步 —— 漏一个阶段，

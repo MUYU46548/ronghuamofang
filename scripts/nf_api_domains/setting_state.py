@@ -319,6 +319,56 @@ def handle_setting_stale_review(h, body):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+def handle_setting_save(h, body):
+    """`POST /setting/save {setting, expected_mtime?}` —— 整份写回设定集。
+
+    ## 为什么带指纹（2026-11-13，问题总账第 7 条）
+    界面提交的是**它打开那一刻**的副本。中间 CLI / 外部 Agent / 另一个窗口改过盘时，
+    无条件覆盖会把别人的改动**静默抹掉**（用户看到的是"我什么都没删，条目没了"）。
+    带 `expected_mtime` 且对不上 → 409、一个字都不写；不传 = 老行为（脚本 / 用例 /
+    旧客户端照旧，不被拦）。
+
+    ## 顺序不许改
+    校验 → 指纹 → 备份 → 写。指纹对不上时连备份都不该产生，否则 `history/` 里会
+    堆出一串"没发生过的保存"。
+
+    `body` 由 `do_POST` 传入，这里绝不再调 `h._body()`（一次性流，二次读会挂到超时）。
+    """
+    import time
+
+    data = body.get("setting") if isinstance(body, dict) else None
+    if not data or not isinstance(data, dict):
+        return _bad("setting 必须为对象")
+    try:
+        setting_path = api.ROOT / "data" / "setting" / "setting.json"
+        expected = body.get("expected_mtime") if isinstance(body, dict) else None
+        if expected is not None:
+            disk_mtime = setting_path.stat().st_mtime if setting_path.exists() else None
+            try:
+                same = (disk_mtime is not None
+                        and abs(float(disk_mtime) - float(expected)) <= 0.001)
+            except (TypeError, ValueError):
+                return _bad("expected_mtime 必须是数字")
+            if not same:
+                return 409, {
+                    "ok": False,
+                    "error": "盘上设定集已被改过（外部 Agent / 另一个窗口 / CLI），本次未写入",
+                    "mtime": disk_mtime,
+                    "hint": "点“刷新”看盘上版本，再决定要不要保存",
+                }
+        if setting_path.exists():
+            backup_dir = api.ROOT / "data" / "setting" / "history"
+            backup_dir.mkdir(parents=True, exist_ok=True)
+            stamp = time.strftime("%Y%m%d_%H%M%S")
+            backup = backup_dir / ("setting_%s.json" % stamp)
+            backup.write_text(setting_path.read_text(encoding="utf-8"), encoding="utf-8")
+        api.nf_write_text(str(setting_path),
+                          api.json.dumps(data, ensure_ascii=False, indent=2))
+        return 200, {"ok": True, "mtime": setting_path.stat().st_mtime}
+    except Exception as e:                                   # noqa: BLE001
+        return 500, {"error": "%s: %s" % (type(e).__name__, str(e)[:200])}
+
+
 # 本模块负责的端点（供自检与文档）
 ROUTES = (
     ("GET", "/setting/conflicts", handle_setting_conflicts),
@@ -330,4 +380,5 @@ ROUTES = (
     ("GET", "/setting/stale", handle_setting_stale),
     ("POST", "/setting/stale/link", handle_setting_stale_link),
     ("POST", "/setting/stale/review", handle_setting_stale_review),
+    ("POST", "/setting/save", handle_setting_save),
 )
