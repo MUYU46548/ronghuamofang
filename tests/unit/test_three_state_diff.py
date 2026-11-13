@@ -3,7 +3,7 @@
 
 守两件事：
   1. **能抓到**：raw 有、checked 没有的段落必须出现在"被删"里（不能因为段落被改写就整段漏掉）；
-  2. **不越界**：归类只到「对白 / 长旁白 / 近似重复 / 未分类」，绝不出现"离题""与设定冲突"
+  2. **不越界**：归类只到“对白 / 长旁白 / 近似重复 / 未分类”，绝不出现"离题""与设定冲突"
      这类需要读全书的判断（脚本只给证据，判决归作者）。
 
 用法：python tests/unit/test_three_state_diff.py
@@ -41,7 +41,7 @@ def build_book(root: Path) -> None:
     gone_narration = ("她心里清楚，这一切都不是偶然，那些年积攒下来的疲惫在此刻涌上来，"
                       "让她几乎站不住脚，可她还是要撑着，把最后那句话说完。"
                       "窗外的雨声一阵紧过一阵，像有人在檐下反复敲着同一块铁皮。")
-    gone_dialogue = "「你先回去。」"
+    gone_dialogue = "“你先回去。”"
     (raw / "01.md").write_text(
         "## 第1章 甲\n\n" + keep + "\n\n" + gone_narration + "\n\n" + gone_dialogue + "\n",
         encoding="utf-8")
@@ -84,7 +84,7 @@ def case_detect_and_report():
         md = (out / "three_state.md").read_text(encoding="utf-8")
         js = json.loads((out / "three_state.json").read_text(encoding="utf-8"))
         check("A8 退出码 0 且写出 json+md", rc == 0 and (out / "three_state.json").exists())
-        check("A9 md 里写明「证据不是判决」", "证据清单，不是判决" in md)
+        check("A9 md 里写明“证据不是判决”", "证据清单，不是判决" in md)
         check("A10 md 汇总带净变化列", "净变化" in md)
         check("A11 json 里 chapter 2 只有 raw 层",
               js["chapters"][1]["layers"].get("raw") == 1

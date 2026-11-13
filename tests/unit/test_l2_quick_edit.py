@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-"""L2「一句话改一段」的判据 —— 源码契约 + 真跑 charDiff（零 token）。
+"""L2“一句话改一段”的判据 —— 源码契约 + 真跑 charDiff（零 token）。
 
 ## 这条判据守的是什么
 
 竞品对表（`docs/功能建议-20261113.md` 第 1 条）把 L2 拆成五件，墨坊缺三件：
-预设档只填不发、只出一条候选、差异只有段落级。这一轮补的是「点了就发」与「字符级差异」。
+预设档只填不发、只出一条候选、差异只有段落级。这一轮补的是“点了就发”与“字符级差异”。
 
 判据分两段：
   A 源码契约 —— 档位点下去真的提交；误点护栏（首次提示 / 只填入开关 / self 引擎不提交）都在；
@@ -132,7 +132,50 @@ def case_char_diff_runs():
           bool(d2.get("add")) and bool(d2.get("del")), out2[:200])
 
 
-for fn in (case_contract, case_char_diff_runs):
+def case_context_chiclets():
+    print("\n[C] 上下文交代：只列真的带了的")
+    sys.path.insert(0, str(REPO / "scripts"))
+    import tempfile
+    import refine_paragraph as rp
+
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        (root / "data" / "outline" / "chapters").mkdir(parents=True)
+        (root / "data" / "setting").mkdir(parents=True)
+        chap = root / "data" / "chapters" / "refined" / "01.md"
+        chap.parent.mkdir(parents=True)
+        chap.write_text("## 第1章\n\n甲。\n\n乙。\n", encoding="utf-8")
+        paras = rp.split_paragraphs(chap.read_text(encoding="utf-8"))
+        setting = root / "data" / "setting" / "setting.json"
+
+        # 情形 1：章大纲在、设定集在
+        outline = root / "data" / "outline" / "chapters" / "01.md"
+        outline.write_text("## 第1章\n", encoding="utf-8")
+        setting.write_text("{}", encoding="utf-8")
+        items = rp.describe_context(1, chap, outline, setting, paras, 1)
+        keys = [i["key"] for i in items]
+        check("C1 三项 + “这次没带”都在", keys == ["chapter", "outline", "setting", "not_included"], keys)
+        check("C2 整章正文说清是整章（不只选中段）",
+              "整章" in items[0]["note"] and items[0]["ok"], items[0])
+        check("C3 章大纲命中时给的是章文件",
+              items[1]["ok"] and "chapters" in items[1]["note"], items[1])
+        check("C4 “这次没带”明说没带什么",
+              "上一章衔接段" in items[3]["note"], items[3]["note"])
+
+        # 情形 2：没有章大纲（退回整体大纲）、没有设定集 → 标 off，不假装带了
+        outline.unlink()
+        setting.unlink()
+        global_md = root / "data" / "outline" / "global.md"
+        global_md.write_text("# 全书\n", encoding="utf-8")
+        items2 = rp.describe_context(1, chap, global_md, setting, paras, 0)
+        by = {i["key"]: i for i in items2}
+        check("C5 章大纲缺、退回整体大纲时照实标“整体大纲”（不冒充本章大纲）",
+              by["outline"]["label"] == "整体大纲" and by["outline"]["ok"] is True, by["outline"])
+        check("C6 没有设定集时标 off", by["setting"]["ok"] is False, by["setting"])
+        check("C7 note 说清为什么没有", "setting.json" in by["setting"]["note"], by["setting"]["note"])
+
+
+for fn in (case_contract, case_char_diff_runs, case_context_chiclets):
     fn()
 
 print("\n%d passed, %d failed" % (len(PASS), len(FAIL)))

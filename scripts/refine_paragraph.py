@@ -389,6 +389,48 @@ def build_paragraph_task(cfg, proj, chapter, paragraph_index, paragraph_text, fe
     return body
 
 
+def describe_context(chapter, chap_path, outline_path, setting_path, paragraphs, paragraph_index):
+    """这次改写到底带了哪些上下文（给作者看的 chiclets，2026-11-13）。
+
+    **只列真的送进去的东西**：`build_paragraph_task` 把整章正文内联进任务（不只目标段落）、
+    本章大纲（没有就退回整体大纲）、设定集**以文件路径**交给模型。所以这里能说的就这三条，
+    加上"这次没带什么"（上一章衔接段 / 滚动摘要 / 范文 —— 段落改写确实不带），
+    免得作者以为改一段是"通读全书后改的"。
+
+    返回 [{key,label,note,ok}]，ok=False 表示这一项这次没有（缺文件）。
+    """
+    items = []
+    try:
+        n = len(paragraphs)
+        chars = sum(len(p) for p in paragraphs) if paragraphs else 0
+        items.append({"key": "chapter", "label": "整章正文", "ok": True,
+                      "note": "第 %d 章 %d 段 · %d 字（任务里是整章，不只选中的第 %d 段）"
+                              % (chapter, n, chars, paragraph_index + 1)})
+    except Exception:                                        # noqa: BLE001
+        items.append({"key": "chapter", "label": "整章正文", "ok": False, "note": "读不到本章"})
+    op = Path(outline_path) if outline_path else None
+    if op and op.exists():
+        if op.name == "%02d.md" % chapter:
+            items.append({"key": "outline", "label": "本章大纲", "ok": True,
+                          "note": "data/outline/chapters/%02d.md" % chapter})
+        else:
+            # 没有章大纲时 build_paragraph_task 退回整体大纲 —— 那就照实说"整体大纲"，
+            # 不能顶着"本章大纲"的标签（作者会以为模型看过这一章的规划）。
+            items.append({"key": "outline", "label": "整体大纲", "ok": True,
+                          "note": "没有本章大纲，用的是 %s（全书大纲）" % op.name})
+    else:
+        items.append({"key": "outline", "label": "本章大纲", "ok": False, "note": "没有大纲文件"})
+    sp = Path(setting_path) if setting_path else None
+    if sp and sp.exists():
+        items.append({"key": "setting", "label": "设定集", "ok": True,
+                      "note": "以文件路径交给模型（直连引擎会内联全文）"})
+    else:
+        items.append({"key": "setting", "label": "设定集", "ok": False, "note": "没有 setting.json"})
+    items.append({"key": "not_included", "label": "这次没带", "ok": True,
+                  "note": "上一章衔接段 / 滚动摘要 / 范文"})
+    return items
+
+
 def run_paragraph_refine(cfg, proj, chapter, paragraph_index, feedback, client=None,
                           task_dir=None, dry_run=False, outline_path=None,
                           preview=False, root=None):
@@ -425,6 +467,10 @@ def run_paragraph_refine(cfg, proj, chapter, paragraph_index, feedback, client=N
     outline = Path(outline_path) / f"{chapter:02d}.md"
     if not outline.exists():
         outline = _base(root) / "data" / "outline" / "global.md"
+    # 这次带了哪些上下文（作者在候选卡上看得见，不是靠猜）
+    ctx = describe_context(chapter, chap_path, outline,
+                           _base(root) / "data" / "setting" / "setting.json",
+                           paragraphs, paragraph_index)
 
     task = client.write_task(task_dir, f"stage4_refine_ch{chapter:02d}_p{paragraph_index}.md",
                              build_paragraph_task(cfg, proj, chapter, paragraph_index,
@@ -466,7 +512,8 @@ def run_paragraph_refine(cfg, proj, chapter, paragraph_index, feedback, client=N
         return (True, ("第 %d 章 #%d 已生成候选（未落盘，等作者采用）"
                       % (chapter, paragraph_index)),
                 backup, version, {"index": paragraph_index, "before": target_paragraph,
-                                  "after": rewritten_paragraph, "preview": True})
+                                  "after": rewritten_paragraph, "preview": True,
+                                  "context": ctx})
 
     # 保存段落历史
     hist_record = save_paragraph_history(chapter, paragraph_index, target_paragraph,
@@ -512,6 +559,9 @@ def preview_paragraph(cfg, proj, chapter, paragraph_index, feedback, client=None
         "before": info.get("before", ""), "after": info.get("after", ""),
         "feedback": feedback, "backup": str(backup) if backup else "",
         "version": version, "at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        # 这次带了哪些上下文（2026-11-13，L2）：作者在候选卡上看得到，
+        # 不用猜“模型是读了全书还是只看了这一段”。
+        "context": info.get("context") or [],
     }
     items = [x for x in _load_pending(root)
              if not (int(x.get("chapter") or 0) == int(chapter)

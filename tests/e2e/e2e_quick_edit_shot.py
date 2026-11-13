@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-"""L2「一句话改一段」真机目检（Playwright + headless Chromium）——零 token。
+"""L2“一句话改一段”真机目检（Playwright + headless Chromium）——零 token。
 
-判据只有一条：**点「润色」这一下，到底有没有真的发请求**。
+判据只有一条：**点“润色”这一下，到底有没有真的发请求**。
 以前它只把意见填进输入框（`@click="feedback = q.text"`），界面上看着有按钮、
 点下去什么也不会发生 —— 正是用户点名的“界面有，按了没用”那一族。
 
@@ -139,7 +139,17 @@ def main():
                     route.fulfill(status=200, content_type="application/json",
                                   body=json.dumps({"exists": True, "rec": {
                                       "before": before, "after": after,
-                                      "ok": True, "reasons": []}}, ensure_ascii=False))
+                                      "ok": True, "reasons": [],
+                                      "context": [
+                                          {"key": "chapter", "label": "整章正文", "ok": True,
+                                           "note": "第 1 章 3 段 · 54 字（任务里是整章）"},
+                                          {"key": "outline", "label": "本章大纲", "ok": True,
+                                           "note": "data/outline/chapters/01.md"},
+                                          {"key": "setting", "label": "设定集", "ok": False,
+                                           "note": "没有 setting.json"},
+                                          {"key": "not_included", "label": "这次没带", "ok": True,
+                                           "note": "上一章衔接段 / 滚动摘要 / 范文"},
+                                      ]}}, ensure_ascii=False))
                     return
                 route.continue_()
 
@@ -169,7 +179,7 @@ def main():
             before_bytes = json.dumps(sent["preview"])
             page.locator(".ce-quick-btn", has_text="润色").first.click()
             page.wait_for_timeout(250)
-            check("E5 ★ 点「润色」真的发出重写请求（以前只填输入框）",
+            check("E5 ★ 点“润色”真的发出重写请求（以前只填输入框）",
                   len(sent["preview"]) >= 1, before_bytes)
             body = sent["preview"][-1] if sent["preview"] else {}
             check("E6 请求里带的是这一段的意见",
@@ -190,11 +200,18 @@ def main():
                   page.locator(".ce-del").count() >= 1, page.locator(".ce-del").count())
             check("E11 也标了新加的字", page.locator(".ce-ins").count() >= 1,
                   page.locator(".ce-ins").count())
+            check("E12 上下文 chiclets 画出来了（带了的单列 + 一句“这次没带”）",
+                  page.locator(".ce-ctx").count() >= 1
+                  and page.locator(".ce-ctx-note").count() == 1,
+                  (page.locator(".ce-ctx").count(), page.locator(".ce-ctx-note").count()))
+            check("E13 缺的那项标“没带”（虚线灰框，不假装带了）",
+                  page.locator(".ce-ctx.off", has_text="没带设定集").count() == 1,
+                  page.locator(".ce-ctx.off").count())
             U.shot(page, "quickedit_char_diff")
 
-            check("E12 界面无 4xx/5xx（拦截之外的请求都真打到后端）", not bad, bad[:4])
+            check("E14 界面无 4xx/5xx（拦截之外的请求都真打到后端）", not bad, bad[:4])
             console_err = [e for e in errs if e.startswith("error")]
-            check("E13 console 无 error", not console_err, console_err[:3])
+            check("E15 console 无 error", not console_err, console_err[:3])
             browser.close()
     finally:
         for pr in (web_proc, api_proc):

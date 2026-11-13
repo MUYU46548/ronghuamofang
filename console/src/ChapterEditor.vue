@@ -116,7 +116,7 @@ function quickEdit(q) {
     return;
   }
   if (selPara.value === null) {
-    emit("say", "先在左边点选一个段落，再点「" + q.label + "」");
+    emit("say", "先在左边点选一个段落，再点“" + q.label + "”");
     return;
   }
   if (props.selfEngine) {
@@ -125,7 +125,7 @@ function quickEdit(q) {
   }
   if (!quickWarned.value) {
     const ok = window.confirm(
-      "点「" + q.label + "」就真的改这一段：一次模型调用，结果是**候选**，"
+      "点“" + q.label + "”就真的改这一段：一次模型调用，结果是**候选**，"
       + "不点“采用”正文一个字不动。\n\n以后不再问？");
     if (!ok) return;
     quickWarned.value = true;
@@ -449,7 +449,13 @@ function pickPara(p) {
 /* 改一段：候选 → 采用（2026-11-08，P1-5）。
    以前模型改完直接写盘，作者只能事后去历史里退回。现在改成“只算不落”：
    候选进 para_pending.json（self 模式是外部写的草稿），看着改前/改后点采用才写。 */
-const cand = ref(null);        // {exists, rec:{before,after,ok,reasons}}
+const cand = ref(null);        // {exists, rec:{before,after,ok,reasons,context}}
+/* 上下文 chiclets 的取值（2026-11-13）：带了的标签单列，没带的加“没带”前缀灰掉，
+   “这次没带”那条只当后缀说明 —— 混在一起会读成“设定集/这次没带”是一件事。 */
+const ctxItems = computed(() => ((cand.value && cand.value.rec && cand.value.rec.context) || []));
+const ctxOn = computed(() => ctxItems.value.filter((c) => c.ok !== false && c.key !== "not_included"));
+const ctxOff = computed(() => ctxItems.value.filter((c) => c.ok === false));
+const ctxNote = computed(() => ((ctxItems.value.find((c) => c.key === "not_included") || {}).note) || "");
 /* 候选的字符级差异（2026-11-13，L2 补齐）：以前两栏并排全文，看不出改了哪几个字 —
  * 作者要的是“扫一眼就知道动过什么”。复用 diff.js 的 charDiff（大纲精修用的是同一份实现）。 */
 const candDiff = computed(() => {
@@ -889,6 +895,15 @@ onUnmounted(() => {
                           @click="applyCandidate">采用</button>
                   <button v-if="cand" class="mini" :disabled="candBusy" @click="dropCandidate">放弃</button>
                 </div>
+                <div v-if="cand" class="ce-ctx-row">
+                  <template v-if="ctxItems.length">
+                    <span class="ce-ctx-k">这次带了</span>
+                    <span v-for="c in ctxOn" :key="c.key" class="ce-ctx" :title="c.note">{{ c.label }}</span>
+                    <span v-for="c in ctxOff" :key="c.key" class="ce-ctx off" :title="c.note">没带{{ c.label }}</span>
+                    <span v-if="ctxNote" class="ce-ctx-note" :title="ctxNote">这次没带：{{ ctxNote }}</span>
+                  </template>
+                  <span v-else class="meta">（这次没有上下文说明）</span>
+                </div>
                 <div v-if="cand" class="ce-diff">
                   <div class="ce-diff-col">
                     <div class="ce-diff-t">改前<span v-if="candDiff.before.some(s => s.del)" class="ce-diff-k">（划掉的是这段被删的字）</span></div>
@@ -1049,6 +1064,20 @@ onUnmounted(() => {
 .ce-del { text-decoration: line-through; text-decoration-color: var(--bad);
           background: color-mix(in srgb, var(--bad) 14%, transparent); border-radius: 2px; }
 .ce-ins { background: color-mix(in srgb, var(--ok) 22%, transparent); border-radius: 2px; }
+/* 上下文 chiclets（2026-11-13，L2）：说清这次改一段带了什么 —— 作者不用猜模型读了什么。
+   off = 这一项这次没有（缺文件），灰掉而不是假装带了。 */
+.ce-ctx-row { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; margin: 8px 0 4px; }
+.ce-ctx-k { font-size: 11px; color: var(--muted); }
+.ce-ctx {
+  font-size: 11.5px; padding: 2px 8px; border-radius: 9px; cursor: help; font-weight: 500;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.ce-ctx.off { border-style: dashed; border-color: var(--border); background: transparent;
+              color: var(--muted); font-weight: 400; margin-left: 8px; }
+.ce-ctx-note {
+  flex-basis: 100%; font-size: 11px; color: var(--muted); margin-top: 2px; cursor: help;
+}
 /* 段落历史（2026-11-11）：一行一版，就地回退。刻意不用表格 —— 侧栏很窄，表格会横滚。 */
 .ce-hist { margin-top: 10px; border-top: 1px dashed var(--border); padding-top: 8px; }
 .ce-hist-item {
