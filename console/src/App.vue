@@ -437,8 +437,9 @@ async function saveRates() {
   }
   const r = await api("/costs/rates", "POST", { rates: toSave });
   if (r.status === 200) {
+    // 保存后按盘上重读（第 7 条）：别拿提交的本地副本当已落盘的样子
+    await loadRates();
     say("定价已保存（" + r.data.saved + " 条）");
-    loadRates();
   } else {
     say("保存失败: " + (r.data.error || r.status));
   }
@@ -838,16 +839,32 @@ const settingTab = ref("characters"); // characters | world | plot | timeline
 const settingData = ref(null);
 const settingLoaded = ref(false);
 const settingDirty = ref(false);
+// 盘上那一版的指纹（mtime）与“盘上已变但我们没敢覆盖本地修改”的标记（第 7 条）
+const settingStamp = ref(null);
+const settingExternalChange = ref(false);
 
-async function loadSetting() {
-  if (settingLoaded.value) return;
+async function loadSetting(force = false) {
+  // 旧实现是 `if (settingLoaded.value) return;` —— 一次性门闩，三个后果都在用户路上：
+  //   ①“刷新”按钮点了什么都不做（永远命中门闩）；
+  //   ②保存后不回读 → 界面持自己内存里的副本，与盘上那份不是一个东西；
+  //   ③进页不重读 → CLI / 外部 Agent / 阶段重跑改了设定集，界面永远不知道。
+  // 现在：进页照读（每次进设定页按盘上重读，与章节页同一条规矩）；
+  // 有未保存修改时**不静默覆盖**（只有用户点“刷新”才算他同意丢掉修改）。
+  if (settingDirty.value && !force) {
+    settingExternalChange.value = true;
+    return false;
+  }
   const r = await api("/setting/current");
   if (r.status === 200 && r.data.ok) {
     settingData.value = r.data.setting;
+    settingStamp.value = r.data.mtime ?? null;   // 保存时带回：盘上变了就拒收
     settingLoaded.value = true;
-  } else {
-    say("加载失败: " + (r.data.error || r.status));
+    settingDirty.value = false;
+    settingExternalChange.value = false;
+    return true;
   }
+  say("加载失败: " + (r.data.error || r.status));
+  return false;
 }
 
 const settingEditor = ref({ open: false, key: '', idx: -1, item: null, group: '' });
@@ -995,13 +1012,31 @@ function removeSettingItem(key, idx) {
   settingDirty.value = true;
 }
 
+async function refreshSetting() {
+  // “刷新”以前是个死按钮（loadSetting 里的 settingLoaded 门闩让它永远 return）——
+  // 用户点了没反应正是他点名的那一族。现在它会真的按盘上重读，且不静默丢未保存修改。
+  if (settingDirty.value && !window.confirm(
+      "你有未保存的修改，刷新会丢掉它们。\n\n继续刷新（显示盘上那一版）？")) return;
+  const ok = await loadSetting(true);
+  if (ok) say("已按盘上重读");
+}
+
 async function saveSetting() {
   if (!settingData.value) return;
   if (!window.confirm("确定保存 Story Bible？\n\n修改将写入 data/setting/setting.json（自动备份）。")) return;
-  const r = await api("/setting/save", "POST", { setting: settingData.value });
+  // expected_mtime = 界面打开那一刻的盘上版本：中间别人改过盘就拒收，不静默覆盖。
+  const r = await api("/setting/save", "POST", {
+    setting: settingData.value,
+    expected_mtime: settingStamp.value,
+  });
   if (r.status === 200 && r.data.ok) {
-    settingDirty.value = false;
+    // 保存成功后**按盘上重读**（第 7 条）：界面只认盘上那一份，不再拿自己的副本当真相。
+    await loadSetting(true);
     say("已保存");
+  } else if (r.status === 409) {
+    settingExternalChange.value = true;
+    say("没有保存：盘上设定集已被改过（外部 Agent / 另一个窗口 / CLI）。"
+        + "点“刷新”看盘上版本，再决定保存哪些。");
   } else {
     say("保存失败: " + (r.data.error || r.status));
   }
@@ -1293,7 +1328,8 @@ async function saveStyleNotes() {
     say("风格笔记保存失败: " + (r.error || ""));
     return;
   }
-  styleNotesDirty.value = false;
+  // 保存后按盘上重读（第 7 条）：project.yaml 那一份才是真相，界面不留本地副本
+  await loadStyleNotes();
   say("风格笔记" + (r.message || "已保存"));
 }
 
@@ -2572,15 +2608,23 @@ async function confirmSettingEdit() {
   const r = await api("/setting/current");
   if (r.status === 200) {
     originalSetting.value = r.data.setting || {};
+    settingStamp.value = r.data.mtime ?? null;   // 原文编辑也带同一枚指纹
   }
 }
 
 async function saveSettingEdit() {
-  const r = await api("/setting/save", "POST", { setting: originalSetting.value });
+  const r = await api("/setting/save", "POST", {
+    setting: originalSetting.value,
+    expected_mtime: settingStamp.value,
+  });
   if (r.status === 200) {
     settingEditOpen.value = false;
-    say("设定已保存，将在下一章节生效");
     originalSetting.value = null;
+    // 按盘上重读：主面板不能继续显示保存前的副本（第 7 条）
+    await loadSetting(true);
+    say("设定已保存，将在下一章节生效");
+  } else if (r.status === 409) {
+    say("没有保存：盘上设定集已被改过（外部 Agent / 另一个窗口 / CLI）。点“刷新”看盘上版本。");
   } else {
     say(`保存失败: ${r.data?.error || r.status}`);
   }
@@ -5656,7 +5700,7 @@ onUnmounted(() => {
       <button :class="{ active: tab === 'pipeline' }" @click="switchTab('pipeline')">流水线</button>
       <button :class="{ active: tab === 'chapters' }" @click="switchTab('chapters'); !chaptersLoaded && loadChapters()">章节</button>
       <button :class="{ active: tab === 'materials' }" @click="switchTab('materials'); loadMaterials()">素材</button>
-      <button :class="{ active: tab === 'story' }" @click="switchTab('story'); loadSetting()">设定</button>
+      <button :class="{ active: tab === 'story' }" @click="switchTab('story')">设定</button>
       <button :class="{ active: tab === 'outline' }" @click="switchTab('outline')">大纲</button>
       <button :class="{ active: tab === 'outline_chapters' }" @click="switchTab('outline_chapters'); loadOutlineChapters()">分章</button>
       </div>
@@ -6574,8 +6618,9 @@ onUnmounted(() => {
       <div class="card-head">
         <h3>Story Bible（data/setting/setting.json）</h3>
         <span v-if="settingDirty" class="pill st-gate">已修改</span>
+        <span v-if="settingExternalChange" class="pill st-warn">盘上已变</span>
         <span class="spacer"></span>
-        <button class="mini" @click="loadSetting">刷新</button>
+        <button class="mini" @click="refreshSetting">刷新</button>
         <button class="mini primary" :disabled="!settingDirty" @click="saveSetting">保存</button>
       </div>
 

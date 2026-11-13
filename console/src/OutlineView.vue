@@ -724,8 +724,9 @@ async function save() {
   const r = await props.api("/outline/save", "POST", { content: raw.value });
   saving.value = false;
   if (r.status !== 200 || !r.data.ok) { say("保存失败: " + (r.data.error || r.status)); return; }
-  savedRaw.value = raw.value;
-  if (r.data.structure) { structure.value = r.data.structure; }
+  // 保存后**按盘上重读**（问题总账第 7 条）：回显的 structure 是服务端算的，
+  // 落盘那一版才是真相；本地 raw 不再自认等于盘上（大纲会被规整/补锚点）。
+  await load(false);
   say("已保存（备份 " + (r.data.backup || "") + "）");
 }
 

@@ -117,11 +117,17 @@ def handle_scraps_read(h):
 
 
 def handle_setting_current(h):
-    """读取设定集 data/setting/setting.json。"""
+    """读取设定集 data/setting/setting.json。
+
+    附带 `mtime`（2026-11-13，问题总账第 7 条同族）：界面保存时把它原样带回来，
+    盘上变了就拒收。界面持的是**打开那一刻**的副本，中间 CLI / 外部 Agent /
+    另一个窗口改过盘时，整份提交会把别人的改动**静默覆盖**（设定集尤其伤）。
+    """
     try:
         setting_path = api.ROOT / "data" / "setting" / "setting.json"
         if setting_path.exists():
             return 200, {"ok": True,
+                         "mtime": setting_path.stat().st_mtime,
                          "setting": api.json.loads(setting_path.read_text(encoding="utf-8"))}
         return 404, {"error": "setting.json 不存在"}
     except Exception as e:                                  # noqa: BLE001

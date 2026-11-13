@@ -210,9 +210,20 @@ async function loadReport() {
 async function loadSavedDecisions() {
   const r = await api("/review/decisions");
   if (r.status === 200 && Array.isArray(r.data.decisions)) {
-    savedCount.value = r.data.decisions.filter(
-      d => d && (d.action === "accept" || d.action === "ignore")
-    ).length;
+    // 回填到界面（问题总账第 7 条）：以前只数了个条数 —— 重开报告时已保存的
+    // accept/ignore 全被当成 pending，用户看不出自己上次勾了什么；再点保存时
+    // 这些决策又因为“只提交非 pending”被悄悄丢掉（界面上写着“下次打开还在”，
+    // 实际勾选状态是假的）。现在以盘上 `review_report.decisions.json` 为准回填。
+    let n = 0;
+    for (const d of r.data.decisions) {
+      if (!d || !d.finding_id) continue;
+      if (d.action !== "accept" && d.action !== "ignore") continue;
+      n++;
+      decisions.value[`${d.chapter}_${d.finding_id}`] = {
+        action: d.action, feedback: d.feedback || "" };
+    }
+    savedCount.value = n;
+    savedRevision.value = revision.value;
   }
 }
 
@@ -240,6 +251,9 @@ async function saveDecisions(silent = false) {
     if (r.status === 200) {
       savedCount.value = payload.decisions.length;
       savedRevision.value = revision.value;
+      // 保存后按盘上重读（第 7 条）：勾选状态以 decisions.json 为准，
+      // 不拿“我提交了什么”当“盘上是什么”。
+      await loadSavedDecisions();
       if (r.data.warning) say(r.data.warning);
       else if (!silent) say("决策已保存（" + (r.data.count ?? payload.decisions.length) + " 条），可运行批量精修");
       return true;

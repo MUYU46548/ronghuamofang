@@ -3927,6 +3927,29 @@ class Handler(BaseHTTPRequestHandler):
                         self._send(400, {"error": "setting 必须为对象"})
                         return
                     setting_path = ROOT / "data" / "setting" / "setting.json"
+                    # 并发保护（2026-11-13，问题总账第 7 条同族）：界面整份提交的是
+                    # **它打开那一刻**的副本，中间 CLI / 外部 Agent / 另一个窗口改过盘时，
+                    # 旧实现的“无条件覆盖”会把别人的改动静默抹掉。
+                    # 带 expected_mtime 且对不上 → 409 拒收（一个字都不写）；
+                    # 不传 = 老行为（脚本 / 用例 / 旧客户端照旧）。
+                    if "expected_mtime" in body and body.get("expected_mtime") is not None:
+                        disk_mtime = (setting_path.stat().st_mtime
+                                      if setting_path.exists() else None)
+                        try:
+                            same = (disk_mtime is not None
+                                    and abs(float(disk_mtime)
+                                            - float(body["expected_mtime"])) <= 0.001)
+                        except (TypeError, ValueError):
+                            self._send(400, {"error": "expected_mtime 必须是数字"})
+                            return
+                        if not same:
+                            self._send(409, {
+                                "ok": False,
+                                "error": "盘上设定集已被改过（外部 Agent / 另一个窗口 / CLI），本次未写入",
+                                "mtime": disk_mtime,
+                                "hint": "点“刷新”看盘上版本，再决定要不要保存",
+                            })
+                            return
                     if setting_path.exists():
                         backup_dir = ROOT / "data" / "setting" / "history"
                         backup_dir.mkdir(parents=True, exist_ok=True)
@@ -3934,7 +3957,8 @@ class Handler(BaseHTTPRequestHandler):
                         backup = backup_dir / f"setting_{stamp}.json"
                         backup.write_text(setting_path.read_text(encoding="utf-8"), encoding="utf-8")
                     nf_write_text(str(setting_path), json.dumps(data, ensure_ascii=False, indent=2))
-                    self._send(200, {"ok": True})
+                    self._send(200, {"ok": True,
+                                     "mtime": setting_path.stat().st_mtime})
                 except Exception as e:
                     self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
             elif p == "/refine/chapter":

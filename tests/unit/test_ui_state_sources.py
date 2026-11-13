@@ -43,6 +43,29 @@ def read(name):
     return (SRC / name).read_text(encoding="utf-8")
 
 
+def func_body(src, name):
+    """取一个顶层函数的函数体（按花括号配平；不是语法分析，够契约断言用）。
+
+    找不到就返回 ""，调用方的 in 断言自然变红 —— 函数被改名时不该静默通过。
+    """
+    m = re.search(r"^(?:async\s+)?function\s+%s\s*\(" % re.escape(name), src, re.M)
+    if not m:
+        return ""
+    i = src.find("{", m.end())
+    if i < 0:
+        return ""
+    depth, j = 0, i
+    while j < len(src):
+        if src[j] == "{":
+            depth += 1
+        elif src[j] == "}":
+            depth -= 1
+            if depth == 0:
+                return src[i:j + 1]
+        j += 1
+    return src[i:]
+
+
 # ====================================================================== A
 def case_source_contract():
     print("\n[A] 前端源码契约：章节正文只有一个取数入口")
@@ -119,7 +142,53 @@ def case_history_follows_root():
             os.chdir(old)
 
 
-for fn in (case_source_contract, case_history_follows_root):
+# ====================================================================== C
+def case_save_then_reread():
+    print("\n[C] 保存后按盘上重读：界面不许拿自己的副本当真相（第 7 条·大纲/审稿/设定/设置）")
+    app = read("App.vue")
+    out = read("OutlineView.vue")
+    rev = read("ReviewConsole.vue")
+
+    ls = func_body(app, "loadSetting")
+    check("C1 去掉一次性门闩（原来进了设定页就永远不重读）",
+          re.search(r"^\s*if \(settingLoaded\.value\)[^\n]*return;", app, re.M) is None,
+          "App.vue 里仍有 settingLoaded 门闩")
+    check("C2 loadSetting 收 force（点“刷新”能强制重读）",
+          "async function loadSetting(force = false)" in app)
+    check("C3 有未保存修改时不静默覆盖（只有 force 才丢修改）",
+          "settingDirty.value && !force" in ls, ls[:200])
+    check("C4 读回来的 mtime 记进 settingStamp（保存时要带回去）",
+          "settingStamp.value = r.data.mtime" in ls)
+    check("C5 进设定页按盘上重读（与章节页同一条规矩）",
+          re.search(r'if \(t === "story"\)\s*loadSetting\(\);', app) is not None)
+
+    sv = func_body(app, "saveSetting")
+    check("C6 保存时带 expected_mtime（盘上指纹）",
+          "expected_mtime: settingStamp.value" in sv, sv[:200])
+    check("C7 保存成功后按盘上重读", "await loadSetting(true)" in sv)
+    check("C8 盘上被改过时拒收并说清怎么办（409 分支）",
+          "r.status === 409" in sv and "已被改过" in sv)
+
+    rf = func_body(app, "refreshSetting")
+    check("C9 刷新按钮不再是死按钮（绑 refreshSetting，且它真的重读）",
+          '@click="refreshSetting"' in app and "await loadSetting(true)" in rf)
+    check("C10 原文编辑（saveSettingEdit）保存后也重读",
+          "await loadSetting(true)" in func_body(app, "saveSettingEdit"))
+    check("C11 定价保存后重读", "await loadRates()" in func_body(app, "saveRates"))
+    check("C12 风格笔记保存后重读", "await loadStyleNotes()" in func_body(app, "saveStyleNotes"))
+
+    o = func_body(out, "save")
+    check("C13 大纲保存后按盘上重读（不再把本地 raw 当已落盘）",
+          "await load(" in o and "savedRaw.value = raw.value;" not in o, o[:240])
+
+    hyd = func_body(rev, "loadSavedDecisions")
+    check("C14 审稿决策从盘上回填勾选状态（以前只数了个条数）",
+          "decisions.value[" in hyd and "d.action" in hyd, hyd[:240])
+    check("C15 审稿决策保存后重读",
+          "await loadSavedDecisions()" in func_body(rev, "saveDecisions"))
+
+
+for fn in (case_source_contract, case_history_follows_root, case_save_then_reread):
     fn()
 
 print("\n%d passed, %d failed" % (len(PASS), len(FAIL)))
