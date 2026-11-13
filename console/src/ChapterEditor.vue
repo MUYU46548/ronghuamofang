@@ -32,6 +32,7 @@
  * 两者共用同一组后端端点，判据只有一份。
  */
 import { ref, computed, onMounted, onUnmounted, nextTick, watch } from "vue";
+import { charDiff } from "./diff.js";
 
 const props = defineProps({
   api: { type: Function, required: true },
@@ -79,15 +80,59 @@ const paras = ref([]);
 const parasLoading = ref(false);
 const selPara = ref(null);
 const feedback = ref("");
-/* 快捷改法（2026-11-07，竞品三路之一）：书童的“选中一段 → 润色/扩写/改成对话/续写”。
- * 这里不另开一套改写通道 —— 只是把常用意见**填进那个输入框**，作者仍可改字、仍要点
- * “让 AI 只改这一段”才动手。填而不发，是为了不让一次误点花掉一次调用。 */
+/* 快捷改法（2026-11-07 起；2026-11-13 改成“点了就发”）：
+ * 选中一段 → 润色 / 更短 / 更多描写 / 换成动作 / 改成对话 / 去掉总结句 / 往下续。
+ * 不另开一条改写通道：档位只是把意见填进 feedback，然后走同一个 submitRefine
+ * （同一条 /chapters/paragraph/preview 链路、同一份候选/采用/回退护栏）。
+ * 以前“只填不发”是为了防误点花钱；现在多一次点击就多一份摩擦（L2 判据是
+ * “改一章 < 手写三分之一”），改成点一下就发，误点风险由 ①首次提示 + ②“只填入”开关兜。 */
 const QUICK_EDITS = [
   { label: "润色", text: "润色这一段：保留全部信息与事实，只收紧句子、去掉重复的形容，不新增情节。" },
-  { label: "扩写", text: "扩写这一段：补具体的感官细节（看到/听到/手上的触感），不新增人物与情节，篇幅增加不超过三成。" },
+  { label: "更短", text: "把这一段压短：保留事件与信息，删掉解释性旁白和重复的修饰，目标字数减到原来的三分之二以内。" },
+  { label: "更多描写", text: "扩写这一段：补具体的感官细节（看到/听到/手上的触感/气味），不新增人物与情节，篇幅增加不超过三成。" },
+  { label: "换成动作（别解释）", text: "把这一段里的解释性旁白改成动作或可见的细节：不要告诉读者她怎么想，写她做了什么。信息与顺序不变。" },
   { label: "改成对话", text: "把这一段改成两人对话：保留原有信息与顺序，用说话人的动作代替旁白说明。" },
+  { label: "去掉总结句", text: "删掉这一段结尾的总结句/金句式收尾，停在具体动作或对白上，不要升华、不要点题。" },
   { label: "往下续", text: "保留原段落不动，在它后面接着往下写两百字左右：动作或对话推进，不要总结，不要煽情。" },
 ];
+/* 点一下就真的发（2026-11-13，L2 补齐）：此前四个档位只把意见填进输入框 --
+ * 用户按竞品对表的判据是"改一章的时间 < 手写同章的三分之一"，多一次点击就多一份摩擦。
+ * 两条护栏保留：
+ *   ① 第一次点会问一次"点一下就真的改（一次调用）"，同意后不再问（localStorage）；
+ *   ② 想先改字的人打开"只填入"开关，档位退回只填不发的行为。
+ * 自任务引擎（engine: self）下不提交：那个端点必然拒绝，点了只会得到一句"用不了"。 */
+const SELF_HINT = "当前引擎是自任务（engine: self，只出任务书、不调模型），段落重写要用模型。"
+  + "到“设置 → 引擎与模型”切到 direct / hermes 再用。";
+const quickFillOnly = ref(localStorage.getItem("mofang_quick_fill_only") === "1");
+const quickWarned = ref(localStorage.getItem("mofang_quick_warned") === "1");
+function setQuickFillOnly(v) {
+  quickFillOnly.value = !!v;
+  localStorage.setItem("mofang_quick_fill_only", quickFillOnly.value ? "1" : "0");
+}
+function quickEdit(q) {
+  feedback.value = q.text;
+  if (quickFillOnly.value) {
+    emit("say", "已填进批注框（“只填入”模式）—— 改完再点“让 AI 只改这一段”");
+    return;
+  }
+  if (selPara.value === null) {
+    emit("say", "先在左边点选一个段落，再点「" + q.label + "」");
+    return;
+  }
+  if (props.selfEngine) {
+    emit("say", SELF_HINT);
+    return;
+  }
+  if (!quickWarned.value) {
+    const ok = window.confirm(
+      "点「" + q.label + "」就真的改这一段：一次模型调用，结果是**候选**，"
+      + "不点“采用”正文一个字不动。\n\n以后不再问？");
+    if (!ok) return;
+    quickWarned.value = true;
+    localStorage.setItem("mofang_quick_warned", "1");
+  }
+  submitRefine();
+}
 const refining = ref(false);
 const refineElapsed = ref(0);
 const refineResult = ref(null);
@@ -405,6 +450,18 @@ function pickPara(p) {
    以前模型改完直接写盘，作者只能事后去历史里退回。现在改成“只算不落”：
    候选进 para_pending.json（self 模式是外部写的草稿），看着改前/改后点采用才写。 */
 const cand = ref(null);        // {exists, rec:{before,after,ok,reasons}}
+/* 候选的字符级差异（2026-11-13，L2 补齐）：以前两栏并排全文，看不出改了哪几个字 —
+ * 作者要的是“扫一眼就知道动过什么”。复用 diff.js 的 charDiff（大纲精修用的是同一份实现）。 */
+const candDiff = computed(() => {
+  const rec = (cand.value && cand.value.rec) || {};
+  const b = rec.before || "", a = rec.after || "";
+  if (!b || !a) return { before: [], after: [] };
+  const ops = charDiff(b, a);
+  return {
+    before: ops.filter((o) => o.op !== "add").map((o) => ({ text: o.text, del: o.op === "del" })),
+    after: ops.filter((o) => o.op !== "del").map((o) => ({ text: o.text, ins: o.op === "add" })),
+  };
+});
 const candBusy = ref(false);
 async function loadCandidate() {
   if (selPara.value === null) { cand.value = null; return; }
@@ -785,9 +842,17 @@ onUnmounted(() => {
               </div>
               <div class="ce-quick">
                 <button v-for="q in QUICK_EDITS" :key="q.label" class="mini ce-quick-btn"
-                        :disabled="refining || selPara === null"
-                        :title="q.text" @click="feedback = q.text">{{ q.label }}</button>
-                <span class="meta">点一下把意见填进下面（不会立刻花钱）</span>
+                        :disabled="refining || selPara === null || (props.selfEngine && !quickFillOnly)"
+                        :title="props.selfEngine ? SELF_HINT : (q.text + '（点一下就直接改，结果先给你看，采用才进正文）')"
+                        @click="quickEdit(q)">{{ q.label }}</button>
+                <label class="ce-quick-toggle" title="勾上以后，点档位只把意见填进输入框，不提交（想改字时用）">
+                  <input type="checkbox" :checked="quickFillOnly"
+                         @change="setQuickFillOnly($event.target.checked)" />
+                  只填入
+                </label>
+                <span class="meta">{{ quickFillOnly
+                  ? "点档位只填进下面的框，改完自己点“让 AI 只改这一段”"
+                  : "点一下就改这一段（先出候选，点“采用”才进正文）" }}</span>
               </div>
               <textarea v-model="feedback" class="ce-feedback" :disabled="refining"
                         placeholder="这一段要怎么改？例如：把结尾的总结句删掉，改成她没说出口的动作描写。"></textarea>
@@ -826,12 +891,14 @@ onUnmounted(() => {
                 </div>
                 <div v-if="cand" class="ce-diff">
                   <div class="ce-diff-col">
-                    <div class="ce-diff-t">改前</div>
-                    <p>{{ cand.rec.before }}</p>
+                    <div class="ce-diff-t">改前<span v-if="candDiff.before.some(s => s.del)" class="ce-diff-k">（划掉的是这段被删的字）</span></div>
+                    <p><span v-for="(s, i) in candDiff.before" :key="'b' + i"
+                             :class="{ 'ce-del': s.del }">{{ s.text }}</span></p>
                   </div>
                   <div class="ce-diff-col">
-                    <div class="ce-diff-t">改后</div>
-                    <p>{{ cand.rec.after }}</p>
+                    <div class="ce-diff-t">改后<span v-if="candDiff.after.some(s => s.ins)" class="ce-diff-k">（标出来的是新加的字）</span></div>
+                    <p><span v-for="(s, i) in candDiff.after" :key="'a' + i"
+                             :class="{ 'ce-ins': s.ins }">{{ s.text }}</span></p>
                   </div>
                 </div>
                 <div v-if="cand" class="meta">采用 = 换进正文（旧版进段落历史，用“回到上一版”就地退）；放弃 = 正文一个字不动。</div>
@@ -915,6 +982,7 @@ onUnmounted(() => {
    留一个孤零零的“往下续”很难看（2026-11-08 截图目检）。11px + 紧内边距一行放得下。 */
 .ce-quick { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin: 4px 0 6px; }
 .ce-quick-btn { font-size: 11px; padding: 2px 6px; }
+.ce-quick-toggle { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; color: var(--muted); cursor: pointer; }
 .ce-layer-pills { display: inline-flex; gap: 6px; margin-left: 4px; }
 .ce-pill { padding: 2px 8px; }
 .ce-pill.on { background: var(--accent, #6b8afd); color: #fff; border-color: transparent; }
@@ -975,6 +1043,12 @@ onUnmounted(() => {
 .ce-diff-col { border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; background: var(--bg); }
 .ce-diff-col p { margin: 6px 0 0; font-size: 13px; line-height: 1.75; white-space: pre-wrap; }
 .ce-diff-t { font-size: 11px; color: var(--muted); letter-spacing: 0.08em; }
+.ce-diff-k { margin-left: 6px; letter-spacing: 0; font-size: 10.5px; opacity: 0.8; }
+/* 字符级差异（2026-11-13）：改前划掉被删的字，改后给新加的字上底色。
+   用主题变量 + color-mix —— 暗色主题下硬编码色值会看不清（GUI 交互纪律③）。 */
+.ce-del { text-decoration: line-through; text-decoration-color: var(--bad);
+          background: color-mix(in srgb, var(--bad) 14%, transparent); border-radius: 2px; }
+.ce-ins { background: color-mix(in srgb, var(--ok) 22%, transparent); border-radius: 2px; }
 /* 段落历史（2026-11-11）：一行一版，就地回退。刻意不用表格 —— 侧栏很窄，表格会横滚。 */
 .ce-hist { margin-top: 10px; border-top: 1px dashed var(--border); padding-top: 8px; }
 .ce-hist-item {
