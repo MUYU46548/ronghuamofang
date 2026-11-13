@@ -58,9 +58,69 @@ APHORISM = re.compile(r"(人生|命运|生活|成长|勇气|孤独|时间|意义
 SENT_SPLIT = re.compile(r"[。！？!?…]+")
 MAX_APHORISM_LEN = 24
 
+# —— 句法层：读不通的句子（2026-11-14，用作者给的三条真例子校准）——
+#
+# 与腔调层的五类**分开算**：腔调是“像 AI 写的”，读不通是“一句也没读懂”。
+# 两者混进同一个数字，作者不知道该改文风还是改句子，所以这一组**不进 suspect 判定线**。
+#
+# 能力边界（如实写在这里，别让下一个人以为它万能）：
+# 只抓**结构缺件**（没头没尾的碎句 / 引介语后面没有主句）。语义讲不通
+# （例：“两条腿都已有主”）要读懂上下文才判得了，确定性规则不判 ——
+# 那条落在判定器的“极短独立段”与人工抽样里，不在这里假装能测。
+ANSWERS = {"嗯", "是", "好", "行", "不", "对", "啊", "哦", "喂", "唉", "呃"}
+FRAGMENT_MAX = 2          # 单字/两字独立成句才可疑（更长的省略句在中文里是常态）
+CJK_ONLY = re.compile(r"^[\u4e00-\u9fff]+$")
+ANY_QUOTE = re.compile(r"[“”‘’\"]")
+DANGLING_RE = re.compile(r"^(包括|除了|除去|至于|关于|对于|就)[^，,。！？]{0,20}[，,]")
+DANGLING_TAIL_MAX = 10
+SUBJECT_WORDS = re.compile(r"(他|她|它|我|你|们|谁|人|咱)")
+LEADING_ADVERB = "也都就才便还"
+UNREADABLE_LABELS = {
+    "fragment_sentence": ("碎句（没头没尾）",
+                          "这句单独成句，但读不出谁做了什么；补出主语和动作，或并回上一句"),
+    "dangling_connector": ("半句话（引介语之后没有主句）",
+                           "“包括 / 除了 / 对于……”后面要跟一个完整的主句，别让它悬着"),
+}
+
 
 def _paragraphs(text):
     return [p.strip() for p in re.split(r"\n\s*\n", text or "") if p.strip()]
+
+
+def scan_unreadable(text):
+    """句法层：结构缺件的候选句。**只报句子，不改写、不进 suspect 判定线。**
+
+    ## 三条护栏（每条都对应一个误报源）
+
+    1. **只看 ≥2 句的段落**：一句成段的是标题、署名、刻意的强调，不是“读不通”。
+       （书信体的落款“妹”就是一句成段 —— 不加这条，样本会当场误报。）
+    2. **跳过带引号的句子**：对白里人物只答一个字是人物的事，不是作者行文的问题。
+    3. **半句话要求“后半句以也/都/就/才/便/还开头、无主语、无完成态”**：
+       “至于钱，以后再说”这类正常省略句被挡在外面。
+    """
+    found = {"fragment_sentence": [], "dangling_connector": []}
+    for p in _paragraphs(text or ""):
+        sents = [s.strip() for s in re.split(r"[。！？!?…\n]", p) if s.strip()]
+        # 段内必须有真正的句末标点：署名 / 日期 / 地址块是靠换行排版的短行
+        # （书信落款“妹 / 十一月四日夜”），把它们当碎句是纯误报。
+        if len(sents) < 2 or not re.search(r"[。！？!?…]", p):
+            continue
+        for s in sents:
+            if ANY_QUOTE.search(s):
+                continue
+            if len(s) <= FRAGMENT_MAX and CJK_ONLY.match(s) and s not in ANSWERS:
+                found["fragment_sentence"].append(s)
+                continue
+            m = DANGLING_RE.match(s)
+            if not m:
+                continue
+            tail = s[m.end():].strip()
+            if (0 < len(tail) <= DANGLING_TAIL_MAX and tail[0] in LEADING_ADVERB
+                    and not SUBJECT_WORDS.search(tail) and "了" not in tail):
+                found["dangling_connector"].append(s)
+    return [{"code": code, "label": UNREADABLE_LABELS[code][0], "count": len(items),
+             "samples": items[:5], "hint": UNREADABLE_LABELS[code][1]}
+            for code, items in found.items() if items]
 
 
 def scan_text(text):
@@ -87,6 +147,7 @@ def scan_text(text):
                      "count": len(aph), "samples": aph[:5],
                      "hint": "每段都收在一个道理上；让画面自己停住，不必总结"})
     kinds = len([h for h in hits if h["count"]])
+    unreadable = scan_unreadable(text)
     return {
         "ok": True,
         "chars": len(text),
@@ -94,6 +155,8 @@ def scan_text(text):
                  for h in hits],
         "feature_count": kinds,
         "suspect": kinds >= THRESHOLDS["suspect_feature_count"],
+        "unreadable": unreadable,
+        "unreadable_count": len(unreadable),
         "verdict": ("疑似 AI 腔：命中 %d 类特征（这是证据，不是结论）" % kinds
                     if kinds >= THRESHOLDS["suspect_feature_count"]
                     else "未达到“疑似”线（命中 %d 类）" % kinds),
@@ -108,16 +171,66 @@ def scan_file(path):
                 path=str(p))
 
 
+def scan_book(root, chapter=None):
+    """全书（或单章）扫句法层。零 token 只读，**不写盘、不改稿**。
+
+    取正文的层按 `refined > checked > raw`（直接复用 `utils.cliche_scan.chapter_path`：
+    同一个问题只许一份判据，别在这里再写一遍优先级）。
+    章节集合取三层并集 —— 只看一层会在"只剩 refined"的工作区里零循环，报出假绿。
+    """
+    from utils.cliche_scan import chapter_path
+    root = Path(root)
+    if chapter:
+        nums = [int(chapter)]
+    else:
+        found = set()
+        for rel in ("data/chapters/refined", "data/chapters/checked", "data/chapters/raw"):
+            d = root / rel
+            if d.is_dir():
+                found.update(int(f.stem) for f in d.glob("*.md") if f.stem.isdigit())
+        nums = sorted(found)
+    chapters = []
+    for n in nums:
+        p = chapter_path(n, root)
+        if p is None:
+            chapters.append({"chapter": n, "error": "这一章三层正文都没有"})
+            continue
+        text = p.read_text(encoding="utf-8", errors="replace")
+        hits = scan_unreadable(text)
+        chapters.append({
+            "chapter": n,
+            "file": str(p.relative_to(root)).replace("\\", "/"),
+            "layer": p.parent.name,
+            "chars": len(text),
+            "hits": hits,
+            "count": sum(h["count"] for h in hits),
+        })
+    return {"ok": True, "chapters": chapters,
+            "total": sum(c.get("count") or 0 for c in chapters)}
+
+
 def report_markdown(res):
     """给任务书/讨论用的一小段人话（没有命中就明说没有）。"""
     if not res.get("ok"):
         return "（扫描失败：%s）" % res.get("error")
     if not res.get("hits"):
-        return "机器扫了一遍，没有命中五类特征里任何一类 —— 但这不等于“没有 AI 腔”，作者的眼睛仍是第一位。"
-    lines = ["机器扫到 %d 类疑似特征（**证据，不是结论**）：" % res["feature_count"], ""]
-    for h in res["hits"]:
-        ex = "、".join("“%s”" % s for s in h["samples"][:3])
-        lines.append("- **%s** ×%d：%s" % (h["label"], h["count"], ex))
-        lines.append("  - 怎么改：%s" % h["hint"])
-    lines += ["", "以上只说明“有这些形状”，是不是 AI 腔由你判断。"]
+        lines = ["机器扫了一遍，没有命中五类特征里任何一类 —— "
+                 "但这不等于“没有 AI 腔”，作者的眼睛仍是第一位。"]
+    else:
+        lines = ["机器扫到 %d 类疑似特征（**证据，不是结论**）：" % res["feature_count"], ""]
+        for h in res["hits"]:
+            ex = "、".join("“%s”" % s for s in h["samples"][:3])
+            lines.append("- **%s** ×%d：%s" % (h["label"], h["count"], ex))
+            lines.append("  - 怎么改：%s" % h["hint"])
+        lines += ["", "以上只说明“有这些形状”，是不是 AI 腔由你判断。"]
+    unread = res.get("unreadable") or []
+    if unread:
+        # 句法层单独一段：它回答的是“这句读得通吗”，与上面“像不像 AI”不是一件事。
+        lines += ["", "**另外，句法层扫到读不通的候选句**（不进上面的判定线，只看结构）：", ""]
+        for h in unread:
+            ex = "、".join("“%s”" % s for s in h["samples"][:3])
+            lines.append("- %s ×%d：%s" % (h["label"], h["count"], ex))
+            lines.append("  - 怎么改：%s" % h["hint"])
+        lines += ["", "这一组只抓“结构缺件”（没头没尾、半句话）。语义上讲不通的句子"
+                      "（要读懂上下文才知道缺什么）机器判不了，仍需你自己看。"]
     return "\n".join(lines)

@@ -496,6 +496,26 @@ class Handler(BaseHTTPRequestHandler):
                      ]},
                 ],
             })
+        if p == "/review/unreadable":
+            # 读不通的句子（2026-11-14）：字段与真 handler 同形。
+            return self._send(200, {
+                "ok": True, "total": 2,
+                "chapters": [
+                    {"chapter": 1, "file": "data/chapters/refined/01.md", "layer": "refined",
+                     "chars": 3606, "count": 2,
+                     "hits": [
+                         {"code": "fragment_sentence", "label": "碎句（没头没尾）", "count": 1,
+                          "samples": ["睡"],
+                          "hint": "这句单独成句，但读不出谁做了什么；补出主语和动作，或并回上一句"},
+                         {"code": "dangling_connector", "label": "半句话（引介语之后没有主句）",
+                          "count": 1, "samples": ["包括这条在内，也是话"],
+                          "hint": "“包括 / 除了 / 对于……”后面要跟一个完整的主句，别让它悬着"},
+                     ]},
+                    {"chapter": 2, "file": "data/chapters/refined/02.md", "layer": "refined",
+                     "chars": 1800, "count": 0, "hits": []},
+                ],
+                "boundary": "只抓结构缺件（没头没尾、半句话）。语义上讲不通的句子要读懂上下文，机器判不了。",
+            })
         if p == "/models":
             return self._send(200, {"engine": ENGINE, "model": {"default": "glm-5.3"},
                                     "providers": ["tokenhub"], "gates": {}})

@@ -457,6 +457,34 @@ def handle_three_state(h):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+def handle_review_unreadable(h):
+    """读不通的句子（零 token，只读盘）：句法层的结构缺件。
+
+    `GET /review/unreadable`           → 全书逐章
+    `GET /review/unreadable?chapter=3` → 只给第 3 章
+
+    与 `/review/three_state` 的分工：那份说“哪一步删了什么”，这份说“留下的句子里，
+    哪些没头没尾”。取正文按 refined > checked > raw（与病灶词扫描同一判据）。
+    **只报结构缺件**（碎句 / 引介语后面没有主句）；语义讲不通的句子机器判不了，
+    这一点写在返回的 `boundary` 里，免得作者以为“没报就是读得通”。
+    """
+    from utils import ai_voice
+    try:
+        q = h._query()
+        ch = (q.get("chapter") or [""])[0].strip()
+        n = None
+        if ch:
+            try:
+                n = int(ch)
+            except ValueError:
+                return 400, {"ok": False, "error": "chapter 必须是整数"}
+        rep = ai_voice.scan_book(Path(api.ROOT), n)
+        rep["boundary"] = "只抓结构缺件（没头没尾、半句话）。语义上讲不通的句子要读懂上下文，机器判不了。"
+        return 200, rep
+    except Exception as e:                                     # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 def handle_story_state(h):
     """一致性账本（P3，零 token 只读）。
 
@@ -785,6 +813,7 @@ ROUTES = (
     ("GET", "/review/ledger", handle_review_ledger),
     ("GET", "/review/structure", handle_review_structure),
     ("GET", "/review/three_state", handle_three_state),
+    ("GET", "/review/unreadable", handle_review_unreadable),
     ("GET", "/decompose/consent", handle_decompose_consent),
     ("GET", "/decompose/snippets", handle_decompose_snippets),
     ("GET", "/chapters/history", handle_chapters_history),

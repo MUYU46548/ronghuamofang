@@ -2934,6 +2934,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/review/three_state":
             # 三份稿对照（零 token 只读）：原稿 → 检查稿 → 润色稿，哪一段在哪一步被删。
             self._send(*_dom(dom_runtime.handle_three_state(self)))
+        elif p == "/review/unreadable":
+            # 读不通的句子（零 token 只读）：句法层的结构缺件，只报不改。
+            self._send(*_dom(dom_runtime.handle_review_unreadable(self)))
         elif p == "/review/report":
             # 实现已迁至 nf_api_domains.runtime（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_runtime.handle_review_report(self)))

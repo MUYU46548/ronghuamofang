@@ -135,6 +135,33 @@ function toggleThreeState() {
   if (tsOpen.value && !ts.value) loadThreeState();
 }
 
+// ---------- 读不通的句子（零 token，只读盘） ----------
+// 与“AI 腔”分开：腔调是像不像 AI，读不通是一句也没读懂。这里只报结构缺件。
+const ur = ref(null);
+const urOpen = ref(false);
+const urBusy = ref(false);
+const urErr = ref("");
+const UR_LABEL = { fragment_sentence: "碎句", dangling_connector: "半句话" };
+
+async function loadUnreadable() {
+  urBusy.value = true;
+  urErr.value = "";
+  try {
+    const r = await api("/review/unreadable");
+    if (r.status === 200 && r.data && r.data.ok) ur.value = r.data;
+    else urErr.value = "扫不了：" + ((r.data && r.data.error) || ("HTTP " + r.status));
+  } catch (e) {
+    urErr.value = "扫不了（出错）：" + String(e.message || e);
+  } finally {
+    urBusy.value = false;
+  }
+}
+
+function toggleUnreadable() {
+  urOpen.value = !urOpen.value;
+  if (urOpen.value && !ur.value) loadUnreadable();
+}
+
 // ---------- 计算属性 ----------
 const chapters = computed(() => report.value?.chapters || []);
 const totalFindings = computed(() => {
@@ -599,6 +626,44 @@ onMounted(() => { loadProducts(); });
         </div>
       </template>
       <div v-else-if="tsOpen && ts" class="meta">{{ ts.hint }}</div>
+    </section>
+
+    <!-- 读不通的句子（2026-11-14）：零 token，只读盘。跟有无审查报告无关。 -->
+    <section class="card ts-card">
+      <div class="ts-head">
+        <h4>读不通的句子<span class="meta">（不花钱，只看句子结构）</span></h4>
+        <span class="spacer"></span>
+        <button class="mini" :disabled="urBusy" @click="toggleUnreadable">
+          {{ urOpen ? (urBusy ? "扫描中…" : "收起") : "扫一遍" }}
+        </button>
+      </div>
+      <div class="meta ts-note">
+        扫的是成品稿（有润色稿看润色稿，没有就看检查稿、原稿），找<b>没头没尾的句子</b>：
+        单独成句的一个字，以及“包括 / 除了 / 对于……”后面没有主句的半句话。
+        对白里的短句不算 —— 那是人物说话。
+      </div>
+      <div v-if="urErr" class="meta ts-err">{{ urErr }}</div>
+      <template v-if="urOpen && ur">
+        <div class="meta ts-note">
+          共 {{ ur.total }} 处。语义上讲不通的句子（要读懂上下文才知道缺什么）机器判不了，
+          这里没报不等于读得通。
+        </div>
+        <div v-for="c in ur.chapters" :key="c.chapter" class="ts-chapter">
+          <div class="ts-chapter-head">
+            第 {{ c.chapter }} 章
+            <span class="meta">{{ c.layer || "-" }} · {{ c.chars || 0 }} 字 · {{ c.count || 0 }} 处</span>
+          </div>
+          <div v-if="c.error" class="meta">{{ c.error }}</div>
+          <div v-else-if="!c.hits.length" class="meta">没扫到。</div>
+          <div v-for="h in c.hits" :key="h.code" class="ts-pair">
+            <div class="ts-pair-head">{{ UR_LABEL[h.code] || h.label }}（{{ h.count }} 处）</div>
+            <div v-for="(s, i) in h.samples" :key="i" class="ts-para">
+              <div class="ts-text">{{ s }}</div>
+            </div>
+            <div class="meta">{{ h.hint }}</div>
+          </div>
+        </div>
+      </template>
     </section>
 
     <!-- 无报告提示 -->

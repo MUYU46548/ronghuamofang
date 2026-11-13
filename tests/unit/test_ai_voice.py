@@ -111,6 +111,77 @@ def case_essay_calibration():
           bool(degen_n), why_n)
 
 
+def case_unreadable_sentences():
+    print("\n【7】句法层“读不通”：抓得到结构缺件，且不碰腔调判定线")
+    r = _scan("ai_voice/unreadable_01.md")
+    codes = {h["code"]: h["samples"] for h in r.get("unreadable") or []}
+    check("抓到碎句（单独成句的一个字）", "fragment_sentence" in codes,
+          codes.get("fragment_sentence"))
+    check("抓到半句话（引介语后面没有主句）", "dangling_connector" in codes,
+          codes.get("dangling_connector"))
+    check("半句话的原文带出来（作者能核对）",
+          any("包括这条在内" in s for s in codes.get("dangling_connector") or []),
+          codes.get("dangling_connector"))
+    check("不进腔调判定线（样本 feature_count=0、suspect=False）",
+          r.get("feature_count") == 0 and r.get("suspect") is False,
+          (r.get("feature_count"), r.get("suspect")))
+    # 能力边界：语义讲不通的句子机器抓不到 —— 这是如实声明，不是待办
+    all_samples = [s for v in codes.values() for s in v]
+    check("如实声明边界：语义讲不通的句子不在命中里（机器判不了）",
+          not any("两条腿" in s for s in all_samples), all_samples)
+
+    md = AV.report_markdown(r)
+    check("报告把句法层单独成段", "句法层扫到读不通" in md, md[:120])
+    check("报告说清语义层仍需人看", "机器判不了" in md, md[-120:])
+
+    dlg = AV.scan_text("\u201c睡。\u201d他说完就背过身去。")
+    check("对白里的单字不误报（那是人物说话，不是行文问题）",
+          not (dlg.get("unreadable") or []),
+          [(h["code"], h["samples"]) for h in dlg.get("unreadable") or []])
+
+
+def case_unreadable_no_false_positive():
+    print("\n【8】既有样本在句法层零命中（宁可漏报，不许误报）")
+    for rel in ("ai_voice/human_01.md", "ai_voice/ai_01.md", "forms/letter_01.md",
+                "forms/episodic_01.md", "forms/essay_01.md"):
+        rr = _scan(rel)
+        check("%s 句法层零命中" % rel, not (rr.get("unreadable") or []),
+              [(h["code"], h["samples"]) for h in rr.get("unreadable") or []])
+
+
+def case_book_scan():
+    print("\n【9】全书扫描：层按 refined > checked > raw 取，三层并集不漏章，且不写盘")
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        for rel in ("raw", "checked", "refined"):
+            (root / "data" / "chapters" / rel).mkdir(parents=True)
+        # 第 1 章三层都有 → 只应读 refined；第 2 章只有 raw；第 3 章只有 checked
+        (root / "data/chapters/raw/01.md").write_text("今晚不用消化这个。睡。", encoding="utf-8")
+        (root / "data/chapters/checked/01.md").write_text("他把碗洗了。", encoding="utf-8")
+        (root / "data/chapters/refined/01.md").write_text("他把碗洗了。水凉。", encoding="utf-8")
+        (root / "data/chapters/raw/02.md").write_text("他站着。包括这在内，也是话。", encoding="utf-8")
+        (root / "data/chapters/checked/03.md").write_text("他走了。", encoding="utf-8")
+
+        before = sorted(str(p.relative_to(root)) for p in root.rglob("*") if p.is_file())
+        rep = AV.scan_book(root)
+        after = sorted(str(p.relative_to(root)) for p in root.rglob("*") if p.is_file())
+        layers = {c["chapter"]: c.get("layer") for c in rep["chapters"]}
+        check("三层并集：1/2/3 章都在", sorted(layers) == [1, 2, 3], layers)
+        check("有 refined 就读 refined", layers.get(1) == "refined", layers.get(1))
+        check("只有 raw 的章也扫到", layers.get(2) == "raw", layers.get(2))
+        check("只有 checked 的章也扫到", layers.get(3) == "checked", layers.get(3))
+        total = sum(c.get("count") or 0 for c in rep["chapters"])
+        check("命中数与逐章一致", rep["total"] == total, (rep["total"], total))
+        check("只扫不写（盘上文件一个没变）", before == after)
+
+        one = AV.scan_book(root, 2)
+        check("?chapter=2 只扫一章", [c["chapter"] for c in one["chapters"]] == [2],
+              [c["chapter"] for c in one["chapters"]])
+        miss = AV.scan_book(root, 9)
+        check("扫没有的章不抛错，如实说没有",
+              miss["chapters"][0].get("error") is not None, miss["chapters"][0])
+
+
 def main():
     case_ai_sample()
     case_human_sample()
@@ -118,6 +189,9 @@ def main():
     case_thresholds_and_report()
     case_taskbook_wiring()
     case_essay_calibration()
+    case_unreadable_sentences()
+    case_unreadable_no_false_positive()
+    case_book_scan()
     print("\n" + "=" * 60)
     print("  通过 %d / 失败 %d" % (len(PASS), len(FAIL)))
     for f in FAIL:
