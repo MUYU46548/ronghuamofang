@@ -705,7 +705,13 @@ def handle_paragraph_pending(h):
             return 200, {"ok": True, "exists": False,
                          "message": "没有待采用的候选（正文就是原样）"}
         # 顺带给出同一个“被谁改过”的证据：这一段是不是还在原位置
+        cands = rp.get_candidates(ch, pi, root=api.ROOT)
         return 200, {"ok": True, "exists": True, "rec": rec,
+                     # 多候选（2026-11-13，L2）：点一次出一条，最多留 3 条并排比。
+                     # rec 仍是最新那条（老客户端不变），candidates 是全部（旧→新）。
+                     "candidates": [{"cid": c.get("cid"), "after": c.get("after"),
+                                     "feedback": c.get("feedback"), "at": c.get("at"),
+                                     "context": c.get("context") or []} for c in cands],
                      "note": "候选只存在 data/state/para_pending.json，正文尚未改动。"}
     except Exception as e:                                   # noqa: BLE001
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
@@ -721,7 +727,7 @@ def handle_paragraph_apply(h, body):
         return bad
     try:
         import refine_paragraph as rp
-        ok, msg = rp.apply_pending(ch, pi, root=api.ROOT)
+        ok, msg = rp.apply_pending(ch, pi, root=api.ROOT, cid=(body.get("cid") or None))
         if not ok and "没有待采用的候选" in str(msg):
             from utils import self_actions as sa
             if sa.para_draft_path(ch, pi).is_file():
@@ -740,7 +746,7 @@ def handle_paragraph_drop(h, body):
         return bad
     try:
         import refine_paragraph as rp
-        ok, msg = rp.drop_pending(ch, pi, root=api.ROOT)
+        ok, msg = rp.drop_pending(ch, pi, root=api.ROOT, cid=(body.get("cid") or None))
         from utils import self_actions as sa
         if sa.para_draft_path(ch, pi).is_file():
             _o, _m = sa.drop_paragraph_draft(ch, pi)

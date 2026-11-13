@@ -449,17 +449,40 @@ function pickPara(p) {
 /* 改一段：候选 → 采用（2026-11-08，P1-5）。
    以前模型改完直接写盘，作者只能事后去历史里退回。现在改成“只算不落”：
    候选进 para_pending.json（self 模式是外部写的草稿），看着改前/改后点采用才写。 */
-const cand = ref(null);        // {exists, rec:{before,after,ok,reasons,context}}
+const cand = ref(null);        // {exists, rec:{...}, candidates:[{cid,after,feedback,at,context}]}
+/* 多候选（2026-11-13，L2）：点一次出一条，最多留 3 条并排比。
+ * 刻意**不**在提交时一次要两条 —— 那等于每次点击翻倍花钱（成本口径见账本）。
+ * `rec` 仍是最新那条（老界面/老调用方照旧），`candidates` 给选择器用。 */
+const candList = computed(() => {
+  const c = cand.value;
+  return c && Array.isArray(c.candidates) ? c.candidates : [];
+});
+const pickCid = ref("");
+const activeCid = computed(() => pickCid.value
+  || ((cand.value && cand.value.rec && cand.value.rec.cid) || ""));
+const activeRec = computed(() => {
+  const r = (cand.value && cand.value.rec) || null;
+  if (!r) return null;
+  const hit = candList.value.find((c) => c.cid === pickCid.value);
+  if (!hit) return r;
+  // 改前永远是这一段的原文（没采用就没人动过它），换的只是"改后"
+  return Object.assign({}, r, {
+    cid: hit.cid,
+    after: hit.after || r.after,
+    feedback: hit.feedback || r.feedback,
+    context: (hit.context && hit.context.length) ? hit.context : r.context,
+  });
+});
 /* 上下文 chiclets 的取值（2026-11-13）：带了的标签单列，没带的加“没带”前缀灰掉，
    “这次没带”那条只当后缀说明 —— 混在一起会读成“设定集/这次没带”是一件事。 */
-const ctxItems = computed(() => ((cand.value && cand.value.rec && cand.value.rec.context) || []));
+const ctxItems = computed(() => ((activeRec.value && activeRec.value.context) || []));
 const ctxOn = computed(() => ctxItems.value.filter((c) => c.ok !== false && c.key !== "not_included"));
 const ctxOff = computed(() => ctxItems.value.filter((c) => c.ok === false));
 const ctxNote = computed(() => ((ctxItems.value.find((c) => c.key === "not_included") || {}).note) || "");
 /* 候选的字符级差异（2026-11-13，L2 补齐）：以前两栏并排全文，看不出改了哪几个字 —
  * 作者要的是“扫一眼就知道动过什么”。复用 diff.js 的 charDiff（大纲精修用的是同一份实现）。 */
 const candDiff = computed(() => {
-  const rec = (cand.value && cand.value.rec) || {};
+  const rec = activeRec.value || {};
   const b = rec.before || "", a = rec.after || "";
   if (!b || !a) return { before: [], after: [] };
   const ops = charDiff(b, a);
@@ -470,19 +493,26 @@ const candDiff = computed(() => {
 });
 const candBusy = ref(false);
 async function loadCandidate() {
-  if (selPara.value === null) { cand.value = null; return; }
+  if (selPara.value === null) { cand.value = null; pickCid.value = ""; return; }
   try {
     const r = await props.api("/chapters/paragraph/pending?chapter=" + props.n
                               + "&index=" + selPara.value);
     cand.value = (r.status === 200 && r.data && r.data.exists) ? r.data : null;
-  } catch (e) { cand.value = null; }
+    // 刚点出来的那条就是最新条 → 默认选中它；换段/换章时也靠这行归零
+    pickCid.value = "";
+  } catch (e) { cand.value = null; pickCid.value = ""; }
 }
 async function applyCandidate() {
-  if (selPara.value === null) return;
+  // 段号以候选记录为准（selPara 可能已被 loadContent 清空 —— 旧写法会静默 return，
+  // 表现就是“点了采用没反应”）。
+  const pi = (cand.value && cand.value.rec && typeof cand.value.rec.index === "number")
+    ? cand.value.rec.index : selPara.value;
+  if (pi === null || pi === undefined) return;
   candBusy.value = true;
   try {
     const r = await props.api("/chapters/paragraph/apply", "POST",
-                              { chapter: props.n, paragraph_index: selPara.value, confirm: true });
+                              { chapter: props.n, paragraph_index: pi,
+                                confirm: true, cid: activeCid.value || null });
     if (r.status === 200 && r.data && r.data.ok) {
       emit("say", "已采用这一段（旧版进了段落历史，可回退）");
       cand.value = null;
@@ -496,13 +526,18 @@ async function applyCandidate() {
   } finally { candBusy.value = false; }
 }
 async function dropCandidate() {
-  if (selPara.value === null) return;
+  const pi = (cand.value && cand.value.rec && typeof cand.value.rec.index === "number")
+    ? cand.value.rec.index : selPara.value;
+  if (pi === null || pi === undefined) return;
   candBusy.value = true;
   try {
+    // 只丢当前选中的那一条（多候选下“放弃”不该把别的候选一起清掉）
     const r = await props.api("/chapters/paragraph/drop", "POST",
-                              { chapter: props.n, paragraph_index: selPara.value });
-    emit("say", r.status === 200 ? "已放弃候选（正文一个字没动）" : "放弃失败");
-    cand.value = null;
+                              { chapter: props.n, paragraph_index: pi,
+                                cid: activeCid.value || null });
+    emit("say", r.status === 200 ? "已放弃这条候选（正文一个字没动）" : "放弃失败");
+    pickCid.value = "";
+    await loadCandidate();          // 按盘上重读：剩下的候选还在不在，以文件为准
   } finally { candBusy.value = false; }
 }
 
@@ -584,6 +619,7 @@ async function submitRefine() {
   refining.value = true;
   refineElapsed.value = 0;
   refineResult.value = null;
+  const pi = selPara.value;          // 记下这一段：job 回来后 loadContent 会清空选中态
   if (dirty.value) emit("say", "提示：正文有未保存改动，模型改的是盘上那一版");
   clearInterval(refineTimer);
   refineTimer = setInterval(() => { refineElapsed.value += 1; }, 1000);
@@ -639,6 +675,9 @@ async function submitRefine() {
     await loadContent();
     await loadLayersQuiet();
     if (mode.value === "batch") await loadParas();
+    // loadContent 会清空选中段落；但这一段刚改完，选中态要留在原地 ——
+    // 否则候选卡上“采用/放弃”点了没反应（selPara 为 null，applyCandidate 第一行就 return）。
+    if (cand.value) { selPara.value = pi; await loadCandidate(); }
   } catch (e) {
     err.value = "提交出错：" + (e && e.message ? e.message : e);
   } finally {
@@ -881,8 +920,8 @@ onUnmounted(() => {
                 <div class="ce-cand-head">
                   <b v-if="cand">这一段：改前 / 改后</b>
                   <b v-else>这一段的历史</b>
-                  <span v-if="cand && cand.rec && cand.rec.ok === false" class="ce-cand-bad">
-                    还不能采用：{{ (cand.rec.reasons || []).join("；") }}</span>
+                  <span v-if="cand && activeRec && activeRec.ok === false" class="ce-cand-bad">
+                    还不能采用：{{ (activeRec.reasons || []).join("；") }}</span>
                   <span class="spacer"></span>
                   <button v-if="cand" class="mini" :disabled="candBusy" @click="loadCandidate"
                           title="重新读一次候选（自任务模式下，外部刚写完草稿时用）">刷新候选</button>
@@ -891,9 +930,23 @@ onUnmounted(() => {
                           title="这一段的历次改动都在段落历史里；点开就地回退，不用切到“精修”页签">
                     {{ histOpen ? "收起历史" : "回到上一版" }}
                   </button>
-                  <button v-if="cand" class="mini primary" :disabled="candBusy || (cand.rec && cand.rec.ok === false)"
+                  <button v-if="cand" class="mini primary" :disabled="candBusy || (activeRec && activeRec.ok === false)"
                           @click="applyCandidate">采用</button>
                   <button v-if="cand" class="mini" :disabled="candBusy" @click="dropCandidate">放弃</button>
+                </div>
+                <!-- 多候选（2026-11-13，L2）：点一次出一条，最多留 3 条。多一条的代价是
+                    你自己再点一次 —— 不搞“一次调用出两条”（那等于每次点击翻倍花钱）。 -->
+                <div v-if="cand && candList.length >= 1" class="ce-cand-pick">
+                  <span class="ce-ctx-k">候选</span>
+                  <button v-for="(c, i) in candList" :key="c.cid || i"
+                          class="mini ce-cand-tab"
+                          :class="{ on: (pickCid || (cand.rec && cand.rec.cid)) === c.cid }"
+                          :title="i === candList.length - 1 ? '最新这条（大多数时候就是刚生成的那条）' : '第 ' + (i + 1) + ' 条候选'"
+                          @click="pickCid = c.cid">
+                    {{ i + 1 }}<span v-if="i === candList.length - 1" class="ce-cand-new">最新</span>
+                  </button>
+                  <span class="meta" v-if="candList.length < 3">再点一次同一个档位 = 多一条比（最多 3 条）</span>
+                  <span class="meta" v-else>已到 3 条上限，放弃一条才能再加</span>
                 </div>
                 <div v-if="cand" class="ce-ctx-row">
                   <template v-if="ctxItems.length">
@@ -1078,6 +1131,11 @@ onUnmounted(() => {
 .ce-ctx-note {
   flex-basis: 100%; font-size: 11px; color: var(--muted); margin-top: 2px; cursor: help;
 }
+/* 候选选择器（2026-11-13）：一条一个按钮，最新那条带“最新”。 */
+.ce-cand-pick { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; margin: 6px 0 2px; }
+.ce-cand-tab { font-size: 11.5px; padding: 1px 8px; }
+.ce-cand-tab.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.ce-cand-new { margin-left: 4px; font-size: 9.5px; color: var(--muted); }
 /* 段落历史（2026-11-11）：一行一版，就地回退。刻意不用表格 —— 侧栏很窄，表格会横滚。 */
 .ce-hist { margin-top: 10px; border-top: 1px dashed var(--border); padding-top: 8px; }
 .ce-hist-item {

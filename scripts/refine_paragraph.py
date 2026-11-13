@@ -548,6 +548,23 @@ def _save_pending(items, root=None):
     write_text(p, json.dumps({"items": items}, ensure_ascii=False, indent=2))
 
 
+#: 同一段最多留几条候选（2026-11-13，L2 多候选）。
+#: 刻意**不**做成“一次调用出两条”：那等于每次点击翻倍花钱。做法是点一次出一条、
+#: 最多留 3 条并排比，选一条采用 —— 多一条的代价是作者自己再点一次。
+MAX_CANDIDATES = 3
+
+
+def _new_cid():
+    """候选 id：时间戳 + 序号，保证同秒内多条也能分开。"""
+    return "%s-%03d" % (time.strftime("%Y%m%d%H%M%S"), int(time.time() * 1000) % 1000)
+
+
+def _trim_candidates(mine, cap=None):
+    """同一段的候选只留最新的 N 条（默认 MAX_CANDIDATES）。抽出来是为了能单测。"""
+    cap = MAX_CANDIDATES if cap is None else int(cap)
+    return mine[-cap:] if cap > 0 else []
+
+
 def preview_paragraph(cfg, proj, chapter, paragraph_index, feedback, client=None, root=None):
     """生成候选但不落盘。返回 (ok, msg, rec)。rec 里是改前/改后与备份位置。"""
     ok, msg, backup, version, info = run_paragraph_refine(
@@ -556,6 +573,7 @@ def preview_paragraph(cfg, proj, chapter, paragraph_index, feedback, client=None
         return False, msg, None
     rec = {
         "chapter": int(chapter), "index": int(paragraph_index),
+        "cid": _new_cid(),
         "before": info.get("before", ""), "after": info.get("after", ""),
         "feedback": feedback, "backup": str(backup) if backup else "",
         "version": version, "at": time.strftime("%Y-%m-%dT%H:%M:%S"),
@@ -563,25 +581,50 @@ def preview_paragraph(cfg, proj, chapter, paragraph_index, feedback, client=None
         # 不用猜“模型是读了全书还是只看了这一段”。
         "context": info.get("context") or [],
     }
-    items = [x for x in _load_pending(root)
-             if not (int(x.get("chapter") or 0) == int(chapter)
-                     and int(x.get("index") or 0) == int(paragraph_index))]
-    items.append(rec)
-    _save_pending(items, root)
+    items = _load_pending(root)
+    # 同一段：旧候选留着（最多 MAX_CANDIDATES 条），给作者并排比
+    mine = [x for x in items if (int(x.get("chapter") or 0) == int(chapter)
+                                 and int(x.get("index") or 0) == int(paragraph_index))]
+    others = [x for x in items if x not in mine]
+    mine.append(rec)
+    mine = _trim_candidates(mine)
+    _save_pending(others + mine, root)
     return True, msg, rec
 
 
+def get_candidates(chapter, paragraph_index, root=None):
+    """同一段的全部候选（旧→新）。没有候选返回 []。"""
+    out = [x for x in _load_pending(root)
+           if (int(x.get("chapter") or 0) == int(chapter)
+               and int(x.get("index") or 0) == int(paragraph_index))]
+    return out
+
+
 def get_pending(chapter, paragraph_index, root=None):
-    for x in _load_pending(root):
-        if (int(x.get("chapter") or 0) == int(chapter)
-                and int(x.get("index") or 0) == int(paragraph_index)):
+    """最新那条候选（老接口的语义：`rec` 就是它）。"""
+    items = get_candidates(chapter, paragraph_index, root)
+    return items[-1] if items else None
+
+
+def _pick_candidate(chapter, paragraph_index, cid, root=None):
+    items = get_candidates(chapter, paragraph_index, root)
+    if not items:
+        return None
+    if not cid:
+        return items[-1]
+    for x in items:
+        if str(x.get("cid") or "") == str(cid):
             return x
     return None
 
 
-def apply_pending(chapter, paragraph_index, root=None):
-    """采用候选：走 save_paragraph_text（备份 + 段落历史 + 标点归一，判据全在那一处）。"""
-    rec = get_pending(chapter, paragraph_index, root)
+def apply_pending(chapter, paragraph_index, root=None, cid=None):
+    """采用候选：走 save_paragraph_text（备份 + 段落历史 + 标点归一，判据全在那一处）。
+
+    `cid` 指定采用哪一条（不给 = 最新那条）。采用后这一段的所有候选一并清掉 ——
+    正文已经变了，剩下的候选都是基于旧正文改的，留着会点错。
+    """
+    rec = _pick_candidate(chapter, paragraph_index, cid, root)
     if not rec:
         return False, "没有待采用的候选（先点“让 AI 只改这一段”）"
     ok, msg = save_paragraph_text(int(chapter), int(paragraph_index),
@@ -591,13 +634,19 @@ def apply_pending(chapter, paragraph_index, root=None):
     return ok, msg
 
 
-def drop_pending(chapter, paragraph_index, root=None):
-    """放弃候选：正文一个字节不动（候选从未落盘）。"""
-    items = [x for x in _load_pending(root)
-             if not (int(x.get("chapter") or 0) == int(chapter)
-                     and int(x.get("index") or 0) == int(paragraph_index))]
-    _save_pending(items, root)
-    return True, "已放弃候选（正文未改动）"
+def drop_pending(chapter, paragraph_index, root=None, cid=None):
+    """放弃候选：正文一个字节不动。给 cid 只丢那一条，不给就清空这一段的全部候选。"""
+    items = _load_pending(root)
+    keep = []
+    for x in items:
+        same = (int(x.get("chapter") or 0) == int(chapter)
+                and int(x.get("index") or 0) == int(paragraph_index))
+        if not same:
+            keep.append(x)
+        elif cid and str(x.get("cid") or "") != str(cid):
+            keep.append(x)
+    _save_pending(keep, root)
+    return True, ("已放弃这条候选（正文未改动）" if cid else "已放弃候选（正文未改动）")
 
 
 def main():

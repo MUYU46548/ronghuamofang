@@ -111,7 +111,7 @@ def main():
         U.SITE = "http://127.0.0.1:%d" % SITE_PORT
         U.GUI_TOKEN = "e2equick"
 
-        sent = {"preview": []}
+        sent = {"preview": [], "apply": []}
         before = PARA_2
         after = "她把那三行标准念了一遍，手上已经在分第一摞。"
 
@@ -123,6 +123,7 @@ def main():
 
             def on_route(route):
                 req = route.request
+                sent.setdefault("all", []).append(req.method + " " + req.url.split("8793")[-1])
                 if "paragraph/preview" in req.url and req.method == "POST":
                     try:
                         sent["preview"].append(json.loads(req.post_data or "{}"))
@@ -138,8 +139,9 @@ def main():
                 if "paragraph/pending" in req.url:
                     route.fulfill(status=200, content_type="application/json",
                                   body=json.dumps({"exists": True, "rec": {
-                                      "before": before, "after": after,
+                                      "cid": "c2", "index": 1, "before": before, "after": after,
                                       "ok": True, "reasons": [],
+                                      "feedback": "润色这一段",
                                       "context": [
                                           {"key": "chapter", "label": "整章正文", "ok": True,
                                            "note": "第 1 章 3 段 · 54 字（任务里是整章）"},
@@ -149,7 +151,24 @@ def main():
                                            "note": "没有 setting.json"},
                                           {"key": "not_included", "label": "这次没带", "ok": True,
                                            "note": "上一章衔接段 / 滚动摘要 / 范文"},
-                                      ]}}, ensure_ascii=False))
+                                      ]},
+                                      # 多候选（L2 第四件）：两条，旧→新
+                                      "candidates": [
+                                          {"cid": "c1", "after": "她把三句标准念了两遍。",
+                                           "feedback": "润色这一段", "at": "2026-11-13T00:00:01",
+                                           "context": []},
+                                          {"cid": "c2", "after": after,
+                                           "feedback": "润色这一段", "at": "2026-11-13T00:00:02",
+                                           "context": []},
+                                      ]}, ensure_ascii=False))
+                    return
+                if "paragraph/apply" in req.url and req.method == "POST":
+                    try:
+                        sent["apply"].append(json.loads(req.post_data or "{}"))
+                    except Exception:
+                        sent["apply"].append({"raw": req.post_data})
+                    route.fulfill(status=200, content_type="application/json",
+                                  body=json.dumps({"ok": True, "message": "已采用（e2e 拦截）"}))
                     return
                 route.continue_()
 
@@ -209,9 +228,33 @@ def main():
                   page.locator(".ce-ctx.off").count())
             U.shot(page, "quickedit_char_diff")
 
-            check("E14 界面无 4xx/5xx（拦截之外的请求都真打到后端）", not bad, bad[:4])
+            check("E14 多候选选择器在（两条，最新带“最新”）",
+                  page.locator(".ce-cand-tab").count() == 2
+                  and page.locator(".ce-cand-new").count() == 1,
+                  page.locator(".ce-cand-tab").count())
+            # 选第 1 条 → 改后栏应换成第 1 条的内容，而不是最新那条
+            page.locator(".ce-cand-tab").first.click()
+            page.wait_for_timeout(300)
+            after_box = page.locator(".ce-diff-col").nth(1).inner_text()
+            check("E15 ★ 点第 1 条候选 → 改后栏换成第 1 条的内容",
+                  "念了两遍" in after_box and "那三行" not in after_box, after_box[:80])
+            U.shot(page, "quickedit_pick_candidate")
+            apply_btns = page.locator("button", has_text="采用")
+            apply_n = apply_btns.count()
+            apply_disabled = apply_btns.first.evaluate("el => el.disabled") if apply_n else "n/a"
+            if apply_n:
+                apply_btns.first.click()
+                page.wait_for_timeout(900)
+            body_apply = sent["apply"][-1] if sent["apply"] else {}
+            check("E16 ★ 采用时带的是选中的那条 cid（不是永远最新）",
+                  body_apply.get("cid") == "c1",
+                  "buttons=%d disabled=%s sent=%s" % (
+                      apply_n, apply_disabled,
+                      json.dumps(sent["apply"], ensure_ascii=False)[:200]))
+
+            check("E17 界面无 4xx/5xx（拦截之外的请求都真打到后端）", not bad, bad[:4])
             console_err = [e for e in errs if e.startswith("error")]
-            check("E15 console 无 error", not console_err, console_err[:3])
+            check("E18 console 无 error", not console_err, console_err[:3])
             browser.close()
     finally:
         for pr in (web_proc, api_proc):
