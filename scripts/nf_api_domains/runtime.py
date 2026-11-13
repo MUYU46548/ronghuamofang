@@ -423,6 +423,40 @@ def handle_review_structure(h):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+def handle_three_state(h):
+    """三份稿对照（零 token，只读盘）：原稿 → 检查稿 → 润色稿，哪一段在哪一步被删。
+
+    `GET /review/three_state`           → 全书汇总 + 逐章被删段落
+    `GET /review/three_state?chapter=3` → 只给第 3 章
+
+    纪律（与 `three_state_diff` 同源，别在这里另写一套判据）：**只给证据，不给结论**。
+    线索只到“对白 / 长旁白 / 与上一段接近重复 / 未分类”；离题与设定冲突要读全书，本端点不猜。
+    重算而不读缓存：三份稿就是盘上事实，缓存反而会在作者手改后给出旧答案。
+    """
+    import three_state_diff as tsd
+    try:
+        q = h._query()
+        want = (q.get("chapter") or [""])[0].strip()
+        rep = tsd.run(Path(api.ROOT))
+        if not rep["chapters"]:
+            return 200, {"ok": True, "exists": False,
+                         "hint": "盘上还没有可对照的稿子 —— 需要原稿、检查稿、润色稿里"
+                                 "至少两层有同一章。跑完阶段 4 / 5 / 6 之后就有了。"}
+        chapters = rep["chapters"]
+        if want:
+            try:
+                n = int(want)
+            except ValueError:
+                return 400, {"ok": False, "error": "chapter 必须是整数"}
+            chapters = [c for c in chapters if c["chapter"] == n]
+            if not chapters:
+                return 404, {"ok": False, "error": "第 %d 章没有可对照的层" % n}
+        return 200, {"ok": True, "exists": True, "summary": rep["summary"],
+                     "chapters": chapters}
+    except Exception as e:                                     # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 def handle_story_state(h):
     """一致性账本（P3，零 token 只读）。
 
@@ -750,6 +784,7 @@ ROUTES = (
     ("GET", "/story_state", handle_story_state),
     ("GET", "/review/ledger", handle_review_ledger),
     ("GET", "/review/structure", handle_review_structure),
+    ("GET", "/review/three_state", handle_three_state),
     ("GET", "/decompose/consent", handle_decompose_consent),
     ("GET", "/decompose/snippets", handle_decompose_snippets),
     ("GET", "/chapters/history", handle_chapters_history),

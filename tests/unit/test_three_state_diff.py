@@ -86,6 +86,8 @@ def case_detect_and_report():
         check("A8 退出码 0 且写出 json+md", rc == 0 and (out / "three_state.json").exists())
         check("A9 md 里写明“证据不是判决”", "证据清单，不是判决" in md)
         check("A10 md 汇总带净变化列", "净变化" in md)
+        check("A12 md 里步骤按流程顺序排（raw→checked 在前）",
+              md.index("raw→checked") < md.index("checked→refined"))
         check("A11 json 里 chapter 2 只有 raw 层",
               js["chapters"][1]["layers"].get("raw") == 1
               and "checked" not in js["chapters"][1]["layers"])
@@ -107,7 +109,61 @@ def case_no_write_into_book_archive():
               list(book.iterdir()))
 
 
-for fn in (case_detect_and_report, case_no_write_into_book_archive):
+def case_api_endpoint():
+    """[C] 端点 `/review/three_state`（界面唯一数据源）——四件套里的路由与参数行为。
+
+    为什么测在这：界面只认这个端点的返回。脚本算得对、端点不给，作者还是看不到；
+    反过来端点读错根（CWD 而不是 ROOT）会显示**别的书**的对照，且不报错。
+    """
+    print("\n[C] 端点：读的是 ROOT、参数与空态都说清")
+    import nf_api
+    from nf_api_domains import runtime as rt
+
+    class H:
+        def __init__(self, q=None):
+            self._q = q or {}
+
+        def _query(self):
+            return self._q
+
+    def snapshot(root: Path):
+        return sorted((str(p.relative_to(root)), p.stat().st_size)
+                      for p in root.rglob("*") if p.is_file())
+
+    old = nf_api.ROOT
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            build_book(root)
+            nf_api.ROOT = root
+            before = snapshot(root)
+            code, data = rt.handle_three_state(H())
+            check("C1 200 且 exists=True", code == 200 and data.get("exists") is True, code)
+            check("C2 汇总带两个步骤",
+                  sorted((data.get("summary") or {}).get("pairs") or {})
+                  == ["checked→refined", "raw→checked"],
+                  (data.get("summary") or {}).get("pairs"))
+            c2, d2 = rt.handle_three_state(H({"chapter": ["2"]}))
+            check("C3 ?chapter=2 只给第 2 章（缺层的章照实给）",
+                  c2 == 200 and [c["chapter"] for c in d2.get("chapters") or []] == [2], c2)
+            c3, d3 = rt.handle_three_state(H({"chapter": ["x"]}))
+            check("C4 坏参数 400 且说清是整数", c3 == 400 and "整数" in (d3.get("error") or ""),
+                  d3.get("error"))
+            c4, d4 = rt.handle_three_state(H({"chapter": ["9"]}))
+            check("C5 不存在的章 404（不当成空对照）", c4 == 404, c4)
+            check("C6 端点一个字节都不改盘", snapshot(root) == before)
+
+        with tempfile.TemporaryDirectory() as td2:
+            nf_api.ROOT = Path(td2)
+            c5, d5 = rt.handle_three_state(H())
+            check("C7 没稿子时 200 + exists=False + 说清要去哪跑",
+                  c5 == 200 and d5.get("exists") is False and bool(d5.get("hint")),
+                  (c5, d5.get("hint")))
+    finally:
+        nf_api.ROOT = old
+
+
+for fn in (case_detect_and_report, case_no_write_into_book_archive, case_api_endpoint):
     fn()
 
 print("\n%d passed, %d failed" % (len(PASS), len(FAIL)))

@@ -460,6 +460,42 @@ class Handler(BaseHTTPRequestHandler):
                 st["stages"] = [{"stage": n, "status": "pending", "approved": None} for n in range(1, 8)]
                 return self._send(200, st)
             return self._send(200, STATE)
+        if p == "/review/three_state":
+            # 三份稿对照（2026-11-14）：字段与真 handler 的返回同形。
+            # 缺这条时审稿页那块点开只剩“读不到对照”，面板等于没被验收过。
+            return self._send(200, {
+                "ok": True, "exists": True,
+                "summary": {
+                    "chapters": 2,
+                    "pairs": {"raw→checked": 3, "checked→refined": 1},
+                    "removed_chars": {"raw→checked": 214, "checked→refined": 18},
+                    "by_clue": {"long_narration": 1, "dialogue": 1, "unclassified": 2},
+                    "layer_chars": {"raw": 4820, "checked": 3606, "refined": 3588},
+                },
+                "chapters": [
+                    {"chapter": 1, "layers": {"raw": 9, "checked": 6, "refined": 6},
+                     "pairs": [
+                         {"from": "raw", "to": "checked", "removed": [
+                             {"index": 2, "clues": ["long_narration"],
+                              "text": "窗外的雨一直没停，他把窗关严，屋里反倒更闷了，"
+                                      "桌面上的茶从烫口放到温，一口也没动过。"},
+                             {"index": 5, "clues": ["dialogue"],
+                              "text": "“我明天再过来。”"},
+                             {"index": 7, "clues": ["unclassified"],
+                              "text": "三天后，档案室的锁换了。"},
+                         ], "added": []},
+                         {"from": "checked", "to": "refined", "removed": [], "added": []},
+                     ]},
+                    {"chapter": 2, "layers": {"raw": 4, "checked": 3, "refined": 3},
+                     "pairs": [
+                         {"from": "raw", "to": "checked", "removed": [], "added": []},
+                         {"from": "checked", "to": "refined", "removed": [
+                             {"index": 1, "clues": ["unclassified"],
+                              "text": "他忽然明白了什么。"},
+                         ], "added": []},
+                     ]},
+                ],
+            })
         if p == "/models":
             return self._send(200, {"engine": ENGINE, "model": {"default": "glm-5.3"},
                                     "providers": ["tokenhub"], "gates": {}})

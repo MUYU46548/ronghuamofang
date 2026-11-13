@@ -75,6 +75,66 @@ async function submitComment(chapterNo, findingId) {
   }
 }
 
+// ---------- 三份稿对照（零 token，只读盘） ----------
+// 为什么放在审稿页：原稿 / 检查稿 / 润色稿的差额，就是“检查与润色认为该删什么”的实证清单。
+// 六本书的经验全在这三份稿里，不给入口等于继续烂在硬盘上。
+const ts = ref(null);        // GET /review/three_state 的返回
+const tsOpen = ref(false);   // 默认收起：不点就不扫盘
+const tsBusy = ref(false);
+const tsErr = ref("");
+
+const TS_CLUE = {
+  dialogue: "对白",
+  long_narration: "长旁白",
+  near_duplicate: "与上一段接近重复",
+  unclassified: "未分类",
+};
+const TS_STEP = { "raw→checked": "原稿 → 检查稿", "checked→refined": "检查稿 → 润色稿" };
+// 步骤顺序按流程走（与 scripts/three_state_diff.py 的 STEPS 同源，别按字母序）。
+const TS_ORDER = ["raw→checked", "checked→refined"];
+
+function clueLabel(c) {
+  return TS_CLUE[c] || c;
+}
+
+const tsRows = computed(() => {
+  const s = ts.value && ts.value.summary;
+  if (!s) return [];
+  const lc = s.layer_chars || {};
+  const pairs = s.pairs || {};
+  const order = TS_ORDER.filter((k) => k in pairs)
+    .concat(Object.keys(pairs).filter((k) => !TS_ORDER.includes(k)));
+  return order.map((step) => {
+    const parts = step.split("→");
+    return {
+      step,
+      label: TS_STEP[step] || step,
+      count: pairs[step] || 0,
+      chars: (s.removed_chars || {})[step] || 0,
+      net: (lc[parts[1]] || 0) - (lc[parts[0]] || 0),
+    };
+  });
+});
+
+async function loadThreeState() {
+  tsBusy.value = true;
+  tsErr.value = "";
+  try {
+    const r = await api("/review/three_state");
+    if (r.status === 200 && r.data && r.data.ok) ts.value = r.data;
+    else tsErr.value = "读不到对照：" + ((r.data && r.data.error) || ("HTTP " + r.status));
+  } catch (e) {
+    tsErr.value = "读不到对照（出错）：" + String(e.message || e);
+  } finally {
+    tsBusy.value = false;
+  }
+}
+
+function toggleThreeState() {
+  tsOpen.value = !tsOpen.value;
+  if (tsOpen.value && !ts.value) loadThreeState();
+}
+
 // ---------- 计算属性 ----------
 const chapters = computed(() => report.value?.chapters || []);
 const totalFindings = computed(() => {
@@ -487,6 +547,60 @@ onMounted(() => { loadProducts(); });
       </div>
     </section>
 
+    <!-- 三份稿对照（2026-11-14）：零 token，只读盘。跟有没有审查报告无关，所以放在报告判断之前。 -->
+    <section class="card ts-card">
+      <div class="ts-head">
+        <h4>三份稿对照<span class="meta">（原稿 → 检查稿 → 润色稿）</span></h4>
+        <span class="spacer"></span>
+        <button class="mini" :disabled="tsBusy" @click="toggleThreeState">
+          {{ tsOpen ? (tsBusy ? "对照中…" : "收起") : "看哪一段被删" }}
+        </button>
+        <button v-if="tsOpen" class="mini" :disabled="tsBusy" @click="loadThreeState">重算</button>
+      </div>
+      <div class="meta ts-note">
+        把盘上三份稿逐段对齐，说清每一段是在检查那一步没的、还是润色那一步没的。
+        只列事实（对白 / 长旁白 / 与上一段接近重复 / 未分类），<b>不判定这段是废话</b>——该不该删由你判断。
+      </div>
+      <div v-if="tsErr" class="meta ts-err">{{ tsErr }}</div>
+      <template v-if="tsOpen && ts && ts.exists">
+        <table class="det-table">
+          <thead>
+            <tr><th>步骤</th><th>被删段落</th><th>被删字数</th><th>净变化</th></tr>
+          </thead>
+          <tbody>
+            <tr v-for="row in tsRows" :key="row.step">
+              <td>{{ row.label }}</td>
+              <td>{{ row.count }} 段</td>
+              <td>{{ row.chars }} 字</td>
+              <td :class="{ 'cell-bad': row.net < 0 }">{{ row.net > 0 ? "+" + row.net : row.net }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="meta ts-note">
+          怎么算的：一段被改写也会同时记成“删旧 + 增新”，
+          所以<b>被删字数不少于净减少字数</b>，净变化看最后一列。
+        </div>
+        <div v-for="c in ts.chapters" :key="c.chapter" class="ts-chapter">
+          <div class="ts-chapter-head">
+            第 {{ c.chapter }} 章
+            <span class="meta">原稿 {{ c.layers.raw || 0 }} 段 · 检查稿 {{ c.layers.checked || 0 }} 段 · 润色稿 {{ c.layers.refined || 0 }} 段</span>
+          </div>
+          <div v-for="p in c.pairs" :key="p.from + '-' + p.to" class="ts-pair">
+            <div v-if="p.removed.length" class="ts-pair-head">
+              {{ p.from === "raw" ? "检查那一步删掉的" : "润色那一步删掉的" }}（{{ p.removed.length }} 段）
+            </div>
+            <div v-else class="meta">这一步没有整段删除。</div>
+            <div v-for="(x, i) in p.removed" :key="i" class="ts-para">
+              <span class="pill">{{ (x.clues || []).map(clueLabel).join(" · ") }}</span>
+              <span class="meta">{{ x.text.length }} 字</span>
+              <div class="ts-text">{{ x.text }}</div>
+            </div>
+          </div>
+        </div>
+      </template>
+      <div v-else-if="tsOpen && ts" class="meta">{{ ts.hint }}</div>
+    </section>
+
     <!-- 无报告提示 -->
     <div v-if="!report" class="empty">
       <template v-if="props.selfEngine">
@@ -707,6 +821,25 @@ onMounted(() => { loadProducts(); });
   margin: 0 0 10px;
   font-size: 14px;
 }
+/* 三份稿对照（2026-11-14）：段落原文要能读完，长段限高可滚。 */
+.ts-card { margin-bottom: 14px; }
+.ts-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ts-head h4 { margin: 0; }
+.ts-head .meta { margin-left: 6px; }
+.ts-head .spacer { flex: 1; }
+.ts-note { line-height: 1.7; margin: 6px 0; }
+.ts-err { color: var(--bad); }
+.ts-chapter { margin-top: 14px; }
+.ts-chapter-head { font-weight: 600; margin-bottom: 6px; }
+.ts-chapter-head .meta { font-weight: 400; margin-left: 8px; }
+.ts-pair { margin-bottom: 10px; }
+.ts-pair-head { font-size: 12px; color: var(--muted); margin: 6px 0; }
+.ts-para { padding: 6px 0 8px; border-top: 1px dashed var(--border); }
+.ts-text {
+  margin-top: 4px; font-size: 13px; line-height: 1.75; white-space: pre-wrap;
+  word-break: break-word; max-height: 220px; overflow: auto;
+}
+
 .det-table {
   width: 100%;
   border-collapse: collapse;

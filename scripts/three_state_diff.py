@@ -29,7 +29,15 @@ import sys
 from pathlib import Path
 
 LAYERS = ("raw", "checked", "refined")
+#: 展示顺序：按稿子走到的先后，不按字母序（字母序会把“检查稿 → 润色稿”排到最前，
+#: 读者第一眼看到的是后一步，顺序与流程相反）。界面同样按这个顺序排。
+STEPS = ("raw→checked", "checked→refined")
 OUT_DIR = Path("data") / "review"
+
+
+def ordered_steps(pairs: dict) -> list:
+    """按流程顺序排步骤，未知步骤保持原顺序跟在后面（新增步骤不会被静默丢掉）。"""
+    return [k for k in STEPS if k in pairs] + [k for k in pairs if k not in STEPS]
 
 #: 一句话里出现这些引号就算对白（中文小说只用这几种）
 QUOTE_RE = re.compile(r"[“”“”‘’\"]")
@@ -142,7 +150,7 @@ def render_md(rep: dict) -> str:
              "“删旧 + 增新”，所以**被删字数 ≥ 净减少字数**。净变化看最后一列。", "",
              "| 步骤 | 被删段落数 | 被删字数 | 净变化 |", "|---|---|---|---|"]
     lc = s.get("layer_chars", {})
-    for k in sorted(s["pairs"]):
+    for k in ordered_steps(s["pairs"]):
         a, b = k.split("→")
         net = lc.get(b, 0) - lc.get(a, 0)
         lines.append("| %s | %d | %d | %+d |" % (k, s["pairs"][k],
@@ -166,7 +174,7 @@ def render_md(rep: dict) -> str:
 
 def _print_summary(rep: dict) -> None:
     s = rep["summary"]
-    for k in sorted(s["pairs"]):
+    for k in ordered_steps(s["pairs"]):
         print("  %-16s 删 %d 段 / %d 字" % (k, s["pairs"][k], s["removed_chars"].get(k, 0)))
     if s["by_clue"]:
         print("  线索：" + " · ".join("%s %d" % (k, v)
