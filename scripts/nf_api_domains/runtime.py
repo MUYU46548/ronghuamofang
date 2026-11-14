@@ -457,6 +457,39 @@ def handle_three_state(h):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+def handle_chapter_function(h):
+    """GET /review/chapter_function[?chapter=N] → 章职能核查（零 token 只读）。
+
+    查“这一章有没有兑现章大纲写的事”：涉及角色 / 场景是强判据（大纲点名、正文没有 → 报），
+    核心事件 / 小目标 / 悬念钩子只比已知专名与编号（没出现不代表没写）。
+    **不给分**，只给核查表与“需你过目”的条目。
+    """
+    from utils import chapter_function as cfn
+    try:
+        q = h._query()
+        one = (q.get("chapter") or [""])[0].strip()
+        if one:
+            try:
+                n = int(one)
+            except ValueError:
+                return 400, {"ok": False, "error": "chapter 必须是整数"}
+            return 200, dict({"ok": True}, **cfn.check_chapter(n, api.ROOT))
+        return 200, cfn.check_book(api.ROOT)
+    except Exception as e:                                     # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_chapter_function_report(h, body):
+    """POST /review/chapter_function/report → 把核查表落成 md + json（零 token）。"""
+    from utils import chapter_function as cfn
+    try:
+        rep = cfn.check_book(api.ROOT)
+        p = cfn.write_report(rep, api.ROOT)
+        return 200, {"ok": True, "path": str(p), "stats": rep.get("stats")}
+    except Exception as e:                                     # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 def handle_review_unreadable(h):
     """读不通的句子（零 token，只读盘）：句法层的结构缺件。
 
@@ -814,6 +847,9 @@ ROUTES = (
     ("GET", "/review/structure", handle_review_structure),
     ("GET", "/review/three_state", handle_three_state),
     ("GET", "/review/unreadable", handle_review_unreadable),
+    # 章职能核查（2026-11-14）：这一章有没有兑现章大纲写的事（零 token，不给分）。
+    ("GET", "/review/chapter_function", handle_chapter_function),
+    ("POST", "/review/chapter_function/report", handle_chapter_function_report),
     ("GET", "/decompose/consent", handle_decompose_consent),
     ("GET", "/decompose/snippets", handle_decompose_snippets),
     ("GET", "/chapters/history", handle_chapters_history),

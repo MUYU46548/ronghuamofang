@@ -162,6 +162,32 @@ function toggleUnreadable() {
   if (urOpen.value && !ur.value) loadUnreadable();
 }
 
+// ---------- 章职能核查（零 token，只读盘） ----------
+// 七维管对错、审美管好看，中间这层一直空着：这一章有没有兑现章大纲写的事。
+const cf = ref(null);
+const cfOpen = ref(false);
+const cfBusy = ref(false);
+const cfErr = ref("");
+
+async function loadChapterFunction() {
+  cfBusy.value = true;
+  cfErr.value = "";
+  try {
+    const r = await api("/review/chapter_function");
+    if (r.status === 200 && r.data && r.data.ok) cf.value = r.data;
+    else cfErr.value = "核查失败：" + ((r.data && r.data.error) || ("HTTP " + r.status));
+  } catch (e) {
+    cfErr.value = "核查失败（出错）：" + String(e.message || e);
+  } finally {
+    cfBusy.value = false;
+  }
+}
+
+function toggleChapterFunction() {
+  cfOpen.value = !cfOpen.value;
+  if (cfOpen.value && !cf.value) loadChapterFunction();
+}
+
 // ---------- 计算属性 ----------
 const chapters = computed(() => report.value?.chapters || []);
 const totalFindings = computed(() => {
@@ -666,6 +692,47 @@ onMounted(() => { loadProducts(); });
       </template>
     </section>
 
+    <!-- 章职能核查（2026-11-14）：拿章大纲对正文，零 token、不给分。 -->
+    <section class="card ts-card">
+      <div class="ts-head">
+        <h4>这章干成它该干的事了吗<span class="meta">（对照章大纲，不花钱）</span></h4>
+        <span class="spacer"></span>
+        <button class="mini" :disabled="cfBusy" @click="toggleChapterFunction">
+          {{ cfOpen ? (cfBusy ? "核查中…" : "收起") : "查一遍" }}
+        </button>
+      </div>
+      <div class="meta ts-note">
+        拿章节大纲对一遍正文：<b>涉及角色 / 场景</b>是硬要求（大纲点名、正文里没有就报）；
+        核心事件 / 小目标 / 钩子只比人名地名与编号 —— <b>没出现不等于没写</b>，可能只是换了说法。
+        这一层不给分，只把“要你看一眼”的条目标出来。
+      </div>
+      <div v-if="cfErr" class="meta ts-err">{{ cfErr }}</div>
+      <template v-if="cfOpen && cf">
+        <div class="meta ts-note">
+          共 {{ (cf.stats || {}).chapters || 0 }} 章（有正文 {{ (cf.stats || {}).with_body || 0 }} 章，
+          需你过目 {{ (cf.stats || {}).need_attention || 0 }} 章）
+        </div>
+        <div v-for="c in cf.chapters" :key="c.chapter" class="ts-chapter">
+          <div class="ts-chapter-head">
+            第 {{ c.chapter }} 章 {{ c.title || "" }}
+            <span v-if="c.needs_attention && c.needs_attention.length" class="pill cf-warn">
+              {{ c.needs_attention.length }} 条待看
+            </span>
+            <span v-else-if="c.body" class="meta">没发现问题</span>
+            <span v-else class="meta">没有正文，跳过了</span>
+          </div>
+          <div v-if="c.notes && c.notes.length" class="meta">{{ c.notes.join("；") }}</div>
+          <div v-for="x in c.checks || []" :key="x.field" class="cf-row">
+            <span class="pill" :class="'cf-' + x.level">{{ x.field }}</span>
+            <span class="meta">{{ x.verdict }}</span>
+          </div>
+          <div v-if="c.needs_attention && c.needs_attention.length" class="cf-attention">
+            <div v-for="(a, i) in c.needs_attention" :key="i">· {{ a }}</div>
+          </div>
+        </div>
+      </template>
+    </section>
+
     <!-- 无报告提示 -->
     <div v-if="!report" class="empty">
       <template v-if="props.selfEngine">
@@ -903,6 +970,18 @@ onMounted(() => { loadProducts(); });
 .ts-text {
   margin-top: 4px; font-size: 13px; line-height: 1.75; white-space: pre-wrap;
   word-break: break-word; max-height: 220px; overflow: auto;
+}
+
+/* 章职能核查（2026-11-14）：一行一个字段，强判据用警示色标出来。 */
+.cf-row { display: flex; align-items: baseline; gap: 8px; padding: 3px 0; }
+.cf-row .meta { flex: 1; line-height: 1.7; }
+.cf-strong { color: var(--bad); }
+.cf-weak { color: var(--warn, #b8860b); }
+.cf-na { color: var(--muted); }
+.cf-warn { color: var(--bad); }
+.cf-attention {
+  margin-top: 6px; padding: 6px 10px; border-radius: 6px; font-size: 12px; line-height: 1.7;
+  border-left: 3px solid var(--warn, #b8860b); background: var(--field-dim);
 }
 
 .det-table {

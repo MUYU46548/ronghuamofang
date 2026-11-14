@@ -574,6 +574,30 @@ class Handler(BaseHTTPRequestHandler):
                      "text": "船在第五天早上起锚。回程逆风，走了四天半。到盐埕那天下了雨。"},
                 ],
             })
+        if p == "/review/chapter_function":
+            # 章职能核查（2026-11-14）：一章通过、一章需过目 —— 两个界面状态都覆盖。
+            return self._send(200, {
+                "ok": True, "checked_at": "2026-11-14T12:30:00",
+                "stats": {"chapters": 2, "with_body": 2, "need_attention": 1},
+                "chapters": [
+                    {"chapter": 1, "title": "最后一班不载客", "body": "data/chapters/refined/01.md",
+                     "layer": "refined", "chars": 5682, "notes": [], "needs_attention": [],
+                     "checks": [
+                         {"field": "涉及角色", "level": "strong", "verdict": "全部出现", "required": ["柯砚", "矢车"], "hit": ["柯砚", "矢车"], "partial": [], "miss": []},
+                         {"field": "场景", "level": "strong", "verdict": "全部出现（含部分写法）", "required": ["盐埕夜航船码头"], "hit": [], "partial": ["盐埕夜航船码头"], "miss": []},
+                         {"field": "核心事件", "level": "weak", "verdict": "点到的 柯砚、老太太 都在正文里", "required": ["柯砚", "老太太"], "hit": ["柯砚", "老太太"], "partial": [], "miss": []},
+                         {"field": "悬念钩子", "level": "na", "verdict": "不可判定（这一段里没有已知的人名 / 地名）", "required": [], "hit": [], "partial": [], "miss": []},
+                     ]},
+                    {"chapter": 11, "title": "归还", "body": "data/chapters/refined/11.md",
+                     "layer": "refined", "chars": 5900, "notes": [],
+                     "needs_attention": ["涉及角色：祁雉 大纲点名了，正文里没出现（也可能是换了写法，你自己看一眼）"],
+                     "checks": [
+                         {"field": "涉及角色", "level": "strong", "verdict": "缺 1 个：祁雉", "required": ["柯砚", "祁雉"], "hit": ["柯砚"], "partial": [], "miss": ["祁雉"]},
+                         {"field": "场景", "level": "strong", "verdict": "全部出现", "required": ["第七号封声堤"], "hit": ["第七号封声堤"], "partial": [], "miss": []},
+                         {"field": "核心事件", "level": "weak", "verdict": "点到的 柯砚 都在正文里", "required": ["柯砚"], "hit": ["柯砚"], "partial": [], "miss": []},
+                     ]},
+                ],
+            })
         if p == "/models":
             return self._send(200, {"engine": ENGINE, "model": {"default": "glm-5.3"},
                                     "providers": ["tokenhub"], "gates": {}})

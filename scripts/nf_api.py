@@ -2934,6 +2934,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/review/three_state":
             # 三份稿对照（零 token 只读）：原稿 → 检查稿 → 润色稿，哪一段在哪一步被删。
             self._send(*_dom(dom_runtime.handle_three_state(self)))
+        elif p == "/review/chapter_function":
+            # 章职能核查（零 token 只读）：这一章有没有兑现章大纲写的事，不给分。
+            self._send(*_dom(dom_runtime.handle_chapter_function(self)))
         elif p == "/review/unreadable":
             # 读不通的句子（零 token 只读）：句法层的结构缺件，只报不改。
             self._send(*_dom(dom_runtime.handle_review_unreadable(self)))
@@ -4013,6 +4016,9 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/review/products/decide":
                 # 产物闸：作者批准/驳回某一版候选（GUI-only，见 agent_guard）
                 self._send(*_dom(dom_products.handle_products_decide(self, body)))
+            elif p == "/review/chapter_function/report":
+                # 章职能核查落盘（零 token）：写 data/review/chapter_function.{json,md}
+                self._send(*_dom(dom_runtime.handle_chapter_function_report(self, body)))
             elif p == "/activity/beat":
                 # 执行方报一步（agent 也可调：这是记录，不是审批）
                 self._send(*_dom(dom_activity.handle_activity_beat(self, body)))
