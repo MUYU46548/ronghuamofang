@@ -546,6 +546,34 @@ class Handler(BaseHTTPRequestHandler):
                      ], "decided": None},
                 ],
             })
+        if p == "/pool/stats":
+            return self._send(200, {"ok": True, "exists": True, "books": 7, "chapters": 34,
+                                    "paragraphs": 1013, "skipped_short": 3158,
+                                    "skipped_long": 0, "built_at": "2026-11-14T11:20:00"})
+        if p == "/pool/facets":
+            return self._send(200, {"ok": True,
+                                    "people": [["岑砚", 60], ["糜生", 29], ["矢车", 26]],
+                                    "places": [["盐埕", 32], ["拾穗厅", 15]]})
+        if p == "/pool/search":
+            q = (self._query().get("q") or [""])[0]
+            if not q:
+                return self._send(200, {"ok": True, "items": [], "total": 0,
+                                        "hint": "给一个关键词，或选一个人物/地名 —— "
+                                                "池子不会一次性把全部段落吐出来"})
+            return self._send(200, {
+                "ok": True, "total": 2, "offset": 0, "limit": 20,
+                "items": [
+                    {"id": "潮汐档案#01#3", "book": "潮汐档案__20261103_114216",
+                     "layer": "refined", "chapter": 1, "index": 3, "chars": 72,
+                     "tags": {"people": ["岑砚"], "places": ["盐埕"]},
+                     "text": "岑砚把手插进袖子里。他指腹上有几处旧茧，常年按石头按出来的，"
+                             "硬得像另外长了一层皮。"},
+                    {"id": "潮汐档案#09#1", "book": "潮汐档案__20261103_114216",
+                     "layer": "refined", "chapter": 9, "index": 1, "chars": 33,
+                     "tags": {"people": [], "places": ["盐埕"]},
+                     "text": "船在第五天早上起锚。回程逆风，走了四天半。到盐埕那天下了雨。"},
+                ],
+            })
         if p == "/models":
             return self._send(200, {"engine": ENGINE, "model": {"default": "glm-5.3"},
                                     "providers": ["tokenhub"], "gates": {}})
@@ -1215,6 +1243,12 @@ class Handler(BaseHTTPRequestHandler):
         p = self.path.split("?")[0].rstrip("/") or "/"
         n = int(self.headers.get("Content-Length") or 0)
         body = json.loads(self.rfile.read(n).decode("utf-8")) if n else {}
+        if p == "/pool/build":
+            # 旧段落池重建（2026-11-14）：e2e 只验按钮通路与回显。
+            return self._send(200, {"ok": True, "path": "data/paragraph_pool/index.json",
+                                    "stats": {"books": 7, "chapters": 34,
+                                              "paragraphs": 1013,
+                                              "skipped_short": 3158, "skipped_long": 0}})
         if p in ("/plan/select", "/plan/drop", "/plan/revive", "/plan/write"):
             # 规划四态写侧（2026-11-04）：允许来源态与真后端同一套 ——
             # 清单与画布点按钮都走这里，“两个视图是否同源”在验收里看得见。

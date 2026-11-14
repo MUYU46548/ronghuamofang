@@ -33,6 +33,7 @@ import EntryDiscuss from "./EntryDiscuss.vue";
 import VaultDirsPanel from "./VaultDirsPanel.vue";
 import ReviewLedgerPanel from "./ReviewLedgerPanel.vue";
 import SettingClosurePanel from "./SettingClosurePanel.vue";
+import ParagraphPoolPanel from "./ParagraphPoolPanel.vue";
 import SettingVersionsPanel from "./SettingVersionsPanel.vue";
 import SettingStalePanel from "./SettingStalePanel.vue";
 import InteractionPanel from "./InteractionPanel.vue";
@@ -8266,6 +8267,9 @@ onUnmounted(() => {
         </div>
       </div>
     </section>
+
+    <!-- 旧段落池（2026-11-14，P1=A）：归档书里的合格段落，作者查了才用。 -->
+    <ParagraphPoolPanel v-if="tab === 'materials'" @say="say" />
 
     <!-- 素材管理（A1 P0） -->
     <section v-if="tab === 'materials'" class="card">

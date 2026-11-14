@@ -257,6 +257,67 @@ def handle_materials_import_tavern(h, body):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+def handle_pool_stats(h):
+    """GET /pool/stats → 旧段落池的规模与建索引时间（零 token 只读）。
+
+    没有索引时返回 `exists=false` 并说清怎么建 —— 空索引与“还没建”不是一回事。
+    """
+    from utils import paragraph_pool as pp
+    try:
+        st = pp.stats(api.ROOT)
+        out = dict({"ok": True}, **st)
+        if not st.get("exists"):
+            out["hint"] = "还没建索引 —— 点“重建索引”（只读归档书档，不花钱）"
+        return 200, out
+    except Exception as e:                                     # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_pool_search(h):
+    """GET /pool/search?q=&person=&place=&book=&limit=&offset= → 检索旧段落（零 token）。
+
+    **只在你查的时候才算**：写作提示词一个字都不引用这个池子（作者 2026-11-14 拍板
+    “只在我要用时才召回”）。没有条件时返回空 + 提示，不一次性吐全量。
+    """
+    from utils import paragraph_pool as pp
+    try:
+        q = h._query()
+        res = pp.search(
+            api.ROOT,
+            q=(q.get("q") or [""])[0],
+            person=(q.get("person") or [""])[0],
+            place=(q.get("place") or [""])[0],
+            book=(q.get("book") or [""])[0],
+            limit=(q.get("limit") or [pp.DEFAULT_LIMIT])[0],
+            offset=(q.get("offset") or [0])[0],
+        )
+        return 200, res
+    except Exception as e:                                     # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_pool_facets(h):
+    """GET /pool/facets → 索引里真出现过的人名 / 地名（给检索下拉，零 token）。"""
+    from utils import paragraph_pool as pp
+    try:
+        return 200, dict({"ok": True}, **pp.facets(api.ROOT))
+    except Exception as e:                                     # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_pool_build(h, body):
+    """POST /pool/build → 重建旧段落索引（零 token，只读归档书档 + 只写自己的索引）。
+
+    不属于“作者拍板”类：它不改书稿、不改设定、不花钱，谁跑都是同一份结果。
+    """
+    from utils import paragraph_pool as pp
+    try:
+        st = pp.build(api.ROOT)
+        return 200, {"ok": True, "stats": st, "path": str(pp.index_path(api.ROOT))}
+    except Exception as e:                                     # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 ROUTES = (
     ("GET", "/materials/list", handle_materials_list),
     ("POST", "/materials/import_tavern", handle_materials_import_tavern),
@@ -270,4 +331,9 @@ ROUTES = (
     ("GET", "/scraps/read", handle_scraps_read),
     ("GET", "/setting/current", handle_setting_current),
     ("GET", "/setting/appearances", handle_setting_appearances),
+    # 旧段落池（2026-11-14，P1=A）：只在作者查的时候用，不自动进写作上下文。
+    ("GET", "/pool/stats", handle_pool_stats),
+    ("GET", "/pool/search", handle_pool_search),
+    ("GET", "/pool/facets", handle_pool_facets),
+    ("POST", "/pool/build", handle_pool_build),
 )

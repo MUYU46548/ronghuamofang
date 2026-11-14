@@ -3064,6 +3064,15 @@ class Handler(BaseHTTPRequestHandler):
             # 实现已迁至 nf_api_domains.materials（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_materials.handle_materials_read(
                 self, unquote(p[len("/materials/read/"):]))))
+        elif p == "/pool/stats":
+            # 旧段落池规模（零 token 只读）；没建索引时 exists=false 并说清怎么建。
+            self._send(*_dom(dom_materials.handle_pool_stats(self)))
+        elif p == "/pool/search":
+            # 检索旧段落 —— 只在作者查的时候用，写作提示词不引用它（P1=A）。
+            self._send(*_dom(dom_materials.handle_pool_search(self)))
+        elif p == "/pool/facets":
+            # 检索下拉用的人名/地名（取索引里真出现过的）。
+            self._send(*_dom(dom_materials.handle_pool_facets(self)))
         elif p == "/scraps/list":
             # 实现已迁至 nf_api_domains.materials（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_materials.handle_scraps_list(self)))
@@ -4565,6 +4574,9 @@ class Handler(BaseHTTPRequestHandler):
                 # 删除素材（body: {name} 或 {names:[...], confirm:true}）
                 # 2026-11-05：改走归档回收站（可撤回）；单条沿用老形状。
                 self._send(*_dom(dom_materials.handle_materials_delete(self, body)))
+            elif p == "/pool/build":
+                # 重建旧段落索引（零 token）：只读归档书档，只写 data/paragraph_pool/index.json
+                self._send(*_dom(dom_materials.handle_pool_build(self, body)))
             elif p == "/materials/move":
                 # 批量移动（结构化卡片 ↔ 原始碎片），可撤回
                 self._send(*_dom(dom_materials.handle_materials_move(self, body)))
