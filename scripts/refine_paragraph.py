@@ -371,8 +371,13 @@ def save_paragraph_text(chapter, paragraph_index, new_text, note="手改", root=
 
 
 def build_paragraph_task(cfg, proj, chapter, paragraph_index, paragraph_text, feedback, version,
-                          chap_path, outline_path, root=None):
-    """生成段落级定点重写任务文件。"""
+                          chap_path, outline_path, root=None, candidates_path=None):
+    """生成段落级定点重写任务文件。
+
+    `candidates_path`（2026-11-14，P0-1）：模型除改整章外，还要把 3 个目标段候选写到这个文件。
+    一次调用出 1 主 + 3 备选 —— 审阅阶段零调用（此前是“点一次出一条、再点一条”，
+    与竞品结论相反，见 docs/竞品台账.md）。
+    """
     current_full = read_text(chap_path)
     meta, body = load_template("stage4_refine_paragraph.md", {
         "chapter": chapter,
@@ -383,6 +388,7 @@ def build_paragraph_task(cfg, proj, chapter, paragraph_index, paragraph_text, fe
         "path_outline": Path(outline_path).resolve(),
         "path_setting": (_base(root) / "data" / "setting" / "setting.json").resolve(),
         "path_chapter": Path(chap_path).resolve(),
+        "path_candidates": Path(candidates_path).resolve() if candidates_path else "(未提供)",
     })
     body = body.replace("{{current_chapter}}", current_full)
     body = body.replace("{{paragraph_text}}", paragraph_text)
@@ -472,10 +478,11 @@ def run_paragraph_refine(cfg, proj, chapter, paragraph_index, feedback, client=N
                            _base(root) / "data" / "setting" / "setting.json",
                            paragraphs, paragraph_index)
 
+    cand_file = candidates_path(chapter, paragraph_index, version, root)
     task = client.write_task(task_dir, f"stage4_refine_ch{chapter:02d}_p{paragraph_index}.md",
                              build_paragraph_task(cfg, proj, chapter, paragraph_index,
                                                   target_paragraph, feedback, version, chap_path,
-                                                  outline, root))
+                                                  outline, root, candidates_path=cand_file))
     print(f"[refine_para] 任务文件: {task}")
     print(f"[refine_para] 目标段落 (#{paragraph_index}, {len(target_paragraph)} 字):")
     print(f"  {target_paragraph[:80]}{'...' if len(target_paragraph) > 80 else ''}")
@@ -507,12 +514,22 @@ def run_paragraph_refine(cfg, proj, chapter, paragraph_index, feedback, client=N
         # 只算不落：把整章回滚到刚才那份备份，候选段落交给调用方（作者采纳才写）。
         # 刻意不写段落历史 —— 没采纳的版本进历史会变成噪音，还会被当成“改过”。
         shutil.copy2(backup, chap_path)
+        # 一次调用出 1 主 + N 备选（2026-11-14，P0-1）：模型把 3 条候选写在单独文件里，
+        # 这里读出来一起交给调用方。切不出/只回 1 条也照常成功（fallback = 整章里那段）。
+        raw_c = ""
+        try:
+            if cand_file.exists():
+                raw_c = cand_file.read_text(encoding="utf-8", errors="replace")
+        except Exception:                                     # noqa: BLE001
+            raw_c = ""
+        cands = parse_candidates(raw_c, fallback=rewritten_paragraph)
         # ⚠️ 必须整体包一层括号：上一版写成 `return True, (msg),` 换行再接 backup…，
         # Python 只把前两个当返回值（2 元组），调用方 5 元解包直接 ValueError。
-        return (True, ("第 %d 章 #%d 已生成候选（未落盘，等作者采用）"
-                      % (chapter, paragraph_index)),
+        return (True, ("第 %d 章 #%d 已生成 %d 条候选（未落盘，等作者采用）"
+                      % (chapter, paragraph_index, len(cands))),
                 backup, version, {"index": paragraph_index, "before": target_paragraph,
-                                  "after": rewritten_paragraph, "preview": True,
+                                  "after": rewritten_paragraph, "candidates": cands,
+                                  "preview": True,
                                   "context": ctx})
 
     # 保存段落历史
@@ -548,10 +565,37 @@ def _save_pending(items, root=None):
     write_text(p, json.dumps({"items": items}, ensure_ascii=False, indent=2))
 
 
-#: 同一段最多留几条候选（2026-11-13，L2 多候选）。
-#: 刻意**不**做成“一次调用出两条”：那等于每次点击翻倍花钱。做法是点一次出一条、
-#: 最多留 3 条并排比，选一条采用 —— 多一条的代价是作者自己再点一次。
+#: 同一段最多留几条候选。
+#: 口径（2026-11-14 更正，P0-1）：**一次调用出 1 主 + 3 备选**，审阅时切换零成本。
+#: 上一版写的是“点一次出一条、再点一条”—— 那是把花钱的次数当成了可控性，
+#: 与竞品结论相反（见 docs/竞品台账.md）。现在省钱的点落在“审阅阶段不调用”。
 MAX_CANDIDATES = 3
+#: 分隔符允许挤在行里（模型常写成“候选一===CAND===候选二”）—— 只认行首会把整串当一段，
+#: 于是静默退化成 1 条候选，作者以为模型只给了一条。
+CAND_SEP = re.compile(r"\s*={3}CAND={3}\s*")
+
+
+def candidates_path(chapter, paragraph_index, version, root=None) -> Path:
+    """本次调用让模型写候选的文件（工作区内，跟 root 走）。"""
+    d = _base(root) / "data" / "state" / "candidates"
+    d.mkdir(parents=True, exist_ok=True)
+    return d / ("ch%02d_p%02d_v%d.md" % (int(chapter), int(paragraph_index), int(version)))
+
+
+def parse_candidates(text, fallback=None):
+    """按 `===CAND===` 切出候选；切不出就退回整章里那一段（老行为）。
+
+    容错纪律：**只回 1 条也算成功** —— 多候选是加分项，不是硬前置；
+    否则模型少写一段就把整次调用判失败了。
+    """
+    out = []
+    for part in CAND_SEP.split(text or ""):
+        t = part.strip()
+        if len(t) >= 10:
+            out.append(t)
+    if not out and fallback:
+        out = [str(fallback).strip()]
+    return out[:MAX_CANDIDATES]
 
 
 def _new_cid():
@@ -571,22 +615,26 @@ def preview_paragraph(cfg, proj, chapter, paragraph_index, feedback, client=None
         cfg, proj, chapter, paragraph_index, feedback, client=client, preview=True, root=root)
     if not ok:
         return False, msg, None
-    rec = {
-        "chapter": int(chapter), "index": int(paragraph_index),
-        "cid": _new_cid(),
-        "before": info.get("before", ""), "after": info.get("after", ""),
-        "feedback": feedback, "backup": str(backup) if backup else "",
-        "version": version, "at": time.strftime("%Y-%m-%dT%H:%M:%S"),
-        # 这次带了哪些上下文（2026-11-13，L2）：作者在候选卡上看得到，
-        # 不用猜“模型是读了全书还是只看了这一段”。
-        "context": info.get("context") or [],
-    }
+    # 一次调用可能带回 1 主 + 3 备选：每条单独存成候选，作者在卡片上并排比。
+    texts = info.get("candidates") or [info.get("after", "")]
     items = _load_pending(root)
-    # 同一段：旧候选留着（最多 MAX_CANDIDATES 条），给作者并排比
     mine = [x for x in items if (int(x.get("chapter") or 0) == int(chapter)
                                  and int(x.get("index") or 0) == int(paragraph_index))]
     others = [x for x in items if x not in mine]
-    mine.append(rec)
+    rec = None
+    for i, t in enumerate(texts):
+        rec = {
+            "chapter": int(chapter), "index": int(paragraph_index),
+            "cid": _new_cid(),
+            "before": info.get("before", ""), "after": t,
+            "feedback": feedback, "backup": str(backup) if backup else "",
+            "version": version, "at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            # 这次带了哪些上下文（2026-11-13，L2）：作者在候选卡上看得到，
+            # 不用猜“模型是读了全书还是只看了这一段”。
+            "context": info.get("context") or [],
+            "variant": i + 1,
+        }
+        mine.append(rec)
     mine = _trim_candidates(mine)
     _save_pending(others + mine, root)
     return True, msg, rec

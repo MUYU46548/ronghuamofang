@@ -945,8 +945,9 @@ onUnmounted(() => {
                           @click="pickCid = c.cid">
                     {{ i + 1 }}<span v-if="i === candList.length - 1" class="ce-cand-new">最新</span>
                   </button>
-                  <span class="meta" v-if="candList.length < 3">再点一次同一个档位 = 多一条比（最多 3 条）</span>
-                  <span class="meta" v-else>已到 3 条上限，放弃一条才能再加</span>
+                  <!-- 一次调用就出多条（2026-11-14，P0-1）：切换没有任何花费，
+                       不再要求作者“再点一次同一个档位”去换一条（那是把花钱当可控性）。 -->
+                  <span class="meta">这次一次出了 {{ candList.length }} 条 · 切换不花钱</span>
                 </div>
                 <div v-if="cand" class="ce-ctx-row">
                   <template v-if="ctxItems.length">

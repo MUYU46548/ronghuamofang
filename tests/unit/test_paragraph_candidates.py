@@ -74,6 +74,28 @@ def case_cap():
         check("B3 常量就是 3（界面文案与后端同源）", rp.MAX_CANDIDATES == 3)
 
 
+def case_parse_candidates():
+    print()
+    print("[D2] 一次调用出多候选（P0-1）：切分 / 容错 / 截断")
+    a = "候选甲这一版只修了标点，其余照旧，读起来和原文最接近。" * 2
+    b = "候选乙这一版换了句式，把动作提到前面，节奏比原来快一点。" * 2
+    c = "候选丙这一版换了个切入角度，先写声音再写人，仍然接得上前一段。" * 2
+    NL = chr(10)
+    check("P1 三段按 ===CAND=== 切开并保持顺序",
+          rp.parse_candidates(a + NL + "===CAND===" + NL + b + NL + "===CAND===" + NL + c)
+          == [a, b, c])
+    check("P2 只回一条也算成功（多候选是加分项，不是硬前置）",
+          len(rp.parse_candidates(a)) == 1)
+    check("P3 空文件 + fallback → 用整章里那一段（老行为不丢）",
+          rp.parse_candidates("", fallback="原段落") == ["原段落"])
+    check("P4 超过 3 条只留前 3 条",
+          len(rp.parse_candidates("===CAND===".join([a, b, c, a, b]))) == 3)
+    check("P5 分隔符带前后空格也认",
+          len(rp.parse_candidates(a + NL + "  ===CAND===  " + NL + b)) == 2)
+    check("P6 太短的碎片不算候选（模型偶尔只吐一句）",
+          rp.parse_candidates("甲。" + NL + "===CAND===" + NL + "短") == [])
+
+
 def case_apply_by_cid():
     print("\n[C] 采用指定那条；采用后整段候选清空")
     with tempfile.TemporaryDirectory() as td:
@@ -121,7 +143,8 @@ def case_api_shape():
     check("E4 界面采用时带上选中的 cid", "cid: activeCid.value" in ce)
 
 
-for fn in (case_multi, case_cap, case_apply_by_cid, case_drop_one, case_api_shape):
+for fn in (case_multi, case_cap, case_parse_candidates, case_apply_by_cid,
+            case_drop_one, case_api_shape):
     fn()
 
 (Path(sys.argv[0]).parent / "").exists()  # noqa: B018  (保持与其它用例同样的收尾形态)
