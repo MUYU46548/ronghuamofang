@@ -3120,6 +3120,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/setting/provenance":
             # 条目来源链路（F21）：哪一版进来 / 现在这个值从哪版起 / 哪个文件导入
             self._send(*_dom(dom_setting_state.handle_setting_provenance(self)))
+        elif p == "/setting/decision_ledger":
+            # 裁决账本（2026-11-14）：只追加的流水，只读 —— 作者裁过什么、为什么。
+            self._send(*_dom(dom_setting_state.handle_decision_ledger(self)))
         elif p == "/setting/names":
             # 设定集条目名（界面补全用，零 token）
             self._send(*_dom(dom_setting_state.handle_setting_names(self)))
@@ -3907,6 +3910,10 @@ class Handler(BaseHTTPRequestHandler):
                 from utils import setting_versions as sv
                 ok, msg = sv.restore(v, root=ROOT)
                 self._send(200 if ok else 400, {"ok": ok, "message": msg})
+            elif p == "/setting/conflict/resolve":
+                # 人工分歧的裁决（2026-11-14）：GUI-only —— 摆事实谁都能写，签字只有作者。
+                # 只记账（decision_ledger.json），不改设定集；账本只追加。
+                self._send(*_dom(dom_setting_state.handle_conflict_resolve(self, body)))
             elif p == "/setting/status":
                 # 人工拍板（A3 写侧）：把条目标为 adopted/rejected/uncertain。
                 # reject 会**先写墓碑**（不依赖设定集条目）；人工结果带

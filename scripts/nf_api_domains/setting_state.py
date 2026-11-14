@@ -79,6 +79,7 @@ def handle_setting_conflicts(h):
         `review_conflicts` 为空**不代表没有冲突**。
     """
     from utils import material_state as ms
+    from utils import manual_conflicts as mc
     p = _paths()
     try:
         report = ms.audit(str(p["setting"]), str(p["materials"]), str(p["tombstones"]))
@@ -97,12 +98,17 @@ def handle_setting_conflicts(h):
                         "value": str(v.get("value") or "")[:200]}
                        for v in (e.get("values") or [])],
         })
+    manual = mc.as_conflicts(api.ROOT)
+    manual_pending = [c for c in manual if not c.get("decided")]
     return 200, {
         "ok": True,
         "checked": bool(report.get("checked")),
         "reason": report.get("reason") or "",
-        "review_conflicts": [_slim_conflict(c) for c in rev],
-        "review_count": len(rev),
+        # 自动检出（素材卡之间）+ 人工摆出（自由文本素材之间）合并成一张清单：
+        # 作者只该看到“要裁的事”，不该关心它是哪条路找出来的。
+        "review_conflicts": [_slim_conflict(c) for c in rev] + manual,
+        "review_count": len(rev) + len(manual_pending),
+        "manual_stats": mc.stats(api.ROOT),
         "evolutions": evo_slim,
         "evolution_count": len(evo),
         "evolution_suspect": sum(1 for e in evo if e.get("suspect")),
@@ -113,7 +119,9 @@ def handle_setting_conflicts(h):
         # 界面照样显示“没有待裁决分歧”）。这里把“没扫到”与“确实没有”分开说。
         "hint": ("一份素材卡都没认出来（0 张）—— 卡片要写成“# 角色：名字”这样的标题，"
                  "字段写在“## 基本信息”下面的“- 字段：值”。"
-                 "这不是“没有冲突”，是根本没扫到。"
+                 + ("下面 %d 条是人工整理的分歧，照样要你裁；" % len(manual_pending)
+                    if manual_pending else "这次连人工整理的分歧也没有；")
+                 + "“没有待裁决”不等于素材之间没矛盾，它只说明这两条路都没找到。"
                  if not report.get("card_count") else ""),
         "audited_at": report.get("audited_at"),
         "audit_path": str(p["audit"]),
@@ -224,6 +232,47 @@ def handle_setting_provenance(h):
     except Exception as e:                                    # noqa: BLE001
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
     return (200 if res.get("ok") else 400), res
+
+
+def handle_conflict_resolve(h, body):
+    """POST /setting/conflict/resolve → 作者对一条人工分歧拍板（GUI-only）。
+
+    body: `{id, chosen, reason}`；`chosen` 是这条分歧里的某个值，或 `__keep__`（保持现状）、
+    `__reject__`（这些说法都不采用）。
+
+    为什么这是 GUI-only：**裁决 = 作者的创作决定**，与审批同族。外部 Agent 可以整理分歧、
+    可以读账本，但不能替作者签字 —— 否则“冲突清单”就成了 Agent 自问自答。
+    另外这条**只记账不改设定集**：字段映射容易错，宁可留一步人工。
+    """
+    from nf_api_domains.project import _gui_only
+    guard = _gui_only(h, "素材裁决")
+    if guard:
+        return guard
+    from utils import manual_conflicts as mc
+    body = body if isinstance(body, dict) else {}
+    try:
+        ok, payload = mc.resolve(api.ROOT, body.get("id"), body.get("chosen"),
+                                 body.get("reason"))
+        return (200 if ok else 400), payload
+    except Exception as e:                                     # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_decision_ledger(h):
+    """GET /setting/decision_ledger → 裁决账本（只追加的流水，只读）。
+
+    给两层用：界面回显“这条裁过没有、选的哪一版、为什么”，
+    以及外部 Agent 了解作者已经定过什么（它不该再问一遍）。
+    """
+    from utils import manual_conflicts as mc
+    try:
+        led = mc.load_ledger(api.ROOT)
+        return 200, {"ok": True, "entries": led.get("entries") or [],
+                     "latest": mc.ledger_latest(api.ROOT),
+                     "stats": mc.stats(api.ROOT),
+                     "path": str(mc.ledger_path(api.ROOT))}
+    except Exception as e:                                     # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
 def handle_setting_names(h):
@@ -387,4 +436,7 @@ ROUTES = (
     ("POST", "/setting/stale/link", handle_setting_stale_link),
     ("POST", "/setting/stale/review", handle_setting_stale_review),
     ("POST", "/setting/save", handle_setting_save),
+    # 人工分歧的裁决（2026-11-14）：摆事实谁都能写，签字只有作者。
+    ("POST", "/setting/conflict/resolve", handle_conflict_resolve),
+    ("GET", "/setting/decision_ledger", handle_decision_ledger),
 )

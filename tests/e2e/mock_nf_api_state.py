@@ -516,6 +516,36 @@ class Handler(BaseHTTPRequestHandler):
                 ],
                 "boundary": "只抓结构缺件（没头没尾、半句话）。语义上讲不通的句子要读懂上下文，机器判不了。",
             })
+        if p == "/setting/conflicts":
+            # 素材裁决（2026-11-14）：自动检出 0 张卡 + 两条人工整理的分歧 ——
+            # 正好覆盖“0 张卡警告分支”与“选一版”两个新界面状态。
+            return self._send(200, {
+                "ok": True, "checked": True, "reason": "",
+                "card_count": 0, "review_count": 2,
+                "counts": {"adopted": 12, "rejected": 1, "uncertain": 0},
+                "tombstones": ["旧写法"],
+                "manual_stats": {"total": 2, "pending": 2, "decided": 0},
+                "hint": "一份素材卡都没认出来（0 张）—— 卡片要写成“# 角色：名字”这样的标题，"
+                        "字段写在“## 基本信息”下面的“- 字段：值”。"
+                        "下面 2 条是人工整理的分歧，照样要你裁；“没有待裁决”不等于素材之间没矛盾，"
+                        "它只说明这两条路都没找到。",
+                "review_conflicts": [
+                    {"id": "A1", "source": "manual", "name": "柯砚", "field": "姓名",
+                     "severity": "review", "question": "主角姓什么？", "current": "柯砚",
+                     "suggestion": "柯砚。4-4 修订稿给了改姓的制度理由。",
+                     "values": [
+                         {"value": "岑砚", "file": "角色设定2031-1-30.md", "excerpt": "名称：岑砚"},
+                         {"value": "柯砚", "file": "角色设定2031-4-4.md", "excerpt": "以本稿为准"},
+                     ], "decided": None},
+                    {"id": "B1", "source": "manual", "name": "糜生", "field": "年龄",
+                     "severity": "review", "question": "糜生多大？", "current": "四十七岁",
+                     "suggestion": "四十七。正文那句话带场景。",
+                     "values": [
+                         {"value": "四十七岁", "file": "白鹭线设定2.md", "excerpt": "四十七岁"},
+                         {"value": "42 岁", "file": "角色名册_草.md", "excerpt": "42 岁"},
+                     ], "decided": None},
+                ],
+            })
         if p == "/models":
             return self._send(200, {"engine": ENGINE, "model": {"default": "glm-5.3"},
                                     "providers": ["tokenhub"], "gates": {}})

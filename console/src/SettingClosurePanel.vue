@@ -20,6 +20,8 @@
 import { ref, computed, onMounted } from "vue";
 
 import { API } from "./apiBase.js";
+// 裁决是 GUI-only 端点（作者签字），必须走双因子；自己拼 fetch 会 403。
+import { postJSON } from "./guiApi.js";
 
 const emit = defineEmits(["say"]);
 function say(m) { emit("say", m); }
@@ -49,18 +51,54 @@ async function load() {
 }
 
 const conflicts = computed(() => data.value?.review_conflicts || []);
+// 人工整理的分歧（自由文本素材用）：与自动检出分开渲染 —— 它要“选哪一版”，
+// 不是“采纳/否决这个名字”，两种动作混在一张卡里会点错。
+const manual = computed(() => conflicts.value.filter((c) => c.source === "manual"));
+const manualPending = computed(() => manual.value.filter((c) => !c.decided).length);
+const autoConflicts = computed(() => conflicts.value.filter((c) => c.source !== "manual"));
 const counts = computed(() => data.value?.counts || {});
 const tombstones = computed(() => data.value?.tombstones || []);
 // 同名同字段合并成一组：三条分歧摊成三行会让人以为要分别拍板三次
 const groups = computed(() => {
   const map = new Map();
-  for (const c of conflicts.value) {
+  for (const c of autoConflicts.value) {
     const key = c.name + "||" + c.field;
     if (!map.has(key)) map.set(key, { name: c.name, field: c.field, rows: [] });
     map.get(key).rows.push(c);
   }
   return [...map.values()];
 });
+
+// ---------- 人工分歧的裁决（写进 decision_ledger.json，只追加） ----------
+const resolving = ref(null);   // {id, chosen, reason}
+const resolvingBusy = ref(false);
+
+function startResolve(m, chosen) {
+  resolving.value = { id: m.id, chosen, reason: "" };
+}
+
+async function confirmResolve() {
+  const r = resolving.value;
+  if (!r) return;
+  if (!r.reason.trim()) { say("裁决必须写理由 —— 三天后翻回来看，没有理由的裁决等于没裁"); return; }
+  resolvingBusy.value = true;
+  try {
+    const d = await postJSON("/setting/conflict/resolve",
+                             { id: r.id, chosen: r.chosen, reason: r.reason.trim() });
+    say(d.note || "已记账");
+    resolving.value = null;
+    await load();
+  } catch (e) {
+    say("裁决失败：" + String(e.message || e));
+  }
+  resolvingBusy.value = false;
+}
+
+function chosenLabel(chosen) {
+  if (chosen === "__keep__") return "保持设定集现状";
+  if (chosen === "__reject__") return "这些说法都不采用";
+  return chosen;
+}
 
 async function act(name, action, reason = "") {
   acting.value = name + ":" + action;
@@ -138,7 +176,7 @@ defineExpose({ load });
         没有待裁决分歧 —— 但这不等于素材之间没矛盾：这次一份素材卡都没认出来。
         {{ data.hint }}
       </div>
-      <div v-else-if="!groups.length" class="meta sc-ok">没有待裁决分歧。</div>
+      <div v-else-if="!groups.length && !manual.length" class="meta sc-ok">没有待裁决分歧。</div>
 
       <div v-for="g in groups" :key="g.name + g.field" class="sc-item">
         <div class="sc-head">
@@ -151,6 +189,54 @@ defineExpose({ load });
         </div>
         <div v-for="(c, i) in g.rows" :key="i" class="sc-vals">
           <div v-for="(v, j) in c.values" :key="j" class="sc-val">· {{ valueLine(v) }}</div>
+        </div>
+      </div>
+
+      <!-- 人工整理的分歧（2026-11-14）：素材是自由文本时，自动检测认不出卡格式，
+           只能先由人/Agent 把分歧摆齐，这里逐条选一版。裁决写进 decision_ledger.json。 -->
+      <div v-if="manual.length" class="sc-manual">
+        <h4>
+          要你选一版的分歧
+          <span class="meta">（{{ manualPending }} 条待裁 / 共 {{ manual.length }} 条）</span>
+        </h4>
+        <div class="meta">
+          这些是从你的设定稿、名词表、角色名册里读出来的：同一件事有两种说法。
+          每条选一版，或者保持设定集现状。<b>裁决只记账，不会自动改设定集</b>——改不改是下一步。
+        </div>
+        <div v-for="m in manual" :key="m.id" class="sc-item">
+          <div class="sc-head">
+            <b>{{ m.name }}</b>
+            <span class="sc-field">{{ m.field }}</span>
+            <span class="sc-id">#{{ m.id }}</span>
+            <span v-if="m.current" class="meta sc-current">设定集现在：{{ m.current }}</span>
+          </div>
+          <div v-if="m.question" class="sc-q">{{ m.question }}</div>
+          <div v-for="(v, i) in m.values" :key="i" class="sc-val sc-val-pick">
+            <span class="sc-val-text">{{ v.value }}</span>
+            <span v-if="v.file" class="meta">{{ v.file }}</span>
+            <button class="mini" :disabled="!!resolving" @click="startResolve(m, v.value)">选这版</button>
+          </div>
+          <div v-if="m.suggestion" class="meta sc-suggest">整理者的建议：{{ m.suggestion }}（可以推翻）</div>
+          <div v-if="m.decided" class="sc-decided">
+            已裁决：<b>{{ chosenLabel(m.decided.chosen) }}</b>（{{ m.decided.at }}）—— {{ m.decided.reason }}
+          </div>
+          <div v-else class="sc-actions">
+            <button class="mini" :disabled="!!resolving" @click="startResolve(m, '__keep__')">保持现状</button>
+            <button class="mini danger" :disabled="!!resolving" @click="startResolve(m, '__reject__')">这些说法都不采用</button>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="resolving" class="sc-reject">
+        <div class="meta">
+          裁决“{{ resolving.id }} → {{ chosenLabel(resolving.chosen) }}”——为什么选它：
+        </div>
+        <input v-model="resolving.reason" class="sc-input"
+               placeholder="例：4-4 稿给了改姓的制度理由（无姓者不能立契），另两稿只写“姓氏待定”" />
+        <div class="sc-reject-actions">
+          <button class="mini" @click="resolving = null">取消</button>
+          <button class="mini primary" :disabled="!resolving.reason.trim() || resolvingBusy"
+                  @click="confirmResolve">{{ resolvingBusy ? "记录中…" : "确认裁决" }}</button>
         </div>
       </div>
 
@@ -179,6 +265,22 @@ defineExpose({ load });
 .sc-ok { color: var(--ok); }
 /* 0 张素材卡：这是“没扫到”，不是“没矛盾”——用警告色，别用绿。 */
 .sc-warn { color: var(--warn, #b8860b); line-height: 1.7; }
+
+/* 人工整理的分歧（2026-11-14）：两方并排，各给一个“选这版”，裁决后可回看理由。 */
+.sc-manual { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 12px; }
+.sc-manual h4 { margin: 0 0 6px; font-size: 14px; }
+.sc-id { font-size: 12px; color: var(--muted); }
+.sc-current { margin-left: 8px; }
+.sc-q { margin: 4px 0 6px; font-size: 13px; line-height: 1.7; }
+.sc-val-pick { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.sc-val-text { font-size: 13px; }
+.sc-val-pick .meta { flex: 1; }
+.sc-suggest { margin: 6px 0; }
+.sc-actions { display: flex; gap: 8px; margin-top: 6px; }
+.sc-decided {
+  margin-top: 6px; padding: 6px 10px; border-radius: 6px; font-size: 12px; line-height: 1.7;
+  border-left: 3px solid var(--ok); background: var(--field-dim); color: var(--ink);
+}
 .sc-unchecked {
   margin: 10px 0; padding: 10px 12px; border-radius: 8px;
   border-left: 3px solid var(--warn); background: var(--field-dim);

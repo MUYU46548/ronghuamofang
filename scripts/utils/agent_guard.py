@@ -139,6 +139,11 @@ FORBIDDEN_IN_AGENT_MODE = frozenset({
     # 外部 Agent 能"恢复"一次，就等于能抹掉作者刚改的设定；读侧
     # GET /setting/versions|diff 不拦（Agent 该看得见历史）。
     "/setting/restore",
+    # 人工分歧的裁决（2026-11-14）：一条分歧选哪一版 = 作者的创作决定，与审批同族。
+    # 外部 Agent 可以整理分歧（写 manual_conflicts.json）、可以读裁决账本，
+    # 但不能替作者签字 —— 否则清单就成了 Agent 自问自答。
+    # 端点自身另要求 GUI 双因子（gui_only），这里是第二道闸。
+    "/setting/conflict/resolve",
     # 设定引用核对（M10，2026-11-04）：改章后哪些设定条目已经"可能不成立"，
     # 只有作者读过正文才能判断 —— Agent 一条 POST 就能把待核洗成"已核对"，
     # 与代签审批同族。读侧 GET /setting/stale 与机械的 /setting/stale/link
