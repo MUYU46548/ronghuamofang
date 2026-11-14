@@ -1510,6 +1510,104 @@ def test_candidates(browser):
         ctx.close()
 
 
+def test_stage5_step(browser):
+    """P1-1（2026-11-14）：stage5 改稿裁定改成逐处步进。
+
+    为什么单独一段：这块的坏法全是“不会让后端用例变红”的那种 ——
+    一次又把 40 项全展开、计数不对、定完不跳、上一处没禁用、
+    宫格颜色不跟着裁定走。假后端为此加了**有状态**的 stage5
+    （tests/e2e/mock_nf_api_state.py: stage5_items / stage5_decide）。
+    """
+    print("\n=== J. stage5 改稿裁定逐处步进（P1-1）===")
+    ctx, page, errs, bad = new_page(browser, MOCK_API, "stage5")
+    try:
+        page.locator("nav.tabs button", has_text="审稿").first.click()
+        page.wait_for_timeout(1200)
+        panel = page.locator(".card", has=page.locator("h3:text-is('阶段 5 改稿裁定')"))
+        panel.scroll_into_view_if_needed()
+        page.wait_for_timeout(400)
+        check("审稿页有“阶段 5 改稿裁定”面板", panel.count() == 1, panel.count())
+        check("步进条在场（上一处 / 计数 / 下一处）",
+              panel.locator(".step-bar button:has-text('上一处')").count() == 1
+              and panel.locator(".step-bar button:has-text('下一处')").count() == 1
+              and panel.locator(".counter").count() == 1)
+        counter = panel.locator(".counter").inner_text()
+        check("计数从第 1 处起（默认停在第一处没定的）", "第 1 / 8 处" in counter, counter)
+        check("一次只展开一处（不再把全章 40 项摊开）",
+              panel.locator(".item").count() == 1, panel.locator(".item").count())
+        check("宫格给了全章 8 处，位置一眼可数",
+              panel.locator(".chip").count() == 8, panel.locator(".chip").count())
+        check("第一处时“上一处”是禁用的（到头就停）",
+              panel.locator(".step-bar button:has-text('上一处')").first.is_disabled())
+        shot(page, "J1_stage5_step", keep_scroll=True)
+
+        panel.locator(".step-bar button:has-text('下一处')").first.click()
+        page.wait_for_timeout(500)
+        check("点“下一处”→ 计数到第 2 处",
+              "第 2 / 8 处" in panel.locator(".counter").inner_text(),
+              panel.locator(".counter").inner_text())
+        check("翻页后仍只显示一处", panel.locator(".item").count() == 1)
+
+        # 定一处：采用 → 自动跳到下一处没定的
+        panel.locator(".item button:has-text('采用模型改法')").first.click()
+        page.wait_for_timeout(900)
+        counter = panel.locator(".counter").inner_text()
+        check("定完自动跳到下一处（第 2 处 → 第 3 处）", "第 3 / 8 处" in counter, counter)
+        check("已定计数跟着走（1 / 8）",
+              "已定 1 / 8" in panel.locator(".step-bar").inner_text(),
+              panel.locator(".step-bar").inner_text())
+        check("宫格第 2 格变成“采用”色（ok 类）",
+              "ok" in (panel.locator(".chip").nth(1).get_attribute("class") or ""),
+              panel.locator(".chip").nth(1).get_attribute("class"))
+
+        # 驳回一处：保留原文
+        panel.locator(".item button:has-text('保留原文')").first.click()
+        page.wait_for_timeout(900)
+        check("保留原文也算定过（已定 2 / 8）",
+              "已定 2 / 8" in panel.locator(".step-bar").inner_text(),
+              panel.locator(".step-bar").inner_text())
+        check("宫格第 3 格变成“保留”色（bad 类）",
+              "bad" in (panel.locator(".chip").nth(2).get_attribute("class") or ""),
+              panel.locator(".chip").nth(2).get_attribute("class"))
+
+        # 回看已定的一处：能改判（作用域只到这一处）
+        panel.locator(".chip").nth(0).click()
+        page.wait_for_timeout(400)
+        check("点宫格能回到已定的那一处", "第 1 / 8 处" in panel.locator(".counter").inner_text(),
+              panel.locator(".counter").inner_text())
+        panel.locator(".item button:has-text('保留原文')").first.click()
+        page.wait_for_timeout(900)
+        check("已定的一处可以改判（采用 → 保留）",
+              "bad" in (panel.locator(".chip").nth(0).get_attribute("class") or ""),
+              panel.locator(".chip").nth(0).get_attribute("class"))
+
+        # 全部定完 → 出现“可以合成”，合成本章按钮解锁
+        for _ in range(12):
+            if panel.locator(".step-bar .pill:has-text('全部定完')").count():
+                break
+            panel.locator(".step-bar button:has-text('跳到没定的')").first.click()
+            page.wait_for_timeout(300)
+            panel.locator(".item button:has-text('采用模型改法')").first.click()
+            page.wait_for_timeout(800)
+        check("全定完给出明确出口（“全部定完，可以合成”）",
+              panel.locator(".step-bar .pill:has-text('全部定完')").count() == 1)
+        apply_btn = panel.locator(".detail-head button:has-text('合成本章')")
+        check("合成本章按钮解锁", not apply_btn.first.is_disabled())
+        shot(page, "J2_stage5_done", keep_scroll=True)
+        apply_btn.first.click()
+        page.wait_for_timeout(900)
+        check("合成后不再显示待裁定的那一章（走完闭环）",
+              panel.locator(".chip").count() == 0 or "已合成" in panel.inner_text(),
+              panel.inner_text()[:120])
+
+        check("step5 裁定链路没有 4xx", not [x for x in bad if "stage5" in x],
+              [x for x in bad if "stage5" in x][:3])
+        check("step5 面板没有 console 报错",
+              not [e for e in errs if "stage5" in e.lower()], errs[:3])
+    finally:
+        ctx.close()
+
+
 def main():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=["--no-proxy-server"])
@@ -1520,6 +1618,7 @@ def main():
             test_about_project(browser)
             test_desk_width(browser)
             test_candidates(browser)
+            test_stage5_step(browser)
         finally:
             browser.close()
 

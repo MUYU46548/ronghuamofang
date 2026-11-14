@@ -306,6 +306,61 @@ ANN = {"items": [
 ]}
 
 
+def stage5_items():
+    """一处一格：三种 kind 都在场（新增 / 改写 / 删除），8 处。
+
+    有状态是必须的 —— 验收的是“定一处 → 自动跳到下一处没定的”；
+    无状态的话界面永远停在第 1 处，截图看着对、其实一条逻辑都没跑。
+    """
+    out = []
+    for i in range(1, 9):
+        kind = "insert" if i == 3 else ("delete" if i == 6 else "replace")
+        old = ("他推门进来的时候，屋檐上的水线正连成了串，地上积了一小滩暗色的水。" if kind != "insert" else "")
+        new = ("他推开门，檐上的水线连成了串，阶前积出一小滩暗色。" if kind != "delete" else "")
+        out.append({"id": i, "kind": kind, "old": old, "new": new, "accepted": None})
+    return out
+
+
+STAGE5 = {"chapter": 1, "status": "ready", "raw_sha": "9f2c1ab7",
+          "items": stage5_items()}
+
+
+def stage5_chapter_payload():
+    items = STAGE5["items"]
+    return {"ok": True, "chapter": STAGE5["chapter"], "status": STAGE5["status"],
+            "raw_sha": STAGE5["raw_sha"], "updated_at": "2026-11-14 15:30:00",
+            "can_apply": all(it["accepted"] is not None for it in items),
+            "items": items}
+
+
+def stage5_list_payload():
+    items = STAGE5["items"]
+    row = {"chapter": STAGE5["chapter"], "status": STAGE5["status"],
+           "items": len(items),
+           "decided": sum(1 for it in items if it["accepted"] is not None),
+           "pending": [it["id"] for it in items if it["accepted"] is None]}
+    return {"ok": True, "chapters": [row],
+            "pending": [row["chapter"]] if row["pending"] else []}
+
+
+def stage5_decide(decisions):
+    items = STAGE5["items"]
+    known = {it["id"]: it for it in items}
+    for k, v in (decisions or {}).items():
+        try:
+            kid = int(k)
+        except (TypeError, ValueError):
+            return None, "裁定项号必须是整数：%r" % (k,)
+        if kid not in known:
+            return None, "第 %d 处不存在" % kid
+        known[kid]["accepted"] = bool(v)
+    done = sum(1 for it in items if it["accepted"] is not None)
+    STAGE5["status"] = "decided" if done == len(items) else ("pending" if done else "ready")
+    return {"chapter": STAGE5["chapter"], "status": STAGE5["status"],
+            "items": len(items), "decided": done,
+            "pending": [it["id"] for it in items if it["accepted"] is None]}, ""
+
+
 def _cand_text(tag, chars):
     para = ("他推门进来的时候，屋檐上的水线正连成了串，地上积了一小滩暗色的水。"
             "她停下脚步，侧过脸朝窗外的天色看了一眼，随即收回视线。")
@@ -940,6 +995,16 @@ class Handler(BaseHTTPRequestHandler):
             n = (self._query().get("n") or ["1"])[0]
             return self._send(200, candidates_payload(n))
 
+        if p == "/review/stage5/list":
+            return self._send(200, stage5_list_payload())
+
+        if p == "/review/stage5/chapter":
+            n = int((self._query().get("n") or ["1"])[0])
+            if n != STAGE5["chapter"]:
+                return self._send(404, {"ok": False,
+                                        "error": "第 %d 章没有待裁定的改稿" % n})
+            return self._send(200, stage5_chapter_payload())
+
         if p == "/chapters/annotations":
             # 段落批注（B5）：三种状态同时给（正常 / 位置变了 / 已失效），
             # 界面才验得出“红黄分得开、失效的确实标红”。
@@ -1267,6 +1332,42 @@ class Handler(BaseHTTPRequestHandler):
         p = self.path.split("?")[0].rstrip("/") or "/"
         n = int(self.headers.get("Content-Length") or 0)
         body = json.loads(self.rfile.read(n).decode("utf-8")) if n else {}
+        if p == "/review/stage5/decide":
+            try:
+                n = int(body.get("chapter"))
+            except (TypeError, ValueError):
+                return self._send(400, {"ok": False, "error": "chapter 必填（整数）"})
+            if n != STAGE5["chapter"]:
+                return self._send(400, {"ok": False, "error": "第 %d 章没有待裁定的改稿" % n})
+            dec = body.get("decisions") or {}
+            if not isinstance(dec, dict) or not dec:
+                return self._send(400, {"ok": False,
+                                        "error": "decisions 必填：{项号: true/false}"})
+            summary, err = stage5_decide(dec)
+            if err:
+                return self._send(400, {"ok": False, "error": err})
+            return self._send(200, {"ok": True, "message": "已记下（mock）", "chapter": summary})
+
+        if p == "/review/stage5/apply":
+            if body.get("all"):
+                applied = 1 if STAGE5["status"] == "decided" else 0
+                return self._send(200, {"ok": True, "applied": applied, "messages": []})
+            try:
+                n = int(body.get("chapter"))
+            except (TypeError, ValueError):
+                return self._send(400, {"ok": False,
+                                        "error": "chapter 必填（整数），或传 all:true"})
+            if n != STAGE5["chapter"]:
+                return self._send(400, {"ok": False, "error": "第 %d 章没有待裁定的改稿" % n})
+            left = [it["id"] for it in STAGE5["items"] if it["accepted"] is None]
+            if left:
+                return self._send(400, {"ok": False,
+                                        "error": "还有 %d 处没定：%s" % (len(left), left)})
+            STAGE5["status"] = "approved"
+            return self._send(200, {"ok": True,
+                                    "message": "第 %d 章已合成（mock）" % n,
+                                    "path": "data/chapters/checked/01.md"})
+
         if p == "/pool/build":
             # 旧段落池重建（2026-11-14）：e2e 只验按钮通路与回显。
             return self._send(200, {"ok": True, "path": "data/paragraph_pool/index.json",
