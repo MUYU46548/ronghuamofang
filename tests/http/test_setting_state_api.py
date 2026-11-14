@@ -152,9 +152,9 @@ def main():
         code, d = req("GET", "/setting/conflicts")
         check("T1b HTTP 200", code == 200, code)
         check("T1b card_count=0（一份卡都没认出来）", d.get("card_count") == 0, d.get("card_count"))
-        check("T1b hint 明说“不是没有冲突，是没扫到”",
-              "认出来" in (d.get("hint") or "") and "没有冲突" in (d.get("hint") or ""),
-              d.get("hint"))
+        hint = d.get("hint") or ""
+        check("T1b hint 说清“0 张卡”与“没报 ≠ 没矛盾”",
+              "认出来" in hint and "没矛盾" in hint, hint)
         shutil.rmtree(str(raw_dir))
         shutil.move(str(stash), str(raw_dir))
         code, d = req("GET", "/setting/conflicts")
