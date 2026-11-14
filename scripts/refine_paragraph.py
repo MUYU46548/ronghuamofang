@@ -609,8 +609,13 @@ def _trim_candidates(mine, cap=None):
     return mine[-cap:] if cap > 0 else []
 
 
-def preview_paragraph(cfg, proj, chapter, paragraph_index, feedback, client=None, root=None):
-    """生成候选但不落盘。返回 (ok, msg, rec)。rec 里是改前/改后与备份位置。"""
+def preview_paragraph(cfg, proj, chapter, paragraph_index, feedback, client=None, root=None,
+                      annotation_id=None):
+    """生成候选但不落盘。返回 (ok, msg, rec)。rec 里是改前/改后与备份位置。
+
+    `annotation_id`（2026-11-14，P0-2）：这条候选是**从哪条批注**改出来的。
+    有了它，点批注就能只看它引起的候选；没有它，批注永远只是“记下来”。
+    """
     ok, msg, backup, version, info = run_paragraph_refine(
         cfg, proj, chapter, paragraph_index, feedback, client=client, preview=True, root=root)
     if not ok:
@@ -633,6 +638,7 @@ def preview_paragraph(cfg, proj, chapter, paragraph_index, feedback, client=None
             # 不用猜“模型是读了全书还是只看了这一段”。
             "context": info.get("context") or [],
             "variant": i + 1,
+            "annotation_id": str(annotation_id or ""),
         }
         mine.append(rec)
     mine = _trim_candidates(mine)

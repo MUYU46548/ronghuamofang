@@ -140,6 +140,38 @@ def case_validation_and_endpoint():
         nf_api.ROOT = old
 
 
+def case_mark_addressed():
+    print()
+    print("【7】批注驱动改稿：改过之后标 addressed（与 resolved 分开）")
+    tmp = Path(tempfile.mkdtemp(prefix="nf_ann_"))
+    item = ann.add(tmp, 3, "这句要收住", 1, PARAS)
+    ok = ann.mark_addressed(tmp, 3, item["id"], cids=["c1", "c2"])
+    d = ann.list_for_chapter(tmp, 3, PARAS)["annotations"][0]
+    check("mark_addressed 返回 True", ok is True)
+    check("状态变 addressed（不是 resolved —— 候选还没采用）",
+          d["status"] == "addressed", d["status"])
+    check("记下这次生成的候选 id", d.get("candidate_cids") == ["c1", "c2"], d.get("candidate_cids"))
+    check("记了时间", bool(d.get("addressed_at")), d.get("addressed_at"))
+    check("未知 id 返回 False（不静默成功）",
+          ann.mark_addressed(tmp, 3, "a-not-exist") is False)
+    check("addressed 还能被作者标为已处理", ann.resolve(tmp, 3, item["id"]) is True)
+    d = ann.list_for_chapter(tmp, 3, PARAS)["annotations"][0]
+    check("最终状态 resolved", d["status"] == "resolved", d["status"])
+
+
+def case_annotation_refine_wiring():
+    print()
+    print("【8】链路接线：端点收 annotation_id，界面有“改这一处”")
+    src = (ROOT / "scripts" / "nf_api_domains" / "refine.py").read_text(encoding="utf-8")
+    check("端点读 annotation_id", 'body.get("annotation_id")' in src)
+    check("成功后标记批注", "mark_addressed" in src)
+    ce = (ROOT / "console" / "src" / "ChapterEditor.vue").read_text(encoding="utf-8")
+    check("界面有“改这一处”按钮", "改这一处" in ce and "refineFromAnnotation" in ce)
+    check("请求带上 annotation_id", "annotation_id: annId" in ce)
+    rp = (ROOT / "scripts" / "refine_paragraph.py").read_text(encoding="utf-8")
+    check("候选记录里带 annotation_id", 'str(annotation_id or "")' in rp)
+
+
 def main():
     case_add_and_stable()
     case_insert_before()
@@ -147,6 +179,8 @@ def main():
     case_quote_deleted()
     case_resolve_and_remove()
     case_validation_and_endpoint()
+    case_mark_addressed()
+    case_annotation_refine_wiring()
     print("\n" + "=" * 60)
     print("  通过 %d / 失败 %d" % (len(PASS), len(FAIL)))
     for f in FAIL:

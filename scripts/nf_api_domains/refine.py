@@ -648,6 +648,9 @@ def handle_paragraph_preview(h, body):
     fb = str(body.get("feedback") or "").strip()
     if not fb:
         return 400, {"ok": False, "error": "feedback 必填（要改什么）"}
+    # 批注驱动改稿（2026-11-14，P0-2）：带 annotation_id 时，候选与这条批注绑定，
+    # 批注状态从 open 变 addressed —— 点批注就能只看它引起的候选。
+    ann_id = str(body.get("annotation_id") or "").strip()
     try:
         cfg, proj = api.load_all()
         from utils.engine import resolve_engine, needs_model_block_reason
@@ -669,7 +672,15 @@ def handle_paragraph_preview(h, body):
         def _fn():
             import refine_paragraph as rp
             ok, msg, rec = rp.preview_paragraph(cfg, proj, ch, pi, fb, client=client,
-                                                root=api.ROOT)
+                                                root=api.ROOT, annotation_id=ann_id)
+            if ok and ann_id:
+                # 标记放这里（job 内部）：同步路径与异步 job 走同一段逻辑。
+                try:
+                    from utils import annotations as ann
+                    ann.mark_addressed(api.ROOT, ch, ann_id,
+                                       cids=[rec.get("cid")] if rec else [])
+                except Exception:                          # noqa: BLE001
+                    pass
             return ok, (msg if not ok else {"message": msg, "rec": rec})
 
         jid, err = api.start_job("preview_para_ch%d_p%d" % (ch, pi), _fn)

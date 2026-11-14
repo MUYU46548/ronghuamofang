@@ -108,6 +108,26 @@ def add(root: str | Path, chapter: int, note: str, para_index: int,
     return item
 
 
+def mark_addressed(root: str | Path, chapter: int, aid: str,
+                   cids: Optional[List[str]] = None) -> bool:
+    """批注被用来改稿之后：open → addressed，并记下这次生成的候选 id。
+
+    为什么不直接标 resolved：**改完不等于作者满意**。候选还没采用，
+    所以这里只记“已经据此改过”，是否处理完仍由作者点“标为已处理”。
+    """
+    items = _load(root, chapter)
+    hit = False
+    for a in items:
+        if a.get("id") == aid:
+            a["status"] = "addressed"
+            a["addressed_at"] = time.strftime("%Y-%m-%d %H:%M")
+            a["candidate_cids"] = list(cids or [])
+            hit = True
+    if hit:
+        _save(root, chapter, items)
+    return hit
+
+
 def resolve(root: str | Path, chapter: int, aid: str) -> bool:
     """把一条批注标成“已处理”（不删，留痕）。"""
     items = _load(root, chapter)

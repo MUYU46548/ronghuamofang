@@ -608,26 +608,33 @@ async function restorePara(h) {
 
 async function submitRefine() {
   if (refining.value) return;
-  if (selPara.value === null) {
+  // 批注驱动改稿（2026-11-14，P0-2）：`override` 从批注列表进来时带段落号与批注内容，
+  // 不去动作者手写的意见框（那条批注本来就该原样交给模型）。
+  const src = override || {};
+  const pi = src.para_index !== undefined && src.para_index !== null
+    ? Number(src.para_index) : selPara.value;
+  const fb = String(src.feedback !== undefined ? src.feedback : feedback.value || "").trim();
+  const annId = src.annotation_id || "";
+  if (pi === null || pi === undefined || Number.isNaN(pi)) {
     emit("say", "先在左边点选一个段落");
     return;
   }
-  if (!feedback.value.trim()) {
+  if (!fb) {
     emit("say", "请写清楚这一段要怎么改（批注会原样交给模型）");
     return;
   }
   refining.value = true;
   refineElapsed.value = 0;
   refineResult.value = null;
-  const pi = selPara.value;          // 记下这一段：job 回来后 loadContent 会清空选中态
   if (dirty.value) emit("say", "提示：正文有未保存改动，模型改的是盘上那一版");
   clearInterval(refineTimer);
   refineTimer = setInterval(() => { refineElapsed.value += 1; }, 1000);
   try {
     const r = await props.api("/chapters/paragraph/preview", "POST", {
       chapter: props.n,
-      paragraph_index: selPara.value,
-      feedback: feedback.value.trim(),
+      paragraph_index: pi,
+      feedback: fb,
+      annotation_id: annId,
     });
     if (r.status !== 202) {
       err.value = (r.data && r.data.error) || ("提交失败 HTTP " + r.status);
@@ -685,6 +692,18 @@ async function submitRefine() {
     refineTimer = null;
     refining.value = false;
   }
+}
+
+async function refineFromAnnotation(a) {
+  if (!a || a.status === "missing") {
+    emit("say", "这条批注引用的原句已经找不到了，先重新选一段再记一次");
+    return;
+  }
+  const pi = a.current_index !== undefined && a.current_index !== null
+    ? a.current_index : a.para_index;
+  selPara.value = Number(pi);
+  emit("say", "按这条批注改第 " + (Number(pi) + 1) + " 段：一次调用出 3 条候选");
+  await submitRefine({ para_index: pi, feedback: a.note, annotation_id: a.id });
 }
 
 async function switchMode(m) {
@@ -1017,9 +1036,19 @@ onUnmounted(() => {
                 <div class="ce-ann-quote" v-if="a.current_text">
                   现在这一段：{{ a.current_text.slice(0, 60) }}…
                 </div>
-                <button v-if="a.status === 'open'" class="mini" @click="resolveAnnotation(a)">
-                  标为已处理
-                </button>
+                <div class="ce-ann-acts">
+                  <!-- 批注 → 改稿（2026-11-14，P0-2）：这条批注就是意见，只改它指的那一段；
+                       生成的候选带 annotation_id，点批注能只看它引起的改动。 -->
+                  <button v-if="a.status !== 'missing'" class="mini primary"
+                          :disabled="refining || !canBatch"
+                          :title="canBatch ? '用这条批注只改这一段（生成候选，正文不动）'
+                                           : '批注只在当前层开放'"
+                          @click="refineFromAnnotation(a)">改这一处</button>
+                  <button v-if="a.status === 'open'" class="mini" @click="resolveAnnotation(a)">
+                    标为已处理
+                  </button>
+                  <span v-else-if="a.status === 'addressed'" class="meta">· 已据此改过，等采用</span>
+                </div>
               </div>
             </div>
           </div>
@@ -1134,6 +1163,7 @@ onUnmounted(() => {
 }
 /* 候选选择器（2026-11-13）：一条一个按钮，最新那条带“最新”。 */
 .ce-cand-pick { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; margin: 6px 0 2px; }
+.ce-ann-acts { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
 .ce-cand-tab { font-size: 11.5px; padding: 1px 8px; }
 .ce-cand-tab.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 18%, transparent); }
 .ce-cand-new { margin-left: 4px; font-size: 9.5px; color: var(--muted); }
