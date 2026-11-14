@@ -425,6 +425,9 @@ body {
   max-width: 220px; font-size: 12px; padding: 5px 8px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+/* 全局“下一步”：描边强调，不填充。一屏只留一个实心主按钮（页面自己的主操作）。 */
+.next-inline .next-cta { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.next-inline .next-cta:hover { background: var(--accent); color: #fff; }
 .agent-mode-badge {
   /* 2026-11-11：原来是 position:absolute 钉在右上角 + 橙色底 + 白字 + 呼吸动画，
      作者原话“太丑了”。现在改成与“自任务”同族的中性药丸，跟着状态区排，
@@ -749,6 +752,14 @@ body {
 .sep-dashed { border-top: 1px dashed var(--border); margin-top: 14px; padding-top: 10px; }
 .focus-accent:focus { border-color: var(--accent); outline: none; }
 
+/* 分组标题（2026-11-14）：一页里既有“每天用的”也有“平时不动的”，
+   用一行小标题把它们分开，别让配置项占着首屏。 */
+.block-title {
+  display: flex; align-items: baseline; gap: 8px;
+  margin: 24px 0 10px; font-size: 13px; font-weight: 600; color: var(--muted);
+}
+.block-title .meta { font-weight: 400; }
+
 /* 收件箱 */
 .empty { color: var(--muted); padding: 26px 0; text-align: center; }
 .gate-card { border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; }
@@ -901,13 +912,15 @@ body {
 .diff-para.para-empty { background: rgba(107, 113, 128, 0.06); min-height: 28px; }
 .para-empty-mark { color: var(--muted); font-style: italic; }
 
-/* toast */
+/* toast：右下角，别压住正文（原来底部居中，正好盖在卡片上）。
+   pointer-events:none —— 它是通知，不该挡住下面的按钮。 */
 .toast {
-  position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%);
+  position: fixed; bottom: 26px; right: 26px;
   /* 反色提示条：底色取 --ink、字色取 --bg，两套主题下都自动成对反色。
      写死 color:#fff 时，暗色主题的 --ink 是浅色 → 浅底白字，读不出来。 */
   background: var(--ink); color: var(--bg); border-radius: 10px;
   padding: 9px 18px; font-size: 13px; z-index: 30; box-shadow: var(--shadow);
+  max-width: 420px; pointer-events: none;
 }
 
 /* 实时流式输出面板 */

@@ -550,12 +550,14 @@ onMounted(() => { loadProducts(); });
     <div class="review-head">
       <h3>审稿 → 修稿（一路走完）</h3>
       <div class="head-actions">
-        <button class="mini" :disabled="loading || props.selfEngine"
+        <!-- 这一页只有一个主操作：运行审查。其余一律次级，别再让“刷新”跟它长得一样。 -->
+        <button class="mini primary" :disabled="loading || props.selfEngine"
                 :title="props.selfEngine ? '当前引擎是自任务（engine: self，不调模型），审查要用模型。切到 direct / hermes 再用，或在外部执行方里跑。' : ''"
                 @click="runReview">
           {{ loading ? "审查中…" : "运行审查" }}
         </button>
-        <button class="mini" @click="loadReport">刷新报告</button>
+        <!-- 有报告才需要“刷新报告”：空态下它跟“还没有报告”正面打架（2026-11-14）。 -->
+        <button v-if="report" class="mini" @click="loadReport">刷新报告</button>
       </div>
     </div>
 
@@ -566,10 +568,10 @@ onMounted(() => { loadProducts(); });
         等你点头的版本
         <span v-if="products.length" class="meta">（{{ products.length }}）</span>
       </h4>
-      <div class="meta prod-note">
-        执行方（agent 或模型）写出来的东西先放在一边，<b>还没进你的稿子</b>。
-        你点“批准”之后，下次运行才会把它换进稿子；点“驳回”你的稿子一个字都不动，
-        那份东西还留着，可以改完再批。
+      <!-- 没有候选时不讲解“怎么批”：空态 + 一段教程 = 认知冲突（2026-11-14）。-->
+      <div v-if="products.length" class="meta prod-note">
+        执行方写出来的东西先放在一边，<b>还没进你的稿子</b>。点“批准”下次运行才换进去；
+        点“驳回”你的稿子一个字不动，那份东西留着，可以改完再批。
       </div>
       <div v-if="prodMsg" class="meta prod-msg">{{ prodMsg }}</div>
       <div v-if="!products.length" class="meta">没有等你点头的版本。</div>
@@ -611,8 +613,8 @@ onMounted(() => { loadProducts(); });
         <button v-if="tsOpen" class="mini" :disabled="tsBusy" @click="loadThreeState">重算</button>
       </div>
       <div class="meta ts-note">
-        把盘上三份稿逐段对齐，说清每一段是在检查那一步没的、还是润色那一步没的。
-        只列事实（对白 / 长旁白 / 与上一段接近重复 / 未分类），<b>不判定这段是废话</b>——该不该删由你判断。
+        三份稿逐段对齐，看每一段是在检查那步没的、还是润色那步没的。
+        只列事实，<b>不判定该不该删</b>。
       </div>
       <div v-if="tsErr" class="meta ts-err">{{ tsErr }}</div>
       <template v-if="tsOpen && ts && ts.exists">
@@ -664,8 +666,7 @@ onMounted(() => { loadProducts(); });
         </button>
       </div>
       <div class="meta ts-note">
-        扫的是成品稿（有润色稿看润色稿，没有就看检查稿、原稿），找<b>没头没尾的句子</b>：
-        单独成句的一个字，以及“包括 / 除了 / 对于……”后面没有主句的半句话。
+        找<b>没头没尾的句子</b>：单独成句的一个字、“包括 / 除了 / 对于……”后面没有主句的半句话。
         对白里的短句不算 —— 那是人物说话。
       </div>
       <div v-if="urErr" class="meta ts-err">{{ urErr }}</div>
@@ -702,9 +703,8 @@ onMounted(() => { loadProducts(); });
         </button>
       </div>
       <div class="meta ts-note">
-        拿章节大纲对一遍正文：<b>涉及角色 / 场景</b>是硬要求（大纲点名、正文里没有就报）；
-        核心事件 / 小目标 / 钩子只比人名地名与编号 —— <b>没出现不等于没写</b>，可能只是换了说法。
-        这一层不给分，只把“要你看一眼”的条目标出来。
+        拿章节大纲对正文：<b>涉及角色 / 场景</b>是硬要求；事件 / 钩子只比人名地名与编号 ——
+        <b>没出现不等于没写</b>。不给分，只标“要你看一眼”的条目。
       </div>
       <div v-if="cfErr" class="meta ts-err">{{ cfErr }}</div>
       <template v-if="cfOpen && cf">
@@ -739,7 +739,11 @@ onMounted(() => { loadProducts(); });
         当前是自任务引擎（engine: self，不调用模型），审查这一步用不了。<br>
         要用它：设置 → 引擎与模型 切到 direct / hermes，或把阶段 5 的任务书交给外部执行方。
       </template>
-      <template v-else>暂无审查报告 —— 点击"运行审查"开始分析章节</template>
+      <template v-else>
+        <div class="empty-title">还没有审查报告</div>
+        <div class="meta">点右上角“运行审查”，模型会逐章读一遍、把问题列出来 —— 这一步要花 token。</div>
+        <div class="meta">上面这几块检查不用等它，现在就能查，不花钱。</div>
+      </template>
     </div>
 
     <!-- 报告内容 -->
@@ -951,6 +955,9 @@ onMounted(() => { loadProducts(); });
   margin-top: 4px; font-size: 13px; line-height: 1.75; white-space: pre-wrap;
   word-break: break-word; max-height: 220px; overflow: auto;
 }
+
+/* 空状态（2026-11-14）：一行灰字说不清“接下来点哪”，给标题 + 明确的下一步。 */
+.empty-title { font-size: 14px; color: var(--ink); margin-bottom: 6px; }
 
 /* 章职能核查（2026-11-14）：一行一个字段，强判据用警示色标出来。 */
 .cf-row { display: flex; align-items: baseline; gap: 8px; padding: 3px 0; }

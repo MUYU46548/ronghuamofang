@@ -5735,7 +5735,9 @@ onUnmounted(() => {
     <!-- 顶栏右侧的“下一步”（2026-11-11，作者要的方案 A）：原来是一条横贯全宽的紫色横幅，
          占一整行、还和 Agent 徽标说同一件事。收成这里一个按钮，完整说明进 title。 -->
     <div v-if="nextAction && !isRunning" class="next-inline">
-      <button class="mini primary" :disabled="nextRunLocked"
+      <!-- 全局“下一步”改成描边强调（2026-11-14）：它原来是实心紫，和页面内的主操作
+           （审稿页的“运行审查”）抢同一个视觉焦点 —— 一屏两个紫按钮，用户不知道点哪个。 -->
+      <button class="mini next-cta" :disabled="nextRunLocked"
               :title="(nextRunLocked ? AGENT_LOCK_HINT : (nextAction.hint || '')) + '｜' + nextAction.label"
               @click="runNextAction">▶ {{ nextAction.label }}</button>
     </div>
@@ -6586,9 +6588,17 @@ onUnmounted(() => {
 
     <!-- 审稿 -->
     <section v-if="tab === 'review'">
+      <!-- 主工作区先上：审查报告 + 三块零花费检查。它才是这一页每天要用的东西。
+           前面原本是两张“配置/空态”面板（阶段 5 裁定、判定基准集），首屏全是它们，
+           真正要干活的地方被挤到第二屏 —— 2026-11-14 调序。 -->
+      <ReviewConsole :self-engine="selfEngine" @goto-refine="switchToRefine" />
+
+      <div class="block-title">
+        前置设置与裁定
+        <span class="meta">（平时不用动：模型改稿逐条裁定、判定基准集）</span>
+      </div>
       <Stage5DiffPanel @say="say" />
       <BenchmarkPanel @say="say" />
-      <ReviewConsole :self-engine="selfEngine" @goto-refine="switchToRefine" />
     </section>
 
     <!-- 精修（段落级定点重写 + 字段级定向改写） -->

@@ -137,13 +137,12 @@ onMounted(load);
       <h3>阶段 5 改稿裁定</h3>
       <span v-if="pending.length" class="pill warn">{{ pending.length }} 章待定</span>
       <span class="spacer"></span>
-      <button class="mini" :disabled="busy" @click="load">刷新</button>
       <button class="mini" :disabled="busy || !pending.length" @click="applyAll">合成全部已定稿</button>
     </div>
 
     <p class="meta">
-      模型改稿先放在这里 <code>data/chapters/checked_pending/</code>，逐条勾“采用/不采用”后才合成
-      <code>data/chapters/checked/</code>。没勾完不会进阶段 6。
+      模型改完的稿子不会直接盖掉你的正文：先列在这里，你逐条点“采用”才合成。
+      没勾完，流水线不会往下走。
     </p>
 
     <div v-if="err" class="err">{{ err }}</div>

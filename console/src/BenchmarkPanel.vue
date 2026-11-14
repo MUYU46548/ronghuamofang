@@ -140,13 +140,11 @@ onMounted(load);
       <span v-if="verified" class="pill ok">已配置 {{ entries.length }} 份</span>
       <span v-else class="pill warn">未配置 · “不误报”无法验证</span>
       <span class="spacer"></span>
-      <button class="mini" :disabled="busy" @click="load">刷新</button>
     </div>
 
     <p class="meta">
       对照稿 = 你自己认可的好稿。判定器拿它做对照，才能说“没误报”。
-      稿子只存在本机项目目录 <code>data/judge/benchmark/</code>，不上传、不进代码仓库，
-      随时可以移除（移除不删原件副本，可恢复）。
+      稿子只存在本机，不上传、不进代码仓库；随时可以移除，移除也不删你给的原件。
     </p>
 
     <div class="disc">
@@ -177,7 +175,7 @@ onMounted(load);
 
       <div class="row">
         <input v-model="name" class="grow" placeholder="给它起个名字（如：圣所改写稿-雨夜段）" />
-        <button class="mini primary" :disabled="busy || !accepted" @click="doImport">导入</button>
+        <button class="mini" :disabled="busy || !accepted" @click="doImport">导入</button>
       </div>
     </div>
 
