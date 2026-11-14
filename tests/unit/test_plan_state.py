@@ -204,6 +204,29 @@ def test_ai_cannot_self_select():
         shutil.rmtree(TMP_ROOT, ignore_errors=True)
 
 
+def test_back_to_idea():
+    print("\n[8] 反悔：已采用 → 构想（画布拖回构想列用这条）")
+    state_p, audit_p = setup()
+    try:
+        iid, _ = propose("反悔测试", "摘要", state_path=state_p, audit_path=audit_p)
+        select(iid, operator="user", reason="先采用", state_path=state_p, audit_path=audit_p)
+        ok, msg, e = transition(iid, STATUS_IDEA, operator="user",
+                                reason="拖回构想列",
+                                state_path=state_p, audit_path=audit_p)
+        check("8.1 selected → idea 合法（不是靠 drop+revive 绕）",
+              ok and e["status"] == STATUS_IDEA, msg)
+        hist = (e.get("transition_history") or [])[-1]
+        check("8.2 历史记下 from/to 与理由（能看出是反悔）",
+              hist.get("from") == STATUS_SELECTED and hist.get("to") == STATUS_IDEA
+              and hist.get("reason") == "拖回构想列", hist)
+        ok, msg, _ = transition(iid, STATUS_IDEA, operator="user",
+                                state_path=state_p, audit_path=audit_p)
+        check("8.3 idea → idea 不合法（拖回原处不该产生动作）",
+              not ok and "非法转换" in (msg or ""), msg)
+    finally:
+        shutil.rmtree(TMP_ROOT, ignore_errors=True)
+
+
 def read_text(p):
     return Path(p).read_text(encoding="utf-8")
 
@@ -216,6 +239,7 @@ def main():
     test_persistence_and_list()
     test_corrupt_state_recovery()
     test_ai_cannot_self_select()
+    test_back_to_idea()
     print("\n总计: %d  通过: %d  失败: %d" % (len(PASS) + len(FAIL), len(PASS), len(FAIL)))
     if FAIL:
         print("失败项: %s" % "；".join(FAIL))

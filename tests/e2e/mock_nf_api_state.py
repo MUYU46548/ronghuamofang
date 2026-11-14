@@ -1249,11 +1249,12 @@ class Handler(BaseHTTPRequestHandler):
                                     "stats": {"books": 7, "chapters": 34,
                                               "paragraphs": 1013,
                                               "skipped_short": 3158, "skipped_long": 0}})
-        if p in ("/plan/select", "/plan/drop", "/plan/revive", "/plan/write"):
+        if p in ("/plan/select", "/plan/drop", "/plan/revive", "/plan/write", "/plan/back"):
             # 规划四态写侧（2026-11-04）：允许来源态与真后端同一套 ——
             # 清单与画布点按钮都走这里，“两个视图是否同源”在验收里看得见。
             target = {"/plan/select": "selected", "/plan/drop": "dropped",
-                      "/plan/revive": "idea", "/plan/write": "written"}[p]
+                      "/plan/revive": "idea", "/plan/back": "idea",
+                      "/plan/write": "written"}[p]
             pid = str(body.get("id") or "")
             ref = str(body.get("ref_path") or "")
             if target == "written" and not ref:

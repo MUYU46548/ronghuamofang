@@ -113,6 +113,9 @@ FORBIDDEN_IN_AGENT_MODE = frozenset({
     "/plan/write",
     "/plan/drop",
     "/plan/revive",
+    # 反悔：已采用 → 构想（2026-11-14，画布拖拽同一条语义）。
+    # 与 select 同族 —— 能自己退回就等于能自己撤销“用过”的痕迹。
+    "/plan/back",
     # 整本否掉（B2，2026-10-31）：与逐句裁定、事件勾选同族 —— 这是**作者的判断**。
     # 外部 Agent 可以读（/judge/report 里带 book_reject），不可以代替作者签字。
     "/judge/book_reject",

@@ -4308,6 +4308,9 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/plan/revive":
                 # 规划四态状态机（丙0）复活（用户专属）
                 self._send(*_dom(dom_plan.handle_revive(self, body)))
+            elif p == "/plan/back":
+                # 反悔：已采用 → 构想（画布上把卡片拖回去）。用户专属。
+                self._send(*_dom(dom_plan.handle_back(self, body)))
             elif p == "/project/create":
                 # 一键新建项目：归档当前 → 初始化空工作区 → 写 project.yaml
                 # 护栏：写前快照（与 /project/init 一致），失败不落地

@@ -119,6 +119,27 @@ def handle_revive(h, body=None):
     return 200, {"ok": True, "message": msg, "entry": entry}
 
 
+def handle_back(h, body=None):
+    """POST /plan/back {id, reason?} → 用户专属：把“已采用”退回“构想”（反悔）。
+
+    为什么需要它：画布上把卡片从“已采用”拖回“构想”就是反悔 —— 状态机里
+    `selected → idea` 本来就是合法转换，但一直没有端点，只能靠“丢弃 + 复活”绕两步，
+    两步之间那条记录就成了“丢弃”，看不出只是反悔。
+    """
+    body = body if isinstance(body, dict) else {}
+    iid = str(body.get("id") or "").strip()
+    reason = str(body.get("reason") or "").strip()
+    if not iid:
+        return _bad_request("id 不能为空")
+    sp, ap = _paths()
+    ok, msg, entry = transition(iid, STATUS_IDEA, operator="user",
+                                reason=reason or "作者反悔，退回构想",
+                                state_path=sp, audit_path=ap)
+    if not ok:
+        return 400, {"ok": False, "error": msg}
+    return 200, {"ok": True, "message": msg, "entry": entry}
+
+
 def handle_list(h):
     """GET /plan/list?status=<idea|selected|written|dropped>"""
     status = h._query().get("status", [None])[0]
@@ -152,6 +173,7 @@ ROUTES = (
     ("POST", "/plan/write", handle_write),
     ("POST", "/plan/drop", handle_drop),
     ("POST", "/plan/revive", handle_revive),
+    ("POST", "/plan/back", handle_back),
     ("GET", "/plan/list", handle_list),
     ("GET", "/plan/get", handle_get),
     ("GET", "/plan/stats", handle_stats),

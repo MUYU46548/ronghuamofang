@@ -28,7 +28,7 @@ const VIEWS = [["list", "清单"], ["canvas", "画布"]];
 // 每种状态能做什么（清单与画布共用同一张表，别写两份）
 const ACTIONS = {
   idea: [["select", "采用", "primary"], ["drop", "丢弃", "bad-btn"]],
-  selected: [["write", "写进正文", "primary"], ["drop", "丢弃", "bad-btn"]],
+  selected: [["write", "写进正文", "primary"], ["back", "退回构想", ""], ["drop", "丢弃", "bad-btn"]],
   dropped: [["revive", "复活回构想", ""]],
 };
 
@@ -93,6 +93,10 @@ async function act(kind, it) {
     } else if (kind === "revive") {
       await post("/plan/revive", { id: it.id, reason: reason.value });
       say(`已复活回构想：${it.title}`);
+    } else if (kind === "back") {
+      // 反悔：已采用 → 构想。与“拖回构想列”是同一条语义。
+      await post("/plan/back", { id: it.id, reason: reason.value });
+      say(`已退回构想：${it.title}`);
     } else if (kind === "write") {
       if (!refPath.value.trim()) return say("先填写进了哪一章（如 data/chapters/raw/03.md）");
       await post("/plan/write", { id: it.id, ref_path: refPath.value.trim(), reason: reason.value });
@@ -105,12 +109,41 @@ async function act(kind, it) {
     // 清单视图按动作跳栏（画布四列都在，不需要跳）
     if (view.value === "list") {
       tab.value = kind === "select" ? "selected" : kind === "drop" ? "dropped"
-        : kind === "revive" ? "idea" : tab.value;
+        : kind === "revive" || kind === "back" ? "idea" : tab.value;
     }
   } catch (e) {
     err.value = String(e.message || e);
   } finally {
     busy.value = false;
+  }
+}
+
+// ---------- 画布拖拽（2026-11-14，P2=A：拖动 = 作者拍板） ----------
+// 为什么允许拖动：点按钮与拖卡片是同一个动作的两种手感。落点即状态：
+// 拖进“已采用”＝采用，拖进“已丢弃”＝丢弃，拖回“构想”＝反悔（selected → idea）。
+// 写进正文例外：它必须指名写到哪一章，拖进来只把输入框打开，绝不静默失败。
+const dragItem = ref(null);
+const dragOver = ref("");
+
+function onDragStart(it, ev) {
+  dragItem.value = it;
+  try {
+    ev.dataTransfer.setData("text/plain", it.id);
+    ev.dataTransfer.effectAllowed = "move";
+  } catch (e) { /* 老环境不支持 dataTransfer，本地状态足够 */ }
+}
+
+async function onDrop(target) {
+  const it = dragItem.value;
+  dragOver.value = "";
+  dragItem.value = null;
+  if (!it || it.status === target) return;
+  if (target === "selected") { await act("select", it); return; }
+  if (target === "dropped") { await act("drop", it); return; }
+  if (target === "idea") { await act(it.status === "dropped" ? "revive" : "back", it); return; }
+  if (target === "written") {
+    openWrite.value = it.id;
+    say("写进正文要指名写到哪一章：填下面的路径再点确认（这一条不能只靠拖）");
   }
 }
 
@@ -134,6 +167,8 @@ onMounted(load);
       AI 提的方案只会停在<b>构想</b>；<b>采用 / 丢弃 / 写进正文</b>都是你的动作。
       外接 Agent 可以提案，但不能替你点这些按钮。清单与画布是同一份数据
       （<code>data/state/plan.json</code>），在哪边点都一样。
+      <b>画布上也可以直接拖</b>：拖进“已采用”＝采用，拖回“构想”＝反悔，
+      拖进“已丢弃”＝丢弃；拖进“已写进正文”会先要你填章路径。
     </p>
 
     <div v-if="err" class="err">{{ err }}</div>
@@ -170,6 +205,7 @@ onMounted(load);
         <template v-else-if="it.status === 'selected'">
           <button class="mini primary" :disabled="busy"
                   @click="openWrite = openWrite === it.id ? '' : it.id">写进正文</button>
+          <button class="mini" :disabled="busy" @click="act('back', it)">退回构想</button>
           <button class="mini bad-btn" :disabled="busy" @click="act('drop', it)">丢弃</button>
           <input v-if="openWrite === it.id" v-model="refPath" class="refpath"
                  placeholder="data/chapters/raw/03.md" />
@@ -186,13 +222,18 @@ onMounted(load);
 
     <!-- ---------- 画布视图（2026-11-04，task-20261104-004）---------- -->
     <div v-else class="canvas" data-testid="plan-canvas">
-      <div v-for="t in TABS" :key="t[0]" class="col" :data-col="t[0]">
+      <div v-for="t in TABS" :key="t[0]" class="col" :data-col="t[0]"
+           :class="{ 'drop-hot': dragOver === t[0] }"
+           @dragover.prevent="dragOver = t[0]"
+           @dragleave="dragOver = (dragOver === t[0] ? '' : dragOver)"
+           @drop.prevent="onDrop(t[0])">
         <div class="col-head">
           <b>{{ t[1] }}</b>
           <span class="n">{{ byStatus[t[0]].length }}</span>
         </div>
         <div v-if="!byStatus[t[0]].length" class="empty">空</div>
-        <div v-for="it in byStatus[t[0]]" :key="it.id" class="tile" :data-id="it.id">
+        <div v-for="it in byStatus[t[0]]" :key="it.id" class="tile" :data-id="it.id"
+             draggable="true" @dragstart="onDragStart(it, $event)">
           <div class="tile-head"><strong>{{ it.title }}</strong></div>
           <div v-if="it.summary" class="tile-sum">{{ it.summary }}</div>
           <div class="meta">{{ it.source || "unknown" }} · {{ it.updated_at || "" }}</div>
@@ -248,4 +289,11 @@ onMounted(load);
             overflow: hidden; }
 .tile .actions { margin-top: 4px; }
 .tile .refpath { width: 100%; }
+/* 拖拽落点：整列高亮，让人知道松手会发生什么 */
+.col.drop-hot {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.tile[draggable="true"] { cursor: grab; }
+.tile[draggable="true"]:active { cursor: grabbing; }
 </style>
