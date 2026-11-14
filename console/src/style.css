@@ -735,6 +735,20 @@ body {
 .spacer { flex: 1; }
 .meta { color: var(--muted); font-size: 12.5px; line-height: 1.8; }
 
+/* ---------------------------------------------------------------
+   布局工具类（2026-11-14，B4 阶段 2）
+   同一组 flex 骨架此前在 20 多个组件里各写一遍（`display:flex; align-items:center; gap:8px`
+   这类），改一处间距得改十几处。这里只定义一次，新面板一律复用，**不要再自己写**。
+   判据：tests/unit/test_ui_unified.py（组件不得重定义全局基础类；工具类不许硬编码颜色）。
+   --------------------------------------------------------------- */
+.row { display: flex; align-items: center; gap: 8px; }
+.row-wrap { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.row-tight { display: flex; align-items: center; gap: 6px; }
+.row-baseline { display: flex; align-items: baseline; gap: 10px; }
+.stack { display: flex; flex-direction: column; gap: 4px; }
+.sep-dashed { border-top: 1px dashed var(--border); margin-top: 14px; padding-top: 10px; }
+.focus-accent:focus { border-color: var(--accent); outline: none; }
+
 /* 收件箱 */
 .empty { color: var(--muted); padding: 26px 0; text-align: center; }
 .gate-card { border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; }

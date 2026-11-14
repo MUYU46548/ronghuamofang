@@ -206,7 +206,6 @@ onMounted(load);
 </template>
 
 <style scoped>
-.card { margin-bottom: 12px; }
 .split { display: grid; grid-template-columns: 190px 1fr; gap: 12px; }
 .list { display: flex; flex-direction: column; gap: 4px; }
 .row { display: flex; align-items: center; gap: 6px; justify-content: flex-start; text-align: left; }

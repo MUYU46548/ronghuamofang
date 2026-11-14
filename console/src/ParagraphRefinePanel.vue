@@ -634,11 +634,6 @@ onMounted(() => {
 .head-hint { font-size: 12px; color: var(--muted); }
 .para-controls { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
 .para-input { padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px; font-size: 13px; width: 100px; }
-.mini { padding: 6px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--card); cursor: pointer; font-size: 13px; color: var(--ink); }
-.mini:hover { background: var(--accent-soft); color: #fff; }
-.mini.primary { background: var(--accent); color: #fff; }
-.mini:disabled { opacity: 0.5; cursor: not-allowed; }
-.mini.danger { background: var(--bad); color: #fff; }
 .para-body { display: flex; gap: 12px; min-height: 450px; }
 
 /* --- 全文视图 --- */

@@ -207,7 +207,6 @@ onMounted(load);
 </template>
 
 <style scoped>
-.card { margin-bottom: 12px; }
 .disc { border: 1px solid var(--border); border-radius: 6px; padding: 8px; margin: 8px 0; }
 .disc-text { font-size: 12px; color: var(--muted-foreground); line-height: 1.6; }
 .ack { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 12px; }

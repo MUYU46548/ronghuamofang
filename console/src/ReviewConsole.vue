@@ -928,27 +928,7 @@ onMounted(() => { loadProducts(); });
   display: flex;
   gap: 8px;
 }
-.mini {
-  padding: 6px 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--card);
-  cursor: pointer;
-  font-size: 13px;
-  color: var(--ink);
-}
-.mini:hover { background: var(--accent-soft); color: #fff; }
-.mini.primary { background: var(--accent); color: #fff; }
-.mini.danger { background: var(--bad); color: #fff; }
-.mini:disabled { opacity: 0.5; cursor: not-allowed; }
 
-.card {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 14px 16px;
-  margin-bottom: 12px;
-}
 .card h4 {
   margin: 0 0 10px;
   font-size: 14px;

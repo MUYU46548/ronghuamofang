@@ -231,7 +231,7 @@ onMounted(load);
           <b>{{ t[1] }}</b>
           <span class="n">{{ byStatus[t[0]].length }}</span>
         </div>
-        <div v-if="!byStatus[t[0]].length" class="empty">空</div>
+        <div v-if="!byStatus[t[0]].length" class="col-empty">空</div>
         <div v-for="it in byStatus[t[0]]" :key="it.id" class="tile" :data-id="it.id"
              draggable="true" @dragstart="onDragStart(it, $event)">
           <div class="tile-head"><strong>{{ it.title }}</strong></div>
@@ -256,7 +256,6 @@ onMounted(load);
 </template>
 
 <style scoped>
-.card { margin-bottom: 12px; }
 .reason { width: 200px; }
 .views { display: inline-flex; gap: 4px; margin-right: 8px; }
 .tabs-sub .n { margin-left: 4px; opacity: 0.7; }
@@ -280,7 +279,7 @@ onMounted(load);
 .col-head { display: flex; align-items: center; justify-content: space-between;
             margin-bottom: 6px; font-size: 13px; }
 .col-head .n { opacity: 0.7; }
-.empty { color: var(--muted-foreground); font-size: 12px; padding: 4px 0; }
+.col-empty { color: var(--muted-foreground); font-size: 12px; padding: 4px 0; }
 .tile { border: 1px solid var(--border); border-radius: 6px; padding: 6px; margin-bottom: 6px;
         background: var(--card); }
 .tile-head { font-size: 13px; }
