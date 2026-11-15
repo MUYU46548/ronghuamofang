@@ -1622,6 +1622,131 @@ def test_stage5_step(browser):
         ctx.close()
 
 
+def mock_json(path):
+    """读假后端的一个只读端点（e2e 回查后端状态用，不碰真仓库）。"""
+    with urllib.request.urlopen(MOCK_API + path, timeout=5) as r:
+        return json.loads(r.read().decode("utf-8"))
+
+
+def test_drafts(browser):
+    """P1-3（2026-11-15）：评论/发言**先存草稿、显式发送才进对话**。
+
+    为什么单独一段：这一类的坏法会让后端用例全绿 —— 输入框关一下就清空、
+    切到另一个主题把草稿串过去、写着写着刷新一下没了、看着像发过了其实没发。
+    所以两头都要断：界面上草稿在不在，以及**后端到底收到没收到**。
+    假后端为此补了 /discuss/*、/review/report、/review/comment 与两个回查端点。
+    """
+    print("\n=== K. 草稿：先存草稿、显式发送才进对话（P1-3）===")
+    ctx, page, errs, bad = new_page(browser, MOCK_API, "drafts")
+    try:
+        # ---------- 1. 章节讨论 ----------
+        page.locator("nav.tabs button", has_text="章节").first.click()
+        page.wait_for_timeout(1500)
+        box = page.locator("details.discuss-box").first
+        box.scroll_into_view_if_needed()
+        page.wait_for_timeout(300)
+        lis = box.locator(".discuss-list li")
+        check("讨论面板列出两条讨论", lis.count() == 2, lis.count())
+
+        lis.nth(0).click()                       # 结局要不要开信
+        page.wait_for_timeout(700)
+        area = box.locator(".discuss-say textarea")
+        area.fill("草稿甲：结局她拆信但不读完")
+        page.wait_for_timeout(300)
+        check("写进框里就标出“草稿，还没说出去”",
+              box.locator(".discuss-actions .pill:has-text('草稿')").count() == 1,
+              box.locator(".discuss-actions").inner_text()[:80])
+
+        lis.nth(1).click()                       # 切到另一条讨论
+        page.wait_for_timeout(700)
+        check("切到另一条讨论，输入框是空的（草稿不串味）",
+              area.input_value() == "", area.input_value())
+        check("另一条讨论上没有“草稿”提示",
+              box.locator(".discuss-actions .pill:has-text('草稿')").count() == 0)
+
+        lis.nth(0).click()                       # 切回来
+        page.wait_for_timeout(700)
+        check("切回来草稿还在（各自一份）",
+              "草稿甲" in area.input_value(), area.input_value())
+
+        says = mock_json("/_mock/discuss_says").get("says") or []
+        check("没点发送 → 后端一条都没收到（写草稿不等于说出去）", says == [], says)
+
+        page.reload(wait_until="domcontentloaded")
+        page.wait_for_timeout(2200)
+        # 注意：刷新后不再调 settle_disclaimer —— 它自己带“首启必弹”的断言，
+        # 而这里 ack 已在 localStorage 里，弹窗**不该**再出现（调用即假红）。
+        page.locator("nav.tabs button", has_text="章节").first.click()
+        page.wait_for_timeout(1500)
+        box = page.locator("details.discuss-box").first
+        box.scroll_into_view_if_needed()
+        lis = box.locator(".discuss-list li")
+        lis.nth(0).click()
+        page.wait_for_timeout(800)
+        area = box.locator(".discuss-say textarea")
+        check("刷新页面后草稿还在（存在本机，不靠内存）",
+              "草稿甲" in area.input_value(), area.input_value())
+        shot(page, "K1_draft_discuss", keep_scroll=True)
+
+        box.locator(".discuss-actions button:has-text('以作者身份说')").first.click()
+        page.wait_for_timeout(900)
+        says = mock_json("/_mock/discuss_says").get("says") or []
+        check("点“以作者身份说”→ 后端真的收到这一轮",
+              len(says) == 1 and "草稿甲" in says[0].get("text", ""), says)
+        check("发送成功后输入框清空、草稿提示消失",
+              area.input_value() == ""
+              and box.locator(".discuss-actions .pill:has-text('草稿')").count() == 0,
+              area.input_value())
+
+        # ---------- 2. 审稿页的评论 ----------
+        page.locator("nav.tabs button", has_text="审稿").first.click()
+        page.wait_for_timeout(1600)
+        panel = page.locator(".card", has=page.locator("h4:text-is('确定性检查汇总')"))
+        check("审稿页读到审查报告（1 章 2 条）", panel.count() == 1, panel.count())
+        page.locator(".chapter-head").first.click()      # 展开第 1 章
+        page.wait_for_timeout(600)
+        rows = page.locator(".finding-row")
+        check("展开后有 2 条审查意见", rows.count() == 2, rows.count())
+
+        rows.nth(0).locator("button:has-text('💬')").click()
+        page.wait_for_timeout(400)
+        cbox = rows.nth(0).locator(".comment-input")
+        cbox.fill("草稿乙：这条因果要补一句过渡")
+        page.wait_for_timeout(300)
+        rows.nth(0).locator("button:has-text('收起')").click()   # 收起（留着草稿）
+        page.wait_for_timeout(400)
+        hint = rows.nth(0).locator(".comment-draft-hint")
+        check("收起输入框后明说“有草稿，还没发送”（不假装已经说过了）",
+              hint.count() == 1 and "还没发送" in hint.inner_text(),
+              hint.inner_text() if hint.count() else "无")
+        shot(page, "K2_draft_comment_closed", keep_scroll=True)
+
+        cmts = mock_json("/_mock/review_comments").get("comments") or []
+        check("收起 ≠ 发送 → 后端一条评论都没收到", cmts == [], cmts)
+
+        rows.nth(0).locator("button:has-text('继续写')").click()
+        page.wait_for_timeout(400)
+        check("“继续写”把刚才那份草稿接回来",
+              "草稿乙" in rows.nth(0).locator(".comment-input").input_value(),
+              rows.nth(0).locator(".comment-input").input_value())
+        shot(page, "K2_draft_comment", keep_scroll=True)
+
+        rows.nth(0).locator(".comment-input-row button:has-text('发送')").click()
+        page.wait_for_timeout(900)
+        cmts = mock_json("/_mock/review_comments").get("comments") or []
+        check("点“发送”→ 后端收到这条评论",
+              len(cmts) == 1 and "草稿乙" in cmts[0].get("text", ""), cmts)
+        check("发送成功后草稿提示消失",
+              rows.nth(0).locator(".comment-draft-hint").count() == 0)
+
+        # 只断**被测端点**（技能里那条）：审稿页别处的 /review/ledger、/review/structure
+        # 假后端本来就没实现，把它们算进来是整页假红。
+        mine = [x for x in bad if "/discuss/" in x or "/review/comment" in x or "/review/report" in x]
+        check("草稿链路没有 4xx", not mine, mine[:3])
+    finally:
+        ctx.close()
+
+
 def main():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=["--no-proxy-server"])
@@ -1633,6 +1758,7 @@ def main():
             test_desk_width(browser)
             test_candidates(browser)
             test_stage5_step(browser)
+            test_drafts(browser)
         finally:
             browser.close()
 

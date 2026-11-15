@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from "vue";
+import { loadDraft, saveDraft, clearDraft, hasDraft, draftKey } from "./draftStore.js";
 
 import { API } from "./apiBase.js";
 // 写请求必须走 guiApi（2026-11-11）：`agent_mode: true` 时写端点要双因子
@@ -48,8 +49,34 @@ function toggleComment(chapterNo, findingId) {
   const key = `${chapterNo}_${findingId}`;
   commenting.value[key] = !commenting.value[key];
   if (commenting.value[key]) {
-    commentText.value[key] = "";
+    // 重开时把这一处的草稿接回来（2026-11-15，P1-3）：
+    // 原来这里写的是 `= ""` —— 关一下输入框，写了一半的评论就没了。
+    commentText.value[key] = loadDraft(commentKey(chapterNo, findingId)).text;
+  } else {
+    saveDraft(commentKey(chapterNo, findingId), commentText.value[key] || "");
   }
+}
+
+/** 评论草稿的存取位置：按“章 + 意见”分开，切到别处不会串味。 */
+function commentKey(chapterNo, findingId) {
+  return draftKey("comment", chapterNo, findingId);
+}
+
+/** 每敲一下就存（localStorage 在本机，零 token、不发请求）。 */
+function keepCommentDraft(chapterNo, findingId) {
+  saveDraft(commentKey(chapterNo, findingId),
+            commentText.value[`${chapterNo}_${findingId}`] || "");
+}
+
+/** 这一条意见上有没有“写了但还没发出去”的草稿。 */
+function commentDraftPending(chapterNo, findingId) {
+  return hasDraft(commentKey(chapterNo, findingId));
+}
+
+/** 收起输入框也留着草稿 —— 界面必须说清“没发出去”，别让人以为说过了。 */
+function closeComment(chapterNo, findingId) {
+  keepCommentDraft(chapterNo, findingId);
+  commenting.value[`${chapterNo}_${findingId}`] = false;
 }
 
 function goToRefine(chapterNo) {
@@ -66,12 +93,14 @@ async function submitComment(chapterNo, findingId) {
     comment: text,
   });
   if (r.status === 200 && r.data.ok) {
-    say("评论已添加");
+    say("评论已发送");
+    // 只有真的发出去了才清草稿（2026-11-15 P1-3）：失败还留着，不然得重打一遍。
+    clearDraft(commentKey(chapterNo, findingId));
     commenting.value[key] = false;
     commentText.value[key] = "";
     await loadReport();
   } else {
-    say("评论失败: " + (r.data.error || r.status));
+    say("评论未发送（草稿还留着）: " + (r.data.error || r.status));
   }
 }
 
@@ -832,22 +861,30 @@ onMounted(() => { loadProducts(); });
                 placeholder="补充意见（可选）"
               />
             </div>
-            <!-- 评论列表 + 输入框 -->
-            <div v-if="f.comments?.length || commenting[`${c.n}_${f.id}`]" class="comment-section">
+            <!-- 评论列表 + 输入框（P1-3：写在框里的是草稿，点“发送”才进对话） -->
+            <div v-if="f.comments?.length || commenting[`${c.n}_${f.id}`] || commentDraftPending(c.n, f.id)"
+                 class="comment-section">
               <div v-for="(cm, ci) in (f.comments || [])" :key="ci" class="comment-item">
                 <span class="comment-user">{{ cm.user }}</span>
                 <span class="comment-time">{{ cm.time }}</span>
                 <div class="comment-text">{{ cm.text }}</div>
               </div>
+              <!-- 收起状态但有草稿：明说“没发出去”，别让人以为说过了 -->
+              <div v-if="!commenting[`${c.n}_${f.id}`] && commentDraftPending(c.n, f.id)"
+                   class="comment-draft-hint">
+                <span class="pill draft">有草稿，还没发送</span>
+                <button class="mini" @click="toggleComment(c.n, f.id)">继续写</button>
+              </div>
               <div v-if="commenting[`${c.n}_${f.id}`]" class="comment-input-row">
                 <input
                   v-model="commentText[`${c.n}_${f.id}`]"
                   class="comment-input"
-                  placeholder="添加评论..."
+                  placeholder="写评论（先存草稿，点“发送”才进对话）"
+                  @input="keepCommentDraft(c.n, f.id)"
                   @keyup.enter="submitComment(c.n, f.id)"
                 />
                 <button class="mini primary" @click="submitComment(c.n, f.id)">发送</button>
-                <button class="mini" @click="commenting[`${c.n}_${f.id}`] = false">取消</button>
+                <button class="mini" @click="closeComment(c.n, f.id)">收起（留着草稿）</button>
               </div>
             </div>
           </div>
@@ -1235,5 +1272,20 @@ onMounted(() => { loadProducts(); });
 .comment-input:focus {
   outline: none;
   border-color: var(--accent);
+}
+/* 草稿提示（P1-3）：收起时也必须看得出“写了但还没发出去” */
+.comment-draft-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+/* 状态比辅助说明显眼一档（浅灰底那一档在浅色主题下太弱） */
+.pill.draft {
+  color: var(--ink-warn);
+  background: color-mix(in srgb, var(--warn) 24%, var(--field));
+  border: 1px solid var(--warn);
+  font-weight: 600;
 }
 </style>

@@ -7,7 +7,7 @@
 
     <div class="discuss-row">
       <label>第
-        <input v-model.number="chapter" type="number" min="1" class="discuss-no" @change="load" />
+        <input v-model.number="chapter" type="number" min="1" class="discuss-no" @change="switchChapter" />
         章</label>
       <button class="mini" @click="load" title="读这一章的讨论">刷新</button>
       <button class="mini" @click="openNew" :disabled="!chapter || !newTopic.trim()"
@@ -34,10 +34,12 @@
 
         <div v-if="picked" class="discuss-say">
           <textarea v-model="sayText" rows="3"
-                    placeholder="这一轮说什么（AI 的建议 / 作者的取舍）"></textarea>
+                    @input="keepSayDraft"
+                    placeholder="这一轮说什么（先存草稿，点下面的按钮才进讨论）"></textarea>
           <div class="discuss-actions">
             <button class="mini primary" @click="say('author')" :disabled="!sayText.trim()">以作者身份说</button>
             <button class="mini" @click="say('ai')" :disabled="!sayText.trim()">以 AI 身份说</button>
+            <span v-if="sayDraftPending" class="pill draft">草稿，还没说出去</span>
             <span class="muted">轮次只追加，不改写历史。</span>
           </div>
         </div>
@@ -61,6 +63,7 @@
 
 <script setup>
 import { computed, ref, watch } from "vue";
+import { loadDraft, saveDraft, clearDraft, hasDraft, draftKey } from "./draftStore.js";
 
 const props = defineProps({
   api: { type: Function, required: true },
@@ -80,6 +83,31 @@ const deciding = ref(false);
 const dec = ref({ must: "", must_not: "", voice: "", plant: "", payoff: "", summary: "" });
 
 const pending = computed(() => threads.value.filter((t) => t.status !== "decided").length);
+
+/* ---------- 发言草稿（P1-3，2026-11-15） ----------
+   为什么按“章 + 主题”分开存：原来是一个共用的 sayText —— 在主题 A 写了一半，
+   切到主题 B 它还在，一不小心就以 B 的名义说出去了。现在各自一份草稿，
+   切回来能接着写，切换时先把上一份存回去。 */
+function sayKey() {
+  return draftKey("discuss", chapter.value, picked.value);
+}
+
+function restoreSay() {
+  sayText.value = picked.value ? loadDraft(sayKey()).text : "";
+}
+
+function keepSayDraft() {
+  if (picked.value) saveDraft(sayKey(), sayText.value);
+}
+
+const sayDraftPending = computed(() => !!picked.value && hasDraft(sayKey()));
+
+/** 换章：先把这一章这份草稿存回去，再读新章。 */
+function switchChapter() {
+  keepSayDraft();
+  sayText.value = "";
+  load();
+}
 
 function nums(list) {
   return (list || []).map((c) => (typeof c === "number" ? c : c && (c.n || c.chapter))).filter(Boolean);
@@ -103,6 +131,7 @@ async function load() {
     if (picked.value && !threads.value.some((t) => t.topic === picked.value)) {
       picked.value = "";
       text.value = "";
+      sayText.value = "";
     }
   } catch (e) {
     msg.value = "读讨论失败：" + e.message;
@@ -110,7 +139,9 @@ async function load() {
 }
 
 async function pick(t) {
+  keepSayDraft();                    // 切走之前，先把当前主题的草稿存回去
   picked.value = t.topic;
+  restoreSay();                      // 再把这一份草稿接回来（各自的互不串）
   try {
     const d = payload(await props.api(
       `/discuss/read?chapter=${chapter.value}&topic=${encodeURIComponent(t.topic)}`));
@@ -138,15 +169,17 @@ async function openNew() {
 
 async function say(role) {
   if (!sayText.value.trim() || !picked.value) return;
+  const key = sayKey();
   try {
     payload(await props.api("/discuss/say", "POST",
       { chapter: chapter.value, topic: picked.value, role, text: sayText.value.trim() }));
+    clearDraft(key);                 // 只有真发出去了才清草稿
     sayText.value = "";
     await pick({ topic: picked.value });
     await load();
     msg.value = role === "ai" ? "已追加一轮（AI）" : "已追加一轮（作者）";
   } catch (e) {
-    msg.value = "追加失败：" + e.message;
+    msg.value = "没发出去（草稿还留着）：" + e.message;
   }
 }
 
@@ -205,7 +238,15 @@ load();
 .discuss-say textarea, .discuss-decide textarea {
   width: 100%; box-sizing: border-box; margin-top: 6px; font-size: 12px; padding: 6px;
   resize: vertical; }
-.discuss-actions { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+.discuss-actions { display: flex; gap: 8px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
+/* 草稿标记：浅灰底那一档在浅色主题下太弱（目检 2026-11-15 提的），
+   这是“没发出去”的状态，必须比辅助说明显眼，但不用红色（红色留给失败）。 */
+.pill.draft {
+  color: var(--ink-warn);
+  background: color-mix(in srgb, var(--warn) 24%, var(--field));
+  border: 1px solid var(--warn);
+  font-weight: 600;
+}
 .discuss-msg { margin-top: 6px; font-size: 12px; color: var(--muted); }
 .muted { color: var(--muted); font-size: 12px; }
 @media (max-width: 900px) { .discuss-body { grid-template-columns: 1fr; } }

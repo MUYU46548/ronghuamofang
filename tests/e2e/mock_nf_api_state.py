@@ -210,6 +210,19 @@ LOGS = {"ok": True, "exists": True,
 
 DISCUSS = {"items": [], "stats": {"pending": 1, "approved": 0, "rejected": 0}}
 
+# 章节讨论（/discuss/*）：审稿页之外唯一带“草稿”的一处（P1-3 验收用）。
+# 有状态是必须的 —— 验的是“说出去才进讨论”，无状态下发了和没发一样。
+DISCUSS_THREADS = [
+    {"chapter": 1, "topic": "结局要不要开信", "status": "open", "rounds": 2},
+    {"chapter": 1, "topic": "第二场戏的节奏", "status": "open", "rounds": 1},
+]
+DISCUSS_TEXT = {
+    "结局要不要开信": "# 结局要不要开信\n\n第 1 轮（作者）：结局里她拆开那封信。\n\n第 2 轮（AI）：拆开但不读完，留半句。\n",
+    "第二场戏的节奏": "# 第二场戏的节奏\n\n第 1 轮（作者）：第二场太赶，要慢下来。\n",
+}
+DISCUSS_SAYS = []      # 真的发出去了的发言（e2e 回查“显式发送才进对话”）
+REVIEW_COMMENTS = []   # 真的发出去的审稿评论（同上）
+
 # 规划四态（2026-11-04，task-20261104-004）：画布视图的验收要有真数据。
 # **有状态**：POST select/drop/write/revive 改这里，GET /plan/list 读同一份 ——
 # 这样“在画布上点采用 → 卡片真的换列”才是真链路，而不是静态截图。
@@ -1016,6 +1029,53 @@ class Handler(BaseHTTPRequestHandler):
             n = (self._query().get("n") or ["1"])[0]
             return self._send(200, candidates_payload(n))
 
+        if p == "/review/report":
+            # 审稿报告（P1-3 验收用）：1 章 2 条发现 —— 评论框才点得到，
+            # 才验得了“写在框里是草稿、点发送才进对话”。
+            return self._send(200, {
+                "chapters": [{
+                    "n": 1,
+                    "findings": [
+                        {"id": "f1", "type": "logic", "severity": "high",
+                         "detail": "第二段的因果链断了：她先拒绝，后文却说她已经答应。"},
+                        {"id": "f2", "type": "style", "severity": "low",
+                         "detail": "这一段连续四句以“他”开头。"},
+                    ],
+                }],
+                "deterministic": {"1": {"title": "验收章", "word_count": 4200,
+                                        "word_ok": True, "quality": 7,
+                                        "style_issues": []}},
+                "generated_at": "2026-11-15 10:00:00",
+            })
+
+        if p == "/review/decisions":
+            return self._send(200, {"ok": True, "decisions": []})
+
+        if p == "/_mock/review_comments":
+            return self._send(200, {"ok": True, "comments": REVIEW_COMMENTS})
+
+        if p == "/_mock/discuss_says":
+            # 只给 e2e 用：回查“说出去的那几轮”到底有没有到后端 ——
+            # 前端只看 DOM 断不出“发出去了”和“只改了本地草稿”。
+            return self._send(200, {"ok": True, "says": DISCUSS_SAYS})
+
+        if p == "/discuss/list":
+            try:
+                ch = int((self._query().get("chapter") or ["0"])[0]) or None
+            except (TypeError, ValueError):
+                ch = None
+            rows = [t for t in DISCUSS_THREADS if ch is None or t["chapter"] == ch]
+            return self._send(200, {"ok": True, "count": len(rows), "threads": rows})
+
+        if p == "/discuss/read":
+            ch = (self._query().get("chapter") or ["1"])[0]
+            topic = (self._query().get("topic") or [""])[0]
+            if topic not in DISCUSS_TEXT:
+                return self._send(404, {"ok": False, "error": "没有这个讨论：%s" % topic})
+            return self._send(200, {"ok": True, "chapter": int(ch), "topic": topic,
+                                    "state": {"status": "open"},
+                                    "text": DISCUSS_TEXT[topic]})
+
         if p == "/review/stage5/list":
             return self._send(200, stage5_list_payload())
 
@@ -1353,6 +1413,47 @@ class Handler(BaseHTTPRequestHandler):
         p = self.path.split("?")[0].rstrip("/") or "/"
         n = int(self.headers.get("Content-Length") or 0)
         body = json.loads(self.rfile.read(n).decode("utf-8")) if n else {}
+        if p == "/review/comment":
+            body = body or {}
+            txt = str(body.get("comment") or "").strip()
+            if not txt:
+                return self._send(400, {"ok": False, "error": "comment 必填"})
+            REVIEW_COMMENTS.append({"chapter": body.get("chapter"),
+                                    "finding_id": body.get("finding_id"),
+                                    "text": txt})
+            return self._send(200, {"ok": True, "count": len(REVIEW_COMMENTS)})
+
+        if p == "/discuss/open":
+            body = body or {}
+            ch = int(body.get("chapter") or 1)
+            topic = str(body.get("topic") or "").strip()
+            if not topic:
+                return self._send(400, {"ok": False, "error": "topic 必填"})
+            if not any(t["topic"] == topic for t in DISCUSS_THREADS):
+                DISCUSS_THREADS.append({"chapter": ch, "topic": topic,
+                                        "status": "open", "rounds": 0})
+                DISCUSS_TEXT[topic] = "# %s\n" % topic
+            return self._send(200, {"ok": True, "chapter": ch, "topic": topic})
+
+        if p == "/discuss/say":
+            body = body or {}
+            topic = str(body.get("topic") or "").strip()
+            text = str(body.get("text") or "").strip()
+            role = str(body.get("role") or "author")
+            if topic not in DISCUSS_TEXT:
+                return self._send(404, {"ok": False, "error": "没有这个讨论：%s" % topic})
+            if not text:
+                return self._send(400, {"ok": False, "error": "text 必填"})
+            DISCUSS_SAYS.append({"chapter": body.get("chapter"), "topic": topic,
+                                 "role": role, "text": text})
+            DISCUSS_TEXT[topic] += "\n第 %d 轮（%s）：%s\n" % (
+                len([s for s in DISCUSS_SAYS if s["topic"] == topic]) + 2,
+                "AI" if role == "ai" else "作者", text)
+            for t in DISCUSS_THREADS:
+                if t["topic"] == topic:
+                    t["rounds"] += 1
+            return self._send(200, {"ok": True, "rounds": len(DISCUSS_SAYS)})
+
         if p == "/review/stage5/decide":
             try:
                 n = int(body.get("chapter"))
