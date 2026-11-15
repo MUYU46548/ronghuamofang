@@ -30,10 +30,21 @@ const hint = ref("");
 
 const pending = computed(() => rows.value.filter((r) => r.pending && r.pending.length));
 const items = computed(() => (current.value && current.value.items) || []);
-const total = computed(() => items.value.length);
-const item = computed(() => items.value[idx.value] || null);
-const decided = computed(() => items.value.filter((it) => it.accepted != null).length);
+/**
+ * 待裁定的项 = 去掉“只改了标点/空白”的项（P1-2，2026-11-15）。
+ * 那些项不单独占一格：它们挂在最近的一处实质改动上，那一处怎么定它们就怎么走。
+ * 后端把挂靠关系写在 `folded_into` / `folds` 里，这里只负责不显示它们。
+ */
+const live = computed(() => items.value.filter((it) => !it.folded_into));
+const total = computed(() => live.value.length);
+const item = computed(() => live.value[idx.value] || null);
+const decided = computed(() => live.value.filter((it) => it.accepted != null).length);
 const remaining = computed(() => total.value - decided.value);
+/** 当前这一处顺带改了哪几处标点/空白（展开给人看，不藏）。 */
+const foldedHere = computed(() =>
+  item.value ? items.value.filter((it) => it.folded_into === item.value.id) : []
+);
+const foldedAll = computed(() => items.value.length - live.value.length);
 
 function say(msg) {
   hint.value = msg;
@@ -52,13 +63,13 @@ async function post(path, body) {
 }
 
 function clamp() {
-  const n = items.value.length;
+  const n = live.value.length;
   idx.value = !n ? 0 : Math.min(Math.max(idx.value, 0), n - 1);
 }
 
 /** 从 from 开始找下一处还没定的；没有就返回 -1。 */
 function nextUndecided(from) {
-  const list = items.value;
+  const list = live.value;
   for (let i = Math.max(from, 0); i < list.length; i++) {
     if (list[i].accepted == null) return i;
   }
@@ -247,6 +258,9 @@ onMounted(load);
         <div v-if="!total" class="meta">模型没有改动这一章，合成结果与原文一致。</div>
 
         <template v-else>
+          <p v-if="foldedAll" class="meta folded-note">
+            另有 {{ foldedAll }} 处只是标点/空白的调整，已并入最近一处的决定（不单独占一格）。
+          </p>
           <!-- 步进条：一次只看一处，上一处 / 下一处 + 计数 -->
           <div class="step-bar">
             <button class="mini" :disabled="busy || idx <= 0" @click="step(-1)">‹ 上一处</button>
@@ -261,7 +275,7 @@ onMounted(load);
           <!-- 一处一格：颜色 + 勾/叉，点哪格看哪处（长章不必靠盲翻；不靠颜色也分得清） -->
           <div class="chips">
             <button
-              v-for="(it, i) in items"
+              v-for="(it, i) in live"
               :key="it.id"
               class="chip"
               :class="chipClass(it, i)"
@@ -295,6 +309,17 @@ onMounted(load);
               <button class="mini bad-btn" :disabled="busy" @click="decide(item, false)">保留原文</button>
               <span class="meta">定完这一处，自动跳到下一处没定的</span>
             </div>
+            <details v-if="foldedHere.length" class="folds">
+              <summary>
+                这一处顺带改了 {{ foldedHere.length }} 处标点/空白（跟着这一处走，不单独占一格）
+              </summary>
+              <div v-for="f in foldedHere" :key="f.id" class="fold">
+                <div v-if="f.old" class="blk-label">附：这一处的原文</div>
+                <pre v-if="f.old">{{ f.old }}</pre>
+                <div v-if="f.new" class="blk-label">附：这一处的改后</div>
+                <pre v-if="f.new">{{ f.new }}</pre>
+              </div>
+            </details>
           </div>
         </template>
       </div>
@@ -346,6 +371,13 @@ onMounted(load);
 pre { white-space: pre-wrap; margin: 4px 0; font-family: inherit; }
 .actions { display: flex; align-items: center; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
 .err { color: var(--bad); margin: 6px 0; }
+.folded-note { margin: 0 0 6px; }
+.folds { margin-top: 8px; border-top: 1px dashed var(--border); padding-top: 6px; }
+.folds summary { cursor: pointer; font-size: 12.5px; color: var(--muted); }
+.folds summary:hover { color: var(--ink-accent); }
+.fold { margin: 6px 0 0; padding: 4px 8px; border-left: 2px solid var(--border);
+        border-radius: 4px; background: color-mix(in srgb, var(--border) 16%, transparent); }
+.fold pre { font-size: 12.5px; color: var(--muted); }
 /* 采用/保留这两个按钮是这一屏的主要动作，用深一档的墨色，不用浅绿浅红（对比度不够） */
 .ok-btn { color: var(--ink-ok); font-weight: 600; }
 .bad-btn { color: var(--ink-bad); font-weight: 600; }

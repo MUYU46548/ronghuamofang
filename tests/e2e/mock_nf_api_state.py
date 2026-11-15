@@ -307,10 +307,14 @@ ANN = {"items": [
 
 
 def stage5_items():
-    """一处一格：三种 kind 都在场（新增 / 改写 / 删除），8 处。
+    """一处一格：三种 kind 都在场（新增 / 改写 / 删除），8 处待定 + 1 处并入的标点。
 
     有状态是必须的 —— 验收的是“定一处 → 自动跳到下一处没定的”；
     无状态的话界面永远停在第 1 处，截图看着对、其实一条逻辑都没跑。
+
+    第 9 项是**只改了标点/空白**的那一项（P1-2，2026-11-15）：后端会把它并到
+    最近的实质改动（第 2 处）上，`folded_into` 就是那条线。留一项在夹具里，
+    才能验“界面不为它多给一格、也不让它算进未定数”。
     """
     out = []
     for i in range(1, 9):
@@ -318,6 +322,11 @@ def stage5_items():
         old = ("他推门进来的时候，屋檐上的水线正连成了串，地上积了一小滩暗色的水。" if kind != "insert" else "")
         new = ("他推开门，檐上的水线连成了串，阶前积出一小滩暗色。" if kind != "delete" else "")
         out.append({"id": i, "kind": kind, "old": old, "new": new, "accepted": None})
+    out.append({"id": 9, "kind": "replace", "folded_into": 2,
+                "old": "她停下脚步，侧过脸看了他一眼。",
+                "new": "她停下脚步，侧过脸看了他一眼！",
+                "accepted": None})
+    out[1]["folds"] = [9]
     return out
 
 
@@ -325,20 +334,28 @@ STAGE5 = {"chapter": 1, "status": "ready", "raw_sha": "9f2c1ab7",
           "items": stage5_items()}
 
 
+def _live_items(items):
+    """待裁定的项（并入标点项不算）—— 与 stage5_gate.actionable 同口径。"""
+    return [it for it in items if not it.get("folded_into")]
+
+
 def stage5_chapter_payload():
     items = STAGE5["items"]
+    live = _live_items(items)
     return {"ok": True, "chapter": STAGE5["chapter"], "status": STAGE5["status"],
             "raw_sha": STAGE5["raw_sha"], "updated_at": "2026-11-14 15:30:00",
-            "can_apply": all(it["accepted"] is not None for it in items),
+            "can_apply": all(it["accepted"] is not None for it in live),
             "items": items}
 
 
 def stage5_list_payload():
     items = STAGE5["items"]
+    live = _live_items(items)
     row = {"chapter": STAGE5["chapter"], "status": STAGE5["status"],
-           "items": len(items),
-           "decided": sum(1 for it in items if it["accepted"] is not None),
-           "pending": [it["id"] for it in items if it["accepted"] is None]}
+           "items": len(live),
+           "decided": sum(1 for it in live if it["accepted"] is not None),
+           "pending": [it["id"] for it in live if it["accepted"] is None],
+           "folded": len(items) - len(live)}
     return {"ok": True, "chapters": [row],
             "pending": [row["chapter"]] if row["pending"] else []}
 
@@ -353,12 +370,16 @@ def stage5_decide(decisions):
             return None, "裁定项号必须是整数：%r" % (k,)
         if kid not in known:
             return None, "第 %d 处不存在" % kid
+        if known[kid].get("folded_into"):
+            host = int(known[kid]["folded_into"])
+            return None, "第 %d 处只改了标点/空白，已并入第 %d 处；改判请定第 %d 处" % (kid, host, host)
         known[kid]["accepted"] = bool(v)
-    done = sum(1 for it in items if it["accepted"] is not None)
-    STAGE5["status"] = "decided" if done == len(items) else ("pending" if done else "ready")
+    live = _live_items(items)
+    done = sum(1 for it in live if it["accepted"] is not None)
+    STAGE5["status"] = "decided" if done == len(live) else ("pending" if done else "ready")
     return {"chapter": STAGE5["chapter"], "status": STAGE5["status"],
-            "items": len(items), "decided": done,
-            "pending": [it["id"] for it in items if it["accepted"] is None]}, ""
+            "items": len(live), "decided": done,
+            "pending": [it["id"] for it in live if it["accepted"] is None]}, ""
 
 
 def _cand_text(tag, chars):
@@ -1359,7 +1380,7 @@ class Handler(BaseHTTPRequestHandler):
                                         "error": "chapter 必填（整数），或传 all:true"})
             if n != STAGE5["chapter"]:
                 return self._send(400, {"ok": False, "error": "第 %d 章没有待裁定的改稿" % n})
-            left = [it["id"] for it in STAGE5["items"] if it["accepted"] is None]
+            left = [it["id"] for it in _live_items(STAGE5["items"]) if it["accepted"] is None]
             if left:
                 return self._send(400, {"ok": False,
                                         "error": "还有 %d 处没定：%s" % (len(left), left)})

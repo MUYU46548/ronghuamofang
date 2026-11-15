@@ -57,6 +57,106 @@ def setup(tmp: Path):
     (tmp / "data" / "chapters" / "checked_pending" / "03.md").write_text(PROP, encoding="utf-8")
 
 
+def _test_format_fold():
+    """P1-2（2026-11-15）：只改标点/空白的项并入最近的实质改动。
+
+    为什么单独锁：这条规则的正向效果（少点几次按钮）和反向风险（**悄悄丢掉**
+    模型对某处的改法、或让作者为标点单独点一次）都不在别处可见。断言固定四件：
+    挂靠对象正确、计数据实质项算、取舍跟着挂靠项走、没有挂靠处时不乱并。
+    """
+    print("== 9. 只改标点/空白的项并入最近的实质改动（P1-2）==")
+
+    print("-- 9.1 就近挂靠（不是等距时取更近的那个）--")
+    raw = "\n\n".join(["甲一。", "甲二。", "甲三。", "甲四。", "甲五。", "甲六。", "甲七。"])
+    prop = "\n\n".join(["甲一改了。", "甲二也改了。", "甲三。", "甲四！", "甲五。", "甲六。",
+                        "甲七，结尾补一句。"])
+    items, _ = G._plan(raw, prop)
+    kinds = [(it["id"], bool(it.get("folded_into"))) for it in items]
+    check("4 项，其中 1 项被并入", len(items) == 4 and sum(f for _, f in kinds) == 1, kinds)
+    folded = [it for it in items if it.get("folded_into")]
+    check("只改标点的那一项挂到前一处实质改动（第 2 处）",
+          bool(folded) and folded[0]["folded_into"] == 2,
+          [(it["id"], it.get("folded_into")) for it in folded])
+    check("挂靠项的 folds 里能查到它",
+          sorted(items[1].get("folds") or []) == [it["id"] for it in folded],
+          items[1].get("folds"))
+    check("待裁定的项只有实质改动（3 项）", len(G.actionable(items)) == 3,
+          [it["id"] for it in G.actionable(items)])
+
+    print("-- 9.2 等距时挂前面那一处（作者是从上往下看的）--")
+    raw2 = "\n\n".join(["他推门进来，屋里没人。", "桌上摆着一碗面。", "窗外的雨还没停。"])
+    prop2 = "\n\n".join(["他推开门进来，屋里没有人。", "桌上摆着一碗面！", "窗外的雨还没停，屋檐在滴水。"])
+    items2, _ = G._plan(raw2, prop2)
+    check("前后各一处实质改动时，标点项挂到前一处",
+          len(items2) == 3 and items2[1].get("folded_into") == items2[0]["id"],
+          [(it["id"], it.get("folded_into")) for it in items2])
+
+    print("-- 9.3 取舍跟着挂靠项走（采用 / 不采用都验）--")
+    tmp = Path(tempfile.mkdtemp(prefix="s5fold_"))
+    try:
+        for d in ("data/chapters/raw", "data/chapters/checked_pending",
+                  "data/chapters/checked", "data/review/stage5"):
+            (tmp / d).mkdir(parents=True)
+        (tmp / "data/chapters/raw/07.md").write_text(raw2, encoding="utf-8")
+        (tmp / "data/chapters/checked_pending/07.md").write_text(prop2, encoding="utf-8")
+        meta = G.write_proposal(7, root=tmp)
+        host = [it for it in meta["items"] if not it.get("folded_into")][0]["id"]
+        punct = [it for it in meta["items"] if it.get("folded_into")]
+        check("落盘的 meta 带 folded_into", len(punct) == 1, meta["items"])
+
+        ok, msg, _ = G.decide(7, {punct[0]["id"]: True}, root=tmp)
+        check("直接给并入项下裁定被拒，并说清该定哪一处",
+              ok is False and ("并入第 %d 处" % host) in msg, msg)
+
+        others = {it["id"]: False for it in G.actionable(meta) if it["id"] != host}
+        dec = dict(others)
+        dec[host] = True
+        G.decide(7, dec, root=tmp)
+        ok, msg, p = G.apply_chapter(7, root=tmp)
+        got = p.read_text(encoding="utf-8") if p else ""
+        check("采用挂靠项 → 那处标点改法一起进成品",
+              ok and "桌上摆着一碗面！" in got, got[:120])
+
+        # 反证：不采用挂靠项 → 标点改法也不能溜进成品
+        (tmp / "data/review/stage5/07.json").unlink()
+        (tmp / "data/chapters/checked/07.md").unlink()
+        meta = G.write_proposal(7, root=tmp)
+        host = [it for it in meta["items"] if not it.get("folded_into")][0]["id"]
+        dec = {it["id"]: True for it in G.actionable(meta) if it["id"] != host}
+        dec[host] = False
+        G.decide(7, dec, root=tmp)
+        ok, msg, p = G.apply_chapter(7, root=tmp)
+        got = p.read_text(encoding="utf-8") if p else ""
+        check("不采用挂靠项 → 标点改法也不进成品（程序没自作主张）",
+              ok and "桌上摆着一碗面！" not in got and "桌上摆着一碗面。" in got, got[:120])
+
+        print("-- 9.4 计数据实质项算（并入的不占一格、也不算未定）--")
+        rows = G.list_all(root=tmp)
+        row = rows[0]
+        check("list_all 的 items 只数实质项",
+              row["items"] == len(G.actionable(G.load(7, root=tmp))), row)
+        check("并入的项单列成 folded 计数，不混进未定清单",
+              row["folded"] == 1 and row["pending"] == [], row)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+    print("-- 9.5 没有可挂靠的地方时不许乱并 --")
+    raw3 = "桌上摆着一碗面。\n\n窗外的雨还没停。"
+    prop3 = "桌上摆着一碗面！\n\n窗外的雨还没停？"
+    items3, _ = G._plan(raw3, prop3)
+    check("全章只有标点改动 → 两项都留给人定（不悄悄丢掉）",
+          len(items3) == 2 and not any(it.get("folded_into") for it in items3),
+          items3)
+
+    print("-- 9.6 段落拆并仍单独成项（边界，如实声明）--")
+    raw4 = "他一口气说了很长的一段话，中间的停顿都省了。"
+    prop4 = "他一口气说了很长的一段话。\n\n中间的停顿都省了。"
+    items4, _ = G._plan(raw4, prop4)
+    check("一段拆两段 → 两项都是实质改动",
+          len(items4) == 2 and not any(it.get("folded_into") for it in items4),
+          items4)
+
+
 def main() -> int:
     tmp = Path(tempfile.mkdtemp(prefix="s5gate_"))
     try:
@@ -120,6 +220,8 @@ def main() -> int:
         check("list_all 返回第 3 章", [r["chapter"] for r in rows] == [3], rows)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+
+    _test_format_fold()
 
     print("== 8. API 层：清单 / 详情 / 裁定 / 合成 ==")
     tmp2 = Path(tempfile.mkdtemp(prefix="s5api_"))

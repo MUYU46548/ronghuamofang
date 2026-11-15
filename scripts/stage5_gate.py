@@ -20,6 +20,19 @@ stage5 原先由模型直接改写并写进 `data/chapters/checked/`：**改完�
 · 没有变化项 → 视为"无需裁定"，直接合成（合成结果与 raw 一致）。
 · raw 或暂存稿在裁定后被改动 → 记录 `stale`，拒绝合成（防拿旧裁定套新稿）。
 
+**只改了标点/空白的项并入最近的实质改动**（2026-11-15，P1-2）
+--------------------------------------------------------------
+Papilot 的口径：纯格式/空白改动不单独占一项裁定。这里落地成：
+`replace` 项若去掉空白与标点后骨架完全相同（`_skeleton`），就不给作者一个
+独立的格子，而是挂到**最近的实质改动**上（`folded_into` / `folds`）——
+那一处怎么定，这些标点改法就怎么走。界面不再为一处标点让作者点一次按钮，
+但痕迹都在 `items` 里，合成与追溯都不丢。
+
+边界（如实声明，别当成“全都并了”）：
+· 段落拆并（一段变两段）在骨架层面看是实质改动，仍单独成项；
+· 本章一处实质改动都没有时不并 —— 没有可挂靠的地方，
+  硬并会把“只修标点”的改法悄悄丢掉（那才是真丢东西）。
+
 文件
 ----
     data/chapters/checked_pending/NN.md     模型改稿（暂存，不是成品）
@@ -66,6 +79,76 @@ def paragraphs(text: str) -> list[str]:
     return [p.strip() for p in parts if p.strip()]
 
 
+def _skeleton(text: str) -> str:
+    """去掉空白与标点后的“骨架”。
+
+    判“只改了标点/空白”用它（确定性、零 token）：标点走 Unicode 类别
+    `P*`，空白走 `isspace()` + `Z*`，另剔不可见格式字符（`Cf`，如零宽连接符）。
+    不用词表 —— 词表只认某几种标点，换个语言的引号就漏。
+    """
+    import unicodedata
+    out = []
+    for ch in text or "":
+        if ch.isspace():
+            continue
+        cat = unicodedata.category(ch)
+        if cat.startswith("P") or cat.startswith("Z") or cat == "Cf":
+            continue
+        out.append(ch)
+    return "".join(out)
+
+
+def is_format_only(item: dict) -> bool:
+    """这一项是不是“只改了标点/空白”（骨架不变）。"""
+    if item.get("kind") != "replace":
+        return False
+    a, b = _skeleton(item.get("old")), _skeleton(item.get("new"))
+    return bool(a) and a == b
+
+
+def _fold(items: list[dict]) -> list[dict]:
+    """把“只改标点/空白”的项并入最近的实质改动（P1-2，2026-11-15）。
+
+    挂靠规则：按项在章内的顺序取**最近**的实质改动；等距时取前面那一个
+    （作者是从上往下看的，往前挂更符合“这一段顺手也改了标点”的直觉）。
+    本章一个实质改动都没有时**不并**（见模块 docstring 的边界）。
+    """
+    pos = {it["id"]: k for k, it in enumerate(items)}
+    hosts = [it for it in items if not is_format_only(it)]
+    if not hosts:
+        return items
+    for it in items:
+        if not is_format_only(it):
+            continue
+        p = pos[it["id"]]
+        host = min(hosts, key=lambda h: (abs(pos[h["id"]] - p), pos[h["id"]] > p))
+        it["folded_into"] = host["id"]
+        host.setdefault("folds", []).append(it["id"])
+    return items
+
+
+def actionable(meta_or_items) -> list[dict]:
+    """还需要作者点头的项（并入的标点项不算 —— 它们跟着挂靠的那一处走）。"""
+    items = meta_or_items.get("items") if isinstance(meta_or_items, dict) else meta_or_items
+    return [it for it in (items or []) if not it.get("folded_into")]
+
+
+def _accepted_of(by_id: dict, item: dict):
+    """一项的**有效**裁定：并入的项取挂靠项的决定（可多级，带防环）。"""
+    seen = set()
+    cur = item
+    while cur is not None and cur.get("folded_into"):
+        try:
+            nxt = int(cur["folded_into"])
+        except (TypeError, ValueError):
+            return None
+        if nxt in seen:
+            return None
+        seen.add(nxt)
+        cur = by_id.get(nxt)
+    return None if cur is None else cur.get("accepted")
+
+
 def _plan(raw_text: str, proposed_text: str) -> tuple[list[dict], list[dict]]:
     """生成裁定项与重建计划（确定性）。
 
@@ -100,7 +183,7 @@ def _plan(raw_text: str, proposed_text: str) -> tuple[list[dict], list[dict]]:
             add("insert", "", "\n\n".join(b[j1:j2]))
         elif tag == "delete":
             add("delete", "\n\n".join(a[i1:i2]), "")
-    return items, blocks
+    return _fold(items), blocks
 
 
 def diff_items(raw_text: str, proposed_text: str) -> list[dict]:
@@ -126,7 +209,7 @@ def compose(raw_text: str, proposed_text: str, meta: dict) -> str:
         it = items.get(int(blk.get("item")))
         if not it:
             continue
-        acc = it.get("accepted")
+        acc = _accepted_of(items, it)
         if it["kind"] == "replace":
             out.append(it["new"] if acc else it["old"])
         elif it["kind"] == "insert":
@@ -195,21 +278,27 @@ def decide(chapter: int, decisions: dict[int, bool], root=None):
         return False, "没有待裁定的改稿（第 %d 章）" % chapter, None
     if meta.get("status") == "stale":
         return False, "第 %d 章的稿子在裁定期间变过（stale），先重新生成裁定项" % chapter, meta
-    ids = {int(it["id"]) for it in meta.get("items") or []}
+    by_id = {int(it["id"]): it for it in meta.get("items") or []}
+    live = actionable(meta)
     for k, v in decisions.items():
-        if int(k) not in ids:
-            return False, "裁定项不存在：%s（本章只有 %s 项）" % (k, sorted(ids)), meta
+        item = by_id.get(int(k))
+        if item is None:
+            return False, "裁定项不存在：%s（本章只有 %s 项）" % (k, sorted(by_id)), meta
         if not isinstance(v, bool):
             return False, "裁定值必须是 true/false", meta
+        if item.get("folded_into"):
+            host = int(item["folded_into"])
+            return False, ("第 %d 处只改了标点/空白，已并入第 %d 处；改判请定第 %d 处"
+                           % (int(k), host, host)), meta
     for it in meta["items"]:
         if int(it["id"]) in {int(k) for k in decisions}:
             it["accepted"] = bool(decisions[int(it["id"])])
-    meta["status"] = "decided" if all(it.get("accepted") is not None for it in meta["items"]) \
-        else "pending"
+    meta["status"] = ("decided" if all(it.get("accepted") is not None for it in live)
+                      else "pending")
     if meta["status"] == "pending" and not meta["items"]:
         meta["status"] = "noop"
     save(meta, root)
-    left = [it["id"] for it in meta["items"] if it.get("accepted") is None]
+    left = [it["id"] for it in live if it.get("accepted") is None]
     return True, ("已记 %d 项；还剩 %d 项未定" % (len(decisions), len(left)) if left
                   else "本章裁定完成，可以合成"), meta
 
@@ -224,8 +313,8 @@ def apply_chapter(chapter: int, root=None):
         return True, "第 %d 章已合成过（幂等）" % chapter, checked_p
     if meta.get("status") == "stale":
         return False, "第 %d 章的稿子变过（stale），不能拿旧裁定合成" % chapter, None
-    if any(it.get("accepted") is None for it in meta.get("items") or []):
-        left = [it["id"] for it in meta["items"] if it.get("accepted") is None]
+    if any(it.get("accepted") is None for it in actionable(meta)):
+        left = [it["id"] for it in actionable(meta) if it.get("accepted") is None]
         return False, "第 %d 章还有 %d 项未裁定：%s" % (chapter, len(left), left), None
     if not raw_p.exists():
         return False, "缺 raw 原文：%s" % raw_p.as_posix(), None
@@ -260,12 +349,14 @@ def list_all(root=None) -> list[dict]:
         except Exception:                                      # noqa: BLE001
             continue
         items = m.get("items") or []
+        live = actionable(items)
         out.append({
             "chapter": m.get("chapter"),
             "status": m.get("status"),
-            "items": len(items),
-            "decided": sum(1 for it in items if it.get("accepted") is not None),
-            "pending": [it["id"] for it in items if it.get("accepted") is None],
+            "items": len(live),
+            "decided": sum(1 for it in live if it.get("accepted") is not None),
+            "pending": [it["id"] for it in live if it.get("accepted") is None],
+            "folded": len(items) - len(live),
         })
     return out
 
@@ -325,9 +416,17 @@ def main(argv=None) -> int:
             print("[gate] 第 %d 章没有裁定记录" % args.chapter)
             return 1
         print("第 %d 章 · %s · raw=%s" % (meta["chapter"], meta["status"], meta["raw_sha"]))
+        by_id = {int(it["id"]): it for it in meta["items"]}
         for it in meta["items"]:
-            mark = {True: "采用", False: "不采用", None: "未定"}[it.get("accepted")]
-            print("\n[%d] %s · %s" % (it["id"], it["kind"], mark))
+            if it.get("folded_into"):
+                host = by_id.get(int(it["folded_into"])) or {}
+                eff = _accepted_of(by_id, it)
+                mark = {True: "采用", False: "不采用", None: "未定"}[eff]
+                print("\n[%d] %s · 只改标点/空白 · 并入第 %d 处（跟它走：%s）"
+                      % (it["id"], it["kind"], host.get("id", 0), mark))
+            else:
+                mark = {True: "采用", False: "不采用", None: "未定"}[it.get("accepted")]
+                print("\n[%d] %s · %s" % (it["id"], it["kind"], mark))
             if it.get("old"):
                 print("  − " + it["old"].replace("\n", "\n    ")[:400])
             if it.get("new"):
@@ -339,7 +438,7 @@ def main(argv=None) -> int:
         if not meta:
             print("[gate] 第 %d 章没有裁定记录" % args.chapter)
             return 1
-        ids = [it["id"] for it in meta["items"]]
+        ids = [it["id"] for it in actionable(meta)]
         if args.all:
             dec = {i: True for i in ids}
         elif args.reject_all:

@@ -27,12 +27,14 @@ def _query(h):
 
 def _summary(meta):
     items = meta.get("items") or []
+    live = G.actionable(items)
     return {
         "chapter": meta.get("chapter"),
         "status": meta.get("status"),
-        "items": len(items),
-        "decided": sum(1 for it in items if it.get("accepted") is not None),
-        "pending": [it["id"] for it in items if it.get("accepted") is None],
+        "items": len(live),
+        "decided": sum(1 for it in live if it.get("accepted") is not None),
+        "pending": [it["id"] for it in live if it.get("accepted") is None],
+        "folded": len(items) - len(live),
     }
 
 
@@ -55,7 +57,7 @@ def handle_stage5_chapter(h):
                  "raw_sha": meta.get("raw_sha"),
                  "items": meta.get("items") or [],
                  "can_apply": all(it.get("accepted") is not None
-                                  for it in meta.get("items") or []),
+                                  for it in G.actionable(meta)),
                  "updated_at": meta.get("updated_at")}
 
 

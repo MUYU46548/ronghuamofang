@@ -947,9 +947,10 @@ def test_about_project(browser, mock_proc=None):
               (page.locator(".pill:has-text('免责声明')").count(),
                page.locator("button:has-text('查看完整声明')").count()))
         navs = page.locator(".set-nav-btn")
-        # 2026-10-31：新增第 9 项“使用手册”（用户要求把说明持久化备查）
-        check("设置页侧边栏分类渲染（9 项，取代一条长名单；含件五\u300cWord 模板\u300d与\u300c使用手册\u300d）",
-              navs.count() == 9, navs.all_inner_texts())
+        # 2026-11-15：第 10 项“诊断与调试”在新增时没跟着改这条断言（旧写法 9 项）。
+        # 数量断言必须与 SETTINGS_TABS 同源 —— 加了页签先改这里，否则红在断言上、不红在功能上。
+        check("设置页侧边栏分类渲染（10 项，取代一条长名单；含\u300cWord 模板\u300d\u300c诊断与调试\u300d\u300c使用手册\u300d）",
+              navs.count() == 10, navs.all_inner_texts())
         check("侧栏最后一项是\u300c使用手册\u300d（手册放最后，不挡默认分类）",
               "使用手册" in (navs.last.inner_text() if navs.count() else ""),
               navs.all_inner_texts())
@@ -1537,6 +1538,10 @@ def test_stage5_step(browser):
               panel.locator(".item").count() == 1, panel.locator(".item").count())
         check("宫格给了全章 8 处，位置一眼可数",
               panel.locator(".chip").count() == 8, panel.locator(".chip").count())
+        check("只改标点的那 1 处不占格（宫格不是 9 格），并有一句话说明它并到哪儿",
+              panel.locator(".folded-note").count() == 1
+              and "1 处" in panel.locator(".folded-note").inner_text(),
+              panel.locator(".folded-note").inner_text() if panel.locator(".folded-note").count() else "无")
         check("第一处时“上一处”是禁用的（到头就停）",
               panel.locator(".step-bar button:has-text('上一处')").first.is_disabled())
         shot(page, "J1_stage5_step", keep_scroll=True)
@@ -1547,6 +1552,15 @@ def test_stage5_step(browser):
               "第 2 / 8 处" in panel.locator(".counter").inner_text(),
               panel.locator(".counter").inner_text())
         check("翻页后仍只显示一处", panel.locator(".item").count() == 1)
+        check("挂靠的那一处能展开看到顺带改了哪几处标点",
+              panel.locator("details.folds").count() == 1
+              and "顺带改了 1 处" in panel.locator("details.folds summary").inner_text(),
+              panel.locator("details.folds summary").inner_text() if panel.locator("details.folds").count() else "无")
+        panel.locator("details.folds summary").first.click()
+        page.wait_for_timeout(200)
+        check("展开后看得到那一处的原文与改后（不藏起来）",
+              "她停下脚步" in panel.locator("details.folds").inner_text(),
+              panel.locator("details.folds").inner_text()[:80])
 
         # 定一处：采用 → 自动跳到下一处没定的
         panel.locator(".item button:has-text('采用模型改法')").first.click()
