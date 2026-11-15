@@ -15,6 +15,7 @@
 """
 import json
 import subprocess
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -301,8 +302,15 @@ def main():
     (root6 / "prompts").mkdir()
     (root6 / "prompts" / "judge_feelings.md").write_text(ptext, encoding="utf-8")
     script = str(ROOT / "scripts" / "judge_feelings.py")
+    # 子进程必须显式用 UTF-8 输出（2026-11-15，CI 上这条红过）：GitHub 那台机器
+    # 的默认代码页不是 UTF-8，中文提示被打成 '?'，于是“零调用/第3章”在 out 里找不到 ——
+    # 代码没错，是测法依赖了机器的编码。
+    env8 = dict(os.environ)
+    env8["PYTHONIOENCODING"] = "utf-8"
+    env8["PYTHONUTF8"] = "1"
     r = subprocess.run([sys.executable, script, "--chapter", "3", "--dry-run"],
-                       cwd=str(root6), capture_output=True, text=True, timeout=120)
+                       cwd=str(root6), capture_output=True, text=True, timeout=120,
+                       env=env8)
     out = (r.stdout or "") + (r.stderr or "")
     check("judge_feelings --dry-run 退出码 0", r.returncode == 0, out[-160:])
     check("dry-run 打出提示词且明说零调用",

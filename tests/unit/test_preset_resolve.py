@@ -63,7 +63,10 @@ def _mk_presets(base, n=1):
 
 
 def main():
-    tmp = Path(tempfile.mkdtemp(prefix="preset_resolve_"))
+    # 显式取**长路径**（2026-11-15）：GitHub 的 Windows 机器上 mkdtemp 会返回 8.3
+    # 短名（如 RUNNER~1），而服务端一 resolve 就成长名 —— 两边都是同一个目录，
+    # 字符串却不相等，于是“同一个库”被判成“不在列表里”。realpath 把短名展开。
+    tmp = Path(os.path.realpath(tempfile.mkdtemp(prefix="preset_resolve_")))
     old_env = os.environ.get("NF_SAMPLE_ROOT")
     try:
         print("[1] env 命中即返（打包态唯一救命候选，且优先于 root）")

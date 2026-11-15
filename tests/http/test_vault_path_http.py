@@ -74,7 +74,10 @@ def make_vault(base, subdirs):
 
 
 def build_project():
-    tmp = Path(tempfile.mkdtemp(prefix="nf_vaultpath_"))
+    # 显式取**长路径**（2026-11-15）：GitHub 的 Windows 机器上 mkdtemp 会返回 8.3
+    # 短名（如 RUNNER~1），而服务端一 resolve 就成长名 —— 两边都是同一个目录，
+    # 字符串却不相等，于是“同一个库”被判成“不在列表里”。realpath 把短名展开。
+    tmp = Path(os.path.realpath(tempfile.mkdtemp(prefix="nf_vaultpath_")))
     shutil.copytree(ROOT / "scripts", tmp / "scripts",
                     ignore=shutil.ignore_patterns("__pycache__"))
     shutil.copytree(ROOT / "config", tmp / "config",

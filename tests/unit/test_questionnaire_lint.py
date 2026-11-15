@@ -57,11 +57,17 @@ def mutate(src: Path, dst: Path, old: str, new: str) -> None:
 
 def main() -> int:
     print("== 1. r2 两卷必须通过 ==")
-    code, data = run(R2)
-    check("r2 通过（0 错误）", code == 0 and data.get("ok") is True,
-          data.get("errors"))
-    check("两卷题数 13 + 6", (data.get("files") or [{}])[0].get("questions") in (6, 13)
-          and len(data.get("files") or []) == 2, data.get("files"))
+    # 卷子里的引文指向 data/judge/caliber.json —— 那是本机数据、不进 Git。
+    # 没有这份文件的机器（CI）上，“引文对不上”是真的（读不到原文），但不是产品缺陷：
+    # 按项目纪律，缺外部条件 = 未执行 ≠ 失败 → 跳过并说清原因（2026-11-15）。
+    if not (ROOT / "data" / "judge" / "caliber.json").is_file():
+        print("  [SKIP] 本机没有 data/judge/caliber.json（不进 Git），引文核验无从做起")
+    else:
+        code, data = run(R2)
+        check("r2 通过（0 错误）", code == 0 and data.get("ok") is True,
+              data.get("errors"))
+        check("两卷题数 13 + 6", (data.get("files") or [{}])[0].get("questions") in (6, 13)
+              and len(data.get("files") or []) == 2, data.get("files"))
 
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
