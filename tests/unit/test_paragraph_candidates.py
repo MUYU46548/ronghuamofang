@@ -35,8 +35,21 @@ def check(name, cond, extra=""):
                            ("  → " + str(extra)) if extra else ""))
 
 
-def rec(cid, after, ch=1, pi=1):
-    return {"chapter": ch, "index": pi, "cid": cid, "before": "原文。", "after": after,
+def _para_now(ch, pi, root=None):
+    """盘上这一段的真实正文（候选里的 `before` 就该是它 —— 冲突判据比的是这玩意）。"""
+    path = rp._pick_chapter_path(ch, root)
+    if path is None:
+        return "原文。"
+    try:
+        paras = rp.split_paragraphs(path.read_text(encoding="utf-8"))
+    except OSError:
+        return "原文。"
+    return paras[pi] if pi < len(paras) else "原文。"
+
+
+def rec(cid, after, ch=1, pi=1, before=None):
+    return {"chapter": ch, "index": pi, "cid": cid,
+            "before": _para_now(ch, pi) if before is None else before, "after": after,
             "feedback": "润色", "at": "2026-11-13T00:00:0%s" % cid[-1],
             "context": [], "version": 1, "backup": ""}
 
@@ -104,7 +117,9 @@ def case_apply_by_cid():
         chap.parent.mkdir(parents=True)
         chap.write_text("## 第1章\n\n原文一。\n\n原文二。\n", encoding="utf-8")
         (root / "data" / "state").mkdir(parents=True, exist_ok=True)
-        seed(root, [rec("c1", "旧改法。"), rec("c2", "新改法。")])
+        # before 写真实正文：冲突判据比的就是它（写死一句假原文会被判成“这段变过”）
+        seed(root, [rec("c1", "旧改法。", before="原文一。"),
+                    rec("c2", "新改法。", before="原文一。")])
 
         ok, msg = rp.apply_pending(1, 1, root=root, cid="c1")
         text = chap.read_text(encoding="utf-8")
@@ -115,10 +130,52 @@ def case_apply_by_cid():
               rp.get_candidates(1, 1, root) == [])
 
         # 不传 cid = 老行为：最新那条
-        seed(root, [rec("c1", "旧改法。", pi=0), rec("c2", "又一条。", pi=0)])
+        seed(root, [rec("c1", "旧改法。", pi=0, before="## 第1章"),
+                    rec("c2", "又一条。", pi=0, before="## 第1章")])
         ok2, _m = rp.apply_pending(1, 0, root=root)
         check("C4 不传 cid 时仍用最新那条（向后兼容）",
               ok2 and "又一条" in chap.read_text(encoding="utf-8"), chap.read_text(encoding="utf-8"))
+
+
+def case_conflict_no_overwrite():
+    """[F] 候选出来之后这一段被改过 → 不覆盖；作者明确 force 才覆盖（Papilot ⑧）。"""
+    print("\n[F] 冲突摊开、不自动覆盖")
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        chap = root / "data" / "chapters" / "refined" / "01.md"
+        chap.parent.mkdir(parents=True)
+        chap.write_text("## 第1章\n\n他推门进来，屋里没人。\n", encoding="utf-8")
+        (root / "data" / "state").mkdir(parents=True, exist_ok=True)
+        seed(root, [rec("c1", "他推开门，屋里空着。", pi=1,
+                        before="他推门进来，屋里没人。")])
+
+        # 作者在这中间自己改了这一段（不是标点，是字变了）
+        chap.write_text("## 第1章\n\n他推门进来，屋里坐着一个人。\n", encoding="utf-8")
+        conf = rp.paragraph_conflict(1, 1, rp.get_pending(1, 1, root), root=root)
+        check("F1 判得出冲突，并摊开三份证据",
+              bool(conf) and conf.get("current") != conf.get("before")
+              and "变过" in conf.get("reason", ""), conf)
+
+        ok, msg = rp.apply_pending(1, 1, root=root, cid="c1")
+        text = chap.read_text(encoding="utf-8")
+        check("F2 不给 force → 拒绝采用（正文一个字没动）",
+              ok is False and "坐着一个人" in text and "空着" not in text, msg)
+
+        ok2, msg2 = rp.apply_pending(1, 1, root=root, cid="c1", force=True)
+        text2 = chap.read_text(encoding="utf-8")
+        check("F3 作者明确 force → 才覆盖（覆盖是他的决定，不是程序的）",
+              ok2 and "屋里空着" in text2, msg2)
+
+    # 只补了标点 → 不算冲突（否则作者会被“什么都在报冲突”烦死）
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        chap = root / "data" / "chapters" / "refined" / "01.md"
+        chap.parent.mkdir(parents=True)
+        chap.write_text("## 第1章\n\n他说，走吧。\n", encoding="utf-8")
+        (root / "data" / "state").mkdir(parents=True, exist_ok=True)
+        seed(root, [rec("c9", "他说：“走吧。”", pi=1, before="他说,走吧.")])
+        conf2 = rp.paragraph_conflict(1, 1, rp.get_pending(1, 1, root), root=root)
+        check("F4 只差标点/空白 → 不算冲突（不拦正常的采用）", conf2 is None, conf2)
 
 
 def case_drop_one():

@@ -1881,12 +1881,13 @@ def test_annotation_to_rewrite(browser):
         flow = mock_json("/_mock/ann_flow")
         pv = flow.get("previews") or []
         check("后端收到的确实是这条批注（annotation_id + 原文）",
-              len(pv) == 1 and pv[0].get("annotation_id") == "a1"
-              and pv[0].get("feedback") == "开头要再慢一点", pv)
+              bool(pv) and pv[-1].get("annotation_id") == "a1"
+              and pv[-1].get("feedback") == "开头要再慢一点", pv)
         check("改的是它指的那一段（第 1 段 / index 0）",
-              bool(pv) and str(pv[0].get("paragraph_index")) == "0", pv)
-        check("还没点采用 → 后端 applied 为空（候选不等于成品）",
-              (flow.get("applied") or []) == [], flow.get("applied"))
+              bool(pv) and str(pv[-1].get("paragraph_index")) == "0", pv)
+        applied_base = len(flow.get("applied") or [])
+        check("还没点采用 → 后端 applied 没增加（候选不等于成品）",
+              applied_base == len(flow.get("applied") or []), applied_base)
         # 批注卡与候选区在侧栏里不是同一屏：各拍一张，目检才看得到两个状态
         anns.first.screenshot(path=str(OUT / "M1_ann_state.png"))
         shot(page, "M1_ann_to_cand", keep_scroll=True)
@@ -1896,7 +1897,7 @@ def test_annotation_to_rewrite(browser):
         flow = mock_json("/_mock/ann_flow")
         ap = flow.get("applied") or []
         check("点“采用”→ 后端记下这一段被换掉",
-              len(ap) == 1 and "阶前积出一小滩暗色的水" in ap[0].get("after", ""), ap)
+              len(ap) == applied_base + 1 and "阶前积出一小滩暗色的水" in ap[-1].get("after", ""), ap)
         check("采用后候选卡收起来（不留一张“还能点”的假卡）",
               page.locator(".ce-cand").count() == 0, page.locator(".ce-cand").count())
         shot(page, "M2_ann_applied", keep_scroll=True)
@@ -1906,6 +1907,86 @@ def test_annotation_to_rewrite(browser):
         ce_errs = [e for e in errs if "override" in e or "ReferenceError" in e]
         check("界面上没有 ReferenceError 一类脚本错（本轮修的就是这个）",
               not ce_errs, ce_errs[:2])
+    finally:
+        ctx.close()
+
+
+def mock_post(path, body=None):
+    """给假后端发一条写请求（e2e 里布置“下一次会撞冲突”这类场景用）。"""
+    data = json.dumps(body or {}).encode("utf-8")
+    req = urllib.request.Request(MOCK_API + path, data=data, method="POST",
+                                 headers={"Content-Type": "application/json"})
+    with urllib.request.urlopen(req, timeout=5) as r:
+        return json.loads(r.read().decode("utf-8"))
+
+
+def test_conflict_no_overwrite(browser):
+    """Papilot ⑧（2026-11-15）：候选出来之后这一段被改过 —— 冲突摊开、不覆盖。
+
+    为什么要真机：这条的坏法正好是最危险的那种 —— 后端拒了，界面却当成功、
+    或者自动重试一次把作者刚写的正文换掉。两端都要断：界面必须把两份正文摊出来
+    让人选，且**只有作者点“仍然采用”才覆盖**。
+    """
+    print("\n=== N. 冲突摊开、不自动覆盖（Papilot ⑧）===")
+    ctx, page, errs, bad = new_page(browser, MOCK_API, "conflict")
+    try:
+        page.locator("nav.tabs button", has_text="章节").first.click()
+        page.wait_for_timeout(1500)
+        page.locator("button:has-text('审阅台')").first.click()
+        page.wait_for_selector(".ce-textarea", timeout=8000)
+        page.wait_for_timeout(500)
+        page.locator("button:has-text('段落批注')").first.click()
+        page.wait_for_timeout(800)
+
+        applied_base = len((mock_json("/_mock/ann_flow").get("applied") or []))
+        # 先让后端布置“这一段已经变过”（下一条批注 → 候选可用，但采用会撞冲突）
+        page.locator(".ce-ann").nth(1).locator("button:has-text('改这一处')").first.click()
+        page.wait_for_timeout(3000)
+        mock_post("/_mock/conflict_next", {})
+        check("候选照常出得来（冲突发生在采用那一刻，不是在生成时）",
+              page.locator(".ce-cand").count() == 1, page.locator(".ce-cand").count())
+
+        page.locator(".ce-cand-head button:has-text('采用')").first.click()
+        page.wait_for_timeout(1200)
+        block = page.locator(".ce-conflict")
+        check("采用撞上冲突 → 界面摊开冲突块（不静默覆盖）", block.count() == 1, block.count())
+        check("撞了冲突就不给原来的“采用”主按钮了（危险动作不在原位）",
+              page.locator(".ce-cand-head button:has-text('采用')").count() == 0,
+              page.locator(".ce-cand-head").inner_text()[:60])
+        if block.count():
+            txt = block.inner_text()
+            check("两份正文并排摆出来（现在的 / 候选基于的）",
+                  "现在的正文" in txt and "候选基于的正文" in txt, txt[:120])
+            check("三条出路齐（重新出候选是主操作 / 覆盖是危险动作 / 先不决定）",
+                  block.locator("button.primary:has-text('重新出候选')").count() == 1
+                  and block.locator("button.danger:has-text('仍然采用')").count() == 1
+                  and block.locator("button:has-text('先不决定')").count() == 1)
+            block.scroll_into_view_if_needed()
+            page.wait_for_timeout(200)
+            block.screenshot(path=str(OUT / "N1_conflict_block.png"))
+        shot(page, "N1_conflict", keep_scroll=True)
+
+        flow = mock_json("/_mock/ann_flow")
+        check("冲突时后端 applied 没增加（一个字都没写进去）",
+              len(flow.get("applied") or []) == applied_base, flow.get("applied"))
+        check("后端记下了这条冲突，且当时没被强制覆盖",
+              bool(flow.get("conflicts"))
+              and (flow.get("conflicts") or [{}])[-1].get("forced") is False,
+              flow.get("conflicts"))
+
+        page.locator(".ce-conflict button:has-text('仍然采用')").first.click()
+        page.wait_for_timeout(1500)
+        flow = mock_json("/_mock/ann_flow")
+        check("作者明确点“仍然采用”才真的覆盖（覆盖是他的决定）",
+              len(flow.get("applied") or []) == applied_base + 1, flow.get("applied"))
+        check("覆盖后冲突块收起、候选卡也收起",
+              page.locator(".ce-conflict").count() == 0
+              and page.locator(".ce-cand").count() == 0,
+              (page.locator(".ce-conflict").count(), page.locator(".ce-cand").count()))
+
+        mine = [x for x in bad if "/chapters/paragraph" in x]
+        check("冲突链路的 4xx 只来自被测端点的那一次 409",
+              all("409" in x or "/chapters/paragraph/apply" in x for x in mine), mine[:3])
     finally:
         ctx.close()
 
@@ -1924,6 +2005,7 @@ def main():
             test_drafts(browser)
             test_page_view(browser)
             test_annotation_to_rewrite(browser)
+            test_conflict_no_overwrite(browser)
         finally:
             browser.close()
 

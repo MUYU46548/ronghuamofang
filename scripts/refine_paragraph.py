@@ -672,15 +672,76 @@ def _pick_candidate(chapter, paragraph_index, cid, root=None):
     return None
 
 
-def apply_pending(chapter, paragraph_index, root=None, cid=None):
+def _same_text(a: str, b: str) -> bool:
+    """两段正文算不算“同一版”：只把标点/空白差异当同一版。
+
+    为什么不用严格相等：候选里的 `before` 是当时盘上的原文，而作者可能只补了个句号
+    （或者另一条写入口做了标点归一化）—— 那种不该拦，拦了作者会觉得“什么都在报冲突”。
+    真正的冲突是**字变了**（改写/删句/换段），那正是“采用会把新写的换掉”的风险。
+    """
+    def norm(t):
+        t = (t or "").strip()
+        try:
+            from utils.text_norm import normalize_chinese_punctuation as _np
+            t = _np(t)
+        except Exception:                                  # noqa: BLE001
+            pass
+        return "".join(ch for ch in t if not ch.isspace())
+    return norm(a) == norm(b)
+
+
+def pick_candidate(chapter, paragraph_index, cid=None, root=None):
+    """按章节 + 段号（可指定 cid）取那一条候选；没有返回 None。"""
+    return _pick_candidate(chapter, paragraph_index, cid, root)
+
+
+def paragraph_conflict(chapter, paragraph_index, rec, root=None):
+    """候选出来之后，这一段有没有被改过（Papilot ⑧：冲突摊开，不自动覆盖）。
+
+    为什么需要它：候选是“基于某个版本的正文”生成的。作者可能在这中间手改过这一段、
+    或者另一条流程（auto_rewrite / 批量精修 / 回退）动过它 —— 这时点“采用”就是把
+    **新写的正文**换成一份旧改写，而且不会有任何提示。`stale` 那套只保护“整章级”的
+    裁定（stage5），段落级以前没有这道闸。
+
+    返回 None = 没冲突；否则返回一份可比对的证据（现在的正文 / 候选基于的正文 / 候选）。
+    """
+    rec = rec or {}
+    path = _pick_chapter_path(int(chapter), root)
+    if path is None:
+        return {"reason": "第 %d 章不存在（可能被归档/换书了）" % int(chapter),
+                "current": "", "before": (rec.get("before") or ""),
+                "after": (rec.get("after") or "")}
+    paras = split_paragraphs(read_text(path))
+    idx = int(paragraph_index)
+    if idx >= len(paras):
+        return {"reason": "段落号越界（这一段被删了，或这一章被大改过）",
+                "current": "", "before": (rec.get("before") or ""),
+                "after": (rec.get("after") or "")}
+    current = paras[idx].strip()
+    before = (rec.get("before") or "").strip()
+    if before and not _same_text(current, before):
+        return {"reason": "这一段在出候选之后变过", "current": current,
+                "before": before, "after": (rec.get("after") or ""),
+                "cid": rec.get("cid") or ""}
+    return None
+
+
+def apply_pending(chapter, paragraph_index, root=None, cid=None, force=False):
     """采用候选：走 save_paragraph_text（备份 + 段落历史 + 标点归一，判据全在那一处）。
 
     `cid` 指定采用哪一条（不给 = 最新那条）。采用后这一段的所有候选一并清掉 ——
     正文已经变了，剩下的候选都是基于旧正文改的，留着会点错。
+
+    **冲突不覆盖**（2026-11-15，Papilot ⑧）：候选生成之后这一段被改过 → 拒绝采用，
+    把“现在的正文 / 候选基于的正文 / 候选”摊给作者；`force=True` 是作者明确同意覆盖。
     """
     rec = _pick_candidate(chapter, paragraph_index, cid, root)
     if not rec:
         return False, "没有待采用的候选（先点“让 AI 只改这一段”）"
+    conf = paragraph_conflict(chapter, paragraph_index, rec, root)
+    if conf and not force:
+        return False, (conf["reason"] + " —— 没有覆盖。要按现在的正文重新出候选，"
+                       "或确认后用“仍然采用”覆盖。")
     ok, msg = save_paragraph_text(int(chapter), int(paragraph_index),
                                   rec.get("after") or "", note="AI 段落改写（采用）", root=root)
     if ok:

@@ -738,7 +738,16 @@ def handle_paragraph_apply(h, body):
         return bad
     try:
         import refine_paragraph as rp
-        ok, msg = rp.apply_pending(ch, pi, root=api.ROOT, cid=(body.get("cid") or None))
+        cid = body.get("cid") or None
+        force = body.get("force") is True
+        # 冲突摊开、不覆盖（2026-11-15，Papilot ⑧）：候选生成之后这一段被改过时，
+        # 409 + 三份证据交给界面去问作者，日志/CLI 也不会静默覆盖。
+        rec = rp.pick_candidate(ch, pi, cid, root=api.ROOT)
+        conf = rp.paragraph_conflict(ch, pi, rec, root=api.ROOT) if rec else None
+        if conf and not force:
+            return 409, {"ok": False, "conflict": conf, "chapter": ch, "index": pi,
+                         "error": conf.get("reason", "这一段变过") + " —— 没有覆盖"}
+        ok, msg = rp.apply_pending(ch, pi, root=api.ROOT, cid=cid, force=force)
         if not ok and "没有待采用的候选" in str(msg):
             from utils import self_actions as sa
             if sa.para_draft_path(ch, pi).is_file():

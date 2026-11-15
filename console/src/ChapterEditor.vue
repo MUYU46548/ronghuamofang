@@ -492,6 +492,10 @@ const candDiff = computed(() => {
   };
 });
 const candBusy = ref(false);
+/* 冲突（2026-11-15，Papilot ⑧）：候选生成之后这一段被改过 → 不覆盖，
+   把“现在的正文 / 候选基于的正文 / 候选”摊给作者，由他决定覆盖还是重出。
+   后端 `/chapters/paragraph/apply` 此时回 409 + conflict。 */
+const conflict = ref(null);
 async function loadCandidate() {
   if (selPara.value === null) { cand.value = null; pickCid.value = ""; return; }
   try {
@@ -502,20 +506,30 @@ async function loadCandidate() {
     pickCid.value = "";
   } catch (e) { cand.value = null; pickCid.value = ""; }
 }
-async function applyCandidate() {
+async function applyCandidate(force = false) {
   // 段号以候选记录为准（selPara 可能已被 loadContent 清空 —— 旧写法会静默 return，
   // 表现就是“点了采用没反应”）。
   const pi = (cand.value && cand.value.rec && typeof cand.value.rec.index === "number")
     ? cand.value.rec.index : selPara.value;
   if (pi === null || pi === undefined) return;
   candBusy.value = true;
+  conflict.value = null;
   try {
     const r = await props.api("/chapters/paragraph/apply", "POST",
                               { chapter: props.n, paragraph_index: pi,
-                                confirm: true, cid: activeCid.value || null });
+                                confirm: true, cid: activeCid.value || null,
+                                force: force === true });
+    if (r.status === 409 && r.data && r.data.conflict) {
+      // 冲突：**不覆盖**，把证据摊开让作者选。这一步不能自动重试，
+      // 重试就等于默默把作者刚写的正文换掉。
+      conflict.value = r.data.conflict;
+      emit("say", "这一段在你出候选之后变过 —— 没有覆盖。看一眼再决定");
+      return;
+    }
     if (r.status === 200 && r.data && r.data.ok) {
       emit("say", "已采用这一段（旧版进了段落历史，可回退）");
       cand.value = null;
+      conflict.value = null;
       await loadContent();
       await loadLayersQuiet();
       if (mode.value === "batch") await loadParas();
@@ -525,6 +539,17 @@ async function applyCandidate() {
     }
   } finally { candBusy.value = false; }
 }
+/** 冲突时“按现在的正文重新出候选”：带着原来那条意见重跑一次（花一次调用，作者自己点的）。 */
+async function regenAfterConflict() {
+  const rec = (cand.value && cand.value.rec) || {};
+  const pi = typeof rec.index === "number" ? rec.index : selPara.value;
+  const fb = String(rec.feedback || feedback.value || "").trim();
+  conflict.value = null;
+  if (pi === null || pi === undefined) return;
+  if (!fb) { emit("say", "这条候选没记下当时的意见，请在意见框写一句再改"); return; }
+  await submitRefine({ para_index: pi, feedback: fb });
+}
+
 async function dropCandidate() {
   const pi = (cand.value && cand.value.rec && typeof cand.value.rec.index === "number")
     ? cand.value.rec.index : selPara.value;
@@ -952,9 +977,12 @@ onUnmounted(() => {
                           title="这一段的历次改动都在段落历史里；点开就地回退，不用切到“精修”页签">
                     {{ histOpen ? "收起历史" : "回到上一版" }}
                   </button>
-                  <button v-if="cand" class="mini primary" :disabled="candBusy || (activeRec && activeRec.ok === false)"
-                          @click="applyCandidate">采用</button>
-                  <button v-if="cand" class="mini" :disabled="candBusy" @click="dropCandidate">放弃</button>
+                  <!-- 有冲突时**不给**“采用”：直接覆盖是危险动作，只能走冲突块里那句
+                       “仍然采用这条”（目检 2026-11-15 提的：危险动作不该是主按钮）。 -->
+                  <button v-if="cand && !conflict" class="mini primary"
+                          :disabled="candBusy || (activeRec && activeRec.ok === false)"
+                          @click="applyCandidate()">采用</button>
+                  <button v-if="cand && !conflict" class="mini" :disabled="candBusy" @click="dropCandidate">放弃</button>
                 </div>
                 <!-- 多候选（2026-11-13，L2）：点一次出一条，最多留 3 条。多一条的代价是
                     你自己再点一次 —— 不搞“一次调用出两条”（那等于每次点击翻倍花钱）。 -->
@@ -993,6 +1021,28 @@ onUnmounted(() => {
                   </div>
                 </div>
                 <div v-if="cand" class="meta">采用 = 换进正文（旧版进段落历史，用“回到上一版”就地退）；放弃 = 正文一个字不动。</div>
+                <!-- 冲突摊开、不覆盖（2026-11-15，Papilot ⑧）：候选出来之后这一段被改过。 -->
+                <div v-if="conflict" class="ce-conflict">
+                  <div class="ce-conflict-head">
+                    <b>这一段在你出候选之后变过</b>
+                    <span class="ce-conflict-note">没有覆盖 —— 直接采用会把你现在写的内容换掉</span>
+                  </div>
+                  <div class="ce-diff">
+                    <div class="ce-diff-col">
+                      <div class="ce-diff-t">现在的正文</div>
+                      <p>{{ conflict.current }}</p>
+                    </div>
+                    <div class="ce-diff-col">
+                      <div class="ce-diff-t">候选基于的正文</div>
+                      <p>{{ conflict.before }}</p>
+                    </div>
+                  </div>
+                  <div class="ce-conflict-acts">
+                    <button class="mini primary" :disabled="candBusy" @click="regenAfterConflict">按现在的正文重新出候选</button>
+                    <button class="mini danger" :disabled="candBusy" @click="applyCandidate(true)">仍然采用（覆盖这段）</button>
+                    <button class="mini" @click="conflict = null">先不决定</button>
+                  </div>
+                </div>
                 <div v-if="histOpen" class="ce-hist">
                   <div v-if="!paraHist.length" class="meta">
                     这一段还没有历史版本 —— 采用过、回退过才会留下。
@@ -1123,6 +1173,18 @@ onUnmounted(() => {
 }
 .ce-read-hint { margin-bottom: 8px; }
 .ce-read-p { margin: 0 0 0.85em; text-indent: 2em; }
+/* 冲突块（Papilot ⑧）：用中性的警示色，不做成错误红 —— 这不是失败，是要你选 */
+.ce-conflict {
+  margin-top: 8px; padding: 8px; border-radius: 6px;
+  border: 1px solid var(--warn);
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+}
+.ce-conflict-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.ce-conflict-head b { color: var(--ink-warn); }
+.ce-conflict-note { font-size: 12px; font-weight: 600; color: var(--ink-warn); }
+.ce-conflict-acts { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+/* 按钮别被窄栏切掉字（目检 2026-11-15）：宁可换行，不要截断 */
+.ce-conflict-acts button { white-space: nowrap; max-width: 100%; }
 .ce-read-h { text-indent: 0; font-weight: 700; font-size: 17px; margin: 0 0 1em; letter-spacing: 0.02em; }
 /* 设定名高亮（2026-11-08 改，0.9.1 验收第 15 条）。
    原来给每个名字都加“虚线下划线 + 淡紫底”—— 一页正文里几十条横线，

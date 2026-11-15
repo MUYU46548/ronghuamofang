@@ -308,7 +308,8 @@ BON = {"value": 0}
 # 批注 → 改稿（P0-2，2026-11-14）：这条链要**有状态**才验得出真东西 ——
 # “点了改这一处”有没有真的按批注发出去、候选有没有带 annotation_id、
 # 批注是不是 open→addressed、采用之后正文有没有动。
-ANN_FLOW = {"previews": [], "applied": [], "pending": {}}
+ANN_FLOW = {"previews": [], "applied": [], "pending": {}, "conflicts": [],
+            "conflict_next": False}
 
 ANN = {"items": [
     {"id": "a1", "note": "开头要再慢一点", "para_index": 0, "current_index": 0,
@@ -1131,6 +1132,7 @@ class Handler(BaseHTTPRequestHandler):
             # 只看 DOM 断不出“候选是不是按这条批注生成的”。
             return self._send(200, {"ok": True, "previews": ANN_FLOW["previews"],
                                     "applied": ANN_FLOW["applied"],
+                                    "conflicts": ANN_FLOW["conflicts"],
                                     "pending": len(ANN_FLOW["pending"])})
 
         if p == "/chapters/paragraph/pending":
@@ -1476,6 +1478,11 @@ class Handler(BaseHTTPRequestHandler):
         p = self.path.split("?")[0].rstrip("/") or "/"
         n = int(self.headers.get("Content-Length") or 0)
         body = json.loads(self.rfile.read(n).decode("utf-8")) if n else {}
+        if p == "/_mock/conflict_next":
+            # 只给 e2e 用：下一次 apply 撞一次“这一段变过”，验界面摊不摊开、覆不覆盖。
+            ANN_FLOW["conflict_next"] = True
+            return self._send(200, {"ok": True})
+
         if p == "/review/comment":
             body = body or {}
             txt = str(body.get("comment") or "").strip()
@@ -1798,6 +1805,21 @@ class Handler(BaseHTTPRequestHandler):
             rec = ANN_FLOW["pending"].get(key)
             if not rec:
                 return self._send(400, {"ok": False, "error": "没有待采用的候选"})
+            if ANN_FLOW.get("conflict_next") and not b.get("force"):
+                # 模拟“候选出来之后这一段被改过”：409 + 三份证据，不覆盖。
+                ANN_FLOW["conflict_next"] = False
+                ANN_FLOW["conflicts"].append({"chapter": key[0], "index": key[1],
+                                              "forced": False})
+                return self._send(409, {
+                    "ok": False, "chapter": int(key[0]), "index": int(key[1]),
+                    "error": "这一段在出候选之后变过 —— 没有覆盖",
+                    "conflict": {"reason": "这一段在出候选之后变过",
+                                 "current": "他推门进来，屋里坐着一个人。",
+                                 "before": rec.get("before") or "",
+                                 "after": rec.get("after") or "",
+                                 "cid": "c1"}})
+            if b.get("force") and ANN_FLOW["conflicts"]:
+                ANN_FLOW["conflicts"][-1]["forced"] = True
             ANN_FLOW["applied"].append({"chapter": key[0], "index": key[1],
                                         "before": rec["before"], "after": rec["after"]})
             ANN_FLOW["pending"].pop(key, None)
