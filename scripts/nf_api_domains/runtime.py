@@ -608,6 +608,26 @@ def handle_decompose_candidates(h, body):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+def handle_write_log(h):
+    """`GET /chapters/write_log?n=3&limit=50` —— 这一章的改动流水（新 → 旧）。
+
+    只读、零 token。数据是 `data/state/write_log.jsonl`（`utils.write_log` 追加）。
+    “这一段怎么变成这样了”问的就是它：什么时候、哪条通道（手改 / 采用候选 / 回退）、
+    字数怎么变。**不返回正文**（正文真源只有 data/chapters/ 一份）。
+    """
+    q = h._query()
+    raw_n = (q.get("n") or q.get("chapter") or [""])[0]
+    chapter = int(raw_n) if str(raw_n).strip().isdigit() else None
+    try:
+        limit = int((q.get("limit") or ["50"])[0])
+    except (TypeError, ValueError):
+        limit = 50
+    limit = max(1, min(limit, 500))
+    from utils import write_log
+    rows = write_log.recent(chapter=chapter, limit=limit, root=api.ROOT)
+    return 200, {"ok": True, "n": chapter, "count": len(rows), "entries": rows}
+
+
 def handle_chapters_history(h):
     """章节历史版本：?n=3 → 第 3 章的备份列表（新 → 旧）。
 
@@ -853,6 +873,7 @@ ROUTES = (
     ("GET", "/decompose/consent", handle_decompose_consent),
     ("GET", "/decompose/snippets", handle_decompose_snippets),
     ("GET", "/chapters/history", handle_chapters_history),
+    ("GET", "/chapters/write_log", handle_write_log),
     # 残稿可见可采纳（2026-10-20）
     ("GET", "/truncated", handle_truncated),
     ("GET", "/gate/artifacts", handle_gate_artifacts),

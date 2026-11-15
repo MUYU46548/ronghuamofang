@@ -3256,6 +3256,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/chapters/history":
             # 实现已迁至 nf_api_domains.runtime（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_runtime.handle_chapters_history(self)))
+        elif p == "/chapters/write_log":
+            # 这一章的改动流水（2026-11-15，P2-2）：只读、零 token。
+            self._send(*_dom(dom_runtime.handle_write_log(self)))
         elif p == "/chapters/layers":
             # 三层正文现状（编辑器打开时先看这个）—— nf_api_domains.chapters
             self._send(*_dom(dom_chapters.handle_chapters_layers(self)))

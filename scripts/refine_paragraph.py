@@ -366,6 +366,13 @@ def save_paragraph_text(chapter, paragraph_index, new_text, note="手改", root=
                        "请把这条报给开发者，正文一个字都没动" % "；".join(_bad))
     write_text(chap_path, new_full)
     _norm(chap_path, chapter)
+    # 写作账本（2026-11-15）：这里是**段落级唯一的写盘点** —— 手改、采用候选、回退
+    # 都从这里过，所以记一处就覆盖了全部段落级改动。只记长度与来源，不存正文。
+    try:
+        from utils import write_log
+        write_log.record(chapter, paragraph_index, note, len(current), len(body), root=root)
+    except Exception:                                      # noqa: BLE001
+        pass
     return True, ("段落 #%d 已保存（%d → %d 字；整章备份 v%d，旧内容也进了段落历史）"
                   % (paragraph_index, len(current), len(body), version))
 

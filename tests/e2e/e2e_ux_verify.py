@@ -1940,7 +1940,7 @@ def test_conflict_no_overwrite(browser):
 
         applied_base = len((mock_json("/_mock/ann_flow").get("applied") or []))
         # 先让后端布置“这一段已经变过”（下一条批注 → 候选可用，但采用会撞冲突）
-        page.locator(".ce-ann").nth(1).locator("button:has-text('改这一处')").first.click()
+        page.locator(".ce-ann").nth(1).locator("button.primary").first.click()
         page.wait_for_timeout(3000)
         mock_post("/_mock/conflict_next", {})
         check("候选照常出得来（冲突发生在采用那一刻，不是在生成时）",
@@ -1991,6 +1991,60 @@ def test_conflict_no_overwrite(browser):
         ctx.close()
 
 
+def test_write_log(browser):
+    """P2-2 的“一任务一记录”（2026-11-15）：这一章的改动流水，看得见、记得准。
+
+    为什么值得单独一段：审稿时最常问“这一段怎么变成这样了”，而答案原来散在三处
+    （段落历史记内容、候选区记待采用、快照记整章），没有按时间的流水。
+    这里断两头：界面读得到历史记录，且**采用一条候选之后**列表真的多出一条
+    （不是一份静态示例）。
+    """
+    print("\n=== O. 这一章的改动流水（P2-2 一任务一记录）===")
+    ctx, page, errs, bad = new_page(browser, MOCK_API, "writelog")
+    try:
+        page.locator("nav.tabs button", has_text="章节").first.click()
+        page.wait_for_timeout(1500)
+        page.locator("button:has-text('审阅台')").first.click()
+        page.wait_for_selector(".ce-textarea", timeout=8000)
+        page.wait_for_timeout(700)
+        # 侧栏（含“这一章的改动”）在审阅台里默认收起 —— 先切到“段落批注”，
+        # 那一态强制展开侧栏（否则这一块的用例测的是“没渲染”，不是“没数据”）。
+        page.locator("button:has-text('段落批注')").first.click()
+        page.wait_for_timeout(800)
+
+        block = page.locator(".ce-side-block", has=page.locator(".ce-side-title:text-is('这一章的改动')"))
+        check("侧栏有“这一章的改动”一块", block.count() == 1, block.count())
+        rows = block.locator(".ce-wlog")
+        base_rows = rows.count()
+        # 相对基线：前面几段（M/N）也会真的写正文、也就真的记账 —— 写死 2 条会互相吃环境。
+        check("读得到这一章的历史改动（至少 mock 预置的 2 条）", base_rows >= 2, base_rows)
+        first = rows.first.inner_text() if rows.count() else ""
+        check("每条写清时间 / 来源 / 段号 / 字数变化",
+              "AI 段落改写" in first and "段" in first and "→" in first, first[:80])
+        shot(page, "O1_write_log", keep_scroll=True)
+
+        # 采用一条候选 → 流水里应当多一条
+        page.locator(".ce-ann").first.locator("button.primary").first.click()
+        page.wait_for_timeout(3000)
+        check("先出候选", page.locator(".ce-cand").count() == 1, page.locator(".ce-cand").count())
+        page.locator(".ce-cand-head button:has-text('采用')").first.click()
+        page.wait_for_timeout(1500)
+
+        rows = block.locator(".ce-wlog")
+        check("采用之后流水多出一条", rows.count() == base_rows + 1, rows.count())
+        check("最新那条就是刚才那次采用",
+              "AI 段落改写" in rows.first.inner_text(), rows.first.inner_text()[:80])
+        block.scroll_into_view_if_needed()
+        page.wait_for_timeout(200)
+        block.screenshot(path=str(OUT / "O2_write_log_block.png"))
+        shot(page, "O2_write_log_after", keep_scroll=True)
+
+        mine = [x for x in bad if "/chapters/write_log" in x or "/chapters/paragraph" in x]
+        check("流水链路没有 4xx", not mine, mine[:3])
+    finally:
+        ctx.close()
+
+
 def main():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=["--no-proxy-server"])
@@ -2006,6 +2060,7 @@ def main():
             test_page_view(browser)
             test_annotation_to_rewrite(browser)
             test_conflict_no_overwrite(browser)
+            test_write_log(browser)
         finally:
             browser.close()
 

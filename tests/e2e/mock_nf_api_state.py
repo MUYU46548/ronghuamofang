@@ -311,6 +311,15 @@ BON = {"value": 0}
 ANN_FLOW = {"previews": [], "applied": [], "pending": {}, "conflicts": [],
             "conflict_next": False}
 
+# 写作账本（/chapters/write_log）：有状态 —— 采用候选之后列表要真的多出一条，
+# 无状态下“记没记账”在界面上看不出来。
+WRITE_LOG = [
+    {"at": "2026-11-15 09:10:00", "chapter": 1, "paragraph": 0, "kind": "paragraph",
+     "note": "手改", "before_chars": 118, "after_chars": 120},
+    {"at": "2026-11-15 09:12:30", "chapter": 1, "paragraph": 2, "kind": "paragraph",
+     "note": "AI 段落改写（采用）", "before_chars": 118, "after_chars": 96},
+]
+
 ANN = {"items": [
     {"id": "a1", "note": "开头要再慢一点", "para_index": 0, "current_index": 0,
      "status": "open", "created_at": "2026-11-06 10:00", "quote": "他推门进来的时候",
@@ -1135,6 +1144,15 @@ class Handler(BaseHTTPRequestHandler):
                                     "conflicts": ANN_FLOW["conflicts"],
                                     "pending": len(ANN_FLOW["pending"])})
 
+        if p == "/chapters/write_log":
+            q = self._query()
+            try:
+                n = int((q.get("n") or ["0"])[0]) or None
+            except (TypeError, ValueError):
+                n = None
+            rows = [e for e in reversed(WRITE_LOG) if n is None or e["chapter"] == n]
+            return self._send(200, {"ok": True, "n": n, "count": len(rows), "entries": rows})
+
         if p == "/chapters/paragraph/pending":
             q = self._query()
             key = (str((q.get("chapter") or ["1"])[0]), str((q.get("index") or ["0"])[0]))
@@ -1822,6 +1840,11 @@ class Handler(BaseHTTPRequestHandler):
                 ANN_FLOW["conflicts"][-1]["forced"] = True
             ANN_FLOW["applied"].append({"chapter": key[0], "index": key[1],
                                         "before": rec["before"], "after": rec["after"]})
+            WRITE_LOG.append({"at": "2026-11-15 11:05:00", "chapter": int(key[0]),
+                              "paragraph": int(key[1]), "kind": "paragraph",
+                              "note": "AI 段落改写（采用）",
+                              "before_chars": len(rec["before"]),
+                              "after_chars": len(rec["after"])})
             ANN_FLOW["pending"].pop(key, None)
             return self._send(200, {"ok": True, "paragraph_index": int(key[1]),
                                     "path": "data/chapters/refined/01.md"})

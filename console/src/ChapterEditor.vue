@@ -289,6 +289,24 @@ async function loadLayers() {
   await loadContent();
 }
 
+/* ---------- 这一章的改动流水（2026-11-15，P2-2 的“一任务一记录”） ----------
+ * 审稿时最常问的一句是“这一段怎么变成这样了”。答案原来散在三处（段落历史记内容、
+ * 候选区记待采用、快照记整章），没有一份按时间的流水 —— 这里就只读那份流水。
+ * 只读、零 token；正文真源仍是 data/chapters/，账本里不存正文。 */
+const wlog = ref([]);
+const wlogBusy = ref(false);
+async function loadWriteLog() {
+  wlogBusy.value = true;
+  try {
+    const r = await props.api("/chapters/write_log?n=" + props.n + "&limit=20");
+    wlog.value = (r.status === 200 && r.data && r.data.ok) ? (r.data.entries || []) : [];
+  } catch (e) {
+    wlog.value = [];
+  } finally {
+    wlogBusy.value = false;
+  }
+}
+
 async function loadContent() {
   const r = await props.api(
     "/chapters/content?n=" + props.n + "&layer=" + encodeURIComponent(layer.value));
@@ -373,6 +391,7 @@ async function save() {
     if (r.data.backup) warn.value = (warn.value ? warn.value + "；" : "") + "旧稿已备份为 " + r.data.backup;
     emit("saved", props.n);
     await loadLayersQuiet();
+    await loadWriteLog();
   } catch (e) {
     err.value = "保存出错：" + (e && e.message ? e.message : e);
   } finally {
@@ -530,6 +549,7 @@ async function applyCandidate(force = false) {
       emit("say", "已采用这一段（旧版进了段落历史，可回退）");
       cand.value = null;
       conflict.value = null;
+      await loadWriteLog();
       await loadContent();
       await loadLayersQuiet();
       if (mode.value === "batch") await loadParas();
@@ -789,6 +809,7 @@ watch(() => props.n, async (nv, ov) => {
 onMounted(async () => {
   window.addEventListener("keydown", onKey);
   await loadLayers();
+  await loadWriteLog();
   nextTick(() => { if (areaRef.value) areaRef.value.focus(); });
 });
 onUnmounted(() => {
@@ -1109,6 +1130,26 @@ onUnmounted(() => {
           </div>
 
           <div class="ce-side-block">
+            <div class="ce-side-title">这一章的改动<span v-if="wlog.length" class="ce-wlog-num">{{ wlog.length }}</span></div>
+            <div v-if="!wlog.length" class="meta">
+              还没有记录 —— 改过这一段（手改 / 采用候选 / 回退）之后这里会列出时间与来源。
+            </div>
+            <!-- 固定两行，字段位置不动（目检 2026-11-15 提的：来源短的那条会挤到第一行，
+                 三条记录读起来不一致）。 -->
+            <div v-for="(e, i) in wlog" :key="i" class="ce-wlog">
+              <div class="ce-wlog-l1">
+                <span class="meta">{{ String(e.at || '').slice(5, 16) }}</span>
+                <span class="ce-wlog-note">{{ e.note || "改动" }}</span>
+              </div>
+              <div class="ce-wlog-l2">
+                <span v-if="e.paragraph !== null && e.paragraph !== undefined" class="meta">第 {{ e.paragraph + 1 }} 段</span>
+                <span class="meta">{{ e.before_chars }} → {{ e.after_chars }} 字</span>
+              </div>
+            </div>
+            <button class="mini" :disabled="wlogBusy" @click="loadWriteLog">刷新</button>
+          </div>
+
+          <div class="ce-side-block">
             <div class="ce-side-title">说明</div>
             <div class="meta">
               保存只写文件：不改阶段状态、不打分、不跑体检。旧稿会自动备份到
@@ -1269,6 +1310,13 @@ onUnmounted(() => {
 .ce-side-block {
   padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px;
 }
+.ce-wlog-num { margin-left: 6px; font-size: 11px; padding: 0 5px; border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--ink-accent); }
+.ce-wlog { display: flex; flex-direction: column; gap: 2px; padding: 4px 0;
+  border-bottom: 1px dashed var(--border); }
+.ce-wlog-l1, .ce-wlog-l2 { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+.ce-wlog:last-of-type { border-bottom: 0; }
+.ce-wlog-note { font-size: 12px; color: var(--ink); }
 .ce-side-title { font-weight: 600; margin-bottom: 6px; }
 .ce-tip {
   margin-top: 6px; padding: 6px 8px; font-size: 12px; line-height: 1.6;
