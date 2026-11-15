@@ -345,6 +345,16 @@ def stage5_items():
 
 STAGE5 = {"chapter": 1, "status": "ready", "raw_sha": "9f2c1ab7",
           "items": stage5_items()}
+# 第 2 章：给 P2-1（阅读态版面）另留一份干净状态。
+# 为什么另开一章而不是共用第 1 章：J 段会把第 1 章一路定完并合成（status=approved，
+# 列表里就查不到它了），L 段再想从“还没定”开始就没戏 —— 一条用例把下一条的环境吃掉，
+# 是这类有状态夹具最常见的假红来源。
+STAGE5B = {"chapter": 2, "status": "ready", "raw_sha": "1a2b3c4d",
+           "items": stage5_items()}
+
+
+def _stage5_by(n):
+    return STAGE5B if int(n) == STAGE5B["chapter"] else STAGE5
 
 
 def _live_items(items):
@@ -352,29 +362,54 @@ def _live_items(items):
     return [it for it in items if not it.get("folded_into")]
 
 
-def stage5_chapter_payload():
-    items = STAGE5["items"]
-    live = _live_items(items)
-    return {"ok": True, "chapter": STAGE5["chapter"], "status": STAGE5["status"],
-            "raw_sha": STAGE5["raw_sha"], "updated_at": "2026-11-14 15:30:00",
+def stage5_layout(state):
+    """阅读态版面（P2-1）：两栏段落 + 改过的段带 item 号。
+
+    与真后端同一套规则：新增项在原文栏没有段落、删除项在改后栏没有段落、
+    没有变化的那一段两栏都在且 item=None。
+    """
+    items = state["items"]
+    raw_col = [{"item": None, "text": "这一段模型没动。"}]
+    prop_col = [{"item": None, "text": "这一段模型没动。"}]
+    for it in items:
+        if it.get("folded_into"):
+            continue
+        if it["kind"] != "insert":
+            raw_col.append({"item": it["id"], "text": it["old"]})
+        if it["kind"] != "delete":
+            prop_col.append({"item": it["id"], "text": it["new"]})
+    return {"raw": raw_col, "proposed": prop_col}
+
+
+def stage5_chapter_payload(n):
+    state = _stage5_by(n)
+    live = _live_items(state["items"])
+    return {"ok": True, "chapter": state["chapter"], "status": state["status"],
+            "raw_sha": state["raw_sha"], "updated_at": "2026-11-14 15:30:00",
             "can_apply": all(it["accepted"] is not None for it in live),
-            "items": items}
+            "layout": stage5_layout(state),
+            "items": state["items"]}
+
+
+def _stage5_row(state):
+    items = state["items"]
+    live = _live_items(items)
+    return {"chapter": state["chapter"], "status": state["status"],
+            "items": len(live),
+            "decided": sum(1 for it in live if it["accepted"] is not None),
+            "pending": [it["id"] for it in live if it["accepted"] is None],
+            "folded": len(items) - len(live)}
 
 
 def stage5_list_payload():
-    items = STAGE5["items"]
-    live = _live_items(items)
-    row = {"chapter": STAGE5["chapter"], "status": STAGE5["status"],
-           "items": len(live),
-           "decided": sum(1 for it in live if it["accepted"] is not None),
-           "pending": [it["id"] for it in live if it["accepted"] is None],
-           "folded": len(items) - len(live)}
-    return {"ok": True, "chapters": [row],
-            "pending": [row["chapter"]] if row["pending"] else []}
+    rows = [_stage5_row(STAGE5), _stage5_row(STAGE5B)]
+    return {"ok": True, "chapters": rows,
+            "pending": [r["chapter"] for r in rows if r["pending"]]}
 
 
-def stage5_decide(decisions):
-    items = STAGE5["items"]
+def stage5_decide(n, decisions):
+    state = _stage5_by(n)
+    items = state["items"]
     known = {it["id"]: it for it in items}
     for k, v in (decisions or {}).items():
         try:
@@ -389,8 +424,8 @@ def stage5_decide(decisions):
         known[kid]["accepted"] = bool(v)
     live = _live_items(items)
     done = sum(1 for it in live if it["accepted"] is not None)
-    STAGE5["status"] = "decided" if done == len(live) else ("pending" if done else "ready")
-    return {"chapter": STAGE5["chapter"], "status": STAGE5["status"],
+    state["status"] = "decided" if done == len(live) else ("pending" if done else "ready")
+    return {"chapter": state["chapter"], "status": state["status"],
             "items": len(live), "decided": done,
             "pending": [it["id"] for it in live if it["accepted"] is None]}, ""
 
@@ -1081,10 +1116,10 @@ class Handler(BaseHTTPRequestHandler):
 
         if p == "/review/stage5/chapter":
             n = int((self._query().get("n") or ["1"])[0])
-            if n != STAGE5["chapter"]:
+            if n not in (STAGE5["chapter"], STAGE5B["chapter"]):
                 return self._send(404, {"ok": False,
                                         "error": "第 %d 章没有待裁定的改稿" % n})
-            return self._send(200, stage5_chapter_payload())
+            return self._send(200, stage5_chapter_payload(n))
 
         if p == "/chapters/annotations":
             # 段落批注（B5）：三种状态同时给（正常 / 位置变了 / 已失效），
@@ -1459,36 +1494,37 @@ class Handler(BaseHTTPRequestHandler):
                 n = int(body.get("chapter"))
             except (TypeError, ValueError):
                 return self._send(400, {"ok": False, "error": "chapter 必填（整数）"})
-            if n != STAGE5["chapter"]:
+            if n not in (STAGE5["chapter"], STAGE5B["chapter"]):
                 return self._send(400, {"ok": False, "error": "第 %d 章没有待裁定的改稿" % n})
             dec = body.get("decisions") or {}
             if not isinstance(dec, dict) or not dec:
                 return self._send(400, {"ok": False,
                                         "error": "decisions 必填：{项号: true/false}"})
-            summary, err = stage5_decide(dec)
+            summary, err = stage5_decide(n, dec)
             if err:
                 return self._send(400, {"ok": False, "error": err})
             return self._send(200, {"ok": True, "message": "已记下（mock）", "chapter": summary})
 
         if p == "/review/stage5/apply":
             if body.get("all"):
-                applied = 1 if STAGE5["status"] == "decided" else 0
+                applied = sum(1 for st in (STAGE5, STAGE5B) if st["status"] == "decided")
                 return self._send(200, {"ok": True, "applied": applied, "messages": []})
             try:
                 n = int(body.get("chapter"))
             except (TypeError, ValueError):
                 return self._send(400, {"ok": False,
                                         "error": "chapter 必填（整数），或传 all:true"})
-            if n != STAGE5["chapter"]:
+            if n not in (STAGE5["chapter"], STAGE5B["chapter"]):
                 return self._send(400, {"ok": False, "error": "第 %d 章没有待裁定的改稿" % n})
-            left = [it["id"] for it in _live_items(STAGE5["items"]) if it["accepted"] is None]
+            state = _stage5_by(n)
+            left = [it["id"] for it in _live_items(state["items"]) if it["accepted"] is None]
             if left:
                 return self._send(400, {"ok": False,
                                         "error": "还有 %d 处没定：%s" % (len(left), left)})
-            STAGE5["status"] = "approved"
+            state["status"] = "approved"
             return self._send(200, {"ok": True,
                                     "message": "第 %d 章已合成（mock）" % n,
-                                    "path": "data/chapters/checked/01.md"})
+                                    "path": "data/chapters/checked/%02d.md" % n})
 
         if p == "/pool/build":
             # 旧段落池重建（2026-11-14）：e2e 只验按钮通路与回显。

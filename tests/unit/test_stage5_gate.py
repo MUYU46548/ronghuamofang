@@ -157,6 +157,58 @@ def _test_format_fold():
           items4)
 
 
+def _test_layout():
+    """P2-1（2026-11-15）：阅读态版面 —— 两稿各排一遍、改过的段带 item 号。
+
+    为什么单独锁：这一层是“不读 diff、在成书的版面上改”的数据面。
+    它错了不会报错，只会**静默错位**：高亮错行、点一处跳到另一处、
+    新增段在原文栏凭空出现 —— 作者看着正常，改的是别的段。
+    """
+    print("== 10. 阅读态版面（P2-1）==")
+    raw = "\n\n".join(["甲段原样。", "乙段原样。", "丙段原样。", "丁段原样。"])
+    prop = "\n\n".join(["甲段原样。", "乙段改了。", "丙段原样。", "新增的一段。"])
+
+    items, _ = G._plan(raw, prop)
+    meta = {"items": items, "blocks": G._plan(raw, prop)[1]}
+    lay = G.layout_plan(raw, prop, meta)
+
+    check("两栏都能拼回各自的原文（段落一个不漏、顺序不变）",
+          [x["text"] for x in lay["raw"]] == G.paragraphs(raw)
+          and [x["text"] for x in lay["proposed"]] == G.paragraphs(prop),
+          ([x["text"] for x in lay["raw"]], [x["text"] for x in lay["proposed"]]))
+    changed_raw = [x for x in lay["raw"] if x["item"] is not None]
+    changed_prop = [x for x in lay["proposed"] if x["item"] is not None]
+    check("原文栏里改过的段：乙段（改写）+ 丁段（删除）",
+          [x["text"] for x in changed_raw] == ["乙段原样。", "丁段原样。"], changed_raw)
+    check("改后栏里改过的段：乙段（改写）+ 新增段（插入）",
+          [x["text"] for x in changed_prop] == ["乙段改了。", "新增的一段。"], changed_prop)
+    check("没改的段 item 为 None（高亮只落在改动上）",
+          [x["text"] for x in lay["raw"] if x["item"] is None] == ["甲段原样。", "丙段原样。"],
+          lay["raw"])
+    ids = {x["item"] for x in lay["raw"] if x["item"] is not None}
+    check("栏里的 item 号都是本章真有的号", ids <= {it["id"] for it in items}, ids)
+    check("删除项在改后栏没有段落、新增项在原文栏没有段落（事实如此，不是缺数据）",
+          len([x for x in lay["proposed"] if x["item"] == 4]) == 0
+          and len([x for x in lay["raw"] if x["item"] == 3]) == 0,
+          (lay["raw"], lay["proposed"]))
+
+    tmp = Path(tempfile.mkdtemp(prefix="s5lay_"))
+    try:
+        for d in ("data/chapters/raw", "data/chapters/checked_pending",
+                  "data/chapters/checked", "data/review/stage5"):
+            (tmp / d).mkdir(parents=True)
+        check("两稿缺一 → 返回 None（前端据此说“读不到”，不编版面）",
+              G.layout_for(9, meta, root=tmp) is None)
+        (tmp / "data/chapters/raw/09.md").write_text(raw, encoding="utf-8")
+        (tmp / "data/chapters/checked_pending/09.md").write_text(prop, encoding="utf-8")
+        lay2 = G.layout_for(9, meta, root=tmp)
+        check("两稿都在 → 版面可以排出来",
+              bool(lay2) and [x["text"] for x in lay2["proposed"]] == G.paragraphs(prop),
+              lay2)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def main() -> int:
     tmp = Path(tempfile.mkdtemp(prefix="s5gate_"))
     try:
@@ -222,6 +274,7 @@ def main() -> int:
         shutil.rmtree(tmp, ignore_errors=True)
 
     _test_format_fold()
+    _test_layout()
 
     print("== 8. API 层：清单 / 详情 / 裁定 / 合成 ==")
     tmp2 = Path(tempfile.mkdtemp(prefix="s5api_"))

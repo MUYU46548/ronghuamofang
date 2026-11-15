@@ -58,6 +58,9 @@ def handle_stage5_chapter(h):
                  "items": meta.get("items") or [],
                  "can_apply": all(it.get("accepted") is not None
                                   for it in G.actionable(meta)),
+                 # 阅读态（P2-1）：两稿各排成一串段落，改过的那几段带 item 号。
+                 # 前端据此按成书版面显示，并把“列表 ↔ 正文”对起来。
+                 "layout": G.layout_for(n, meta, root=api.ROOT),
                  "updated_at": meta.get("updated_at")}
 
 

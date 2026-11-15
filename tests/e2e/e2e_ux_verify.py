@@ -1747,6 +1747,93 @@ def test_drafts(browser):
         ctx.close()
 
 
+def test_page_view(browser):
+    """P2-1（2026-11-15）：改动的**阅读态呈现** + 列表↔版面双向定位。
+
+    为什么单独一段：这一类的坏法都“看着正常、其实错位”——
+    高亮错行、点一段跳到另一处、新增段在原文栏里凭空出现、
+    在段落上点“采用”改的却是别的段。后端用例碰不到这些，
+    只能靠真机 + 有状态假后端（stage5 夹具里带 layout）。
+    """
+    print("\n=== L. 阅读态版面：两稿按成书版面排 + 双向定位（P2-1）===")
+    ctx, page, errs, bad = new_page(browser, MOCK_API, "pageview")
+    try:
+        page.locator("nav.tabs button", has_text="审稿").first.click()
+        page.wait_for_timeout(1400)
+        panel = page.locator(".card", has=page.locator("h3:text-is('阶段 5 改稿裁定')"))
+        panel.scroll_into_view_if_needed()
+        page.wait_for_timeout(400)
+
+        # 第 2 章是这一段的干净状态（第 1 章被 J 段一路定完并合成过了）
+        panel.locator(".list .row", has_text="第 2 章").first.click()
+        page.wait_for_timeout(900)
+        check("默认是“逐处看”，版面没有展开（不让两套视图同时糊上去）",
+              panel.locator(".view-toggle button:has-text('逐处看')").count() == 1
+              and panel.locator(".page-view").count() == 0)
+
+        panel.locator(".view-toggle button:has-text('整页看')").first.click()
+        page.wait_for_timeout(600)
+        cols = panel.locator(".page-cols .page-col")
+        check("版面给了两栏（原稿 / 改后）", cols.count() == 2, cols.count())
+        raw_p = cols.nth(0).locator(".s5p")
+        prop_p = cols.nth(1).locator(".s5p")
+        check("原稿栏排出了全章 8 段（含没改的）", raw_p.count() == 8, raw_p.count())
+        check("改后栏也排出 8 段", prop_p.count() == 8, prop_p.count())
+        check("原稿栏标出 7 处改动（新增那段原文里没有）",
+              cols.nth(0).locator(".s5p.chg").count() == 7,
+              cols.nth(0).locator(".s5p.chg").count())
+        check("改后栏标出 7 处改动（删掉那段改后没有）",
+              cols.nth(1).locator(".s5p.chg").count() == 7,
+              cols.nth(1).locator(".s5p.chg").count())
+        check("没改的那一段不带编号（高亮只落在改动上）",
+              raw_p.nth(0).locator(".s5p-tag").count() == 0
+              and raw_p.nth(0).locator(".s5p-text").inner_text().startswith("这一段模型没动"),
+              raw_p.nth(0).inner_text()[:60])
+        shot(page, "L1_stage5_page", keep_scroll=True)
+
+        # 正文 → 列表：点改后栏第 2 个改动段，逐处看应当停在第 2 处
+        cols.nth(1).locator(".s5p.chg").nth(1).click()
+        page.wait_for_timeout(500)
+        check("点版面上的一段 → 当前这一处跟着变（正文→列表）",
+              panel.locator(".s5p.is-cur").count() >= 1,
+              panel.locator(".s5p.is-cur").count())
+        panel.locator(".view-toggle button:has-text('逐处看')").first.click()
+        page.wait_for_timeout(400)
+        counter = panel.locator(".counter").inner_text()
+        check("切回逐处看，停的正是刚才点的那一处（第 2 / 8 处）",
+              "第 2 / 8 处" in counter, counter)
+
+        # 列表 → 正文：那一处的按钮能把版面切过去并高亮它
+        panel.locator(".item button:has-text('在版面里看这一处')").first.click()
+        page.wait_for_timeout(600)
+        check("“在版面里看这一处”切到版面并高亮同一段",
+              panel.locator(".page-view").count() == 1
+              and panel.locator(".s5p.is-cur").count() >= 1,
+              panel.locator(".s5p.is-cur").count())
+
+        # 直接在段落上定：改后栏第 2 个改动段（第 2 处）点“采用”
+        target = cols.nth(1).locator(".s5p.chg").nth(1)
+        target.hover()
+        page.wait_for_timeout(200)
+        target.locator("button:has-text('采用')").first.click()
+        page.wait_for_timeout(900)
+        check("在版面段落上点“采用”→ 那一段变成采用色（绿）",
+              "ok" in (target.get_attribute("class") or ""), target.get_attribute("class"))
+        check("已定的段落有字的结论（不只靠底色）",
+              "已采用" in target.inner_text(), target.inner_text()[:40])
+        shot(page, "L2_stage5_page_decided", keep_scroll=True)
+        panel.locator(".view-toggle button:has-text('逐处看')").first.click()
+        page.wait_for_timeout(400)
+        check("逐处视图的已定计数跟着走（不是只改了版面）",
+              "已定 1 / 8" in panel.locator(".step-bar").inner_text(),
+              panel.locator(".step-bar").inner_text())
+
+        check("版面链路没有 4xx", not [x for x in bad if "stage5" in x],
+              [x for x in bad if "stage5" in x][:3])
+    finally:
+        ctx.close()
+
+
 def main():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=["--no-proxy-server"])
@@ -1759,6 +1846,7 @@ def main():
             test_candidates(browser)
             test_stage5_step(browser)
             test_drafts(browser)
+            test_page_view(browser)
         finally:
             browser.close()
 

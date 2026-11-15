@@ -149,6 +149,55 @@ def _accepted_of(by_id: dict, item: dict):
     return None if cur is None else cur.get("accepted")
 
 
+def layout_plan(raw_text: str, proposed_text: str, meta: dict) -> dict:
+    """把两稿排成**阅读态**：每栏是一串段落，改过的段落带 item 号（P2-1）。
+
+    为什么要有它：裁定面板原来只给“这一段的原文 / 改后”两个黑框，
+    作者看不到改动在整页里的位置。这里用同一份 `blocks`（不再跑一次
+    SequenceMatcher，避免分组漂移）把 raw 与暂存稿各排一遍，
+    前端就能按成书的版面显示、把改动处标出来、点哪段定位到哪一处。
+
+    条目形状：`{"item": 号或 None, "text": 段落}`。`None` = 没改动的段落。
+    新增项在 raw 栏没有对应段落，删除项在 proposed 栏没有 —— 这是事实，不是缺数据。
+    """
+    a, b = paragraphs(raw_text), paragraphs(proposed_text)
+    items = {int(it["id"]): it for it in meta.get("items") or []}
+    raw_col, prop_col = [], []
+    for blk in meta.get("blocks") or []:
+        if blk.get("kind") == "equal":
+            try:
+                i1, i2 = blk["old"]
+                j1, j2 = blk["new"]
+            except (KeyError, TypeError, ValueError):
+                continue
+            for k in range(int(i1), int(i2)):
+                raw_col.append({"item": None, "text": a[k]})
+            for k in range(int(j1), int(j2)):
+                prop_col.append({"item": None, "text": b[k]})
+            continue
+        it = items.get(int(blk.get("item")))
+        if not it:
+            continue
+        if it.get("kind") != "insert":
+            raw_col.append({"item": it["id"], "text": it.get("old", "")})
+        if it.get("kind") != "delete":
+            prop_col.append({"item": it["id"], "text": it.get("new", "")})
+    return {"raw": raw_col, "proposed": prop_col}
+
+
+def layout_for(chapter: int, meta: dict, root=None) -> dict | None:
+    """读盘上两稿并排成阅读态；文件缺一份就返回 None（前端显式说“读不到”）。"""
+    raw_p, pending_p, _, _ = _paths(chapter, root)
+    if not raw_p.exists() or not pending_p.exists():
+        return None
+    try:
+        raw = raw_p.read_text(encoding="utf-8")
+        prop = pending_p.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    return layout_plan(raw, prop, meta or {})
+
+
 def _plan(raw_text: str, proposed_text: str) -> tuple[list[dict], list[dict]]:
     """生成裁定项与重建计划（确定性）。
 

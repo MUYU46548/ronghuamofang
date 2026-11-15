@@ -15,7 +15,7 @@
  * 现在一次只看一处，定完自动跳到下一处没定的；按钮位置不动，连续点就是流水线。
  * 后端完全不变 —— 裁定数据本来就按项存，一次只提交当前这一处的决定。
  */
-import { ref, computed, onMounted } from "vue";
+import { ref, computed, onMounted, nextTick } from "vue";
 import { API } from "./apiBase.js";
 import { postJSON } from "./guiApi.js";
 
@@ -45,6 +45,77 @@ const foldedHere = computed(() =>
   item.value ? items.value.filter((it) => it.folded_into === item.value.id) : []
 );
 const foldedAll = computed(() => items.value.length - live.value.length);
+
+/* ---------- 阅读态（P2-1，2026-11-15） ----------
+   为什么要它：原来只有“这一段的原文 / 改后”两个黑框，作者读不到改动在整页里的位置，
+   也就谈不上“不读 diff、在成书的版面上改”。现在两稿各排一遍、改过的段标出来，
+   点段落能定位到那一处，点“在版面里看”能把当前这一处滚到眼前。
+   版面的数据来自后端（同一份 blocks 排的），这里只负责显示与定位 —— 不自己再算 diff。 */
+const view = ref("step");                 // step = 逐处看 · page = 整页看（版面）
+const layout = computed(() => (current.value && current.value.layout) || null);
+const byId = computed(() => {
+  const m = {};
+  for (const it of items.value) m[it.id] = it;
+  return m;
+});
+
+/** 并入的标点项，它的“这一处”其实是挂靠的那一处。 */
+function hostId(id) {
+  const seen = new Set();
+  let cur = byId.value[id];
+  while (cur && cur.folded_into && !seen.has(cur.id)) {
+    seen.add(cur.id);
+    cur = byId.value[cur.folded_into];
+  }
+  return cur ? cur.id : id;
+}
+
+/** 某一段落属于“第几处”（并入项折到挂靠项上；不是改动的段返回 -1）。 */
+function liveIndexFor(layoutItem) {
+  if (layoutItem == null) return -1;
+  const hid = hostId(layoutItem);
+  return live.value.findIndex((it) => it.id === hid);
+}
+
+/** 点版面上的一段：把逐处视图也切到那一处（两个视图同一份状态）。 */
+async function pickFromPage(layoutItem) {
+  const i = liveIndexFor(layoutItem);
+  if (i < 0) return;
+  idx.value = i;
+  await nextTick();
+  scrollCurrent();
+}
+
+function scrollCurrent() {
+  const el = document.querySelector('.detail .s5p.is-cur');
+  if (el && el.scrollIntoView) el.scrollIntoView({ block: "center", behavior: "smooth" });
+}
+
+/** 逐处 → 版面：切过去并把当前这一处滚到眼前。 */
+async function showInPage() {
+  view.value = "page";
+  await nextTick();
+  scrollCurrent();
+}
+
+/** 某一段落挂靠的那一项定成什么了（true=采用 / false=保留 / null=还没定）。 */
+function hostAccepted(layoutItem) {
+  if (layoutItem == null) return null;
+  const host = byId.value[hostId(layoutItem)];
+  return host ? host.accepted : null;
+}
+
+function pageClass(entry) {
+  const i = liveIndexFor(entry.item);
+  const host = entry.item == null ? null : byId.value[hostId(entry.item)];
+  return {
+    chg: entry.item != null,
+    folded: Boolean(host && host.folded_into),
+    "is-cur": i >= 0 && i === idx.value,
+    ok: Boolean(host && host.accepted === true),
+    bad: Boolean(host && host.accepted === false),
+  };
+}
 
 function say(msg) {
   hint.value = msg;
@@ -140,8 +211,10 @@ async function decide(it, accepted) {
     });
     say(`第 ${it.id} 处：${accepted ? "采用改法" : "保留原文"}`);
     await open(current.value.chapter, true);
-    // 只往后找下一处没定的（往前翻回去改过的处不抢焦点）
-    const nxt = nextUndecided(at + 1);
+    // 只往后找下一处没定的（往前翻回去改过的处不抢焦点）。
+    // 版面模式下**不跳**：定了这一段就停在它身上，跳走会让“当前这一处”的高亮
+    // 和刚点的那一段对不上（逐处模式才需要连续点）。
+    const nxt = view.value === "step" ? nextUndecided(at + 1) : -1;
     if (nxt >= 0) idx.value = nxt;
     await refreshRows();
   } catch (e) {
@@ -245,6 +318,10 @@ onMounted(load);
           <strong>第 {{ current.chapter }} 章</strong>
           <span class="meta">· {{ current.status }} · raw {{ current.raw_sha }}</span>
           <span class="spacer"></span>
+          <span class="view-toggle">
+            <button class="mini" :class="{ on: view === 'step' }" @click="view = 'step'">逐处看</button>
+            <button class="mini" :class="{ on: view === 'page' }" @click="showInPage">整页看（版面）</button>
+          </span>
           <button
             class="mini primary"
             :disabled="busy || !current.can_apply"
@@ -261,6 +338,7 @@ onMounted(load);
           <p v-if="foldedAll" class="meta folded-note">
             另有 {{ foldedAll }} 处只是标点/空白的调整，已并入最近一处的决定（不单独占一格）。
           </p>
+          <template v-if="view === 'step'">
           <!-- 步进条：一次只看一处，上一处 / 下一处 + 计数 -->
           <div class="step-bar">
             <button class="mini" :disabled="busy || idx <= 0" @click="step(-1)">‹ 上一处</button>
@@ -307,6 +385,7 @@ onMounted(load);
             <div class="actions">
               <button class="mini ok-btn" :disabled="busy" @click="decide(item, true)">采用模型改法</button>
               <button class="mini bad-btn" :disabled="busy" @click="decide(item, false)">保留原文</button>
+              <button class="mini" @click="showInPage">在版面里看这一处</button>
               <span class="meta">定完这一处，自动跳到下一处没定的</span>
             </div>
             <details v-if="foldedHere.length" class="folds">
@@ -320,6 +399,61 @@ onMounted(load);
                 <pre v-if="f.new">{{ f.new }}</pre>
               </div>
             </details>
+          </div>
+          </template>
+
+          <!-- 整页看（版面）：两稿各排一遍，改动的段落标出来，点段落定位到那一处 -->
+          <div v-else class="page-view">
+            <p v-if="!layout" class="meta">读不到两稿（缺 raw 或暂存稿），版面排不出来。</p>
+            <template v-else>
+              <p class="meta page-note">
+                左是原稿、右是模型的改后稿，按成书的版面排。带底色的是改动处，两栏同一处标同一个号；
+                点改动的那一段就定位到那一处，鼠标移上去可以直接点“采用 / 保留”。
+                两栏各自滚动、各按自己的段落顺序排 —— 新增/删除只在一边有，所以同一个号不一定在同一水平线上。
+              </p>
+              <div class="page-cols">
+                <div class="page-col">
+                  <div class="page-col-head">原稿</div>
+                  <div
+                    v-for="(e, i) in layout.raw"
+                    :key="'r' + i"
+                    class="s5p"
+                    :class="pageClass(e)"
+                    :data-item="e.item"
+                    @click="pickFromPage(e.item)"
+                  >
+                    <span v-if="e.item != null" class="s5p-tag">第 {{ hostId(e.item) }} 处</span>
+                    <span v-if="hostAccepted(e.item) === true" class="s5p-state ok">✓ 已采用</span>
+                    <span v-else-if="hostAccepted(e.item) === false" class="s5p-state bad">✕ 保留原文</span>
+                    <span class="s5p-text">{{ e.text }}</span>
+                    <span v-if="e.item != null" class="s5p-act">
+                      <button class="mini" :disabled="busy" @click.stop="decide(byId[hostId(e.item)], true)">采用</button>
+                      <button class="mini" :disabled="busy" @click.stop="decide(byId[hostId(e.item)], false)">保留</button>
+                    </span>
+                  </div>
+                </div>
+                <div class="page-col">
+                  <div class="page-col-head">改后</div>
+                  <div
+                    v-for="(e, i) in layout.proposed"
+                    :key="'p' + i"
+                    class="s5p"
+                    :class="pageClass(e)"
+                    :data-item="e.item"
+                    @click="pickFromPage(e.item)"
+                  >
+                    <span v-if="e.item != null" class="s5p-tag">第 {{ hostId(e.item) }} 处</span>
+                    <span v-if="hostAccepted(e.item) === true" class="s5p-state ok">✓ 已采用</span>
+                    <span v-else-if="hostAccepted(e.item) === false" class="s5p-state bad">✕ 保留原文</span>
+                    <span class="s5p-text">{{ e.text }}</span>
+                    <span v-if="e.item != null" class="s5p-act">
+                      <button class="mini" :disabled="busy" @click.stop="decide(byId[hostId(e.item)], true)">采用</button>
+                      <button class="mini" :disabled="busy" @click.stop="decide(byId[hostId(e.item)], false)">保留</button>
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </template>
           </div>
         </template>
       </div>
@@ -381,5 +515,51 @@ pre { white-space: pre-wrap; margin: 4px 0; font-family: inherit; }
 /* 采用/保留这两个按钮是这一屏的主要动作，用深一档的墨色，不用浅绿浅红（对比度不够） */
 .ok-btn { color: var(--ink-ok); font-weight: 600; }
 .bad-btn { color: var(--ink-bad); font-weight: 600; }
+/* 视图开关：逐处看（默认）/ 整页看（版面） */
+.view-toggle { display: flex; gap: 4px; }
+.view-toggle .on { border-color: var(--accent); color: var(--ink-accent); }
+/* 整页看（P2-1）：按成书版面排两稿，改动段带底色 + 编号，段落上直接能定 */
+.page-note { margin: 0 0 8px; }
+.page-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.page-col {
+  min-width: 0; max-height: 480px; overflow: auto;
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 8px 10px; background: var(--field-inset, var(--card));
+}
+.page-col-head {
+  position: sticky; top: 0; z-index: 1; font-size: 12px; color: var(--muted);
+  padding: 0 0 6px; background: inherit;
+}
+/* 正文用衬线（与阅读态同一套），缩进两字 —— 看上去是“稿子”，不是 diff */
+.s5p {
+  font-family: "Source Han Serif SC", "Noto Serif SC", "Songti SC", serif;
+  font-size: 14.5px; line-height: 1.9; text-indent: 2em;
+  margin: 0 0 0.6em; padding: 2px 4px; border-radius: 4px;
+}
+.s5p.chg {
+  cursor: pointer; text-indent: 0; padding-left: 6px;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-left: 3px solid var(--accent);
+}
+.s5p.chg:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }
+.s5p.folded {
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  border-left-color: var(--warn);
+}
+.s5p.ok { background: color-mix(in srgb, var(--ok) 15%, transparent); border-left-color: var(--ok); }
+.s5p.bad { background: color-mix(in srgb, var(--bad) 13%, transparent); border-left-color: var(--bad); }
+.s5p.is-cur { box-shadow: 0 0 0 1px var(--card), 0 0 0 3px var(--accent); }
+.s5p-tag { font-size: 11px; color: var(--ink-accent); margin-right: 6px; }
+/* 已定状态不能只靠底色区分（目检 2026-11-15 提的）：给一个字的结论 */
+.s5p-state { font-size: 11px; padding: 0 5px; border-radius: 4px; margin-right: 6px; font-weight: 600; }
+.s5p-state.ok { color: var(--ink-ok); background: color-mix(in srgb, var(--ok) 24%, var(--field)); }
+.s5p-state.bad { color: var(--ink-bad); background: color-mix(in srgb, var(--bad) 22%, var(--field)); }
+/* 段落上的两个按钮默认不露脸：整页模式下满屏按钮会把“读稿”变成“点按钮”。
+   悬停或当前这一处时才出现（键盘仍可 Tab 到）。 */
+.s5p-act { display: inline-flex; gap: 4px; margin-left: 6px; opacity: 0; transition: opacity .12s; }
+.s5p.chg:hover .s5p-act,
+.s5p.is-cur .s5p-act,
+.s5p-act:focus-within { opacity: 1; }
+@media (max-width: 900px) { .page-cols { grid-template-columns: 1fr; } }
 @media (max-width: 760px) { .split { grid-template-columns: 1fr; } }
 </style>
