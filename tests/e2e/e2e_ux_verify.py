@@ -1406,8 +1406,14 @@ _DESK_MEASURE_JS = r"""
   const out = {};
   const ta = document.querySelector('.ce-textarea');
   if (ta) out.edit = per(ta);
-  const rp = document.querySelector('.ce-read-p');
-  if (rp) out.read = per(rp);
+  // 正文段落 = .ce-read-p 里**不是标题**的那些（2026-11-15 修）：
+  // 章节标题也带 ce-read-p 类（多一个 ce-read-h，字号 17px），
+  // 原来拿 querySelector('.ce-read-p') 就取到标题 → 量出 40 字/行，
+  // 而正文一直是 15px / 46 字/行。判据量错元素 = 假红，比没判据更糟。
+  const paras = [...document.querySelectorAll('.ce-read-p')]
+    .filter((e) => !e.classList.contains('ce-read-h'));
+  if (paras.length) out.read = per(paras[0]);
+  out.readParas = paras.length;
   return out;
 }
 """
@@ -1448,8 +1454,9 @@ def test_desk_width(browser):
             page.wait_for_timeout(800)
             r = page.evaluate(_DESK_MEASURE_JS)
             page.screenshot(path=str(OUT / ("desk_width_%d_read.png" % w)))
-            check("%d 宽 · 阅读态正文 ≥45 汉字/行" % w, (r.get("read") or 0) >= 45,
-                  "实测 %s 字/行" % r.get("read"))
+            check("%d 宽 · 阅读态正文 ≥45 汉字/行" % w,
+                  bool(r.get("readParas")) and (r.get("read") or 0) >= 45,
+                  "实测 %s 字/行（正文段 %s 个）" % (r.get("read"), r.get("readParas")))
             page.locator("button:has-text('编辑')").first.click()
             page.wait_for_timeout(300)
         # C3（2026-11-07）：跑完流水线/重写后批注会失效 —— 必须在标题行就看得见，
