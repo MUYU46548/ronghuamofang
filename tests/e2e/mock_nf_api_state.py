@@ -305,13 +305,18 @@ BON = {"value": 0}
 
 # 段落批注（B5）：一条正常、一条“原句已改”（漂移）、一条“已失效”（标红）——
 # 三种状态同时在场，界面才验证得了“红/黄/正常”分得开。
+# 批注 → 改稿（P0-2，2026-11-14）：这条链要**有状态**才验得出真东西 ——
+# “点了改这一处”有没有真的按批注发出去、候选有没有带 annotation_id、
+# 批注是不是 open→addressed、采用之后正文有没有动。
+ANN_FLOW = {"previews": [], "applied": [], "pending": {}}
+
 ANN = {"items": [
-    {"id": "a1", "note": "开头要再慢一点", "para_index": 0, "status": "open",
-     "created_at": "2026-11-06 10:00", "quote": "他推门进来的时候", "drift": False,
-     "current_text": "他推门进来的时候，屋檐上的水线正连成了串。"},
-    {"id": "a2", "note": "这段收尾太急", "para_index": 2, "status": "open",
-     "created_at": "2026-11-06 10:05", "quote": "她停下脚步", "drift": True,
-     "why": "段落位置变了（从第 3 段移到第 4 段）",
+    {"id": "a1", "note": "开头要再慢一点", "para_index": 0, "current_index": 0,
+     "status": "open", "created_at": "2026-11-06 10:00", "quote": "他推门进来的时候",
+     "drift": False, "current_text": "他推门进来的时候，屋檐上的水线正连成了串。"},
+    {"id": "a2", "note": "这段收尾太急", "para_index": 2, "current_index": 3,
+     "status": "open", "created_at": "2026-11-06 10:05", "quote": "她停下脚步",
+     "drift": True, "why": "段落位置变了（从第 3 段移到第 4 段）",
      "current_text": "她停下脚步，侧过脸朝窗外的天色看了一眼。"},
     {"id": "a3", "note": "这句话我删了，别再提", "para_index": 5, "status": "missing",
      "created_at": "2026-11-06 10:09", "quote": "早已删掉的一句", "drift": False,
@@ -1121,6 +1126,26 @@ class Handler(BaseHTTPRequestHandler):
                                         "error": "第 %d 章没有待裁定的改稿" % n})
             return self._send(200, stage5_chapter_payload(n))
 
+        if p == "/_mock/ann_flow":
+            # 只给 e2e 用：回查“批注驱动改稿”这条链到底发生了什么。
+            # 只看 DOM 断不出“候选是不是按这条批注生成的”。
+            return self._send(200, {"ok": True, "previews": ANN_FLOW["previews"],
+                                    "applied": ANN_FLOW["applied"],
+                                    "pending": len(ANN_FLOW["pending"])})
+
+        if p == "/chapters/paragraph/pending":
+            q = self._query()
+            key = (str((q.get("chapter") or ["1"])[0]), str((q.get("index") or ["0"])[0]))
+            rec = ANN_FLOW["pending"].get(key)
+            if not rec:
+                return self._send(200, {"ok": True, "exists": False,
+                                        "message": "没有待采用的候选（正文就是原样）"})
+            return self._send(200, {"ok": True, "exists": True, "rec": rec,
+                                    "candidates": [{"cid": "c1", "after": rec["after"],
+                                                    "feedback": rec["feedback"],
+                                                    "at": "2026-11-15 11:00",
+                                                    "context": []}]})
+
         if p == "/chapters/annotations":
             # 段落批注（B5）：三种状态同时给（正常 / 位置变了 / 已失效），
             # 界面才验得出“红黄分得开、失效的确实标红”。
@@ -1412,6 +1437,9 @@ class Handler(BaseHTTPRequestHandler):
             if jid in FIELD_JOBS:
                 return self._send(200, {"id": jid, "kind": "field_refine",
                                         "state": "ok", "result": FIELD_JOBS[jid]})
+            if jid.startswith("job_ann"):
+                return self._send(200, {"id": jid, "kind": "paragraph_refine",
+                                        "state": "ok", "result": {"ok": True}})
             if jid in SAMPLE_JOBS:
                 return self._send(200, {"id": jid, "kind": "branch_sample",
                                         "state": "ok", "result": SAMPLE_JOBS[jid]})
@@ -1737,6 +1765,50 @@ class Handler(BaseHTTPRequestHandler):
             BON["value"] = v
             return self._send(200, {"ok": True, "current": v,
                                     "message": "已设为 %s" % ("关闭" if v == 0 else "%d 版" % v)})
+
+        if p == "/chapters/paragraph/preview":
+            # 批注驱动改稿（P0-2）：真后端是 202 + job_id，再由前端轮询；
+            # 这里同样回 202，候选在 /chapters/paragraph/pending 里给。
+            b = body or {}
+            ch = str(int(b.get("chapter") or 1))
+            pi = str(int(b.get("paragraph_index") or 0))
+            aid = str(b.get("annotation_id") or "")
+            fb = str(b.get("feedback") or "")
+            if not fb:
+                return self._send(400, {"ok": False, "error": "feedback 必填"})
+            after = ("他推开门的时候，屋檐上的水线正连成了串，"
+                     "阶前积出一小滩暗色的水。")
+            ANN_FLOW["previews"].append({"chapter": ch, "paragraph_index": pi,
+                                         "annotation_id": aid, "feedback": fb})
+            ANN_FLOW["pending"][(ch, pi)] = {
+                "chapter": int(ch), "index": int(pi),
+                "before": _MOCK_PARA, "after": after, "ok": True,
+                "reasons": [], "feedback": fb, "annotation_id": aid,
+            }
+            # 批注 open → addressed（不自动 resolved：改完不等于作者满意）
+            for a in ANN["items"]:
+                if aid and a.get("id") == aid:
+                    a["status"] = "addressed"
+                    a["addressed_at"] = "2026-11-15 11:00"
+            return self._send(202, {"ok": True, "job_id": "job_ann_1", "mode": "direct"})
+
+        if p == "/chapters/paragraph/apply":
+            b = body or {}
+            key = (str(int(b.get("chapter") or 1)), str(int(b.get("paragraph_index") or 0)))
+            rec = ANN_FLOW["pending"].get(key)
+            if not rec:
+                return self._send(400, {"ok": False, "error": "没有待采用的候选"})
+            ANN_FLOW["applied"].append({"chapter": key[0], "index": key[1],
+                                        "before": rec["before"], "after": rec["after"]})
+            ANN_FLOW["pending"].pop(key, None)
+            return self._send(200, {"ok": True, "paragraph_index": int(key[1]),
+                                    "path": "data/chapters/refined/01.md"})
+
+        if p == "/chapters/paragraph/drop":
+            b = body or {}
+            key = (str(int(b.get("chapter") or 1)), str(int(b.get("paragraph_index") or 0)))
+            ANN_FLOW["pending"].pop(key, None)
+            return self._send(200, {"ok": True})
 
         if p == "/chapters/annotations":
             # 段落批注（B5）写入口：add / resolve / delete（与真后端同三种 action）。

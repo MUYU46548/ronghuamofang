@@ -1834,6 +1834,75 @@ def test_page_view(browser):
         ctx.close()
 
 
+def test_annotation_to_rewrite(browser):
+    """P0-2（2026-11-14 落地，2026-11-15 补视觉验收）：批注 → 只改它指的那一段。
+
+    为什么必须真机验：这条链的入口在界面上（点批注上的“改这一处”），
+    后端单测再全绿也拦不到前端那一层的错 —— 本轮就是这么发现的：
+    `submitRefine` 里读了没声明的 `override`，点下去当场 ReferenceError，
+    一个请求都发不出去（批注改稿从上线起就是坏的，台账却记着“已落地”）。
+    所以这里两头都断：界面上候选真的出来了、后端收到的确实是这条批注。
+    """
+    print("\n=== M. 批注 → 改这一处 → 采用（P0-2）===")
+    ctx, page, errs, bad = new_page(browser, MOCK_API, "annflow")
+    try:
+        page.locator("nav.tabs button", has_text="章节").first.click()
+        page.wait_for_timeout(1500)
+        page.locator("button:has-text('审阅台')").first.click()
+        page.wait_for_selector(".ce-textarea", timeout=8000)
+        page.wait_for_timeout(500)
+        page.locator("button:has-text('段落批注')").first.click()
+        page.wait_for_timeout(800)
+
+        anns = page.locator(".ce-ann")
+        check("批注列表给出 3 条（正常 / 位置变了 / 已失效）", anns.count() == 3, anns.count())
+        check("失效的那条写明“引用的原句已改/已删”",
+              "已改/已删" in anns.nth(2).inner_text(), anns.nth(2).inner_text()[:60])
+
+        anns.first.locator("button:has-text('改这一处')").click()
+        page.wait_for_timeout(3500)
+        check("点“改这一处”→ 出候选（改前/改后并排），正文一个字没动",
+              page.locator(".ce-cand").count() == 1
+              and page.locator(".ce-cand .ce-diff-col").count() == 2,
+              page.locator(".ce-cand").count())
+        check("批注当场变成显眼的状态标签“已出候选，待采用”（open → addressed，不自动算完）",
+              anns.first.locator(".pill.st-gate", has_text="待采用").count() == 1,
+              anns.first.inner_text()[-40:])
+        check("已经改过一次的批注，按钮改口为“再改一版”（不让人以为还得点一次“改这一处”）",
+              "再改一版" in anns.first.inner_text(), anns.first.inner_text()[-40:])
+
+        flow = mock_json("/_mock/ann_flow")
+        pv = flow.get("previews") or []
+        check("后端收到的确实是这条批注（annotation_id + 原文）",
+              len(pv) == 1 and pv[0].get("annotation_id") == "a1"
+              and pv[0].get("feedback") == "开头要再慢一点", pv)
+        check("改的是它指的那一段（第 1 段 / index 0）",
+              bool(pv) and str(pv[0].get("paragraph_index")) == "0", pv)
+        check("还没点采用 → 后端 applied 为空（候选不等于成品）",
+              (flow.get("applied") or []) == [], flow.get("applied"))
+        # 批注卡与候选区在侧栏里不是同一屏：各拍一张，目检才看得到两个状态
+        anns.first.screenshot(path=str(OUT / "M1_ann_state.png"))
+        shot(page, "M1_ann_to_cand", keep_scroll=True)
+
+        page.locator(".ce-cand-head button:has-text('采用')").first.click()
+        page.wait_for_timeout(1500)
+        flow = mock_json("/_mock/ann_flow")
+        ap = flow.get("applied") or []
+        check("点“采用”→ 后端记下这一段被换掉",
+              len(ap) == 1 and "阶前积出一小滩暗色的水" in ap[0].get("after", ""), ap)
+        check("采用后候选卡收起来（不留一张“还能点”的假卡）",
+              page.locator(".ce-cand").count() == 0, page.locator(".ce-cand").count())
+        shot(page, "M2_ann_applied", keep_scroll=True)
+
+        mine = [x for x in bad if "/chapters/paragraph" in x or "/chapters/annotations" in x]
+        check("批注改稿链路没有 4xx", not mine, mine[:3])
+        ce_errs = [e for e in errs if "override" in e or "ReferenceError" in e]
+        check("界面上没有 ReferenceError 一类脚本错（本轮修的就是这个）",
+              not ce_errs, ce_errs[:2])
+    finally:
+        ctx.close()
+
+
 def main():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=["--no-proxy-server"])
@@ -1847,6 +1916,7 @@ def main():
             test_stage5_step(browser)
             test_drafts(browser)
             test_page_view(browser)
+            test_annotation_to_rewrite(browser)
         finally:
             browser.close()
 

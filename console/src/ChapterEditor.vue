@@ -606,10 +606,13 @@ async function restorePara(h) {
   }
 }
 
-async function submitRefine() {
+async function submitRefine(override = null) {
   if (refining.value) return;
-  // 批注驱动改稿（2026-11-14，P0-2）：`override` 从批注列表进来时带段落号与批注内容，
-  // 不去动作者手写的意见框（那条批注本来就该原样交给模型）。
+  /* 批注驱动改稿（2026-11-14，P0-2）：`override` 从批注列表进来时带段落号与批注内容，
+     不去动作者手写的意见框（那条批注本来就该原样交给模型）。
+     ⚠️ 2026-11-15 修：这个参数原来**没有声明**（`async function submitRefine()` 里直接读
+     `override`）→ 点“改这一处”当场 `ReferenceError: override is not defined`，
+     一个请求都发不出去。而单测只覆盖后端，看不出界面这一层 —— 补视觉验收时才暴露。 */
   const src = override || {};
   const pi = src.para_index !== undefined && src.para_index !== null
     ? Number(src.para_index) : selPara.value;
@@ -923,7 +926,7 @@ onUnmounted(() => {
               <button class="mini primary ce-batch-btn"
                       :disabled="refining || selPara === null || props.selfEngine"
                       :title="props.selfEngine ? '当前引擎是自任务（engine: self，不调模型），段落重写要用模型。切到 direct / hermes 再用。' : ''"
-                      @click="submitRefine">
+                      @click="submitRefine()">
                 {{ refining ? ("重写中… 已 " + fmtElapsed(refineElapsed)) : "让 AI 只改这一段" }}
               </button>
               <!-- 只为记下来、不交给模型（B5）：批注以前写完就没了 -->
@@ -1043,11 +1046,13 @@ onUnmounted(() => {
                           :disabled="refining || !canBatch"
                           :title="canBatch ? '用这条批注只改这一段（生成候选，正文不动）'
                                            : '批注只在当前层开放'"
-                          @click="refineFromAnnotation(a)">改这一处</button>
+                          @click="refineFromAnnotation(a)">{{ a.status === 'addressed' ? '再改一版' : '改这一处' }}</button>
                   <button v-if="a.status === 'open'" class="mini" @click="resolveAnnotation(a)">
                     标为已处理
                   </button>
-                  <span v-else-if="a.status === 'addressed'" class="meta">· 已据此改过，等采用</span>
+                  <!-- 状态要“看得见的一档”，不能是灰色小字（目检 2026-11-15 提的）：
+                       改过但还没采用，和“改这一处”是两个概念，别让人以为已经处理完了。 -->
+                  <span v-else-if="a.status === 'addressed'" class="pill st-gate">已出候选，待采用</span>
                 </div>
               </div>
             </div>

@@ -101,3 +101,25 @@ python scripts/nfctl.py release-check        # 发版前全套（含 e2e 视觉�
 
 `test_chapter_editor.py` 的【F】【G】两段是**防回潮**静态断言：组件被误删、
 “编辑”入口被拿掉、GUI 文案里又出现直角引号，都会在这里变红。
+
+## 六、批注 → 只改它指的那一段（P0-2）
+
+链路：批注卡上“改这一处” → `refineFromAnnotation(a)` → `submitRefine({para_index, feedback: a.note, annotation_id})`
+→ `POST /chapters/paragraph/preview`（后端 `annotations.mark_addressed`：open → addressed，
+**不**自动 resolved，因为改完不等于作者满意）→ 轮询 `/jobs/{id}` → 候选落盘 →
+`GET /chapters/paragraph/pending` 出“改前 / 改后” → 作者点“采用”才写进正文。
+
+**2026-11-15 补视觉验收时发现这条链从上线起就是坏的**：`submitRefine` 的形参没声明
+（`async function submitRefine()` 里直接读 `override`）→ 点按钮当场
+`ReferenceError: override is not defined`，一个请求都不发。后端单测全绿，因为错在界面这一层；
+台账却按“后端有实现”记了“已落地”。教训两条：
+
+1. **`@click="fn"` 会把事件对象当第一个实参传进去** —— 需要默认值的函数写成
+   `@click="fn()"`，否则 `src.para_index`、`src.feedback` 全从 MouseEvent 上取，静默走兜底分支。
+2. **凡是“界面上点一下才算完成”的功能，“后端有实现”≠“已落地”** —— 判据必须是
+   e2e 里真点一次。现在锁在 `tests/e2e/e2e_ux_verify.py` **M 段**（17 条：批注三种状态、
+   点按钮出候选、批注 open→addressed、后端收到的 `annotation_id` 与批注原文一致、
+   改的是它指的那一段、未采用时 applied 为空、采用后候选卡收起、无 ReferenceError）。
+
+界面上两处按目检改过：addressed 状态是**带底色的标签**“已出候选，待采用”（原来是灰色小字，
+和按钮挤在一起），按钮改口为“再改一版”（不让人以为还得再点一次“改这一处”）。
