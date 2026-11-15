@@ -4,7 +4,7 @@
 
 ## 项目定位
 
-NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是半自动长篇小说生成系统：机器包办苦力（素材归并→大纲→写作→检查→润色→Word），用户保留审批权和最终精修权。
+NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是基于AI的长篇小说创作工具：机器包办苦力（素材归并→大纲→写作→检查→润色→Word），用户保留审批权和最终精修权。
 用户只做两件事：**放置素材** + **说"运行 NovelForge 项目"**。其余由系统自动执行，关键节点设审批门暂停等待人工确认。
 
 **执行引擎可切换**：`config/system.yaml` 的 `engine` 字段控制。`direct`=OpenAI 兼容直连（当前接 TokenHub，可随时换供应商），`hermes`=Hermes 子会话（备选），`self`=**只出任务书、不调用任何模型**（阶段 1~6 各把任务书写到 `data/state/tasks/self/stageN/`，执行方把产物写到位后重跑即按产物续跑；零 token，细节见 `docs/agents/engine-self.md`）。所有调用点经 `make_client(cfg, role)` 取客户端，零调用点硬编码引擎；`engine: self` 下 `make_client` **直接抛错** —— 防"配了 self、后台却偷偷按量跑模型"这类静默失真。
