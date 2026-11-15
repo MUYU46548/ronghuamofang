@@ -1160,11 +1160,23 @@ class Handler(BaseHTTPRequestHandler):
             if not rec:
                 return self._send(200, {"ok": True, "exists": False,
                                         "message": "没有待采用的候选（正文就是原样）"})
+            # 一次调用出 1 主 + 2 备选（P0-1）：三条文本必须真的不同，
+            # 否则“切换候选”验的是同一个字符串 —— 那是假绿。
+            # 最新那条（c3）等于 rec.after，这样没点过候选的用例看到的还是原来那句。
             return self._send(200, {"ok": True, "exists": True, "rec": rec,
-                                    "candidates": [{"cid": "c1", "after": rec["after"],
-                                                    "feedback": rec["feedback"],
-                                                    "at": "2026-11-15 11:00",
-                                                    "context": []}]})
+                                    "candidates": [
+                                        {"cid": "c1",
+                                         "after": "候选一：他推门进来，屋里没人。",
+                                         "feedback": rec["feedback"],
+                                         "at": "2026-11-15 10:58", "context": []},
+                                        {"cid": "c2",
+                                         "after": "候选二：他推开门，阶前积着水。",
+                                         "feedback": rec["feedback"],
+                                         "at": "2026-11-15 10:59", "context": []},
+                                        {"cid": "c3", "after": rec["after"],
+                                         "feedback": rec["feedback"],
+                                         "at": "2026-11-15 11:00", "context": []},
+                                    ]})
 
         if p == "/chapters/annotations":
             # 段落批注（B5）：三种状态同时给（正常 / 位置变了 / 已失效），

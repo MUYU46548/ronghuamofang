@@ -2045,6 +2045,74 @@ def test_write_log(browser):
         ctx.close()
 
 
+
+def test_multi_candidate_switch(browser):
+    """P0-1 + Papilot 3.3：一次出 1 主 + 2 备选，切换候选零调用（2026-11-15）。
+
+    为什么单独锁：这两条最容易被“看起来实现了”骗过去 —— 候选标签画出来很简单，
+    但“切一条不等于再花一次钱”只能靠数请求证明：切换期间不能出现
+    /chapters/paragraph/preview 或 /jobs/* 的新请求。
+    文本也必须真的不同，否则切了跟没切一样（假绿）。
+    """
+    print("\n=== P. 多候选：一次出三条，切换不花钱（P0-1 / 3.3）===")
+    ctx, page, errs, bad = new_page(browser, MOCK_API, "multicand")
+    reqs = []
+    page.on("request", lambda r: reqs.append(r.url))
+    try:
+        page.locator("nav.tabs button", has_text="章节").first.click()
+        page.wait_for_timeout(1500)
+        page.locator("button:has-text('审阅台')").first.click()
+        page.wait_for_selector(".ce-textarea", timeout=8000)
+        page.wait_for_timeout(500)
+        page.locator("button:has-text('段落批注')").first.click()
+        page.wait_for_timeout(800)
+
+        page.locator(".ce-ann").nth(1).locator("button.primary").first.click()
+        page.wait_for_timeout(3000)
+        check("候选卡出来了", page.locator(".ce-cand").count() == 1, page.locator(".ce-cand").count())
+
+        tabs = page.locator(".ce-cand-tab")
+        check("一次给了 3 条候选（1 主 + 2 备选）", tabs.count() == 3, tabs.count())
+        check("界面上写明“这次一次出了 3 条”",
+              "一次出了 3 条" in page.locator(".ce-cand-pick").inner_text(),
+              page.locator(".ce-cand-pick").inner_text()[:80])
+        shot(page, "P1_multi_candidate", keep_scroll=True)
+
+        after = page.locator(".ce-cand .ce-diff-col").nth(1)
+        # 从这一刻起数请求：切换候选本身不许再发任何“生成/轮询”请求
+        reqs.clear()
+        tabs.nth(0).click()
+        page.wait_for_timeout(400)
+        txt1 = after.inner_text()
+        tabs.nth(1).click()
+        page.wait_for_timeout(300)
+        txt2 = after.inner_text()
+        tabs.nth(2).click()
+        page.wait_for_timeout(300)
+        txt3 = after.inner_text()
+
+        check("切到第 1 条 → 改后换成候选一的文本", "候选一" in txt1, txt1[:60])
+        check("切到第 2 条 → 又换成候选二（不是同一段文字）",
+              "候选二" in txt2 and txt2 != txt1, txt2[:60])
+        check("切回最新那条 → 是模型给的主方案",
+              "阶前积出一小滩暗色的水" in txt3, txt3[:60])
+
+        spent = [u for u in reqs if "paragraph/preview" in u or "/jobs/" in u]
+        check("切换候选期间没有一次“生成/轮询”请求（审阅零调用）", spent == [], spent[:3])
+
+        page.locator(".ce-cand-head button:has-text('采用')").first.click()
+        page.wait_for_timeout(1200)
+        flow = mock_json("/_mock/ann_flow")
+        ap = flow.get("applied") or []
+        check("采用的就是当前选中那条（不是永远用最新）",
+              bool(ap) and "阶前积出一小滩暗色的水" in ap[-1].get("after", ""), ap[-1:])
+
+        mine = [x for x in bad if "/chapters/paragraph" in x]
+        check("多候选链路没有 4xx", not mine, mine[:3])
+    finally:
+        ctx.close()
+
+
 def main():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=["--no-proxy-server"])
@@ -2061,6 +2129,7 @@ def main():
             test_annotation_to_rewrite(browser)
             test_conflict_no_overwrite(browser)
             test_write_log(browser)
+            test_multi_candidate_switch(browser)
         finally:
             browser.close()
 
