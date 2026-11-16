@@ -197,6 +197,14 @@ def scan_book(root, chapter=None):
             continue
         text = p.read_text(encoding="utf-8", errors="replace")
         hits = scan_unreadable(text)
+        # 分布型指标（R2，2026-11-16）：只报词表命中**不算体检**（OB37 回执 §四.1 第 1 条：
+        # 那本书的词表体检报 0，而真正的病灶是四百处问答阶梯、一半对白不到 12 字）。
+        # 这里把四个数并进同一份报告，界面上看到的"AI 腔体检"就必须带着它们。
+        try:
+            from utils import prose_metrics
+            style = prose_metrics.analyze(text)
+        except Exception as e:                             # noqa: BLE001
+            style = {"error": "%s: %s" % (type(e).__name__, str(e)[:80])}
         chapters.append({
             "chapter": n,
             "file": str(p.relative_to(root)).replace("\\", "/"),
@@ -204,9 +212,12 @@ def scan_book(root, chapter=None):
             "chars": len(text),
             "hits": hits,
             "count": sum(h["count"] for h in hits),
+            "style": style,
         })
     return {"ok": True, "chapters": chapters,
-            "total": sum(c.get("count") or 0 for c in chapters)}
+            "total": sum(c.get("count") or 0 for c in chapters),
+            "style_note": "词表命中数与四个分布型数（连排对白/短对白比/段末短句比/说问密度）"
+                          "在每章的 style 里 —— 只有词表命中不算体检。"}
 
 
 def report_markdown(res):

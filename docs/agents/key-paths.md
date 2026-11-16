@@ -10,6 +10,29 @@
     （refined > checked > raw）正文 sha256 前 12 位。改章后 `GET /setting/stale`
     **读时现算**出待核清单（不落状态文件）；补登记 `POST /setting/stale/link`（只增不改），
     作者核对 `POST /setting/stale/review`（GUI-only）。细节 → `docs/agents/setting-stale.md`
+- 讨论（2026-11-03 起；三个文件分工别混，2026-11-16 补全）：
+  - `data/discuss/<章号>/<主题>.md` —— **人读投影，只追加永不改写**（真源：session 丢了能从它重建）
+  - `data/discuss/<章号>/<主题>.json` —— 机读状态（status / constraints / decided_at，定稿用）
+  - `data/discuss/<章号>/<主题>.session.json` —— **给模型看的视图**（messages[] + 摘要锚点 + archived_rounds；
+    长度治理只动它：老轮次压成确定性摘要，`.md` 一个字节不改，C11）
+  - `data/discuss/<章号>/<主题>.ai.json` —— AI 轮的结构化产物（stance / evidence / action）
+  - `data/discuss/<章号>/<主题>.actions.json` —— AI 说的"该改哪里"（建议，**不会自己动手**；C5）
+  - 四个派生后缀（`.session/.ai/.actions.json`）都不算"一篇讨论"（`discussion._is_derived_json`）
+- 章级体检（2026-11-16，R1/R2）：
+  - `data/chapters/NN/sections.json` —— 逐节汉字/目标/偏移/是否达标（大纲写了“节列表”才有；没写标 `declared:false`，不是失败）
+  - `data/chapters/NN/metrics.json` —— 四个分布型文风数（连排对白 / ≤12 字对白 / 段末短句 / 说问密度）+ 节级摘要 + `gate` 判定
+- 口径表（2026-11-16，R4/R8）：`data/setting/glossary.yaml` —— 术语 → 取值/允许数字/首见章/状态，加 `calendar`（纪元/锚点/写法约定）；
+  写前备份 `data/setting/history/glossary_*.yaml`；**改一个数只改这里一处**
+- 轮次（2026-11-16，R5）：`data/state/rounds.json` —— 一轮 = 名字 + 目标 + 判据表（阈值是数据不是代码）；
+  写前备份 `data/state/history/rounds_*.json`
+- 词条清单（2026-11-16，R7）：`data/setting/entity_plan.md|json`（三分：新建/补充/不建）+ 任务书 `data/state/tasks/self/entities/`
+- 外派回执（2026-11-16，R6）：`data/state/agent_briefs/<run_id>_receipt.json`（三件：体检原始输出 / 产物 sha256+字数 / 改了哪几段）；
+  主控复检 = `utils/agent_receipt.verify()`，**自报与实测不一致以实测为准**
+- 整本视角（C4，2026-11-16）：`GET /context/book` / `context_report.py --book` —— 九块读数**现算不落盘**；
+  它不进写作提示词（会显著拉长前缀），只给讨论与判断当背景
+- 外派状态（C7，2026-11-16）：`data/state/agent_runs.jsonl` 现在有五种状态
+  `running / done / error / cancelled / orphaned`；`orphaned` = 上一进程留下的 running 且 **pid 已不在**
+  （按进程事实判，不是"我表里没有"）；`cancelled` 由 watcher 保护，不会被改回 done
 - 整体大纲：`data/outline/global.md`（审批门对象）
 - 大纲体检报告：`data/outline/review_report.md`（outline_review.py 生成）
 - 素材体检报告：`data/setting/material_review.md`（material_review.py 生成，stage1 后自动）

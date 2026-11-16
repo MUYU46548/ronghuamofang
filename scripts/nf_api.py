@@ -202,8 +202,10 @@ try:
     from nf_api_domains import vault_dirs as dom_vdirs         # noqa: E402 (设定目录 2026-11-03)
     from nf_api_domains import vault_probe as dom_vprobe       # noqa: E402 (给 AI 的扫描证据 2026-11-03)
     from nf_api_domains import judge as dom_judge          # noqa: E402 (0.7.17 判定引擎：零 token)
+    from nf_api_domains import metrics as dom_metrics      # noqa: E402 (R1/R2/R4/R5/R8：节级/指标/口径/轮次 2026-11-16)
 except Exception as _dom_err:                            # noqa: BLE001
     dom_chapters = None
+    dom_metrics = None
     dom_materials = None
     dom_misc = None
     dom_models = None
@@ -430,10 +432,12 @@ NEEDS_MODEL_ENDPOINTS = frozenset({
     # 与其它“要模型”的按钮同族，必须在这里前置拦下并说清楚。
     "/review/run",              # 章节审查（reviewer 模型逐章找缺陷）
     "/batch_refine/run",        # 批量精修（polisher 模型按决策改稿）
-    # 讨论 AI 轮（2026-11-16，C13 的前半）：一次单发调用，self 下必然失败。
-    # 端点上已有更精确的 self 提示（error_kind=self_engine），这里登记是为了
-    # 让"要不要模型"只有一个清单 —— 否则下一个端点又会漏。
-    "/discuss/ai_turn",
+    # 讨论 AI 轮（2026-11-16，C13）：**不在**本清单。
+    # 它在 self 下有自己的分支（出任务书 → 执行方写产物 → 再点一次收编），
+    # 与 `/refine/outline`、`/refine/paragraph` 同族。曾把它登记在这里，
+    # 于是 self 引擎下 GUI 点“让 AI 说这一轮”被入口直接 400 掉，
+    # 任务书那条路永远走不到 —— 用例只直调 handler，所以没变红。
+    # 教训：清单里放"要模型"的端点，前提是它**没有**自己的 self 分支。
 })
 
 
@@ -2908,6 +2912,10 @@ class Handler(BaseHTTPRequestHandler):
             self._send(*_dom(dom_discuss.handle_entry_discuss_list(self)))
         elif p == "/discuss/read":
             self._send(*_dom(dom_thread.handle_discuss_read(self)))
+        elif p == "/discuss/actions":
+            # AI 说的"该改哪里"（C5/C14，2026-11-16）：本轮建议 + 锚点体检，只读。
+            # 建议不会自己动手 —— 正文要作者点"采用"才换。
+            self._send(*_dom(dom_thread.handle_discuss_actions(self)))
         elif p == "/outline/discussion/draft":
             # 提案全文预览（批准前必须看 diff，否则又是盲签）。
             self._send(*_dom(dom_discuss.handle_discussion_draft(self)))
@@ -3355,6 +3363,18 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/chapters/verify":
             # 实现已迁至 nf_api_domains.misc（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_misc.handle_chapters_verify(self)))
+        elif p == "/chapters/sections":
+            # 节级字数（R1，2026-11-16）：这一章分几节、每节多少、哪一节空了。零 token。
+            self._send(*_dom(dom_metrics.handle_chapters_sections(self)))
+        elif p == "/chapters/metrics":
+            # 分布型文风指标（R2）：连排对白 / 短对白比 / 段末短句比 / 说问密度。零 token。
+            self._send(*_dom(dom_metrics.handle_chapters_metrics(self)))
+        elif p == "/glossary":
+            # 口径表（R4/R8）：术语→取值→首见章 + 历法写法。零 token。
+            self._send(*_dom(dom_metrics.handle_glossary(self)))
+        elif p == "/rounds":
+            # 轮次表（R5）：一轮 = 一张判据表。
+            self._send(*_dom(dom_metrics.handle_rounds(self)))
         elif p == "/logs/tail":
             # 实现已迁至 nf_api_domains.misc（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_misc.handle_logs_tail(self)))
@@ -3367,6 +3387,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/remedy":
             # 实现已迁至 nf_api_domains.misc（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_misc.handle_remedy(self)))
+        elif p == "/context/book":
+            # 整本视角（C4，2026-11-16）：设定/大纲/判定/伏笔/摘要/口径/轮次/成本，零 token。
+            self._send(*_dom(dom_misc.handle_context_book(self)))
         elif p == "/chapters/context":
             # 上下文包（2026-11-05，零 token 只读）：这一章写作时会注入什么
             self._send(*_dom(dom_misc.handle_chapters_context(self)))
@@ -3833,6 +3856,21 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/chapters/paragraph/preview":
                 # 改一段：只算不落（候选进 para_pending.json，正文不动）
                 self._send(*_dom(dom_refine.handle_paragraph_preview(self, body)))
+            elif p == "/chapters/metrics/annotate":
+                # 指标命中项 → 段落批注（R3 前半）：批注带段号与原句，改不改由作者点。
+                self._send(*_dom(dom_metrics.handle_chapters_metrics_annotate(self, body)))
+            elif p == "/glossary":
+                # 口径表写入 = 作者拍板的落点（改一个数只改这里一处）
+                self._send(*_dom(dom_metrics.handle_glossary_set(self, body)))
+            elif p == "/glossary/check":
+                # 口径冲突检查（给 n 查一章；不给查全书并出跨章汇总）
+                self._send(*_dom(dom_metrics.handle_glossary_check(self, body)))
+            elif p == "/rounds":
+                # 改判据表 / 切当前轮
+                self._send(*_dom(dom_metrics.handle_rounds_set(self, body)))
+            elif p == "/rounds/evaluate":
+                # 这一轮达标了吗、差在哪几节
+                self._send(*_dom(dom_metrics.handle_rounds_evaluate(self, body)))
             elif p == "/chapters/paragraph/apply":
                 self._send(*_dom(dom_refine.handle_paragraph_apply(self, body)))
             elif p == "/chapters/paragraph/drop":
@@ -3913,6 +3951,20 @@ class Handler(BaseHTTPRequestHandler):
                 # AI 说一轮（2026-11-16）：异步 + 流式 + /stop 可中断。
                 # 花钱的路径必须进 start_job —— 与流水线共用一把锁。
                 self._send(*_dom(dom_thread.handle_discuss_ai_turn(self, body)))
+            elif p == "/agent/cancel":
+                # 取消一趟外派（C7，2026-11-16）：本进程持有的子会话会被真的杀掉；
+                # 没有进程可杀时只标 cancelled，并在返回里说清"进程可能还在跑"。
+                self._send(*_dom(dom_misc.handle_agent_cancel(self, body)))
+            elif p == "/discuss/actions/apply":
+                # 按 AI 的建议**生成候选**（C5，2026-11-16）：不直接改正文。
+                # 段落级 → 候选区（作者再点采用）；整章重写 → 必须 confirm。
+                self._send(*_dom(dom_thread.handle_discuss_action_apply(self, body)))
+            elif p == "/discuss/actions/dismiss":
+                # 放弃一条建议：讨论稿与正文都不动
+                self._send(*_dom(dom_thread.handle_discuss_action_dismiss(self, body)))
+            elif p == "/discuss/compress":
+                # 老轮次压成摘要（C11）：只动 session.json，讨论稿一个字节不改
+                self._send(*_dom(dom_thread.handle_discuss_compress(self, body)))
             elif p == "/discuss/decide":
                 # 作者拍板 → 约束进写作提示词（与审批同族，Agent 不可代拍）
                 self._send(*_dom(dom_thread.handle_discuss_decide(self, body)))

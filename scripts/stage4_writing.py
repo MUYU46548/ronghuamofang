@@ -878,6 +878,22 @@ def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, p
         citations_block = ""
 
     style_rules, para_rules, _form_app = _style_blocks(proj)
+    # 节级骨架（R1，2026-11-16，OB37 施工回执第一条）：章大纲里写了节列表，就按节写。
+    # 为什么必须进任务文件：模型对"这一节写 2200 个汉字"的服从度远高于"写够一万六"——
+    # 后者会被它自己均摊成十段速记。没有节列表 → 空串，行为与改动前逐字一致。
+    try:
+        from utils import sections as _sections
+        _outline_raw = _safe_read(outline_path, budget=20000)
+        _sec_list = _sections.fill_targets(
+            _sections.parse_outline_sections(_outline_raw), target[0], target[1])
+        sections_block = _sections.render_prompt_block(_sec_list)
+        if _sec_list:
+            print("[stage4] 第%d章按节写：%d 节（目标合计 %d 汉字）"
+                  % (n, len(_sec_list), sum(int(x.get("target") or 0) for x in _sec_list)))
+    except Exception as e:                              # noqa: BLE001
+        print(f"[stage4] ⚠ 节列表解析失败（本章按整章写）: {type(e).__name__}: {e}")
+        sections_block = ""
+
     # 叙事深化（v0.7.2）：本章所在深化段的节奏形状。占位符在 --- 分隔线之后，
     # 不碰前缀缓存区。存量卷纲/散文文体 → 空串（模板里那一行渲染成空行）。
     try:
@@ -925,6 +941,7 @@ def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, p
         "decompose_samples": decompose_samples,
         "character_cards": character_cards,
         "world_context": world_context,
+        "sections_block": sections_block,
         "min_words": target[0],
         "max_words": target[1],
         # 目标字数给一点余量（只计汉字口径，2026-11-06）：模型若严格卡着下限写，
@@ -1242,6 +1259,20 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                 if is_chapter_complete(raw_dir / f"{n:02d}.md",
                                        *cfg.get("chapter", {}).get("target_words", [4000, 7200]),
                                        para_structure=_para_ok)]
+    # 节级判据（R1，2026-11-16）：字数达标但某一节明显没写够（速记体）也不算完成。
+    # 只在大纲声明了节列表时生效 —— 老工作区没有节，这里恒 True，不改变断点语义。
+    _thin_ns = []
+    try:
+        from utils import sections as _sec4
+        for n in list(verified):
+            if not _sec4.complete(n, raw_dir / f"{n:02d}.md",
+                                  Path(f"data/outline/chapters/{n:02d}.md"), cfg):
+                verified.remove(n)
+                _thin_ns.append(n)
+        if _thin_ns:
+            print(f"[stage4] 速记体章节重跑（节没写够，不算完成）: {sorted(_thin_ns)}")
+    except Exception as e:                                      # noqa: BLE001
+        print(f"[stage4] ⚠ 节级判据读取失败（按旧判据续跑）: {type(e).__name__}: {e}")
     skipped = set(completed) - set(verified)
     if skipped:
         print(f"[stage4] 半成品章节重跑（文件存在但校验未通过）: {sorted(skipped)}")
@@ -1619,10 +1650,43 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         append_chapter_summary(rolling_path, n, summary, max_recent=max_recent)
         sync_appearances_after_chapter(text, n, total)
 
+        # 节级 + 分布型指标（R1/R2，2026-11-16）：**每章写完都量一次并落盘**。
+        # 为什么放在这里：这是"写盘之后全部收尾"的唯一入口，主循环与崩溃恢复共用，
+        # 放别处会分成两份实现（漂移）。量不动正文，也不调模型。
+        _sec_rep, _metric_rep = None, None
+        try:
+            from utils import sections as _sec, prose_metrics as _pm
+            _outline_txt = ""
+            _op = Path(f"data/outline/chapters/{n:02d}.md")
+            if _op.exists():
+                _outline_txt = read_text(_op)
+            _sec_rep = _sec.measure_and_save(n, text, _outline_txt, cfg)
+            _metric_rep = _pm.measure_and_save(n, text, cfg)
+            if _sec_rep.get("declared"):
+                print(f"[stage4] 第{n}章节级：{_sec_rep.get('why')}")
+            print(f"[stage4] 第{n}章文风：{_pm.summary_line(_metric_rep)}")
+        except Exception as e:                              # noqa: BLE001
+            print(f"[stage4] ⚠ 章级指标统计失败（章节本身不受影响）: "
+                  f"{type(e).__name__}: {e}")
+
         # 确定性判据（字数/占位符/退化/标点）优先，自评分只作参考 —— 见 _chapter_status
         status = _chapter_status(check, quality_threshold)
         needs_rewrite = status == "needs_rewrite"
+        # 速记体（R1 判据 2）：大纲声明了节、正文里有一节明显没写够 → **不许标完成**。
+        # 这条治的是"字数够了但每节都是速记"的假完成（OB37 六轮返工里最贵的一种）。
+        thin = bool(_sec_rep and _sec_rep.get("declared") and not _sec_rep.get("ok"))
+        if thin:
+            status = "invalid" if status != "invalid" else status
         progress.mark_chapter_done(n, 4)
+        if thin:
+            _thin = progress.data.setdefault("stages", {}).setdefault("4", {}) \
+                .setdefault("thin_sections", {})
+            _thin[str(n)] = {"why": _sec_rep.get("why"),
+                             "sections": _sec_rep.get("sections"),
+                             "avg_hanzi": _sec_rep.get("avg_hanzi")}
+            progress.save()
+            print(f"[stage4] 第{n}章判**速记体**（{_sec_rep.get('why')}）"
+                  "—— 该章不算完成，补写后再跑会重算")
         if status == "invalid":
             # 不写 ok、也不自动重写（重写=烧钱，属"补长"那一件事，另开）。
             # 断点续跑仍会重跑它：is_chapter_complete 本身就含字数区间。
@@ -2172,6 +2236,23 @@ def _self_pending(cfg, proj, chapters=None):
     pending = [n for n in range(1, total + 1)
                if not is_chapter_complete(raw_dir / ("%02d.md" % n), *tw,
                                           para_structure=para_ok)]
+    # 节级判据与真跑同源（R1，2026-11-16）：字数够了但某一节是速记，self 下同样算"没写完"。
+    # 否则两条路各判各的 —— 真跑判 invalid、self 判 done，等于按引擎不同给出两个事实。
+    try:
+        from utils import sections as _sec4s
+        _thin = []
+        for n in range(1, total + 1):
+            if n in pending:
+                continue
+            if not _sec4s.complete(n, raw_dir / ("%02d.md" % n),
+                                   Path("data/outline/chapters/%02d.md" % n), cfg):
+                _thin.append(n)
+        if _thin:
+            pending = sorted(pending + _thin)
+            print("[stage4] self：第 %s 章判速记体（节没写够），继续派单"
+                  % "、".join(str(x) for x in _thin))
+    except Exception as e:                                      # noqa: BLE001
+        print("[stage4] 节级判据读取失败（self 按旧判据）：%s: %s" % (type(e).__name__, e))
     # 作者点名要重写的章（`data/state/rewrite_queue.json`，由"要你定的事"作答产生）：
     # 它和"没写"一样要重出一份任务书 —— 否则面板上点了"重写这一章"什么也不会发生。
     try:
