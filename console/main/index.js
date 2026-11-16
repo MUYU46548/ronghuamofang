@@ -379,7 +379,7 @@ function getWorkspaceSource() {
 //   · 前端（asar，不走种子）：项目页出厂徽标 / 启动提示词剥离说明书 /
 //     阶段复制改任务简报（原样贴模板会被外部 Agent 按红线判“模板不是任务”停工）。
 // **先 bump 再 electron-builder**。
-const SEED_VERSION = 91;   // 0.9.1: 改稿这一屏重做（整页看/逐处看 · 批注句柄 · 草稿 · 冲突不覆盖 · 写作账本）
+const SEED_VERSION = 92;   // 0.9.2: 讨论页签能真的让 AI 说一轮（流式 · 可叫停 · 引文必须命中原文）
                             //   · payload scripts：obsidian_bridge/kb_index/stage4 多库（当前库优先 + 冲突点名）；
                             //     writing_form 的 style_prompt_wired 改按文件存在判定；intervene 裁定账本；
                             //     tavern_import（酒馆角色卡/世界书导入）；ai_voice（零 token AI 腔扫描）
