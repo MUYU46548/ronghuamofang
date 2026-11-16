@@ -255,6 +255,24 @@ def main():
                 page.locator(".discuss-actions button.stop-ai").click()
             page.wait_for_timeout(2500)
 
+            print("\n【7】设置页：讨论开关在界面上")
+            page.get_by_role("button", name="设置", exact=True).click()
+            page.wait_for_timeout(1500)
+            # 设置页左侧分类（budget = 预算与止烧）：点不到就说明还没进面板
+            try:
+                page.locator("text=预算与止烧").first.click()
+            except Exception:                                  # noqa: BLE001
+                pass
+            page.wait_for_timeout(800)
+            check("U8 设置页有“讨论（AI 说一轮）”",
+                  page.get_by_text("讨论（AI 说一轮）").count() >= 1,
+                  page.locator("body").inner_text()[:80])
+            check("U8 有主动发言开关",
+                  page.get_by_text("允许 AI 主动发言").count() >= 1)
+            check("U8 有保存按钮",
+                  page.get_by_role("button", name="保存讨论设置").count() >= 1)
+            page.screenshot(path=str(OUT / "settings_discuss.png"), full_page=True)
+
             check("U7 全程无 console error", not errors, errors[:3])
             bad = [b for b in bad if "/discuss/" not in b]     # 404 那类负向用例不算
             check("U7 没有意外的 4xx/5xx", not bad, bad[:3])

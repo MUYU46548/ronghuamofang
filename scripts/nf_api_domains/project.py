@@ -779,6 +779,79 @@ def handle_config_target_words_set(h, body):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+# ---------------------------------------------------------------- 讨论（2026-11-16，C19）
+# 两个键，都不设 GUI-only：它们是**创作与成本偏好**，不是止烧/审批那类安全闸门。
+# 外部 Agent 可以代设（作者 2026-11-16 拍板让 Agent 参与讨论），但越界值一律 400。
+DISCUSS_DEFAULTS = {"ai_proactive": True, "session_keep": 12}
+DISCUSS_SESSION_KEEP_BOUNDS = (0, 100)
+
+
+def _discuss_current(cfg):
+    d = (cfg or {}).get("discuss") or {}
+    out = dict(DISCUSS_DEFAULTS)
+    if "ai_proactive" in d:
+        out["ai_proactive"] = bool(d.get("ai_proactive"))
+    if d.get("session_keep") is not None:
+        try:
+            out["session_keep"] = max(0, min(100, int(d.get("session_keep"))))
+        except (TypeError, ValueError):
+            pass
+    return out
+
+
+def handle_config_discuss(h):
+    """`GET /config/discuss` —— 讨论轮的开关与窗口（零 token）。"""
+    try:
+        cfg = api.load_all()[0]
+        return 200, {"ok": True, "current": _discuss_current(cfg),
+                     "defaults": dict(DISCUSS_DEFAULTS),
+                     "bounds": {"session_keep": list(DISCUSS_SESSION_KEEP_BOUNDS)},
+                     "note": "ai_proactive=关：AI 必须有你写的提示才开口；"
+                             "session_keep：带多少轮原文给模型（更早的看讨论稿）。"}
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_config_discuss_set(h, body):
+    """`POST /config/discuss {ai_proactive?, session_keep?}` —— 定向改写 system.yaml。"""
+    body = body if isinstance(body, dict) else {}
+    values = {}
+    if "ai_proactive" in body:
+        raw = body.get("ai_proactive")
+        if isinstance(raw, str):
+            values["ai_proactive"] = raw.strip().lower() in ("1", "true", "yes", "on")
+        else:
+            values["ai_proactive"] = bool(raw)
+    if "session_keep" in body:
+        try:
+            k = int(body.get("session_keep"))
+        except (TypeError, ValueError):
+            return 400, {"ok": False, "error": "session_keep 必须是整数"}
+        lo, hi = DISCUSS_SESSION_KEEP_BOUNDS
+        if not (lo <= k <= hi):
+            return 400, {"ok": False,
+                         "error": "session_keep 必须在 %d–%d 之间（收到 %d）" % (lo, hi, k)}
+        values["session_keep"] = k
+    if not values:
+        return 400, {"ok": False,
+                     "error": "没有要改的项（ai_proactive / session_keep）"}
+    try:
+        from utils.config_io import set_section_scalars
+        sys_yaml = api.ROOT / "config" / "system.yaml"
+        if not sys_yaml.exists():
+            return 400, {"ok": False, "error": "config/system.yaml 不存在"}
+        # 走 set_section_scalars：定向改写 + 备份 + 回读校验。
+        # 不许整份 dump —— system.yaml 的注释里写着止烧口径与白名单理由，
+        # 一次下拉就把它们全抹掉（2026-10-31 踩过）。
+        w_ok, w_msg = set_section_scalars(("discuss",), values, path=sys_yaml)
+        if not w_ok:
+            return 400, {"ok": False, "error": "写入失败：" + w_msg}
+        return 200, {"ok": True, "current": _discuss_current(api.load_all()[0]),
+                     "message": "已更新讨论设置（" + w_msg + "）"}
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 # ---------------------------------------------------------------- 审批门（2026-11-08）
 # 作者验收第 10/12 条：“阶段 3 为什么无需审批？阶段 4 怎么也无需审批？”
 # 事实是这两处**确实没有门** —— 门由 gates.require_approval 决定（出厂 [2, 6]），
@@ -2182,6 +2255,8 @@ ROUTES = (
     ("POST", "/config/token_limit", handle_config_token_limit_set),
     ("GET", "/config/target_words", handle_config_target_words),
     ("POST", "/config/target_words", handle_config_target_words_set),
+    ("GET", "/config/discuss", handle_config_discuss),
+    ("POST", "/config/discuss", handle_config_discuss_set),
     ("GET", "/config/approval_gates", handle_config_approval_gates),
     ("POST", "/config/approval_gates", handle_config_approval_gates_set),
     # 词表（B1，2026-11-06）：病灶词 / 合规词可在界面编辑；写入口 = 创作决策，非安全闸门

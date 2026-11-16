@@ -224,7 +224,8 @@ MCP_TOOLS = [
                 "chapter": {"type": "integer", "description": "章号"},
                 "topic": {"type": "string", "description": "讨论主题"},
                 "role": {"type": "string",
-                         "description": "谁在说：ai（默认）/ author / editor"},
+                         "description": "谁在说：ai（默认）/ editor。"
+                                        "author 只能由作者在桌面上写 —— 外部调用传 author 会被拒（403）"},
                 "text": {"type": "string", "description": "这一轮的内容"},
             },
             "required": ["chapter", "topic", "text"],

@@ -102,6 +102,18 @@ def handle_discuss_say(h, body):
     role = str(body.get("role") or "ai").strip().lower()
     if role not in ("author", "ai", "editor"):
         return _bad("role 只能是 author / ai / editor")
+    # C12（2026-11-16）：`role=author` 只有界面能写。
+    # 为什么优先级高：讨论稿会被当**记忆**喂给之后所有轮次（会话体），
+    # 一句外部伪造的"作者原话"会污染后续全部判断，而且不可追溯 ——
+    # 作者本人也不会记得自己没说过那句话。
+    # Agent 仍然可以 `role=ai`（作者 2026-11-16 拍板：要让 AI 主动带方向），
+    # 只是不能冒充作者。
+    if role == "author":
+        from utils import agent_guard
+        _code, _why = agent_guard.gui_refusal(h.headers)
+        if _code is not None:
+            return 403, {"ok": False, "code": _code,
+                         "error": "以作者身份发言被拒：" + _why}
     n = discussion.append_round(chapter, topic, role, text, root=str(api.ROOT))
     return 200, {"ok": True, "chapter": chapter, "topic": topic, "round": n}
 
@@ -236,14 +248,52 @@ def handle_discuss_ai_turn(h, body):
         return 404, {"ok": False, "error": "没有这个讨论：%s" % md.as_posix()}
 
     cfg, _ = api.load_all()
-    if resolve_engine(cfg) == "self":
-        # D4：self 引擎下**绝不**发请求（make_client 会直接抛错）。这里给人话，
-        # 而不是把 500 抛到界面上 —— 任务书那一步在 C13（第 2 批）。
-        return 400, {"ok": False, "error_kind": "self_engine",
-                     "error": "当前引擎是 self（只出任务书，不调用模型）——"
-                              "讨论轮需要模型，请先切到 direct 或 hermes 引擎。"}
-
     hint = str(body.get("hint") or "")
+    if resolve_engine(cfg) == "self":
+        # D4 / C13：self 的承诺是"程序不调用任何模型"。讨论轮要模型，
+        # 这条路径就退化成**任务书**（零 token）：
+        #   第一次点 → 出任务书（202 + task 路径）
+        #   执行方把 JSON 写到任务书第 3 节指定的位置
+        #   第二次点 → 收编成正式一轮（200 + round）
+        # 收编的校验与真跑**同一份**（parse_turn + verify_evidence），
+        # 不许 preview 一套、真跑一套。
+        from utils import discuss_ai
+        try:
+            settled = discuss_ai.settle_self(chapter, topic,
+                                            root=str(api.ROOT), cfg=cfg)
+        except discuss_ai.DiscussAIError as e:
+            return 400, {"ok": False, "mode": "self", "error_kind": e.kind,
+                         "error": str(e)}
+        if settled:
+            v = settled.get("verify") or {}
+            return 200, {"ok": True, "mode": "self", "settled": True,
+                         "round": settled.get("round"),
+                         "message": "已把自任务写的那一轮收编成第 %d 轮（引文 %d 条，命中 %d）。"
+                                    % (settled.get("round") or 0,
+                                       v.get("quotes") or 0, v.get("verified") or 0)}
+        try:
+            task = discuss_ai.emit_self_task(chapter, topic, hint,
+                                            root=str(api.ROOT), cfg=cfg)
+        except discuss_ai.DiscussAIError as e:
+            return 400, {"ok": False, "mode": "self", "error_kind": e.kind,
+                         "error": str(e)}
+        return 202, {"ok": True, "mode": "self", "task": task.as_posix(),
+                     "message": "自任务模式：已出讨论任务书（没有调用模型）。",
+                     "hint": "把任务书交给任意模型，产物写到它第 3 节指定的路径；"
+                             "再点一次“让 AI 说这一轮”，墨坊会校验引文并收编成正式一轮。"}
+    # C19（2026-11-16）：AI 主动发言开关（config 的 discuss.ai_proactive，默认开）。
+    # 关掉的意思是"AI 不许自己找话题"——作者必须先写一句要它谈什么。
+    # 为什么有这个开关：主动发言会把讨论往某个方向带（作者要的），
+    # 但也可能在作者只想看现状时替他定了调；手滑点一下就是一次花钱的调用。
+    proactive = True
+    try:
+        proactive = bool(((cfg or {}).get("discuss") or {}).get("ai_proactive", True))
+    except Exception:                                          # noqa: BLE001
+        proactive = True
+    if not proactive and not hint.strip():
+        return 400, {"ok": False, "error_kind": "ai_proactive_off",
+                     "error": "AI 主动发言已关闭 —— 先写一句要它谈什么，"
+                              "再让它说这一轮（设置 → 讨论）。"}
     preview = time.strftime("%Y%m%d_%H%M%S_") + "pending"
     stream_q = api.queue.Queue(maxsize=10000)
     stop_ev = threading.Event()
@@ -262,9 +312,11 @@ def handle_discuss_ai_turn(h, body):
             api.STREAMERS[jid] = api.STREAMERS.pop(preview)
     return 202, {"ok": True, "job_id": jid, "chapter": chapter, "topic": topic,
                  "stream": True,
-                 # hermes（agent）引擎的单轮调用是整块返回的 —— 没有流式接口，
-                 # 按"让 AI 闭嘴"只能等它说完。这里如实告诉界面，别让它假装能停。
-                 "stoppable": resolve_engine(cfg) != "hermes"}
+                 # 两条通道（direct / hermes）现在都有流式接口，都能中途掐断
+                 # （hermes 走 `_post_chat_stream` → 杀子进程树）。字段保留是给
+                 # 将来可能出现的"只能整块返回"的客户端用的：那时置 false，
+                 # 界面就会明说"停不下来"，而不是给一个按不停的按钮。
+                 "stoppable": True}
 
 
 ROUTES = (

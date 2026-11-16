@@ -1401,6 +1401,113 @@ class HermesClient:
                                         "max_output_tokens") else "stop"
         return text, usage, res.get("model") or "hermes-default", finish
 
+    def _post_chat_stream(self, messages, temperature=None, max_tokens=None,
+                          on_chunk=None, stop_flag=None):
+        """单轮直调的流式版：stop_flag 置位即**杀子进程**（C18，2026-11-16）。
+
+        为什么必须补：`_post_chat` 用 `communicate()` 等整块返回，中途停不下来 ——
+        讨论面板上那个"让 AI 闭嘴"在 agent 引擎下就成了摆设（实测只能去 agent
+        自己的交互里按 Ctrl+C）。而杀掉子会话这件事本类早就会做：超时路径的
+        `_kill_tree` 就是同一套（Windows 上必须 taskkill /T 连孙子一起，否则孤儿
+        持有管道，"停了"但真实子会话还在跑）。这里只是把它暴露给调用方。
+
+        契约与 `_post_chat` 一致：返回 (text, usage, model, finish)；
+        `finish == "stopped"` 表示被 stop_flag 停下 —— 已收到的文本照样返回，
+        落不落盘由调用方决定（讨论轮是**不落盘**）。
+        """
+        import queue as _queue
+        import shutil as _shutil
+        import subprocess
+        import tempfile as _tempfile
+        import threading
+        import time as _time
+
+        query = self._render_query(messages)
+        tmpdir = _tempfile.mkdtemp(prefix="nf_oneshot_stream_")
+        qpath = Path(tmpdir) / "query.md"
+        try:
+            write_text(qpath, query)
+            try:
+                proc = subprocess.Popen(self._build_query_cmd(qpath),
+                                        stdout=subprocess.PIPE,
+                                        stderr=subprocess.STDOUT, text=True,
+                                        encoding="utf-8", errors="replace",
+                                        bufsize=1)
+            except OSError as e:
+                raise RuntimeError("[llm_client] 无法启动 hermes（%s）: %s"
+                                   % (self.hermes_bin, e))
+            line_q = _queue.Queue()
+
+            def _reader():
+                try:
+                    for line in proc.stdout:
+                        line_q.put(line)
+                except Exception:                            # noqa: BLE001
+                    pass
+                line_q.put(None)                             # EOF 哨兵
+
+            threading.Thread(target=_reader, daemon=True).start()
+            raw_parts, texts = [], []
+            stopped, timed_out = False, False
+            deadline = _time.time() + self.timeout
+            eof = False
+            while not eof:
+                if stop_flag and stop_flag():
+                    stopped = True
+                    self._kill_tree(proc)
+                    break
+                if _time.time() > deadline:
+                    timed_out = True
+                    self._kill_tree(proc)
+                    break
+                try:
+                    line = line_q.get(timeout=0.4)
+                except _queue.Empty:
+                    continue
+                if line is None:
+                    eof = True
+                    break
+                raw_parts.append(line)
+                s = line.strip()
+                if not s.startswith("{"):
+                    continue
+                try:
+                    ev = json.loads(s)
+                except Exception:                            # noqa: BLE001
+                    continue
+                if isinstance(ev, dict) and ev.get("type") == "text":
+                    piece = ev.get("text") or ""
+                    if piece:
+                        texts.append(piece)
+                        if on_chunk:
+                            try:
+                                on_chunk(piece)
+                            except Exception:                # noqa: BLE001
+                                pass       # 回调失败绝不打断执行
+            try:
+                proc.wait(timeout=10)
+            except Exception:                                # noqa: BLE001
+                self._kill_tree(proc)
+            res = self._finish(qpath, proc.returncode, "".join(raw_parts),
+                               stopped=stopped)
+            if timed_out:
+                raise RuntimeError("[llm_client] hermes 单轮流式超时（%ss）被中止"
+                                   % self.timeout)
+            if res.get("exit_code") and not stopped:
+                detail = res.get("stderr_tail") or res.get("stdout_tail") or ""
+                raise RuntimeError("[llm_client] hermes 单轮流式调用失败（exit=%s）：%s"
+                                   % (res.get("exit_code"), str(detail)[:300]))
+            usage = {"prompt_tokens": int(res.get("tokens") or 0),
+                     "completion_tokens": int(res.get("tokens_out") or 0)}
+            fr = str(res.get("finish_reason") or "").lower()
+            finish = ("stopped" if stopped else
+                      "length" if fr in ("length", "max_tokens", "max_output_tokens")
+                      else "stop")
+            return res.get("stdout_tail") or "", usage, \
+                res.get("model") or "hermes-default", finish
+        finally:
+            _shutil.rmtree(tmpdir, ignore_errors=True)
+
     @staticmethod
     def _parse_stream_json(raw):
         """JSONL → (result事件或None, init事件或None, text事件列表, session_id或None)。

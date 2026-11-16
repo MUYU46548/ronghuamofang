@@ -430,6 +430,10 @@ NEEDS_MODEL_ENDPOINTS = frozenset({
     # 与其它“要模型”的按钮同族，必须在这里前置拦下并说清楚。
     "/review/run",              # 章节审查（reviewer 模型逐章找缺陷）
     "/batch_refine/run",        # 批量精修（polisher 模型按决策改稿）
+    # 讨论 AI 轮（2026-11-16，C13 的前半）：一次单发调用，self 下必然失败。
+    # 端点上已有更精确的 self 提示（error_kind=self_engine），这里登记是为了
+    # 让"要不要模型"只有一个清单 —— 否则下一个端点又会漏。
+    "/discuss/ai_turn",
 })
 
 
@@ -3005,6 +3009,14 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/config/target_words":
             # 单章字数区间读取（chapter.target_words）+ 出厂预设 + 合法区间。
             self._send(*_dom(dom_project.handle_config_target_words(self)))
+        elif p == "/config/discuss":
+            # 讨论轮设置读取（discuss.ai_proactive / session_keep，2026-11-16）。
+            self._send(*_dom(dom_project.handle_config_discuss(self)))
+        elif p == "/config/enhanced_mode":
+            # 加强模式开关（chapter.enhanced_mode）。域模块里早就注册了
+            # ROUTES 条目，但**分发器这里一直漏着** → 真机 404，
+            # 设置页的“加强模式”永远显示读取失败（2026-11-16 真机验收发现）。
+            self._send(*_dom(dom_project.handle_config_enhanced_mode(self)))
         elif p == "/config/approval_gates":
             # 审批门读取（gates.require_approval）：哪些阶段停下来等确认（2026-11-08）。
             self._send(*_dom(dom_project.handle_config_approval_gates(self)))
@@ -4103,6 +4115,12 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/config/target_words":
                 # 单章字数区间设置（创作决策，非安全闸门；越界值一律 400 拒绝）。
                 self._send(*_dom(dom_project.handle_config_target_words_set(self, body)))
+            elif p == "/config/discuss":
+                # 讨论轮设置（创作偏好，非安全闸门；越界值一律 400 拒绝）。
+                self._send(*_dom(dom_project.handle_config_discuss_set(self, body)))
+            elif p == "/config/enhanced_mode":
+                # 加强模式开关写入（与读口同一条漏登记，2026-11-16 一起补上）。
+                self._send(*_dom(dom_project.handle_config_enhanced_mode_set(self, body)))
             elif p == "/config/approval_gates":
                 # 审批门设置（审批族：只允许 GUI 来源 —— Agent 不得替作者减少确认点）。
                 self._send(*_dom(dom_project.handle_config_approval_gates_set(self, body)))

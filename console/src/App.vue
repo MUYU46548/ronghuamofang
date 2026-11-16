@@ -524,6 +524,7 @@ function switchTab(t) {
     loadForm();                // 文体：可能在别处改过（外部 Agent 也能写）
     loadTokenLimit();          // 止烧阈值：每次进设置页都重读（可能在别处改过）
     loadTargetWords();         // 单章字数区间：同上（可能在别处改过 / 配置被手改）
+    loadDiscussCfg();          // 讨论设置（2026-11-16）：同上
     loadBookWords();           // 全书目标字数（2026-11-05）：与章数/单章区间一起显示
     loadTitleFormat();         // 章标题格式：同上
     loadEnhancedMode();        // 加强模式开关：同上
@@ -4616,6 +4617,57 @@ async function resetTokenLimit() {
   }
 }
 
+/* ---------- 讨论（discuss.ai_proactive / session_keep，2026-11-16） ----------
+ * 为什么不放“提示词”页签：它不是模板内容，是**行为开关**——
+ * AI 能不能自己找话题说一轮，以及带多少历史进请求。
+ * 校验在后端（越界 400），前端只回显；不自己写第二份判据。 */
+const discussCfg = ref({
+  loading: true, busy: false, ok: true, msg: "",
+  bounds: { session_keep: [0, 100] },
+  defaults: { ai_proactive: true, session_keep: 12 },
+  form: { ai_proactive: true, session_keep: 12 },
+});
+async function loadDiscussCfg() {
+  discussCfg.value.loading = true;
+  try {
+    const r = await api('/config/discuss', 'GET');
+    if (r.status === 200 && r.data.ok) {
+      discussCfg.value.bounds = r.data.bounds || discussCfg.value.bounds;
+      discussCfg.value.defaults = r.data.defaults || discussCfg.value.defaults;
+      discussCfg.value.form = Object.assign({}, discussCfg.value.defaults, r.data.current || {});
+      discussCfg.value.msg = "";
+      discussCfg.value.ok = true;
+    } else {
+      discussCfg.value.msg = '读取失败: ' + (r.data.error || r.status);
+      discussCfg.value.ok = false;
+    }
+  } catch (e) {
+    discussCfg.value.msg = '读取失败: ' + (e.message || e);
+    discussCfg.value.ok = false;
+  } finally {
+    discussCfg.value.loading = false;
+  }
+}
+async function saveDiscussCfg() {
+  discussCfg.value.busy = true;
+  try {
+    const r = await api('/config/discuss', 'POST', {
+      ai_proactive: !!discussCfg.value.form.ai_proactive,
+      session_keep: Number(discussCfg.value.form.session_keep),
+    });
+    discussCfg.value.ok = !!(r.status === 200 && r.data.ok);
+    discussCfg.value.msg = discussCfg.value.ok
+      ? (r.data.message || '已保存')
+      : ('保存失败: ' + (r.data.error || r.status));
+    if (discussCfg.value.ok && r.data.current) discussCfg.value.form = Object.assign({}, r.data.current);
+  } catch (e) {
+    discussCfg.value.ok = false;
+    discussCfg.value.msg = '保存失败: ' + (e.message || e);
+  } finally {
+    discussCfg.value.busy = false;
+  }
+}
+
 async function toggleAgentMode() {
   const newState = !agentMode.value;
   // 二次确认：开启 Agent 模式前明确提示
@@ -7444,6 +7496,41 @@ onUnmounted(() => {
         <div v-if="tokenLimit.msg" class="meta tl-msg"
              :style="{ color: tokenLimit.ok ? 'var(--ok)' : 'var(--bad)', marginTop: '6px' }">
           {{ tokenLimit.msg }}
+        </div>
+      </template>
+
+      <!-- 讨论（2026-11-16，C19）：AI 那一轮怎么开、带多少历史。
+           为什么放在预算面板：这里每个勾都会让"点一次按钮 = 花一次钱"，
+           与止烧阈值同一类东西（能不能自己开口 / 带多少上下文）。 -->
+      <h4 style="margin-top: 16px;">讨论（AI 说一轮）</h4>
+      <div class="meta" style="line-height: 1.8; margin-bottom: 8px;">
+        讨论页签的“让 AI 说这一轮”会真调一次模型（花钱）。关掉“主动发言”后，
+        你必须先写一句要它谈什么，它才不会自己找话题 —— 适合你只想让它按你的方向答的时候。
+        窗口是带最近多少轮原文进请求；更早的轮次留在讨论稿里，随时能查。
+      </div>
+      <div v-if="discussCfg.loading" class="meta">读取中…</div>
+      <template v-else>
+        <div class="tl-grid">
+          <label class="tl-field">
+            <span class="label">允许 AI 主动发言（关掉后必须先写提示）</span>
+            <input type="checkbox" v-model="discussCfg.form.ai_proactive" />
+          </label>
+          <label class="tl-field">
+            <span class="label">带最近多少轮原文</span>
+            <input type="number" min="0" max="100" v-model="discussCfg.form.session_keep" />
+            <span class="meta">区间 {{ discussCfg.bounds.session_keep?.join(' ~ ') }}；0 = 只带背景不带历史</span>
+          </label>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center; margin-top: 10px;">
+          <button class="mini primary" :disabled="discussCfg.busy" @click="saveDiscussCfg">
+            {{ discussCfg.busy ? '保存中…' : '保存讨论设置' }}
+          </button>
+          <span class="meta">默认：{{ discussCfg.defaults.ai_proactive ? '允许主动发言' : '必须先写提示' }} ·
+            窗口 {{ discussCfg.defaults.session_keep }} 轮</span>
+        </div>
+        <div v-if="discussCfg.msg" class="meta tl-msg"
+             :style="{ color: discussCfg.ok ? 'var(--ok)' : 'var(--bad)', marginTop: '6px' }">
+          {{ discussCfg.msg }}
         </div>
       </template>
 

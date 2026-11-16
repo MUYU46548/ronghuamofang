@@ -214,8 +214,29 @@ async function aiTurn() {
       topic: picked.value,
       hint: sayText.value.trim(),
     });
+    const d = (r && r.data) || {};
+    // 自任务模式（engine: self）：两段式 —— 先出任务书，产物到位后再点一次收编。
+    // 这不是失败，也不该按"AI 没开口"报错。
+    if (r && r.status === 200 && d.mode === "self" && d.settled) {
+      aiBusy.value = false;
+      aiJob.value = "";
+      aiRaw.value = "";
+      aiNote.value = "";
+      msg.value = d.message || "已经把它写的那一轮收编进讨论了。";
+      pick({ topic: picked.value });
+      load(false);
+      return;
+    }
+    if (r && r.status === 202 && d.mode === "self") {
+      aiBusy.value = false;
+      aiJob.value = "";
+      aiRaw.value = "";
+      aiNote.value = "";
+      msg.value = "自任务模式：任务书已写到 " + (d.task || "（见 data/state/tasks/self/discuss/）")
+        + "（没有调用模型）。执行完把结果写到任务书里指定的路径，再点一次就会收编成一轮。";
+      return;
+    }
     if (!r || r.status !== 202) {
-      const d = (r && r.data) || {};
       throw new Error(d.error || d.error_kind || (r && r.status) || "提交失败");
     }
     aiJob.value = (r.data && r.data.job_id) || "";

@@ -40,6 +40,7 @@ MAX_OUTPUT_TOKENS = 1600          # 一轮发言的上限：再长就不是发�
 BODY_CAP = 9000                   # 本章正文进背景的字数上限
 QUOTE_FALLBACK_HEAD = 12          # 整句没命中时，用前 N 字再比一次
 TRUNCATED_DIR = Path("data") / "state" / "truncated"
+SELF_TASK_DIR = Path("data") / "state" / "tasks" / "self" / "discuss"
 
 STANCES = ("push", "question", "concede", "summarize")
 ACTION_KINDS = ("none", "suggest_edit", "rewrite_chapter", "refine_paragraph")
@@ -274,6 +275,117 @@ def verify_evidence(payload, chapter, root="."):
             quotes=[ev.get("quote") for ev in items if ev.get("kind") == "quote"])
     payload = dict(payload, evidence=items)
     return payload, {"quotes": total, "verified": hit, "body_layer": layer}
+
+
+# ---------------------------------------------------------------- 执行
+def _render_messages_for_task(messages) -> str:
+    """把 messages 摊成任务书里的可读段落（自任务模式给外部执行方看）。"""
+    label = {"system": "【系统规则】", "user": "【作者 / 本轮指令】",
+             "assistant": "【AI 上一轮】"}
+    parts = []
+    for m in messages or []:
+        parts.append("%s\n\n%s" % (label.get(m.get("role"), m.get("role")),
+                                   str(m.get("content") or "")))
+    return "\n\n---\n\n".join(parts)
+
+
+def emit_self_task(chapter, topic, hint="", root=".", cfg=None):
+    """`engine: self` 下出讨论轮的任务书（零 token）。返回任务书路径。
+
+    为什么要有（D4）：self 引擎的承诺是"程序不调用任何模型"。讨论轮要模型，
+    这条路径就必须退化成**任务书**，而不是抛 500 或者偷偷按量跑。
+    执行方（作者或外部 agent）把 JSON 写到 `<主题>.ai.json`，再点一次
+    "让 AI 说这一轮"，`settle_self` 会把它收编成正式的一轮。
+    """
+    chapter = int(chapter)
+    messages, meta = build_messages(chapter, topic, hint, root, cfg)
+    out = discussion.ai_payload_path(chapter, topic, root)
+    slug = re.sub(r"[\\/:*?\"<>|\s]+", "-", str(topic or "讨论")).strip("-.")[:40] or "讨论"
+    p = Path(root) / SELF_TASK_DIR / ("discuss_%02d_%s.md" % (chapter, slug))
+    body = [
+        "# 自任务：第 %d 章讨论“%s”的 AI 发言" % (chapter, topic),
+        "",
+        "> 这是 `engine: self` 下生成的任务书 —— 墨坊**没有**调用任何模型。",
+        "> 你把下面的请求交给任意模型执行，把它的 JSON 输出写到第 3 节指定的路径，",
+        "> 再回到界面点一次“让 AI 说这一轮”，它就会被收编成正式的一轮。",
+        "",
+        "## 一、请求（原样交给模型）",
+        "",
+        _render_messages_for_task(messages),
+        "",
+        "## 二、输出要求",
+        "",
+        "只输出**一个 JSON 对象**（不要解释文字、不要 markdown 代码块），字段：",
+        "",
+        "```",
+        '{',
+        '  "text": "这一轮要说的话（作者会原样读到）",',
+        '  "stance": "push | question | concede | summarize",',
+        '  "evidence": [{"kind": "quote", "quote": "正文里逐字存在的句子", "why": "..."}],',
+        '  "decision": "想让作者定的事（可空串）",',
+        '  "action": {"kind": "none | suggest_edit | rewrite_chapter | refine_paragraph",',
+        '             "target": {}, "why": ""},',
+        '  "needs_author": true',
+        '}',
+        "```",
+        "",
+        "硬要求：`evidence` 至少一条；`kind` 为 quote 时，`quote` 必须**逐字**出现在",
+        "上面的本章正文里；不要写 `round` 字段（服务端回填）。",
+        "",
+        "## 三、写到哪",
+        "",
+        "```",
+        out.as_posix(),
+        "```",
+        "",
+        "## 四、写完怎么放行",
+        "",
+        "回到“章节 → 讨论”，选中这个讨论，再点一次“让 AI 说这一轮”。",
+        "墨坊会校验引文能不能命中原文 —— 一条都对不上就不会收编（并说清原因）。",
+        "",
+        "## 五、上下文备注",
+        "",
+        "- 正文层：%s（%d 字）" % (meta.get("body_layer") or "无正文", meta.get("body_chars") or 0),
+        "- 带上的历史轮数：%s" % meta.get("history"),
+        "- 省略的轮次：%s" % (meta.get("omitted_rounds") or "无"),
+        "",
+    ]
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("\n".join(body), encoding="utf-8")
+    return p
+
+
+def settle_self(chapter, topic, root=".", cfg=None):
+    """把自任务模式下的 `<主题>.ai.json` 收编成正式一轮。
+
+    返回结果 dict；没有待收编的产物返回 None；产物不合格抛 DiscussAIError
+    （**校验口径与真跑同一份**：preview 与真跑不能各判各的）。
+    """
+    chapter = int(chapter)
+    p = discussion.ai_payload_path(chapter, topic, root)
+    if not p.exists():
+        return None
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except (ValueError, OSError) as e:
+        raise DiscussAIError("bad_json", "任务书里写的结果不是合法 JSON（%s）：%s"
+                             % (p.as_posix(), str(e)[:120]))
+    if not isinstance(data, dict):
+        raise DiscussAIError("bad_payload", "任务书里写的结果不是一个 JSON 对象：%s"
+                             % p.as_posix())
+    if data.get("settled"):
+        return None
+    payload = parse_turn(json.dumps(data, ensure_ascii=False))
+    payload, report = verify_evidence(payload, chapter, root)
+    n = discussion.append_round(chapter, topic, "ai", payload["text"], root=root)
+    data.update({"settled": True, "round": n, "verify": report,
+                 "settled_at": time.strftime("%Y-%m-%dT%H:%M:%S")})
+    try:
+        discussion._write_json(p, data)
+    except Exception:                                          # noqa: BLE001
+        print("[discuss_ai] ⚠ 收编后回写产物失败（讨论稿已落）：%s" % p.as_posix())
+    return {"round": n, "text": payload["text"], "verify": report,
+            "mode": "self", "settled": True}
 
 
 # ---------------------------------------------------------------- 执行
