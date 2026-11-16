@@ -50,6 +50,14 @@ PROMPTS_DIR = ROOT / "prompts"
 FACTORY_DIR = PROMPTS_DIR / "factory"
 # 与 nf_api.PROMPT_NAME_RE 同一判据：编辑器能改的模板 == 需要保底的范围。
 NAME_RE = re.compile(r"^stage[1-7]_.*\.md$")
+#: 不在 stage 管线里、但同样需要"出厂保底"的模板（2026-11-16：讨论 AI 轮）。
+#: 只显式列举、不用通配：通配会把 book_summary / chapter_review 这些也卷进来，
+#: 那是改既有约定 —— release-check 的判据会跟着变，得先拍板再动。
+EXTRA_NAMES = ("discuss_ai.md",)
+
+
+def _managed(p: Path) -> bool:
+    return bool(NAME_RE.match(p.name)) or p.name in EXTRA_NAMES
 
 FACTORY_README = """# 出厂提示词副本（勿手改）
 
@@ -66,13 +74,13 @@ def stage_templates():
     """当前可编辑模板（白名单内，一级文件）。"""
     if not PROMPTS_DIR.is_dir():
         return []
-    return sorted(p for p in PROMPTS_DIR.glob("*.md") if NAME_RE.match(p.name))
+    return sorted(p for p in PROMPTS_DIR.glob("*.md") if _managed(p))
 
 
 def factory_templates():
     if not FACTORY_DIR.is_dir():
         return []
-    return sorted(p for p in FACTORY_DIR.glob("*.md") if NAME_RE.match(p.name))
+    return sorted(p for p in FACTORY_DIR.glob("*.md") if _managed(p))
 
 
 def _read(p):
@@ -119,7 +127,7 @@ def cmd_list():
         return 0
     bad = [r for r in rows if r[1] != "same"]
     print("出厂副本：%s" % FACTORY_DIR)
-    print("当前模板：%d 个（stage[1-7]_*.md）" % len(stage_templates()))
+    print("当前模板：%d 个（stage[1-7]_*.md + 显式列举的讨论模板）" % len(stage_templates()))
     print("")
     for name, kind, detail in rows:
         mark = {"same": "  =", "changed": "  ~", "missing_factory": "  +",

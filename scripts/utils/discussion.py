@@ -82,6 +82,143 @@ def _write_json(p: Path, data: dict) -> None:
     write_text(p, json.dumps(data, ensure_ascii=False, indent=2))
 
 
+# ---------------------------------------------------------------- 会话体（C20，2026-11-16）
+#
+# 三个文件的分工，别混：
+#
+#   <主题>.md           人读投影：只追加轮次，谁说了什么都留痕（判据 1，永不改写）
+#   <主题>.json         机读状态：status / constraints / decided_at（定稿用）
+#   <主题>.session.json  模型读真源：messages[] + 归档轮次 + 摘要锚点（可压缩）
+#   <主题>.ai.json      AI 轮的结构化产物：stance / evidence / action（可被程序消费）
+#
+# 为什么 md 不能当模型输入：md 的轮次头带时间戳，每次追加都让整段前缀变化，
+# 压成文本再塞进请求等于每轮都换前缀（缓存命中率归零）。messages[] 是协议原生
+# 结构，前面几轮逐字不动 —— 见 docs/施工单-对话式改稿-20261115.md 第三节。
+#
+# 为什么 md 仍是真源：session 丢了/写坏了必须能从 md 重建
+# （`load_session` 会回填），反过来不成立。所以 append_round **先写 md 后写 session**。
+
+SESSION_VERSION = 1
+SESSION_KEEP_DEFAULT = 12        # 默认带最近 12 轮原文（配置 discuss.session_keep 可改）
+
+_ROUND_HEAD_RE = re.compile(
+    r"### 第 (\d+) 轮 · (作者|AI|编辑)（([^）]*)）\n\n(.*?)(?=\n### 第 |\n## 【结论】|\Z)",
+    re.S)
+_ROLE_OF_SPEAKER = {"作者": "author", "AI": "ai", "编辑": "editor"}
+
+
+def session_path(chapter, topic, root="."):
+    md, _js = thread_paths(chapter, topic, root)
+    return md.with_suffix(".session.json")
+
+
+def ai_payload_path(chapter, topic, root="."):
+    md, _js = thread_paths(chapter, topic, root)
+    return md.with_suffix(".ai.json")
+
+
+def _is_derived_json(p: Path) -> bool:
+    """同目录里的**派生** json（会话体 / AI 轮产物）不是"一篇讨论"。
+
+    `list_threads` 用 `glob("*.json")` 扫目录，这两个后缀也匹配 —— 不过滤的话
+    讨论列表会凭空多出几行没有轮次、没有状态的空条目（点进去还读不到 md）。
+    """
+    name = p.name
+    return name.endswith(".session.json") or name.endswith(".ai.json")
+
+
+def _rounds_from_md(md: Path) -> list:
+    """从人读投影里把轮次解析回来（session 丢失时的回填路径）。"""
+    try:
+        from utils.file_io import read_text
+        body = read_text(md)
+    except Exception:                                          # noqa: BLE001
+        return []
+    out = []
+    for m in _ROUND_HEAD_RE.finditer(body or ""):
+        out.append({"round": int(m.group(1)),
+                    "role": _ROLE_OF_SPEAKER.get(m.group(2), "ai"),
+                    "at": (m.group(3) or "").strip(),
+                    "text": (m.group(4) or "").strip()})
+    return sorted(out, key=lambda x: x["round"])
+
+
+def load_session(chapter, topic, root="."):
+    """读会话体。文件不存在/为空 → 从 md 回填（老讨论稿升级后也能被模型看见）。"""
+    p = session_path(chapter, topic, root)
+    data = _read_json(p)
+    if not data or not isinstance(data.get("messages"), list):
+        md, _js = thread_paths(chapter, topic, root)
+        msgs = _rounds_from_md(md) if md.exists() else []
+        data = {"version": SESSION_VERSION, "chapter": int(chapter),
+                "topic": topic or "", "messages": msgs,
+                "archived_rounds": [], "summary": "", "updated_at": _now()}
+    data.setdefault("version", SESSION_VERSION)
+    data.setdefault("archived_rounds", [])
+    data.setdefault("summary", "")
+    return data
+
+
+def save_session(chapter, topic, data, root="."):
+    p = session_path(chapter, topic, root)
+    data = dict(data or {})
+    data["version"] = SESSION_VERSION
+    data["chapter"] = int(chapter)
+    data["topic"] = topic or ""
+    data["updated_at"] = _now()
+    _write_json(p, data)
+    return p
+
+
+def append_session_turn(chapter, topic, role, text, root=".", round_no=None):
+    """把一轮发言写进会话体（round_no 缺省 = 已有最大轮次 + 1）。"""
+    data = load_session(chapter, topic, root)
+    msgs = list(data.get("messages") or [])
+    n = int(round_no if round_no is not None else
+            (max([int(m.get("round") or 0) for m in msgs] or [0]) + 1))
+    role = str(role or "ai").lower()
+    # 幂等：同一轮号已经存在就不重复追加。注意**仍然要 save** ——
+    # 走到这里说明 session 之前不存在（刚刚由 md 回填），不落盘的话
+    # 每次读都要重新解析 md，"会话体"就等于从来没建过
+    # （用例 Q1a 钉的就是这条：append_round 先写 md，回填时已含这一轮）。
+    if not any(int(m.get("round") or 0) == n for m in msgs):
+        msgs.append({"round": n, "role": role, "text": str(text or "").strip(),
+                     "at": _now()})
+        data["messages"] = sorted(msgs, key=lambda m: int(m.get("round") or 0))
+    save_session(chapter, topic, data, root)
+    return n
+
+
+def session_messages(chapter, topic, root=".", keep=None):
+    """取给模型看的历史消息（不含 system）。返回 (messages, omitted_rounds)。
+
+    messages 的形状：``[{"role": "user"|"assistant", "content": str}]``。
+    作者的发言是 user，AI 的发言是 assistant，编辑按 user 处理（带 [编辑] 前缀）。
+    相邻同类角色会合并成一条 —— 协议允许连续同角色，但两条 user 连着会让模型
+    分不清"哪句是本轮指令"，合并后语义更稳。
+    """
+    data = load_session(chapter, topic, root)
+    allmsgs = list(data.get("messages") or [])
+    keep = int(keep or SESSION_KEEP_DEFAULT)
+    kept, omitted = allmsgs, []
+    if keep > 0 and len(allmsgs) > keep:
+        kept = allmsgs[-keep:]
+        omitted = [int(m.get("round") or 0) for m in allmsgs[:-keep]]
+    out = []
+    for m in kept:
+        role = "assistant" if str(m.get("role")) == "ai" else "user"
+        text = str(m.get("text") or "").strip()
+        if not text:
+            continue
+        if role == "user" and str(m.get("role")) == "editor":
+            text = "[编辑] " + text
+        if out and out[-1]["role"] == role:
+            out[-1]["content"] += "\n\n" + text
+        else:
+            out.append({"role": role, "content": text})
+    return out, omitted
+
+
 # ---------------------------------------------------------------- 开题/追加/定稿
 def open_thread(chapter, topic, question="", root="."):
     """开一个讨论。返回 (md_path, json_path)。
@@ -122,6 +259,17 @@ def append_round(chapter, topic, role, text, root="."):
     if state.get("status") != _STATUS_DECIDED:
         state["status"] = _STATUS_OPEN
     _write_json(js, state)
+    # 会话体（C20，2026-11-16）：md 是**人读投影**，session 是喂模型的视图。
+    # 先写 md 再写 session：md 永远是真源，session 丢了能从 md 回填
+    # （`load_session` 会做），反过来不成立 —— 所以顺序不能颠倒。
+    try:
+        append_session_turn(chapter, topic, role, text, root=root, round_no=n)
+    except Exception:                                          # noqa: BLE001
+        # 会话体只是模型的视图，写不进去不该让"这一轮"失败（正文已经在 md 里）。
+        # 不打印的话，坏了没人知道 —— 所以留痕。
+        import traceback
+        print("[discussion] ⚠ 会话体写入失败（讨论稿已落，模型下次会看不到这一轮）：")
+        traceback.print_exc()
     return n
 
 
@@ -208,6 +356,8 @@ def list_threads(chapter=None, root="."):
         if not d.is_dir():
             continue
         for js in sorted(d.glob("*.json")):
+            if _is_derived_json(js):        # 会话体 / AI 轮产物不是"一篇讨论"
+                continue
             st = _read_json(js)
             if st:
                 out.append(st)

@@ -17,7 +17,9 @@
 仅用于 NF_API_ALLOW_FAKE=1 的测试模式与离线集成测试，不进真实流水线。
 """
 import json
+import os
 import re
+import time
 from pathlib import Path
 
 from utils.file_io import read_text, write_text
@@ -553,7 +555,31 @@ class FakeClient:
         blob = "\n".join(str((m or {}).get("content") or "") for m in (messages or []))
         # 按提示词里**要求输出的字段名**分派（不用自然语言关键词 ——
         # “方向/候选”这类词在别的提示词里也会出现，误判会让用例以错形状失败）。
-        if '"candidates"' in blob:
+        # 讨论 AI 轮（2026-11-16）：判据要求 quote 必须逐字命中正文，
+        # 所以这里**从消息里抄一句正文**当引文（正文用固定标记包着）。
+        # 抄不到正文（这一章还没写）就走 outline 类证据 —— 与真客户端的
+        # “没有正文时不许引原文”同一口径。
+        if '"stance"' in blob or '"evidence"' in blob:
+            m = re.search(r"<<<本章正文开始>>>\s*\n(.*?)\n<<<本章正文结束>>>", blob, re.S)
+            if m:
+                body = m.group(1).strip()
+                first = re.split(r"(?<=[。！？!?])", body)[0].strip() if body else ""
+                ev = [{"kind": "quote", "quote": first, "why": "首句交代了场面（假客户端）"}]
+            else:
+                ev = [{"kind": "outline", "quote": "", "name": "本章大纲",
+                       "why": "这一章还没有正文，只能按大纲谈（假客户端）"}]
+            payload = {
+                "text": "这一轮先说结论：现在的写法把冲突压在了场面里，读者看不到代价。"
+                        "建议把代价提前落到人物身上，让第一段就有一个必须回答的问题。",
+                "stance": "push",
+                "evidence": ev,
+                "decision": "这一段的冲突要不要提前？",
+                "action": {"kind": "suggest_edit",
+                           "target": {"para_index": 1, "quote": (ev[0].get("quote") or "")},
+                           "why": "把代价前置，读者才有等待的理由"},
+                "needs_author": True,
+            }
+        elif '"candidates"' in blob:
             payload = {"candidates": [
                 {"text": "候选 %d 的内容。" % i, "why": "理由 %d" % i}
                 for i in (1, 2, 3)]}
@@ -594,6 +620,37 @@ class FakeClient:
                 "或者先跑预演（dry-run）看调用数。")
         text = json.dumps(payload, ensure_ascii=False)
         return text, {"prompt_tokens": 100, "completion_tokens": 50}, "fake", "stop"
+
+    def _post_chat_stream(self, messages, temperature=None, max_tokens=None,
+                          on_chunk=None, stop_flag=None):
+        """流式假实现（2026-11-16，讨论 AI 轮用）。
+
+        为什么必须真有：讨论轮靠 `stop_flag` 才能"让 AI 闭嘴"。假客户端如果没有
+        流式接口，`discuss_ai.call_model` 会退回整块回放（不可中断），于是
+        "停止"那条用例在 --allow-fake 下永远测不到 —— 判据必须能变红。
+
+        按 20 字一块回放；每块之前查一次 stop_flag（与真客户端的逐块检查同语义）。
+        中止时返回**已经生成的部分**（真客户端也是这样：已计费的 token 收不回来）。
+        """
+        text, usage, model, finish = self._post_chat(messages, temperature, max_tokens)
+        # 可选的块间延迟：GET 真机验收要能在"AI 还在说"的时候点停止。
+        # 假客户端否则毫秒级跑完，停止按钮永远来不及按 —— 那条判据就没法变红。
+        # 用环境变量而不是参数：只有 e2e 需要它，单元用例不该因此变慢。
+        try:
+            delay = max(0.0, float(os.environ.get("NF_FAKE_STREAM_DELAY_MS") or 0)) / 1000.0
+        except ValueError:
+            delay = 0.0
+        i = 0
+        step = 20
+        while i < len(text):
+            if stop_flag and stop_flag():
+                return text[:i], usage, model, "stopped"
+            if on_chunk:
+                on_chunk(text[i:i + step])
+            i += step
+            if delay:
+                time.sleep(delay)
+        return text, usage, model, finish
 
     def write_task(self, task_dir, name, content):
         task_dir = Path(task_dir)

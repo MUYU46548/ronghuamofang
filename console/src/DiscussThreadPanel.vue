@@ -35,13 +35,30 @@
         <div v-if="picked" class="discuss-say">
           <textarea v-model="sayText" rows="3"
                     @input="keepSayDraft"
-                    placeholder="这一轮说什么（先存草稿，点下面的按钮才进讨论）"></textarea>
+                    placeholder="这一轮说什么（先存草稿，点下面的按钮才进讨论）；让 AI 说时，这里就是给它这一轮的提示"></textarea>
           <div class="discuss-actions">
-            <button class="mini primary" @click="say('author')" :disabled="!sayText.trim()">以作者身份说</button>
-            <button class="mini" @click="say('ai')" :disabled="!sayText.trim()">以 AI 身份说</button>
+            <button class="mini primary" @click="aiTurn" :disabled="aiBusy && !aiJob"
+                    :class="{ 'stop-ai': aiBusy }"
+                    :title="aiBusy ? '立刻掐断这一轮（已生成的不会记进讨论）' : 'AI 按上面的对话与正文说一轮（会花钱）'">
+              {{ aiBusy ? "让 AI 闭嘴" : "让 AI 说这一轮" }}
+            </button>
+            <button class="mini" @click="say('author')" :disabled="!sayText.trim() || aiBusy">以作者身份说</button>
+            <button class="mini" @click="say('ai')" :disabled="!sayText.trim() || aiBusy"
+                    title="手写一轮 AI 发言（AI 没接上引擎时用；正常路径是上面的按钮）">以 AI 身份手写</button>
             <span v-if="sayDraftPending" class="pill draft">草稿，还没说出去</span>
             <span class="muted">轮次只追加，不改写历史。</span>
           </div>
+        </div>
+
+        <!-- AI 正在写：这段**还不是讨论稿**（被停/被截断都不落盘）。
+             为什么要边写边显示：作者要能判断"它跑偏了，现在就掐"。 -->
+        <div v-if="aiPreview || aiNote" class="discuss-ai-live">
+          <div class="ai-live-head">
+            <span class="pill ai-live">AI 正在说</span>
+            <span class="muted">还没记进讨论 —— 停下来或写坏了都不会留下</span>
+          </div>
+          <pre v-if="aiPreview" class="discuss-ai-preview">{{ aiPreview }}</pre>
+          <div v-if="aiNote" class="muted">{{ aiNote }}</div>
         </div>
 
         <details v-if="picked" class="discuss-decide">
@@ -62,8 +79,9 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from "vue";
+import { computed, ref, watch, onUnmounted } from "vue";
 import { loadDraft, saveDraft, clearDraft, hasDraft, draftKey } from "./draftStore.js";
+import { API } from "./apiBase.js";
 
 const props = defineProps({
   api: { type: Function, required: true },
@@ -81,6 +99,140 @@ const sayText = ref("");
 const msg = ref("");
 const deciding = ref(false);
 const dec = ref({ must: "", must_not: "", voice: "", plant: "", payoff: "", summary: "" });
+
+/* ---------- AI 说一轮（C1/C18，2026-11-16） ----------
+   为什么要这一整块：原来那个"以 AI 身份说"是**作者替 AI 打字**（`say('ai')`
+   只是 POST 一个字符串）。现在真正的路径是 POST /discuss/ai_turn → job →
+   SSE 看它边写边说，/stop 立刻掐断。
+   三条状态规则：
+   1. aiPreview 里的字**还不是讨论稿**（被停/被截断都不落盘），所以界面上
+      必须明说"还没记进讨论"，不能让作者以为已经存了；
+   2. 正在说的时候不许切主题/切章 —— 否则预览会张冠李戴；
+   3. 停止按钮与"开始"是同一个按钮（同一个位置），不让人去找第二个开关。 */
+const aiBusy = ref(false);
+const aiJob = ref("");
+const aiRaw = ref("");            // 模型原始输出（可能是 JSON）
+const aiNote = ref("");
+const aiStoppable = ref(true);    // 当前引擎能不能"中途掐断"（hermes 整块返回 → false）
+
+/** 把 JSON 流里 `text` 字段的**已生成部分**抽出来给人看。
+ *  为什么必须有这一步：模型输出的是 JSON，直接把 token 摊在屏幕上，
+ *  作者看到的是 `{"text": "...", "stance":` —— 等于让他读协议。
+ *  抽不出来就退回原文（至少有东西在动，比空白强）；抽出来的半截转义
+ *  用宽松替换兜底，不为一个未闭合的 \u 把整段预览吞掉。 */
+function previewHuman(raw) {
+  const s = String(raw || "");
+  const m = s.match(/"text"\s*:\s*"((?:[^"\\]|\\.)*)/);
+  if (!m) return s;
+  const frag = m[1];
+  try {
+    return JSON.parse('"' + frag + '"');
+  } catch (e) {
+    return frag.replace(/\\n/g, "\n").replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+  }
+}
+
+const aiPreview = computed(() => previewHuman(aiRaw.value));
+let aiSource = null;
+
+function closeStream() {
+  if (aiSource) {
+    try { aiSource.close(); } catch (e) { /* 已关闭 */ }
+    aiSource = null;
+  }
+}
+
+function connectStream(jobId) {
+  closeStream();
+  const es = new EventSource(API + "/stream/" + jobId);
+  aiSource = es;
+  es.onmessage = (ev) => {
+    let m = {};
+    try { m = JSON.parse(ev.data); } catch (e) { return; }
+    if (m.type === "token") {
+      aiRaw.value += m.text || "";
+      return;
+    }
+    if (m.type !== "done") return;
+    closeStream();
+    aiBusy.value = false;
+    aiJob.value = "";
+    const st = m.status || "ok";
+    const detail = m.result || "";
+    aiRaw.value = "";
+    aiNote.value = "";
+    if (st === "ok") {
+      msg.value = "AI 已说一轮。" + (detail && !detail.startsWith("AI 说了") ? detail : "");
+      pick({ topic: picked.value });
+      load(false);
+    } else if (st === "stopped") {
+      msg.value = "已停下 —— 这一轮没有记进讨论（残片留在 data/state/truncated/）。";
+      load(false);
+    } else {
+      msg.value = "AI 这一轮失败了：" + (detail || "没有返回原因");
+    }
+  };
+  es.onerror = () => {
+    closeStream();
+    aiBusy.value = false;
+    aiJob.value = "";
+    aiNote.value = "";
+    msg.value = "与后台的连接断了（这一轮可能还在跑：刷新讨论看结果，别急着重来一次）。";
+  };
+}
+
+async function stopAI() {
+  if (!aiJob.value) return;
+  if (!aiStoppable.value) {
+    msg.value = "当前引擎一次只回整段 —— 这一轮停不下来，等它说完（说完才会记进讨论）。";
+    return;
+  }
+  aiNote.value = "正在停…";
+  try {
+    const r = await props.api("/stop", "POST", { job_id: aiJob.value });
+    if (!r || r.status !== 200) {
+      msg.value = "停止请求没发出去：" + ((r && r.data && r.data.error) || (r && r.status) || "未知");
+      aiNote.value = "";
+    }
+  } catch (e) {
+    msg.value = "停止请求没发出去：" + e.message;
+    aiNote.value = "";
+  }
+}
+
+async function aiTurn() {
+  if (aiBusy.value) { await stopAI(); return; }
+  if (!picked.value) return;
+  keepSayDraft();               // 作者草稿先存回去：这一轮只是给 AI 的提示，别丢
+  aiBusy.value = true;
+  aiJob.value = "";
+  aiRaw.value = "";
+  aiNote.value = "正在装配上下文并启动…";
+  try {
+    const r = await props.api("/discuss/ai_turn", "POST", {
+      chapter: chapter.value,
+      topic: picked.value,
+      hint: sayText.value.trim(),
+    });
+    if (!r || r.status !== 202) {
+      const d = (r && r.data) || {};
+      throw new Error(d.error || d.error_kind || (r && r.status) || "提交失败");
+    }
+    aiJob.value = (r.data && r.data.job_id) || "";
+    aiStoppable.value = (r.data && r.data.stoppable) !== false;
+    aiNote.value = aiStoppable.value ? ""
+      : "当前引擎一次只回整段 —— 这一轮要等它说完，中途停不下来。";
+    connectStream(aiJob.value);
+  } catch (e) {
+    aiBusy.value = false;
+    aiJob.value = "";
+    aiNote.value = "";
+    msg.value = "AI 没开口：" + e.message;
+  }
+}
+
+onUnmounted(closeStream);
+
 
 const pending = computed(() => threads.value.filter((t) => t.status !== "decided").length);
 
@@ -104,6 +256,10 @@ const sayDraftPending = computed(() => !!picked.value && hasDraft(sayKey()));
 
 /** 换章：先把这一章这份草稿存回去，再读新章。 */
 function switchChapter() {
+  if (aiBusy.value) {
+    msg.value = "AI 正在说这一轮 —— 先让它说完，或点“让 AI 闭嘴”。";
+    return;
+  }
   keepSayDraft();
   sayText.value = "";
   load();
@@ -123,8 +279,11 @@ function payload(r) {
   return r.data || {};
 }
 
-async function load() {
-  msg.value = "";
+async function load(resetMsg = true) {
+  // resetMsg=false 的用意（2026-11-16）：AI 轮结束时要点亮"已说一轮/已停下"这类
+  // 提示，紧接着的 refresh 若无条件清 msg，作者就永远看不到它 —— 实测在真机验收里
+  // 表现为"点了没反应"（其实后端做对了，只是提示被自己抹掉）。
+  if (resetMsg) msg.value = "";
   try {
     const d = payload(await props.api(`/discuss/list?chapter=${chapter.value}`));
     threads.value = d.threads || [];
@@ -139,6 +298,10 @@ async function load() {
 }
 
 async function pick(t) {
+  if (aiBusy.value) {
+    msg.value = "AI 正在说这一轮 —— 先让它说完，或点“让 AI 闭嘴”。";
+    return;
+  }
   keepSayDraft();                    // 切走之前，先把当前主题的草稿存回去
   picked.value = t.topic;
   restoreSay();                      // 再把这一份草稿接回来（各自的互不串）
@@ -239,6 +402,28 @@ load();
   width: 100%; box-sizing: border-box; margin-top: 6px; font-size: 12px; padding: 6px;
   resize: vertical; }
 .discuss-actions { display: flex; gap: 8px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
+/* 停止态：同一个按钮换成“让 AI 闭嘴”，用 warn 色（不用红 —— 红留给失败）。
+   位置不动：作者正在看它写的时候，手指已经在那个位置上了。 */
+.discuss-actions button.stop-ai {
+  color: var(--ink-warn);
+  background: color-mix(in srgb, var(--warn) 22%, var(--field));
+  border-color: var(--warn);
+  font-weight: 600;
+}
+/* AI 正在写：这一段**还不是讨论稿**，所以用虚线框 + “还没记进讨论”的说明，
+   与下面的正式讨论稿（.discuss-text）在视觉上分开。 */
+.discuss-ai-live { margin-top: 8px; }
+.ai-live-head { display: flex; gap: 8px; align-items: center; margin-bottom: 4px; flex-wrap: wrap; }
+.pill.ai-live {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+}
+.discuss-ai-preview {
+  margin: 0; max-height: 200px; overflow: auto; white-space: pre-wrap;
+  font-size: 12px; line-height: 1.6; padding: 8px; border-radius: 6px;
+  background: var(--card); border: 1px dashed var(--border);
+}
 /* 草稿标记：浅灰底那一档在浅色主题下太弱（目检 2026-11-15 提的），
    这是“没发出去”的状态，必须比辅助说明显眼，但不用红色（红色留给失败）。 */
 .pill.draft {

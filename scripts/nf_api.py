@@ -3897,6 +3897,10 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/discuss/say":
                 # 追加一轮发言（AI 与作者都写同一份稿）
                 self._send(*_dom(dom_thread.handle_discuss_say(self, body)))
+            elif p == "/discuss/ai_turn":
+                # AI 说一轮（2026-11-16）：异步 + 流式 + /stop 可中断。
+                # 花钱的路径必须进 start_job —— 与流水线共用一把锁。
+                self._send(*_dom(dom_thread.handle_discuss_ai_turn(self, body)))
             elif p == "/discuss/decide":
                 # 作者拍板 → 约束进写作提示词（与审批同族，Agent 不可代拍）
                 self._send(*_dom(dom_thread.handle_discuss_decide(self, body)))
