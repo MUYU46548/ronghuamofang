@@ -1109,6 +1109,13 @@ class Handler(BaseHTTPRequestHandler):
             # 前端只看 DOM 断不出“发出去了”和“只改了本地草稿”。
             return self._send(200, {"ok": True, "says": DISCUSS_SAYS})
 
+        if p == "/discuss/actions":
+            # AI 说的“该改哪里”（C5，2026-11-16）。假后端只回空清单 ——
+            # 这一页的验收关心的是“草稿链路没有 4xx”，不是建议本身的渲染
+            # （建议区有专门的界面用例 e2e_chapter_metrics_ui.py / discuss UI）。
+            return self._send(200, {"ok": True, "count": 0, "items": [],
+                                    "note": "假后端：这一版不造建议"})
+
         if p == "/discuss/list":
             try:
                 ch = int((self._query().get("chapter") or ["0"])[0]) or None

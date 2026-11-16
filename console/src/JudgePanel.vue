@@ -14,7 +14,7 @@ import { postJSON } from "./guiApi.js";
 import JudgeEvents from "./JudgeEvents.vue";
 
 // archived：归档搬空了工作区 —— 外层要重载项目列表/阶段/章节（2026-10-31）
-const emit = defineEmits(["say", "archived", "goto-paragraph"]);
+const emit = defineEmits(["say", "archived", "goto-paragraph", "open-discuss"]);
 
 const view = ref("report");          // report | detail | caliber
 const report = ref(null);
@@ -37,6 +37,28 @@ function focusPara(idx) {
 }
 function gotoParagraph(idx) {
   emit("goto-paragraph", { chapter: detail.value?.chapter, index: idx });
+}
+
+/* C16（2026-11-16）：就一条缺陷开讨论。
+   带过去的三样东西都是"讨论开场必须说清"的：哪一章、命中哪条判据、原句是什么。
+   主题名固定成 `判定 <判据号>：<判据名>`，同一章同一判据反复点会落到同一个讨论
+   （只追加轮次），不会每点一次多一篇稿。 */
+function emitDiscuss(d) {
+  const chapter = detail.value?.chapter;
+  if (!chapter) return emit("say", "还没选中一章 —— 先在上面打开一章的判定");
+  const rule = d.rule_id || "缺陷";
+  const name = String(d.rule_name || "").trim();
+  emit("open-discuss", {
+    chapter: Number(chapter),
+    topic: "判定 " + rule + (name ? "：" + name : ""),
+    question: "这条检查（" + rule + (name ? " " + name : "") + "）在这一章命中："
+      + "“" + String(d.sentence || "").slice(0, 120) + "”。"
+      + "是这项检查太严，还是这一段确实要改？",
+    hint: String(d.sentence || "").slice(0, 200),
+    rule: rule,
+    quote: d.sentence || "",
+    paragraphIndex: d.paragraph_index,
+  });
 }        // 展开的缺陷条目 id
 const note = ref("");                // 裁定理由输入
 const feel = ref("");                // 打中了 / 没打中 / 拿不准
@@ -640,6 +662,12 @@ onMounted(loadReport);
                 <button class="mini" v-if="d.paragraph_index"
                         @click="gotoParagraph(d.paragraph_index)"
                         title="带着这一段去段落精修工作台自己改">去精修这一段</button>
+                <!-- C16（2026-11-16）：缺陷单原来只能"改"或"去看"，不能"商量"。
+                     讨论的入口只长在章节页签的讨论面板里，作者得自己再开一次题、
+                     再抄一遍判据号与原句。这里把三样东西（章号 / 判据号 / 引文）
+                     直接带过去当开题上下文。 -->
+                <button class="mini" @click="emitDiscuss(d)"
+                        title="就这一条开一个讨论：带上章号、检查项与原句">就这条开讨论</button>
               </div>
             </div>
           </div>

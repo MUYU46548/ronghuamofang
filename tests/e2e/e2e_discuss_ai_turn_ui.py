@@ -255,7 +255,36 @@ def main():
                 page.locator(".discuss-actions button.stop-ai").click()
             page.wait_for_timeout(2500)
 
-            print("\n【7】设置页：讨论开关在界面上")
+            print("\n【7】AI 说该改的地方：建议摊出来，但不自己动手（C5/C14）")
+            # 假客户端每轮都会带一个 action；界面上必须出现"建议区"，
+            # 且按钮是"按这条生成候选"（不是直接改正文）。
+            page.wait_for_timeout(600)
+            # 先关掉"任务结束"浮层：它盖在讨论卡片右侧，不关掉目检截图看不懂
+            # （不是布局缺陷 —— 是上一段"停下"用例留下的通知条）。
+            try:
+                page.get_by_role("button", name="稍后", exact=True).first.click()
+                page.wait_for_timeout(300)
+            except Exception:                                  # noqa: BLE001
+                pass
+            has_sug = page.locator(".discuss-sugs").count() >= 1
+            check("U9 界面有'AI 说该改的地方'", has_sug,
+                  page.locator(".discuss-body").inner_text()[-200:] if page.locator(".discuss-body").count() else "")
+            if has_sug:
+                page.screenshot(path=str(OUT / "suggestions.png"), full_page=False)
+                check("U9 有'按这条生成候选'按钮",
+                      page.get_by_role("button", name="按这条生成候选").count() >= 1)
+                check("U9 有'不用'按钮",
+                      page.get_by_role("button", name="不用", exact=True).count() >= 1)
+                check("U9 建议行里写了段落号", "#" not in page.locator(".discuss-sugs").inner_text())
+                page.get_by_role("button", name="不用", exact=True).first.click()
+                page.wait_for_timeout(900)
+                check("U9 点'不用'后建议消失",
+                      page.locator(".discuss-sugs").count() == 0,
+                      page.locator(".discuss-body").inner_text()[-160:] if page.locator(".discuss-body").count() else "")
+            check("U9 有'压缩老轮次'入口",
+                  page.get_by_role("button", name="压缩老轮次").count() >= 1)
+
+            print("\n【8】设置页：讨论开关在界面上")
             page.get_by_role("button", name="设置", exact=True).click()
             page.wait_for_timeout(1500)
             # 设置页左侧分类（budget = 预算与止烧）：点不到就说明还没进面板

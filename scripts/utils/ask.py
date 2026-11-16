@@ -34,6 +34,11 @@
 - `rewrite_chapter` + 选到 `rewrite` → 该章进 `data/state/rewrite_queue.json`，
   下次阶段 4 把它当"待写"重出任务书；新版本被批准合成后自动出队
   （见 `stage4_writing._promote_chapter_candidates`）。选到 `keep` 则出队。
+- `refine_paragraph`（C8，2026-11-16）+ 选到要改 → 在**那一段**挂一条批注，
+  内容 = 问题 + 你的选择。批注是"该改这一段"的句柄：到精修页签点它就能生成候选
+  （正文不动）。不自动调模型 —— 答题不该顺手花钱。
+- `open_discuss`（C8）+ 任意作答 → 按 `target.chapter` + `topic` 开一篇讨论，
+  把问题作为"待解决"，把你的选择作为第一轮作者发言。讨论面板里接着聊。
 - 其余情况只记录（v1 边界，见 `docs/问题总账.md` 第 6 条）。
 """
 import hashlib
@@ -98,7 +103,9 @@ def _sig(item):
                           item.get("context") or "",
                           item.get("options") or [],
                           item.get("default") or "",
-                          item.get("effect") or ""],
+                          item.get("effect") or "",
+                          item.get("target") or {},
+                          item.get("topic") or ""],
                          ensure_ascii=False, sort_keys=True)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
@@ -140,6 +147,10 @@ def upsert(root, item, by="system"):
         "source": str(item.get("source") or "manual"),
         "stage": item.get("stage"),
         "chapter": item.get("chapter"),
+        # C8（2026-11-16）：effect 需要落到具体位置时用它 ——
+        # refine_paragraph 要段落号，open_discuss 要主题名。
+        "target": item.get("target") if isinstance(item.get("target"), dict) else {},
+        "topic": str(item.get("topic") or ""),
     }
     if not payload["default"]:
         vals = _option_values(payload)
@@ -229,9 +240,35 @@ def answer(root, qid, answer_text=None, value=None, by="gui", note=""):
     return True, "已回答（Agent 下次读 /ask/answers 就能看到）", item
 
 
+def _chapter_paragraphs(root, chapter):
+    """取这一章最接近成品那一层的段落（与段落精修同一套切分）。"""
+    from utils.file_io import read_text
+    from refine_paragraph import split_paragraphs
+    for layer in ("refined", "checked", "raw"):
+        p = Path(root) / "data" / "chapters" / layer / ("%02d.md" % int(chapter))
+        if p.exists():
+            try:
+                return split_paragraphs(read_text(p)), layer
+            except OSError:
+                continue
+    return [], ""
+
+
 def _apply_effect(root, item, chosen):
-    """把答案变成动作（目前只有"重写这一章"这一种）。"""
-    if item.get("effect") != "rewrite_chapter":
+    """把答案变成动作（C8，2026-11-16 起三种）。
+
+    - `rewrite_chapter`：进重写队列（原有）；
+    - `refine_paragraph`：在那一段挂批注（候选由作者点，答题不花钱）；
+    - `open_discuss`：开一篇讨论，把你的选择作为第一轮作者发言。
+    """
+    effect = str(item.get("effect") or "")
+    if effect == "open_discuss":
+        _effect_open_discuss(root, item, chosen)
+        return
+    if effect == "refine_paragraph":
+        _effect_refine_paragraph(root, item, chosen)
+        return
+    if effect != "rewrite_chapter":
         return
     try:
         chapter = int(item.get("chapter") or 0)
@@ -244,6 +281,46 @@ def _apply_effect(root, item, chosen):
         add_rewrite(root, chapter, reason=item.get("question") or "")
     elif chosen in ("keep", "later") or chosen.startswith("保留") or chosen.startswith("先放"):
         clear_rewrites(root, [chapter])
+
+
+def _effect_refine_paragraph(root, item, chosen):
+    """答案 → 那一段上的一条批注（带段号与原句，改不改由作者点）。"""
+    target = item.get("target") or {}
+    try:
+        chapter = int(target.get("chapter") or item.get("chapter") or 0)
+        idx = int(target.get("paragraph_index"))
+    except (TypeError, ValueError):
+        return
+    if chapter <= 0 or idx < 0:
+        return
+    paras, layer = _chapter_paragraphs(root, chapter)
+    if not paras or idx >= len(paras):
+        return
+    note = "作者已定：%s → %s" % (str(item.get("question") or "")[:80], str(chosen)[:60])
+    try:
+        from utils import annotations as ann
+        ann.add(root, chapter, note, idx, paras, layer=layer)
+    except (ValueError, OSError):
+        return
+
+
+def _effect_open_discuss(root, item, chosen):
+    """答案 → 开一篇讨论（问题成"待解决"，选择成第一轮作者发言）。"""
+    target = item.get("target") or {}
+    try:
+        chapter = int(target.get("chapter") or item.get("chapter") or 0)
+    except (TypeError, ValueError):
+        return
+    if chapter <= 0:
+        return
+    question = str(item.get("question") or "").strip()
+    topic = str(item.get("topic") or "").strip() or (question[:24] or "待定")
+    try:
+        from utils import discussion
+        discussion.open_thread(chapter, topic, question, root=root)
+        discussion.append_round(chapter, topic, "author", str(chosen or ""), root=root)
+    except OSError:
+        return
 
 
 def summary(root):

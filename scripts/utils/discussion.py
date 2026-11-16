@@ -124,7 +124,8 @@ def _is_derived_json(p: Path) -> bool:
     讨论列表会凭空多出几行没有轮次、没有状态的空条目（点进去还读不到 md）。
     """
     name = p.name
-    return name.endswith(".session.json") or name.endswith(".ai.json")
+    return (name.endswith(".session.json") or name.endswith(".ai.json")
+            or name.endswith(".actions.json"))
 
 
 def _rounds_from_md(md: Path) -> list:
@@ -217,6 +218,75 @@ def session_messages(chapter, topic, root=".", keep=None):
         else:
             out.append({"role": role, "content": text})
     return out, omitted
+
+
+# ---------------------------------------------------------------- 长度治理（C11，2026-11-16）
+#
+# 讨论稿 md 是**只追加**的（判据 1），所以长讨论会一路长到几百轮，每一轮都往请求里
+# 塞全量历史 —— 既贵又会把真正重要的近况稀释掉。C11 的解法是**只动 session**：
+#   老轮次 → 确定性摘要（摘每轮开头，不改写原话）+ 记进 archived_rounds
+#   最近 K 轮 → 保留原文
+# md 一个字不动，任何时刻都能顺着 archived_rounds 回原文查。
+#
+# 为什么摘要不用模型：一是多一次调用多一次钱，二是模型改写的"摘要"会把作者的
+# 原话变成模型的转述 —— 而讨论稿是会被当记忆喂给后续所有轮次的，转述进记忆
+# 就等于给模型植入二手事实。确定性摘要只有"截断"，没有"改写"。
+
+SESSION_COMPRESS_AFTER_DEFAULT = 24      # 超过这么多轮才值得压（配置 discuss.compress_after）
+_SUMMARY_HEAD = 60                       # 每轮摘多少字
+
+
+def _summary_lines(rounds, cap=_SUMMARY_HEAD):
+    label = {"author": "作者", "ai": "AI", "editor": "编辑"}
+    lines = []
+    for m in rounds:
+        text = re.sub(r"\s+", " ", str(m.get("text") or "")).strip()
+        if len(text) > cap:
+            text = text[:cap] + "…"
+        lines.append("- 第 %s 轮 · %s：%s"
+                     % (m.get("round"), label.get(str(m.get("role")), "AI"), text))
+    return lines
+
+
+def compress_session(chapter, topic, root=".", keep=None, threshold=None, force=False):
+    """把老轮次压成摘要（只动 session，md 一个字不动）。返回结果 dict 或 None。
+
+    `keep`：保留最近多少轮原文（默认 `SESSION_KEEP_DEFAULT`）；
+    `threshold`：轮数超过它才自动压（默认 `SESSION_COMPRESS_AFTER_DEFAULT`）；
+    `force`：作者手动点"压缩"时无视阈值（但要真有可压的老轮次）。
+    """
+    data = load_session(chapter, topic, root)
+    msgs = list(data.get("messages") or [])
+    keep = int(SESSION_KEEP_DEFAULT if keep is None else keep)
+    keep = max(0, keep)
+    threshold = int(SESSION_COMPRESS_AFTER_DEFAULT if threshold is None else threshold)
+    if len(msgs) <= keep:
+        return None
+    if not force and len(msgs) < max(threshold, keep + 1):
+        return None
+
+    cut = len(msgs) - keep if keep > 0 else len(msgs)
+    old = msgs[:cut]
+    if not old:
+        return None
+    archived = sorted(set(int(r.get("round") or 0) for r in old))
+    prev_archived = [int(x) for x in (data.get("archived_rounds") or [])]
+    merged = sorted(set(prev_archived + archived))
+
+    head = ("（这是被压缩掉轮次的**确定性摘要**：每轮只取开头 %d 字，没有改写原话；"
+            "原文在讨论稿 .md 里）" % _SUMMARY_HEAD)
+    block = "\n".join([head] + _summary_lines(old))
+    old_summary = str(data.get("summary") or "").strip()
+    data["summary"] = (old_summary + "\n\n" + block).strip() if old_summary else block
+    data["archived_rounds"] = merged
+    data["messages"] = msgs[cut:]
+    data["compressed_at"] = _now()
+    data["compression_count"] = int(data.get("compression_count") or 0) + 1
+    save_session(chapter, topic, data, root)
+    return {"chapter": int(chapter), "topic": topic, "archived": archived,
+            "archived_total": len(merged), "kept": len(data["messages"]),
+            "compressed_at": data["compressed_at"],
+            "summary_chars": len(data["summary"])}
 
 
 # ---------------------------------------------------------------- 开题/追加/定稿

@@ -29,6 +29,7 @@ import QualityTrend from "./QualityTrend.vue";
 import ConsistencyPanel from "./ConsistencyPanel.vue";
 import JudgePanel from "./JudgePanel.vue";
 import DiscussThreadPanel from "./DiscussThreadPanel.vue";
+import ChapterMetrics from "./ChapterMetrics.vue";
 import EntryDiscuss from "./EntryDiscuss.vue";
 import VaultDirsPanel from "./VaultDirsPanel.vue";
 import ReviewLedgerPanel from "./ReviewLedgerPanel.vue";
@@ -146,6 +147,18 @@ function gotoParagraph({ chapter, index }) {
   if (!chapter) return say("这一章还没打开，先在上面选一章");
   refineFocus.value = { chapter, index, at: Date.now() };
   switchTab("refine");
+}
+
+/* 讨论焦点（C16，2026-11-16）：判定缺陷卡上点"就这条开讨论"。
+   以前讨论的入口只长在章节页签里，作者看到一条判据说"这句该商量"，
+   得自己切页签、自己开题、自己把判据号和原句抄进去。这里把三样带过去：
+   章号 / 主题（判定 J07：xxx）/ 待解决的问题，面板自己开好题并预填原句。
+   at 是时间戳 —— 同一条缺陷再点一次也要重新定位（否则 watch 不触发）。 */
+const discussFocus = ref(null);
+function openDefectDiscuss(f) {
+  if (!f || !f.chapter) return say("这一章还没打开，先在上面选一章");
+  discussFocus.value = { ...f, at: Date.now() };
+  switchTab("chapters");
 }
 
 /* 写完这章就停（2026-11-02，F04）：与“停止”是两个动作 ——
@@ -4623,9 +4636,9 @@ async function resetTokenLimit() {
  * 校验在后端（越界 400），前端只回显；不自己写第二份判据。 */
 const discussCfg = ref({
   loading: true, busy: false, ok: true, msg: "",
-  bounds: { session_keep: [0, 100] },
-  defaults: { ai_proactive: true, session_keep: 12 },
-  form: { ai_proactive: true, session_keep: 12 },
+  bounds: { session_keep: [0, 100], compress_after: [4, 500] },
+  defaults: { ai_proactive: true, session_keep: 12, compress_after: 24 },
+  form: { ai_proactive: true, session_keep: 12, compress_after: 24 },
 });
 async function loadDiscussCfg() {
   discussCfg.value.loading = true;
@@ -4654,6 +4667,7 @@ async function saveDiscussCfg() {
     const r = await api('/config/discuss', 'POST', {
       ai_proactive: !!discussCfg.value.form.ai_proactive,
       session_keep: Number(discussCfg.value.form.session_keep),
+      compress_after: Number(discussCfg.value.form.compress_after),
     });
     discussCfg.value.ok = !!(r.status === 200 && r.data.ok);
     discussCfg.value.msg = discussCfg.value.ok
@@ -6455,12 +6469,19 @@ onUnmounted(() => {
       <!-- 多写几版再挑（B2，2026-11-06）：低分章重写时生成 3 个候选，
            这里三栏并排看分数与扣分理由，也可改用另一版。 -->
       <CandidatesPanel :api="api" :chapters="chapters" @say="say" />
+      <!-- 这一章的体检（R1/R2/R5，2026-11-16）：节级字数 + 四个文风数 + 这一轮达标没有。
+           节级表必须在界面上，而不是只在日志里（OB37 施工回执 §六 R1 的验收判据）。 -->
+      <ChapterMetrics :api="api" :chapter="deskChapter" />
       <!-- 判定报告（P0，0.7.17）：整本一页 → 单章详情 → 合格标准。
            放在章节页签顶部（产品定义 04 §2.1：不新增顶层页签）。 -->
-      <JudgePanel @say="say" @archived="onBookArchived" @goto-paragraph="gotoParagraph" />
+      <JudgePanel @say="say" @archived="onBookArchived" @goto-paragraph="gotoParagraph"
+                  @open-discuss="openDefectDiscuss" />
       <!-- 讨论（2026-11-03 讨论构件）：讨论的结论会进写作提示词；定稿晚于正文 →
-           该章判待重写。产品定义 04 §2.1：不新增顶层页签，挂在章节页签里。 -->
-      <DiscussThreadPanel :api="api" :chapters="chapters" :default-chapter="1" />
+           该章判待重写。产品定义 04 §2.1：不新增顶层页签，挂在章节页签里。
+           2026-11-16（C16）：章号不再写死 1 —— 跟着审阅台最近打开的那一章走，
+           `focus` 由判定缺陷卡的"就这条开讨论"驱动。 -->
+      <DiscussThreadPanel :api="api" :chapters="chapters" :default-chapter="deskChapter"
+                          :focus="discussFocus" @say="say" />
       <!-- 条目讨论（2026-11-05，试跑第 16 条）：素材卡 / 设定条目上点“讨论”打开这里。
            与章节讨论是两套状态机（章节结论进提示词，条目结论只落 state、由作者写回设定集）。 -->
       <EntryDiscuss v-if="edTarget" ref="edRef" :api="api" :kind="edTarget.kind"
@@ -7510,7 +7531,9 @@ onUnmounted(() => {
       </div>
       <div v-if="discussCfg.loading" class="meta">读取中…</div>
       <template v-else>
-        <div class="tl-grid">
+        <!-- 讨论这一组也复用 tl-grid 的排版；加 `discuss` 类是为了让视觉验收能分清
+             哪一块是"预算与止烧"的数值区（2026-11-16：两处同名类让 e2e 的 strict 选择器报错）。 -->
+        <div class="tl-grid discuss">
           <label class="tl-field">
             <span class="label">允许 AI 主动发言（关掉后必须先写提示）</span>
             <input type="checkbox" v-model="discussCfg.form.ai_proactive" />
@@ -7520,13 +7543,19 @@ onUnmounted(() => {
             <input type="number" min="0" max="100" v-model="discussCfg.form.session_keep" />
             <span class="meta">区间 {{ discussCfg.bounds.session_keep?.join(' ~ ') }}；0 = 只带背景不带历史</span>
           </label>
+          <label class="tl-field">
+            <span class="label">攒到多少轮就把更早的压成摘要</span>
+            <input type="number" min="4" max="500" v-model="discussCfg.form.compress_after" />
+            <span class="meta">区间 {{ discussCfg.bounds.compress_after?.join(' ~ ') }}；
+              压缩只动给模型看的那份会话，讨论稿原文一个字不改</span>
+          </label>
         </div>
         <div style="display: flex; gap: 8px; align-items: center; margin-top: 10px;">
           <button class="mini primary" :disabled="discussCfg.busy" @click="saveDiscussCfg">
             {{ discussCfg.busy ? '保存中…' : '保存讨论设置' }}
           </button>
           <span class="meta">默认：{{ discussCfg.defaults.ai_proactive ? '允许主动发言' : '必须先写提示' }} ·
-            窗口 {{ discussCfg.defaults.session_keep }} 轮</span>
+            窗口 {{ discussCfg.defaults.session_keep }} 轮 · 压缩阈值 {{ discussCfg.defaults.compress_after }} 轮</span>
         </div>
         <div v-if="discussCfg.msg" class="meta tl-msg"
              :style="{ color: discussCfg.ok ? 'var(--ok)' : 'var(--bad)', marginTop: '6px' }">

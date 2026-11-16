@@ -782,8 +782,12 @@ def handle_config_target_words_set(h, body):
 # ---------------------------------------------------------------- 讨论（2026-11-16，C19）
 # 两个键，都不设 GUI-only：它们是**创作与成本偏好**，不是止烧/审批那类安全闸门。
 # 外部 Agent 可以代设（作者 2026-11-16 拍板让 Agent 参与讨论），但越界值一律 400。
-DISCUSS_DEFAULTS = {"ai_proactive": True, "session_keep": 12}
+DISCUSS_DEFAULTS = {"ai_proactive": True, "session_keep": 12, "compress_after": 24}
 DISCUSS_SESSION_KEEP_BOUNDS = (0, 100)
+#: 超过多少轮开始把老轮次压成摘要（C11，2026-11-16）。
+#: 与 session_keep 是两个旋钮：session_keep = **每轮**带多少轮原文；
+#: compress_after = **攒到多少轮**才值得压一次（压掉的那批从此只以摘要出现）。
+DISCUSS_COMPRESS_AFTER_BOUNDS = (4, 500)
 
 
 def _discuss_current(cfg):
@@ -796,6 +800,13 @@ def _discuss_current(cfg):
             out["session_keep"] = max(0, min(100, int(d.get("session_keep"))))
         except (TypeError, ValueError):
             pass
+    if d.get("compress_after") is not None:
+        try:
+            out["compress_after"] = max(DISCUSS_COMPRESS_AFTER_BOUNDS[0],
+                                        min(DISCUSS_COMPRESS_AFTER_BOUNDS[1],
+                                            int(d.get("compress_after"))))
+        except (TypeError, ValueError):
+            pass
     return out
 
 
@@ -805,9 +816,11 @@ def handle_config_discuss(h):
         cfg = api.load_all()[0]
         return 200, {"ok": True, "current": _discuss_current(cfg),
                      "defaults": dict(DISCUSS_DEFAULTS),
-                     "bounds": {"session_keep": list(DISCUSS_SESSION_KEEP_BOUNDS)},
+                     "bounds": {"session_keep": list(DISCUSS_SESSION_KEEP_BOUNDS),
+                                "compress_after": list(DISCUSS_COMPRESS_AFTER_BOUNDS)},
                      "note": "ai_proactive=关：AI 必须有你写的提示才开口；"
-                             "session_keep：带多少轮原文给模型（更早的看讨论稿）。"}
+                             "session_keep：每轮带多少轮原文给模型（更早的看讨论稿）；"
+                             "compress_after：攒到多少轮就把更早的压成摘要（讨论稿原文不改）。"}
     except Exception as e:                                  # noqa: BLE001
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
@@ -832,9 +845,19 @@ def handle_config_discuss_set(h, body):
             return 400, {"ok": False,
                          "error": "session_keep 必须在 %d–%d 之间（收到 %d）" % (lo, hi, k)}
         values["session_keep"] = k
+    if "compress_after" in body:
+        try:
+            c = int(body.get("compress_after"))
+        except (TypeError, ValueError):
+            return 400, {"ok": False, "error": "compress_after 必须是整数"}
+        lo, hi = DISCUSS_COMPRESS_AFTER_BOUNDS
+        if not (lo <= c <= hi):
+            return 400, {"ok": False,
+                         "error": "compress_after 必须在 %d–%d 之间（收到 %d）" % (lo, hi, c)}
+        values["compress_after"] = c
     if not values:
         return 400, {"ok": False,
-                     "error": "没有要改的项（ai_proactive / session_keep）"}
+                     "error": "没有要改的项（ai_proactive / session_keep / compress_after）"}
     try:
         from utils.config_io import set_section_scalars
         sys_yaml = api.ROOT / "config" / "system.yaml"

@@ -336,8 +336,10 @@ def main():
     check("agent_runs.jsonl 每行都是合法 JSON 且带 run_id",
           runs and all(r.get("run_id") for r in runs))
     statuses = {r.get("status") for r in runs}
-    check("状态机只出现 running/done/error", statuses <= {"running", "done", "error"},
-          statuses)
+    # C7（2026-11-16）扩了两个终态：cancelled（作者取消）与 orphaned（服务重启后
+    # 上一进程留下的 running、pid 已不在）。白名单同步扩，仍是"不许出现别的状态"。
+    check("状态机只出现 running/done/error/cancelled/orphaned",
+          statuses <= {"running", "done", "error", "cancelled", "orphaned"}, statuses)
 
     print("\n=== 结果：{}/{} ===".format(len(PASS), len(PASS) + len(FAIL)))
     for name in FAIL:

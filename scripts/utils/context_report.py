@@ -195,12 +195,177 @@ def chapter_pack(root, n, cfg=None):
     return pack
 
 
+def book_pack(root, cfg=None):
+    """整本视角的上下文包（C4，2026-11-16）：讨论/整本判断需要的那一份全景。
+
+    与 `chapter_pack` 的分工：那一份答"写第 N 章时会喂什么"，这一份答
+    "这本书现在整体是什么状态"—— 设定多少条、大纲铺了几章、判定记录多少、
+    开着的伏笔几条、最近章节摘要、口径/轮次、以及成本快照。
+
+    **全是盘上事实，零 token**。缺什么就报缺什么（`missing` / `hints`），
+    不编数字。为什么它不是写作提示词的一部分：整本视角会显著拉长提示词，
+    要进写作必须先过缓存核算（`docs/agents/prompt-prefix.md`）。
+    """
+    root = Path(root)
+    pack = {"ok": True, "book": {}, "setting": {}, "outline": {}, "judge": {},
+            "foreshadow": {}, "rolling": {}, "discuss": {}, "glossary": {},
+            "rounds": {}, "cost": {}, "hints": []}
+
+    # ---- 项目配置：书名 / 章数 ----
+    try:
+        from utils.config_io import load_config_yaml
+        proj = load_config_yaml(root / "config" / "project.yaml", default={}) or {}
+        book = proj.get("book") or {}
+        pack["book"] = {"name": book.get("name") or "",
+                        "chapters": int(book.get("chapters") or 0) or None,
+                        "words_target": book.get("words_target") or None}
+    except Exception as e:                                     # noqa: BLE001
+        pack["hints"].append("project.yaml 读不到：%s" % str(e)[:80])
+    try:
+        tw = ((cfg or {}).get("chapter") or {}).get("target_words")
+        if tw:
+            pack["book"]["target_words"] = list(tw)[:2]
+    except Exception:                                          # noqa: BLE001
+        pass
+
+    # ---- 设定集：四类条目 + locked ----
+    sp = root / "data" / "setting" / "setting.json"
+    try:
+        data = json.loads(read_text(sp)) if sp.is_file() else {}
+        world = data.get("world") or {}
+        locked = 0
+        for item in (data.get("characters") or []):
+            if isinstance(item, dict) and item.get("locked"):
+                locked += 1
+        for slot in (world.values() if isinstance(world, dict) else []):
+            for line in (slot or []):
+                if isinstance(line, str) and "locked" in line.lower():
+                    locked += 1
+        pack["setting"] = {
+            "file": "data/setting/setting.json", "chars": _chars(sp),
+            "characters": len(data.get("characters") or []),
+            "world": sum(len(v or []) for v in (world.values() if isinstance(world, dict) else [])),
+            "timeline": len(data.get("timeline") or []),
+            "plot_fragments": len(data.get("plot_fragments") or []),
+            "locked": locked,
+        }
+    except Exception as e:                                     # noqa: BLE001
+        pack["setting"] = {"file": "data/setting/setting.json", "error": str(e)[:120]}
+        pack["hints"].append("设定集读不到（先跑阶段 1）")
+
+    # ---- 大纲：全局 + 逐章文件 ----
+    gp = root / "data" / "outline" / "global.md"
+    ch_dir = root / "data" / "outline" / "chapters"
+    chapters = []
+    if ch_dir.is_dir():
+        chapters = sorted(int(p.stem) for p in ch_dir.glob("*.md") if p.stem.isdigit())
+    total = pack["book"].get("chapters") or 0
+    missing = [n for n in range(1, total + 1) if n not in chapters] if total else []
+    pack["outline"] = {"global_chars": _chars(gp), "chapter_files": len(chapters),
+                       "chapters": chapters[:60], "missing": missing[:60]}
+    if not gp.is_file():
+        pack["hints"].append("没有整体大纲（data/outline/global.md）")
+
+    # ---- 判定记录（零 token 引擎的产物）----
+    jp = root / "data" / "judge" / "records.json"
+    try:
+        recs = json.loads(read_text(jp)) if jp.is_file() else []
+        if isinstance(recs, dict):
+            recs = recs.get("records") or recs.get("items") or []
+        verdicts = {}
+        for r in (recs if isinstance(recs, list) else []):
+            v = str((r or {}).get("verdict") or (r or {}).get("tier") or "")
+            if v:
+                verdicts[v] = verdicts.get(v, 0) + 1
+        pack["judge"] = {"records": len(recs) if isinstance(recs, list) else 0,
+                         "verdicts": verdicts,
+                         "file": "data/judge/records.json" if jp.is_file() else ""}
+    except Exception as e:                                     # noqa: BLE001
+        pack["judge"] = {"records": 0, "error": str(e)[:120]}
+
+    # ---- 伏笔（全书口径）----
+    pack["foreshadow"] = open_foreshadows(root)
+
+    # ---- 滚动摘要 ----
+    rp = root / "data" / "summaries" / "rolling.md"
+    try:
+        from utils.summary_chain import load_rolling
+        roll = load_rolling(rp) if rp.is_file() else {}
+        chs = sorted(int(k) for k in (roll.get("chapters") or {}).keys()) \
+            if isinstance(roll.get("chapters"), dict) else []
+        pack["rolling"] = {"file": "data/summaries/rolling.md", "chars": _chars(rp),
+                           "chapters": chs[-12:], "covered": len(chs),
+                           "global_summary_chars": len(str(roll.get("global_summary") or ""))}
+    except Exception as e:                                     # noqa: BLE001
+        pack["rolling"] = {"chars": _chars(rp), "error": str(e)[:120]}
+
+    # ---- 讨论 / 口径表 / 轮次（2026-11 起的三样新数据）----
+    try:
+        from utils import discussion
+        threads = discussion.list_threads(None, str(root))
+        pack["discuss"] = {"threads": len(threads),
+                           "decided": len([t for t in threads if t.get("status") == "decided"]),
+                           "open": len([t for t in threads if t.get("status") != "decided"])}
+    except Exception:                                          # noqa: BLE001
+        pass
+    try:
+        from utils import glossary as gl
+        g = gl.load(str(root))
+        pack["glossary"] = dict(gl.summary(g, str(root)))
+    except Exception:                                          # noqa: BLE001
+        pass
+    try:
+        from utils import rounds as rd
+        rd_data = rd.load(str(root))
+        pack["rounds"] = {"current": (rd.current(str(root)) or {}).get("name"),
+                          "names": [r.get("name") for r in rd_data.get("rounds") or []]}
+    except Exception:                                          # noqa: BLE001
+        pass
+
+    # ---- 成本快照（runs.db 只读；口径与成本页一致）----
+    dbp = root / "logs" / "runs.db"
+    if dbp.is_file():
+        try:
+            from utils.db import RunDB
+            db = RunDB(str(dbp))
+            try:
+                rows = db.conn.execute(
+                    "SELECT stage, COUNT(*), SUM(tokens_in), SUM(tokens_out),"
+                    " SUM(cache_read), SUM(cost_yuan) FROM cost_log GROUP BY stage"
+                ).fetchall()
+            finally:
+                db.close()
+            by_stage, tin, tout, tcache, yuan = {}, 0, 0, 0, 0.0
+            for stage, calls, i, o, c, y in rows:
+                by_stage[str(stage)] = {"calls": int(calls or 0),
+                                        "tokens_in": int(i or 0), "tokens_out": int(o or 0)}
+                tin += int(i or 0)
+                tout += int(o or 0)
+                tcache += int(c or 0)
+                yuan += float(y or 0.0)
+            pack["cost"] = {"file": "logs/runs.db",
+                            "calls": sum(v["calls"] for v in by_stage.values()),
+                            "tokens_in": tin, "tokens_out": tout, "cache_read": tcache,
+                            "yuan": round(yuan, 4), "by_stage": by_stage,
+                            "note": "历史累计（不是本轮）；engine=hermes 下 yuan 恒 0 属正常"}
+        except Exception as e:                                 # noqa: BLE001
+            pack["cost"] = {"error": str(e)[:120]}
+    else:
+        pack["cost"] = {"calls": 0, "note": "还没有 logs/runs.db（没跑过带模型的阶段）"}
+
+    pack["hint"] = ("整本视角只给讨论/判断用，**不进写作提示词**（会显著拉长前缀）。"
+                    + ("；".join(pack["hints"]) if pack["hints"] else ""))
+    return pack
+
+
 def main(argv=None):
     import argparse
     ap = argparse.ArgumentParser(description="上下文占用快照 / 单章上下文包")
     ap.add_argument("--root", default=".")
     ap.add_argument("--chapter", type=int, default=0,
                     help="给出章号则输出该章的上下文包（否则只打快照）")
+    ap.add_argument("--book", action="store_true",
+                    help="整本视角（设定/大纲/判定/伏笔/摘要/口径/轮次/成本），零 token")
     a = ap.parse_args(argv)
     cfg = None
     try:
@@ -212,6 +377,9 @@ def main(argv=None):
             cfg = load_config_yaml(str(p)) or {}
     except Exception:                                          # noqa: BLE001
         cfg = None
+    if getattr(a, "book", False):
+        print(json.dumps(book_pack(a.root, cfg), ensure_ascii=False, indent=2))
+        return 0
     if a.chapter:
         pack = chapter_pack(a.root, a.chapter, cfg)
         pack.pop("block", None)

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-"""/discuss/*：讨论件（2026-11-03，作者判词"架构里没有这个构件"）。
+"""`/discuss/*`：讨论件（2026-11-03，作者判词"架构里没有这个构件"）。
 
-五个端点，全部只动 `data/discuss/`：
+端点（**数量勿写死**，以本文件 `ROUTES` 为唯一事实来源），全部只动 `data/discuss/`：
 
 | 方法 | 路径 | 干什么 |
 |---|---|---|
@@ -10,6 +10,11 @@
 | POST | `/discuss/open`   | 开一个讨论（章号 + 主题 + 待解决问题） |
 | POST | `/discuss/say`    | 追加一轮发言（角色：author / ai） |
 | POST | `/discuss/decide` | **作者拍板**：把讨论收敛成约束（写进写作提示词） |
+| POST | `/discuss/ai_turn` | AI 说一轮（异步 + 流式 + 可中断，2026-11-16） |
+| GET  | `/discuss/actions` | AI 说的"该改哪里"：建议清单 + 锚点体检（C5/C14） |
+| POST | `/discuss/actions/apply` | 按建议**生成候选**（不直接改正文） |
+| POST | `/discuss/actions/dismiss` | 放弃一条建议（讨论稿与正文都不动） |
+| POST | `/discuss/compress` | 把老轮次压成摘要（只动 session.json，C11） |
 
 为什么定稿要单独一个端点：约束是写作阶段的**输入**，不是一条聊天记录。
 `decide` 之后 `stage4` 会把它注入任务文件；定稿晚于正文时该章自动判待重写。
@@ -17,6 +22,8 @@
 纪律：路径一律经 `api.ROOT`（`--root` 场景下不许读错项目）；写只落 `data/discuss/`。
 """
 from __future__ import annotations
+
+import time
 
 
 def _bad(msg, code=400):
@@ -319,11 +326,188 @@ def handle_discuss_ai_turn(h, body):
                  "stoppable": True}
 
 
+def handle_discuss_actions(h):
+    """`GET /discuss/actions?chapter=3&topic=…&status=pending` —— AI 说的"该改哪里"。
+
+    每条建议都带一次**锚点体检**（`anchor` 字段）：正文改过之后段号会漂，
+    界面必须在作者点之前就知道"这一段还在不在原位"，而不是点了才报错。
+    """
+    import nf_api as api
+    from utils import discuss_actions
+
+    q = h._query()
+    try:
+        chapter = int((q.get("chapter") or ["0"])[0]) or None
+    except (TypeError, ValueError):
+        chapter = None
+    topic = (q.get("topic") or [""])[0] or None
+    status = (q.get("status") or ["pending"])[0] or None
+    try:
+        items = discuss_actions.list_suggestions(chapter, root=str(api.ROOT),
+                                                status=status, topic=topic)
+    except Exception as e:                                     # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+    out = []
+    for it in items:
+        row = dict(it)
+        try:
+            row["anchor"] = discuss_actions.resolve_anchor(
+                int(it.get("chapter") or chapter or 0), it.get("target"), str(api.ROOT))
+        except Exception:                                      # noqa: BLE001
+            row["anchor"] = {"ok": False, "why": "读不到这一章的正文，没法定位"}
+        out.append(row)
+    return 200, {"ok": True, "count": len(out), "items": out,
+                 "note": "建议不会自己动手：点“按这条生成候选”才进候选区，正文要你点采用才换。"}
+
+
+def handle_discuss_action_apply(h, body):
+    """`POST /discuss/actions/apply {chapter, topic, id, confirm?}` —— 按建议生成候选。
+
+    两条路，都不是"直接改正文"：
+
+    - `refine_paragraph` / `suggest_edit` → 转给 `/chapters/paragraph/preview` 同一份实现：
+      候选进 `data/state/para_pending.json`，正文一个字不动，作者再点"采用"。
+    - `rewrite_chapter` → 转给 `/chapters/rewrite`（旧稿先备份到
+      `data/chapters/rewrite_backup/`），必须显式 `confirm: true` —— 整章重写的代价
+      与段落改一句不在一个量级。
+
+    为什么这里不做 GUI 闸：外部 Agent 本来就能直接调 `/chapters/rewrite`，
+    只在这一条路上加闸是自我安慰。真正的闸是"候选区要作者点采用"和
+    `rewrite` 的 `confirm`，两处都保留。
+    """
+    import nf_api as api
+    from utils import discuss_actions
+
+    body = body if isinstance(body, dict) else {}
+    chapter = _int(body, "chapter")
+    topic = str(body.get("topic") or "").strip()
+    sid = str(body.get("id") or "").strip()
+    if not chapter or not topic or not sid:
+        return _bad("chapter / topic / id 必填")
+    sug = discuss_actions.get_suggestion(chapter, topic, sid, str(api.ROOT))
+    if not sug:
+        return 404, {"ok": False, "error": "找不到这条建议（可能已被处理）：%s" % sid}
+    if str(sug.get("status")) == "dismissed":
+        return 409, {"ok": False, "error": "这条建议已经被你放弃了"}
+    anchor = discuss_actions.resolve_anchor(chapter, sug.get("target"), str(api.ROOT))
+    if not anchor.get("ok"):
+        # 不猜段号：宁可让作者重开一条讨论，也不把修改落到错的段落上。
+        return 409, {"ok": False, "error": anchor.get("why") or "这一段已经不在原位",
+                     "anchor": anchor, "suggestion": sug}
+
+    kind = str(sug.get("kind") or "")
+    feedback = str(sug.get("why") or "").strip()
+    if not feedback:
+        quote = str((sug.get("target") or {}).get("quote") or "").strip()
+        feedback = ("按第 %s 轮讨论的判断改这一段%s"
+                    % (sug.get("round") or "?", ("（讨论里引的是：“%s”）" % quote[:60]) if quote else ""))
+    payload = dict(sug, anchor=anchor, feedback=feedback)
+
+    try:
+        if kind == "rewrite_chapter":
+            if body.get("confirm") is not True:
+                return 400, {"ok": False, "need_confirm": True,
+                             "error": "整章重写会把旧稿换掉（先备份到 "
+                                      "data/chapters/rewrite_backup/）。确认要重写第 %d 章，"
+                                      "请带 confirm: true。" % chapter,
+                             "suggestion": payload}
+            from nf_api_domains import chapters as dom_chapters
+            status, out = dom_chapters.handle_chapters_rewrite(h, {"n": chapter})
+            if status in (200, 202):
+                discuss_actions.set_status(chapter, topic, sid, "started",
+                                           root=str(api.ROOT),
+                                           job_id=(out or {}).get("job_id") or "",
+                                           applied_at=time.strftime(
+                                               "%Y-%m-%dT%H:%M:%S"))
+            return status, dict(out or {}, suggestion=payload)
+        # 段落级：走候选区（同一份实现，不在这里另写一套改写逻辑）
+        from nf_api_domains import refine as dom_refine
+        status, out = dom_refine.handle_paragraph_preview(h, {
+            "chapter": chapter,
+            "paragraph_index": int(anchor.get("index") or 0),
+            "feedback": feedback,
+        })
+        if status in (200, 202):
+            discuss_actions.set_status(chapter, topic, sid, "started",
+                                       root=str(api.ROOT),
+                                       job_id=(out or {}).get("job_id") or "",
+                                       applied_at=time.strftime(
+                                           "%Y-%m-%dT%H:%M:%S"),
+                                       anchor_index=anchor.get("index"))
+        return status, dict(out or {}, suggestion=payload)
+    except Exception as e:                                     # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_discuss_action_dismiss(h, body):
+    """`POST /discuss/actions/dismiss {chapter, topic, id}` —— 放弃一条建议（正文不动）。"""
+    import nf_api as api
+    from utils import discuss_actions
+
+    body = body if isinstance(body, dict) else {}
+    chapter = _int(body, "chapter")
+    topic = str(body.get("topic") or "").strip()
+    sid = str(body.get("id") or "").strip()
+    if not chapter or not topic or not sid:
+        return _bad("chapter / topic / id 必填")
+    hit = discuss_actions.set_status(chapter, topic, sid, "dismissed",
+                                     root=str(api.ROOT),
+                                     dismissed_at=time.strftime(
+                                         "%Y-%m-%dT%H:%M:%S"))
+    if not hit:
+        return 404, {"ok": False, "error": "找不到这条建议：%s" % sid}
+    return 200, {"ok": True, "message": "已放弃这条建议（讨论稿与正文都没动）",
+                 "suggestion": hit}
+
+
+def handle_discuss_compress(h, body):
+    """`POST /discuss/compress {chapter, topic, keep?, force?}` —— 把老轮次压成摘要。
+
+    只动 `session.json`：讨论稿 `md` 一个字不改。默认按配置阈值判断"够不够长"，
+    `force: true` 是作者手动要求（仍然只会压到保留最近 `keep` 轮为止）。
+    """
+    import nf_api as api
+    from utils import discussion
+
+    body = body if isinstance(body, dict) else {}
+    chapter = _int(body, "chapter")
+    topic = str(body.get("topic") or "").strip()
+    if not chapter or not topic:
+        return _bad("chapter / topic 必填")
+    md, _js = discussion.thread_paths(chapter, topic, str(api.ROOT))
+    if not md.exists():
+        return 404, {"ok": False, "error": "没有这个讨论：%s" % md.as_posix()}
+    try:
+        from utils import discuss_ai
+        cfg, _ = api.load_all()
+        keep = body.get("keep")
+        res = discussion.compress_session(
+            chapter, topic, root=str(api.ROOT),
+            keep=int(keep) if keep is not None else discuss_ai.session_keep(cfg),
+            threshold=discuss_ai.compress_after(cfg),
+            force=bool(body.get("force")))
+    except Exception as e:                                     # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+    if not res:
+        sess = discussion.load_session(chapter, topic, str(api.ROOT))
+        return 200, {"ok": True, "compressed": False,
+                     "message": "还没有到需要压缩的长度（现在 %d 轮）"
+                                % len(sess.get("messages") or []),
+                     "rounds": len(sess.get("messages") or [])}
+    return 200, {"ok": True, "compressed": True, **res,
+                 "message": "已把第 %s 轮压成摘要（讨论稿原文没动）"
+                            % "、".join(str(x) for x in res.get("archived") or [])}
+
+
 ROUTES = (
     ("GET", "/discuss/list", handle_discuss_list),
     ("GET", "/discuss/read", handle_discuss_read),
     ("POST", "/discuss/open", handle_discuss_open),
     ("POST", "/discuss/say", handle_discuss_say),
     ("POST", "/discuss/ai_turn", handle_discuss_ai_turn),
+    ("GET", "/discuss/actions", handle_discuss_actions),
+    ("POST", "/discuss/actions/apply", handle_discuss_action_apply),
+    ("POST", "/discuss/actions/dismiss", handle_discuss_action_dismiss),
+    ("POST", "/discuss/compress", handle_discuss_compress),
     ("POST", "/discuss/decide", handle_discuss_decide),
 )

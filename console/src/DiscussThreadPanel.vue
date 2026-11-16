@@ -10,6 +10,10 @@
         <input v-model.number="chapter" type="number" min="1" class="discuss-no" @change="switchChapter" />
         章</label>
       <button class="mini" @click="load" title="读这一章的讨论">刷新</button>
+      <button class="mini" v-if="picked" @click="compress" :disabled="sugBusy"
+              title="把很早的轮次压成摘要（只动给模型看的那份会话，讨论稿原文一个字不改）">
+        压缩老轮次
+      </button>
       <button class="mini" @click="openNew" :disabled="!chapter || !newTopic.trim()"
               title="开一个新讨论（只写 data/discuss/，不动正文）">开题</button>
       <input v-model="newTopic" class="discuss-topic" placeholder="讨论主题（例：结局要不要开信）" />
@@ -61,6 +65,46 @@
           <div v-if="aiNote" class="muted">{{ aiNote }}</div>
         </div>
 
+        <!-- AI 说"该改哪里"（C5/C14，2026-11-16）：讨论原来只停在"聊聊"，AI 在
+             .ai.json 里给出 action 也没有任何东西读它。这里把建议摊出来，
+             但**不自动动手** —— 点"按这条生成候选"才进候选区，正文要再点采用。
+             锚点漂移（正文改过、段号对不上）在按钮之前就说清，不让作者点了才报错。 -->
+        <div v-if="picked && suggestions.length" class="discuss-sugs">
+          <div class="sug-head">
+            <b>AI 说该改的地方（{{ suggestions.length }}）</b>
+            <span class="muted">只是建议：点"按这条生成候选"才会算一遍，正文要你再点采用才换。</span>
+          </div>
+          <div v-for="s in suggestions" :key="s.id" class="sug-item"
+               :class="{ 'sug-bad-item': s.anchor && s.anchor.ok === false }">
+            <span class="pill" :class="s.kind === 'rewrite_chapter' ? 'st-gate' : ''">
+              {{ sugKind(s.kind) }}
+            </span>
+            <span class="sug-para">
+              {{ s.anchor && s.anchor.ok !== false && typeof s.anchor.index === 'number'
+                 ? "第 " + (s.anchor.index + 1) + " 段" : "（定位不到）" }}
+            </span>
+            <span v-if="s.target && s.target.quote" class="sug-quote">
+              “{{ truncate(s.target.quote, 36) }}”
+            </span>
+            <span class="muted">{{ truncate(s.why, 80) }}</span>
+            <span v-if="s.anchor && s.anchor.ok === false" class="sug-bad">
+              ⚠ {{ s.anchor.why }}
+            </span>
+            <span v-else-if="s.anchor && s.anchor.drift" class="sug-drift">
+              {{ s.anchor.why }}
+            </span>
+            <span class="spacer"></span>
+            <button class="mini primary" :disabled="sugBusy || (s.anchor && s.anchor.ok === false)"
+                    :title="s.anchor && s.anchor.ok === false
+                      ? '这一段已经不在原位 —— 重新开一条讨论，别拿旧段号改' 
+                      : '按这条建议生成候选（正文不动）'"
+                    @click="applySug(s)">
+              {{ pendingRewrite && pendingRewrite.id === s.id ? "确认重写整章" : "按这条生成候选" }}
+            </button>
+            <button class="mini" :disabled="sugBusy" @click="dismissSug(s)">不用</button>
+          </div>
+        </div>
+
         <details v-if="picked" class="discuss-decide">
           <summary>定稿（作者拍板 → 变成写作约束）</summary>
           <p class="muted">至少写一条；一条都没有不算结论。定稿晚于正文时，这一章会被判待重写。</p>
@@ -88,6 +132,9 @@ const props = defineProps({
   /* 章号列表（App 传 chapters，形如 [{n:1,...}] 或 [1,2,3]） */
   chapters: { type: Array, default: () => [] },
   defaultChapter: { type: Number, default: 1 },
+  /* C16（2026-11-16）：判定的缺陷卡点"就这条开讨论"时带过来的焦点：
+     {chapter, topic, question, hint, at}。at 是时间戳 —— 同一条再点一次也要重新定位。 */
+  focus: { type: Object, default: null },
 });
 
 const chapter = ref(props.defaultChapter || 1);
@@ -114,6 +161,103 @@ const aiJob = ref("");
 const aiRaw = ref("");            // 模型原始输出（可能是 JSON）
 const aiNote = ref("");
 const aiStoppable = ref(true);    // 当前引擎能不能"中途掐断"（hermes 整块返回 → false）
+
+/* ---------- AI 的建议 → 候选区（C5/C14，2026-11-16） ----------
+   三个状态必须分清，别混：
+   1. 建议（suggestions）：AI 说"这一段该改" —— 零成本，不会自己动手；
+   2. 候选（para_pending）：作者点了"按这条生成候选"之后，模型算出来的改法 ——
+      正文仍没动，要作者点"采用"（在段落精修页签里）；
+   3. 正文：只有"采用"才变。
+   整章重写是唯一代价大的一条，所以点第一次只换按钮文字，点第二次才真发。 */
+const suggestions = ref([]);
+const sugBusy = ref(false);
+const pendingRewrite = ref(null);   // 已点过一次、等第二次确认的整章重写建议
+
+function truncate(s, n) {
+  const t = String(s || "").replace(/\s+/g, " ").trim();
+  return t.length > n ? t.slice(0, n) + "…" : t;
+}
+
+function sugKind(kind) {
+  return ({ refine_paragraph: "改这一段", suggest_edit: "建议改", rewrite_chapter: "整章重写" })[kind]
+    || String(kind || "建议");
+}
+
+async function loadSuggestions() {
+  if (!picked.value) { suggestions.value = []; return; }
+  try {
+    const d = payload(await props.api(
+      `/discuss/actions?chapter=${chapter.value}&topic=${encodeURIComponent(picked.value)}`));
+    suggestions.value = d.items || [];
+  } catch (e) {
+    suggestions.value = [];       // 读不到建议不该打断"看讨论"
+  }
+}
+
+async function applySug(s) {
+  if (!picked.value) return;
+  // 整章重写：第一次点击只换文案，第二次才带 confirm —— 破坏性操作不许一步到位
+  if (s.kind === "rewrite_chapter") {
+    if (!pendingRewrite.value || pendingRewrite.value.id !== s.id) {
+      pendingRewrite.value = s;
+      msg.value = "整章重写会把旧稿换掉（先备份到 data/chapters/rewrite_backup/）。"
+        + "确认就再点一次那个按钮。";
+      return;
+    }
+  }
+  sugBusy.value = true;
+  try {
+    const bodyObj = { chapter: chapter.value, topic: picked.value, id: s.id };
+    if (s.kind === "rewrite_chapter") bodyObj.confirm = true;
+    const r = await props.api("/discuss/actions/apply", "POST", bodyObj);
+    const d = (r && r.data) || {};
+    if (r && (r.status === 202 || r.status === 200)) {
+      msg.value = d.message
+        || (s.kind === "rewrite_chapter"
+          ? "已开始重写整章（旧稿已备份）。"
+          : "正在生成候选（只算不落，正文一个字不动）—— 算完到“精修”页签点“采用”。");
+      pendingRewrite.value = null;
+      await loadSuggestions();
+    } else {
+      msg.value = "没动手：" + (d.error || (r && r.status) || "未知原因");
+    }
+  } catch (e) {
+    msg.value = "没动手：" + e.message;
+  } finally {
+    sugBusy.value = false;
+  }
+}
+
+async function dismissSug(s) {
+  if (!picked.value) return;
+  sugBusy.value = true;
+  try {
+    payload(await props.api("/discuss/actions/dismiss", "POST",
+      { chapter: chapter.value, topic: picked.value, id: s.id }));
+    await loadSuggestions();
+    msg.value = "已放弃这条建议（讨论稿与正文都没动）";
+  } catch (e) {
+    msg.value = "没放弃掉：" + e.message;
+  } finally {
+    sugBusy.value = false;
+  }
+}
+
+/* C11：把很早的轮次压成摘要。只动给模型看的那份会话，讨论稿原文不改。 */
+async function compress() {
+  if (!picked.value) return;
+  sugBusy.value = true;
+  try {
+    const r = await props.api("/discuss/compress", "POST",
+      { chapter: chapter.value, topic: picked.value });
+    const d = (r && r.data) || {};
+    msg.value = d.message || (r && r.status === 200 ? "处理完了" : "没压缩：" + (d.error || r.status));
+  } catch (e) {
+    msg.value = "没压缩：" + e.message;
+  } finally {
+    sugBusy.value = false;
+  }
+}
 
 /** 把 JSON 流里 `text` 字段的**已生成部分**抽出来给人看。
  *  为什么必须有这一步：模型输出的是 JSON，直接把 token 摊在屏幕上，
@@ -312,10 +456,12 @@ async function load(resetMsg = true) {
       picked.value = "";
       text.value = "";
       sayText.value = "";
+      suggestions.value = [];
     }
   } catch (e) {
     msg.value = "读讨论失败：" + e.message;
   }
+  if (picked.value) await loadSuggestions();
 }
 
 async function pick(t) {
@@ -333,6 +479,8 @@ async function pick(t) {
   } catch (e) {
     text.value = "读不到：" + e.message;
   }
+  pendingRewrite.value = null;
+  await loadSuggestions();
 }
 
 async function openNew() {
@@ -399,6 +547,34 @@ async function decide() {
 watch(() => props.defaultChapter, (v) => {
   if (v) { chapter.value = v; load(); }
 });
+
+/* C16：判定缺陷卡点"就这条开讨论" → 切到那一章、开好主题（已存在就接着用）、
+   把原句预填进输入框当"给 AI 的提示"。为什么预填的是 hint 而不是直接发出去：
+   这一轮要花一次模型调用，发不发由作者决定（拍板 #2：踢一脚走一下）。 */
+watch(() => props.focus, async (f) => {
+  if (!f || !f.chapter || !f.topic) return;
+  if (aiBusy.value) {
+    msg.value = "AI 正在说这一轮 —— 先让它说完，或点“让 AI 闭嘴”，再切过来。";
+    return;
+  }
+  keepSayDraft();
+  chapter.value = Number(f.chapter) || chapter.value;
+  await load(false);
+  if (!threads.value.some((t) => t.topic === f.topic)) {
+    try {
+      payload(await props.api("/discuss/open", "POST",
+        { chapter: chapter.value, topic: f.topic, question: f.question || "" }));
+    } catch (e) {
+      msg.value = "开题失败：" + e.message;
+      return;
+    }
+    await load(false);
+  }
+  await pick({ topic: f.topic });
+  if (f.hint) sayText.value = f.hint;
+  msg.value = "已就这一条开好讨论（第 " + chapter.value + " 章）—— 先写你的看法，"
+    + "或直接点“让 AI 说这一轮”。";
+}, { deep: true });
 load();
 </script>
 
@@ -455,5 +631,20 @@ load();
 }
 .discuss-msg { margin-top: 6px; font-size: 12px; color: var(--muted); }
 .muted { color: var(--muted); font-size: 12px; }
+/* AI 的建议（C5/C14）：与讨论稿视觉分开 —— 它不是"说过的话"，是"要做的事"。
+   定位不到的条目标红并禁用按钮：宁可不让点，也不拿旧段号改错段落。 */
+.discuss-sugs { margin-top: 10px; border-top: 1px dashed var(--border); padding-top: 8px; }
+.sug-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; margin-bottom: 6px; }
+.sug-item {
+  display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap;
+  font-size: 12px; padding: 5px 6px; border-radius: 6px; background: var(--card);
+  margin-bottom: 4px;
+}
+.sug-bad-item { border: 1px solid var(--bad); }
+.sug-para { font-weight: 600; }
+.sug-quote { color: var(--accent); }
+.sug-bad { color: var(--bad); }
+.sug-drift { color: var(--ink-warn); }
+.sug-item .spacer { flex: 1 1 auto; }
 @media (max-width: 900px) { .discuss-body { grid-template-columns: 1fr; } }
 </style>

@@ -108,7 +108,31 @@ def build_task_brief(title, context, run_id=None):
         "1. 在项目根 " + str(root) + " 下工作；动手前先读 AGENTS.md 的硬性约束。",
         "2. 素材与产物默认只读；需要写草稿时只写沙盒或任务指定的输出路径，不覆盖正典。",
         "3. 审批权属于用户：不得代用户执行审批（approve/reject）类操作。",
-        "4. 完成后把结果摘要（≤500 字）写入 " + result_rel + "（本任务书的回报契约）。",
+        "4. 完成后把结果摘要（≤500 字）写入 " + result_rel + "。",
+        "",
+        "## 回报契约（**必须**，2026-11-16 起）",
+        "",
+        "摘要是给人读的；**判完成看回执**。另写一份回执 JSON：",
+        "",
+        "    " + BRIEFS_REL + "/" + run_id + "_receipt.json",
+        "",
+        "```json",
+        "{",
+        '  "run_id": "' + run_id + '",',
+        '  "outputs": [{"path": "data/chapters/raw/03.md"}],',
+        '  "checks":  [{"name": "verify_chapter", "output": "（脚本原始输出，不要只写 0 问题）"}],',
+        '  "edits":   [{"chapter": 3, "para_index": 12, "why": "并了两轮问答"}],',
+        '  "notes": "一句话"',
+        "}",
+        "```",
+        "",
+        "三条规矩（违反任何一条，这一趟判失败）：",
+        "",
+        "1. `outputs` 里的 `sha256` / `hanzi` **由脚本生成**：",
+        "   `python scripts/agent_receipt.py --emit " + run_id + " --outputs data/chapters/raw/03.md`",
+        "   （自己手填的数字会被主控复算打回 —— 以脚本实测为准）；",
+        "2. `checks` 必须是**体检脚本的原始输出**，不是“体检 0 问题”这种结论；",
+        "3. `edits` 写清改了哪几段、为什么（主控据此判断有没有静默吃掉内容）。",
         "",
     ]
     brief_path = brief_dir / (run_id + ".md")
@@ -157,6 +181,10 @@ def _latest_run(run_id):
 
 def get_agent_run(run_id):
     """查询单个派发任务（返回最新记录）。找不到返回 ``ok=False``，不抛异常。"""
+    try:
+        reconcile_orphans()          # 查询前先把上一进程的死记录归位（C7）
+    except Exception:                                          # noqa: BLE001
+        pass
     if not str(run_id or "").strip():
         return {"ok": False, "error": "run_id 必填"}
     rec = _latest_run(run_id)
@@ -181,7 +209,15 @@ def get_agent_run(run_id):
 
 
 def list_agent_runs(limit=50):
-    """列出派发任务（每个 run_id 取最新记录，按创建时间倒序）。"""
+    """列出派发任务（每个 run_id 取最新记录，按创建时间倒序）。
+
+    C7（2026-11-16）：列之前先 `reconcile_orphans()` —— 否则服务重启后界面上
+    永远挂着几行"运行中"，而进程早没了。
+    """
+    try:
+        reconcile_orphans()
+    except Exception:                                          # noqa: BLE001
+        pass
     latest, order = {}, []
     for rec in _read_runs():
         rid = rec.get("run_id") or ""
@@ -234,6 +270,145 @@ def _resolve_hermes_cmd(hermes_cmd=None):
     return [exe] + parts[1:]
 
 
+#: 并发上限（C7，2026-11-16）：一台机器同时跑太多子会话，日志交织、钱也失控。
+#: 用环境变量 `NF_DISPATCH_MAX_CONCURRENT` 覆盖（0/空 = 不限）。
+DEFAULT_MAX_CONCURRENT = 3
+_RECONCILE_AT = 0.0          # 上次重扫时间（节流：30 秒内不重复 tasklist）
+_CANCELLED = set()           # 作者取消过的 run_id（watcher 不许把 cancelled 改回 done）
+#: 重扫只碰"至少这么久以前"的 running（秒）。刚派的活交给 watcher 收尾 ——
+#: 子进程退出与 watcher 写终态之间有毫秒级窗口，抢在前面标 orphaned 会把
+#: 一次**成功**的派发记成"结果未知"（2026-11-16 实测：stub 秒退的用例被误标）。
+FRESH_SECONDS = 120
+
+
+def _max_concurrent():
+    raw = os.environ.get("NF_DISPATCH_MAX_CONCURRENT")
+    try:
+        v = int(raw) if raw not in (None, "") else DEFAULT_MAX_CONCURRENT
+    except (TypeError, ValueError):
+        v = DEFAULT_MAX_CONCURRENT
+    return max(0, v)
+
+
+def _pid_alive(pid):
+    """进程还在不在。返回 True / False / None（判不了 —— 不猜）。
+
+    Windows 用 `tasklist /FI "PID eq N"`：`os.kill(pid, 0)` 在 Windows 上
+    对任意 pid 都抛（只支持 CTRL_C/终止），拿它判活会得出"全死"的假结论。
+    """
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return None
+    if pid <= 0:
+        return None
+    try:
+        if os.name == "nt":
+            out = subprocess.run(["tasklist", "/FI", "PID eq %d" % pid, "/NH"],
+                                 capture_output=True, timeout=8,
+                                 creationflags=_CREATE_FLAGS)
+            text = (out.stdout or b"").decode("utf-8", "replace")
+            return str(pid) in text
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True          # 存在但没权限 —— 存在
+    except Exception:                                          # noqa: BLE001
+        return None
+
+
+def reconcile_orphans(force=False):
+    """把"上一进程留下的 running"标成 orphaned（C7）。
+
+    判据是**进程事实**，不是"我不认识它"：服务重启后 `_ACTIVE` 当然是空的，
+    但同一台机器上可能还跑着另一个 nf_api/nf_mcp（垫片会代拉一个），
+    拿"不在我的表里"当死会误杀别人的活任务。所以先查 pid 还在不在。
+
+    返回被标 orphaned 的 run_id 列表。30 秒内重复调用直接返回空（节流）。
+    """
+    global _RECONCILE_AT
+    now = time.time()
+    if not force and now - _RECONCILE_AT < 30:
+        return []
+    _RECONCILE_AT = now
+    done = []
+    latest = {}
+    for rec in _read_runs():
+        rid = rec.get("run_id")
+        if rid:
+            latest[rid] = rec
+    for rid, rec in latest.items():
+        if rec.get("status") != "running" or rid in _ACTIVE:
+            continue
+        created = str(rec.get("created_at") or "")
+        if created:
+            try:
+                age = now - time.mktime(time.strptime(created, "%Y-%m-%dT%H:%M:%S"))
+                if age < FRESH_SECONDS:
+                    continue          # 太新：watcher 还没写完，别抢
+            except (ValueError, OverflowError):
+                pass
+        alive = _pid_alive(rec.get("pid"))
+        if alive is True:
+            continue                       # 别人的进程还活着，不动它
+        _finish_run(rid, "orphaned", None,
+                    "上一进程留下的 running 记录，pid=%s 已不在 —— 子会话结果未知"
+                    % rec.get("pid"))
+        done.append(rid)
+    return done
+
+
+def active_count():
+    """本进程正在跑的子会话数（不含别人进程里的）。"""
+    return len(_ACTIVE)
+
+
+def cancel_run(run_id):
+    """取消一趟派发（C7）。返回 `{ok, run_id, status, message}`，**绝不抛异常**。
+
+    两条路，都要说清：
+    - 本进程持有子进程 → 真的杀（Windows 连孙子一起 `taskkill /T`，否则
+      孤儿进程还握着日志管道，"取消了"等于没取消）；
+    - 本进程没有（服务重启过 / 别人派的）→ 杀不了别的进程树，只能把记录标
+      `cancelled` 并**明说**"进程可能还在跑"。
+    """
+    rid = str(run_id or "").strip()
+    if not rid:
+        return {"ok": False, "error": "run_id 必填"}
+    rec = _latest_run(rid)
+    if rec is None:
+        return {"ok": False, "error": "run 不存在: " + rid}
+    if rec.get("status") != "running":
+        return {"ok": False, "run_id": rid, "status": rec.get("status"),
+                "error": "这一趟已经不是 running（%s），不用取消" % rec.get("status")}
+    proc = _ACTIVE.get(rid)
+    if proc is None:
+        _CANCELLED.add(rid)
+        _finish_run(rid, "cancelled", None,
+                    "已标记取消；本进程未持有该子会话（服务重启过/别人派的），"
+                    "进程可能仍在跑 —— 需要时用系统任务管理器确认")
+        return {"ok": True, "run_id": rid, "status": "cancelled", "killed": False,
+                "message": "已标记 cancelled，但没有杀到进程（本进程未持有它）"}
+    killed = False
+    try:
+        if os.name == "nt" and proc.pid:
+            out = subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                                 capture_output=True, timeout=15,
+                                 creationflags=_CREATE_FLAGS)
+            killed = out.returncode == 0
+        else:
+            proc.terminate()
+            killed = True
+    except Exception as e:                                     # noqa: BLE001
+        print("[dispatch] 终止子会话失败（改标 cancelled）：%s" % e)
+    _CANCELLED.add(rid)
+    _finish_run(rid, "cancelled", None, "作者取消")
+    return {"ok": True, "run_id": rid, "status": "cancelled", "killed": killed,
+            "message": "已取消（子会话%s）" % ("已终止" if killed else "可能仍在跑")}
+
+
 def dispatch_to_hermes(title, context, workdir=None, model=None,
                        max_turns=None, timeout_s=None, hermes_cmd=None,
                        source="mcp"):
@@ -252,6 +427,18 @@ def dispatch_to_hermes(title, context, workdir=None, model=None,
         return {"ok": False, "error": "title 必填（任务标题）"}
     if not context:
         return {"ok": False, "error": "context 必填（任务书必须自包含上下文）"}
+
+    # 并发上限（C7）：先清掉上一进程的死记录，再数本进程在跑的
+    try:
+        reconcile_orphans()
+    except Exception:                                          # noqa: BLE001
+        pass
+    cap = _max_concurrent()
+    if cap and active_count() >= cap:
+        return {"ok": False,
+                "error": "同时最多 %d 趟子会话在跑（现在 %d 趟）。等前面跑完，"
+                         "或先取消某一趟（--cancel <run_id>）；确需更多可设 "
+                         "NF_DISPATCH_MAX_CONCURRENT" % (cap, active_count())}
 
     root = _root()
     run_id, brief_path = build_task_brief(title, context)
@@ -314,6 +501,11 @@ def _watch(run_id, proc, timeout_s, log_fh):
             _finish_run(run_id, "error", proc.returncode,
                         "超时（>" + str(timeout_s) + "s）已终止子会话")
             return
+        if run_id in _CANCELLED:
+            # 作者取消过的，退出码 0 也只是"被杀之前跑完了"；状态以 cancelled 为准，
+            # 否则界面上会从"已取消"跳回"完成"（同 `/stop` 那类语义）。
+            _finish_run(run_id, "cancelled", exit_code, "作者取消（子会话已退出）")
+            return
         if exit_code == 0:
             _finish_run(run_id, "done", 0, None)
         else:
@@ -351,10 +543,21 @@ def main():
     ap.add_argument("--context", help="任务上下文正文（--dispatch 必填）")
     ap.add_argument("--timeout", type=int, default=None,
                     help="子会话超时秒数（默认 3600）")
+    ap.add_argument("--cancel", metavar="RUN_ID", help="取消一趟派发（C7）")
+    ap.add_argument("--reconcile", action="store_true",
+                    help="把上一进程留下的 running 记录标成 orphaned（C7）")
     args = ap.parse_args()
 
     if args.get:
         print(json.dumps(get_agent_run(args.get), ensure_ascii=False, indent=2))
+        return 0
+    if args.cancel:
+        res = cancel_run(args.cancel)
+        print(json.dumps(res, ensure_ascii=False, indent=2))
+        return 0 if res.get("ok") else 1
+    if args.reconcile:
+        done = reconcile_orphans(force=True)
+        print("已把 %d 趟标成 orphaned：%s" % (len(done), "、".join(done) or "无"))
         return 0
     if args.dispatch:
         if not (args.context or "").strip():
@@ -369,6 +572,8 @@ def main():
     if not runs:
         print("（暂无派发记录，data/state/agent_runs.jsonl）")
         return 0
+    print("本进程在跑：%d 趟（上限 %s）"
+          % (active_count(), _max_concurrent() or "不限"))
     print("%-26s %-8s %-19s %s" % ("run_id", "status", "created_at", "title"))
     for r in runs:
         print("%-26s %-8s %-19s %s" % (

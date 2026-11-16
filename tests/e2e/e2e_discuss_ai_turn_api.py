@@ -234,6 +234,53 @@ def main():
             (data or {}).get("error") if isinstance(data, dict) else data), (code, data))
         code, data = http("/discuss/ai_turn", "POST", {"chapter": 0, "topic": "x"})
         check("E10 章节非法 400", code == 400, (code, data))
+
+        print("\n【4】AI 说的“该改哪里”：建议 → 候选（C5/C14）")
+        code, data = http("/discuss/actions?chapter=3&topic=" + urllib.parse.quote(TOPIC))
+        items = (data or {}).get("items") or [] if isinstance(data, dict) else []
+        check("E11 建议清单 200", code == 200, (code, data))
+        check("E11 至少一条建议", len(items) >= 1, items)
+        first = items[0] if items else {}
+        check("E11 建议带种类与动作目标",
+              first.get("kind") and isinstance(first.get("target"), dict), first)
+        check("E11 锚点体检通过（原句还在正文里）",
+              ((first.get("anchor") or {}).get("ok")) is True, first.get("anchor"))
+
+        code, data = http("/discuss/actions/dismiss", "POST",
+                          {"chapter": 3, "topic": TOPIC, "id": first.get("id")})
+        check("E12 放弃建议 200", code == 200, (code, data))
+        code, data = http("/discuss/actions?chapter=3&topic=" + urllib.parse.quote(TOPIC))
+        left = (data or {}).get("items") or [] if isinstance(data, dict) else []
+        check("E12 放弃后不在待处理里", all(x.get("id") != first.get("id") for x in left), left)
+
+        code, data = http("/discuss/compress", "POST", {"chapter": 3, "topic": TOPIC})
+        check("E13 压缩端点 200", code == 200, (code, data))
+        check("E13 轮次不多就说没到需要压的长度",
+              isinstance(data, dict) and data.get("compressed") is False, data)
+
+        # 再来一轮拿一条新建议，然后把正文改掉 —— 原句消失，应用必须拒
+        code, data = http("/discuss/ai_turn", "POST",
+                          {"chapter": 3, "topic": TOPIC, "hint": "再说一条"})
+        job3 = (data or {}).get("job_id") if isinstance(data, dict) else ""
+        if job3:
+            read_sse(job3)
+        code, data = http("/discuss/actions?chapter=3&topic=" + urllib.parse.quote(TOPIC))
+        items2 = (data or {}).get("items") or [] if isinstance(data, dict) else []
+        fresh = items2[0] if items2 else {}
+        check("E14 新一轮又落了一条建议", bool(fresh.get("id")), items2)
+        # 把正文换掉：讨论里引的那句不再存在
+        (root / "data" / "chapters" / "raw" / "03.md").write_text(
+            "第 03 章 雨夜\n\n天亮了，街上没有人，只有水在往下流。\n", encoding="utf-8")
+        code, data = http("/discuss/actions?chapter=3&topic=" + urllib.parse.quote(TOPIC))
+        after = ((data or {}).get("items") or [{}])[0] if isinstance(data, dict) else {}
+        check("E14 正文一改，锚点体检就报定位不到",
+              ((after.get("anchor") or {}).get("ok")) is False, after.get("anchor"))
+        code, data = http("/discuss/actions/apply", "POST",
+                          {"chapter": 3, "topic": TOPIC, "id": fresh.get("id")})
+        check("E14 应用被拒 409（不拿旧段号改错段落）", code == 409, (code, data))
+        check("E14 拒文说清“不在原位”",
+              "不在原位" in str((data or {}).get("error") if isinstance(data, dict) else data),
+              (code, data))
     finally:
         try:
             proc.terminate()

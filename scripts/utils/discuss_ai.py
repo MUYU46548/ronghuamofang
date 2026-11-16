@@ -34,6 +34,7 @@ import time
 from pathlib import Path
 
 from utils import discussion
+from utils import discuss_actions
 
 SYSTEM_TEMPLATE = "discuss_ai.md"
 MAX_OUTPUT_TOKENS = 1600          # 一轮发言的上限：再长就不是发言是正文了
@@ -118,6 +119,32 @@ def session_keep(cfg=None) -> int:
         return discussion.SESSION_KEEP_DEFAULT
 
 
+def compress_after(cfg=None) -> int:
+    """超过多少轮开始压缩会话（C11）。配置 `discuss.compress_after`，默认 24。"""
+    v = ((cfg or {}).get("discuss") or {}).get("compress_after")
+    try:
+        return max(1, int(v)) if v is not None else discussion.SESSION_COMPRESS_AFTER_DEFAULT
+    except (TypeError, ValueError):
+        return discussion.SESSION_COMPRESS_AFTER_DEFAULT
+
+
+def compress_if_needed(chapter, topic, root=".", cfg=None):
+    """跑完一轮之后顺手压一次（**压的是上一批老轮次**，不碰这一轮）。
+
+    为什么放在轮末而不是轮首：轮首压缩会让本轮的 messages 与上一轮完全不同，
+    `build_messages` 的前缀就对不上缓存了（D3 那类事故）。轮末压，下一轮读到的是
+    已压缩的 session —— 稳定，且压缩事件本身留痕在 session 里。
+    """
+    try:
+        return discussion.compress_session(
+            chapter, topic, root=root, keep=session_keep(cfg),
+            threshold=compress_after(cfg))
+    except Exception as e:                                     # noqa: BLE001
+        # 压缩失败不该让"这一轮"失败（讨论稿已落），但必须留痕
+        print("[discuss_ai] ⚠ 会话压缩失败（不影响本轮，下一轮会重试）：%s" % e)
+        return None
+
+
 def build_messages(chapter, topic, hint="", root=".", cfg=None):
     """装配一轮请求。返回 (messages, meta)。
 
@@ -134,6 +161,11 @@ def build_messages(chapter, topic, hint="", root=".", cfg=None):
     state = discussion._read_json(js)
     if state.get("summary"):
         bg.append("**已有结论**：%s" % state.get("summary"))
+    # 被压缩掉的老轮次（C11）：摘要锚点进**低频/中频**段，最近 K 轮仍走 messages。
+    # 没有压缩过的讨论这里为空串，不占提示词。
+    sess = discussion.load_session(chapter, topic, root)
+    if str(sess.get("summary") or "").strip():
+        bg.append("**更早轮次的摘要**：\n%s" % str(sess.get("summary")).strip())
     cons = discussion.render_for_prompt(chapter, root)
     if cons:
         bg.append(cons.replace("## 本章讨论结论（作者已拍板，必须落实）",
@@ -378,6 +410,14 @@ def settle_self(chapter, topic, root=".", cfg=None):
     payload = parse_turn(json.dumps(data, ensure_ascii=False))
     payload, report = verify_evidence(payload, chapter, root)
     n = discussion.append_round(chapter, topic, "ai", payload["text"], root=root)
+    payload["round"] = n
+    # 收编的这一轮同样要落"C5 建议"——否则 self 模式下 AI 说了改哪里，界面上永远
+    # 只有一个"none"，作者还得自己找段落。判据与真跑同一份（record_suggestion）。
+    try:
+        suggestion = discuss_actions.record_suggestion(chapter, topic, payload, root=root)
+    except Exception as e:                                     # noqa: BLE001
+        print("[discuss_ai] ⚠ 建议写入失败（这一轮照常收编）：%s" % e)
+        suggestion = None
     data.update({"settled": True, "round": n, "verify": report,
                  "settled_at": time.strftime("%Y-%m-%dT%H:%M:%S")})
     try:
@@ -407,6 +447,47 @@ def save_truncated(chapter, topic, text, reason, root=".") -> Path:
     except OSError:
         return p
     return p
+
+
+#: 会话级记账的 run_id（C10，2026-11-16）。讨论轮不属于任何一次 orchestrator run，
+#: 但成本必须看得见 —— 用固定 run_id + stage="discuss" 落进 cost_log，
+#: `cost_report --by-stage` 会单独列出来。不改 `CostTracker.record` 的旧签名
+#: （老调用点零改动是既有纪律）。
+DISCUSS_RUN_ID = "discuss"
+
+
+def record_cost(chapter, usage, model="", provider=None, root="."):
+    """把这一轮的花费记进 `logs/runs.db`（C10）。失败只留痕，不影响讨论。
+
+    为什么记账失败不能让这一轮失败：讨论稿已经落了，作者看得见那句话；
+    为了一个统计数字把整轮判失败，等于用账本毁掉正文。
+    """
+    usage = usage or {}
+    tin = int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
+    tout = int(usage.get("completion_tokens") or usage.get("output_tokens") or 0)
+    if tin <= 0 and tout <= 0:
+        return None
+    cache_read = 0
+    try:
+        from utils.llm_client import extract_cache_read_tokens
+        cache_read = int(extract_cache_read_tokens(usage) or 0)
+    except Exception:                                          # noqa: BLE001
+        cache_read = int(usage.get("cache_read_tokens") or 0)
+    try:
+        from utils.cost_tracker import CostTracker
+        from utils.db import RunDB
+        db = RunDB(str(Path(root) / "logs" / "runs.db"))
+        try:
+            cost = CostTracker(db)
+            cost.record(DISCUSS_RUN_ID, "discuss", int(chapter), tin, tout,
+                        model=model or None, provider=provider, cache_read=cache_read)
+            return cost.estimate_cost_yuan(tin, tout, model=model or None,
+                                           provider=provider, cache_read=cache_read)
+        finally:
+            db.close()
+    except Exception as e:                                     # noqa: BLE001
+        print("[discuss_ai] ⚠ 讨论轮记账失败（这一轮照常算数）：%s" % e)
+        return None
 
 
 def call_model(client, messages, on_chunk=None, stop_flag=None, max_tokens=None):
@@ -474,14 +555,31 @@ def run_turn(client, chapter, topic, hint="", root=".", cfg=None,
     payload.update({"round": n, "model": model or "", "usage": usage or {},
                     "finish_reason": finish or "", "at": time.strftime("%Y-%m-%dT%H:%M:%S"),
                     "verify": report})
+    # C5（2026-11-16）：action 落成**建议**（不触发任何调用）。round 已回填，
+    # 建议里能对上"是哪一轮说的"。
+    # 建议是"给程序消费"的附带品：写不进去不该让这一轮失败（讨论稿已落），
+    # 但必须留痕 —— 静默丢掉等于 AI 说了"该改这里"而界面上永远空着。
+    try:
+        suggestion = discuss_actions.record_suggestion(chapter, topic, payload, root=root)
+    except Exception as e:                                     # noqa: BLE001
+        print("[discuss_ai] ⚠ 建议写入失败（这一轮照常算数）：%s" % e)
+        suggestion = None
+    # C10（2026-11-16）：会话级记账（run_id/stage 都是 discuss）。
+    spent = record_cost(chapter, usage, model=model or "",
+                        provider=getattr(client, "provider", None), root=root)
+    payload["cost_yuan"] = spent
     try:
         discussion._write_json(discussion.ai_payload_path(chapter, topic, root), payload)
     except Exception:                                          # noqa: BLE001
         # 结构化产物是"给程序消费"的，写不进去不该让这一轮失败（md 已落）
         print("[discuss_ai] ⚠ AI 轮结构化产物写入失败：%s"
               % discussion.ai_payload_path(chapter, topic, root))
+    # C11（2026-11-16）：压的是**更早的**轮次，最近 keep 轮原文留着。
+    compressed = compress_if_needed(chapter, topic, root=root, cfg=cfg)
     return {"round": n, "text": payload["text"], "stance": payload["stance"],
             "evidence": payload["evidence"], "action": payload["action"],
             "decision": payload["decision"], "model": payload["model"],
             "usage": payload["usage"], "verify": report, "meta": meta,
+            "suggestion": suggestion, "cost_yuan": spent,
+            "compressed": compressed,
             "streaming": bool(streaming)}

@@ -479,13 +479,49 @@ def handle_costs_rates_import(h, body):
 
 
 def handle_agent_runs(h):
-    """Agent 派发状态（只读）：列出最近派发任务的状态。"""
+    """Agent 派发状态（只读）：列出最近派发任务的状态 + **主控复检结果**。
+
+    2026-11-16（R6）：`<run_id>_result.md` 此前零读者 —— 外派跑完，界面上只看得到
+    "done"，看不到它到底写了什么、有没有把内容改坏。现在每条记录带 `receipt`：
+    主控按盘上文件**现算** sha256 / 汉字数，与执行方自报比对，不一致就判 mismatch
+    （纪律：模型自述与脚本实测不一致时，系统站在脚本一边）。
+    """
     import nf_api as api
     try:
         import nf_agent_dispatch as disp
+        from utils import agent_receipt
         runs = disp.list_agent_runs(50)
-        return 200, {"ok": True, "runs": runs}
+        for r in runs:
+            rid = r.get("run_id")
+            if not rid:
+                continue
+            try:
+                r["receipt"] = agent_receipt.verify(rid, root=str(api.ROOT))
+            except Exception as e:                          # noqa: BLE001
+                r["receipt"] = {"ok": False, "verdict": "error",
+                                "why": "%s: %s" % (type(e).__name__, str(e)[:120])}
+        return 200, {"ok": True, "runs": runs,
+                     "active": disp.active_count(),
+                     "max_concurrent": disp._max_concurrent(),
+                     "note": "receipt.ok=false 的那几趟：自报与脚本实测不一致，"
+                             "或根本没给回执 —— 都不算完成。"}
     except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_agent_cancel(h, body):
+    """`POST /agent/cancel {run_id}` —— 取消一趟派发（C7，2026-11-16）。
+
+    与审批不同族：取消是"把自己派出去的活叫回来"，不是替作者拍板，所以不对 Agent 设闸。
+    老实说清的两种情况：本进程持有的子进程会被真的杀掉；服务重启过 / 别人派的，
+    只能把记录标 cancelled，进程可能还在跑（返回 `killed: false`）。
+    """
+    body = body if isinstance(body, dict) else {}
+    try:
+        import nf_agent_dispatch as disp
+        res = disp.cancel_run(str(body.get("run_id") or ""))
+        return (200 if res.get("ok") else 400), res
+    except Exception as e:                                     # noqa: BLE001
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
@@ -627,8 +663,26 @@ def handle_chapters_context(h):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+def handle_context_book(h):
+    """`GET /context/book` —— 整本视角（C4，2026-11-16，零 token 只读）。
+
+    与 `/chapters/context?n=` 的分工：那一份答"写第 N 章时喂什么"，这一份答
+    "这本书现在整体什么样"（设定/大纲/判定/伏笔/摘要/讨论/口径/轮次/成本）。
+    讨论与整本判断用它当背景；**它不进写作提示词**（会显著拉长前缀）。
+    """
+    import nf_api as api
+    try:
+        from utils import context_report as cr
+        cfg, _proj = api.load_all()
+        return 200, cr.book_pack(api.ROOT, cfg)
+    except Exception as e:                                     # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 ROUTES = (
     ("GET", "/costs/summary", handle_costs_summary),
+    ("GET", "/context/book", handle_context_book),
+    ("POST", "/agent/cancel", handle_agent_cancel),
     ("GET", "/chapters/context", handle_chapters_context),
     ("GET", "/costs/streaming", handle_costs_streaming),
     ("GET", "/costs/rates", handle_costs_rates),
