@@ -1187,7 +1187,11 @@ def run_tests(root: Path, pattern: str = "test_*.py", verbose: bool = False) -> 
                     "file": str(rel),
                     "exit_code": proc.returncode,
                     "failures": fail_lines[:10],
-                    "stderr": proc.stderr[-300:] if proc.stderr else "",
+                    # 没有 FAIL 行 = 多半是**崩溃**（异常在第一个断言之前）。
+                    # 此前只存 failures，于是 CI 上只剩一个文件名，谁也不知道为什么红
+                    # （2026-11-16 实测：本地 286/286，CI 上两个文件"失败"且零线索）。
+                    "stdout_tail": out[-1600:],
+                    "stderr": proc.stderr[-600:] if proc.stderr else "",
                 })
         except subprocess.TimeoutExpired:
             results["failed"] += 1
@@ -1212,6 +1216,20 @@ def render_test_results(d: dict) -> str:
             if "failures" in err:
                 for f in err["failures"][:5]:
                     lines.append("    %s" % f)
+            # 崩溃（没有 FAIL 行）时，退出码 + 输出尾部才是唯一线索
+            if not err.get("failures") and "error" not in err:
+                lines.append("    退出码: %s（没有 FAIL 行 → 多半是崩溃）"
+                             % err.get("exit_code"))
+                tail = (err.get("stdout_tail") or "").strip()
+                if tail:
+                    lines.append("    输出尾部：")
+                    for ln in tail.splitlines()[-10:]:
+                        lines.append("      " + ln)
+                se = (err.get("stderr") or "").strip()
+                if se:
+                    lines.append("    stderr：")
+                    for ln in se.splitlines()[-8:]:
+                        lines.append("      " + ln)
     if d["failed"] == 0 and d["total"] > 0:
         lines.append("")
         lines.append("→ 全部通过。")

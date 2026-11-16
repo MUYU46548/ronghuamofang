@@ -62,6 +62,12 @@ def prep():
     (tmp / "data" / "chapters" / "raw" / "03.md").write_text(BODY, encoding="utf-8")
     for name in ("system.yaml", "project.yaml"):
         src = ROOT / "config" / name
+        if not src.exists():
+            # project.yaml 是用户资产（每本书一份），不在 Git 里 —— CI 干净 checkout
+            # 没有它。缺了就写一个最小可解析版（load_all 只要求文件存在）。
+            (tmp / "config" / name).write_text(
+                "book:\n  name: 测试书\n  chapters: 10\n", encoding="utf-8")
+            continue
         text = src.read_text(encoding="utf-8")
         if name == "system.yaml":
             import re

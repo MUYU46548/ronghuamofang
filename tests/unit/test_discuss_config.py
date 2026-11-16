@@ -54,7 +54,15 @@ def main():
     orig_root = nf_api.ROOT
     (tmp / "config").mkdir(parents=True, exist_ok=True)
     shutil.copy2(ROOT / "config" / "system.yaml", tmp / "config" / "system.yaml")
-    shutil.copy2(ROOT / "config" / "project.yaml", tmp / "config" / "project.yaml")
+    # project.yaml 是**用户资产**（每本书一份），不在 Git 里 —— CI 的干净 checkout
+    # 没有它。当年它就是 FileNotFoundError 的来源：本地全绿、CI 两个文件崩，
+    # 且 nfctl 只报文件名（2026-11-16 修）。缺了就写一个最小可解析版。
+    proj_src = ROOT / "config" / "project.yaml"
+    if proj_src.exists():
+        shutil.copy2(proj_src, tmp / "config" / "project.yaml")
+    else:
+        (tmp / "config" / "project.yaml").write_text(
+            "book:\n  name: 测试书\n  chapters: 10\n", encoding="utf-8")
     nf_api.ROOT = tmp
     try:
         code, data = dom_project.handle_config_discuss(H())
