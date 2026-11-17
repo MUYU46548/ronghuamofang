@@ -164,7 +164,7 @@ def _distinct_filler(k):
             f"像是把第{d}天的日子重新码了一遍。")
 
 
-def _words_para(min_words):
+def _words_para(min_words, skip_words=0):
     """生成达标字数、**结构健康**的中文正文（多段、低重复）。
 
     历史坑（2026-09-20 修）：旧实现是 `sentence * N` —— 同一句重复、
@@ -193,6 +193,13 @@ def _words_para(min_words):
     need = max(int(min_words), 400)
     cap = sum(count_cn_words(s) for s in corpus)
     out, total, i = [], 0, 0
+    # skip_words：段群任务的正文必须**彼此不同**，否则拼装后整章是同一段话重复 N 次
+    # → 撞“复读 12-gram 48%”退化门，加强模式永远过不了（2026-11-17 实测）。
+    # 让第 k 群从句库的 (k-1)×配额 处开始取，各群天然不重叠。
+    skip = max(0, int(skip_words))
+    while skip > 0 and i < len(corpus):
+        skip -= count_cn_words(corpus[i])
+        i += 1
     if need <= cap:
         while total < need:
             s = corpus[i % len(corpus)]
@@ -276,21 +283,80 @@ def _write_chapter_outlines(text):
     return out
 
 
+def _shorten_to(text, target):
+    """把假正文削到 target 汉字附近，且**保持结构健康**（≥6 段、单段不超一半）。
+
+    为什么需要：`_words_para` 有 400 字硬下限（句库按句累加，短于 400 生成不出来），
+    而“严重偏短”的夹具要求正文**低于下限的 60%**（600 下限 → 需要 < 360 汉字）。
+    只靠缩放 min_w 撞不到那条分支：请求 180 字也会拿到 ≥400 字。
+
+    为什么按**句**切而不再删整段：只删整段会撞“退化：段落过少（<6 段）”，
+    于是打回路径变成“整章重生成”——那是另一条支线，夹具自己就走错路了。
+    一句一段：字数压下去，段数反而更多。
+    """
+    sents = [s.strip() for s in re.split(r"(?<=[。！？])", text) if s.strip()]
+    out, total = [], 0
+    for s in sents:
+        out.append(s)
+        total += count_cn_words(s)
+        if total >= target and len(out) >= 6:
+            break
+    return "\n\n".join(out)
+
+
 def _write_chapter(text, name):
-    m = re.search("写入文件: ([^ \\n]+[.]md)", text)
+    # 写入/写回都认：扩写任务（`stage4_chNN_expand.md`）的措辞是“写回文件: <原稿路径>”，
+    # 只认“写入文件:”会让扩写产物落到 `raw/stage4_chNN_expand.md` 这种野路径上 ——
+    # 正文不变（扩写等于没发生），而用例看到的是“扩写跑了却没生效”（2026-11-17 实测）。
+    # ⚠️ 这里**不要**写成 raw string：`[^ \\n]` 在 raw 里是"非空格/非反斜杠/非 n"，
+    # 而任务里的路径是 Windows 绝对路径（盘符开头、反斜杠分段）→ 一个都匹配不上，
+    # 产物会落到 `raw/stage4_chNN.md` 野路径，stage4 判"章节文件未生成"（2026-11-17 实测）。
+    m = (re.search("写[入回]文件[:：]\\s*([^ \\n]+[.]md)", text)
+         or re.search("写入文件: ([^ \\n]+[.]md)", text))
     out_path = Path(m.group(1)) if m else Path("data/chapters/raw") / name
     # 任务里的字数区间：2026-11-06 起模板写成“正文 **4000-7200 个汉字**”
     # （只计汉字口径），旧写法“字数 4000-7200 字”也认 —— 夹具不许因措辞变化而假红。
+    # 第三种（扩写任务，2026-11-17）：句面是“使正文汉字数达到 **630 个左右**
+    # （合格区间 600~1200）”—— 只认前两种的话会退回 300 字，扩写等于**没扩**
+    # （字数不变 → 又被判短），用例看到的是“扩写跑了却没生效”。
     mm = (re.search(r"(\d+)-(\d+)\s*个?汉字", text)
-          or re.search("字数 (" + NUM + ")-(" + NUM + ") 字", text))
+          or re.search("字数 (" + NUM + ")-(" + NUM + ") 字", text)
+          or re.search("合格区间\\s*(" + NUM + ")\\s*[~～-]\\s*(" + NUM + ")", text)
+          or re.search("达到\\s*\\**(" + NUM + ")\\s*个?\\s*左右", text))
     min_w = int(mm.group(1)) if mm else 300
+    # 测试用“偏短稿”注入（`NF_FAKE_SHORT_RATIO=0.3` → 正文只到下限的 30%）。
+    # 为什么要有：验收“严重偏短的章会不会被整章重生成空转掉”必须能让假引擎写出短稿；
+    # 假引擎默认永远写满下限，那条路径在夹具里根本走不到。
+    # 只作用于**整章首轮**任务（`stage4_chNN.md`）：段群任务（`_gN`）与扩写任务（`_expand`）
+    # 照常写满 —— 否则“加强模式/扩写把它们救回来”这个被测前提自己就断了。
+    short_target = None
+    _ratio = os.environ.get("NF_FAKE_SHORT_RATIO")
+    if _ratio and re.fullmatch(r"stage4_ch\d+\.md", name):
+        try:
+            _r = float(_ratio)
+            if _r > 0:
+                short_target = max(120, int(min_w * _r))
+        except ValueError:
+            pass
     chap = ""
     nm = re.search("第(" + NUM + ") 章", name) or re.search("ch(" + NUM2 + ")", name)
     chap = nm.group(1) if nm else "00"
     p = out_path
     p.parent.mkdir(parents=True, exist_ok=True)
+    # 段群任务（`stage4_chNN_gK.md`）：每群从本章配额的第 (K-1) 段处取正文，
+    # 否则各群产出同一段话，拼装后撞"复读"退化门（加强模式永远过不了）。
+    gm = re.search(r"_g(\d+)\.md$", name)
+    skip = (int(gm.group(1)) - 1) * min_w if gm else 0
+    if short_target:
+        body = _shorten_to(_words_para(min_w), short_target)
+    elif skip:
+        # 只有**段群且非首群**才传 skip_words：别的调用方（用例里的 monkeypatch
+        # 包装、老夹具）都按 `_words_para(n)` 单参数签名，多传一个 kwarg 会直接 TypeError
+        body = _words_para(min_w, skip_words=skip)
+    else:
+        body = _words_para(min_w)
     write_text(p, ("## 第" + str(int(chap)) + "章 测试章节\n\n"
-                   + _words_para(min_w) + "\n\n"
+                   + body + "\n\n"
                    "<!-- quality: 8/10 -->\n"
                    "<!-- summary: 测试摘要：主角推进主线，无新增设定。 -->\n"))
     return [p]
