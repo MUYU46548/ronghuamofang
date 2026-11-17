@@ -19,6 +19,7 @@
 不能让整个列表 500——用户需要看到列表才能删掉那份坏草稿。
 """
 import nf_api as api
+from pathlib import Path
 
 
 def handle_outline_structure(h):
@@ -179,9 +180,30 @@ def handle_sandbox_queue(h):
         want_all = (q.get("all") or ["0"])[0] not in ("0", "", "false", "False")
         status = None if want_all else srv.PENDING
         sandbox = get_sandbox_dir()
+        items = srv.list_items(status)
+        # 冲突预检（2026-11-17，沙盒 P0）：零 token、只读 —— 只回答“和书里已有设定
+        # 撞不撞名/是不是锁定设定”，不判断哪个更对（那是作者的决定）。
+        try:
+            from utils import sandbox_conflict as sconf
+            entries, why = sconf.load_entries(api.ROOT)
+            for it in items:
+                try:
+                    text = (Path(sandbox) / str(it.get("path") or "")).read_text(
+                        encoding="utf-8", errors="replace")
+                except OSError:
+                    it["conflict"] = {"checked": False, "why": "读不到这个文件，没法比对",
+                                      "level": "none", "items": []}
+                    continue
+                it["conflict"] = sconf.check_item(text, it.get("path"), entries, why)
+        except Exception as e:                              # noqa: BLE001
+            # 预检本身出错不许把队列带崩：照常返回，并在 stats 里说清没做
+            for it in items:
+                it.setdefault("conflict", {"checked": False,
+                                           "why": "冲突预检没跑成（%s）" % type(e).__name__,
+                                           "level": "none", "items": []})
         return 200, {
             "sandbox_dir": str(sandbox),
-            "items": srv.list_items(status),
+            "items": items,
             "stats": srv.stats(),
             "orphans": srv.orphans(sandbox),
             "filter": "all" if want_all else "pending",

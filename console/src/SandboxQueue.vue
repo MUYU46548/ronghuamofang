@@ -99,6 +99,19 @@
               <span>更新 {{ it.updated_at || it.created_at || "—" }}</span>
               <span v-if="it.reviewed_at">审于 {{ it.reviewed_at }}</span>
             </div>
+            <div v-if="it.conflict && it.conflict.checked && it.conflict.items.length" class="sb-conflict">
+              <span class="pill" :class="it.conflict.level === 'warn' ? 'st-gate' : 'st-pending'">
+                设定冲突预检
+              </span>
+              <span v-for="(c, i) in it.conflict.items" :key="i" class="sb-conflict-i"
+                    :class="{ warn: c.level === 'warn' }">{{ c.detail }}</span>
+            </div>
+            <div v-else-if="it.conflict && it.conflict.checked" class="meta sb-conflict-ok">
+              冲突预检：没发现同名/近名（只比名字与锁定状态，不判断内容对错）
+            </div>
+            <div v-else-if="it.conflict && !it.conflict.checked" class="meta sb-conflict-na">
+              冲突预检不了：{{ it.conflict.why }}
+            </div>
             <div v-if="it.note" class="sb-note">备注：{{ it.note }}</div>
           </div>
 
