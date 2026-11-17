@@ -101,6 +101,16 @@
                     @click="applySug(s)">
               {{ pendingRewrite && pendingRewrite.id === s.id ? "确认重写整章" : "按这条生成候选" }}
             </button>
+            <!-- 讨论 → 批注（2026-11-17）：不调模型、不改正文，先把“这里该改”记到段落上，
+                 之后在批注列表里点“改这一处”走同一条读改链。 -->
+            <button class="mini" :disabled="sugBusy || (s.anchor && s.anchor.ok === false)
+                                          || s.status === 'annotated'"
+                    :title="s.status === 'annotated'
+                      ? '已落成批注（到“章节 → 段落批注”里看）'
+                      : '落成批注：不调模型、不改正文；之后在批注列表点“改这一处”'"
+                    @click="annotateSug(s)">
+              {{ s.status === 'annotated' ? "已落成批注" : "落成批注" }}
+            </button>
             <button class="mini" :disabled="sugBusy" @click="dismissSug(s)">不用</button>
           </div>
         </div>
@@ -223,6 +233,26 @@ async function applySug(s) {
     }
   } catch (e) {
     msg.value = "没动手：" + e.message;
+  } finally {
+    sugBusy.value = false;
+  }
+}
+
+async function annotateSug(s) {
+  if (!picked.value) return;
+  sugBusy.value = true;
+  try {
+    const r = await props.api("/discuss/actions/annotate", "POST",
+      { chapter: chapter.value, topic: picked.value, id: s.id });
+    const d = (r && r.data) || {};
+    if (r && r.status === 200 && d.ok) {
+      msg.value = d.message || "已落成批注（正文没动）";
+      await loadSuggestions();
+    } else {
+      msg.value = "没落成批注：" + (d.error || (r && r.status) || "未知原因");
+    }
+  } catch (e) {
+    msg.value = "没落成批注：" + e.message;
   } finally {
     sugBusy.value = false;
   }

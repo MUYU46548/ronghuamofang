@@ -3877,6 +3877,10 @@ class Handler(BaseHTTPRequestHandler):
                 # 按 AI 的建议**生成候选**（C5，2026-11-16）：不直接改正文。
                 # 段落级 → 候选区（作者再点采用）；整章重写 → 必须 confirm。
                 self._send(*_dom(dom_thread.handle_discuss_action_apply(self, body)))
+            elif p == "/discuss/actions/annotate":
+                # 按 AI 的建议**落成批注**（2026-11-17）：不调模型、不改正文；
+                # 定位失败就拒（绝不猜段号）。之后在批注列表点“改这一处”。
+                self._send(*_dom(dom_thread.handle_discuss_action_annotate(self, body)))
             elif p == "/discuss/actions/dismiss":
                 # 放弃一条建议：讨论稿与正文都不动
                 self._send(*_dom(dom_thread.handle_discuss_action_dismiss(self, body)))

@@ -68,20 +68,25 @@ def para_hash(text: str) -> str:
     return hashlib.sha1(_norm(text).encode("utf-8")).hexdigest()[:HASH_LEN]
 
 
-def chapter_paragraphs(chapter, root="."):
-    """这一章最接近成品那一层的段落列表（与 `discuss_ai.chapter_body` 同源）。"""
+def _layer_paragraphs(chapter, root="."):
+    """这一章最接近成品那一层的 (段落列表, 层名)。层名给批注用 —— 批注绑层，串层会改错段。"""
     try:
         from utils import discuss_ai
-        body, _layer = discuss_ai.chapter_body(chapter, root)
+        body, layer = discuss_ai.chapter_body(chapter, root)
     except Exception:                                          # noqa: BLE001
-        body = ""
+        body, layer = "", ""
     if not body:
-        return []
+        return [], layer or ""
     try:
         import refine_paragraph
-        return refine_paragraph.split_paragraphs(body) or []
+        return (refine_paragraph.split_paragraphs(body) or []), layer
     except Exception:                                          # noqa: BLE001
-        return [p.strip() for p in body.split("\n\n") if p.strip()]
+        return [p.strip() for p in body.split("\n\n") if p.strip()], layer
+
+
+def chapter_paragraphs(chapter, root="."):
+    """这一章最接近成品那一层的段落列表（与 `discuss_ai.chapter_body` 同源）。"""
+    return _layer_paragraphs(chapter, root)[0]
 
 
 def actions_path(chapter, topic, root="."):
@@ -184,9 +189,9 @@ def resolve_anchor(chapter, target, root="."):
     - 都找不到 → ok=False，why = "这一段已经不在原位"。
     """
     target = dict(target or {})
-    paras = chapter_paragraphs(chapter, root)
+    paras, layer = _layer_paragraphs(chapter, root)
     if not paras:
-        return {"ok": False, "index": None, "drift": False,
+        return {"ok": False, "index": None, "drift": False, "layer": layer,
                 "why": "这一章还没有正文，没有段落可定位"}
     try:
         old_idx = int(target.get("para_index"))
@@ -197,16 +202,16 @@ def resolve_anchor(chapter, target, root="."):
     if nq:
         pick = _locate(paras, nq, old_idx)
         if pick is not None:
-            return {"ok": True, "index": pick, "drift": pick != old_idx,
+            return {"ok": True, "index": pick, "drift": pick != old_idx, "layer": layer,
                     "why": "" if pick == old_idx else
                            "这一段被挪过位置（现在在第 %d 段）" % (pick + 1)}
     want = str(target.get("para_hash") or "").strip()
     if want:
         for i, p in enumerate(paras):
             if para_hash(p) == want:
-                return {"ok": True, "index": i, "drift": True,
+                return {"ok": True, "index": i, "drift": True, "layer": layer,
                         "why": "引用的原句已改，按段落指纹找回到第 %d 段" % (i + 1)}
-    return {"ok": False, "index": None, "drift": False,
+    return {"ok": False, "index": None, "drift": False, "layer": layer,
             "why": "这一段已经不在原位（引用的原句在这一层里找不到，可能已被改写或删除）"}
 
 
@@ -280,7 +285,7 @@ def get_suggestion(chapter, topic, sid, root="."):
 
 
 def set_status(chapter, topic, sid, status, root=".", **extra):
-    """改建议状态（pending / started / dismissed）。返回更新后的 dict 或 None。"""
+    """改建议状态（pending / started / annotated / dismissed）。返回更新后的 dict 或 None。"""
     p = actions_path(chapter, topic, root)
     data = _read(p)
     hit = None
@@ -292,3 +297,39 @@ def set_status(chapter, topic, sid, status, root=".", **extra):
     if hit:
         _write(p, data)
     return hit
+
+
+def annotate_suggestion(chapter, topic, sid, root="."):
+    """把一条建议落成**段落批注**（2026-11-17，讨论 P0）：正文一个字不动。
+
+    与“按这条生成候选”的分工：候选会花一次模型调用、结果要作者采用；
+    批注只是把“讨论里说要改这里”落到段落上，之后可在批注列表点“改这一处”，
+    走的是同一条读改链（预览 → 采用 → 按批注重算）。
+
+    返回 `(ok, msg, annotation, anchor)`。定位失败**绝不猜段号**。
+    """
+    from utils import annotations as ann
+
+    sug = get_suggestion(chapter, topic, sid, root)
+    if not sug:
+        return False, "找不到这条建议（可能已被处理）", None, None
+    if str(sug.get("status")) == "dismissed":
+        return False, "这条建议已经被你放弃了", None, None
+    if sug.get("annotation_id"):
+        return (False, "这条建议已经落成批注（%s）" % sug["annotation_id"],
+                None, None)
+    anchor = resolve_anchor(chapter, sug.get("target"), root)
+    if not anchor.get("ok"):
+        return False, anchor.get("why") or "这一段已经不在原位", None, anchor
+    paras, layer = _layer_paragraphs(chapter, root)
+    idx = int(anchor.get("index") or 0)
+    if idx < 0 or idx >= len(paras):
+        return False, "定位到的段号超出正文范围（本章 %d 段）" % len(paras), None, anchor
+    note = str(sug.get("why") or "").strip() or "讨论里点出的这一处"
+    note = "%s\n来源：讨论《%s》第 %s 轮" % (note, topic, sug.get("round") or "?")
+    item = ann.add(root, chapter, note, idx, paras, layer=layer or "refined")
+    set_status(chapter, topic, sid, "annotated", root=root,
+               annotation_id=item["id"], anchor_index=idx,
+               annotated_at=time.strftime("%Y-%m-%dT%H:%M:%S"))
+    return (True, "已落成批注（第 %d 段，%s 层）—— 正文没动；要改就去批注列表点“改这一处”"
+            % (idx + 1, layer or "refined"), item, anchor)

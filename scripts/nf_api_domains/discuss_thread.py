@@ -13,6 +13,7 @@
 | POST | `/discuss/ai_turn` | AI 说一轮（异步 + 流式 + 可中断，2026-11-16） |
 | GET  | `/discuss/actions` | AI 说的"该改哪里"：建议清单 + 锚点体检（C5/C14） |
 | POST | `/discuss/actions/apply` | 按建议**生成候选**（不直接改正文） |
+| POST | `/discuss/actions/annotate` | 按建议**落成批注**（不调模型、不改正文；定位失败就拒） |
 | POST | `/discuss/actions/dismiss` | 放弃一条建议（讨论稿与正文都不动） |
 | POST | `/discuss/compress` | 把老轮次压成摘要（只动 session.json，C11） |
 
@@ -439,6 +440,33 @@ def handle_discuss_action_apply(h, body):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+def handle_discuss_action_annotate(h, body):
+    """`POST /discuss/actions/annotate {chapter, topic, id}` —— 建议落成段落批注（正文不动）。
+
+    讨论 → 批注 → 读改链（2026-11-17，讨论 P0）：以前讨论说完“这里该改”，
+    只能当场花一次模型调用生成候选；作者想“先记下来，等读完这一章再改”没有出口。
+    现在可以落成批注：带引用原文与段号（定位失败就拒，绝不猜），
+    批注列表里点“改这一处”走同一条预览/采用链。
+    """
+    import nf_api as api
+    from utils import discuss_actions
+
+    body = body if isinstance(body, dict) else {}
+    chapter = _int(body, "chapter")
+    topic = str(body.get("topic") or "").strip()
+    sid = str(body.get("id") or "").strip()
+    if not chapter or not topic or not sid:
+        return _bad("chapter / topic / id 必填")
+    ok, msg, item, anchor = discuss_actions.annotate_suggestion(
+        chapter, topic, sid, str(api.ROOT))
+    if not ok:
+        code = 409
+        if msg.startswith("找不到"):
+            code = 404
+        return code, {"ok": False, "error": msg, "anchor": anchor}
+    return 200, {"ok": True, "message": msg, "annotation": item, "anchor": anchor}
+
+
 def handle_discuss_action_dismiss(h, body):
     """`POST /discuss/actions/dismiss {chapter, topic, id}` —— 放弃一条建议（正文不动）。"""
     import nf_api as api
@@ -507,6 +535,7 @@ ROUTES = (
     ("POST", "/discuss/ai_turn", handle_discuss_ai_turn),
     ("GET", "/discuss/actions", handle_discuss_actions),
     ("POST", "/discuss/actions/apply", handle_discuss_action_apply),
+    ("POST", "/discuss/actions/annotate", handle_discuss_action_annotate),
     ("POST", "/discuss/actions/dismiss", handle_discuss_action_dismiss),
     ("POST", "/discuss/compress", handle_discuss_compress),
     ("POST", "/discuss/decide", handle_discuss_decide),

@@ -179,6 +179,44 @@ def main():
         check("Q6 dismissed 能查到",
               any(x["id"] == sid for x in discuss_actions.list_suggestions(CH, str(tmp), status="dismissed")))
 
+        print("\n【6b】建议落成批注（讨论 P0，2026-11-17）")
+        left = discuss_actions.list_suggestions(CH, str(tmp), status="pending")
+        target = left[0]
+        okA, msgA, itemA, ancA = discuss_actions.annotate_suggestion(
+            CH, TOPIC, target["id"], str(tmp))
+        check("Q10 落成批注成功", bool(okA and itemA), msgA)
+        check("Q10 批注写明来源（讨论 + 轮次）",
+              "来源：讨论《" in str((itemA or {}).get("note")), (itemA or {}).get("note"))
+        check("Q10 批注和锚点同一层（本章只有 raw）", (itemA or {}).get("layer") == "raw", itemA)
+        check("Q10 段号就是引文所在段",
+              int((itemA or {}).get("para_index", -1)) == int(ancA.get("index")), (itemA, ancA))
+        ann_file = tmp / "data" / "state" / "annotations" / "ch03.json"
+        items = json.loads(ann_file.read_text(encoding="utf-8"))["annotations"]
+        check("Q10 批注真的落盘", len(items) == 1, items)
+        after = discuss_actions.get_suggestion(CH, TOPIC, target["id"], str(tmp))
+        check("Q10 建议状态变成 annotated 并记下批注 id",
+              after and after.get("status") == "annotated"
+              and after.get("annotation_id") == (itemA or {}).get("id"), after)
+        ok2, msg2, _i2, _a2 = discuss_actions.annotate_suggestion(
+            CH, TOPIC, target["id"], str(tmp))
+        check("Q10 同一条建议不许落两次", (not ok2) and "已经落成批注" in msg2, msg2)
+
+        dismissed_id = sid                       # 【6】里放弃的那条
+        ok3, msg3, _i3, _a3 = discuss_actions.annotate_suggestion(
+            CH, TOPIC, dismissed_id, str(tmp))
+        check("Q10 已放弃的建议不能落批注", (not ok3) and "放弃" in msg3, msg3)
+
+        bad = turn_payload(round_no=9, target={"chapter": CH, "para_index": 0,
+                                               "quote": "这句根本不在正文里，别猜段号。"})
+        sug_bad = discuss_actions.record_suggestion(CH, TOPIC, bad, root=str(tmp))
+        ok4, msg4, _i4, _a4 = discuss_actions.annotate_suggestion(
+            CH, TOPIC, sug_bad["id"], str(tmp))
+        check("Q10 引文不在原位 → 拒绝落批注", (not ok4) and "不在原位" in msg4, msg4)
+        items2 = json.loads(ann_file.read_text(encoding="utf-8"))["annotations"]
+        check("Q10 拒绝时没有多出批注（不猜段号）", len(items2) == 1, items2)
+        ok5, msg5, _i5, _a5 = discuss_actions.annotate_suggestion(CH, TOPIC, "act_nope", str(tmp))
+        check("Q10 不存在的建议 → 找不到", (not ok5) and "找不到" in msg5, msg5)
+
         print("\n【7】讨论轮记账（C10）")
         spent = discuss_ai.record_cost(CH, {"prompt_tokens": 1200, "completion_tokens": 260,
                                             "prompt_tokens_details": {"cached_tokens": 900}},
@@ -220,12 +258,16 @@ def main():
         api_src = (ROOT / "scripts" / "nf_api.py").read_text(encoding="utf-8")
         pairs = [("GET", "/discuss/actions", "handle_discuss_actions"),
                  ("POST", "/discuss/actions/apply", "handle_discuss_action_apply"),
+                 ("POST", "/discuss/actions/annotate", "handle_discuss_action_annotate"),
                  ("POST", "/discuss/actions/dismiss", "handle_discuss_action_dismiss"),
                  ("POST", "/discuss/compress", "handle_discuss_compress")]
         for method, path, fn in pairs:
             check("Q9 ROUTES 有 %s %s" % (method, path),
                   any(m == method and p == path for m, p, _ in dom.ROUTES))
             check("Q9 分发器有 %s" % fn, ("dom_thread." + fn) in api_src)
+        panel_src = (ROOT / "console" / "src" / "DiscussThreadPanel.vue").read_text(encoding="utf-8")
+        check("Q9 界面有“落成批注”入口（不是只在后端）",
+              "落成批注" in panel_src and "/discuss/actions/annotate" in panel_src)
     finally:
         nf_api.ROOT = orig_root
 
