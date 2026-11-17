@@ -207,18 +207,36 @@ GUI_CALL_RE = re.compile(
 
 
 def gui_calls():
-    """返回 {(method, path): [文件:行, ...]}。未写方法参数的一律按 GET 计（fetch 默认）。"""
+    """返回 {(method, path): [文件:行, ...]}。未写方法参数的一律按 GET 计（fetch 默认）。
+
+    ⚠️ 裸 `fetch(API + "/x", { method: "POST" })` 也要认（2026-11-17 修）：
+    这些面板不走 `api()` 包装，方法写在**下一行**的 options 对象里。原实现一律当 GET，
+    于是四个面板（写作预设 save/apply、交接导出、设定收口）长期被判
+    “路径存在但 HTTP 方法不对” —— 红在测试资产上，产品其实是好的。
+    误判的红比没闸门更糟：它教人忽略这条断言。
+    """
     calls = {}
     pat2 = re.compile(r"""API\s*\+\s*(?:["'`])([^"'`]+)(?:["'`])""")
+    meth_re = re.compile(r"""method\s*:\s*["'`](GET|POST|PUT|DELETE)["'`]""")
     for vue in sorted(VUE_DIR.glob("*.vue")):
-        for i, line in enumerate(vue.read_text(encoding="utf-8").splitlines(), 1):
+        lines = vue.read_text(encoding="utf-8").splitlines()
+        for i, line in enumerate(lines, 1):
             for path, method in GUI_CALL_RE.findall(line):
                 if path.startswith("/"):
                     calls.setdefault(((method or "GET"), path), []).append(
                         "%s:%d" % (vue.name, i))
             for path in pat2.findall(line):
-                if path.startswith("/"):
-                    calls.setdefault(("GET", path), []).append("%s:%d" % (vue.name, i))
+                if not path.startswith("/"):
+                    continue
+                m = meth_re.search(line)
+                if not m:
+                    # options 对象通常紧跟在下一行；给 6 行余量（body/headers 混排）。
+                    for nxt in lines[i:i + 6]:
+                        m = meth_re.search(nxt)
+                        if m:
+                            break
+                calls.setdefault(((m.group(1) if m else "GET"), path), []).append(
+                    "%s:%d" % (vue.name, i))
     return calls
 
 
