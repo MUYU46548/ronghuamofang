@@ -379,7 +379,10 @@ function getWorkspaceSource() {
 //   · 前端（asar，不走种子）：项目页出厂徽标 / 启动提示词剥离说明书 /
 //     阶段复制改任务简报（原样贴模板会被外部 Agent 按红线判“模板不是任务”停工）。
 // **先 bump 再 electron-builder**。
-const SEED_VERSION = 93;   // 0.9.3: 节级/文风指标/口径表/轮次/回执/词条回流 + 讨论建议闭环 + 整本视角
+const SEED_VERSION = 94;   // 0.9.4: 产品行为不变 —— 只把验收基建铺进 payload
+                            //   · tests/e2e 新增整章重写落盘 / 偏短章策略两套（工作区按需可跑）
+                            //   · fake_client：失败注入 + 短稿注入 + 扩写/段群路径与字数解析修正
+                            //   · 其余为 docs 账目；工作区刷新判据仍是 sha256 逐文件比对
                             //   · payload scripts：obsidian_bridge/kb_index/stage4 多库（当前库优先 + 冲突点名）；
                             //     writing_form 的 style_prompt_wired 改按文件存在判定；intervene 裁定账本；
                             //     tavern_import（酒馆角色卡/世界书导入）；ai_voice（零 token AI 腔扫描）
