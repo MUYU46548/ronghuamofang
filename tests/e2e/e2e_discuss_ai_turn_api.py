@@ -31,7 +31,7 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 
 ROOT = Path(__file__).resolve().parents[2]
 WORK = ROOT / "Temp" / "e2e_discuss_ai"
-PORT = 18765
+PORT = int(os.environ.get("NF_E2E_DISCUSS_API_PORT") or 18765)
 API = "http://127.0.0.1:%d" % PORT
 TOPIC = "e2e-雨夜来客"
 BODY = ("第 03 章 雨夜\n\n"

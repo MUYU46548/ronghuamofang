@@ -39,10 +39,12 @@ except ImportError:
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "Temp" / "gui_verify" / "ux"
 OUT.mkdir(parents=True, exist_ok=True)
-SITE = "http://127.0.0.1:8091"
-MOCK_API = "http://127.0.0.1:8798"
-COLD_API = "http://127.0.0.1:8797"   # 同一个 mock 的 --cold 实例（全新工作区）
-REAL_API = "http://127.0.0.1:8799"
+# 地址默认值与历史一致；`run_all.py` 会用环境变量换成它挑好的空闲端口
+# （固定端口撞上本机常驻服务时，不许抢端口、也不许杀别人的进程）。
+SITE = os.environ.get("NF_E2E_SITE") or "http://127.0.0.1:8091"
+MOCK_API = os.environ.get("NF_E2E_MOCK") or "http://127.0.0.1:8798"
+COLD_API = os.environ.get("NF_E2E_COLD") or "http://127.0.0.1:8797"   # 同一个 mock 的 --cold 实例（全新工作区）
+REAL_API = os.environ.get("NF_E2E_REAL") or "http://127.0.0.1:8799"
 # GUI 双因子的第二因子（可选）。设了它，new_page 就会把同值注入前端垫片，
 # 与后端 spawn 时的 NF_GUI_TOKEN 配对 —— 归档删除 / 止烧阈值这类 `_gui_only`
 # 端点才在验收环境里走得通。不设 = 与旧行为一致（这些端点仍然 403）。
@@ -2116,7 +2118,43 @@ def test_multi_candidate_switch(browser):
         ctx.close()
 
 
+def _alive(url, timeout=2.0):
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as r:
+            return r.status < 500
+    except Exception:                                       # noqa: BLE001
+        return False
+
+
+def preflight():
+    """三个必需服务缺一个就整轮不跑（2026-11-17）。
+
+    为什么必须前置拦：缺服务不会报错，只会在第一个 `.flow-strip` 上等 30 秒超时，
+    于是长出一大片假红 —— 看着像产品坏了，其实是**没执行**。这正是"失败分不清
+    真红还是环境红"的来源。真后端（REAL_API）不在此列：test_real 自己会 SKIP。
+    返回空串=可跑。
+    """
+    need = [("静态站点", SITE + "/index.html"), ("假后端", MOCK_API + "/state"),
+            ("冷启动假后端", COLD_API + "/state")]
+    down = ["%s（%s）" % (n, u) for n, u in need if not _alive(u)]
+    if not down:
+        return ""
+    return ("缺服务：%s。\n"
+            "一条命令起全套：python tests/e2e/run_all.py --only ux\n"
+            "手工起的话需要四个：\n"
+            "  python -m http.server 8091 --directory console/renderer/dist\n"
+            "  python tests/e2e/mock_nf_api_state.py --port 8798\n"
+            "  python tests/e2e/mock_nf_api_state.py --port 8797 --cold\n"
+            "  python scripts/nf_api.py --port 8799 --allow-fake --root tests/e2e/fixture_project"
+            % "；".join(down))
+
+
 def main():
+    block = preflight()
+    if block:
+        print("[SKIP] 本脚本是**真机**验收，需要外部服务；按纪律“缺服务 = 未执行 ≠ 失败”。")
+        print("       " + block.replace("\n", "\n       "))
+        return 0
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=["--no-proxy-server"])
         try:

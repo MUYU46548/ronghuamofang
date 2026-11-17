@@ -37,7 +37,6 @@ import os
 import re
 import socket
 import sys
-import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -1245,7 +1244,7 @@ def render_test_results(d: dict) -> str:
 # “写在文档里的纪律”等于没有纪律，写成一条命令才算数。
 # ---------------------------------------------------------------------------
 
-E2E_PORTS = {"静态 8091": 8091, "假后端 8798": 8798, "冷启动 8797": 8797, "真后端 8799": 8799}
+E2E_SUITES = ("ux", "metrics", "discuss-ui", "discuss-api")
 # payload 里“用户可见入口”清单：任一与工作区不一致 → 包是旧的（改了代码没重打包）。
 # ⚠️ 清单要覆盖**改了就影响产物**的链路，不只是最外层几个入口 —— 2026-10-03 复核发现
 # 原清单只有 6 个文件，而当天改动的 llm_client / material_state / stage1 / stage4 /
@@ -1294,70 +1293,43 @@ def _run_step(name, cmd, root, timeout=1800):
             "exit": p.returncode, "tail": tail}
 
 
-def _e2e_step(root, python_exe):
-    """起 4 个服务跑视觉验收，结束**只杀自己起的 PID**。"""
-    import subprocess
+def _e2e_reason(root):
+    """视觉验收起不来的**前置**原因（返回空串=可跑）。
 
+    起服务本身不在这里了 —— 见 `_e2e_step` 的说明。
+    """
     if not (root / "console" / "renderer" / "dist").is_dir():
-        return {"name": "e2e 视觉验收", "status": "SKIP",
-                "tail": "console/renderer/dist 不存在（先 npm run build）"}
+        return "console/renderer/dist 不存在（先 npm run build）"
     try:
         import importlib.util
         if importlib.util.find_spec("playwright") is None:
-            return {"name": "e2e 视觉验收", "status": "SKIP",
-                    "tail": "未装 playwright（pip install -r requirements-dev.txt，"
-                            "再 playwright install chromium）"}
+            return ("未装 playwright（pip install -r requirements-dev.txt，"
+                    "再 playwright install chromium）")
     except Exception:                                       # noqa: BLE001
         pass
-    busy = [k for k, v in E2E_PORTS.items() if _port_busy(v)]
-    if busy:
-        return {"name": "e2e 视觉验收", "status": "SKIP",
-                "tail": "端口被占 %s（可能你正开着控制台）—— 不抢端口、也不杀别人的进程" % busy}
+    return ""
 
-    logs = root / "Temp"
-    logs.mkdir(exist_ok=True)
-    procs = []
 
-    def spawn(args, logname):
-        fh = open(logs / logname, "wb")
-        procs.append((subprocess.Popen(args, stdout=fh, stderr=subprocess.STDOUT,
-                                       cwd=str(root)), fh))
+def _e2e_step(root, python_exe, only="ux"):
+    """视觉验收（唯一实现：tests/e2e/run_all.py）。
 
-    spawn([str(python_exe), "-m", "http.server", "8091",
-           "--directory", "console/renderer/dist"], "nfctl_e2e_static.log")
-    spawn([str(python_exe), str(root / "tests" / "e2e" / "mock_nf_api_state.py"),
-           "--port", "8798"], "nfctl_e2e_mock.log")
-    spawn([str(python_exe), str(root / "tests" / "e2e" / "mock_nf_api_state.py"),
-           "--port", "8797", "--cold"], "nfctl_e2e_mock_cold.log")
-    spawn([str(python_exe), str(root / "scripts" / "nf_api.py"), "--port", "8799",
-           "--allow-fake", "--root", str(root / "tests" / "e2e" / "fixture_project")],
-          "nfctl_e2e_real.log")
-    try:
-        deadline = time.time() + 30
-        while time.time() < deadline:
-            if all(_port_busy(v) for v in E2E_PORTS.values()):
-                break
-            time.sleep(0.5)
-        else:
-            down = [k for k, v in E2E_PORTS.items() if not _port_busy(v)]
-            return {"name": "e2e 视觉验收", "status": "FAIL", "tail": "服务未就绪: %s" % down}
-        return _run_step("e2e 视觉验收",
-                         [str(python_exe), str(root / "tests" / "e2e" / "e2e_ux_verify.py")],
-                         root, timeout=900)
-    finally:
-        for proc, fh in procs:
-            try:
-                proc.terminate()
-                proc.wait(timeout=8)
-            except Exception:                               # noqa: BLE001
-                try:
-                    proc.kill()
-                except Exception:                           # noqa: BLE001
-                    pass
-            try:
-                fh.close()
-            except OSError:
-                pass
+    2026-11-17 收口：此前这里自己 spawn 四个固定端口服务，而 run_all 是另一份实现 ——
+    “端口被占就 SKIP”的老毛病也在这儿（本机 8091 常被占，于是这条闸门长期形同虚设）。
+    现在端口挑选 / 起停 / 状态残留 / 只杀自己起的 PID 全归 run_all，
+    这里只做 release-check 需要的 SKIP 语义转换。
+    """
+    reason = _e2e_reason(root)
+    if reason:
+        return {"name": "e2e 视觉验收", "status": "SKIP", "tail": reason}
+    r = _run_step("e2e 视觉验收",
+                  [str(python_exe), str(root / "tests" / "e2e" / "run_all.py"),
+                   "--only", only], root, timeout=1800)
+    # run_all 对“缺依赖/缺服务”以 0 退出并在汇总里写“未执行 N” —— 那不是 PASS。
+    # 直接把未执行当 PASS 会让 release-check 谎报全绿（比没闸门更糟）。
+    tail = r.get("tail") or ""
+    if r["status"] == "PASS" and "未执行 %d" % len(only.split(",")) in tail:
+        r["status"] = "SKIP"
+    return r
 
 
 def _check_prompt_factory(root, python_exe):
@@ -1750,6 +1722,11 @@ def main(argv=None):
     p_rel.add_argument("--skip-e2e", action="store_true",
                        help="跳过视觉验收（它需要 playwright + 4 个空闲端口）")
 
+    p_e2e = sub.add_parser("e2e", parents=[common],
+                           help="界面真机验收：起服务→跑→收尾（不必跑整套 release-check）")
+    p_e2e.add_argument("--only", default="all",
+                       help="套件，逗号分隔：ux / metrics / discuss-ui / discuss-api（默认全部）")
+
     args = ap.parse_args(argv)
     root = Path(args.root).resolve() if getattr(args, "root", None) else DEFAULT_ROOT
     as_json = bool(getattr(args, "json", False))
@@ -1927,6 +1904,19 @@ def main(argv=None):
     if args.cmd == "serve":
         start_serve(root, port=args.port)
         return 0
+
+    if args.cmd == "e2e":
+        # 界面真机验收的公共入口（2026-11-17）：实现只有一份 —— tests/e2e/run_all.py。
+        # nfctl 只负责挑解释器并原样转发，不再自己 spawn 服务（两份实现必分叉）。
+        import subprocess
+        py = root / ".venv" / "Scripts" / "python.exe"
+        if not py.exists():
+            py = Path(sys.executable)
+        cmd = [str(py), str(root / "tests" / "e2e" / "run_all.py")]
+        if args.only and args.only not in ("all", "全部"):
+            cmd += ["--only", args.only]
+        rc = subprocess.call(cmd, cwd=str(root))
+        return rc
 
     if args.cmd == "release-check":
         data = release_check(root, skip_e2e=args.skip_e2e)
