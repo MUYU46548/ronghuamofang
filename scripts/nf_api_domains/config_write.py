@@ -23,10 +23,11 @@ def handle_config_engine(h, body):
     而界面上那行字还写着“引擎与模型”，看起来能点。
     """
     eng = str(body.get("engine") or "").strip().lower()
-    if eng not in ("direct", "hermes", "self"):
+    if eng not in ("direct", "hermes", "dsh", "self"):
         return 400, {"ok": False, "error":
                      "engine 只能是 direct（直连模型，按量计费）、hermes"
-                     "（Agent 子会话，走订阅）或 self（只出任务书，不调模型）"
+                     "（Agent 子会话，走订阅）、dsh（DeepSeek Harness headless，"
+                     "走订阅）或 self（只出任务书，不调模型）"
                      "——收到 %r" % (body.get("engine"),)}
     try:
         from utils.config_io import set_section_scalar
@@ -39,12 +40,18 @@ def handle_config_engine(h, body):
             return 400, {"ok": False, "error": "写入失败：" + w_msg}
         cur_cfg, _ = api.load_all()
         _label = {"hermes": "Agent 子会话（走订阅）",
+                  "dsh": "DSH headless（走订阅）",
                   "self": "只出任务书（不调用任何模型）"}.get(
                       eng, "直连模型（按量计费）")
         _note = {
             "hermes": ("对下一次运行生效（不需要重启客户端）。"
                        "agent 模式下 config 的 model.* 不参与运行，"
                        "模型由外部 Agent 决定。"),
+            "dsh": ("对下一次运行生效（不需要重启客户端）。"
+                    "headless 没有 --model 旋钮，模型由 DSH profile 决定；"
+                    "金额恒 0、token 照记。要先确认本机装了 DSH"
+                    "（nfctl check 会报“DSH 可用”）；headless 默认不吃 DSH "
+                    "桌面端的登录态，凭据走环境/.env，详见 AGENTS.md 引擎一节。"),
             "self": ("对下一次运行生效（不需要重启客户端）。"
                      "本引擎**不调用任何模型**：每阶段把任务书写到 "
                      "data/state/tasks/self/stageN/，执行完把产物写到位再重跑即可。"),

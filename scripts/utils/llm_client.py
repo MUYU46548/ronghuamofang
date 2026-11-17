@@ -1888,6 +1888,26 @@ def make_client(cfg, model_key="default", verbose=True):
     # 单请求输出上限（P0 止烧）：直连引擎真的设进 payload；hermes 只能事后比对+告警
     req_cap = _request_max_tokens_from_cfg(cfg)
 
+    if engine == "dsh" or provider_id == "dsh":
+        # engine: dsh = DeepSeek Harness 的 headless 执行层（2026-11-17，转向形态 B）。
+        # 与 hermes 同口径：模型由 profile 决定（headless 没有 --model 旋钮），
+        # 金额恒 0（订阅执行）、token 照记。所有判据在 utils/dsh_client.py 里，
+        # 这里只负责装配 —— 换引擎的接线不许散在调用点。
+        if verbose:
+            print("[client] 引擎=dsh → 用 DSH profile 内部的模型（忽略 model." +
+                  str(model_key) + "）")
+        dcfg = (cfg or {}).get("dsh") or {}
+        from utils.dsh_client import DshClient
+        return DshClient(
+            dsh_bin=dcfg.get("bin") or None,
+            timeout=int(dcfg.get("timeout", 1800)),
+            permission_mode=dcfg.get("permission_mode") or None,
+            approval_policy=dcfg.get("approval_policy", DshClient.DEFAULT_APPROVAL_POLICY),
+            session_continuation=bool(dcfg.get("session_continuation", False)),
+            request_max_tokens=req_cap,
+            add_dirs=dcfg.get("add_dirs") or None,
+        )
+
     if engine == "hermes" or provider_id == "hermes":
         # 2026-10-01 用户定调：agent 模式（hermes 引擎）一律用 **agent 内部配置的模型**，
         # 与本配置的 model.* 完全无关（流量本就走 agent 的订阅）。

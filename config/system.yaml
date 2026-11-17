@@ -11,6 +11,26 @@ hermes:
   # 收益实测证据 —— 首次启用建议先跑一章，看过产物质量与用量再决定是否长期开。
   session_continuation: false
 
+# DSH（DeepSeek Harness）headless 执行层（engine: dsh 时生效，2026-11-17 加）。
+# 命令形态：dsh --profile headless --json -（任务走 stdin，stdout 是 NDJSON 事件流）。
+# 与 hermes 同口径：模型由 DSH profile 决定（headless 没有 --model）、金额恒 0、token 照记。
+dsh:
+  # 启动器路径。留空 = 自动定位（NF_DSH_BIN → Windows 安装位置 → PATH）。
+  # 找不到时**明确失败**（exit 127 + 可行动报错），不会静默当成跑过。
+  bin: ""
+  timeout: 1800         # 单次 headless 墙钟硬超时（秒）→ 超时结构化失败（exit 124）
+  # headless 没有实时审批通道 → 需要人工审批的调用一律拒绝；
+  # 想改成 ask 的话，只在你自己盯着终端时才有意义。
+  approval_policy: never
+  # 权限预设名。留空 = 用 profile 自带的 sandbox 模式（默认 workspace-write，
+  # 工作区 = 进程 cwd）。填错名字会在开跑前被 DSH 拒绝（可见失败）。
+  permission_mode: ""
+  # 额外可写目录（--add-dir，可多次）。工作区外的设定库要写就得列在这里。
+  add_dirs: []
+  # 会话续接（默认 false）：true 时逐段可经 --session-id 接上一段。
+  # ⚠️ 行为变更（agent 上下文跨段累积），首次启用先跑一章看过产物再决定。
+  session_continuation: false
+
 providers:
   tokenhub:
     type: openai-compat

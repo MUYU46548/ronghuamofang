@@ -83,11 +83,11 @@ def handle_costs_summary(h):
         t_in, t_out = int(tot[0] or 0), int(tot[1] or 0)
         totals["billing"] = {
             "engine": engine,
-            "money_metered": engine != "hermes",
-            "note": ("engine=hermes：走订阅流量，金额不计（恒 0 是“没有按量单价”，"
+            "money_metered": engine not in ("hermes", "dsh"),
+            "note": ("engine=%s：走订阅流量，金额不计（恒 0 是“没有按量单价”，"
                      "不是免费）；token 计数来自子会话回传的 usage 实测，"
-                     "止烧只看 token 闸门。"
-                     if engine == "hermes"
+                     "止烧只看 token 闸门。" % engine
+                     if engine in ("hermes", "dsh")
                      else "engine=direct：按 provider 刊例价估算（未收录单价的模型记 0）；"
                           "token 计数来自接口回传的 usage 实测。"),
             "io_ratio": (round(t_in / t_out, 1) if t_out else None),
@@ -577,6 +577,17 @@ def build_remedy(root):
         "progress": str(root / "data" / "state" / "progress.json"),
         "progress_exists": (root / "data" / "state" / "progress.json").is_file(),
     }
+    # DSH 可用性（2026-11-17）：engine=dsh 时这是“能不能开跑”的前置；别的引擎下
+    # 只是“备选引擎装没装”。放在 facts 里（不是 doctor 的产物检查项）——
+    # doctor 的语义是“数据对不对”，把环境检查混进去会让通过率失去意义。
+    try:
+        from utils.dsh_client import dsh_available
+        _dok, _dwhy = dsh_available(((cfg or {}).get("dsh") or {}).get("bin"))
+        facts["dsh"] = "可用" if _dok else "不可用"
+        facts["dsh_detail"] = _dwhy
+    except Exception as e:                                    # noqa: BLE001
+        facts["dsh"] = "未知"
+        facts["dsh_detail"] = type(e).__name__ + ": " + str(e)[:120]
 
     issues = []
     for item in doctor.get("items", []):

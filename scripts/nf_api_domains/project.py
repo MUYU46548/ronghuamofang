@@ -471,12 +471,14 @@ def _gui_only(h, what):
 def handle_config_token_limit(h):
     """读 token 级熔断阈值（budget.token_limit）+ 出厂预设 + 合法区间。
 
-    为什么要有这个读口：engine: hermes 下金额阈值恒不生效（订阅流量记账恒 0），
+    为什么要有这个读口：engine: hermes / dsh 下金额阈值恒不生效（订阅流量记账恒 0），
     止烧全靠这里的 token 上限；要**调阈值**就必须先看得见当前值与它的边界。
     """
     try:
         from utils import cost_tracker
         cfg = api.load_all()[0]
+        from utils.engine import resolve_engine
+        _eng = resolve_engine(cfg)
         raw = ((cfg.get("budget") or {}).get("token_limit")) or {}
         return 200, {
             "ok": True,
@@ -485,9 +487,9 @@ def handle_config_token_limit(h):
             "bounds": {k: list(v) for k, v in cost_tracker.TOKEN_LIMIT_BOUNDS.items()},
             "path": "config/system.yaml",
             "field": "budget.token_limit",
-            "note": ("engine: hermes 下金额阈值无效（订阅流量记账恒 0）；"
+            "note": ("engine: %s 下金额阈值无效（订阅流量记账恒 0）；"
                      "止烧靠这里的 token 上限。改完对**下一次运行**生效，"
-                     "正在跑的一轮不受影响。"),
+                     "正在跑的一轮不受影响。" % _eng),
         }
     except Exception as e:                                  # noqa: BLE001
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}

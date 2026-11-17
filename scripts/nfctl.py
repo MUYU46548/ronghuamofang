@@ -253,6 +253,10 @@ def collect_status(root: Path) -> dict:
             spent = budget.get("spent_yuan") or 0.0
         from utils.cost_tracker import normalize_token_limit
         sysconf = _read_yaml(root / "config" / "system.yaml", {}) or {}
+        # 引擎名进快照（2026-11-17）：下面“token 闸门/金额无效”的文案要按引擎说，
+        # 写死 hermes 会在切到 dsh 后说错话（说错话 = 用户按错键调错阈值）。
+        from utils.engine import resolve_engine
+        out["engine"] = resolve_engine(sysconf)
         tl = normalize_token_limit((sysconf.get("budget") or {}).get("token_limit"))
         cap = int(tl.get("max_total_tokens") or 0) if tl.get("enabled") else 0
         out["cost"] = {
@@ -364,8 +368,10 @@ def render_status(s: dict) -> str:
         # token 级熔断（hermes 下唯一有效的止烧闸门）：不显示就等于让用户盲调阈值。
         # 口径 = 最近一次 run 的累计（run = 一次 orchestrator.run()；--from N 重跑 = 新 run）。
         tl = cost.get("token_limit") or {}
+        _eng = s.get("engine") or "?"
         if not tl.get("enabled"):
-            lines.append("token 闸门: **未启用**（engine: hermes 下金额阈值无效 → 本轮没有止烧闸门）")
+            lines.append("token 闸门: **未启用**（engine: %s 下金额阈值无效 → 本轮没有止烧闸门）"
+                         % _eng)
         else:
             cap = cost.get("token_cap") or 0
             lines.append("token 闸门: 已用 %s / %s%s（本 run #%s）· 单请求上限 %s%s" % (
@@ -374,7 +380,7 @@ def render_status(s: dict) -> str:
                 ("（%.1f%%）" % cost["token_pct"]) if cost.get("token_pct") is not None else "",
                 cost.get("tokens_run_id") or "-",
                 tl.get("per_request_max_tokens") or "不限",
-                "· hermes 按次熔断已开" if tl.get("per_request_pause_hermes") else "",
+                "· %s 按次熔断已开" % _eng if tl.get("per_request_pause_hermes") else "",
             ))
     if s.get("pending_approval"):
         lines.append("待人工确认的审批门: 阶段 %s" % ", ".join(str(x) for x in s["pending_approval"]))
@@ -580,14 +586,27 @@ def collect_check(root: Path) -> dict:
     engine = resolve_engine(sysconf or {})
     key_state, wanted = _env_key_state(root)
     key_detail = "；".join("%s=%s" % (k, "有" if v else "空") for k, v in key_state.items())
-    if engine == "hermes":
+    if engine in ("hermes", "dsh"):
         add("API Key 已配置", True,
-            "engine=hermes：LLM 走 agent 子会话（订阅流量），直连 Key 不参与运行"
-            "（.env 现状：%s）" % (key_detail or "无声明"))
+            "engine=%s：LLM 走 agent 执行层（订阅流量），直连 Key 不参与运行"
+            "（.env 现状：%s）" % (engine, key_detail or "无声明"))
     elif wanted:
         add("API Key 已配置", bool(any(key_state.values())), key_detail, blocking=True)
     else:
         add("API Key 已配置", False, "config/system.yaml 未声明 api_key_env", warning=True)
+
+    # 引擎可执行文件（2026-11-17）：engine: dsh 时“dsh 在不在”是能不能开跑的前置；
+    # 别的引擎下它只是“备选引擎可用性”信息 —— 但也要说，别让用户切过去才发现没装。
+    try:
+        from utils.dsh_client import dsh_available
+        dsh_ok, dsh_why = dsh_available(((sysconf or {}).get("dsh") or {}).get("bin"))
+        if engine == "dsh":
+            add("DSH 可用（engine: dsh）", dsh_ok, dsh_why, blocking=not dsh_ok)
+        else:
+            add("DSH 可用（备选引擎）", dsh_ok, dsh_why, warning=True)
+    except Exception as e:                                  # noqa: BLE001
+        add("DSH 可用（备选引擎）", False, "自检失败：%s: %s" % (type(e).__name__, str(e)[:120]),
+            warning=True)
 
     # 素材
     cards = _count_files(root / "materials" / "raw")

@@ -292,6 +292,12 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
         print("[orchestrator] engine=hermes：LLM 走 agent 子会话（订阅流量，model.* 不适用）；"
               "cost 记 0 + 真实 token 留痕 → **￥ 预算熔断对本引擎不生效（刻意语义）**，"
               "止烧靠 token 级熔断")
+    elif _engine == "dsh":
+        # 2026-11-17：DSH headless 与 hermes 同口径（订阅执行、金额恒 0、token 照记）。
+        # 台词必须说清“模型由 profile 决定”，否则用户会以为改 model.* 能换模型。
+        print("[orchestrator] engine=dsh：LLM 走 DeepSeek Harness headless（订阅执行，"
+              "model.* 不适用，模型由 DSH profile 决定）；cost 记 0 + 真实 token 留痕 "
+              "→ **￥ 预算熔断对本引擎不生效（刻意语义）**，止烧靠 token 级熔断")
     elif _engine == "self":
         # engine: self —— 程序**不调用任何模型**，只把每阶段写成任务书交外部执行；
         # 下次运行时按盘上产物续跑（产物齐 = 阶段完成）。台词必须说清这一点，

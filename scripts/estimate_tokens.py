@@ -171,11 +171,12 @@ def history_stats(stage, db_path="logs/runs.db"):
 
 def _mk_stage(stage, calls, t_in, t_out, cfg, role):
     provider, model = model_for(cfg, role)
-    if resolve_engine(cfg) == "hermes":
-        # engine=hermes：LLM 走 agent 子会话（订阅流量）→ ¥ 预估恒 0（token 预估
-        # 保留，真实 usage 照记）。provider 标 hermes 让 cost_tracker 短路、
-        # rate_known 与报告口径一致（2026-10-01 排雷 P0-1 配套）。
-        provider = "hermes"
+    _engine = resolve_engine(cfg)
+    if _engine in ("hermes", "dsh"):
+        # engine=hermes/dsh：LLM 走 agent 执行层（订阅流量）→ ¥ 预估恒 0（token 预估
+        # 保留，真实 usage 照记）。provider 标成引擎名，让 cost_tracker 短路、
+        # rate_known 与报告口径一致（2026-10-01 排雷 P0-1 配套；dsh 2026-11-17 同口径）。
+        provider = _engine
     cost = estimate_cost_yuan(int(t_in), int(t_out), model=model,
                               provider=provider, role=role)
     return {
@@ -188,7 +189,7 @@ def _mk_stage(stage, calls, t_in, t_out, cfg, role):
         "tokens_in": int(t_in),
         "tokens_out": int(t_out),
         "cost_yuan": cost,
-        "rate_known": provider == "hermes" or model in RATES,
+        "rate_known": provider in ("hermes", "dsh") or model in RATES,
     }
 
 
@@ -417,9 +418,9 @@ def estimate(stages=None, cfg=None, proj=None, use_history=True):
         },
         "disclaimer": "估算值（历史实测均值优先，无历史则字符折算 + 刊例价），非账单；"
                       "真实用量以 logs/runs.db 为准，下单前请以服务商官网实时价为准。"
-                      + (" 当前 engine=hermes：LLM 走 agent 订阅流量，¥ 预估恒为 0、"
-                         "预算熔断不适用（真实 token 仍会记账）。"
-                         if engine == "hermes" else ""),
+                      + (" 当前 engine=%s：LLM 走 agent 订阅流量，¥ 预估恒为 0、"
+                         "预算熔断不适用（真实 token 仍会记账）。" % engine
+                         if engine in ("hermes", "dsh") else ""),
     }
 
 
@@ -446,8 +447,9 @@ def format_text(result):
     # token 闸门对照：hermes 下 ¥ 恒 0，这才是真正的止烧闸门（2026-10-03）
     tk = result.get("token_limit") or {}
     if not tk.get("enabled"):
-        L.append("token 闸门：**未启用** —— engine: hermes 下金额阈值无效，"
-                 "本轮没有任何止烧闸门（可在桌面端“设置 → 预算与止烧”开启）")
+        L.append("token 闸门：**未启用** —— engine: %s 下金额阈值无效，"
+                 "本轮没有任何止烧闸门（可在桌面端“设置 → 预算与止烧”开启）"
+                 % result.get("engine"))
     else:
         L.append("token 闸门：已用 %d / 上限 %d；跑完预计 %d（%.1f%%）%s"
                  % (tk.get("used_tokens", 0), tk.get("max_total_tokens", 0),

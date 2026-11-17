@@ -609,10 +609,13 @@ def resolve_rate(model=None, provider=None, role=None):
 
     合并优先级：自定义定价（GUI 编辑器）> RATES（源码刊例价）> 默认角色单价。
     """
-    if provider == "hermes":
+    if provider in ("hermes", "dsh"):
+        # agent 执行层（hermes 子会话 / DSH headless）：token 照记，金额恒 0。
+        # 判据单源在 utils/engine.SUBSCRIPTION_ENGINES —— 第三个引擎进来时
+        # 只要它走订阅口径，这里自动跟上（别在这里再写一份引擎名单）。
         rates_map = ((role or {}).get("rates") if isinstance(role, dict) else None)
         r = rates_map or DEFAULT_ROLE_RATES.get(role) or DEFAULT_ROLE_RATES[DEFAULT_ROLE]
-        return dict(r), "hermes:" + (role or DEFAULT_ROLE)
+        return dict(r), str(provider) + ":" + (role or DEFAULT_ROLE)
     m = model or DEFAULT_MODEL
     merged = get_merged_rates()
     if m in merged:
@@ -631,8 +634,9 @@ def estimate_cost_yuan(tokens_in, tokens_out, model=None, provider=None, role=No
     无按量 ¥ 成本 —— token 照记（run_task 返回真实 usage），但预算熔断对 hermes
     引擎不生效是**刻意语义**（预算是 direct 引擎的按量保护），orchestrator 启动时
     会显式提示，不做“按任务文件大小 × 刊例价”的虚构记账。
+    `engine: dsh`（DSH headless，2026-11-17）同一口径：走 agent 订阅、金额恒 0。
     """
-    if provider == "hermes":
+    if provider in ("hermes", "dsh"):
         return 0.0
     rate, _ = resolve_rate(model, provider, role)
     cache_rate = rate.get("cache_read", 0)
@@ -703,7 +707,8 @@ class CostTracker:
         if tl.get("enabled") and cap_total and tokens >= cap_total:
             return _out("pause", "tokens_total",
                         "本 run 累计 %d token ≥ 上限 %d（输入+输出）" % (tokens, cap_total))
-        # 3) token 单次输出（默认只对 direct 有意义；hermes 需显式开启）
+        # 3) token 单次输出（默认只对 direct 有意义；订阅引擎 hermes/dsh 需显式开启 ——
+        #    键名 per_request_pause_hermes 是历史名称，语义已覆盖两者）
         cap_one = int(tl.get("per_request_max_tokens") or 0)
         if tl.get("enabled") and cap_one and tl.get("per_request_pause_hermes"):
             biggest = int(self.db.max_call_tokens_out(run_id) or 0)

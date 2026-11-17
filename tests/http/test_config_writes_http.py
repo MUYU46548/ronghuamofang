@@ -152,6 +152,22 @@ def main():
         code, d = req("POST", "/config/engine", {"engine": target})
         check("切回 %s 成功" % target, code == 200 and d.get("ok") is True, d)
 
+        # 【C1c】2026-11-17 补：dsh（DSH headless）是第三个执行引擎。
+        # 判据：受理 + 真写盘 + 注释不丢 + 回执说清“模型由 DSH profile 决定”
+        # （不然用户会以为改 model.* 能换模型，那是静默失真）。
+        print("\n【C1c】切到 dsh 也受理（DSH headless 执行层）")
+        code, d = req("POST", "/config/engine", {"engine": "dsh"})
+        check("dsh 被接受（200）", code == 200 and d.get("ok") is True, (code, d))
+        check("回执说清模型由 DSH profile 决定",
+              "profile" in str(d.get("note") or ""), d.get("note"))
+        txt = cfg.read_text(encoding="utf-8")
+        check("dsh 真的写盘", txt.splitlines()[0].strip() == "engine: dsh",
+              txt.splitlines()[:1])
+        check("dsh 路径没吃掉注释（%d → %d）" % (base_comments, comments(txt)),
+              comments(txt) == base_comments, comments(txt))
+        code, d = req("POST", "/config/engine", {"engine": target})
+        check("从 dsh 切回 %s 成功" % target, code == 200 and d.get("ok") is True, d)
+
         print("\n【C2】非法引擎：400，且文件一个字节都不变")
         before = cfg.read_bytes()
         for bad in ("openai", "", "HERMES2", None):

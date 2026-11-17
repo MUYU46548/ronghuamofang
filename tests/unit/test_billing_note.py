@@ -48,11 +48,17 @@ def main():
     mock = (ROOT / "tests" / "e2e" / "mock_nf_api_state.py").read_text(encoding="utf-8")
 
     print("\n[C1/C2] 两种引擎的说明文本")
-    check("hermes 分支写明“订阅流量 / 不是免费”",
-          'engine=hermes：走订阅流量' in misc and "不是免费" in misc, None)
+    # 2026-11-17：订阅口径从 hermes 一个引擎扩成 hermes + dsh，所以这里不再钉死
+    # `engine=hermes：` 这一串字面量（否则加引擎时只能改测试把断言改松），
+    # 改成钉“同一份引擎名单 + 同一句人话”：
+    check("订阅分支写明“订阅流量 / 不是免费”",
+          'engine=%s：走订阅流量' in misc and "不是免费" in misc, None)
+    check("订阅分支同时覆盖 hermes 与 dsh（不是只想着 hermes）",
+          'engine in ("hermes", "dsh")' in misc, None)
     check("direct 分支写明按量/刊例价",
           "engine=direct：按 provider 刊例价估算" in misc)
-    check("money_metered 由引擎决定", '"money_metered": engine != "hermes"' in misc)
+    check("money_metered 由引擎决定（订阅口径即不计金额）",
+          '"money_metered": engine not in ("hermes", "dsh")' in misc)
 
     print("\n[C3] in/out 比例")
     check("有 out 才给比例（不除零）",

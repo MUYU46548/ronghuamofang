@@ -32,7 +32,18 @@ DEFAULT_ENGINE = "direct"
 #: `self`（2026-11-04）：**不调用任何模型**，只产任务书交给外部执行。
 #: 它必须在这里算"已知引擎"，否则会被当成拼错的取值：打 WARN、再按 direct 执行
 #: —— 也就是"配了 self，实际偷偷按量计费跑模型"，正是本项目最忌讳的静默失真。
-VALID_ENGINES = ("direct", "hermes", "self")
+VALID_ENGINES = ("direct", "hermes", "dsh", "self")
+
+#: 走**订阅 / 无条件记账**的执行层：`hermes`（Hermes 子会话）与 `dsh`（DSH headless）。
+#: 两者都没有 max_tokens 旋钮、也没有按量单价可算 —— 金额口径恒 0、token 照记。
+#: 判据只有这一处：别在 cost_tracker / estimate_tokens / nfctl 各写一份 `== "hermes"`，
+#: 否则第三个引擎进来时必然漏掉其中一处，变成“配了 dsh，账按 direct 算”的静默失真。
+SUBSCRIPTION_ENGINES = ("hermes", "dsh")
+
+
+def is_subscription_engine(name):
+    """该引擎是否走订阅口径（金额恒 0、token 照记、金额闸门无效）。"""
+    return str(name or "").strip().lower() in SUBSCRIPTION_ENGINES
 
 # 未知取值只提示一次（GUI 会反复调 estimate_tokens，不能每调一次刷一行）
 _WARNED = set()

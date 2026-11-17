@@ -51,9 +51,15 @@ def _model_ready(cfg):
     - `engine: direct`：当前 provider 的 `api_key_env` 在进程环境里必须有值。
       只报变量名，**绝不**回显密钥（脱敏红线同 /models/available）。
     """
-    engine = str((cfg or {}).get("engine") or "").strip()
+    engine = str((cfg or {}).get("engine") or "").strip().lower()
     if engine == "hermes":
         return True, "Hermes 子会话（凭据由 Hermes 管理）"
+    if engine == "dsh":
+        # DSH headless 同样不读本配置的 model.*；但凭据走 DSH 自己的路由
+        # （启动环境 / 工作区 .env / $DSH_HOME/.env）—— 这里不冒充“已就绪检查”，
+        # 只说明它不依赖本项目的直连 Key（真正的可用性由 nfctl check 的
+        # “DSH 可用”一项回答：dsh 装没装）。
+        return True, "DSH headless（凭据走 DSH 自己的路由，不用本项目的直连 Key）"
     if engine == "self":
         # 自任务模式不调用任何模型 → 没有 Key 也算就绪（否则新手引导会在
         # “配好 API Key”这一步卡住，而这一步在 self 下根本不需要）。

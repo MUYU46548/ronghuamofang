@@ -246,7 +246,7 @@ const models = ref(null);
    注意：/stage/N/run 不在禁用范围 —— self 下它本该出任务书（那是它的正常工作）。 */
 const selfEngine = computed(() => !!models.value && models.value.engine === "self");
 const SELF_ENGINE_HINT = "当前引擎是“自任务”（engine: self，只出任务书、不调模型），"
-  + "这个功能要调用模型。切引擎：设置 → 引擎与模型（direct 按量计费 / hermes 走订阅）；"
+  + "这个功能要调用模型。切引擎：设置 → 引擎与模型（direct 按量计费 / hermes 或 dsh 走订阅）；"
   + "不想切也行 —— 大纲精修与整章重写已经改成出任务书（写出草稿，你点采用才写回正式稿）。";
 const modelOptions = ref([]); // 动态从 /models/available 加载（**全量**，供搜索框计数）
 // 模型下拉**按角色所在的 provider 过滤**。此前只取 providers 里的“第一个”的
@@ -5849,7 +5849,7 @@ onUnmounted(() => {
       提精修 / 段落重写 / 运行审查 / 自动重写 / 语义审稿 这些要用模型的功能用不了；
       大纲精修与整章重写改成了“出任务书 → 写草稿 → 你采用才落盘”。
       任务书在 data/state/tasks/self/，交给外部执行方写、写完重跑即可。</span>
-    <button class="mini" @click="switchTab('settings')" title="设置 → 引擎与模型：direct（按量计费）/ hermes（走订阅）">去切引擎</button>
+    <button class="mini" @click="switchTab('settings')" title="设置 → 引擎与模型：direct（按量计费）/ hermes、dsh（走订阅）">去切引擎</button>
   </div>
 
   <!-- 诊断（C 组“运行侧三态 → 诊断”的独立入口）：运行态 + 体检明细 + 补救建议 -->
@@ -5869,6 +5869,8 @@ onUnmounted(() => {
         </div>
         <div class="meta diag-facts">
           <span>引擎 {{ remedyResult?.facts?.engine || "?" }}</span>
+          <span v-if="remedyResult?.facts?.dsh"
+                :title="remedyResult.facts.dsh_detail || ''">DSH {{ remedyResult.facts.dsh }}</span>
           <span v-if="remedyResult?.runner?.pid">pid {{ remedyResult.runner.pid }}</span>
           <span v-if="remedyResult?.runner?.since">开始于 {{ remedyResult.runner.since }}</span>
           <span v-if="remedyResult?.runner?.stage != null">阶段 {{ remedyResult.runner.stage }}</span>
@@ -7048,7 +7050,7 @@ onUnmounted(() => {
           </div>
           <div v-if="streamingCost.context.note" class="meta">{{ streamingCost.context.note }}</div>
         </div>
-        <div v-if="streamingCost.engine === 'hermes'" class="meta">
+        <div v-if="streamingCost.engine === 'hermes' || streamingCost.engine === 'dsh'" class="meta">
           订阅制：本次没有按量计费金额，只有 token 计数（来自那次调用回传的用量）。
         </div>
       </div>
@@ -7278,6 +7280,15 @@ onUnmounted(() => {
             <div class="eng-desc">由外部 Agent（编程工具里的助手）驱动，走你的订阅额度。</div>
             <div class="eng-tags"><span>走订阅</span><span>右下的角色模型不参与</span></div>
           </button>
+          <button class="eng-card" :class="{ on: models.engine === 'dsh' }"
+                  :disabled="engBusy" @click="switchEngine('dsh')">
+            <div class="eng-card-top">
+              <span class="eng-name">DSH 后台执行（走订阅）</span>
+              <span v-if="models.engine === 'dsh'" class="eng-badge">使用中</span>
+            </div>
+            <div class="eng-desc">由 DeepSeek Harness 在后台逐个跑任务，走你的订阅额度；每步比直连慢，但不用开界面。</div>
+            <div class="eng-tags"><span>走订阅</span><span>金额上限不生效</span></div>
+          </button>
           <button class="eng-card" :class="{ on: models.engine === 'self' }"
                   :disabled="engBusy" @click="switchEngine('self')">
             <div class="eng-card-top">
@@ -7290,6 +7301,11 @@ onUnmounted(() => {
         </div>
         <div class="meta eng-note" v-if="models.engine === 'hermes'">
           agent 模式下 model.* 不参与运行 —— 模型由外部 Agent 决定；花超自动停要看“预算与止烧”里的 token 上限。
+        </div>
+        <div class="meta eng-note" v-else-if="models.engine === 'dsh'">
+          DSH 模式下 model.* 不参与运行 —— 模型由 DSH 自己的 profile 决定；金额上限不生效，
+          花超自动停看“预算与止烧”里的 token 上限。切过去后请确认本机装着 DeepSeek Harness
+          （设置页右上角“诊断”里会写“DSH 可用 / 不可用”）。
         </div>
         <div class="meta eng-note" v-else-if="models.engine === 'self'">
           自任务模式下点了运行只会产出任务书（不花钱）：按任务书把文件写到指定路径，再点一次运行即续跑。
@@ -7304,8 +7320,8 @@ onUnmounted(() => {
       <div class="eng-block">
         <div class="eng-head">
           <span class="eng-label">角色模型</span>
-          <span v-if="models.engine === 'hermes'" class="pill st-gate"
-                title="agent 模式下模型由外部 Agent 决定，这张表只在直连模式生效">agent 模式下不参与</span>
+          <span v-if="models.engine === 'hermes' || models.engine === 'dsh'" class="pill st-gate"
+                title="agent/DSH 模式下模型由外部执行层决定，这张表只在直连模式生效">{{ models.engine === 'dsh' ? 'DSH 模式下不参与' : 'agent 模式下不参与' }}</span>
           <span class="meta">下拉只列该角色当前供应商的清单 · 来源：{{ modelSource === 'fetched' ? '服务商动态拉取' : 'config 手写列表' }}</span>
         </div>
         <div class="rm-toolbar">
@@ -7318,7 +7334,7 @@ onUnmounted(() => {
             {{ fetchingModels ? '同步中…' : '↻ 同步服务商模型' }}
           </button>
         </div>
-        <div class="rm-table" :class="{ 'rm-inactive': models.engine === 'hermes' }">
+        <div class="rm-table" :class="{ 'rm-inactive': models.engine === 'hermes' || models.engine === 'dsh' }">
           <div class="rm-head">
             <span>角色</span><span>用途</span><span>供应商</span><span>模型</span>
           </div>

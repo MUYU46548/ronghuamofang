@@ -79,11 +79,18 @@ def main():
     check("函数体里调用了 /config/engine", '"/config/engine"' in body, body[:120])
     check("切换后把新值写回界面状态（models.value.engine）",
           "models.value.engine" in body, body[:160])
-    check("模板里有两张引擎卡（.eng-card ×2 的循环体）",
+    check("模板里有四张引擎卡（direct / hermes / dsh / self）",
           app.count("switchEngine('direct')") == 1
-          and app.count("switchEngine('hermes')") == 1,
-          (app.count("switchEngine('direct')"), app.count("switchEngine('hermes')")))
+          and app.count("switchEngine('hermes')") == 1
+          and app.count("switchEngine('dsh')") == 1
+          and app.count("switchEngine('self')") == 1,
+          (app.count("switchEngine('direct')"), app.count("switchEngine('hermes')"),
+           app.count("switchEngine('dsh')"), app.count("switchEngine('self')")))
     check("卡片带选中态绑定（:class on）", 'class="eng-card"' in app)
+    # 2026-11-17：dsh 卡必须写明代价（走订阅 / 金额上限不生效）——
+    # 只放一张卡不说清，用户点过去才发现“为什么账单一直是 0”。
+    check("dsh 卡上写明金额上限不生效",
+          "DSH 后台执行" in app and "金额上限不生效" in app)
 
     print("\n【U2】出厂还原：按钮真的调了端点")
     body = func_body(app, "restorePromptFactory")

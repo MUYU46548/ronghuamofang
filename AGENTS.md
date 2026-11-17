@@ -7,7 +7,7 @@
 NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是基于AI的长篇小说创作工具：机器包办苦力（素材归并→大纲→写作→检查→润色→Word），用户保留审批权和最终精修权。
 用户只做两件事：**放置素材** + **说"运行 NovelForge 项目"**。其余由系统自动执行，关键节点设审批门暂停等待人工确认。
 
-**执行引擎可切换**：`config/system.yaml` 的 `engine` 字段控制。`direct`=OpenAI 兼容直连（当前接 TokenHub，可随时换供应商），`hermes`=Hermes 子会话（备选），`self`=**只出任务书、不调用任何模型**（阶段 1~6 各把任务书写到 `data/state/tasks/self/stageN/`，执行方把产物写到位后重跑即按产物续跑；零 token，细节见 `docs/agents/engine-self.md`）。所有调用点经 `make_client(cfg, role)` 取客户端，零调用点硬编码引擎；`engine: self` 下 `make_client` **直接抛错** —— 防"配了 self、后台却偷偷按量跑模型"这类静默失真。
+**执行引擎可切换**：`config/system.yaml` 的 `engine` 字段控制。`direct`=OpenAI 兼容直连（当前接 TokenHub，可随时换供应商），`hermes`=Hermes 子会话（备选），`dsh`=DeepSeek Harness 的 headless 执行层（`dsh --profile headless --json -`，2026-11-17 接入；与 hermes 同口径：模型由 profile 决定、金额记 0、token 照记，细节见下节与 `scripts/utils/dsh_client.py`），`self`=**只出任务书、不调用任何模型**（阶段 1~6 各把任务书写到 `data/state/tasks/self/stageN/`，执行方把产物写到位后重跑即按产物续跑；零 token，细节见 `docs/agents/engine-self.md`）。所有调用点经 `make_client(cfg, role)` 取客户端，零调用点硬编码引擎；`engine: self` 下 `make_client` **直接抛错** —— 防"配了 self、后台却偷偷按量跑模型"这类静默失真。
 
 **思考模式兼容（2026-09-14 起）**：glm-5.x / kimi 等模型默认进 thinking 模式时，正文会全进 `reasoning_content`、`content` 为空（且思考 token 吃掉 `max_tokens` 预算）→ 流水线产出空白。
 防线有三：① `providers.<id>.disable_thinking_models` 名单内模型自动注入“关闭思考”片段（候选顺序见 `disable_thinking_payloads`，TokenHub 实测首选 `thinking: {type: disabled}`；`reasoning_effort: none` 会被该平台拒收）；② 未列名单的思考模型由客户端自动探测并注入后重试；③ 兜底**只取协议块**（`===FILE:` / `===APPEND:` / `===DELETE:`）：reasoning_content 里找不到
@@ -240,6 +240,31 @@ stage5 的批大小由“装得下几章”反推（`judge.budget.items_per_requ
 `min(提示词声明, config 的 per_request_max_tokens)`（`judge.budget.effective_max_tokens`）；
 stage4 也补了同一道校验（此前是唯一既不设上限、也不校验的阶段）。
 细节 → `docs/agents/judge-engine.md`。
+
+## DSH 执行层（`engine: dsh`，2026-11-17 接入）
+
+**一句话**：`engine: dsh` 时，每次模型调用改成跑一次
+`dsh --profile headless --json -`（任务从 stdin 进，stdout 是 NDJSON 事件流，退出码是权威判据）。
+客户端在 `scripts/utils/dsh_client.py`（与 `HermesClient` 同契约：`run_task` / `run_task_stream` /
+`_post_chat` / `_post_chat_stream` / `write_task` / `writes_files=True`）。
+
+- **白名单/模型**：headless **没有** `--model` 旋钮，模型由 DSH profile 决定，`model.*` 不参与；
+  结果里 `model` 记 `dsh-default`（不冒充具体模型名）。
+- **记账口径**：与 hermes 同一份判据（`utils/engine.SUBSCRIPTION_ENGINES`）——金额恒 0、token 照记
+  （usage 取 `step_end` 事件的 `inputTokens/outputTokens/cacheReadTokens`），止烧只有 token 闸门有效。
+- **成功判据**：进程退出 0 **且** `final.reason.kind == "completed"`。`max-tokens` 映射成
+  `finish_reason="length"` + `exit_code=2`（截断当失败，与直连引擎同码）；退出 0 但没有 `final`
+  也是失败（fail-closed，不许假成功）。
+- **失败可见**：`dsh` 找不到 → `exit_code=127` + 可行动报错（装 DSH / 在 `config/system.yaml`
+  的 `dsh.bin` 写路径 / 环境变量 `NF_DSH_BIN`）；超时 → `124` 结构化；停止 → 杀整棵进程树
+  （Windows 上是 cmd.exe → Electron 两层，只杀直接子进程会留孤儿）。
+- **凭据（坑，写在这里免得再查）**：headless profile **禁用** DSH GUI 的登录态存储，按
+  “启动环境 → 工作目录 `.env` → `$DSH_HOME/.env`”找 provider key。要让 headless 用桌面端登录态，
+  需在 `$DSH_HOME/profiles/headless/cordis.patch.yml` 把 credentials / authorization /
+  deepseek-account 三行打开（DSH 官方文档的做法）；本项目**不替用户改那个文件**。
+- **自检**：`nfctl check` 有“DSH 可用”一项（`engine: dsh` 时不可用是阻塞项）。
+- 判据：`tests/unit/test_dsh_client.py`（61 条，全离线 .bat 桩）、
+  `tests/http/test_config_writes_http.py` 的 C1c（切到 dsh 真写盘 + 注释不丢）。
 
 ## 自任务引擎（`engine: self`，2026-11-04 落地）
 
