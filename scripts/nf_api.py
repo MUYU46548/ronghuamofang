@@ -187,6 +187,7 @@ try:
     from nf_api_domains import config_write as dom_config_write  # noqa: E402 (引擎/供应商/风格笔记写入)
     from nf_api_domains import materials_write as dom_materials_write  # noqa: E402 (素材写侧)
     from nf_api_domains import scraps_write as dom_scraps_write  # noqa: E402 (碎片写侧：保存/删除/提升)
+    from nf_api_domains import review_actions as dom_review_actions  # noqa: E402 (批注/决策/批量精修/自动重写)
     from nf_api_domains import sandbox as dom_sandbox      # noqa: E402
     from nf_api_domains import setting_state as dom_setting_state  # noqa: E402
     from nf_api_domains import factory as dom_factory      # noqa: E402 (0.6.7 出厂/用户数据分治)
@@ -4286,55 +4287,9 @@ class Handler(BaseHTTPRequestHandler):
                 jid, err = start_job("review", act_review_run())
                 self._send(202 if not err else 409, {"error": err} if err else {"job_id": jid})
             elif p == "/batch_refine/run":
-                from_decisions = bool(body.get("decisions_from_file", True))
-                if not from_decisions:
-                    # 服务端无 TTY，交互式决策会挂住线程；GUI 一律走 decisions.json
-                    self._send(400, {"error": "API 不支持交互式决策（无 TTY）：请用 "
-                                              "decisions_from_file=true（先在审稿页保存决策）"})
-                    return
-                # 护栏：文件缺失时给出可行动的提示，而不是起一个必然失败的 job
-                report_p = ROOT / "data" / "outline" / "review_report.json"
-                dec_p = ROOT / "data" / "outline" / "review_report.decisions.json"
-                if not report_p.exists():
-                    self._send(400, {"error": "无审查报告 data/outline/review_report.json"
-                                              "（先运行审查）"})
-                    return
-                if not dec_p.exists():
-                    self._send(400, {"error": "无决策文件 data/outline/review_report.decisions.json"
-                                              "（先在审稿页保存决策）"})
-                    return
-                try:
-                    import batch_refine as br
-                    n_dec = len(br.normalize_decisions(
-                        json.loads(nf_read_text(dec_p)) if dec_p.stat().st_size else {}))
-                except Exception as e:      # noqa: BLE001
-                    n_dec = 0
-                    print("[nf_api] 决策文件解析失败: " + type(e).__name__ + ": " + str(e)[:120])
-                if not n_dec:
-                    self._send(400, {"error": "决策文件无有效条目（action 须为 accept/ignore，"
-                                              "且带 finding_id）；请在审稿页重新保存决策"})
-                    return
-                jid, err = start_job("batch_refine", act_batch_refine_run(from_decisions))
-                self._send(202 if not err else 409, {"error": err} if err else {"job_id": jid})
+                self._send(*_dom(dom_review_actions.handle_batch_refine_run(self, body)))
             elif p == "/auto_rewrite/run":
-                def _int_or_none(v):
-                    try:
-                        return int(v) if v not in (None, "") else None
-                    except (TypeError, ValueError):
-                        return None
-                chapters = body.get("chapters")
-                if isinstance(chapters, str):
-                    chapters = [int(x) for x in chapters.split(",") if x.strip().isdigit()]
-                elif isinstance(chapters, list):
-                    chapters = [int(x) for x in chapters if str(x).isdigit()]
-                else:
-                    chapters = None
-                # 安全默认：未显式传 dry_run=false 时只预演，不改稿
-                dry_run = bool(body.get("dry_run", True))
-                jid, err = start_job("auto_rewrite", act_auto_rewrite_run(
-                    _int_or_none(body.get("threshold")), dry_run,
-                    _int_or_none(body.get("max_rounds")), chapters))
-                self._send(202 if not err else 409, {"error": err} if err else {"job_id": jid})
+                self._send(*_dom(dom_review_actions.handle_auto_rewrite_run(self, body)))
             elif p == "/appearances/refresh":
                 # 确定性重算，零成本，可放心给按钮
                 jid, err = start_job("appearances", act_appearances_refresh())
@@ -4377,47 +4332,9 @@ class Handler(BaseHTTPRequestHandler):
                 # 交接稿导出（确定性拼装，零 token，只写 data/handoff/）
                 self._send(*_dom(dom_runtime.handle_handoff_export(self, body)))
             elif p == "/review/comment":
-                # 给指定 finding 添加评论（GUI 审稿面板用；原先误挂在 do_GET 里，
-                # do_GET 没有 body → 必然 500，2026-09-15 移到 do_POST）
-                try:
-                    import chapter_review as cr
-                    chapter_no = int(body.get("chapter"))
-                    finding_id = str(body.get("finding_id", "")).strip()
-                    comment = str(body.get("comment", "")).strip()
-                    user = str(body.get("user", "reviewer")).strip() or "reviewer"
-                    if not finding_id or not comment:
-                        self._send(400, {"ok": False, "error": "finding_id 和 comment 必填"})
-                        return
-                    ok = cr.add_comment_to_finding(
-                        str(ROOT / "data" / "outline" / "review_report.json"),
-                        chapter_no, finding_id, comment, user)
-                    if ok:
-                        self._send(200, {"ok": True, "message": "评论已添加"})
-                    else:
-                        self._send(404, {"ok": False, "error": "未找到指定的 finding"})
-                except Exception as e:
-                    self._send(500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]})
+                self._send(*_dom(dom_review_actions.handle_review_comment(self, body)))
             elif p == "/review/decisions" and self.command == "POST":
-                # 保存用户决策（GUI 提交）：统一规范化为 batch_refine 能直接吃下的标准格式
-                dec_path = ROOT / "data" / "outline" / "review_report.decisions.json"
-                try:
-                    import batch_refine as br
-                    decisions = br.normalize_decisions(body)
-                    dec_path.parent.mkdir(parents=True, exist_ok=True)
-                    dec_path.write_text(json.dumps({
-                        "decisions": decisions,
-                        "updated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
-                    }, ensure_ascii=False, indent=2), encoding="utf-8")
-                except Exception as e:      # noqa: BLE001
-                    self._send(500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]})
-                    return
-                if decisions:
-                    self._send(200, {"ok": True, "count": len(decisions), "path": str(dec_path),
-                                     "message": "已保存 " + str(len(decisions)) + " 条决策"})
-                else:
-                    self._send(200, {"ok": True, "count": 0, "path": str(dec_path),
-                                     "warning": "未收到有效决策（action 须为 accept/ignore）："
-                                                "批量精修前请至少接受一条审查发现"})
+                self._send(*_dom(dom_review_actions.handle_review_decisions_save(self, body)))
             elif p == "/materials/import_tavern":
                 # 酒馆角色卡 / 世界书导入（只写 materials/raw，同名不覆盖）
                 self._send(*_dom(dom_materials.handle_materials_import_tavern(self, body)))
