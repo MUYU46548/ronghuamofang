@@ -1871,12 +1871,45 @@ def test_annotation_to_rewrite(browser):
         check("失效的那条写明“引用的原句已改/已删”",
               "已改/已删" in anns.nth(2).inner_text(), anns.nth(2).inner_text()[:60])
 
+        # 分组 + 跳段（2026-11-17，P1-9）：只有 open/missing 时“已收口”永远是空的，
+        # 所以 mock 特意给了一条 resolved；分组标题必须把两边的条数都说出来。
+        heads = page.locator(".ce-ann-group-t")
+        check("批注分两组（未收口在前 / 已收口在后）",
+              heads.count() == 2 and "未收口" in heads.nth(0).inner_text()
+              and "已收口" in heads.nth(1).inner_text(),
+              [heads.nth(i).inner_text() for i in range(heads.count())])
+        check("未收口 3 条（处理过的没有被算进去）", "3" in heads.nth(0).inner_text(),
+              heads.nth(0).inner_text())
+        check("已收口默认折叠（只剩未收口那 3 条占屏幕）", anns.count() == 3, anns.count())
+
+        anns.first.locator("button.ce-ann-jump").click()
+        page.wait_for_timeout(900)
+        on = page.locator(".ce-para.on")
+        check("点批注上的“第 1 段”→ 正文里真的选中那一段（不用自己滚回去数）",
+              on.count() == 1 and "1" in on.first.locator(".ce-para-no").inner_text(),
+              on.count())
+
+        heads.nth(1).locator("button").click()
+        page.wait_for_timeout(500)
+        check("点“展开”→ 已收口那条回到列表里（共 4 条）", anns.count() == 4, anns.count())
+        check("已收口那条保留“已处理”痕迹（不是消失）",
+              "已处理" in anns.nth(3).inner_text(), anns.nth(3).inner_text()[-40:])
+        # 分组标题在侧栏下方，整页截图按“滚动归零”纪律拍不到 —— 把这一块滚到眼前再拍一张。
+        page.locator(".ce-ann-group-t").first.scroll_into_view_if_needed()
+        page.wait_for_timeout(300)
+        page.screenshot(path=str(OUT / "M0_ann_groups_el.png"))
+        shot(page, "M0_ann_groups")
+
         anns.first.locator("button:has-text('改这一处')").click()
         page.wait_for_timeout(3500)
         check("点“改这一处”→ 出候选（改前/改后并排），正文一个字没动",
               page.locator(".ce-cand").count() == 1
               and page.locator(".ce-cand .ce-diff-col").count() == 2,
               page.locator(".ce-cand").count())
+        intent_txt = (page.locator(".ce-cand-intent").inner_text()
+                      if page.locator(".ce-cand-intent").count() else "")
+        check("候选卡写出“模型的理解”（模型先复述要改什么，不是只给 diff）",
+              "我理解为要改" in intent_txt, intent_txt[:60])
         check("批注当场变成显眼的状态标签“已出候选，待采用”（open → addressed，不自动算完）",
               anns.first.locator(".pill.st-gate", has_text="待采用").count() == 1,
               anns.first.inner_text()[-40:])

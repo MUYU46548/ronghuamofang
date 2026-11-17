@@ -260,7 +260,7 @@ async function pollJob(jobId, tries = 150) {
     jobResult.value = r.data;
     if (r.data.state !== "running") {
       if (r.data.state === "ok") {
-        say("段落重写完成！");
+        say("这一段已直接写入正文（改前已备份，可在段落历史回退）");
         await loadParagraphs(chapterN.value);
         await checkStyleDrift();
       } else {
@@ -368,9 +368,9 @@ async function runMultiRefine() {
   }
   running.value = true;
   try {
-    // 批量多段重写：逐个提交
+    // 批量直接改正文：逐个提交（每段各自备份）
     const idxs = [...multiSelectedParas.value].sort((a, b) => a - b);
-    say(`正在批量重写 ${idxs.length} 个段落...`);
+    say(`正在逐段直接改正文（${idxs.length} 段，每段都先备份）...`);
     for (const idx of idxs) {
       selectedPara.value = idx;
       const r = await api("/refine/paragraph", "POST", {
@@ -404,7 +404,8 @@ onMounted(() => {
   <div class="para-refine">
     <div class="para-head">
       <h3>段落级精修工作台</h3>
-      <div class="head-hint">选择段落 → 填写意见 → 重写（不动其他段落，改前自动备份）</div>
+      <div class="head-hint">选择段落 → 填写意见 → <b>直接改正文</b>（点下去就直接改这一段的正文，改前自动备份，
+        可在下面看历史回退）。想先看候选再决定，“章节”页签的段落批注走的是“先出候选、点采用才进正文”。</div>
     </div>
 
     <div class="para-controls">
@@ -437,7 +438,7 @@ onMounted(() => {
 
     <!-- self 模式前置说明（2026-11-11）：以前这个页签的按钮点了才报错，与章节编辑器不一致。 -->
     <div v-if="selfEngine" class="self-hint">
-      ◻ <b>自任务模式：只出任务书，不调模型</b> —— 本页的“执行重写 / dry-run / 批量重写”
+      ◻ <b>自任务模式：只出任务书，不调模型</b> —— 本页的“直接改正文 / dry-run / 批量直接改正文”
       都要调模型，所以按钮不可用。要在这里改字，先到“设置 → 引擎与模型”切到 direct 或 hermes；
       或改用“章节编辑器”里的段落批注（那边在 self 下会出任务书，写完你点采用才写进正文）。
     </div>
@@ -456,8 +457,9 @@ onMounted(() => {
             <span class="batch-count">已选 {{ multiSelectedParas.length }} 段</span>
             <button class="mini" @click="clearMultiSelect">清空</button>
             <button class="mini primary" :disabled="running || !feedback.trim() || selfEngine"
-                    :title="selfEngine ? SELF_HINT : ''" @click="runMultiRefine">
-              批量重写
+                    :title="selfEngine ? SELF_HINT : '勾选的每一段都直接改正文并立刻生效（逐段备份，可在段落历史回退）'"
+                    @click="runMultiRefine">
+              批量直接改正文
             </button>
           </div>
         </div>
@@ -480,7 +482,7 @@ onMounted(() => {
               class="para-check"
               :checked="multiSelectedParas.includes(p.index)"
               @change="toggleMultiSelect(p.index)"
-              title="勾选以批量重写"
+              title="勾选后一次改多段（每段都直接写进正文、各自备份）"
             />
             <span class="para-index-tag">#{{ p.index }}</span>
             <span class="para-content">{{ p.text }}</span>
@@ -559,11 +561,13 @@ onMounted(() => {
 
           <div class="editor-actions">
             <button class="mini primary" :disabled="running || !feedback.trim() || selfEngine"
-                    :title="selfEngine ? SELF_HINT : ''" @click="runRefine">
-              {{ running ? "执行中..." : "执行重写" }}
+                    :title="selfEngine ? SELF_HINT : '点下去模型就改这一段并立刻写进正文（改前自动备份，可在段落历史里回退）'"
+                    @click="runRefine">
+              {{ running ? "执行中..." : "直接改正文（点下就生效）" }}
             </button>
             <button class="mini" :disabled="running || !feedback.trim() || selfEngine"
-                    :title="selfEngine ? SELF_HINT : ''" @click="runDryRun">
+                    :title="selfEngine ? SELF_HINT : '只备份 + 出任务文件，不调用模型、不改正文'"
+                    @click="runDryRun">
               只看不改（dry-run）
             </button>
           </div>

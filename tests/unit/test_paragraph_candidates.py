@@ -200,8 +200,87 @@ def case_api_shape():
     check("E4 界面采用时带上选中的 cid", "cid: activeCid.value" in ce)
 
 
+def case_intent():
+    """[G] 模型先复述“我理解为要改什么”（2026-11-17，P1-6）。
+
+    为什么要有：以前候选卡只有 diff，模型听没听懂意见全靠作者自己对着字看。
+    判据分三层：① 能切出来且不污染候选；② 每条候选记录都带上；
+    ③ 没写就显式标“未复述”，不许静默空白。
+    """
+    print("\n[G] 模型先复述理解（P1-6）")
+    NL = chr(10)
+    a = "把结尾的总结句删掉，改成她推门的动作。" * 2
+    b = "结尾改成一个没说出口的动作，接下一段的时间。" * 2
+    c = "换一种收束方式，动作在前，情绪不点明。" * 2
+    good = ("===INTENT===" + NL + "我理解为要改：删掉结尾总结句，改成动作" + NL
+            + "===CAND===" + NL + a + NL + "===CAND===" + NL + b
+            + NL + "===CAND===" + NL + c)
+    intent, rest = rp.split_intent(good)
+    check("G1 intent 切得出来", intent == "我理解为要改：删掉结尾总结句，改成动作", intent)
+    check("G2 intent 不进候选正文", rp.parse_candidates(good) == [a, b, c])
+    check("G3 rest 里没有 intent 标记", "===INTENT===" not in rest)
+
+    old = a + NL + "===CAND===" + NL + b
+    check("G4 老格式（没 intent）照常解析", rp.split_intent(old)[0] == ""
+          and rp.parse_candidates(old) == [a, b])
+
+    late = a + NL + "===CAND===" + NL + b + NL + "===INTENT===" + NL + "说明"
+    check("G5 标记写在候选之后 → 不当 intent（否则会把候选吞掉）",
+          rp.split_intent(late)[0] == "" and len(rp.parse_candidates(late)) == 2)
+
+    # 落进候选记录：每一条都带同一个 intent；模型没写就是空串（界面标“未复述”）。
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td)
+        (root / "data" / "state").mkdir(parents=True, exist_ok=True)
+        orig = rp.run_paragraph_refine
+
+        def _fake_intent(*_a, **_k):
+            return (True, "ok", None, 1, {"index": 0, "before": "改前。", "after": a,
+                                          "candidates": [a, b, c],
+                                          "intent": "我理解为要改：精简", "context": []})
+
+        def _fake_blank(*_a, **_k):
+            return (True, "ok", None, 2, {"index": 0, "before": "改前。", "after": a,
+                                          "candidates": [a, b, c], "context": []})
+        try:
+            rp.run_paragraph_refine = _fake_intent
+            ok, _msg, rec = rp.preview_paragraph({}, {}, 1, 0, "精简", root=root)
+            items = rp.get_candidates(1, 0, root)
+            check("G6 每条候选记录都带 intent",
+                  ok and len(items) == 3 and all(x.get("intent") == "我理解为要改：精简" for x in items),
+                  [x.get("intent") for x in items])
+            check("G7 接口返回的那条也带", (rec or {}).get("intent") == "我理解为要改：精简")
+            rp.run_paragraph_refine = _fake_blank
+            ok2, _m2, rec2 = rp.preview_paragraph({}, {}, 1, 0, "精简", root=root)
+            check("G8 模型没复述 → 记空串（不是缺字段，界面据此标“未复述”）",
+                  ok2 and rec2 is not None and rec2.get("intent") == "",
+                  (rec2 or {}).get("intent"))
+        finally:
+            rp.run_paragraph_refine = orig
+
+    # 提示词与界面：两边都得在位（改回去立刻红）。
+    pr = (REPO / "prompts" / "stage4_refine_paragraph.md").read_text(encoding="utf-8")
+    check("G9 提示词要求先写 ===INTENT===", "===INTENT===" in pr)
+    ce = (REPO / "console" / "src" / "ChapterEditor.vue").read_text(encoding="utf-8")
+    check("G10 候选卡显示“模型的理解”", "模型的理解" in ce and "ce-intent-text" in ce)
+    check("G11 没复述时显式标注（不许静默空白）", "未复述" in ce)
+    check("G12 批注按未收口/已收口分组", "annGroups" in ce and "未收口" in ce and "已收口" in ce)
+    check("G13 批注能一键跳到段落", "jumpToAnnotation" in ce)
+
+    # 两个入口语义显式不同（P1-7）：精修页签直接写盘，章节编辑器先候选后采用。
+    prp = (REPO / "console" / "src" / "ParagraphRefinePanel.vue").read_text(encoding="utf-8")
+    check("G14 精修页签写明“直接改正文 / 立刻生效”",
+          "直接改正文" in prp and "点下就生效" in prp)
+    check("G15 精修页签指向候选流程（语义不同要说清）",
+          "先出候选" in prp and "章节" in prp and "点采用才进正文" in prp)
+    api_src = (REPO / "scripts" / "nf_api.py").read_text(encoding="utf-8")
+    _act = api_src.split("def act_refine_paragraph")[1].split("\ndef ")[0]
+    check("G16 /refine/paragraph 仍是直接落盘（与面板文案一致）",
+          "run_paragraph_refine" in _act and "preview=True" not in _act)
+
+
 for fn in (case_multi, case_cap, case_parse_candidates, case_apply_by_cid,
-            case_drop_one, case_api_shape):
+            case_drop_one, case_intent, case_api_shape):
     fn()
 
 (Path(sys.argv[0]).parent / "").exists()  # noqa: B018  (保持与其它用例同样的收尾形态)

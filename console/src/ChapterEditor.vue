@@ -465,6 +465,38 @@ function pickPara(p) {
   histBusy.value = false;
 }
 
+/* 批注分组（2026-11-17，P1-9）：以前一条平铺，处理过的和没动的混在一起，
+   “还剩几条没改”得自己数。现在未收口在前、已收口折叠在后。
+   跳转用 current_index（正文改过后重定位到的段号），没有就退回原来的 para_index。 */
+const annOpen = computed(() => ann.value.items.filter((a) => a.status !== "resolved"));
+const annDone = computed(() => ann.value.items.filter((a) => a.status === "resolved"));
+const annDoneOpen = ref(false);
+const annGroups = computed(() => [
+  { key: "open", title: "未收口", items: annOpen.value },
+  { key: "done", title: "已收口", items: annDone.value },
+]);
+async function jumpToAnnotation(a) {
+  if (!a) return;
+  if (a.status === "missing") {
+    emit("say", "这条批注引用的原句已经找不到（正文改过），没法跳过去");
+    return;
+  }
+  const pi = a.current_index !== undefined && a.current_index !== null
+    ? Number(a.current_index) : Number(a.para_index);
+  if (Number.isNaN(pi) || pi < 0) return;
+  if (mode.value !== "batch") {
+    await switchMode("batch");
+    if (mode.value !== "batch") return;      // 当前层不能批注时 switchMode 已经说明原因
+  }
+  const hit = (paras.value || []).find((p) => p.index === pi);
+  if (!hit) {
+    emit("say", "第 " + (pi + 1) + " 段现在找不到了（段落数变过），批注位置可能已失效");
+    return;
+  }
+  pickPara(hit);
+  emit("say", "已跳到第 " + (pi + 1) + " 段");
+}
+
 /* 改一段：候选 → 采用（2026-11-08，P1-5）。
    以前模型改完直接写盘，作者只能事后去历史里退回。现在改成“只算不落”：
    候选进 para_pending.json（self 模式是外部写的草稿），看着改前/改后点采用才写。 */
@@ -489,6 +521,8 @@ const activeRec = computed(() => {
     cid: hit.cid,
     after: hit.after || r.after,
     feedback: hit.feedback || r.feedback,
+    intent: hit.intent !== undefined && hit.intent !== null ? hit.intent : (r.intent || ""),
+    variant: hit.variant || r.variant,
     context: (hit.context && hit.context.length) ? hit.context : r.context,
   });
 });
@@ -1026,6 +1060,14 @@ onUnmounted(() => {
                        不再要求作者“再点一次同一个档位”去换一条（那是把花钱当可控性）。 -->
                   <span class="meta">这次一次出了 {{ candList.length }} 条 · 切换不花钱</span>
                 </div>
+                <!-- 模型先复述“它理解要改什么”（2026-11-17，P1-6）：以前作者只能对着 diff
+                     猜模型有没有听懂意见。模型没写就**显式**标“未复述”——不许静默空白，
+                     空白会让作者以为模型理解了。 -->
+                <div v-if="cand" class="ce-cand-intent">
+                  <span class="ce-ctx-k">模型的理解</span>
+                  <span v-if="activeRec && activeRec.intent" class="ce-intent-text">{{ activeRec.intent }}</span>
+                  <span v-else class="ce-intent-missing">未复述（模型没先说它打算改什么，只能对着下面的 diff 自己判断）</span>
+                </div>
                 <div v-if="cand" class="ce-ctx-row">
                   <template v-if="ctxItems.length">
                     <span class="ce-ctx-k">这次带了</span>
@@ -1101,37 +1143,54 @@ onUnmounted(() => {
             <div v-else-if="!ann.items.length" class="meta">
               还没记过。选了段落、写好意见后点“只记下这条批注”就会留在这里（不调用模型）。
             </div>
-            <div v-else class="ce-ann-list">
-              <div v-for="a in ann.items" :key="a.id" class="ce-ann"
-                   :class="{ bad: a.status === 'missing', warn: a.drift && a.status !== 'missing',
-                             done: a.status === 'resolved' }">
-                <div class="ce-ann-head">
-                  <span class="pill">第 {{ (a.para_index || 0) + 1 }} 段</span>
-                  <span class="meta">{{ a.created_at }}</span>
-                  <span v-if="a.status === 'missing'" class="ce-ann-bad">引用的原句已改/已删</span>
-                  <span v-else-if="a.drift" class="ce-ann-warn">{{ a.why || "位置变了" }}</span>
-                  <span v-if="a.status === 'resolved'" class="meta">· 已处理</span>
-                </div>
-                <div class="ce-ann-note">{{ a.note }}</div>
-                <div class="ce-ann-quote" v-if="a.current_text">
-                  现在这一段：{{ a.current_text.slice(0, 60) }}…
-                </div>
-                <div class="ce-ann-acts">
-                  <!-- 批注 → 改稿（2026-11-14，P0-2）：这条批注就是意见，只改它指的那一段；
-                       生成的候选带 annotation_id，点批注能只看它引起的改动。 -->
-                  <button v-if="a.status !== 'missing'" class="mini primary"
-                          :disabled="refining || !canBatch"
-                          :title="canBatch ? '用这条批注只改这一段（生成候选，正文不动）'
-                                           : '批注只在当前层开放'"
-                          @click="refineFromAnnotation(a)">{{ a.status === 'addressed' ? '再改一版' : '改这一处' }}</button>
-                  <button v-if="a.status === 'open'" class="mini" @click="resolveAnnotation(a)">
-                    标为已处理
+            <div v-else class="ce-ann-wrap">
+              <!-- 分组（2026-11-17，P1-9）：先看“还没改的”，已收口的折叠起来自己展开。 -->
+              <template v-for="g in annGroups" :key="g.key">
+                <div class="ce-ann-group-t">
+                  {{ g.title }} <b class="ce-ann-group-n">{{ g.items.length }}</b> 条
+                  <button v-if="g.key === 'done'" class="mini ce-ann-group-btn"
+                          @click="annDoneOpen = !annDoneOpen">
+                    {{ annDoneOpen ? "收起" : "展开" }}
                   </button>
-                  <!-- 状态要“看得见的一档”，不能是灰色小字（目检 2026-11-15 提的）：
-                       改过但还没采用，和“改这一处”是两个概念，别让人以为已经处理完了。 -->
-                  <span v-else-if="a.status === 'addressed'" class="pill st-gate">已出候选，待采用</span>
+                  <span v-if="g.key === 'open' && !g.items.length" class="meta">（都收口了）</span>
                 </div>
-              </div>
+                <div v-if="g.key === 'open' || annDoneOpen" class="ce-ann-list">
+                  <div v-for="a in g.items" :key="a.id" class="ce-ann"
+                       :class="{ bad: a.status === 'missing', warn: a.drift && a.status !== 'missing',
+                                 done: a.status === 'resolved' }">
+                    <div class="ce-ann-head">
+                      <!-- 一键跳到段落（P1-9）：以前只能自己滚到左边数第几段。 -->
+                      <button class="pill ce-ann-jump" :disabled="a.status === 'missing'"
+                              :title="a.status === 'missing' ? '引用的原句已改/已删，跳不过去'
+                                                             : '跳到这一段（在正文里选中它）'"
+                              @click="jumpToAnnotation(a)">第 {{ (a.para_index || 0) + 1 }} 段</button>
+                      <span class="meta">{{ a.created_at }}</span>
+                      <span v-if="a.status === 'missing'" class="ce-ann-bad">引用的原句已改/已删</span>
+                      <span v-else-if="a.drift" class="ce-ann-warn">{{ a.why || "位置变了" }}</span>
+                      <span v-if="a.status === 'resolved'" class="meta">· 已处理</span>
+                    </div>
+                    <div class="ce-ann-note">{{ a.note }}</div>
+                    <div class="ce-ann-quote" v-if="a.current_text">
+                      现在这一段：{{ a.current_text.slice(0, 60) }}…
+                    </div>
+                    <div class="ce-ann-acts">
+                      <!-- 批注 → 改稿（2026-11-14，P0-2）：这条批注就是意见，只改它指的那一段；
+                           生成的候选带 annotation_id，点批注能只看它引起的改动。 -->
+                      <button v-if="a.status !== 'missing'" class="mini primary"
+                              :disabled="refining || !canBatch"
+                              :title="canBatch ? '用这条批注只改这一段（生成候选，正文不动）'
+                                               : '批注只在当前层开放'"
+                              @click="refineFromAnnotation(a)">{{ a.status === 'addressed' ? '再改一版' : '改这一处' }}</button>
+                      <button v-if="a.status === 'open'" class="mini" @click="resolveAnnotation(a)">
+                        标为已处理
+                      </button>
+                      <!-- 状态要“看得见的一档”，不能是灰色小字（目检 2026-11-15 提的）：
+                           改过但还没采用，和“改这一处”是两个概念，别让人以为已经处理完了。 -->
+                      <span v-else-if="a.status === 'addressed'" class="pill st-gate">已出候选，待采用</span>
+                    </div>
+                  </div>
+                </div>
+              </template>
             </div>
           </div>
 
@@ -1341,6 +1400,18 @@ onUnmounted(() => {
 .ce-batch-btn { margin-top: 8px; width: 100%; }
 /* 记下的批注（B5）：失效的必须**看得见**（红），位置变了是提醒（黄）。 */
 .ce-ann-list { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+/* 分组标题（2026-11-17，P1-9）：未收口在前，已收口折叠 —— 一眼能看出还剩几条要改。 */
+.ce-ann-wrap { display: flex; flex-direction: column; gap: 4px; }
+.ce-ann-group-t { display: flex; align-items: center; gap: 6px; margin-top: 6px;
+  font-size: 11.5px; color: var(--muted, #888); }
+.ce-ann-group-n { color: var(--ink, inherit); }
+.ce-ann-group-btn { padding: 0 6px; font-size: 11px; }
+.ce-ann-jump { border: 0; cursor: pointer; font-family: inherit; }
+.ce-ann-jump:disabled { cursor: default; opacity: 0.6; }
+/* 模型对意见的理解（P1-6）：有就显示原话，没有就显式标“未复述”。 */
+.ce-cand-intent { display: flex; gap: 8px; align-items: baseline; margin-top: 6px; font-size: 12px; }
+.ce-intent-text { line-height: 1.6; }
+.ce-intent-missing { color: var(--warn, #b8860b); }
 .ce-ann {
   padding: 6px 8px; border: 1px solid var(--border); border-radius: 7px;
   display: flex; flex-direction: column; gap: 4px;

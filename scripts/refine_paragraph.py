@@ -567,6 +567,8 @@ def run_paragraph_refine(cfg, proj, chapter, paragraph_index, feedback, client=N
                 raw_c = cand_file.read_text(encoding="utf-8", errors="replace")
         except Exception:                                     # noqa: BLE001
             raw_c = ""
+        # 先剥出模型那句“我理解为要改…”（P1-6）：少了它，作者只能对着 diff 猜。
+        intent, _rest = split_intent(raw_c)
         cands = parse_candidates(raw_c, fallback=rewritten_paragraph)
         # ⚠️ 必须整体包一层括号：上一版写成 `return True, (msg),` 换行再接 backup…，
         # Python 只把前两个当返回值（2 元组），调用方 5 元解包直接 ValueError。
@@ -574,6 +576,7 @@ def run_paragraph_refine(cfg, proj, chapter, paragraph_index, feedback, client=N
                       % (chapter, paragraph_index, len(cands))),
                 backup, version, {"index": paragraph_index, "before": target_paragraph,
                                   "after": rewritten_paragraph, "candidates": cands,
+                                  "intent": intent,
                                   "preview": True,
                                   "context": ctx})
 
@@ -618,6 +621,9 @@ MAX_CANDIDATES = 3
 #: 分隔符允许挤在行里（模型常写成“候选一===CAND===候选二”）—— 只认行首会把整串当一段，
 #: 于是静默退化成 1 条候选，作者以为模型只给了一条。
 CAND_SEP = re.compile(r"\s*={3}CAND={3}\s*")
+#: 模型先复述“我理解为要改什么”（2026-11-17，P1-6）：少了这一行，作者只能对着 diff 猜
+#: 模型有没有听懂意见。标记只认独占一行；内容由 split_intent 切出来，不进候选正文。
+INTENT_SEP = re.compile(r"={3}INTENT={3}")
 
 
 def candidates_path(chapter, paragraph_index, version, root=None) -> Path:
@@ -627,12 +633,43 @@ def candidates_path(chapter, paragraph_index, version, root=None) -> Path:
     return d / ("ch%02d_p%02d_v%d.md" % (int(chapter), int(paragraph_index), int(version)))
 
 
+def split_intent(text):
+    """把候选文件开头的 `===INTENT===` 段切出来（2026-11-17，P1-6）。
+
+    返回 `(intent, rest)`：
+      - 有标记 → intent 是那一行（压缩空白），rest 是去掉 intent 段后的候选正文；
+      - 没标记 → intent 为空串，rest 原样返回（老格式照常解析）；
+      - 标记出现在第一个 `===CAND===` 之后 → 视为正文，不当 intent
+        （模型偶尔把说明写在末尾；把候选吞了才是真事故）。
+    """
+    t = text or ""
+    m = INTENT_SEP.search(t)
+    if not m:
+        return "", t
+    first_cand = CAND_SEP.search(t)
+    if first_cand and m.start() > first_cand.start():
+        return "", t
+    rest = t[m.end():]
+    m2 = CAND_SEP.search(rest)
+    if m2:
+        head, after = rest[:m2.start()], rest[m2.end():]
+    else:
+        head, after = rest, ""
+    intent = " ".join(head.split()).strip()
+    # 模型常自带包裹的引号/书名号 —— 只剥外壳，不改它的措辞。
+    # 直角引号用码点写：源码里出现那两个字符会被 text_norm 的字面量检查判红（项目纪律）。
+    intent = intent.strip("\u300c\u300d\u300e\u300f“”\"'·-—- ").strip()
+    return intent, after
+
+
 def parse_candidates(text, fallback=None):
     """按 `===CAND===` 切出候选；切不出就退回整章里那一段（老行为）。
 
     容错纪律：**只回 1 条也算成功** —— 多候选是加分项，不是硬前置；
     否则模型少写一段就把整次调用判失败了。
+    `===INTENT===` 段先剥掉（2026-11-17）：不剥的话那句“我理解为要改…”会被当成候选一。
     """
+    _intent, text = split_intent(text)
     out = []
     for part in CAND_SEP.split(text or ""):
         t = part.strip()
@@ -683,6 +720,9 @@ def preview_paragraph(cfg, proj, chapter, paragraph_index, feedback, client=None
             # 不用猜“模型是读了全书还是只看了这一段”。
             "context": info.get("context") or [],
             "variant": i + 1,
+            # 模型对这条意见的理解（P1-6）：同一次调用的几条候选共用一个 intent。
+            # 模型没写就是空串，界面会显式标“未复述”——不许静默空白。
+            "intent": info.get("intent") or "",
             "annotation_id": str(annotation_id or ""),
         }
         mine.append(rec)

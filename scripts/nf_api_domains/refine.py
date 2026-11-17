@@ -724,6 +724,8 @@ def handle_paragraph_pending(h):
                      # rec 仍是最新那条（老客户端不变），candidates 是全部（旧→新）。
                      "candidates": [{"cid": c.get("cid"), "after": c.get("after"),
                                      "feedback": c.get("feedback"), "at": c.get("at"),
+                                     "variant": c.get("variant"),
+                                     "intent": c.get("intent") or "",
                                      "context": c.get("context") or []} for c in cands],
                      "note": "候选只存在 data/state/para_pending.json，正文尚未改动。"}
     except Exception as e:                                   # noqa: BLE001

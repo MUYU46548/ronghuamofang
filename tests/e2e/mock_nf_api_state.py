@@ -331,6 +331,11 @@ ANN = {"items": [
     {"id": "a3", "note": "这句话我删了，别再提", "para_index": 5, "status": "missing",
      "created_at": "2026-11-06 10:09", "quote": "早已删掉的一句", "drift": False,
      "why": "引用的原句在这一层里找不到（已被改写或删除）", "current_text": ""},
+    # 已收口那条（2026-11-17，P1-9）：分组必须真的分得开 —— 只有 open/missing 时
+    # “已收口”永远空着，界面折几行都验不出来。
+    {"id": "a4", "note": "这里已经改好了", "para_index": 1, "current_index": 1,
+     "status": "resolved", "created_at": "2026-11-06 10:12", "quote": "阶前的积水",
+     "drift": False, "current_text": "阶前积出一小滩暗色的水。"},
 ]}
 
 
@@ -1175,13 +1180,16 @@ class Handler(BaseHTTPRequestHandler):
                                         {"cid": "c1",
                                          "after": "候选一：他推门进来，屋里没人。",
                                          "feedback": rec["feedback"],
+                                         "intent": rec.get("intent") or "",
                                          "at": "2026-11-15 10:58", "context": []},
                                         {"cid": "c2",
                                          "after": "候选二：他推开门，阶前积着水。",
                                          "feedback": rec["feedback"],
+                                         "intent": rec.get("intent") or "",
                                          "at": "2026-11-15 10:59", "context": []},
                                         {"cid": "c3", "after": rec["after"],
                                          "feedback": rec["feedback"],
+                                         "intent": rec.get("intent") or "",
                                          "at": "2026-11-15 11:00", "context": []},
                                     ]})
 
@@ -1828,6 +1836,8 @@ class Handler(BaseHTTPRequestHandler):
                 "chapter": int(ch), "index": int(pi),
                 "before": _MOCK_PARA, "after": after, "ok": True,
                 "reasons": [], "feedback": fb, "annotation_id": aid,
+                # 模型先复述“我理解为要改什么”（P1-6）：候选卡上直接显示这一行。
+                "intent": "我理解为要改：把收尾从心里想改成门外的一个动作",
             }
             # 批注 open → addressed（不自动 resolved：改完不等于作者满意）
             for a in ANN["items"]:
