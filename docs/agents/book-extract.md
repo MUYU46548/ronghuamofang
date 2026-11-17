@@ -41,6 +41,17 @@ python scripts/book_extract.py merge old-book             # 预演：列出会�
 python scripts/book_extract.py merge old-book --yes       # 真写（先备份 history/）
 ```
 
+## 查摘要（零 token，只读）
+
+```bash
+python scripts/book_search.py old-book --query 人名/地点/事件
+python scripts/book_search.py old-book --character 角色名
+python scripts/book_search.py old-book --chapter 3 --json
+```
+
+在 `summaries/*.json` 里找章并给出上下文；**没摘要的章会点名**（不把“没查过”当“没有”）。
+不建索引、不写任何文件 —— 补跑成书提炼之后结果立刻是新的。
+
 ## 产物（`data/book_extract/<name>/`）
 
 | 文件 | 内容 |
