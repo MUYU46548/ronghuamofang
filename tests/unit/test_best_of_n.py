@@ -160,12 +160,97 @@ def case_apply_is_gui_only():
           "作" in str(payload) or "GUI" in str(payload) or "信任" in str(payload), payload)
 
 
+def case_structure_evidence():
+    """[5] 结构指标进择优结果（2026-11-17）：零 token、缺口径如实说缺、不 bootstrap。"""
+    print("\n【5】结构指标：每版带六项证据；缺口径说缺，不往项目里写口径")
+    import utils.best_of_n as bon
+
+    APH = "人生就是这样。"                      # 7 字、独立成段、无对白、无逗号 → 格言式
+    APHORISTIC = ("## 第1章 起风\n\n" + (APH + "\n\n") * 12)
+
+    cfg_cal = {"version": 1, "criteria": [
+        {"id": "J16", "value": 0.15}, {"id": "J17", "value": 2},
+        {"id": "J18", "value": 5}, {"id": "J19", "value": 0.25},
+        {"id": "J20", "value": 0.10}, {"id": "J21", "value": 220},
+    ]}
+
+    # A. 有口径：命中项被点名，needs_manual 只列那一版
+    tmp = _mk_project()
+    cal_dir = tmp / "data" / "judge"
+    cal_dir.mkdir(parents=True)
+    (cal_dir / "caliber.json").write_text(json.dumps(cfg_cal, ensure_ascii=False),
+                                          encoding="utf-8")
+    texts = [GOOD, APHORISTIC, REPEAT]
+    origin = bon.br.run_single_refine
+
+    def fake_refine(cfg, proj, chapter, feedback, client=None, task_dir=None, dry_run=False):
+        p = bon.br.pick_chapter_path(chapter)
+        p.write_text(texts.pop(0), encoding="utf-8")
+        return True, "ok", p
+
+    bon.br.run_single_refine = fake_refine
+    try:
+        res = bon.run_best_of_n({}, {}, 1, "改一下", n=3, root=tmp)
+    finally:
+        bon.br.run_single_refine = origin
+
+    rows = res.get("candidates") or []
+    ok_rows = [r for r in rows if r.get("status") == "ok"]
+    check("A1 每版都带 structure", all(r.get("structure") for r in ok_rows),
+          [(r.get("id"), bool(r.get("structure"))) for r in rows])
+    check("A2 每版六项指标键齐全",
+          all(set((r["structure"].get("metrics") or {})) ==
+              {"question_ratio", "single_turn_streak", "speaker_spread",
+               "aphorism_density", "dialogue_cover", "avg_para_len"} for r in ok_rows))
+    hit = [r for r in ok_rows
+           if "aphorism_density" in [t.get("code") for t in
+                                     (r["structure"].get("triggered") or [])]]
+    check("A3 格言体那版被点名为“需人工抽样”",
+          len(hit) == 1 and res.get("needs_manual") == [hit[0]["id"]],
+          (hit and hit[0]["id"], res.get("needs_manual")))
+    check("A4 口径齐时不报缺", res.get("structure_criteria_missing") == [],
+          res.get("structure_criteria_missing"))
+    meta = json.loads((tmp / "data" / "state" / "candidates" / "ch01" / "result.json")
+                      .read_text(encoding="utf-8"))
+    check("A5 result.json 也落了结构证据（界面读得到）",
+          all(c.get("structure") for c in meta["candidates"] if c.get("status") == "ok"))
+
+    # B. 无口径：如实说缺，且**不** bootstrap 出文件（评分不该改项目）
+    tmp2 = _mk_project()
+    texts2 = [GOOD, APHORISTIC, REPEAT]
+    origin = bon.br.run_single_refine
+
+    def fake_refine2(cfg, proj, chapter, feedback, client=None, task_dir=None, dry_run=False):
+        p = bon.br.pick_chapter_path(chapter)
+        p.write_text(texts2.pop(0), encoding="utf-8")
+        return True, "ok", p
+
+    bon.br.run_single_refine = fake_refine2
+    try:
+        res2 = bon.run_best_of_n({}, {}, 1, "改一下", n=3, root=tmp2)
+    finally:
+        bon.br.run_single_refine = origin
+    check("B1 缺口径 → 六条都列出（不回落默认值）",
+          res2.get("structure_criteria_missing") ==
+          ["J16", "J17", "J18", "J19", "J20", "J21"],
+          res2.get("structure_criteria_missing"))
+    check("B2 每个候选都说清“口径缺 X”",
+          all(any("口径缺" in (n.get("reason") or "")
+                  for n in (r.get("structure") or {}).get("na") or [])
+              for r in res2.get("candidates") or [] if r.get("status") == "ok"))
+    check("B3 没往项目里写口径文件（只读纪律）",
+          not (tmp2 / "data" / "judge" / "caliber.json").exists())
+    check("B4 缺口径时不会乱标“需人工抽样”", res2.get("needs_manual") == [],
+          res2.get("needs_manual"))
+
+
 def main():
     case_scoring_and_reasons()
     case_missing_data_is_neutral()
     case_run_best_of_n_lands_winner()
     case_all_fail_keeps_text()
     case_apply_is_gui_only()
+    case_structure_evidence()
     print("\n" + "=" * 60)
     print("  通过 %d / 失败 %d" % (len(PASS), len(FAIL)))
     for f in FAIL:

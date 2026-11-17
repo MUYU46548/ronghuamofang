@@ -16,6 +16,9 @@
       </select>
       <span class="meta">{{ msg }}</span>
     </div>
+    <div v-if="data.structureCriteriaMissing && data.structureCriteriaMissing.length" class="meta cand-note">
+      这几项结构标准还没设：{{ data.structureCriteriaMissing.join(" / ") }}（在“判定 → 改标准”里补上，重新择优才有）。
+    </div>
     <div class="meta cand-note">
       同一章重写时多写几版，按字数 / 病灶词 / 段落 / 复读 / 预算五项算出分数，
       <b>每条扣分都写清楚</b>；自动留下分最高那版，你也可以在这里改用另一版。
@@ -43,6 +46,21 @@
             {{ r }}
           </li>
         </ul>
+        <!-- 结构指标（2026-11-17）：五维分数只看“篇幅 / 病灶 / 复读 / 段落”；
+             这六项回答“对白死不死板、有没有说教味”。越线只标“需人工抽样”，
+             不合成总分、也不改排序 —— 证据归你，选谁仍是你点。 -->
+        <div v-if="c.status === 'ok'" class="cand-struct">
+          <template v-if="c.structure && c.structure.triggered && c.structure.triggered.length">
+            <div class="cand-struct-t"><span class="pill st-gate">结构：需人工抽样</span></div>
+            <ul class="cand-struct-list">
+              <li v-for="t in c.structure.triggered" :key="t.code">
+                {{ t.label }} {{ fmtStruct(t.value, t.unit) }}（线 {{ fmtStruct(t.limit, t.unit) }}）
+              </li>
+            </ul>
+          </template>
+          <div v-else-if="c.structure && c.structure.metrics" class="meta">结构指标：六项都在标准内</div>
+          <div v-else class="meta">结构指标没算出来（判定标准没设全，或这一版没有可用数据）</div>
+        </div>
         <pre class="cand-text">{{ preview(c.text) }}</pre>
         <button class="mini cand-apply" :disabled="busy || c.status !== 'ok' || c.id === appliedId"
                 :class="{ danger: confirmId === c.id }"
@@ -110,6 +128,13 @@ function labelOf(id) {
   return "第 " + (i || "?") + " 版";
 }
 
+/** 结构指标取值：比例 → 百分比，字/组 → 原值（与阶段 5 报告同一读法）。 */
+function fmtStruct(v, unit) {
+  if (v === null || v === undefined) return "—";
+  if (unit === "比例") return (Number(v) * 100).toFixed(1) + "%";
+  return String(v);
+}
+
 function scoreClass(s) {
   if (s == null) return "";
   if (s >= 80) return "st-done";
@@ -135,7 +160,8 @@ async function load() {
     if (cfg && cfg.status === 200 && cfg.data && cfg.data.ok) mode.value = cfg.data.current || 0;
     const data_ = payload(d);
     exists.value = !!data_.exists;
-    data.value = { chosen: data_.chosen || "", candidates: data_.candidates || [] };
+    data.value = { chosen: data_.chosen || "", candidates: data_.candidates || [],
+                   structureCriteriaMissing: data_.structure_criteria_missing || [] };
     appliedId.value = data_.applied_by_author || "";
     msg.value = data_.exists
       ? ("共 " + (data_.candidates || []).length + " 版，自动选中 " + (data_.chosen || "未定"))
@@ -194,6 +220,9 @@ onMounted(() => {
 .cand-col-head { display: flex; align-items: center; gap: 6px; }
 .cand-score { font-size: 18px; }
 .cand-reasons { margin: 0; padding-left: 18px; font-size: 12.5px; line-height: 1.65; }
+.cand-struct { font-size: 12px; line-height: 1.5; }
+.cand-struct-t { margin-bottom: 2px; }
+.cand-struct-list { margin: 0; padding-left: 16px; color: var(--warn, #b8860b); }
 .cand-reasons .bad { color: var(--warn, #b8860b); }
 .cand-text {
   margin: 0; max-height: 190px; overflow: auto; padding: 8px 10px;

@@ -1505,6 +1505,16 @@ def test_candidates(browser):
         check("每栏都有逐条扣分理由（不是只给个数）",
               all(cols.nth(i).locator(".cand-reasons li").count() >= 2 for i in range(cols.count())),
               [cols.nth(i).locator(".cand-reasons li").count() for i in range(cols.count())])
+        # 结构证据（2026-11-17）：分数之外还要有“对白死不死板 / 有没有说教味”这类事实，
+        # 且三种状态各自说清（越线 / 都在标准内 / 没算出来）。
+        check("越线那版点名“需人工抽样”并写出具体项",
+              "需人工抽样" in cols.nth(1).inner_text()
+              and "格言式单句密度" in cols.nth(1).inner_text(),
+              cols.nth(1).inner_text()[:120])
+        check("六项都在标准内的那版明说“都在标准内”",
+              "都在标准内" in cols.nth(0).inner_text(), cols.nth(0).inner_text()[:80])
+        check("没算出结构的那版显式说明（不许静默空白）",
+              "结构指标没算出来" in cols.nth(2).inner_text(), cols.nth(2).inner_text()[:80])
         check("自动选中的那版有标记", cols.locator(".pill:has-text('自动选中')").count() == 1)
         shot(page, "G1_candidates")
         btn = cols.nth(1).locator("button.cand-apply")

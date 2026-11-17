@@ -97,6 +97,39 @@ def _cliche_terms(root: str | Path):
         return None
 
 
+def _structure_evidence(texts: Dict[str, str], root: str | Path) -> Dict[str, Any]:
+    """每个候选的六项结构指标（零 token，与阶段 5 同一份实现）。
+
+    为什么放进择优结果：五维打分回答“字数/病灶/复读/段落”，回答不了
+    “对白是不是一问一答、有没有说教味”—— 而作者在几版之间挑的正是这类证据。
+    纪律：**只读口径文件，不 bootstrap**（评分不该往用户项目里写文件）；
+    缺口径就如实报 `missing_criteria`，不回落默认值、不给满分也不给 0 分。
+    """
+    try:
+        from utils.judge import structure as st
+        from utils.judge import caliber as cal
+
+        doc = None
+        p = Path(root or ".") / cal.CALIBER_REL
+        if p.exists():
+            try:
+                doc = json.loads(p.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                doc = None
+        limits = cal.values(doc) if doc else {}
+        missing = [c for c in ("J16", "J17", "J18", "J19", "J20", "J21")
+                   if limits.get(c) is None]
+        per = {}
+        for cid, text in texts.items():
+            metrics = st.measure(text)
+            triggered, na = st.evaluate(metrics, limits)
+            per[cid] = {"metrics": metrics, "triggered": triggered, "na": na,
+                        "needs_manual": bool(triggered)}
+        return {"limits_missing": missing, "candidates": per}
+    except Exception as e:                                       # noqa: BLE001
+        return {"error": "%s: %s" % (type(e).__name__, str(e)[:120])}
+
+
 def run_best_of_n(cfg, proj, chapter: int, feedback: str, n: int = 3,
                   client=None, task_dir: Optional[str] = None,
                   dry_run: bool = False, root: str | Path = ".",
@@ -169,6 +202,10 @@ def run_best_of_n(cfg, proj, chapter: int, feedback: str, n: int = 3,
             target_words=_target_words(cfg) or None,
             cliche_terms=_cliche_terms(root))
         by_id = {r["id"]: r for r in rows}
+        # 六项结构指标（零 token）：五维打分只看“篇幅/病灶/复读”，这几项回答
+        # “对白是不是一问一答、有没有说教味”—— 作者挑版本时真正要看的证据。
+        struct = _structure_evidence({c["id"]: c["text"] for c in good}, root)
+        struct_per = (struct or {}).get("candidates") or {}
         ranked = []
         for c in cands:
             r = by_id.get(c["id"])
@@ -180,6 +217,8 @@ def run_best_of_n(cfg, proj, chapter: int, feedback: str, n: int = 3,
                 "words": (r or {}).get("words"),
                 "dims": (r or {}).get("dims"),
                 "reasons": (r or {}).get("reasons") or ([c.get("error")] if c.get("error") else []),
+                # 结构证据：没有就跑不到（缺口径/出错时是 {}，界面据此显式说明）
+                "structure": struct_per.get(c["id"]) or {},
             })
         winner_id = rows[0]["id"]
         winner = next(c for c in good if c["id"] == winner_id)
@@ -200,6 +239,10 @@ def run_best_of_n(cfg, proj, chapter: int, feedback: str, n: int = 3,
             "target_words": _target_words(cfg),
             "chosen": winner_id,
             "chosen_score": rows[0]["score"],
+            # 结构证据的口径状态：缺哪些判据、有没有版本需要人工抽样（零 token）
+            "structure_criteria_missing": (struct or {}).get("limits_missing") or [],
+            "needs_manual": sorted([c["id"] for c in ranked
+                                    if (c.get("structure") or {}).get("needs_manual")]),
             "candidates": ranked,
             "backup": str(backup),
             "message": "已择优落盘：%s（%s 分）；候选 %d 个，失败 %d 个"
