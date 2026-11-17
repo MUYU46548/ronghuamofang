@@ -183,6 +183,11 @@ FORBIDDEN_IN_AGENT_MODE = frozenset({
     # 段落手改（2026-11-02，清单第 8 条）：与 /chapters/save 完全同族 ——
     # 只是粒度更细。Agent 能替作者改一段，就能替作者改整章。
     "/chapters/paragraph/save",
+    # 采用段落候选（2026-11-17 补）：preview 一旦开放给 Agent，"先看后落"就只剩"看" ——
+    # 采纳这一步若还能自己点，候选机制等于没有。与 /chapters/candidates/apply、
+    # /chapters/save 完全同族（零 token 直接写正文）。端点自身另要求 GUI 双因子。
+    # 读侧 /chapters/paragraph/pending|diff 不拦（Agent 该看得见自己改了什么）。
+    "/chapters/paragraph/apply",
     # 判定引擎（0.7.17）：事件勾选与逐句裁定都是**作者的判断**，不是系统能代劳的事。
     # Agent 替作者勾“这章算几件事”= 直接改写判定结论（F03b 是唯一硬门）。
     # 读侧 GET /judge/* 不拦（Agent 可看报告，不能替作者签字）。

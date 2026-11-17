@@ -1918,6 +1918,7 @@ _AGENT_PATH_NOTES = {
     "/plan/write": "规划拍板四态 —— 同上",
     "/plan/drop": "规划拍板四态 —— 同上",
     "/plan/revive": "规划拍板四态 —— 同上",
+    "/chapters/paragraph/apply": "采用段落候选 —— 会把候选写进正文，这一版进不进书归作者",
 }
 
 

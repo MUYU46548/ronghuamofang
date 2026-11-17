@@ -444,6 +444,28 @@ def describe_context(chapter, chap_path, outline_path, setting_path, paragraphs,
     return items
 
 
+def _failure_reason(result):
+    """把引擎失败翻成一句可处置的话：截断 / 超时 / 其它。"""
+    code = int((result or {}).get("exit_code") or 0)
+    detail = str((result or {}).get("error") or "").strip() or \
+        str((result or {}).get("stderr_tail") or "").strip()
+    if code == 2 or (result or {}).get("truncated") or \
+            "length" in str((result or {}).get("finish_reasons") or ""):
+        head = "被截断（输出上限不够，整章没写完、已丢弃未落盘）"
+        fix = "—— 调大该卡片的 max_tokens 再跑"
+    elif code == 124:
+        head = "超时（模型没在限定时间内写完）"
+        fix = "—— 重试或换更快的模型"
+    elif (result or {}).get("stopped"):
+        head = "被停止"
+        fix = ""
+    else:
+        head = "模型调用失败（exit=%d）" % code
+        fix = ""
+    return ("段落重写失败：%s%s%s" % (head, fix,
+                                     ("；%s" % detail[:240]) if detail else ""))
+
+
 def run_paragraph_refine(cfg, proj, chapter, paragraph_index, feedback, client=None,
                           task_dir=None, dry_run=False, outline_path=None,
                           preview=False, root=None):
@@ -470,6 +492,20 @@ def run_paragraph_refine(cfg, proj, chapter, paragraph_index, feedback, client=N
         return False, f"段落号越界：第 {chapter} 章共 {len(paragraphs)} 段，请求索引 {paragraph_index}", None, None, None
 
     target_paragraph = paragraphs[paragraph_index]
+
+    # 开跑前先算"装不装得下"（2026-11-17，P1-A4）：这张卡要求模型**把整章写回**，
+    # 而它的 max_tokens 原先只有 4000（≈2400 字）—— 4000 字以上的章注定被截断/自己删，
+    # 回执却只说"子会话失败"。装不下就连备份都不产生，直接拒。
+    try:
+        from utils.judge.budget import check_whole_chapter_capacity
+        _ok_cap, _why_cap, _cap = check_whole_chapter_capacity(
+            cfg, _count_cn(full_text), root=str(_base(root)))
+        if not _ok_cap:
+            return False, _why_cap, None, None, _cap
+    except Exception as e:                                     # noqa: BLE001
+        # 校验自身出错不许放行（宁可拒，也不发一个装不下的请求）
+        return (False, "预算校验没跑成（%s: %s）—— 已拒绝，没有发模型调用"
+                % (type(e).__name__, str(e)[:160]), None, None, None)
 
     version = _next_version(chapter, root)
     _history_dir(root).mkdir(parents=True, exist_ok=True)
@@ -500,7 +536,9 @@ def run_paragraph_refine(cfg, proj, chapter, paragraph_index, feedback, client=N
 
     result = client.run_task(task)
     if result["exit_code"] != 0:
-        return False, f"段落重写子会话失败", backup, version, None
+        # 失败分因（2026-11-17，P1-A4）：以前一律"子会话失败"，作者看不出是被截断
+        # （该调大 max_tokens）、超时（重试/换模型）、还是真出错（看 error）。
+        return False, _failure_reason(result), backup, version, None
 
     if not chap_path.exists():
         return False, "重写后章节文件缺失", backup, version, None

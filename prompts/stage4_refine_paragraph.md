@@ -1,7 +1,7 @@
 ---
 stage: 4
 name: stage4_refine_paragraph
-max_tokens: 4000
+max_tokens: 40000
 temperature: 0.3
 ---
 # 阶段 4 段落级定点重写

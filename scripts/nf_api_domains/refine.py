@@ -12,6 +12,8 @@
 - 所有路径经 api.ROOT，禁止相对路径
 - 写后回读校验
 """
+import re
+
 import nf_api as api
 from utils.branch_samples import BRANCH_KINDS
 from utils.field_refine import FIELD_LABELS
@@ -728,8 +730,99 @@ def handle_paragraph_pending(h):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+def _chapter_text_any_layer(root, n):
+    """读某章正文（refined > checked > raw）。返回 (text, layer)。"""
+    from pathlib import Path
+    for layer in ("refined", "checked", "raw"):
+        p = Path(root) / "data" / "chapters" / layer / ("%02d.md" % int(n))
+        if p.exists():
+            try:
+                return p.read_text(encoding="utf-8"), layer
+            except OSError:
+                continue
+    return "", ""
+
+
+_METRIC_NOTE_RE = re.compile(r"^\[([A-Za-z][A-Za-z0-9_]*)\]")
+
+
+def recheck_metric_annotation(root, chapter, cid):
+    """采用候选之后，按**原批注**重算那一个指标（2026-11-17，P1-A3）。
+
+    为什么必须有这一步：批注说"连排对白太多"，改完却没人再算一次 —— 于是
+    "要不要再改"只能靠作者读 diff 猜（`docs/读改链走查-20261117.md` 的问题 A）。
+    这里把闭环接上：**改完立刻重算同一个 code**，达标自动 `resolved`，
+    不达标保持 `addressed` 并把越线证据交回去。
+
+    边界（刻意不做的事）：
+    - 只处理**指标批注**（note 以 `[code]` 开头，由 `/chapters/metrics/annotate` 生成）；
+      手写批注不动 —— 那是作者的判断，"达标"无从机械判定。
+    - 只判**这一条批注所在的段**：同一章节别的段仍越线不影响本条的结论。
+    - 判据只用 `utils/prose_metrics.locate`（同一套定位代码），不另造一套。
+
+    返回 None（没有可判的批注）或
+    `{annotation_id, code, resolved, remaining, evidence}`。
+    """
+    from utils import annotations as ann
+    from utils import prose_metrics as pm
+
+    hit = None
+    for a in ann.list_for_chapter(root, chapter).get("annotations") or []:
+        cids = [str(x) for x in (a.get("candidate_cids") or [])]
+        if str(cid) in cids:
+            hit = a
+            break
+    if not hit:
+        return None
+    aid, note = hit.get("id"), str(hit.get("note") or "")
+    m = _METRIC_NOTE_RE.match(note)
+    if not m:
+        return None                                     # 手写批注：不替作者判
+    code = m.group(1)
+
+    text, _layer = _chapter_text_any_layer(root, chapter)
+    if not text:
+        return None
+    hits = [h for h in pm.locate(text) if h.get("code") == code]
+    remaining = len(hits)
+
+    # 批注记的是"引用原文"，正文改过之后按原文重定位（与 list_for_chapter 同一口径）
+    quote = str(hit.get("quote") or "").strip()
+    paras = pm.paragraphs(text)
+    idx = None
+    if quote:
+        idx = next((i for i, p in enumerate(paras) if quote[:40] in p), None)
+    if idx is not None:
+        still = any(h.get("para_index") == idx for h in hits)
+    else:
+        # 引文对不上正文（标点归一化 / 这一段被整体重写）：不能因此就判达标 ——
+        # 只要同一句仍在命中项里，就是没改。
+        still = any(str(h.get("quote") or "")[:40] == quote[:40] for h in hits)
+
+    if still:
+        evidence = ("仍越线：本章 %s 共 %d 处，第 %d 段仍命中" % (code, remaining, idx))
+        return {"annotation_id": aid, "code": code, "resolved": False,
+                "remaining": remaining, "evidence": evidence}
+    ann.resolve(root, chapter, aid)
+    where = "第 %d 段" % idx if idx is not None else "原句已不在"
+    evidence = ("指标已回到线内：%s，本章还剩 %d 处" % (where, remaining))
+    return {"annotation_id": aid, "code": code, "resolved": True,
+            "remaining": remaining, "evidence": evidence}
+
+
 def handle_paragraph_apply(h, body):
-    """`POST /chapters/paragraph/apply {chapter, paragraph_index, confirm:true}` —— 采用候选。"""
+    """`POST /chapters/paragraph/apply {chapter, paragraph_index, confirm:true}` —— 采用候选。
+
+    为什么与 `/chapters/save` 同族（GUI-only 双因子 + FORBIDDEN_IN_AGENT_MODE）：
+    它零 token 直接把候选写进正文。候选可以由 Agent 生成，**"这一版进不进书"归作者**——
+    否则"先看后落"就只剩"看"，采纳这一步被 Agent 自己点掉（2026-11-17 补闸：
+    此前这条只需 confirm:true 就能从任何来源调用，而 preview 又是开放的）。
+    读侧 `GET /chapters/paragraph/pending` 不拦（Agent 该看得见候选）。
+    """
+    from nf_api_domains.project import _gui_only
+    guard = _gui_only(h, "采用段落候选")
+    if guard:
+        return guard
     body = body or {}
     if body.get("confirm") is not True:
         return 400, {"ok": False, "error": "采用会改正文，必须带 confirm: true"}
@@ -752,8 +845,21 @@ def handle_paragraph_apply(h, body):
             from utils import self_actions as sa
             if sa.para_draft_path(ch, pi).is_file():
                 ok, msg = sa.apply_paragraph_draft(ch, pi)
-        return (200 if ok else 400), {"ok": ok, "message": msg, "error": "" if ok else msg,
-                                      "chapter": ch, "index": pi}
+        # 采用之后按原批注重算那一个指标（P1-A3）：达标 → resolved，不达标 → 留 addressed + 证据。
+        # 重算失败**不许吞掉**：采用已经发生，回执里必须说清"闭环没跑成"，否则作者以为达标了。
+        recheck = None
+        used_cid = (rec or {}).get("cid") or cid
+        if ok and used_cid:
+            try:
+                recheck = recheck_metric_annotation(api.ROOT, ch, used_cid)
+            except Exception as e:                             # noqa: BLE001
+                recheck = {"error": "重算失败（批注状态未变）：%s: %s"
+                                    % (type(e).__name__, str(e)[:160])}
+        payload = {"ok": ok, "message": msg, "error": "" if ok else msg,
+                   "chapter": ch, "index": pi}
+        if recheck:
+            payload["recheck"] = recheck
+        return (200 if ok else 400), payload
     except Exception as e:                                   # noqa: BLE001
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 

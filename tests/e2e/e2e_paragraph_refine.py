@@ -24,6 +24,8 @@
      且回执里有 `conflict`（现在的正文 / 候选基于的正文 / 候选 三件）
 - P6 `force:true` 才覆盖（作者明确同意）
 - P7 放弃候选 → 正文一个字节不动
+- P8 **闸门是真的**：无 GUI 双因子（来源头 + 主进程令牌）的采用 → 403，且正文不动
+      （preview 开放给 Agent 之后，"采纳"必须只归作者）
 
 用法：python tests/e2e/e2e_paragraph_refine.py
 前置：无（自带临时项目根，端口 18792，不碰 8765）
@@ -58,10 +60,18 @@ def check(name, cond, detail=""):
                            ("  → " + str(detail)[:200]) if detail else ""))
 
 
-def req(path, body=None, method="GET", timeout=25):
+# 采用候选是 GUI-only 双因子（2026-11-17）：后端注入 NF_GUI_TOKEN，请求带来源头 + 令牌。
+# 这不是测试凑数 —— 生产里 Electron 主进程签发的就是这两样，前端 guiApi 每次都带。
+GUI_TOKEN = "parae2e-gui-token"
+
+
+def req(path, body=None, method="GET", timeout=25, gui=True):
     data = None if body is None else json.dumps(body).encode("utf-8")
-    r = urllib.request.Request(API + path, data=data, method=method,
-                               headers={"Content-Type": "application/json"})
+    headers = {"Content-Type": "application/json"}
+    if gui:
+        headers["X-Mofang-Source"] = "gui"
+        headers["X-Mofang-Token"] = GUI_TOKEN
+    r = urllib.request.Request(API + path, data=data, method=method, headers=headers)
     try:
         with urllib.request.urlopen(r, timeout=timeout) as x:
             return x.status, json.loads(x.read().decode("utf-8") or "{}")
@@ -135,6 +145,7 @@ def main():
     print("  目标段 index=%d 原文：%s" % (idx, before[:40]))
 
     env = dict(os.environ)
+    env["NF_GUI_TOKEN"] = GUI_TOKEN
     log = open(tmp / "api.log", "wb")
     proc = subprocess.Popen(
         [sys.executable, str(ROOT / "scripts" / "nf_api.py"), "--port", str(PORT),
@@ -216,6 +227,20 @@ def main():
         check("P7 放弃后正文一个字节不动", sha(chap) == before_sha)
         check("P7 候选里的文本没进正文",
               "另一版候选" not in chap.read_text(encoding="utf-8"))
+
+        # ---- P8：闸门是真的（无 GUI 双因子 → 403，正文不动）----
+        # preview 开放给 Agent 之后，"采纳"必须只归作者 —— 否则先看后落只剩"看"。
+        write_pending(tmp, [{"chapter": CH, "index": idx, "cid": "c4",
+                             "before": changed, "after": "无凭据不该写进来的文本。",
+                             "ts": time.strftime("%Y-%m-%dT%H:%M:%S")}])
+        before_sha = sha(chap)
+        code, d = req("/chapters/paragraph/apply",
+                      {"chapter": CH, "paragraph_index": idx, "confirm": True},
+                      "POST", gui=False)
+        check("P8 无 GUI 双因子的采用被拒（403）", code == 403, (code, d.get("code")))
+        check("P8 被拒后正文一个字节不动", sha(chap) == before_sha)
+        check("P8 被拒文案说得清（不是裸 403）",
+              bool((d or {}).get("error")), d.get("error"))
     finally:
         proc.terminate()
         try:

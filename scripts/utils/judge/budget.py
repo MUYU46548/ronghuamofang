@@ -19,9 +19,13 @@ PROMPT_BY_STAGE = {4: "prompts/stage4_writing.md", 5: "prompts/stage5_check.md",
                    6: "prompts/stage6_polish.md"}
 
 
-def stage_max_tokens(stage, root="."):
-    """从提示词 frontmatter 读该阶段的输出上限（None = 文件或字段缺失）。"""
-    rel = PROMPT_BY_STAGE.get(int(stage))
+def prompt_max_tokens(rel, root="."):
+    """从**任意**提示词文件的 frontmatter 读输出上限（None = 文件或字段缺失）。
+
+    2026-11-17：段落级精修也要做同一道预算校验，而那张卡不在 `PROMPT_BY_STAGE`
+    （它不属于 4/5/6 的整章阶段）。解析逻辑只留一份 —— 两份就会各自漂移，
+    漂移的表现是"校验放行了一个注定被截断的请求"。
+    """
     if not rel:
         return None
     p = Path(root) / rel
@@ -34,6 +38,11 @@ def stage_max_tokens(stage, root="."):
         return None
     m = re.search(r"^\s*max_tokens\s*:\s*(\d+)\s*$", block, re.M)
     return int(m.group(1)) if m else None
+
+
+def stage_max_tokens(stage, root="."):
+    """从提示词 frontmatter 读该阶段的输出上限（None = 文件或字段缺失）。"""
+    return prompt_max_tokens(PROMPT_BY_STAGE.get(int(stage)), root)
 
 
 def target_words(proj):
@@ -89,6 +98,50 @@ def check_capacity(proj, stage, root=".", max_tokens=None, words=None):
         msg = ("第 %d 阶段只够装 %d 字（max_tokens=%d × 系数 %.1f × 安全 %.1f），"
                "目标 %d 字 —— 拒绝执行，不发起模型调用。"
                % (int(stage), int(limit / (coeff * safety)), limit, coeff, safety, words))
+        if not calibrated:
+            msg += "（系数未实测标定，结论可能偏严）"
+        return False, msg, detail
+    return True, "", detail
+
+
+def check_whole_chapter_capacity(cfg, words, prompt="prompts/stage4_refine_paragraph.md",
+                                 root="."):
+    """任务要求模型**写回整章**时（段落精修这类），开跑前算装不装得下。
+
+    与 4/5/6 同一套系数（J13/J14），区别只是提示词不按阶段号取 —— 段落精修的
+    卡是 `stage4_refine_paragraph.md`，它同样要求"除目标段外逐字不变"地把整章写回，
+    所以**装不下时模型会自己删**，`finish_reason` 还可能是 `stop`（2026-10-30 的实证）。
+    返回 (ok, message, detail)；ok=False 时调用方**不许发起任何模型请求**。
+    """
+    words = int(words or 0)
+    if not words:
+        return False, "这次要写多少字未知 —— 拒绝执行（不猜）", {}
+    declared = prompt_max_tokens(prompt, root)
+    tl = ((cfg or {}).get("budget") or {}).get("token_limit") or {}
+    cap = 0
+    if isinstance(tl, dict) and tl.get("enabled"):
+        try:
+            cap = int(tl.get("per_request_max_tokens") or 0)
+        except (TypeError, ValueError):
+            cap = 0
+    cands = [x for x in (declared, cap) if x]
+    limit = min(cands) if cands else 0
+    coeff, safety, calibrated = _factors(root)
+    need = needed_tokens(words, coeff, safety)
+    detail = {"prompt": prompt, "words": words, "declared": declared, "cap": cap,
+              "max_tokens": limit, "needed": need, "coeff": coeff, "safety": safety,
+              "calibrated": calibrated}
+    if not limit:
+        # 卡片文件整个缺失（临时工作区/自造项目根）→ 不校验，但要留下"未校验"的痕迹；
+        # 卡片在、却没写 max_tokens → 那是配置坏了，拒绝（与 4/5/6 同口径）。
+        if not (Path(root) / prompt).exists():
+            detail["skipped"] = "读不到 %s（文件不存在）→ 本次没做预算校验" % prompt
+            return True, "", detail
+        return False, ("%s 没写 max_tokens（配置不全）—— 拒绝执行" % prompt), detail
+    if limit < need:
+        msg = ("预算装不下：这次要模型写回整章 %d 字（≈%d tokens），本次请求上限 %d "
+               "—— 已拒绝，没有发模型调用。解决：把 %s 的 max_tokens 调大。"
+               % (words, need, limit, prompt))
         if not calibrated:
             msg += "（系数未实测标定，结论可能偏严）"
         return False, msg, detail

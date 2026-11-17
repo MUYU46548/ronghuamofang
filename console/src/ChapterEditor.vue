@@ -546,7 +546,13 @@ async function applyCandidate(force = false) {
       return;
     }
     if (r.status === 200 && r.data && r.data.ok) {
-      emit("say", "已采用这一段（旧版进了段落历史，可回退）");
+      // 采用之后系统会按原批注重算那一个指标（2026-11-17）：达标自动收口，不达标明说仍越线。
+      // 这里必须把结论说出来 —— 否则“还要不要再改”又回到靠作者猜。
+      const rc = r.data.recheck || null;
+      if (rc && rc.error) emit("say", "已采用这一段，但重算没跑成：" + rc.error);
+      else if (rc && rc.resolved === true) emit("say", "已采用这一段 · " + rc.evidence);
+      else if (rc && rc.resolved === false) emit("say", "已采用这一段 · " + rc.evidence + "（这条批注仍未收口）");
+      else emit("say", "已采用这一段（旧版进了段落历史，可回退）");
       cand.value = null;
       conflict.value = null;
       await loadWriteLog();
