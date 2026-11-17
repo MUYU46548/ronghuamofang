@@ -93,12 +93,19 @@ SUITES = {
         "browser": False,
         "env": {"NF_E2E_PARA_PORT": "{para_api}"},
     },
+    "rewrite": {
+        "script": "e2e_rewrite_lands.py",
+        "desc": "整章重写（产物真落盘 / 只动目标章 / 失败自动放回旧稿）",
+        "stack": False,
+        "browser": False,
+        "env": {"NF_E2E_REWRITE_PORT": "{rewrite_api}"},
+    },
 }
 
 # 默认端口：与各脚本历史默认值一致，便于对照旧文档
 DEFAULT_PORTS = {"site": 8091, "mock": 8798, "cold": 8797, "real": 8799,
                  "metrics_api": 18767, "discuss_api": 18766, "stop_api": 18791,
-                 "para_api": 18792}
+                 "para_api": 18792, "rewrite_api": 18793}
 
 
 # ---------------------------------------------------------------------------
@@ -360,7 +367,7 @@ def main(argv=None) -> int:
         # 只跑自带服务的套件时，也把端口挑好注入（它们内部会自己起）
         print("[run_all] 本组套件自带服务，端口：%s" % ", ".join(
             "%s=%d" % (k, v) for k, v in ports.items() if k in
-            ("site", "metrics_api", "discuss_api")))
+            ("site", "metrics_api", "discuss_api", "stop_api", "para_api", "rewrite_api")))
 
     results = []
     try:

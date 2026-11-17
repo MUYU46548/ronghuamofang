@@ -536,6 +536,34 @@ def _write_generic(text):
     return out
 
 
+def _fail_injected(name):
+    """测试用失败注入（2026-11-17）：`NF_FAKE_FAIL_FILE` 指向的文件存在 → 本次任务失败。
+
+    为什么要有：e2e 要验“整章重写失败 → 旧稿自动放回 raw/”这条数据安全网，
+    而假引擎下 stage4 永远写得出达标正文，失败无法自然发生；只能显式注入。
+    默认不设该环境变量（或文件不存在）→ 行为与以前完全一致。
+
+    ⚠️ `run_task` 与 `run_task_stream` **两处都要判**：stage4 走的是
+    `_run_task_safe`，它在客户端有 `run_task_stream` 时优先用流式 —— 只补非流式那一条
+    等于注入从未生效（2026-11-17 实测：失败用例假绿，job 报 exit=0）。
+    """
+    at = os.environ.get("NF_FAKE_FAIL_FILE")
+    if not at or not Path(at).exists():
+        return None
+    return {
+        "exit_code": 1,
+        "stdout_tail": "[fake] 注入失败（NF_FAKE_FAIL_FILE）: " + name,
+        "tokens": 0,
+        "tokens_out": 0,
+        "cost_yuan": 0.0,
+        "estimated": True,
+        "provider": "fake",
+        "model": "fake",
+        "requests": 1,
+        "stopped": False,
+    }
+
+
 class FakeClient:
     """与 HermesClient/OpenAICompatClient 同签名 run_task/write_task。"""
 
@@ -663,6 +691,9 @@ class FakeClient:
         path = Path(task_file)
         text = read_text(path)
         name = path.name
+        _fail = _fail_injected(name)
+        if _fail is not None:
+            return _fail
         stdout_override = None
         if name.startswith("stage1_scraps"):
             written = _write_scraps_merge(text)
@@ -709,6 +740,9 @@ class FakeClient:
         path = Path(task_file)
         text = read_text(path)
         name = path.name
+        _fail = _fail_injected(name)
+        if _fail is not None:
+            return _fail
         if name.startswith("stage1_scraps"):
             written = _write_scraps_merge(text)
         elif name.startswith("stage1"):
