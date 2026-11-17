@@ -294,10 +294,15 @@ stage4 也补了同一道校验（此前是唯一既不设上限、也不校验�
    + `check`（自检），再按上表取具体命令。
 2. **HTTP**（`nf_api` on `127.0.0.1:8765`）：只在需要“正在跑的那个任务”的状态、
    流式 token、SSE 时才用。只读转发用 `nfctl.py api <GET路径>`。
-3. **MCP**：`nf_mcp.py` 在 **TCP 127.0.0.1:8766** 暴露白名单工具（`tools/list` 返回
-   **27 个**：25 个 HTTP loopback + 2 个 LOCAL 直调 —— ⚠️ **数量勿写死**，以
-   `nf_mcp.MCP_TOOLS` 为唯一事实来源），`tools/call` 经 HTTP loopback 复用
+3. **MCP**：`nf_mcp.py` 在 **TCP 127.0.0.1:8766** 暴露白名单工具（`tools/list` 数量
+   **以 `nf_mcp.MCP_TOOLS` 为唯一事实来源，勿写死**；2026-11-17 为 51 个 = 48 HTTP
+   loopback + 3 LOCAL 直调），`tools/call` 经 HTTP loopback 复用
    现有域模块。审批类/项目类/模式切换端点**永不**暴露给 MCP。
+   **读改链（2026-11-17 补齐）**：Agent 面有 `nf_refine_paragraph`（= `preview`，**只算不落**）、
+   `nf_paragraph_pending|diff|drop`、`nf_chapters_paragraphs`、`nf_chapter_annotations`、
+   `nf_structure_metrics`、`nf_metrics_annotate`；`POST /chapters/paragraph/apply`（采用，写正文）
+   **不在**白名单且要求 GUI 双因子 —— 候选 Agent 可生成，进不进书归作者。
+   判据：`tests/unit/test_read_modify_surface.py`。
    **垫片自启动（2026-10-06）**：`nf_mcp_stdio_bridge.py` 起来时若 8765 `/health` 不通
    会**代拉一次 nf_api**（连带起 8766），最多等 12s；逃生门 `NF_BRIDGE_NO_AUTOSTART=1`
    （测试/握手自检必设）。配置段在 GUI“设置 → 接入其他 Agent”按运行态生成；

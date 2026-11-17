@@ -471,7 +471,10 @@ MCP_TOOLS = [
     },
     {
         "name": "nf_refine_paragraph",
-        "description": "段落级定点重生成（只改写指定段落，不动其他部分）",
+        "description": "段落级定点重写 —— **只算不落**：生成 3 条候选写进 para_pending.json，"
+                       "正文一个字不动；返回 job_id，算完用 nf_paragraph_pending 看改前/改后。"
+                       "**采用（写正文）是作者在墨坊里点的**，Agent 不代拍。"
+                       "要改段落先调 nf_chapter_annotations / nf_structure_metrics 看判据，别照着感觉改。",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -481,20 +484,117 @@ MCP_TOOLS = [
                 },
                 "paragraph_index": {
                     "type": "integer",
-                    "description": "段落号（0-indexed，按空行切分后的顺序）",
+                    "description": "段落号（0-indexed，用 nf_chapters_paragraphs 取）",
                 },
                 "feedback": {
                     "type": "string",
                     "description": '修改意见（如"把这段内心独白改成白描风格"）',
                 },
-                "dry_run": {
-                    "type": "boolean",
-                    "description": "只生成任务不实际执行（默认 false）",
+                "annotation_id": {
+                    "type": "string",
+                    "description": "批注号（可选）：带它时候选与这条批注绑定，批注从 open 变 addressed",
                 },
             },
             "required": ["chapter", "paragraph_index", "feedback"],
         },
-        "_http": ("POST", "/refine/paragraph", None),
+        "_http": ("POST", "/chapters/paragraph/preview", None),
+    },
+    {
+        "name": "nf_paragraph_pending",
+        "description": "读待采用的段落候选（改前/改后 + 最多 3 条并排 + 生成时的上下文）。"
+                       "**正文尚未改动**；有没有候选以 exists 为准，不要读成“没有批注”。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "chapter": {"type": "integer", "description": "章节号"},
+                "index": {"type": "integer", "description": "段落号（0-indexed）"},
+            },
+            "required": ["chapter", "index"],
+        },
+        "_http": ("GET", "/chapters/paragraph/pending", None),
+    },
+    {
+        "name": "nf_paragraph_drop",
+        "description": "放弃这一段待采用的候选（删候选，**正文不动**）。"
+                       "候选明显不合格时用它，别用“再改一次”把烂候选堆到 3 条。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "chapter": {"type": "integer", "description": "章节号"},
+                "paragraph_index": {"type": "integer", "description": "段落号（0-indexed）"},
+            },
+            "required": ["chapter", "paragraph_index"],
+        },
+        "_http": ("POST", "/chapters/paragraph/drop", None),
+    },
+    {
+        "name": "nf_chapters_paragraphs",
+        "description": "读一章的段落清单：段落号 + 原文 + 每段字数（零 token）。"
+                       "改段落前必须先用它取准段落号（段落按空行切分，0-indexed）。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "n": {"type": "integer", "description": "章节号"},
+                "layer": {"type": "string", "enum": ["raw", "checked", "refined"],
+                          "description": "哪一层（不传 = refined > checked > raw 逐层回退）"},
+            },
+            "required": ["n"],
+        },
+        "_http": ("GET", "/chapters/paragraphs", None),
+    },
+    {
+        "name": "nf_paragraph_diff",
+        "description": "看某一段改了什么：当前正文 vs 最新历史版本（返回字符级 diff）。"
+                       "给作者看改动范围用，零 token。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "n": {"type": "integer", "description": "章节号"},
+                "p": {"type": "integer", "description": "段落号（0-indexed）"},
+                "h1": {"type": "integer", "description": "历史版本 ID（可选，与 h2 成对比两版）"},
+                "h2": {"type": "integer", "description": "历史版本 ID（可选）"},
+            },
+            "required": ["n", "p"],
+        },
+        "_http": ("GET", "/chapters/paragraph/diff", None),
+    },
+    {
+        "name": "nf_chapter_annotations",
+        "description": "读这一章的段落批注清单与漂移判定（零 token）。**改稿的入口**："
+                       "open = 还没处理；drift/missing = 原句已被改掉，别照着旧段落号乱改。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "n": {"type": "integer", "description": "章节号"},
+                "layer": {"type": "string", "enum": ["raw", "checked", "refined"],
+                          "description": "哪一层（批注必须与作者正在看的层一致）"},
+            },
+            "required": ["n"],
+        },
+        "_http": ("GET", "/chapters/annotations", None),
+    },
+    {
+        "name": "nf_structure_metrics",
+        "description": "读六项分布型结构指标（连排对白 / 短对白比 / 段末短句比 / 说问密度 / "
+                       "角色句长差 / 极短段密度）与哪些章需人工抽样（零 token，只读已落盘结果）。"
+                       "**说“文风有问题”之前先调它**，别凭感觉。",
+        "inputSchema": {"type": "object", "properties": {}},
+        "_http": ("GET", "/review/structure", None),
+    },
+    {
+        "name": "nf_metrics_annotate",
+        "description": "把结构指标命中项变成可直接改的批注（写 data/state/annotations/，不动正文）。"
+                       "指标 → 定位 → 改段落 这条链的前半段；改哪一处仍由作者定。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "n": {"type": "integer", "description": "章节号"},
+                "codes": {"type": "string", "description": "指标代码，逗号分隔（可选，默认全部）"},
+                "limit": {"type": "integer", "description": "最多生成多少条批注（默认 40）"},
+            },
+            "required": ["n"],
+        },
+        "_http": ("POST", "/chapters/metrics/annotate", None),
     },
     {
         "name": "nf_paragraph_restore",
