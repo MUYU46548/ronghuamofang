@@ -184,6 +184,7 @@ try:
     from nf_api_domains import refine as dom_refine        # noqa: E402
     from nf_api_domains import runtime as dom_runtime      # noqa: E402
     from nf_api_domains import run_control as dom_run_control  # noqa: E402 (运行控制：叫停/接管/插话)
+    from nf_api_domains import config_write as dom_config_write  # noqa: E402 (引擎/供应商/风格笔记写入)
     from nf_api_domains import sandbox as dom_sandbox      # noqa: E402
     from nf_api_domains import setting_state as dom_setting_state  # noqa: E402
     from nf_api_domains import factory as dom_factory      # noqa: E402 (0.6.7 出厂/用户数据分治)
@@ -4158,95 +4159,9 @@ class Handler(BaseHTTPRequestHandler):
                 # 键名白名单/值校验/备份都在域模块里（判据只有一份）。
                 self._send(*_dom(dom_misc.handle_env_set(self, body)))
             elif p == "/config/engine":
-                # 切换执行引擎（config/system.yaml 的顶层键 `engine`）。
-                # 2026-10-31 新增：此前**只有读没有写** —— 设置页把 engine 当只读文字显示，
-                # 用户想从“直连”换到“Agent 子会话”（或反过来）只能手改 YAML，
-                # 而界面上那行字还写着“引擎与模型”，看起来能点。
-                eng = str(body.get("engine") or "").strip().lower()
-                if eng not in ("direct", "hermes", "self"):
-                    self._send(400, {"ok": False, "error":
-                        "engine 只能是 direct（直连模型，按量计费）、hermes"
-                        "（Agent 子会话，走订阅）或 self（只出任务书，不调模型）"
-                        "——收到 %r" % (body.get("engine"),)})
-                    return
-                try:
-                    from utils.config_io import set_section_scalar
-                    sys_yaml = ROOT / "config" / "system.yaml"
-                    if not sys_yaml.exists():
-                        self._send(400, {"ok": False, "error": "config/system.yaml 不存在"})
-                        return
-                    # 定向改写：**只动 engine 那一行**，其余注释与配置原样保留
-                    # （旧的两处模型写入用的是 yaml.dump 整份重写 → 注释全丢）
-                    w_ok, w_msg = set_section_scalar((), "engine", eng, path=sys_yaml)
-                    if not w_ok:
-                        self._send(400, {"ok": False, "error": "写入失败：" + w_msg})
-                        return
-                    cur_cfg, _ = load_all()
-                    _label = {"hermes": "Agent 子会话（走订阅）",
-                              "self": "只出任务书（不调用任何模型）"}.get(
-                                  eng, "直连模型（按量计费）")
-                    _note = {
-                        "hermes": ("对下一次运行生效（不需要重启客户端）。"
-                                   "agent 模式下 config 的 model.* 不参与运行，"
-                                   "模型由外部 Agent 决定。"),
-                        "self": ("对下一次运行生效（不需要重启客户端）。"
-                                 "本引擎**不调用任何模型**：每阶段把任务书写到 "
-                                 "data/state/tasks/self/stageN/，执行完把产物写到位再重跑即可。"),
-                    }.get(eng, ("对下一次运行生效（不需要重启客户端）。"
-                                "直连按量计费，注意 system.yaml 的 "
-                                "budget.token_limit 止烧阈值。"))
-                    self._send(200, {
-                        "ok": True, "engine": eng,
-                        "message": "已切换引擎 → " + _label,
-                        "note": _note,
-                        "providers_count": len(cur_cfg.get("providers") or {}),
-                    })
-                except Exception as e:                      # noqa: BLE001
-                    self._send(500, {"ok": False,
-                                     "error": type(e).__name__ + ": " + str(e)[:200]})
+                self._send(*_dom(dom_config_write.handle_config_engine(self, body)))
             elif p == "/config/provider":
-                # 切换某阶段的 provider
-                role = str(body.get("role") or "")
-                new_provider = str(body.get("provider") or "")
-                if role not in ("default", "architect", "outliner", "writer", "checker", "reviewer", "polisher"):
-                    self._send(400, {"error": "role 须为 default/architect/outliner/writer/checker/reviewer/polisher"})
-                    return
-                if not new_provider:
-                    self._send(400, {"error": "provider 必填"})
-                    return
-                cfg, _ = load_all()
-                # 验证 provider 存在
-                if new_provider not in cfg.get("providers", {}):
-                    self._send(400, {"error": f"provider {new_provider} 不存在于 config/system.yaml"})
-                    return
-                cfg["model"][role]["provider"] = new_provider
-                # 定向改写（2026-10-31）：原实现用 `yaml.dump(整份 cfg)` 覆盖写，
-                # **system.yaml 里的全部注释随之消失** —— 那些注释承载着止烧口径、
-                # 模型白名单原因、provider 注意事项。用户点一下下拉就把说明书删了，
-                # 而且没有任何提示。同族缺陷也见于 /models/switch。
-                try:
-                    from utils.config_io import set_section_scalars
-                    w_ok, w_msg = set_section_scalars(
-                        ("model", role), {"provider": new_provider},
-                        path=ROOT / "config" / "system.yaml")
-                except Exception as e:                      # noqa: BLE001
-                    w_ok, w_msg = False, type(e).__name__ + ": " + str(e)[:160]
-                if not w_ok:
-                    self._send(400, {"ok": False, "error": "写入失败：" + w_msg})
-                    return
-                # 换了供应商、模型名未必跟着换 —— 模型名跨供应商**不通用**，
-                # 而本项目对 400/404 是 raise、**不走 fallback**（见 llm_client._post_chat），
-                # 留着旧模型名等于该角色直接哑火。这里**不阻断**（available_models 未必全），
-                # 只回报 warning 由 GUI 提示。
-                cur_model = str((cfg["model"].get(role) or {}).get("id") or "")
-                avail = ((cfg.get("providers", {}) or {}).get(new_provider) or {}).get(
-                    "available_models") or []
-                warning = ""
-                if cur_model and avail and cur_model not in avail:
-                    warning = ("模型“" + cur_model + "”不在 " + new_provider +
-                               " 的 available_models 内，运行时会 404 —— 请同时改选模型")
-                self._send(200, {"ok": True, "role": role, "provider": new_provider,
-                                 "model": cur_model, "warning": warning})
+                self._send(*_dom(dom_config_write.handle_config_provider(self, body)))
             elif p == "/project/archive":
                 name = str(body.get("name") or "").strip()
                 force = bool(body.get("force"))
@@ -4442,25 +4357,7 @@ class Handler(BaseHTTPRequestHandler):
                 # 还原出厂默认（读 prompts/factory/，仍经 save_prompt 落盘 → 也进备份链）
                 self._send(*_dom(dom_runtime.handle_prompts_factory_restore(self, body)))
             elif p == "/config/style_notes":
-                # 保存用户风格笔记：定向改写 project.yaml（保留注释），写入前备份
-                content = body.get("content")
-                if content is None:
-                    self._send(400, {"ok": False, "error": "缺少 content 字段"})
-                    return
-                if not isinstance(content, str):
-                    self._send(400, {"ok": False, "error": "content 必须为字符串"})
-                    return
-                if len(content) > 4000:
-                    self._send(400, {"ok": False, "error": "风格笔记过长（上限 4000 字）"})
-                    return
-                try:
-                    from utils.project_config import set_style_notes
-                    ok, msg = set_style_notes(content)
-                except Exception as e:
-                    self._send(500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]})
-                    return
-                self._send(200 if ok else 400,
-                           {"ok": ok, "message": msg} if ok else {"ok": False, "error": msg})
+                self._send(*_dom(dom_config_write.handle_config_style_notes(self, body)))
             elif p == "/config/form":
                 # 文体写入（book.form）：只允许 FORMS 里的值，写后回读校验。
                 self._send(*_dom(dom_project.handle_config_form_set(self, body)))

@@ -138,6 +138,20 @@ def main():
         code, d = req("GET", "/state")
         check("整份配置仍可被读（/state 200）", code == 200, code)
 
+        # 【C1b】2026-11-17 补：原来 target 只在 direct/hermes 之间来回，self 这一支
+        # 从没被切过 —— 于是"把 self 从白名单删掉"这种回退，20 条断言一条都不红。
+        # self 是作者实际会用的模式（绕开 hermes 卡死的那条路），必须覆盖。
+        print("\n【C1b】切到 self 也受理（只出任务书模式）")
+        code, d = req("POST", "/config/engine", {"engine": "self"})
+        check("self 被接受（200）", code == 200 and d.get("ok") is True, (code, d))
+        check("回执说清不调用任何模型",
+              "不调用任何模型" in str(d.get("note") or ""), d.get("note"))
+        check("self 也真的写盘",
+              cfg.read_text(encoding="utf-8").splitlines()[0].strip() == "engine: self",
+              cfg.read_text(encoding="utf-8").splitlines()[:1])
+        code, d = req("POST", "/config/engine", {"engine": target})
+        check("切回 %s 成功" % target, code == 200 and d.get("ok") is True, d)
+
         print("\n【C2】非法引擎：400，且文件一个字节都不变")
         before = cfg.read_bytes()
         for bad in ("openai", "", "HERMES2", None):
