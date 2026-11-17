@@ -101,7 +101,12 @@ def main():
           src.find("_task_text += intervene.render_block") <
           src.find('client.write_task(task_dir, f"stage4_ch{n:02d}.md", _task_text)'),
           "注入应发生在 write_task 之前")
-    api_src = (ROOT / "scripts" / "nf_api.py").read_text(encoding="utf-8")
+    # 后端源码 = nf_api 分发器 + 它的域模块（2026-11-17：/intervene 的实体代码搬进
+    # nf_api_domains.run_control，分发器只剩一行转发。只看 nf_api 会把"转发行"当实现，
+    # 于是"没在跑时拒收"这条结构判据假红 —— 判据要跟着实现走，不能跟着文件走）。
+    api_src = ((ROOT / "scripts" / "nf_api.py").read_text(encoding="utf-8")
+               + (ROOT / "scripts" / "nf_api_domains" / "run_control.py")
+               .read_text(encoding="utf-8"))
     check("I6 API 有登记端点", 'p == "/intervene"' in api_src)
     check("I6 API 能读裁定账本", 'p == "/intervene/history"' in api_src)
     gui = (ROOT / "console" / "src" / "App.vue").read_text(encoding="utf-8")

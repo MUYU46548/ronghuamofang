@@ -183,6 +183,7 @@ try:
     from nf_api_domains import project as dom_project      # noqa: E402
     from nf_api_domains import refine as dom_refine        # noqa: E402
     from nf_api_domains import runtime as dom_runtime      # noqa: E402
+    from nf_api_domains import run_control as dom_run_control  # noqa: E402 (运行控制：叫停/接管/插话)
     from nf_api_domains import sandbox as dom_sandbox      # noqa: E402
     from nf_api_domains import setting_state as dom_setting_state  # noqa: E402
     from nf_api_domains import factory as dom_factory      # noqa: E402 (0.6.7 出厂/用户数据分治)
@@ -3603,106 +3604,19 @@ class Handler(BaseHTTPRequestHandler):
                 # 定价批量导入：confirm=false 预览 / true 落盘（GUI 粘贴框）。
                 self._send(*_dom(dom_misc.handle_costs_rates_import(self, body)))
             elif p == "/intervene":
-                # 运行中插一句（2026-11-02，清单第 4 条）：只对**下一章**生效，
-                # 不改大纲、不重写已写的章，用完即删。
-                # 没在跑时拒收 —— "先存着以后用"的指令到真跑时早过时了，
-                # 那时候该改的是大纲，不是排队等一句话。
-                text = str(body.get("instruction") or "").strip()
-                if not text:
-                    self._send(400, {"ok": False, "error": "instruction 不能为空"})
-                    return
-                _st = lock_guard.lock_status(str(_run_lock_path()))
-                if not (_st.get("held") and _st.get("alive")
-                        and _st.get("owner") == "pipeline"):
-                    self._send(400, {"ok": False, "error":
-                        "现在没有流水线在跑。这种指令只对\"下一章\"有意义，"
-                        "存着等下次跑会过时 —— 直接改章大纲或提示词更快。"})
-                    return
-                from utils import intervene as _iv_mod
-                _data = _iv_mod.write(text, target_chapter=None, root=ROOT)
-                self._send(200, {"ok": True, **_data,
-                                 "message": "已登记：下一章写作时生效，用完即删"})
+                self._send(*_dom(dom_run_control.handle_intervene(self, body)))
             elif p == "/pipeline/finish_chapter":
-                # “写完这章就停”（2026-11-02，F04）：与 /stop 是两个动作。
-                # /stop 立刻掐断（半截存残稿）；这个等本章入稿、标完成后再停。
-                from utils import pause_flag
-                on = bool(body.get("on", True))
-                if on:
-                    _d = pause_flag.request(root=ROOT)
-                    self._send(200, {"ok": True, "on": True, **_d,
-                                     "message": "已登记：这一章写完就停（那一章是完整的）"})
-                else:
-                    pause_flag.clear(root=ROOT)
-                    self._send(200, {"ok": True, "on": False, "message": "已取消"})
+                self._send(*_dom(dom_run_control.handle_finish_chapter(self, body)))
             elif p == "/lock/takeover":
-                # 人的绝对优先权（P5 · L-2）：接管只由界面发起（双因子）。
-                # 不动别人的进程 —— 流水线在下一章前的检查点自己看到 owner=human
-                # 再停（见 lock_guard.check_pipeline_should_stop）。
-                if not trusted_gui:
-                    self._send(403, {"ok": False,
-                                     "error": "接管施工权只能由界面发起；"
-                                              "外部 Agent 请等人释放后再写"})
-                    return
-                from utils.run_lock import RunLock
-                ok, msg = RunLock(str(_run_lock_path())).takeover("human", by="界面")
-                st = lock_guard.lock_status(str(_run_lock_path()))
-                self._send(200 if ok else 409, {"ok": ok, "message": msg, **st})
+                self._send(*_dom(dom_run_control.handle_lock_takeover(self, body)))
             elif p == "/lock/release":
-                # L-4：人显式释放之后 AI 才能继续。force：锁在谁手里都清掉。
-                if not trusted_gui:
-                    self._send(403, {"ok": False,
-                                     "error": "释放施工权只能由界面发起"})
-                    return
-                from utils.run_lock import RunLock
-                RunLock(str(_run_lock_path())).release(force=True)
-                st = lock_guard.lock_status(str(_run_lock_path()))
-                self._send(200, {"ok": True, "message": "已释放施工权", **st})
+                self._send(*_dom(dom_run_control.handle_lock_release(self, body)))
             elif p == "/stop":
-                job_id = str(body.get("job_id") or "")
-                if not job_id:
-                    self._send(400, {"error": "job_id 必填"})
-                    return
-                # 先尝试流式停止
-                with STREAMERS_LOCK:
-                    streamer = STREAMERS.get(job_id)
-                if streamer:
-                    streamer["stop"].set()
-                    self._send(200, {"ok": True, "message": "已发送停止信号: " + job_id})
-                    return
-                # 非流式：设置全局停止标志
-                with STOP_LOCK:
-                    STOP_EVENTS[job_id] = threading.Event()
-                    STOP_EVENTS[job_id].set()
-                self._send(200, {"ok": True, "message": "已设置停止标志: " + job_id + "（当前阶段完成后停止）"})
+                self._send(*_dom(dom_run_control.handle_stop(self, body)))
             elif p == "/stream/pause":
-                job_id = str(body.get("job_id") or "")
-                if not job_id:
-                    self._send(400, {"error": "job_id 必填"})
-                    return
-                with STREAMERS_LOCK:
-                    streamer = STREAMERS.get(job_id)
-                if streamer:
-                    if "pause" not in streamer:
-                        streamer["pause"] = threading.Event()
-                    streamer["pause"].set()
-                    # 2026-11-02：措辞改准。这个 Event 只在包装器的 _push 里被检查，
-                    # 模型调用不会停 —— 旧文案“已暂停流式输出”会让人以为不再计费。
-                    self._send(200, {"ok": True, "model_running": True,
-                                     "message": "已暂停前端显示（模型仍在生成并计费）: " + job_id})
-                else:
-                    self._send(404, {"error": "stream not found: " + job_id})
+                self._send(*_dom(dom_run_control.handle_stream_pause(self, body)))
             elif p == "/stream/resume":
-                job_id = str(body.get("job_id") or "")
-                if not job_id:
-                    self._send(400, {"error": "job_id 必填"})
-                    return
-                with STREAMERS_LOCK:
-                    streamer = STREAMERS.get(job_id)
-                if streamer and "pause" in streamer:
-                    streamer["pause"].clear()
-                    self._send(200, {"ok": True, "message": "已恢复流式输出: " + job_id})
-                else:
-                    self._send(404, {"error": "stream not found: " + job_id})
+                self._send(*_dom(dom_run_control.handle_stream_resume(self, body)))
             elif p == "/approve":
                 stage = int(body.get("stage") or 0)
                 # 阶段 8（Markdown 导出）同样是可审批的阶段：它出现在 /state，

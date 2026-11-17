@@ -35,6 +35,9 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 ROOT = Path(__file__).resolve().parents[2]
 APP = ROOT / "console" / "src" / "App.vue"
 API = ROOT / "scripts" / "nf_api.py"
+# 2026-11-17：pause 的实体代码搬进运行控制域，分发器只剩一行转发。
+# 判据要跟着**实现**走（否则截到的是转发那行，P3/P4b 假红）。
+RUN_CONTROL = ROOT / "scripts" / "nf_api_domains" / "run_control.py"
 PASS, FAIL = [], []
 
 
@@ -58,13 +61,25 @@ def strip_comments(text, kind):
     return re.sub(r"^\s*#.*$", "", text, flags=re.M)
 
 
-def pause_block(src):
-    """截出 `/stream/pause` 那个 elif 分支的源码（到下一个 elif 为止）。"""
-    i = src.find('p == "/stream/pause"')
-    if i < 0:
-        return ""
-    j = src.find('elif p ==', i)
-    return src[i:j if j > 0 else i + 2000]
+def pause_block(src, dom=None):
+    """截出 pause 的实现段。
+
+    两处都找，取**最长**那段：实体代码必然比分发器里的一行转发长。
+    - 分发器分支：`p == "/stream/pause"` 到下一个 `elif p ==`
+    - 域模块：`def handle_stream_pause` 到下一个顶格 `def`
+    """
+    cands = []
+    for s in (src, dom or ""):
+        if not s:
+            continue
+        i = s.find('p == "/stream/pause"')
+        if i < 0:
+            i = s.find("def handle_stream_pause")
+            if i < 0:
+                continue
+        ends = [x for x in (s.find("elif p ==", i), s.find("\ndef ", i + 1)) if x > 0]
+        cands.append(s[i:min(ends) if ends else i + 2000])
+    return max(cands, key=len) if cands else ""
 
 
 def main():
@@ -76,6 +91,7 @@ def main():
     api_raw = API.read_text(encoding="utf-8")
     app = strip_comments(app_raw, "vue")
     api = strip_comments(api_raw, "py")
+    dom_api = strip_comments(RUN_CONTROL.read_text(encoding="utf-8"), "py")
 
     # ---- P1 三句假话必须消失 ----
     lies = [
@@ -92,12 +108,13 @@ def main():
           "变量/输入框还在" if "streamPromptOverride" in app else "")
 
     # ---- P3 响应带事实字段 ----
-    blk = pause_block(api)
+    blk = pause_block(api, dom_api)
     check("P3 能截到 pause 分支", bool(blk), "没找到 /stream/pause")
     check("P3 pause 响应带 model_running=True", '"model_running": True' in blk,
           blk[:160])
-    check("P6 后端不再写\u300c已暂停流式输出\u300d", "已暂停流式输出" not in api,
-          "旧文案还在 nf_api.py")
+    check("P6 后端不再写\u300c已暂停流式输出\u300d",
+          "已暂停流式输出" not in api and "已暂停流式输出" not in dom_api,
+          "旧文案还在分发器或运行控制域")
 
     # ---- P4 结构证据：pause 分支没有中断调用 ----
     if blk:
