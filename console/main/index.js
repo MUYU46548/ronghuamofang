@@ -379,15 +379,10 @@ function getWorkspaceSource() {
 //   · 前端（asar，不走种子）：项目页出厂徽标 / 启动提示词剥离说明书 /
 //     阶段复制改任务简报（原样贴模板会被外部 Agent 按红线判“模板不是任务”停工）。
 // **先 bump 再 electron-builder**。
-const SEED_VERSION = 94;   // 0.9.4: 产品行为不变 —— 只把验收基建铺进 payload
-                            //   · tests/e2e 新增整章重写落盘 / 偏短章策略两套（工作区按需可跑）
-                            //   · fake_client：失败注入 + 短稿注入 + 扩写/段群路径与字数解析修正
-                            //   · 其余为 docs 账目；工作区刷新判据仍是 sha256 逐文件比对
-                            //   · payload scripts：obsidian_bridge/kb_index/stage4 多库（当前库优先 + 冲突点名）；
-                            //     writing_form 的 style_prompt_wired 改按文件存在判定；intervene 裁定账本；
-                            //     tavern_import（酒馆角色卡/世界书导入）；ai_voice（零 token AI 腔扫描）
-                            //   · payload prompts：新增 letter/episodic 写法指导（style + para 四份）
-                            //   · payload examples/samples：自造文体样本与 AI 腔对照
+const SEED_VERSION = 95;   // 0.9.5: 读改链语义补齐 —— 候选卡显式写“模型的理解”（没写标“未复述”）、
+                            //   批注按未收口/已收口分组并可一键跳到段落、精修页签改称“直接改正文”。
+                            //   payload prompts：stage4_refine_paragraph 新增 ===INTENT=== 段。
+                            //   工作区刷新判据仍是 sha256 逐文件比对；docs 与泄露门禁归零属账目。
                             //   · 前端（asar）：内容区单档 1600px、多库面板（启用/停用/冲突检查/加入我的库）、
                             //     段落快捷改法、酒馆导入按钮、插话记录、判定事件分类表编辑器
                             //   · 前端（asar）：左侧 216px 导航（写作/审校/系统 + 底部工具栏）、

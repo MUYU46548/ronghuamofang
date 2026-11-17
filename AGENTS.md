@@ -241,7 +241,11 @@ stage5 的批大小由“装得下几章”反推（`judge.budget.items_per_requ
 stage4 也补了同一道校验（此前是唯一既不设上限、也不校验的阶段）。
 细节 → `docs/agents/judge-engine.md`。
 
-## DSH 执行层（`engine: dsh`，2026-11-17 接入）
+## DSH 执行层（`engine: dsh`，2026-11-17 接入；**冻结资产**）
+
+> **冻结**：这一层只保留“引擎替换”这半边，不再扩。读改链走墨坊界面（章节编辑器的候选/采用），
+> 需要 DSH 会话里读改时由 `dsh-novelforge` 插件转调 —— 不在墨坊仓里再加 DSH 专属逻辑。
+> 依据与“不做清单”：`docs/开发路线-读改接进DSH-20261117.md`。
 
 **一句话**：`engine: dsh` 时，每次模型调用改成跑一次
 `dsh --profile headless --json -`（任务从 stdin 进，stdout 是 NDJSON 事件流，退出码是权威判据）。

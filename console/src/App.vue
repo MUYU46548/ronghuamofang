@@ -7286,8 +7286,9 @@ onUnmounted(() => {
               <span class="eng-name">DSH 后台执行（走订阅）</span>
               <span v-if="models.engine === 'dsh'" class="eng-badge">使用中</span>
             </div>
-            <div class="eng-desc">由 DeepSeek Harness 在后台逐个跑任务，走你的订阅额度；每步比直连慢，但不用开界面。</div>
-            <div class="eng-tags"><span>走订阅</span><span>金额上限不生效</span></div>
+            <div class="eng-desc">由 DeepSeek Harness 在后台逐个跑任务，走你的订阅额度；每步比直连慢，但不用开界面。
+              它只换“谁在跑”，读稿改稿仍在墨坊界面里做。</div>
+            <div class="eng-tags"><span>走订阅</span><span>金额上限不生效</span><span>只替换引擎</span></div>
           </button>
           <button class="eng-card" :class="{ on: models.engine === 'self' }"
                   :disabled="engBusy" @click="switchEngine('self')">
