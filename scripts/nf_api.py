@@ -185,6 +185,8 @@ try:
     from nf_api_domains import runtime as dom_runtime      # noqa: E402
     from nf_api_domains import run_control as dom_run_control  # noqa: E402 (运行控制：叫停/接管/插话)
     from nf_api_domains import config_write as dom_config_write  # noqa: E402 (引擎/供应商/风格笔记写入)
+    from nf_api_domains import materials_write as dom_materials_write  # noqa: E402 (素材写侧)
+    from nf_api_domains import scraps_write as dom_scraps_write  # noqa: E402 (碎片写侧：保存/删除/提升)
     from nf_api_domains import sandbox as dom_sandbox      # noqa: E402
     from nf_api_domains import setting_state as dom_setting_state  # noqa: E402
     from nf_api_domains import factory as dom_factory      # noqa: E402 (0.6.7 出厂/用户数据分治)
@@ -4450,23 +4452,7 @@ class Handler(BaseHTTPRequestHandler):
                 except Exception as e:
                     self._send(400, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]})
             elif p == "/materials/save":
-                # 保存素材文本内容  (body: {name, content})
-                name = str(body.get("name") or "").strip()
-                content = body.get("content")
-                if not name:
-                    self._send(400, {"ok": False, "error": "name 必填"})
-                    return
-                if content is None or not isinstance(content, str):
-                    self._send(400, {"ok": False, "error": "content 必须为字符串"})
-                    return
-                try:
-                    from utils.materials_manager import MaterialsManager
-                    mm = MaterialsManager(ROOT / "materials" / "raw")
-                    res = mm.save_content(name, content)
-                    res["ok"] = True
-                    self._send(200, res)
-                except Exception as e:
-                    self._send(400, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]})
+                self._send(*_dom(dom_materials_write.handle_materials_save(self, body)))
             elif p == "/materials/delete":
                 # 删除素材（body: {name} 或 {names:[...], confirm:true}）
                 # 2026-11-05：改走归档回收站（可撤回）；单条沿用老形状。
@@ -4481,102 +4467,13 @@ class Handler(BaseHTTPRequestHandler):
                 # 撤回最近一步（移动搬回原目录 / 删除从回收站搬回）
                 self._send(*_dom(dom_materials.handle_materials_undo(self, body)))
             elif p == "/materials/remerge":
-                # 触发 stage1 重归并（清 fingerprint + 跑 stage1）
-                try:
-                    cfg, _ = load_all()
-                    # 真正清掉指纹，否则"素材无变化 → 复用设定集"会让按钮名不副实
-                    try:
-                        import json as _json
-                        from utils.file_io import read_text as _rt, write_text as _wt
-                        mp = ROOT / "data" / "setting" / "materials_manifest.json"
-                        if mp.exists():
-                            _m = _json.loads(_rt(mp))
-                            if _m.get("_fingerprint"):
-                                _m["_fingerprint"] = None
-                                _wt(mp, _json.dumps(_m, ensure_ascii=False, indent=2))
-                    except Exception as _e:
-                        print("[nf_api] 清指纹失败（不影响重归并）: " + str(_e))
-                    jid, err = start_job("remerge", act_run_stage(cfg, 1, 1))
-                    if err:
-                        self._send(409, {"error": err})
-                    else:
-                        self._send(202, {"job_id": jid, "message": "已触发素材重归并（阶段1）"})
-                except Exception as e:
-                    self._send(500, {"error": type(e).__name__ + ": " + str(e)[:200]})
+                self._send(*_dom(dom_materials_write.handle_materials_remerge(self, body)))
             elif p == "/scraps/save":
-                # 保存碎片正文（写前自动备份到 materials/original_scraps/_backup/）
-                name = str(body.get("name") or "").strip()
-                content = body.get("content")
-                okn, err = _safe_member(name)
-                if not okn:
-                    self._send(400, {"ok": False, "error": err})
-                    return
-                if not isinstance(content, str):
-                    self._send(400, {"ok": False, "error": "content 必须为字符串"})
-                    return
-                try:
-                    target = scraps_dir_path() / name
-                    if not target.is_file():
-                        self._send(404, {"ok": False, "error": "碎片不存在: " + name})
-                        return
-                    bak = _backup_copy(target, scraps_dir_path() / "_backup")
-                    target.write_text(content, encoding="utf-8")
-                    self._send(200, {"ok": True, "name": name,
-                                     "size": target.stat().st_size, "backup": bak})
-                except Exception as e:
-                    self._send(400, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]})
+                self._send(*_dom(dom_scraps_write.handle_scraps_save(self, body)))
             elif p == "/scraps/delete":
-                # 删除碎片：破坏性操作 → 必须 confirm + 先快照
-                name = str(body.get("name") or "").strip()
-                if not body.get("confirm"):
-                    self._send(400, {"ok": False,
-                                     "error": "删除碎片属破坏性操作，需传 confirm=true"})
-                    return
-                okn, err = _safe_member(name)
-                if not okn:
-                    self._send(400, {"ok": False, "error": err})
-                    return
-                try:
-                    target = scraps_dir_path() / name
-                    if not target.is_file():
-                        self._send(404, {"ok": False, "error": "碎片不存在: " + name})
-                        return
-                    snap_label = "before_scrap_delete_" + Path(name).stem[:20]
-                    snap_err = None
-                    try:
-                        snap_mod.snapshot(snap_label)   # 返回快照目录路径
-                    except Exception as e:      # noqa: BLE001
-                        snap_err = str(e)[:200]
-                    bak = _backup_copy(target, scraps_dir_path() / "_backup")
-                    target.unlink()
-                    self._send(200, {"ok": True, "name": name, "backup": bak,
-                                     "snapshot_error": snap_err})
-                except Exception as e:
-                    self._send(400, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]})
+                self._send(*_dom(dom_scraps_write.handle_scraps_delete(self, body)))
             elif p == "/scraps/promote":
-                # 勾选信息点 → 落盘成 materials/raw/<名>_<类型>.md
-                # 由 Python 写盘（模型写入白名单只有 data/**），覆盖前自动备份
-                card_name = str(body.get("card_name") or "").strip()
-                card_type = str(body.get("card_type") or "").strip()
-                points = body.get("points") or []
-                if not card_name:
-                    self._send(400, {"ok": False, "error": "card_name 必填"})
-                    return
-                if not isinstance(points, list) or not points:
-                    self._send(400, {"ok": False, "error": "points 必须是非空数组"})
-                    return
-                try:
-                    _, proj = load_all()
-                    path, bak = promote_to_card(
-                        card_name, card_type, points,
-                        open_questions=body.get("open_questions") or [],
-                        sources=body.get("sources") or [],
-                        book_name=(proj.get("book") or {}).get("name", ""),
-                        overwrite=body.get("overwrite", True))
-                    self._send(200, {"ok": True, "path": path, "backup": bak,
-                                     "hint": "已写入素材卡；下次跑 stage1 时进入设定集归并"})
-                except Exception as e:
-                    self._send(400, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]})
+                self._send(*_dom(dom_scraps_write.handle_scraps_promote(self, body)))
             elif p == "/proofread/run":
                 # 校对（stage 5.5，确定性 + 可选 LLM）。默认 dry_run=false（确定性部分零成本）
                 scope = body.get("scope")
