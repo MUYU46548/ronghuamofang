@@ -86,11 +86,19 @@ SUITES = {
         "browser": False,
         "env": {"NF_E2E_STOP_PORT": "{stop_api}"},
     },
+    "para": {
+        "script": "e2e_paragraph_refine.py",
+        "desc": "段落级精修（采用真改稿 / 冲突不覆盖 / 放弃不动）",
+        "stack": False,
+        "browser": False,
+        "env": {"NF_E2E_PARA_PORT": "{para_api}"},
+    },
 }
 
 # 默认端口：与各脚本历史默认值一致，便于对照旧文档
 DEFAULT_PORTS = {"site": 8091, "mock": 8798, "cold": 8797, "real": 8799,
-                 "metrics_api": 18767, "discuss_api": 18766, "stop_api": 18791}
+                 "metrics_api": 18767, "discuss_api": 18766, "stop_api": 18791,
+                 "para_api": 18792}
 
 
 # ---------------------------------------------------------------------------
