@@ -19,6 +19,13 @@
     <div v-if="data.structureCriteriaMissing && data.structureCriteriaMissing.length" class="meta cand-note">
       这几项结构标准还没设：{{ data.structureCriteriaMissing.join(" / ") }}（在“判定 → 改标准”里补上，重新择优才有）。
     </div>
+    <div v-if="data.judgeDefaulted && data.judgeDefaulted.length" class="meta cand-note">
+      判定依据里有几条用的是<b>出厂默认标准</b>（{{ data.judgeDefaulted.join(" / ") }} 没有设值）——
+      它算出来的“几处”不是按你的标准算的，补上口径再看更准。
+    </div>
+    <div v-if="data.judgeOutlineMissing" class="meta cand-note">
+      本章还没有章纲：章纲类两条（章纲密度、事件落地）无从判断 —— 不是“通过”，是没依据。
+    </div>
     <div class="meta cand-note">
       同一章重写时多写几版，按字数 / 病灶词 / 段落 / 复读 / 预算五项算出分数，
       <b>每条扣分都写清楚</b>；自动留下分最高那版，你也可以在这里改用另一版。
@@ -60,6 +67,29 @@
           </template>
           <div v-else-if="c.structure && c.structure.metrics" class="meta">结构指标：六项都在标准内</div>
           <div v-else class="meta">结构指标没算出来（判定标准没设全，或这一版没有可用数据）</div>
+        </div>
+        <!-- 判定依据预览（2026-11-18）：这版一进阶段 5 会被哪几条确定规则拦下。
+             只给依据、不给档位 —— 分数照旧只用来排序，结论归判定引擎与你。 -->
+        <div v-if="c.status === 'ok'" class="cand-judge">
+          <template v-if="c.judge && c.judge.by_rule && c.judge.by_rule.length">
+            <div class="cand-judge-t">
+              <b>判定依据：{{ c.judge.by_rule.length }} 条规则会拦</b>
+              <span class="meta">（共 {{ c.judge.total }} 处）</span>
+            </div>
+            <ul class="cand-judge-list">
+              <li v-for="r in c.judge.by_rule" :key="r.criterion">
+                <b>{{ r.name }}</b> · {{ r.hits }} 处<template v-if="r.fix"> · 改法：{{ r.fix }}</template>
+                <div class="meta cand-judge-why">{{ r.why }}</div>
+              </li>
+            </ul>
+          </template>
+          <div v-else-if="c.judge && c.judge.total === 0" class="meta">
+            判定依据：这几条确定规则一条都没触发<template v-if="c.judge.outline_used === false">（但本章没有章纲，章纲类两条无从判断）</template>
+          </div>
+          <div v-else-if="data.judgeAvailable === false" class="meta">
+            判定依据没算出来：{{ data.judgeReason }}
+          </div>
+          <div v-else class="meta">判定依据：这版生成时还没有这项预览（再跑一次多写几版就有）</div>
         </div>
         <pre class="cand-text">{{ preview(c.text) }}</pre>
         <button class="mini cand-apply" :disabled="busy || c.status !== 'ok' || c.id === appliedId"
@@ -161,7 +191,11 @@ async function load() {
     const data_ = payload(d);
     exists.value = !!data_.exists;
     data.value = { chosen: data_.chosen || "", candidates: data_.candidates || [],
-                   structureCriteriaMissing: data_.structure_criteria_missing || [] };
+                   structureCriteriaMissing: data_.structure_criteria_missing || [],
+                   judgeAvailable: data_.judge_available,
+                   judgeReason: data_.judge_reason || "",
+                   judgeDefaulted: data_.judge_defaulted || [],
+                   judgeOutlineMissing: !!data_.judge_outline_missing };
     appliedId.value = data_.applied_by_author || "";
     msg.value = data_.exists
       ? ("共 " + (data_.candidates || []).length + " 版，自动选中 " + (data_.chosen || "未定"))
@@ -221,6 +255,11 @@ onMounted(() => {
 .cand-score { font-size: 18px; }
 .cand-reasons { margin: 0; padding-left: 18px; font-size: 12.5px; line-height: 1.65; }
 .cand-struct { font-size: 12px; line-height: 1.5; }
+.cand-judge { font-size: 12px; line-height: 1.55; padding-top: 4px; border-top: 1px dashed var(--border); }
+.cand-judge-t { display: flex; gap: 4px; align-items: baseline; flex-wrap: wrap; }
+.cand-judge-list { margin: 2px 0 0; padding-left: 16px; }
+.cand-judge-list li { margin-bottom: 2px; }
+.cand-judge-why { font-size: 11.5px; opacity: 0.85; }
 .cand-struct-t { margin-bottom: 2px; }
 .cand-struct-list { margin: 0; padding-left: 16px; color: var(--warn, #b8860b); }
 .cand-reasons .bad { color: var(--warn, #b8860b); }

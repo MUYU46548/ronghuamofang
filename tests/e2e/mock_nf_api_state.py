@@ -472,6 +472,11 @@ def candidates_payload(n):
         # 结构证据（2026-11-17）：三种分支各给一版 —— 都在标准内 / 越线需抽样 / 没算出来。
         "structure_criteria_missing": [],
         "needs_manual": ["cand1"],
+        # 判定依据预览（2026-11-18）：只产依据不给档位；三种分支同样各给一版。
+        "judge_available": True,
+        "judge_reason": "",
+        "judge_defaulted": ["J05"],
+        "judge_outline_missing": True,
         "candidates": [
             {"id": "cand1", "status": "ok", "score": 71.0, "words": 3180,
              "reasons": ["字数低于区间 4,000 汉字（3,180 汉字，差 20.5%）",
@@ -483,6 +488,13 @@ def candidates_payload(n):
                                            "value": 0.42, "limit": 0.25, "direction": "max",
                                            "hint": "独立成段的短警句太多 —— 说教味"}],
                             "na": [], "needs_manual": True},
+             "judge": {"total": 11, "outline_used": False, "by_rule": [
+                 {"criterion": "J03", "name": "长句上限", "hits": 3, "count": 3,
+                  "why": "这句 78 字，超过口径 60 字 —— 一句里塞了多个动作/多段信息",
+                  "fix": "拆句", "para": 4},
+                 {"criterion": "J04", "name": "复读句", "hits": 2, "count": 8,
+                  "why": "同一句重复 4 次 —— 读者第二次就跳过，等于没写",
+                  "fix": "删重复/换说法", "para": 9}]},
              "text": _cand_text("cand1", 3180)},
             {"id": "cand2", "status": "ok", "score": 84.5, "words": 4260,
              "reasons": ["字数在区间内（4,260 汉字，区间 4,000–7,200）",
@@ -491,11 +503,13 @@ def candidates_payload(n):
                                        "speaker_spread": 9.5, "aphorism_density": 0.05,
                                        "dialogue_cover": 0.31, "avg_para_len": 62.0},
                             "triggered": [], "na": [], "needs_manual": False},
+             "judge": {"total": 0, "outline_used": False, "by_rule": []},
              "text": _cand_text("cand2", 4260)},
             {"id": "cand3", "status": "ok", "score": 66.5, "words": 5240,
              "reasons": ["字数在区间内（5,240 汉字，区间 4,000–7,200）",
                          "病灶词 14 次（2.7 次/千字）", "离目标中值（5,600 汉字）6%"],
              "structure": {},
+             "judge": {},
              "text": _cand_text("cand3", 5240)},
         ],
     }

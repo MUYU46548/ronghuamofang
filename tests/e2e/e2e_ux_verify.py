@@ -1525,6 +1525,21 @@ def test_candidates(browser):
               "都在标准内" in cols.nth(0).inner_text(), cols.nth(0).inner_text()[:80])
         check("没算出结构的那版显式说明（不许静默空白）",
               "结构指标没算出来" in cols.nth(2).inner_text(), cols.nth(2).inner_text()[:80])
+        # 判定依据预览（2026-11-18）：这版一进阶段 5 会被哪几条确定规则拦下。
+        # 三种状态同样各说清（有依据 / 一条都没触发 / 没算出来），不给档位。
+        check("判定依据点名规则、处数与改法",
+              "长句上限" in cols.nth(1).inner_text() and "拆句" in cols.nth(1).inner_text(),
+              cols.nth(1).inner_text()[:160])
+        check("一条规则都没触发的那版明说（不当成空白）",
+              "一条都没触发" in cols.nth(0).inner_text(), cols.nth(0).inner_text()[:120])
+        check("没有判定依据的那版显式说明",
+              "判定依据" in cols.nth(2).inner_text()
+              and ("没算出来" in cols.nth(2).inner_text()
+                   or "没有这项预览" in cols.nth(2).inner_text()),
+              cols.nth(2).inner_text()[:120])
+        check("缺口径/缺章纲在面板层面点名（不混进单版依据里）",
+              "出厂默认标准" in page.inner_text("body")
+              and "章纲类两条" in page.inner_text("body"))
         check("自动选中的那版有标记", cols.locator(".pill:has-text('自动选中')").count() == 1)
         shot(page, "G1_candidates")
         btn = cols.nth(1).locator("button.cand-apply")

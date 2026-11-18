@@ -130,6 +130,79 @@ def _structure_evidence(texts: Dict[str, str], root: str | Path) -> Dict[str, An
         return {"error": "%s: %s" % (type(e).__name__, str(e)[:120])}
 
 
+#: 判定引擎里**正文类**规则要读的判据（与 rules.body_metrics 的 cal.get 同源）。
+#: 缺了不是“没通过”，而是“阈值回落到代码里的默认值”—— 必须如实点名，别冒充作者口径。
+JUDGE_BODY_CRITERIA = ("J01", "J02", "J03", "J04", "J05")
+
+
+def _judge_evidence(texts: Dict[str, str], chapter: int, root: str | Path) -> Dict[str, Any]:
+    """每版候选跑一遍判定引擎的确定性规则（零 token）—— **只产依据，不产档位**。
+
+    为什么放进择优结果：五维打分与结构六项回答的是“稳不稳”“像不像人写的”，
+    回答不了“这版一进阶段 5 会被哪几条规则拦下”。作者挑版本时最想知道的正是这个：
+    选分数高的那版，结果判定引擎照样报 8 处长句，白写。
+
+    与阶段 5 报告**同一份实现**（`utils/judge/rules.analyze_chapter`），差别只有三条纪律：
+      · **不 bootstrap**：口径表不存在/读不出来就如实报“无从判断”，绝不悄悄写一份出厂值
+        （评分不该往用户项目里写文件 —— 与 `_structure_evidence` 同一条纪律）；
+      · **缺阈值说缺**：判据没值时规则用代码默认值兜底，这里点名 `defaulted`，
+        界面上写清“这几条用的是默认值，不是你标定的口径”；
+      · **不给档位**：只回“哪条触发了几处 + 为什么”，不合成总分、不改排序。
+    """
+    try:
+        from utils.judge import rules as RU
+
+        p = Path(root or ".") / "data" / "judge" / "caliber.json"
+        doc = None
+        if p.exists():
+            try:
+                doc = json.loads(p.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                doc = None
+        if not isinstance(doc, dict):
+            return {"available": False,
+                    "reason": "口径表还没建立或读不出来（data/judge/caliber.json）—— "
+                              "没有口径就无从判断，这也是一种结论"}
+        limits = {c.get("id"): c.get("value") for c in doc.get("criteria") or []}
+        defaulted = [c for c in JUDGE_BODY_CRITERIA if limits.get(c) is None]
+
+        op = Path(root or ".") / "data" / "outline" / ("%02d.md" % chapter)
+        try:
+            outline = op.read_text(encoding="utf-8") if op.exists() else ""
+        except OSError:
+            outline = ""
+
+        per: Dict[str, Any] = {}
+        for cid, text in texts.items():
+            try:
+                a = RU.analyze_chapter(text, outline or None, chapter, limits)
+            except Exception as e:                               # noqa: BLE001
+                per[cid] = {"error": "%s: %s" % (type(e).__name__, str(e)[:120])}
+                continue
+            agg: Dict[str, Dict[str, Any]] = {}
+            for d in a.get("defects") or []:
+                k = str(d.get("rule_id") or "?")
+                it = agg.setdefault(k, {"criterion": k, "name": d.get("rule_name") or k,
+                                        "hits": 0, "count": 0,
+                                        "example": (d.get("sentence") or "")[:60],
+                                        "why": (d.get("why") or "")[:120],
+                                        "fix": d.get("fix_type") or "",
+                                        "para": d.get("paragraph_index")})
+                it["hits"] += 1
+                it["count"] += int(d.get("count") or 1)
+            per[cid] = {"total": int((a.get("counts") or {}).get("total") or 0),
+                        "by_rule": sorted(agg.values(), key=lambda x: -x["count"]),
+                        # 章纲类两条只在有章纲时才有依据：没章纲就明说“无从判断”，
+                        # 不许显示成“0 处 = 通过”（那是把缺数据读成合格）。
+                        "outline_used": bool(outline)}
+        return {"available": True,
+                "defaulted": defaulted,
+                "outline_missing": not bool(outline),
+                "candidates": per}
+    except Exception as e:                                       # noqa: BLE001
+        return {"available": False, "reason": "%s: %s" % (type(e).__name__, str(e)[:120])}
+
+
 def run_best_of_n(cfg, proj, chapter: int, feedback: str, n: int = 3,
                   client=None, task_dir: Optional[str] = None,
                   dry_run: bool = False, root: str | Path = ".",
@@ -206,6 +279,10 @@ def run_best_of_n(cfg, proj, chapter: int, feedback: str, n: int = 3,
         # “对白是不是一问一答、有没有说教味”—— 作者挑版本时真正要看的证据。
         struct = _structure_evidence({c["id"]: c["text"] for c in good}, root)
         struct_per = (struct or {}).get("candidates") or {}
+        # 判定依据预览（零 token）：这版一进阶段 5 会被哪几条规则拦下。
+        # 与结构六项同理，只给证据；排序仍只看五维分数。
+        judge = _judge_evidence({c["id"]: c["text"] for c in good}, chapter, root)
+        judge_per = (judge or {}).get("candidates") or {}
         ranked = []
         for c in cands:
             r = by_id.get(c["id"])
@@ -219,6 +296,8 @@ def run_best_of_n(cfg, proj, chapter: int, feedback: str, n: int = 3,
                 "reasons": (r or {}).get("reasons") or ([c.get("error")] if c.get("error") else []),
                 # 结构证据：没有就跑不到（缺口径/出错时是 {}，界面据此显式说明）
                 "structure": struct_per.get(c["id"]) or {},
+                # 判定依据：{} = 没跑成（口径表缺失/出错），界面据 judge_available 说清
+                "judge": judge_per.get(c["id"]) or {},
             })
         winner_id = rows[0]["id"]
         winner = next(c for c in good if c["id"] == winner_id)
@@ -241,6 +320,11 @@ def run_best_of_n(cfg, proj, chapter: int, feedback: str, n: int = 3,
             "chosen_score": rows[0]["score"],
             # 结构证据的口径状态：缺哪些判据、有没有版本需要人工抽样（零 token）
             "structure_criteria_missing": (struct or {}).get("limits_missing") or [],
+            # 判定依据预览的口径状态：能不能判、缺哪几条阈值、有没有章纲
+            "judge_available": bool((judge or {}).get("available")),
+            "judge_reason": (judge or {}).get("reason") or "",
+            "judge_defaulted": (judge or {}).get("defaulted") or [],
+            "judge_outline_missing": bool((judge or {}).get("outline_missing")),
             "needs_manual": sorted([c["id"] for c in ranked
                                     if (c.get("structure") or {}).get("needs_manual")]),
             "candidates": ranked,

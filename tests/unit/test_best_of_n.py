@@ -244,6 +244,88 @@ def case_structure_evidence():
           res2.get("needs_manual"))
 
 
+LONG_SENT = ("他" + "把灯芯挑到最亮" * 12 + "。")            # 一句 85 字 → 越过 J03 的 60 字线
+
+
+def case_judge_evidence():
+    """[7] 判定依据预览（2026-11-18）：只产依据、不产档位；缺口径说缺、不 bootstrap。"""
+    print("\n【7】判定依据预览：每版带“会被哪几条规则拦下”；缺口径/缺章纲如实说缺")
+    import utils.best_of_n as bon
+
+    cal = {"version": 1, "criteria": [
+        {"id": "J01", "value": 500}, {"id": "J02", "value": 20000},
+        {"id": "J03", "value": 60}, {"id": "J04", "value": 3},
+        {"id": "J05", "value": 10},
+    ]}
+    long_text = "## 第1章 起风\n\n" + (LONG_SENT * 2)
+
+    # A. 有口径、没章纲：长句/复读各自被点名，章纲类如实标“没章纲”
+    tmp = _mk_project()
+    (tmp / "data" / "judge").mkdir(parents=True)
+    (tmp / "data" / "judge" / "caliber.json").write_text(
+        json.dumps(cal, ensure_ascii=False), encoding="utf-8")
+    texts = [GOOD, REPEAT, long_text]
+    origin = bon.br.run_single_refine
+
+    def fake_refine(cfg, proj, chapter, feedback, client=None, task_dir=None, dry_run=False):
+        p = bon.br.pick_chapter_path(chapter)
+        p.write_text(texts.pop(0), encoding="utf-8")
+        return True, "ok", p
+
+    bon.br.run_single_refine = fake_refine
+    try:
+        res = bon.run_best_of_n({}, {}, 1, "改一下", n=3, root=tmp)
+    finally:
+        bon.br.run_single_refine = origin
+
+    ok_rows = [r for r in res.get("candidates") or [] if r.get("status") == "ok"]
+    check("A1 每版都带 judge 依据", all(r.get("judge") for r in ok_rows),
+          [(r.get("id"), bool(r.get("judge"))) for r in ok_rows])
+    check("A2 顶层说清“能不能判 / 有没有缺阈值”",
+          res.get("judge_available") is True and res.get("judge_defaulted") == [],
+          (res.get("judge_available"), res.get("judge_defaulted")))
+    rules_of = {r["id"]: [x.get("criterion") for x in
+                          (r["judge"].get("by_rule") or [])] for r in ok_rows}
+    check("A3 复读那版（cand2）点名 J04，好稿那版（cand1）不带长句项",
+          "J04" in rules_of.get("cand2", []) and "J03" not in rules_of.get("cand1", []),
+          rules_of)
+    check("A4 长句那版（cand3）点名 J03（长句上限）",
+          "J03" in rules_of.get("cand3", []), rules_of)
+    check("A5 没有章纲 → 明说“章纲类无从判断”，而不是当成 0 处通过",
+          res.get("judge_outline_missing") is True
+          and all(r["judge"].get("outline_used") is False for r in ok_rows),
+          res.get("judge_outline_missing"))
+    check("A6 依据带得出“为什么”（不是只有一个规则号）",
+          all(any((x.get("why") or "").strip() for x in (r["judge"].get("by_rule") or []))
+              for r in ok_rows if r["judge"].get("by_rule")))
+    meta = json.loads((tmp / "data" / "state" / "candidates" / "ch01" / "result.json")
+                      .read_text(encoding="utf-8"))
+    check("A7 result.json 也落了判定依据（界面读得到）",
+          all(c.get("judge") for c in meta["candidates"] if c.get("status") == "ok"))
+
+    # B. 没有口径表：如实说“无从判断”，且不往项目里写文件（只读纪律）
+    tmp2 = Path(tempfile.mkdtemp(prefix="nf_bon_cal_"))
+    ev = bon._judge_evidence({"cand1": GOOD}, 1, tmp2)
+    check("B1 缺口径 → available=false 且说明原因",
+          ev.get("available") is False and "口径" in (ev.get("reason") or ""), ev)
+    check("B2 没往项目里 bootstrap 出口径文件",
+          not (tmp2 / "data" / "judge" / "caliber.json").exists())
+    check("B3 缺口径时不冒充“0 处 = 通过”", not (ev.get("candidates") or {}))
+
+    # C. 口径只建了一半：缺的那几条点名（规则会回落到代码默认值，必须说出来）
+    tmp3 = Path(tempfile.mkdtemp(prefix="nf_bon_cal2_"))
+    (tmp3 / "data" / "judge").mkdir(parents=True)
+    (tmp3 / "data" / "judge" / "caliber.json").write_text(json.dumps(
+        {"version": 1, "criteria": [{"id": "J01", "value": 4000},
+                                    {"id": "J02", "value": 9000}]},
+        ensure_ascii=False), encoding="utf-8")
+    ev3 = bon._judge_evidence({"cand1": GOOD}, 1, tmp3)
+    check("C1 缺阈值的判据点名（J03/J04/J05），不当成“都合规”",
+          ev3.get("defaulted") == ["J03", "J04", "J05"], ev3.get("defaulted"))
+    check("C2 仍给出依据（拿默认值算，但要标出来）",
+          ev3.get("available") is True and bool(ev3.get("candidates")))
+
+
 def main():
     case_scoring_and_reasons()
     case_missing_data_is_neutral()
@@ -251,6 +333,7 @@ def main():
     case_all_fail_keeps_text()
     case_apply_is_gui_only()
     case_structure_evidence()
+    case_judge_evidence()
     print("\n" + "=" * 60)
     print("  通过 %d / 失败 %d" % (len(PASS), len(FAIL)))
     for f in FAIL:
