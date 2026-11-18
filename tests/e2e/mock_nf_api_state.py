@@ -307,6 +307,25 @@ _WL_BUILTIN = 20
 CAND = {"applied": ""}
 BON = {"value": 0}
 
+# 审核队列（沙盒产物，2026-11-18）：三套冲突预检各给一条 —— 有冲突 / 没发现 /
+# 预检不了。此前 mock 恒回空队列，这一页的界面从未进过真机验收（源码级断言看不到
+# “冲突标签和备注挤在一起”“驳回对话框能不能开”）。有状态：通过/驳回要能回读出变化。
+SANDBOX = {"items": [
+    {"path": "人物/沈砚.md", "status": "pending", "kind": "character",
+     "source": "stage2 大纲", "updated_at": "2026-11-18 09:20:00", "note": "",
+     "conflict": {"checked": True, "level": "warn", "why": "", "items": [
+         {"level": "warn", "detail": "与已有词条“沈砚”同名：年龄 30 vs 32"},
+         {"level": "info", "detail": "与已有词条“沈砚之”近名（差 1 字），可能是同一人"},
+     ]}},
+    {"path": "地点/潮汐井.md", "status": "pending", "kind": "place",
+     "source": "stage4 第 3 章", "updated_at": "2026-11-18 10:05:00", "note": "",
+     "conflict": {"checked": True, "level": "ok", "why": "", "items": []}},
+    {"path": "物件/怀表.md", "status": "pending", "kind": "item",
+     "source": "手工放入", "updated_at": "2026-11-18 10:40:00", "note": "",
+     "conflict": {"checked": False, "level": "na", "items": [],
+                  "why": "还没有设定库（data/setting/setting.json 不存在）"}},
+]}
+
 # 段落批注（B5）：一条正常、一条“原句已改”（漂移）、一条“已失效”（标红）——
 # 三种状态同时在场，界面才验证得了“红/黄/正常”分得开。
 # 批注 → 改稿（P0-2，2026-11-14）：这条链要**有状态**才验得出真东西 ——
@@ -1034,8 +1053,24 @@ class Handler(BaseHTTPRequestHandler):
                                     "actual": {"posts": {"raw": 0, "scraps": 0},
                                                "dates": {}, "dates_total": 0},
                                     "meta_files": [], "warnings": []})
+        if p == "/book_extract/status":
+            # 成书提炼：假后端直接给“已完成”，界面不用等轮询就能进合并预览。
+            return self._send(200, {"ok": True, "name": "old", "chapters": 3,
+                                    "summarized": 3, "state": {"state": "done",
+                                                               "stage_name": "完成"}})
         if p == "/sandbox/queue":
-            return self._send(200, {"ok": True, "pending": [], "items": [], "orphans": []})
+            # 有状态：默认只回待审（与真后端同口径，`?all=1` 才含已审）。
+            all_ = (self._query().get("all") or ["0"])[0] in ("1", "true", "yes")
+            items = [dict(it) for it in SANDBOX["items"]
+                     if all_ or it["status"] == "pending"]
+            stats = {"pending": sum(1 for it in SANDBOX["items"] if it["status"] == "pending"),
+                     "approved": sum(1 for it in SANDBOX["items"]
+                                     if it["status"] == "approved"),
+                     "rejected": sum(1 for it in SANDBOX["items"]
+                                     if it["status"] == "rejected")}
+            return self._send(200, {"ok": True, "items": items, "stats": stats,
+                                    "orphans": ["地点/无名渡口.md"],
+                                    "sandbox_dir": "D:/Obsidian/Sandbox/Inbox"})
         if p == "/estimate":
             return self._send(200, ESTIMATE)
         if p == "/logs/tail":
@@ -1958,6 +1993,68 @@ class Handler(BaseHTTPRequestHandler):
                                                 "message": "已标记为处理完"})
                 return self._send(404, {"ok": False, "error": "没有这条批注"})
             return self._send(400, {"ok": False, "error": "action 须为 add / resolve / delete"})
+
+        if p == "/book_extract/preview":
+            return self._send(200, {"ok": True, "chapter_count": 3, "total_chars": 9000,
+                                    "est_calls": 3, "hint": ""})
+        if p == "/book_extract/init":
+            return self._send(200, {"ok": True, "name": "旧书", "camp": "E:/mock/be/旧书"})
+        if p == "/book_extract/run":
+            return self._send(202, {"ok": True, "job_id": "be-job-1", "name": "旧书",
+                                    "message": "已开始提炼（假后端：立刻完成）"})
+        if p == "/book_extract/merge":
+            # 并库前冲突清单（2026-11-18）：三条 —— 可勾的 / 锁定的 / world 行。
+            # 有状态：勾了哪条就回哪条被覆盖，界面据此显示“覆盖了 N 条”。
+            take = [str(k) for k in ((body or {}).get("take") or [])]
+            yes = bool((body or {}).get("yes"))
+            conflicts = [
+                {"key": "character:苏芷", "kind": "character", "name": "苏芷",
+                 "locked": False, "taken": "character:苏芷" in take,
+                 "note": "同名角色但内容不同",
+                 "fields": [{"field": "身份", "existing": "药铺学徒", "incoming": "医女"},
+                            {"field": "记录", "existing": "作者原话", "incoming": "病着"}]},
+                {"key": "character:老周", "kind": "character", "name": "老周",
+                 "locked": True, "taken": False,
+                 "note": "同名角色且是锁定设定 —— 并库不能覆盖",
+                 "fields": [{"field": "身份", "existing": "掌柜", "incoming": "江湖人"}]},
+                {"key": "world:locations:客栈", "kind": "world", "name": "客栈",
+                 "slot": "locations", "locked": False,
+                 "taken": "world:locations:客栈" in take,
+                 "note": "同名设定但内容不同",
+                 "fields": [{"field": "内容", "existing": "青石巷口，两进院",
+                             "incoming": "青石巷口，两进院，门朝东"}]},
+            ]
+            overwritten = [c["key"] for c in conflicts if c.get("taken") and not c["locked"]]
+            return self._send(200, {
+                "ok": True, "written": yes, "setting": "data/setting/setting.json",
+                "added_characters": [] if not yes else ["潮汐井"], "added_world": [],
+                "added_fragments": [], "added_timeline": 0,
+                "conflicts": conflicts, "overwritten": overwritten,
+                "skipped_same": [], "pending_conflicts": 3 - len(overwritten)})
+
+        if p == "/sandbox/review":
+            # 审核动作（2026-11-18）：只改状态、不动文件 —— 有状态，才能验
+            # “点通过 → 统计变了 → 默认视图里消失”是真链路。
+            path = str((body or {}).get("path") or "").strip()
+            action = str((body or {}).get("action") or "").strip()
+            if action not in ("approve", "reject", "reset"):
+                return self._send(400, {"ok": False, "error": "action 只接受 approve/reject/reset"})
+            target = next((it for it in SANDBOX["items"] if it["path"] == path), None)
+            if not target:
+                return self._send(404, {"ok": False, "error": "队列里没有 %s" % path})
+            target["status"] = {"approve": "approved", "reject": "rejected",
+                                "reset": "pending"}[action]
+            target["reviewed_at"] = "2026-11-18 11:00:00"
+            stats = {"pending": sum(1 for it in SANDBOX["items"] if it["status"] == "pending"),
+                     "approved": sum(1 for it in SANDBOX["items"]
+                                     if it["status"] == "approved"),
+                     "rejected": sum(1 for it in SANDBOX["items"]
+                                     if it["status"] == "rejected")}
+            return self._send(200, {"ok": True, "item": dict(target), "stats": stats,
+                                    "orphans": ["地点/无名渡口.md"],
+                                    "message": "已通过 %s（只改审核状态，文件没动）" % path
+                                    if action == "approve" else
+                                    "已驳回 %s（原因已记进状态库）" % path})
 
         if p == "/chapters/candidates/apply":
             # Best-of-N（B2）：采用某一版 —— 有状态，回读要能看出“你在用哪版”。

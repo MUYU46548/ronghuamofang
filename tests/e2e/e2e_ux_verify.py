@@ -1558,6 +1558,128 @@ def test_candidates(browser):
         ctx.close()
 
 
+def test_sandbox_review(browser):
+    """审核页（沙盒产物队列，2026-11-18 补真机验收）。
+
+    为什么补：设定冲突预检（`bc90387`）当初只有源码级断言 —— 审核页不在 ux 套件覆盖
+    范围内，假后端还恒回空队列，于是这一整页**从没进过真机**。它能坏的地方恰好都是
+    源码断言看不出来的：三条预检状态挤成一行、驳回对话框开不出来、通过之后统计不动。
+    """
+    print("\n=== K. 审核队列（沙盒产物 + 设定冲突预检）===")
+    ctx, page, errs, bad = new_page(browser, MOCK_API, "sandbox")
+    try:
+        page.locator("nav.tabs button", has_text="审核").first.click()
+        page.wait_for_timeout(1000)
+        items = page.locator(".sb-item")
+        check("审核页列出 3 条待审（不是空队列）", items.count() == 3, items.count())
+        warn = items.nth(0).inner_text()
+        check("有冲突那条点名“设定冲突预检”+具体哪一条（同名，年龄 30 vs 32）",
+              "设定冲突预检" in warn and "年龄 30" in warn, warn[:160])
+        check("近名也算一条（不当成同名处理）", "近名" in warn, warn[:160])
+        ok_txt = items.nth(1).inner_text()
+        check("没发现冲突那条明说“没发现同名/近名”",
+              "没发现同名" in ok_txt, ok_txt[:120])
+        na_txt = items.nth(2).inner_text()
+        check("预检不了那条说清为什么（缺设定库），不留空白",
+              "冲突预检不了" in na_txt and "设定" in na_txt, na_txt[:120])
+        check("孤儿文件单独列出来（审核盲区不许静默吞掉）",
+              page.locator(".sb-orphans").count() == 1
+              and "未登记" in page.locator(".sb-orphans").inner_text())
+        shot(page, "K1_sandbox_queue")
+
+        # 通过：只改状态 —— 条目从“待审”视图消失，统计跟着变
+        before = page.locator(".sb-stats").inner_text()
+        items.nth(0).locator("button.mini.primary").click()
+        page.wait_for_timeout(800)
+        after_stats = page.locator(".sb-stats").inner_text()
+        check("点“通过”后统计真的变了（不是只弹个提示）", before != after_stats,
+              (before, after_stats))
+        check("通过后从默认视图移走（默认只看待审）",
+              page.locator(".sb-item").count() == 2, page.locator(".sb-item").count())
+        check("提示写明“只改审核状态、文件没动”",
+              "只改审核状态" in page.locator(".toast").first.inner_text(),
+              page.locator(".toast").first.inner_text()[:100])
+
+        # 驳回：必须填原因才给确认（原因进状态库）
+        page.locator(".sb-item").nth(0).locator("button.mini.danger").click()
+        page.wait_for_timeout(500)
+        dlg = page.locator(".drawer-mask .dialog")
+        check("驳回先开对话框要原因（不是一点就驳回）", dlg.count() == 1)
+        confirm = dlg.locator("button.mini.danger")
+        check("没写原因时“确认驳回”是禁用的", confirm.is_disabled())
+        dlg.locator("textarea").fill("第二节与设定冲突")
+        page.wait_for_timeout(200)
+        check("写了原因才解锁", not confirm.is_disabled())
+        shot(page, "K2_sandbox_reject_dialog")
+        confirm.click()
+        page.wait_for_timeout(700)
+        check("驳回后对话框关掉", page.locator(".drawer-mask .dialog").count() == 0)
+        # 只钉审核链路的 4xx：mock 里 /activity、/exports/history 还没造，
+        # 那些 404 是本段之外的覆盖缺口，不该让这条判据变成噪声。
+        page_bad = [x for x in bad if "sandbox" in x]
+        check("没有前端异常（审核链路无 4xx）", not page_bad, page_bad[:2])
+    finally:
+        ctx.close()
+
+
+def test_merge_conflicts(browser):
+    """成书提炼并库前的冲突清单（路线四 P1，2026-11-18）。
+
+    这一块的坏法源码断言看不出来：复选框勾了没带上、锁定那条点得动、
+    勾完提示还写“一个字没动”（说了假话）。假后端为此给了三条冲突
+    （可勾 / 锁定 / world 行），并**有状态**回“覆盖了哪几条”。
+    """
+    print("\n=== L. 并库前冲突清单（勾了才覆盖）===")
+    ctx, page, errs, bad = new_page(browser, MOCK_API, "merge")
+    try:
+        page.locator("nav.tabs button", has_text="章节").first.click()
+        page.wait_for_timeout(900)
+        box = page.locator("details.import-box", has_text="成书提炼").first
+        box.locator("summary").click()
+        page.wait_for_timeout(300)
+        box.locator("input.import-path").fill("E:/mock/old.txt")
+        box.locator("button:has-text('预演（零 token）')").click()
+        page.wait_for_timeout(700)
+        box.locator("button:has-text('开始提炼')").click()
+        page.wait_for_timeout(3600)          # 等一次轮询（2.5s）拿到“已完成”
+        box.locator("button:has-text('合并预览')").click()
+        page.wait_for_timeout(800)
+
+        rows = box.locator("input[type=checkbox]")
+        # 只数冲突清单里的：details 里可能还有别的复选框，按 label 文本定位
+        conflict_rows = box.locator("input[type=checkbox][value^='character:'], "
+                                    "input[type=checkbox][value^='world:']")
+        check("同名冲突逐条列出来（角色 2 条 + 设定 1 条）", conflict_rows.count() == 3,
+              conflict_rows.count())
+        check("差异摊到字段级（旧 → 新都写出来）",
+              "药铺学徒" in box.inner_text() and "医女" in box.inner_text(),
+              box.inner_text()[:200])
+        locked = box.locator("input[type=checkbox][value='character:老周']")
+        check("锁定那条勾不动（锁定设定不能被一次并库顺手解开）",
+              locked.count() == 1 and locked.is_disabled())
+        check("不勾时写明“不勾 = 保留原来那份”",
+              "保留设定集里原来那份" in box.inner_text(), box.inner_text()[:200])
+        # 证据要拍得到冲突清单本身：这一段在页面靠下，先滚到位再拍（keep_scroll=True）
+        box.locator("input[type=checkbox][value='character:老周']").scroll_into_view_if_needed()
+        page.wait_for_timeout(200)
+        shot(page, "L1_merge_conflicts", keep_scroll=True)
+
+        box.locator("input[type=checkbox][value='character:苏芷']").check()
+        box.locator("button:has-text('确认并进设定集')").click()
+        page.wait_for_timeout(900)
+        toast = page.locator(".toast").first.inner_text()
+        check("勾了才覆盖，且提示说清覆盖了几条",
+              "覆盖了 1 条" in toast, toast[:120])
+        check("提示同时说明其余同名条目没动",
+              "一个字没动" in toast, toast[:120])
+        check("写入后明说已写（不是还挂着“还没写”）",
+              "已写入" in box.inner_text(), box.inner_text()[:160])
+        page_bad = [x for x in bad if "book_extract" in x]
+        check("没有前端异常（成书提炼链路无 4xx）", not page_bad, page_bad[:2])
+    finally:
+        ctx.close()
+
+
 def test_stage5_step(browser):
     """P1-1（2026-11-14）：stage5 改稿裁定改成逐处步进。
 
@@ -2232,6 +2354,8 @@ def main():
             test_about_project(browser)
             test_desk_width(browser)
             test_candidates(browser)
+            test_sandbox_review(browser)
+            test_merge_conflicts(browser)
             test_stage5_step(browser)
             test_drafts(browser)
             test_page_view(browser)

@@ -1244,9 +1244,12 @@ body {
 .sb-path { word-break: break-all; font-weight: 600; }
 .sb-item-meta { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 3px; }
 .sb-note { margin-top: 4px; font-size: 12px; color: var(--warn); }
-/* 设定冲突预检（2026-11-17）：只报名字/锁定状态撞车，不判断内容对错。 */
-.sb-conflict { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 5px; }
-.sb-conflict-i { font-size: 12px; color: var(--muted); }
+/* 设定冲突预检（2026-11-17）：只报名字/锁定状态撞车，不判断内容对错。
+   2026-11-18 真机目检改版：原来一条条 inline 排，几条撞车会挤成一整行、
+   两条的边界看不出来（截图 K1 里“年龄 30 vs 32”和“近名”连在一起）。
+   现在标签单独一行，每条冲突各占一行。 */
+.sb-conflict { display: block; margin-top: 5px; }
+.sb-conflict-i { display: block; font-size: 12px; color: var(--muted); line-height: 1.65; padding-left: 2px; }
 .sb-conflict-i.warn { color: var(--warn); }
 .sb-conflict-ok { margin-top: 4px; }
 .sb-conflict-na { margin-top: 4px; color: var(--warn); }
