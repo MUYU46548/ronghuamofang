@@ -214,8 +214,15 @@ def handle_book_extract_merge(h, body):
         if not (camp / "manifest.json").exists():
             return 404, {"ok": False, "error": "没有这个提炼目录：%s" % name}
         yes = bool(body.get("yes"))
+        # 同名冲突里作者勾选要覆盖的那几条（不传 = 一条都不覆盖，只增不改）
+        take = body.get("take") or []
+        if isinstance(take, str):
+            take = [take]
+        if not isinstance(take, list):
+            return 400, {"ok": False, "error": "take 必须是数组（character:名字 / world:槽位:名字）"}
         setting = api.ROOT / "data" / "setting" / "setting.json"
-        report = E.merge_into_setting(camp, setting, dry_run=not yes)
+        report = E.merge_into_setting(camp, setting, dry_run=not yes,
+                                      overwrite=[str(k) for k in take])
         return 200, {"ok": True, "written": yes, **report}
     except ValueError as e:
         return 400, {"ok": False, "error": str(e)}

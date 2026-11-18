@@ -543,15 +543,73 @@ def _setting_lines(cards: List[Dict[str, Any]]) -> Dict[str, List[str]]:
     return out
 
 
+_CHAR_FIELDS = (("role", "身份"), ("traits", "性格特质"),
+                ("relations", "关系"), ("records", "记录"))
+
+
+def _norm_name(s: Any) -> str:
+    """名字比对口径与沙盒冲突预检同一份（去空白/间隔号/下划线，转小写）。"""
+    from utils.sandbox_conflict import _norm
+    return _norm(s)
+
+
+def _show(v: Any, limit: int = 60) -> str:
+    if isinstance(v, (list, tuple)):
+        s = "、".join(str(x) for x in v if str(x).strip())
+    else:
+        s = str(v or "")
+    s = s.strip()
+    return (s[:limit] + "…") if len(s) > limit else (s or "（空）")
+
+
+def _same_value(a: Any, b: Any) -> bool:
+    """宽松相等：列表按元素归一后比集合，字符串去空白比（“ 族长 ” = “族长”）。"""
+    def _k(v):
+        if isinstance(v, (list, tuple)):
+            return tuple(sorted(_norm_name(x) for x in v if str(x).strip()))
+        return _norm_name(v)
+    return _k(a) == _k(b)
+
+
+def _char_diffs(old: Dict[str, Any], new: Dict[str, Any]) -> List[Dict[str, str]]:
+    out = []
+    for k, label in _CHAR_FIELDS:
+        if _same_value(old.get(k), new.get(k)):
+            continue
+        out.append({"field": label, "existing": _show(old.get(k)),
+                    "incoming": _show(new.get(k))})
+    return out
+
+
+def _apply_char_overwrite(old: Dict[str, Any], new: Dict[str, Any]) -> None:
+    """按作者勾选覆盖：只换内容字段，**保留 id 与 locked**。
+
+    为什么不整条替换：`id` 被别处引用（关系/时间线），换掉等于断链；
+    `locked` 是作者的硬约束，不该被一次并库顺手解开。
+    """
+    for k, _label in _CHAR_FIELDS:
+        if k in new:
+            old[k] = new[k]
+    old["source"] = "%s（并库覆盖）" % (new.get("source") or "")
+
+
 def merge_into_setting(camp: str | Path, setting_path: str | Path = "data/setting/setting.json",
-                       *, dry_run: bool = True) -> Dict[str, Any]:
-    """把提炼出来的卡**只增不改**并进 setting.json。
+                       *, dry_run: bool = True,
+                       overwrite: Optional[List[str]] = None) -> Dict[str, Any]:
+    """把提炼出来的卡并进 setting.json：**默认只增不改**，同名冲突交作者逐条勾选。
 
     规则（与设定库增量合并同源）：
-    - 角色按 `name` 去重：已存在的一律不动（用户/素材写的那份永远优先）；
-    - world 四槽按“名字：”前缀去重，只追加不存在的行；
+    - 角色按 `name` 去重：已存在且内容一致的跳过；**内容不同的列为冲突**，
+      只有作者勾选（`overwrite` 里带 `character:<名字>`）才覆盖内容字段，
+      且 `id` / `locked` 永远保留（锁定设定即使勾了也不动）；
+    - world 四槽按“名字：”前缀去重：同名不同内容同样列为冲突
+      （键 `world:<槽位>:<名字>`），勾了才替换那一行；
     - 伏笔进 `plot_fragments`（未回收的），时间线进 `timeline`；
     - 写前把旧 `setting.json` 备份到 `data/setting/history/`。
+
+    为什么做成“先列冲突再勾选”（2026-11-18，路线四 P1）：只增不改最安全，
+    但同一个人在两本书里身份不同时，静默跳过会让作者以为并进去了 ——
+    真正的选择是创作判断，系统只负责把它**摊到桌面上**，不替他决定。
     """
     camp = Path(camp)
     sp = Path(setting_path)
@@ -563,13 +621,42 @@ def merge_into_setting(camp: str | Path, setting_path: str | Path = "data/settin
         setting = json.loads(read_text(sp))
 
     added_chars: List[str] = []
+    conflicts: List[Dict[str, Any]] = []
+    overwritten: List[str] = []
+    same_names: List[str] = []
+    take = {str(k).strip() for k in (overwrite or []) if str(k).strip()}
     existing_names = {str(c.get("name") or "").strip()
                       for c in setting.get("characters") or []}
+    existing_by_name = {str(c.get("name") or "").strip(): c
+                        for c in setting.get("characters") or []}
     chars_p = camp / "characters.json"
     if chars_p.exists():
         for i, card in enumerate(json.loads(read_text(chars_p)), 1):
             name = str(card.get("名字") or "").strip()
-            if not name or name in existing_names:
+            if not name:
+                continue
+            entry = _character_entry(card, book, i)
+            if name in existing_names:
+                old = existing_by_name.get(name) or {}
+                key = "character:%s" % name
+                diffs = _char_diffs(old, entry)
+                if not diffs:
+                    same_names.append(name)
+                    continue
+                locked = bool(old.get("locked") or old.get("lock") or old.get("immutable"))
+                row = {"key": key, "kind": "character", "name": name,
+                       "level": "warn", "fields": diffs,
+                       "locked": locked,
+                       "taken": False,
+                       "note": ("同名角色但内容不同" if not locked
+                                else "同名角色且是锁定设定 —— 并库不能覆盖")}
+                if locked and key in take:
+                    row["note"] += "（已忽略这次勾选）"
+                elif key in take:
+                    _apply_char_overwrite(old, entry)
+                    row["taken"] = True
+                    overwritten.append(key)
+                conflicts.append(row)
                 continue
             setting.setdefault("characters", []).append(
                 _character_entry(card, book, i))
@@ -585,13 +672,38 @@ def merge_into_setting(camp: str | Path, setting_path: str | Path = "data/settin
     added_world: List[str] = []
     if set_p.exists():
         for slot, lines in _setting_lines(json.loads(read_text(set_p))).items():
-            have = {str(x).split("：", 1)[0] for x in world[slot]}
+            # 同名判定按归一后的名字（“沈 砚” 与 “沈砚” 算同一个），
+            # 与沙盒冲突预检同口径；替换时改的是**原来那一行**，不追加第二行。
+            idx_by_name: Dict[str, int] = {}
+            for j, line in enumerate(world[slot]):
+                idx_by_name.setdefault(_norm_name(str(line).split("：", 1)[0]), j)
             for line in lines:
                 name = line.split("：", 1)[0]
-                if name and name not in have:
+                if not name:
+                    continue
+                j = idx_by_name.get(_norm_name(name))
+                if j is None:
                     world[slot].append(line)
-                    have.add(name)
+                    idx_by_name[_norm_name(name)] = len(world[slot]) - 1
                     added_world.append(name)
+                    continue
+                old_line = str(world[slot][j])
+                old_body = old_line.split("：", 1)[1] if "：" in old_line else ""
+                new_body = line.split("：", 1)[1] if "：" in line else ""
+                if _norm_name(old_body) == _norm_name(new_body):
+                    same_names.append(name)
+                    continue
+                key = "world:%s:%s" % (slot, name)
+                row = {"key": key, "kind": "world", "slot": slot, "name": name,
+                       "level": "warn", "locked": False, "taken": False,
+                       "note": "同名设定但内容不同",
+                       "fields": [{"field": "内容", "existing": _show(old_body),
+                                   "incoming": _show(new_body)}]}
+                if key in take:
+                    world[slot][j] = line
+                    row["taken"] = True
+                    overwritten.append(key)
+                conflicts.append(row)
     setting["world"] = world
 
     added_frag: List[str] = []
@@ -629,7 +741,13 @@ def merge_into_setting(camp: str | Path, setting_path: str | Path = "data/settin
 
     report = {"dry_run": dry_run, "setting": str(sp),
               "added_characters": added_chars, "added_world": added_world,
-              "added_fragments": added_frag, "added_timeline": added_tl}
+              "added_fragments": added_frag, "added_timeline": added_tl,
+              # 同名冲突清单（2026-11-18）：逐条摊开给作者勾，不勾 = 不写。
+              "conflicts": conflicts,
+              "overwritten": overwritten,
+              # 同名且内容一致（不是冲突，但让作者知道“这条已经在了”）
+              "skipped_same": sorted(set(same_names)),
+              "pending_conflicts": len([c for c in conflicts if not c.get("taken")])}
     if dry_run:
         return report
 

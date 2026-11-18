@@ -186,7 +186,8 @@ def cmd_merge(args) -> int:
     camp, _manifest = _load_camp_or_exit(args.name)
     if camp is None:
         return 1
-    report = runner.merge_into_setting(camp, dry_run=not args.yes)
+    report = runner.merge_into_setting(camp, dry_run=not args.yes,
+                                       overwrite=getattr(args, "take", None))
     print("[book_extract] 并库%s：%s" % ("预演" if not args.yes else "已写入",
                                   report["setting"]))
     print("  新角色 %d：%s" % (len(report["added_characters"]),
@@ -195,6 +196,22 @@ def cmd_merge(args) -> int:
                               "、".join(report["added_world"][:10]) or "（无）"))
     print("  新伏笔 %d ｜ 新时间线 %d"
           % (len(report["added_fragments"]), report["added_timeline"]))
+    # 同名冲突：逐条摊开，勾了才覆盖（不勾 = 保留原来那份，只增不改）
+    conflicts = report.get("conflicts") or []
+    if conflicts:
+        print("  同名冲突 %d 条（默认一条不动）：" % len(conflicts))
+        for c in conflicts:
+            mark = "已覆盖" if c.get("taken") else ("锁定·跳过" if c.get("locked") else "未勾选")
+            detail = "；".join("%s %s → %s" % (f["field"], f["existing"], f["incoming"])
+                              for f in (c.get("fields") or []))
+            print("    [%s] %s（%s）%s" % (c["key"], c["name"], c["note"], mark))
+            print("           %s" % detail)
+        if not args.yes:
+            print("    要覆盖某条：--take character:沈砚（可重复）；"
+                  "不勾就是保留原来的那份")
+    if report.get("pending_conflicts"):
+        print("  还有 %d 条冲突没勾选 —— 这次不写它们，设定集里仍是原来那份"
+              % report["pending_conflicts"])
     if not args.yes:
         print("  预演不写盘；确认无误后加 --yes（会先备份 data/setting/history/）")
     return 0
@@ -229,9 +246,11 @@ def main(argv=None) -> int:
     p_st.add_argument("name")
     p_st.set_defaults(func=cmd_status)
 
-    p_mg = sub.add_parser("merge", help="把提炼出来的卡并进 setting.json（只增不改）")
+    p_mg = sub.add_parser("merge", help="把提炼出来的卡并进 setting.json（默认只增不改）")
     p_mg.add_argument("name")
     p_mg.add_argument("--yes", action="store_true", help="真的写盘（默认只预演）")
+    p_mg.add_argument("--take", action="append", default=[], metavar="KEY",
+                      help="同名冲突里要覆盖的那条（character:名字 / world:槽位:名字），可重复")
     p_mg.set_defaults(func=cmd_merge)
 
     args = ap.parse_args(argv)

@@ -36,9 +36,10 @@ python scripts/book_extract.py run old-book --dry-run     # 零 token 预演（�
 python scripts/book_extract.py run old-book               # 真跑（走 config/system.yaml 的模型）
 python scripts/book_extract.py status old-book            # 各表条数 / 已摘要章数 / 花费
 
-# 3. 并进设定集（只增不改，默认预演）
-python scripts/book_extract.py merge old-book             # 预演：列出会加什么
-python scripts/book_extract.py merge old-book --yes       # 真写（先备份 history/）
+# 3. 并进设定集（默认只增不改；同名冲突先列出来，勾了才覆盖）
+python scripts/book_extract.py merge old-book             # 预演：列出会加什么 + 同名冲突清单
+python scripts/book_extract.py merge old-book --yes       # 真写（先备份 history/；冲突一条都不覆盖）
+python scripts/book_extract.py merge old-book --yes --take character:苏芷 --take world:locations:客栈
 ```
 
 ## 查摘要（零 token，只读）
@@ -71,9 +72,15 @@ python scripts/book_search.py old-book --chapter 3 --json
 
 1. **断点续跑**：每章摘要落盘即算完成，重跑跳过（`--force` 才重做）。
    一章失败不影响其它章，失败项在报告里列明 —— 重跑只补没做的。
-2. **并库只增不改**：`merge` 不覆盖用户已有的角色/设定（同名的一个字都不动），
-   只往 `world` 四槽 / `plot_fragments` / `timeline` 追加不存在的行；
-   写前备份 `data/setting/history/setting_v<时间戳>.json`。
+2. **并库默认只增不改，同名冲突交作者逐条勾**（2026-11-18 改）：同名的角色/设定
+   **不再静默跳过**，而是列进 `conflicts`（字段级差异：身份 旧 → 新）。不勾 = 一条都不覆盖，
+   设定集里仍是原来那份；勾了（`--take character:名字` / `--take world:槽位:名字`，
+   界面是复选框）才覆盖内容字段，且**保留原 `id` 与 `locked`** —— 锁定设定即使勾了也不动
+   （报告里写“已忽略这次勾选”）。同名且内容一致的不算冲突，进 `skipped_same`。
+   `world` 行替换是**就地换掉原来那一行**，不会追加第二行。
+   写前仍备份 `data/setting/history/setting_v<时间戳>.json`。
+   **为什么**：只增不改最安全，但同一个人在两本书里身份不同时，静默跳过会让作者
+   以为并进去了；真正的选择是创作判断，系统只负责摊到桌面上。
 3. **零 token 可预演**：`--dry-run` 只拆章与报调用数，一个请求都不发。
 
 ## 边界（如实说）

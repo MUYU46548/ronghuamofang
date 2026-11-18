@@ -3270,6 +3270,7 @@ const extractBusy = ref(false);
 const extractStatus = ref(null);   // {text, detail, bad}
 const extractCamp = ref("");       // 已建目录名（非空 = 同一本不再重复建）
 const extractMerge = ref(null);    // 合并预演/结果
+const mergeTake = ref([]);         // 同名冲突里勾了要覆盖的那几条（不勾就不写）
 let extractTimer = null;
 
 async function pickExtractBook() {
@@ -3361,14 +3362,19 @@ async function previewExtractMerge() {
   const r = await api("/book_extract/merge", "POST", { name: extractCamp.value });
   if (r.status !== 200) return say("合并预览失败：" + ((r.data && r.data.error) || r.status));
   extractMerge.value = r.data;
+  mergeTake.value = [];            // 每次重新预演都从“一条都不覆盖”开始
 }
 
 async function confirmExtractMerge() {
   if (!extractCamp.value) return;
-  const r = await api("/book_extract/merge", "POST", { name: extractCamp.value, yes: true });
+  const r = await api("/book_extract/merge", "POST",
+                      { name: extractCamp.value, yes: true, take: mergeTake.value });
   if (r.status !== 200) return say("合并失败：" + ((r.data && r.data.error) || r.status));
   extractMerge.value = r.data;
-  say("已并进设定集（同名条目一个字没动；写前已自动备份旧设定，出问题可还原）");
+  const taken = (r.data.overwritten || []).length;
+  say(taken
+    ? ("已并进设定集：按你勾的覆盖了 " + taken + " 条同名冲突，其余同名条目一个字没动（写前已自动备份）")
+    : "已并进设定集（同名条目一个字没动；写前已自动备份旧设定，出问题可还原）");
 }
 
 async function pickImportDocx() {
@@ -6631,6 +6637,26 @@ onUnmounted(() => {
             {{ extractMerge.written ? "已写入（写前已备份）" : "还没写" }}
           </div>
           <pre class="import-list">{{ (extractMerge.added_characters || []).join("、") || "（没有新角色）" }}</pre>
+          <!-- 同名冲突（2026-11-18）：默认一条都不动。同一个人在两本书里身份不同是
+               创作判断，系统只把差异摊开，勾了才覆盖；锁定设定勾了也不覆盖。 -->
+          <div v-if="(extractMerge.conflicts || []).length" class="import-sugg">
+            <b>同名冲突 {{ extractMerge.conflicts.length }} 条</b>（不勾 = 保留设定集里原来那份，
+            只增不改）：勾了的会覆盖内容，但保留原有编号与“锁定”状态。
+            <div v-for="c in extractMerge.conflicts" :key="c.key" class="meta" style="margin-top: 6px;">
+              <label :class="{ disabled: c.locked }">
+                <input type="checkbox" :value="c.key" v-model="mergeTake" :disabled="c.locked" />
+                <b>{{ c.name }}</b> · {{ c.note }}
+              </label>
+              <div style="padding-left: 20px;">
+                <span v-for="(f, i) in (c.fields || [])" :key="i">
+                  {{ f.field }}：{{ f.existing }} → <b>{{ f.incoming }}</b><span v-if="i < c.fields.length - 1">；</span>
+                </span>
+              </div>
+            </div>
+          </div>
+          <div v-else-if="extractMerge.written === false" class="meta">
+            没有同名冲突：这次全是新增，原有条目一条都不动。
+          </div>
         </div>
       </details>
       <!-- P3: 一致性账本（跨章事实：死亡/物品/时间锚）—— 放在质量趋势之前，

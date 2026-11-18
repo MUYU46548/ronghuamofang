@@ -213,6 +213,88 @@ def main():
         check("status 退 0", code == 0, code)
         code = book_extract.main(["merge", str(camp)])
         check("merge 预演退 0（不带 --yes 不写盘）", code == 0, code)
+
+        print("\n【H】并库前冲突清单（同名不同内容 → 勾了才覆盖）")
+        # 这一段锁的是 2026-11-18 路线四 P1：只增不改最安全，但“同名不同内容”
+        # 静默跳过会让作者以为并进去了。准则：列出来 → 作者勾 → 才写；
+        # 不勾一条都不动；锁定设定勾了也不覆盖；写前照样备份。
+        camp2 = tmp / "camp2"
+        camp2.mkdir(parents=True, exist_ok=True)
+        (camp2 / "manifest.json").write_text(
+            json.dumps({"name": "旧书", "chapters": []}, ensure_ascii=False), encoding="utf-8")
+        (camp2 / "characters.json").write_text(json.dumps([
+            {"名字": "苏芷", "身份": "药铺学徒", "性格特质": ["怯", "细"],
+             "当前关系": [], "当前状态": "病着", "未决线": [], "矛盾清单": []},
+            {"名字": "老周", "身份": "江湖人", "性格特质": [], "当前关系": [],
+             "当前状态": "", "未决线": [], "矛盾清单": []},
+        ], ensure_ascii=False), encoding="utf-8")
+        (camp2 / "settings.json").write_text(json.dumps([
+            {"设定名": "客栈", "类别": "地理", "内容": "青石巷口，两进院，门朝东"},
+            {"设定名": "潮汐井", "类别": "地理", "内容": "退潮才见"},
+        ], ensure_ascii=False), encoding="utf-8")
+        sp3 = tmp / "setting3.json"
+        sp3.write_text(json.dumps({
+            "characters": [
+                {"id": "user-001", "name": "苏芷", "role": "药铺学徒",
+                 "traits": ["怯"], "relations": [], "records": ["作者原话"]},
+                {"id": "user-002", "name": "老周", "role": "掌柜", "locked": True},
+            ],
+            "world": {"locations": ["客栈：青石巷口，两进院"]},
+            "plot_fragments": [], "timeline": []}, ensure_ascii=False), encoding="utf-8")
+        before3 = sp3.read_text(encoding="utf-8")
+
+        dry3 = runner.merge_into_setting(camp2, sp3, dry_run=True)
+        keys3 = {c["key"] for c in dry3["conflicts"]}
+        check("同名角色列为冲突", "character:苏芷" in keys3, keys3)
+        check("同名设定（world 行）也列为冲突", "world:locations:客栈" in keys3, keys3)
+        check("锁定角色单独标出来（勾了也不覆盖）",
+              any(c["key"] == "character:老周" and c["locked"] for c in dry3["conflicts"]))
+        su = next(c for c in dry3["conflicts"] if c["key"] == "character:苏芷")
+        fields = {f["field"] for f in su["fields"]}
+        check("差异摊到字段级（性格特质有差就点名）", "性格特质" in fields, su["fields"])
+        check("预演一条都不勾 = 全部未处理",
+              dry3["pending_conflicts"] == len(dry3["conflicts"]) and not dry3["overwritten"],
+              (dry3["pending_conflicts"], dry3["overwritten"]))
+        check("预演不写盘", sp3.read_text(encoding="utf-8") == before3)
+
+        # 不勾就写：原有条目一个字不动，新的照常新增（只增不改那一半不放松）
+        runner.merge_into_setting(camp2, sp3, dry_run=False)
+        after3 = json.loads(sp3.read_text(encoding="utf-8"))
+        by_name = {c["name"]: c for c in after3["characters"]}
+        check("没勾 → 同名角色内容原样（traits 还是 [怯]）",
+              by_name["苏芷"]["traits"] == ["怯"], by_name["苏芷"])
+        check("没勾 → 同名设定那行没被替换",
+              [x for x in after3["world"]["locations"] if x.startswith("客栈：")]
+              == ["客栈：青石巷口，两进院"],
+              after3["world"]["locations"])
+        check("不冲突的新条目照样并进去（潮汐井）",
+              any("潮汐井" in x for x in after3["world"]["locations"]),
+              after3["world"]["locations"])
+
+        # 勾了两条：角色内容覆盖但保留 id/locked；world 行就地替换不新增第二行
+        rep4 = runner.merge_into_setting(
+            camp2, sp3, dry_run=False,
+            overwrite=["character:苏芷", "world:locations:客栈", "character:老周"])
+        after4 = json.loads(sp3.read_text(encoding="utf-8"))
+        by4 = {c["name"]: c for c in after4["characters"]}
+        check("勾了 → 角色内容按新卡覆盖",
+              by4["苏芷"]["traits"] == ["怯", "细"], by4["苏芷"])
+        check("覆盖保留原 id（关系/时间线引用不断链）",
+              by4["苏芷"]["id"] == "user-001", by4["苏芷"].get("id"))
+        check("锁定角色即使勾了也不覆盖",
+              by4["老周"]["role"] == "掌柜", by4["老周"])
+        check("锁定那条在报告里说清“已忽略勾选”",
+              any("忽略" in (c.get("note") or "") for c in rep4["conflicts"]
+                  if c["key"] == "character:老周"), rep4["conflicts"])
+        check("勾了 → world 行就地替换（同名只有一行，不追加第二行）",
+              [x for x in after4["world"]["locations"] if x.startswith("客栈：")]
+              == ["客栈：青石巷口，两进院，门朝东"],
+              after4["world"]["locations"])
+        check("报告列出实际覆盖了哪几条",
+              set(rep4["overwritten"]) == {"character:苏芷", "world:locations:客栈"},
+              rep4["overwritten"])
+        check("写前备份仍在（history/setting_v*.json）",
+              (tmp / "history").is_dir() and any((tmp / "history").glob("setting_v*.json")))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
