@@ -90,6 +90,33 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是基于AI�
      - 阶段2：跑 `python scripts/refine_outline.py "意见"`（增量修订，自动备份旧版到 `data/outline/history/`）→ 反复至满意 → 再审批
      - 其余阶段：跑 `python scripts/reject.py --stage N "原因"`（记录原因+清下游产物+重置状态）→ 重新运行 orchestrator（`--from N` 重跑）
 
+## 许可协议总闸（2026-11-18，未确认 = 什么都进不去）
+
+审计（`docs/审计-AI调用入口与授权闸-20261118.md`）的结论是：免责声明确认只存在渲染层
+localStorage，后端 / MCP / CLI **一处都不读** —— 任何本机进程一条 POST 或一次脚本调用
+就能让程序开始花钱，而作者以为“我同意过了才会跑”。现在把这条从文案变成判据。
+
+| 项 | 落点 | 说明 |
+|---|---|---|
+| 判据（唯一实现） | `scripts/utils/license.py` | `state()` / `is_acked()` / `record()` / `refusal_message()` |
+| 同意记录 | `<root>/config/license_ack.json` | 进 `.gitignore`；存 `version`+`sha`+`at`+`source` |
+| 引擎层 | `llm_client.make_client()` 开头 | 未确认直接抛 RuntimeError —— **31 处调用点**一并覆盖，不用逐个改 |
+| HTTP 层 | `nf_api._do_GET_raw` / `do_POST` 顶部 | 只放行 `/health`、`/license`、`/license/ack`，其余 403 `license_required` |
+| 签字 | `POST /license/ack`（`nf_api_domains/license_gate.py`） | `agent_guard.is_trusted_gui` 双因子 → **外部 Agent 不能代签**（先判来源再判 `agree`） |
+| 前端 | `console/src/App.vue` 的 `ensureLicense()` | 启动问服务端；`403 license_required` 时把强制弹窗拉回来 |
+
+- **授权之后仍不能“开钱闸”**：`/config/engine`、`/config/provider`、`/env/set` 已在
+  `FORBIDDEN_IN_AGENT_MODE` 里。许可闸管的是“能不能开始花钱”，这三条管的是“钱从哪个池走、
+  用谁的钥匙”——签过字也不代表外部 Agent 可以替用户换计费通道；GUI（主进程 token）不受影响。
+- **条款改版 = 自动作废**：服务端常量 `LICENSE_VERSION` / `LICENSE_CONTENT_SHA` 是
+  `console/src/disclaimer.js` 的镜像，`tests/unit/test_license_gate.py`【L5】逐项比对。
+  改文案只改 `disclaimer.js`，然后同步这两个常量并重算指纹（旧用例也会拦）。
+- **测试旁路**：`nfctl test` 给子进程注入 `NF_LICENSE_ACK=1`（stderr 打 WARN）。
+  反证在同名用例【L4】—— 它显式清掉这个变量验真拦。别在别的路径上读这个变量。
+- **e2e / 手工起 nf_api**：真机自检前要么在界面点过同意（写进工作区），
+  要么 `NF_LICENSE_ACK=1 python scripts/nf_api.py ...`。忘了会看到满屏 403。
+- **诊断**：`nfctl check` 有一条“许可协议已确认”；`GET /license` 给 `acked/stale/required`。
+
 ## 止烧与安全闸门（2026-10-03 定，跑长任务前先看这一节）
 
 **token 级熔断**：`config/system.yaml` 的 `budget.token_limit`（**engine: hermes 下唯一有效的止烧闸门**）。

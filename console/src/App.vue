@@ -23,7 +23,7 @@ import CommandPalette from "./CommandPalette.vue";
 import AboutDialog from "./AboutDialog.vue";
 import DisclaimerDialog from "./DisclaimerDialog.vue";
 import HelpPanel from "./HelpPanel.vue";
-import { hasAckedDisclaimer, ackedDisclaimerAt } from "./disclaimer.js";
+import { ackedDisclaimerAt, DISCLAIMER_ACK_KEY, DISCLAIMER_VERSION } from "./disclaimer.js";
 import NewProjectWizard from "./NewProjectWizard.vue";
 import QualityTrend from "./QualityTrend.vue";
 import ConsistencyPanel from "./ConsistencyPanel.vue";
@@ -95,6 +95,12 @@ async function apiOnce(path, method = "GET", body = null) {
    有的看有的不看，最后等于没装。人点了确认才接管，接管后重试**一次**。 */
 async function api(path, method = "GET", body = null) {
   const r = await apiOnce(path, method, body);
+  // 许可协议总闸（2026-11-18）：服务端说没确认 → 直接把强制弹窗拉回来。
+  // 放在这里统一处理，而不是让每个调用点各自记得看 —— 那种写法必然有的看有的不看。
+  if (r.status === 403 && r.data?.license_required) {
+    licenseBlocked();
+    return r;
+  }
   if (r.status === 409 && r.data?.code === "LOCKED" && r.data?.can_takeover) {
     const yes = window.confirm(
       (r.data.error || "改稿权不在这边") + "\n\n要接管吗？\n"
@@ -738,11 +744,28 @@ function toggleConfirmOnExit() {
   try { window.mofangAPI?.setConfirmOnExit?.(confirmOnExit.value); } catch (e) { /* ignore */ }
 }
 
-// 免责声明确认回调（2026-10-07）：首启强制模式点“同意”后，接着跑被延后的
-// 引导/向导 —— 新手检查严格放在免责声明之后，不与免责弹窗叠层。
-function onDisclaimerAck() {
+// 许可协议确认回调（2026-11-18 起改为**服务端落地**）。
+// 顺序是硬要求：先 POST /license/ack，成功才写本地缓存、才关弹窗；
+// 失败（403/500/网络）就把原因说清楚并**保持弹窗**——没签成不能放行。
+async function onDisclaimerAck() {
+  const r = await apiOnce("/license/ack", "POST", { agree: true });
+  if (r.status !== 200 || !r.data?.ok) {
+    const why = (r.data && r.data.error) || ("HTTP " + r.status);
+    say("确认没有落地：" + why);
+    return;
+  }
+  // 服务端已落盘，本地只留一个显示用的时间戳（ack 键仍随版本/指纹变化）
+  try {
+    localStorage.setItem(DISCLAIMER_ACK_KEY, JSON.stringify({
+      v: DISCLAIMER_VERSION, at: new Date().toISOString(),
+    }));
+  } catch (e) { /* 缓存失败不影响判据：判据在服务端 */ }
+  disclaimerAckedAt.value = ackedDisclaimerAt();
   disclaimerOpen.value = false;
-  say("已确认免责声明，祝创作顺利");
+  say("已确认许可协议，祝创作顺利");
+  // 确认前首屏那一轮 /state 是 403（界面按空处理），这里补一次，
+  // 免得用户看到"同意完了还是空的、得手动刷新"。
+  refresh();
   if (pendingAfterDisclaimer) {
     const fn = pendingAfterDisclaimer;
     pendingAfterDisclaimer = null;
@@ -5703,13 +5726,52 @@ onMounted(() => {
       showGuide.value = true;
     }
   };
-  if (!hasAckedDisclaimer()) {
-    openDisclaimer("first-run");
-    pendingAfterDisclaimer = bootAfterDisclaimer;
-  } else {
+  // 2026-11-18：先问服务端“这个工作区确认过许可协议没有”。
+  // localStorage 只当显示缓存（换机器/清缓存不再影响判据，也不会被它冒充同意）。
+  (async () => {
+    const ok = await ensureLicense();
+    if (ok === true) { bootAfterDisclaimer(); return; }
+    if (ok === false) {
+      openDisclaimer("first-run");
+      pendingAfterDisclaimer = bootAfterDisclaimer;
+      return;
+    }
+    // 服务不可达：这题问不到（不是“没同意”）→ 不弹协议，照常启动；
+    // 各面板自己的 403 会说明白。宁可少弹一次，也不要拿服务故障冒充“未授权”。
     bootAfterDisclaimer();
-  }
+  })();
 });
+
+/* ---------- 许可协议总闸（2026-11-18） ----------
+   判据在服务端（scripts/utils/license.py）。localStorage 只当"显示用的缓存"，
+   不再当"是否同意过"的答案 —— 旧版只有前端弹窗，后端从来不知道用户同意过，
+   于是任何一条 HTTP/CLI 调用都能在不确认的情况下开始花钱
+   （审计：docs/审计-AI调用入口与授权闸-20261118.md）。
+
+   行为：
+   · 启动先问 GET /license；acked=false / stale=true → 强制弹窗（不可关）；
+   · 点“我已阅读并同意” → POST /license/ack（服务端落地）→ 成功后才写本地缓存；
+   · 任何时候接口回 403 license_required → 重新拉起同一个弹窗（不重复叠层）。 */
+const licenseChecked = ref(false);   // 仅在排障面板用：本轮是否问过服务端
+
+async function ensureLicense() {
+  licenseChecked.value = true;
+  try {
+    const r = await apiOnce("/license", "GET");
+    const d = r.data || {};
+    if (r.status === 200 && d.ok && d.acked) return true;
+    return false;
+  } catch (e) {
+    // 本地服务暂时问不到：不放行也不吓人 —— 各面板自己会 403，界面不会静默工作。
+    return null;
+  }
+}
+
+function licenseBlocked() {
+  if (disclaimerOpen.value && disclaimerMode.value === "first-run") return;  // 已在弹窗上
+  pendingAfterDisclaimer = pendingAfterDisclaimer || null;
+  openDisclaimer("first-run");
+}
 
 async function checkMaterialsEmpty() {
   // 提醒用户放置素材（仅首次）

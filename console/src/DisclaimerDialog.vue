@@ -10,7 +10,7 @@
 // 文案：./disclaimer.js 单一事实源（哨兵草案 A/B 双版），作者划线改字后只改那个文件。
 import { ref, computed, watch, nextTick, onBeforeUnmount } from "vue";
 import {
-  DISCLAIMER_VERSION, DISCLAIMER_ACK_KEY,
+  DISCLAIMER_VERSION,
   DISCLAIMER_SHORT_SECTIONS, DISCLAIMER_FULL_SECTIONS,
 } from "./disclaimer.js";
 
@@ -52,15 +52,22 @@ watch(() => props.open, async (v) => {
 });
 
 // ---- 同意 / 退出 ----
+// 2026-11-18：同意记录改由**服务端**落地（POST /license/ack）。
+// 本组件不再自己写 localStorage —— 那正是旧版的病灶：后端从来不知道用户同意过。
+// 写入与失败提示统一在 App.vue 的 onDisclaimerAck 里做；签不成就别关弹窗。
 function onAgree() {
-  try {
-    localStorage.setItem(DISCLAIMER_ACK_KEY, JSON.stringify({ v: DISCLAIMER_VERSION, at: new Date().toISOString() }));
-  } catch { /* localStorage 不可用时按已同意处理（不阻塞使用） */ }
   emit("ack");
 }
 
 function onExit() {
-  // 不同意 = 退出软件。走 window.close()：触发主进程 before-quit 钩子（quitGuard 存盘确认照常工作）
+  // 不同意 = 退出软件。
+  // 2026-11-18：优先走主进程的“真退出”通道（app:quit-confirmed）——
+  // 裸 window.close() 会撞上退出守卫（忙/需确认时被拦下），用户会以为
+  // “不同意”按钮坏了（方寸踩过同一个坑：不同意并退出永远退不掉）。
+  try {
+    const q = window.mofangAPI?.confirmQuit;
+    if (typeof q === "function") { q(); return; }
+  } catch (e) { /* 退回关闭窗口 */ }
   window.close();
 }
 

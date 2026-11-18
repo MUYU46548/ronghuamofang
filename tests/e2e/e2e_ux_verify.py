@@ -304,15 +304,25 @@ def settle_disclaimer(page):
     first-run 真锁模态（z-60 压全抽屉、焦点困于弹窗内），不处理会把后续所有点击拦死
     （2026-10-05 实测：卡在\u300c跳过确认框\u300d，报 disclaimer-mask intercepts pointer events）。
     这里**先跑该门的行为断言（仅首次），再走完真实勾选流放行**——不是绕过，是把这道闸
-    纳入真机验收；勾选流本身也验证了\u300c滚到底才解锁 → 同意 → ack 落 localStorage\u300d。
+    纳入真机验收；勾选流本身也验证了\u300c滚到底才解锁 → 同意 → POST /license/ack 落地
+    → 本地留一份显示用时间戳\u300d。
+
+    2026-11-18：弹不弹由**服务端** `GET /license` 说了算（之前只看 localStorage）。
+    因此同一后端进程里签过一次之后，后续上下文不再弹 —— 见下方 absence 分支。
     """
     if page.locator(".disclaimer-mask.forced").count() == 0:
-        check("首启强制免责声明弹出（无 ack 的全新 profile 必弹）",
-              False, "弹窗未出现（首启门失效或 ack 被残留）")
+        # 2026-11-18：判据已搬到服务端（`GET /license`）。同一后端进程内签过一次之后，
+        # 后续浏览器上下文**哪怕 localStorage 全空**也不再弹 —— 这不是“首启门失效”，
+        # 恰恰是新语义：签字是服务端的事，不跟着浏览器 profile 走。
+        # 所以只有**第一个**上下文必须弹；之后不弹才算对。
+        if _DISCLAIMER_VERIFIED[0]:
+            return True
+        check("首启强制免责声明弹出（服务端未签时必弹）",
+              False, "首个上下文也没弹（首启门失效，或服务端已残留 ack）")
         return False
     if not _DISCLAIMER_VERIFIED[0]:
         _DISCLAIMER_VERIFIED[0] = True
-        check("首启强制免责声明弹出（无 ack 的全新 profile 必弹）", True)
+        check("首启强制免责声明弹出（服务端未签时必弹）", True)
         check("弹窗语义=对话框（role=dialog + aria-modal）",
               page.locator(".disclaimer-dlg[role=dialog][aria-modal=true]").count() == 1)
         agree = page.locator(".disclaimer-dlg button:has-text('我已阅读并同意')")

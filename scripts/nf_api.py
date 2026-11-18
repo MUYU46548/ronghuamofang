@@ -5,6 +5,8 @@
 不经过 Hermes 子进程。端点总览：
 
 GET  /health              存活 + 当前 job
+GET  /license            许可协议状态（acked/required/stale）—— 未确认时**唯一**可读的站内端点之一
+POST /license/ack         {agree:true} → 记录同意（仅桌面端 GUI 双因子来源；外部 Agent 不能代签）
 GET  /state               progress + gates + 成本汇总 + 最近 job + 形态自报（form/runtime_python）
 GET  /models              config/system.yaml 的 engine/providers/model 回显
 GET  /prompts/list        提示词模板列表（prompts/stage[1-7]_*.md）
@@ -185,6 +187,7 @@ try:
     from nf_api_domains import runtime as dom_runtime      # noqa: E402
     from nf_api_domains import run_control as dom_run_control  # noqa: E402 (运行控制：叫停/接管/插话)
     from nf_api_domains import config_write as dom_config_write  # noqa: E402 (引擎/供应商/风格笔记写入)
+    from nf_api_domains import license_gate as dom_license_gate  # noqa: E402 (许可协议总闸 2026-11-18)
     from nf_api_domains import materials_write as dom_materials_write  # noqa: E402 (素材写侧)
     from nf_api_domains import scraps_write as dom_scraps_write  # noqa: E402 (碎片写侧：保存/删除/提升)
     from nf_api_domains import review_actions as dom_review_actions  # noqa: E402 (批注/决策/批量精修/自动重写)
@@ -257,6 +260,35 @@ def norm_path(h):
     会静默漂移——日后归一化规则一改，就只有域模块里的那份是旧的）。
     """
     return h.path.split("?")[0].rstrip("/") or "/"
+
+
+# ---- 许可协议总闸（2026-11-18）----
+# 口径：**未确认许可协议（免责与知情声明）= 整个软件不可用**，不是"某个功能不可用"。
+# 只放行三条：/health（探活）、/license（前端要知道为什么被锁）、/license/ack（签字）。
+# 判据唯一实现在 utils/license.py；本文件只负责"接到入口上"，不复制规则。
+# 为什么装在 HTTP 入口**之外**还装在 make_client：入口挡的是"用法"，
+# make_client 挡的是"接线"（脚本/流水线/未来新端点），两处都要有，缺一必漏。
+LICENSE_OPEN_GET = frozenset({"/health", "/license"})
+LICENSE_OPEN_POST = frozenset({"/license/ack"})
+
+
+def license_state():
+    """当前许可状态（每次调用现读文件，不缓存 —— 同意动作要立刻生效）。"""
+    from utils import license as _lic
+    return _lic.state(ROOT)
+
+
+def license_block_payload():
+    """未确认时的统一拒文（HTTP 与 CLI 共用同一份说法）。"""
+    from utils import license as _lic
+    st = license_state()
+    if st.get("stale"):
+        msg = ("许可协议已更新（当前 v%s），需要重新确认后才能继续使用 —— "
+               "旧记录已失效。打开桌面端会强制弹出，确认一次即可。"
+               % _lic.LICENSE_VERSION)
+    else:
+        msg = _lic.refusal_message("使用界面、看稿改稿与跑流水线")
+    return {"ok": False, "license_required": True, "error": msg, "license": st}
 
 
 def _resolve_root():
@@ -2774,6 +2806,19 @@ class Handler(BaseHTTPRequestHandler):
     def _do_GET_raw(self):
         p = norm_path(self)
 
+        # ---- 许可协议总闸（2026-11-18，最先判）----
+        # 未确认时只放行探活与状态查询：前端要靠 /license 才能把强制弹窗画出来。
+        # 其余一律 403，且**不区分来源** —— 外部 Agent 与 GUI 一视同仁：
+        # "还没被授权使用"不是权限问题，是使用前提。
+        if p not in LICENSE_OPEN_GET and not license_state().get("acked"):
+            self._send(403, license_block_payload())
+            return
+
+        if p == "/license":
+            # 状态查询本身也要能回答"为什么被锁"：带上 required/stale/ack 原文。
+            self._send(*_dom(dom_license_gate.handle_license_get(self)))
+            return
+
         # 施工权状态（2026-11-02，P5 · L-5）：界面必须自己说出"锁在谁手里"。
         # 只读、不设副作用 —— 状态由锁文件本身决定，不另存一份内存变量
         # （另存就会出现"界面说在你手里、实际锁还在 AI 那"的分裂）。
@@ -3418,6 +3463,17 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         p = norm_path(self)
         body = self._body()
+
+        # ---- 许可协议总闸（2026-11-18，先于 Agent 守卫判）----
+        # 顺序有讲究：未确认时连"这是什么操作"都不必讨论 —— 回一句前提没满足，
+        # 比回一句 403 禁止更准确（后者会让人以为"换个来源就能过"）。
+        # 签字端点是唯一例外，且它自己有 GUI 双因子校验（域模块里）。
+        if p not in LICENSE_OPEN_POST and not license_state().get("acked"):
+            self._send(403, license_block_payload())
+            return
+        if p == "/license/ack":
+            self._send(*_dom(dom_license_gate.handle_license_ack(self, body)))
+            return
 
         # Agent 模式安全守卫：禁止外部 Agent 调用敏感操作
         # 仅当 agent_mode=true 且请求路径在禁止列表中时生效

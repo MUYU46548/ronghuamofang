@@ -608,6 +608,16 @@ def collect_check(root: Path) -> dict:
         add("DSH 可用（备选引擎）", False, "自检失败：%s: %s" % (type(e).__name__, str(e)[:120]),
             warning=True)
 
+    # 许可协议（2026-11-18）：未确认时**任何**模型调用都会被拦下 —— 这条必须
+    # 出现在体检里，否则用户会把它读成“引擎坏了 / Key 没配好”。
+    try:
+        from utils import license as _lic
+        _lic_ok, _lic_why = _lic.self_check()
+        add("许可协议已确认", _lic_ok, _lic_why, blocking=False, warning=not _lic_ok)
+    except Exception as e:                                  # noqa: BLE001
+        add("许可协议已确认", False, "自检失败：%s: %s" % (type(e).__name__, str(e)[:120]),
+            warning=True)
+
     # 素材
     cards = _count_files(root / "materials" / "raw")
     scraps = _count_files(root / "materials" / "original_scraps")
@@ -1160,6 +1170,14 @@ def run_tests(root: Path, pattern: str = "test_*.py", verbose: bool = False) -> 
     # （errors="replace" 兜底：日志宁可显示成 ?，也不许再变成 None）。
     child_env = dict(os.environ)
     child_env["PYTHONIOENCODING"] = "utf-8"
+    # 许可协议总闸（2026-11-18）：测试跑在临时根上，那些根当然没签过字。
+    # 官方运行器统一注入测试豁免（判据见 utils/license.py 的 ENV_BYPASS）——
+    # 出声放在这里（不放在 license.py 里：那行字会落进被快照的日志文件，
+    # 把“盘点前后工作区逐字节不变”那条判据打红，红得还看不出原因）。
+    # 反证在 tests/unit/test_license_gate.py：它显式清掉本变量验真拦。
+    child_env["NF_LICENSE_ACK"] = "1"
+    print("  [i] 测试豁免：NF_LICENSE_ACK=1（许可协议总闸在测试中放行；"
+          "真拦判据见 test_license_gate.py）")
     # NF_ROOT 毒化防护（2026-10-07 实测）：用户级 NF_ROOT 会被 nf_api 当作
     # `--root` 的默认值（nf_api.py:2624），测试起的临时根服务器就全被钉回
     # 真实仓库 —— 临时配置的 vault/agent_mode 不生效、models/switch 把真

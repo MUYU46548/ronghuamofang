@@ -1868,6 +1868,15 @@ def _request_max_tokens_from_cfg(cfg):
 
 def make_client(cfg, model_key="default", verbose=True):
     """按 config/system.yaml 构建客户端。model_key: default/architect/outliner/writer/checker/reviewer/polisher。"""
+    # ---- 许可协议总闸（2026-11-18）----
+    # **所有**调用点都经这里取客户端（全仓 31 处），所以"未确认就不许调模型"
+    # 只需要落这一处：脚本、流水线、HTTP 端点、MCP 转发一并生效。
+    # 放在引擎判定之前 —— self 引擎的错是"接线错"，本闸的错是"人没同意"，
+    # 两者给人的下一步完全不同，先答后者。
+    from utils import license as _license
+    if not _license.is_acked():
+        raise RuntimeError("[client] " + _license.refusal_message("调用模型"))
+
     _load_env_file()
     engine = resolve_engine(cfg)
     if engine == "self":

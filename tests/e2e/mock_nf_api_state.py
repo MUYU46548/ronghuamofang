@@ -274,6 +274,10 @@ def plan_move(pid, new_status, ref_path=""):
 # 换行常量：demo 提案文案里拼真实换行用（对齐真后端的多行 markdown）
 NL = "\n"
 COLD = False   # --cold：全新工作区（所有阶段 pending + has_work=false）→ 冷启动引导
+# 许可协议闸（2026-11-18）：e2e 的浏览器上下文每次都是干净的 localStorage，
+# 但签字必须落在服务端 —— mock 也照这个语义：进程内一个开关，签过之后所有
+# 新上下文都不再弹首启弹窗。不实现它，settle_disclaimer 点“同意”会 404 卡住。
+LICENSE_ACKED = False
 ENGINE = "direct"   # --engine：视觉验收要拍“自任务模式”提示条时传 self
 
 # ---- 章节正文（B7，2026-11-06）----
@@ -596,6 +600,15 @@ class Handler(BaseHTTPRequestHandler):
         p = self.path.split("?")[0].rstrip("/") or "/"
         if p == "/health":
             return self._send(200, {"ok": True, "current_job": None, "allow_fake": False})
+        if p == "/license":
+            # 前端启动先问这一条；acked=false 才会拉首启强制弹窗。
+            return self._send(200, {
+                "ok": True, "acked": LICENSE_ACKED, "bypass": False, "stale": False,
+                "ack": ({"version": "1.1", "sha": "7e2e1bd3f529",
+                         "at": "2026-11-18T21:00:00+08:00", "source": "gui"}
+                        if LICENSE_ACKED else None),
+                "required": {"version": "1.1", "sha": "7e2e1bd3f529"},
+            })
         if p == "/whoami":
             # 服务端认为“你是谁”（2026-11-04）。e2e 只关心形状，固定返回“非 GUI”。
             return self._send(200, {"ok": True, "trusted_gui": False,
@@ -1538,6 +1551,15 @@ class Handler(BaseHTTPRequestHandler):
         p = self.path.split("?")[0].rstrip("/") or "/"
         n = int(self.headers.get("Content-Length") or 0)
         body = json.loads(self.rfile.read(n).decode("utf-8")) if n else {}
+        if p == "/license/ack":
+            # 与真后端同语义：签一次，进程内记住；后续新上下文不再弹首启弹窗。
+            global LICENSE_ACKED
+            if not (body or {}).get("agree"):
+                return self._send(400, {"ok": False,
+                                        "error": "需要显式同意（请求体带 agree: true）"})
+            LICENSE_ACKED = True
+            return self._send(200, {"ok": True,
+                                    "message": "已记录同意（mock · 许可协议 v1.1）"})
         if p == "/_mock/conflict_next":
             # 只给 e2e 用：下一次 apply 撞一次“这一段变过”，验界面摊不摊开、覆不覆盖。
             ANN_FLOW["conflict_next"] = True

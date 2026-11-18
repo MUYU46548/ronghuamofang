@@ -334,6 +334,11 @@ def run_suite(key: str, suite: dict, py: str, stack: Stack | None, ports: dict,
 
 # ---------------------------------------------------------------------------
 def main(argv=None) -> int:
+    # 许可协议总闸（2026-11-18）：e2e 跑在 tests/e2e/fixture_project 上，那个根从没
+    # 被人签过字；不豁免就会满屏 403（而且看起来像“界面全坏了”）。
+    # 放在这里而不是各套件里：服务与套件子进程都继承本进程环境，一处生效。
+    # 真拦的判据不在 e2e，见 tests/http/test_license_http.py。
+    os.environ["NF_LICENSE_ACK"] = "1"
     ap = argparse.ArgumentParser(description="e2e 一键验收（起服务→跑→收尾）")
     ap.add_argument("--only", default="", help="逗号分隔的套件名（默认全部）")
     ap.add_argument("--list", action="store_true", help="列出套件")

@@ -45,6 +45,9 @@ ROOT = Path(__file__).resolve().parents[2]
 PY = sys.executable
 PORT = 8951
 BASE = "http://127.0.0.1:%d" % PORT
+# 2026-11-18：配置写入口已列入 FORBIDDEN_IN_AGENT_MODE（Agent 不得开钱闸），
+# 本用例验的是"GUI 写配置不丢注释"，所以按真实 GUI 带上主进程 token。
+GUI_TOKEN = "nf-test-gui-token-20261118"
 PASS, FAIL = [], []
 
 
@@ -59,7 +62,8 @@ def req(method, path, body=None, timeout=60):
             if method == "POST" else None)
     r = urllib.request.Request(BASE + path, data=data, method=method,
                                headers={"Content-Type": "application/json",
-                                        "X-Mofang-Source": "gui"})
+                                        "X-Mofang-Source": "gui",
+                                        "X-Mofang-Token": GUI_TOKEN})
     try:
         with urllib.request.urlopen(r, timeout=timeout) as resp:
             return resp.status, json.loads(resp.read().decode("utf-8"))
@@ -102,6 +106,10 @@ def main():
         env = dict(os.environ)
         env["NF_ROOT"] = str(tmp)
         env["PYTHONIOENCODING"] = "utf-8"
+        # 本用例只验配置写入；许可协议由 test_license_http.py 专测。
+        # 同时注入 GUI token，走"真实桌面端"路径（Agent 禁用名单不会误伤）。
+        env["NF_LICENSE_ACK"] = "1"
+        env["NF_GUI_TOKEN"] = GUI_TOKEN
         proc = subprocess.Popen(
             [PY, str(ROOT / "scripts" / "nf_api.py"), "--port", str(PORT),
              "--root", str(tmp)],
