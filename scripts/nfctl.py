@@ -1764,6 +1764,12 @@ def main(argv=None):
     p_e2e.add_argument("--only", default="all",
                        help="套件，逗号分隔：ux / metrics / discuss-ui / discuss-api（默认全部）")
 
+    p_aud = sub.add_parser("audit", parents=[common],
+                           help="功能—证据对账（账上说做了必须有证据；说没做的不许已存在）")
+    p_aud.add_argument("--list", action="store_true", help="只列 todo / partial 条目与说明")
+    p_aud.add_argument("--gaps", action="store_true", help="只列 partial（有一半的）")
+    p_aud.add_argument("--quiet", action="store_true", help="只输出合计，不逐条列证据")
+
     args = ap.parse_args(argv)
     root = Path(args.root).resolve() if getattr(args, "root", None) else DEFAULT_ROOT
     as_json = bool(getattr(args, "json", False))
@@ -1941,6 +1947,20 @@ def main(argv=None):
     if args.cmd == "serve":
         start_serve(root, port=args.port)
         return 0
+
+    if args.cmd == "audit":
+        # 功能—证据对账（2026-11-19）：实现只有一份，在 scripts/feature_audit.py。
+        # 为什么要有：账本和代码分叉过一次，7 条里 5 条把“已做”记成“没做”，
+        # 于是每次盘点都从假账推剩余量。这里只负责转发。
+        import subprocess
+        cmd = [sys.executable, str(root / "scripts" / "feature_audit.py")]
+        if getattr(args, "list", False):
+            cmd.append("--list")
+        if getattr(args, "gaps", False):
+            cmd.append("--gaps")
+        if getattr(args, "quiet", False):
+            cmd.append("--quiet")
+        return subprocess.call(cmd, cwd=str(root))
 
     if args.cmd == "e2e":
         # 界面真机验收的公共入口（2026-11-17）：实现只有一份 —— tests/e2e/run_all.py。
