@@ -447,6 +447,23 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                 except Exception as e:                        # noqa: BLE001
                     print("[stage5] 句法病转问题失败（不影响检查稿）：%s: %s"
                           % (type(e).__name__, e))
+                # 跨章一致性复核（P1-2，2026-11-19）：一批只看 ≤5 章，批间互相看不见，
+                # 跨章硬伤（第 2 章死了、第 12 章又出场）在批内天然看不出来。
+                # 账本是跨章累计的 —— 在**检查稿**层重建一遍再问：阶段 4 记的是 raw 层，
+                # 改稿之后可能已经不是那样。
+                try:
+                    from utils import story_state as _ss5
+                    _st5 = _ss5.rebuild(Path("."),
+                                        Path("data/setting/setting.json"),
+                                        Path("data/chapters/checked"))
+                    _ca, _cs = _ask.collect_story_conflict_questions(Path("."), _st5)
+                    if _ca:
+                        print("[stage5] 要你定的事：新增 %d 条（跨章硬伤，界面“要你定的事”里答）"
+                              % _ca)
+                    print("[stage5] 跨章账本：%s" % _ss5.summarize(_st5))
+                except Exception as e:                        # noqa: BLE001
+                    print("[stage5] 跨章账本复核失败（不影响检查稿）：%s: %s"
+                          % (type(e).__name__, e))
             except Exception as e:                            # noqa: BLE001
                 print("[stage5] 结构指标转问题失败（不影响检查稿）：%s: %s"
                       % (type(e).__name__, e))

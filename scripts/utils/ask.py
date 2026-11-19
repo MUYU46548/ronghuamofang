@@ -631,3 +631,69 @@ def collect_quality_questions(root, report=None):
         else:
             skipped += 1
     return added, skipped
+
+
+#: 一致性账本（`story_state.save_state` 落盘的位置）
+STORY_STATE_REL = "data/state/story_state.json"
+
+
+def collect_story_conflict_questions(root, state=None):
+    """跨章硬伤（死而复生 / 写死两次 / 物品复现 / 时间倒退）→ 可作答的问题（零 token）。
+
+    `state` 传 `story_state.rebuild()` 的返回值；不传就读 `data/state/story_state.json`。
+    只取 `level == "conflict"`（warning 级的疑似错名不刷待办 —— 那是提示，不是硬伤）。
+
+    为什么值得做（P1-2，2026-11-19）：阶段 5 分批检查，每批 ≤5 章、批间看不到彼此，
+    跨章的硬伤在批内天然看不见。账本是跨章累计的，能在阶段末把"第 2 章死了、
+    第 12 章又出场"这类问题捞出来 —— 但原先它只在控制台打一行，作者在界面上看不到，
+    更没有"这一章怎么办"的作答位。
+    """
+    if state is None:
+        p = Path(root) / STORY_STATE_REL
+        if not p.is_file():
+            return 0, 0
+        try:
+            state = json.loads(p.read_text(encoding="utf-8"))
+        except (ValueError, OSError):
+            return 0, 0
+    if not isinstance(state, dict):
+        return 0, 0
+    by_ch = {}
+    for c in (state.get("conflicts") or []):
+        if not isinstance(c, dict) or c.get("level") != "conflict":
+            continue
+        try:
+            no = int(c.get("chapter") or 0)
+        except (TypeError, ValueError):
+            continue
+        if no <= 0:
+            continue
+        by_ch.setdefault(no, []).append(str(c.get("detail") or c.get("code") or "").strip())
+    added = skipped = 0
+    for no in sorted(by_ch):
+        bits = [b for b in by_ch[no] if b]
+        if not bits:
+            continue
+        qid, changed = upsert(root, {
+            "id": "story:ch%02d" % no,
+            "stage": 5,
+            "chapter": no,
+            "question": "第 %d 章和前面的账对不上（%d 处）—— 这一章怎么办？" % (no, len(bits)),
+            "context": "；".join(bits[:4]) + ("…" if len(bits) > 4 else "")
+                       + "。这些是确定性判据（不是模型印象）：死亡/物品/年份与前面章节冲突。"
+                         "改不改由你定。",
+            "options": [
+                {"value": "rewrite", "label": "重写这一章",
+                 "note": "进待重写清单，下次写作阶段重出这一章的任务书"},
+                {"value": "keep", "label": "按现状收", "note": "可能是前文的账记错了，先留着"},
+                {"value": "later", "label": "先放着", "note": "留在面板里，之后再说"},
+            ],
+            "default": "later",
+            "effect": "rewrite_chapter",
+            "source": "story_state",
+        }, by="system")
+        if changed:
+            added += 1
+        else:
+            skipped += 1
+    return added, skipped
