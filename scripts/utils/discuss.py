@@ -161,10 +161,15 @@ def queue(status=None, root="."):
 
 def draft_text(rel, root="."):
     """读提案全文（GUI 预览 / 提取写回内容）。校验路径不越界。"""
+    if not str(rel or "").strip():
+        # 空 path 时 `Path(root) / ""` 就是 root 目录本身，exists() 为 True，
+        # 接着 read_text(目录) 抛 PermissionError → 端点 500。缺参数是调用方的
+        # 事，不是服务器故障（2026-11-19 GET 全量扫描扫出来的）。
+        return None, "path 必填（相对项目根的提案路径）"
     if rel.startswith(("/", "\\")) or ".." in str(rel).replace("\\", "/").split("/"):
         return None, "path 必须是相对项目根的提案路径"
     p = Path(root) / rel
-    if not p.exists():
+    if not p.is_file():
         return None, f"提案不存在: {rel}"
     return read_text(p), ""
 

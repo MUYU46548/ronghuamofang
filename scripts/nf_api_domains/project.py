@@ -1650,6 +1650,14 @@ def handle_config_vaults_scan(h):
                      "counts": {"characters": len(data.get("characters") or []),
                                 "world": len(data.get("world") or []),
                                 "timeline": len(data.get("timeline") or [])}}
+    except ValueError as e:
+        # `obsidian_bridge` 里唯一一处 raise ValueError 是“未配置 vault 路径”，
+        # 那是**配置还没填**，不是服务器故障。原实现把它包成 500，前端只能显示
+        # “服务器错误”，而这句话里恰恰写着该去哪儿填（2026-11-19 GET 全量扫描
+        # 扫出来的）。文案对不上才回落 500 —— 别把真正的 ValueError 也算成用户的错。
+        if "未配置" in str(e):
+            return 400, {"ok": False, "error": str(e)[:200]}
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
     except Exception as e:                                   # noqa: BLE001
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
