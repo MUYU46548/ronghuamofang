@@ -840,6 +840,16 @@ MCP_TOOLS = [
         "_http": ("GET", "/setting/stale", None),
     },
     {
+        "name": "nf_get_setting_impact",
+        "description": "读“设定改了之后，哪些已检查的章要复检”（P1-5，零 token）。"
+                       "与 nf_get_setting_stale 方向相反：那个管“章变了→条目待核”，"
+                       "这个管“条目变了→章待复检”。只算不跑，重不重检由作者定。"
+                       "⚠️ checked=false 表示还没有基线（阶段 5 没跑过）= **没算过**，"
+                       "不是“全书都对得上”。",
+        "inputSchema": {"type": "object", "properties": {}},
+        "_http": ("GET", "/setting/impact", None),
+    },
+    {
         "name": "nf_set_material_status",
         "description": "人工拍板：把设定集条目标为 adopted / rejected / uncertain。"
                        "reject 会**同时写墓碑**（按名字生效、不依赖条目，条目不存在也成功）；"

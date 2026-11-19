@@ -337,6 +337,20 @@ def handle_setting_stale(h):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+def handle_setting_impact(h):
+    """GET /setting/impact → 设定改过之后，哪些已检查的章要复检（P1-5，零 token）。
+
+    与 `/setting/stale` **方向相反**：那边是“章变了，条目待核”，这边是
+    “条目变了，章待复检”。`checked=false` = 还没有基线（阶段 5 没跑过 / 基线坏了），
+    意思是**没算过**，不是“全都对得上”。
+    """
+    try:
+        from utils import setting_impact as si
+        return 200, si.status(str(api.ROOT))
+    except Exception as e:                                    # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 def handle_setting_stale_link(h, body):
     """POST /setting/stale/link {dry_run?} → 扫描章节，把现有引用补登记进条目。
 
@@ -433,6 +447,7 @@ ROUTES = (
     ("GET", "/setting/names", handle_setting_names),
     ("GET", "/setting/interaction", handle_setting_interaction),
     ("GET", "/setting/stale", handle_setting_stale),
+    ("GET", "/setting/impact", handle_setting_impact),
     ("POST", "/setting/stale/link", handle_setting_stale_link),
     ("POST", "/setting/stale/review", handle_setting_stale_review),
     ("POST", "/setting/save", handle_setting_save),

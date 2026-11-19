@@ -3215,6 +3215,10 @@ class Handler(BaseHTTPRequestHandler):
             # 设定引用过期清单（M10）：条目记 sources（章号 + 版本），读时现算。
             # 零 token、不写文件；checked=false = 设定集缺失（“没查”≠“没问题”）。
             self._send(*_dom(dom_setting_state.handle_setting_stale(self)))
+        elif p == "/setting/impact":
+            # 设定改了之后哪些已检查的章要复检（P1-5，2026-11-19）：与 /setting/stale
+            # 方向相反；checked=false = 还没有基线（“没算过”≠“全都对得上”）。
+            self._send(*_dom(dom_setting_state.handle_setting_impact(self)))
         elif p == "/outline/graph":
             # 情节图数据（2026-11-02，视频②对标）：章=节点、顺序/共享角色=连线。
             # 零 token，纯解析 data/outline/chapters/*.md。

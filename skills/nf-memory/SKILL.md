@@ -18,6 +18,7 @@ metadata:
 - canon 快照（已定稿设定集）：`nf_get_canon`
 - 设定冲突裁决：`nf_get_setting_conflicts` + `nf_set_material_status`
 - 设定引用待核（改过渡章之后）：`nf_get_setting_stale`
+- 设定改过之后哪些章要复检：`nf_get_setting_impact`（与上一条方向相反）
 - 全景与成本：`nf_get_state` / `nf_get_costs`
 
 ## 标准动线
@@ -30,6 +31,10 @@ metadata:
 4. `nf_get_setting_stale` —— 写新章之前先看一眼：哪些设定条目的依据章已经改过。
    **待核条目不要当正典引用**（它可能已经不成立），也不要自己"确认" ——
    核对与移除是作者在桌面端逐条点的，Agent 没有这个工具。
+5. `nf_get_setting_impact` —— 反过来问：“作者改过设定之后，哪几章已检查的稿要重看？”
+   它按条目引用关系算（只列正文里真出现过该条目的章），**只算不跑**；
+   重不重检由作者定，Agent 不要顺手拿它触发阶段 5。
+   ⚠️ `checked=false` = 还没有基线（阶段 5 没跑过）= **没算过**，不是“全书都对得上”。
 
 ### 冲突裁决整理（Agent 整理，作者拍板）
 1. `nf_get_setting_conflicts` —— 拿“机器裁不了”的分歧清单。

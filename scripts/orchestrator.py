@@ -499,6 +499,21 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
                       % "、".join(str(x) for x in _pend[:10]))
                 db.finish_run(run_id, "waiting_review")
                 return 3
+            # 设定基线（P1-5，2026-11-19）：阶段 5 收尾记一次“这些章是按哪版设定检查的”。
+            # 只记不判，也不调模型；以后设定条目改了，`GET /setting/impact` 会算出
+            # 哪些已检查的章要复检。放在 awaiting_review 之后：还没合成时记了不准。
+            if n == 5:
+                try:
+                    from utils import setting_impact as _si
+                    _r = _si.record()
+                    if _r.get("recorded"):
+                        print("[orchestrator] 设定基线：记下 %d 章（设定再改时会算出哪些章要复检）"
+                              % _r["recorded"])
+                    elif _r.get("reason"):
+                        print("[orchestrator] 设定基线未记：%s" % _r["reason"])
+                except Exception as e:                          # noqa: BLE001
+                    print(f"[orchestrator] 设定基线记录失败（不影响检查）: "
+                          f"{type(e).__name__}: {e}")
             # ④ 语义审稿（2026-11-03，窄口）：**默认关**（gates.semantic_review=false）。
             # 打开后，阶段 4 跑完会给"不合格 / 待重写"的章各开一个审稿讨论 + 任务书
             # （零 token，不调模型），然后停在等人工 —— 因为要不要改、怎么改是作者的事。
