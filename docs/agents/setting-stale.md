@@ -95,6 +95,34 @@ GUI：`console/src/SettingStalePanel.vue`，挂在“设定”页签 `SettingClo
 - **不做段级精确定位**：目前只到章级。段身份在章内有效（见产品定义 §3.6），
   精确到段就是假精确。
 
+## 反方向：设定改了，哪些**章**要复检（P1-5，2026-11-19）
+
+上面整套治的是「**章**改了 → 引用它的**条目**待核」。反过来那个方向原先没人管：
+作者改完设定（比如把某个配角的年龄从 42 改成 47），前面已经过检的章在界面上
+看上去一切正常 —— 而它们正是按旧设定检查过的。
+
+实现：`scripts/utils/setting_impact.py`，两件事分开摆：
+
+| | 谁变了 | 结论 | 落点 |
+|---|---|---|---|
+| `setting_stale` | 章正文 | 条目待核 | 条目自身 `sources` |
+| `setting_impact` | 设定条目 | 章待复检 | `data/state/stage5_baseline.json`（基线） |
+
+- **基线只记历史**：章号 → 该章正文里出现过的条目 → 各自指纹。阶段 5 收尾由
+  `orchestrator._post_stage` 记一次（`setting_impact.record()`）。
+- **待复检读时现算**：`GET /setting/impact`。不落“stale 标记”，理由同上一条
+  —— 状态文件一存在就会出现“设定了但标记没刷”。
+- **只标真受影响的章**：引用关系复用 `setting_stale._scan_mentions`（长词优先、
+  短名不参与、别名一并算）。改一个配角不该让全书变红，那会训练作者忽略清单。
+- **`checked=false` = 没算过**：还没有基线（阶段 5 没跑过 / 基线坏了），
+  与上面 `checked=false` 同一条红线。
+- 只算不跑：**不自动重检**，重不重检是作者的决定（同“不把 stale 写进导出拦截”）。
+- MCP：`nf_get_setting_impact`（只读），已进 `skills/nf-memory` 卡
+  （`test_phase_skills` 的 MCP→skill 判据会红，别漏）。
+
+判据：`tests/unit/test_setting_impact.py`（12 组 24 条）。反证两次都改源码：
+不比较条目指纹 → I3/I5/I6/I10 红；取消长词优先 → 只提“沈砚”的第 1 章被误标。
+
 ## 已知边界
 
 - **stage1 重归并 / 设定集恢复（`/setting/restore`）会重写 setting.json** →

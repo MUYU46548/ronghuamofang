@@ -25,6 +25,7 @@ const busy = ref(false);
 const err = ref("");
 const acting = ref("");
 const preview = ref(null);          // link 的预演结果（确认前不写盘）
+const impact = ref(null);           // 反方向：设定改过之后，哪几章已检查稿要重看
 
 async function load() {
   busy.value = true;
@@ -39,6 +40,15 @@ async function load() {
     }
   } catch (e) {
     err.value = "读取失败：" + String(e);
+  }
+  // 反方向（P1-5）：设定条目改过之后，哪些已检查的章要重看。
+  // 单独一个请求：它挂了不该把上面那份待核清单也变成读失败。
+  try {
+    const ri = await props.api("/setting/impact");
+    impact.value = (ri.status === 200 && ri.data && ri.data.checked !== undefined)
+      ? ri.data : null;
+  } catch (e) {
+    impact.value = null;
   }
   busy.value = false;
 }
@@ -215,6 +225,38 @@ defineExpose({ load });
           <span class="ss-ch">第 {{ item.new_chapters.join("、") }} 章里有引用，尚未登记来源</span>
         </div>
       </div>
+
+      <!-- 反方向：上面管“章改了 → 哪条设定待核”，这里管“设定改了 → 哪章要重看” -->
+      <div class="ss-impact">
+        <div class="ss-impact-head">
+          <b>设定改过之后，哪几章要重看</b>
+          <span class="ss-kind" v-if="impact && impact.checked">
+            已检查 {{ impact.chapters }} 章
+            <template v-if="impact.baseline_at"> · 基线 {{ impact.baseline_at.replace("T", " ") }}</template>
+          </span>
+        </div>
+        <div v-if="!impact" class="meta">读取中…</div>
+        <div v-else-if="impact.checked === false" class="meta">
+          {{ impact.reason || "还没有基线，算不出来。" }}
+          <br />它表示<b>没算过</b>，不是“都对得上”。
+        </div>
+        <div v-else-if="!impact.stale.length" class="meta ss-ok">
+          设定没改过（或者改过之后已经重检）：这 {{ impact.chapters }} 章都对得上。
+        </div>
+        <div v-else>
+          <div v-for="x in impact.stale" :key="'imp-' + x.chapter" class="ss-src">
+            <span class="ss-tag bad">待复检</span>
+            <b>第 {{ x.chapter }} 章</b>
+            <span class="ss-ch">{{ x.reasons.join("；") }}</span>
+          </div>
+          <div class="meta">
+            在这一章上重跑阶段 5 就会重记基线；面板不替你触发花钱的动作。
+          </div>
+        </div>
+        <div v-if="impact && impact.missing && impact.missing.length" class="meta">
+          另有第 {{ impact.missing.join("、") }} 章在基线里但盘上已没有检查稿（不算待复检）。
+        </div>
+      </div>
     </template>
   </div>
 </template>
@@ -245,6 +287,20 @@ defineExpose({ load });
   border-left: 3px solid var(--warn);
   background: var(--field-dim);
 }
+.ss-impact {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--field-dim);
+}
+.ss-impact-head {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
 .ss-preview {
   margin: 8px 0 10px;
   padding: 10px 12px;
@@ -261,8 +317,7 @@ defineExpose({ load });
   margin: 8px 0;
   background: var(--field-inset);
 }
-.ss-item.ss-new { border-left: 3px solid var(--warn); }
-.ss-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.ss-item.ss-new { border-left: 3px solid var(--warn); }.ss-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .ss-tag {
   font-size: 11px;
   padding: 1px 6px;
