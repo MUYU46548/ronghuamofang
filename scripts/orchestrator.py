@@ -1019,12 +1019,25 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
         # 只在**全流程**收尾跑（only_stage 为空且没有章范围）：单阶段重跑
         # （--stage N）或单章重跑（chapters=[N]）时全书未必齐备，拿整书清单
         # 去拦单章重跑是误伤（2026-11-04：单章重跑曾被它整轮判失败）。
-        if (only_stage is None and not chapters
+        #
+        # 自由模式同理（2026-11-19 抓到）：`stages=[1]`（GUI 勾一道工序）也是
+        # “全书未必齐备”的情形，但原先只看 only_stage → 跑完阶段 1 就触发整书
+        # 质量验收，一章还没写 → 40 章全判缺失 → 把成功的阶段判成失败。
+        # 口径：**本次跑到最后一个阶段**（或默认全流程）才做收尾验收。
+        _last_stage_no = max(STAGES)
+        _reaches_end = (not stages) or (max(stages) >= _last_stage_no)
+        if (only_stage is None and not chapters and _reaches_end
                 and cfg.get("gates", {}).get("quality_gate", True)):
             try:
                 import subprocess
                 print("\n[orchestrator] 质量验收闸门：运行 scripts/quality_checklist.py ...")
-                rc = subprocess.call([sys.executable, "scripts/quality_checklist.py"])
+                # 脚本按**自身位置**定位，不靠 cwd（2026-11-19 实测）：原先写相对路径
+                # "scripts/quality_checklist.py"，cwd 一换（用户从别处启动、或 --root
+                # 指向别的工作区）就 `can't open file` 退出码 2 → 把**跑通的阶段判成
+                # 质量未过**。数据仍按 cwd 读（quality_checklist 内部用相对 data/），
+                # 所以 cwd 不能改成脚本目录。
+                _qc = Path(__file__).resolve().parent / "quality_checklist.py"
+                rc = subprocess.call([sys.executable, str(_qc)])
                 if rc != 0:
                     # 把清单未过项变成可作答的问题（2026-11-19，总账第 6 条剩下的一半）：
                     # 只报告退 1 的话，界面上作者只知道"没过"，不知道"要不要为这章做什么"。

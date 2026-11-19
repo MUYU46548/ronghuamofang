@@ -581,7 +581,15 @@ def _copy_checked_to_refined(text, name=""):
     report = Path("data/outline/polish_report.md")
     report.parent.mkdir(parents=True, exist_ok=True)
     if not report.exists():
-        write_text(report, "# 润色修改清单\n\n无修改\n")
+        # 分卷润色是**并发**跑的（stage6 polish=3，三卷同时进这里），三卷都写这一个
+        # 文件 → Windows 上第二个线程撞同名 .tmp → PermissionError，整个阶段判失败
+        # （2026-11-19 全链实测：stage6 直接抛，run 标 crashed）。
+        # 这里内容恒定（“无修改”），谁写成算谁的，写不进去也不算错 —— 真实引擎下
+        # 报告由 stage6 自己按卷写 polish_report_vol{N}.md 再合并，不经过这条路径。
+        try:
+            write_text(report, "# 润色修改清单\n\n无修改\n")
+        except OSError:
+            pass
     return out
 
 

@@ -141,7 +141,12 @@ def case_orchestrator_blocks_on_nonzero():
     print("\n【5】结构性：orchestrator 的收尾闸门确实读这个退出码并阻断")
     src = (REPO / "scripts" / "orchestrator.py").read_text(encoding="utf-8")
     check("orchestrator 起 quality_checklist", "scripts/quality_checklist.py" in src)
-    check("用子进程退出码判定", "subprocess.call([sys.executable, \"scripts/quality_checklist.py\"])" in src)
+    # 2026-11-19 起脚本按 __file__ 定位（绝对路径），不再写相对 cwd 的字面量 ——
+    # cwd 一换（--root 指到别的工作区、从别处启动）原先会 “can't open file”，
+    # 退出码 2 把跑通的阶段判成质量未过。断言语义而非字面写法。
+    check("用子进程退出码判定", "subprocess.call([sys.executable, str(_qc)])" in src, )
+    check("脚本按 __file__ 定位（不靠 cwd）",
+          'Path(__file__).resolve().parent / "quality_checklist.py"' in src)
     check("非零 → _finalize(failed, 1)（阻断完成状态，不盖绿灯）",
           'if rc != 0' in src and '_finalize("failed", 1)' in src)
     check("只在全流程收尾跑（单阶段重跑 / 单章重跑不误伤）",
