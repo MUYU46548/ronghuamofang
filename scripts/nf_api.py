@@ -1192,7 +1192,10 @@ def build_state():
             tokens_used = db.sum_tokens(tokens_run) if tokens_run else 0
         finally:
             db.close()
-    budget = load_all()[0].get("budget", {})
+    # 裸目录（--root 指向还没有 config/ 的目录）时 load_all() 返回 (None, None)：
+    # 上面每处都写了 `(_cfg or {})`，唯独这里漏了兜底 → 签完字 GET /state 抛
+    # AttributeError 500。2026-11-19 用打包 runtime 实测到的（总账 #14）。
+    budget = (_cfg or {}).get("budget", {})
     # token 上限与预警线（判据在 cost_tracker：预设/归一/边界只有一份）
     from utils.cost_tracker import normalize_token_limit
     tl = normalize_token_limit(budget.get("token_limit"))

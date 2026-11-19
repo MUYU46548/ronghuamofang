@@ -1954,9 +1954,13 @@ def handle_agent_permissions(h):
         for path in sorted(agent_guard.FORBIDDEN_IN_AGENT_MODE):
             forbidden.append({"path": path, "why": _agent_path_note(path)
                               or "用户拍板类操作"})
+        # 裸工作区（load_all() 返回 (None, None)）时这里是 None → 直接点 .get
+        # 会 AttributeError 500。权限页恰恰是**新手第一个会点的页**，不该在
+        # 工作区还没铺好时炸（2026-11-19，与总账 #14 同源）。
+        _cfg = api.load_all()[0] or {}
         return 200, {
             "ok": True,
-            "agent_mode_enabled": api.load_all()[0].get("gates", {}).get(
+            "agent_mode_enabled": _cfg.get("gates", {}).get(
                 "agent_mode", False),
             "forbidden": forbidden,
             "internal": [
