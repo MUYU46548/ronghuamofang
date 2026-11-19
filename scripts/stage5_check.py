@@ -437,6 +437,16 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                 if _added:
                     print("[stage5] 要你定的事：新增 %d 条（结构指标越线，界面“要你定的事”里答）"
                           % _added)
+                # 句法病（一句话读不通，2026-11-19 补上总账第 6 条的另一半）：
+                # 原来它只有"扫到几句"的结论，没有"要不要改"的出口。
+                try:
+                    _ua, _us = _ask.collect_unreadable_questions(Path("."))
+                    if _ua:
+                        print("[stage5] 要你定的事：新增 %d 条（句法病，界面“要你定的事”里答）"
+                              % _ua)
+                except Exception as e:                        # noqa: BLE001
+                    print("[stage5] 句法病转问题失败（不影响检查稿）：%s: %s"
+                          % (type(e).__name__, e))
             except Exception as e:                            # noqa: BLE001
                 print("[stage5] 结构指标转问题失败（不影响检查稿）：%s: %s"
                       % (type(e).__name__, e))

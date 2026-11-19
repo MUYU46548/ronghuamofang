@@ -268,6 +268,9 @@ def _apply_effect(root, item, chosen):
     if effect == "refine_paragraph":
         _effect_refine_paragraph(root, item, chosen)
         return
+    if effect == "annotate_unreadable":
+        _effect_annotate_unreadable(root, item, chosen)
+        return
     if effect != "rewrite_chapter":
         return
     try:
@@ -452,6 +455,176 @@ def collect_structure_questions(root, result=None):
             "default": "keep",
             "effect": "rewrite_chapter",
             "source": "structure",
+        }, by="system")
+        if changed:
+            added += 1
+        else:
+            skipped += 1
+    return added, skipped
+
+
+#: 句法病问题里最多挂几处批注（再多作者看不出重点）
+UNREADABLE_MAX_NOTES = 3
+
+
+def _locate_paragraph(paras, sentence):
+    """这句在正文的哪一段（找不到返回 -1）。"""
+    s = str(sentence or "").strip()
+    if not s:
+        return -1
+    for i, p in enumerate(paras):
+        if s in p:
+            return i
+    return -1
+
+
+def collect_unreadable_questions(root, result=None):
+    """句法层“读不通的句子”→ 可作答的问题（零 token，只读）。
+
+    `result` 传 `utils.ai_voice.scan_book()` 的返回值；不传就地扫一遍。
+    **不给分数、不给结论**：它只说明“这几句结构缺件”，改不改是作者的事。
+    （问题总账第 6 条剩下的那一半：句法病原本只有结论，没有出口。）
+    """
+    if result is None:
+        try:
+            from utils import ai_voice
+            result = ai_voice.scan_book(Path(root))
+        except Exception as e:                                # noqa: BLE001
+            print("[ask] 句法层扫描失败：%s: %s" % (type(e).__name__, e))
+            return 0, 0
+    if not isinstance(result, dict) or not result.get("ok"):
+        return 0, 0
+    added = skipped = 0
+    for ch in (result.get("chapters") or []):
+        if not isinstance(ch, dict):
+            continue
+        try:
+            no = int(ch.get("chapter") or 0)
+        except (TypeError, ValueError):
+            continue
+        hits = [h for h in (ch.get("hits") or []) if isinstance(h, dict)]
+        total = sum(int(h.get("count") or 0) for h in hits)
+        if no <= 0 or total <= 0:
+            continue
+        samples = []
+        for h in hits:
+            for s in (h.get("samples") or []):
+                if s and s not in samples:
+                    samples.append(s)
+        bits = "；".join("%s ×%d" % (h.get("label"), h.get("count")) for h in hits)
+        qid, changed = upsert(root, {
+            "id": "unreadable:ch%02d" % no,
+            "stage": 4,
+            "chapter": no,
+            "question": "第 %d 章机器扫到 %d 句读不通（%s）—— 要不要逐段过一遍？" % (no, total, bits),
+            "context": "例：" + "／".join("“%s”" % s for s in samples[:3])
+                       + "。句法层只看结构缺件（单字碎句、引介语后没有主句），"
+                         "不进“像不像 AI”的判定线；改不改由你定。",
+            "options": [
+                {"value": "mark", "label": "逐段挂批注",
+                 "note": "在命中句所在段落（最多 %d 处）各挂一条批注，"
+                         "精修页签里点它生成候选" % UNREADABLE_MAX_NOTES},
+                {"value": "keep", "label": "保留不改", "note": "记下，不动稿子"},
+                {"value": "later", "label": "先放着", "note": "留在面板里，之后再说"},
+            ],
+            "default": "keep",
+            "effect": "annotate_unreadable",
+            # 句子带在 target 里：内容变了 sig 就变，旧答案自动作废（不许拿旧答案套新句子）
+            "target": {"chapter": no, "sentences": samples[:UNREADABLE_MAX_NOTES]},
+            "source": "unreadable",
+        }, by="system")
+        if changed:
+            added += 1
+        else:
+            skipped += 1
+    return added, skipped
+
+
+def _effect_annotate_unreadable(root, item, chosen):
+    """答案 → 命中句所在段落挂批注（不调模型，候选仍由作者点）。"""
+    c = str(chosen or "").strip()
+    if not (c == "mark" or c.startswith("逐段")):
+        return
+    target = item.get("target") or {}
+    try:
+        chapter = int(target.get("chapter") or item.get("chapter") or 0)
+    except (TypeError, ValueError):
+        return
+    if chapter <= 0:
+        return
+    paras, layer = _chapter_paragraphs(root, chapter)
+    if not paras:
+        return
+    try:
+        from utils import annotations as ann
+    except ImportError:
+        return
+    done = 0
+    for s in (target.get("sentences") or []):
+        idx = _locate_paragraph(paras, s)
+        if idx < 0:
+            continue
+        note = ("作者已定：这句机器判为读不通 —— “%s”。点它生成改写候选（正文未动）。"
+                % str(s)[:60])
+        try:
+            ann.add(root, chapter, note, idx, paras, layer=layer)
+            done += 1
+        except (ValueError, OSError):
+            continue
+        if done >= UNREADABLE_MAX_NOTES:
+            break
+
+
+#: 质量清单（`quality_checklist.py`）落盘位置 —— 与 structure.json 同一目录、同一形状。
+QUALITY_REL = "data/review/quality.json"
+
+
+def collect_quality_questions(root, report=None):
+    """章节质量清单未过的项 → 每题一章（零 token）。
+
+    `report` 形如 `{"chapters": [{"chapter": 3, "issues": [...]}]}`，
+    由 `quality_checklist.py` 落盘；不传就读 `data/review/quality.json`。
+    为什么值得做：清单未过原本只在控制台打一行 `[FAIL]` + 退 1，
+    作者在界面上只看到“跑完了/没跑完”，看不到“要不要为这一章做什么”。
+    """
+    if report is None:
+        p = Path(root) / QUALITY_REL
+        if not p.is_file():
+            return 0, 0
+        try:
+            report = json.loads(p.read_text(encoding="utf-8"))
+        except (ValueError, OSError):
+            return 0, 0
+    if not isinstance(report, dict):
+        return 0, 0
+    added = skipped = 0
+    for ch in (report.get("chapters") or []):
+        if not isinstance(ch, dict):
+            continue
+        try:
+            no = int(ch.get("chapter") or 0)
+        except (TypeError, ValueError):
+            continue
+        issues = [str(x) for x in (ch.get("issues") or []) if str(x).strip()]
+        if no <= 0 or not issues:
+            continue
+        qid, changed = upsert(root, {
+            "id": "quality:ch%02d" % no,
+            "stage": 5,
+            "chapter": no,
+            "question": "第 %d 章没过质量清单（%d 项）—— 重写这一章，还是按现状收？" % (no, len(issues)),
+            "context": "；".join(issues[:4]) + ("…" if len(issues) > 4 else "")
+                       + "。清单是确定性检查（缺件/退化/字数/大纲对齐），它说“不合格”，"
+                         "但发不发由你定。",
+            "options": [
+                {"value": "rewrite", "label": "重写这一章",
+                 "note": "进待重写清单，下次写作阶段重出这一章的任务书"},
+                {"value": "keep", "label": "按现状收", "note": "清单意见记下，稿子不动"},
+                {"value": "later", "label": "先放着", "note": "留在面板里，之后再说"},
+            ],
+            "default": "later",
+            "effect": "rewrite_chapter",
+            "source": "quality",
         }, by="system")
         if changed:
             added += 1

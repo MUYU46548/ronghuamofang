@@ -231,6 +231,9 @@ def main():
 
     all_pass = True
     missing = []
+    # 逐章问题清单（2026-11-19）：落盘给"要你定的事"读 —— 清单未过原本只在控制台打
+    # `[FAIL]` + 退 1，界面上分不出"这一章该怎么处理"。issue_map 只是收集，不改判定。
+    issue_map = []
     for ch in chapters:
         chapter_file = CHAPTERS / f"{ch:02d}.md"
         if not chapter_file.exists():
@@ -264,14 +267,28 @@ def main():
 
         if issues:
             all_pass = False
+            issue_map.append({"chapter": ch, "issues": list(issues)})
             print(f"\n第{ch}章: [FAIL]（{len(issues)} 个问题）")
             for issue in issues:
                 print(f"  - {issue}")
         else:
             print(f"\n第{ch}章: [PASS]")
 
-    # 病灶词（⑦，2026-10-27 从 SP-1024 成书提炼工具箱集成）：**只报告、不阻断**。
-    # 为什么不做成门禁：词表命中 ≠ 写坏（"微微一笑"一章出现一次很正常），
+    # 逐章问题落盘（2026-11-19）：给 `utils/ask.collect_quality_questions` 读，
+    # 让"清单没过"在界面"要你定的事"里变成可作答的问题（重写/按现状收/先放着）。
+    # 只写 data/review/ 下的报告文件，不改判定、不碰稿子；写不进去也不影响验收结论。
+    for ch in missing:
+        issue_map.append({"chapter": ch,
+                          "issues": ["产物缺失：data/chapters/{raw,refined} 都没有这一章"]})
+    try:
+        out = ROOT / "data" / "review" / "quality.json"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps({"ok": all_pass, "chapters": issue_map},
+                                  ensure_ascii=False, indent=2), encoding="utf-8")
+    except OSError as e:                                        # noqa: BLE001
+        print("[quality] 问题清单未落盘（不影响验收）：%s" % e)
+
+    # 病灶词（⑦，2026-10-27 从 SP-1024 成书提炼工具箱集成）：**只报告、不阻断**。    # 为什么不做成门禁：词表命中 ≠ 写坏（"微微一笑"一章出现一次很正常），
     # 做成硬门只会误伤合格稿；密度与排行交给人看。
     try:
         from utils.cliche_scan import scan_chapter, top_hits

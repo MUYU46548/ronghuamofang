@@ -1011,6 +1011,17 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
                 print("\n[orchestrator] 质量验收闸门：运行 scripts/quality_checklist.py ...")
                 rc = subprocess.call([sys.executable, "scripts/quality_checklist.py"])
                 if rc != 0:
+                    # 把清单未过项变成可作答的问题（2026-11-19，总账第 6 条剩下的一半）：
+                    # 只报告退 1 的话，界面上作者只知道"没过"，不知道"要不要为这章做什么"。
+                    try:
+                        from utils import ask as _ask
+                        _added, _skipped = _ask.collect_quality_questions(".")
+                        if _added:
+                            print(f"[orchestrator] 要你定的事：新增 {_added} 条"
+                                  "（章节没过质量清单，界面“要你定的事”里答）")
+                    except Exception as _e:                     # noqa: BLE001
+                        print(f"[orchestrator] 清单转问题失败（不影响判定）: "
+                              f"{type(_e).__name__}: {_e}")
                     print(f"[orchestrator] 🔴 质量验收未通过（退出码 {rc}）→ **阻断完成状态**；"
                           "请按上面的问题清单修复后重跑（可用 --stage N 定点重跑）")
                     return _finalize("failed", 1)

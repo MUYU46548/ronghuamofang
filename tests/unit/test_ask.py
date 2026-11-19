@@ -24,6 +24,8 @@ F. 阶段 4 真的会重出这一章（答了要能发生事，不是记一笔�
 G. 结构指标越线 → 生成可作答的问题（有依据 / 选项 / 默认）；没越线不生成
 H. 老通道的字符串选项 + 自由回答仍然能用（不破坏 Agent 提问）
 I. 坏账本（不是 JSON / 不是 list）不炸
+J. 句法病越线 → 生成问题；选“逐段挂批注”真挂上（总账第 6 条剩下的一半）
+K. 质量清单未过 → 生成问题；选重写真的进队列
 
 零 LLM、零费用，全部在临时目录里造。
 用法：python tests/unit/test_ask.py
@@ -201,6 +203,54 @@ def main():
     check("自由回答能记下", ok is True and ask.find(legacy, qid)["answer"] == "老周", msg)
     ok, msg, _ = ask.answer(legacy, qid, answer_text="又改主意了")
     check("纯提问不能改（一次性）", ok is False and "已经回答" in msg, msg)
+
+    print("\n【J】句法病 → 可作答的问题；选“逐段挂批注”真的挂上")
+    root2 = Path(tempfile.mkdtemp(prefix="nf_ask_unread_"))
+    (root2 / "data" / "chapters" / "refined").mkdir(parents=True)
+    (root2 / "data" / "chapters" / "refined" / "03.md").write_text(
+        "他把木箱放在门槛外，抬手敲了两下，屋里没人应。\n\n"
+        "他站在门口。门口的灯还亮着。站着。\n", encoding="utf-8")
+    res = {"ok": True, "chapters": [{"chapter": 3, "hits": [
+        {"code": "fragment_sentence", "label": "单字碎句", "count": 2,
+         "samples": ["站着", "灯亮"], "hint": "补主语或并进上一句"}]}]}
+    added, _skipped = ask.collect_unreadable_questions(root2, res)
+    check("越线章节生成 1 条", added == 1, added)
+    _u = [i for i in ask.open_items(root2) if i["id"] == "unreadable:ch03"]
+    check("题干说清第几章几句", bool(_u) and "第 3 章" in _u[0]["question"], _u and _u[0]["question"])
+    check("带依据 / 三个选项 / 默认保留",
+          bool(_u) and "单字碎句" in _u[0]["context"]
+          and len(_u[0]["options"]) == 3 and _u[0]["default"] == "keep")
+    check("同一件事再扫一遍不新增", ask.collect_unreadable_questions(root2, res)[0] == 0)
+    check("没有越线的章节一条不生成",
+          ask.collect_unreadable_questions(
+              root2, {"ok": True, "chapters": [{"chapter": 3, "hits": []}]})[0] == 0)
+    ok, msg, _ = ask.answer(root2, "unreadable:ch03", value="mark", by="unit-test")
+    ann_file = root2 / "data" / "state" / "annotations" / "ch03.json"
+    check("选“逐段挂批注”→ 批注真落盘（不调模型）", ok is True and ann_file.exists(), msg)
+    if ann_file.exists():
+        raw = ann_file.read_text(encoding="utf-8")
+        check("批注落在命中句那一段且带原句", "站着" in raw)
+
+    print("\n【K】质量清单未过 → 可作答的问题；选重写进队列")
+    root3 = Path(tempfile.mkdtemp(prefix="nf_ask_quality_"))
+    (root3 / "data" / "review").mkdir(parents=True)
+    (root3 / "data" / "review" / "quality.json").write_text(json.dumps(
+        {"ok": False, "chapters": [{"chapter": 5,
+                                    "issues": ["第5章太短：3210 字，低于下限 4000"]}]},
+        ensure_ascii=False), encoding="utf-8")
+    added, _ = ask.collect_quality_questions(root3)
+    check("未过章节生成 1 条", added == 1, added)
+    _q = [i for i in ask.open_items(root3) if i["id"] == "quality:ch05"]
+    check("题干带项数、默认“先放着”",
+          bool(_q) and "1 项" in _q[0]["question"] and _q[0]["default"] == "later",
+          _q and _q[0]["question"])
+    ok, _msg, _ = ask.answer(root3, "quality:ch05", value="rewrite", by="unit-test")
+    check("选重写 → 第 5 章进待重写清单", ok is True and ask.queue_rewrites(root3) == [5],
+          ask.queue_rewrites(root3))
+    check("清单全过时一条都不生成",
+          ask.collect_quality_questions(root3, {"ok": True, "chapters": []})[0] == 0)
+    check("没有 quality.json 时静默返回 0（老工作区不炸）",
+          ask.collect_quality_questions(Path(tempfile.mkdtemp(prefix="nf_ask_none_"))) == (0, 0))
 
     print("\n【I】坏账本不炸")
     ask.state_path(root).write_text("{ 不是 JSON", encoding="utf-8")
