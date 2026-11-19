@@ -46,6 +46,7 @@ import HandoffPanel from "./HandoffPanel.vue";
 import CompassPanel from "./CompassPanel.vue";
 import WritingPresetsPanel from "./WritingPresetsPanel.vue";
 import WritingRulesPanel from "./WritingRulesPanel.vue";
+import SkillsPanel from "./SkillsPanel.vue";
 import WordlistsPanel from "./WordlistsPanel.vue";
 import CandidatesPanel from "./CandidatesPanel.vue";
 import OnboardingGuide from "./OnboardingGuide.vue";
@@ -6787,6 +6788,8 @@ onUnmounted(() => {
     <section v-if="tab === 'style'">
       <!-- 作品写作约束（M12）：每本书一份，有内容才注入 stage4/stage6 -->
       <WritingRulesPanel :api="api" @say="say" />
+      <!-- 写作手法：作者自己导入的写法（2026-11-19），按阶段绑定，确认才注入 -->
+      <SkillsPanel :api="api" @say="say" />
       <StylePanel @say="say" />
     </section>
 

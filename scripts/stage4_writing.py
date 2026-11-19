@@ -27,6 +27,25 @@ from utils.template_loader import load_template
 from utils.writing_rules import block as _writing_rules_block
 
 
+def _writing_skills_block(stage="write"):
+    """作者导入的写法（`materials/skills/`）。没导入 / 没确认 / 没绑本阶段 → 空串。
+
+    失败不炸整章：导入物是作者的，读坏了也只能少注入，不能让写作停摆 ——
+    但必须打印（静默少注入 = 他以为规则生效了，其实没带）。
+    """
+    try:
+        from utils.writing_skills import block as _skills_block
+        text, st = _skills_block((stage,))
+        if st.get("injected"):
+            print("[stage4] 注入写作手法 %d 套：%s"
+                  % (len(st["injected"]), "、".join(st["injected"])))
+        return text
+    except Exception as e:                                     # noqa: BLE001
+        print("[stage4] WARN 写作手法块组装失败（本章不带导入的写法）：%s: %s"
+              % (type(e).__name__, e))
+        return ""
+
+
 def _dialogue_ratio_block(cfg):
     """对话段占比上限（2026-11-05，试跑第 26 条）：接在作品约束后面。
 
@@ -934,7 +953,8 @@ def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, p
         "style_reference": style_text,
         "style_samples": style_samples,
         "style_notes": style_notes,
-        "writing_rules": _writing_rules_block() + _dialogue_ratio_block(cfg),
+        "writing_rules": (_writing_rules_block() + _writing_skills_block("write")
+                          + _dialogue_ratio_block(cfg)),
         "kb_context": kb_context,
         "citations_block": citations_block,
         "chapter_samples": chapter_samples_block,

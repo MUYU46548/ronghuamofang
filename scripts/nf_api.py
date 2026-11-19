@@ -3117,6 +3117,12 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/writing_rules":
             # 作品级写作约束（M12）：每本书一份，空文件不注入（零 token）。
             self._send(*_dom(dom_project.handle_writing_rules(self)))
+        elif p == "/skills":
+            # 作者导入的写法（materials/skills/）：现扫磁盘，零 token。
+            self._send(*_dom(dom_project.handle_skills(self)))
+        elif p == "/skills/detail":
+            # 单份全文（装前必须给作者看一遍；未确认不注入）。
+            self._send(*_dom(dom_project.handle_skill_detail(self)))
         elif p == "/exports/history":
             # 最近导出（盘上事实：output/ 里实际有什么）—— 2026-10-26 用户第 10 条：
             # 阶段 8 由 orchestrator 跑、不经导出面板，前端内存记录永远空。
@@ -4209,6 +4215,18 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/writing_rules":
                 # 作品级写作约束保存（创作决策：Agent 可代设；空 = 清空）。
                 self._send(*_dom(dom_project.handle_writing_rules_save(self, body)))
+            elif p == "/skills/create":
+                # 新建一份导入的写法（创作决策；写完仍“未确认”，确认才注入）。
+                self._send(*_dom(dom_project.handle_skills_create(self, body)))
+            elif p == "/skills/approve":
+                # 看过全文后确认（记 sha；文件改过需重看）。
+                self._send(*_dom(dom_project.handle_skills_approve(self, body)))
+            elif p == "/skills/binding":
+                # 启用/停用 + 绑定阶段（write / revise）。
+                self._send(*_dom(dom_project.handle_skills_binding(self, body)))
+            elif p == "/skills/delete":
+                # 移到回收目录（不删）。
+                self._send(*_dom(dom_project.handle_skills_delete(self, body)))
             elif p == "/factory/preset/apply":
                 # 铺设出厂预设（破坏性，会归档当前项目）：GUI 双因子，Agent 拒。
                 self._send(*_dom(dom_project.handle_factory_preset_apply(self, body)))

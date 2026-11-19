@@ -136,7 +136,9 @@ FEATURES = [
 
     ("J03", "阶段 5 时代特征回头校验", "todo",
      ["absent:scripts::时代特征"],
-     "设定侧 setting_period 能做时期，写作侧不回头校验。11-17 冻结清单内（新判据）。"),
+     "**不做**（作者 2026-11-19 定）：模型对器物年代的判断不可靠，架空设定无年代可对，"
+     "而阶段 5 会照着检查结果改正文 —— 误判等于把对的改错，代价不可逆。"
+     "设定侧 setting_period 记录时期并在写作时注入，够用。"),
 
     # ---------------- 改写与审稿（只出任务书，刻意不自动改写） ----------------
     ("W01", "去 AI 腔", "partial",
@@ -149,16 +151,20 @@ FEATURES = [
      "站读者位置找弃书点，同样只出任务书。"),
 
     # ---------------- 流程边界（要作者定，不许自己改） ----------------
-    ("P01", "逐章验收开关（每章写完自动停）", "partial",
+    ("P01", "暂停语义：按阶段停（成品形态）", "done",
      ["file:scripts/utils/pause_flag.py",
       "sym:scripts/stage4_writing.py::pause"],
-     "“写完这章就停”2026-11-02 就落地并真机验过；差异在形态 —— 现在是跑前设 flag，"
-     "不是每章自动停、点一下才继续。后者改暂停语义 + 界面，属流程边界，要作者定。"),
+     "作者 2026-11-19 定：默认就是按阶段停（阶段审批门 + gates.pause_on_failure），"
+     "“逐章写完自动停、点一下才继续”否决 —— 每章一停等于没法写。"
+     "pause_flag.py 保留为可选的手动开关（跑前设、本章写完停），不作为默认流程。"),
 
-    ("P02", "写作 Skill 导入（materials/skills）", "todo",
-     ["absent:scripts::materials/skills",
-      "absent:console/src::materials/skills"],
-     "确认为零实现：materials/ 下没有 skills/，代码零引用。属新功能，冻结清单内。"),
+    ("P02", "写作 Skill 导入（materials/skills）", "done",
+     ["file:scripts/utils/writing_skills.py",
+      "sym:scripts/utils/writing_skills.py::block",
+      "route:GET /skills"],
+     "2026-11-19 落地：只收纯文本（含脚本整份拒装）、装前确认 + sha 重审、按阶段绑定"
+     "（write/revise）、单份与合计字数硬预算、可停用/移到回收，共 68 条判据。"
+     "作者口径：只留用户导入，不自创文风（内置平台预设在冻结清单内）。"),
 
     # ---------------- 外部阻塞 / 不立项 ----------------
     ("X01", "DSH 插件仓 dsh-novelforge", "frozen",

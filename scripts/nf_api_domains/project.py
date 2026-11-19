@@ -2273,6 +2273,99 @@ def handle_writing_rules_save(h, body):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+# ---------------------------------------------------------------- 写作 Skill 导入
+# 2026-11-19 作者拍板：只留用户导入，不自创文风（内置平台预设 10-20 已砍）。
+# 全部零 token：只读写盘上的 md，不做任何模型调用。
+
+
+def _skills_mod():
+    from utils import writing_skills as ws
+    return ws
+
+
+def handle_skills(h):
+    """GET /skills → 作者导入的写法清单（现扫磁盘，不带正文）。"""
+    try:
+        ws = _skills_mod()
+        items = ws.scan(str(api.ROOT))
+        for it in items:
+            it.pop("text", None)
+        return 200, {
+            "ok": True,
+            "skills": items,
+            "stages": ws.STAGES,
+            "max_skill_chars": ws.MAX_SKILL_CHARS,
+            "max_total_chars": ws.MAX_TOTAL_CHARS,
+            "dir": ws.SKILLS_REL.as_posix(),
+            "note": "只收纯文本；确认前不注入；按阶段绑定（write / revise）",
+        }
+    except Exception as e:                                    # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_skill_detail(h):
+    """GET /skills/detail?id=xxx → 全文（装前必须给作者看一遍）。"""
+    sid = _query1(h, "id")
+    try:
+        ws = _skills_mod()
+        e = ws.get(sid, str(api.ROOT))
+        if not e:
+            return 404, {"ok": False, "error": "没有这份 skill：%s" % sid}
+        e["ok"] = True
+        e["max_skill_chars"] = ws.MAX_SKILL_CHARS
+        e["stages_all"] = ws.STAGES
+        return 200, e
+    except Exception as e:                                    # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def _skill_post(h, body, fn, need=("id",)):
+    body = body if isinstance(body, dict) else {}
+    miss = [k for k in need if k not in body]
+    if miss:
+        return 400, {"ok": False, "error": "%s 必填" % "、".join(miss)}
+    try:
+        ok, msg, *rest = fn(body)
+        out = {"ok": ok, "message": msg}
+        if rest:
+            out.update(rest[0] or {})
+        return (200 if ok else 400), out
+    except Exception as e:                                    # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_skills_create(h, body):
+    """POST /skills/create {id, text, name?, stages?} → 新建一份（写完仍未确认）。"""
+    def _do(b):
+        ws = _skills_mod()
+        ok, msg = ws.create(b["id"], b.get("text") or "", str(api.ROOT),
+                            name=b.get("name"), stages=b.get("stages"))
+        return ok, msg
+    return _skill_post(h, body, _do, need=("id", "text"))
+
+
+def handle_skills_approve(h, body):
+    """POST /skills/approve {id} → 看过全文后确认；文件一改自动失效需重看。"""
+    def _do(b):
+        return _skills_mod().approve(b["id"], str(api.ROOT))
+    return _skill_post(h, body, _do)
+
+
+def handle_skills_binding(h, body):
+    """POST /skills/binding {id, enabled?, stages?} → 启用/停用、改绑定阶段。"""
+    def _do(b):
+        return _skills_mod().set_binding(b["id"], enabled=b.get("enabled"),
+                                         stages=b.get("stages"), root=str(api.ROOT))
+    return _skill_post(h, body, _do)
+
+
+def handle_skills_delete(h, body):
+    """POST /skills/delete {id} → 移到回收目录（不删，可搬回）。"""
+    def _do(b):
+        return _skills_mod().remove(b["id"], str(api.ROOT))
+    return _skill_post(h, body, _do)
+
+
 # 本模块负责的端点（供自检与文档）
 ROUTES = (
     ("GET", "/health", handle_health),
@@ -2337,6 +2430,12 @@ ROUTES = (
     # 作品级写作约束（M12，2026-11-04）：每本书一份，随书走；空文件不注入
     ("GET", "/writing_rules", handle_writing_rules),
     ("POST", "/writing_rules", handle_writing_rules_save),
+    ("GET", "/skills", handle_skills),
+    ("GET", "/skills/detail", handle_skill_detail),
+    ("POST", "/skills/create", handle_skills_create),
+    ("POST", "/skills/approve", handle_skills_approve),
+    ("POST", "/skills/binding", handle_skills_binding),
+    ("POST", "/skills/delete", handle_skills_delete),
     # 出厂预设（2026-10-21）：首跑向导“选预设”；apply 是破坏性动作（GUI 双因子）
     ("GET", "/factory/presets", handle_factory_presets_list),
     ("POST", "/factory/preset/apply", handle_factory_preset_apply),
