@@ -86,11 +86,14 @@ FEATURES = [
 
     ("F06", "迭代方向建议（零 token）", "done",
      ["file:scripts/outline_advisor.py",
-      "sym:scripts/outline_advisor.py::fix_structure"],
+      "sym:scripts/outline_advisor.py::fix_structure",
+      "route:GET /outline/advise",
+      "sym:console/src/OutlineView.vue::开工方向建议"],
      "开工方向建议 400 行，2026-09-21 就有：读 outline_review 的判据，给"
      "“修结构 / 回退 / 补维度”三类可执行方案，确定性生成不调模型。"
-     "**位置是 scripts/，不是 scripts/utils/** —— 2026-11-19 我第一次核这条时"
-     "按 utils/ 找，判成“全仓不存在”，差点又造一份假账。"),
+     "**位置是 scripts/，不是 scripts/utils/**；而且**前端也有入口**"
+     "（OutlineView 的“接下来先做哪一步”），账上“GUI 无界面”同样是错的。"
+     "2026-11-19 我第一次核这条时按 utils/ 找，判成“全仓不存在”，差点又造一份假账。"),
 
     ("F07", "文体写法指导（书信/单元）", "done",
      ["file:examples/samples/forms",
