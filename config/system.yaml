@@ -99,10 +99,21 @@ providers:
                              #   放 tokenhub 的模型名进来 → 404 → 直接 raise，吃掉整条链）
     # disable_thinking_models 暂不预设：LongCat-2.x 是否默认进思考模式**未实测**。
     # 若实测正文为空/进 reasoning_content，把模型名加进来即可（无需改代码）。
-# ⚠️ 本段**只对 engine: direct 生效**。engine: hermes（agent 模式）下
-#   make_client 硬性不传 -m，一律用 agent 内部配置的模型（见
-#   utils/llm_client.py 的 HermesClient docstring）—— 这里的 id 写了也不参与运行。
-# 当前值 kimi-k2.6 已接近下线：**切 direct 前必须改**成你自己套餐里的在役模型。
+# 各角色用哪个模型。**同一个角色，不同引擎取不同字段**（2026-11-20 更新）：
+#
+# · engine: direct —— 用 provider + id（下面这些值就是这个用法）。
+# · engine: dsh —— 再写两个键，写齐才生效：
+#       writer:
+#         dsh_provider: deepseek-official
+#         dsh_model: deepseek-flash
+#   机制：headless 没有 --model 旋钮，但 `dsh --patch` 能覆盖 profile 里的
+#   agent-default-model；墨坊每次调用按角色生成一个临时 patch 传进去。
+#   ⚠️ 这里必须填 **DSH 认的** provider / model 名（看 DSH 桌面端的模型设置），
+#   不是 providers 段里的 tokenhub 模型名 —— 写错会在开跑时被 DSH 拒绝。
+#   不写这两键 = 该角色用 DSH profile 的默认模型（2026-11-17 的老行为，不受影响）。
+# · engine: hermes / self —— 本段完全不参与。
+#
+# 当前 id 值 kimi-k2.6 已接近下线：**切 direct 前必须改**成你自己套餐里的在役模型。
 # 之所以留着旧值而不是替你换：更换模型是付费决策（项目纪律：未经用户确认
 # 不得指定/更换付费模型）。可选的在役型号见上面 providers.tokenhub.available_models。
 model:

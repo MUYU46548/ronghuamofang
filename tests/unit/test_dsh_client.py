@@ -36,7 +36,7 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from utils.dsh_client import (DshClient, dsh_available,          # noqa: E402
+from utils.dsh_client import (DshClient, build_model_patch, dsh_available,  # noqa: E402
                               resolve_dsh_bin)
 
 PASS, FAIL = [], []
@@ -48,6 +48,15 @@ def check(name, cond, extra=""):
         print(f"  [PASS] {name}")
     else:
         print(f"  [FAIL] {name}  → {extra}")
+
+
+def _argval(cmd, flag):
+    """取 `--flag value` 里紧跟的值；flag 不存在返回 None。
+
+    不写成 `cmd[cmd.index(flag)+1]`：一旦 flag 缺失就抛 ValueError，
+    整份自检会崩在断言之前（反证时实测踩到，等于把红变成看不出红）。
+    """
+    return cmd[cmd.index(flag) + 1] if flag in cmd else None
 
 
 def _bat(tmp, name, lines):
@@ -471,6 +480,47 @@ def test_locate_and_wire():
           DshClient._infer_workdir(Path(tempfile.mkdtemp(prefix="nf_t_")) / "q.md") is None)
 
 
+def test_model_patch():
+    print("· 角色模型：--patch 覆盖 profile 的 agent-default-model（2026-11-20）")
+    check("spec 不完整 → 一律 None（不猜、不生成半截 patch）",
+          build_model_patch(None) is None
+          and build_model_patch({}) is None
+          and build_model_patch({"provider": "deepseek-official"}) is None
+          and build_model_patch({"model": "deepseek-pro"}) is None)
+
+    path = build_model_patch({"provider": "deepseek-official", "model": "deepseek-pro"})
+    check("完整 spec → 真的写出一个文件", bool(path) and Path(path).is_file())
+    body = Path(path).read_text(encoding="utf-8") if path else ""
+    check("patch 落在 agent-default-model 上（别的 id 不会改到模型）",
+          "id: agent-default-model" in body
+          and "@deepseek-ai/dsh-agent-default-model" in body)
+    check("provider / model 都写进去了（引号让特殊字符不会破坏 YAML）",
+          '"deepseek-official"' in body and '"deepseek-pro"' in body)
+
+    c = DshClient(dsh_bin="dsh",
+                  model_spec={"provider": "deepseek-official", "model": "deepseek-pro"})
+    cmd = c._build_cmd()
+    check("配了角色模型 → 命令带 --patch 且指向那个文件",
+          _argval(cmd, "--patch") == c._patch_path)
+    check("--patch 仍在 stdin 标记之前（任务永远最后一个参数）",
+          "--patch" in cmd and cmd[-1] == "-" and cmd.index("--patch") < len(cmd) - 1)
+
+    c0 = DshClient(dsh_bin="dsh")
+    check("没配角色模型 → 绝不带 --patch（11-17 的老行为不被静默改掉）",
+          "--patch" not in c0._build_cmd())
+
+    # 装配层：配置条目 → spec（纯函数，不起进程）
+    from utils.llm_client import dsh_model_spec
+    check("角色条目写齐 dsh_provider + dsh_model 才生效",
+          dsh_model_spec({"dsh_provider": "deepseek-official",
+                          "dsh_model": "deepseek-pro"})
+          == {"provider": "deepseek-official", "model": "deepseek-pro"})
+    check("只写一半 → None（回落到 profile 默认，而不是拼个半截 patch）",
+          dsh_model_spec({"dsh_provider": "deepseek-official"}) is None
+          and dsh_model_spec({"dsh_model": "deepseek-pro"}) is None
+          and dsh_model_spec({"provider": "tokenhub", "id": "kimi-k2.6"}) is None)
+
+
 def main():
     print("=" * 66)
     print("DshClient 自检（headless / 失败可见 / 超时 / 流式停止）")
@@ -483,6 +533,7 @@ def main():
     test_post_chat()
     test_resume_fallback()
     test_locate_and_wire()
+    test_model_patch()
     print("-" * 66)
     print(f"PASS {len(PASS)} / FAIL {len(FAIL)}")
     if FAIL:

@@ -2601,6 +2601,22 @@ async function switchModel(role, modelId) {
   refresh();
 }
 
+/* DSH 下的角色模型（2026-11-20）：写 model.<role>.dsh_provider / dsh_model。
+   与直连的 provider/id **分开存** —— 那两列是"墨坊自己去连某家 API"的配置，
+   切回 direct 还要用，不能被这里覆盖。不过模型白名单：DSH 的模型名不在
+   providers.<pid>.available_models 里，走 /models/switch 会被判非法。 */
+async function setDshModel(role, field, val) {
+  const r = await api("/config/dsh_model", "POST", { role, [field]: val });
+  if (r.status === 200) {
+    const shown = String(val || "").trim();
+    say("已保存 " + role + " 的 DSH " + (field === "model" ? "模型" : "供应商") + "：" +
+        (shown || "（清空，用 profile 默认）"));
+  } else {
+    say("保存失败: " + (((r.data || {}).error) || r.status));
+  }
+  refresh();
+}
+
 /* ---------- 熔断恢复 ---------- */
 const restartFromStage = computed(() => {
   if (!state.value) return 1;
@@ -7397,7 +7413,9 @@ onUnmounted(() => {
           agent 模式下 model.* 不参与运行 —— 模型由外部 Agent 决定；花超自动停要看“预算与止烧”里的 token 上限。
         </div>
         <div class="meta eng-note" v-else-if="models.engine === 'dsh'">
-          DSH 模式下 model.* 不参与运行 —— 模型由 DSH 自己的 profile 决定；金额上限不生效，
+          DSH 模式下，“DSH 供应商 + DSH 模型”两列都填的角色按那个模型跑（墨坊每次调用用
+          --patch 覆盖 DSH profile 的默认模型）；留空就用 profile 默认。名字必须是
+          <b>DSH 认的</b> provider / model，不是上面 tokenhub 那一套。金额上限不生效，
           花超自动停看“预算与止烧”里的 token 上限。凭据复用 DSH 桌面端的登录态（2026-11-20 起），
           不用另填 API Key；本机没装 DSH 时“诊断”里会写“DSH 不可用”，按提示装或填 dsh.bin。
         </div>
@@ -7414,8 +7432,10 @@ onUnmounted(() => {
       <div class="eng-block">
         <div class="eng-head">
           <span class="eng-label">角色模型</span>
-          <span v-if="models.engine === 'hermes' || models.engine === 'dsh'" class="pill st-gate"
-                title="agent/DSH 模式下模型由外部执行层决定，这张表只在直连模式生效">{{ models.engine === 'dsh' ? 'DSH 模式下不参与' : 'agent 模式下不参与' }}</span>
+          <span v-if="models.engine === 'hermes'" class="pill st-gate"
+                title="agent 模式下模型由外部 Agent 决定，这张表只在直连模式生效">agent 模式下不参与</span>
+          <span v-else-if="models.engine === 'dsh'" class="pill st-gate"
+                title="两列都填 = 该角色按这个 DSH 模型跑（墨坊每次调用用 --patch 覆盖 profile 默认）；留空 = 用 DSH profile 的默认模型">DSH：填了才覆盖</span>
           <span class="meta">下拉只列该角色当前供应商的清单 · 来源：{{ modelSource === 'fetched' ? '服务商动态拉取' : 'config 手写列表' }}</span>
         </div>
         <div class="rm-toolbar">
@@ -7428,21 +7448,35 @@ onUnmounted(() => {
             {{ fetchingModels ? '同步中…' : '↻ 同步服务商模型' }}
           </button>
         </div>
-        <div class="rm-table" :class="{ 'rm-inactive': models.engine === 'hermes' || models.engine === 'dsh' }">
+        <div class="rm-table" :class="{ 'rm-inactive': models.engine === 'hermes' }">
           <div class="rm-head">
-            <span>角色</span><span>用途</span><span>供应商</span><span>模型</span>
+            <span>角色</span><span>用途</span>
+            <span>{{ models.engine === 'dsh' ? 'DSH 供应商' : '供应商' }}</span>
+            <span>{{ models.engine === 'dsh' ? 'DSH 模型' : '模型' }}</span>
           </div>
           <div v-for="(m, role) in models.model" :key="role" class="rm-row">
             <span class="rm-role">{{ role }}</span>
             <span class="rm-use">{{ ROLE_USE[role] || '' }}</span>
-            <select class="provider-select" v-model="m.provider"
-                    @change="switchProvider(role, m.provider)">
-              <option v-for="p in providerOptions" :key="p.id" :value="p.id">{{ p.name }}</option>
-            </select>
-            <select class="model-select" :value="m.id"
-                    @change="switchModel(role, $event.target.value)">
-              <option v-for="opt in providerModelOptions(m.provider, m.id)" :key="opt" :value="opt">{{ opt }}</option>
-            </select>
+            <!-- dsh 下这两列是**传给 DSH 的** provider/model（--patch 覆盖
+                 agent-default-model），不是墨坊直连的那套名字；两列都填才生效。 -->
+            <template v-if="models.engine === 'dsh'">
+              <input class="provider-select" :value="m.dsh_provider || ''"
+                     placeholder="如 deepseek-official"
+                     @change="setDshModel(role, 'provider', $event.target.value)" />
+              <input class="model-select" :value="m.dsh_model || ''"
+                     placeholder="如 deepseek-flash（留空=用 DSH 默认）"
+                     @change="setDshModel(role, 'model', $event.target.value)" />
+            </template>
+            <template v-else>
+              <select class="provider-select" v-model="m.provider"
+                      @change="switchProvider(role, m.provider)">
+                <option v-for="p in providerOptions" :key="p.id" :value="p.id">{{ p.name }}</option>
+              </select>
+              <select class="model-select" :value="m.id"
+                      @change="switchModel(role, $event.target.value)">
+                <option v-for="opt in providerModelOptions(m.provider, m.id)" :key="opt" :value="opt">{{ opt }}</option>
+              </select>
+            </template>
           </div>
           <div v-if="!models.model || !Object.keys(models.model).length" class="empty">
             配置里还没有角色模型条目

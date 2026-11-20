@@ -1866,6 +1866,30 @@ def _request_max_tokens_from_cfg(cfg):
     return n if n > 0 else None
 
 
+def dsh_model_spec(mspec):
+    """从角色模型条目里取 DSH 覆盖模型 → {"provider","model"} 或 None。
+
+    headless 没有 `--model` 旋钮，但 `dsh --patch` 可以覆盖 profile 里
+    `agent-default-model` 的 config。所以角色条目写成：
+
+        writer:
+          provider: dsh
+          id: dsh-default
+          dsh_provider: deepseek-official   # DSH 认的 provider 名
+          dsh_model: deepseek-pro           # DSH 认的模型名
+
+    两个都写齐才生效；缺一个就返回 None（用 profile 默认），**不猜**。
+    抽成纯函数是为了让装配逻辑能被单测钉住，不必真起 dsh。
+    """
+    if not isinstance(mspec, dict):
+        return None
+    prov = str(mspec.get("dsh_provider") or "").strip()
+    model = str(mspec.get("dsh_model") or "").strip()
+    if not prov or not model:
+        return None
+    return {"provider": prov, "model": model}
+
+
 def make_client(cfg, model_key="default", verbose=True):
     """按 config/system.yaml 构建客户端。model_key: default/architect/outliner/writer/checker/reviewer/polisher。"""
     # ---- 许可协议总闸（2026-11-18）----
@@ -1899,12 +1923,21 @@ def make_client(cfg, model_key="default", verbose=True):
 
     if engine == "dsh" or provider_id == "dsh":
         # engine: dsh = DeepSeek Harness 的 headless 执行层（2026-11-17，转向形态 B）。
-        # 与 hermes 同口径：模型由 profile 决定（headless 没有 --model 旋钮），
         # 金额恒 0（订阅执行）、token 照记。所有判据在 utils/dsh_client.py 里，
         # 这里只负责装配 —— 换引擎的接线不许散在调用点。
+        #
+        # 角色模型（2026-11-20，作者要求“角色模型表全部保留”）：headless 没有
+        # --model 旋钮，但 `dsh --patch` 能覆盖 profile 里 agent-default-model 的
+        # config。所以角色条目写了 dsh_provider + dsh_model 就按角色生效，
+        # 没写就用 profile 默认（与 11-17 的行为完全一致，不静默改变老配置）。
+        _dspec = dsh_model_spec(mspec)
         if verbose:
-            print("[client] 引擎=dsh → 用 DSH profile 内部的模型（忽略 model." +
-                  str(model_key) + "）")
+            if _dspec:
+                print("[client] 引擎=dsh → 角色 " + str(model_key) + " 指定模型 "
+                      + _dspec["provider"] + "/" + _dspec["model"] + "（--patch 覆盖 profile 默认）")
+            else:
+                print("[client] 引擎=dsh → 角色 " + str(model_key)
+                      + " 未指定 dsh_model → 用 DSH profile 内部的模型")
         dcfg = (cfg or {}).get("dsh") or {}
         from utils.dsh_client import DshClient
         return DshClient(
@@ -1915,6 +1948,7 @@ def make_client(cfg, model_key="default", verbose=True):
             session_continuation=bool(dcfg.get("session_continuation", False)),
             request_max_tokens=req_cap,
             add_dirs=dcfg.get("add_dirs") or None,
+            model_spec=_dspec,
         )
 
     if engine == "hermes" or provider_id == "hermes":
