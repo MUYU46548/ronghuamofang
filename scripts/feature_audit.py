@@ -220,7 +220,7 @@ FEATURES = [
       "sym:scripts/utils/ask.py::annotate_unreadable"],
      "2026-11-19 落地，答题后在命中句所在段落挂批注，不调模型。"),
 
-    ("J03", "阶段 5 时代特征回头校验", "todo",
+    ("J03", "阶段 5 时代特征回头校验", "frozen",
      ["absent:scripts::时代特征"],
      "**不做**（作者 2026-11-19 定）：模型对器物年代的判断不可靠，架空设定无年代可对，"
      "而阶段 5 会照着检查结果改正文 —— 误判等于把对的改错，代价不可逆。"
@@ -388,8 +388,12 @@ def audit(verbose: bool = False) -> int:
     done_n = sum(1 for r in rows if r[2] == "done")
     part_n = sum(1 for r in rows if r[2] == "partial")
     todo_n = sum(1 for r in rows if r[2] == "todo")
-    print("\n功能对账：%d 条（done %d / partial %d / todo %d），红 %d"
-          % (total, done_n, part_n, todo_n, bad))
+    frozen_n = sum(1 for r in rows if r[2] == "frozen")
+    # frozen 必须打出来：它是"作者明确不做"，不是"看不见的零"。
+    # 漏打会让"32 条里 31 条有状态、少了一条"这种账看不出来（2026-11-20 修）。
+    tail = " / frozen %d" % frozen_n if frozen_n else ""
+    print("\n功能对账：%d 条（done %d / partial %d / todo %d%s），红 %d"
+          % (total, done_n, part_n, todo_n, tail, bad))
     if bad:
         print("红了 = 账本与代码不一致，先改账本或补代码，别当没看见。")
     return 1 if bad else 0
