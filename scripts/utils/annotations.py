@@ -128,14 +128,46 @@ def mark_addressed(root: str | Path, chapter: int, aid: str,
     return hit
 
 
-def resolve(root: str | Path, chapter: int, aid: str) -> bool:
-    """把一条批注标成“已处理”（不删，留痕）。"""
+def resolve(root: str | Path, chapter: int, aid: str, by: str = "author") -> bool:
+    """把一条批注标成“已处理”（不删，留痕）。
+
+    `by` 记**谁收的口**，因为两种收口依据完全不同，混在一起就说不清“这条到底算不算处理过”：
+
+    - `author`：作者在批注面板手点“标为已处理”—— 他看过、认可了；
+    - `apply`：作者**采用了由这条批注生成的候选**（2026-11-20）—— 依据是“采纳”这个动作本身，
+      不是系统判定了好坏。手写批注改完之所以要停在这里，正是因为“写得好不好”无从机械判定；
+      但“作者已经把它改过的那一版收进正文了”是可判的，所以不必再让他手点一遍。
+
+    `by` 会写进 `resolved_by`，界面据此显示“因采用候选而收口”，并且**可以重新打开**。
+    """
     items = _load(root, chapter)
     hit = False
     for a in items:
         if a.get("id") == aid:
             a["status"] = "resolved"
             a["resolved_at"] = time.strftime("%Y-%m-%d %H:%M")
+            a["resolved_by"] = by
+            hit = True
+    if hit:
+        _save(root, chapter, items)
+    return hit
+
+
+def reopen(root: str | Path, chapter: int, aid: str) -> bool:
+    """把一条已收口（或已响应）的批注拉回 `open` —— “我还想接着改”。
+
+    为什么必须有：收口可能是**系统按“你采用了候选”自动做的**（`resolve(by="apply")`），
+    而作者常常在采用之后才看出来“这版对了一半”。没有重开就只能删了重记，
+    批注的时间线和“这条改过几次”全丢。
+    """
+    items = _load(root, chapter)
+    hit = False
+    for a in items:
+        if a.get("id") == aid:
+            a["status"] = "open"
+            a["reopened_at"] = time.strftime("%Y-%m-%d %H:%M")
+            for k in ("resolved_at", "resolved_by"):
+                a.pop(k, None)
             hit = True
     if hit:
         _save(root, chapter, items)

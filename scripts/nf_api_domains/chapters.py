@@ -715,6 +715,8 @@ def handle_chapters_annotations_set(h, body):
     action:
       - `add`：{n, para_index, note, layer?} —— 记下引用原文与相邻指纹；
       - `resolve`：{n, id} —— 标“已处理”（保留留痕，不删）；
+      - `reopen`：{n, id} —— 拉回“未收口”（2026-11-20）。收口可能是系统按“你采用了候选”
+        自动做的，作者常在采用之后才看出“这版只对了一半”，没有重开就只能删了重记、时间线全丢；
       - `delete`：{n, id} —— 写错了才用。
 
     不设 GUI-only：批注是**作者的笔记**，不是改稿动作（不碰正文一个字）；
@@ -745,17 +747,20 @@ def handle_chapters_annotations_set(h, body):
             except ValueError as e:
                 return 400, {"ok": False, "error": str(e)}
             return 200, {"ok": True, "annotation": item, "message": "已记下这条批注"}
-        if action in ("resolve", "delete"):
+        if action in ("resolve", "reopen", "delete"):
             aid = str(body.get("id") or "").strip()
             if not aid:
                 return 400, {"ok": False, "error": "id 必填"}
-            done = (ann.resolve if action == "resolve" else ann.remove)(api.ROOT, n, aid)
+            fn = {"resolve": ann.resolve, "reopen": ann.reopen,
+                  "delete": ann.remove}[action]
+            done = fn(api.ROOT, n, aid)
             if not done:
                 return 404, {"ok": False, "error": "没有这条批注：%s" % aid}
-            return 200, {"ok": True, "id": aid,
-                         "message": "已标记为处理完" if action == "resolve" else "已删除"}
+            msg = {"resolve": "已标记为处理完", "reopen": "已重新打开（回到未收口）",
+                   "delete": "已删除"}[action]
+            return 200, {"ok": True, "id": aid, "message": msg}
         return 400, {"ok": False,
-                     "error": "action 须为 add / resolve / delete（收到 %r）" % action}
+                     "error": "action 须为 add / resolve / reopen / delete（收到 %r）" % action}
     except Exception as e:                                   # noqa: BLE001
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 

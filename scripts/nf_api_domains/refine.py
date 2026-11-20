@@ -748,6 +748,45 @@ def _chapter_text_any_layer(root, n):
 _METRIC_NOTE_RE = re.compile(r"^\[([A-Za-z][A-Za-z0-9_]*)\]")
 
 
+def settle_manual_annotation(root, chapter, cid):
+    """采用候选之后，把手写批注按“作者已采纳”收口（2026-11-20）。
+
+    为什么要有这一步：`recheck_metric_annotation` 只处理**指标批注**（`[code]` 开头），
+    手写批注被刻意放过 —— “写得好不好”确实不能机械判定。但那之后它就一直停在
+    `addressed`，界面按 `status != resolved` 归到“未收口”，于是作者改完还得回去逐条手点。
+    走查里点名的洞 A（`docs/读改链走查-20261117.md`）只补了指标那一半。
+
+    这里补的**不是判定**，是“作者已经做了采纳这个动作”这一事实：
+    - 收口依据写 `resolved_by="apply"`，界面显示“因你采用了候选而收口”，不冒充“达标”；
+    - 批注可以重新打开（`POST /chapters/annotations {action:"reopen"}`），所以可回退；
+    - 只认**这条 cid 确实挂在某条批注上**（`candidate_cids`）；没挂批注的候选一律不动 ——
+      不许因为“这一段有个候选被采用”就把别人手写的意见抹成已处理。
+
+    返回 None（没有关联批注 / 关联的是指标批注）或
+    `{annotation_id, resolved: True, basis: "apply", evidence}`。
+    """
+    from utils import annotations as ann
+
+    hit = None
+    for a in ann.list_for_chapter(root, chapter).get("annotations") or []:
+        cids = [str(x) for x in (a.get("candidate_cids") or [])]
+        if str(cid) in cids:
+            hit = a
+            break
+    if not hit:
+        return None
+    aid, note = hit.get("id"), str(hit.get("note") or "")
+    if _METRIC_NOTE_RE.match(note):
+        return None                                     # 指标批注：归 recheck 管，别抢
+    if hit.get("status") == "resolved":
+        return {"annotation_id": aid, "resolved": True, "basis": "apply",
+                "already": True, "evidence": "这条批注此前已收口"}
+    ann.resolve(root, chapter, aid, by="apply")
+    return {"annotation_id": aid, "resolved": True, "basis": "apply",
+            "evidence": "这条批注已按你的采用标为已处理（不是指标批注，好坏不机械判定；"
+                        "要接着改可以重新打开）"}
+
+
 def recheck_metric_annotation(root, chapter, cid):
     """采用候选之后，按**原批注**重算那一个指标（2026-11-17，P1-A3）。
 
@@ -850,6 +889,7 @@ def handle_paragraph_apply(h, body):
         # 采用之后按原批注重算那一个指标（P1-A3）：达标 → resolved，不达标 → 留 addressed + 证据。
         # 重算失败**不许吞掉**：采用已经发生，回执里必须说清"闭环没跑成"，否则作者以为达标了。
         recheck = None
+        settled = None
         used_cid = (rec or {}).get("cid") or cid
         if ok and used_cid:
             try:
@@ -857,10 +897,20 @@ def handle_paragraph_apply(h, body):
             except Exception as e:                             # noqa: BLE001
                 recheck = {"error": "重算失败（批注状态未变）：%s: %s"
                                     % (type(e).__name__, str(e)[:160])}
+            # 指标批注归上面；手写批注按“作者已采纳”收口（2026-11-20）。
+            # 两条互斥，不许同一条批注被收两次 —— settle 自己会跳过指标批注。
+            if recheck is None:
+                try:
+                    settled = settle_manual_annotation(api.ROOT, ch, used_cid)
+                except Exception as e:                         # noqa: BLE001
+                    settled = {"error": "批注收口失败（状态未变）：%s: %s"
+                                        % (type(e).__name__, str(e)[:160])}
         payload = {"ok": ok, "message": msg, "error": "" if ok else msg,
                    "chapter": ch, "index": pi}
         if recheck:
             payload["recheck"] = recheck
+        if settled:
+            payload["settled"] = settled
         return (200 if ok else 400), payload
     except Exception as e:                                   # noqa: BLE001
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}

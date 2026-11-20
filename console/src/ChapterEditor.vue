@@ -456,6 +456,18 @@ async function resolveAnnotation(a) {
   else emit("say", "标记失败：" + ((r.data && r.data.error) || ("HTTP " + r.status)));
 }
 
+/* 重新打开（2026-11-20）：采用候选后批注会按“你采纳了”自动收口（resolved_by=apply），
+   但作者常在采用之后才发现这版只对了一半。重开回到未收口，接着改；
+   必须真的调后端 —— 只在界面上改状态的话，刷新一次就变回去了。 */
+async function reopenAnnotation(a) {
+  const r = await props.api("/chapters/annotations", "POST",
+                            { n: props.n, action: "reopen", id: a.id });
+  if (r.status === 200 && r.data && r.data.ok) {
+    emit("say", "已重新打开这条批注（回到未收口）");
+    await loadAnnotations();
+  } else emit("say", "重新打开失败：" + ((r.data && r.data.error) || ("HTTP " + r.status)));
+}
+
 function pickPara(p) {
   selPara.value = p.index;
   refineResult.value = null;
@@ -583,9 +595,14 @@ async function applyCandidate(force = false) {
       // 采用之后系统会按原批注重算那一个指标（2026-11-17）：达标自动收口，不达标明说仍越线。
       // 这里必须把结论说出来 —— 否则“还要不要再改”又回到靠作者猜。
       const rc = r.data.recheck || null;
+      const st = r.data.settled || null;
       if (rc && rc.error) emit("say", "已采用这一段，但重算没跑成：" + rc.error);
       else if (rc && rc.resolved === true) emit("say", "已采用这一段 · " + rc.evidence);
       else if (rc && rc.resolved === false) emit("say", "已采用这一段 · " + rc.evidence + "（这条批注仍未收口）");
+      // 手写批注（2026-11-20）：改完不再停在“已出候选，待采用”等作者手点 ——
+      // 依据是“你采用了这一版”，不是系统判了好坏，所以文案里把依据说出来。
+      else if (st && st.error) emit("say", "已采用这一段，但批注收口没跑成：" + st.error);
+      else if (st && st.resolved) emit("say", "已采用这一段 · " + st.evidence);
       else emit("say", "已采用这一段（旧版进了段落历史，可回退）");
       cand.value = null;
       conflict.value = null;
@@ -1143,7 +1160,7 @@ onUnmounted(() => {
             <div v-else-if="!ann.items.length" class="meta">
               还没记过。选了段落、写好意见后点“只记下这条批注”就会留在这里（不调用模型）。
             </div>
-            <div v-else class="ce-ann-wrap">
+            <div v-else class="ce-ann-wrap stack">
               <!-- 分组（2026-11-17，P1-9）：先看“还没改的”，已收口的折叠起来自己展开。 -->
               <template v-for="g in annGroups" :key="g.key">
                 <div class="ce-ann-group-t">
@@ -1167,7 +1184,8 @@ onUnmounted(() => {
                       <span class="meta">{{ a.created_at }}</span>
                       <span v-if="a.status === 'missing'" class="ce-ann-bad">引用的原句已改/已删</span>
                       <span v-else-if="a.drift" class="ce-ann-warn">{{ a.why || "位置变了" }}</span>
-                      <span v-if="a.status === 'resolved'" class="meta">· 已处理</span>
+                      <span v-if="a.status === 'resolved'" class="meta">· 已处理<template
+                        v-if="a.resolved_by === 'apply'">（采用候选时收口）</template></span>
                     </div>
                     <div class="ce-ann-note">{{ a.note }}</div>
                     <div class="ce-ann-quote" v-if="a.current_text">
@@ -1181,12 +1199,19 @@ onUnmounted(() => {
                               :title="canBatch ? '用这条批注只改这一段（生成候选，正文不动）'
                                                : '批注只在当前层开放'"
                               @click="refineFromAnnotation(a)">{{ a.status === 'addressed' ? '再改一版' : '改这一处' }}</button>
-                      <button v-if="a.status === 'open'" class="mini" @click="resolveAnnotation(a)">
+                      <button v-if="a.status === 'open' || a.status === 'addressed'" class="mini"
+                              @click="resolveAnnotation(a)">
                         标为已处理
+                      </button>
+                      <!-- 已收口可回退（2026-11-20）：采用候选后系统会按“你采纳了”自动收口，
+                           常有人事后才看出“这版只对了一半”。重开保住这条批注的时间线，不用删了重记。 -->
+                      <button v-if="a.status === 'resolved'" class="mini" @click="reopenAnnotation(a)"
+                              title="回到未收口，接着改（这条批注的来龙去脉都保留）">
+                        重新打开
                       </button>
                       <!-- 状态要“看得见的一档”，不能是灰色小字（目检 2026-11-15 提的）：
                            改过但还没采用，和“改这一处”是两个概念，别让人以为已经处理完了。 -->
-                      <span v-else-if="a.status === 'addressed'" class="pill st-gate">已出候选，待采用</span>
+                      <span v-if="a.status === 'addressed'" class="pill st-gate">已出候选，待采用</span>
                     </div>
                   </div>
                 </div>
@@ -1242,11 +1267,11 @@ onUnmounted(() => {
 .ce-quick { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin: 4px 0 6px; }
 .ce-quick-btn { font-size: 11px; padding: 2px 6px; }
 .ce-quick-toggle { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; color: var(--muted); cursor: pointer; }
-.ce-layer-pills { display: inline-flex; gap: 6px; margin-left: 4px; }
+.ce-layer-pills { display: inline-flex; gap: 6px; margin-left: 4px; flex-shrink: 0; }
 .ce-pill { padding: 2px 8px; }
 .ce-pill.on { background: var(--accent, #6b8afd); color: #fff; border-color: transparent; }
 .ce-pill-n { opacity: 0.75; margin-left: 4px; font-size: 11px; }
-.ce-wordbadge { margin-left: 10px; font-size: 12px; color: var(--muted, #888); }
+.ce-wordbadge { margin-left: 10px; font-size: 12px; color: var(--muted, #888); white-space: nowrap; }
 .ce-wordbadge.low { color: var(--warn, #b8860b); }
 .ce-wordbadge.high { color: var(--warn, #b8860b); }
 .ce-wordbadge.ok { color: var(--ok, #2e8b57); }
@@ -1401,7 +1426,6 @@ onUnmounted(() => {
 /* 记下的批注（B5）：失效的必须**看得见**（红），位置变了是提醒（黄）。 */
 .ce-ann-list { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
 /* 分组标题（2026-11-17，P1-9）：未收口在前，已收口折叠 —— 一眼能看出还剩几条要改。 */
-.ce-ann-wrap { display: flex; flex-direction: column; gap: 4px; }
 .ce-ann-group-t { display: flex; align-items: center; gap: 6px; margin-top: 6px;
   font-size: 11.5px; color: var(--muted, #888); }
 .ce-ann-group-n { color: var(--ink, inherit); }
