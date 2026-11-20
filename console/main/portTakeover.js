@@ -1,0 +1,79 @@
+// 绒花墨坊桌面控制台 — 启动抢 8765 端口的**纯逻辑**（不 require electron，node 可直测）
+//
+// 为什么把它拎出来（2026-11-20）：旧实现启动时**无条件**杀掉占 8765 的实例。
+// 那个实例可能正是 MCP 桥拉起的 nf_api，而流水线就跑在它**自己的进程里**
+// （nf_api 顶层 `from orchestrator import run`，所以 RunLock 写下的 pid 就是 nf_api 的 pid）。
+// 于是：双击图标 = 把正在写的那一章连进程一起杀掉，作者看不到任何提示，
+// 只会觉得"软件又抽风，稿子少了一段"。
+//
+// 判据只有一条：**占端口的那个进程，是不是运行锁的持有者**。
+//   - 是 → 它正在写，不许静默杀，先去问人；
+//   - 否 → 杀它碰不到任何在写的流水线（可能是命令行跑的，也可能是上轮残留），照旧杀。
+//
+// 刻意**不**在这里判 owner（pipeline / human）：那套兜底只在 Python 侧
+// `utils/lock_guard.py` 一处（缺 owner 按 pipeline 读）。两个地方各兜一次
+// = 同一判据两份，改一处另一处照旧生效 —— 实测会假绿。
+
+/**
+ * 能不能直接杀占端口的进程。
+ * @param {{lock: (object|null), portPids: (string|number)[]}} s
+ *        lock = 运行锁文件内容（null = 没有锁）
+ *        portPids = netstat 里监听该端口的 PID
+ * @returns {{action: "kill"|"ask", reason: string, lockPid: (string|null)}}
+ *          action=ask 表示"占端口的进程自己就是持锁者"，杀它等于打断正在写的章。
+ */
+function decidePortTakeover(s) {
+  const st = s || {};
+  const pids = (st.portPids || []).map(String);
+  if (!pids.length) return { action: "kill", reason: "no-occupant", lockPid: null };
+
+  const lock = st.lock;
+  if (!lock || typeof lock !== "object") {
+    return { action: "kill", reason: "no-lock", lockPid: null };
+  }
+  // 锁文件损坏 / 老格式没有 pid：读不出"谁在写"，就不能拿它当拦人的理由。
+  // （拦一下只是多问一句，但**误拦**的代价是这个进程永远起不来 —— 宁可放行。）
+  const pid = lock.pid == null || lock.pid === "" ? "" : String(lock.pid);
+  if (!/^\d+$/.test(pid)) {
+    return { action: "kill", reason: "lock-without-pid", lockPid: null };
+  }
+  if (!pids.includes(pid)) {
+    return { action: "kill", reason: "lock-from-other-process", lockPid: pid };
+  }
+  // 走到这里：占端口的进程 = 持锁进程 = 正在跑流水线的 nf_api。
+  // 不查 pid 是否存活 —— 它正监听 8765，活着是既定事实，不需要再问一次。
+  return { action: "ask", reason: "occupant-is-writing", lockPid: pid };
+}
+
+/**
+ * 对话框里那行"谁在写"的说明（锁文件内容不可信，一律清洗 + 截断）。
+ * @param {object|null} lock
+ * @returns {string}
+ */
+function takeoverDetail(lock) {
+  const l = lock && typeof lock === "object" ? lock : {};
+  const clean = (v, n) => String(v == null ? "" : v).replace(/\s+/g, " ").trim().slice(0, n);
+  const parts = ["PID " + (l.pid == null ? "?" : clean(l.pid, 12))];
+  const since = clean(l.started_at, 40);
+  if (since) parts.push("开始于 " + since);
+  const cmd = clean(l.cmd, 120);
+  if (cmd) parts.push("命令: " + cmd);
+  return parts.join(" · ");
+}
+
+/**
+ * 选了"等它写完"之后，还要不要继续等（不是无限等：到点重新问一次，
+ * 避免流水线真的挂了、或锁永远不释放时把应用卡在"界面离线"里没人管）。
+ * @param {{ticks:number, maxTicks?:number}} s
+ * @returns {boolean}
+ */
+function shouldKeepWaiting(s) {
+  const st = s || {};
+  const max = st.maxTicks == null ? 45 : st.maxTicks;
+  // 脏值（NaN）当 0 算：NaN < max 恒 false → 会立刻"到期"，变成每隔一轮弹一次框。
+  const n = Number(st.ticks);
+  const ticks = Number.isFinite(n) ? n : 0;
+  return ticks < max;
+}
+
+module.exports = { decidePortTakeover, takeoverDetail, shouldKeepWaiting };

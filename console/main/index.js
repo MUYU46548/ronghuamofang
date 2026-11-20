@@ -8,6 +8,8 @@ const fs = require("fs");
 const { shouldGuardClose, closeAskTimedOut, killTreeArgv,
         shouldRetryPortProbe, parseNetstatListeningPids,
         MAX_PORT_PROBE_RETRIES } = require("./quitGuard");
+// 抢端口前的"能不能杀"判据（2026-11-20）：纯函数模块，node 可直测
+const { decidePortTakeover, takeoverDetail, shouldKeepWaiting } = require("./portTakeover");
 // 项目根显式解析（2026-10-04 Step 4c 根修）：纯函数模块，node 可直测
 const { configFileFor, resolveProjectRoot, persistRoot } = require("./project-root");
 
@@ -1036,9 +1038,41 @@ const BASE = "http://127.0.0.1:" + API_PORT;
 let apiProc = null;
 let mainWindow = null;
 
+// ---------------------------------------------------------------- 抢端口前先问一句（2026-11-20）
+// 旧实现启动时**无条件**杀掉占 8765 的实例。而流水线就跑在 nf_api 自己的进程里
+// （nf_api 顶层 `from orchestrator import run`，所以 data/state/run.lock 里的 pid
+// 就是 nf_api 的 pid）→ 双击图标 = 把正在写的那一章连进程一起杀掉，界面不报任何错。
+// 现在：占端口的进程如果**正是**运行锁的持有者，先弹框问，不许静默杀。
+const PIPELINE_WAIT_TICK_MS = 8000;
+const PIPELINE_WAIT_MAX_TICKS = 45;      // 约 6 分钟；到点重新问一次，不把应用永久卡在离线态
+let pipelineWait = null;                 // {ticks} —— 用户已选"等它写完"
+
+function readRunLockHolder() {
+  /** 读 <ws>/data/state/run.lock（与 scripts/utils/run_lock.py 同一份格式）。
+   *
+   *  没有文件 → null（没有流水线）。文件在但读不出来 → null 也是"不知道"，
+   *  交给判据按"没锁"处理并打日志：拦人的理由必须是**读得出的证据**，
+   *  读不出来的坏锁如果也去拦，一个陈年坏文件会让软件每次启动都弹框，比丢稿更难解释。
+   */
+  try {
+    const p = path.join(getWorkspaceDir(), "data", "state", "run.lock");
+    const d = JSON.parse(fs.readFileSync(p, "utf8"));
+    return d && typeof d === "object" ? d : null;
+  } catch (e) {
+    if (e && e.code !== "ENOENT") {
+      console.warn("[console] run.lock 读不出来（按没有流水线处理）:", e.message);
+    }
+    return null;
+  }
+}
+
 function killPortOccupants(port) {
-  /** 杀掉占用 port 的既有监听进程（Windows：netstat → PID → 杀整树）。返回被清 PID。 */
-  if (process.platform !== "win32") return [];
+  /** 清掉占用 port 的既有监听进程。
+   *
+   *  返回 {pids, waiting}：waiting=true = 文件正被写、用户选了等 → **一个都不杀**
+   *  （调用方负责稍后重试，别当成失败去计重试次数）。
+   */
+  if (process.platform !== "win32") return { pids: [], waiting: false };
   let pids = [];
   try {
     const out = require("child_process").execSync(
@@ -1046,14 +1080,69 @@ function killPortOccupants(port) {
       { stdio: "pipe" }).toString();
     pids = parseNetstatListeningPids(out, port);
   } catch (e) { /* netstat 没输出 = 没人占 */ }
+  if (!pids.length) return { pids, waiting: false };
+
+  const lock = readRunLockHolder();
+  const d = decidePortTakeover({ lock, portPids: pids });
+  if (d.action === "ask") {
+    if (!pipelineWait) {
+      let choice = 1;   // 弹不出来就按旧的杀（打不开软件是更硬的问题）
+      try {
+        // 单参形式：不传 browserWindow（此时窗口还没建），避免"第一个参数必须是
+        // BrowserWindow"那类签名差异 —— 这段代码跑在 spawn 之前，窗口必然不存在。
+        choice = dialog.showMessageBoxSync({
+          type: "warning",
+          title: "有任务正在写",
+          message: "上一次的任务还在写这一本，现在杀掉它会丢掉正在写的那一章。",
+          detail: takeoverDetail(lock) + "\n\n"
+                  + "等它写完再开，界面上会暂时显示离线；"
+                  + "选下面那个按钮会立刻中断，那一段不会进盘。",
+          buttons: ["等它写完（推荐）", "强制中断，丢掉正在写的那一章"],
+          defaultId: 0,
+          cancelId: 0,
+          noLink: true,
+        });
+      } catch (e) {
+        console.error("[console] 询问对话框弹不出来，按旧行为清场:", e && e.message);
+        choice = 1;
+      }
+      if (choice === 0) {
+        pipelineWait = { ticks: 0 };
+        console.log("[console] 8765 上有个正在写的实例（pid " + d.lockPid
+                    + "），按用户选择等它写完，不杀。");
+        try {
+          new Notification({ title: "正在等上一次任务写完",
+                             body: "写完后会自动接管；界面上暂时显示离线。" }).show();
+        } catch (e) { /* 通知不可用不影响等 */ }
+        return { pids, waiting: true };
+      }
+    } else {
+      return { pids, waiting: true };     // 已在等 → 继续等，不重复弹框
+    }
+  }
+
   pids.forEach((pid) => {
     console.log("[console] port " + port + " 被既有实例占用（无本会话 GUI token）"
-                + " → 杀 PID " + pid + "（树）");
+                + " → 杀 PID " + pid + "（树）"
+                + (d.lockPid === String(pid) ? "（用户选了强制中断，持锁实例）" : ""));
     if (!killTree(parseInt(pid))) {
       try { process.kill(parseInt(pid)); } catch (e) { /* ignore */ }
     }
   });
-  return pids;
+  pipelineWait = null;
+  return { pids, waiting: false };
+}
+
+function schedulePipelineWaitRetry(tryNo) {
+  /** 等流水线写完期间的重试：不占端口探测的 3 次配额，到点回去重新问人。 */
+  if (!pipelineWait) { startApi(tryNo); return; }
+  pipelineWait.ticks += 1;
+  if (!shouldKeepWaiting({ ticks: pipelineWait.ticks, maxTicks: PIPELINE_WAIT_MAX_TICKS })) {
+    console.log("[console] 已等待约 " + Math.round(
+      PIPELINE_WAIT_MAX_TICKS * PIPELINE_WAIT_TICK_MS / 1000) + " 秒仍未写完 → 再问一次");
+    pipelineWait = null;
+  }
+  setTimeout(() => startApi(tryNo), PIPELINE_WAIT_TICK_MS);
 }
 
 function startApi(attempt) {
@@ -1068,22 +1157,19 @@ function startApi(attempt) {
   const tester = net.createServer();
   tester.once("error", (e) => {
     if (e.code === "EADDRINUSE") {
-      console.warn(`[console] port ${API_PORT} in use (attempt ${tryNo}), killing old process...`);
+      console.warn(`[console] port ${API_PORT} in use (attempt ${tryNo}), 先判能不能杀...`);
       // Kill whatever is using our port, then retry。
       // ⚠️ 必须杀**整棵树**：旧实现 process.kill(pid) 只杀那一个 PID，
       // 上一轮遗留的 nf_api 孙进程会继续占着端口 → 下轮又撞 → 无限重试。
-      try {
-        require("child_process").execSync(`netstat -ano | findstr :${API_PORT} | findstr LISTENING`, { stdio: "pipe" })
-          .toString().split("\n").forEach(line => {
-            const pid = line.trim().split(/\s+/).pop();
-            if (pid && /^\d+$/.test(pid)) {
-              console.log(`[console] killing PID ${pid} (tree)`);
-              if (!killTree(parseInt(pid))) {
-                try { process.kill(parseInt(pid)); } catch (e) { /* ignore */ }
-              }
-            }
-          });
-      } catch (e) { /* netstat 没有输出 = 没人占，交给下一轮 */ }
+      // 2026-11-20：这条路以前是**自己另写一份 netstat + 裸杀**，和上面那条
+      // 各杀各的 —— 于是"先问一句"只在前一条生效，这条照样把正在写的章打死。
+      // 现在两条都走 killPortOccupants，杀不杀只有一处判据。
+      const take = killPortOccupants(API_PORT);
+      if (take.waiting) {
+        try { tester.close(); } catch (err) { /* ignore */ }
+        schedulePipelineWaitRetry(tryNo);      // 等它写完，不计入探测重试配额
+        return;
+      }
       // 重试**有上限**（2026-10-03）：旧实现无条件递归，端口被一个杀不掉的进程占住时
       // 会每秒重试到天荒地老（每次还漏一个 net.Server），界面看起来就是"应用起不来"。
       if (!shouldRetryPortProbe(tryNo)) {
@@ -1108,7 +1194,12 @@ function startApi(attempt) {
     // 既有实例（MCP 垫片自启 / 上轮遗留）仍在监听时假成功 —— 不清场就双绑，
     // 新连接落进无 GUI token 的旧实例，受保护写入全 403（gui(untrusted)）。
     // spawn 前先清场：8765 只允许本进程注入了本会话 token 的实例持有。
-    killPortOccupants(API_PORT);
+    // 2026-11-20：清场前先判"那个实例是不是正在写" —— 是就等人点头（见 killPortOccupants）。
+    const take = killPortOccupants(API_PORT);
+    if (take.waiting) {
+      schedulePipelineWaitRetry(tryNo);
+      return;
+    }
     const ws = getWorkspaceDir();
     fs.mkdirSync(ws, { recursive: true });
     const apiScript = path.join(ws, "scripts", "nf_api.py");
