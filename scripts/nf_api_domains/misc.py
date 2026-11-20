@@ -116,7 +116,12 @@ def handle_env_open(h):
                         for p in (cfg.get("providers") or {}).values()
                         if isinstance(p, dict) and p.get("api_key_env")})
         body = "".join(n + "=\n" for n in names)
-        env_path.write_text(body or "TOKENHUB_API_KEY=\n", encoding="utf-8")
+        # 默认引擎 DSH 走订阅、根本不读本文件（2026-11-20 作者定案：TOKENHUB_API_KEY
+        # 以后永久不用）。模板里先写清楚，否则用户打开 .env 只看到一个空键名，
+        # 会以为“必须填了才能开跑”。
+        head = ("# 默认引擎 DSH 走订阅，不需要在这里填 Key。\n"
+                "# 只有把 engine 改成 direct 时才用得上下面这些。\n")
+        env_path.write_text(head + body, encoding="utf-8")
     return 200, {"env_path": str(env_path), "exists": True}
 
 

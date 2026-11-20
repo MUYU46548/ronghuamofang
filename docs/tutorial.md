@@ -7,7 +7,8 @@
 - Windows 10/11
 - Python 3.11+（[python.org](https://www.python.org/downloads/)）
 - Node.js 20+（[nodejs.org](https://nodejs.org/)）
-- 一个 OpenAI 兼容 API Key（支持 TokenHub / DeepSeek / 硅基流动等）
+- DeepSeek Harness（默认引擎 DSH 要用；装好并登录桌面端即可，**不用另备 API Key**）
+- 只有改用直连引擎（direct）时才需要一个 OpenAI 兼容 API Key
 
 ## 第一步：安装
 
@@ -24,20 +25,25 @@ git clone https://github.com/MUYU46548/ronghuamofang.git
 cd ronghuamofang
 python -m venv .venv
 .venv/Scripts/python.exe -m pip install -r requirements.txt
-copy .env.example .env        # 填入你的 API Key
+copy .env.example .env        # 默认引擎 DSH 不用填；改用直连时才填 Key
 cd console && npm install && npm run build && cd ..
 ```
 
-## 第二步：配置 API Key
+## 第二步：选引擎（默认 DSH，不用配 Key）
 
-1. 打开 `.env` 文件（项目根目录）
-2. 填入你的 API Key：
+出厂配置是 `engine: dsh` —— 由 DeepSeek Harness 在后台执行，走桌面端的订阅额度，
+**不需要任何 API Key**。装好 DSH 并登录，就能直接往下走。
+
+只有一种情况要动这一节：本机没装 DSH，或你想改成按 token 计费的直连。
+
+**改用直连（direct）**：打开 `.env`，填一个 OpenAI 兼容的 Key：
 
 ```
 TOKENHUB_API_KEY=你的密钥
 ```
 
-3. 保存后重启绒花墨坊
+再把 `config/system.yaml` 的 `engine` 改成 `direct`，并在设置页的“角色模型”里确认
+每个角色选的模型在你这家供应商的清单里（模型名不通用，换了供应商留旧名会直接 404）。
 
 ## 第三步：放素材
 

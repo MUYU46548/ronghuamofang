@@ -54,7 +54,8 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 
 copy .env.example .env
-# 打开 .env 填入 TOKENHUB_API_KEY（或你自己的 OpenAI 兼容服务）
+# 默认引擎是 DSH（走订阅额度，复用桌面端登录），不需要填 Key。
+# 只有把 engine 改成 direct（直连、按 token 计费）时才需要在这填 TOKENHUB_API_KEY。
 
 # config/project.yaml 发布后不再随仓库分发（里面是你的书名/署名/剧情）。
 # 它不存在时才复制模板；已存在就别执行这一行（会覆盖你写的书名）：
@@ -151,6 +152,7 @@ NovelForge/
 
 - 所有创作数据在本机：`data/`（运行产物）、`history/`（快照）、`output/`（成品）
 - 模型 API Key 只存 `config/../.env`（`.gitignore` 已屏蔽），控制台内**从不显示明文**，只给掩码
+  —— 默认引擎 DSH 走订阅、不在本项目存任何 Key；只有改用直连时才需要 `.env`
 - 支持 Obsidian 设定库只读引用（`obsidian_postprocess.py` 生成 markdown 文件，可手动导入 Obsidian）
 - 除模型 API 和自动更新（GitHub Releases）外，程序不发起任何外部网络请求
 

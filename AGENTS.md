@@ -634,9 +634,10 @@ OpenAI 兼容直连，模型**无工具调用、无自主多轮循环、无记�
 - `data/`、`history/` 不进 Git（由 history/ 快照承担版本职责）；`prompts/`、`config/`、`scripts/` 进 Git
 - **用户私人数据不进 Git**：`materials/original_scraps/`（及 `_backup/`）永不随源码仓库走，后续由独立的
   导入/导出功能承担迁移；碎片→卡片落盘一律由 Python 执行（模型写入白名单只有 `data/**`），且覆盖前先备份
-- **模型凭据**：项目 `.env`（不入 git）承载 LLM API Key（`TOKENHUB_API_KEY`）；engine=hermes 时凭据由 Hermes 统一管理。切换引擎/模型/服务商只改 `config/system.yaml`（`engine` / `model.*` / `providers`），新 provider 计价须先补 `scripts/utils/cost_tracker.py` 的 `RATES`（可用 `scripts/price_wizard.py` 交互式更新）。**模型白名单纪律：用户免费体验包按模型领取，未经用户确认不得指定/更换付费模型**
+- **模型凭据**：默认引擎是 `dsh`（DeepSeek Harness headless，走订阅，凭据在 `~/.dsh/` 的 profile 里，**本项目不存 Key**）。`engine: direct` 时才用项目 `.env`（不入 git）里的 `TOKENHUB_API_KEY`；engine=hermes 时凭据由 Hermes 统一管理。**2026-11-20 作者定案：TOKENHUB_API_KEY 以后永久不用，`providers.tokenhub` 保留仅为 direct 回退通道**（不要因为“用不上了”就删 providers / RATES，直连与测试都靠它们）。切换引擎/模型/服务商只改 `config/system.yaml`（`engine` / `model.*` / `providers`），新 provider 计价须先补 `scripts/utils/cost_tracker.py` 的 `RATES`（可用 `scripts/price_wizard.py` 交互式更新）。**模型白名单纪律：用户免费体验包按模型领取，未经用户确认不得指定/更换付费模型**
 - **直连引擎（engine: direct）语义**：无子会话工具循环——任务文件的输入文件段由 `llm_client.inline_inputs` 全文内联进单请求；多文件输出任务自动按目标文件拆分请求；模型产物经 `===FILE/APPEND/DELETE===` 协议落盘（白名单：`data/**` 与 `logs/runs.db`），期望外路径直接拒绝
 - **子会话（engine: hermes）**：任务文件（data/state/tasks/）必须自包含全部上下文
+- **DSH headless（engine: dsh，默认）**：任务文件同样必须自包含（`dsh --profile headless` 无 `--model`，模型由 profile 决定）；进程 cwd = workspace 就是 sandbox 写范围，`_infer_workdir` 从任务书路径反推项目根，**不要给它传相对路径任务书**；headless 没有实时审批通道（`approval_policy: never`），任务书里不要要求“等人确认”的动作，一律会被拒
 - **本地 API（nf_api.py）**：函数级复用 orchestrator/approve/reject/refine，不经过 Hermes 子进程；客户端注入走 `_client_for_env`（默认 make_client 真引擎，`NF_API_ALLOW_FAKE=1`/`--allow-fake` 时注入 FakeClient——**仅限测试**，自测脚本运行会清空 data/ 运行产物）；服务默认只绑 127.0.0.1
 - **GUI 交互纪律**：① 运行入口唯一（流水线页签顶部的“一键工作流”条，旧的 `.run-all-bar` 已删——
   新增运行按钮一律并入该条，不让两套入口并存）；② 破坏性操作走应用内确认框 + 勾选护栏，不用
