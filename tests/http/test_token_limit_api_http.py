@@ -130,8 +130,22 @@ def main():
         check("区间回显（前端可据此提示）",
               set(d.get("bounds") or {}) == set(cost_tracker.TOKEN_LIMIT_BOUNDS),
               d.get("bounds"))
-        check("说明点明 hermes 下金额阈值无效（否则用户不知道该调哪）",
-              "hermes" in (d.get("note") or ""), d.get("note"))
+        # 说明文字必须点出"当前这个引擎下金额阈值无效"。
+        # 2026-11-20 之前这里写死 "hermes" —— 引擎切成 dsh 后文案随之变化，
+        # 写死引擎名会让判据变成"只在 hermes 下成立"，等于把配置当成常量。
+        # 现在按盘上 engine 取：订阅类（hermes / dsh）必须在说明里点到自己，
+        # 直连则不许谎称金额阈值无效。
+        _eng = ""
+        for _ln in cfg_text(tmp).splitlines():
+            if _ln.startswith("engine:"):
+                _eng = _ln.split(":", 1)[1].strip()
+                break
+        _note = d.get("note") or ""
+        if _eng in ("hermes", "dsh"):
+            check("说明点明 %s 下金额阈值无效（否则用户不知道该调哪）" % _eng,
+                  _eng in _note, _note)
+        else:
+            check("直连下不许谎称金额阈值无效", "无效" not in _note, _note)
 
         print("\n【2】写入口只认 GUI 来源（外部 Agent 不得抬高自己的闸门）")
         before = cfg_text(tmp)

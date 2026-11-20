@@ -253,9 +253,24 @@ FEATURES = [
      "作者口径：只留用户导入，不自创文风（内置平台预设在冻结清单内）。"),
 
     # ---------------- 外部阻塞 / 不立项 ----------------
-    ("X01", "DSH 插件仓 dsh-novelforge", "frozen",
-     ["file:../dsh-novelforge"],
-     "2026-11-17 由 Agent 自行创建，作者未立项。按参考资料对待，不推进。"),
+    ("X01", "DSH 插件仓 dsh-novelforge", "partial",
+     ["file:../dsh-novelforge",
+      "file:../dsh-novelforge/lib/tools.js"],
+     "2026-11-17 由 Agent 自行创建时标 frozen（作者未立项）；"
+     "2026-11-20 作者定案“绒花墨坊绑死 DSH，以后都走 DSH”→ 立项解冻。"
+     "现状 0.1.0 离线版（lib/http.js 只连回环 + lib/tools.js 5 个工具、无“采用”）。"),
+
+    ("X02", "引擎固定 dsh（墨坊自己跑，DSH 当执行层）", "done",
+     ["file:config/system.yaml",
+      "file:scripts/utils/dsh_client.py",
+      "sym:scripts/utils/dsh_client.py::dsh_available"],
+     "2026-11-20 作者定案后落地：出厂 config 与打包态工作区 config 的 engine 均为 dsh"
+     "（hermes / self 不再作为常规选项，但代码分叉保留作回退通道）。"
+     "前置条件同日打通：DSH headless 默认把 authorization / credentials / "
+     "deepseek-account 三条 disabled，凭据只从环境或 .env 读；"
+     "本机无 provider key，故在 headless 的 cordis.patch.yml 覆盖回 disabled: false，"
+     "让 headless 复用桌面端登录态 —— 已用 dsh --profile headless --dump-config 验证"
+     "三条都生效且无报错。**真跑一次模型未验**（走订阅额度，需作者点头）。"),
 ]
 
 

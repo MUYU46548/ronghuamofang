@@ -7353,6 +7353,18 @@ onUnmounted(() => {
           <span class="meta">对下一次运行生效，不需要重启客户端</span>
         </div>
         <div class="eng-cards">
+          <!-- DSH 排第一（2026-11-20 定案：引擎固定 dsh）。顺序不是审美：
+               打开设置第一眼就该是"我正在用的那个"，其余三张只是回退通道。 -->
+          <button class="eng-card" :class="{ on: models.engine === 'dsh' }"
+                  :disabled="engBusy" @click="switchEngine('dsh')">
+            <div class="eng-card-top">
+              <span class="eng-name">DSH 后台执行（默认，走订阅）</span>
+              <span v-if="models.engine === 'dsh'" class="eng-badge">使用中</span>
+            </div>
+            <div class="eng-desc">由 DeepSeek Harness 在后台逐个跑任务，走你的订阅额度；每步比直连慢，但不用开界面。
+              它只换“谁在跑”，读稿改稿仍在墨坊界面里做。</div>
+            <div class="eng-tags"><span>走订阅</span><span>金额上限不生效</span><span>复用桌面端登录</span></div>
+          </button>
           <button class="eng-card" :class="{ on: models.engine === 'direct' }"
                   :disabled="engBusy" @click="switchEngine('direct')">
             <div class="eng-card-top">
@@ -7371,16 +7383,6 @@ onUnmounted(() => {
             <div class="eng-desc">由外部 Agent（编程工具里的助手）驱动，走你的订阅额度。</div>
             <div class="eng-tags"><span>走订阅</span><span>右下的角色模型不参与</span></div>
           </button>
-          <button class="eng-card" :class="{ on: models.engine === 'dsh' }"
-                  :disabled="engBusy" @click="switchEngine('dsh')">
-            <div class="eng-card-top">
-              <span class="eng-name">DSH 后台执行（走订阅）</span>
-              <span v-if="models.engine === 'dsh'" class="eng-badge">使用中</span>
-            </div>
-            <div class="eng-desc">由 DeepSeek Harness 在后台逐个跑任务，走你的订阅额度；每步比直连慢，但不用开界面。
-              它只换“谁在跑”，读稿改稿仍在墨坊界面里做。</div>
-            <div class="eng-tags"><span>走订阅</span><span>金额上限不生效</span><span>只替换引擎</span></div>
-          </button>
           <button class="eng-card" :class="{ on: models.engine === 'self' }"
                   :disabled="engBusy" @click="switchEngine('self')">
             <div class="eng-card-top">
@@ -7396,8 +7398,8 @@ onUnmounted(() => {
         </div>
         <div class="meta eng-note" v-else-if="models.engine === 'dsh'">
           DSH 模式下 model.* 不参与运行 —— 模型由 DSH 自己的 profile 决定；金额上限不生效，
-          花超自动停看“预算与止烧”里的 token 上限。切过去后请确认本机装着 DeepSeek Harness
-          （设置页右上角“诊断”里会写“DSH 可用 / 不可用”）。
+          花超自动停看“预算与止烧”里的 token 上限。凭据复用 DSH 桌面端的登录态（2026-11-20 起），
+          不用另填 API Key；本机没装 DSH 时“诊断”里会写“DSH 不可用”，按提示装或填 dsh.bin。
         </div>
         <div class="meta eng-note" v-else-if="models.engine === 'self'">
           自任务模式下点了运行只会产出任务书（不花钱）：按任务书把文件写到指定路径，再点一次运行即续跑。
