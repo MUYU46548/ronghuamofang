@@ -169,6 +169,8 @@ def new_page(browser, api_base, tag):
 # 截图自检台账：每条 = {name, ok, notes}。e2e 结束时统一打印，
 # 有问题**不阻断**（截图是辅助证据），但必须出声 —— 带偏差的截图比没有更糟。
 SHOT_CHECKS = []
+# 2026-11-20：被挤出视口右缘的元素（只收集、先不判定 —— 见 _overflow_probe）。
+OVERFLOW_PROBE = []
 
 
 def _geom(page):
@@ -192,6 +194,71 @@ def _geom(page):
         }""")
     except Exception:                                        # noqa: BLE001
         return None
+
+
+_OVERFLOW_PROBE_JS = r"""
+() => {
+  // 视口右边界外的可见元素 = 用户点不到 / 看不全的东西（2026-11-20）。
+  // 起因：1366 宽下章节编辑器的保存按钮被挤出窗口只露半个紫块，而 346 条 e2e 全绿
+  // —— 因为没有任何一条判据量过"元素整体在不在屏幕里"。
+  // 误报控制：
+  //   · 跳过 position:fixed（toast / 浮层本来可能出屏再动画进来）
+  //   · 跳过"祖先可横向滚动"的（那是设计好的横向滚动区，伸出去正常）
+  //   · 跳过自己就是滚动容器的（它的子元素超出由滚动承接）
+  const W = window.innerWidth;
+  const out = [];
+  const scrollable = (el) => {
+    for (let a = el.parentElement; a && a !== document.body; a = a.parentElement) {
+      const s = getComputedStyle(a);
+      if (/(auto|scroll)/.test(s.overflowX) && a.scrollWidth > a.clientWidth + 1) return true;
+    }
+    return false;
+  };
+  for (const el of document.querySelectorAll('body *')) {
+    const r = el.getBoundingClientRect();
+    if (r.width < 2 || r.height < 2) continue;
+    const s = getComputedStyle(el);
+    if (s.position === 'fixed' || s.visibility === 'hidden' || s.display === 'none') continue;
+    // 背景柔光斑（.blob）故意 `right:-60px` 出界，是装饰，不是可点/可读的东西 ——
+    // 不排除它会让判据永远红，等于没有判据。
+    if (String(el.className || '').indexOf('blob') >= 0) continue;
+    if (r.right <= W + 2) continue;
+    if (scrollable(el)) continue;
+    const label = (el.textContent || '').trim().slice(0, 16)
+                  || (el.className && String(el.className).slice(0, 24)) || el.tagName;
+    out.push({ el: label, tag: el.tagName, over: Math.round(r.right - W) });
+  }
+  // 同一段文字会被父子重复报（外层容器也超），按 label 去重、只留溢出最多的
+  const seen = new Map();
+  for (const o of out) {
+    const k = o.el;
+    if (!seen.has(k) || seen.get(k).over < o.over) seen.set(k, o);
+  }
+  return [...seen.values()].sort((a, b) => b.over - a.over).slice(0, 8);
+}
+"""
+
+
+def _overflow_probe(page, name, notes=None):
+    """量"有没有元素被挤出视口右缘"。**是判据，不是诊断**（2026-11-20）。
+
+    为什么必须有它：1366 宽下章节编辑器的保存按钮被挤出窗口右缘只露半个紫块，
+    而当时 346 条 e2e 全绿 —— M 段只量了"正文几个字一行"，没有任何一条量过
+    "这个东西整体在不在屏幕里"。用户点不到的按钮，比少一个功能更伤人。
+    排除项见 JS 里的三行注释（fixed 浮层 / 可横向滚动的容器 / 背景光斑）。
+    """
+    try:
+        bad = page.evaluate(_OVERFLOW_PROBE_JS) or []
+    except Exception:                                        # noqa: BLE001
+        return []
+    if bad:
+        OVERFLOW_PROBE.append({"name": name, "bad": bad})
+        print("      ⚠️ 出屏 %d 处 → %s" % (
+            len(bad), "；".join("%s(+%dpx)" % (b["el"], b["over"]) for b in bad[:3])))
+        if notes is not None:
+            notes.append("元素出屏: " + "；".join(
+                "%s(+%dpx)" % (b["el"], b["over"]) for b in bad[:3]))
+    return bad
 
 
 def shot(page, name, full=False, keep_scroll=False):
@@ -248,6 +315,7 @@ def shot(page, name, full=False, keep_scroll=False):
             if (g2 or {}).get("scrollY", 1) not in (0, None):
                 notes.append("滚回顶部没成功（scrollY=%s）" % (g2 or {}).get("scrollY"))
     g = _geom(page)
+    _overflow_probe(page, name, notes)
     if g and g.get("topbar"):
         tb = g["topbar"]
         # B：顶栏必须在视口顶端，且不是被挤成一条细线
@@ -1434,6 +1502,41 @@ _DESK_MEASURE_JS = r"""
 """
 
 
+_DESK_HEAD_OVERFLOW_JS = r"""
+() => {
+  // 标题行（.drawer-head）里的元素必须**完整落在容器内**，且不许被压成竖排。
+  // 为什么加这条（2026-11-20 目检）：1366 视口下 `保存` 被挤出窗口右缘只露半个紫块、
+  // `侧栏` 被切、`第 1 章` 竖成三行、`2165 字（下限 4000）` 压成一竖条 ——
+  // 而当时 346 条 e2e 全绿：M 段只量了"正文几个字一行"，没有一条量过头。
+  const head = document.querySelector('.drawer-head');
+  if (!head) return { missing: true };
+  const hb = head.getBoundingClientRect();
+  const right = hb.right + 0.5;
+  const bad = [];
+  for (const el of head.querySelectorAll('b, .mini, .pill, .ce-wordbadge, .ce-layer-pills')) {
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 && r.height === 0) continue;          // 隐藏（v-if 没渲染）
+    const label = (el.textContent || '').trim().slice(0, 14) || el.className;
+    // ① 溢出容器右缘 = 点不到
+    if (r.right > right) bad.push({ why: '溢出右缘', el: label,
+                                    over: Math.round(r.right - right) });
+    // ② 一行 30px 上下的按钮被压到 55px 以上 = 中文逐字竖排
+    if (r.height > 55 && !el.classList.contains('ce-layer-pills'))
+      bad.push({ why: '被压成竖排', el: label, h: Math.round(r.height) });
+    // ③ 内容比盒子宽 = 文字被截断
+    if (el.scrollWidth > el.clientWidth + 1 && el.clientWidth > 0)
+      bad.push({ why: '文字被截', el: label,
+                 need: el.scrollWidth, have: el.clientWidth });
+  }
+  return { bad, headRight: Math.round(right), win: window.innerWidth,
+           // 回一句标题行开头，用来证明这条断言量的**是编辑器那一条**，
+           // 不是页面上别的 drawer-head（审阅台里还有别的抽屉）。
+           headText: (head.textContent || '').trim().slice(0, 18),
+           items: head.querySelectorAll('b, .mini, .pill, .ce-wordbadge, .ce-layer-pills').length };
+}
+"""
+
+
 def test_desk_width(browser):
     """B7（2026-11-06）：审阅台正文必须 ≥45 汉字/行。
 
@@ -1465,6 +1568,17 @@ def test_desk_width(browser):
             page.screenshot(path=str(OUT / ("desk_width_%d_edit.png" % w)))
             check("%d 宽 · 编辑态正文 ≥45 汉字/行" % w, (e.get("edit") or 0) >= 45,
                   "实测 %s 字/行" % e.get("edit"))
+            hh = page.evaluate(_DESK_HEAD_OVERFLOW_JS)
+            _bad = hh.get("bad") or []
+            check("%d 宽 · 标题行没有元素溢出/竖排/截字" % w,
+                  not hh.get("missing") and not _bad,
+                  ("；".join("%s：%s（%s）" % (b["why"], b["el"],
+                                              {k: v for k, v in b.items()
+                                               if k not in ("why", "el")})
+                            for b in _bad)[:220] if _bad else
+                   "没有标题行" if hh.get("missing") else
+                   "量的是 %s 那一行 · %s 个元素都在框内"
+                   % (hh.get("headText"), hh.get("items"))))
             page.locator("button:has-text('阅读')").first.click()
             page.wait_for_timeout(800)
             r = page.evaluate(_DESK_MEASURE_JS)
@@ -2308,6 +2422,59 @@ def test_multi_candidate_switch(browser):
         ctx.close()
 
 
+def test_narrow_window(browser):
+    """980 宽（主进程 `minWidth`）下界面还能不能用（2026-11-20）。
+
+    为什么要单开一段：`console/main/index.js` 是 `width:1280 / minWidth:980` ——
+    作者可以把窗口拖到 980，而**此前最窄只测到 1366**。1366 下已经出过一次真事故
+    （保存按钮被挤出窗口只露半个紫块，346 条 e2e 全绿），980 只会更挤。
+
+    这里**不要求 45 汉字/行**：那是宽窗口的目标，980 下压到 30 出头是合理的。
+    只要求三件事：标题行不被挤爆、没有东西被挤出屏幕、编辑/阅读两态切得动。
+    """
+    print("\n=== F2. 980 宽（minWidth）下还能用 ===")
+    ctx, page, errs, bad = new_page(browser, MOCK_API, "narrow")
+    try:
+        page.set_viewport_size({"width": 980, "height": 760})
+        page.wait_for_timeout(400)
+        page.locator("nav.tabs button", has_text="章节").first.click()
+        page.wait_for_timeout(700)
+        if page.locator("button:has-text('审阅台')").count():
+            page.locator("button:has-text('审阅台')").first.click()
+        try:
+            page.wait_for_selector(".ce-textarea", timeout=6000)
+        except Exception:                                   # noqa: BLE001
+            check("980 宽下审阅台能进（中栏编辑器渲染）", False, "中栏没渲染")
+            return
+        page.wait_for_timeout(500)
+        hh = page.evaluate(_DESK_HEAD_OVERFLOW_JS)
+        _bad = hh.get("bad") or []
+        check("980 宽 · 标题行没有元素溢出/竖排/截字", not hh.get("missing") and not _bad,
+              ("；".join("%s：%s（%s）" % (b["why"], b["el"],
+                                          {k: v for k, v in b.items()
+                                           if k not in ("why", "el")})
+                        for b in _bad)[:200] if _bad else
+               "没有标题行" if hh.get("missing") else
+               "量的是 %s 那一行 · %s 个元素都在框内"
+               % (hh.get("headText"), hh.get("items"))))
+        ov = _overflow_probe(page, "narrow_980")
+        check("980 宽 · 没有元素被挤出屏幕", not ov,
+              "；".join("%s(+%dpx)" % (b["el"], b["over"]) for b in ov[:4]))
+        page.screenshot(path=str(OUT / "narrow_980_read.png"))
+        # 两态切得动 = 窄窗口下按钮还在可点位置
+        page.locator("button:has-text('阅读')").first.click()
+        page.wait_for_timeout(700)
+        check("980 宽 · 点得动 阅读（正文换到只读态）",
+              page.locator(".ce-read").count() >= 1)
+        page.locator("button:has-text('编辑')").first.click()
+        page.wait_for_timeout(400)
+        check("980 宽 · 点得回 编辑", page.locator(".ce-textarea").count() >= 1)
+        mine = [x for x in bad if "/chapters/" in x]
+        check("980 宽 · 章节链路没有 4xx", not mine, mine[:3])
+    finally:
+        ctx.close()
+
+
 def _alive(url, timeout=2.0):
     try:
         with urllib.request.urlopen(url, timeout=timeout) as r:
@@ -2353,6 +2520,7 @@ def main():
             test_dark(browser)
             test_about_project(browser)
             test_desk_width(browser)
+            test_narrow_window(browser)
             test_candidates(browser)
             test_sandbox_review(browser)
             test_merge_conflicts(browser)
@@ -2370,11 +2538,17 @@ def main():
     # 这是唯一会因"图能不能当证据"而变红的判据 —— 截图是我们给人看的凭据。
     print("\n=== I. 截图自检（能不能作为证据）===")
     bad = [c for c in SHOT_CHECKS if not c["ok"]]
-    check("全部 %d 张截图通过几何自检（顶栏在顶端 / 滚动归零 / 图高合理）"
+    check("全部 %d 张截图通过几何自检（顶栏在顶端 / 滚动归零 / 图高合理 / 元素不出屏）"
           % len(SHOT_CHECKS), not bad,
           [{"name": b["name"], "notes": b["notes"]} for b in bad][:4])
     if SHOT_CHECKS:
         print("      已核对 %d 张；有问题 %d 张" % (len(SHOT_CHECKS), len(bad)))
+    if OVERFLOW_PROBE:
+        print("\n  ⚠️ 出屏元素清单（%d 张图里有）：" % len(OVERFLOW_PROBE))
+        for it in OVERFLOW_PROBE:
+            print("     %-28s %s" % (it["name"],
+                                     "；".join("%s +%dpx" % (b["el"], b["over"])
+                                               for b in it["bad"][:5])))
 
     print("\n" + "=" * 62)
     print("合计: %d 通过 / %d 失败" % (len(PASS), len(FAIL)))

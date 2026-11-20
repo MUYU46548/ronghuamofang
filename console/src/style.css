@@ -891,10 +891,21 @@ body {
   background: var(--card); box-shadow: -12px 0 40px rgba(90, 90, 130, 0.25);
   display: flex; flex-direction: column;
 }
+/* 2026-11-20：head 必须能换行。
+   原来只有 `.drawer .drawer-head` 和 `.drawer-wide/.drawer-xwide .drawer-head` 开了 wrap，
+   **内联形态（`.ce-embedded`）没有被任何一条规则覆盖** —— 它在审阅台中栏里，容器宽度由
+   父级 1fr 决定，1366 视口下实测：`保存` 被挤出窗口右缘（只露半个紫块）、`侧栏` 被切、
+   `第 1 章` 竖排成三行、`2165 字（下限 4000）` 压成一竖条。
+   开 wrap 比溢出好：按钮换到第二行仍然可点，溢出等于点不到。 */
 .drawer-head {
   display: flex; align-items: center; gap: 8px;
+  flex-wrap: wrap; row-gap: 6px;
   padding: 12px 16px; border-bottom: 1px solid var(--border);
 }
+/* head 里的标题与按钮一律不许被压窄：中文被压窄 = 逐字换行（第 1 章竖成三行），
+   按钮被压窄 = 文字截断。宁可换行，不许压缩。 */
+.drawer-head > b, .drawer-head > .mini, .drawer-head > .pill { flex-shrink: 0; }
+.drawer-head > b { white-space: nowrap; }
 .preview-body {
   flex: 1; overflow: auto; margin: 0; padding: 14px 16px;
   font-size: 13px; line-height: 1.75; white-space: pre-wrap; word-break: break-word;
@@ -1529,6 +1540,31 @@ body {
 .font-slider {
   flex: 1;
   accent-color: var(--accent);
+  /* 2026-11-20 目检：只写 accent-color 时，Chromium 的**未填充轨道**仍按浏览器的
+     默认外观画成深色粗条 —— 亮色主题下那条黑杠跟整页格格不入（截图
+     D11_theme_rows.png 一眼就能看到）。轨道与滑块一律由主题变量派生，
+     两个主题都成立；不写死颜色（`test_ui_tokens` 守着）。 */
+  -webkit-appearance: none;
+  appearance: none;
+  height: 20px;
+  background: transparent;
+  cursor: pointer;
+}
+.font-slider::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--accent) 22%, var(--border));
+}
+.font-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 15px;
+  height: 15px;
+  margin-top: -4.5px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--card);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.22);
 }
 
 /* ---------- 运行前 token / 费用预估对话框 ---------- */

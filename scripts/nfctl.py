@@ -671,6 +671,34 @@ def collect_check(root: Path) -> dict:
         "%d 个文件里有直角引号（应改中文双引号）：%s"
         % (len(_bad_punct), "、".join(_bad_punct[:5])), blocking=True)
 
+    # 测试脚本能不能编译（2026-11-20 血账）
+    # e2e **不在** `nfctl test` 范围里（会长期潜伏红）。于是 e2e 脚本自身的语法错误
+    # 也没有任何门抓得住 —— 实测：我改完 e2e 里的一条断言、引号写坏，仍然宣称
+    # "9 套 e2e 全过"，直到下一轮真跑才发现整份脚本 import 就 SyntaxError。
+    # 编译检查是 0.2 秒的事，把"脚本本身坏掉"和"断言失败"分开。
+    _bad_syntax = []
+    _pyc = None
+    try:
+        import py_compile as _pyc
+    except Exception:                                    # noqa: BLE001
+        _pyc = None
+    if _pyc is not None:
+        for _p in sorted((root / "tests").rglob("*.py")):
+            if "__pycache__" in _p.parts:
+                continue
+            try:
+                _pyc.compile(str(_p), cfile=str(_p) + ".chk", doraise=True)
+            except Exception as _e:                      # noqa: BLE001
+                _bad_syntax.append("%s: %s" % (_p.name, str(_e)[:120]))
+            finally:
+                try:
+                    Path(str(_p) + ".chk").unlink()
+                except OSError:
+                    pass
+    add("测试脚本可编译", not _bad_syntax,
+        "tests/ 全部可编译" if not _bad_syntax else
+        "；".join(_bad_syntax[:3]), blocking=True)
+
     # 端口
     running = _api_running()
     add("nf_api 端口 %s" % API_PORT, True,

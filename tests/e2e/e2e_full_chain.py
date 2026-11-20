@@ -111,6 +111,11 @@ def main(argv=None):
     tok = "e2e-chain-tok"
     env = dict(__import__("os").environ, NF_GUI_TOKEN=tok, PYTHONIOENCODING="utf-8")
     env.pop("NF_ROOT", None)
+    # 2026-11-20：`run_all.py` 会给所有子进程设 NF_LICENSE_ACK=1（多数套件跑在
+    # 从没签过字的临时工作区上，不豁免就满屏 403）。但本脚本 E1 **正是要验真拦**
+    # （未签字 → /state 403），被外层豁免污染就成了假绿 —— 实测收进 run_all 后
+    # 这条当场变红（期望 403 实得 200）。这里显式摘掉，让"总闸在工作"始终是真验。
+    env.pop("NF_LICENSE_ACK", None)
     logf = ws / "nf_api_child.log"
     fh = open(logf, "wb")
     proc = subprocess.Popen(

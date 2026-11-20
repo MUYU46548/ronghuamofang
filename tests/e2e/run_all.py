@@ -108,6 +108,16 @@ SUITES = {
         "env": {"NF_E2E_SHORT_PORT_A": "{short_api_a}",
                 "NF_E2E_SHORT_PORT_B": "{short_api_b}"},
     },
+    # 2026-11-20 收进来：这条链是 docs/evidence/full-chain-20261119.md 的证据来源
+    # （阶段 1→8 + 真出 Word，40 章，零 token）。它自带工作区与服务，不依赖上面的
+    # 四个服务；不进这个清单的话，"可复跑的证据"没人会记得跑，账又会烂回 G1 那种状态。
+    "full": {
+        "script": "e2e_full_chain.py",
+        "desc": "全链零 token（阶段 1→8 + 出 Word / 40 章 / 两道审批门）",
+        "stack": False,
+        "browser": False,
+        "env": {},
+    },
 }
 
 # 默认端口：与各脚本历史默认值一致，便于对照旧文档
