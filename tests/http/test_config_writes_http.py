@@ -214,39 +214,19 @@ def main():
         else:
             print("  [SKIP] config 里没有 writer 模型名，跳过模型写入")
 
-        print("\n【C6】DSH 角色模型：写 dsh_* 不碰 direct 字段，注释一行不少")
-        # 2026-11-20：作者要求"角色模型表全部保留"，而 headless 没有 --model。
-        # 这条端点只写 model.<role>.dsh_provider / dsh_model；provider / id 是
-        # direct 引擎的字段，切回直连还要用 —— 被顺带改掉就是事故。
-        import yaml as _yaml
-        w_before = (((_yaml.safe_load(cfg.read_text(encoding="utf-8")) or {})
-                     .get("model") or {}).get("writer") or {})
+        print("\n【C6】墨坊不向 DSH 传模型名：这条路由不应存在")
+        # 2026-11-20 作者定案：模型是 DSH 的事，墨坊只发任务书。
         code, d = req("POST", "/config/dsh_model",
                       {"role": "writer", "provider": "deepseek-official",
                        "model": "deepseek-pro"})
-        check("写 DSH 角色模型返回 200", code == 200 and d.get("ok") is True, (code, d))
-        w_after = (((_yaml.safe_load(cfg.read_text(encoding="utf-8")) or {})
-                    .get("model") or {}).get("writer") or {})
-        check("dsh_model 真落盘", w_after.get("dsh_model") == "deepseek-pro", w_after)
-        check("dsh_provider 真落盘", w_after.get("dsh_provider") == "deepseek-official", w_after)
-        check("direct 的 provider / id 没被顺带改掉",
-              w_after.get("provider") == w_before.get("provider")
-              and w_after.get("id") == w_before.get("id"), (w_before, w_after))
+        check("POST /config/dsh_model 已不存在（404/405，不是 200）",
+              code in (404, 405), (code, d))
         txt = cfg.read_text(encoding="utf-8")
-        check("DSH 模型路径同样保住注释", comments(txt) == base_comments,
+        check("config 里没有被写进 dsh_provider / dsh_model",
+              "dsh_provider:" not in txt and "dsh_model:" not in txt)
+        check("C6 之后注释仍一行不少", comments(txt) == base_comments,
               "%d → %d" % (base_comments, comments(txt)))
 
-        code, d = req("POST", "/config/dsh_model", {"role": "nosuchrole", "model": "x"})
-        check("非法 role → 400（不写盘）", code == 400, (code, d))
-        code, d = req("POST", "/config/dsh_model", {"role": "writer"})
-        check("provider / model 都不给 → 400（不产生空写入）", code == 400, (code, d))
-
-        # 清空语义：空串 = 该角色回落 profile 默认（装配层 strip 成空 → None）
-        code, d = req("POST", "/config/dsh_model", {"role": "writer", "model": ""})
-        w_clear = (((_yaml.safe_load(cfg.read_text(encoding="utf-8")) or {})
-                    .get("model") or {}).get("writer") or {})
-        check("空串 = 清空（回落 profile 默认）",
-              code == 200 and not str(w_clear.get("dsh_model") or "").strip(), (code, w_clear))
     finally:
         if proc:
             try:

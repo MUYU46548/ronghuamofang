@@ -103,51 +103,6 @@ def handle_config_provider(h, body):
                  "model": cur_model, "warning": warning}
 
 
-def handle_config_dsh_model(h, body):
-    """设置 DSH 下某角色用哪个模型（2026-11-20，作者要求"角色模型表全部保留"）。
-
-    ## 为什么不能复用 /models/switch
-
-    `/models/switch` 写 `model.<role>.id`，并且过**模型白名单**
-    （`utils/model_registry`，判据来自 `providers.<pid>.available_models`）。
-    那是"墨坊自己去连某家 API"的语义。dsh 引擎下角色模型是**传给 DSH 的
-    patch 参数**，名字必须来自 DSH 自己的 provider/model 清单 ——
-    拿 tokenhub 的账本去校验它，会把一个合法的 DSH 模型名拒掉。
-
-    ## 写入规则
-
-    - 只写 `model.<role>.dsh_provider` / `model.<role>.dsh_model`，**不碰**
-      `provider` / `id`（那两个是 direct 引擎的字段，切回直连还要用）。
-    - 值为空 = 写空串；装配时 strip 成空 → 该角色回落 DSH profile 默认模型。
-    - 定向改写，注释不丢（`config_io` 的既有保证，见本模块 docstring）。
-    """
-    role = str(body.get("role") or "").strip()
-    if role not in ROLES:
-        return 400, {"ok": False, "error": "role 须为 " + "/".join(ROLES)}
-    fields = {}
-    for key, dst in (("provider", "dsh_provider"), ("model", "dsh_model")):
-        if key in body:
-            fields[dst] = str(body.get(key) or "").strip()
-    if not fields:
-        return 400, {"ok": False, "error": "provider / model 至少给一个"}
-    try:
-        from utils.config_io import set_section_scalars
-        sys_yaml = api.ROOT / "config" / "system.yaml"
-        if not sys_yaml.exists():
-            return 400, {"ok": False, "error": "config/system.yaml 不存在"}
-        w_ok, w_msg = set_section_scalars(("model", role), fields, path=sys_yaml)
-    except Exception as e:                                  # noqa: BLE001
-        w_ok, w_msg = False, type(e).__name__ + ": " + str(e)[:160]
-    if not w_ok:
-        return 400, {"ok": False, "error": "写入失败：" + w_msg}
-    _cfg, _ = api.load_all()
-    cur = ((_cfg.get("model") or {}).get(role) or {})
-    return 200, {"ok": True, "role": role,
-                 "provider": cur.get("dsh_provider") or "",
-                 "model": cur.get("dsh_model") or "",
-                 "note": "对下一次运行生效（engine: dsh 时按角色传给 DSH）"}
-
-
 def handle_config_style_notes(h, body):
     """保存用户风格笔记：定向改写 project.yaml（保留注释），写入前备份。"""
     content = body.get("content")

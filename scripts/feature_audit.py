@@ -272,18 +272,6 @@ FEATURES = [
      "让 headless 复用桌面端登录态 —— 已用 dsh --profile headless --dump-config 验证"
      "三条都生效且无报错。**真跑一次模型未验**（走订阅额度，需作者点头）。"),
 
-    ("X03", "DSH 下按角色指定模型（--patch 覆盖 agent-default-model）", "done",
-     ["sym:scripts/utils/dsh_client.py::build_model_patch",
-      "sym:scripts/utils/llm_client.py::dsh_model_spec",
-      "file:scripts/nf_api_domains/config_write.py",
-      "route:POST /config/dsh_model"],
-     "2026-11-20：作者明确要求“角色模型表全部保留，不被 DSH 插件取代”。"
-     "headless 没有 --model 旋钮，但 `dsh --patch` 能覆盖 profile 里 "
-     "agent-default-model 的 config（零成本验证：--dump-config 里 provider/model "
-     "随 patch 变化）。落地：墨坊每次调用按角色生成临时 patch；设置页 dsh 下"
-     "“DSH 供应商 / DSH 模型”两列改为可输入；直连用的 provider/id 不被覆盖。"
-     "判据：test_dsh_client.py 新增 10 条 + test_config_writes_http.py C6 9 条。"
-     "**模型名必须是 DSH 认的那几家**，墨坊不替它造供应商。"),
 ]
 
 

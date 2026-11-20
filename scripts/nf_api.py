@@ -4300,10 +4300,6 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(*_dom(dom_config_write.handle_config_engine(self, body)))
             elif p == "/config/provider":
                 self._send(*_dom(dom_config_write.handle_config_provider(self, body)))
-            elif p == "/config/dsh_model":
-                # DSH 下按角色指定模型（2026-11-20）：写 model.<role>.dsh_model，
-                # 不过模型白名单（那套判据是"墨坊直连某家 API"的账本，不是 DSH 的）。
-                self._send(*_dom(dom_config_write.handle_config_dsh_model(self, body)))
             elif p == "/project/archive":
                 name = str(body.get("name") or "").strip()
                 force = bool(body.get("force"))

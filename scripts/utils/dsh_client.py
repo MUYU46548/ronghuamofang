@@ -53,12 +53,10 @@
 """
 from __future__ import annotations
 
-import atexit
 import json
 import os
 import shutil
 import subprocess
-import tempfile
 import threading
 import time
 from pathlib import Path
@@ -92,54 +90,6 @@ ONE_SHOT_PREFIX = (
     + "本次需要的材料已经全部在下面，不需要去翻任何本地文件。" + chr(10)
     + "------------------------------------------------------------"
 )
-
-
-def _safe_unlink(path):
-    """删临时 patch 文件（失败无声：Temp 目录由系统回收，不该因此报错）。"""
-    try:
-        os.unlink(path)
-    except OSError:
-        pass
-
-
-def build_model_patch(spec):
-    """把 `{"provider": ..., "model": ...}` 写成 DSH 的 `--patch` 文件。
-
-    ## 为什么需要它（2026-11-20）
-
-    headless **没有** `--model` 旋钮，模型由 profile 的 `agent-default-model`
-    插件决定 —— 这正是"角色模型表在 dsh 下形同虚设"的原因。但 `dsh --patch`
-    能在 profile 层之后再叠一层 loader patch，覆盖那个插件的 `config`。
-    于是"某个角色用某个模型"可以按**每次调用**生效，而不是改全局 profile。
-
-    验证方式（零成本，不发请求）：
-        dsh --profile headless --patch <本函数生成的文件> --dump-config
-        → `agent-default-model` 的 config.provider / config.model 变成这里写的值
-
-    返回 patch 文件路径；spec 不完整或写盘失败返回 None（= 用 profile 默认）。
-    """
-    if not isinstance(spec, dict):
-        return None
-    prov = str(spec.get("provider") or "").strip()
-    model = str(spec.get("model") or "").strip()
-    if not prov or not model:
-        return None
-    # YAML 是 JSON 的超集：用 json.dumps 生成**带引号**的标量，省掉自己写转义。
-    body = (
-        "- id: agent-default-model\n"
-        "  name: '@deepseek-ai/dsh-agent-default-model'\n"
-        "  config:\n"
-        "    provider: " + json.dumps(prov, ensure_ascii=False) + "\n"
-        "    model: " + json.dumps(model, ensure_ascii=False) + "\n"
-    )
-    try:
-        fd, path = tempfile.mkstemp(prefix="nf-dsh-model-", suffix=".yml")
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(body)
-    except OSError:
-        return None
-    atexit.register(_safe_unlink, path)
-    return path
 
 
 def resolve_dsh_bin(explicit=None):
@@ -197,15 +147,13 @@ class DshClient:
 
     def __init__(self, dsh_bin=None, timeout=1800, model=None, permission_mode=None,
                  approval_policy=None, session_continuation=False,
-                 request_max_tokens=None, add_dirs=None, model_spec=None):
+                 request_max_tokens=None, add_dirs=None):
         self.dsh_bin = resolve_dsh_bin(dsh_bin)
         self.timeout = int(timeout or 1800)
-        # 模型由 profile 决定（headless 没有 --model 旋钮）；这里只做记录
+        # 模型由 DSH 自己的 profile 决定：墨坊**只发任务书**，不传模型名
+        # （2026-11-20 作者定案：连名字都不该传。--model 在 headless 下本就不存在，
+        #  也刻意不用 --patch 去覆盖 agent-default-model —— 那是 DSH 的配置主权）。
         self.model = model
-        # 按角色指定模型（2026-11-20）：{"provider":..., "model":...} → --patch。
-        # 不传 = 用 profile 默认，行为与之前完全一致。
-        self.model_spec = dict(model_spec) if isinstance(model_spec, dict) else None
-        self._patch_path = build_model_patch(self.model_spec)
         # None → 不传 --permission-mode，用 profile 自带的 sandbox 模式
         # （headless patch 的默认是 workspace-write，工作区 = 进程 cwd）
         self.permission_mode = str(permission_mode or "").strip() or None
@@ -254,10 +202,6 @@ class DshClient:
             cmd += ["--permission-mode", self.permission_mode]
         for d in self.add_dirs:
             cmd += ["--add-dir", d]
-        # 角色模型（2026-11-20）：patch 必须排在 profile 层之后（--patch 本身就是），
-        # 才能覆盖 agent-default-model。文件不存在时宁可不传，让失败暴露在模型层。
-        if self._patch_path:
-            cmd += ["--patch", self._patch_path]
         if session_id and self.session_continuation:
             cmd += ["--session-id", str(session_id)]
         cmd.append("-")

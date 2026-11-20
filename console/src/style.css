@@ -2394,9 +2394,8 @@ kbd {
 }
 .rm-use { font-size: 12px; color: var(--muted); }
 .rm-row .model-select, .rm-row .provider-select { width: 100%; }
-/* dsh 下这两格是可输入的（要填 DSH 的 provider/model 名），
-   沿用下拉的外观但光标必须是文本光标，否则看起来像还不能点。 */
-.rm-row input.model-select, .rm-row input.provider-select { cursor: text; }
+/* dsh / hermes 下这两格是禁用的：光标保持 not-allowed，别让人以为点得动。 */
+.rm-table.rm-inactive .rm-row select { cursor: not-allowed; }
 .rm-foot {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   margin-top: 10px;
