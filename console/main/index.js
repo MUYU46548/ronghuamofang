@@ -381,7 +381,18 @@ function getWorkspaceSource() {
 //   · 前端（asar，不走种子）：项目页出厂徽标 / 启动提示词剥离说明书 /
 //     阶段复制改任务简报（原样贴模板会被外部 Agent 按红线判“模板不是任务”停工）。
 // **先 bump 再 electron-builder**。
-const SEED_VERSION = 95;   // 0.9.5: 读改链语义补齐 —— 候选卡显式写“模型的理解”（没写标“未复述”）、
+const SEED_VERSION = 96;   // 0.9.10: 交付底子 ——
+                            //   · payload scripts：obsidian.unskip_dirs（默认排除项可显式放开；
+                            //     get_skip_dirs = 默认 − unskip ∪ 追加 ∪ 沙盒；沙盒恒排除、
+                            //     放开必须 confirm，端点只认显式 unskip 字段不从 exclude 反推）；
+                            //   · payload scripts：agent_guard 花销闸（22 个花钱端点 +
+                            //     /stage/{1,8}/run；授权=次数+到期、用完自动失效；授权端点进禁单，
+                            //     Agent 不能给自己签；self / --allow-fake 放行）；
+                            //   · payload scripts：nf_mcp_handshake_check 修假绿（nf_get_state
+                            //     原先只判"返回是 dict"，许可未确认时 403 载荷也是 dict → 永远绿）；
+                            //   · 前端（asar）：排除项取消勾选二次确认 + 沙盒框禁用说明；
+                            //     设置 → Agent 模式 → 外部 Agent 花销授权（次数/小时 + 授权/撤销）。
+                            // 0.9.5: 读改链语义补齐 —— 候选卡显式写“模型的理解”（没写标“未复述”）、
                             //   批注按未收口/已收口分组并可一键跳到段落、精修页签改称“直接改正文”。
                             //   payload prompts：stage4_refine_paragraph 新增 ===INTENT=== 段。
                             //   工作区刷新判据仍是 sha256 逐文件比对；docs 与泄露门禁归零属账目。

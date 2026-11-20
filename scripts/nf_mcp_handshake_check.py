@@ -54,9 +54,17 @@ def start_api(api_port):
     log = ROOT / "Temp" / "handshake_api.log"
     log.parent.mkdir(parents=True, exist_ok=True)
     f = open(log, "wb")
+    # 许可门（2026-11-20 修）：不 ack 时 nf_api 只放行 /health、/license*，
+    # 其余一律 403 license_required —— 而本自检跑的是**业务端点**。
+    # 之前漏了这个旁路，于是 nf_get_state 拿到的 403 载荷也是 dict，
+    # 那条断言只判 isinstance(dict) 就 PASS 了 = **假绿**；
+    # 另两条做了字段级断言才暴露成真红（checked/exists 都不存在）。
+    # NF_LICENSE_ACK 是 license.py 里写明的测试旁路（会打 WARN），不是绕过。
+    env = dict(os.environ)
+    env["NF_LICENSE_ACK"] = "1"
     p = subprocess.Popen([sys.executable, str(SCRIPTS / "nf_api.py"),
                           "--port", str(api_port), "--allow-fake"],
-                         stdout=f, stderr=subprocess.STDOUT, cwd=str(ROOT))
+                         stdout=f, stderr=subprocess.STDOUT, cwd=str(ROOT), env=env)
     deadline = time.time() + 25
     while time.time() < deadline:
         try:
@@ -107,7 +115,13 @@ async def handshake(tcp_port):
             ok, extra = False, payload[:120]
             try:
                 data = json.loads(payload)
-                ok = isinstance(data, dict)
+                # ⚠️ 只判 isinstance(dict) 会**假绿**：许可未确认 / 端点报错时
+                # 返回的也是 dict（{"ok": false, "license_required": true}）。
+                # 必须断言业务字段真的在，否则这条用例永远绿、什么也发现不了。
+                ok = (isinstance(data, dict)
+                      and not data.get("license_required")
+                      and data.get("ok") is not False
+                      and "book" in data)
                 extra = "book=" + str(data.get("book") or data.get("result", {}).get("book"))
             except ValueError:
                 pass
