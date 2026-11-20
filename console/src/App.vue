@@ -4545,19 +4545,21 @@ async function saveVaultSkip() {
   const defaults = d.default_skip_dirs || [];
   const unskip = defaults.filter((n) => !vaultScan.value.exclude.includes(n)
                                        && n !== d.sandbox_dir);
-  let confirm = false;
   if (unskip.length) {
     const ok = window.confirm(
       `确认放开系统默认排除？\n\n要放开的目录：${unskip.join('、')}\n\n` +
       `这些目录里的内容会进入检索面，可能被当成设定注入正文。` +
       `不确定就点“取消”，把它们重新勾回去。`);
     if (!ok) return;
-    confirm = true;
   }
   vaultScan.value.busy = true;
   try {
     const body = { exclude: vaultScan.value.exclude };
-    if (confirm) body.confirm = true;
+    if (unskip.length) {
+      // 显式字段：服务端只认 unskip（不从 exclude 反推，免得老调用方被读成“全放开”）
+      body.unskip = unskip;
+      body.confirm = true;
+    }
     const r = await api('/config/vault_skip_dirs', 'POST', body);
     vaultScan.value.ok = !!(r.status === 200 && r.data.ok);
     vaultScan.value.msg = vaultScan.value.ok
@@ -8374,7 +8376,7 @@ onUnmounted(() => {
                    @change="toggleVaultDir(d, $event)" />
             <span class="vault-dir-name">{{ d.name }}</span>
             <span class="meta">{{ d.no_md ? '无 .md' : d.files + ' 篇' }}</span>
-            <span class="meta" v-if="isVaultSandbox(d.name)">· 沙盒目录，恒排除（系统写回产物，不可放开）</span>
+            <span class="meta" v-if="isVaultSandbox(d.name)">· 沙盒目录，恒排除（系统自己写回的文件，不可放开）</span>
             <span class="meta" v-else-if="isVaultDefaultSkipped(d.name) && !d.excluded"
                   style="color: var(--warn)">· 已放开系统默认（提交时会再确认一次）</span>
             <span class="meta" v-else-if="isVaultDefaultSkipped(d.name)">· 系统默认排除</span>

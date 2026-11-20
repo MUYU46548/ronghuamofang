@@ -337,6 +337,9 @@ SAFE_LOAD_ALLOWED = {
         "已包在 except yaml.YAMLError 里，解析失败按题记为错误而不是抛栈）",
     "scripts/questionnaire_collect.py":
         "收卷器（同上：只读问卷/决策日志的围栏块，不是运行配置；解析失败按条跳过）",
+    "scripts/utils/dsh_client.py":
+        "读 DSH 的 cordis.patch.yml（**外部工具的补丁层**，不是本项目配置）："
+        "只用于风险项扫描；解析失败退化成文本判定，且整段包在 except 里",
 }
 
 

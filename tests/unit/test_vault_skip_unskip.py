@@ -108,11 +108,20 @@ def main():
             check("回传 sandbox_dir（界面据此禁用勾选）",
                   prev.get("sandbox_dir") == "obsidian_sandbox", prev.get("sandbox_dir"))
 
-            print("\n【3】没带 confirm 就放开默认项 → 400，且一个字都没写")
+            print("\n【2b】老调用方（只发改动项、不带 unskip）→ 200，默认四项照旧排除")
+            code, d = dom.handle_config_vault_skip_dirs(H(), {"exclude": ["设定", "草稿"]})
+            check("不带 unskip → 200（向后兼容，不被读成“全放开”）",
+                  code == 200 and d.get("ok"), (code, d.get("error")))
+            check("默认四项仍排除", set(_DEFAULT_SKIP_DIRS) <= get_skip_dirs(),
+                  sorted(set(_DEFAULT_SKIP_DIRS) - get_skip_dirs()))
+            check("响应里 unskip 为空", (d.get("unskip") or []) == [], d.get("unskip"))
+
+            print("\n【3】带 unskip 但没带 confirm → 400，且一个字都没写")
             local = Path(tmp) / "config" / "system.local.yaml"
             before = local.read_text(encoding="utf-8")
             code, d = dom.handle_config_vault_skip_dirs(
-                H(), {"exclude": ["设定", "草稿", "obsidian_sandbox"]})   # 少了 .obsidian/.git
+                H(), {"exclude": ["设定", "草稿", "obsidian_sandbox"],
+                      "unskip": [".obsidian", ".git"]})
             check("缺 confirm → 400", code == 400, code)
             check("响应标了 need_confirm 并列出要放开哪些",
                   d.get("need_confirm") is True and ".obsidian" in (d.get("unskip") or []), d)
@@ -122,7 +131,8 @@ def main():
 
             print("\n【4】带 confirm 才真放开，扫描面立刻变")
             code, d = dom.handle_config_vault_skip_dirs(
-                H(), {"exclude": ["设定", "草稿", "obsidian_sandbox"], "confirm": True})
+                H(), {"exclude": ["设定", "草稿", "obsidian_sandbox"],
+                      "unskip": [".obsidian", ".git"], "confirm": True})
             check("带 confirm → 200", code == 200 and d.get("ok"), (code, d.get("error")))
             check("回传里点名放开了哪几个", sorted(d.get("unskip") or []) == [".git", ".obsidian"],
                   d.get("unskip"))
@@ -140,8 +150,9 @@ def main():
 
             print("\n【5】想放开沙盒 → 400 并说清原因（不是静默忽略）")
             code, d = dom.handle_config_vault_skip_dirs(
-                H(), {"exclude": ["设定", "草稿", ".obsidian", ".git"], "confirm": True})
-            check("少勾沙盒 → 400", code == 400, code)
+                H(), {"exclude": ["设定", "草稿"], "unskip": ["obsidian_sandbox"],
+                      "confirm": True})
+            check("unskip 写沙盒 → 400", code == 400, code)
             check("错误里点名沙盒目录且解释“自指污染”",
                   "obsidian_sandbox" in (d.get("error") or "")
                   and "自指" in (d.get("error") or ""), (d.get("error") or "")[:90])
@@ -149,12 +160,20 @@ def main():
 
             print("\n【6】勾回去 = 恢复默认，不需要 confirm")
             code, d = dom.handle_config_vault_skip_dirs(
-                H(), {"exclude": ["设定", "草稿", "obsidian_sandbox"] + sorted(_DEFAULT_SKIP_DIRS)})
+                H(), {"exclude": ["设定", "草稿", "obsidian_sandbox"] + sorted(_DEFAULT_SKIP_DIRS),
+                      "unskip": []})
             check("勾回默认项 → 200（无需确认）", code == 200 and d.get("ok"), (code, d.get("error")))
             check("unskip 清空", get_unskip_dirs() == [], get_unskip_dirs())
             check("四项又回到排除集合", set(_DEFAULT_SKIP_DIRS) <= get_skip_dirs())
 
-            print("\n【7】unskip_dirs 里写非默认项 = 空操作（不制造假状态）")
+            print("\n【6b】unskip 写一个非默认项 → 400（“放开”一个本来就没排除的目录无意义）")
+            code, d = dom.handle_config_vault_skip_dirs(
+                H(), {"exclude": [], "unskip": ["设定"], "confirm": True})
+            check("非默认项 → 400 且说明原因", code == 400 and "默认排除项" in (d.get("error") or ""),
+                  (code, (d.get("error") or "")[:70]))
+            check("拒绝后默认四项仍在排除集合", set(_DEFAULT_SKIP_DIRS) <= get_skip_dirs())
+
+            print("\n【7】配置文件里手写非默认项 = 空操作（不制造假状态）")
             _w(Path(tmp) / "config" / "system.local.yaml",
                "obsidian:\n  vault_path: %s\n  unskip_dirs:\n  - 设定\n" % (tmp / "vault").as_posix())
             setting_schema.reset_obsidian_config_cache()

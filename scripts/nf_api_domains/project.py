@@ -1706,15 +1706,15 @@ def handle_config_vault_skip_dirs(h, body):
     同属**创作决策**，不是止烧/审批那类安全闸门 —— Agent 可以代配，
     但代配同样只写 local，永不触碰进 Git 的配置。
 
-    **语义（C3，2026-11-20）**：body.exclude 仍是"完整清单语义"（勾上的全部 =
-    要排除的全部）。服务端据此推导两个键：
-      · `skip_dirs`   = exclude 里**默认四项之外**的部分（用户自己加的）
-      · `unskip_dirs` = 默认四项里**没被勾上**的部分（显式放开）
-    放开默认项必须带 `confirm: true` —— 这是二次确认在服务端的落点：
-    界面先问一句，用户点了"确定"才带这个字段。不带 → 400 且**不写盘**，
-    并在响应里列出"将要放开哪几个目录"，供界面原样展示。
-    沙盒目录不能放开（`get_skip_dirs()` 里恒并入）：请求里少了它 → 400 讲清原因，
-    而不是静默把它当"用户想读"。
+    **语义（C3，2026-11-20）**：`body.exclude` 仍是"用户要排除的目录"（默认四项
+    之外的追加项会被落进 `skip_dirs`）；**放开默认项走独立字段 `body.unskip`**，
+    不从 exclude 反推 —— 反推会把老调用方（只发一项 exclude 的脚本/Agent）
+    当成"把默认四项全放开了"，那是**静默扩大扫描面**，比拒掉更糟。
+    口径：
+      · `unskip` 必须是默认四项的子集，且**必须带 `confirm: true`**（二次确认
+        在服务端的落点）；不带 → 400 且**不写盘**，响应里列出要放开哪几个；
+      · 沙盒目录名出现在 `unskip` 里 → 400 讲清原因（自指污染，不是偏好）；
+      · 不带 `unskip` = 老行为（只动用户追加项），默认四项恒排除。
     """
     ok, msg, names = _validate_skip_dirs(body)
     if not ok:
@@ -1726,35 +1726,37 @@ def handle_config_vault_skip_dirs(h, body):
         sandbox = sandbox_dir_name()
         want = set(names)
 
-        # 沙盒：勾掉 = 想让它进检索面。这不是偏好问题（会把系统自己写回的产物
-        # 当设定读回来），直接拒，并把原因说成人话。
-        if sandbox and sandbox not in want:
-            return 400, {
-                "ok": False,
-                "error": ("沙盒目录 %r 不能放开：它是系统唯一的可写位置，"
-                          "扫描进来会把我们自己写回的候选当成设定读回来（自指污染）。"
-                          "这一条不是可配置项。" % sandbox),
-                "sandbox_dir": sandbox,
-            }
-
-        unskip = sorted(defaults - want)          # 显式放开的默认项
-        # 只放开**盘上真实存在**的默认项：不存在的目录界面上根本没有勾选框
-        # （改不了 = 提交时也不会出现在 exclude 里），按集合差算会把 .hermes /
-        # .agent_context 一起写进“已放开”，那是一句假状态。
-        # ⚠️ 这里失败**不能**退化成“都放开”（那是降级放行），也不能退化成
-        # “都不放开”（那是替用户吞掉确认要求）—— 判不出来就保持原样：
-        # 让 confirm 的门照旧拦住，用户会看到要放开哪几个。
-        try:
-            from pathlib import Path as _P
-            from obsidian_bridge import _get_vault_path
-            _vp = _get_vault_path()
-            if _vp is not None:
-                unskip = [n for n in unskip if (_P(_vp) / n).is_dir()]
-            else:
-                unskip = []
-        except Exception as _e:                             # noqa: BLE001
-            print("[vault_skip_dirs] 判断默认项目录是否存在失败（保持集合差，"
-                  "仍要求确认）: " + str(_e)[:120])
+        # 放开默认项：**只认显式字段**，不从 exclude 反推（反推 = 把老调用方
+        # 的“只加一项”读成“默认全放开”，那是静默扩大扫描面）。
+        raw_unskip = (body or {}).get("unskip") if isinstance(body, dict) else None
+        if raw_unskip in (None, []):
+            unskip = []
+        else:
+            if not isinstance(raw_unskip, (list, tuple)):
+                return 400, {"ok": False, "error": "unskip 必须是目录名列表（数组）"}
+            bad = [x for x in raw_unskip
+                   if not isinstance(x, str) or any(ch in x for ch in ("/", "\\", ".."))]
+            if bad:
+                return 400, {"ok": False,
+                             "error": "unskip 只接受目录名（收到 %r）" % (bad[:3],)}
+            # 沙盒优先判：它不在默认四项里，落到下面那条“只能写默认项”会被
+            # 说成“不需要放开”，把真正的原因（自指污染）埋掉。
+            if sandbox and sandbox in [str(x) for x in raw_unskip]:
+                return 400, {
+                    "ok": False,
+                    "error": ("沙盒目录 %r 不能放开：它是系统唯一的可写位置，"
+                              "扫描进来会把我们自己写回的候选当成设定读回来（自指污染）。"
+                              "这一条不是可配置项。" % sandbox),
+                    "sandbox_dir": sandbox,
+                }
+            unskip = sorted(set(raw_unskip) & defaults)
+            # 只允许放开默认四项：别的名字本来就没排除，写进去是一句假状态
+            extra = sorted(set(raw_unskip) - defaults)
+            if extra:
+                return 400, {"ok": False,
+                             "error": ("unskip 只能写默认排除项（%s），收到 %r —— "
+                                       "其它目录本来就没被排除，不需要“放开”。"
+                                       % ("、".join(sorted(defaults)), extra[:3]))}
         user_skip = sorted(want - defaults)       # 用户自己加的排除项
 
         if unskip:
