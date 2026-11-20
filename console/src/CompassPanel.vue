@@ -116,7 +116,7 @@ defineExpose({ load });
       <label class="meta">活跃长线（每行一条；可写“线索（埋于第N章）”）</label>
       <textarea v-model="threadsText" rows="4" placeholder="例：&#10;沈砚与程砧的信任裂痕（埋于第2章）&#10;暗卫的真实目的"></textarea>
 
-      <div class="cnp-row">
+      <div class="cnp-row row">
         <label class="meta">预计总章数</label>
         <input v-model="scale" type="number" min="1" placeholder="可留空" class="cnp-num" />
         <label class="meta">更新时在第几卷</label>
@@ -149,7 +149,6 @@ defineExpose({ load });
   border: 1px solid var(--border); border-radius: 6px;
   background: var(--field-inset, transparent); color: var(--ink);
 }
-.cnp-row { display: flex; align-items: center; gap: 8px; }
 .cnp-num { width: 90px; }
 .cnp-warn {
   margin-top: 8px; padding: 6px 8px;

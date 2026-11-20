@@ -775,7 +775,7 @@ onMounted(loadReport);
               <!-- 事件分类表（J22）：这是**作者的判断维度**，所以不是只读标签，
                    而是可增删改的列表。改完保存 = 产新口径版本，旧版进 history。 -->
               <div v-if="c.id === 'J22'" class="judge-classedit">
-                <div v-for="(row, i) in (calEdit.J22 || [])" :key="i" class="judge-classrow">
+                <div v-for="(row, i) in (calEdit.J22 || [])" :key="i" class="judge-classrow row-tight">
                   <input v-model="row.key" class="judge-cal-input" placeholder="分类名"
                          @input="onCalChange" />
                   <input v-model="row.eg" class="judge-cal-input" placeholder="一句例子（可空）"
@@ -815,7 +815,6 @@ onMounted(loadReport);
 <style scoped>
 .judge { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-bottom: 12px; }
 .judge-classedit { display: flex; flex-direction: column; gap: 6px; min-width: 260px; }
-.judge-classrow { display: flex; align-items: center; gap: 6px; }
 .judge-classrow .judge-cal-input { flex: 1; min-width: 80px; }
 .judge-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .judge-bar b { font-size: 14px; }

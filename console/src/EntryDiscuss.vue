@@ -39,7 +39,7 @@
 
           <textarea v-model="sayText" rows="3" class="ed-say"
                     placeholder="这一轮说什么（AI 的建议 / 作者的取舍）"></textarea>
-          <div class="ed-actions">
+          <div class="ed-actions row-wrap">
             <button class="mini" :disabled="busy || !sayText.trim()" @click="say('ai')">以 AI 身份说</button>
             <button class="mini primary" :disabled="busy || !sayText.trim()" @click="say('author')">以作者身份说</button>
             <span class="meta">轮次只追加，不改写历史。</span>
@@ -58,7 +58,7 @@
           </details>
 
           <!-- 写回设定集：复用 /setting/status（adopt / reject），素材没有状态字段 -->
-          <div v-if="isSetting" class="ed-writeback">
+          <div v-if="isSetting" class="ed-writeback row-wrap">
             <div class="ed-title">写回设定集</div>
             <div class="meta">把这条的状态改成已采用 / 已否决（与“设定 → 素材裁决”同一套规则）。</div>
             <input v-model="reason" class="text-input" placeholder="理由（否决必填）" />
@@ -204,7 +204,6 @@ defineExpose({ show });
 .ed-text { display: block; margin: 4px 0; white-space: pre-wrap; }
 .ed-say, .ed-decide textarea { width: 100%; padding: 8px 10px; font-size: 13px; line-height: 1.7;
   border: 1px solid var(--border); border-radius: 6px; background: var(--field); color: var(--ink); }
-.ed-actions, .ed-writeback { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .ed-decide { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
 .ed-decide summary { cursor: pointer; font-weight: 600; }
 .ed-decision { margin-top: 6px; font-size: 12.5px; color: var(--ok); }

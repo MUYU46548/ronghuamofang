@@ -110,7 +110,70 @@ def case_tokens_used():
     check("D2 没有 .content-wide 第二档", ".content-wide" not in css)
 
 
-for fn in (case_no_redefine, case_global_once, case_tools, case_tokens_used):
+# 工具类的"值"（与 style.css 里那几条必须一致；改工具类要同时改这里，
+# 所以 C1 另有一条断言盯着"工具类没被偷偷改值"）
+TOOLS_DECLS = {
+    "row": {"display": "flex", "align-items": "center", "gap": "8px"},
+    "row-tight": {"display": "flex", "align-items": "center", "gap": "6px"},
+    "row-wrap": {"display": "flex", "align-items": "center", "gap": "8px",
+                 "flex-wrap": "wrap"},
+    "row-baseline": {"display": "flex", "align-items": "baseline", "gap": "10px"},
+    "stack": {"display": "flex", "flex-direction": "column", "gap": "4px"},
+}
+
+
+def _decls(body):
+    d = {}
+    for part in body.split(";"):
+        if ":" not in part:
+            continue
+        k, v = part.split(":", 1)
+        d[k.strip()] = " ".join(v.split())
+    return d
+
+
+def case_no_duplicate_skeleton():
+    """E（2026-11-20 阶段 2 收尾）：组件里不许再手写与工具类**完全等价**的骨架。
+
+    为什么：同一组 flex 骨架在 20 多个组件里各写一遍，是"每页自创一套"的根。
+    改一个间距要翻二十个文件、必然漏几个 —— 漏的那个页面上就是错位。
+    本次把 29 处精确等价的规则换成工具类（视觉零变化：声明逐字相同），
+    这条断言防的是"下一个人照抄旧写法又长回来"。
+    """
+    print("\n[E] 重复骨架已换成工具类（且不许长回来）")
+    dups = []
+    for f in sorted(SRC.glob("*.vue")):
+        css = scoped_style(f)
+        if not css:
+            continue
+        for sel, body in rules(css):
+            m = re.fullmatch(r"\.([a-z][a-z-]*)", sel)     # 只看单类选择器
+            if not m:
+                continue
+            d = _decls(body)
+            for name, want in TOOLS_DECLS.items():
+                if d == want:
+                    dups.append("%s: %s = .%s" % (f.name, sel, name))
+    check("E1 没有与工具类逐字等价的单类规则（骨架只能复用 .row/.stack 那一套）",
+          not dups, dups[:6])
+
+    css = (SRC / "style.css").read_text(encoding="utf-8", errors="ignore")
+    got = {}
+    for sel, body in rules(css):
+        m = re.fullmatch(r"\.([a-z][a-z-]*)", sel)
+        if m and m.group(1) in TOOLS_DECLS:
+            got[m.group(1)] = _decls(body)
+    wrong = {k: got.get(k) for k, v in TOOLS_DECLS.items() if got.get(k) != v}
+    check("E2 工具类的值没被改过（本表的期望值与 style.css 一致）", not wrong, wrong)
+
+    # 反向：工具类必须真的被组件用上（只建不用 = 白建）
+    used = sum(len(re.findall(r'class="[^"]*\b%s\b[^"]*"' % t, f.read_text(encoding="utf-8")))
+               for f in SRC.glob("*.vue") for t in TOOLS_DECLS if t != "row")
+    check("E3 工具类在模板里真被用着（不是建完就放着）", used >= 20, used)
+
+
+for fn in (case_no_redefine, case_global_once, case_tools, case_tokens_used,
+           case_no_duplicate_skeleton):
     fn()
 
 print("\n%d passed, %d failed" % (len(PASS), len(FAIL)))

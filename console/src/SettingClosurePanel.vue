@@ -179,7 +179,7 @@ defineExpose({ load });
       <div v-else-if="!groups.length && !manual.length" class="meta sc-ok">没有待裁决分歧。</div>
 
       <div v-for="g in groups" :key="g.name + g.field" class="sc-item">
-        <div class="sc-head">
+        <div class="sc-head row-wrap">
           <b>{{ g.name }}</b>
           <span class="sc-field">{{ g.field }}</span>
           <span class="spacer"></span>
@@ -204,7 +204,7 @@ defineExpose({ load });
           每条选一版，或者保持设定集现状。<b>裁决只记账，不会自动改设定集</b>——改不改是下一步。
         </div>
         <div v-for="m in manual" :key="m.id" class="sc-item">
-          <div class="sc-head">
+          <div class="sc-head row-wrap">
             <b>{{ m.name }}</b>
             <span class="sc-field">{{ m.field }}</span>
             <span class="sc-id">#{{ m.id }}</span>
@@ -289,7 +289,6 @@ defineExpose({ load });
   border: 1px solid var(--border); border-radius: 8px;
   padding: 10px 12px; margin: 8px 0; background: var(--field-inset);
 }
-.sc-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .sc-field {
   font-size: 11.5px; padding: 1px 7px; border-radius: 4px;
   border: 1px solid var(--border); background: var(--field); color: var(--muted);

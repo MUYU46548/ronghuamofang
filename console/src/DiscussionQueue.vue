@@ -58,7 +58,7 @@
       <div v-else class="dq-list">
         <div v-for="it in items" :key="it.path" class="dq-item" :class="'dq-' + it.status">
           <div class="dq-item-main">
-            <div class="dq-item-title">
+            <div class="dq-item-title row-wrap">
               <span class="pill" :class="statusClass(it.status)">{{ statusLabel(it.status) }}</span>
               <code class="dq-path">{{ shortPath(it.path) }}</code>
             </div>
@@ -299,7 +299,6 @@ defineExpose({ load });
 .dq-item.dq-approved { opacity: .65; }
 .dq-item.dq-rejected { opacity: .55; }
 .dq-item-main { flex: 1; min-width: 0; }
-.dq-item-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .dq-path { font-size: 12px; word-break: break-all; }
 .dq-item-meta { display: flex; gap: 12px; margin-top: 4px; flex-wrap: wrap; font-size: 12px; }
 .dq-note { margin-top: 6px; font-size: 12px; color: var(--warn); }

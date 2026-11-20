@@ -1,6 +1,6 @@
 <template>
   <div class="pboard">
-    <div class="pboard-head">
+    <div class="pboard-head row-wrap">
       <strong>情节画布</strong>
       <span class="pill">{{ cards.length }} 张卡片 · {{ seqLinks }} 条连线</span>
       <button class="mini" @click="collapseAll = !collapseAll">
@@ -132,7 +132,6 @@ onMounted(load);
 .pboard { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin: 10px 0;
           background-image: radial-gradient(var(--border) 1px, transparent 1px);
           background-size: 24px 24px; }
-.pboard-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .pboard-hint { color: var(--muted); font-size: 12px; }
 .pboard-vols { display: flex; flex-direction: column; gap: 16px; margin-top: 10px; }
 .pboard-vol { border: 1px solid var(--viz-volume-edge);

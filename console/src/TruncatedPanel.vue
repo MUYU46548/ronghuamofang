@@ -136,7 +136,7 @@ defineExpose({ load });
           <td :class="it.adoptable ? '' : 'warn-text'">{{ it.chars }}</td>
           <td class="tsp-preview">{{ it.preview }}</td>
           <td>
-            <div class="tsp-adopt" v-if="!it.adopted_as">
+            <div class="tsp-adopt row-tight" v-if="!it.adopted_as">
               <input v-model.number="chapterOf[it.name]" type="number" min="1" max="999"
                      class="tsp-ch" placeholder="章号" />
               <button class="mini" :disabled="busy || !it.adoptable" @click="adopt(it)"
@@ -174,7 +174,6 @@ defineExpose({ load });
   max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   color: var(--muted, #777);
 }
-.tsp-adopt { display: flex; gap: 6px; align-items: center; }
 .tsp-ch {
   width: 62px; padding: 3px 6px; font-size: 12px;
   background: var(--field); color: var(--ink);

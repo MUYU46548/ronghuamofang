@@ -298,7 +298,7 @@ onMounted(load);
     <div v-if="!rows.length" class="meta">没有待裁定的改稿（跑了阶段 5 且未关闭裁定闸时才出现）。</div>
 
     <div v-else class="split">
-      <div class="list">
+      <div class="list stack">
         <button
           v-for="r in rows"
           :key="r.chapter"
@@ -463,7 +463,6 @@ onMounted(load);
 
 <style scoped>
 .split { display: grid; grid-template-columns: 190px 1fr; gap: 12px; }
-.list { display: flex; flex-direction: column; gap: 4px; }
 .row { display: flex; align-items: center; gap: 6px; justify-content: flex-start; text-align: left; }
 .row.on { border-color: var(--accent); }
 .detail { min-width: 0; }

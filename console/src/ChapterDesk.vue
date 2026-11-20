@@ -355,7 +355,7 @@ onMounted(() => {
         <div v-if="!chapterCards.length" class="meta desk-dims-note">
           这一章还没有出场统计（<code>appearances.json</code> 由阶段 4 每章完成后更新）。
         </div>
-        <div v-else class="desk-cards">
+        <div v-else class="desk-cards stack">
           <div v-for="c in chapterCards" :key="c.name" class="desk-card">
             <span class="desk-card-dot" :class="'lv-' + c.level"></span>
             <span class="desk-card-name">{{ c.name }}</span>
@@ -425,14 +425,14 @@ onMounted(() => {
         </div>
         <div v-if="ledger.loading" class="meta">读取中…</div>
         <template v-else-if="ledger.data">
-          <div class="desk-dims">
+          <div class="desk-dims stack">
             <div v-for="d in scoredDims" :key="d.code" class="desk-dim">
               <span class="desk-dim-label">{{ d.label }}</span>
               <span v-if="d.score != null" class="desk-dim-score" :class="qualityClass(d.score)">{{ d.score }}</span>
               <span v-else class="desk-dim-score na">未举证</span>
             </div>
           </div>
-          <div v-if="aestheticItems.length" class="desk-dims desk-dims-aes">
+          <div v-if="aestheticItems.length" class="desk-dims desk-dims-aes stack">
             <div v-for="d in aestheticItems" :key="d.code" class="desk-dim">
               <span class="desk-dim-label">{{ d.label }}</span>
               <span v-if="d.score != null" class="desk-dim-score" :class="qualityClass(d.score)">{{ d.score }}</span>
@@ -469,7 +469,6 @@ onMounted(() => {
 .desk-chap-dot.dot-warn { background: var(--warn, #b8860b); }
 .desk-chap-dot.dot-todo { background: var(--border); }
 /* 本章出场卡：名 + 类型 + 本章次数 */
-.desk-cards { display: flex; flex-direction: column; gap: 4px; }
 .desk-card { display: flex; align-items: baseline; gap: 8px; font-size: 12.5px; }
 .desk-card-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--muted, #888); }
 .desk-card-dot.lv-major { background: var(--accent); }
@@ -501,7 +500,6 @@ onMounted(() => {
   max-height: 300px; overflow: auto; font-size: 12px; line-height: 1.75;
   white-space: pre-wrap; word-break: break-word;
 }
-.desk-dims { display: flex; flex-direction: column; gap: 4px; }
 .desk-dims-aes { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
 .desk-dim { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
 .desk-dim-label { flex: 1; }

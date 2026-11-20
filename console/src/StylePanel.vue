@@ -553,7 +553,7 @@ onMounted(() => {
           写作时模仿它的节奏、用词与句式。<b>给 2~3 个场景切片</b>（对白 / 动作 / 内省各一）
           比给一整章更有效 —— 系统只抽 3 段当示例。粘贴后点“保存”即可，无需改配置。
         </div>
-        <div class="meta ref-consent-line">
+        <div class="meta ref-consent-line row-wrap">
           <span v-if="refConsent.agreed" class="ref-ok">已同意样例稿使用声明</span>
           <span v-else class="ref-warn">保存前需确认样稿使用声明（只放你有权使用的文本）</span>
           <button class="mini ref-consent-btn" @click="refNoticeOpen = true">查看声明</button>
@@ -709,13 +709,13 @@ onMounted(() => {
           <div class="card">
             <h4>连接词偏好</h4>
             <div v-if="!connectiveRows.length" class="empty">无数据</div>
-            <div v-for="r in connectiveRows" :key="r.name" class="bar-row">
+            <div v-for="r in connectiveRows" :key="r.name" class="bar-row row">
               <span class="bar-label" :class="{ dom: r.dominant }">{{ r.name }}</span>
               <div class="meter"><div class="meter-in" :style="{ width: r.w + '%' }"></div></div>
               <span class="bar-val">{{ r.count }} 次 · {{ pct(r.ratio) }}</span>
             </div>
             <h4 style="margin-top:14px;">人称视角</h4>
-            <div v-for="r in personRows" :key="r.name" class="bar-row">
+            <div v-for="r in personRows" :key="r.name" class="bar-row row">
               <span class="bar-label" :class="{ dom: r.dominant }">{{ r.name }}</span>
               <div class="meter"><div class="meter-in alt" :style="{ width: r.w + '%' }"></div></div>
               <span class="bar-val">{{ r.count }} 次</span>
@@ -1003,7 +1003,6 @@ onMounted(() => {
 <style scoped>
 /* 范文（样例稿）声明行（2026-10-29）：状态 + 查看声明按钮，不挤占输入区 */
 .style-rule-select { margin-top: 6px; background: var(--field); color: var(--ink); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; }
-.ref-consent-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .ref-consent-btn { flex: none; }
 /* 参考作品拆解：候选列表 + 声明弹层 */
 .dec-cands { border-top: 1px dashed var(--border); margin-top: 10px; }
@@ -1097,7 +1096,6 @@ onMounted(() => {
 .meter { height: 7px; background: var(--border); border-radius: 4px; overflow: hidden; margin: 4px 0 8px; }
 .meter-in { height: 100%; background: var(--accent); border-radius: 4px; }
 .meter-in.alt { background: var(--accent-soft); }
-.bar-row { display: flex; align-items: center; gap: 8px; }
 .bar-row .meter { flex: 1; margin: 4px 0; }
 .bar-label { width: 68px; font-size: 12px; color: var(--muted); }
 .bar-label.dom { color: var(--accent); font-weight: 700; }

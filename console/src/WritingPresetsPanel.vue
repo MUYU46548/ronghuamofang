@@ -145,7 +145,7 @@ defineExpose({ load });
     <div v-if="captureNote !== ''" class="wpp-capture">
       <label class="meta">新预设名（小写字母/数字/中划线）+ 内容（只收写作要求；
         书名/章数/作者不进预设）</label>
-      <div class="wpp-row">
+      <div class="wpp-row row">
         <input v-model="newId" placeholder="如 noir" class="wpp-id" />
         <button class="mini" :disabled="busy" @click="saveFromJson">保存</button>
         <button class="mini ghost" @click="captureNote = ''">取消</button>
@@ -180,7 +180,6 @@ defineExpose({ load });
 .wpp-ops { white-space: nowrap; }
 .wpp-empty { padding: 4px 0 2px; }
 .wpp-capture { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
-.wpp-row { display: flex; gap: 8px; align-items: center; }
 .wpp-id {
   width: 160px; font-size: 12px; padding: 4px 8px;
   border: 1px solid var(--border); border-radius: 6px;

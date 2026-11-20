@@ -13,7 +13,7 @@
     <template v-else>
       <div class="wl-grid">
         <div class="wl-col">
-          <div class="wl-head">
+          <div class="wl-head row-wrap">
             <b>病灶词</b>
             <span class="pill" :class="cliche.source === 'gui' ? 'st-done' : 'st-pending'">
               {{ cliche.source_label }}
@@ -31,7 +31,7 @@
         </div>
 
         <div class="wl-col">
-          <div class="wl-head">
+          <div class="wl-head row-wrap">
             <b>合规词</b>
             <span class="pill" :class="compliance.source === 'gui' ? 'st-done' : 'st-pending'">
               {{ compliance.source_label }}
@@ -167,7 +167,6 @@ onMounted(load);
 .wl-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 @media (max-width: 980px) { .wl-grid { grid-template-columns: 1fr; } }
 .wl-col { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
-.wl-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .wl-note { line-height: 1.7; }
 .wl-text {
   width: 100%; min-height: 190px; resize: vertical; padding: 10px 12px;

@@ -188,7 +188,7 @@ onMounted(load);
     </div>
 
     <div v-for="it in shown" :key="it.id" class="item">
-      <div class="item-head">
+      <div class="item-head row-tight">
         <strong>{{ it.title }}</strong>
         <span class="meta">· {{ it.source || "unknown" }} · {{ it.updated_at || "" }}</span>
         <span class="spacer"></span>
@@ -260,7 +260,6 @@ onMounted(load);
 .views { display: inline-flex; gap: 4px; margin-right: 8px; }
 .tabs-sub .n { margin-left: 4px; opacity: 0.7; }
 .item { border: 1px solid var(--border); border-radius: 6px; padding: 8px; margin-bottom: 8px; }
-.item-head { display: flex; align-items: center; gap: 6px; }
 .summary { margin-top: 4px; white-space: pre-wrap; }
 .actions { display: flex; gap: 6px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
 .refpath { width: 260px; }

@@ -1,6 +1,6 @@
 <template>
   <div class="cand-panel">
-    <div class="cand-head">
+    <div class="cand-head row-wrap">
       <b>多写几版再挑（Best-of-N）</b>
       <select v-model.number="n" class="model-select" style="max-width: 140px;">
         <option v-for="c in chapters" :key="c.n" :value="c.n">第 {{ c.n }} 章</option>
@@ -39,7 +39,7 @@
     <div v-else class="cand-grid">
       <div v-for="c in candidates" :key="c.id" class="cand-col"
            :class="{ chosen: c.id === appliedId, winner: c.id === data.chosen }">
-        <div class="cand-col-head">
+        <div class="cand-col-head row-tight">
           <b>{{ labelOf(c.id) }}</b>
           <span v-if="c.id === data.chosen" class="pill st-done" title="自动择优选中的就是这版">自动选中</span>
           <span v-if="c.id === appliedId" class="pill st-gate" title="你手动采用了这版">你在用</span>
@@ -238,7 +238,6 @@ onMounted(() => {
 
 <style scoped>
 .cand-panel { margin: 10px 0 4px; }
-.cand-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .cand-note { line-height: 1.7; margin: 6px 0 10px; }
 .cand-cost { display: block; margin-top: 4px; color: var(--warn, #b8860b); }
 .cand-empty { padding: 10px 12px; border: 1px dashed var(--border); border-radius: 8px; }
@@ -251,7 +250,6 @@ onMounted(() => {
 }
 .cand-col.winner { border-color: var(--ok, #2e8b57); }
 .cand-col.chosen { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
-.cand-col-head { display: flex; align-items: center; gap: 6px; }
 .cand-score { font-size: 18px; }
 .cand-reasons { margin: 0; padding-left: 18px; font-size: 12.5px; line-height: 1.65; }
 .cand-struct { font-size: 12px; line-height: 1.5; }

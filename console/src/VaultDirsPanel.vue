@@ -1,6 +1,6 @@
 <template>
   <div class="vd-panel">
-    <div class="vd-head">
+    <div class="vd-head row-wrap">
       <strong>设定目录（你的库，你来指）</strong>
       <button class="mini" @click="load" :disabled="busy">刷新目录</button>
       <button class="mini primary" @click="save" :disabled="busy || !dirty">保存</button>
@@ -30,7 +30,7 @@
         （例：设定/人物），不能填绝对路径。留空 = 这一类不从那个库读。
       </p>
       <div v-for="v in vaults" :key="v.path" class="vd-vault">
-        <div class="vd-vault-head">
+        <div class="vd-vault-head row-wrap">
           <b>{{ v.name }}</b>
           <span class="muted vd-path">{{ v.path }}</span>
           <!-- 三种来源要说清楚（2026-11-08）：自己配过 / 沿用当前库 / 完全没配。
@@ -161,7 +161,6 @@ onMounted(() => { load(); loadVaults(); });
 
 <style scoped>
 .vd-panel { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin: 10px 0; }
-.vd-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .vd-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 8px; margin-top: 8px; }
 .vd-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .vd-k { width: 3.5em; font-size: 12px; color: var(--muted); flex: none; }
@@ -171,7 +170,6 @@ onMounted(() => { load(); loadVaults(); });
 .vd-others { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border); }
 .vd-sub { font-size: 12.5px; font-weight: 600; margin-bottom: 4px; }
 .vd-vault { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; margin: 8px 0; }
-.vd-vault-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .vd-path { max-width: 42em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vd-badge {
   font-size: 11px; padding: 1px 8px; border-radius: 9px;

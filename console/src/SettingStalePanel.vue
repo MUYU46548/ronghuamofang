@@ -317,7 +317,7 @@ defineExpose({ load });
   margin: 8px 0;
   background: var(--field-inset);
 }
-.ss-item.ss-new { border-left: 3px solid var(--warn); }.ss-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.ss-item.ss-new { border-left: 3px solid var(--warn); }
 .ss-tag {
   font-size: 11px;
   padding: 1px 6px;

@@ -124,7 +124,7 @@ onMounted(loadStats);
       还没有索引。点“重建索引”扫一遍归档书（不调模型、不花钱）。
     </div>
 
-    <div class="pool-form">
+    <div class="pool-form row-wrap">
       <input v-model="q" class="pool-input" placeholder="关键词，例：雨 / 盐砖 / 闭嘴"
              @keyup.enter="search" />
       <select v-model="person" class="pool-select">
@@ -171,7 +171,6 @@ onMounted(loadStats);
   margin: 8px 0; padding: 10px 12px; border-radius: 8px; line-height: 1.7;
   border-left: 3px solid var(--warn); background: var(--field-dim);
 }
-.pool-form { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .pool-input {
   flex: 1; min-width: 220px; padding: 7px 10px; border-radius: 8px;
   border: 1px solid var(--border); background: var(--field-dim); color: var(--ink);

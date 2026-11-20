@@ -244,7 +244,7 @@ onMounted(() => { loadLS(); load(); });
               <div v-for="s in c.scraps" :key="s.name" class="scrap-row"
                    :class="{ active: current?.name === s.name }"
                    @click="openScrap(s.name)">
-                <div class="scrap-main">
+                <div class="scrap-main row-tight">
                   <span>{{ s.name }}</span>
                   <span v-if="s.negated?.length" class="tag" title="这些词在文中是被排除的（如“和X无关”）">排除 {{ s.negated.length }}</span>
                   <span v-if="s.lookahead?.length" class="tag warn">前瞻 {{ s.lookahead.length }}</span>
@@ -284,7 +284,7 @@ onMounted(() => { loadLS(); load(); });
                       spellcheck="false" placeholder="例如：主角左耳的抓痕是第一版实验体留下的"></textarea>
 
             <h4 style="margin: 12px 0 6px;">生成素材卡</h4>
-            <div class="form-row">
+            <div class="form-row row">
               <span class="art-label">卡片名</span>
               <input class="text-input" v-model="cardName" placeholder="如：主角名" />
               <span class="art-label">类型</span>
@@ -330,7 +330,6 @@ onMounted(() => { loadLS(); load(); });
 .scrap-row { padding: 6px 8px; border-radius: 8px; cursor: pointer; border: 1px solid transparent; }
 .scrap-row:hover { background: var(--bg); }
 .scrap-row.active { border-color: var(--accent); background: var(--bg); }
-.scrap-main { display: flex; align-items: center; gap: 6px; }
 .lines { max-height: 320px; overflow: auto; border: 1px solid var(--border); border-radius: 10px; padding: 6px; }
 .line { display: flex; gap: 8px; padding: 4px 6px; border-radius: 6px; cursor: pointer; }
 .line:hover { background: var(--bg); }
@@ -339,7 +338,6 @@ onMounted(() => { loadLS(); load(); });
         font-size: 11px; line-height: 14px; text-align: center; color: var(--accent); }
 .line-no { color: var(--muted); font-size: 11px; flex: none; width: 20px; text-align: right; }
 .line-text { word-break: break-all; }
-.form-row { display: flex; align-items: center; gap: 8px; }
 .form-row .text-input { flex: 1; }
 code { background: var(--bg); padding: 1px 4px; border-radius: 4px; font-size: 12px; }
 </style>
