@@ -141,9 +141,12 @@ def scan_vault_preview(vault_path=None):
         }
     """
     from utils.setting_schema import _DEFAULT_SKIP_DIRS
+    from utils.setting_schema import get_unskip_dirs, sandbox_dir_name
     skip = get_skip_dirs()
     cfg_skip = load_obsidian_config().get("skip_dirs") or []
     user_skip = sorted({str(s).strip() for s in cfg_skip if str(s).strip()})
+    unskip = get_unskip_dirs()
+    sandbox_name = sandbox_dir_name()
 
     vault = Path(vault_path) if vault_path else _get_vault_path()
     if vault is None or not vault.exists():
@@ -154,7 +157,8 @@ def scan_vault_preview(vault_path=None):
                 "state": "disabled" if vault is None else "unconfigured",
                 "root_files": 0, "scanned": 0, "total": 0,
                 "skip_dirs": sorted(skip), "user_skip_dirs": user_skip,
-                "default_skip_dirs": sorted(set(_DEFAULT_SKIP_DIRS))}
+                "default_skip_dirs": sorted(set(_DEFAULT_SKIP_DIRS)),
+                "unskip_dirs": unskip, "sandbox_dir": sandbox_name}
 
     counts, root_files, scanned, total = {}, 0, 0, 0
     for md in vault.rglob("*.md"):
@@ -176,6 +180,21 @@ def scan_vault_preview(vault_path=None):
 
     top_dirs = [{"name": k, "files": v["files"], "excluded": v["excluded"]}
                 for k, v in sorted(counts.items(), key=lambda x: -x[1]["files"])]
+
+    # C3（2026-11-20）：默认排除项里有些目录**不含 .md**（`.obsidian` / `.git`），
+    # 只按 .md 统计的话它们根本不会出现在清单里 —— 用户想“显式放开”就找不到入口。
+    # 这里把**盘上真实存在**的默认项补进清单（files=0，前端如实显示“无 .md”）。
+    seen = {d["name"] for d in top_dirs}
+    for name in sorted(set(_DEFAULT_SKIP_DIRS)):
+        if name in seen:
+            continue
+        try:
+            if (vault / name).is_dir():
+                top_dirs.append({"name": name, "files": 0,
+                                 "excluded": name in skip, "no_md": True})
+        except OSError:
+            continue
+
     return {
         "vault_path": str(vault.resolve()), "configured": True,
         # 目录一个都没配 → 扫描面正常但“检索其实什么都不会注入”，界面要说得出来
@@ -187,6 +206,9 @@ def scan_vault_preview(vault_path=None):
         # 随包默认项（不是用户配的）：GUI 要能区分"谁排除的"，否则用户看到
         # ".obsidian 被排除"会以为是自己设的
         "default_skip_dirs": sorted(set(_DEFAULT_SKIP_DIRS)),
+        # C3（2026-11-20）：已显式放开的默认项 + 沙盒目录名（后者恒排除，界面禁用勾选）
+        "unskip_dirs": unskip,
+        "sandbox_dir": sandbox_name,
     }
 
 

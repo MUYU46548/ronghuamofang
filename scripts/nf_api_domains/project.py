@@ -1696,7 +1696,7 @@ def _validate_skip_dirs(body):
 
 
 def handle_config_vault_skip_dirs(h, body):
-    """写排除目录（`obsidian.skip_dirs`）。
+    """写排除目录（`obsidian.skip_dirs` + `obsidian.unskip_dirs`）。
 
     落 **system.local.yaml** 而不是 system.yaml：里面是用户的私有库目录名，
     跟着 system.yaml 进 Git 等于把私人库结构推上公开仓（本项目已有红线）。
@@ -1705,19 +1705,80 @@ def handle_config_vault_skip_dirs(h, body):
     不设 GUI-only：它决定"哪些内容算正典"，与 target_words / style_reference
     同属**创作决策**，不是止烧/审批那类安全闸门 —— Agent 可以代配，
     但代配同样只写 local，永不触碰进 Git 的配置。
+
+    **语义（C3，2026-11-20）**：body.exclude 仍是"完整清单语义"（勾上的全部 =
+    要排除的全部）。服务端据此推导两个键：
+      · `skip_dirs`   = exclude 里**默认四项之外**的部分（用户自己加的）
+      · `unskip_dirs` = 默认四项里**没被勾上**的部分（显式放开）
+    放开默认项必须带 `confirm: true` —— 这是二次确认在服务端的落点：
+    界面先问一句，用户点了"确定"才带这个字段。不带 → 400 且**不写盘**，
+    并在响应里列出"将要放开哪几个目录"，供界面原样展示。
+    沙盒目录不能放开（`get_skip_dirs()` 里恒并入）：请求里少了它 → 400 讲清原因，
+    而不是静默把它当"用户想读"。
     """
     ok, msg, names = _validate_skip_dirs(body)
     if not ok:
         return 400, {"ok": False, "error": msg}
     try:
-        from utils.config_io import set_section_scalar
-        from utils.setting_schema import reset_obsidian_config_cache
+        from utils.setting_schema import (_DEFAULT_SKIP_DIRS, sandbox_dir_name,
+                                          reset_obsidian_config_cache)
+        defaults = set(_DEFAULT_SKIP_DIRS)
+        sandbox = sandbox_dir_name()
+        want = set(names)
+
+        # 沙盒：勾掉 = 想让它进检索面。这不是偏好问题（会把系统自己写回的产物
+        # 当设定读回来），直接拒，并把原因说成人话。
+        if sandbox and sandbox not in want:
+            return 400, {
+                "ok": False,
+                "error": ("沙盒目录 %r 不能放开：它是系统唯一的可写位置，"
+                          "扫描进来会把我们自己写回的候选当成设定读回来（自指污染）。"
+                          "这一条不是可配置项。" % sandbox),
+                "sandbox_dir": sandbox,
+            }
+
+        unskip = sorted(defaults - want)          # 显式放开的默认项
+        # 只放开**盘上真实存在**的默认项：不存在的目录界面上根本没有勾选框
+        # （改不了 = 提交时也不会出现在 exclude 里），按集合差算会把 .hermes /
+        # .agent_context 一起写进“已放开”，那是一句假状态。
+        # ⚠️ 这里失败**不能**退化成“都放开”（那是降级放行），也不能退化成
+        # “都不放开”（那是替用户吞掉确认要求）—— 判不出来就保持原样：
+        # 让 confirm 的门照旧拦住，用户会看到要放开哪几个。
+        try:
+            from pathlib import Path as _P
+            from obsidian_bridge import _get_vault_path
+            _vp = _get_vault_path()
+            if _vp is not None:
+                unskip = [n for n in unskip if (_P(_vp) / n).is_dir()]
+            else:
+                unskip = []
+        except Exception as _e:                             # noqa: BLE001
+            print("[vault_skip_dirs] 判断默认项目录是否存在失败（保持集合差，"
+                  "仍要求确认）: " + str(_e)[:120])
+        user_skip = sorted(want - defaults)       # 用户自己加的排除项
+
+        if unskip:
+            confirmed = body.get("confirm") if isinstance(body, dict) else None
+            if confirmed is not True:
+                return 400, {
+                    "ok": False,
+                    "need_confirm": True,
+                    "unskip": unskip,
+                    "error": ("要放开系统默认排除的目录（%s）—— 它们会被收进检索面，"
+                              "其中的配置/元数据可能被当成设定注入正文。"
+                              "确认要做就把 confirm 设为 true（界面会先问你一句）。"
+                              % "、".join(unskip)),
+                    "note": "本次没有写盘，扫描面保持原样。",
+                }
+
+        from utils.config_io import set_section_scalars
         local_yaml = api.ROOT / "config" / "system.local.yaml"
         if not local_yaml.exists():
             local_yaml.parent.mkdir(parents=True, exist_ok=True)
             local_yaml.write_text(_VAULT_LOCAL_SKELETON, encoding="utf-8")
-        w_ok, w_msg = set_section_scalar("obsidian", "skip_dirs", names,
-                                         path=local_yaml)
+        w_ok, w_msg = set_section_scalars(
+            ("obsidian",), {"skip_dirs": user_skip, "unskip_dirs": unskip},
+            path=local_yaml)
         if not w_ok:
             return 400, {"ok": False, "error": "写入失败：" + w_msg}
         # config_io 自身不缓存（每次读文件）；要清的是 setting_schema 的配置缓存，
@@ -1725,8 +1786,11 @@ def handle_config_vault_skip_dirs(h, body):
         reset_obsidian_config_cache()
         from obsidian_bridge import scan_vault_preview
         prev = scan_vault_preview()
-        return 200, {"ok": True, "exclude": names,
-                     "message": "已更新扫描排除项（%s）" % w_msg,
+        msg_text = "已更新扫描排除项（%s）" % w_msg
+        if unskip:
+            msg_text += "；已放开系统默认：%s" % "、".join(unskip)
+        return 200, {"ok": True, "exclude": names, "unskip": unskip,
+                     "message": msg_text,
                      "scan": prev,
                      "note": "对下一次检索生效；正在跑的一轮不受影响。"}
     except Exception as e:                                  # noqa: BLE001
@@ -1901,6 +1965,86 @@ def handle_config_agent_mode_set(h, body):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+def _spend_state():
+    """花销授权状态 + 引擎 + 闸覆盖的端点数量（读侧共用）。"""
+    from utils import agent_guard
+    try:
+        from utils.engine import resolve_engine
+        engine = resolve_engine(api.load_all()[0])
+    except Exception:                                       # noqa: BLE001
+        engine = "unknown"
+    st = agent_guard.spend_status(root=api.ROOT)
+    return engine, st
+
+
+def handle_config_agent_spend_get(h):
+    """读外部 Agent 花销授权状态（C5，2026-11-20）。
+
+    读侧**永不拦**：Agent 该知道“还剩几次、什么时候到期”，才好决定要不要请作者授权。
+    拦的是写（`/config/agent_spend` 在 agent_guard 的禁单里）与真正花钱的端点。
+    """
+    try:
+        from utils import agent_guard
+        engine, st = _spend_state()
+        return 200, {
+            "ok": True, "engine": engine,
+            "guarded_endpoints": sorted(agent_guard.MONEY_ENDPOINTS) + ["/stage/<1-8>/run"],
+            "status": st,
+            "hint": ("self 引擎不调模型，花钱端点不受闸；"
+                     "其他引擎下外部 Agent 跑阶段需要作者在桌面端授权"
+                     if engine != "self" else "self 引擎：不调模型，不花钱，闸不生效"),
+        }
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
+def handle_config_agent_spend_set(h, body):
+    """签/撤外部 Agent 花销授权（C5，仅 GUI）。
+
+    为什么这是**授权**而不是开关：开关一旦打开就等于“无限花”，忘了关就永远开着。
+    这里签的是“几次 + 几小时”，用完或到期自动失效 —— 不需要人记得回来关。
+
+    二次确认落在界面（`window.confirm`，写明“这会真花钱”），服务端只做校验：
+    次数 1..500、小时 0.1..72，越界 400（不静默截断）。
+    """
+    guard = _gui_only(h, "外部 Agent 花销授权")
+    if guard:
+        return guard
+    try:
+        from utils import agent_guard
+        body = body if isinstance(body, dict) else {}
+        action = str(body.get("action") or "grant").strip().lower()
+        if action == "revoke":
+            ok = agent_guard.revoke_spend(root=api.ROOT)
+            engine, st = _spend_state()
+            if not ok:
+                return 500, {"ok": False, "error": "撤销失败（授权文件删不掉）"}
+            return 200, {"ok": True, "action": "revoke", "engine": engine, "status": st,
+                         "message": "已撤销花销授权 —— 外部 Agent 不能再跑花钱的端点"}
+        if action != "grant":
+            return 400, {"ok": False, "error": "action 只能是 grant / revoke"}
+        try:
+            max_calls = int(body.get("max_calls") or 0)
+        except (TypeError, ValueError):
+            return 400, {"ok": False, "error": "max_calls 必须是整数（次数）"}
+        if not (1 <= max_calls <= 500):
+            return 400, {"ok": False, "error": "max_calls 须在 1..500 之间（收到 %r）" % max_calls}
+        try:
+            hours = float(body.get("hours") or 0)
+        except (TypeError, ValueError):
+            return 400, {"ok": False, "error": "hours 必须是数字（有效小时数）"}
+        if not (0.1 <= hours <= 72):
+            return 400, {"ok": False, "error": "hours 须在 0.1..72 之间（收到 %r）" % hours}
+        payload = agent_guard.grant_spend(max_calls, hours, root=api.ROOT)
+        engine, st = _spend_state()
+        return 200, {"ok": True, "action": "grant", "engine": engine, "status": st,
+                     "grant": payload,
+                     "message": ("已授权外部 Agent 最多跑 %d 次花钱端点，%s 前有效"
+                                 % (max_calls, payload.get("expires_at", "")))}
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 # Agent 模式下各操作族的**人话说明**。键 = 端点路径前缀；判据唯一来源仍是
 # utils.agent_guard.is_forbidden_in_agent_mode —— 这里只补“为什么”，不改判据。
 # ⚠️ 判据绝不能在这里复述一份：两份名单必然漂移（前端锁了后端没锁 / 反过来），
@@ -1915,6 +2059,7 @@ _AGENT_PATH_NOTES = {
     "/project/archive/delete": "删除归档 —— 抹掉成书数据（进回收站）",
     "/config/agent_mode": "切换 Agent 模式本身 —— Agent 不得开关自己的模式",
     "/config/token_limit": "花超就停的上限 —— Agent 不得抬高它",
+    "/config/agent_spend": "外部 Agent 花销授权 —— Agent 不得给自己签额度",
     "/config/engine": "切换执行引擎 —— 等于打开/关闭模型调用与计费通道",
     "/config/provider": "改角色供应商 —— 换的是计费通道，不是创作决定",
     "/env/set": "写环境变量/API Key —— 改凭据来源，Agent 不得代劳",

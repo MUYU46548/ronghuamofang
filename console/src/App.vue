@@ -596,6 +596,8 @@ function selectSettingsTab(id) {
   if (id === "approval") loadApprovalGates();
   // 知识库扫描面：每次进都重扫（用户可能刚改过库目录）
   if (id === "prompt") { loadVaultCfg(); loadVaults(); loadVaultScan(); }
+  // 外部 Agent 花销授权：每次进都重读（可能已被别处撤销/用完）
+  if (id === "agent") loadAgentSpend();
 }
 
 /* ---------- 审批门（2026-11-08，0.9.1 验收第 10/12 条） ----------
@@ -4505,11 +4507,58 @@ function isVaultDefaultSkipped(name) {
   return !!(d && (d.default_skip_dirs || []).includes(name));
 }
 
+function isVaultSandbox(name) {
+  // 沙盒目录恒排除（系统唯一的可写位置）：后端也会拒，这里只是别让人白点
+  const d = vaultScan.value.data;
+  return !!(d && d.sandbox_dir && d.sandbox_dir === name);
+}
+
+/* C3（2026-11-20）：勾/取消勾一个目录。
+ * 取消勾选一个**默认排除**项 = 显式放开，先弹确认（写清代价）；
+ * 取消后不立刻提交 —— “要提交吗”由保存按钮再问一次，两道都不许跳过。 */
+function toggleVaultDir(d, ev) {
+  const checked = !!(ev && ev.target && ev.target.checked);
+  // 勾上 = 要排除
+  if (checked) {
+    if (!vaultScan.value.exclude.includes(d.name)) vaultScan.value.exclude.push(d.name);
+    return;
+  }
+  const isDefault = isVaultDefaultSkipped(d.name);
+  if (isDefault) {
+    const ok = window.confirm(
+      `要把 ${d.name} 收进检索面吗？\n\n` +
+      `它是系统默认排除的目录。放开后，里面的文件会被当作你的设定/素材读进写作上下文 ——` +
+      `对 .obsidian 这类目录，读到的是插件配置和工作区状态，不是你的正文。\n\n` +
+      `保存时还会再确认一次。`);
+    if (!ok) {
+      if (ev && ev.target) ev.target.checked = true;   // 恢复勾选态
+      return;
+    }
+  }
+  const i = vaultScan.value.exclude.indexOf(d.name);
+  if (i >= 0) vaultScan.value.exclude.splice(i, 1);
+}
+
 async function saveVaultSkip() {
+  // 放开默认项时必须带 confirm:true（服务端第二道），这里先问一句
+  const d = vaultScan.value.data || {};
+  const defaults = d.default_skip_dirs || [];
+  const unskip = defaults.filter((n) => !vaultScan.value.exclude.includes(n)
+                                       && n !== d.sandbox_dir);
+  let confirm = false;
+  if (unskip.length) {
+    const ok = window.confirm(
+      `确认放开系统默认排除？\n\n要放开的目录：${unskip.join('、')}\n\n` +
+      `这些目录里的内容会进入检索面，可能被当成设定注入正文。` +
+      `不确定就点“取消”，把它们重新勾回去。`);
+    if (!ok) return;
+    confirm = true;
+  }
   vaultScan.value.busy = true;
   try {
-    const r = await api('/config/vault_skip_dirs', 'POST',
-                        { exclude: vaultScan.value.exclude });
+    const body = { exclude: vaultScan.value.exclude };
+    if (confirm) body.confirm = true;
+    const r = await api('/config/vault_skip_dirs', 'POST', body);
     vaultScan.value.ok = !!(r.status === 200 && r.data.ok);
     vaultScan.value.msg = vaultScan.value.ok
       ? (r.data.message || '已保存')
@@ -4518,7 +4567,7 @@ async function saveVaultSkip() {
       // 后端回传最新扫描面 —— 用户立刻看到改动效果，不用自己点刷新
       vaultScan.value.data = r.data.scan;
       vaultScan.value.exclude = (r.data.scan.top_dirs || [])
-        .filter((d) => d.excluded).map((d) => d.name);
+        .filter((x) => x.excluded).map((x) => x.name);
     }
   } catch (e) {
     vaultScan.value.ok = false;
@@ -4732,6 +4781,88 @@ async function toggleAgentMode() {
     say('切换失败: ' + (r.data.error || r.status));
   }
 }
+
+/* ---------- 外部 Agent 花销授权（C5，2026-11-20） ----------
+ * 作者原话：“C5 外部 Agent 跑肯定花钱啊”。
+ * 语义：花销端点（跑阶段 / 重写 / 审稿 …）在 agent_mode 下默认拒绝外部 Agent，
+ * 作者在这里签“几次 + 几小时”，用完或到期自动失效 —— 不需要记得回来关。
+ * self 引擎不调模型，闸不生效（界面如实说明，不假装在管）。 */
+const spendCfg = ref({
+  loading: false, busy: false, ok: null, msg: "",
+  engine: "", status: {}, calls: 10, hours: 2,
+});
+async function loadAgentSpend() {
+  spendCfg.value.loading = true;
+  try {
+    const r = await api('/config/agent_spend', 'GET');
+    if (r.status === 200 && r.data.ok) {
+      spendCfg.value.engine = r.data.engine || '';
+      spendCfg.value.status = r.data.status || {};
+      spendCfg.value.ok = true;
+      spendCfg.value.msg = '';
+    } else {
+      spendCfg.value.ok = false;
+      spendCfg.value.msg = '读取失败: ' + (r.data.error || r.status);
+    }
+  } catch (e) {
+    spendCfg.value.ok = false;
+    spendCfg.value.msg = '读取失败: ' + (e.message || e);
+  } finally {
+    spendCfg.value.loading = false;
+  }
+}
+function spendRemainText() {
+  const s = spendCfg.value.status || {};
+  if (!s.max_calls) return '未授权';
+  if (s.valid) return `有效 · 还剩 ${s.remaining}/${s.max_calls} 次 · ${s.expires_at} 前`;
+  if (s.reason === 'expired') return `已到期（${s.expires_at}）`;
+  if (s.reason === 'exhausted') return `已用完（${s.used}/${s.max_calls} 次）`;
+  return '未授权';
+}
+async function grantAgentSpend() {
+  const calls = Number(spendCfg.value.calls);
+  const hours = Number(spendCfg.value.hours);
+  if (!(calls >= 1 && calls <= 500)) { say('次数须在 1..500 之间'); return; }
+  if (!(hours >= 0.1 && hours <= 72)) { say('有效期须在 0.1..72 小时之间'); return; }
+  if (!window.confirm(
+    `确认授权外部 Agent 花钱？\n\n最多 ${calls} 次，${hours} 小时内有效。\n\n` +
+    '每一次都会真调模型（走你自己配置的服务商，扣你自己的额度）。' +
+    '用完或到期会自动失效，不需要回来关。')) return;
+  spendCfg.value.busy = true;
+  try {
+    const r = await api('/config/agent_spend', 'POST',
+                        { action: 'grant', max_calls: calls, hours });
+    spendCfg.value.ok = !!(r.status === 200 && r.data.ok);
+    spendCfg.value.msg = spendCfg.value.ok
+      ? (r.data.message || '已授权')
+      : ('授权失败: ' + (r.data.error || r.status));
+    if (spendCfg.value.ok && r.data.status) spendCfg.value.status = r.data.status;
+  } catch (e) {
+    spendCfg.value.ok = false;
+    spendCfg.value.msg = '授权失败: ' + (e.message || e);
+  } finally {
+    spendCfg.value.busy = false;
+  }
+}
+async function revokeAgentSpend() {
+  if (!window.confirm('确认撤销花销授权？\n\n撤销后外部 Agent 跑阶段会被拒绝，' +
+                      '直到你重新授权。')) return;
+  spendCfg.value.busy = true;
+  try {
+    const r = await api('/config/agent_spend', 'POST', { action: 'revoke' });
+    spendCfg.value.ok = !!(r.status === 200 && r.data.ok);
+    spendCfg.value.msg = spendCfg.value.ok
+      ? (r.data.message || '已撤销')
+      : ('撤销失败: ' + (r.data.error || r.status));
+    if (spendCfg.value.ok && r.data.status) spendCfg.value.status = r.data.status;
+  } catch (e) {
+    spendCfg.value.ok = false;
+    spendCfg.value.msg = '撤销失败: ' + (e.message || e);
+  } finally {
+    spendCfg.value.busy = false;
+  }
+}
+onMounted(loadAgentSpend);
 
 /* ---------- Agent 模式运行锁（2026-10-17） ----------
  * Agent 模式 = 运行由外部 Agent 经 HTTP 驱动；GUI 的常规运行入口此时全部锁死，
@@ -7864,6 +7995,35 @@ onUnmounted(() => {
         </button>
       </div>
 
+      <!-- 花销闸（C5，2026-11-20）：外部 Agent 跑阶段要作者签额度，用完/到期自动失效 -->
+      <div class="gate-notify-row" style="margin-top: 16px;">
+        <div>
+          <div class="label">外部 Agent 花销授权</div>
+          <div class="meta">
+            跑阶段 / 重写 / 审稿这些端点会<b>真调模型</b>，花的是你的额度。外部 Agent 默认不许跑，
+            你需要在这里签“几次 + 几小时”，用完或到期自动失效（不用记着回来关）。<br>
+            当前引擎：<b>{{ spendCfg.engine || '未知' }}</b>
+            <span v-if="spendCfg.engine === 'self'">（self 只出任务书、不调模型，闸不生效）</span>
+            <br>授权状态：<b :style="{ color: spendCfg.status.valid ? 'var(--ok)' : 'var(--muted)' }">{{ spendRemainText() }}</b>
+          </div>
+        </div>
+        <div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap;">
+          <input class="words-num" type="number" min="1" max="500" style="width: 78px;"
+                 v-model.number="spendCfg.calls" :disabled="spendCfg.busy"
+                 title="最多允许外部 Agent 跑几次花钱端点" />
+          <span class="meta">次 /</span>
+          <input class="words-num" type="number" min="0.1" max="72" step="0.5" style="width: 78px;"
+                 v-model.number="spendCfg.hours" :disabled="spendCfg.busy"
+                 title="授权有效期（小时）" />
+          <span class="meta">小时内</span>
+          <button class="mini primary" :disabled="spendCfg.busy" @click="grantAgentSpend">授权</button>
+          <button class="mini" :disabled="spendCfg.busy || !spendCfg.status.max_calls"
+                  @click="revokeAgentSpend">撤销</button>
+        </div>
+      </div>
+      <div v-if="spendCfg.msg" class="meta tl-msg" :class="spendCfg.ok ? 'ok' : 'bad'"
+           style="margin-top: 6px;">{{ spendCfg.msg }}</div>
+
       <!-- Agent 派发状态（P1-9: GUI 观测面） -->
       <div v-if="agentMode" style="margin-top: 8px;">
         <div class="label">最近派发任务</div>
@@ -8205,10 +8365,19 @@ onUnmounted(() => {
         <div class="vault-dir-list">
           <label v-for="d in vaultScan.data.top_dirs" :key="d.name" class="vault-dir-row"
                  :class="{ 'is-excluded': d.excluded }">
-            <input type="checkbox" :value="d.name" v-model="vaultScan.exclude" />
+            <!-- C3（2026-11-20）：默认排除项也能取消勾选，但**点的时候先问一句** ——
+                 取消默认通常是想错了（以为在加白名单），真放开会把 .obsidian 里的
+                 配置当设定读。沙盒目录恒排除，勾选框禁用并说明原因。 -->
+            <input type="checkbox" :value="d.name"
+                   :checked="vaultScan.exclude.includes(d.name)"
+                   :disabled="isVaultSandbox(d.name)"
+                   @change="toggleVaultDir(d, $event)" />
             <span class="vault-dir-name">{{ d.name }}</span>
-            <span class="meta">{{ d.files }} 篇</span>
-            <span class="meta" v-if="isVaultDefaultSkipped(d.name)">· 系统默认排除</span>
+            <span class="meta">{{ d.no_md ? '无 .md' : d.files + ' 篇' }}</span>
+            <span class="meta" v-if="isVaultSandbox(d.name)">· 沙盒目录，恒排除（系统写回产物，不可放开）</span>
+            <span class="meta" v-else-if="isVaultDefaultSkipped(d.name) && !d.excluded"
+                  style="color: var(--warn)">· 已放开系统默认（提交时会再确认一次）</span>
+            <span class="meta" v-else-if="isVaultDefaultSkipped(d.name)">· 系统默认排除</span>
             <span class="meta" v-else-if="d.excluded">· 你已排除</span>
           </label>
           <div v-if="!vaultScan.data.top_dirs || !vaultScan.data.top_dirs.length"

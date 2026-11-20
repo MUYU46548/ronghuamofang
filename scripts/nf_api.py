@@ -3084,6 +3084,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/config/agent_mode":
             # Agent 模式开关读取（config/system.yaml 的 gates.agent_mode）。
             self._send(*_dom(dom_project.handle_config_agent_mode(self)))
+        elif p == "/config/agent_spend":
+            # 外部 Agent 花销授权状态（C5）：读**永不拦** —— Agent 该知道还剩几次。
+            self._send(*_dom(dom_project.handle_config_agent_spend_get(self)))
         elif p == "/agent/permissions":
             # Agent 模式权限清单（只读）：把后端权威名单 FORBIDDEN_IN_AGENT_MODE
             # 交给前端渲染，消除“客户端里分不清哪些走 Agent”的混乱（2026-10-24）。
@@ -3542,6 +3545,23 @@ class Handler(BaseHTTPRequestHandler):
                     return
                 # 非禁止操作也记录审计日志
                 _log_audit(p, "POST", 0, source=audit_src, detail="allowed")
+
+                # ---- 花销闸（C5，2026-11-20 作者拍板）----
+                # 会真调模型的端点 = 花作者的钱。外部 Agent 只能在作者签过
+                # “花销授权”（GUI、限次数、限时）后跑；自己不能签（授权端点在禁单里）。
+                # 为什么放在“禁单之后”：禁单是“这件事永远归作者”，花销闸是
+                # “这件事可以做，但额度得作者给” —— 两类拒因要能分开说。
+                _spend = agent_guard.money_gate(cfg_check, p, fake=ALLOW_FAKE, root=ROOT)
+                if _spend.get("blocked"):
+                    _log_audit(p, "POST", 403, source=audit_src,
+                               detail="spend-blocked:" + str(_spend.get("reason") or ""))
+                    self._send(403, {"ok": False,
+                                     "spend_blocked": True,
+                                     "reason": _spend.get("reason"),
+                                     "engine": _spend.get("engine"),
+                                     "grant": _spend.get("status"),
+                                     "error": agent_guard.spend_refusal_message(p, _spend)})
+                    return
 
         # ---- engine: self 的前置拒绝（2026-11-04，试跑第 19/21 条）----
         # 这些端点确定要调模型，self（只出任务书）下必然失败。失败时原先露出的是
@@ -4205,6 +4225,9 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/config/token_limit":
                 # 止烧阈值设置（仅 GUI：外部 Agent 不得抬高自己的闸门）。
                 self._send(*_dom(dom_project.handle_config_token_limit_set(self, body)))
+            elif p == "/config/agent_spend":
+                # 外部 Agent 花销授权（C5，仅 GUI）：授权/撤销。Agent 不得给自己签。
+                self._send(*_dom(dom_project.handle_config_agent_spend_set(self, body)))
             elif p == "/config/target_words":
                 # 单章字数区间设置（创作决策，非安全闸门；越界值一律 400 拒绝）。
                 self._send(*_dom(dom_project.handle_config_target_words_set(self, body)))

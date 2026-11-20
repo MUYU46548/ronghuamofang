@@ -58,6 +58,7 @@ HTTP 侧入口自 2026-10-06 起为**双因子**：来源头 `X-Mofang-Source: g
 import hmac
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -214,6 +215,11 @@ FORBIDDEN_IN_AGENT_MODE = frozenset({
     # 外部 Agent 能插话 = 它能在人不知情时改变正在写的那一章走向。
     # 读侧 GET /intervene 不拦（Agent 该知道有没有待用指令）。
     "/intervene",
+    # 外部 Agent 花钱授权（C5，2026-11-20 作者拍板"外部 Agent 跑肯定花钱"）：
+    # 授权本身必须作者点。Agent 若能给自己签授权，钱闸等于不存在 ——
+    # 与 /config/token_limit 完全同族（都是"别让 Agent 动自己的花销"）。
+    # 读侧 GET /config/agent_spend 不拦（Agent 该知道还剩多少次）。
+    "/config/agent_spend",
 })
 
 # 人工来源的标记值（HTTP 头 / 环境变量通用）
@@ -272,6 +278,242 @@ def normalize_source(raw):
 def is_forbidden_in_agent_mode(path):
     """该路径在 Agent 模式下是否禁止非人工来源调用。"""
     return str(path or "") in FORBIDDEN_IN_AGENT_MODE
+
+
+# ---------------------------------------------------------------- 花钱闸（C5，2026-11-20）
+#
+# 作者原话（2026-11-20）：“C5 外部 Agent 跑肯定花钱啊，如果有免费的我干嘛不跑几百本书来测试？”
+# → 结论：**外部 Agent 跑流水线 = 花作者的钱**，必须有闸。
+#
+# 但闸不能是“一律禁跑”：墨坊的执行形态是“头在 DSH，手在 nf_api”—— 外部 Agent
+# 本来就是按设计来跑阶段的（`agent_guard` 开篇那条“可读、可跑流水线”）。硬禁会把
+# 产品主路径掐死。所以这里做的是**花销授权**而不是禁止：
+#   · 默认没有授权 → 花钱端点 403，并明说“请在桌面端点一次授权”；
+#   · 作者在 GUI 里授权 N 次 / M 小时 → 外部 Agent 才可跑，**用完或到期自动关**；
+#   · 授权端点自身在 FORBIDDEN_IN_AGENT_MODE 里（Agent 不能给自己签）。
+# 与 token_limit 同族：Agent 不得动自己的花销。
+#
+# 为什么不是“按端点白名单之外的都拦”：漏一个端点就等于闸漏水。清单宁可多写，
+# 覆盖由 `tests/unit/test_agent_spend_gate.py` 的自动发现守（扫描“构造客户端的
+# handler”必须被本清单或显式豁免覆盖），新增花钱端点漏登记会当场变红。
+
+MONEY_ENDPOINTS = frozenset({
+    "/stages/run",                  # 自由模式一次跑多道工序
+    "/stage/2/run-multi",           # 一次多版（best-of-N 的源头，最贵的那种）
+    "/chapters/rerun",              # 重跑某几章
+    "/chapters/rewrite",            # 整章重写
+    "/chapters/paragraph/preview",  # 段落级候选（模型出稿）
+    "/refine/chapter",              # 整章精修
+    "/refine/paragraph",            # 段落定点重写
+    "/refine/outline",              # 大纲精修（self 下有任务书分支，但 direct/dsh 下真调模型）
+    "/refine/outline/node",         # 逐节点精修
+    "/auto_rewrite/run",            # 低分章自动重写
+    "/batch_refine/run",            # 批量精修
+    "/review/run",                  # 章节审查（reviewer 逐章）
+    "/review/semantic",             # 语义审稿
+    "/proofread/run",               # 校对（llm=true 时走模型）
+    "/judge/feelings/propose",      # 第三条证据：模型出候选
+    "/outline/field/candidates",    # 定向改写候选
+    "/outline/sample/candidates",   # 章级写作方向样例
+    "/outline/variants/generate",   # 开局方案 / 故事走向
+    "/discuss/ai_turn",             # 讨论里“让 AI 说一轮”
+    "/discuss/actions/apply",       # 按建议生成候选（内部转 preview / rewrite）
+    "/book_extract/run",            # 拆书（模型读整本）
+    "/materials/remerge",           # 素材重归并 = 重跑 stage1
+})
+
+# 单阶段运行是动态路径 /stage/{n}/run（1..8）。为什么不写成字符串：n 是变量。
+MONEY_STAGE_RE = re.compile(r"^/stage/[1-8]/run$")
+
+# 自动发现抓到的“看似花钱其实零 token”的路由 —— 必须写明理由，否则测试会红。
+# 这张表是给测试用的判据，不是给运行时用的：运行时只看 MONEY_ENDPOINTS。
+NOT_MONEY_WITH_REASON = {
+    "/export/word": "stage7 转换是确定性步骤（python-docx/pandoc），不调模型",
+    "/license/ack": "许可签字端点，零 token（被分支窗口误捕）",
+    "/discuss/say": "追加一轮发言只写稿，零 token（AI 那轮是 /discuss/ai_turn）",
+    "/rewrite/studio": "改写工作室只开讨论 + 出任务书，零 token（作者 2026-11 口径）",
+    "/sandbox/review": "沙盒审核只改 manifest 状态，零 token",
+    "/judge/run": "判定引擎是规则判定（metrics），零 token",
+    "/plan/propose": "规划提案只落候选，零 token",
+    "/decompose/profile": "文体画像是统计拆解，零 token",
+    "/decompose/snippets/candidates": "抽片段是纯文本切分，零 token",
+}
+
+SPEND_GRANT_PATH = "data/state/agent_spend_grant.json"
+
+
+def is_money_endpoint(path):
+    """该路径是否会真调模型（= 会花作者的钱）。"""
+    p = str(path or "")
+    return p in MONEY_ENDPOINTS or bool(MONEY_STAGE_RE.match(p))
+
+
+def _grant_file(root=None):
+    base = Path(root) if root else Path(".")
+    return base / SPEND_GRANT_PATH
+
+
+def load_spend_grant(root=None):
+    """读授权文件。任何异常 → 空 dict（= 没授权，fail-closed）。"""
+    try:
+        p = _grant_file(root)
+        if not p.exists():
+            return {}
+        data = json.loads(p.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:                                       # noqa: BLE001
+        return {}
+
+
+def spend_status(root=None, now=None):
+    """当前花销授权的有效状态。
+
+    Returns: {"valid", "reason", "remaining", "max_calls", "used", "expires_at", "expires_ts"}
+    reason ∈ grant / no-grant / expired / exhausted
+    """
+    g = load_spend_grant(root)
+    ts = float(now if now is not None else time.time())
+    try:
+        max_calls = int(g.get("max_calls") or 0)
+        used = int(g.get("used") or 0)
+        exp_ts = float(g.get("expires_ts") or 0)
+    except (TypeError, ValueError):
+        return {"valid": False, "reason": "no-grant", "remaining": 0,
+                "max_calls": 0, "used": 0, "expires_at": "", "expires_ts": 0}
+    out = {
+        "max_calls": max_calls, "used": used,
+        "remaining": max(0, max_calls - used),
+        "expires_at": str(g.get("expires_at") or ""), "expires_ts": exp_ts,
+        "granted_at": str(g.get("granted_at") or ""),
+    }
+    if not g or max_calls <= 0:
+        return dict(out, valid=False, reason="no-grant")
+    if exp_ts and ts >= exp_ts:
+        return dict(out, valid=False, reason="expired")
+    if used >= max_calls:
+        return dict(out, valid=False, reason="exhausted")
+    return dict(out, valid=True, reason="grant")
+
+
+_SPEND_LOCK = None
+
+
+def _spend_lock():
+    """进程内互斥（job 线程会并发进闸，读改写不加锁会少记次数）。"""
+    global _SPEND_LOCK
+    if _SPEND_LOCK is None:
+        import threading
+        _SPEND_LOCK = threading.Lock()
+    return _SPEND_LOCK
+
+
+def grant_spend(max_calls, hours, root=None):
+    """作者在 GUI 里签一次花销授权（写 data/state/agent_spend_grant.json）。
+
+    为什么带**次数与到期**而不是一个布尔：开关一旦打开就等于“无限花”，
+    忘了关就永远开着。次数用完 / 到期自动失效，不需要人记得回来关。
+    """
+    max_calls = max(1, min(int(max_calls or 1), 500))
+    hours = max(0.1, min(float(hours or 1), 72.0))
+    now = time.time()
+    payload = {
+        "granted_at": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(now)),
+        "expires_at": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(now + hours * 3600)),
+        "expires_ts": now + hours * 3600,
+        "max_calls": max_calls,
+        "used": 0,
+        "granted_by": "gui",
+    }
+    p = _grant_file(root)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    return payload
+
+
+def revoke_spend(root=None):
+    """撤销授权（删除授权文件；不删目录）。"""
+    try:
+        p = _grant_file(root)
+        if p.exists():
+            p.unlink()
+        return True
+    except Exception:                                       # noqa: BLE001
+        return False
+
+
+def _consume_spend(root=None):
+    """放行一次 → 记一次。返回放行后剩余次数（失败不阻断放行，但会留 WARN）。"""
+    with _spend_lock():
+        g = load_spend_grant(root)
+        try:
+            g["used"] = int(g.get("used") or 0) + 1
+            p = _grant_file(root)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(json.dumps(g, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception:                                   # noqa: BLE001
+            pass
+        st = spend_status(root)
+        return st.get("remaining", 0)
+
+
+def money_gate(cfg, path, fake=False, root=None):
+    """花销闸：该请求在 Agent 模式下是否必须拒绝。
+
+    只在 `agent_mode=true` 且来源不是可信 GUI 时由调用方调用（判据在 nf_api.do_POST）。
+
+    Returns dict:
+      {"blocked": bool, "applies": bool, "reason": str, "engine": str, "status": {...}}
+    reason ∈ not-money / fake / self / engine-unknown / grant / no-grant / expired / exhausted
+    """
+    if not is_money_endpoint(path):
+        return {"blocked": False, "applies": False, "reason": "not-money", "engine": "", "status": {}}
+    if fake:
+        # --allow-fake / NF_API_ALLOW_FAKE：FakeClient，零花销（只列明，不拦）
+        return {"blocked": False, "applies": True, "reason": "fake", "engine": "fake", "status": {}}
+    try:
+        from utils.engine import resolve_engine
+        engine = resolve_engine(cfg)
+    except Exception:                                       # noqa: BLE001
+        # 判不出引擎 = 不知道会不会花钱 → 按会花钱处理（fail-closed）
+        engine = "unknown"
+    if engine == "self":
+        # self 只出任务书，不调模型。这是唯一“物理上不可能花钱”的档。
+        return {"blocked": False, "applies": True, "reason": "self", "engine": engine, "status": {}}
+    if engine == "unknown":
+        return {"blocked": True, "applies": True, "reason": "engine-unknown",
+                "engine": engine, "status": spend_status(root=root)}
+    st = spend_status(root=root)
+    if st.get("valid"):
+        remaining = _consume_spend(root=root)
+        return {"blocked": False, "applies": True, "reason": "grant", "engine": engine,
+                "status": dict(st, remaining=remaining)}
+    return {"blocked": True, "applies": True, "reason": st.get("reason") or "no-grant",
+            "engine": engine, "status": st}
+
+
+def spend_refusal_message(path, gate):
+    """花销闸拒文。与审批拒文同一条纪律：**不给绕过的暗示**，只给出下一步。"""
+    st = (gate or {}).get("status") or {}
+    reason = (gate or {}).get("reason") or "no-grant"
+    engine = (gate or {}).get("engine") or "?"
+    why = {
+        "no-grant": "当前没有花销授权",
+        "expired": "上一次花销授权已到期（%s）" % (st.get("expires_at") or "—"),
+        "exhausted": "上一次花销授权已用完（%s/%s 次）"
+                     % (st.get("used", 0), st.get("max_calls", 0)),
+        "engine-unknown": "判不出当前引擎，无法确认是否会花钱",
+    }.get(reason, "花销闸拒绝")
+    return (
+        "[spend] 拒绝执行：%s 会真调模型（当前引擎 engine: %s，花的是作者的钱），"
+        "而本次调用不是桌面端本人操作。\n"
+        "        原因：%s。\n"
+        "        含义：外部 Agent 可以读、可以准备产物，但**不能替作者决定花多少钱**"
+        "（设计如此，不是故障）。\n"
+        "        下一步：请把这条信息原样报告作者，由他在桌面端“设置 → Agent 模式 → "
+        "外部 Agent 花销授权”点一次授权（可限定次数与有效期）。\n"
+        "        不要重试，不要改配置绕开，也不要换一条命令再试。"
+        % (path, engine, why)
+    )
 
 
 # ---------------------------------------------------- GUI 来源可信度（2026-10-06 红队修复）
