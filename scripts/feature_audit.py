@@ -101,6 +101,92 @@ FEATURES = [
      "2026-11-07 改成自造样本，不再需要作者提供真实书稿。"
      "四处旧文档仍写“等真实样本”，2026-11-19 已加日期更正。"),
 
+    ("F08", "读改链：采用候选后批注自动收口（含手写批注）", "done",
+     ["sym:scripts/nf_api_domains/refine.py::recheck_metric_annotation",
+      "sym:scripts/nf_api_domains/refine.py::settle_manual_annotation",
+      "sym:scripts/utils/annotations.py::reopen",
+      "sym:console/src/ChapterEditor.vue::reopenAnnotation"],
+     "两半：指标批注采纳后**重算那个指标**（达标才收口，2026-11-17）；"
+     "手写批注按“作者采纳了”收口并记 resolved_by=apply，可 reopen 回到未收口"
+     "（2026-11-20）。都不做“写得好不好”的判定 —— 那是作者的判断。"),
+
+    ("F09", "并发覆盖闸：整份写回类保存的盘上指纹", "done",
+     ["file:tests/http/test_stamp_outline_review_http.py",
+      "sym:scripts/nf_api.py::act_outline_save",
+      "file:scripts/nf_api_domains/review_actions.py"],
+     "设定集 2026-11-13 就有了；大纲 / 分章大纲 / 审稿决策这三处一直缺（总账当时写明了）。"
+     "2026-11-20 补齐：三处都收 expected_mtime，对不上 409 且一个字不写，"
+     "**校验必须在备份之前**（否则 history 里堆出没发生过的保存）；"
+     "读侧三处回传盘上 mtime。判据 28 条，反证三处各关掉 → 13 条红。"),
+
+    # -------- 2026-11-20：建“未完成总账”时核出的“做完却记成没做” --------
+    # 这一栏的存在意义：总账（docs/未完成总账.md）合并了 7 处来源，逐条核代码时
+    # 撞出 11 项早已落地、却仍挂在某份主账“未做”里。不记下来，下轮盘点还会重算。
+    ("F10", "废稿段落池（旧稿合格段落的可检索复用）", "done",
+     ["file:scripts/utils/paragraph_pool.py",
+      "file:console/src/ParagraphPoolPanel.vue",
+      "sym:console/src/App.vue::<ParagraphPoolPanel"],
+     "`功能建议-20261113` 第 4 条一直写“未动、等拍板”；实际池子与素材页入口都已存在。"
+     "2026-11-14 作者已定 A 方案（建池子，只在他点它时才召回），与实现一致。"),
+
+    ("F11", "整本否掉（带理由留档，可撤销）", "done",
+     ["sym:scripts/nf_api_domains/judge.py::整本否掉",
+      "sym:scripts/nf_api.py::整本否掉"],
+     "`roadmap` 待排期池曾写“要么加按钮＋理由落盘，要么显式降 P1 —— 需拍板”；"
+     "实际方案已落地：报告页横幅 + 撤销按钮，理由进记录。"),
+
+    ("F12", "判定报告转交合规提示（R11）", "done",
+     ["sym:scripts/utils/judge/backtest.py::含正文原句"],
+     "`roadmap` 待排期池写“三行的事，一直没做”；实际报告头早已写明"
+     "“这份清单含正文原句，转给他人前请确认”。"),
+
+    ("F13", "三稿对照（原文 / 检查稿 / 润色稿）", "done",
+     ["sym:scripts/nf_api.py::/review/three_state",
+      "sym:console/src/ReviewConsole.vue::three_state"],
+     "`roadmap` 待排期池 I6 写“界面只在单章详情里以数字呈现”；"
+     "实际 2026-11-14 已接进审稿页（三份稿对照折叠卡 + 逐章被删段落与线索，零 token）。"),
+
+    ("F14", "自动更新（electron-updater）", "done",
+     ["sym:console/main/index.js::electron-updater",
+      "sym:console/package.json::electron-updater"],
+     "`roadmap` v0.20 标 ⬜、收口台账标 ⚠️；实际主进程已接，未打包态（源码直跑）跳过。"),
+
+    ("F15", "关系网驱动互动（两人同场约束）", "done",
+     ["file:scripts/utils/interaction.py",
+      "sym:scripts/nf_api.py::/setting/interaction"],
+     "`roadmap` v0.8 标 ⬜；实际 2026-11-03 就落地（只取设定里提到对方的关系原文作依据，"
+     "给称呼 / 别这样写 / 写法三条约束），判据 `test_interaction.py` 23 条。"),
+
+    ("F16", "写作中实时干预（插一句）", "done",
+     ["file:scripts/utils/intervene.py",
+      "sym:scripts/nf_api.py::/intervene"],
+     "`roadmap` v0.8 标 ⬜；实际随不可用清单第 4 条落地（一次性指令，只对下一章生效），"
+     "判据 `test_intervene.py` 22 条。"),
+
+    ("F17", "多知识库（一次一个 + 书签切换 + 每库排除项）", "done",
+     ["sym:scripts/nf_api.py::/config/vaults",
+      "file:tests/unit/test_vault_multi.py"],
+     "别再把这条当待办：同时挂载 N 个库仍未做（总账 C2），但**切换式多库**已完成，"
+     "判据 test_vault_multi.py 28 条。两件事必须分开记，混在一起就会反复重开。"),
+
+    ("F18", "桌面端启动不打断正在写的章（抢端口前先问）", "done",
+     ["file:console/main/portTakeover.js",
+      "file:console/tests/portTakeover.test.js",
+      "file:tests/unit/test_port_takeover.py"],
+     "2026-11-20 落地。旧实现启动时无条件杀掉占 8765 的实例，而流水线就跑在 "
+     "nf_api 自己的进程里（nf_api 顶层 from orchestrator import run，所以 run.lock 的 pid "
+     "就是 nf_api 的 pid）—— 双击图标等于把正在写的那一章连进程杀掉，界面不报错。"
+     "现在：占端口的进程如果正是持锁者，先弹框问；选等则每 8 秒探一次、不占端口重试配额，"
+     "约 6 分钟再问一次。刻意不在 JS 侧判 owner（那套兜底只在 lock_guard 一处）。"),
+
+    ("F19", "UI 骨架复用（组件不再各写一遍 flex）", "done",
+     ["file:tests/unit/test_ui_unified.py"],
+     "2026-11-20 收尾：29 条与工具类逐字等价的规则换成 .row/.row-wrap/.row-tight/.stack，"
+     "涉及 21 个组件 34 处类名。视觉证明：ux 354/354，改前改后 139/150 张截图逐字节相同，"
+     "其余 11 张差异全在 toast/日志尾巴/时间戳。E1 防长回来、E2 钉工具类当前值。"),
+
+
+
     # ---------------- 设定与一致性 ----------------
     ("S01", "设定待核（章改了 → 条目待核）", "done",
      ["file:scripts/utils/setting_stale.py",
