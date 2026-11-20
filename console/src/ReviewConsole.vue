@@ -30,6 +30,9 @@ const running = ref(false);
 const savedCount = ref(0); // 已落盘到 decisions.json 的决策数（仅展示）
 const revision = ref(0); // 决策改动计数
 const savedRevision = ref(0); // 最近一次成功落盘时的计数
+// 盘上指纹（2026-11-20）：decisions.json 的 mtime。null = 盘上还没有这份文件，
+// 或老后端没给 —— 两种情况都退化成"不带指纹保存"（不拦）。
+const decMtime = ref(null);
 const batchProgress = ref(null); // { current, total, index, status, message }
 let progressTimer = null;
 const toast = ref("");
@@ -352,6 +355,10 @@ async function loadReport() {
 async function loadSavedDecisions() {
   const r = await api("/review/decisions");
   if (r.status === 200 && Array.isArray(r.data.decisions)) {
+    // 盘上指纹（2026-11-20）：保存时带回，服务端判"这中间被谁改过"。
+    // 决策是整批覆盖写，另一个窗口存过之后无条件再存，会把对方那批整份抹掉 ——
+    // 而界面上写着"下次打开还在"，那句就成了假话。
+    decMtime.value = (typeof r.data.mtime === "number") ? r.data.mtime : null;
     // 回填到界面（问题总账第 7 条）：以前只数了个条数 —— 重开报告时已保存的
     // accept/ignore 全被当成 pending，用户看不出自己上次勾了什么；再点保存时
     // 这些决策又因为“只提交非 pending”被悄悄丢掉（界面上写着“下次打开还在”，
@@ -389,7 +396,15 @@ async function saveDecisions(silent = false) {
           };
         }),
     };
+    // 带了指纹才做并发保护（盘上本来没有这份文件时不带 —— 首存不该被拦）
+    if (decMtime.value !== null) payload.expected_mtime = decMtime.value;
     const r = await api("/review/decisions", "POST", payload);
+    if (r.status === 409) {
+      // 盘上那批勾选不是"我看到的那批"了。别覆盖，别自作主张重载 —— 用户手里有改动。
+      say("盘上决策已被改过（另一个窗口 / 外部 Agent / CLI），这次没保存。"
+          + "重新打开审查报告会读盘上那批，再把你的改动勾一遍。");
+      return false;
+    }
     if (r.status === 200) {
       savedCount.value = payload.decisions.length;
       savedRevision.value = revision.value;
@@ -633,7 +648,7 @@ onMounted(() => { loadProducts(); });
 
     <!-- 三份稿对照（2026-11-14）：零 token，只读盘。跟有没有审查报告无关，所以放在报告判断之前。 -->
     <section class="card ts-card">
-      <div class="ts-head">
+      <div class="ts-head row-wrap">
         <h4>三份稿对照<span class="meta">（原稿 → 检查稿 → 润色稿）</span></h4>
         <span class="spacer"></span>
         <button class="mini" :disabled="tsBusy" @click="toggleThreeState">
@@ -687,7 +702,7 @@ onMounted(() => { loadProducts(); });
 
     <!-- 读不通的句子（2026-11-14）：零 token，只读盘。跟有无审查报告无关。 -->
     <section class="card ts-card">
-      <div class="ts-head">
+      <div class="ts-head row-wrap">
         <h4>读不通的句子<span class="meta">（不花钱，只看句子结构）</span></h4>
         <span class="spacer"></span>
         <button class="mini" :disabled="urBusy" @click="toggleUnreadable">
@@ -724,7 +739,7 @@ onMounted(() => { loadProducts(); });
 
     <!-- 章职能核查（2026-11-14）：拿章大纲对正文，零 token、不给分。 -->
     <section class="card ts-card">
-      <div class="ts-head">
+      <div class="ts-head row-wrap">
         <h4>这章干成它该干的事了吗<span class="meta">（对照章大纲，不花钱）</span></h4>
         <span class="spacer"></span>
         <button class="mini" :disabled="cfBusy" @click="toggleChapterFunction">
@@ -976,7 +991,6 @@ onMounted(() => { loadProducts(); });
 }
 /* 三份稿对照（2026-11-14）：段落原文要能读完，长段限高可滚。 */
 .ts-card { margin-bottom: 14px; }
-.ts-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .ts-head h4 { margin: 0; }
 .ts-head .meta { margin-left: 6px; }
 .ts-head .spacer { flex: 1; }

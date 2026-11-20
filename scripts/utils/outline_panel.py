@@ -104,6 +104,10 @@ def build_structure(global_path=GLOBAL, setting_path=SETTING, run_review=True):
         "issues": issues,
         "summary": summary,
         "raw": text,
+        # 盘上指纹（2026-11-20）：前端保存时要带回来，服务端据此判"这中间被谁改过"。
+        # 与设定集同一套口径（`/setting/current` 的 mtime / `/chapters/save` 的 expected_mtime），
+        # 不另发明一种。读侧给不出指纹时前端就不带，退化成老行为。
+        "mtime": p.stat().st_mtime,
     }
 
 

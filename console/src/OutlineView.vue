@@ -470,6 +470,10 @@ const emit = defineEmits(["say", "structure-loaded", "open-refine"]);
 const structure = ref(null);
 const raw = ref("");
 const savedRaw = ref("");
+// 盘上指纹（2026-11-20）：打开大纲那一刻盘上那份的 mtime，保存时带回去。
+// 中间被 CLI / 外部 Agent / 另一个窗口改过 → 服务端 409 拒收，而不是整份覆盖。
+// null = 这次读取没拿到指纹（老后端 / 文件不存在），保存时就不带，退化成老行为。
+const outlineMtime = ref(null);
 const selId = ref("");
 const expanded = ref({});
 const propText = ref("");
@@ -699,6 +703,7 @@ async function load(showMsg = false) {
   structure.value = r.data;
   raw.value = r.data.raw || "";
   savedRaw.value = raw.value;
+  outlineMtime.value = (typeof r.data.mtime === "number") ? r.data.mtime : null;
   propDirty.value = false;
   emit("structure-loaded", r.data);
   if (!selId.value && r.data.nodes && r.data.nodes.length) {
@@ -721,8 +726,17 @@ async function refreshStructureOnly() {
 }
 async function save() {
   saving.value = true;
-  const r = await props.api("/outline/save", "POST", { content: raw.value });
+  const payload = { content: raw.value };
+  // 带了指纹才做并发保护（不传 = 老行为，脚本 / 旧客户端不被拦）
+  if (outlineMtime.value !== null) payload.expected_mtime = outlineMtime.value;
+  const r = await props.api("/outline/save", "POST", payload);
   saving.value = false;
+  if (r.status === 409) {
+    // 盘上那份不是"我打开时那份"了 —— 别覆盖，也别自作主张重载（用户手里有未保存改动）
+    say("盘上大纲已被改过（外部 Agent / 另一个窗口 / CLI），这次没保存。"
+        + "点“刷新”看盘上版本，或复制你的改动后再刷新。");
+    return;
+  }
   if (r.status !== 200 || !r.data.ok) { say("保存失败: " + (r.data.error || r.status)); return; }
   // 保存后**按盘上重读**（问题总账第 7 条）：回显的 structure 是服务端算的，
   // 落盘那一版才是真相；本地 raw 不再自认等于盘上（大纲会被规整/补锚点）。

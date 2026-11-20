@@ -41,9 +41,32 @@ def handle_review_comment(h, body):
 
 
 def handle_review_decisions_save(h, body):
-    """保存用户决策：统一规范化为 batch_refine 能直接吃下的标准格式。"""
+    """保存用户决策：统一规范化为 batch_refine 能直接吃下的标准格式。
+
+    ## 指纹闸（2026-11-20）
+    决策是**整批覆盖写**（一份文件装全书所有 accept/ignore）。界面提交的是它
+    打开报告那一刻的副本；中间另一个窗口 / CLI 存过决策时，无条件覆盖会把
+    对方那一批整份抹掉，而界面上写着"下次打开还在" —— 那句就成了假话。
+    带 `expected_mtime` 且对不上 → 409、一个字都不写；不传 = 老行为。
+    """
     dec_path = api.ROOT / "data" / "outline" / "review_report.decisions.json"
     try:
+        expected = body.get("expected_mtime") if isinstance(body, dict) else None
+        if expected is not None:
+            disk = dec_path.stat().st_mtime if dec_path.exists() else None
+            try:
+                same = (disk is not None
+                        and abs(float(disk) - float(expected)) <= 0.001)
+            except (TypeError, ValueError):
+                return 400, {"ok": False, "error": "expected_mtime 必须是数字"}
+            if not same:
+                return 409, {
+                    "ok": False,
+                    "error": "盘上决策已被改过（另一个窗口 / 外部 Agent / CLI），"
+                             "本次未写入",
+                    "mtime": disk,
+                    "hint": "重新打开审查报告看盘上那批勾选，再决定要不要保存",
+                }
         import batch_refine as br
         decisions = br.normalize_decisions(body)
         dec_path.parent.mkdir(parents=True, exist_ok=True)
@@ -55,8 +78,10 @@ def handle_review_decisions_save(h, body):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
     if decisions:
         return 200, {"ok": True, "count": len(decisions), "path": str(dec_path),
+                     "mtime": dec_path.stat().st_mtime,
                      "message": "已保存 " + str(len(decisions)) + " 条决策"}
     return 200, {"ok": True, "count": 0, "path": str(dec_path),
+                 "mtime": dec_path.stat().st_mtime,
                  "warning": "未收到有效决策（action 须为 accept/ignore）："
                             "批量精修前请至少接受一条审查发现"}
 

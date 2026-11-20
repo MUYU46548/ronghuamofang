@@ -78,9 +78,15 @@ def handle_review_decisions(h):
     """
     dec_path = api.ROOT / "data" / "outline" / "review_report.decisions.json"
     if not dec_path.exists():
-        return 200, {"decisions": []}
+        # `mtime: None` 不是摆设：前端保存时把它带回来，服务端据此判"这份决策
+        # 是不是在别人写过之后又覆了上去"。文件不存在 = 谁都没写过，两边同值。
+        return 200, {"decisions": [], "mtime": None}
     try:
-        return 200, api.json.loads(dec_path.read_text(encoding="utf-8"))
+        data = api.json.loads(dec_path.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            # 不改 decisions 字段的形状（前端按它回填勾选），只多一个指纹。
+            data["mtime"] = dec_path.stat().st_mtime
+        return 200, data
     except Exception as e:                                  # noqa: BLE001
         return 500, {"error": str(e)}
 

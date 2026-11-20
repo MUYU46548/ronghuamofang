@@ -31,7 +31,7 @@
         <!-- 工具栏 -->
         <div class="bp-toolbar">
           <h3>第 {{ currentN }} 章</h3>
-          <div class="bp-actions">
+          <div class="bp-actions row">
             <label class="bp-toggle">
               <input type="checkbox" v-model="rawMode" />
               <span>原始 Markdown</span>
@@ -82,7 +82,7 @@
         <!-- 结构化编辑器 -->
         <div v-else class="bp-form">
           <!-- 章节名 -->
-          <div class="bp-field">
+          <div class="bp-field stack">
             <label>章节名</label>
             <input
               v-model="form.title"
@@ -93,10 +93,10 @@
           </div>
 
           <!-- 核心事件 -->
-          <div class="bp-field">
+          <div class="bp-field stack">
             <label>核心事件 <span class="bp-hint">（至少 1 条）</span></label>
-            <div class="bp-events">
-              <div v-for="(ev, i) in form.events" :key="i" class="bp-event-row">
+            <div class="bp-events stack">
+              <div v-for="(ev, i) in form.events" :key="i" class="bp-event-row row-tight">
                 <span class="bp-event-no">{{ i + 1 }}.</span>
                 <input
                   v-model="form.events[i]"
@@ -111,7 +111,7 @@
           </div>
 
           <!-- 涉及角色 -->
-          <div class="bp-field">
+          <div class="bp-field stack">
             <label>涉及角色 <span class="bp-hint">（至少 1 个）</span></label>
             <div class="bp-roles">
               <span v-for="(r, i) in form.roles" :key="i" class="bp-role-tag">
@@ -138,7 +138,7 @@
           </div>
 
           <!-- 功能 -->
-          <div class="bp-field">
+          <div class="bp-field stack">
             <label>功能</label>
             <select v-model="form.function" class="bp-select" @change="markDirty">
               <option value="">（选择本章功能）</option>
@@ -147,7 +147,7 @@
           </div>
 
           <!-- 衔接 -->
-          <div class="bp-field">
+          <div class="bp-field stack">
             <label>承接</label>
             <input
               v-model="form.carryover"
@@ -157,7 +157,7 @@
             />
           </div>
 
-          <div class="bp-field">
+          <div class="bp-field stack">
             <label>钩子</label>
             <input
               v-model="form.hook"
@@ -217,6 +217,8 @@ const chapters = ref([]);
 const currentN = ref(null);
 const current = ref(null);        // 当前加载的原始 markdown
 const rawContent = ref('');
+// 盘上指纹（2026-11-20）：与整份大纲 / 设定集同一口径，null = 没拿到就不带。
+const outlineMtime = ref(null);
 const rawMode = ref(false);
 const sampleOpen = ref(false);    // 分支样例选向面板（第 4 件 · 选项可视化）
 const isDirty = ref(false);
@@ -289,6 +291,9 @@ async function loadCurrent() {
   if (r.status === 200 && r.data.ok) {
     current.value = r.data.content;
     rawContent.value = r.data.content;
+    // 盘上指纹（2026-11-20）：保存时带回。中间被 CLI / 外部 Agent / 另一个窗口
+    // 改过 → 服务端 409 拒收，不会把别人的改动整份盖掉。
+    outlineMtime.value = (typeof r.data.mtime === "number") ? r.data.mtime : null;
     parseContent(r.data.content);
     isDirty.value = false;
   }
@@ -501,8 +506,13 @@ async function save() {
 
   saving.value = true;
   try {
-    const r = await api('/outline/chapters/save', 'POST', { n: currentN.value, content });
-    if (r.status === 200 && r.data.ok) {
+    const payload = { n: currentN.value, content };
+    if (outlineMtime.value !== null) payload.expected_mtime = outlineMtime.value;
+    const r = await api('/outline/chapters/save', 'POST', payload);
+    if (r.status === 409) {
+      say('盘上这份分章大纲已被改过（外部 Agent / 另一个窗口 / CLI），这次没保存。'
+          + '点章节名重新读盘上那版，或复制你的改动后再重读。');
+    } else if (r.status === 200 && r.data.ok) {
       say('已保存');
       isDirty.value = false;
       dirty.value[currentN.value] = false;
@@ -636,11 +646,6 @@ watch(rawMode, (v) => {
   margin: 0;
   font-size: 15px;
 }
-.bp-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
 .bp-toggle {
   display: flex;
   align-items: center;
@@ -656,11 +661,6 @@ watch(rawMode, (v) => {
   display: flex;
   flex-direction: column;
   gap: 14px;
-}
-.bp-field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
 }
 .bp-field label {
   font-size: 12px;
@@ -697,16 +697,6 @@ watch(rawMode, (v) => {
 }
 
 /* 事件列表 */
-.bp-events {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.bp-event-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
 .bp-event-no {
   min-width: 18px;
   font-size: 12px;

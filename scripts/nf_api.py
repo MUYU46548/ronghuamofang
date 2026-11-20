@@ -2490,11 +2490,17 @@ def _note_author_edit(h, stage, rel):
         return False
 
 
-def act_outline_save(content, target=None):
+def act_outline_save(content, target=None, expected_mtime=None):
     """保存整份大纲：先校验格式完整性，通过才写盘（写前备份）。
 
     `target` 给了就写那个路径（产物闸候选区用）：不写历史、不碰正式稿，
     校验不过就把刚写的候选删掉。凭空造候选不留痕，正式稿一个字节不动。
+
+    `expected_mtime`（2026-11-20）：界面打开大纲那一刻的盘上指纹。给了且对不上
+    → **一个字都不写**，返回 `(False, {"conflict": True, ...})` 让端点回 409。
+    为什么必须补：大纲是整份覆盖写，中间被 CLI / 外部 Agent / 另一个窗口改过时，
+    无条件保存会把别人的改动整份抹掉，而作者只会看到"我什么都没删，怎么少了一段"。
+    与 `/setting/save`、`/chapters/save` 同一套口径；不传 = 老行为（脚本/用例不被拦）。
     """
     import stage2_outline as s2
     import refine_outline as ro
@@ -2504,6 +2510,24 @@ def act_outline_save(content, target=None):
         return False, "内容为空"
     if len(content.encode("utf-8")) > 2 * 1024 * 1024:
         return False, "内容超过 2MB 上限"
+
+    # 指纹闸：放在**备份之前**。顺序反了会在 history/ 里堆出一串"没发生过的保存"。
+    # 候选区写入不校验 —— 候选区本来就不是正式稿，覆盖不丢任何人的东西。
+    if expected_mtime is not None and not target:
+        _p = Path(GLOBAL)
+        _disk = _p.stat().st_mtime if _p.exists() else None
+        try:
+            _same = (_disk is not None
+                     and abs(float(_disk) - float(expected_mtime)) <= 0.001)
+        except (TypeError, ValueError):
+            return False, "expected_mtime 必须是数字"
+        if not _same:
+            return False, {
+                "conflict": True,
+                "error": "盘上大纲已被改过（外部 Agent / 另一个窗口 / CLI），本次未写入",
+                "mtime": _disk,
+                "hint": "点“刷新”看盘上版本，再决定要不要保存",
+            }
 
     if target:
         dest = Path(target)
@@ -3737,12 +3761,17 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/outline/save":
                 _dest, _is_cand = _outline_write_target(self, 2, OUTLINE_REL)
                 ok, res = act_outline_save(body.get("content"),
-                                           target=str(_dest) if _is_cand else None)
+                                           target=str(_dest) if _is_cand else None,
+                                           expected_mtime=body.get("expected_mtime"))
                 if ok:
                     res["ok"] = True
                     if not _is_cand:
                         _note_author_edit(self, 2, OUTLINE_REL)
                     self._send(200, res)
+                elif isinstance(res, dict) and res.get("conflict"):
+                    # 409 而不是 400：客户端要能区分"你提交的东西不对"与
+                    # "你手上的副本过期了"，后者该去刷新而不是改内容。
+                    self._send(409, dict(res, ok=False))
                 else:
                     self._send(400, {"ok": False, "error": res})
             elif p == "/outline/restore":
@@ -3781,6 +3810,27 @@ class Handler(BaseHTTPRequestHandler):
                         self, 3, CHAPTER_OUTLINE_REL % n)
                     path = _dest
                     path.parent.mkdir(parents=True, exist_ok=True)
+                    # 指纹闸（2026-11-20）：与整份大纲同一套口径。必须在**备份之前** ——
+                    # 反了就会在 `NN_v*.bak` 里堆出一串"没发生过的保存"，把真正的历史挤掉。
+                    _exp = body.get("expected_mtime")
+                    if _exp is not None:
+                        _disk = path.stat().st_mtime if path.exists() else None
+                        try:
+                            _same = (_disk is not None
+                                     and abs(float(_disk) - float(_exp)) <= 0.001)
+                        except (TypeError, ValueError):
+                            self._send(400, {"ok": False,
+                                             "error": "expected_mtime 必须是数字"})
+                            return
+                        if not _same:
+                            self._send(409, {
+                                "ok": False,
+                                "error": "盘上这份分章大纲已被改过（外部 Agent / "
+                                         "另一个窗口 / CLI），本次未写入",
+                                "mtime": _disk,
+                                "hint": "点“刷新”看盘上版本，再决定要不要保存",
+                            })
+                            return
                     if not _is_cand and path.exists():
                         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
                         bak = path.parent / f"{n:02d}_v{ts}.bak"

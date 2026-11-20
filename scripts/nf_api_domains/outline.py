@@ -294,7 +294,10 @@ def handle_chapters_get(h):
         if not chapter_path.exists():
             return 404, {"error": "第 %s 章大纲不存在" % n}
         content = chapter_path.read_text(encoding="utf-8")
-        return 200, {"ok": True, "n": int(n), "content": content}
+        # 盘上指纹（2026-11-20）：保存时带回，服务端判"这中间被谁改过"。
+        # 与整份大纲 `/outline/structure` 的 `mtime`、设定集的 `expected_mtime` 同一口径。
+        return 200, {"ok": True, "n": int(n), "content": content,
+                     "mtime": chapter_path.stat().st_mtime}
     except Exception as e:                                  # noqa: BLE001
         return 500, {"error": type(e).__name__ + ": " + str(e)[:200]}
 
