@@ -596,7 +596,7 @@ onMounted(() => { loadProducts(); });
       <div class="head-actions">
         <!-- 这一页只有一个主操作：运行审查。其余一律次级，别再让“刷新”跟它长得一样。 -->
         <button class="mini primary" :disabled="loading || props.selfEngine"
-                :title="props.selfEngine ? '当前引擎是自任务（engine: self，不调模型），审查要用模型。切到 direct / hermes 再用，或在外部执行方里跑。' : ''"
+                :title="props.selfEngine ? '当前引擎是自任务（engine: self，不调模型），审查要用模型。切到 direct / DSH 再用，或在外部执行方里跑。' : ''"
                 @click="runReview">
           {{ loading ? "审查中…" : "运行审查" }}
         </button>
@@ -781,7 +781,7 @@ onMounted(() => { loadProducts(); });
     <div v-if="!report" class="empty">
       <template v-if="props.selfEngine">
         当前是自任务引擎（engine: self，不调用模型），审查这一步用不了。<br>
-        要用它：设置 → 引擎与模型 切到 direct / hermes，或把阶段 5 的任务书交给外部执行方。
+        要用它：设置 → 引擎与模型 切到 direct / DSH，或把阶段 5 的任务书交给外部执行方。
       </template>
       <template v-else>
         <div class="empty-title">还没有审查报告</div>
@@ -925,7 +925,7 @@ onMounted(() => { loadProducts(); });
         <button
           class="mini primary"
           :disabled="running || !hasDecision || props.selfEngine"
-          :title="props.selfEngine ? '当前引擎是自任务（engine: self，不调模型），批量精修要逐个调用模型。切到 direct / hermes 再用。' : ''"
+          :title="props.selfEngine ? '当前引擎是自任务（engine: self，不调模型），批量精修要逐个调用模型。切到 direct / DSH 再用。' : ''"
           @click="runBatchRefine"
         >
           {{ running ? "精修中…" : "运行批量精修" }}

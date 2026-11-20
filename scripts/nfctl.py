@@ -598,12 +598,21 @@ def collect_check(root: Path) -> dict:
     # 引擎可执行文件（2026-11-17）：engine: dsh 时“dsh 在不在”是能不能开跑的前置；
     # 别的引擎下它只是“备选引擎可用性”信息 —— 但也要说，别让用户切过去才发现没装。
     try:
-        from utils.dsh_client import dsh_available
+        from utils.dsh_client import dsh_available, headless_patch_guard
         dsh_ok, dsh_why = dsh_available(((sysconf or {}).get("dsh") or {}).get("bin"))
         if engine == "dsh":
             add("DSH 可用（engine: dsh）", dsh_ok, dsh_why, blocking=not dsh_ok)
         else:
             add("DSH 可用（备选引擎）", dsh_ok, dsh_why, warning=True)
+        # 2026-11-20 事故后加的护栏：headless 补丁层一旦被打开成“吃桌面登录态”，
+        # 墨坊每次调用都会打作者官方账户（实测 27 次 ¥0.13）。这条必须常驻体检。
+        # 默认 profile 是 desktop（不动 headless），所以只有真用 headless 时才是阻塞项。
+        _prof = str(((sysconf or {}).get("dsh") or {}).get("profile") or "desktop")
+        _pg_ok, _pg_why = headless_patch_guard()
+        if _prof == "headless":
+            add("DSH headless 未劫持登录态", _pg_ok, _pg_why, blocking=not _pg_ok)
+        elif not _pg_ok:
+            add("DSH headless 补丁层有改动（当前不用它）", False, _pg_why, warning=True)
     except Exception as e:                                  # noqa: BLE001
         add("DSH 可用（备选引擎）", False, "自检失败：%s: %s" % (type(e).__name__, str(e)[:120]),
             warning=True)

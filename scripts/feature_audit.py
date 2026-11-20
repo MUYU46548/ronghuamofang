@@ -266,11 +266,12 @@ FEATURES = [
       "sym:scripts/utils/dsh_client.py::dsh_available"],
      "2026-11-20 作者定案后落地：出厂 config 与打包态工作区 config 的 engine 均为 dsh"
      "（hermes / self 不再作为常规选项，但代码分叉保留作回退通道）。"
-     "前置条件同日打通：DSH headless 默认把 authorization / credentials / "
-     "deepseek-account 三条 disabled，凭据只从环境或 .env 读；"
-     "本机无 provider key，故在 headless 的 cordis.patch.yml 覆盖回 disabled: false，"
-     "让 headless 复用桌面端登录态 —— 已用 dsh --profile headless --dump-config 验证"
-     "三条都生效且无报错。**真跑一次模型未验**（走订阅额度，需作者点头）。"),
+     "**执行档是 desktop 不是 headless**（作者同日：\"headless 不需要用，不存在都行。"
+     "绒花墨坊现在只调用 DSH。\"）：墨坊借桌面端那套配置（第三方渠道 + 已登录凭据）跑，"
+     "`dsh.profile` 默认 desktop。⚠️ 早先为让 headless 拿凭据去改 "
+     "`profiles/headless/cordis.patch.yml` 是错的 —— headless 随即挂到官方账户，"
+     "27 次调用记了 ¥0.13；那个文件已还原成 []，`nfctl check` 有常驻护栏 "
+     "`headless_patch_guard` 盯着它。"),
 
 ]
 

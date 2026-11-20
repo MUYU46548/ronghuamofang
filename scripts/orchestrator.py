@@ -293,10 +293,12 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
               "cost 记 0 + 真实 token 留痕 → **￥ 预算熔断对本引擎不生效（刻意语义）**，"
               "止烧靠 token 级熔断")
     elif _engine == "dsh":
-        # 2026-11-17：DSH headless 与 hermes 同口径（订阅执行、金额恒 0、token 照记）。
-        # 台词必须说清“模型由 profile 决定”，否则用户会以为改 model.* 能换模型。
-        print("[orchestrator] engine=dsh：LLM 走 DeepSeek Harness headless（订阅执行，"
-              "model.* 不适用，模型由 DSH profile 决定）；cost 记 0 + 真实 token 留痕 "
+        # 2026-11-17：DSH 与 hermes 同口径（订阅执行、金额恒 0、token 照记）。
+        # 2026-11-20 作者定案：只调用 DSH，执行档用 desktop（不碰 headless）。
+        # 台词必须说清“模型由 DSH 决定”，否则用户会以为改 model.* 能换模型。
+        print("[orchestrator] engine=dsh：LLM 走 DeepSeek Harness（执行档 "
+              + str((cfg.get("dsh") or {}).get("profile") or "desktop")
+              + "，model.* 不适用，模型由 DSH 决定）；cost 记 0 + 真实 token 留痕 "
               "→ **￥ 预算熔断对本引擎不生效（刻意语义）**，止烧靠 token 级熔断")
     elif _engine == "self":
         # engine: self —— 程序**不调用任何模型**，只把每阶段写成任务书交外部执行；

@@ -1,6 +1,6 @@
 {
   "name": "ronghuamofang-console",
-  "version": "0.9.7",
+  "version": "0.9.8",
   "description": "绒花墨坊桌面控制台（消费本地 nf_api）",
   "author": "暮雨 (MUYU46548)",
   "private": true,
@@ -77,7 +77,10 @@
       {
         "from": "../templates",
         "to": "payload/templates",
-        "filter": ["**/*", "!小说格式模板V1.3.dotx"]
+        "filter": [
+          "**/*",
+          "!小说格式模板V1.3.dotx"
+        ]
       },
       {
         "from": "../skills",

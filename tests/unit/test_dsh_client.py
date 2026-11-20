@@ -152,11 +152,17 @@ def _orphan_count(marker):
 # ---------------------------------------------------------------- 命令构造
 
 def test_build_cmd():
-    print("· _build_cmd：headless 协议 / stdin 任务 / 审批策略 / 无 --model")
+    print("· _build_cmd：profile / stdin 任务 / 审批策略 / 无 --model")
     c = DshClient(dsh_bin="dsh")
     cmd = c._build_cmd()
-    check("含 --profile headless", "headless" in cmd and
-          cmd[cmd.index("--profile") + 1] == "headless")
+    # 2026-11-20 作者定案："headless 不需要用，不存在都行。绒花墨坊现在只调用 DSH。"
+    # 默认借桌面端那套配置（第三方渠道 + 已登录凭据），不再默认走 headless。
+    check("默认 --profile desktop（只调用 DSH，不碰 headless）",
+          "--profile" in cmd and cmd[cmd.index("--profile") + 1] == "desktop")
+    check("显式传 profile 会覆盖默认", DshClient(dsh_bin="dsh", profile="headless")
+          ._build_cmd()[2] == "headless")
+    check("空字符串 profile 回落 desktop", DshClient(dsh_bin="dsh", profile="  ")
+          ._build_cmd()[2] == "desktop")
     check("含 --json（要事件流才能判成败/记账）", "--json" in cmd)
     check("默认 --approval-policy never（无人值守没有实时审批通道）",
           "--approval-policy" in cmd and
@@ -481,6 +487,54 @@ def test_never_passes_model():
     check("任务永远最后一个参数（stdin 标记 '-' 收尾）", cmd[-1] == "-")
 
 
+def test_headless_patch_guard():
+    print("· headless 补丁层：不许被打开成“吃桌面登录态”（2026-11-20 事故护栏）")
+    import utils.dsh_client as dc
+    tmp = Path(tempfile.mkdtemp(prefix="nf_patch_"))
+    try:
+        prof = tmp / "profiles" / "headless"
+        prof.mkdir(parents=True)
+        patch = prof / "cordis.patch.yml"
+
+        ok, why = dc.headless_patch_guard(home=tmp)
+        check("补丁层不存在 → 视为干净", ok is True, why)
+
+        patch.write_text("[]\n", encoding="utf-8")
+        ok, why = dc.headless_patch_guard(home=tmp)
+        check("空补丁层 [] → 干净", ok is True, why)
+
+        patch.write_text(
+            "- id: authorization\n  name: '@deepseek-ai/dsh-authorization'\n  disabled: false\n",
+            encoding="utf-8")
+        ok, why = dc.headless_patch_guard(home=tmp)
+        check("打开 authorization → 红", ok is False, why)
+        check("红的时候要说明后果是“官方账户”", "官方账户" in why, why)
+        check("红的时候只点出真被打开的那条", "authorization" in why and "credentials" not in why, why)
+
+        patch.write_text(
+            "- id: authorization\n  name: '@deepseek-ai/dsh-authorization'\n  disabled: false\n"
+            "- id: credentials\n  name: '@deepseek-ai/dsh-credentials-local'\n  disabled: false\n"
+            "- id: deepseek-account\n  name: '@deepseek-ai/dsh-deepseek-account'\n  disabled: false\n",
+            encoding="utf-8")
+        ok, why = dc.headless_patch_guard(home=tmp)
+        check("三条全开 → 红，且三条都点名", ok is False and why.count("-") >= 0 and all(
+            k in why for k in ("authorization", "credentials", "deepseek-account")), why)
+
+        patch.write_text(
+            "- id: authorization\n  disabled: true\n"
+            "- id: credentials\n  disabled: true\n"
+            "- id: deepseek-account\n  disabled: true\n",
+            encoding="utf-8")
+        ok, why = dc.headless_patch_guard(home=tmp)
+        check("显式 disabled: true → 干净", ok is True, why)
+
+        # 反证：真机文件（作者的 ~/.dsh）现在必须是干净的 —— 这轮已还原成 []
+        real_ok, real_why = dc.headless_patch_guard()
+        check("本机 headless 补丁层当前干净（已还原）", real_ok is True, real_why)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def main():
     print("=" * 66)
     print("DshClient 自检（headless / 失败可见 / 超时 / 流式停止）")
@@ -494,6 +548,7 @@ def main():
     test_resume_fallback()
     test_locate_and_wire()
     test_never_passes_model()
+    test_headless_patch_guard()
     print("-" * 66)
     print(f"PASS {len(PASS)} / FAIL {len(FAIL)}")
     if FAIL:

@@ -4398,9 +4398,9 @@ class Handler(BaseHTTPRequestHandler):
                 # 明确选一次，并把每档的代价写在界面上。写配置必须走定向改写（保注释）。
                 eng = str(body.get("engine") or "").strip().lower()
                 if ok and eng:
-                    if eng not in ("self", "direct", "hermes"):
+                    if eng not in ("self", "direct", "hermes", "dsh"):
                         ok, msg = False, ("引擎取值不合法：" + eng
-                                          + "（可选 self / direct / hermes）")
+                                          + "（可选 self / direct / hermes / dsh）")
                     else:
                         try:
                             from utils.config_io import set_section_scalars

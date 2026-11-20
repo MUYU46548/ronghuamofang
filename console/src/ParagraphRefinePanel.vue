@@ -26,7 +26,7 @@ const props = defineProps({
   selfEngine: { type: Boolean, default: false },
 });
 const SELF_HINT = "当前引擎是自任务（engine: self，只出任务书、不调模型），重写这一段要用模型。"
-  + "到“设置 → 引擎与模型”切到 direct / hermes 再用。";
+  + "到“设置 → 引擎与模型”切到 direct / DSH 再用。";
 const selectedPara = ref(null);
 /* 自己改（2026-11-02，清单第 8 条）：与"提意见让模型重写"并列的第二条路。
    以前想改一个字也得提交重写 job 等结果 —— 人只能"再许愿一次"。 */
@@ -439,7 +439,7 @@ onMounted(() => {
     <!-- self 模式前置说明（2026-11-11）：以前这个页签的按钮点了才报错，与章节编辑器不一致。 -->
     <div v-if="selfEngine" class="self-hint">
       ◻ <b>自任务模式：只出任务书，不调模型</b> —— 本页的“直接改正文 / dry-run / 批量直接改正文”
-      都要调模型，所以按钮不可用。要在这里改字，先到“设置 → 引擎与模型”切到 direct 或 hermes；
+      都要调模型，所以按钮不可用。要在这里改字，先到“设置 → 引擎与模型”切到 direct 或 DSH；
       或改用“章节编辑器”里的段落批注（那边在 self 下会出任务书，写完你点采用才写进正文）。
     </div>
 

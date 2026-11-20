@@ -7399,9 +7399,9 @@ onUnmounted(() => {
         <div class="meta eng-note" v-else-if="models.engine === 'dsh'">
           DSH 模式下<b>用哪个模型由 DSH 自己决定</b>（它的 profile 与账号），墨坊只发任务书，
           不向 DSH 传模型名 —— 所以右下角这张表在本模式下不参与，也不给你填。
-          金额上限不生效，花超自动停看“预算与止烧”里的 token 上限。凭据复用 DSH 桌面端的登录态
-          （2026-11-20 起），不用另填 API Key；本机没装 DSH 时“诊断”里会写“DSH 不可用”，
-          按提示装或填 dsh.bin。
+          金额上限不生效，花超自动停看“预算与止烧”里的 token 上限。
+          借的是你 DSH 桌面端那套配置（第三方渠道 + 已登录凭据），不用在这里填 Key；
+          本机没装 DSH 时“诊断”里会写“DSH 不可用”，按提示装或填 dsh.bin。
         </div>
         <div class="meta eng-note" v-else-if="models.engine === 'self'">
           自任务模式下点了运行只会产出任务书（不花钱）：按任务书把文件写到指定路径，再点一次运行即续跑。

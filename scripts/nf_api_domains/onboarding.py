@@ -55,11 +55,10 @@ def _model_ready(cfg):
     if engine == "hermes":
         return True, "Hermes 子会话（凭据由 Hermes 管理）"
     if engine == "dsh":
-        # DSH headless 同样不读本配置的 model.*；但凭据走 DSH 自己的路由
-        # （启动环境 / 工作区 .env / $DSH_HOME/.env）—— 这里不冒充“已就绪检查”，
-        # 只说明它不依赖本项目的直连 Key（真正的可用性由 nfctl check 的
-        # “DSH 可用”一项回答：dsh 装没装）。
-        return True, "DSH headless（凭据走 DSH 自己的路由，不用本项目的直连 Key）"
+        # 墨坊只发任务书，模型与凭据全在 DSH 侧（2026-11-20 作者定案：
+        # "headless 不需要用。绒花墨坊现在只调用 DSH。"）—— 所以本项目的
+        # 直连 Key 与这张表都不参与，真正的可用性由 nfctl check 的“DSH 可用”回答。
+        return True, "DSH（借你桌面端那套配置，不用本项目的直连 Key）"
     if engine == "self":
         # 自任务模式不调用任何模型 → 没有 Key 也算就绪（否则新手引导会在
         # “配好 API Key”这一步卡住，而这一步在 self 下根本不需要）。

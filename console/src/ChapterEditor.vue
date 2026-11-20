@@ -102,7 +102,7 @@ const QUICK_EDITS = [
  *   ② 想先改字的人打开"只填入"开关，档位退回只填不发的行为。
  * 自任务引擎（engine: self）下不提交：那个端点必然拒绝，点了只会得到一句"用不了"。 */
 const SELF_HINT = "当前引擎是自任务（engine: self，只出任务书、不调模型），段落重写要用模型。"
-  + "到“设置 → 引擎与模型”切到 direct / hermes 再用。";
+  + "到“设置 → 引擎与模型”切到 direct / DSH 再用。";
 const quickFillOnly = ref(localStorage.getItem("mofang_quick_fill_only") === "1");
 const quickWarned = ref(localStorage.getItem("mofang_quick_warned") === "1");
 function setQuickFillOnly(v) {
@@ -1028,7 +1028,7 @@ onUnmounted(() => {
                         placeholder="这一段要怎么改？例如：把结尾的总结句删掉，改成她没说出口的动作描写。"></textarea>
               <button class="mini primary ce-batch-btn"
                       :disabled="refining || selPara === null || props.selfEngine"
-                      :title="props.selfEngine ? '当前引擎是自任务（engine: self，不调模型），段落重写要用模型。切到 direct / hermes 再用。' : ''"
+                      :title="props.selfEngine ? '当前引擎是自任务（engine: self，不调模型），段落重写要用模型。切到 direct / DSH 再用。' : ''"
                       @click="submitRefine()">
                 {{ refining ? ("重写中… 已 " + fmtElapsed(refineElapsed)) : "让 AI 只改这一段" }}
               </button>

@@ -1913,6 +1913,9 @@ def make_client(cfg, model_key="default", verbose=True):
         return DshClient(
             dsh_bin=dcfg.get("bin") or None,
             timeout=int(dcfg.get("timeout", 1800)),
+            # 默认 desktop：借 DSH 桌面端那套配置（第三方渠道 + 已登录凭据）。
+            # 作者 2026-11-20："headless 不需要用，不存在都行。绒花墨坊现在只调用 DSH。"
+            profile=dcfg.get("profile") or DshClient.DEFAULT_PROFILE,
             permission_mode=dcfg.get("permission_mode") or None,
             approval_policy=dcfg.get("approval_policy", DshClient.DEFAULT_APPROVAL_POLICY),
             session_continuation=bool(dcfg.get("session_continuation", False)),

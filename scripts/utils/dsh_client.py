@@ -1,10 +1,19 @@
 # -*- coding: utf-8 -*-
-"""DSH（DeepSeek Harness）headless 引擎客户端 —— 换内核用的第三个引擎（2026-11-17）。
+"""DSH（DeepSeek Harness）引擎客户端 —— 换内核用的第三个引擎（2026-11-17）。
+
+## 用哪套配置：默认 `desktop`（2026-11-20 作者定案）
+
+作者原话："headless 不需要用，不存在都行。绒花墨坊现在只调用 DSH。"
+
+所以墨坊借的是 **DSH 桌面端那套配置**（第三方渠道 + 已登录凭据 + 已配模型），
+只是用它的 CLI 跑任务，**不碰 headless**。headless 那套账号是另一份
+（默认 deepseek-official），2026-11-20 曾因为它产生 ¥0.13 的官方扣费 —— 见
+`headless_patch_guard()` 的说明。`dsh.profile` 可改回 "headless"，但默认不。
 
 ## 为什么单开文件（不塞进 llm_client.py）
 
 `llm_client.py` 已经 1,900 多行（直连 + hermes 两个引擎）。第三个引擎的差异集中在
-**协议**（`dsh --profile headless --json` 的 NDJSON 事件流）与**进程语义**
+**协议**（`dsh --profile <p> --json` 的 NDJSON 事件流）与**进程语义**
 （启动器 → cmd.exe → Electron-as-node 三层进程树），与两个老引擎几乎不共享代码。
 同目录单开文件，谁改谁读，不把主文件再堆厚一层。
 
@@ -30,9 +39,13 @@
   以及崩溃类扩展值。**`max-tokens` 必须映射成 `finish_reason="length"`** —— 与直连引擎
   同语义（输出被截断 = 正文不完整 = 不许当成品落盘）。
 - 凭据：headless profile 默认**禁用** DSH GUI 的登录态存储，按“启动环境 → 工作目录
-  `.env` → `$DSH_HOME/.env`”找 provider key。要让 headless 用 GUI 登录态，需在
-  `$DSH_HOME/profiles/headless/cordis.patch.yml` 里把 credentials/authorization/
-  deepseek-account 三行打开（DSH 官方文档给的做法）。**本类不替用户改那个文件**。
+  `.env` → `$DSH_HOME/.env`”找 provider key。`make_client()` 会先把项目 `.env` 灌进
+  `os.environ`，`Popen` 继承环境 → 作者填在本文件里的 Key 就到得了子进程手上。
+- ⛔ **禁止**为了“让 headless 用 GUI 登录态”去改
+  `$DSH_HOME/profiles/headless/cordis.patch.yml`（把 credentials / authorization /
+  deepseek-account 打开）。2026-11-20 我这么干过：headless 随即挂到官方账户，
+  之后每次 `--dump-config` 都加载那三个插件去打官方鉴权接口，27 次调用记了 ¥0.13。
+  那个文件必须保持 `[]` —— 它空着，headless 才是“只吃你明确给的 Key”。
 - 模型：headless **没有** `--model` 旋钮，模型由 profile 决定；`model` 参数照旧收下但
   不拼进命令（与 hermes 的“用 agent 内部模型”同口径），结果里的 `model` 如实标
   `dsh-default`，不冒充具体模型名。
@@ -136,8 +149,60 @@ def dsh_available(bin_path=None):
                    "（也认环境变量 NF_DSH_BIN）。不用 DSH 就保持 engine: hermes/direct。")
 
 
+# headless 一旦被打开这三条，就会去读 DSH 桌面端的登录态 —— 也就是作者的官方账户。
+_PATCH_RISK_IDS = ("authorization", "credentials", "deepseek-account")
+
+
+def headless_patch_guard(home=None):
+    """headless 的补丁层有没有被打开成“吃桌面登录态”。返回 (ok, 说明)。
+
+    为什么要有这条：2026-11-20 我为让 headless 拿到凭据，把这个文件改成了
+    `disabled: false` 三条。结果 headless 挂到官方账户，之后每次 `--dump-config`
+    都加载那三个插件去打官方鉴权接口，27 次调用记了 ¥0.13 —— 而我一直以为
+    “--dump-config 是零成本”。作者在官网后台看到这笔账，是对的。
+    正确路径是**把 Key 写进项目 .env**（`make_client` 会灌进子进程环境）。
+
+    判据必须是“会红”的：打开三条就 (False, ...)，空补丁层/全 disabled 才 (True, ...)。
+    """
+    base = Path(home) if home else Path(os.environ.get("DSH_HOME") or (Path.home() / ".dsh"))
+    p = base / "profiles" / "headless" / "cordis.patch.yml"
+    if not p.exists():
+        return True, "headless 补丁层不存在（等同于空）= 只吃明确给的 Key"
+    try:
+        raw = p.read_text(encoding="utf-8", errors="replace")
+    except OSError as e:
+        return True, "补丁层读不到（%s），按未改动处理" % type(e).__name__
+    risky = []
+    try:
+        import yaml
+        data = yaml.safe_load(raw)
+        for ent in (data or []) if isinstance(data, list) else []:
+            if not isinstance(ent, dict):
+                continue
+            if str(ent.get("id") or "") in _PATCH_RISK_IDS and not ent.get("disabled"):
+                risky.append(str(ent.get("id")))
+    except Exception:                                   # noqa: BLE001
+        # `!!js` 之类解析不了：退化成文本判定，宁可多报也不漏报
+        for rid in _PATCH_RISK_IDS:
+            if ("id: " + rid) in raw and "disabled: false" in raw:
+                risky.append(rid)
+    if risky:
+        return False, ("headless 补丁层打开了 %s —— 这会让墨坊的调用走你 DSH 桌面端的"
+                       "登录态（官方账户）。改回 [] 或 disabled: true；Key 请填项目 .env"
+                       "（文件：%s）" % ("、".join(sorted(set(risky))), str(p)))
+    return True, "headless 补丁层干净（%s）" % str(p)
+
+
 class DshClient:
-    """DSH headless 执行层（与 HermesClient 同契约）。"""
+    """DSH 执行层（与 HermesClient 同契约）。
+
+    `profile` 决定用 DSH 的哪套配置（2026-11-20 作者定案："绒花墨坊现在只调用 DSH"）：
+
+    - `desktop`（**默认**）：你桌面端那套 —— 第三方渠道、你已登录的凭据、你配的模型。
+      墨坊只是借它的 CLI 跑一个任务，不碰 headless、不碰官方账户。
+    - `headless`：DSH 的无人值守档，账号与 provider 都是另一套（默认 deepseek-official），
+      凭据只从“进程环境 → 工作目录 .env”取。**默认不用它。**
+    """
 
     #: 无人值守默认：没有实时审批通道，需要审批的调用一律拒绝（DSH 文档明确）
     DEFAULT_APPROVAL_POLICY = "never"
@@ -145,11 +210,15 @@ class DshClient:
     #: 正文由子进程自己用文件工具落盘（stage4 据此按产物字数判进度）
     writes_files = True
 
+    #: 默认借用桌面端那套配置（作者 2026-11-20：只调用 DSH，不用 headless）
+    DEFAULT_PROFILE = "desktop"
+
     def __init__(self, dsh_bin=None, timeout=1800, model=None, permission_mode=None,
                  approval_policy=None, session_continuation=False,
-                 request_max_tokens=None, add_dirs=None):
+                 request_max_tokens=None, add_dirs=None, profile=None):
         self.dsh_bin = resolve_dsh_bin(dsh_bin)
         self.timeout = int(timeout or 1800)
+        self.profile = str(profile or "").strip() or self.DEFAULT_PROFILE
         # 模型由 DSH 自己的 profile 决定：墨坊**只发任务书**，不传模型名
         # （2026-11-20 作者定案：连名字都不该传。--model 在 headless 下本就不存在，
         #  也刻意不用 --patch 去覆盖 agent-default-model —— 那是 DSH 的配置主权）。
@@ -194,8 +263,8 @@ class DshClient:
     # ------------------------------------------------------------ 命令构造
 
     def _build_cmd(self, session_id=None):
-        """`dsh --profile headless --json [选项] -`（任务走 stdin）。"""
-        cmd = [self.dsh_bin, "--profile", "headless", "--json"]
+        """`dsh --profile <profile> --json [选项] -`（任务走 stdin）。"""
+        cmd = [self.dsh_bin, "--profile", self.profile, "--json"]
         if self.approval_policy:
             cmd += ["--approval-policy", self.approval_policy]
         if self.permission_mode:

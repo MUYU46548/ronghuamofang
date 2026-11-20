@@ -15,11 +15,17 @@ hermes:
 # 命令形态：dsh --profile headless --json -（任务走 stdin，stdout 是 NDJSON 事件流）。
 # 与 hermes 同口径：模型由 DSH profile 决定（headless 没有 --model）、金额恒 0、token 照记。
 dsh:
+  # 用 DSH 的哪套 profile（2026-11-20 作者定案：只调用 DSH，不用 headless）。
+  #   desktop  = 你桌面端那套：第三方渠道、你已登录的凭据、你配的模型。**默认**。
+  #   headless = DSH 的无人值守档，账号/provider 是另一套（默认 deepseek-official），
+  #              凭据只从“进程环境 → 工作目录 .env”取。擅自打开它的凭据插件会
+  #              把调用接到官方账户（2026-11-20 实测 27 次 ¥0.13），别动。
+  profile: desktop
   # 启动器路径。留空 = 自动定位（NF_DSH_BIN → Windows 安装位置 → PATH）。
   # 找不到时**明确失败**（exit 127 + 可行动报错），不会静默当成跑过。
   bin: ""
-  timeout: 1800         # 单次 headless 墙钟硬超时（秒）→ 超时结构化失败（exit 124）
-  # headless 没有实时审批通道 → 需要人工审批的调用一律拒绝；
+  timeout: 1800         # 单次调用的墙钟硬超时（秒）→ 超时结构化失败（exit 124）
+  # 没有实时审批通道 → 需要人工审批的调用一律拒绝；
   # 想改成 ask 的话，只在你自己盯着终端时才有意义。
   approval_policy: never
   # 权限预设名。留空 = 用 profile 自带的 sandbox 模式（默认 workspace-write，
