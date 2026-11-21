@@ -179,6 +179,10 @@ def _get_state(api):
 
 
 def main():
+    # 2026-11-21：许可总闸（11-18 上线）之后本脚本**一直 SKIP** —— 它自起的 nf_api 没带
+    # 测试豁免，/state 报空 project_dir，于是“阶段列表折叠后锁还锁不锁”永远验不到。
+    # 这里补上与 run_all.py 同款旁路；真要验闸看 e2e_packaged_license.py，不靠本脚本。
+    os.environ.setdefault("NF_LICENSE_ACK", "1")
     try:
         from playwright.sync_api import sync_playwright            # noqa: F401
     except ImportError:
@@ -287,8 +291,29 @@ def main():
             page.locator("button[title='全局刷新（所有页签数据）']").click()
             page.wait_for_timeout(900)
             btn_next2 = page.locator(".flow-next button:text-is('⏎ 执行下一步')")
+            # 2026-11-21 首次真跑时这条偶发红：写 progress.json 后固定等 900ms，
+            # 有时 /state 还没重读盘，`current_job` 残留 → `isRunning` 把按钮压住，
+            # 被误判成“审批门后仍禁用”。改成**轮询到 approval_stages 里出现 1**（最多 4 秒），
+            # 门没出现就如实判红（不假绿）。顺带打一行现场，下次红时不用猜。
+            gate_seen = False
+            _st = {}
+            for _ in range(20):
+                try:
+                    _st = _get_state(API)
+                    if 1 in (_st.get("approval_stages") or []):
+                        gate_seen = True
+                        break
+                except Exception:                        # noqa: BLE001
+                    pass
+                page.wait_for_timeout(200)
+            if gate_seen:
+                # 后端确实认了门，再让前端刷一次 —— 比“等固定毫秒”可靠
+                page.locator("button[title='全局刷新（所有页签数据）']").click()
+                page.wait_for_timeout(600)
+            print("  [diag] 阶段1审批门=%r current_job=%r runner=%r"
+                  % (gate_seen, _st.get("current_job"), _st.get("runner")))
             check("审批门出现后\u300c执行下一步\u300d恢复可用（approve 类不锁）",
-                  not btn_next2.is_disabled())
+                  gate_seen and not btn_next2.is_disabled())
             # 运行类仍然锁（对照：锁的是行为，不是全局禁用）
             check("同时运行类按钮仍锁", page.locator(
                 ".flow-next button:text-is('全自动')").is_disabled())
