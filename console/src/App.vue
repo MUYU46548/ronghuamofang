@@ -3047,7 +3047,16 @@ async function fixInvalid(kind, invalidMap) {
     say("请求失败：" + e.message);
   }
 }
-function fmtYuan(v) { return "¥" + Number(v || 0).toFixed(4); }
+// 金额的唯一格式（2026-11-21 定规则）：**两位小数**，非 0 但不足一分写“<¥0.01”。
+// 此前全仓 5 种精度混用（toFixed 1/2/3/4/0 都在用），同一个成本页上
+// ¥12.3456 / ¥0.0000 / ¥3.7500 / ¥50.0000 并排 —— 看着像四个不同的量。
+// 为什么留“<¥0.01”而不是抹成 ¥0.00：一次真花钱的调用花掉 ¥0.004，写 0 就是谎。
+function fmtYuan(v) {
+  const n = Number(v || 0);
+  if (!isFinite(n)) return "¥0.00";
+  if (n !== 0 && Math.abs(n) < 0.01) return "<¥0.01";
+  return (n < 0 ? "-¥" : "¥") + Math.abs(n).toFixed(2);
+}
 function fmtNum(v) { return Number(v || 0).toLocaleString("zh-CN"); }
 /* 体积一律用既有的 fmtBytes（App.vue:1915），别再写第二份 —— 名字撞车会直接编译失败。 */
 function fmtTime(iso) { return (iso || "").replace("T", " "); }
@@ -6264,7 +6273,7 @@ onUnmounted(() => {
       <span v-if="streamJob" class="stream-job-id">{{ streamJob }}</span>
       <span class="spacer"></span>
       <span v-if="streamModel" class="pill st-done">{{ streamModel }}</span>
-      <span v-if="streamCost > 0" class="stream-cost">¥{{ streamCost.toFixed(4) }}</span>
+      <span v-if="streamCost > 0" class="stream-cost">{{ fmtYuan(streamCost) }}</span>
       <span v-if="streamStatus === 'running'" class="pill st-running">生成中</span>
       <span v-else-if="streamStatus === 'paused'" class="pill" style="background: var(--warn)">⏸ 已暂停显示（模型仍计费）</span>
       <span v-else-if="streamStatus === 'ok'" class="pill st-done">完成</span>
@@ -6409,7 +6418,7 @@ onUnmounted(() => {
         </div>
         <div class="ps-item">
           <span class="ps-label">累计花费</span>
-          <span class="ps-value">¥{{ state.cost.spent_yuan.toFixed(2) }} / ¥{{ state.cost.limit_yuan }}</span>
+          <span class="ps-value">{{ fmtYuan(state.cost.spent_yuan) }} / {{ fmtYuan(state.cost.limit_yuan) }}</span>
         </div>
         <!-- token 级熔断（hermes 下金额恒 0，真正的止烧闸门是 token）：不显示就等于让用户盲调阈值 -->
         <div class="ps-item" v-if="state.budget && state.budget.token_limit">

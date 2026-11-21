@@ -197,7 +197,7 @@ onMounted(() => { /* 不自动加载：用户填了章号才有意义 */ });
         {{ generating ? "生成中…（约 20-60 秒）" : "生成候选" }}
       </button>
       <span v-if="meta" class="fr-meta">
-        {{ meta.model }} · 约 {{ (meta.cost_yuan || 0).toFixed(4) }} 元
+        {{ meta.model }} · 约 {{ (meta.cost_yuan || 0).toFixed(2) }} 元
       </span>
     </div>
 

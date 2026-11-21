@@ -261,7 +261,7 @@ onMounted(() => { if (props.open) loadExisting(); });
         {{ generating ? "生成中…（约 30-90 秒）" : "生成方向样例" }}
       </button>
       <span v-if="meta" class="bs-meta">
-        {{ meta.model }} · 约 {{ (meta.cost_yuan || 0).toFixed(4) }} 元
+        {{ meta.model }} · 约 {{ (meta.cost_yuan || 0).toFixed(2) }} 元
       </span>
     </div>
 
