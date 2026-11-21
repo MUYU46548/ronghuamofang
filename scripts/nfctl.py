@@ -680,6 +680,27 @@ def collect_check(root: Path) -> dict:
         "%d 个文件里有直角引号（应改中文双引号）：%s"
         % (len(_bad_punct), "、".join(_bad_punct[:5])), blocking=True)
 
+    # 界面文案（2026-11-20）：工具 2026-11-05 就写好了，但**没有任何门跑它** ——
+    # 于是界面上印着 electron-updater / engine=direct / sandbox_review.py 的时候，
+    # 它照样报“0 命中”，作者看到的“全绿”是假的。接进体检才算有回归保护。
+    # 黑话命中 = 阻塞；内部路径 = 提醒（数量每次都报，不许静默消失）。
+    try:
+        import ui_copy_audit as _uca
+        _rows, _hits, _allowed, _debt = _uca.scan()
+        _ex = "、".join("%s:%d [%s]" % (h[0], h[1], h[2]) for h in _hits[:3])
+        add("界面文案无黑话", not _hits,
+            "扫描 %d 条可见文案，命中 0 条" % len(_rows) if not _hits
+            else "命中 %d 条：%s%s" % (len(_hits), _ex,
+                                       "…" if len(_hits) > 3 else ""),
+            blocking=True)
+        add("界面文案里的内部路径", not _debt,
+            "无" if not _debt else
+            "%d 条（不阻塞；逐条记在 docs/界面打磨问题表-20261120.md）" % len(_debt),
+            warning=True)
+    except Exception as _e:                             # noqa: BLE001
+        add("界面文案无黑话", False,
+            "自检失败：%s: %s" % (type(_e).__name__, str(_e)[:120]), warning=True)
+
     # 测试脚本能不能编译（2026-11-20 血账）
     # e2e **不在** `nfctl test` 范围里（会长期潜伏红）。于是 e2e 脚本自身的语法错误
     # 也没有任何门抓得住 —— 实测：我改完 e2e 里的一条断言、引号写坏，仍然宣称
@@ -1918,7 +1939,10 @@ def main(argv=None):
     if args.cmd == "check":
         data = collect_check(root)
         print(json.dumps(data, ensure_ascii=False, indent=2) if as_json else render_check(data))
-        return 0
+        # 2026-11-20：原来恒 return 0 —— 于是“阻塞项: 直角引号 / 界面文案无黑话”
+        # 只是屏幕上的一行字，机器看不见、CI 也不会红。工具能判红就必须能退出码红，
+        # 否则“门”只是装饰（这一条是加界面文案门时用探针实测出来的）。
+        return 1 if data.get("blocking") else 0
 
     if args.cmd == "doctor":
         data = collect_doctor(root)

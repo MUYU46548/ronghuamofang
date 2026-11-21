@@ -610,9 +610,8 @@ onMounted(loadReport);
         </div>
         <div class="meta">模型只提候选：它写不了档位，也写不了你的终裁（越层直接拒收）。</div>
         <div v-if="!third.total" class="meta judge-third-why">
-          还没有候选。让 Agent 提案（<code>POST /judge/feelings/propose</code>），
-          或跑 <code>python scripts/judge_feelings.py --chapter {{ detail.chapter }}</code>
-          （需要 engine: direct，且会花钱）；正式跑之前用 <code>--dry-run</code> 可零调用看提示词。
+          还没有候选。可以让外部 Agent 提一次（会花钱），也可以让它先只列出会问什么、
+          不真跑，看完再决定要不要花这笔钱。
         </div>
         <div v-for="p in third.pending" :key="p.id" class="judge-third-item">
           <div class="judge-defect-row" @click="focusPara(p.paragraph_index)">

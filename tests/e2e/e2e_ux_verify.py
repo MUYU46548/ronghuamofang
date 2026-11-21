@@ -776,10 +776,16 @@ def test_real(browser):
                               .get("project_root") or "")
         except Exception:                                    # noqa: BLE001
             _real_root = ""
-        check("显示真实项目根路径",
-              bool(_real_root) and _real_root in atxt and str(Path(_real_root).name) in atxt,
-              "期望含后端自报的 project_root=%r；界面片段=%r"
-              % (_real_root, atxt[:120].replace("\n", " | ")))
+        # 2026-11-20（问题表 P0-8）：数据位置不再正面印三条绝对路径，改成
+        # “你的项目 / 写作内容 / 成品输出 + 一句话说明”，路径收进 title（悬停可见）。
+        # 保证不变：界面给出的位置 = 后端真实在用的项目根 —— 只是从正文搬到 title。
+        _root_row = about.locator(".ap-row").first
+        _root_title = (_root_row.get_attribute("title") or "") if _root_row.count() else ""
+        check("显示真实项目根路径（悬停标题里就是后端自报的路径）",
+              bool(_real_root) and _real_root in _root_title
+              and "你的项目" in atxt,
+              "期望 title 含 project_root=%r；实际 title=%r"
+              % (_real_root, _root_title))
         check("含快速上手 / 数据位置 / 许可区块",
               about.locator(".about-steps li").count() == 4 and about.locator(".ap-row").count() == 3
               and "MIT" in atxt)
@@ -1027,9 +1033,10 @@ def test_about_project(browser, mock_proc=None):
               (page.locator(".pill:has-text('免责声明')").count(),
                page.locator("button:has-text('查看完整声明')").count()))
         navs = page.locator(".set-nav-btn")
-        # 2026-11-15：第 10 项“诊断与调试”在新增时没跟着改这条断言（旧写法 9 项）。
+        # 2026-11-15：第 10 项在新增时没跟着改这条断言（旧写法 9 项）。
+        # 2026-11-20：“诊断与调试”改名“运行状态”（作者向重写，见问题表 P0-1）。
         # 数量断言必须与 SETTINGS_TABS 同源 —— 加了页签先改这里，否则红在断言上、不红在功能上。
-        check("设置页侧边栏分类渲染（10 项，取代一条长名单；含\u300cWord 模板\u300d\u300c诊断与调试\u300d\u300c使用手册\u300d）",
+        check("设置页侧边栏分类渲染（10 项，取代一条长名单；含\u300cWord 模板\u300d\u300c运行状态\u300d\u300c使用手册\u300d）",
               navs.count() == 10, navs.all_inner_texts())
         check("侧栏最后一项是\u300c使用手册\u300d（手册放最后，不挡默认分类）",
               "使用手册" in (navs.last.inner_text() if navs.count() else ""),
@@ -1229,28 +1236,44 @@ def test_about_project(browser, mock_proc=None):
               page.evaluate("() => document.documentElement.scrollWidth"
                             " <= document.documentElement.clientWidth + 2"))
 
-        print("  --- 诊断与调试（对齐方寸 🩺 诊断页签）---")
-        page.locator(".set-nav-btn", has_text="诊断与调试").click()
+        print("  --- 运行状态与排查（2026-11-20 由“诊断与调试”重写：作者向）---")
+        page.locator(".set-nav-btn", has_text="运行状态").click()
         page.wait_for_timeout(250)
-        check("\u300c诊断与调试\u300d块渲染",
-              page.locator("h4:has-text('诊断与调试')").count() == 1,
-              page.locator("h4:has-text('诊断与调试')").count())
-        dbg_meta = page.locator("h4:has-text('诊断与调试') + .meta")
+        check("\u300c运行状态与排查\u300d块渲染",
+              page.locator("h4:has-text('运行状态与排查')").count() == 1,
+              page.locator("h4:has-text('运行状态与排查')").count())
+        dbg_meta = page.locator("h4:has-text('运行状态与排查') + .meta")
         dbg_txt = dbg_meta.inner_text() if dbg_meta.count() else ""
-        check("诊断信息显示运行形态/版本/健康态（来自 debug:info）",
-              "源码版" in dbg_txt and "0.0.0-e2e" in dbg_txt and "在线" in dbg_txt,
+        check("显示程序形态/版本/后台服务状态（来自 debug:info）",
+              "源码版" in dbg_txt and "0.0.0-e2e" in dbg_txt and "正常" in dbg_txt,
               dbg_txt[:120].replace("\n", " | "))
-        check("显示代码根/数据根/日志路径三行",
-              "fake" in dbg_txt and "nf_api_child.log" in dbg_txt,
+        # 2026-11-20 的核心断言：默认页面上只有“数据在哪 / 日志在哪”两行，
+        # 程序文件路径与 PID 收进开发者选项 —— 它们是问题表 P0-1 的原话。
+        check("默认只显示数据/日志两行，不印程序路径与 PID",
+              "fake" in dbg_txt and "nf_api_child.log" in dbg_txt
+              and "程序文件在" not in dbg_txt and "PID" not in dbg_txt,
               dbg_txt[-160:].replace("\n", " | "))
-        for label in ("查看运行日志", "打开日志文件", "复制诊断信息", "DevTools 开关", "重启后端 API"):
-            check("诊断块含\u300c%s\u300d按钮" % label,
+        for label in ("查看运行日志", "打开日志文件", "复制排查信息", "重启后台服务"):
+            check("状态块含\u300c%s\u300d按钮" % label,
                   page.locator("button:has-text('%s')" % label).count() >= 1, label)
-        page.locator("button:has-text('DevTools 开关')").click()
+        check("默认不出现开发者工具入口（开发者选项关着）",
+              page.locator("button:has-text('开发者工具')").count() == 0, None)
+        page.locator("label:has-text('显示开发者选项') input[type=checkbox]").check()
+        page.wait_for_timeout(200)
+        dbg_txt2 = dbg_meta.inner_text() if dbg_meta.count() else ""
+        check("打开开发者选项后才出现程序文件路径",
+              "程序文件在" in dbg_txt2, dbg_txt2[-120:].replace("\n", " | "))
+        page.locator("button:has-text('开发者工具')").click()
         page.wait_for_timeout(300)
         dt_toast = page.locator(".toast").inner_text() if page.locator(".toast").count() else ""
-        check("DevTools 开关有反馈（IPC 等价假实现回 ok）",
+        check("开发者工具有反馈（IPC 等价假实现回 ok）",
               "DevTools" in dt_toast, dt_toast)
+        # 看完就关掉：devMode 会写 localStorage，留着会让后面的截图多出两行
+        # 程序路径（截图要反映作者默认看到的样子），也免得污染后续用例。
+        page.locator("label:has-text('显示开发者选项') input[type=checkbox]").uncheck()
+        page.wait_for_timeout(200)
+        check("关掉开发者选项后程序路径又消失",
+              "程序文件在" not in (dbg_meta.inner_text() if dbg_meta.count() else ""), None)
         # 出厂内容（0.6.7 出厂/用户数据分治）：诊断节的新块，数据来自 /factory/list
         page.wait_for_timeout(500)          # 等 mock 的 /factory/list 回来
         fac_meta = page.locator("h4:has-text('出厂内容') + .meta")
@@ -1263,8 +1286,8 @@ def test_about_project(browser, mock_proc=None):
         check("有命中时\u300c清理出厂样例\u300d按钮存在且可用",
               fac_btn.count() >= 1 and not fac_btn.first.is_disabled(),
               fac_btn.count())
-        # 诊断块几何：先滚到可见再拍/再断言（bounding_box 是视口相对坐标）
-        h4d = page.locator("h4:has-text('诊断与调试')")
+        # 状态块几何：先滚到可见再拍/再断言（bounding_box 是视口相对坐标）
+        h4d = page.locator("h4:has-text('运行状态与排查')")
         h4d.scroll_into_view_if_needed()
         page.wait_for_timeout(200)
         shot(page, "D10_diagnostics", keep_scroll=True)
@@ -1463,7 +1486,10 @@ def test_about_project(browser, mock_proc=None):
         note = page8.locator(".billing-note")
         check("成本页有计价口径说明", note.count() == 1, note.count())
         nt = note.inner_text() if note.count() else ""
-        check("说明里写清按量/订阅", "刊例价" in nt or "订阅" in nt, nt[:60])
+        # 2026-11-20（问题表 P0-5）：说明里不再印 `engine=direct` / `provider 刊例价`
+        # 这类配置项名与英文，改成“按量计价 / 走订阅流量”。断言跟着改口径，不是改松：
+        # 判的仍是“读者能不能分清这两种计费”，只是换成作者能读的词。
+        check("说明里写清按量/订阅", "按量" in nt or "订阅" in nt, nt[:60])
         check("入/出比值有解释（不是产出效率）", "不是产出效率" in nt, nt[:80])
         page8.locator(".cost-cards").scroll_into_view_if_needed()
         page8.wait_for_timeout(200)

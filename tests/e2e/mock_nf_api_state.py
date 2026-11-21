@@ -534,6 +534,11 @@ def candidates_payload(n):
     }
 
 
+# 保存词表时后端回的中文标签（与 scripts/utils/wordlists.py 的 save() 同源）。
+# 夹具不许自己拼英文键名，否则截图里会长出产品根本没有的黑话。
+WL_LABELS = {"cliche": "病灶词表", "compliance": "合规词表"}
+
+
 def wordlists_payload():
     cl_terms = len([l for l in WL["cliche"].splitlines()
                     if l.strip() and not l.strip().startswith("#")])
@@ -822,7 +827,8 @@ class Handler(BaseHTTPRequestHandler):
                 # 看不出“这是按量计价还是订阅流量”
                 "billing": {
                     "engine": "direct", "money_metered": True,
-                    "note": "engine=direct：按 provider 刊例价估算（未收录单价的模型记 0）。",
+                    "note": "费用按官方价目表估算（价目表里没有的模型记 0）。"
+                            "token 用量按实际发生的记账。",
                     "io_ratio": 3.1,
                     "io_note": "输入:输出 比值偏大是正常的 —— 每次请求都要重发设定、大纲与前文；这个数不是产出效率。",
                 },
@@ -846,11 +852,11 @@ class Handler(BaseHTTPRequestHandler):
                         {"name": "设定集", "path": "data/setting/setting.json", "chars": 43984, "exists": True},
                         {"name": "整体大纲", "path": "data/outline/global.md", "chars": 3030, "exists": True},
                         {"name": "滚动摘要", "path": "data/summaries/rolling.md", "chars": 3531, "exists": True},
-                        {"name": "一致性账本", "path": "data/state/story_state.json", "chars": 0, "exists": False},
+                        {"name": "一致性记录", "path": "data/state/story_state.json", "chars": 0, "exists": False},
                     ],
                     "total_chars": 50545,
                     "task_book": {"files": 32, "bytes": 816298},
-                    "note": "上面是**盘上原文**字数（不是一次请求的注入量）。",
+                    "note": "上面这些是文件里原有的字数（不是一次请求实际送进模型的量）。",
                 },
                 "calls": 12, "estimated_calls": 0,
             })
@@ -2079,10 +2085,14 @@ class Handler(BaseHTTPRequestHandler):
                 if k in body:
                     WL[k] = str(body.get(k) or "")
             payload = wordlists_payload()
-            payload["saved"] = [{"label": k, "path": "data/wordlists/%s.txt" % k,
+            # 2026-11-20：标签必须与真后端同源（utils/wordlists.save 用的是“病灶词表 /
+            # 合规词表”）。此前 mock 直接拿英文键 k 拼中文句子，界面上就出现了
+            # “cliche 3 条；compliance 0 条” —— 截图验收时被当成产品缺陷记进问题表，
+            # 实际是夹具自己造的黑话。夹具可以简化，但不许造出产品没有的字。
+            payload["saved"] = [{"label": WL_LABELS[k], "path": "data/wordlists/%s.txt" % k,
                                  "terms": payload[k]["terms"], "warning": ""}
                                 for k in ("cliche", "compliance")]
-            payload["message"] = "；".join("%s %d 条" % (k, payload[k]["terms"])
+            payload["message"] = "；".join("%s %d 条" % (WL_LABELS[k], payload[k]["terms"])
                                           for k in ("cliche", "compliance"))
             return self._send(200, payload)
 

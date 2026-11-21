@@ -39,7 +39,7 @@ OUT = ROOT / "docs" / "ui-copy-audit.md"
 # 界面文字属性（能被人读到的才收）
 ATTRS = ("title", "placeholder", "label", "aria-label", "alt")
 
-# 名单：内部标识 / 开发黑话。命中即失败。
+# 名单：内部标识 / 开发黑话。命中即失败（改完必须清到 0）。
 # 每条 = (说明, 正则)。正则只匹配“裸用”的形态，允许 `data/state/tasks/self/` 这类路径。
 BANNED = [
     ("内部任务号字段", r"(?<![A-Za-z_])job(?:_id)?(?![A-Za-z_])"),
@@ -54,19 +54,41 @@ BANNED = [
     ("开发黑话", r"落盘|写盘|兜底|静默|口径|台账|子会话|墓碑|正典|管线|拼合|施工权"),
     ("开发黑话（第二批）", r"垫片|代拉|逃生门|单一事实源|红线|水章"),
     ("开发黑话（第三批）", r"阈值|链路|产物|审计|正例|缺料|锚定|存盘|轻链路|闸门|熔断|判据"),
+    # ---- 2026-11-20 补：英文标识。此前整份名单只有中文词，于是界面上印着
+    # `electron-updater` / `engine=direct` / `sandbox_review.py` / `平台 win32`
+    # 的时候，检查仍然报“0 命中”—— 检查全绿不等于界面干净。
+    ("脚本文件名", r"[\w\-]+\.(?:py|ps1|bat|sh|cmd)\b"),
+    ("依赖包名", r"electron-updater|app\.asar|node_modules"),
+    ("编程术语", r"字面量|frontmatter|cache_read|max_tokens|toFixed|dry-run"),
+    ("平台标识", r"\bwin32\b|\bdarwin\b"),
+    ("配置项赋值", r"\b(?:engine|provider|model|budget|stage)\s*=\s*[A-Za-z0-9_]"),
+]
+
+# 债务：确实是界面上的内部路径（`data/chapters/raw/` 这类），但一次改不完。
+# **不阻塞提交，但每次都要报数量** —— 不报就等于假装它不存在。
+# 为什么不一并设成阻塞：64 处分布在 30 多个页面，一轮改不完；
+# 阻塞项一旦常红，最后一定被人注释掉（docs/ui-copy-decisions.md 第五节的教训）。
+DEBT = [
+    ("内部路径", r"(?:^|[\s(（\"'：:])(?:data|config|output|scripts|prompts"
+                 r"|console|tests|materials|deliverables|logs)/[\w\-./]*"),
 ]
 
 ALLOW = [
     # 路径 / 配置键 / 协议名里的英文是必要信息，不是黑话
     r"data/state/tasks/self/",
-    r"config/(system|project)\.yaml",
     r"\.env\b",
     r"\bMCP\b",
     r"\bHTTP\b",
     r"\bAPI\b",
+    # 给外部 Agent 的任务书正文（流水线页“复制任务书”）：它本来就是给机器/协作者
+    # 读的执行说明，里面必须有命令行。只放行这一条明确形态，不连带放开别的脚本名。
+    r"orchestrator\.py --stage",
     # 纯节点键（不渲染），只是脚本里的映射 key
     r"^act_[起承转合]$",
 ]
+# 注：2026-11-20 把 `config/(system|project)\.yaml` 从允许项里删了 ——
+# 它恰恰是问题表 P1-20 点名的坏例子（“也可以手工改 config/project.yaml 的 book.name”），
+# 允许它等于把要治的病写进豁免表。
 
 
 def check_text(s: str) -> str:
@@ -95,7 +117,10 @@ def visible_strings(text: str):
         clean = re.sub(r"<!--[\s\S]*?-->", lambda m: " " * len(m.group(0)), body)
         for m in re.finditer(r">([^<>{}]+)<", clean):
             s = " ".join(m.group(1).split())
-            if re.search(r"[\u4e00-\u9fff]", s):
+            # 2026-11-20：原来只收“含中文”的节点，于是 `<span>electron-updater</span>`
+            # 这类**纯英文**界面文字从源头就不在清单里，黑名单再全也永远匹配不到。
+            # 现在含两个以上连续字母也收（`A+` 这类单个字母的按钮不误收）。
+            if re.search(r"[\u4e00-\u9fff]", s) or re.search(r"[A-Za-z]{2}", s):
                 yield lineno(base + m.start(1)), "界面文字", s
         for m in re.finditer(
                 r'(?:%s)="([^"]*[\u4e00-\u9fff][^"]*)"' % "|".join(ATTRS), clean):
@@ -142,24 +167,41 @@ def write_md(rows, out: Path = OUT) -> None:
     print("已写入 %s（%d 条，%d 个文件）" % (out, len(rows), len(by_file)))
 
 
-def check(verbose: bool = False) -> int:
+def scan():
+    """跑一遍名单，返回 (rows, hits, allowed, debt)。
+
+    2026-11-20 抽出来给 `nfctl check` 用：工具能红但没人跑，等于没有回归保护
+    （实测 `--check` 一直是绿的，而界面上印着 electron-updater / engine=direct）。
+    """
     rows = collect()
-    hits, allowed = [], 0
+    hits, allowed, debt = [], 0, []
     for fn, ln, kind, s in rows:
         probe = check_text(s)
+        waived = any(re.search(a, probe) for a in ALLOW)
+        for label, pat in DEBT:
+            m = re.search(pat, probe)
+            if m and not waived:
+                debt.append((fn, ln, label, m.group(0), s))
+                break
         for label, pat in BANNED:
             m = re.search(pat, probe)
             if not m:
                 continue
-            if any(re.search(a, probe) for a in ALLOW):
+            if waived:
                 allowed += 1
                 continue
             hits.append((fn, ln, label, m.group(0), s))
             break
+    return rows, hits, allowed, debt
+
+
+def check(verbose: bool = False) -> int:
+    rows, hits, allowed, debt = scan()
     print("=" * 66)
     print("界面文案黑话清零")
     print("=" * 66)
-    print("扫描 %d 条可见文案，命中 %d 条，允许 %d 条" % (len(rows), len(hits), allowed))
+    print("扫描 %d 条可见文案，命中 %d 条，允许 %d 条，债务 %d 条"
+          % (len(rows), len(hits), allowed, len(debt)))
     if verbose:
         for fn, ln, label, word, s in hits:
             print("  [%s] %s:%d  “%s” %s" % (label, fn, ln, word, s[:90]))
@@ -168,6 +210,14 @@ def check(verbose: bool = False) -> int:
             print("  %s:%d  [%s] “%s” %s" % (fn, ln, label, word, s[:80]))
         if len(hits) > 40:
             print("  …… 另有 %d 条（-v 看全部）" % (len(hits) - 40))
+    # 债务每次都要报：不阻塞，但绝不能让它安静地消失
+    if debt:
+        print("  -- 界面上的内部路径（不阻塞，已记入问题表） %d 条：" % len(debt))
+        shown = debt if verbose else debt[:8]
+        for fn, ln, label, word, s in shown:
+            print("     %s:%d  “%s”" % (fn, ln, word))
+        if len(debt) > len(shown):
+            print("     …… 另有 %d 条（-v 看全部）" % (len(debt) - len(shown)))
     print("=" * 66)
     return 0 if not hits else 1
 

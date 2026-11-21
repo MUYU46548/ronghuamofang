@@ -84,12 +84,16 @@ def handle_costs_summary(h):
         totals["billing"] = {
             "engine": engine,
             "money_metered": engine not in ("hermes", "dsh"),
-            "note": ("engine=%s：走订阅流量，金额不计（恒 0 是“没有按量单价”，"
-                     "不是免费）；token 计数来自子会话回传的 usage 实测，"
-                     "止烧只看 token 闸门。" % engine
+            # 2026-11-20：说明文字里不再出现 `engine=xxx` / `provider` 这类内部参数名
+            # —— 界面上给作者看的是“这笔钱怎么算的”，不是配置项叫什么。
+            # 注意：note **不要**再以“按量计价 / 订阅流量”开头 —— 界面上前面已经有一个
+            # 同名的 pill（App.vue .billing-note），再写一遍就成了
+            # “按量计价 按量计价：……”。这是看图看出来的，不是 grep 出来的。
+            "note": ("这笔用量走订阅、不按量计费 —— 金额恒 0 是“没有按量单价”，"
+                     "不是免费。token 用量按实际发生的记账，花超了会自动停。"
                      if engine in ("hermes", "dsh")
-                     else "engine=direct：按 provider 刊例价估算（未收录单价的模型记 0）；"
-                          "token 计数来自接口回传的 usage 实测。"),
+                     else "费用按官方价目表估算（价目表里没有的模型记 0）。"
+                          "token 用量按实际发生的记账。"),
             "io_ratio": (round(t_in / t_out, 1) if t_out else None),
             "io_note": ("输入:输出 比值偏大是正常的 —— 每次请求都要重发设定、大纲与前文；"
                         "这个数不是产出效率，也不该拿来横向比较模型。"),

@@ -50,6 +50,14 @@ function openExternal(url) {
   if (window.mofangAPI?.openExternal) window.mofangAPI.openExternal(url);
 }
 
+// 平台名：后端给的是 Node 的 process.platform（win32 / darwin / linux），那是给代码看的。
+// 2026-11-20：界面上只该出现用户认得的名字；认不得的原样显示，不猜。
+function osName(p) {
+  const k = String(p || "").toLowerCase();
+  const hit = { win32: "Windows", darwin: "macOS", linux: "Linux" }[k];
+  return hit || (p || "—");
+}
+
 // ---------- 版本更新（与设置页共用主进程 IPC，判定口径只有一处） ----------
 // 以前“关于”里只有“下载新版本”外链 —— 用户找不到“检查更新”，
 // 会以为这功能被砍了。这里补上，并把失败原因说清楚（不再只显示一行错误码）。
@@ -137,7 +145,7 @@ const STEPS = [
               <tr><td style="width:130px;">绒花墨坊</td><td>v{{ app?.version || info.version }}</td>
                   <td style="width:110px;">Python</td><td>{{ info.python }}</td></tr>
               <tr><td>Electron</td><td>{{ app?.electron || (isElectron ? electronVer : "（浏览器预览）") }}</td>
-                  <td>平台</td><td>{{ info.platform }}</td></tr>
+                  <td>平台</td><td>{{ osName(info.platform) }}</td></tr>
               <tr><td>Chromium</td><td>{{ app?.chrome || chromeVer }}</td>
                   <td>当前项目</td><td>{{ book || "（未命名）" }}</td></tr>
               <tr><td>运行方式</td>
@@ -148,30 +156,30 @@ const STEPS = [
 
           <h4 class="about-h">数据位置（全部在本机，不上传）</h4>
           <div class="about-path">
-            <div class="ap-row">
-              <span class="ap-label">项目根</span>
-              <code>{{ info.project_root }}</code>
+            <div class="ap-row" :title="info.project_root">
+              <span class="ap-label">你的项目</span>
+              <span class="ap-hint">书名、类型、每章字数</span>
               <button class="mini" @click="openDir('config/project.yaml')">打开</button>
             </div>
-            <div class="ap-row">
-              <span class="ap-label">运行数据</span>
-              <code>{{ info.data_dir }}</code>
+            <div class="ap-row" :title="info.data_dir">
+              <span class="ap-label">写作内容</span>
+              <span class="ap-hint">素材、大纲、章节、设定集</span>
               <button class="mini" @click="openDir('data/books')">打开</button>
             </div>
-            <div class="ap-row">
+            <div class="ap-row" :title="info.output_dir">
               <span class="ap-label">成品输出</span>
-              <code>{{ info.output_dir }}</code>
+              <span class="ap-hint">导出的 Word 与 Markdown</span>
               <button class="mini" @click="openDir('output')">打开</button>
             </div>
-            <div v-if="app?.userDataDir" class="ap-row">
-              <span class="ap-label">应用数据</span>
-              <code>{{ app.userDataDir }}</code>
+            <div v-if="app?.userDataDir" class="ap-row" :title="app.userDataDir">
+              <span class="ap-label">配置与缓存</span>
+              <span class="ap-hint">程序自己的设置，不用手动改</span>
               <span style="width:52px;"></span>
             </div>
           </div>
           <div class="meta">
-            · 数据全在本机：快照在 history/，章节备份在 data/chapters/history/；除调用你自己配置的模型 API 外不向外发送数据<br>
-            · API Key 只存项目 `.env`（不进版本库，界面内从不显示明文）；Obsidian 设定库固定只读
+            · 数据全在本机：程序会自动留快照与章节备份，改坏了能找回；除调用你自己配置的模型服务外，不向外发送任何内容<br>
+            · API Key 只存在本机配置文件里，界面上从不显示明文；Obsidian 设定库是只读的
           </div>
 
           <h4 class="about-h">版本更新</h4>

@@ -43,9 +43,9 @@
         </label>
       </div>
       <div class="meta sb-dir" :title="sandboxDir">
-        <span class="sb-dir-label">沙盒目录</span>
-        <code>{{ sandboxDir || "（未配置）" }}</code>
-        <button v-if="sandboxDir" class="mini ghost" @click="copyDir">复制路径</button>
+        <span class="sb-dir-label">沙盒文件夹</span>
+        <span>{{ sandboxDir ? "程序写的改稿先放这里，审完你再手工搬到知识库" : "（未配置）" }}</span>
+        <button v-if="sandboxDir" class="mini ghost" @click="copyDir">复制文件夹位置</button>
       </div>
       <div class="meta" style="margin-top: 6px;">
         通过 / 驳回<strong>只改审核状态</strong>，不动沙盒里的文件，也<strong>不会写入 Obsidian</strong>。
@@ -74,8 +74,7 @@
         </li>
       </ul>
       <div class="meta">
-        要纳入审核：用导出的方式重新写一遍（如大纲页签的“提交审核包”），或直接用
-        <code>sandbox_review.py --list</code> 查看。
+        要纳入审核：用导出的方式重新写一遍（如大纲页签的“提交审核包”）。
       </div>
     </div>
 
@@ -94,8 +93,8 @@
               <code class="sb-path">{{ it.path }}</code>
             </div>
             <div class="meta sb-item-meta">
-              <span v-if="it.kind">类型 {{ it.kind }}</span>
-              <span v-if="it.source">来源 {{ it.source }}</span>
+              <span v-if="it.kind">类型 {{ humanKind(it.kind) }}</span>
+              <span v-if="it.source">来源 {{ humanSource(it.source) }}</span>
               <span>更新 {{ it.updated_at || it.created_at || "—" }}</span>
               <span v-if="it.reviewed_at">审于 {{ it.reviewed_at }}</span>
             </div>
@@ -194,6 +193,22 @@ const STATUS_LABELS = { pending: "待审", approved: "已通过", rejected: "已
 function statusLabel(s) { return STATUS_LABELS[s] || s; }
 function statusClass(s) {
   return s === "approved" ? "st-done" : s === "rejected" ? "st-failed" : "st-gate";
+}
+
+// 条目的“类型 / 来源”由写入方给的是内部键（`character`、`stage2 大纲`）。
+// 2026-11-20：界面上不再印英文键名与阶段代号 —— 认得的翻成中文，
+// 认不得的原样保留（不猜），阶段代号统一写成“阶段 N”。
+const KIND_LABELS = {
+  character: "角色", location: "地点", foreshadow: "伏笔", plot: "情节",
+  setting: "设定", outline: "大纲", chapter: "章节", scrap: "碎片",
+  timeline: "时间线", relation: "关系", item: "物件", rule: "规则",
+};
+function humanKind(s) {
+  const k = String(s || "").trim();
+  return KIND_LABELS[k.toLowerCase()] || k;
+}
+function humanSource(s) {
+  return String(s || "").replace(/\bstage\s*(\d+)/gi, "阶段 $1");
 }
 
 async function load(showMsg = false) {

@@ -407,7 +407,7 @@ function remedyAsText() {
   lines.push("[运行态] " + (run.why || "无记录"));
   if (run.pid) lines.push(`  pid=${run.pid} since=${run.since || "?"} stage=${run.stage ?? "?"}`);
   const f = rr.facts || {};
-  lines.push(`[环境] engine=${f.engine || "?"} python=${f.python || "?"}`);
+  lines.push(`[环境] 引擎=${f.engine || "?"} python=${f.python || "?"}`);
   // 体检明细（通过项也列，外部 Agent 才知道查过什么）
   const items = (rr.doctor && rr.doctor.items) || [];
   if (items.length) {
@@ -578,12 +578,22 @@ const SETTINGS_TABS = [
   { id: "prompt", name: "风格与提示词" },
   { id: "word", name: "Word 模板" },
   { id: "general", name: "外观与更新" },
-  { id: "diag", name: "诊断与调试" },
+  { id: "diag", name: "运行状态" },
   // 手册放最后：它是"查"的地方，不是"配"的地方。放第一个会挡住默认分类
   // （默认停在“引擎与模型”，有 e2e 断言）。
   { id: "help", name: "使用手册" },
 ];
 const settingsTab = ref(localStorage.getItem("mofang_settings_tab") || "model");
+// 开发者选项（2026-11-20）：默认关。程序文件路径、子进程 PID、开发者工具这类东西
+// 只帮得上“给协助者看日志”的场合，写小说的人看到只会以为软件是半成品，
+// 所以默认不印在页面上，由诊断页底部的勾选框打开（状态存本机，不进配置）。
+const devMode = ref(localStorage.getItem("mofang_dev_mode") === "1");
+function setDevMode(e) {
+  devMode.value = !!(e && e.target && e.target.checked);
+  try {
+    localStorage.setItem("mofang_dev_mode", devMode.value ? "1" : "0");
+  } catch (_) { /* 隐私模式下写不了也不影响本次会话 */ }
+}
 function selectSettingsTab(id) {
   settingsTab.value = id;
   localStorage.setItem("mofang_settings_tab", id);
@@ -1064,7 +1074,7 @@ async function refreshSetting() {
 
 async function saveSetting() {
   if (!settingData.value) return;
-  if (!window.confirm("确定保存 Story Bible？\n\n修改将写入 data/setting/setting.json（自动备份）。")) return;
+  if (!window.confirm("确定保存设定集？\n\n修改会写进本机的设定文件，上一版自动留一份备份。")) return;
   // expected_mtime = 界面打开那一刻的盘上版本：中间别人改过盘就拒收，不静默覆盖。
   const r = await api("/setting/save", "POST", {
     setting: settingData.value,
@@ -6311,7 +6321,7 @@ onUnmounted(() => {
     <section v-if="tab === 'pipeline' && agentPermOpen" class="card" style="margin-top: 10px;">
       <div class="card-head"><h3>Agent 模式权限边界</h3>
         <span class="spacer"></span>
-        <span class="meta">名单来源：后端 utils/agent_guard.py</span>
+        <span class="meta">名单由程序内置，改动需改代码</span>
       </div>
       <div v-if="agentPermErr" class="error-strip">{{ agentPermErr }}</div>
       <div v-else-if="!agentPerms" class="meta">读取中…</div>
@@ -6929,7 +6939,7 @@ onUnmounted(() => {
     <!-- Story Bible（B1） -->
     <section v-if="tab === 'story' && settingData" class="card">
       <div class="card-head">
-        <h3>Story Bible（data/setting/setting.json）</h3>
+        <h3>设定集（角色 / 地点 / 伏笔都在这里）</h3>
         <span v-if="settingDirty" class="pill st-gate">已修改</span>
         <span v-if="settingExternalChange" class="pill st-warn">盘上已变</span>
         <span class="spacer"></span>
@@ -7182,7 +7192,6 @@ onUnmounted(() => {
           <div v-if="segReview.invalidations" class="meta">
             大纲改过 {{ segReview.invalidations }} 次 —— 每次改动都把全部分段打回未通过（旧审核不为新内容背书）
           </div>
-          <div class="meta">习惯用命令行的话，同一套判定在命令行也能跑：<code>python scripts/segment_cli.py list</code></div>
         </div>
       </div>
     </section>
@@ -7222,7 +7231,7 @@ onUnmounted(() => {
             <div class="stat-label">本次 token（入 / 出 / 合计）</div>
             <div class="stat-val sm">{{ fmtNum(streamingCost.tokens_in) }} / {{ fmtNum(streamingCost.tokens_out) }} / {{ fmtNum(streamingCost.tokens_total) }}</div>
             <div class="stat-sub">
-              cache_read {{ fmtNum(streamingCost.cache_read) }}
+              缓存复用 {{ fmtNum(streamingCost.cache_read) }} token
               <template v-if="streamingCost.token_pct !== null && streamingCost.token_pct !== undefined">
                 · 占 token 用量上限 <b>{{ streamingCost.token_pct }}%</b>
                 <template v-if="streamingCost.token_limit && streamingCost.token_limit.max_total_tokens">
@@ -7293,7 +7302,7 @@ onUnmounted(() => {
         <div class="cost-stat">
           <div class="stat-label">输入 token</div>
           <div class="stat-val">{{ fmtNum(costSummary.totals.tokens_in) }}</div>
-          <div class="stat-sub">含 cache_read {{ fmtNum(costSummary.totals.cache_read) }}</div>
+          <div class="stat-sub">其中缓存复用 {{ fmtNum(costSummary.totals.cache_read) }} token</div>
         </div>
         <div class="cost-stat">
           <div class="stat-label">输出 token</div>
@@ -7325,7 +7334,7 @@ onUnmounted(() => {
         <h4>按阶段</h4>
         <table class="cost-table">
           <thead>
-            <tr><th>阶段</th><th>调用</th><th>入</th><th>cache</th><th>出</th><th v-if="costView==='cost'">费用</th><th v-else>估算</th></tr>
+            <tr><th>阶段</th><th>调用</th><th>入</th><th>缓存</th><th>出</th><th v-if="costView==='cost'">费用</th><th v-else>估算</th></tr>
           </thead>
           <tbody>
             <tr v-for="s in costSummary.by_stage" :key="s.stage">
@@ -7413,8 +7422,8 @@ onUnmounted(() => {
         <!-- 批量导入：粘贴整张价格表 → 解析预览 → 确认（只覆盖同名条目） -->
         <div v-if="importOpen" class="rate-import">
           <div class="meta" style="margin-bottom: 6px;">
-            粘贴整张价格表：每行“模型 输入价 输出价 [缓存价]”（分隔符任意），
-            也支持 JSON 或直接从 <code>RATES</code> 复制的字面量。
+            粘贴整张价格表：每行“模型 输入价 输出价 [缓存价]”（分隔符随意），
+            也可以直接粘贴一段现成的价目清单，程序会自己认格式。
             <b>先解析预览，确认无误再导入</b> —— 只覆盖同名条目，不会删除其他定价。
           </div>
           <textarea v-model="importText" class="rate-import-box" rows="6"
@@ -7534,7 +7543,8 @@ onUnmounted(() => {
           不向 DSH 传模型名 —— 所以右下角这张表在本模式下不参与，也不给你填。
           金额上限不生效，花超自动停看“预算与止烧”里的 token 上限。
           借的是你 DSH 桌面端那套配置（第三方渠道 + 已登录凭据），不用在这里填 Key；
-          本机没装 DSH 时“诊断”里会写“DSH 不可用”，按提示装或填 dsh.bin。
+          本机没装 DSH 时，点左侧的“补救”，弹出的自检里会写“DSH 不可用”；
+          按提示装 DSH，或把它的入口路径填进配置。
         </div>
         <div class="meta eng-note" v-else-if="models.engine === 'self'">
           自任务模式下点了运行只会产出任务书（不花钱）：按任务书把文件写到指定路径，再点一次运行即续跑。
@@ -8436,9 +8446,8 @@ onUnmounted(() => {
       <div v-if="wordTplLoading" class="meta" style="margin-top: 6px;">读取中…</div>
       <div v-else-if="wordTplMsg" class="meta" style="margin-top: 6px;">{{ wordTplMsg }}</div>
       <div class="meta" style="margin-top: 8px; opacity: 0.75;">
-        出口校验：成品与模板逐项核对（占位符 / 章节层级 / 样式逐字一致 / 页面设置）走
-        <code>scripts/template_check.py</code>，基线就是这里选的这份模板。
-        出厂默认：{{ wordTpl.default || "（读取中…）" }}。
+        出口校验：成品与模板逐项核对（占位符 / 章节层级 / 样式逐字一致 / 页面设置），
+        基线就是这里选的这份模板。出厂默认：{{ wordTpl.default || "（读取中…）" }}。
       </div>
           </div><!-- /set-pane word -->
           <div class="set-pane" v-show="settingsTab === 'general'">
@@ -8502,7 +8511,6 @@ onUnmounted(() => {
       <!-- 自动更新 -->
       <h4 style="margin-top: 16px;">自动更新</h4>
       <div class="provider-row">
-        <span class="pill st-done">electron-updater</span>
         <span class="art-path">{{ updateStatus }}</span>
         <span class="spacer"></span>
         <button class="mini" @click="checkForUpdates" :disabled="checkingUpdate"
@@ -8513,8 +8521,8 @@ onUnmounted(() => {
         <button v-if="updateReady" class="mini primary" @click="quitAndInstall">重启安装</button>
       </div>
       <div v-if="updaterDev || !updaterInitialized" class="meta" style="margin-top: 4px; opacity: 0.75;">
-        本机不支持自动更新（{{ updaterDev ? "开发模式" : "便携版 / updater 未初始化" }}）；
-        请用“下载新版本”手动更新 —— 数据都在本机工作区，覆盖安装不会丢。
+        这台机器上的自动更新没启用（{{ updaterDev ? "开发模式" : "安装方式不支持" }}）；
+        请用“下载新版本”手动更新 —— 你的数据都存在本机，覆盖安装不会丢。
       </div>
       <div v-else-if="!updateReady" class="meta" style="margin-top: 4px; opacity: 0.75;">
         自动更新走 GitHub Releases：检查到新版本会自动下载，完成后这里出现“重启安装”。
@@ -8525,36 +8533,46 @@ onUnmounted(() => {
           </div><!-- /set-pane general -->
           <div class="set-pane" v-show="settingsTab === 'diag'">
 
-      <!-- 诊断与调试（2026-10-06 对齐方寸“🩺 诊断”—— 像样的调试入口） -->
-      <h4 style="margin-top: 16px;">诊断与调试</h4>
+      <!-- 运行状态与排查（2026-10-06 对齐方寸“🩺 诊断”—— 像样的调试入口）
+           2026-11-20 重写：原文整页是开发者面板（代码根 / 数据根 / 父进程 PID /
+           项目根来源 / DevTools）。作者看不懂，也不需要 —— 他要的是
+           “程序在不在跑、日志在哪、怎么重开”三件事。程序路径与 PID 收进
+           下面的“显示开发者选项”，默认不印在页面上。 -->
+      <h4 style="margin-top: 16px;">运行状态与排查</h4>
       <div class="meta" style="line-height: 1.8; margin-bottom: 8px;">
-        运行形态：{{ dbg ? (dbg.packaged ? '安装版' : '源码版') + ' v' + dbg.version : '读取中…' }}
-        · 后端：<b :style="{ color: dbg && dbg.apiHealthy ? 'var(--ok)' : 'var(--bad)' }">
-          {{ dbg ? (dbg.apiHealthy ? '在线' : '离线') : '…' }}</b>
-        <template v-if="dbg">
-          · 子进程 PID {{ dbg.apiChildPid || '无（端口可能由外部进程服务）' }}
+        程序：{{ dbg ? (dbg.packaged ? '安装版' : '源码版') + ' v' + dbg.version : '读取中…' }}
+        · 后台服务：<b :style="{ color: dbg && dbg.apiHealthy ? 'var(--ok)' : 'var(--bad)' }">
+          {{ dbg ? (dbg.apiHealthy ? '正常' : '没连上') : '…' }}</b>
+        <br>你的数据在：<code>{{ dbg ? dbg.projectRoot : '-' }}</code>
+        <br>运行日志在：<code>{{ dbg ? dbg.logPath : '-' }}</code>
+        <template v-if="devMode && dbg">
+          <br>程序文件在：<code>{{ dbg.codeRoot }}</code>
+          · 子进程 PID {{ dbg.apiChildPid || '无（端口由别的进程服务）' }}
           · 项目根来源 {{ dbg.projectRootSource }}
         </template>
-        <br>代码根：<code>{{ dbg ? dbg.codeRoot : '-' }}</code>
-        <br>数据根：<code>{{ dbg ? dbg.projectRoot : '-' }}</code>
-        <br>日志：<code>{{ dbg ? dbg.logPath : '-' }}</code>
       </div>
       <div class="ac-actions" style="margin-top: 0;">
         <button class="mini" @click="openRunLog">查看运行日志（400 行）</button>
         <button class="mini" @click="openBackendLog">打开日志文件</button>
-        <button class="mini" @click="loadDebugInfo">刷新诊断</button>
-        <button class="mini" @click="copyDiagnostics">复制诊断信息</button>
-        <button class="mini" @click="toggleDevtools" title="快捷键 Ctrl+Shift+I 或 F12">
-          DevTools 开关
-        </button>
+        <button class="mini" @click="loadDebugInfo">刷新</button>
+        <button class="mini" @click="copyDiagnostics">复制排查信息</button>
         <button class="mini" :disabled="isRunning" @click="restartBackend"
-                :title="isRunning ? '流水线运行中，重启会打断当前任务' : '杀掉并重启 nf_api 子进程（约 3-15 秒）'">
-          重启后端 API
+                :title="isRunning ? '正在写作，重启会打断当前这一章' : '把后台服务关掉重开（约 3-15 秒）'">
+          重启后台服务
+        </button>
+        <button v-if="devMode" class="mini" @click="toggleDevtools" title="快捷键 Ctrl+Shift+I 或 F12">
+          开发者工具
         </button>
       </div>
       <div class="meta" style="margin-top: 4px; opacity: 0.75;">
-        排障顺序：先“查看运行日志”→ 拿“复制诊断信息”贴给协助者 →
-        仍不行再“重启后端 API”。DevTools 看渲染层（前端报错、网络请求）。
+        卡住了就按这个顺序来：先“查看运行日志”看它停在哪一步 → 还是不明白就把
+        “复制排查信息”的内容贴给协助者 → 仍然不行再“重启后台服务”。
+      </div>
+      <div class="meta" style="margin-top: 14px;">
+        <label style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer;">
+          <input type="checkbox" :checked="devMode" @change="setDevMode" />
+          显示开发者选项（程序文件路径、开发者工具）
+        </label>
       </div>
 
       <!-- 出厂内容（0.6.7 出厂/用户数据分治）：样例书曾被试跑搬进真实工作区，
@@ -8563,8 +8581,8 @@ onUnmounted(() => {
       <div class="meta" style="line-height: 1.8; margin-bottom: 8px;">
         <template v-if="factory && !factory._error">
           出厂清单：<b>{{ factory.manifest
-            ? (factory.manifest.count + ' 个文件（种子 v' + factory.manifest.seed_version + '）')
-            : '未播种（源码态不播种，或工作区尚未首次启动）' }}</b>
+            ? (factory.manifest.count + ' 个文件（版本 v' + factory.manifest.seed_version + '）')
+            : '还没铺开（源码运行时不铺，或工作区还没第一次启动）' }}</b>
           · 样例目录：<b :style="{ color: factory.sample_root_exists ? 'var(--ok)' : 'var(--bad)' }">
             {{ factory.sample_root_exists ? '已随包' : '未找到' }}</b>
           <br>样例匹配：<b :style="{ color: (factory.match_count || 0) > 0 ? 'var(--warn)' : 'var(--ok)' }">
@@ -8572,7 +8590,7 @@ onUnmounted(() => {
           <span v-if="!(factory.match_count || 0)">（未检出与出厂示例一致的文件）</span>
           <div v-if="(factory.match_count || 0)"
                style="max-height: 168px; overflow: auto; margin-top: 4px; padding: 6px 8px;
-                      border: 1px solid var(--border)); border-radius: 6px;">
+                      border: 1px solid var(--border); border-radius: 6px;">
             <div v-for="m in (factory.matches || []).slice(0, 20)" :key="m.path"
                  style="display: flex; gap: 8px; justify-content: space-between;">
               <code>{{ m.path }}</code>
@@ -8604,8 +8622,6 @@ onUnmounted(() => {
           </div><!-- /set-pane help -->
         </div><!-- /set-panes -->
       </div><!-- /set-layout -->
-
-      <div class="meta" style="margin-top: 12px;">项目目录: {{ state ? state.project_dir : "-" }}</div>
     </section>
 
     <!-- 导出面板（P3 多平台发布） -->
@@ -8644,7 +8660,7 @@ onUnmounted(() => {
           <div class="bp-field">
             <label>
               <input type="checkbox" v-model="exportCfg.includeFrontmatter" />
-              包含 frontmatter 元数据
+              包含章首信息（书名、章号、作者等）
             </label>
           </div>
 
@@ -9099,9 +9115,9 @@ onUnmounted(() => {
         </table>
 
         <div v-if="estDialog.data.unknown_rate_models.length" class="est-warn">
-          ⚠ 以下模型没有刊例价（带 *），费用按 default 角色兜底，偏差可能很大：
+          ⚠ 以下模型还没登记价格（带 *），费用暂按同一档位的参考价估算，偏差可能很大：
           {{ estDialog.data.unknown_rate_models.join("、") }}。
-          请先运行 <code>python scripts/price_wizard.py</code> 补录后再下单。
+          可到“设置 → 引擎与模型”的价目表里补上单价，再重新估算。
         </div>
 
         <div class="meta" style="margin-top: 8px;">

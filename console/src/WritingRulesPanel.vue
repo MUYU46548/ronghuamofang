@@ -89,7 +89,7 @@ defineExpose({ load });
     </div>
     <div class="meta">
       这本书的硬规矩：术语、禁忌、称呼、视角、每章必须出现的东西。有内容时会写进
-      <b>写作与润色</b>的任务里（<code>stage4</code> / <code>stage6</code>）；
+      <b>写作与润色</b>的任务里（阶段 4 / 阶段 6）；
       <b>留空则不注入</b>，不占每章的位置。
     </div>
 

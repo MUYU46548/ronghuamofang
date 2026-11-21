@@ -302,7 +302,7 @@ onMounted(() => loadReport(true));
               <input type="checkbox" v-model="picked[keyOf(c.n, f)]" />
               <span class="sev-icon">{{ sevIcon(f.severity) }}</span>
               <span class="finding-type">{{ typeLabel(f.type) }}</span>
-              <span v-if="f.source === 'llm'" class="pill st-running">LLM</span>
+              <span v-if="f.source === 'llm'" class="pill st-running">模型</span>
               <span class="finding-id">{{ f.id }}</span>
             </div>
             <div class="finding-detail">{{ f.detail }}</div>

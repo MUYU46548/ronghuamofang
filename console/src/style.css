@@ -1823,6 +1823,11 @@ kbd {
   background: var(--bg); border: 1px solid var(--border); border-radius: 7px;
   padding: 4px 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+/* 关于页数据位置：2026-11-20 起不再正面印绝对路径，中间一栏放“这里放的是什么” */
+.ap-hint {
+  flex: 1; min-width: 0; font-size: 12px; color: var(--ink);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .about-links { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
 /* ---- 定价编辑器 ---- */

@@ -49,14 +49,20 @@ def main():
 
     print("\n[C1/C2] 两种引擎的说明文本")
     # 2026-11-17：订阅口径从 hermes 一个引擎扩成 hermes + dsh，所以这里不再钉死
-    # `engine=hermes：` 这一串字面量（否则加引擎时只能改测试把断言改松），
-    # 改成钉“同一份引擎名单 + 同一句人话”：
-    check("订阅分支写明“订阅流量 / 不是免费”",
-          'engine=%s：走订阅流量' in misc and "不是免费" in misc, None)
+    # `engine=hermes：` 这一串字面量（否则加引擎时只能改测试把断言改松）。
+    # 2026-11-20：说明文字整段重写 —— 界面上不再出现 `engine=xxx` / `provider`
+    # 这类参数名，所以断言改成钉“同一句人话”，并加一条反向闸：不许把参数名写回去。
+    check("订阅分支写明“走订阅 / 不是免费”",
+          "这笔用量走订阅" in misc and "不是免费" in misc, None)
     check("订阅分支同时覆盖 hermes 与 dsh（不是只想着 hermes）",
           'engine in ("hermes", "dsh")' in misc, None)
-    check("direct 分支写明按量/刊例价",
-          "engine=direct：按 provider 刊例价估算" in misc)
+    check("按量分支写明“官方价目表”",
+          "费用按官方价目表估算" in misc)
+    check("说明不以 pill 标签开头（否则界面重复成“按量计价 按量计价：”）",
+          '"订阅流量：这笔用量' not in misc and '"按量计价：费用' not in misc, None)
+    check("说明文字里不再出现 engine=direct / engine=%s / provider 刊例价",
+          "engine=direct" not in misc and "engine=%s" not in misc
+          and "provider 刊例价" not in misc, None)
     check("money_metered 由引擎决定（订阅口径即不计金额）",
           '"money_metered": engine not in ("hermes", "dsh")' in misc)
 

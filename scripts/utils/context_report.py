@@ -39,7 +39,7 @@ SOURCE_FILES = (
     ("设定集", "data/setting/setting.json"),
     ("整体大纲", "data/outline/global.md"),
     ("滚动摘要", "data/summaries/rolling.md"),
-    ("一致性账本", "data/state/story_state.json"),
+    ("一致性记录", "data/state/story_state.json"),
 )
 
 
@@ -99,9 +99,10 @@ def snapshot(root, cfg=None):
         "total_chars": sum(s["chars"] for s in sources),
         "task_book": {"files": files, "bytes": size},
         "memory_budget": budget,
-        "note": ("上面是**盘上原文**字数（不是一次请求的注入量）：写作时 L2/L3 按 "
-                 "context.memory 的预算裁剪，固定层还要按本章大纲筛。"
-                 "单章实际注入见“上下文包”。"),
+        # 2026-11-21：原来这句是写给开发看的（Markdown 星号 + L2/L3 + context.memory），
+        # 界面上会把星号原样印出来，作者也读不懂“L2/L3 按预算裁剪”。
+        "note": ("上面这些是文件里原有的字数，不是一次真正送进模型的量 —— 写作时会按本章大纲"
+                 "和上下文预算挑着送，实际送了多少见“上下文包”。"),
     }
 
 

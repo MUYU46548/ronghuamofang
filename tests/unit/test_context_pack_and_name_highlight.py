@@ -129,7 +129,12 @@ def main():
         check("任务书体积统计到",
               snap["task_book"]["files"] == 1 and snap["task_book"]["bytes"] > 0,
               snap["task_book"])
-        check("note 说清不是注入量", "不是一次请求的注入量" in snap["note"])
+        # 2026-11-21：note 改成作者话（原文带 Markdown 星号与 L2/L3，界面上会原样印出来）。
+        # 判的仍是“说清这不是一次请求的量”，并加一条反向闸：不许再出现 Markdown 星号。
+        check("note 说清不是一次请求的量",
+              "不是一次真正送进模型的量" in snap["note"], snap["note"][:60])
+        check("note 里没有 Markdown 星号（界面是纯文本，印出来就是 ** ）",
+              "**" not in snap["note"])
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

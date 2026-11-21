@@ -438,9 +438,9 @@ onMounted(() => {
 
     <!-- self 模式前置说明（2026-11-11）：以前这个页签的按钮点了才报错，与章节编辑器不一致。 -->
     <div v-if="selfEngine" class="self-hint">
-      ◻ <b>自任务模式：只出任务书，不调模型</b> —— 本页的“直接改正文 / dry-run / 批量直接改正文”
-      都要调模型，所以按钮不可用。要在这里改字，先到“设置 → 引擎与模型”切到 direct 或 DSH；
-      或改用“章节编辑器”里的段落批注（那边在 self 下会出任务书，写完你点采用才写进正文）。
+      ◻ <b>自任务模式：只出任务书，不调模型</b> —— 本页的“直接改正文 / 只看不改 / 批量直接改正文”
+      都要调模型，所以按钮不可用。要在这里改字，先到“设置 → 引擎与模型”选一个会真正改正文的运行方式；
+      或改用“章节编辑器”里的段落批注（那边在自任务模式下会出任务书，写完你点采用才写进正文）。
     </div>
 
     <div v-if="!loading && paragraphs.length === 0" class="empty">
@@ -568,7 +568,7 @@ onMounted(() => {
             <button class="mini" :disabled="running || !feedback.trim() || selfEngine"
                     :title="selfEngine ? SELF_HINT : '只备份 + 出任务文件，不调用模型、不改正文'"
                     @click="runDryRun">
-              只看不改（dry-run）
+              只看不改
             </button>
           </div>
 

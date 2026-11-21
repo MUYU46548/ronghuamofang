@@ -902,8 +902,7 @@ onMounted(() => {
         </div>
         <div v-if="homoErr" class="empty" style="padding:14px 0;">{{ homoErr }}</div>
         <div v-else-if="!homo || !(homo.chapters || []).length" class="meta" style="padding:10px 0;">
-          还没有报告 —— 跑过写作（阶段 4）之后每章自动生成；也可在命令行单独测一章：
-          <code>python scripts/utils/homogeneity.py 章节.md --names 角色1,角色2</code>
+          还没有报告 —— 跑过写作（阶段 4）之后每章自动生成。
         </div>
         <table v-else class="cost-table homo-table">
           <thead>
