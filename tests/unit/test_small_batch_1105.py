@@ -81,7 +81,10 @@ def main():
 
     print("\n[K4] 章标题入口（-022）")
     check("设置页标题带“排版 / Word”", "章标题格式（排版 / Word 相关）" in app)
-    check("导出页有跳转按钮", "章标题样式在哪改" in app)
+    # 2026-11-21：按钮文案由问句（“章标题样式在哪改”）改成动宾（“改章标题样式”），
+    # 判据跟着改，并加一条反证：旧问句不许再出现。
+    check("导出页有跳转按钮", "改章标题样式" in app and "switchTab('settings')" in app)
+    check("按钮不再用问句当文案", "章标题样式在哪改" not in app)
     check("手册写了三步到达", "三步到达" in helpmd and "章标题格式（排版 / Word 相关）" in helpmd)
 
     print("\n" + "=" * 70)
