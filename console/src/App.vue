@@ -678,6 +678,12 @@ const DARK_THEMES = ["dark", "night-blue", "night-green", "night-warm"];
 // 以后加新主题只需登记进 DARK_THEMES，分排自动跟上。
 const lightThemes = computed(() => THEMES.filter((t) => !DARK_THEMES.includes(t.id)));
 const darkThemes = computed(() => THEMES.filter((t) => DARK_THEMES.includes(t.id)));
+// 2026-11-21（问题表 P2-5）：主题只有圆点、没有色名，选完没法复述“我用的是哪个”。
+// 圆点保留，下面补一行“当前：雾灰紫”。
+const themeName = computed(() => {
+  const hit = THEMES.find((t) => t.id === theme.value);
+  return hit ? hit.name : theme.value;
+});
 
 function setTheme(t) {
   theme.value = t;
@@ -6021,8 +6027,9 @@ onUnmounted(() => {
         <span class="tab-group-title">审校</span>
       <button :class="{ active: tab === 'review' }" @click="switchTab('review')">审稿</button>
       <button :class="{ active: tab === 'refine' }" @click="switchTab('refine')">精修</button>
-      <button :class="{ active: tab === 'sandbox' }" @click="switchTab('sandbox'); loadSandboxQueue()">
-        改稿审核<span v-if="reviewPending" class="badge">{{ reviewPending }}</span>
+      <button :class="{ active: tab === 'sandbox' }" @click="switchTab('sandbox'); loadSandboxQueue()"
+              :title="reviewPending ? ('有 ' + reviewPending + ' 份改稿等你审（沙盒里的改稿 + 讨论提案）') : 'AI 改的稿会先到这里，你批了才写回'">
+        改稿审核<span v-if="reviewPending" class="badge" :title="'等你审的改稿：' + reviewPending + ' 份'">{{ reviewPending }}</span>
       </button>
       <button :class="{ active: tab === 'proofread' }" @click="switchTab('proofread')">校对</button>
       <button :class="{ active: tab === 'style' }" @click="switchTab('style')">文风</button>
@@ -6030,11 +6037,15 @@ onUnmounted(() => {
       <div class="tab-group" role="group" aria-label="系统" title="系统">
         <span class="tab-group-title">系统</span>
       <button :class="{ active: tab === 'cost' }" @click="switchTab('cost')">成本</button>
-      <button @click="asksOpen = !asksOpen; loadAgentAsks()" title="Agent 与检查结果要你作主的事（回答后 Agent 能读到）">
+      <!-- 2026-11-21（问题表 P1-3）：它是抽屉入口，不是页签。原来混在页签里，
+           点下去不换页，用户以为坏了。加 .tab-drawer 标记（虚框 + 小箭头）。 -->
+      <button class="tab-drawer" @click="asksOpen = !asksOpen; loadAgentAsks()"
+              :title="(askPending ? ('有 ' + askPending + ' 件事等你定；') : '') + 'Agent 与检查结果要你作主的事（回答后 Agent 能读到）这个面板从右侧弹出，不换页'">
         要你定的事<span v-if="askPending" class="badge">{{ askPending }}</span>
       </button>
-      <button :class="{ active: tab === 'inbox' }" @click="switchTab('inbox')">
-        收件箱<span v-if="pendingGates.length" class="badge">{{ pendingGates.length }}</span>
+      <button :class="{ active: tab === 'inbox' }" @click="switchTab('inbox')"
+              :title="pendingGates.length ? ('有 ' + pendingGates.length + ' 个审批门等你放行') : '跑完等你放行的阶段会出现在这里'">
+        收件箱<span v-if="pendingGates.length" class="badge" :title="'等你放行的审批门：' + pendingGates.length + ' 个'">{{ pendingGates.length }}</span>
       </button>
       <button :class="{ active: tab === 'project' }" @click="switchTab('project')">项目</button>
       <button :class="{ active: tab === 'settings' }" @click="switchTab('settings')">设置</button>
@@ -6335,7 +6346,7 @@ onUnmounted(() => {
       <span class="agent-bar-dot"></span>
       <span class="agent-bar-label">Agent 模式</span>
       <span class="agent-bar-desc">
-        <template v-if="agentMode">已开启 —— 外部 Agent（Hermes 等）可通过 HTTP API 调用本机；常规运行按钮已锁定（防双跑）；审批 / 打回 / 归档 / 建项目仍只在桌面端手动执行</template>
+        <template v-if="agentMode">已开启 —— 外部 Agent（Hermes 等）可通过 HTTP API 调用本机；常规运行按钮已锁定（同一时间只允许一个任务在跑）；审批 / 打回 / 归档 / 建项目仍只在桌面端手动执行</template>
         <template v-else>已关闭 —— 外部 Agent 无法调用本机 API</template>
       </span>
       <span class="spacer"></span>
@@ -6708,13 +6719,14 @@ onUnmounted(() => {
         <h3>章节文件（原稿 → 检查稿 → 润色稿）</h3>
         <!-- 审阅台（2026-10-26，用户第 2 条）：左章列表 / 中正文编辑 / 右大纲+七维，
              把“适合审阅、精修、讨论的形态”放进同一屏。列表视图保持原样。 -->
-        <button class="mini" :class="{ primary: chapterView === 'desk' }"
+        <!-- 2026-11-21（问题表 P1-4）：原来这里并排两个按钮“审阅台 / 打开审阅台”，
+             做的是同一件事，只差“从第几章开始”。合成一个：进审阅台就接着上次那一章，
+             想从第一章开始就点列表里第 1 章的“审阅”。 -->
+        <button class="mini" :class="{ primary: chapterView !== 'desk' }"
                 title="三栏审阅台：章列表 + 正文编辑/批注 + 本章大纲与七维评审（七个角度的检查）"
                 @click="toggleChapterView">
-          {{ chapterView === "desk" ? "回到列表" : "审阅台" }}
+          {{ chapterView === "desk" ? "回到列表" : "打开审阅台" }}
         </button>
-        <button v-if="chapterView !== 'desk'" class="mini" @click="openDesk(1)"
-                title="打开审阅台并从头开始（也可以点下面每一章的“审阅”）">打开审阅台</button>
         <button class="mini" @click="loadChapters">重新探测</button>
         <button class="mini" @click="loadChapterQuality" title="刷新质量评分">质量</button>
       </div>
@@ -7171,7 +7183,7 @@ onUnmounted(() => {
           <span class="spacer"></span>
           <button class="mini primary" @click="approve(s.stage)">确认放行</button>
           <button class="mini" v-if="s.stage === 2" @click="openOutlineTab">查看大纲结构</button>
-          <button class="mini" v-if="s.stage === 2" @click="openMultiDraftDlg">多方案对比</button>
+          <button class="mini" v-if="s.stage === 2" @click="openMultiDraftDlg">多版本对比</button>
           <button class="mini" v-if="s.stage === 2" @click="refineOpen = true">精修意见</button>
           <button class="mini" v-if="s.stage === 6" @click="gotoFromInbox('chapters'); loadChapters()">章节润色稿</button>
           <button class="mini" v-if="s.stage === 6" @click="openRefineDiffDlg">逐章对比</button>
@@ -7248,7 +7260,8 @@ onUnmounted(() => {
           <button :class="{ on: costView === 'usage' }" @click="costView = 'usage'">用量</button>
           <button :class="{ on: costView === 'rates' }" @click="costView = 'rates'; loadRates()">定价</button>
         </div>
-        <button class="mini" @click="refreshCosts">刷新</button>
+        <span class="spacer"></span>
+        <button class="mini" @click="refreshCosts" title="重新拉一次费用与用量">刷新</button>
       </div>
 
       <!-- 当前运行：实时花费 / 已用 token / 预算进度（每 2.5s 随 state 刷新） -->
@@ -8115,9 +8128,11 @@ onUnmounted(() => {
       <div v-if="agentConnect" class="ac-block">
         <div class="ac-tabs">
           <button class="mini" :class="{ primary: acTab === 'hermes' }"
-                  @click="acTab = 'hermes'">Hermes（config.yaml · YAML）</button>
+                  @click="acTab = 'hermes'"
+                  title="Hermes 用 YAML 配置，下面是可直接粘进配置文件的片段">Hermes（YAML）</button>
           <button class="mini" :class="{ primary: acTab === 'json' }"
-                  @click="acTab = 'json'">Claude Code / Cline（JSON）</button>
+                  @click="acTab = 'json'"
+                  title="Claude Code / Cline 用 JSON 配置，下面是可直接粘进去的片段">Claude Code / Cline（JSON）</button>
         </div>
         <pre class="ac-code">{{ acTab === 'hermes' ? agentConnect.yamlSnippet : agentConnect.jsonSnippet }}</pre>
         <div class="ac-actions">
@@ -8533,6 +8548,7 @@ onUnmounted(() => {
             </button>
           </div>
         </div>
+        <div class="theme-current meta">当前：<b>{{ themeName }}</b>（颜色只是皮，不影响正文与数据）</div>
       </div>
 
       <div class="bp-field">
@@ -8677,7 +8693,7 @@ onUnmounted(() => {
         <span class="spacer"></span>
         <button class="mini" @click="switchTab('settings')"
                 title="章标题长什么样（第10章 潜七十二 / 第10章潜七十二）在“设置 → 章标题格式”">
-          章标题样式在哪改
+          改章标题样式
         </button>
       </div>
 
@@ -8716,9 +8732,9 @@ onUnmounted(() => {
 
         <!-- 最近导出：读 output/ 的实际内容（含 orchestrator 跑阶段 7/8 的产物） -->
         <div class="export-panel">
-          <h4>最近导出 <span class="meta">（output/ 实际内容，与谁触发的无关）</span></h4>
+          <h4>最近导出</h4>
           <div v-if="!exportHistory.length" class="bp-empty">
-            output/ 里还没有成品 —— 跑阶段 7（Word）或阶段 8（Markdown），或点上面的“开始导出”
+            还没有成品 —— 跑阶段 7（Word）或阶段 8（Markdown），或点上面的“开始导出”
           </div>
           <div v-for="h in exportHistory" :key="h.rel || h.path" class="export-history-item">
             <span class="export-time">{{ h.mtime_text }}</span>

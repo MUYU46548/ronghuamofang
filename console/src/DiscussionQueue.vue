@@ -63,7 +63,6 @@
               <code class="dq-path">{{ shortPath(it.path) }}</code>
             </div>
             <div class="meta dq-item-meta">
-              <span v-if="it.source">来源 {{ it.source }}</span>
               <span>更新 {{ it.updated_at || it.created_at || "—" }}</span>
               <span v-if="it.reviewed_at">审于 {{ it.reviewed_at }}</span>
             </div>

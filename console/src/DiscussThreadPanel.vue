@@ -50,7 +50,9 @@
             <button class="mini" @click="say('ai')" :disabled="!sayText.trim() || aiBusy"
                     title="手写一轮 AI 发言（AI 没接上引擎时用；正常路径是上面的按钮）">以 AI 身份手写</button>
             <span v-if="sayDraftPending" class="pill draft">草稿，还没说出去</span>
-            <span class="muted">轮次只追加，不改写历史。</span>
+            <!-- 2026-11-21（问题表 P2-8）：这是状态说明，不是动作 —— 原来和四个按钮
+                 挤在同一行，看着像第五个按钮。独占一行。 -->
+            <span class="muted note-full">轮次只追加，不改写历史。</span>
           </div>
         </div>
 

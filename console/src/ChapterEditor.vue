@@ -261,7 +261,12 @@ const wordBadge = computed(() => {
   const lo = target.value[0] || 0;
   const hi = target.value[1] || 0;
   if (!lo) return { cls: "", text: words.value + " 字" };
-  if (words.value < lo) return { cls: "low", text: words.value + " 字（下限 " + lo + "）" };
+  // 2026-11-21（问题表 P2-7）：原来只写“35 字（下限 4000）”，差一百倍也只有一行灰字。
+  // 现在把差额算出来写在脸上，并在样式里加底色（差 4000 字不该靠凑近看）。
+  if (words.value < lo) {
+    return { cls: "low",
+             text: words.value + " 字 · 下限 " + lo + " 字（还差 " + (lo - words.value) + "）" };
+  }
   if (hi && words.value > hi) return { cls: "high", text: words.value + " 字（上限 " + hi + "）" };
   return { cls: "ok", text: words.value + " 字" };
 });
@@ -1272,7 +1277,11 @@ onUnmounted(() => {
 .ce-pill.on { background: var(--accent, #6b8afd); color: #fff; border-color: transparent; }
 .ce-pill-n { opacity: 0.75; margin-left: 4px; font-size: 11px; }
 .ce-wordbadge { margin-left: 10px; font-size: 12px; color: var(--muted, #888); white-space: nowrap; }
-.ce-wordbadge.low { color: var(--warn, #b8860b); }
+.ce-wordbadge.low {
+  color: var(--warn, #b8860b); background: rgba(201, 162, 106, 0.18);
+  border: 1px solid var(--warn, #b8860b); border-radius: 999px;
+  padding: 1px 8px; font-weight: 600;
+}
 .ce-wordbadge.high { color: var(--warn, #b8860b); }
 .ce-wordbadge.ok { color: var(--ok, #2e8b57); }
 .ce-dirty { margin-left: 8px; font-size: 12px; color: var(--warn, #b8860b); }

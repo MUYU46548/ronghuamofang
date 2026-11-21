@@ -142,15 +142,17 @@ async function submit() {
     <div class="dialog" style="width: min(620px, 94vw);">
       <div style="display:flex; align-items:center; gap:10px; margin-bottom:6px;">
         <h3 style="margin:0;">新建项目</h3>
-        <span class="meta">{{ step }} / 4</span>
+        <span class="meta">第 {{ step + 1 }} 步 / 共 4 步</span>
         <span class="spacer"></span>
         <button class="mini" :disabled="busy" @click="$emit('close')">取消</button>
       </div>
       <div class="wiz-steps">
-        <span class="wiz-step" :class="{ on: step === 0, done: step > 0 }">0 选预设</span>
-        <span class="wiz-step" :class="{ on: step === 1, done: step > 1 }">1 基本信息</span>
-        <span class="wiz-step" :class="{ on: step === 2, done: step > 2 }">2 当前工作区</span>
-        <span class="wiz-step" :class="{ on: step === 3 }">3 确认创建</span>
+        <!-- 2026-11-21（问题表 P1-9）：原来编号从 0 起、计数写 “0 / 4”，
+             四步看起来像五步。统一成 1~4（内部 step 仍是 0~3，只改显示）。 -->
+        <span class="wiz-step" :class="{ on: step === 0, done: step > 0 }">1 选预设</span>
+        <span class="wiz-step" :class="{ on: step === 1, done: step > 1 }">2 基本信息</span>
+        <span class="wiz-step" :class="{ on: step === 2, done: step > 2 }">3 当前工作区</span>
+        <span class="wiz-step" :class="{ on: step === 3 }">4 确认创建</span>
       </div>
 
       <!-- 步骤 0：选预设（可跳过） -->

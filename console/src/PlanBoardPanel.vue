@@ -159,8 +159,15 @@ onMounted(load);
         <button v-for="v in VIEWS" :key="v[0]" class="mini"
                 :class="{ primary: view === v[0] }" @click="view = v[0]">{{ v[1] }}</button>
       </span>
-      <input v-model="reason" class="reason" placeholder="理由（可选，会记进操作记录）" />
       <button class="mini" :disabled="busy" @click="load">刷新</button>
+    </div>
+
+    <!-- 2026-11-21（问题表 P1-7）：理由输入框原来和“刷新”挤在一排，
+         看成三个动作并列。单独一行、说清它是给谁记的。 -->
+    <div class="plan-reason-row">
+      <span class="meta">操作理由</span>
+      <input v-model="reason" class="reason"
+             placeholder="可选：会记进操作记录，回看时知道当时为什么这么定" />
     </div>
 
     <p class="meta">
@@ -257,6 +264,9 @@ onMounted(load);
 
 <style scoped>
 .reason { width: 200px; }
+/* 理由输入单独一行（2026-11-21）：它属于“这次操作”，不属于工具栏按钮组 */
+.plan-reason-row { display: flex; align-items: center; gap: 8px; margin: -4px 0 10px; }
+.plan-reason-row .reason { flex: 1; max-width: 460px; width: auto; }
 .views { display: inline-flex; gap: 4px; margin-right: 8px; }
 .tabs-sub .n { margin-left: 4px; opacity: 0.7; }
 .item { border: 1px solid var(--border); border-radius: 6px; padding: 8px; margin-bottom: 8px; }

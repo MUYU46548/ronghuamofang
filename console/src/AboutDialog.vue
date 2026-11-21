@@ -117,7 +117,7 @@ const STEPS = [
         <span class="brand-mark">绒</span>
         <div>
           <div class="about-title">绒花墨坊<span class="about-ver">v{{ app?.version || info?.version || "…" }}</span></div>
-          <div class="meta">基于AI的长篇小说创作工具</div>
+          <div class="meta">基于 AI 的长篇小说创作工具</div>
         </div>
         <span class="spacer"></span>
       </div>

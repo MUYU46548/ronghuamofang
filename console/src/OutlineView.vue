@@ -26,7 +26,8 @@
         <button class="mini" @click="openVersionDiff">版本对比</button>
         <button class="mini" @click="openVariants"
                 title="动笔前先定故事走向：三张卡，每张写清代价">开局方案</button>
-        <button class="mini" @click="openMulti">多方案</button>
+        <button class="mini" @click="openMulti"
+                title="同一份设定生成几个不同走向的大纲版本，并排对比后选一个">多写几版大纲</button>
         <button class="mini" :class="{ primary: adviseHot }" @click="openAdvise"
                 title="还差什么、接下来先做哪一步（确定性分析，不花 token）">
           趋势 / 建议<span v-if="adviseHot" class="ov-hotdot"></span>
@@ -82,7 +83,12 @@
 
       <!-- ============ 右：属性面板 ============ -->
       <div class="card ov-prop-card">
-        <div v-if="!sel" class="empty">在左侧树中选择一个节点 / 章节规划项</div>
+        <!-- 2026-11-21（问题表 P2-2）：两块空态原来并排说两句话，读者要读完才明白
+             哪个是“没有内容”、哪个是“请选择”。没有内容时右边直接给下一步。 -->
+        <div v-if="!sel && !tree.length" class="empty">
+          左边还没有内容 —— 去流水线跑阶段 2 生成大纲，或先用上面的“开局方案”定故事走向
+        </div>
+        <div v-else-if="!sel" class="empty">在左侧树中选择一个节点 / 章节规划项</div>
         <template v-else>
           <div class="card-head">
             <h3>

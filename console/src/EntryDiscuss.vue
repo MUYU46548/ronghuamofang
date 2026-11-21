@@ -42,7 +42,7 @@
           <div class="ed-actions row-wrap">
             <button class="mini" :disabled="busy || !sayText.trim()" @click="say('ai')">以 AI 身份说</button>
             <button class="mini primary" :disabled="busy || !sayText.trim()" @click="say('author')">以作者身份说</button>
-            <span class="meta">轮次只追加，不改写历史。</span>
+            <span class="meta note-full">轮次只追加，不改写历史。</span>
           </div>
 
           <details class="ed-decide" :open="thread.status === 'decided'">

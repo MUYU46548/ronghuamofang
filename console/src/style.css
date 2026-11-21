@@ -289,6 +289,12 @@ body {
 }
 .tabs button:hover { background: rgba(155, 143, 196, 0.12); color: var(--ink); }
 .tabs button.active { background: var(--accent); color: #fff; }
+/* 抽屉入口（2026-11-21）：混在页签里但点下去不换页 —— 用虚框 + 小箭头说明
+   “这是弹出面板”，别再让它看起来像又一个页面。 */
+.tabs button.tab-drawer {
+  border: 1px dashed var(--border); color: var(--ink);
+}
+.tabs button.tab-drawer::after { content: "▾"; font-size: 9px; margin-left: 4px; opacity: .65; }
 /* 页签分组（2026-11-04 用户拍板 A）：边框挂在组上，换行时跟着组走；
    不用独立分隔线 —— 那条线换行时会被甩到行尾，看着像“组结束”而不是“组开始”。 */
 .tab-group {
@@ -586,8 +592,15 @@ body {
   box-shadow: 0 1px 3px rgba(0, 0, 0, .18);
 }
 .ob-step-ev { font-size: 11.5px; color: var(--muted); margin-top: 1px; }
+/* 2026-11-21（问题表 P2-3）：五步右侧按钮宽度原来参差（去素材 / 新建项目 /
+   Ctrl+K 命令面板 / 使用手册 / 去接入），同一列参差 = 看着像没排过版。
+   统一最小宽度并居中，长短不一的字也在同一条右边界上。 */
+.ob-step > button { min-width: 88px; justify-content: center; flex: none; }
 .ob-step-how { font-size: 11.5px; margin-top: 3px; color: var(--accent); }
 .ob-err { color: var(--bad); font-size: 11.5px; margin-top: 6px; }
+/* 状态说明不占按钮位（2026-11-21）：排在按钮行里但独占一行 */
+.note-full { flex-basis: 100%; margin-top: 4px; }
+
 .ob-foot {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--border);
@@ -929,7 +942,10 @@ body {
 /* toast：右下角，别压住正文（原来底部居中，正好盖在卡片上）。
    pointer-events:none —— 它是通知，不该挡住下面的按钮。 */
 .toast {
-  position: fixed; bottom: 26px; right: 26px;
+  /* 2026-11-21（问题表 P2-4）：原来 bottom:26px，正好压在右下角的动作按钮上
+     （执行下一步 / 成品 / 补救）。抬到按钮行上方；它 pointer-events:none，不挡点击，
+     但挡视线一样是问题。 */
+  position: fixed; bottom: 76px; right: 24px;
   /* 反色提示条：底色取 --ink、字色取 --bg，两套主题下都自动成对反色。
      写死 color:#fff 时，暗色主题的 --ink 是浅色 → 浅底白字，读不出来。 */
   background: var(--ink); color: var(--bg); border-radius: 10px;
@@ -2985,6 +3001,14 @@ kbd {
   --viz-volume-edge: #c4b5fd;
   --viz-dot-ok: #3b82f6;
 }
+/* 2026-11-21（问题表 P2-10）：暗色下侧栏与卡片底色接近，边界只靠 1px 细边，
+   远看糊成一片。把边提亮一档（不加粗、不改底色）——层次出来，也不抢内容。 */
+:root.is-dark .card,
+:root.is-dark .ov-tree-card,
+:root.is-dark .ov-prop-card {
+  border-color: color-mix(in srgb, var(--border) 76%, #ffffff);
+}
+
 :root.is-dark {
   /* 暗色下把分类色整体提亮一档（原色在深底上糊成一团） */
   --viz-1: #8f9ee6;
