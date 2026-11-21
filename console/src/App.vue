@@ -1207,7 +1207,7 @@ function onStructureLoaded(s) {
   outlineSummary.value = s;
 }
 
-/* ---------- 审核队列（“审核”页签：沙盒产物 + 讨论提案两个队列） ----------
+/* ---------- 审核队列（“改稿审核”页：沙盒产物 + 讨论提案两个队列） ----------
    徽标数 = 两类待审计数之和（沙盒产物 + 讨论提案）。刻意**独立于页签是否打开**
    去轮询（节流 60s）：沙盒产物是后台写入时自动登记的，讨论提案是 agent 提交的，
    用户在别的页签干活时也可能新增，徽标不刷新就成了“有活等你但你看不见”。
@@ -3069,7 +3069,7 @@ const TAB_ORDER = [
   { t: "outline", name: "大纲", key: "5" },
   { t: "outline_chapters", name: "分章", key: "6" },
   { t: "review", name: "审稿", key: "7" },
-  { t: "sandbox", name: "审核", key: "" },
+  { t: "sandbox", name: "改稿审核", key: "" },
   { t: "proofread", name: "校对", key: "8" },
   { t: "style", name: "文风", key: "9" },
   { t: "inbox", name: "收件箱", key: "0" },
@@ -3149,6 +3149,28 @@ const nextAction = computed(() => {
   }
   return null;
 });
+
+// 阶段操作折叠（2026-11-21，作者拍板“保留步骤条，列表折叠”）：
+// 阶段列表原来每行都摊着运行/流式/打回/跳过一整套按钮，七行叠起来像控制台。
+// 默认只展开“下一步所在的那一行”，其余只留状态行；点行尾的展开箭头可手动开合
+// （手动开过就记住，不再被下一步抢回去）。失败/打回/跳过的恢复区**不折叠** ——
+// 出错时多一次点击才看到“重试”，是最不该省的。
+const stageOpen = ref({});
+function isStageOpen(s) {
+  const k = s && s.stage;
+  if (k == null) return true;
+  if (Object.prototype.hasOwnProperty.call(stageOpen.value, k)) return !!stageOpen.value[k];
+  const nx = nextAction.value;
+  // 没有“下一步”可指（七阶段已跑完 / 还没载入）时全展开 —— 全折叠会让人找不到
+  // 打回、重跑这些唯一还能做的动作。
+  if (!nx || nx.stage == null) return true;
+  return nx.stage === k;
+}
+function toggleStageOpen(s) {
+  const k = s && s.stage;
+  if (k == null) return;
+  stageOpen.value = { ...stageOpen.value, [k]: !isStageOpen(s) };
+}
 
 // 候选下一步（复数）：跑完弹出的面板 + 命令面板用
 const nextActions = computed(() => {
@@ -5991,7 +6013,7 @@ onUnmounted(() => {
       <button :class="{ active: tab === 'review' }" @click="switchTab('review')">审稿</button>
       <button :class="{ active: tab === 'refine' }" @click="switchTab('refine')">精修</button>
       <button :class="{ active: tab === 'sandbox' }" @click="switchTab('sandbox'); loadSandboxQueue()">
-        审核<span v-if="reviewPending" class="badge">{{ reviewPending }}</span>
+        改稿审核<span v-if="reviewPending" class="badge">{{ reviewPending }}</span>
       </button>
       <button :class="{ active: tab === 'proofread' }" @click="switchTab('proofread')">校对</button>
       <button :class="{ active: tab === 'style' }" @click="switchTab('style')">文风</button>
@@ -6444,10 +6466,18 @@ onUnmounted(() => {
                 :title="nextRunLocked ? AGENT_LOCK_HINT : ''" @click="runNextAction">
           ⏎ 执行下一步
         </button>
-        <button class="mini" :disabled="isRunning || agentRunLocked" @click="runPipelineFull"
-                :title="agentRunLocked ? AGENT_LOCK_HINT : '从第一个未完成阶段跑到审批门'">全自动</button>
-        <button class="mini" :disabled="isRunning || agentRunLocked" @click="runPipelineStreamFull"
-                :title="agentRunLocked ? AGENT_LOCK_HINT : '全自动 + 实时流式输出（可暂停/中断）'">流式全自动</button>
+        <!-- 2026-11-21（作者拍板“都留，各加一行说明”）：两个按钮只差“是否实时输出”，
+             名字本身读不出来 —— 每个下面挂一行灰字，把差别写在脸上。 -->
+        <div class="flow-auto">
+          <button class="mini" :disabled="isRunning || agentRunLocked" @click="runPipelineFull"
+                  :title="agentRunLocked ? AGENT_LOCK_HINT : '从第一个未完成阶段跑到审批门'">全自动</button>
+          <span class="flow-auto-hint">跑到审批门就停，不显示过程</span>
+        </div>
+        <div class="flow-auto">
+          <button class="mini" :disabled="isRunning || agentRunLocked" @click="runPipelineStreamFull"
+                  :title="agentRunLocked ? AGENT_LOCK_HINT : '全自动 + 实时流式输出（可暂停/中断）'">流式全自动</button>
+          <span class="flow-auto-hint">同上，边跑边显示，可随时暂停</span>
+        </div>
         <button class="mini" :disabled="isRunning || agentRunLocked" @click="runPublish"
                 :title="agentRunLocked ? AGENT_LOCK_HINT : '生成最终 Word 全书'">📄 Word 成品</button>
         <button class="mini" @click="openSettingEdit" title="暂停流水线并编辑设定集（不影响已完成章节）">✏️ 中途改设定</button>
@@ -6588,20 +6618,24 @@ onUnmounted(() => {
             <!-- 2026-10-27：进行中阶段把“第几群 / 本群多少字”摆在行内。
                  只给百分比时，用户无法判断 99% 是快完了还是卡死了。 -->
             <span v-if="stageDetail(s)" class="stage-sub">{{ stageDetail(s) }}</span>
+            <button class="mini ghost stage-caret" @click="toggleStageOpen(s)"
+                    :title="isStageOpen(s) ? '收起这一阶段的按钮（状态行保留）' : '展开这一阶段的运行 / 打回 / 跳过'">
+              {{ isStageOpen(s) ? "收起" : "展开" }}
+            </button>
           </div>
           <!-- 章范围（2026-11-02 清单第 1 条；2026-11-03 作者反馈重做）：只对阶段 4 显示。
                原样是挤在按钮行里的一个 78px 输入框，placeholder 写着“只写 1-3” ——
                作者原话：“文案‘只写1-3’极具误导性且部分情况下点击文本框无法输入”。
                两处都改：① 单独占一行、给足宽度（挤在 5 个按钮中间时点击落不到输入框上）；
                ② 文案说清“留空 = 全部”，不再把示例当说明。 -->
-          <div v-if="s.stage === 4" class="scope-row">
+          <div v-if="s.stage === 4 && isStageOpen(s)" class="scope-row">
             <span class="meta">章范围</span>
             <input v-model="chapterScopeDraft" class="scope-input"
                    placeholder="留空 = 全部未完成章"
                    title="可选：只写这几章（1-3 / 1,3 / 1-3,7）。留空 = 按断点把没写完的全写完。" />
             <span class="meta">填了就只有这几章会写（例：1-3）；留空 = 全部未完成章</span>
           </div>
-          <div class="stage-actions">
+          <div v-if="isStageOpen(s)" class="stage-actions">
             <button class="mini" :disabled="isRunning || agentRunLocked" :title="agentRunLocked ? AGENT_LOCK_HINT : (s.stage === 4 && chapterScopeDraft ? '只写 ' + chapterScopeDraft : '')" @click="runStage(s.stage, chapterScopeDraft)">运行</button>
             <button class="mini" :disabled="isRunning" @click="runStageStream(s.stage)" title="实时流式输出，可随时中断">流式运行</button>
             <button v-if="agentMode && STAGE_TASK_INFO[s.stage]" class="mini" @click="copyStagePrompt(s.stage)" title="复制“执行本阶段”的任务简报给外部 Agent（项目根 + 命令 + 要生成的文件 + 退出码）。复制是只读操作，运行中也可用。阶段 7/8 是确定性步骤、无提示词模板，但同样可以复制任务。">复制任务</button>

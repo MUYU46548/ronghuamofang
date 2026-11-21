@@ -7,7 +7,7 @@
  *
  * 与定向改写（FieldRefinePanel）的分工：那个改**章大纲的某个字段**（结构层），
  * 这个定**整章的写作方向**（基调/视角/节奏）。两者的产物都走同一条落地协议：
- * 落提案 → 进“审核”页签待审 → 用户批准才写回。**不直接写稿**。
+ * 落提案 → 进“改稿审核”页待审 → 用户批准才写回。**不直接写稿**。
  *
  * 挂载位置：分章页签“选写作方向”按钮展开的抽屉里 —— 用户正看着章大纲，
  * 这是决定“这章怎么写”最自然的时机。
@@ -211,7 +211,7 @@ async function submit() {
       text, why: s ? (s.why || "") : "", note: note.value,
     });
     if (d.ok) {
-      say("已变成待审提案 —— 去“审核”页签批准后才会进这章的写作参照");
+      say("已变成待审提案 —— 去“改稿审核”页批准后才会进这章的写作参照");
       samples.value = [];
       chosenIdx.value = -1;
       editedText.value = "";
@@ -239,7 +239,7 @@ onMounted(() => { if (props.open) loadExisting(); });
     </div>
     <div class="bs-hint">
       同一章出几个<strong>方向明显不同</strong>的开头，先比“同一件事，三种写法”再动笔。
-      <strong>不直接写稿</strong>：提交后进“审核”页签待审，你批准才成为这章的写作参照。
+      <strong>不直接写稿</strong>：提交后进“改稿审核”页待审，你批准才成为这章的写作参照。
     </div>
 
     <div class="bs-controls">

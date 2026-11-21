@@ -483,6 +483,9 @@ body {
    用户要的是“它到底在干嘛”，不是又一个百分比。独占一行，不挤按钮。 */
 .stage-sub { flex-basis: 100%; font-size: 11px; color: var(--muted); padding-left: 36px; }
 .stage-actions { display: flex; gap: 8px; flex: none; }
+/* 阶段行折叠（2026-11-21）：默认只展开“下一步”那一行，其余只留状态行。
+   展开/收起按钮贴在状态行右端，不混进运行按钮组。 */
+.stage-caret { margin-left: auto; flex: none; font-size: 11px; }
 /* 章范围（2026-11-03）：单独一行、够宽 —— 挤在按钮堆里时真机点不进输入框 */
 .scope-row {
   flex: 1 0 100%; display: flex; align-items: center; gap: 8px;
@@ -1683,6 +1686,10 @@ body {
   padding: 9px 0;
 }
 .flow-next { border-top: 1px solid var(--border); border-bottom: 1px dashed var(--border); }
+/* 全自动 / 流式全自动（2026-11-21）：按钮下面挂一行差别说明 ——
+   两个名字只差“流式”，靠名字分不出来，靠一行灰字一眼能分。 */
+.flow-auto { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.flow-auto-hint { font-size: 11px; color: var(--muted); line-height: 1.15; white-space: nowrap; }
 .flow-next b { font-size: 13.5px; }
 .flow-est {
   font-size: 12.5px; color: var(--muted);

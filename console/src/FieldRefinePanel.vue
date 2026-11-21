@@ -3,7 +3,7 @@
  *
  * 为什么存在：Hermes 不在场时讨论入口不能断。这里给一条**单轮**轻链路：
  * 选一个章大纲字段 → 写一句意见 → 一次调用产出 2-3 个候选 → 挑一个（可就地改）
- * → 落提案进“审核”页签待审队列 → 你批准才写回章大纲。
+ * → 落提案进“改稿审核”页待审队列 → 你批准才写回章大纲。
  *
  * 与段落级精修（ParagraphRefinePanel）的分工：那个改的是**章节正文**（data/chapters/），
  * 这个改的是**章大纲**（data/outline/chapters/）的一个字段。粒度都是“一处”，
@@ -129,7 +129,7 @@ function pick(i) {
   editedText.value = candidates.value[i].text;   // 预填到编辑框，可就地改
 }
 
-/* 提交所选 → 落提案（不写稿；写回发生在“审核”页签批准之后） */
+/* 提交所选 → 落提案（不写稿；写回发生在“改稿审核”页批准之后） */
 async function submit() {
   const text = editedText.value.trim();
   if (!text) { say("先挑一个候选或自己写内容"); return; }
@@ -142,7 +142,7 @@ async function submit() {
       why, note: note.value,
     });
     if (r.status === 200 && r.data.ok) {
-      say("已变成待审提案 —— 去“审核”页签批准后才会写回章大纲");
+      say("已变成待审提案 —— 去“改稿审核”页批准后才会写回章大纲");
       candidates.value = [];
       chosenIdx.value = -1;
       editedText.value = "";
@@ -166,7 +166,7 @@ onMounted(() => { /* 不自动加载：用户填了章号才有意义 */ });
       <h3>定向改写（候选对比）</h3>
       <div class="fr-hint">
         选一个章大纲字段 → 写句意见 → 挑一个候选。<strong>不直接写稿</strong>：
-        提交后进“审核”页签待审，你批准才写回。Hermes 不在场时用这条轻量通道。
+        提交后进“改稿审核”页待审，你批准才写回。Hermes 不在场时用这条轻量通道。
       </div>
     </div>
 

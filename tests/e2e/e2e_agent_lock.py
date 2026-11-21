@@ -246,6 +246,11 @@ def main():
             ux.shot(page, "LOCK1_flowbar_locked")
 
             # 阶段行“运行”也锁
+            # 2026-11-21：阶段列表改成默认只展开“下一步”那一行（作者拍板“列表折叠”）。
+            # 这里要验的是“锁得住”，不是“默认展开”，所以先手动展开一行再断言。
+            if page.locator(".stage-actions button:text-is('运行')").count() == 0:
+                page.locator(".stage-caret:text-is('展开')").first.click()
+                page.wait_for_timeout(250)
             row_run = page.locator(".stage-actions button:text-is('运行')")
             check("阶段行\u300c运行\u300d按钮在场", row_run.count() >= 1, row_run.count())
             check("阶段行\u300c运行\u300d全部禁用",

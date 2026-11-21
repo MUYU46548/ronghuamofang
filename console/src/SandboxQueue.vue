@@ -1,5 +1,5 @@
 <!--
-  SandboxQueue.vue — “审核”页签：沙盒产物的审核队列
+  SandboxQueue.vue — “改稿审核”页：沙盒产物的审核队列
 
   ## 它解决什么
 
