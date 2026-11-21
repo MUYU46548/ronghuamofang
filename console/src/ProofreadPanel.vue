@@ -153,7 +153,7 @@ async function refineChapter(c) {
   if (!window.confirm(
     `确定按 ${list.length} 条建议精修第 ${c.n} 章？\n\n`
     + "· 复用章节精修流程（同一个接口 refine_chapter）\n"
-    + "· 旧稿自动备份到 data/chapters/history/\n"
+    + "· 旧稿自动留底（可回退）\n"
     + "· ±20% 字数铁律仍然生效")) return;
   refining.value = c.n;
   try {
@@ -313,7 +313,7 @@ onMounted(() => loadReport(true));
       </div>
 
       <div class="card meta">
-        报告文件：data/outline/proofread_report.json / .md ·
+        报告会存进工作区（一份数据 + 一份可读版）·
         确定性部分完全离线，不消耗 token ·
         “按建议精修”走现有的章节精修流程（自动备份 + ±20% 字数铁律）
       </div>

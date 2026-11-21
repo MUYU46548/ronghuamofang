@@ -15,7 +15,7 @@
         压缩老轮次
       </button>
       <button class="mini" @click="openNew" :disabled="!chapter || !newTopic.trim()"
-              title="开一个新讨论（只写 data/discuss/，不动正文）">开题</button>
+              title="开一个新讨论（只记讨论，不动正文）">开题</button>
       <input v-model="newTopic" class="discuss-topic" placeholder="讨论主题（例：结局要不要开信）" />
     </div>
 
@@ -212,7 +212,7 @@ async function applySug(s) {
   if (s.kind === "rewrite_chapter") {
     if (!pendingRewrite.value || pendingRewrite.value.id !== s.id) {
       pendingRewrite.value = s;
-      msg.value = "整章重写会把旧稿换掉（先备份到 data/chapters/rewrite_backup/）。"
+      msg.value = "整章重写会把旧稿换掉（旧稿会先留底）。"
         + "确认就再点一次那个按钮。";
       return;
     }
@@ -342,7 +342,7 @@ function connectStream(jobId) {
       pick({ topic: picked.value });
       load(false);
     } else if (st === "stopped") {
-      msg.value = "已停下 —— 这一轮没有记进讨论（残片留在 data/state/truncated/）。";
+      msg.value = "已停下 —— 这一轮没有记进讨论（残片已单独收好，不会混进正文）。";
       load(false);
     } else {
       msg.value = "AI 这一轮失败了：" + (detail || "没有返回原因");

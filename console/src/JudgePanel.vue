@@ -116,7 +116,7 @@ async function archiveBook() {
     || (bookReject.value && bookReject.value.reason) || "";
   if (!window.confirm(
     "归档这本书？\n\n"
-    + "· 整本搬到 data/books/（稿子、素材、配置一起搬）\n"
+    + "· 整本搬进书档区（稿子、素材、配置一起搬）\n"
     + "· 当前工作区会变空\n"
     + "· 什么都没删：之后在“项目”页可以恢复，也可以由你自己删除归档\n"
     + "· 搬之前会自动打一个回退点（快照）")) return;
@@ -498,7 +498,7 @@ onMounted(loadReport);
           {{ archiveBusy ? "归档中…" : "归档这本书" }}
         </button>
         <div class="meta">这是一条判断记录，不会删除或改动任何稿件。
-          归档 = 整本搬进 data/books/（同样不删），之后由你决定恢复还是删除。</div>
+          归档 = 整本搬进书档区（同样不删），之后由你决定恢复还是删除。</div>
       </div>
 
       <!-- R1 判据失效告警（评审高危项）：命中骤降时出声，不判档 -->
@@ -565,7 +565,7 @@ onMounted(loadReport);
           <button class="mini" :disabled="archiveBusy" @click="archiveBook">
             {{ archiveBusy ? "归档中…" : "归档这本书" }}
           </button>
-          <span class="meta">搬到 data/books/，<b>不删任何东西</b>；之后恢复或删除都由你决定。</span>
+          <span class="meta">搬进书档区，<b>不删任何东西</b>；之后恢复或删除都由你决定。</span>
         </div>
       </div>
     </template>

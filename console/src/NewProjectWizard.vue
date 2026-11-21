@@ -218,7 +218,7 @@ async function submit() {
         </div>
         <div v-if="touched.chapters && chErr" class="wiz-err">{{ chErr }}</div>
 
-        <label class="wiz-label">风格笔记（可选，写入 config/project.yaml 的 book.style_notes）</label>
+        <label class="wiz-label">风格笔记（可选，会存进项目设置）</label>
         <textarea v-model="form.style_notes" rows="3" class="prompt-text" style="width:100%;"
                   placeholder="如：多用短句，少用形容词；对白带方言味。留空则完全不注入。"></textarea>
         <div class="meta" style="margin-top:6px;">创建后仍可在“设置”页签随时修改。</div>
@@ -246,7 +246,7 @@ async function submit() {
           <label class="wiz-check">
             <input type="checkbox" v-model="form.archive_current" />
             <span>把当前项目归档为“<b>{{ current || form.name }}</b>”再新建
-              <span class="meta">（推荐：书稿完整保留在 data/books/，可随时在“项目”页签恢复）</span>
+              <span class="meta">（推荐：书稿会整本保留在书档区，可随时在“项目”页签恢复）</span>
             </span>
           </label>
           <div v-if="!form.archive_current" class="wiz-warn">
@@ -281,8 +281,8 @@ async function submit() {
         </table>
         <div class="meta" style="margin-top:10px;">
           {{ presetApplied
-             ? "确认后将执行：只改写 config/project.yaml（工作区与素材原样保留）。"
-             : "确认后将执行：快照 → 归档当前项目（如勾选）→ 初始化空工作区 → 写入 config/project.yaml。" }}
+             ? "确认后将执行：只改写项目设置（工作区与素材原样保留）。"
+             : "确认后将执行：快照 → 归档当前项目（如勾选）→ 初始化空工作区 → 写入项目设置。" }}
           之后到“流水线”页签点“执行下一步”即可开跑。
         </div>
         <div v-if="err" class="wiz-warn" style="margin-top:8px;">{{ err }}</div>

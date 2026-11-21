@@ -98,7 +98,7 @@ async function act(kind, it) {
       await post("/plan/back", { id: it.id, reason: reason.value });
       say(`已退回构想：${it.title}`);
     } else if (kind === "write") {
-      if (!refPath.value.trim()) return say("先填写进了哪一章（如 data/chapters/raw/03.md）");
+      if (!refPath.value.trim()) return say("先填写进了哪一章（如第 3 章）");
       await post("/plan/write", { id: it.id, ref_path: refPath.value.trim(), reason: reason.value });
       say(`已标为写进正文：${it.title}`);
       openWrite.value = "";
@@ -173,7 +173,7 @@ onMounted(load);
     <p class="meta">
       AI 提的方案只会停在<b>构想</b>；<b>采用 / 丢弃 / 写进正文</b>都是你的动作。
       外接 Agent 可以提案，但不能替你点这些按钮。清单与画布是同一份数据
-      （<code>data/state/plan.json</code>），在哪边点都一样。
+      ，在哪边点都一样。
       <b>画布上也可以直接拖</b>：拖进“已采用”＝采用，拖回“构想”＝反悔，
       拖进“已丢弃”＝丢弃；拖进“已写进正文”会先要你填章路径。
     </p>

@@ -1339,7 +1339,7 @@ async function saveForm() {
     : "";
   if (!window.confirm(
       "切换文体为“" + (opt.label || next) + "”？\n\n"
-      + "· 写入 config/project.yaml 的 book.form（旧版自动备份到 config/history/）\n"
+      + "· 只改项目设置里的文体项，旧版本自动留底（可回滚）\n"
       + "· 影响：哪些检查项适用、写作时的文风要求\n"
       + "· 已经写好的章节**不会**被重新判定，只影响之后运行的阶段"
       + warnLine)) return;
@@ -1376,8 +1376,8 @@ async function saveStyleNotes() {
   if (!window.mofangAPI?.styleNotesSave) return;
   if (!window.confirm(
       "确定保存风格笔记？\n\n"
-      + "· 将写入 config/project.yaml 的 book.style_notes\n"
-      + "· 旧版自动备份到 config/history/\n"
+      + "· 会存成项目设置的“风格笔记”\n"
+      + "· 旧版会自动留底（可回滚）\n"
       + "· 下次运行写作（阶段4）/润色（阶段6）时生效\n"
       + "· 留空则完全不注入，不影响现有逻辑")) return;
   const r = await window.mofangAPI.styleNotesSave(styleNotes.value);
@@ -1565,7 +1565,7 @@ async function archiveCurrent() {
     return;
   }
   const finalName = archiveName.value.trim() || projects.value.current;
-  if (!window.confirm(`确定归档当前项目为“${finalName}”？\n\n归档后当前工作区数据将移至 data/books/${finalName}/，工作区清空。`)) return;
+  if (!window.confirm(`确定归档当前项目为“${finalName}”？\n\n归档后这本的全部数据会搬进书档区（之后可在“项目”页签找回），工作区清空。`)) return;
   const r = await api("/project/archive", "POST", { name: finalName, yes: true });
   if (r.status === 200 && r.data.ok) {
     say("已归档: " + finalName);
@@ -1841,7 +1841,7 @@ async function submitRefine() {
   // 否则作者只会看到一句“已提交”，却不知道东西在哪、下一步该干什么（2026-11-08）。
   if (r.status === 202 && r.data && r.data.mode === "self") {
     say("已出大纲精修任务书（不调用模型）：" + (r.data.task || "")
-        + "。交给外部执行方改 data/outline/global.md，写完回来点“运行”（阶段 2）复核。");
+        + "。交给外部执行方改完大纲全文，再回来点“运行”（阶段 2）复核。");
     refresh();
     return;
   }
@@ -2018,7 +2018,7 @@ async function submitInitWizard() {
   if (!initEngine.value) return say("请选择运行引擎（不选会默认走最慢的那档）");
   if (initChapters.value < 1 || initChapters.value > 999) return say("章节数须在 1-999 之间");
   if (!window.confirm(
-      `确认初始化项目？\n\n书名：${initBookName.value}\n类型：${initBookType.value}\n章节数：${initChapters.value}\n\n将写入 config/project.yaml。`)) return;
+      `确认初始化项目？\n\n书名：${initBookName.value}\n类型：${initBookType.value}\n章节数：${initChapters.value}\n\n将保存为这个项目的设置。`)) return;
   const r = await api("/project/init", "POST", {
     name: initBookName.value,
     type: initBookType.value,
@@ -2760,7 +2760,7 @@ async function restorePrompt(backup) {
   if (!window.confirm(
       "用备份回滚 " + promptName.value + "？\n\n"
       + "· 备份文件：" + backup + "\n"
-      + "· 当前版本会先存入 prompts/history/（所以回滚本身也可撤销）\n"
+      + "· 当前版本会先留底（所以回滚本身也可撤销）\n"
       + "· 回滚后编辑器会重新载入")) return;
   const r = await api("/prompts/restore", "POST",
                       { name: promptName.value, backup });
@@ -2783,7 +2783,7 @@ async function restorePromptFactory() {
       "把 " + promptName.value + " 还原成出厂默认？\n\n"
       + "· 出厂版：" + (d.factory_lines ?? "?") + " 行；你现在的版本："
       + (d.current_lines ?? "?") + " 行\n"
-      + "· 你现在的版本会先存入 prompts/history/（还原本身也可撤销）\n"
+      + "· 你现在的版本会先留底（还原本身也可撤销）\n"
       + "· 还原后编辑器会重新载入")) return;
   const r = await api("/prompts/factory_restore", "POST", { name: promptName.value });
   if (r.status === 200) {
@@ -2799,9 +2799,9 @@ async function savePrompt() {
   if (!promptName.value) return;
   if (!window.confirm(
       "确定保存 " + promptName.value + "？\n\n"
-      + "· 旧版会自动备份到 prompts/history/\n"
+      + "· 旧版会自动留底\n"
       + "· 修改将在下次运行对应阶段时生效\n"
-      + "· 若改坏可到 prompts/history/ 取回旧版")) return;
+      + "· 若改坏可回滚取回旧版")) return;
   const r = await window.mofangAPI.promptsSave(promptName.value, promptContent.value);
   if (!r.ok) {
     say("保存失败: " + (r.error || ""));
@@ -5503,7 +5503,7 @@ async function selfRewriteChapter(n) {
 }
 async function applySelfDraft(n) {
   const ok = window.confirm("采用第 " + n + " 章的草稿？\n\n"
-    + "· 正式稿会被草稿整份替换；旧稿先备份到 data/chapters/rewrite_backup/\n"
+    + "· 正式稿会被草稿整份替换；旧稿先留底，可捞回\n"
     + "· 检查稿 / 润色稿不会动（要连下游一起换，用“重跑…”）");
   if (!ok) return;
   const r = await api("/self/action/apply", "POST", { n, confirm: true });
@@ -5528,7 +5528,7 @@ async function rewriteChapter(n) {
   const ok = window.confirm(
     "重写第 " + n + " 章？\n\n"
     + "· 会调用模型重新写整章（花 token，按当前字数标准与加强模式走）\n"
-    + "· 旧稿先移到 data/chapters/rewrite_backup/，不满意可以捞回\n"
+    + "· 旧稿先留底，不满意可以捞回\n"
     + "· 只换正文：检查稿与润色稿不会动；要把这一章的成品也换新，用“重跑…”\n"
     + "· 会打开实时输出面板：模型聊天 + 本章正文（文件尾部）");
   if (!ok) return;
@@ -6589,7 +6589,7 @@ onUnmounted(() => {
             <!-- 阶段 3 这类无门阶段跑完就直说“没有审批动作”，别让它看起来像漏了一步
                  （2026-11-05 试跑第 20 条：用户以为 AI 说“阶段 3 没有审批门”是个 bug）。 -->
             <span v-if="s.status === 'done' && !isGate(s.stage)" class="pill st-nogate"
-                  :title="'本阶段不设审批门：跑完直接进下一阶段。审批门只有阶段 ' + gateListText + '（哪些阶段设门见 config/system.yaml 的 gates.require_approval）'">
+                  :title="'本阶段不设审批门：跑完直接进下一阶段。审批门只有阶段 ' + gateListText + '（哪些阶段设门写在配置文件里，默认阶段 2 和 6）'">
               无需审批
             </span>
             <!-- 2026-11-03（作者拍板）：按章范围跑完 = 部分完成，绝不是"完成"。
@@ -6616,7 +6616,7 @@ onUnmounted(() => {
               <button class="mini" @click.stop="fixInvalid('expand', s.invalid)"
                       title="按目标字数补长并修正不合格项（会花 token）">去补长</button>
               <button class="mini" @click.stop="fixInvalid('rewrite', s.invalid)"
-                      title="整章重写；旧稿备份到 data/chapters/rewrite_backup/">重写这章</button>
+                      title="整章重写；旧稿会自动留底（可找回）">重写这章</button>
               <button class="mini" @click.stop="fixInvalid('accept', s.invalid)"
                       title="看着能接受就记下判断，别再重复报">接受不达标</button>
             </span>
@@ -7055,7 +7055,7 @@ onUnmounted(() => {
           <!-- 讨论（2026-11-05，试跑第 16 条）：想改这条设定时先商量，结论能写回状态 -->
           <button class="mini" @click.stop="openEntryDiscuss(settingTab, item.name || '未命名',
                     { characters: '角色', world: '世界观', concepts: '概念', timeline: '时间线' }[settingTab] || settingTab)"
-                  title="对这条开讨论：结论落 data/state/entry_discuss.json，定稿后可写回设定集">讨论</button>
+                  title="对这条开讨论：结论先单独存着，定稿后可写回设定集">讨论</button>
           <button class="mini danger" @click.stop="removeSettingItem(settingTab, idx)">删除</button>
         </div>
       </div>
@@ -7168,7 +7168,7 @@ onUnmounted(() => {
         </button>
         <span class="meta">{{ notifyChannelLabel() }} · 撞门自动跳转收件箱</span>
       </div>
-      <div v-if="!pendingGates.length" class="empty">暂无待审项 —— 审批门只在阶段 {{ gateListText }}（判据：config/system.yaml 的 gates.require_approval / material_autonomy）。阶段 3（逐章大纲）不设审批门，产物在“大纲 / 分章”页签查看；其余阶段跑完直接进下一阶段</div>
+      <div v-if="!pendingGates.length" class="empty">暂无待审项 —— 审批门只在阶段 {{ gateListText }}（判据：配置文件里的审批门与素材自主设置）。阶段 3（逐章大纲）不设审批门，产物在“大纲 / 分章”页签查看；其余阶段跑完直接进下一阶段</div>
       <div v-for="s in pendingGates" :key="s.stage" class="gate-card">
         <div class="gate-head">
           <span class="stage-no">{{ s.stage }}</span>
@@ -7542,7 +7542,7 @@ onUnmounted(() => {
         </nav>
         <div class="set-panes">
           <div class="set-pane" v-show="settingsTab === 'model'">
-      <h4>引擎与模型（config/system.yaml）</h4>
+      <h4>引擎与模型</h4>
 
       <!-- ① 运行引擎（2026-10-31 之前只有一行只读文字，用户只能手改 YAML） -->
       <div class="eng-block">
@@ -7626,7 +7626,7 @@ onUnmounted(() => {
           <button class="mini" v-if="modelSearch" @click="modelSearch = ''">清空过滤</button>
           <span class="spacer"></span>
           <span class="meta">{{ modelOptions.length }} 个可选</span>
-          <button class="mini" @click="refreshModels" title="从 config/system.yaml 重载">刷新</button>
+          <button class="mini" @click="refreshModels" title="重新读取配置文件">刷新</button>
           <button class="mini" @click="refreshFetchedModels" :disabled="fetchingModels">
             {{ fetchingModels ? '同步中…' : '↻ 同步服务商模型' }}
           </button>
@@ -8157,13 +8157,13 @@ onUnmounted(() => {
             启动提示词（kickoff）—— 复制给外部 Agent 作开场白
           </div>
           <div class="meta">
-            唯一来源 <code>prompts/agent_kickoff.md</code>；复制时自动把
+            唯一来源是内置的任务书底稿；复制时自动把
             <code>&#123;&#123;PROJECT_ROOT&#125;&#125;</code> 占位符替换为项目根。
             防“AI 从头重建本项目 / 擅自绕过审批守卫”的第一道闸。
           </div>
           <textarea class="prompt-text" style="min-height: 150px; margin-top: 6px;"
                     :value="acKickoff" readonly spellcheck="false"
-                    placeholder="读取中…（prompts/agent_kickoff.md）"></textarea>
+                    placeholder="读取中…"></textarea>
           <div class="ac-actions" style="margin-top: 6px;">
             <button class="mini primary" :disabled="!acKickoff"
                     @click="copyKickoff">复制启动提示词</button>
@@ -8242,9 +8242,9 @@ onUnmounted(() => {
       <WritingPresetsPanel @say="say" />
 
       <!-- 提示词模板编辑器 -->
-      <h4 style="margin-top: 16px;">提示词模板（prompts/stage[1-7]_*.md）</h4>
+      <h4 style="margin-top: 16px;">提示词模板（七个阶段各一份）</h4>
       <div class="meta" style="margin-bottom: 8px;">
-        直接编辑阶段提示词；保存前自动备份旧版到 prompts/history/，下次运行对应阶段生效。
+        直接编辑阶段提示词；保存前会自动留底旧版（可回滚），下次运行对应阶段生效。
         <br>改坏了可以两步退回去：<b>回滚到此版本</b>（取你自己的历史备份）或
         <b>还原出厂默认</b>（取随包固化、你改不到的出厂版；只有它能在
         “history 被滚动淘汰 / 用外部编辑器手改 / 升级覆盖”之后救回来）。
@@ -8340,7 +8340,7 @@ onUnmounted(() => {
         </div>
         <div class="meta" style="margin-top: 6px;">
           <b>只读</b>：绒花墨坊只读你的笔记，从不写入这个目录（导出的字条落在项目沙盒里）。
-          路径存在 <code>config/system.local.yaml</code>（不进 Git，不会带到别人机器上）。
+          这份路径只保存在本机设置里（不进 Git，不会带到别人机器上）。
         </div>
         <div class="meta tl-msg" :class="vaultCfg.ok ? 'ok' : 'bad'"
              v-if="vaultCfg.msg">{{ vaultCfg.msg }}</div>
@@ -8472,8 +8472,7 @@ onUnmounted(() => {
       <div class="meta" style="margin-bottom: 8px;">
         阶段7 用它生成成品 docx —— 换模板就是换整本书的版式（页面 / 标题层级 /
         字体行距 / 目录域）。把 <code>.dotx</code> 或 <code>.docx</code> 放进模板目录，
-        这里点“重新读取”即可选到；改动写入 config/project.yaml 的
-        <code>book.word_template</code>（旧版自动备份到 config/history/），下次跑阶段7 生效。
+        这里点“重新读取”即可选到；选定后会存进项目设置（旧版自动留底），下次跑阶段7 生效。
       </div>
       <div class="bp-field">
         <label>当前模板</label>
@@ -8913,7 +8912,7 @@ onUnmounted(() => {
             <td>
               <button class="mini" v-if="m.kind === 'text'" @click.stop="openMaterialEdit(m.name)">编辑</button>
               <button class="mini" @click.stop="openEntryDiscuss('materials', m.name, '素材')"
-                      title="对这份素材开讨论：结论落 data/state/entry_discuss.json（不会自动进提示词）">讨论</button>
+                      title="对这份素材开讨论：结论先单独存着（不会自动进提示词）">讨论</button>
               <button class="mini" @click.stop="openArtifact('materials/raw/' + m.name)">打开</button>
               <button class="mini danger" @click.stop="deleteMaterial(m.name, idx)">删除</button>
             </td>
@@ -9002,8 +9001,8 @@ onUnmounted(() => {
       <div v-else class="empty">暂无归档项目</div>
       <div class="meta" style="margin-top: 14px; line-height: 1.9;">
         <b>新建项目</b>：点右上角“＋ 新建项目”，填书名/类型/章数即可 ——
-        系统会自动快照、归档当前项目、建好空工作区并写好 <code>config/project.yaml</code>。<br>
-        也可以手工改 <code>config/project.yaml</code> 的 <code>book.name</code>（高级用法，不推荐）。
+        系统会自动快照、归档当前项目、建好空工作区并写好项目设置。<br>
+        也可以在设置页直接改书名（不建议手工改配置文件）。
       </div>
     </section>
   </main>
@@ -9215,7 +9214,7 @@ onUnmounted(() => {
   <div v-if="refineOpen" class="drawer-mask" @click.self="refineOpen = false">
     <div class="dialog">
       <h3>大纲精修（增量修订）</h3>
-      <div class="meta">不重跑阶段 2；自动备份旧版到 data/outline/history/。</div>
+      <div class="meta">不重跑阶段 2；旧版会自动留底（可找回）。</div>
       <textarea v-model="refineFeedback" rows="4" placeholder="例如：第3章侧重主角；合的部分收太快，加一场过渡"></textarea>
       <div class="dialog-actions">
         <button class="mini" @click="refineOpen = false">取消</button>
@@ -9295,7 +9294,7 @@ onUnmounted(() => {
         </tbody>
       </table>
       <div class="meta" style="margin-top: 10px;">
-        旧文件先移到 data/chapters/rerun_backup/；动手前自动打整轮快照（备份不了就不动）。
+        旧文件先挪进留底区；动手前自动打整轮快照（备份不了就不动）。
         润色完成前阶段 6 会显示“按范围完成”，那是如实状态，不是失败。
       </div>
       <div class="dialog-actions">

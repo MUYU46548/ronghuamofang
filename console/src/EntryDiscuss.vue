@@ -66,7 +66,7 @@
             <button class="mini danger" :disabled="busy || !reason.trim()" @click="writeback('reject')">标为已否决</button>
           </div>
           <div v-else class="meta ed-note">
-            素材文件没有“状态”字段：讨论结论保存在 data/state/entry_discuss.json，
+            素材文件没有“状态”字段：讨论结论单独存着，
             改内容请直接编辑素材（改完触发重归并才会进设定集）。
           </div>
         </template>
@@ -136,7 +136,7 @@ async function openThread() {
                             { kind: props.kind, name: props.name, topic: topic.value.trim() }));
     topic.value = "";
     await reload();
-    emit("say", "已开题（只写 data/state/entry_discuss.json，没碰设定集）");
+    emit("say", "已开题（只记了讨论，没碰设定集）");
   } catch (e) {
     msg.value = "开题失败：" + e.message;
   } finally {

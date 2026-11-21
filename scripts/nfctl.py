@@ -686,16 +686,19 @@ def collect_check(root: Path) -> dict:
     # 黑话命中 = 阻塞；内部路径 = 提醒（数量每次都报，不许静默消失）。
     try:
         import ui_copy_audit as _uca
-        _rows, _hits, _allowed, _debt = _uca.scan()
+        _rows, _hits, _allowed, _debt, _nec, _stale = _uca.scan()
         _ex = "、".join("%s:%d [%s]" % (h[0], h[1], h[2]) for h in _hits[:3])
         add("界面文案无黑话", not _hits,
             "扫描 %d 条可见文案，命中 0 条" % len(_rows) if not _hits
             else "命中 %d 条：%s%s" % (len(_hits), _ex,
                                        "…" if len(_hits) > 3 else ""),
             blocking=True)
-        add("界面文案里的内部路径", not _debt,
-            "无" if not _debt else
-            "%d 条（不阻塞；逐条记在 docs/界面打磨问题表-20261120.md）" % len(_debt),
+        add("界面文案里的内部路径", not (_debt or _stale),
+            ("债务 0 条；另有必要坐标 %d 处已登记（理由见 ui_copy_audit.NECESSARY）" % _nec)
+            if not (_debt or _stale) else
+            ("债务 %d 条（不阻塞）；必要坐标 %d 处%s"
+             % (len(_debt), _nec,
+                "；白名单过期 %d 条（文案改过没删条目，要清）" % len(_stale) if _stale else "")),
             warning=True)
     except Exception as _e:                             # noqa: BLE001
         add("界面文案无黑话", False,

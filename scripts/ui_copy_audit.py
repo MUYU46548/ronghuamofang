@@ -73,6 +73,48 @@ DEBT = [
                  r"|console|tests|materials|deliverables|logs)/[\w\-./]*"),
 ]
 
+# 必要坐标（2026-11-21，作者“其他能做的全做”后逐条判过一遍）：
+# 这些路径**不是**黑话，是找人/找文件的唯一坐标。判据三条：
+#   ① 界面上没有任何“打开文件夹”入口（全仓 shell.openPath / showItemInFolder 均 0 处），
+#      “把素材放哪 / 成品在哪 / 删错了去哪捞”只能靠路径说清；
+#   ② 任务是**复制给外部 Agent 的执行简报**（stageTaskBrief / copyStagePrompt），
+#      路径是执行坐标，删了 agent 就跑到错目录；
+#   ③ 没有编辑界面的配置文件（别名表）。
+# **按 (文件名, 完整文案) 精确匹配**，不用正则 —— 文案一改就不再豁免，逼着重新审视。
+# 过期条目（文案已改、白名单没删）算红，防白名单变成橡皮章。
+NECESSARY = [
+# —— 素材放置：作者要往里放文件，而界面没有“打开文件夹”入口（全仓 shell.openPath 0 处）
+    ('AboutDialog.vue', '设定卡进 materials/raw/；随手写的碎片进 materials/original_scraps/'),
+    ('App.vue', '素材管理（materials/raw/）'),
+    ('App.vue', '快速体验：复制 examples/sample-book/materials/raw/* 到 materials/raw/'),
+    ('App.vue', '导入酒馆（SillyTavern）角色卡 .png/.json 或世界书 .json，落成 materials/raw 的素材卡；同名不覆盖'),
+    ('App.vue', '搬到 materials/original_scraps/（原始碎片：自由命名、私人数据）'),
+    ('App.vue', '搬到 materials/raw/（结构化卡片：阶段 1 整理素材时会被读）'),
+    ('App.vue', '添加素材到 materials/raw/'),
+    ('App.vue', '确定触发素材重归并？\\\\n\\\\n将重新扫描 materials/raw/，更新素材清单和设定集（阶段 1）。'),
+    ('App.vue', '提示：materials/raw/ 暂无素材，放置素材后可运行流水线'),
+    ('ScrapsPanel.vue', '正在读取碎片…（若目录为空，请把随手写的碎片放进 materials/original_scraps/）'),
+    # —— 成品与回收站：找 docx 去投稿、删错了去捞回，路径是唯一线索
+    ('App.vue', 'data/books/_trash/factory__时间戳/'),
+    ('App.vue', 'data/books/_trash/'),
+    ('App.vue', '默认移入回收站 data/books/_trash，可手工找回'),
+    ('App.vue', '确定要生成最终 Word 全书？\\n\\n将生成到 output/ 目录。'),
+    ('App.vue', '输出 output/{书名}_完整版.docx'),
+    ('App.vue', '章 → data/chapters/'),
+    ('App.vue', 'output/{书名}_完整版.docx'),
+    ('App.vue', 'output/{书名}_完整版.docx'),
+    ('App.vue', 'output/{书名}_markdown/'),
+    # —— 任务书正文（复制给外部 Agent 的执行简报）：路径是执行坐标，删了 agent 就没法干活
+    ('App.vue', 'data/outline/global.md（审批门）'),
+    ('App.vue', 'data/chapters/refined/NN.md（审批门）'),
+    ('App.vue', '本阶段提示词模板在 prompts/'),
+    ('App.vue', '流水线状态文件（progress.json / runs.db / data/outline / data/chapters …）只有'),
+    ('App.vue', '预期：旧稿移到 data/chapters/rewrite_backup/；完成后 data/chapters/raw/'),
+    ('App.vue', '禁止：不要用 write_file 直接覆盖 data/chapters/raw 或 checked 或 refined —— 会绕过拼装、校验与备份。'),
+    # —— 别名表：没有别名编辑界面，文件是唯一入口
+    ('RoleGraph.vue', 'data/setting/alias.json'),
+]
+
 ALLOW = [
     # 路径 / 配置键 / 协议名里的英文是必要信息，不是黑话
     r"data/state/tasks/self/",
@@ -168,20 +210,27 @@ def write_md(rows, out: Path = OUT) -> None:
 
 
 def scan():
-    """跑一遍名单，返回 (rows, hits, allowed, debt)。
+    """跑一遍名单，返回 (rows, hits, allowed, debt, necessary, stale)。
 
     2026-11-20 抽出来给 `nfctl check` 用：工具能红但没人跑，等于没有回归保护
     （实测 `--check` 一直是绿的，而界面上印着 electron-updater / engine=direct）。
+    2026-11-21 加 necessary / stale：`NECESSARY` 是登记在案的必要坐标，
+    `stale` 是“文案已改、白名单没删”的过期条目（算红，防白名单变橡皮章）。
     """
     rows = collect()
-    hits, allowed, debt = [], 0, []
+    hits, allowed, debt, necessary = [], 0, [], 0
+    used = set()
     for fn, ln, kind, s in rows:
         probe = check_text(s)
         waived = any(re.search(a, probe) for a in ALLOW)
         for label, pat in DEBT:
             m = re.search(pat, probe)
             if m and not waived:
-                debt.append((fn, ln, label, m.group(0), s))
+                if (fn, s) in NECESSARY:
+                    used.add((fn, s))
+                    necessary += 1
+                else:
+                    debt.append((fn, ln, label, m.group(0), s))
                 break
         for label, pat in BANNED:
             m = re.search(pat, probe)
@@ -192,16 +241,17 @@ def scan():
                 continue
             hits.append((fn, ln, label, m.group(0), s))
             break
-    return rows, hits, allowed, debt
+    stale = [t for t in NECESSARY if t not in used]
+    return rows, hits, allowed, debt, necessary, stale
 
 
 def check(verbose: bool = False) -> int:
-    rows, hits, allowed, debt = scan()
+    rows, hits, allowed, debt, necessary, stale = scan()
     print("=" * 66)
     print("界面文案黑话清零")
     print("=" * 66)
-    print("扫描 %d 条可见文案，命中 %d 条，允许 %d 条，债务 %d 条"
-          % (len(rows), len(hits), allowed, len(debt)))
+    print("扫描 %d 条可见文案，命中 %d 条，允许 %d 条，债务 %d 条，必要坐标 %d 处"
+          % (len(rows), len(hits), allowed, len(debt), necessary))
     if verbose:
         for fn, ln, label, word, s in hits:
             print("  [%s] %s:%d  “%s” %s" % (label, fn, ln, word, s[:90]))
@@ -212,14 +262,21 @@ def check(verbose: bool = False) -> int:
             print("  …… 另有 %d 条（-v 看全部）" % (len(hits) - 40))
     # 债务每次都要报：不阻塞，但绝不能让它安静地消失
     if debt:
-        print("  -- 界面上的内部路径（不阻塞，已记入问题表） %d 条：" % len(debt))
+        print("  -- 界面上的内部路径（不阻塞） %d 条：" % len(debt))
         shown = debt if verbose else debt[:8]
         for fn, ln, label, word, s in shown:
             print("     %s:%d  “%s”" % (fn, ln, word))
         if len(debt) > len(shown):
             print("     …… 另有 %d 条（-v 看全部）" % (len(debt) - len(shown)))
+    # 过期白名单算红：否则 NECESSARY 会慢慢攒成一张“什么都放行”的纸
+    if stale:
+        print("  !! 必要坐标白名单 %d 条已过期（文案改过、条目没删）：" % len(stale))
+        for fn, s in (stale if verbose else stale[:10]):
+            print("     %s  “%s”" % (fn, s[:70]))
+        if len(stale) > 10 and not verbose:
+            print("     …… 另有 %d 条（-v 看全部）" % (len(stale) - 10))
     print("=" * 66)
-    return 0 if not hits else 1
+    return 0 if (not hits and not stale) else 1
 
 
 def main() -> int:

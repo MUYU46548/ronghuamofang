@@ -160,7 +160,7 @@
     <div v-if="aiOpen" class="drawer-mask" @click.self="aiOpen = false">
       <div class="dialog">
         <h3>AI 修订“{{ sel && sel.title }}”</h3>
-        <div class="meta">只重写这一条（保留事件核心），不影响其他节点与四节结构；修订前自动备份到 data/outline/history/。</div>
+        <div class="meta">只重写这一条（保留事件核心），不影响其他节点与四节结构；修订前自动留底（可撤销）。</div>
         <textarea v-model="aiFeedback" rows="4"
                   placeholder="例如：侧重主角；结尾留悬念"></textarea>
         <div class="dialog-actions">
@@ -937,7 +937,7 @@ async function pickVariant(v) {
   say(r.data.message || "已选定");
 }
 async function clearVariant() {
-  if (!window.confirm("放弃已选定的开局方案？阶段 2 会回到 config/project.yaml 里你自己写的大纲。")) return;
+  if (!window.confirm("放弃已选定的开局方案？阶段 2 会回到你自己写的大纲。")) return;
   const r = await props.api("/outline/variants/clear", "POST", {});
   if (r.status !== 200) { say("取消失败: " + (r.data.error || r.status)); return; }
   varChosen.value = false;
@@ -1201,7 +1201,7 @@ async function runNextStep(action) {
   if (!window.confirm("对“" + (action.target || eid) + "”提交 AI 精修？\n\n"
       + "修订意见：" + fb + "\n\n"
       + "· 只改这一条，不动其他内容\n"
-      + "· 修订前自动备份到 data/outline/history/\n"
+      + "· 修订前自动留底（可撤销）\n"
       + "· 可用右侧“撤销上次修订”回滚")) return;
   advBusy.value = eid;
   const r = await props.api("/refine/outline/node", "POST",

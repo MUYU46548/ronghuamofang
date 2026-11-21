@@ -120,7 +120,7 @@ const refNoticeOpen = ref(false);
 const refNoticeEl = ref(null);
 const REF_DECL_LINES = [
   "范文（样例稿）由你自行提供，用于让写作阶段模仿它的节奏、用词与句式。",
-  "· 只保存在本机工作区（默认 materials/style_sample.md），随书档一起归档；绒花墨坊没有服务器，这段原文不会离开你的电脑。",
+  "· 只保存在本机工作区，随书档一起归档；绒花墨坊没有服务器，这段原文不会离开你的电脑。",
   "· 写作时系统会从其中摘出 3 段随任务发给**你配置的模型服务商**，适用该服务商的数据条款。",
   "· 请只放入你有权使用的文本 —— 版权与合规责任由你承担。",
   "· 绒花墨坊不保证生成结果可用，也不对由此产生的后果负责。",
@@ -145,7 +145,7 @@ async function loadReference() {
 
 async function saveReference(clear = false) {
   if (clear && !window.confirm(
-    "清空范文？\n\n· 写作阶段将不再注入范文\n· 旧内容已自动备份到 data/state/style_reference_history/")) return;
+    "清空范文？\n\n· 写作阶段将不再注入范文\n· 旧内容已自动留底（可找回）")) return;
   // 声明门：只有在真要写正文时才拦（清空是撤回，不该被声明挡一次）。
   if (!clear && refText.value.trim() && !refConsent.value.agreed) {
     refNoticeOpen.value = true;
@@ -203,7 +203,7 @@ async function analyze(autoFallback = true) {
       for (const n of [1, 2, 3]) {
         chapN.value = n;
         note.value = "未配置 book.style_reference —— 已自动改用“第 " + n + " 章”做分析；"
-          + "想分析范文请在 config/project.yaml 配置，或切到“指定文件”。";
+          + "想直接指定范文请切到“指定文件”，或在本页填范文正文。";
         const r2 = await api("/style/analyze", "POST",
                              { source: "chapter", n, compare: compareOn.value ? { n } : undefined });
         if (r2.data.ok) {
@@ -276,7 +276,7 @@ async function importBook() {
   if (!r.ok || !r.paths?.length) { if (!r.ok) say(r.error || "选择文件失败"); return; }
   const path = r.paths[0];
   if (!window.confirm("确定拆书？\n\n文件：" + path
-      + "\n· 仅读取该文件，不会修改它\n· 结果写入 data/state/book_pacing.json")) return;
+      + "\n· 仅读取该文件，不会修改它\n· 结果会存进工作区")) return;
   pacingLoading.value = true;
   const res = await api("/book/split", "POST", { path, emit: false });
   pacingLoading.value = false;
@@ -657,7 +657,7 @@ onMounted(() => {
           </label>
         </div>
         <div v-else class="meta">
-          取 config/project.yaml 的 <b>book.style_reference</b>（默认指向本页上方“范文正文”保存的那个文件）。
+          取项目设置里的范文指向（默认是本页上方“范文正文”保存的那份）。
           <button class="mini" style="margin-left: 8px;" @click="scrollToReference">去配范文</button>
           <b>未配置时自动回退为分析项目章节</b>。
         </div>

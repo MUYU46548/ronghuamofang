@@ -86,7 +86,7 @@
         <h3>批准提案并写回章大纲</h3>
         <div class="meta">
           将把提案里的优化点<strong>追加</strong>到对应章的大纲末尾（编号自动顺延），
-          写前会备份章文件到 <code>data/outline/chapters/</code> 下的 <code>.bak</code>。
+          写前会自动备份该章大纲文件。
           不改章正文，只加批注层。
         </div>
         <pre class="dq-preview-sm">{{ approveContent }}</pre>

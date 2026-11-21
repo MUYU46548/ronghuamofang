@@ -1247,8 +1247,7 @@ onUnmounted(() => {
           <div class="ce-side-block">
             <div class="ce-side-title">说明</div>
             <div class="meta">
-              保存只写文件：不改阶段状态、不打分、不跑体检。旧稿会自动备份到
-              <code>data/chapters/history/</code>，用“章节 → 历史”可回退。
+              保存只写文件：不改阶段状态、不打分、不跑体检。旧稿会自动留底，用“章节 → 历史”可回退。
             </div>
           </div>
         </div>
