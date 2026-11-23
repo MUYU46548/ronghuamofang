@@ -176,16 +176,36 @@ def build(setting_path="data/setting/setting.json", vault_path=None,
     # 预算硬裁：从尾部砍（尾部是 vault 补充 + 时间线，角色在最前，最不该丢）
     body = "\n".join(lines)
     if len(body) > budget:
+        # ⚠ 2026-11-23 修（实测 budget=120 时 body 长 242，超出 2 个字）：
+        #   提示行"（另有 N 行未内联…）"原来是在**裁完之后**才追加的，
+        #   它自己不占预算 —— 于是"裁到 budget"实际变成"budget + 提示行长度"。
+        #   预算越小超得越离谱（提示行里还嵌着 p.as_posix() 的绝对路径，可长可短，
+        #   所以在边界附近会**时红时绿**：这条单测 41 次通过、偶发一次报 242）。
+        #   修法：先把提示行的额度**预留出来**，剩余预算才给正文；提示行本身也要
+        #   在极端情况下截断，绝不越过 budget。
+        def note_of(n, dropped):
+            return ("（另有 %d 行未内联：超出摘要预算 %d 字；"
+                    "完整设定集见 %s）" % (n, dropped, p.as_posix()))
+
+        # 先按"未知 dropped"估一个提示行长度上限：用最多行数（=len(lines)）粗估，
+        # 这样预留一定够；真裁完再把实际 dropped 填回去，长度只会更短。
+        reserve = len(note_of(len(lines), budget))
         keep, size = [], 0
         dropped = 0
+        limit = max(0, budget - reserve)
         for ln in lines:
-            if size + len(ln) + 1 > budget:
+            if size + len(ln) + 1 > limit:
                 dropped += 1
                 continue
             keep.append(ln)
             size += len(ln) + 1
-        keep.append("（另有 %d 行未内联：超出摘要预算 %d 字；"
-                    "完整设定集见 %s）" % (dropped, budget, p.as_posix()))
+        note = note_of(dropped, budget)
+        # 兜底：万一 note 仍比预留长（路径极端长 / dropped 位数变多），就地截断。
+        room = budget - size
+        if room < len(note):
+            note = note[:max(0, room)]
+        if note:
+            keep.append(note)
         stats["trimmed"] += dropped
         body = "\n".join(keep)
     stats["chars"] = len(body)

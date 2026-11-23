@@ -381,7 +381,22 @@ function getWorkspaceSource() {
 //   · 前端（asar，不走种子）：项目页出厂徽标 / 启动提示词剥离说明书 /
 //     阶段复制改任务简报（原样贴模板会被外部 Agent 按红线判“模板不是任务”停工）。
 // **先 bump 再 electron-builder**。
-const SEED_VERSION = 96;   // 0.9.10: 交付底子 ——
+// v97（2026-11-23，0.9.13）：payload 两处实质变更，都是**修错**不是加功能 ——
+//   · scripts/utils/setting_brief.py：预算硬裁**真的会超预算**。提示行
+//     "（另有 N 行未内联…）"原来在裁完正文之后才追加，自己不占预算，于是
+//     "裁到 budget"实际是"budget + 提示行长度"；budget=120 实测 242（超 122）。
+//     提示行里嵌 p.as_posix() 的绝对路径，长度可长可短 → 在边界附近**时红时绿**
+//     （单测连跑 41 次全过、偶发一次报 242，差点被当成 flaky 放过去）。
+//     现改为先预留提示行额度再裁，并对提示行本身做兜底截断；极小预算（1/5/20/60）
+//     实测也不再越界。
+//   · scripts/nfctl.py：① 测试临时根不再泄漏 —— 全仓 69 个测试文件用
+//     tempfile.mkdtemp() 且从不清理，本机 %TEMP% 堆到 **46,188 个目录 / 8.6 GB**，
+//     随后 e2e 报 net::ERR_NO_BUFFER_SPACE（句柄耗尽），被误当成"界面坏了"排查两轮。
+//     现给测试子进程本轮专用 TMPDIR/TEMP/TMP，跑完整棵删除（69 个文件一行未改）；
+//     ② `nfctl test --pattern` 不再崩 —— render_test_results 假定 errors 元素都是 dict，
+//     窄跑路径会塞字符串，实测 AttributeError 让"只跑某个用例"完全不可用。
+const SEED_VERSION = 97;   // 0.9.13: 上面两处 payload 修复（预算越界 / 测试临时根泄漏 + pattern 崩溃）
+                           // 0.9.10 交付底子 ——
                             //   · payload scripts：obsidian.unskip_dirs（默认排除项可显式放开；
                             //     get_skip_dirs = 默认 − unskip ∪ 追加 ∪ 沙盒；沙盒恒排除、
                             //     放开必须 confirm，端点只认显式 unskip 字段不从 exclude 反推）；

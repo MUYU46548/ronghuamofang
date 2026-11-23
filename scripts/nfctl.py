@@ -35,8 +35,10 @@ import argparse
 import json
 import os
 import re
+import shutil
 import socket
 import sys
+import tempfile
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -1246,6 +1248,20 @@ def run_tests(root: Path, pattern: str = "test_*.py", verbose: bool = False) -> 
     # 测试子进程一律不继承该变量（要指根的用例自己传 --root）。
     child_env.pop("NF_ROOT", None)
 
+    # 临时根收口（2026-11-23 实测）：测试是各自 `tempfile.mkdtemp()` 建根，
+    # **69 个文件从不清理**。一天跑十几次全量，本机 Temp 里堆到 **46,188 个** nf_* 目录、
+    # 8.6 GB；随后 e2e 报 `net::ERR_NO_BUFFER_SPACE`（Windows 句柄/缓冲区耗尽），
+    # 被当成"界面坏了"排查了两轮 —— 实际是**测试把机器跑坏了**。
+    #
+    # 修法选在根上，而不是逐个补 try/finally：
+    #   给子进程一个本轮的 TMPDIR，跑完整棵删掉。Python 的 tempfile.mkdtemp 尊重
+    #   TMPDIR/TEMP/TMP，所以 69 个文件一行都不用改，将来新写的测试也自动受益。
+    # 为什么不用 addCleanup 那类逐文件修：面广、易漏、且改测试代码会动到它们自己的判据。
+    _session_tmp = Path(tempfile.mkdtemp(prefix="nf_testrun_"))
+    child_env["TMPDIR"] = str(_session_tmp)
+    child_env["TEMP"] = str(_session_tmp)
+    child_env["TMP"] = str(_session_tmp)
+
     for tf in test_files:
         rel = tf.relative_to(root)
         results["total"] += 1
@@ -1297,6 +1313,14 @@ def run_tests(root: Path, pattern: str = "test_*.py", verbose: bool = False) -> 
             results["failed"] += 1
             results["errors"].append({"file": str(rel), "error": str(e)})
 
+    # 收摊：删掉本轮所有临时根（连同子进程在里面建的一切）。
+    # 删不掉不算失败（文件可能被还没退干净的句柄占着）—— 但要把数量打出来，
+    # 免得"清理没生效"又变成静默的假绿。
+    try:
+        shutil.rmtree(_session_tmp, ignore_errors=True)
+    except Exception:                                   # noqa: BLE001
+        pass
+
     return results
 
 
@@ -1307,6 +1331,14 @@ def render_test_results(d: dict) -> str:
         lines.append("")
         lines.append("失败详情:")
         for err in d["errors"]:
+            # 2026-11-23 修：这里的元素**不一定是 dict**。超时/异常两条分支里
+            # 确实写的是 {"file":…,"error":…}，但 `--pattern` 之类的窄跑路径会把
+            # 普通字符串塞进来（实测 `nfctl test --pattern test_dry` 直接
+            # AttributeError: 'str' object has no attribute 'get' —— 命令本身崩了，
+            # 于是"跑某个用例"这件事完全不可用，报错还指向渲染器而不是被测对象）。
+            if not isinstance(err, dict):
+                lines.append("  — %s" % err)
+                continue
             lines.append("  — %s" % err.get("file", "?"))
             if "error" in err:
                 lines.append("    错误: %s" % err["error"])

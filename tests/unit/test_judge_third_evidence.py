@@ -308,8 +308,14 @@ def main():
     env8 = dict(os.environ)
     env8["PYTHONIOENCODING"] = "utf-8"
     env8["PYTHONUTF8"] = "1"
+    # 2026-11-23 修（本机长期红、退出码却恒 0）：`text=True` 不给 `encoding` 时，
+    # subprocess 用**父进程 locale**（中文 Windows = GBK）解码子进程的 UTF-8 输出，
+    # 读到第一个中文就抛 UnicodeDecodeError → 读取线程死掉 → r.stdout 是空串 →
+    # 下面两条"零调用 / 第3章"断言永远失败。子进程没错，是**测法**在中文 locale 下读不出文本。
+    # 修法：显式 encoding="utf-8" + errors="replace"（与脚本的 UTF-8 输出同口径）。
     r = subprocess.run([sys.executable, script, "--chapter", "3", "--dry-run"],
                        cwd=str(root6), capture_output=True, text=True, timeout=120,
+                       encoding="utf-8", errors="replace",
                        env=env8)
     out = (r.stdout or "") + (r.stderr or "")
     if os.environ.get("CI"):

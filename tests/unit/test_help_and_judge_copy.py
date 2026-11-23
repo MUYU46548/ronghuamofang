@@ -43,6 +43,44 @@ def check(name, cond, detail=""):
                            ("  → " + str(detail)[:220]) if detail else ""))
 
 
+# 已知 Node 警告的**正文片段**（折行后的续行靠它们认出）。
+# 只列与本测试无关的运行时警告；真错误绝不会命中这里。
+_NODE_WARNING_BODIES = (
+    "EnvHttpProxyAgent is experimental",
+    "Reparsing as ES module because module syntax was detected",
+    'add "type": "module" to',
+    "is not specified and it doesn't parse as CommonJS",
+)
+
+
+def _is_node_warning(line):
+    """这行是不是 Node 自己的运行时**警告**（与本脚本要验的东西无关）。
+
+    为什么需要它（2026-11-23）：判据原本是“stderr 非空 = 渲染器出错”，
+    但 Node 22 起，凡是带 --input-type=module 的调用都会打
+    `(node:NNN) [UNDICI-EHPA] Warning: …` 与
+    `(node:NNN) [MODULE_TYPELESS_PACKAGE_JSON] Warning: …`，
+    外加一行 `(Use \\`node --trace-warnings ...\\` …)` 提示。
+    实测 stdout 完全正常（`<h2>标题</h2>`），红灯纯属**判据把警告当错误**。
+
+    收窄条件：必须是 `(node:PID) [CODE] Warning:` 或它的续行提示；
+    其余任何 stderr（真正的 SyntaxError / ERR_MODULE_NOT_FOUND / 栈）一律算错误。
+    """
+    s = (line or "").strip()
+    if not s:
+        return True
+    if re.match(r"^\(node:\d+\)\s+\[[A-Z0-9_]+\]\s+Warning:", s):
+        return True
+    if s.startswith("(Use `node --trace-warnings"):
+        return True
+    # 警告正文会**折行**：首行是 `(node:N) [CODE] Warning: ...`，后续几行纯文字接续
+    # （实测 UNDICI 那条折成两行、MODULE_TYPELESS 折成三行，第二行不含任何标记）。
+    # 只认这三条已知警告的续行文本，别把真错误（SyntaxError / ERR_* / 栈）放过去。
+    if any(k in s for k in _NODE_WARNING_BODIES):
+        return True
+    return False
+
+
 def run_node(js):
     """跑一段 node（渲染器是 ESM，Python 侧只能用 node 验）。"""
     try:
@@ -105,7 +143,7 @@ def main():
             'console.log(renderMarkdown("<script>alert(1)</script>"));\n'
         )
         out, err = run_node(js)
-        if err:
+        if err and not out:
             # node 不接受 file:// URI 直接 import 时退回到读源码再 eval
             src_js = md.read_text(encoding="utf-8")
             js2 = src_js + "\n" + (
@@ -116,7 +154,18 @@ def main():
                 'console.log("---XSS---");\n'
                 'console.log(renderMarkdown("<script>alert(1)</script>"));\n')
             out, err = run_node(js2)
-        check("渲染器能跑（node 执行无错）", not err, err[:160])
+        # 2026-11-23 修（本机长期红、渲染其实完全正常）：判据原来是“stderr 非空 = 出错”，
+        # 但 Node 22 会往 stderr 打与本次执行无关的**警告**（UNDICI-EHPA /
+        # MODULE_TYPELESS_PACKAGE_JSON），实测 stdout 是完好的 `<h2>标题</h2>`。
+        # “stderr 有字”不等于“渲染器坏了” —— 真判据是**有没有真错误行**。
+        real_err = [
+            ln for ln in (err or "").splitlines()
+            if ln.strip()
+            and not _is_node_warning(ln)
+        ]
+        check("渲染器能跑（node 执行无错）", not real_err, (real_err or [])[:2])
+        if not out:
+            check("渲染器有输出（否则下面几条无从谈起）", False, (err or "")[:160])
         if out:
             before, _, after = out.partition("---XSS---")
             check("一级标题渲染为 h2（手册标题不跟页面 h1 抢层级）",
