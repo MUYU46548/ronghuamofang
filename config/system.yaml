@@ -42,6 +42,12 @@ dsh:
   # 会话续接（默认 false）：true 时逐段可经 --session-id 接上一段。
   # ⚠️ 行为变更（agent 上下文跨段累积），首次启用先跑一章看过产物再决定。
   session_continuation: false
+  # 传输断连重发（2026-11-24）：DSH 长任务会中途报
+  # `dsh: TRANSPORT: Connection error.` 然后退出非零，此时段群已落盘 ——
+  # 重发同一份任务书等于从断点继续。0 = 关掉（一次失败就交上去）。
+  # 只对这一类断连重发；模型报错 / 权限拒绝 / 输出截断一律不重发。
+  transport_retry_max: 2
+  transport_retry_wait_sec: 5    # 第 n 次重发等 n×5 秒（线性，不指数）
 
 providers:
   tokenhub:

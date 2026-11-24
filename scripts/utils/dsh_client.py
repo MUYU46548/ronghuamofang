@@ -232,9 +232,19 @@ class DshClient:
     provider = "dsh"
     display_name = "DSH"
 
+    #: 传输层断连的特征串（小写比对）。
+    #: 2026-11-24 真机实测：长任务跑到中途，DSH 侧打 `dsh: TRANSPORT: Connection error.`
+    #: 后退出非零，而**段群已经落盘** —— 这时重发同一份任务书就是接着跑，
+    #: DSH 自己的报错也是这个意思（"重启后从断点续跑"）。
+    #: **只认这一类**：模型报错 / 权限拒绝 / 输出截断都不重试 —— 重试只会再错一次，
+    #: 还把订阅额度白烧一遍。
+    TRANSPORT_HINTS = ("transport: connection error", "econnreset",
+                       "socket hang up", "other side closed", "connection reset by peer")
+
     def __init__(self, dsh_bin=None, timeout=1800, model=None, permission_mode=None,
                  approval_policy=None, session_continuation=False,
-                 request_max_tokens=None, add_dirs=None, profile=None):
+                 request_max_tokens=None, add_dirs=None, profile=None,
+                 transport_retries=2, transport_backoff_sec=5):
         self.dsh_bin = resolve_dsh_bin(dsh_bin)
         self.timeout = int(timeout or 1800)
         self.profile = str(profile or "").strip() or self.DEFAULT_PROFILE
@@ -255,6 +265,52 @@ class DshClient:
         except (TypeError, ValueError):
             self.request_max_tokens = None
         self.add_dirs = [str(d) for d in (add_dirs or []) if str(d).strip()]
+        # 传输断连重试（2026-11-24）：只对 TRANSPORT_HINTS 命中**且退出非零**的那次重发，
+        # 间隔 5s / 10s 线性递增；0 = 关掉，回到"一次失败就交上去"的旧行为。
+        try:
+            self.transport_retries = max(0, int(transport_retries or 0))
+        except (TypeError, ValueError):
+            self.transport_retries = 0
+        try:
+            self.transport_backoff = max(0.0, float(transport_backoff_sec or 0))
+        except (TypeError, ValueError):
+            self.transport_backoff = 0.0
+        self._sleep = time.sleep        # 测试替换成空操作，免得真等 5 秒
+
+    # ------------------------------------------------------------ 传输断连重试
+
+    def _is_transport_error(self, res):
+        """这次失败是不是传输层断连（可重发）—— 其余一律不重试。"""
+        if not isinstance(res, dict) or res.get("stopped"):
+            return False
+        if not res.get("exit_code"):
+            return False
+        blob = (str(res.get("stderr_tail") or "") + " " + str(res.get("error") or "")).lower()
+        return any(h in blob for h in self.TRANSPORT_HINTS)
+
+    def _retry_transport(self, once):
+        """`once(attempt_index)` 跑一次；命中传输断连就重发，最多 transport_retries 次。
+
+        重试**不丢账**：失败那次消耗的 token 也真花了（订阅照记），所以逐次累加到
+        最终结果上，否则 `budget.token_limit` 会少算掉重试那一截。
+        """
+        res = once(0)
+        used = 0
+        while used < self.transport_retries and self._is_transport_error(res):
+            used += 1
+            wait = self.transport_backoff * used
+            print("[dsh_client] WARN 传输断连（exit=%s）：%s → 第 %d/%d 次重发（等 %.0fs）"
+                  % (res.get("exit_code"),
+                     str(res.get("stderr_tail") or res.get("error") or "")[:120],
+                     used, self.transport_retries, wait))
+            if wait:
+                self._sleep(wait)
+            nxt = once(used)
+            for k in ("tokens", "tokens_out", "cache_read", "requests"):
+                nxt[k] = int(nxt.get(k) or 0) + int(res.get(k) or 0)
+            nxt["transport_retries"] = used
+            res = nxt
+        return res
 
     # ------------------------------------------------------------ 自检/告警
 
@@ -555,13 +611,15 @@ class DshClient:
         续接失败（非零退出）自动降级为全新会话重试一次 —— 续接是优化，
         不该成为新的失败源（与 hermes 同处置），结果带 `resumed_fallback`。
         """
-        res = self._run_once(task_file, workdir, model, session_id)
+        res = self._retry_transport(
+            lambda _i: self._run_once(task_file, workdir, model, session_id))
         if (session_id and self.session_continuation
                 and not res.get("stopped") and res.get("exit_code")):
             why = str(res.get("error") or res.get("stderr_tail") or "")[:140]
             print("[dsh_client] WARN 续接会话失败（exit=%s）：%s → 降级为全新会话重试"
                   % (res.get("exit_code"), why))
-            res = self._run_once(task_file, workdir, model, None)
+            res = self._retry_transport(
+                lambda _i: self._run_once(task_file, workdir, model, None))
             res["resumed_fallback"] = True
         return res
 
@@ -811,15 +869,29 @@ class DshClient:
                         session_id=None):
         """真流式：逐 text 事件回放；stop_flag 置位即杀整棵进程树。"""
         task_path = Path(task_file)
-        res = self._stream_once(task_path, self._task_prompt(task_path), on_piece,
-                                stop_flag, workdir=workdir, session_id=session_id)
+        prompt = self._task_prompt(task_path)
+
+        def _attempt(i, session):
+            if i == 0:
+                return self._stream_once(task_path, prompt, on_piece, stop_flag,
+                                         workdir=workdir, session_id=session)
+            # 重发不再回放片段：同一章会在界面上叠两遍，字数进度也会虚高。
+            # 流里只留一句“中断重发”，正文以 final / 落盘文件为准。
+            try:
+                if on_piece:
+                    on_piece("\n\n（连接中断，已重发本段；正文以最终结果为准）\n\n")
+            except Exception:                           # noqa: BLE001
+                pass
+            return self._stream_once(task_path, prompt, lambda p: None, stop_flag,
+                                     workdir=workdir, session_id=session)
+
+        res = self._retry_transport(lambda i: _attempt(i, session_id))
         # 续接失败自动降级一次（与 run_task 同处置）
         if (session_id and self.session_continuation
                 and not res.get("stopped") and res.get("exit_code")):
             why = str(res.get("error") or res.get("stderr_tail") or "")[:140]
             print("[dsh_client] WARN 流式续接会话失败（exit=%s）：%s → 降级为全新会话重试"
                   % (res.get("exit_code"), why))
-            res = self._stream_once(task_path, self._task_prompt(task_path), on_piece,
-                                    stop_flag, workdir=workdir, session_id=None)
+            res = self._retry_transport(lambda i: _attempt(i, None))
             res["resumed_fallback"] = True
         return res

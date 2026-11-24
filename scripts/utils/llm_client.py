@@ -1913,14 +1913,18 @@ def make_client(cfg, model_key="default", verbose=True):
         return DshClient(
             dsh_bin=dcfg.get("bin") or None,
             timeout=int(dcfg.get("timeout", 1800)),
-            # 默认 desktop：借 DSH 桌面端那套配置（第三方渠道 + 已登录凭据）。
-            # 作者 2026-11-20："headless 不需要用，不存在都行。绒花墨坊现在只调用 DSH。"
+            # 默认 headless（2026-11-24 改）：desktop 档命令行调不通
+            # （DSH 拒绝 "managed exclusively by the Electron application"）。
             profile=dcfg.get("profile") or DshClient.DEFAULT_PROFILE,
             permission_mode=dcfg.get("permission_mode") or None,
             approval_policy=dcfg.get("approval_policy", DshClient.DEFAULT_APPROVAL_POLICY),
             session_continuation=bool(dcfg.get("session_continuation", False)),
             request_max_tokens=req_cap,
             add_dirs=dcfg.get("add_dirs") or None,
+            # 传输断连自动重发（2026-11-24）：DSH 长任务会中途 TRANSPORT 断连，
+            # 段群已落盘，重发同一份任务书 = 从断点继续。
+            transport_retries=int(dcfg.get("transport_retry_max", 2)),
+            transport_backoff_sec=float(dcfg.get("transport_retry_wait_sec", 5)),
         )
 
     if engine == "hermes" or provider_id == "hermes":

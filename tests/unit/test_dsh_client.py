@@ -135,6 +135,87 @@ def _stub_session_guard(tmp):
     ])
 
 
+def _stub_transport_then_ok(tmp, fail_times=2):
+    """前 fail_times 次报 `TRANSPORT: Connection error` 并退出 1，之后成功。
+
+    真机形态照抄 2026-11-24 实测：段群已落盘、DSH 打一行诊断到 stderr、退出非零。
+    """
+    cnt = Path(tmp) / "dsh_transport_count.txt"
+    return _bat(tmp, "dsh_transport.bat", [
+        "@echo off",
+        "set N=0",
+        'if exist "%s" set /p N=<"%s"' % (cnt, cnt),
+        "set /a N=N+1",
+        '> "%s" echo %%N%%' % cnt,
+        "if %%N%% LEQ %d (" % fail_times,
+        "  echo dsh: TRANSPORT: Connection error. 1>&2",
+        "  exit /b 1",
+        ")",
+        'echo {"type":"session","sessionId":"sess-tr"}',
+        'echo {"type":"status","phase":"step_end","turn":1,"step":1,'
+        '"usage":{"inputTokens":50,"outputTokens":10}}',
+        'echo {"type":"final","sessionId":"sess-tr",'
+        '"reason":{"kind":"completed"},"text":"TR_RECOVERED"}',
+    ])
+
+
+# ------------------------------------------------- 传输断连重发（2026-11-24）
+
+def test_transport_retry():
+    print("· 传输断连：自动重发 / 只认 TRANSPORT / 重发不丢账")
+    tmp = tempfile.mkdtemp(prefix="nf_dsh_tr_")
+    try:
+        task = Path(tmp) / "task.md"
+        task.write_text("任务", encoding="utf-8")
+
+        c = DshClient(dsh_bin=str(_stub_transport_then_ok(tmp, 2)),
+                      transport_retries=2, transport_backoff_sec=0)
+        c._sleep = lambda s: None
+        res = c.run_task(task, workdir=tmp)
+        check("两次断连后重发生效（exit 0 + 正文回来）",
+              res["exit_code"] == 0 and res["stdout_tail"] == "TR_RECOVERED",
+              extra=str(res))
+        check("重发次数有记录（transport_retries=2）",
+              res.get("transport_retries") == 2, extra=str(res.get("transport_retries")))
+        check("三次尝试都进账（requests=3，失败那次的 token 不丢）",
+              res["requests"] == 3 and res["tokens"] >= 50,
+              extra="requests=%s tokens=%s" % (res.get("requests"), res.get("tokens")))
+
+        # 关掉重发 → 回到旧行为：一次就交上去（否则真断网时会白等 15 秒）
+        c0 = DshClient(dsh_bin=str(_stub_transport_then_ok(tmp, 99)),
+                       transport_retries=0, transport_backoff_sec=0)
+        r0 = c0.run_task(task, workdir=tmp)
+        check("transport_retries=0 → 不重发（exit 1 / requests=1）",
+              r0["exit_code"] == 1 and r0["requests"] == 1, extra=str(r0))
+
+        # 非传输失败（模型/provider 报错）**不重发** —— 重发只会再错一次，还白烧额度
+        cf = DshClient(dsh_bin=str(_stub_fail(tmp)),
+                       transport_retries=2, transport_backoff_sec=0)
+        cf._sleep = lambda s: None
+        rf = cf.run_task(task, workdir=tmp)
+        check("provider 报错不重发（exit 1 / requests=1）",
+              rf["exit_code"] == 1 and rf["requests"] == 1, extra=str(rf))
+
+        # 流式那条路（stage4 实际走的）也得重发，且不许把正文在界面上叠两遍
+        tr2 = tempfile.mkdtemp(prefix="nf_dsh_trs_")
+        try:
+            pieces = []
+            cs = DshClient(dsh_bin=str(_stub_transport_then_ok(tr2, 1)),
+                           transport_retries=2, transport_backoff_sec=0)
+            cs._sleep = lambda s: None
+            rs = cs.run_task_stream(task, lambda p: pieces.append(p), None, workdir=tr2)
+            check("流式路径断连后重发生效（exit 0）",
+                  rs["exit_code"] == 0, extra=str(rs))
+            check("重发只留一句中断提示，不回放已收片段",
+                  any("中断" in p for p in pieces)
+                  and sum(1 for p in pieces if "STUB" in p or "TR_" in p) == 0,
+                  extra=str(pieces[:4]))
+        finally:
+            shutil.rmtree(tr2, ignore_errors=True)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def _orphan_count(marker):
     """数还活着的标记子进程（tree kill 失效时它会存活到 20s）。"""
     try:
@@ -544,6 +625,7 @@ def main():
     test_parse_events()
     test_finish_mapping()
     test_run_task_with_stubs()
+    test_transport_retry()
     test_stream_and_stop()
     test_post_chat()
     test_resume_fallback()
