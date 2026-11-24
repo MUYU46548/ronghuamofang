@@ -1,6 +1,17 @@
 // 绒花墨坊控制台 — preload 桥（contextIsolation 安全暴露）
 const { contextBridge, ipcRenderer } = require("electron");
 
+// 后端实际地址（2026-11-24）：8765 可能被别人的程序占着，主进程会换到 8770+。
+// 渲染层 `src/apiBase.js` 优先读 window.__NF_API_BASE__ —— 不注入的话，
+// 界面会一直打 8765 上的**别人**，表现就是"窗口能开、永远离线"。
+try {
+  const arg = (process.argv || []).find((a) => String(a).indexOf("--nf-api-base=") === 0);
+  if (arg) {
+    contextBridge.exposeInMainWorld("__NF_API_BASE__",
+      String(arg).slice("--nf-api-base=".length));
+  }
+} catch (e) { /* 注入失败 → 渲染层回落 8765（与旧行为一致） */ }
+
 contextBridge.exposeInMainWorld("mofangAPI", {
   readPreview: (relPath) => ipcRenderer.invoke("read-preview", relPath),
   openArtifact: (relPath) => ipcRenderer.invoke("open-artifact", relPath),

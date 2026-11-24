@@ -76,4 +76,63 @@ function shouldKeepWaiting(s) {
   return ticks < max;
 }
 
-module.exports = { decidePortTakeover, takeoverDetail, shouldKeepWaiting };
+module.exports = { decidePortTakeover, takeoverDetail, shouldKeepWaiting,
+                   isOursProcess, decideStartupPort };
+
+// ---------------------------------------------------------------- 2026-11-24 新增
+// 作者问的一件真事：“如果用户的电脑就是有 8765 怎么办？直接永久卡死？”
+// 旧答案有两处硬伤：
+//   ① 判据只看“运行锁持有者”，不是它就**照杀** —— 占 8765 的可能是别人的软件，
+//      杀它既无礼也可能真的弄坏别人的东西；
+//   ② 杀不掉（权限 / 系统进程）时只能连续重试 3 次然后放弃 → 界面永久离线，
+//      作者的话是“直接永久卡死？”—— 现象上确实一样。
+// 现在：陌生程序一个都不碰，改用**下一个空闲端口**，把实际端口告诉界面。
+
+/** 这个命令行是不是“我们自己人”（墨坊拉起的 nf_api）。 */
+function isOursProcess(cmdline) {
+  const s = String(cmdline == null ? "" : cmdline).toLowerCase().replace(/\\/g, "/");
+  return s.indexOf("nf_api.py") >= 0;
+}
+
+/**
+ * 启动时该用哪个端口。
+ * @param {{defaultPort?:number, portPids?:(string|number)[], lock?:object|null,
+ *          cmdlines?:Record<string,string>, candidates?:number[],
+ *          takenPorts?:number[]}} s
+ * @returns {{port:number, action:"use-default"|"ours"|"switch"|"keep-busy",
+ *            strangers:string[], note:string}}
+ *   action：
+ *     use-default = 8765 没人听，直接用；
+ *     ours        = 占用者是我们自己的 nf_api（或正在跑的流水线）→ 仍用 8765，
+ *                   后面走“先问一句 / 等它写完”那条老路；
+ *     switch      = 陌生程序占着 → **不杀**，换候选端口里第一个空闲的；
+ *     keep-busy   = 候选端口全被占 → 只能留在 8765（由上层重试/提示，不再假装能修）。
+ */
+function decideStartupPort(s) {
+  const st = s || {};
+  const def = Number(st.defaultPort || 8765);
+  const pids = (st.portPids || []).map(String).filter(Boolean);
+  if (!pids.length) return { port: def, action: "use-default", strangers: [], note: "" };
+
+  const cmdlines = st.cmdlines || {};
+  const lock = st.lock && typeof st.lock === "object" ? st.lock : null;
+  const lockPid = lock && /^\d+$/.test(String(lock.pid == null ? "" : lock.pid))
+    ? String(lock.pid) : "";
+
+  const ours = pids.filter((p) => p === lockPid || isOursProcess(cmdlines[p]));
+  if (ours.length) {
+    return { port: def, action: "ours", strangers: pids.filter((p) => ours.indexOf(p) < 0),
+             note: "占用者是墨坊自己的进程（PID " + ours.join(",") + "）" };
+  }
+
+  const taken = (st.takenPorts || []).map(Number);
+  const cands = (st.candidates || []).map(Number).filter((n) => n > 0 && n !== def);
+  const free = cands.filter((p) => taken.indexOf(p) < 0)[0];
+  if (free) {
+    return { port: free, action: "switch", strangers: pids,
+             note: "8765 被别的程序占着（PID " + pids.join(",") + "），不改动它，改用 " + free };
+  }
+  return { port: def, action: "keep-busy", strangers: pids,
+           note: "8765 与候选端口都被占（PID " + pids.join(",") + "）" };
+}
+

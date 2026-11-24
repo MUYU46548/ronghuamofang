@@ -6735,7 +6735,7 @@ onUnmounted(() => {
             <!-- 阶段 3 这类无门阶段跑完就直说“没有审批动作”，别让它看起来像漏了一步
                  （2026-11-05 试跑第 20 条：用户以为 AI 说“阶段 3 没有审批门”是个 bug）。 -->
             <span v-if="s.status === 'done' && !isGate(s.stage)" class="pill st-nogate"
-                  :title="'本阶段不设审批门：跑完直接进下一阶段。审批门只有阶段 ' + gateListText + '（哪些阶段设门写在配置文件里，默认阶段 2 和 6）'">
+                  :title="'本阶段不设审批门：跑完直接进下一阶段。审批门只有阶段 ' + gateListText + '（哪些阶段设门写在配置文件里，出厂默认阶段 2、4、6）'">
               无需审批
             </span>
             <!-- 2026-11-03（作者拍板）：按章范围跑完 = 部分完成，绝不是"完成"。
@@ -7343,6 +7343,8 @@ onUnmounted(() => {
           <button class="mini" v-if="s.stage === 1" @click="preview('data/setting/material_review.md')">素材检查报告</button>
           <button class="mini" v-if="s.stage === 2" @click="preview('data/outline/global.md')">预览原文</button>
           <button class="mini" v-if="s.stage === 2" @click="preview('data/outline/review_report.md')">检查报告</button>
+          <!-- 阶段 4 的审稿门（2026-11-24 起要签字）：签之前最该看的就是这份报告 -->
+          <button class="mini" v-if="s.stage === 4" @click="preview('data/outline/review_report.md')">审稿报告</button>
           <button class="mini" v-if="s.stage === 6" @click="preview('data/outline/polish_report.md')">润色检查报告</button>
         </div>
         <!-- 产物摘要（2026-10-24：改读后端 /gate/artifacts，目录阶段也给得出章节数/字数） -->
@@ -8186,7 +8188,7 @@ onUnmounted(() => {
       <h4 style="margin-top: 16px;">审批门：哪些阶段跑完要停下来等你确认</h4>
       <div class="meta" style="line-height: 1.8; margin-bottom: 10px;">
         勾上的阶段跑完会停在“收件箱”，你点 <b>确认</b> 才往下走；没勾的阶段跑完直接进下一阶段。
-        <b>出厂默认只勾阶段 2 和 6</b>。阶段 1 另外受“素材库陪跑”影响（关着的时候归并完也会停一次）。
+        <b>出厂默认勾阶段 2、4、6</b>（4 = 正文写完的审稿门）。阶段 1 另外受“素材库陪跑”影响（关着的时候归并完也会停一次）。
         全部不勾 = 一路自动跑到底，中间没有确认点。
       </div>
       <div v-if="gateCfg.loading" class="meta">读取中…</div>

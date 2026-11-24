@@ -9,7 +9,10 @@ const { shouldGuardClose, closeAskTimedOut, killTreeArgv,
         shouldRetryPortProbe, parseNetstatListeningPids,
         MAX_PORT_PROBE_RETRIES } = require("./quitGuard");
 // 抢端口前的"能不能杀"判据（2026-11-20）：纯函数模块，node 可直测
-const { decidePortTakeover, takeoverDetail, shouldKeepWaiting } = require("./portTakeover");
+const { decidePortTakeover, takeoverDetail, shouldKeepWaiting,
+        decideStartupPort, isOursProcess } = require("./portTakeover");
+// 审批门一次性迁移（2026-11-24）：纯函数模块，node 可直测
+const { migrateRequireApproval } = require("./gateMigrate");
 // 项目根显式解析（2026-10-04 Step 4c 根修）：纯函数模块，node 可直测
 const { configFileFor, resolveProjectRoot, persistRoot } = require("./project-root");
 
@@ -197,7 +200,11 @@ const ROOT = isPackaged
 const PY = isPackaged
   ? path.join(process.resourcesPath, "runtime", "python", "python.exe")
   : path.join(ROOT, ".venv", "Scripts", "pythonw.exe");
-const API_PORT = 8765;
+const API_PORT_DEFAULT = 8765;
+// 2026-11-24：8765 不再是写死的唯一解。若被**别人的程序**占着，启动时换到 8770+ 的空闲端口
+// （陌生进程一个都不碰，见 portTakeover.decideStartupPort）；
+// 只在“占用者是我们自己的 nf_api / 正在跑的流水线”时才仍用 8765 走老路（问一句或等它写完）。
+let API_PORT = API_PORT_DEFAULT;
 
 // 工作区目录（可写）—— 默认值**按态分流**：
 //   打包态 → %APPDATA%\绒花墨坊\workspace
@@ -808,6 +815,28 @@ function ensureEnhancedMode(ws) {
   }
 }
 
+/** 把阶段 4 并进工作区配置的审批门（只在它仍是旧出厂值 [2,6] 时动手）。
+ *
+ *  为什么不用“合并 yaml”：那会重写整份配置、吃掉 172 行注释，还可能改掉用户的模型选择。
+ *  这里是**定点文本插入**，只在那一行列表里加 `- 4`，其余一字不动；
+ *  动之前先写 `.bak-gate4`，失败也不阻断启动（门少一道不等于软件不能用）。
+ */
+function migrateGate4(cfgDir) {
+  try {
+    const p = path.join(cfgDir, "system.yaml");
+    if (!fs.existsSync(p)) return;                    // 首启：等下文的配置复制
+    const src = fs.readFileSync(p, "utf8");
+    const r = migrateRequireApproval(src);
+    if (!r.changed) return;
+    fs.writeFileSync(p + ".bak-gate4", src, "utf8");
+    fs.writeFileSync(p, r.text, "utf8");
+    console.log("[console] 审批门：已把阶段 4（审稿门）并入（旧值 [2,6] → [2,4,6]，"
+                + "备份 system.yaml.bak-gate4）");
+  } catch (e) {
+    console.warn("[console] 审批门迁移跳过（不影响启动）:", e && e.message);
+  }
+}
+
 function seedWorkspace() {
   const ws = getWorkspaceDir();
 
@@ -1062,7 +1091,7 @@ function syncSkills() {
   }
 }
 
-const BASE = "http://127.0.0.1:" + API_PORT;
+let BASE = "http://127.0.0.1:" + API_PORT;
 
 let apiProc = null;
 let mainWindow = null;
@@ -1095,6 +1124,81 @@ function readRunLockHolder() {
   }
 }
 
+/** netstat 一次拿全：{端口号 → [pid...]}（只收 LISTENING 行）。
+ *
+ *  一次 netstat 而不是每个候选端口各跑一遍：换端口时要扫 20 个候选，
+ *  逐端口 findstr 在慢机器上能把启动拖到十几秒。
+ */
+function netstatListeners() {
+  const map = new Map();
+  try {
+    const out = require("child_process").execSync("netstat -ano | findstr LISTENING",
+      { stdio: "pipe" }).toString();
+    out.split(/\r?\n/).forEach((line) => {
+      const pm = line.match(/:(\d+)\s+\S+\s+LISTENING\s+(\d+)/);
+      if (!pm) return;
+      const port = parseInt(pm[1], 10);
+      const pid = String(pm[2]);
+      if (!port || !pid || pid === "0") return;
+      if (!map.has(port)) map.set(port, []);
+      const arr = map.get(port);
+      if (arr.indexOf(pid) < 0) arr.push(pid);
+    });
+  } catch (e) { /* netstat 不可用 = 当作没人占 */ }
+  return map;
+}
+
+const _cmdlineCache = new Map();
+function processCmdline(pid) {
+  /** 取某个 PID 的命令行（只用于判定“是不是我们自己的 nf_api”，判完缓存）。
+   *
+   *  只在端口**已被占用**时才调它 —— 空机器启动一次都不跑，不拖慢冷启动。
+   */
+  const key = String(pid);
+  if (_cmdlineCache.has(key)) return _cmdlineCache.get(key);
+  let cmd = "";
+  try {
+    const r = spawnSync("powershell", ["-NoProfile", "-Command",
+      "(Get-CimInstance Win32_Process -Filter \"ProcessId=" + key
+      + "\").CommandLine"], { encoding: "utf8", timeout: 4000, windowsHide: true });
+    cmd = String((r && r.stdout) || "").trim();
+  } catch (e) { /* 取不到 = 不认作自己人（宁可不杀） */ }
+  _cmdlineCache.set(key, cmd);
+  return cmd;
+}
+
+function planStartupPort() {
+  /** 启动时定端口（2026-11-24，作者问“用户电脑本来就有 8765 怎么办”）。
+   *
+   *  三种结果：
+   *    · 8765 空着 → 用它；
+   *    · 占着的是**我们自己的** nf_api / 持锁的流水线 → 仍用 8765，
+   *      后面走既有的“先问一句 / 等它写完”；
+   *    · 占着的是陌生程序 → **一个都不杀**，换 8770 起第一个空闲端口，
+   *      并把实际地址交给渲染层（否则界面会一直打 8765 上的别人 = 永远离线）。
+   */
+  const map = netstatListeners();
+  const pids = (map.get(API_PORT_DEFAULT) || []).slice();
+  const cands = [];
+  for (let i = 0; i < 20; i += 1) cands.push(8770 + i);
+  const cmds = {};
+  pids.forEach((pid) => { cmds[pid] = processCmdline(pid); });
+  const d = decideStartupPort({
+    defaultPort: API_PORT_DEFAULT,
+    portPids: pids,
+    lock: readRunLockHolder(),
+    cmdlines: cmds,
+    candidates: cands,
+    takenPorts: Array.from(map.keys()),
+  });
+  if (d.action === "switch" || d.action === "keep-busy") {
+    console.warn("[console] 端口：" + d.note);
+  }
+  API_PORT = d.port;
+  BASE = "http://127.0.0.1:" + API_PORT;
+  return d;
+}
+
 function killPortOccupants(port) {
   /** 清掉占用 port 的既有监听进程。
    *
@@ -1102,13 +1206,9 @@ function killPortOccupants(port) {
    *  （调用方负责稍后重试，别当成失败去计重试次数）。
    */
   if (process.platform !== "win32") return { pids: [], waiting: false };
-  let pids = [];
-  try {
-    const out = require("child_process").execSync(
-      "netstat -ano | findstr :" + port + " | findstr LISTENING",
-      { stdio: "pipe" }).toString();
-    pids = parseNetstatListeningPids(out, port);
-  } catch (e) { /* netstat 没输出 = 没人占 */ }
+  // 只走一处 netstat（netstatListeners）：这里原本自己再跑一份 findstr，
+  // 与上面那份判据各写各的 —— 实测会漏改（2026-11-20 血账）。
+  const pids = (netstatListeners().get(Number(port)) || []).slice();
   if (!pids.length) return { pids, waiting: false };
 
   const lock = readRunLockHolder();
@@ -1151,6 +1251,15 @@ function killPortOccupants(port) {
   }
 
   pids.forEach((pid) => {
+    // 2026-11-24：**陌生程序一个都不杀**。旧行为是“不是持锁者就杀”，
+    // 但占端口的可能是别人的软件（作者之问：用户电脑本来就有 8765 怎么办）。
+    // 陌生 → 跳过；启动阶段 planStartupPort 已换到别的端口，
+    // 走到这里只可能是竞态（刚被别人抢走），留给重试/提示。
+    if (String(pid) !== String(d.lockPid || "") && !isOursProcess(processCmdline(pid))) {
+      console.warn("[console] port " + port + " 被陌生进程占用（PID " + pid
+                   + "）→ 不动它，改用其他端口或等它释放");
+      return;
+    }
     console.log("[console] port " + port + " 被既有实例占用（无本会话 GUI token）"
                 + " → 杀 PID " + pid + "（树）"
                 + (d.lockPid === String(pid) ? "（用户选了强制中断，持锁实例）" : ""));
@@ -1815,6 +1924,9 @@ function createWindow() {
       preload: path.join(__dirname, "..", "preload", "index.js"),
       contextIsolation: true,
       nodeIntegration: false,
+      // 端口可能不是 8765（见 decideStartupPort）→ 由 preload 转给渲染层，
+      // 免得界面一直打 8765 上的**别人**（那正是"界面永远离线"的样子）。
+      additionalArguments: ["--nf-api-base=" + BASE],
     },
   });
   if (process.env.NODE_ENV === "development") {
@@ -1871,6 +1983,10 @@ function createWindow() {
 app.whenReady().then(async () => {
   confirmOnExit = readConsoleSettings().confirmOnExit !== false;   // 默认开
   seedWorkspace();
+  // 审批门的配置迁移（2026-11-24）：工作区的 config/system.yaml **永远不会被升级覆盖**
+  // （seedWorkspace 只补缺失文件），所以阶段 4 那道新门必须在这里单独迁一次 ——
+  // 否则老用户永远看不到它，功能等于没做。放在 seedWorkspace 之后：首启时配置刚播下来。
+  migrateGate4(path.join(getWorkspaceDir(), SEED_CONFIG_DIR));
   syncSkills();   // 技能随版本分发（幂等：内容不同才写）
   const ws = getWorkspaceDir();
   const seedMarker = path.join(ws, ".seeded");
@@ -1883,6 +1999,9 @@ app.whenReady().then(async () => {
     return;
   }
   setupAutoUpdater();
+  // 定端口要在 startApi（spawn）与 createWindow（把地址交给渲染层）**之前**：
+  // 8765 被别人的程序占着时这里会换到 8770+，见 planStartupPort。
+  planStartupPort();
   startApi();
   const ok = await waitForApi();
   console.log("[console] nf_api health:", ok ? "ok" : "timeout");

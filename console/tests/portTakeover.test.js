@@ -6,7 +6,8 @@
 //   假"杀"（本该拦住却杀了）→ 正在写的那一章连进程一起消失，作者只看到稿子少了；
 //   假"拦"（本该杀掉却拦住）→ 窗口起来了、界面永远离线，等于软件打不开。
 // 而这两个方向在界面上长得一模一样（都没有报错）。只能靠用例钉住。
-const { decidePortTakeover, takeoverDetail, shouldKeepWaiting } =
+const { decidePortTakeover, takeoverDetail, shouldKeepWaiting,
+        decideStartupPort } =
   require("../main/portTakeover.js");
 
 let pass = 0;
@@ -70,6 +71,53 @@ ok("到上限 → 不再等（回去重新问人，别把应用卡死在离线�
 ok("上限可配", shouldKeepWaiting({ ticks: 3, maxTicks: 3 }) === false);
 ok("ticks 缺失 → 按 0 算（继续等）", shouldKeepWaiting({}) === true);
 ok("ticks 是脏值 → 当 0 算，不抛", shouldKeepWaiting({ ticks: "abc" }) === true);
+
+// ---------------------------------------------------------------- 2026-11-24 新增
+// 作者之问：“如果用户的电脑就是有 8765 怎么办？直接永久卡死？”
+// 判据：陌生人占着一律不杀、换空闲端口；自己人占着才走问/等那条老路。
+console.log("\n=== 5. 启动端口：陌生人占 8765 怎么办 ===");
+const CANDS = [8770, 8771, 8772];
+
+const free = decideStartupPort({ defaultPort: 8765, portPids: [] });
+ok("8765 空着 → 用 8765", free.port === 8765 && free.action === "use-default", free.action);
+
+const oursApi = decideStartupPort({
+  defaultPort: 8765, portPids: ["777"], candidates: CANDS, takenPorts: [8765],
+  cmdlines: { 777: "C:\\Python\\python.exe E:\\ws\\scripts\\nf_api.py --port 8765" },
+});
+ok("占着的是我们自己的 nf_api → 仍用 8765（走问/等老路，不换端口）",
+   oursApi.port === 8765 && oursApi.action === "ours", oursApi.action);
+
+const oursLock = decideStartupPort({
+  defaultPort: 8765, portPids: ["888"], lock: { pid: 888 }, candidates: CANDS,
+  takenPorts: [8765],
+});
+ok("占着的是持锁的流水线 → 仍用 8765", oursLock.port === 8765 && oursLock.action === "ours",
+   oursLock.action);
+
+const stranger = decideStartupPort({
+  defaultPort: 8765, portPids: ["999"], candidates: CANDS, takenPorts: [8765, 8770],
+  cmdlines: { 999: "C:\\Program Files\\OtherApp\\other.exe --serve" },
+});
+ok("陌生程序占着 → 换到第一个空闲候选端口（8771）",
+   stranger.port === 8771 && stranger.action === "switch", stranger.port);
+ok("陌生程序的 pid 被点名（便于排障，但不杀）",
+   stranger.strangers.join(",") === "999", stranger.strangers.join(","));
+
+const allBusy = decideStartupPort({
+  defaultPort: 8765, portPids: ["999"], candidates: CANDS,
+  takenPorts: [8765, 8770, 8771, 8772],
+  cmdlines: { 999: "other.exe" },
+});
+ok("候选端口全被占 → 老实说 keep-busy（不假装能修）",
+   allBusy.action === "keep-busy" && allBusy.port === 8765, allBusy.action);
+
+const mixed = decideStartupPort({
+  defaultPort: 8765, portPids: ["1", "2"], candidates: CANDS, takenPorts: [8765],
+  lock: { pid: 1 }, cmdlines: { 1: "python nf_api.py", 2: "someother.exe" },
+});
+ok("自己人与陌生人同时占（双绑残留）→ 仍按自己人处理，不换端口",
+   mixed.action === "ours" && mixed.port === 8765, mixed.action);
 
 console.log("");
 if (fails.length) {

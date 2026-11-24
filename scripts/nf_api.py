@@ -1482,8 +1482,8 @@ def _rc_to_result(rc):
         # “exit=3（等待审批）”—— 那句在界面上等于什么都没说，用户不知道
         # 该点哪儿。这里单列出来，指到具体页签。
         if _st4.get("status") == "done" and _st4.get("review_report"):
-            return True, ("阶段 4 写完了，审稿报告已生成 —— 去“审稿”页看要不要批量精修，"
-                          "或直接点顶栏“下一步”进阶段 5")
+            return True, ("阶段 4 写完了，审稿报告已生成 —— 去“审稿”页看报告，"
+                          "然后点“确认放行并继续”进阶段 5")
         # engine=self：任务书已出，等外部把产物写到盘上（零 token，重跑即续）
         _ext = [(k, v) for k, v in _stages.items()
                 if isinstance(v, dict) and v.get("status") == "awaiting_external"]

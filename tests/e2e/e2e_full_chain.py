@@ -161,7 +161,19 @@ def main(argv=None):
             detail = str((st or {}).get("result") or "")
             ok(state == "ok", "阶段 %d 跑完（%.0fs）%s" % (n, time.time() - t0, detail[:60]),
                (state, detail))
-            if "exit=3" in detail or "审批" in detail:
+            # 2026-11-24：阶段 4 升级成签字门之后，"停"不再总带 exit=3 字样 ——
+            # 下一次 /stages/run 会带着同一句审稿提示直接暂停（没签字）。
+            # 判据改成**看盘上事实**：有 done 但没 approved 的门就签，不靠文案。
+            _prog = {}
+            try:
+                _prog = json.loads((ws / "data/state/progress.json").read_text(encoding="utf-8"))
+            except Exception:                                # noqa: BLE001
+                _prog = {}
+            _gates = ((_prog.get("stages") or {}).items())
+            _pending = [int(k) for k, rec in _gates
+                        if rec.get("status") == "done" and not rec.get("approved")
+                        and int(k) in set((http(base + "/state")[1] or {}).get("approval_stages") or [])]
+            if "exit=3" in detail or "审批" in detail or _pending:
                 gate_hits += 1
                 prog = json.loads((ws / "data/state/progress.json").read_text(encoding="utf-8"))
                 for key, rec in sorted(prog.get("stages", {}).items()):
