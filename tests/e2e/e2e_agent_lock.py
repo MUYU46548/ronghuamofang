@@ -228,7 +228,7 @@ def main():
             page.wait_for_timeout(800)
             check("⚡ Agent 徽标在场", page.locator(".agent-mode-badge").count() == 1)
             # 2026-11-24：流水线页那条常驻横幅已删（作者：“何必多此一举”）。
-            # 锁定原因改由顶栏「外部驱动」徽标的 title 说明 —— 仍要验“不是哑锁”。
+            # 锁定原因改由顶栏“外部驱动”徽标的 title 说明 —— 仍要验“不是哑锁”。
             badge = page.locator(".agent-mode-badge")
             check("锁定原因写在“外部驱动”徽标提示里（不是哑锁）",
                   badge.count() == 1 and "外部协作" in (badge.get_attribute("title") or ""),
