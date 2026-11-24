@@ -4133,6 +4133,11 @@ function checkAgentBarClaim() {
 }
 
 watch(agentPermOpen, (on) => { if (on && !agentPerms.value) loadAgentPermissions(); });
+// 设置页里的折叠块（2026-11-24）：展开时才拉权限清单，避免每次进设置都打后端。
+function onPermToggle(e) {
+  const open = !!(e && e.target && e.target.open);
+  agentPermOpen.value = open;
+}
 
 function agentPermWhy(path) {
   const hit = (agentPerms.value?.forbidden || []).find(f => f.path === path);
@@ -6189,7 +6194,7 @@ onUnmounted(() => {
     <button class="mini" @click="openRunLog" title="运行日志（nf_api / 流水线输出尾部）—— 排障第一入口">📋 日志</button>
     <button class="mini global-refresh-btn" @click="globalRefresh" title="全局刷新（所有页签数据）">↻ 刷新</button>
     </div><!-- /tools-grid -->
-    <div v-if="agentMode" class="agent-mode-badge" title="外部协作已开启：运行由外部驱动，如需手动运行请先到“流水线”页关闭协作">外部驱动</div>
+    <div v-if="agentMode" class="agent-mode-badge" title="外部协作已开启：运行由外部驱动；要手动运行请到“设置 → 外部协作”关闭">外部驱动</div>
     <!-- 自任务模式徽标（2026-11-08）：与“外部驱动”同款中性药丸（2026-11-11 统一）——
          之前它是唯一一块橙黄实心，比徽标本身还抢眼。 -->
     <div v-if="selfEngine" class="agent-mode-badge" title="自任务引擎（engine: self）：不调用模型，只出任务书，所以 AI 类按钮不可用">自任务</div>
@@ -6442,57 +6447,10 @@ onUnmounted(() => {
       <button class="mini" @click="reopenGuide" title="重新查看上手引导">📖 重看引导</button>
     </div>
 
-    <!-- Agent 模式开关（从“设置”提到首页）：高频 + 影响权限语义，
-         藏在设置页里等于没有 —— 用户会忘了自己到底开着还是关着。 -->
-    <div v-if="tab === 'pipeline'" class="agent-bar" :class="{ on: agentMode }">
-      <span class="agent-bar-dot"></span>
-      <span class="agent-bar-label">外部协作</span>
-      <span class="agent-bar-desc">
-        <template v-if="agentMode">已开启 —— 只给 DSH 专用协作（推荐）；其他 agent 平台走早期 MCP 通道，能用但不保证后续维护。开启期间常规运行按钮已锁定（同一时间只允许一个任务在跑）；审批 / 打回 / 归档 / 建项目仍只在桌面端手动执行</template>
-        <template v-else>已关闭 —— DSH 与其他 agent 平台都无法调用本机</template>
-      </span>
-      <span class="spacer"></span>
-      <button class="mini" @click="agentPermOpen = !agentPermOpen">
-        {{ agentPermOpen ? '收起权限' : '查看权限' }}
-      </button>
-      <button class="mini" :class="{ on: agentMode }" @click="toggleAgentMode">
-        {{ agentMode ? '关闭协作' : '开启协作' }}
-      </button>
-    </div>
-
-    <!-- 权限清单面板（2026-10-24）：分三类讲清边界，数据来自后端权威名单。
-         就地校验失败（agentPermErr）时**明说界面在说假话**，不静默降级成好看的空态。 -->
-    <section v-if="tab === 'pipeline' && agentPermOpen" class="card" style="margin-top: 10px;">
-      <div class="card-head"><h3>外部协作的权限边界</h3>
-        <span class="spacer"></span>
-        <span class="meta">名单由程序内置，改动需改代码</span>
-      </div>
-      <div v-if="agentPermErr" class="error-strip">{{ agentPermErr }}</div>
-      <div v-else-if="!agentPerms" class="meta">读取中…</div>
-      <template v-else>
-        <div class="perm-grid">
-          <div>
-            <h4>🚫 外部不可代劳（后端直接 403）</h4>
-            <div v-for="f in agentPerms.forbidden" :key="f.path" class="perm-row">
-              <code>{{ f.path }}</code><span class="meta">{{ f.why }}</span>
-            </div>
-          </div>
-          <div>
-            <h4>⚡ Agent 可驱动（经 HTTP API）</h4>
-            <div v-for="i in agentPerms.internal" :key="i.path" class="perm-row">
-              <code>{{ i.path }}</code><span class="meta">{{ i.why }}</span>
-            </div>
-          </div>
-        </div>
-        <div v-if="agentPerms.run_locked" class="meta" style="margin-top: 10px;">
-          <b>当前运行锁：</b>
-          <span v-for="(rl, i) in agentPerms.run_locked" :key="i">
-            {{ rl.what }}（{{ rl.why }}）<span v-if="i < agentPerms.run_locked.length - 1">；</span>
-          </span>
-        </div>
-      </template>
-    </section>
-
+    <!-- 2026-11-24：这里原来常驻一条“Agent 模式 / 外部协作”横幅 + 可展开的权限清单。
+         作者：“连那个横幅都可以永远不存在了，何必多此一举？” —— 开关与权限清单都在
+         “设置 → 外部协作”里（同一件事只留一个入口），流水线页只留锁定事实：
+         运行类按钮禁用时的 title 与顶栏「外部驱动」徽标会说明原因。 -->
     <!-- 自检卡（2026-11-24）：能不能跑，试一章就知道 ------------------------------
          体检（零 token）→ 试写一章（一次调用）→ 收据（零 token）。
          存在的理由：作者不会去看 progress.json / runs.db，结论必须出现在这里。 -->
@@ -8230,17 +8188,50 @@ onUnmounted(() => {
 
           <div class="set-pane" v-show="settingsTab === 'agent'">
 
-      <!-- P1: Agent 模式开关 -->
-      <h4 style="margin-top: 16px;">Agent 模式（外部 Agent 控制）</h4>
+      <!-- 外部协作（2026-11-24 收口到设置页）：只剩两种接法，别再叫“Agent 模式” -->
+      <h4 style="margin-top: 16px;">外部协作（让外部程序驱动墨坊）</h4>
       <div class="gate-notify-row">
         <div>
-          <div class="label">允许外部 Agent 通过 HTTP API 调用</div>
-          <div class="meta">开启后，Hermes 等外部 Agent 可调用绒花墨坊 API 进行大纲草拟、设定起草等操作。<br>⚠️ 禁止性操作（审批/打回/归档/恢复/项目创建）仍只允许在 GUI 内手动执行。<br>Agent 生成的大纲/文件自动进入待审批状态，需在桌面端确认。</div>
+          <div class="label">允许外部通过 HTTP API 调用</div>
+          <div class="meta">
+            推荐且唯一在维护的是 <b>DSH 专用协作</b>；其他 agent 平台走早期 MCP 通道，
+            能用但<b>不保证后续维护</b>。墨坊内部不再保留内置模型调用。<br>
+            ⚠️ 禁止性操作（审批 / 打回 / 归档 / 恢复 / 项目创建）仍只允许在本界面手动执行；
+            外部生成的大纲与文件一律进入待审批，需你确认。
+          </div>
         </div>
-        <button class="mini" :class="{ primary: agentMode }" @click="toggleAgentMode">
+        <button class="mini" :class="{ on: agentMode }" @click="toggleAgentMode">
           {{ agentMode ? '已开启' : '已关闭' }}
         </button>
       </div>
+
+      <details class="perm-details" @toggle="onPermToggle">
+        <summary class="meta">哪些操作外部不能代劳（后端直接 403）</summary>
+        <div v-if="agentPermErr" class="error-strip">{{ agentPermErr }}</div>
+        <div v-else-if="!agentPerms" class="meta">读取中…</div>
+        <template v-else>
+          <div class="perm-grid">
+            <div>
+              <h4>🚫 外部不可代劳（后端直接 403）</h4>
+              <div v-for="f in agentPerms.forbidden" :key="f.path" class="perm-row">
+                <code>{{ f.path }}</code><span class="meta">{{ f.why }}</span>
+              </div>
+            </div>
+            <div>
+              <h4>⚡ 可被外部驱动（经 HTTP API）</h4>
+              <div v-for="i in agentPerms.internal" :key="i.path" class="perm-row">
+                <code>{{ i.path }}</code><span class="meta">{{ i.why }}</span>
+              </div>
+            </div>
+          </div>
+          <div v-if="agentPerms.run_locked" class="meta" style="margin-top: 10px;">
+            <b>当前运行锁：</b>
+            <span v-for="(rl, i) in agentPerms.run_locked" :key="i">
+              {{ rl.what }}（{{ rl.why }}）<span v-if="i < agentPerms.run_locked.length - 1">；</span>
+            </span>
+          </div>
+        </template>
+      </details>
 
       <!-- 花销闸（C5，2026-11-20）：外部 Agent 跑阶段要作者签额度，用完/到期自动失效 -->
       <div class="gate-notify-row" style="margin-top: 16px;">

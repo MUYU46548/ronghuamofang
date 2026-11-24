@@ -227,10 +227,12 @@ def main():
             # ---------- agent 栏状态 ----------
             page.wait_for_timeout(800)
             check("⚡ Agent 徽标在场", page.locator(".agent-mode-badge").count() == 1)
-            bar = page.locator(".agent-bar")
-            check("agent 栏写明运行已锁定（不是哑锁）",
-                  bar.count() == 1 and "常规运行按钮已锁定" in bar.inner_text(),
-                  bar.inner_text()[:120] if bar.count() else "无 agent 栏")
+            # 2026-11-24：流水线页那条常驻横幅已删（作者：“何必多此一举”）。
+            # 锁定原因改由顶栏「外部驱动」徽标的 title 说明 —— 仍要验“不是哑锁”。
+            badge = page.locator(".agent-mode-badge")
+            check("锁定原因写在“外部驱动”徽标提示里（不是哑锁）",
+                  badge.count() == 1 and "外部协作" in (badge.get_attribute("title") or ""),
+                  badge.get_attribute("title") if badge.count() else "无徽标")
 
             # ---------- 流水线条：运行类按钮逐个锁死 ----------
             page.locator(".tabs button:has-text('流水线')").click()
@@ -320,9 +322,24 @@ def main():
             ux.shot(page, "LOCK3_approve_not_locked")
 
             # ---------- 产品自带开关真能解锁（F1 收尾） ----------
-            page.locator(".agent-bar button:has-text('关闭')").click()
+            # 开关收到“设置 → 外部协作”（横幅已删，同一件事只留一个入口）
+            # 用“可见按钮里按文字精确命中”来点，避免 Playwright 对隐藏副本的可见性判断
+            def click_btn(text):
+                return page.evaluate(
+                    """(t) => { const b = Array.from(document.querySelectorAll('button'))
+                        .find(e => (e.innerText || '').trim() === t && e.offsetParent);
+                        if (!b) return 'not-found'; b.click(); return 'clicked'; }""", text)
+
+            check("能进设置", click_btn("设置") == "clicked")
+            page.wait_for_timeout(700)
+            check("设置里有“外部协作”分类", click_btn("外部协作") == "clicked")
+            page.wait_for_timeout(700)
+            check("外部协作页有开关", click_btn("已开启") == "clicked")
             page.wait_for_timeout(1200)
-            check("关掉 Agent 模式后 ⚡ 徽标消失", page.locator(".agent-mode-badge").count() == 0)
+            # 关完要回流水线再验“解锁”，否则下面的选择器还在设置页上
+            check("能回流水线", click_btn("流水线") == "clicked")
+            page.wait_for_timeout(900)
+            check("关掉外部协作后 ⚡ 徽标消失", page.locator(".agent-mode-badge").count() == 0)
             check("解锁后\u300c全自动\u300d恢复可用",
                   not page.locator(".flow-next button:text-is('全自动')").is_disabled())
             check("解锁后\u300c执行下一步\u300d恢复可用",
