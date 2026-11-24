@@ -246,7 +246,7 @@ def main():
             check("\u300cWord 成品\u300d禁用", btn_word.is_disabled())
             check("\u300c运行所选工序\u300d禁用", btn_quick.is_disabled())
             check("锁定按钮带解释性 tooltip（不是无名禁用）",
-                  "Agent 模式" in (btn_all.get_attribute("title") or ""))
+                  "外部协作" in (btn_all.get_attribute("title") or ""))
             ux.shot(page, "LOCK1_flowbar_locked")
 
             # 阶段行“运行”也锁
@@ -266,7 +266,7 @@ def main():
             page.wait_for_timeout(500)
             toast = page.locator(".toast")
             check("Space 快捷键也被锁（函数级守卫生效）",
-                  toast.count() >= 1 and "Agent 模式" in toast.first.inner_text(),
+                  toast.count() >= 1 and "外部协作" in toast.first.inner_text(),
                   toast.first.inner_text()[:120] if toast.count() else "无 toast")
 
             # ---------- 复制任务简报：通道改道（F2） ----------

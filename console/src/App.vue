@@ -624,7 +624,7 @@ const SETTINGS_TABS = [
   { id: "budget", name: "预算与止烧" },
   { id: "approval", name: "审批门" },
   { id: "notify", name: "通知与退出" },
-  { id: "agent", name: "Agent 接入" },
+  { id: "agent", name: "外部协作" },
   { id: "prompt", name: "风格与提示词" },
   { id: "word", name: "Word 模板" },
   { id: "general", name: "外观与更新" },
@@ -3923,7 +3923,7 @@ function onboardingGo(action) {
 function openAgentConnect() {
   switchTab("settings");
   selectSettingsTab("agent");
-  say("→ 设置 · Agent 接入");
+  say("→ 设置 · 外部协作");
 }
 
 const SHORTCUTS = [
@@ -4916,18 +4916,18 @@ async function toggleAgentMode() {
   const newState = !agentMode.value;
   // 二次确认：开启 Agent 模式前明确提示
   if (newState) {
-    if (!window.confirm('确认开启 Agent 模式？\n\n开启后，外部 Agent（如 Hermes）将能通过 HTTP API 调用绒花墨坊进行大纲草拟、设定起草等操作。\n\n注意：审批/打回/归档/恢复/项目创建等操作仍只允许在 GUI 内手动执行。')) {
+    if (!window.confirm('确认开启外部协作？\n\n推荐用途是 DSH 专用协作（把墨坊当执行引擎）。其他 agent 平台走早期 MCP 通道，能用，但后续不保证维护。\n\n注意：审批/打回/归档/恢复/项目创建等操作仍只允许在 GUI 内手动执行。')) {
       return;
     }
   } else {
-    if (!window.confirm('确认关闭 Agent 模式？\n\n外部 Agent 将无法再通过 API 调用绒花墨坊。')) {
+    if (!window.confirm('确认关闭外部协作？\n\nDSH 与其他 agent 平台都将无法再调用本机。')) {
       return;
     }
   }
   const r = await api('/config/agent_mode', 'POST', { agent_mode: newState });
   if (r.status === 200 && r.data.ok) {
     agentMode.value = newState;
-    say(r.data.message || (newState ? 'Agent 模式已开启' : 'Agent 模式已关闭'));
+    say(r.data.message || (newState ? '外部协作已开启' : '外部协作已关闭'));
   } else {
     say('切换失败: ' + (r.data.error || r.status));
   }
@@ -5026,7 +5026,7 @@ const agentRunLocked = computed(() => !!agentMode.value);
 const nextRunLocked = computed(() =>
   !!agentMode.value && (nextAction.value?.kind === "run" || nextAction.value?.kind === "publish"));
 const AGENT_LOCK_HINT =
-  "Agent 模式已开启：运行由外部 Agent 驱动；如需手动运行请先在流水线页关闭 Agent 模式";
+  "外部协作已开启：运行由外部驱动；如需手动运行请先在流水线页关闭协作";
 function agentRunGuard() {
   if (!agentMode.value) return false;
   say(AGENT_LOCK_HINT);
@@ -5132,9 +5132,9 @@ function stageTaskBrief(stage) {
     "",
     "- 项目根：" + root + (form ? "（执行形态：" + form + "）" : ""),
     "- 执行（按推荐顺序任选其一）：",
-    "  · HTTP（推荐，桌面客户端在跑即可用）：POST http://127.0.0.1:8765/stage/" + stage + "/run （agent_mode 已开时）",
+    "  · HTTP（推荐，桌面客户端在跑即可用）：POST http://127.0.0.1:8765/stage/" + stage + "/run （外部协作已开启时）",
     cliLine,
-    "  · GUI：流水线页签 → 阶段 " + stage + " →“运行”（Agent 模式下已锁定，请用前两条）",
+    "  · GUI：流水线页签 → 阶段 " + stage + " →“运行”（外部协作开启时已锁定，请用前两条）",
     "- 预期生成的文件：" + info.out,
     "- 退出码：0=完成 · 1=阶段失败 · 2=预算用完自动停 · 3=等审批（报告后停下等用户） · 4=被中断",
     "",
@@ -6189,7 +6189,7 @@ onUnmounted(() => {
     <button class="mini" @click="openRunLog" title="运行日志（nf_api / 流水线输出尾部）—— 排障第一入口">📋 日志</button>
     <button class="mini global-refresh-btn" @click="globalRefresh" title="全局刷新（所有页签数据）">↻ 刷新</button>
     </div><!-- /tools-grid -->
-    <div v-if="agentMode" class="agent-mode-badge" title="Agent 模式已开启：运行由外部 Agent 驱动，如需手动运行请先到“流水线”页关闭 Agent 模式">外部驱动</div>
+    <div v-if="agentMode" class="agent-mode-badge" title="外部协作已开启：运行由外部驱动，如需手动运行请先到“流水线”页关闭协作">外部驱动</div>
     <!-- 自任务模式徽标（2026-11-08）：与“外部驱动”同款中性药丸（2026-11-11 统一）——
          之前它是唯一一块橙黄实心，比徽标本身还抢眼。 -->
     <div v-if="selfEngine" class="agent-mode-badge" title="自任务引擎（engine: self）：不调用模型，只出任务书，所以 AI 类按钮不可用">自任务</div>
@@ -6446,24 +6446,24 @@ onUnmounted(() => {
          藏在设置页里等于没有 —— 用户会忘了自己到底开着还是关着。 -->
     <div v-if="tab === 'pipeline'" class="agent-bar" :class="{ on: agentMode }">
       <span class="agent-bar-dot"></span>
-      <span class="agent-bar-label">Agent 模式</span>
+      <span class="agent-bar-label">外部协作</span>
       <span class="agent-bar-desc">
-        <template v-if="agentMode">已开启 —— 外部 Agent（Hermes 等）可通过 HTTP API 调用本机；常规运行按钮已锁定（同一时间只允许一个任务在跑）；审批 / 打回 / 归档 / 建项目仍只在桌面端手动执行</template>
-        <template v-else>已关闭 —— 外部 Agent 无法调用本机 API</template>
+        <template v-if="agentMode">已开启 —— 只给 DSH 专用协作（推荐）；其他 agent 平台走早期 MCP 通道，能用但不保证后续维护。开启期间常规运行按钮已锁定（同一时间只允许一个任务在跑）；审批 / 打回 / 归档 / 建项目仍只在桌面端手动执行</template>
+        <template v-else>已关闭 —— DSH 与其他 agent 平台都无法调用本机</template>
       </span>
       <span class="spacer"></span>
       <button class="mini" @click="agentPermOpen = !agentPermOpen">
         {{ agentPermOpen ? '收起权限' : '查看权限' }}
       </button>
-      <button class="mini" :class="{ primary: agentMode }" @click="toggleAgentMode">
-        {{ agentMode ? '关闭' : '开启' }}
+      <button class="mini" :class="{ on: agentMode }" @click="toggleAgentMode">
+        {{ agentMode ? '关闭协作' : '开启协作' }}
       </button>
     </div>
 
     <!-- 权限清单面板（2026-10-24）：分三类讲清边界，数据来自后端权威名单。
          就地校验失败（agentPermErr）时**明说界面在说假话**，不静默降级成好看的空态。 -->
     <section v-if="tab === 'pipeline' && agentPermOpen" class="card" style="margin-top: 10px;">
-      <div class="card-head"><h3>Agent 模式权限边界</h3>
+      <div class="card-head"><h3>外部协作的权限边界</h3>
         <span class="spacer"></span>
         <span class="meta">名单由程序内置，改动需改代码</span>
       </div>
@@ -6472,7 +6472,7 @@ onUnmounted(() => {
       <template v-else>
         <div class="perm-grid">
           <div>
-            <h4>🚫 Agent 不可代劳（后端直接 403）</h4>
+            <h4>🚫 外部不可代劳（后端直接 403）</h4>
             <div v-for="f in agentPerms.forbidden" :key="f.path" class="perm-row">
               <code>{{ f.path }}</code><span class="meta">{{ f.why }}</span>
             </div>
@@ -6516,7 +6516,7 @@ onUnmounted(() => {
           </div>
         </div>
         <div class="st-act">
-          <button class="mini primary" :disabled="isRunning || !selftest.pre.can_run"
+          <button class="mini fq-run" :disabled="isRunning || !selftest.pre.can_run"
                   @click="runSelftestChapter">
             {{ selftest.running ? "试写中…" : "试写一章（1 次调用）" }}
           </button>
@@ -6632,6 +6632,9 @@ onUnmounted(() => {
                 :title="nextRunLocked ? AGENT_LOCK_HINT : ''" @click="runNextAction">
           ⏎ 执行下一步
         </button>
+        <!-- 2026-11-24：把“自动跑”和“其它动作”用一条细竖线隔开 ——
+             一行 5 个按钮时，光靠 mini 的大小分不出哪一簇是“怎么跑”、哪一簇是“别的”。 -->
+        <span class="fq-div"></span>
         <!-- 2026-11-21（作者拍板“都留，各加一行说明”）：两个按钮只差“是否实时输出”，
              名字本身读不出来 —— 每个下面挂一行灰字，把差别写在脸上。 -->
         <div class="flow-auto">
@@ -6672,7 +6675,11 @@ onUnmounted(() => {
       </div>
 
       <div class="flow-quick">
-        <span class="meta">快速运行</span>
+        <div class="fq-head">
+          <span class="meta">快速运行</span>
+          <span class="meta fq-tip">勾几件跑几件；不改上面“下一步”的判定</span>
+        </div>
+        <div class="fq-row">
         <!-- 活一 自由模式：单选下拉 → 勾选条（勾几件跑几件） -->
         <span class="qstage-group">
           <button v-for="s in stageList" :key="'q' + s.stage"
@@ -6683,6 +6690,8 @@ onUnmounted(() => {
             {{ s.stage }}·{{ STAGE_NAMES[s.stage] }}
           </button>
         </span>
+        </div>
+        <div class="fq-row fq-tools">
         <select v-model="comboPick" class="model-select combo-sel"
                 @change="applyCombo" title="常用工序组合：选中即回填勾选">
           <option value="">组合…</option>
@@ -6697,6 +6706,7 @@ onUnmounted(() => {
                 title="把当前勾选存为组合（存在本机浏览器里）">存组合</button>
         <button class="mini" :disabled="!comboPick" @click="removeCombo"
                 title="删除所选组合">删除</button>
+        <span class="spacer"></span>
         <span class="flow-est" :class="{ warn: quickEstData?.budget?.exceeds }">
           <template v-if="!quickStages.length">—</template>
           <template v-else-if="quickEstLoading">预估中…</template>
@@ -6709,8 +6719,9 @@ onUnmounted(() => {
           <template v-else>—</template>
         </span>
         <button class="mini" :disabled="isRunning || !quickStages.length" @click="loadQuickEstimate">重估</button>
-        <button class="mini primary" :disabled="isRunning || !quickStages.length || agentRunLocked"
+        <button class="mini fq-run" :disabled="isRunning || !quickStages.length || agentRunLocked"
                 :title="agentRunLocked ? AGENT_LOCK_HINT : ''" @click="runQuickStage">▶ 运行所选工序</button>
+        </div>
       </div>
     </section>
 
@@ -6805,7 +6816,7 @@ onUnmounted(() => {
             <button class="mini" :disabled="isRunning || agentRunLocked" :title="agentRunLocked ? AGENT_LOCK_HINT : (s.stage === 4 && chapterScopeDraft ? '只写 ' + chapterScopeDraft : '')" @click="runStage(s.stage, chapterScopeDraft)">运行</button>
             <button class="mini" :disabled="isRunning" @click="runStageStream(s.stage)" title="实时流式输出，可随时中断">流式运行</button>
             <button v-if="agentMode && STAGE_TASK_INFO[s.stage]" class="mini" @click="copyStagePrompt(s.stage)" title="复制“执行本阶段”的任务简报给外部 Agent（项目根 + 命令 + 要生成的文件 + 退出码）。复制是只读操作，运行中也可用。阶段 7/8 是确定性步骤、无提示词模板，但同样可以复制任务。">复制任务</button>
-            <button v-if="s.status === 'done' && !s.approved && isGate(s.stage)" class="mini primary" @click="approve(s.stage, false, false)" title="只确认这一阶段，不自动往下跑（主流程在“审批收件箱”里：确认放行并继续）">确认</button>
+            <button v-if="s.status === 'done' && !s.approved && isGate(s.stage)" class="mini" @click="approve(s.stage, false, false)" title="只确认这一阶段，不自动往下跑（主流程在“审批收件箱”里：确认放行并继续）">确认</button>
             <button v-else-if="s.approved && isGate(s.stage)" class="mini" @click="approve(s.stage, true)">撤销</button>
             <!-- 2026-10-11 #9 收口：stage1 陪跑闸是合法审批点，后端 /reject 本就收 1-7，
                  这里不再用 >=2 把 stage1 的打回入口挡在门外 -->

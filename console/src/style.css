@@ -1738,6 +1738,18 @@ body {
 }
 .flow-est.warn { color: var(--warn); background: rgba(201, 162, 106, 0.16); }
 
+/* 快速运行拆两行（2026-11-24）：原来一行塞了 8 个阶段胶囊 + 组合下拉 + 组合名 +
+   存/删 + 预估 + 重估 + 运行，13 个控件挤在同一行，眼睛找不到落点。
+   现在：第一行只放“选哪几件”，第二行放“怎么存/预估/跑”。 */
+.flow-quick { flex-direction: column; align-items: stretch; gap: 8px; padding: 10px 0; }
+.fq-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.fq-tip { color: var(--muted); }
+.fq-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.fq-div { width: 1px; height: 26px; background: var(--border); margin: 0 2px; }
+/* 行内动作：不跟页面主按钮（⏎ 执行下一步）抢位置，用描边强调 */
+.fq-run { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+.fq-run:hover:not(:disabled) { background: var(--accent); border-color: var(--accent); color: #fff; }
+
 /* 每章字数（2026-11-03）：流水线页的常驻入口，不用去设置页找。 */
 .flow-words {
   display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
