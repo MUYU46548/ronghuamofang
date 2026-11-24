@@ -60,7 +60,9 @@ def main():
         # stage 1 产物文件
         setting = root / "data" / "setting"
         setting.mkdir(parents=True)
-        (setting / "setting.json").write_text('{"a": 1}\n{"b": 2}\n', encoding="utf-8")
+        # 夹具里放中文：chars 现在数的是**汉字**，纯 ASCII 的 JSON 会是 0
+        (setting / "setting.json").write_text(
+            '{"书名": "测试书", "章数": 10}\n{"人物": "蔡崇山"}\n', encoding="utf-8")
 
         # --- stage 4：目录计数 ---
         s4 = summarize_artifacts(4, root)
@@ -70,10 +72,19 @@ def main():
         check("stage4 kind=dir", d and d["kind"] == "dir")
         # 3 md + 1 docx = 4 个文件；子目录 sub 不计
         check("stage4 files=4（子目录不计）", d and d["files"] == 4, d)
-        # chars = 01 + 02 + 空文件 0（docx 不读）
-        want = len("# 第一章\n" + "正文" * 50) + len("# 第二章\n" + "正文" * 30)
+        # chars = 01 + 02 + 空文件 0（docx 读不出正文 → 0）
+        # 2026-11-24：chars 的含义收口成**汉字数**（与 utils/word_count 同一口径）。
+        # 这里刻意用带 # 与换行的夹具，好让"字符数"和"汉字数"两个答案分得开 ——
+        # 若有人把它改回 len()，下面的 < 判断会立刻红。
+        from utils.word_count import count_cn_words
+        t1 = "# 第一章\n" + "正文" * 50
+        t2 = "# 第二章\n" + "正文" * 30
+        want = count_cn_words(t1) + count_cn_words(t2)
         check("stage4 chars 只算文本文件", d and d["chars"] == want,
               (d and d["chars"], want))
+        check("chars 是汉字数、不是字符数（口径唯一）",
+              d and d["chars"] < len(t1) + len(t2),
+              (d and d["chars"], len(t1) + len(t2)))
 
         # --- stage 1：文件计数 ---
         s1 = summarize_artifacts(1, root)

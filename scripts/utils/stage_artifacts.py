@@ -153,6 +153,17 @@ def missing_inputs(stage, root, will_produce=None):
 # 确定性规则数，前端只负责渲染。
 
 
+def _cn_words(text):
+    """汉字数（与全项目同一个口径：`utils/word_count.count_cn_words`）。
+
+    2026-11-24 改：这里原来算的是 `len(text)` —— 审批门上显示“10 篇 · 102,265 字”，
+    而盘上真实汉字只有 77,140。项目铁律是“只数汉字”（写作模板也照这个要求模型），
+    概览却按字符算，等于在界面上把字数**报高三成**。同一份数据两个口径 = 必错。
+    """
+    from utils.word_count import count_cn_words
+    return int(count_cn_words(text))
+
+
 def _docx_chars(path):
     """docx 正文字符数（段落 + 表格单元格）。
 
@@ -172,12 +183,12 @@ def _docx_chars(path):
         return 0
     try:
         d = docx.Document(str(path))
-        n = sum(len(p.text) for p in d.paragraphs)
+        parts = [p.text for p in d.paragraphs]
         for t in d.tables:
             for row in t.rows:
                 for cell in row.cells:
-                    n += len(cell.text)
-        return n
+                    parts.append(cell.text)
+        return _cn_words("\n".join(parts))
     except Exception:                                        # noqa: BLE001
         return 0
 
@@ -188,7 +199,7 @@ def summarize_artifacts(stage, root):
     `{path, exists, kind, lines, files, chars}`
 
     - 文件：`kind="file"`，`lines`=行数；缺失/空文件 `lines=0`。
-    - 目录：`kind="dir"`，`files`=条目数、`chars`=文本文件总字符数（docx 只计数）。
+    - 目录：`kind="dir"`，`files`=条目数、`chars`=**汉字数**合计（docx 也真读正文再数）。
     - 缺失：`exists=False`，其余计数为 0。
     """
     out = []
@@ -213,13 +224,13 @@ def summarize_artifacts(stage, root):
                     txt = f.read_text(encoding="utf-8", errors="replace")
                 except OSError:
                     continue
-                item["chars"] += len(txt)
+                item["chars"] += _cn_words(txt)
         else:
             try:
                 txt = p.read_text(encoding="utf-8", errors="replace")
             except OSError:
                 txt = ""
             item["lines"] = txt.count("\n") + 1 if txt else 0
-            item["chars"] = len(txt)
+            item["chars"] = _cn_words(txt)
         out.append(item)
     return out
