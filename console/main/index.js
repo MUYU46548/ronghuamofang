@@ -980,11 +980,14 @@ function seedWorkspace() {
   fs.writeFileSync(versionMarker, String(SEED_VERSION));
   fs.writeFileSync(appVersionMarker, packVersion);
   if (stale && !firstRun) {
+    // ⚠️ 措辞（2026-11-24）：drift 是**刷新前**的基线，不是刷新后的结果。
+    // 原句“内容自检发现 N 个文件与安装包不一致”读起来像“刷新完了还是不一致”，
+    // 直接把人引到“我的改动没生效”的结论上（我自己就被误导过一次）。
     const why = driftCount > 0
-      ? (`内容自检发现 ${driftCount} 个文件与安装包不一致`
+      ? (`刷新前有 ${driftCount} 个文件与安装包不一致`
          + `（缺失 ${drift.missing} / 内容不同 ${drift.changed}`
          + (drift.samples.length ? `，例如 ${drift.samples.slice(0, 3).join("、")}` : "")
-         + "）")
+         + "）—— 已按安装包内容覆盖")
       : `种子 v${seededVersion} → v${SEED_VERSION}`;
     console.log(`[console] seedWorkspace: 代码已刷新到 ${packVersion}（${why}；用户 data/ 未受影响）`);
   }

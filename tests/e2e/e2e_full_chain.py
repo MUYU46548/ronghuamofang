@@ -190,12 +190,15 @@ def main(argv=None):
         ok(gate_hits >= 2, "审批门真的拦过（不是一路空跑）", gate_hits)
 
         print("\n=== E3 产物 ===")
+        # `data/merged/book.md` **不在这里查**（2026-11-24 修）：它由阶段 7 的
+        # `merge_book()` 生成，而阶段 7 是 E4 里 `/export/word` 才触发的。
+        # 放在 E3 等于“在导出之前要求导出产物”，必然红 —— 这条从 11-17 起就一直
+        # 潜伏着（release-check 只跑 ux 套，full 从没进过闸门，所以没人看见）。
         for rel, low in (("data/setting/setting.json", 1),
                          ("data/outline/global.md", 1),
                          ("data/chapters/raw", 40),
                          ("data/chapters/checked", 40),
-                         ("data/chapters/refined", 40),
-                         ("data/merged/book.md", 1)):
+                         ("data/chapters/refined", 40)):
             p = ws / rel
             if p.is_dir():
                 n = len([x for x in p.rglob("*") if x.is_file()])
@@ -223,6 +226,12 @@ def main(argv=None):
             cn = len(re.findall(r"[\u4e00-\u9fa5]", text))
             ok(cn > 100000, "正文汉字数 > 10 万（实 %d）" % cn, cn)
             ok("第1章" in text or "第 1 章" in text, "章节标题进正文")
+
+        # 合并稿：导出之后才有（判据放在真正的时机上，见 E3 的说明）
+        merged = ws / "data/merged/book.md"
+        ok(merged.exists() and merged.stat().st_size > 1000,
+           "data/merged/book.md 由导出生成",
+           merged.stat().st_size if merged.exists() else "缺")
 
         print("\n=== E5 全链没有 500（500 = 程序故障） ===")
         logtxt = logf.read_text(encoding="utf-8", errors="replace")
