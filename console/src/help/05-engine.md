@@ -48,12 +48,15 @@ DSH 里不会重做一套墨坊界面（配对的 DSH 插件只是把墨坊的�
 
 几个要知道的地方：
 
-- **借的是你桌面端那套配置**：第三方渠道、你已经登录的账号、你在 DSH 里配的模型。
-  墨坊不传模型名、不碰你的 DSH 配置，只管把任务书递过去。所以在 DSH 桌面端能正常对话，
-  这里就能跑；哪天你在 DSH 里换了账号或退出登录，这里一跑就会报凭据错（不会假装跑完）。
-- **不用 headless**（2026-11-20 定）：DSH 的 headless 是另一套账号（官方 deepseek-official），
-  擅自把它的凭据插件打开会把墨坊的调用接到官方账户上 —— 那天实测 27 次调用记了 ¥0.13。
-  `nfctl check` 现在有一条常驻护栏盯着那个文件，被改动会报出来。
+- **用的是你 DSH 里那三家渠道**：provider 配置（commandcode / 基元律动 / opencode-go）
+  已从桌面端搬到 `headless` 档（`~/.dsh/profiles/headless/cordis.patch.yml`），
+  key 在 `~/.dsh/.env`。墨坊不传模型名，只管把任务书递过去。哪天你在 DSH 里换了 key，
+  这里一跑就会报凭据错（不会假装跑完）。
+- **必须用 headless 档**（2026-11-24 实测）：`desktop` 档被 DSH 明确拒绝命令行调用
+  （`profile "desktop" is managed exclusively by the Electron application`），
+  填它等于跑不起来 —— 这正是 11 月以前“一章都跑不出”的真原因。
+- **不要打开 authorization / deepseek-account 两个插件**：它们会把调用接到官方账户
+  并按量计费（2026-11-20 实测 27 次 ¥0.13）。
 - **花钱记账是 0，但 token 照记**。所以“花超自动停”只看 token 上限（设置 → 预算与止烧）。
 - 点左侧的“🩹 补救”，弹出的自检里会写“DSH 可用 / 不可用”。写“不可用”时，说明机器上没找到
   DSH 的命令行入口，先装 DSH，或把入口路径填进配置文件。

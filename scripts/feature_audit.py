@@ -266,12 +266,15 @@ FEATURES = [
       "sym:scripts/utils/dsh_client.py::dsh_available"],
      "2026-11-20 作者定案后落地：出厂 config 与打包态工作区 config 的 engine 均为 dsh"
      "（hermes / self 不再作为常规选项，但代码分叉保留作回退通道）。"
-     "**执行档是 desktop 不是 headless**（作者同日：\"headless 不需要用，不存在都行。"
-     "绒花墨坊现在只调用 DSH。\"）：墨坊借桌面端那套配置（第三方渠道 + 已登录凭据）跑，"
-     "`dsh.profile` 默认 desktop。⚠️ 早先为让 headless 拿凭据去改 "
-     "`profiles/headless/cordis.patch.yml` 是错的 —— headless 随即挂到官方账户，"
-     "27 次调用记了 ¥0.13；那个文件已还原成 []，`nfctl check` 有常驻护栏 "
-     "`headless_patch_guard` 盯着它。"),
+     "**执行档 2026-11-24 翻转为 headless**：`desktop` 档被 DSH 明确拒绝命令行调用"
+     "（`profile \"desktop\" is managed exclusively by the Electron application`，"
+     "连 --dump-config 都拒）—— 墨坊走命令行，填它等于跑不起来，这正是 11 月以前 "
+     "chapter_log 恒 0 行的真原因。现在 `DshClient.DEFAULT_PROFILE` 与 "
+     "`config/system.yaml` 都是 headless；provider 配置（commandcode / 基元律动 / "
+     "opencode-go）已从桌面端搬到 `~/.dsh/profiles/headless/cordis.patch.yml`，"
+     "key 在 `~/.dsh/.env`。真跑证据：HEADLESS 一章首群 input 84037 / output 32446、"
+     "cost 0、产出 1760+1783 汉字。护栏 `headless_patch_guard` 仍守着"
+     "authorization / deepseek-account 不得打开（打开会接官方账户并按量计费）。"),
 
     ("X03", "自检三件：体检 / 试写一章 / 验收收据", "done",
      ["file:scripts/nf_api_domains/selftest.py",

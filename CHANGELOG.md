@@ -50,6 +50,31 @@ chapter_log 行，也不会去看，那是你应该测的东西。”
 
 判据：`tests/unit/test_dsh_only_and_selftest.py`（29 条）· 全量 313/313 · e2e UX 356/356。
 
+### 追补：DSH 执行档从 desktop 改为 headless（同日，真跑查出来的）
+
+装好的包在真机上一跑就暴露：**`desktop` 档根本不允许命令行调用** ——
+
+```
+$ dsh --profile desktop --dump-config
+error: profile "desktop" is managed exclusively by the Electron application
+```
+
+连 `--dump-config` 都拒。墨坊走的就是命令行，所以填 `desktop` 等于跑不起来。
+**这就是 11 月以前 `chapter_log` 恒 0 行、11-19 那三次 run 全 failed 的真原因**，
+不是“跑的次数不够”。
+
+- `DshClient.DEFAULT_PROFILE` 与出厂 `config/system.yaml` 的 `dsh.profile` 均改为 `headless`；
+  体检里 `desktop` 直接判红（原先是判绿）。
+- headless 的凭据不是官方默认那套：把桌面端的 `llm-pi-ai` 渠道配置
+  （commandcode / 基元律动 / opencode-go）与 `agent-default-model` 复制到
+  `~/.dsh/profiles/headless/cordis.patch.yml`（备份 `.bak-nf-20261124`），
+  三把 key 写进 `~/.dsh/.env`。`authorization` / `deepseek-account` **仍然关闭**
+  —— 打开就会接官方账户并按量计费（护栏 `headless_patch_guard` 继续盯着）。
+- 真跑证据（一章的首群）：`dsh-default` input 84037 / output 32446 / cost 0，
+  产出 1760 + 1783 汉字真小说文本。
+- 已知粗糙处：长任务会遇到 `dsh: TRANSPORT: Connection error.`（段群已落盘，
+  断点续跑能接上），一章要跑几轮才完整。这条不改 DSH，只在文档里说清。
+
 ## [0.9.5] — 2026-11-17
 
 这一版把**读改链剩下的三处语义**补齐：模型先说自己要改什么、批注分清改没改完、

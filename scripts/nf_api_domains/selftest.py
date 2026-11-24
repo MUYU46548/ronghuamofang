@@ -165,12 +165,15 @@ def build_preflight(cfg=None):
     ok_dsh, lvl, d = _dsh_probe(cfg)
     items.append({"key": "dsh", "label": "DSH 启动器", "ok": ok_dsh, "level": lvl, "detail": d})
 
-    # ④ 配置档
-    prof = str(((cfg or {}).get("dsh") or {}).get("profile") or "desktop")
+    # ④ 配置档：**headless 才是能跑的**（2026-11-24 实测）。desktop 被 DSH 拒绝
+    #    命令行调用，填它等于跑不起来 —— 这条必须红，不能给绿。
+    prof = str(((cfg or {}).get("dsh") or {}).get("profile") or "headless")
     items.append({"key": "profile", "label": "DSH 配置档",
-                  "ok": prof == "desktop", "level": "info",
-                  "detail": ("desktop（用你桌面端那套模型与账号）" if prof == "desktop"
-                             else prof + "（不是桌面端那套，凭据可能是空的）")})
+                  "ok": prof != "desktop", "level": "block" if prof == "desktop" else "info",
+                  "detail": ("headless（provider 已从桌面端搬过来，走你那三家渠道）"
+                             if prof != "desktop" else
+                             "desktop —— DSH 拒绝命令行调用（managed exclusively by the "
+                             "Electron application），改成 headless 才能跑")})
 
     # ⑤ 书与素材
     book = ((cfg or {}).get("book") or {})

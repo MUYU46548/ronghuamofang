@@ -96,7 +96,7 @@ print("【D4】自检体检 preflight：结论必须来自事实，不能靠猜"
 print("=" * 66)
 from nf_api_domains import selftest as S                                # noqa: E402
 
-_cfg = {"engine": "dsh", "dsh": {"profile": "desktop"},
+_cfg = {"engine": "dsh", "dsh": {"profile": "headless"},
         "book": {"name": "测试书", "chapters": 5}}
 _orig_load = api.load_all
 
@@ -123,6 +123,14 @@ try:
           pf2["can_run"] is False, pf2["can_run"])
     pr = [it for it in pf["items"] if it["key"] == "prereq"][0]
     check("D4e 前置阶段没跑完时点名是哪几个", pr["ok"] is False and "1" in pr["detail"], pr)
+    # profile 判据（2026-11-24 翻转）：desktop 档被 DSH 拒绝命令行调用，
+    # 填它等于跑不起来 —— 体检必须红，不能给绿。
+    pf_head = [it for it in pf["items"] if it["key"] == "profile"][0]
+    check("D4f headless 档通过", pf_head["ok"] is True, pf_head)
+    pf_desk = S.build_preflight({**_cfg, "dsh": {"profile": "desktop"}})
+    it_desk = [it for it in pf_desk["items"] if it["key"] == "profile"][0]
+    check("D4g desktop 档必须红（命令行调不通）",
+          it_desk["ok"] is False and it_desk["level"] == "block", it_desk)
 finally:
     api.load_all = _orig_load
 

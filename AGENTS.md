@@ -7,12 +7,23 @@
 NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是基于AI的长篇小说创作工具：机器包办苦力（素材归并→大纲→写作→检查→润色→Word），用户保留审批权和最终精修权。
 用户只做两件事：**放置素材** + **说"运行 NovelForge 项目"**。其余由系统自动执行，关键节点设审批门暂停等待人工确认。
 
-**执行引擎：固定 `dsh`（2026-11-20 作者定案“绒花墨坊绑死 DSH，以后都走 DSH”）**。出厂 `config/system.yaml` 与打包态工作区配置的 `engine` 都是 `dsh`，即墨坊自己跑流水线、由 DeepSeek Harness 执行层干活（默认 `dsh --profile desktop --json -`，借桌面端那套模型与凭据）。**以后不要再在 `direct` / `hermes` / `self` 上做新投入** —— 它们只剩"回退通道"这一个身份：`direct`=OpenAI 兼容直连（当前接 TokenHub），`hermes`=Hermes 子会话，`self`=只出任务书、不调模型（`data/state/tasks/self/stageN/`，细节见 `docs/agents/engine-self.md`）。代码分叉**保留不删**：DSH 起不来时这是一条能立刻退回去的路，删了就把"绑死"变成"锁死"。**界面上也收敛**（2026-11-24）：设置页只有 DSH 一张主卡，其余三项收进"回退通道"折叠区；新建项目向导默认 dsh。
+**执行引擎：固定 `dsh`（2026-11-20 作者定案“绒花墨坊绑死 DSH，以后都走 DSH”）**。出厂 `config/system.yaml` 与打包态工作区配置的 `engine` 都是 `dsh`，即墨坊自己跑流水线、由 DeepSeek Harness 执行层干活（`dsh --profile headless --json -`，见下方 profile 说明）。**以后不要再在 `direct` / `hermes` / `self` 上做新投入** —— 它们只剩"回退通道"这一个身份：`direct`=OpenAI 兼容直连（当前接 TokenHub），`hermes`=Hermes 子会话，`self`=只出任务书、不调模型（`data/state/tasks/self/stageN/`，细节见 `docs/agents/engine-self.md`）。代码分叉**保留不删**：DSH 起不来时这是一条能立刻退回去的路，删了就把"绑死"变成"锁死"。**界面上也收敛**（2026-11-24）：设置页只有 DSH 一张主卡，其余三项收进"回退通道"折叠区；新建项目向导默认 dsh。
 
 `engine: dsh` 的三个必须知道的口径（细节见下节与 `scripts/utils/dsh_client.py`）：
 - 模型由 DSH profile 决定，`model.*` 不参与运行（dsh 没有 `--model` 旋钮），结果里记 `dsh-default`；
 - 走订阅：金额恒 0、token 照记 —— 止烧只有 `budget.token_limit` 这个闸门有效；
-- **凭据坑**：`desktop` 档直接吃桌面端登录态，无需配置。`headless` 档默认把 `authorization` / `credentials` / `deepseek-account` 三条插件 `disabled: true`，只从启动环境 / 工作目录 `.env` / `$DSH_HOME/.env` 读 provider key（2026-11-20 曾在 `~/.dsh/profiles/headless/cordis.patch.yml` 把这三条覆盖回 `disabled: false`，备份 `cordis.patch.yml.bak-1120`）。**现在默认 desktop，这条坑只在切 headless 时才踩**。
+- **profile 铁律（2026-11-24 实测，血账）**：**只能用 `headless`**。
+  `desktop` 档被 DSH 拒绝命令行调用 —— `dsh --profile desktop --dump-config` 直接报
+  `profile "desktop" is managed exclusively by the Electron application`。
+  墨坊走命令行，所以填 `desktop` 等于跑不起来；**这是 11 月以前 `chapter_log` 恒 0 行的真原因**
+  （11-19 那三次 run 全 failed 也是它）。默认值已在 `DshClient.DEFAULT_PROFILE` 与
+  `config/system.yaml` 都改成 `headless`。
+- **headless 的凭据怎么来的**（2026-11-24 搬的，不是官方默认）：把 desktop 的
+  `llm-pi-ai` provider 配置（commandcode / 基元律动 / opencode-go）与 `agent-default-model`
+  复制到 `~/.dsh/profiles/headless/cordis.patch.yml`（备份 `.bak-nf-20261124`），
+  三把 key 写进 `~/.dsh/.env`（值来自 `~/.dsh/.credentials.yaml` 的 `refs:`）。
+  **不要打开 `authorization` / `deepseek-account`** —— 那两条会接官方账户并按量计费
+  （2026-11-20 实测 27 次 ¥0.13）。
 
 所有调用点经 `make_client(cfg, role)` 取客户端，零调用点硬编码引擎；`engine: self` 下 `make_client` **直接抛错** —— 防"配了 self、后台却偷偷按量跑模型"这类静默失真。
 
@@ -282,8 +293,8 @@ stage4 也补了同一道校验（此前是唯一既不设上限、也不校验�
 > 依据与“不做清单”：`docs/开发路线-读改接进DSH-20261117.md`。
 
 **一句话**：`engine: dsh` 时，每次模型调用改成跑一次
-`dsh --profile <desktop|headless> --json -`（任务从 stdin 进，stdout 是 NDJSON 事件流，退出码是权威判据）。
-**默认 `desktop`**（2026-11-20 定案：借你桌面端那套模型与凭据）；`headless` 只剩"没桌面端时"的退路。
+`dsh --profile headless --json -`（任务从 stdin 进，stdout 是 NDJSON 事件流，退出码是权威判据）。
+**只认 `headless`**（2026-11-24 实测：`desktop` 被 DSH 拒绝命令行调用）。
 客户端在 `scripts/utils/dsh_client.py`（与 `HermesClient` 同契约：`run_task` / `run_task_stream` /
 `_post_chat` / `_post_chat_stream` / `write_task` / `writes_files=True`）。
 
@@ -300,7 +311,7 @@ stage4 也补了同一道校验（此前是唯一既不设上限、也不校验�
 - **失败可见**：`dsh` 找不到 → `exit_code=127` + 可行动报错（装 DSH / 在 `config/system.yaml`
   的 `dsh.bin` 写路径 / 环境变量 `NF_DSH_BIN`）；超时 → `124` 结构化；停止 → 杀整棵进程树
   （Windows 上是 cmd.exe → Electron 两层，只杀直接子进程会留孤儿）。
-- **凭据（坑，写在这里免得再查）**：`desktop` 直接用你桌面端登录态，无需额外配置。
+- **凭据（坑，写在这里免得再查）**：`desktop` **调不通**（见上）。`headless` 的 key 来自 `~/.dsh/.env`。
   `headless` 档**禁用** DSH GUI 的登录态存储，按“启动环境 → 工作目录 `.env` → `$DSH_HOME/.env`”
   找 provider key；要用桌面端登录态需在 `$DSH_HOME/profiles/headless/cordis.patch.yml`
   把 credentials / authorization / deepseek-account 三行打开。**本项目不替用户改那个文件**。
@@ -638,10 +649,10 @@ OpenAI 兼容直连，模型**无工具调用、无自主多轮循环、无记�
 - `data/`、`history/` 不进 Git（由 history/ 快照承担版本职责）；`prompts/`、`config/`、`scripts/` 进 Git
 - **用户私人数据不进 Git**：`materials/original_scraps/`（及 `_backup/`）永不随源码仓库走，后续由独立的
   导入/导出功能承担迁移；碎片→卡片落盘一律由 Python 执行（模型写入白名单只有 `data/**`），且覆盖前先备份
-- **模型凭据**：默认引擎是 `dsh`（DeepSeek Harness，默认 `desktop` 档 = 你桌面端那套模型与登录态，**本项目不存 Key**）。`engine: direct` 时才用项目 `.env`（不入 git）里的 `TOKENHUB_API_KEY`；engine=hermes 时凭据由 Hermes 统一管理。**2026-11-20 作者定案：TOKENHUB_API_KEY 以后永久不用，`providers.tokenhub` 保留仅为 direct 回退通道**（不要因为“用不上了”就删 providers / RATES，直连与测试都靠它们）。切换引擎/模型/服务商只改 `config/system.yaml`（`engine` / `model.*` / `providers`），新 provider 计价须先补 `scripts/utils/cost_tracker.py` 的 `RATES`（可用 `scripts/price_wizard.py` 交互式更新）。**模型白名单纪律：用户免费体验包按模型领取，未经用户确认不得指定/更换付费模型**
+- **模型凭据**：默认引擎是 `dsh`（DeepSeek Harness `headless` 档，provider 从桌面端搬过来，key 在 `~/.dsh/.env`，**本项目不存 Key**）。`engine: direct` 时才用项目 `.env`（不入 git）里的 `TOKENHUB_API_KEY`；engine=hermes 时凭据由 Hermes 统一管理。**2026-11-20 作者定案：TOKENHUB_API_KEY 以后永久不用，`providers.tokenhub` 保留仅为 direct 回退通道**（不要因为“用不上了”就删 providers / RATES，直连与测试都靠它们）。切换引擎/模型/服务商只改 `config/system.yaml`（`engine` / `model.*` / `providers`），新 provider 计价须先补 `scripts/utils/cost_tracker.py` 的 `RATES`（可用 `scripts/price_wizard.py` 交互式更新）。**模型白名单纪律：用户免费体验包按模型领取，未经用户确认不得指定/更换付费模型**
 - **直连引擎（engine: direct）语义**：无子会话工具循环——任务文件的输入文件段由 `llm_client.inline_inputs` 全文内联进单请求；多文件输出任务自动按目标文件拆分请求；模型产物经 `===FILE/APPEND/DELETE===` 协议落盘（白名单：`data/**` 与 `logs/runs.db`），期望外路径直接拒绝
 - **子会话（engine: hermes）**：任务文件（data/state/tasks/）必须自包含全部上下文
-- **DSH（engine: dsh，默认）**：任务文件同样必须自包含（`dsh --profile desktop` 无 `--model`，模型由 profile 决定）；进程 cwd = workspace 就是 sandbox 写范围，`_infer_workdir` 从任务书路径反推项目根，**不要给它传相对路径任务书**；没有实时审批通道（`approval_policy: never`），任务书里不要要求“等人确认”的动作，一律会被拒
+- **DSH（engine: dsh，默认）**：任务文件同样必须自包含（`dsh --profile headless` 无 `--model`，模型由 profile 决定）；进程 cwd = workspace 就是 sandbox 写范围，`_infer_workdir` 从任务书路径反推项目根，**不要给它传相对路径任务书**；没有实时审批通道（`approval_policy: never`），任务书里不要要求“等人确认”的动作，一律会被拒
 - **本地 API（nf_api.py）**：函数级复用 orchestrator/approve/reject/refine，不经过 Hermes 子进程；客户端注入走 `_client_for_env`（默认 make_client 真引擎，`NF_API_ALLOW_FAKE=1`/`--allow-fake` 时注入 FakeClient——**仅限测试**，自测脚本运行会清空 data/ 运行产物）；服务默认只绑 127.0.0.1
 - **GUI 交互纪律**：① 运行入口唯一（流水线页签顶部的“一键工作流”条，旧的 `.run-all-bar` 已删——
   新增运行按钮一律并入该条，不让两套入口并存）；② 破坏性操作走应用内确认框 + 勾选护栏，不用

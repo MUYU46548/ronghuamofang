@@ -395,7 +395,7 @@ function getWorkspaceSource() {
 //     现给测试子进程本轮专用 TMPDIR/TEMP/TMP，跑完整棵删除（69 个文件一行未改）；
 //     ② `nfctl test --pattern` 不再崩 —— render_test_results 假定 errors 元素都是 dict，
 //     窄跑路径会塞字符串，实测 AttributeError 让"只跑某个用例"完全不可用。
-const SEED_VERSION = 98;   // 0.9.14: 自检三件 + dsh 四个真缺陷 + 审批门确认即继续
+const SEED_VERSION = 99;   // 0.9.14 追补: dsh 执行档 desktop→headless（payload 的 config/scripts 都变了）
                            // 0.9.10 交付底子 ——
                             //   · payload scripts：obsidian.unskip_dirs（默认排除项可显式放开；
                             //     get_skip_dirs = 默认 − unskip ∪ 追加 ∪ 沙盒；沙盒恒排除、

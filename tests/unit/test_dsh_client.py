@@ -155,14 +155,15 @@ def test_build_cmd():
     print("· _build_cmd：profile / stdin 任务 / 审批策略 / 无 --model")
     c = DshClient(dsh_bin="dsh")
     cmd = c._build_cmd()
-    # 2026-11-20 作者定案："headless 不需要用，不存在都行。绒花墨坊现在只调用 DSH。"
-    # 默认借桌面端那套配置（第三方渠道 + 已登录凭据），不再默认走 headless。
-    check("默认 --profile desktop（只调用 DSH，不碰 headless）",
-          "--profile" in cmd and cmd[cmd.index("--profile") + 1] == "desktop")
-    check("显式传 profile 会覆盖默认", DshClient(dsh_bin="dsh", profile="headless")
-          ._build_cmd()[2] == "headless")
-    check("空字符串 profile 回落 desktop", DshClient(dsh_bin="dsh", profile="  ")
+    # 2026-11-24 实测翻转：`desktop` 档被 DSH 拒绝命令行调用
+    # （"managed exclusively by the Electron application"，连 --dump-config 都拒），
+    # 墨坊走命令行 → 默认必须是 headless，否则每一章都跑不起来。
+    check("默认 --profile headless（desktop 档命令行调不通）",
+          "--profile" in cmd and cmd[cmd.index("--profile") + 1] == "headless")
+    check("显式传 profile 会覆盖默认", DshClient(dsh_bin="dsh", profile="desktop")
           ._build_cmd()[2] == "desktop")
+    check("空字符串 profile 回落 headless", DshClient(dsh_bin="dsh", profile="  ")
+          ._build_cmd()[2] == "headless")
     check("含 --json（要事件流才能判成败/记账）", "--json" in cmd)
     check("默认 --approval-policy never（无人值守没有实时审批通道）",
           "--approval-policy" in cmd and

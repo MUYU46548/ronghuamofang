@@ -16,12 +16,17 @@ hermes:
 # 默认 profile = desktop（2026-11-20 定案）：它没有 --model 旋钮，模型与凭据都由 profile 决定。
 # 与 hermes 同口径：模型由 DSH profile 决定（headless 没有 --model）、金额恒 0、token 照记。
 dsh:
-  # 用 DSH 的哪套 profile（2026-11-20 作者定案：只调用 DSH，不用 headless）。
-  #   desktop  = 你桌面端那套：第三方渠道、你已登录的凭据、你配的模型。**默认**。
-  #   headless = DSH 的无人值守档，账号/provider 是另一套（默认 deepseek-official），
-  #              凭据只从“进程环境 → 工作目录 .env”取。擅自打开它的凭据插件会
-  #              把调用接到官方账户（2026-11-20 实测 27 次 ¥0.13），别动。
-  profile: desktop
+  # 用 DSH 的哪套 profile。
+  #   desktop  = **命令行调不通**（2026-11-24 实测）：DSH 明确拒绝
+  #              `profile "desktop" is managed exclusively by the Electron application`，
+  #              连 `--dump-config` 都拒。墨坊走命令行，所以填这个等于跑不起来
+  #              （07 之前一直是它 —— 这正是 chapter_log 长期 0 行的原因）。
+  #   headless = **现在用这个**：provider 与默认模型已从桌面端搬到
+  #              `~/.dsh/profiles/headless/cordis.patch.yml`（commandcode / 基元律动 /
+  #              opencode-go 三家），key 来自 `~/.dsh/.env`。**不要**打开
+  #              authorization / deepseek-account 两个插件 —— 它们会把调用接到官方账户
+  #              并按量计费（2026-11-20 实测 27 次 ¥0.13）。
+  profile: headless
   # 启动器路径。留空 = 自动定位（NF_DSH_BIN → Windows 安装位置 → PATH）。
   # 找不到时**明确失败**（exit 127 + 可行动报错），不会静默当成跑过。
   bin: ""

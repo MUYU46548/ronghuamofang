@@ -196,12 +196,13 @@ def headless_patch_guard(home=None):
 class DshClient:
     """DSH 执行层（与 HermesClient 同契约）。
 
-    `profile` 决定用 DSH 的哪套配置（2026-11-20 作者定案："绒花墨坊现在只调用 DSH"）：
+    `profile` 决定用 DSH 的哪套配置：
 
-    - `desktop`（**默认**）：你桌面端那套 —— 第三方渠道、你已登录的凭据、你配的模型。
-      墨坊只是借它的 CLI 跑一个任务，不碰 headless、不碰官方账户。
-    - `headless`：DSH 的无人值守档，账号与 provider 都是另一套（默认 deepseek-official），
-      凭据只从“进程环境 → 工作目录 .env”取。**默认不用它。**
+    - `headless`（**默认**）：无人值守档。provider 与默认模型已从桌面端搬过来
+      （commandcode / 基元律动 / opencode-go），key 从 `~/.dsh/.env` 读；
+      **不打开** authorization / deepseek-account（那两条会接官方账户并按量计费）。
+    - `desktop`：**命令行调不通**（DSH 拒绝：managed exclusively by the Electron
+      application），填它等于跑不起来。留着这个名字只是为了让老配置能被识别并报警。
     """
 
     #: 无人值守默认：没有实时审批通道，需要审批的调用一律拒绝（DSH 文档明确）
@@ -215,8 +216,13 @@ class DshClient:
     #: “我们能设的上限”，而这里根本设不了，比出来的失败是假的（2026-11-24）。
     max_tokens_knob = False
 
-    #: 默认借用桌面端那套配置（作者 2026-11-20：只调用 DSH，不用 headless）
-    DEFAULT_PROFILE = "desktop"
+    #: 默认档 = `headless`（2026-11-24 改）。
+    #: 原默认是 `desktop`，但那是**跑不起来的**：DSH 明确拒绝
+    #: `profile "desktop" is managed exclusively by the Electron application`，
+    #: 命令行连 `--dump-config` 都被拒 —— 墨坊走的正是命令行。
+    #: 现在 headless 的 provider 与默认模型已从桌面端搬过来（见
+    #: `~/.dsh/profiles/headless/cordis.patch.yml`），key 在 `~/.dsh/.env`。
+    DEFAULT_PROFILE = "headless"
 
     #: 与 OpenAICompatClient / HermesClient 同名的自报字段。
     #: **不是装饰**（2026-11-24 修）：`enhanced_chapter.py` / `discuss_ai.py` 用

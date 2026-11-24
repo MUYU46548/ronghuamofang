@@ -7710,7 +7710,7 @@ onUnmounted(() => {
             </div>
             <div class="eng-desc">由 DeepSeek Harness 在后台逐个跑任务，走你的订阅额度；每步比直连慢，但不用开界面。
               它只换“谁在跑”，读稿改稿仍在墨坊界面里做。</div>
-            <div class="eng-tags"><span>走订阅</span><span>金额上限不生效</span><span>复用桌面端登录</span></div>
+            <div class="eng-tags"><span>走订阅</span><span>金额上限不生效</span><span>用你配的第三方渠道</span></div>
           </button>
         </div>
         <!-- 回退通道（2026-11-24）：作者定案“只走 DSH，哪怕 DSH 官方不更新，也是把 DSH
@@ -7754,11 +7754,11 @@ onUnmounted(() => {
           agent 模式下 model.* 不参与运行 —— 模型由外部 Agent 决定；花超自动停要看“预算与止烧”里的 token 上限。
         </div>
         <div class="meta eng-note" v-else-if="models.engine === 'dsh'">
-          DSH 模式下<b>用哪个模型由 DSH 自己决定</b>（它的 profile 与账号），墨坊只发任务书，
+          DSH 模式下<b>用哪个模型由 DSH 自己决定</b>（它自己那套配置），墨坊只发任务书，
           不向 DSH 传模型名 —— 所以右下角这张表在本模式下不参与，也不给你填。
           金额上限不生效，花超自动停看“预算与止烧”里的 token 上限。
-          借的是你 DSH 桌面端那套配置（第三方渠道 + 已登录凭据），不用在这里填 Key；
-          本机没装 DSH 时，点左侧的“补救”，弹出的自检里会写“DSH 不可用”；
+          走的是你在 DSH 里配好的第三方渠道（渠道配置已搬到 headless 档），
+          不用在这里填 Key；本机没装 DSH 时，点左侧的“补救”，弹出的自检里会写“DSH 不可用”；
           按提示装 DSH，或把它的入口路径填进配置。
         </div>
         <div class="meta eng-note" v-else-if="models.engine === 'self'">
