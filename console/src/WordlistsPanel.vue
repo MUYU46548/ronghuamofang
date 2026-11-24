@@ -171,7 +171,7 @@ onMounted(load);
 .wl-text {
   width: 100%; min-height: 190px; resize: vertical; padding: 10px 12px;
   font-family: "Cascadia Mono", Consolas, "Microsoft YaHei Mono", monospace;
-  font-size: 12.5px; line-height: 1.7;
+  font-size: 13px; line-height: 1.7;
   border: 1px solid var(--border); border-radius: 8px;
   background: var(--field-inset, #fff); color: var(--ink);
 }

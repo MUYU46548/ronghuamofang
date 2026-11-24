@@ -1269,13 +1269,13 @@ onUnmounted(() => {
 /* 快捷改法在**内联侧栏**里只有 240px 宽：4 个按钮按 12px 字号会挤到第二行，
    留一个孤零零的“往下续”很难看（2026-11-08 截图目检）。11px + 紧内边距一行放得下。 */
 .ce-quick { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin: 4px 0 6px; }
-.ce-quick-btn { font-size: 11px; padding: 2px 6px; }
-.ce-quick-toggle { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; color: var(--muted); cursor: pointer; }
+.ce-quick-btn { font-size: 12px; padding: 2px 6px; }
+.ce-quick-toggle { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; color: var(--muted); cursor: pointer; }
 .ce-layer-pills { display: inline-flex; gap: 6px; margin-left: 4px; flex-shrink: 0; }
 .ce-pill { padding: 2px 8px; }
 .ce-pill.on { background: var(--accent, #6b8afd); color: #fff; border-color: transparent; }
-.ce-pill-n { opacity: 0.75; margin-left: 4px; font-size: 11px; }
-.ce-wordbadge { margin-left: 10px; font-size: 12px; color: var(--muted, #888); white-space: nowrap; }
+.ce-pill-n { opacity: 0.75; margin-left: 4px; font-size: 12px; }
+.ce-wordbadge { margin-left: 10px; font-size: 13px; color: var(--muted, #888); white-space: nowrap; }
 .ce-wordbadge.low {
   color: var(--warn, #b8860b); background: rgba(201, 162, 106, 0.18);
   border: 1px solid var(--warn, #b8860b); border-radius: 999px;
@@ -1283,7 +1283,7 @@ onUnmounted(() => {
 }
 .ce-wordbadge.high { color: var(--warn, #b8860b); }
 .ce-wordbadge.ok { color: var(--ok, #2e8b57); }
-.ce-dirty { margin-left: 8px; font-size: 12px; color: var(--warn, #b8860b); }
+.ce-dirty { margin-left: 8px; font-size: 13px; color: var(--warn, #b8860b); }
 .ce-empty, .ce-err { padding: 24px; }
 .ce-err { color: var(--bad); }
 
@@ -1320,11 +1320,11 @@ onUnmounted(() => {
 }
 .ce-conflict-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
 .ce-conflict-head b { color: var(--ink-warn); }
-.ce-conflict-note { font-size: 12px; font-weight: 600; color: var(--ink-warn); }
+.ce-conflict-note { font-size: 13px; font-weight: 600; color: var(--ink-warn); }
 .ce-conflict-acts { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
 /* 按钮别被窄栏切掉字（目检 2026-11-15）：宁可换行，不要截断 */
 .ce-conflict-acts button { white-space: nowrap; max-width: 100%; }
-.ce-read-h { text-indent: 0; font-weight: 700; font-size: 17px; margin: 0 0 1em; letter-spacing: 0.02em; }
+.ce-read-h { text-indent: 0; font-weight: 700; font-size: 18px; margin: 0 0 1em; letter-spacing: 0.02em; }
 /* 设定名高亮（2026-11-08 改，0.9.1 验收第 15 条）。
    原来给每个名字都加“虚线下划线 + 淡紫底”—— 一页正文里几十条横线，
    读起来像校样符号，作者原话：“这种东西就不该在任何正经文本里出现，完全不符合书面用法”。
@@ -1341,13 +1341,13 @@ onUnmounted(() => {
 .ce-cand { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-top: 10px; }
 .ce-cand-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
 .ce-cand-head .spacer { flex: 1; }
-.ce-cand-bad { color: var(--bad, #c77); font-size: 12px; }
+.ce-cand-bad { color: var(--bad, #c77); font-size: 13px; }
 .ce-diff { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 @media (max-width: 900px) { .ce-diff { grid-template-columns: 1fr; } }
 .ce-diff-col { border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; background: var(--bg); }
 .ce-diff-col p { margin: 6px 0 0; font-size: 13px; line-height: 1.75; white-space: pre-wrap; }
-.ce-diff-t { font-size: 11px; color: var(--muted); letter-spacing: 0.08em; }
-.ce-diff-k { margin-left: 6px; letter-spacing: 0; font-size: 10.5px; opacity: 0.8; }
+.ce-diff-t { font-size: 12px; color: var(--muted); letter-spacing: 0.08em; }
+.ce-diff-k { margin-left: 6px; letter-spacing: 0; font-size: 11px; opacity: 0.8; }
 /* 字符级差异（2026-11-13）：改前划掉被删的字，改后给新加的字上底色。
    用主题变量 + color-mix —— 暗色主题下硬编码色值会看不清（GUI 交互纪律③）。 */
 .ce-del { text-decoration: line-through; text-decoration-color: var(--bad);
@@ -1356,23 +1356,23 @@ onUnmounted(() => {
 /* 上下文 chiclets（2026-11-13，L2）：说清这次改一段带了什么 —— 作者不用猜模型读了什么。
    off = 这一项这次没有（缺文件），灰掉而不是假装带了。 */
 .ce-ctx-row { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; margin: 8px 0 4px; }
-.ce-ctx-k { font-size: 11px; color: var(--muted); }
+.ce-ctx-k { font-size: 12px; color: var(--muted); }
 .ce-ctx {
-  font-size: 11.5px; padding: 2px 8px; border-radius: 9px; cursor: help; font-weight: 500;
+  font-size: 12px; padding: 2px 8px; border-radius: 9px; cursor: help; font-weight: 500;
   border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--border));
   background: color-mix(in srgb, var(--accent) 14%, transparent);
 }
 .ce-ctx.off { border-style: dashed; border-color: var(--border); background: transparent;
               color: var(--muted); font-weight: 400; margin-left: 8px; }
 .ce-ctx-note {
-  flex-basis: 100%; font-size: 11px; color: var(--muted); margin-top: 2px; cursor: help;
+  flex-basis: 100%; font-size: 12px; color: var(--muted); margin-top: 2px; cursor: help;
 }
 /* 候选选择器（2026-11-13）：一条一个按钮，最新那条带“最新”。 */
 .ce-cand-pick { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; margin: 6px 0 2px; }
 .ce-ann-acts { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
-.ce-cand-tab { font-size: 11.5px; padding: 1px 8px; }
+.ce-cand-tab { font-size: 12px; padding: 1px 8px; }
 .ce-cand-tab.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 18%, transparent); }
-.ce-cand-new { margin-left: 4px; font-size: 9.5px; color: var(--muted); }
+.ce-cand-new { margin-left: 4px; font-size: 11px; color: var(--muted); }
 /* 段落历史（2026-11-11）：一行一版，就地回退。刻意不用表格 —— 侧栏很窄，表格会横滚。 */
 .ce-hist { margin-top: 10px; border-top: 1px dashed var(--border); padding-top: 8px; }
 .ce-hist-item {
@@ -1381,11 +1381,11 @@ onUnmounted(() => {
 }
 .ce-hist-item:last-child { border-bottom: none; }
 .ce-hist-text {
-  flex: 1; min-width: 120px; font-size: 12.5px; color: var(--muted);
+  flex: 1; min-width: 120px; font-size: 13px; color: var(--muted);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .ce-card { border-color: rgba(155, 143, 196, 0.6); }
-.ce-card-row { font-size: 12.5px; line-height: 1.65; margin-top: 4px; }
+.ce-card-row { font-size: 13px; line-height: 1.65; margin-top: 4px; }
 .ce-card-row b { display: inline-block; min-width: 34px; color: var(--muted); font-weight: 600; }
 .ce-card-close { margin-top: 8px; }
 .ce-paras {
@@ -1399,7 +1399,7 @@ onUnmounted(() => {
 .ce-para:hover { background: rgba(107, 138, 253, 0.06); }
 .ce-para.on { background: rgba(107, 138, 253, 0.16); }
 .ce-para-no {
-  flex: none; width: 26px; text-align: right; font-size: 11px;
+  flex: none; width: 26px; text-align: right; font-size: 12px;
   color: var(--muted, #888); padding-top: 3px;
 }
 .ce-para-text { flex: 1; font-size: 14px; line-height: 1.85; white-space: pre-wrap; }
@@ -1408,20 +1408,20 @@ onUnmounted(() => {
 .ce-side-block {
   padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px;
 }
-.ce-wlog-num { margin-left: 6px; font-size: 11px; padding: 0 5px; border-radius: 8px;
+.ce-wlog-num { margin-left: 6px; font-size: 12px; padding: 0 5px; border-radius: 8px;
   background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--ink-accent); }
 .ce-wlog { display: flex; flex-direction: column; gap: 2px; padding: 4px 0;
   border-bottom: 1px dashed var(--border); }
 .ce-wlog-l1, .ce-wlog-l2 { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
 .ce-wlog:last-of-type { border-bottom: 0; }
-.ce-wlog-note { font-size: 12px; color: var(--ink); }
+.ce-wlog-note { font-size: 13px; color: var(--ink); }
 .ce-side-title { font-weight: 600; margin-bottom: 6px; }
 .ce-tip {
-  margin-top: 6px; padding: 6px 8px; font-size: 12px; line-height: 1.6;
+  margin-top: 6px; padding: 6px 8px; font-size: 13px; line-height: 1.6;
   border-left: 2px solid var(--warn, #b8860b); background: rgba(184, 134, 11, 0.08);
 }
 .ce-warn {
-  margin-top: 6px; padding: 6px 8px; font-size: 12px; line-height: 1.6;
+  margin-top: 6px; padding: 6px 8px; font-size: 13px; line-height: 1.6;
   border-left: 2px solid var(--warn, #b8860b); background: rgba(184, 134, 11, 0.08);
 }
 .ce-feedback {
@@ -1435,13 +1435,13 @@ onUnmounted(() => {
 .ce-ann-list { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
 /* 分组标题（2026-11-17，P1-9）：未收口在前，已收口折叠 —— 一眼能看出还剩几条要改。 */
 .ce-ann-group-t { display: flex; align-items: center; gap: 6px; margin-top: 6px;
-  font-size: 11.5px; color: var(--muted, #888); }
+  font-size: 12px; color: var(--muted, #888); }
 .ce-ann-group-n { color: var(--ink, inherit); }
-.ce-ann-group-btn { padding: 0 6px; font-size: 11px; }
+.ce-ann-group-btn { padding: 0 6px; font-size: 12px; }
 .ce-ann-jump { border: 0; cursor: pointer; font-family: inherit; }
 .ce-ann-jump:disabled { cursor: default; opacity: 0.6; }
 /* 模型对意见的理解（P1-6）：有就显示原话，没有就显式标“未复述”。 */
-.ce-cand-intent { display: flex; gap: 8px; align-items: baseline; margin-top: 6px; font-size: 12px; }
+.ce-cand-intent { display: flex; gap: 8px; align-items: baseline; margin-top: 6px; font-size: 13px; }
 .ce-intent-text { line-height: 1.6; }
 .ce-intent-missing { color: var(--warn, #b8860b); }
 .ce-ann {
@@ -1451,16 +1451,16 @@ onUnmounted(() => {
 .ce-ann.bad { border-color: var(--bad); background: rgba(200, 60, 60, 0.06); }
 .ce-ann.warn { border-color: var(--warn, #b8860b); background: rgba(184, 134, 11, 0.06); }
 .ce-ann.done { opacity: 0.6; }
-.ce-ann-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 11.5px; }
-.ce-ann-note { font-size: 12.5px; line-height: 1.6; }
-.ce-ann-quote { font-size: 11.5px; line-height: 1.5; color: var(--muted, #888); }
+.ce-ann-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; }
+.ce-ann-note { font-size: 13px; line-height: 1.6; }
+.ce-ann-quote { font-size: 12px; line-height: 1.5; color: var(--muted, #888); }
 .ce-ann-bad { color: var(--bad); }
 .ce-ann-warn { color: var(--warn, #b8860b); }
 .ce-ann-alert { color: var(--bad); border-color: var(--bad); }
 .ce-ann-alert.warn { color: var(--warn, #b8860b); border-color: var(--warn, #b8860b); }
 .ce-ok {
-  margin-top: 8px; padding: 6px 8px; font-size: 12px;
+  margin-top: 8px; padding: 6px 8px; font-size: 13px;
   border-left: 2px solid var(--ok, #2e8b57); background: rgba(46, 139, 87, 0.1);
 }
-code { font-size: 11px; }
+code { font-size: 12px; }
 </style>

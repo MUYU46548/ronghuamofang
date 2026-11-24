@@ -163,7 +163,7 @@ onMounted(async () => {
         <span class="meta">{{ diffData.removed.join("、") }}</span>
       </div>
 
-      <div v-for="c in diffData.changed" :key="c.name" style="margin: 8px 0; font-size: 12.5px;">
+      <div v-for="c in diffData.changed" :key="c.name" style="margin: 8px 0; font-size: 13px;">
         <b>{{ c.name }}</b>
         <div v-for="f in c.fields" :key="f.field" style="margin-left: 12px; color: var(--muted);">
           {{ f.label }}：<s>{{ fieldText(f.from) }}</s> → <b style="color: var(--ink);">{{ fieldText(f.to) }}</b>

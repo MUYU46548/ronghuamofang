@@ -424,11 +424,11 @@ const levelLegend = [
 .rg-unmatched-row { display: flex; gap: 8px; align-items: baseline; padding: 2px 0; }
 .rg-cand { margin-bottom: 8px; }
 .rg-field { margin-bottom: 10px; }
-.rg-field > label { display: block; color: var(--muted); font-size: 12px; margin-bottom: 2px; }
+.rg-field > label { display: block; color: var(--muted); font-size: 13px; margin-bottom: 2px; }
 .rg-rel { border-top: 1px dashed var(--border); padding: 6px 0; }
 .rg-legends { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; }
 .rg-legend { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.rg-legend-item { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); }
+.rg-legend-item { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: var(--muted); }
 .rg-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: none; }
 
 /* d3 创建的元素没有 Vue 的 scoped 属性，必须用 :deep() 才会命中 */
@@ -438,7 +438,7 @@ const levelLegend = [
 :deep(.rg-link.hl) { opacity: 0.95; stroke-width: 2.4; }
 :deep(.rg-node circle) { transition: fill 0.12s ease; }
 :deep(.rg-node .rg-label) {
-  font-size: 11.5px; fill: var(--ink); pointer-events: none;
+  font-size: 12px; fill: var(--ink); pointer-events: none;
   /* 白色描边垫底：节点密集时标签互相压字也能读 */
   paint-order: stroke; stroke: #fff; stroke-width: 3px; stroke-linejoin: round;
 }

@@ -325,7 +325,7 @@ onMounted(() => { loadLS(); load(); });
 .caret { color: var(--muted); width: 12px; }
 .cluster-body { padding: 8px 10px 10px; }
 .evidence { color: var(--muted); }
-.tag { background: var(--accent-soft); color: var(--ink); border-radius: 8px; font-size: 11px; padding: 1px 6px; }
+.tag { background: var(--accent-soft); color: var(--ink); border-radius: 8px; font-size: 12px; padding: 1px 6px; }
 .tag.warn { background: var(--warn); color: #fff; }
 .scrap-row { padding: 6px 8px; border-radius: 8px; cursor: pointer; border: 1px solid transparent; }
 .scrap-row:hover { background: var(--bg); }
@@ -335,9 +335,9 @@ onMounted(() => { loadLS(); load(); });
 .line:hover { background: var(--bg); }
 .line.on { background: var(--bg); }
 .box { width: 15px; height: 15px; flex: none; margin-top: 2px; border: 1px solid var(--accent); border-radius: 4px;
-        font-size: 11px; line-height: 14px; text-align: center; color: var(--accent); }
-.line-no { color: var(--muted); font-size: 11px; flex: none; width: 20px; text-align: right; }
+        font-size: 12px; line-height: 14px; text-align: center; color: var(--accent); }
+.line-no { color: var(--muted); font-size: 12px; flex: none; width: 20px; text-align: right; }
 .line-text { word-break: break-all; }
 .form-row .text-input { flex: 1; }
-code { background: var(--bg); padding: 1px 4px; border-radius: 4px; font-size: 12px; }
+code { background: var(--bg); padding: 1px 4px; border-radius: 4px; font-size: 13px; }
 </style>

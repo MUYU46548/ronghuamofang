@@ -462,19 +462,19 @@ onMounted(() => {
 }
 .desk-chap:hover { background: rgba(107, 138, 253, 0.08); }
 .desk-chap.on { background: rgba(107, 138, 253, 0.16); font-weight: 600; }
-.desk-chap-no { flex: none; width: 22px; text-align: right; color: var(--muted, #888); font-size: 11px; }
+.desk-chap-no { flex: none; width: 22px; text-align: right; color: var(--muted, #888); font-size: 12px; }
 /* 章状态点（照 SP-1026 的三色点）：一眼看出这章写到哪一层 */
 .desk-chap-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--border); }
 .desk-chap-dot.dot-done { background: var(--ok, #2e8b57); }
 .desk-chap-dot.dot-warn { background: var(--warn, #b8860b); }
 .desk-chap-dot.dot-todo { background: var(--border); }
 /* 本章出场卡：名 + 类型 + 本章次数 */
-.desk-card { display: flex; align-items: baseline; gap: 8px; font-size: 12.5px; }
+.desk-card { display: flex; align-items: baseline; gap: 8px; font-size: 13px; }
 .desk-card-dot { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--muted, #888); }
 .desk-card-dot.lv-major { background: var(--accent); }
 .desk-card-dot.lv-minor { background: var(--warn, #b8860b); }
 .desk-card-name { flex: 1; }
-.desk-card-meta { flex: none; color: var(--muted, #888); font-size: 11.5px; }
+.desk-card-meta { flex: none; color: var(--muted, #888); font-size: 12px; }
 .desk-chap-name { flex: 1; }
 .desk-empty { padding: 10px; line-height: 1.7; }
 
@@ -483,7 +483,7 @@ onMounted(() => {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   margin-bottom: 6px; padding: 6px 10px;
   border: 1px solid var(--warn, #b8860b); border-radius: 8px;
-  background: rgba(184, 134, 11, 0.08); font-size: 12.5px;
+  background: rgba(184, 134, 11, 0.08); font-size: 13px;
 }
 .desk-mid-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
 .desk-toggle { flex: none; }
@@ -497,11 +497,11 @@ onMounted(() => {
 .desk-block { padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; }
 .desk-block-title { font-weight: 600; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
 .desk-outline {
-  max-height: 300px; overflow: auto; font-size: 12px; line-height: 1.75;
+  max-height: 300px; overflow: auto; font-size: 13px; line-height: 1.75;
   white-space: pre-wrap; word-break: break-word;
 }
 .desk-dims-aes { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
-.desk-dim { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
+.desk-dim { display: flex; align-items: baseline; gap: 8px; font-size: 13px; }
 .desk-dim-label { flex: 1; }
 .desk-dim-score { flex: none; width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
 .desk-dim-score.na { width: 56px; color: var(--muted, #888); }
@@ -514,11 +514,11 @@ onMounted(() => {
   background: rgba(155, 143, 196, 0.08); border: 1px solid var(--border);
   display: flex; flex-direction: column; gap: 1px;
 }
-.desk-ctx-item b { font-size: 16px; line-height: 1.2; }
-.desk-ctx-item span { font-size: 11px; color: var(--muted); }
-.desk-ctx-item em { font-style: normal; font-size: 10.5px; color: var(--muted); overflow-wrap: anywhere; }
+.desk-ctx-item b { font-size: 18px; line-height: 1.2; }
+.desk-ctx-item span { font-size: 12px; color: var(--muted); }
+.desk-ctx-item em { font-style: normal; font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
 .desk-ctx-list { margin-top: 6px; display: flex; flex-direction: column; gap: 5px; }
-.desk-ctx-row { font-size: 12px; line-height: 1.6; }
+.desk-ctx-row { font-size: 13px; line-height: 1.6; }
 .desk-ctx-row .pill { margin-right: 5px; }
 .desk-ctx-text { overflow-wrap: anywhere; }
 .st-done { color: var(--ok, #2e8b57); }

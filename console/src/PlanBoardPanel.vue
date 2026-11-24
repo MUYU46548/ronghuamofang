@@ -288,11 +288,11 @@ onMounted(load);
 .col-head { display: flex; align-items: center; justify-content: space-between;
             margin-bottom: 6px; font-size: 13px; }
 .col-head .n { opacity: 0.7; }
-.col-empty { color: var(--muted-foreground); font-size: 12px; padding: 4px 0; }
+.col-empty { color: var(--muted-foreground); font-size: 13px; padding: 4px 0; }
 .tile { border: 1px solid var(--border); border-radius: 6px; padding: 6px; margin-bottom: 6px;
         background: var(--card); }
 .tile-head { font-size: 13px; }
-.tile-sum { font-size: 12px; margin-top: 3px; opacity: 0.9;
+.tile-sum { font-size: 13px; margin-top: 3px; opacity: 0.9;
             display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
             overflow: hidden; }
 .tile .actions { margin-top: 4px; }

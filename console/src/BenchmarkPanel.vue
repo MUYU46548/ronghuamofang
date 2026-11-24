@@ -206,8 +206,8 @@ onMounted(load);
 
 <style scoped>
 .disc { border: 1px solid var(--border); border-radius: 6px; padding: 8px; margin: 8px 0; }
-.disc-text { font-size: 12px; color: var(--muted-foreground); line-height: 1.6; }
-.ack { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 12px; }
+.disc-text { font-size: 13px; color: var(--muted-foreground); line-height: 1.6; }
+.ack { display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 13px; }
 .form { display: flex; flex-direction: column; gap: 6px; }
 /* 输入框外观（2026-11-11，第三次提同一处）：
    此前 .grow 只管宽度，这两个框是**浏览器默认样式**（白底、系统边框、内边距不对），

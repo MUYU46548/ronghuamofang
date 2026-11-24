@@ -172,7 +172,7 @@ defineExpose({ load });
   display: inline-block; margin-right: 6px; padding: 1px 6px;
   border: 1px solid var(--border); border-radius: 4px;
 }
-.wpp-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.wpp-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .wpp-table th, .wpp-table td {
   text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--border);
 }
@@ -181,12 +181,12 @@ defineExpose({ load });
 .wpp-empty { padding: 4px 0 2px; }
 .wpp-capture { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
 .wpp-id {
-  width: 160px; font-size: 12px; padding: 4px 8px;
+  width: 160px; font-size: 13px; padding: 4px 8px;
   border: 1px solid var(--border); border-radius: 6px;
   background: var(--field-inset, transparent); color: var(--ink);
 }
 .wpp-json {
-  font-size: 12px; line-height: 1.6; padding: 6px 8px; resize: vertical;
+  font-size: 13px; line-height: 1.6; padding: 6px 8px; resize: vertical;
   border: 1px solid var(--border); border-radius: 6px;
   background: var(--field-inset, transparent); color: var(--ink);
 }

@@ -322,10 +322,10 @@ onMounted(() => loadReport(true));
 </template>
 
 <style scoped>
-.llm-toggle { display: flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--muted); }
+.llm-toggle { display: flex; align-items: center; gap: 5px; font-size: 13px; color: var(--muted); }
 .stat-row { display: flex; gap: 14px; flex-wrap: wrap; }
 .cost-stat { flex: 1; min-width: 120px; background: var(--bg); border-radius: 10px; padding: 10px 12px; }
-.stat-sub { font-size: 11.5px; color: var(--muted); }
+.stat-sub { font-size: 12px; color: var(--muted); }
 .bad-val { color: var(--bad); }
 .warn-val { color: var(--warn); }
 
@@ -333,15 +333,15 @@ onMounted(() => loadReport(true));
 .bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; justify-content: flex-end; }
 .bar { width: 100%; max-width: 40px; background: var(--accent-soft); border-radius: 4px 4px 0 0; transition: height .3s; }
 .bar.outlier { background: var(--warn); }
-.bar-x { font-size: 10px; color: var(--muted); margin-top: 3px; }
-.rhythm-note { font-size: 12.5px; margin-top: 6px; color: var(--ink); }
+.bar-x { font-size: 11px; color: var(--muted); margin-top: 3px; }
+.rhythm-note { font-size: 13px; margin-top: 6px; color: var(--ink); }
 
 .chapter-card { padding: 0; overflow: hidden; }
 .chapter-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; cursor: pointer; user-select: none; }
 .chapter-head:hover { background: rgba(155, 143, 196, 0.06); }
 .chapter-title { font-weight: 500; }
-.finding-count { font-size: 12px; color: var(--muted); }
-.expand-icon { color: var(--muted); font-size: 10px; }
+.finding-count { font-size: 13px; color: var(--muted); }
+.expand-icon { color: var(--muted); font-size: 11px; }
 .chapter-body { padding: 12px 16px; border-top: 1px solid var(--border); }
 .no-issues { color: var(--ok); font-size: 13px; padding: 8px 0; }
 
@@ -350,10 +350,10 @@ onMounted(() => loadReport(true));
 .finding-row.sev-warn { border-left-color: var(--warn); background: rgba(201, 162, 106, 0.06); }
 .finding-row.sev-info { border-left-color: var(--accent); background: rgba(155, 143, 196, 0.06); }
 .finding-header { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
-.sev-icon { font-size: 12px; }
-.finding-type { font-size: 12px; font-weight: 500; }
-.finding-id { font-size: 11px; color: var(--muted); margin-left: auto; }
+.sev-icon { font-size: 13px; }
+.finding-type { font-size: 13px; font-weight: 500; }
+.finding-id { font-size: 12px; color: var(--muted); margin-left: auto; }
 .finding-detail { font-size: 13px; line-height: 1.6; margin-bottom: 3px; }
-.finding-loc { font-size: 12px; color: var(--muted); }
-.finding-suggestion { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.finding-loc { font-size: 13px; color: var(--muted); }
+.finding-suggestion { font-size: 13px; color: var(--muted); margin-top: 2px; }
 </style>

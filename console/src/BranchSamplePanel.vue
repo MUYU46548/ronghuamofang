@@ -333,13 +333,13 @@ onMounted(() => { if (props.open) loadExisting(); });
 .bs-head { display: flex; align-items: center; justify-content: space-between;
            gap: 10px; margin-bottom: 4px; }
 .bs-head h3 { margin: 0; font-size: 15px; }
-.bs-hint { font-size: 12px; color: var(--muted); line-height: 1.6; margin-bottom: 12px; }
+.bs-hint { font-size: 13px; color: var(--muted); line-height: 1.6; margin-bottom: 12px; }
 .bs-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
                margin-bottom: 10px; }
 .bs-controls label { font-size: 13px; color: var(--muted); }
 .bs-select { padding: 6px 10px; border: 1px solid var(--border); border-radius: 6px;
              font-size: 13px; background: var(--bg); }
-.bs-kind-hint { font-size: 12px; color: var(--muted); }
+.bs-kind-hint { font-size: 13px; color: var(--muted); }
 .bs-note { margin-bottom: 10px; }
 .bs-note label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
 .bs-note textarea, .bs-edit textarea {
@@ -348,13 +348,13 @@ onMounted(() => { if (props.open) loadExisting(); });
   line-height: 1.6;
 }
 .bs-actions { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-.bs-meta { font-size: 12px; color: var(--muted); }
-.bs-label { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.bs-meta { font-size: 13px; color: var(--muted); }
+.bs-label { font-size: 13px; color: var(--muted); margin-bottom: 6px; }
 .bs-legend { color: var(--muted); }
 .bs-hi { background: var(--accent-soft); color: inherit; border-radius: 2px; padding: 0 1px; }
 .bs-card-stats { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0;
                  margin-top: 8px; padding-top: 8px;
-                 border-top: 1px dashed var(--border); font-size: 11.5px;
+                 border-top: 1px dashed var(--border); font-size: 12px;
                  color: var(--muted); font-variant-numeric: tabular-nums; }
 .bs-card-stats span + span::before { content: "·"; margin: 0 6px; color: var(--muted); }
 .bs-card-stats b { color: var(--ink); font-weight: 600; }
@@ -369,7 +369,7 @@ onMounted(() => { if (props.open) loadExisting(); });
 .bs-card.on { border-color: var(--accent); background: var(--accent-soft); }
 .bs-card-head { display: flex; flex-direction: column; gap: 2px; margin-bottom: 8px; }
 .bs-card-no { font-size: 13px; font-weight: 600; color: var(--accent); }
-.bs-card-why { font-size: 12px; color: var(--muted); }
+.bs-card-why { font-size: 13px; color: var(--muted); }
 .bs-card-text { font-size: 13px; line-height: 1.7; white-space: pre-wrap;
                 max-height: 260px; overflow-y: auto; padding-right: 4px; }
 .bs-edit { margin-bottom: 12px; }
@@ -378,8 +378,8 @@ onMounted(() => { if (props.open) loadExisting(); });
               margin-bottom: 8px; }
 .bs-ex-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; }
 .bs-ex-title { font-size: 13px; font-weight: 600; }
-.bs-ex-kind { font-size: 11px; color: var(--muted); }
-.bs-ex-body { font-size: 12px; line-height: 1.6; white-space: pre-wrap; color: var(--muted);
+.bs-ex-kind { font-size: 12px; color: var(--muted); }
+.bs-ex-body { font-size: 13px; line-height: 1.6; white-space: pre-wrap; color: var(--muted);
               max-height: 120px; overflow-y: auto; }
 /* toast 放常规流末尾，不用 sticky —— sticky 在面板高于视口时会浮在卡片上方 */
 .bs-toast { margin-top: 12px; padding: 10px 14px; background: var(--accent-soft);

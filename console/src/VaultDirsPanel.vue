@@ -163,20 +163,20 @@ onMounted(() => { load(); loadVaults(); });
 .vd-panel { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin: 10px 0; }
 .vd-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 8px; margin-top: 8px; }
 .vd-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.vd-k { width: 3.5em; font-size: 12px; color: var(--muted); flex: none; }
+.vd-k { width: 3.5em; font-size: 13px; color: var(--muted); flex: none; }
 .vd-row select { flex: 1; min-width: 0; }
-.muted { color: var(--muted); font-size: 12px; }
+.muted { color: var(--muted); font-size: 13px; }
 /* 其他库：一库一块，目录用输入框（每个库结构不同，没有统一的候选清单可下拉） */
 .vd-others { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border); }
-.vd-sub { font-size: 12.5px; font-weight: 600; margin-bottom: 4px; }
+.vd-sub { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
 .vd-vault { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; margin: 8px 0; }
 .vd-path { max-width: 42em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vd-badge {
-  font-size: 11px; padding: 1px 8px; border-radius: 9px;
+  font-size: 12px; padding: 1px 8px; border-radius: 9px;
   border: 1px solid var(--warn); color: var(--warn);
 }
 .vd-badge.info { border-color: var(--border); color: var(--muted); }
 .vd-save { margin-left: auto; }
 .vd-row input { flex: 1; min-width: 0; padding: 4px 8px; border: 1px solid var(--border);
-  border-radius: 6px; background: var(--field); color: var(--ink); font-size: 12.5px; }
+  border-radius: 6px; background: var(--field); color: var(--ink); font-size: 13px; }
 </style>

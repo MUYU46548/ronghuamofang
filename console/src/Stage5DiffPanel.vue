@@ -476,7 +476,7 @@ onMounted(load);
 }
 .chips { display: flex; flex-wrap: wrap; gap: 3px; margin-bottom: 10px; }
 .chip {
-  min-width: 27px; padding: 2px 6px; font-size: 12px; border-radius: 4px; cursor: pointer;
+  min-width: 27px; padding: 2px 6px; font-size: 13px; border-radius: 4px; cursor: pointer;
   background: transparent; color: var(--muted); border: 1px solid var(--border);
   font-variant-numeric: tabular-nums;
 }
@@ -489,7 +489,7 @@ onMounted(load);
   background: color-mix(in srgb, var(--bad) 20%, var(--field));
   color: var(--ink-bad); border-color: var(--bad);
 }
-.chip-mark { font-size: 10.5px; margin-right: 1px; }
+.chip-mark { font-size: 11px; margin-right: 1px; }
 /* 选中环画在格子外圈、与填色之间留一道底色，选中态不盖掉“采用/保留”的绿红 */
 .chip.on { box-shadow: 0 0 0 1px var(--card), 0 0 0 3px var(--accent); }
 .done-pill {
@@ -499,8 +499,8 @@ onMounted(load);
 }
 .item { border: 1px solid var(--border); border-radius: 6px; padding: 8px; margin-bottom: 10px; }
 .item-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
-.tag { font-size: 12px; padding: 1px 6px; border-radius: 4px; background: var(--card); border: 1px solid var(--border); }
-.blk-label { font-size: 11.5px; color: var(--muted); margin-bottom: 2px; }
+.tag { font-size: 13px; padding: 1px 6px; border-radius: 4px; background: var(--card); border: 1px solid var(--border); }
+.blk-label { font-size: 12px; color: var(--muted); margin-bottom: 2px; }
 .old { border-left: 3px solid var(--bad); padding: 4px 8px; margin-bottom: 4px; }
 .new { border-left: 3px solid var(--ok); padding: 4px 8px; }
 pre { white-space: pre-wrap; margin: 4px 0; font-family: inherit; }
@@ -508,11 +508,11 @@ pre { white-space: pre-wrap; margin: 4px 0; font-family: inherit; }
 .err { color: var(--bad); margin: 6px 0; }
 .folded-note { margin: 0 0 6px; }
 .folds { margin-top: 8px; border-top: 1px dashed var(--border); padding-top: 6px; }
-.folds summary { cursor: pointer; font-size: 12.5px; color: var(--muted); }
+.folds summary { cursor: pointer; font-size: 13px; color: var(--muted); }
 .folds summary:hover { color: var(--ink-accent); }
 .fold { margin: 6px 0 0; padding: 4px 8px; border-left: 2px solid var(--border);
         border-radius: 4px; background: color-mix(in srgb, var(--border) 16%, transparent); }
-.fold pre { font-size: 12.5px; color: var(--muted); }
+.fold pre { font-size: 13px; color: var(--muted); }
 /* 采用/保留这两个按钮是这一屏的主要动作，用深一档的墨色，不用浅绿浅红（对比度不够） */
 .ok-btn { color: var(--ink-ok); font-weight: 600; }
 .bad-btn { color: var(--ink-bad); font-weight: 600; }
@@ -528,7 +528,7 @@ pre { white-space: pre-wrap; margin: 4px 0; font-family: inherit; }
   padding: 8px 10px; background: var(--field-inset, var(--card));
 }
 .page-col-head {
-  position: sticky; top: 0; z-index: 1; font-size: 12px; color: var(--muted);
+  position: sticky; top: 0; z-index: 1; font-size: 13px; color: var(--muted);
   padding: 0 0 6px; background: inherit;
 }
 /* 正文用衬线（与阅读态同一套），缩进两字 —— 看上去是“稿子”，不是 diff */
@@ -550,9 +550,9 @@ pre { white-space: pre-wrap; margin: 4px 0; font-family: inherit; }
 .s5p.ok { background: color-mix(in srgb, var(--ok) 15%, transparent); border-left-color: var(--ok); }
 .s5p.bad { background: color-mix(in srgb, var(--bad) 13%, transparent); border-left-color: var(--bad); }
 .s5p.is-cur { box-shadow: 0 0 0 1px var(--card), 0 0 0 3px var(--accent); }
-.s5p-tag { font-size: 11px; color: var(--ink-accent); margin-right: 6px; }
+.s5p-tag { font-size: 12px; color: var(--ink-accent); margin-right: 6px; }
 /* 已定状态不能只靠底色区分（目检 2026-11-15 提的）：给一个字的结论 */
-.s5p-state { font-size: 11px; padding: 0 5px; border-radius: 4px; margin-right: 6px; font-weight: 600; }
+.s5p-state { font-size: 12px; padding: 0 5px; border-radius: 4px; margin-right: 6px; font-weight: 600; }
 .s5p-state.ok { color: var(--ink-ok); background: color-mix(in srgb, var(--ok) 24%, var(--field)); }
 .s5p-state.bad { color: var(--ink-bad); background: color-mix(in srgb, var(--bad) 22%, var(--field)); }
 /* 段落上的两个按钮默认不露脸：整页模式下满屏按钮会把“读稿”变成“点按钮”。

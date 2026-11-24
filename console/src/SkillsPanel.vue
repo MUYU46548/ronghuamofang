@@ -230,7 +230,7 @@ defineExpose({ load });
 .sk-item.sk-bad { border-color: var(--bad); }
 .sk-item.sk-wait { border-color: var(--warn); }
 .sk-head { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-.sk-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; font-size: 12.5px; }
+.sk-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 8px 0; font-size: 13px; }
 .sk-row label { color: var(--muted); }
 .sk-row input[type="text"], .sk-row input:not([type]) {
   padding: 5px 8px;
@@ -239,13 +239,13 @@ defineExpose({ load });
   background: var(--field);
   color: var(--ink);
   font-family: inherit;
-  font-size: 12.5px;
+  font-size: 13px;
 }
-.sk-chk { display: inline-flex; gap: 4px; align-items: center; color: var(--muted); font-size: 12px; }
+.sk-chk { display: inline-flex; gap: 4px; align-items: center; color: var(--muted); font-size: 13px; }
 .sk-badge {
   padding: 1px 8px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: 12px;
   background: var(--field-dim);
   color: var(--muted);
   border: 1px solid var(--border);
@@ -257,7 +257,7 @@ defineExpose({ load });
   margin: 6px 0 0;
   padding-left: 18px;
   color: var(--bad);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.7;
 }
 .sk-input {
@@ -282,7 +282,7 @@ defineExpose({ load });
   border-left: 3px solid var(--warn);
   border-radius: 8px;
   background: var(--field-dim);
-  font-size: 12.5px;
+  font-size: 13px;
   line-height: 1.7;
 }
 .sk-detail { margin-top: 8px; border-top: 1px dashed var(--border); padding-top: 8px; }
@@ -294,7 +294,7 @@ defineExpose({ load });
   border-radius: 8px;
   background: var(--field-dim);
   color: var(--ink);
-  font-size: 12.5px;
+  font-size: 13px;
   line-height: 1.75;
   white-space: pre-wrap;
   word-break: break-word;

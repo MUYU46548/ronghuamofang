@@ -165,7 +165,7 @@ defineExpose({ load });
 .tsp-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; }
 .tsp-empty { padding: 4px 0 2px; }
 .err-line { color: var(--bad); }
-.tsp-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.tsp-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .tsp-table th, .tsp-table td {
   text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--border); vertical-align: top;
 }
@@ -175,7 +175,7 @@ defineExpose({ load });
   color: var(--muted, #777);
 }
 .tsp-ch {
-  width: 62px; padding: 3px 6px; font-size: 12px;
+  width: 62px; padding: 3px 6px; font-size: 13px;
   background: var(--field); color: var(--ink);
   border: 1px solid var(--border); border-radius: 4px;
 }

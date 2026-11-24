@@ -6266,7 +6266,7 @@ onUnmounted(() => {
             <b style="font-size:13px;">{{ r.issue }}</b>
           </div>
           <div class="meta" style="margin-top:4px;">{{ r.action }}</div>
-          <code style="font-size:11px; color: var(--accent);">{{ r.command }}</code>
+          <code style="font-size: 12px; color: var(--accent);">{{ r.command }}</code>
         </div>
       </div>
 
@@ -6325,13 +6325,13 @@ onUnmounted(() => {
   <!-- 运行中插一句（2026-11-02，清单第 4 条）：只对下一章生效，用完即删。
        以前想改方向只能等它跑完、再重写已经写好的章。 -->
   <div v-if="interveneOpen || intervenePending" class="lockbar" style="border-color: var(--accent);">
-    <span v-if="intervenePending && !interveneOpen" style="font-size: 12.5px;">
+    <span v-if="intervenePending && !interveneOpen" style="font-size: 13px;">
       待生效（下一章用掉）：{{ (intervenePending.instruction || "").slice(0, 60) }}
       <button class="mini" style="margin-left: 8px;" @click="interveneOpen = true">改</button>
     </span>
     <template v-else>
       <input v-model="interveneDraft"
-             style="flex: 1; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--field); color: var(--ink); font-size: 12.5px;"
+             style="flex: 1; padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--field); color: var(--ink); font-size: 13px;"
              placeholder="只对下一章生效，例如：这一章别写打斗，写两个人吃饭时的沉默"
              @keyup.enter="sendIntervene" />
       <button class="mini primary" @click="sendIntervene">登记</button>
@@ -6345,11 +6345,11 @@ onUnmounted(() => {
 
   <!-- 插话记录（2026-11-08）：只追加的流水，倒序；用完即删的指令也留痕 -->
   <div v-if="interveneHistOpen" class="lockbar" style="display: block; border-color: var(--border);">
-    <div style="font-size: 12.5px; margin-bottom: 6px;">
+    <div style="font-size: 13px; margin-bottom: 6px;">
       <b>插话记录</b><span class="meta">（最近 30 条；登记 / 被哪一章用掉）</span>
     </div>
     <div v-if="!interveneHist.length" class="meta">还没有记录。</div>
-    <div v-for="(h, i) in interveneHist" :key="i" style="font-size: 12px; line-height: 1.7;">
+    <div v-for="(h, i) in interveneHist" :key="i" style="font-size: 13px; line-height: 1.7;">
       <span class="pill">{{ h.action === "used" ? "已用掉" : "登记" }}</span>
       <span class="meta">{{ h.at }}</span>
       <span style="margin-left: 6px;">{{ (h.instruction || "").slice(0, 80) }}</span>
@@ -6399,7 +6399,7 @@ onUnmounted(() => {
     </div>
     <!-- 暂停只停显示，不停模型：这里不再放"改提示词"输入框（它原来没有发送方）。
          要改方向只有两条路：中断后重来，或在下次运行前改提示词。 -->
-    <div v-if="streamStatus === 'paused'" style="padding: 12px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted); line-height: 1.7;">
+    <div v-if="streamStatus === 'paused'" style="padding: 12px; border-top: 1px solid var(--border); font-size: 13px; color: var(--muted); line-height: 1.7;">
       暂停的是<b>显示</b>，不是模型的笔：它还在生成、还在计费。<br>
       这一轮的提示词在开跑时就发出去了，此刻改它不影响这一轮。<br>
       要改方向 → 点“中断”（本章已写的字会丢）后重来，或在下次运行前改提示词。
@@ -8912,7 +8912,7 @@ onUnmounted(() => {
             <button class="mini" @click="openExportDir(h.rel || h.path)">打开目录</button>
             <!-- 2026-11-02（不可用清单第 9 条）：成品比源稿旧时必须自己说出来。
                  原来只有判定报告有 stale，成品侧一声不响 —— 用户改了正文还以为导出的是新的。 -->
-            <div v-if="h.stale" style="flex-basis:100%; margin-top:6px; font-size:12px; color: var(--warn); line-height:1.6;">
+            <div v-if="h.stale" style="flex-basis:100%; margin-top:6px; font-size: 13px; color: var(--warn); line-height:1.6;">
               ⚠ {{ h.stale_note }}
               <button class="mini" style="margin-left:8px;" @click="runPublish">按当前稿重新生成</button>
             </div>
@@ -8962,7 +8962,7 @@ onUnmounted(() => {
             {{ reconcileOpen ? '收起明细' : '看明细' }}
           </button>
           <div class="meta" style="margin-top: 4px;">{{ materialReconcile.summary }}</div>
-          <div v-if="reconcileOpen" style="margin-top: 8px; font-size: 12px;">
+          <div v-if="reconcileOpen" style="margin-top: 8px; font-size: 13px;">
             <div v-for="m in materialReconcile.meta_files" :key="m.path" style="margin-bottom: 8px;">
               <div>
                 <b>{{ m.name }}</b>
@@ -9015,7 +9015,7 @@ onUnmounted(() => {
         <div style="margin-bottom: 12px;">暂无素材 —— 点击"添加素材"从其他地方复制文件到 raw/，或"新建素材"直接创建。</div>
         <div style="background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 12px;">
           <div style="font-weight: 600; margin-bottom: 8px;">示例素材卡格式</div>
-          <pre style="margin: 0; font-size: 12px; line-height: 1.6; color: var(--muted-foreground); overflow-x: auto;"># 角色：角色名
+          <pre style="margin: 0; font-size: 13px; line-height: 1.6; color: var(--muted-foreground); overflow-x: auto;"># 角色：角色名
 
 > 来源：你的设定库路径
 
@@ -9666,7 +9666,7 @@ onUnmounted(() => {
       <textarea
         :value="JSON.stringify(originalSetting, null, 2)"
         @input="originalSetting = JSON.parse($event.target.value)"
-        style="flex: 1; font-family: monospace; font-size: 12px; resize: none; border: 1px solid var(--border); border-radius: 8px; padding: 12px;"
+        style="flex: 1; font-family: monospace; font-size: 13px; resize: none; border: 1px solid var(--border); border-radius: 8px; padding: 12px;"
         spellcheck="false"
       ></textarea>
       <div class="dialog-actions" style="margin-top: 12px;">
@@ -9793,7 +9793,7 @@ onUnmounted(() => {
         <div style="display:flex; gap:12px; min-height:0; flex:1;">
           <div style="width: 36%; overflow:auto; border-right:1px solid var(--border); padding-right:6px;">
             <div v-for="e in archViewer.entries" :key="e.path"
-                 style="cursor:pointer; padding:3px 6px; font-size:12px; border-radius:4px; word-break:break-all;"
+                 style="cursor:pointer; padding:3px 6px; font-size: 13px; border-radius:4px; word-break:break-all;"
                  :style="e.path === archViewer.current ? { background: 'var(--accent)', color: '#fff' } : {}"
                  @click="viewArchiveFile(e.path)">
               {{ e.path }}<span class="meta"> · {{ fmtSize(e.size) }}</span>

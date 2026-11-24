@@ -104,7 +104,7 @@ defineExpose({ load });
   margin: 10px 0 8px;
   flex-wrap: wrap;
 }
-.cs-stat b { font-size: 16px; }
+.cs-stat b { font-size: 18px; }
 
 .cs-item {
   border-left: 3px solid var(--bad);
@@ -122,7 +122,7 @@ defineExpose({ load });
   flex-wrap: wrap;
 }
 .cs-tag {
-  font-size: 11px;
+  font-size: 12px;
   padding: 1px 6px;
   border-radius: 4px;
   background: var(--field);
@@ -136,7 +136,7 @@ defineExpose({ load });
 
 .cs-ev {
   margin-top: 6px;
-  font-size: 12.5px;
+  font-size: 13px;
   line-height: 1.75;
   opacity: 0.78;
 }

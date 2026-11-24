@@ -206,8 +206,8 @@ defineExpose({ show });
   border: 1px solid var(--border); border-radius: 6px; background: var(--field); color: var(--ink); }
 .ed-decide { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
 .ed-decide summary { cursor: pointer; font-weight: 600; }
-.ed-decision { margin-top: 6px; font-size: 12.5px; color: var(--ok); }
+.ed-decision { margin-top: 6px; font-size: 13px; color: var(--ok); }
 .ed-title { font-weight: 600; }
 .ed-writeback input { flex: 1; min-width: 160px; }
-.ed-msg { font-size: 12.5px; color: var(--bad); }
+.ed-msg { font-size: 13px; color: var(--bad); }
 </style>

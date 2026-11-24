@@ -625,10 +625,10 @@ load();
 .discuss-list { list-style: none; margin: 0; padding: 0; max-height: 260px; overflow: auto; }
 .discuss-list li { padding: 4px 6px; cursor: pointer; border-radius: 6px; }
 .discuss-list li.cur { background: var(--card); }
-.discuss-text { max-height: 260px; overflow: auto; white-space: pre-wrap; font-size: 12px;
+.discuss-text { max-height: 260px; overflow: auto; white-space: pre-wrap; font-size: 13px;
                 background: var(--card); padding: 8px; border-radius: 6px; }
 .discuss-say textarea, .discuss-decide textarea {
-  width: 100%; box-sizing: border-box; margin-top: 6px; font-size: 12px; padding: 6px;
+  width: 100%; box-sizing: border-box; margin-top: 6px; font-size: 13px; padding: 6px;
   resize: vertical; }
 .discuss-actions { display: flex; gap: 8px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
 /* 停止态：同一个按钮换成“让 AI 闭嘴”，用 warn 色（不用红 —— 红留给失败）。
@@ -650,7 +650,7 @@ load();
 }
 .discuss-ai-preview {
   margin: 0; max-height: 200px; overflow: auto; white-space: pre-wrap;
-  font-size: 12px; line-height: 1.6; padding: 8px; border-radius: 6px;
+  font-size: 13px; line-height: 1.6; padding: 8px; border-radius: 6px;
   background: var(--card); border: 1px dashed var(--border);
 }
 /* 草稿标记：浅灰底那一档在浅色主题下太弱（目检 2026-11-15 提的），
@@ -661,15 +661,15 @@ load();
   border: 1px solid var(--warn);
   font-weight: 600;
 }
-.discuss-msg { margin-top: 6px; font-size: 12px; color: var(--muted); }
-.muted { color: var(--muted); font-size: 12px; }
+.discuss-msg { margin-top: 6px; font-size: 13px; color: var(--muted); }
+.muted { color: var(--muted); font-size: 13px; }
 /* AI 的建议（C5/C14）：与讨论稿视觉分开 —— 它不是"说过的话"，是"要做的事"。
    定位不到的条目标红并禁用按钮：宁可不让点，也不拿旧段号改错段落。 */
 .discuss-sugs { margin-top: 10px; border-top: 1px dashed var(--border); padding-top: 8px; }
 .sug-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; margin-bottom: 6px; }
 .sug-item {
   display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap;
-  font-size: 12px; padding: 5px 6px; border-radius: 6px; background: var(--card);
+  font-size: 13px; padding: 5px 6px; border-radius: 6px; background: var(--card);
   margin-bottom: 4px;
 }
 .sug-bad-item { border: 1px solid var(--bad); }

@@ -117,7 +117,7 @@ onMounted(() => {});
 .hnp-empty { padding: 4px 0 2px; }
 .hnp-preview {
   max-height: 320px; overflow: auto; padding: 10px 12px;
-  font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-word;
+  font-size: 13px; line-height: 1.6; white-space: pre-wrap; word-break: break-word;
   border: 1px solid var(--border); border-radius: 6px;
   background: var(--field-inset, transparent); color: var(--ink);
 }

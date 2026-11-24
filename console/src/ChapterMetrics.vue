@@ -230,16 +230,16 @@ loadRounds();
 .qm-no { width: 64px; padding: 2px 6px; }
 .qm-sel { padding: 2px 6px; }
 .qm-head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; margin: 8px 0 4px; }
-.qm-table { border-collapse: collapse; font-size: 12px; width: 100%; }
+.qm-table { border-collapse: collapse; font-size: 13px; width: 100%; }
 .qm-table th, .qm-table td { border-bottom: 1px solid var(--border); padding: 3px 6px; text-align: left; }
 .qm-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; }
 .qm-cell { border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; display: flex;
            flex-direction: column; gap: 2px; }
 .qm-cell.bad { border-color: var(--bad); }
 .qm-val { font-size: 18px; font-weight: 600; }
-.qm-lbl { font-size: 12px; }
-.qm-checks { margin: 4px 0; padding-left: 18px; font-size: 12px; }
+.qm-lbl { font-size: 13px; }
+.qm-checks { margin: 4px 0; padding-left: 18px; font-size: 13px; }
 .qm-ok { color: var(--ok); }
 .qm-bad { color: var(--bad); }
-.muted { color: var(--muted); font-size: 12px; }
+.muted { color: var(--muted); font-size: 13px; }
 </style>

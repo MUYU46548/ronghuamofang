@@ -247,8 +247,8 @@ onMounted(() => { /* 不自动加载：用户填了章号才有意义 */ });
 
 <style scoped>
 .fr-wrap { position: relative; padding-bottom: 8px; }
-.fr-head h3 { margin: 0 0 4px; font-size: 16px; }
-.fr-hint { font-size: 12px; color: var(--muted); margin-bottom: 14px; line-height: 1.6; }
+.fr-head h3 { margin: 0 0 4px; font-size: 18px; }
+.fr-hint { font-size: 13px; color: var(--muted); margin-bottom: 14px; line-height: 1.6; }
 .fr-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
 .fr-controls label { font-size: 13px; color: var(--muted); }
 .fr-input { width: 90px; padding: 6px 10px; border: 1px solid var(--border);
@@ -263,8 +263,8 @@ onMounted(() => { /* 不自动加载：用户填了章号才有意义 */ });
   background: var(--bg); resize: vertical; line-height: 1.6;
 }
 .fr-actions { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-.fr-meta { font-size: 12px; color: var(--muted); }
-.fr-label { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.fr-meta { font-size: 13px; color: var(--muted); }
+.fr-label { font-size: 13px; color: var(--muted); margin-bottom: 6px; }
 .fr-current { margin-bottom: 14px; }
 .fr-pre { white-space: pre-wrap; word-break: break-word; font-size: 13px;
           line-height: 1.7; padding: 10px 12px; border: 1px solid var(--border);
@@ -276,8 +276,8 @@ onMounted(() => { /* 不自动加载：用户填了章号才有意义 */ });
 .fr-cand:hover { border-color: var(--accent); }
 .fr-cand.on { border-color: var(--accent); background: var(--accent-soft); }
 .fr-cand-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 6px; }
-.fr-cand-no { font-size: 12px; font-weight: 600; color: var(--accent); }
-.fr-cand-why { font-size: 12px; color: var(--muted); }
+.fr-cand-no { font-size: 13px; font-weight: 600; color: var(--accent); }
+.fr-cand-why { font-size: 13px; color: var(--muted); }
 .fr-cand-text { font-size: 13px; line-height: 1.7; white-space: pre-wrap; }
 .fr-edit { margin-bottom: 12px; }
 /* toast 放在常规流末尾，不用 sticky —— sticky 在面板高于视口时会浮在候选

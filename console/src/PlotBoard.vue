@@ -132,7 +132,7 @@ onMounted(load);
 .pboard { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin: 10px 0;
           background-image: radial-gradient(var(--border) 1px, transparent 1px);
           background-size: 24px 24px; }
-.pboard-hint { color: var(--muted); font-size: 12px; }
+.pboard-hint { color: var(--muted); font-size: 13px; }
 .pboard-vols { display: flex; flex-direction: column; gap: 16px; margin-top: 10px; }
 .pboard-vol { border: 1px solid var(--viz-volume-edge);
   background: color-mix(in srgb, var(--viz-volume-edge) 8%, transparent);
@@ -146,11 +146,11 @@ onMounted(load);
          cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,.05); transition: border-color .15s; }
 .pcard:hover { border-color: var(--accent); }
 .pcard.sel { border-color: var(--accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent); }
-.pcard-kind { font-size: 11px; color: var(--muted); }
+.pcard-kind { font-size: 12px; color: var(--muted); }
 .pcard-title { font-size: 14px; font-weight: 600; line-height: 1.35; }
-.pcard-sum { font-size: 12px; color: var(--muted); line-height: 1.5; flex: 1;
+.pcard-sum { font-size: 13px; color: var(--muted); line-height: 1.5; flex: 1;
              display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-.pcard-foot { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
+.pcard-foot { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
 .pcard-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--border); }
 .pcard-dot.ok { background: var(--viz-dot-ok); }
 .pcard-dot.talk { background: var(--viz-gold); }
@@ -158,7 +158,7 @@ onMounted(load);
 .pboard-stickies { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px; }
 .sticky { background: var(--viz-note-bg); border: 1px solid var(--viz-note-edge); border-radius: 8px; padding: 8px 10px;
           text-align: left; cursor: pointer; display: flex; flex-direction: column; gap: 2px;
-          font-size: 12px; max-width: 240px; }
+          font-size: 13px; max-width: 240px; }
 .pboard-talk { margin-top: 12px; }
-.muted { color: var(--muted); font-size: 12px; }
+.muted { color: var(--muted); font-size: 13px; }
 </style>

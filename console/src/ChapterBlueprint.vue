@@ -586,7 +586,7 @@ watch(rawMode, (v) => {
   justify-content: space-between;
   align-items: center;
   border-bottom: 1px solid var(--border, #3a3a4a);
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted-foreground, #aaa);
 }
 .bp-chapter-list {
@@ -602,7 +602,7 @@ watch(rawMode, (v) => {
   padding: 6px 8px;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 13px;
   transition: background 0.15s;
 }
 .bp-chapter-item:hover {
@@ -626,7 +626,7 @@ watch(rawMode, (v) => {
 }
 .bp-dirty-mark {
   color: var(--warn);
-  font-size: 8px;
+  font-size: 11px;
 }
 
 /* ---- 右侧 ---- */
@@ -650,7 +650,7 @@ watch(rawMode, (v) => {
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 12px;
+  font-size: 13px;
   cursor: pointer;
   color: var(--muted-foreground, #aaa);
 }
@@ -663,14 +663,14 @@ watch(rawMode, (v) => {
   gap: 14px;
 }
 .bp-field label {
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
   color: var(--muted-foreground, #bbb);
 }
 .bp-hint {
   font-weight: normal;
   opacity: 0.6;
-  font-size: 11px;
+  font-size: 12px;
 }
 .bp-input {
   background: var(--field);
@@ -699,7 +699,7 @@ watch(rawMode, (v) => {
 /* 事件列表 */
 .bp-event-no {
   min-width: 18px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted-foreground, #999);
 }
 .bp-event-row .bp-input {
@@ -725,7 +725,7 @@ watch(rawMode, (v) => {
   background: rgba(124, 92, 200, 0.2);
   border: 1px solid rgba(124, 92, 200, 0.5);
   border-radius: 12px;
-  font-size: 12px;
+  font-size: 13px;
 }
 .bp-tag-remove {
   background: none;
@@ -743,7 +743,7 @@ watch(rawMode, (v) => {
   background: transparent;
   border: none;
   color: var(--ink);
-  font-size: 12px;
+  font-size: 13px;
   padding: 2px 4px;
   outline: none;
 }
@@ -755,7 +755,7 @@ watch(rawMode, (v) => {
   align-items: center;
 }
 .bp-sugg-label {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted-foreground, #999);
 }
 
@@ -782,7 +782,7 @@ watch(rawMode, (v) => {
 .bp-empty, .bp-empty-large {
   text-align: center;
   color: var(--muted-foreground, #888);
-  font-size: 12px;
+  font-size: 13px;
   padding: 20px 8px;
 }
 .bp-empty-large {

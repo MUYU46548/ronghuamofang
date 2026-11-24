@@ -274,7 +274,7 @@ defineExpose({ load });
   margin-right: 10px;
   color: var(--muted);
 }
-.ss-stat b { font-size: 16px; }
+.ss-stat b { font-size: 18px; }
 .ss-mtime { margin-right: 8px; }
 .ss-bad { color: var(--bad); }
 .ss-warn { color: var(--warn); }
@@ -319,7 +319,7 @@ defineExpose({ load });
 }
 .ss-item.ss-new { border-left: 3px solid var(--warn); }
 .ss-tag {
-  font-size: 11px;
+  font-size: 12px;
   padding: 1px 6px;
   border-radius: 4px;
   border: 1px solid var(--border);
@@ -329,7 +329,7 @@ defineExpose({ load });
 .ss-tag.bad { color: var(--bad); border-color: var(--bad); }
 .ss-tag.warn { color: var(--warn); border-color: var(--warn); }
 .ss-kind {
-  font-size: 11.5px;
+  font-size: 12px;
   padding: 1px 7px;
   border-radius: 4px;
   border: 1px solid var(--border);
@@ -337,7 +337,7 @@ defineExpose({ load });
   color: var(--muted);
 }
 .ss-excerpt {
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--muted);
   max-width: 360px;
   overflow: hidden;
@@ -350,10 +350,10 @@ defineExpose({ load });
   align-items: center;
   flex-wrap: wrap;
   margin-top: 6px;
-  font-size: 12.5px;
+  font-size: 13px;
   min-width: 0;
 }
 .ss-ch { word-break: break-word; }
 .ss-ch.muted { color: var(--muted); }
-.ss-time { color: var(--muted); font-size: 11.5px; }
+.ss-time { color: var(--muted); font-size: 12px; }
 </style>

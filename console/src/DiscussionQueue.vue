@@ -287,7 +287,7 @@ defineExpose({ load });
 
 <style scoped>
 .dq-wrap { display: flex; flex-direction: column; gap: 12px; }
-.dq-filter { margin-left: auto; font-size: 12px; opacity: .8; display: flex; align-items: center; gap: 4px; }
+.dq-filter { margin-left: auto; font-size: 13px; opacity: .8; display: flex; align-items: center; gap: 4px; }
 .dq-stats { display: flex; gap: 8px; margin-top: 8px; }
 .dq-list { display: flex; flex-direction: column; gap: 8px; }
 .dq-item {
@@ -298,9 +298,9 @@ defineExpose({ load });
 .dq-item.dq-approved { opacity: .65; }
 .dq-item.dq-rejected { opacity: .55; }
 .dq-item-main { flex: 1; min-width: 0; }
-.dq-path { font-size: 12px; word-break: break-all; }
-.dq-item-meta { display: flex; gap: 12px; margin-top: 4px; flex-wrap: wrap; font-size: 12px; }
-.dq-note { margin-top: 6px; font-size: 12px; color: var(--warn); }
+.dq-path { font-size: 13px; word-break: break-all; }
+.dq-item-meta { display: flex; gap: 12px; margin-top: 4px; flex-wrap: wrap; font-size: 13px; }
+.dq-note { margin-top: 6px; font-size: 13px; color: var(--warn); }
 .dq-item-actions { display: flex; gap: 6px; flex-shrink: 0; flex-wrap: wrap; }
 .dq-preview, .dq-preview-sm {
   white-space: pre-wrap; word-break: break-word;
@@ -309,7 +309,7 @@ defineExpose({ load });
   padding: 12px; border: 1px solid var(--border); border-radius: 6px;
   background: var(--bg, transparent);
 }
-.dq-preview-sm { max-height: 24vh; font-size: 12px; }
+.dq-preview-sm { max-height: 24vh; font-size: 13px; }
 @media (max-width: 720px) {
   .dq-item { flex-direction: column; }
 }

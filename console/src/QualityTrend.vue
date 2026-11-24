@@ -102,14 +102,14 @@ export default {
   margin-bottom: 8px;
 }
 .qt-head h4 { margin: 0; font-size: 14px; }
-.qt-head .meta { font-size: 12px; color: var(--muted); }
+.qt-head .meta { font-size: 13px; color: var(--muted); }
 .qt-chart {
   width: 100%;
   height: auto;
   display: block;
 }
 .qt-dot-label {
-  font-size: 10px;
+  font-size: 11px;
   fill: var(--muted);
   font-weight: 600;
   pointer-events: none;
@@ -121,7 +121,7 @@ export default {
   margin-top: 8px;
   flex-wrap: wrap;
 }
-.qt-low .meta { font-size: 12px; }
-.qt-low .pill { font-size: 11px; padding: 2px 7px; }
-.qt-low .mini { padding: 4px 9px; font-size: 12px; }
+.qt-low .meta { font-size: 13px; }
+.qt-low .pill { font-size: 12px; padding: 2px 7px; }
+.qt-low .mini { padding: 4px 9px; font-size: 13px; }
 </style>

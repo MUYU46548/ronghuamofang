@@ -250,19 +250,19 @@ onMounted(() => {
 .cand-col.winner { border-color: var(--ok, #2e8b57); }
 .cand-col.chosen { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
 .cand-score { font-size: 18px; }
-.cand-reasons { margin: 0; padding-left: 18px; font-size: 12.5px; line-height: 1.65; }
-.cand-struct { font-size: 12px; line-height: 1.5; }
-.cand-judge { font-size: 12px; line-height: 1.55; padding-top: 4px; border-top: 1px dashed var(--border); }
+.cand-reasons { margin: 0; padding-left: 18px; font-size: 13px; line-height: 1.65; }
+.cand-struct { font-size: 13px; line-height: 1.5; }
+.cand-judge { font-size: 13px; line-height: 1.55; padding-top: 4px; border-top: 1px dashed var(--border); }
 .cand-judge-t { display: flex; gap: 4px; align-items: baseline; flex-wrap: wrap; }
 .cand-judge-list { margin: 2px 0 0; padding-left: 16px; }
 .cand-judge-list li { margin-bottom: 2px; }
-.cand-judge-why { font-size: 11.5px; opacity: 0.85; }
+.cand-judge-why { font-size: 12px; opacity: 0.85; }
 .cand-struct-t { margin-bottom: 2px; }
 .cand-struct-list { margin: 0; padding-left: 16px; color: var(--warn, #b8860b); }
 .cand-reasons .bad { color: var(--warn, #b8860b); }
 .cand-text {
   margin: 0; max-height: 190px; overflow: auto; padding: 8px 10px;
-  font-family: "Source Han Serif SC", "Noto Serif SC", serif; font-size: 12.5px;
+  font-family: "Source Han Serif SC", "Noto Serif SC", serif; font-size: 13px;
   line-height: 1.75; white-space: pre-wrap; border-radius: 6px;
   background: var(--field-inset, #fff); color: var(--ink); border: 1px solid var(--border);
 }

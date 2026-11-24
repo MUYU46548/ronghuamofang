@@ -124,7 +124,7 @@ defineExpose({ load });
   border-left: 3px solid var(--warn);
   border-radius: 8px;
   background: var(--field-dim);
-  font-size: 12.5px;
+  font-size: 13px;
   line-height: 1.7;
 }
 .wr-input {
@@ -147,7 +147,7 @@ defineExpose({ load });
   gap: 12px;
   align-items: baseline;
   margin-top: 8px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted);
 }
 .wr-over { color: var(--bad); }

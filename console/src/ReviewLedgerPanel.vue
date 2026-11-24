@@ -252,7 +252,7 @@ defineExpose({ load });
 </template>
 
 <style scoped>
-.rl-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 12.5px; }
+.rl-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 13px; }
 .rl-table th {
   text-align: left; font-weight: 600; color: var(--muted);
   padding: 6px 8px; border-bottom: 1px solid var(--border); white-space: nowrap;
@@ -265,7 +265,7 @@ defineExpose({ load });
 .rl-ok { color: var(--ok); }
 .rl-warn { color: var(--warn); }
 .rl-bad { color: var(--bad); font-weight: 600; }
-.rl-unverified { color: var(--muted); opacity: 0.7; font-size: 11.5px; }
+.rl-unverified { color: var(--muted); opacity: 0.7; font-size: 12px; }
 
 .rl-block-head {
   display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap;
@@ -280,7 +280,7 @@ defineExpose({ load });
   border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px;
   background: var(--field-dim);
 }
-.rl-metric-label { font-size: 12px; color: var(--muted); }
+.rl-metric-label { font-size: 13px; color: var(--muted); }
 .rl-metric-value { font-size: 18px; font-weight: 600; line-height: 1.4; }
 .rl-need-row { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; margin: 4px 0; }
 
@@ -300,7 +300,7 @@ defineExpose({ load });
 .rl-dim-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
 .rl-score { font-weight: 600; }
 .rl-quote {
-  margin: 6px 0 0; padding: 6px 10px; font-size: 12.5px; line-height: 1.7;
+  margin: 6px 0 0; padding: 6px 10px; font-size: 13px; line-height: 1.7;
   border-left: 2px solid var(--border); background: var(--field-inset);
   white-space: pre-wrap; word-break: break-word;
 }

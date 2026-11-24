@@ -260,7 +260,7 @@ defineExpose({ load });
 
 <style scoped>
 .sc-summary { display: flex; gap: 18px; flex-wrap: wrap; align-items: baseline; margin: 10px 0 6px; }
-.sc-stat b { font-size: 16px; }
+.sc-stat b { font-size: 18px; }
 .sc-bad { color: var(--bad); }
 .sc-ok { color: var(--ok); }
 /* 0 张素材卡：这是“没扫到”，不是“没矛盾”——用警告色，别用绿。 */
@@ -269,7 +269,7 @@ defineExpose({ load });
 /* 人工整理的分歧（2026-11-14）：两方并排，各给一个“选这版”，裁决后可回看理由。 */
 .sc-manual { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 12px; }
 .sc-manual h4 { margin: 0 0 6px; font-size: 14px; }
-.sc-id { font-size: 12px; color: var(--muted); }
+.sc-id { font-size: 13px; color: var(--muted); }
 .sc-current { margin-left: 8px; }
 .sc-q { margin: 4px 0 6px; font-size: 13px; line-height: 1.7; }
 .sc-val-pick { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
@@ -278,7 +278,7 @@ defineExpose({ load });
 .sc-suggest { margin: 6px 0; }
 .sc-actions { display: flex; gap: 8px; margin-top: 6px; }
 .sc-decided {
-  margin-top: 6px; padding: 6px 10px; border-radius: 6px; font-size: 12px; line-height: 1.7;
+  margin-top: 6px; padding: 6px 10px; border-radius: 6px; font-size: 13px; line-height: 1.7;
   border-left: 3px solid var(--ok); background: var(--field-dim); color: var(--ink);
 }
 .sc-unchecked {
@@ -290,10 +290,10 @@ defineExpose({ load });
   padding: 10px 12px; margin: 8px 0; background: var(--field-inset);
 }
 .sc-field {
-  font-size: 11.5px; padding: 1px 7px; border-radius: 4px;
+  font-size: 12px; padding: 1px 7px; border-radius: 4px;
   border: 1px solid var(--border); background: var(--field); color: var(--muted);
 }
-.sc-vals { margin-top: 6px; font-size: 12.5px; line-height: 1.75; opacity: 0.85; }
+.sc-vals { margin-top: 6px; font-size: 13px; line-height: 1.75; opacity: 0.85; }
 .sc-val { word-break: break-word; }
 .sc-reject {
   margin-top: 10px; padding: 10px 12px; border-radius: 8px;
@@ -307,5 +307,5 @@ defineExpose({ load });
 .sc-input:focus { outline: none; border-color: var(--accent); }
 .sc-reject-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
 .sc-tombs { margin-top: 12px; }
-.sc-tombs summary { cursor: pointer; font-size: 12.5px; color: var(--muted); }
+.sc-tombs summary { cursor: pointer; font-size: 13px; color: var(--muted); }
 </style>

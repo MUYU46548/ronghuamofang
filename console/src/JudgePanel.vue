@@ -818,8 +818,8 @@ onMounted(loadReport);
 .judge-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .judge-bar b { font-size: 14px; }
 .judge-sum { font-weight: 600; }
-.judge-notice { font-size: 12px; color: var(--warn); margin: 6px 0; }
-.judge-err { font-size: 12px; color: var(--bad); margin: 6px 0; }
+.judge-notice { font-size: 13px; color: var(--warn); margin: 6px 0; }
+.judge-err { font-size: 13px; color: var(--bad); margin: 6px 0; }
 
 /* ---- B2 整本否掉（2026-10-31）---- */
 .judge-bookreject {
@@ -829,7 +829,7 @@ onMounted(loadReport);
   border-left-width: 3px;
   border-radius: 8px;
   background: var(--field-dim);
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--ink);
   line-height: 1.8;
 }
@@ -853,7 +853,7 @@ onMounted(loadReport);
   border-radius: 7px;
   background: var(--card);
   color: var(--ink);
-  font-size: 12.5px;
+  font-size: 13px;
 }
 .judge-reject-input:focus { outline: 1px solid var(--accent); }
 
@@ -864,17 +864,17 @@ onMounted(loadReport);
   border-left: 3px solid var(--bad);
   border-radius: 0 8px 8px 0;
   background: var(--field-dim);
-  font-size: 12.5px;
+  font-size: 13px;
   line-height: 1.8;
   color: var(--ink);
 }
 .judge-alert b { color: var(--ink-bad); }
 
 /* ---- R05 判据引文列 ---- */
-.judge-ref { max-width: 260px; font-size: 11.5px; }
+.judge-ref { max-width: 260px; font-size: 12px; }
 .judge-ref-q { color: var(--ink); line-height: 1.6; }
 .judge-empty { line-height: 1.7; padding: 8px 0; }
-.judge-stale { font-size: 12px; color: var(--warn); }
+.judge-stale { font-size: 13px; color: var(--warn); }
 .judge-artifact { border: 1px solid var(--warn); border-radius: 8px; padding: 6px 10px; margin: 6px 0; font-size: 13px; color: var(--warn); }
 .judge-preview { border: 1px dashed var(--accent); border-radius: 8px; padding: 6px 10px; margin: 6px 0; font-size: 13px; }
 .judge-evidence { color: var(--muted); }
@@ -886,7 +886,7 @@ onMounted(loadReport);
 .judge-warn { color: var(--warn); }
 .judge-bad { color: var(--bad); }
 .judge-undecided { color: var(--muted); }
-.judge-top { font-size: 12px; line-height: 1.7; }
+.judge-top { font-size: 13px; line-height: 1.7; }
 .judge-top-item { display: inline-block; margin-right: 10px; }
 .judge-events { border: 1px dashed var(--border); border-radius: 8px; padding: 8px 10px; margin: 8px 0; }
 /* ---- M4 第三条证据（模型先出、作者终裁）---- */
@@ -924,6 +924,6 @@ onMounted(loadReport);
   padding-left: 6px;
   margin-left: -6px;
 }
-.judge-para-no { color: var(--muted); font-size: 11px; margin-right: 6px; }
+.judge-para-no { color: var(--muted); font-size: 12px; margin-right: 6px; }
 .judge-cal-input { width: 120px; background: var(--field); color: var(--ink); border: 1px solid var(--border); border-radius: 6px; padding: 2px 6px; }
 </style>

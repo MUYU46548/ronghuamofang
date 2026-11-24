@@ -145,7 +145,7 @@ defineExpose({ load });
 .err-line { color: var(--bad); }
 .cnp-form { display: flex; flex-direction: column; gap: 6px; }
 .cnp-form textarea, .cnp-form input {
-  font-size: 12px; line-height: 1.6; padding: 6px 8px; resize: vertical;
+  font-size: 13px; line-height: 1.6; padding: 6px 8px; resize: vertical;
   border: 1px solid var(--border); border-radius: 6px;
   background: var(--field-inset, transparent); color: var(--ink);
 }
