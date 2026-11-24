@@ -320,6 +320,7 @@ MONEY_ENDPOINTS = frozenset({
     "/discuss/actions/apply",       # 按建议生成候选（内部转 preview / rewrite）
     "/book_extract/run",            # 拆书（模型读整本）
     "/materials/remerge",           # 素材重归并 = 重跑 stage1
+    "/selftest/chapter",            # 自检“试写一章”：真跑一次 stage4（2026-11-24）
 })
 
 # 单阶段运行是动态路径 /stage/{n}/run（1..8）。为什么不写成字符串：n 是变量。

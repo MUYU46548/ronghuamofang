@@ -210,8 +210,21 @@ class DshClient:
     #: 正文由子进程自己用文件工具落盘（stage4 据此按产物字数判进度）
     writes_files = True
 
+    #: DSH 命令行**没有 max_tokens 旋钮**（headless/desktop 都没有）。
+    #: stage4 的“目标字数装不下输出上限”容量闸门据此跳过 —— 那个闸门比的是
+    #: “我们能设的上限”，而这里根本设不了，比出来的失败是假的（2026-11-24）。
+    max_tokens_knob = False
+
     #: 默认借用桌面端那套配置（作者 2026-11-20：只调用 DSH，不用 headless）
     DEFAULT_PROFILE = "desktop"
+
+    #: 与 OpenAICompatClient / HermesClient 同名的自报字段。
+    #: **不是装饰**（2026-11-24 修）：`enhanced_chapter.py` / `discuss_ai.py` 用
+    #: `getattr(client, "provider", ...)` 记账，缺这个属性会让 dsh 记成 "unknown"
+    #: → `CostTracker.estimate_cost_yuan` 的 `provider in ("hermes","dsh")` 归零分支
+    #: 不命中 → 明明走订阅（不花钱）却在 log 里记出一条非零金额。
+    provider = "dsh"
+    display_name = "DSH"
 
     def __init__(self, dsh_bin=None, timeout=1800, model=None, permission_mode=None,
                  approval_policy=None, session_continuation=False,
@@ -255,7 +268,7 @@ class DshClient:
             return False
         print("[dsh_client] WARN 单次子会话输出 %d token > 单请求上限 %d"
               "（config/system.yaml 的 budget.token_limit.per_request_max_tokens）。"
-              "headless 无 max_tokens 旋钮 → 本次**不阻断**；"
+              "DSH 无 max_tokens 旋钮 → 本次**不阻断**；"
               "要按次熔断请把 budget.token_limit.per_request_pause_hermes 设为 true"
               % (n, self.request_max_tokens))
         return True

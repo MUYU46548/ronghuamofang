@@ -1455,15 +1455,26 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
     # 自己删内容，表现为“每章都短一截”，而 finish_reason 还是 stop —— 既有那道
     # “截断即失败”的防线**看不见**（与 stage5 实测 5967→2186 同一机制）。
     # 这里至少拦住“目标字数根本装不进本阶段输出上限”的配置，并把实际生效值打出来。
+    #
+    # ⚠️ 2026-11-24：**引擎没有 max_tokens 旋钮时本闸门必须跳过**。
+    # DSH（现役唯一引擎）命令行不提供 max_tokens，`effective_max_tokens` 算出来的
+    # 只是“我们**没在**设置的上限”。budget.per_request_max_tokens 一旦小于目标字数
+    # 折算值，这里就会在**根本没调用模型之前**判 stage4 失败 —— 一条纯属虚构的失败。
+    # 判据挂在客户端能力上（`max_tokens_knob`），而不是写死引擎名。
     from utils.judge.budget import check_capacity, effective_max_tokens
     _limit4 = effective_max_tokens(cfg, 4)
-    _ok4, _why4, _cap4 = check_capacity(proj, 4, max_tokens=_limit4, words=int(high))
-    if not _ok4:
-        print("[stage4] " + _why4)
-        progress.set_stage(4, "failed", error=_why4)
-        return False, _why4
-    print(f"[stage4] 篇幅预算校验通过：输出上限 {_limit4}，单章目标 {low}-{high} 字"
-          f"（需要 ≥{_cap4.get('needed')} token）")
+    if getattr(client, "max_tokens_knob", True) is False:
+        print(f"[stage4] 篇幅容量校验跳过：{getattr(client, 'display_name', '本引擎')}"
+              f" 不提供 max_tokens 旋钮（配置里的输出上限 {_limit4} 对它不生效）；"
+              f"单章目标 {low}-{high} 汉字，篇幅由提示词与校验把关。")
+    else:
+        _ok4, _why4, _cap4 = check_capacity(proj, 4, max_tokens=_limit4, words=int(high))
+        if not _ok4:
+            print("[stage4] " + _why4)
+            progress.set_stage(4, "failed", error=_why4)
+            return False, _why4
+        print(f"[stage4] 篇幅预算校验通过：输出上限 {_limit4}，单章目标 {low}-{high} 字"
+              f"（需要 ≥{_cap4.get('needed')} token）")
     # 篇幅口径与生成方式的匹配告警（2026-10-26，用户：“弱模型无论怎么骂就是写不长
     # ……所以才需要加强模式来强行拼凑”）。不阻断，只说清楚"你可能需要它"。
     if low >= 4000 and not bool(cfg.get("chapter", {}).get("enhanced_mode", False)):

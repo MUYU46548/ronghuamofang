@@ -336,6 +336,54 @@ function maybeNotifyStale(cur) {
   } catch (e) { /* 通知失败不影响界面：它只是提示 */ }
 }
 
+/* ---------- 自检：能不能跑？试一章就知道（2026-11-24） ----------
+   暮雨原话：“我不可能去看 data/state/progress.json 和 logs/runs.db 是否真出现
+   chapter_log 行，也不会去看，那是你应该测的东西。”
+   所以把“测”的结论搬到界面上：体检（零 token）→ 试写一章（一次调用）→ 收据（零 token）。
+   三件事都走 /selftest/*，界面这里不自己猜任何状态。 */
+const selftest = ref({ loading: false, pre: null, error: "",
+                       running: false, chapter: null, receipt: null, note: "" });
+let selftestLoaded = false;
+
+async function loadSelftest() {
+  selftest.value.loading = true; selftest.value.error = "";
+  try {
+    const r = await api("/selftest/preflight");
+    if (r.status === 200) selftest.value.pre = r.data;
+    else selftest.value.error = (r.data && r.data.error) || ("HTTP " + r.status);
+  } catch (e) { selftest.value.error = String(e.message || e); }
+  selftest.value.loading = false;
+}
+
+async function loadSelftestReceipt(chapter = null) {
+  const r = await api("/selftest/receipt" + (chapter ? ("?chapter=" + chapter) : ""));
+  if (r.status === 200) selftest.value.receipt = r.data;
+}
+
+async function runSelftestChapter() {
+  if (!selftest.value.pre) await loadSelftest();
+  const p = selftest.value.pre;
+  if (!p || !p.can_run) return say((p && p.hint) || "体检没过，先看上面标红的那几项");
+  const n = p.next_chapter;
+  if (!n) return say(p.hint || "全书都写完了，没有可试写的章");
+  if (!window.confirm(
+      "试写第 " + n + " 章？\n\n会用 DSH 真跑一次（走你的订阅，1 次调用）。\n" +
+      "跑完这里直接出结论：成了没有、多少字、耗时多久 —— 不用你去看任何文件。")) return;
+  selftest.value.running = true; selftest.value.receipt = null;
+  selftest.value.chapter = n;
+  selftest.value.note = "已提交，正在试写第 " + n + " 章…";
+  const r = await api("/selftest/chapter", "POST", { chapter: n });
+  if (r.status !== 202) {
+    selftest.value.running = false; selftest.value.note = "";
+    return say("提交失败: " + ((r.data && (r.data.error || r.data.hint)) || r.status));
+  }
+  selftest.value.note = "正在试写第 " + n + " 章（任务号 " + r.data.job_id + "）…";
+  refresh();
+}
+
+// 试跑结束后取收据的 watch 放在 isRunning 定义之后（见 stageDetail 附近）——
+// 这里不能写：isRunning 是后面才声明的 const，此时还取不到。
+
 async function refresh() {
   try {
     const [s, m, j, act] = await Promise.all([
@@ -355,6 +403,8 @@ async function refresh() {
     }
     if (j && j.status === 200) lastJob.value = j.data;
     guideReloadKey.value += 1;   // 引导的“下一步”跟着状态换（每 2.5s 一次，只读端点）
+    // 自检体检只在拿到状态后拉一次（零 token，但没必要每 2.5 秒问一遍）
+    if (!selftestLoaded && state.value) { selftestLoaded = true; loadSelftest(); }
     loadLock();        // L-5：界面必须自己说出"锁在谁手里"，与状态同频刷新
     loadIntervene();   // 清单第 4 条：有没有待用的插话
     loadFinishChapter();  // F04：有没有登记“写完这章就停”
@@ -616,7 +666,10 @@ function selectSettingsTab(id) {
    “哪几个阶段会停下来等你”，也改不了。这里给一张勾选表。
    写口在后端是**审批族**：只允许 GUI 来源，外部 Agent 不得替作者减少确认点。 */
 const gateCfg = ref({ loading: false, saving: false, stages: [], factory: [2, 6],
-                      names: {}, note: "", msg: "", error: "" });
+                      names: {}, note: "", msg: "", error: "",
+                      // 素材库陪跑/自主（2026-11-24）：这个键一直只读，界面上
+                      // 看不到也改不了 —— 阶段 1 因此会"莫名其妙"多停一次。
+                      material_autonomy: false });
 async function loadApprovalGates() {
   gateCfg.value.loading = true; gateCfg.value.error = ""; gateCfg.value.msg = "";
   try {
@@ -626,6 +679,7 @@ async function loadApprovalGates() {
       gateCfg.value.factory = r.data.factory || [2, 6];
       gateCfg.value.names = r.data.names || {};
       gateCfg.value.note = r.data.note || "";
+      gateCfg.value.material_autonomy = !!r.data.material_autonomy;
     } else {
       gateCfg.value.error = (r.data && r.data.error) || ("HTTP " + r.status);
     }
@@ -642,9 +696,14 @@ function toggleGateStage(n) {
 async function saveApprovalGates() {
   gateCfg.value.saving = true; gateCfg.value.error = ""; gateCfg.value.msg = "";
   try {
-    const r = await api("/config/approval_gates", "POST", { stages: gateCfg.value.stages });
+    const r = await api("/config/approval_gates", "POST",
+                        { stages: gateCfg.value.stages,
+                          material_autonomy: !!gateCfg.value.material_autonomy });
     if (r.status === 200 && r.data) {
       gateCfg.value.stages = r.data.stages || [];
+      if (typeof r.data.material_autonomy === "boolean") {
+        gateCfg.value.material_autonomy = r.data.material_autonomy;
+      }
       gateCfg.value.msg = r.data.message || "已保存";
       if (r.data.note) gateCfg.value.note = r.data.note;
       await refresh();
@@ -1810,11 +1869,28 @@ async function runPublish() {
   refresh();
 }
 
-async function approve(stage, revoke = false) {
+/* 确认放行（2026-11-24，作者要求“全做完才值得我测、别让我反复点”）：
+   默认 **确认并继续跑下一阶段** —— 原来确认完只刷新状态，用户还得回流水线
+   再点一次“运行”，三个门就是三次多余点击。`continueRun=false` 是“只确认”旁路
+   （阶段行里的确认按钮走这条，那里是细粒度控制，不替他决定要不要跑）。
+
+   这里刻意**不走 runStage 的预估弹窗**：用户点“确认放行并继续”本身就是授权，
+   再问一次“要不要运行”等于把同一次决定问两遍。DSH 走订阅、金额恒 0，预估框
+   在这个引擎下几乎没有信息量。 */
+async function approve(stage, revoke = false, continueRun = true) {
   const r = await api("/approve", "POST", { stage, revoke });
-  say(r.status === 200 ? (revoke ? "已撤销审批（阶段" + stage + "）" : "已确认阶段" + stage)
-                       : "操作失败: " + (r.data.message || r.data.error || ""));
-  refresh();
+  if (r.status !== 200) {
+    return say("操作失败: " + (r.data.message || r.data.error || ""));
+  }
+  say(revoke ? "已撤销审批（阶段" + stage + "）" : "已确认阶段" + stage);
+  await refresh();
+  if (revoke || !continueRun) return;
+  const nx = nextAction.value;
+  // 还有别的门没确认（同一次运行可能连撞两个门）→ 停在收件箱让用户接着看，
+  // 不要替他确认下一道门。
+  if (!nx || nx.kind !== "run") return;
+  say("已确认阶段" + stage + "，继续运行阶段 " + nx.stage + "…");
+  await doRunStage(nx.stage);
 }
 
 const rejectOpen = ref(false);
@@ -1993,8 +2069,11 @@ const initWizardStep = ref(1);
 const initBookName = ref("");
 const initBookType = ref("奇幻");
 const initChapters = ref(10);
-// 运行引擎：向导里必须显式选一次（卡片 -029）。空串 = 没选 → 不许提交。
-const initEngine = ref("");
+// 运行引擎：**默认 DSH**（2026-11-20 作者定案“绒花墨坊绑死 DSH，以后都走 DSH”）。
+// 2026-11-24 修：这里原来默认空串 + 强制显式选择，选项里还**没有 dsh**，
+// 底下一句还在推荐 direct / self —— 新建项目会被直接引到回退通道，
+// 与定案相反。现在默认 dsh，其余三项标成回退通道，不再要求先选。
+const initEngine = ref("dsh");
 const initStyleNotes = ref("");
 
 async function checkInitWizard() {
@@ -2004,7 +2083,8 @@ async function checkInitWizard() {
     const book = cfg.data.config?.book || {};
     if (!book.name || book.name === "示例书名（待填写）" || !book.chapters) {
       showInitWizard.value = true;
-      initEngine.value = "";   // 每次都必须显式选，不继承上一次
+      // 每次回到默认 DSH：新建项目的正常路径只有这一条，回退通道要主动改。
+      initEngine.value = "dsh";
       initBookName.value = book.name === "示例书名（待填写）" ? "" : (book.name || "");
       initBookType.value = book.type || "奇幻";
       initChapters.value = book.chapters || 10;
@@ -2015,16 +2095,15 @@ async function checkInitWizard() {
 
 async function submitInitWizard() {
   if (!initBookName.value.trim()) return say("请填写书名");
-  if (!initEngine.value) return say("请选择运行引擎（不选会默认走最慢的那档）");
-  if (initChapters.value < 1 || initChapters.value > 999) return say("章节数须在 1-999 之间");
+  if (!initChapters.value || initChapters.value < 1 || initChapters.value > 999) return say("章节数须在 1-999 之间");
   if (!window.confirm(
-      `确认初始化项目？\n\n书名：${initBookName.value}\n类型：${initBookType.value}\n章节数：${initChapters.value}\n\n将保存为这个项目的设置。`)) return;
+      `确认初始化项目？\n\n书名：${initBookName.value}\n类型：${initBookType.value}\n章节数：${initChapters.value}\n引擎：${initEngine.value || "dsh"}\n\n将保存为这个项目的设置。`)) return;
   const r = await api("/project/init", "POST", {
     name: initBookName.value,
     type: initBookType.value,
     chapters: initChapters.value,
     style_notes: initStyleNotes.value,
-    engine: initEngine.value,
+    engine: initEngine.value || "dsh",
   });
   if (r.status === 200 && r.data.ok) {
     showInitWizard.value = false;
@@ -2460,6 +2539,9 @@ const ROLE_USE = {
 
 // 切换执行引擎。2026-10-31 之前界面上只有一行只读文字，切引擎必须手改 YAML。
 const engBusy = ref(false);
+// 回退通道默认收起（2026-11-24）：当前引擎不是 dsh 时模板条件会自动展开，
+// 所以这里只管“dsh 下用户主动想看”的那一种情况。
+const showFallbackEngines = ref(false);
 async function switchEngine(eng) {
   if (!models.value || models.value.engine === eng || engBusy.value) return;
   engBusy.value = true;
@@ -2843,6 +2925,18 @@ const pendingGates = computed(() => {
   return state.value.stages.filter((s) => s.status === "done" && !s.approved && isGate(s.stage));
 });
 const isRunning = computed(() => !!state.value?.current_job);
+/* 试跑一章结束后自动取收据（2026-11-24）：放在 isRunning 之后 —— 这个 watch
+   依赖它，写在声明之前会 TDZ 报错（比“忘了写”更难查的坑）。 */
+watch(isRunning, async (now, before) => {
+  if (before && !now && selftest.value.running) {
+    selftest.value.running = false;
+    await loadSelftestReceipt(selftest.value.chapter);
+    selftest.value.note = "";
+    await loadSelftest();
+    const v = selftest.value.receipt && selftest.value.receipt.verdict;
+    if (v) say(v.text);
+  }
+});
 /* 当前在跑的阶段（没有则 null）。页面里多处要“现在在干嘛”，统一从这里取。 */
 const runningStage = computed(() =>
   (state.value?.stages || []).find((s) => s.status === "running") || null);
@@ -2924,6 +3018,14 @@ function _idleSeconds(iso) {
 }
 /* 进行中阶段的**具体事实**：第几章 / 第几群 / 本群多少字 / 多久没新字。
    比一个百分比更能回答“它是在推进还是卡住”（用户 2026-10-26/27 反复提的点）。 */
+/* 失败原因短句（2026-11-24）：/state 现在会带回 stages[].error（后端已透出）。
+   阶段卡位置窄，超过 200 字截断，全文放 title 里。 */
+function shortErr(e) {
+  const t = String(e || "").trim();
+  if (!t) return "";
+  return t.length > 200 ? t.slice(0, 200) + "…" : t;
+}
+
 function stageDetail(s) {
   if (!s || s.status !== "running") return "";
   const bits = [];
@@ -6391,6 +6493,50 @@ onUnmounted(() => {
       </template>
     </section>
 
+    <!-- 自检卡（2026-11-24）：能不能跑，试一章就知道 ------------------------------
+         体检（零 token）→ 试写一章（一次调用）→ 收据（零 token）。
+         存在的理由：作者不会去看 progress.json / runs.db，结论必须出现在这里。 -->
+    <section v-if="tab === 'pipeline' && state" class="card selftest-card" data-ob="selftest">
+      <div class="card-head">
+        <h3>能不能跑？试一章就知道</h3>
+        <span v-if="selftest.pre && selftest.pre.can_run" class="pill st-done">可以跑</span>
+        <span v-else-if="selftest.pre" class="pill st-gate">还差几项</span>
+        <button class="mini" :disabled="selftest.loading || isRunning" @click="loadSelftest">
+          {{ selftest.loading ? "体检中…" : "重新体检" }}
+        </button>
+      </div>
+      <div v-if="selftest.error" class="empty" style="color: var(--bad)">{{ selftest.error }}</div>
+      <div v-else-if="!selftest.pre" class="empty">体检中…</div>
+      <template v-else>
+        <div class="st-list">
+          <div v-for="it in selftest.pre.items" :key="it.key" class="st-row">
+            <span class="st-dot" :class="it.ok ? 'ok' : (it.level === 'block' ? 'bad' : 'warn')"></span>
+            <span class="st-label">{{ it.label }}</span>
+            <span class="st-detail">{{ it.detail }}</span>
+          </div>
+        </div>
+        <div class="st-act">
+          <button class="mini primary" :disabled="isRunning || !selftest.pre.can_run"
+                  @click="runSelftestChapter">
+            {{ selftest.running ? "试写中…" : "试写一章（1 次调用）" }}
+          </button>
+          <span class="meta">{{ selftest.pre.hint }}</span>
+        </div>
+        <div v-if="selftest.note" class="meta" style="margin-top: 6px;">{{ selftest.note }}</div>
+        <div v-if="selftest.receipt" class="st-receipt" :class="'lv-' + (selftest.receipt.verdict.level || 'none')">
+          <div class="st-verdict">{{ selftest.receipt.verdict.text }}</div>
+          <div class="meta" v-if="selftest.receipt.file && selftest.receipt.file.hanzi">
+            正文 {{ selftest.receipt.file.path }} · {{ selftest.receipt.file.title }} ·
+            {{ fmtTok(selftest.receipt.file.hanzi) }} 汉字
+          </div>
+          <div class="meta" v-if="selftest.receipt.run">
+            DSH 调用 {{ selftest.receipt.dsh_calls }} 次<template
+              v-if="selftest.receipt.duration_sec"> · 耗时 {{ Math.floor(selftest.receipt.duration_sec / 60) }} 分 {{ selftest.receipt.duration_sec % 60 }} 秒</template>
+          </div>
+        </div>
+      </template>
+    </section>
+
     <!-- 流水线状态卡片：当前状态 + 下一步 + 实时进度 -->
     <section v-if="tab === 'pipeline' && state" class="card pipeline-status">
       <div class="card-head">
@@ -6659,7 +6805,7 @@ onUnmounted(() => {
             <button class="mini" :disabled="isRunning || agentRunLocked" :title="agentRunLocked ? AGENT_LOCK_HINT : (s.stage === 4 && chapterScopeDraft ? '只写 ' + chapterScopeDraft : '')" @click="runStage(s.stage, chapterScopeDraft)">运行</button>
             <button class="mini" :disabled="isRunning" @click="runStageStream(s.stage)" title="实时流式输出，可随时中断">流式运行</button>
             <button v-if="agentMode && STAGE_TASK_INFO[s.stage]" class="mini" @click="copyStagePrompt(s.stage)" title="复制“执行本阶段”的任务简报给外部 Agent（项目根 + 命令 + 要生成的文件 + 退出码）。复制是只读操作，运行中也可用。阶段 7/8 是确定性步骤、无提示词模板，但同样可以复制任务。">复制任务</button>
-            <button v-if="s.status === 'done' && !s.approved && isGate(s.stage)" class="mini primary" @click="approve(s.stage)">确认</button>
+            <button v-if="s.status === 'done' && !s.approved && isGate(s.stage)" class="mini primary" @click="approve(s.stage, false, false)" title="只确认这一阶段，不自动往下跑（主流程在“审批收件箱”里：确认放行并继续）">确认</button>
             <button v-else-if="s.approved && isGate(s.stage)" class="mini" @click="approve(s.stage, true)">撤销</button>
             <!-- 2026-10-11 #9 收口：stage1 陪跑闸是合法审批点，后端 /reject 本就收 1-7，
                  这里不再用 >=2 把 stage1 的打回入口挡在门外 -->
@@ -6674,8 +6820,8 @@ onUnmounted(() => {
           <!-- 错误恢复一级入口（UX-3）：失败/被打回/跳过的恢复动作直接摆在卡片上 -->
           <div v-if="s.status === 'failed' || s.status === 'rejected' || s.skipped || (s.needs_rewrite && s.needs_rewrite.length)"
                class="stage-recovery">
-            <span v-if="s.status === 'failed'" class="rec-msg">
-              ⚠ 阶段 {{ s.stage }} 执行失败<span v-if="lastJob?.result">（最近一次：{{ lastJob.result }}）</span>
+            <span v-if="s.status === 'failed'" class="rec-msg" :title="s.error || ''">
+              ⚠ 阶段 {{ s.stage }} 执行失败<span v-if="s.error">：{{ shortErr(s.error) }}</span><span v-else-if="lastJob?.result">（最近一次：{{ lastJob.result }}）</span>
             </span>
             <span v-else-if="s.status === 'rejected'" class="rec-msg">↩ 已被打回：{{ s.rejected }}</span>
             <span v-if="s.skipped" class="rec-msg">⏭ 已人工跳过{{ s.skip_reason ? "：" + s.skip_reason : "，未生成产物" }}</span>
@@ -7181,7 +7327,10 @@ onUnmounted(() => {
             分段 {{ segReview.approved }}/{{ segReview.total }}
           </span>
           <span class="spacer"></span>
-          <button class="mini primary" @click="approve(s.stage)">确认放行</button>
+          <button class="mini primary" @click="approve(s.stage)"
+                  title="确认这一阶段的结果，并自动继续跑下一阶段；再遇到审批门会再停">确认放行并继续</button>
+          <button class="mini" @click="approve(s.stage, false, false)"
+                  title="只确认、先不跑。想先干别的事时用这个">只确认</button>
           <button class="mini" v-if="s.stage === 2" @click="openOutlineTab">查看大纲结构</button>
           <button class="mini" v-if="s.stage === 2" @click="openMultiDraftDlg">多版本对比</button>
           <button class="mini" v-if="s.stage === 2" @click="refineOpen = true">精修意见</button>
@@ -7556,13 +7705,22 @@ onUnmounted(() => {
           <button class="eng-card" :class="{ on: models.engine === 'dsh' }"
                   :disabled="engBusy" @click="switchEngine('dsh')">
             <div class="eng-card-top">
-              <span class="eng-name">DSH 后台执行（默认，走订阅）</span>
+              <span class="eng-name">DSH 后台执行（唯一支持，走订阅）</span>
               <span v-if="models.engine === 'dsh'" class="eng-badge">使用中</span>
             </div>
             <div class="eng-desc">由 DeepSeek Harness 在后台逐个跑任务，走你的订阅额度；每步比直连慢，但不用开界面。
               它只换“谁在跑”，读稿改稿仍在墨坊界面里做。</div>
             <div class="eng-tags"><span>走订阅</span><span>金额上限不生效</span><span>复用桌面端登录</span></div>
           </button>
+        </div>
+        <!-- 回退通道（2026-11-24）：作者定案“只走 DSH，哪怕 DSH 官方不更新，也是把 DSH
+             搬过来当内核”。界面只该给他一张主卡；另外三张是 DSH 起不来时的退路，
+             收起来 —— 平铺四张会让它们看起来像“可选方案”，而实际不是。 -->
+        <div class="eng-fallback">
+          <button class="mini" @click="showFallbackEngines = !showFallbackEngines">
+            {{ showFallbackEngines ? "收起回退通道" : "回退通道（一般不用）：直连 / 外部助手 / 只出任务书" }}
+          </button>
+          <div class="eng-cards" v-show="showFallbackEngines || models.engine !== 'dsh'">
           <button class="eng-card" :class="{ on: models.engine === 'direct' }"
                   :disabled="engBusy" @click="switchEngine('direct')">
             <div class="eng-card-top">
@@ -7590,6 +7748,7 @@ onUnmounted(() => {
             <div class="eng-desc">程序不调用任何模型：每阶段把任务书写到 data/state/tasks/self/，你执行完把文件写到位再点运行。</div>
             <div class="eng-tags"><span>零 token</span><span>文件齐了就直接放行</span></div>
           </button>
+          </div>
         </div>
         <div class="meta eng-note" v-if="models.engine === 'hermes'">
           agent 模式下 model.* 不参与运行 —— 模型由外部 Agent 决定；花超自动停要看“预算与止烧”里的 token 上限。
@@ -8040,6 +8199,13 @@ onUnmounted(() => {
             <span v-if="gateCfg.factory.includes(n)" class="meta">出厂默认就勾</span>
           </label>
         </div>
+        <!-- 素材库陪跑 / 自主（2026-11-24）：原先只有 YAML 能改，界面上连"为什么
+             阶段 1 也停了"都看不出来。放在门清单下面，因为它就是一道门。 -->
+        <label class="gate-row" style="margin-top: 6px;">
+          <input type="checkbox" v-model="gateCfg.material_autonomy" />
+          <span>素材库自主：阶段 1 归并完不停</span>
+          <span class="meta">不勾 = 归并完停一次，让你先看冲突清单（推荐）</span>
+        </label>
         <div class="meta" style="margin: 8px 0 10px;">{{ gateCfg.note }}</div>
         <button class="mini primary" :disabled="gateCfg.saving" @click="saveApprovalGates">
           {{ gateCfg.saving ? "保存中…" : "保存" }}</button>
@@ -9581,16 +9747,17 @@ onUnmounted(() => {
         <input v-model.number="initChapters" type="number" min="1" max="999" class="text-input" style="width: 100px;" />
       </div>
       <div class="art-row" style="margin: 8px 0; align-items: flex-start;">
-        <span class="art-label">运行引擎 *</span>
+        <span class="art-label">运行引擎</span>
         <div style="flex: 1;">
           <select v-model="initEngine" class="model-select">
-            <option value="">请选择（不选不能开始）</option>
-            <option value="self">只出任务书（self）—— 零 token、不调模型，任务书交外部执行</option>
-            <option value="direct">直连（direct）—— 按量计费，速度正常，最可控</option>
-            <option value="hermes">外部助手（hermes）—— 走订阅不按量，但每次调用慢（实测单步可到十分钟）</option>
+            <option value="dsh">DSH 后台执行（推荐，走订阅）—— 由你的 DeepSeek Harness 在后台跑，模型与凭据都用桌面端那套</option>
+            <option value="direct">直连（回退通道）—— 自己填 API Key，按 token 计费</option>
+            <option value="hermes">外部助手（回退通道）—— 走订阅，但每次调用很慢</option>
+            <option value="self">只出任务书（回退通道）—— 零 token，不调模型，任务书交外部执行</option>
           </select>
           <div class="meta" style="margin-top: 4px;">
-            选错了也能改：设置 → 运行引擎。第一次试跑建议 <b>direct</b> 或 <b>self</b>。
+            默认就是 <b>DSH</b>，不用改。下面三项是 DSH 起不来时的回退通道 —— 平时不用选。
+            随时可在“设置 → 引擎与模型”里切换。
           </div>
         </div>
       </div>

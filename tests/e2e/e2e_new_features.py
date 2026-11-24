@@ -422,8 +422,11 @@ def main():
                   page.locator(".seg-gate-msg").count() == 0)
             ux.shot(page, "NEW8_segment_all_approved")
 
-            # 全过 → 放行真的通（门消失）
-            page.locator(".gate-head button:has-text('确认放行')").click()
+            # 全过 → 放行真的通（门消失）。
+            # 2026-11-24 起主按钮是“确认放行并继续”（放行后会**自动提交下一阶段**），
+            # 这里只验“门消失”，所以点“只确认”那条旁路 —— 否则会顺带发一次
+            # /stage/3/run，把本用例变成测别的东西。
+            page.locator(".gate-head button:has-text('只确认')").click()
             page.wait_for_timeout(1000)
             check("全过后放行成功（stage2 门消失）",
                   page.locator(".seg-review").count() == 0,

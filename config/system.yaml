@@ -11,8 +11,9 @@ hermes:
   # 收益实测证据 —— 首次启用建议先跑一章，看过产物质量与用量再决定是否长期开。
   session_continuation: false
 
-# DSH（DeepSeek Harness）headless 执行层（engine: dsh 时生效，2026-11-17 加）。
-# 命令形态：dsh --profile headless --json -（任务走 stdin，stdout 是 NDJSON 事件流）。
+# DSH（DeepSeek Harness）执行层（engine: dsh 时生效，2026-11-17 加）。
+# 命令形态：dsh --profile <profile> --json -（任务走 stdin，stdout 是 NDJSON 事件流）。
+# 默认 profile = desktop（2026-11-20 定案）：它没有 --model 旋钮，模型与凭据都由 profile 决定。
 # 与 hermes 同口径：模型由 DSH profile 决定（headless 没有 --model）、金额恒 0、token 照记。
 dsh:
   # 用 DSH 的哪套 profile（2026-11-20 作者定案：只调用 DSH，不用 headless）。

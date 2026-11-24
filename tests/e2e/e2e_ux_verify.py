@@ -2081,7 +2081,11 @@ def test_page_view(browser):
               and panel.locator(".page-view").count() == 0)
 
         panel.locator(".view-toggle button:has-text('整页看')").first.click()
-        page.wait_for_timeout(600)
+        # 等元素真出现，不等固定时长（2026-11-24）：原来 `wait_for_timeout(600)`，
+        # 慢一轮时两栏还没渲染完就去数 `.s5p.chg`，报的是 "Locator.get_attribute
+        # Timeout"——看着像产品坏了，其实只是测试抢跑。实测同一提交下 一次过 / 一次红。
+        page.locator(".page-cols .page-col").first.wait_for(state="visible", timeout=15000)
+        page.wait_for_timeout(200)
         cols = panel.locator(".page-cols .page-col")
         check("版面给了两栏（原稿 / 改后）", cols.count() == 2, cols.count())
         raw_p = cols.nth(0).locator(".s5p")

@@ -211,7 +211,9 @@ try:
     from nf_api_domains import vault_probe as dom_vprobe       # noqa: E402 (给 AI 的扫描证据 2026-11-03)
     from nf_api_domains import judge as dom_judge          # noqa: E402 (0.7.17 判定引擎：零 token)
     from nf_api_domains import metrics as dom_metrics      # noqa: E402 (R1/R2/R4/R5/R8：节级/指标/口径/轮次 2026-11-16)
+    from nf_api_domains import selftest as dom_selftest    # noqa: E402 (自检：体检/试跑一章/验收收据 2026-11-24)
 except Exception as _dom_err:                            # noqa: BLE001
+    dom_selftest = None
     dom_chapters = None
     dom_metrics = None
     dom_materials = None
@@ -1068,6 +1070,13 @@ def stage_status(progress, n, total_chapters=None):
         out["shrink"] = st["shrink"]
     if "auto_rewritten" in st:
         out["auto_rewritten"] = st["auto_rewritten"]
+    # 失败原因（2026-11-24）：progress.json 的 stages[].error 一直存在，但 /state
+    # 从来不透出 —— 界面上一次失败最后只剩 latest_job.result 那句 "exit=1"，
+    # 用户看到红条却不知道为什么，只能去翻日志。容量闸门、审稿门、模型不可用、
+    # 阶段超时都写在这个字段里。截断到 800 字：够看清一句原因，不把整段 traceback
+    # 灌进每次 2.5 秒一次的轮询响应。
+    if st.get("error"):
+        out["error"] = str(st["error"])[:800]
     return out
 
 
@@ -1468,6 +1477,13 @@ def _rc_to_result(rc):
         if _st4.get("status") == "partial":
             return True, ("按范围完成（部分）：还有第 %s 章没写 —— 补上范围再跑即可续写"
                           % (_st4.get("chapters_left") or []))
+        # stage4 之后的审稿门（2026-11-24）：`review_after_stage4` 默认开，
+        # 阶段 4 一跑完就 return 3 停下等你看审稿报告。原来这里只回一句
+        # “exit=3（等待审批）”—— 那句在界面上等于什么都没说，用户不知道
+        # 该点哪儿。这里单列出来，指到具体页签。
+        if _st4.get("status") == "done" and _st4.get("review_report"):
+            return True, ("阶段 4 写完了，审稿报告已生成 —— 去“审稿”页看要不要批量精修，"
+                          "或直接点顶栏“下一步”进阶段 5")
         # engine=self：任务书已出，等外部把产物写到盘上（零 token，重跑即续）
         _ext = [(k, v) for k, v in _stages.items()
                 if isinstance(v, dict) and v.get("status") == "awaiting_external"]
@@ -3408,6 +3424,12 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/judge/benchmark":
             # 正例集清单（含免责声明文本；removed=1 时带已移除项）
             self._send(*_dom(dom_bench.handle_benchmark_list(self)))
+        elif p == "/selftest/preflight":
+            # 自检体检（零 token）：许可 / 引擎 / DSH 可执行 / 书与素材 / 前置阶段
+            self._send(*_dom(dom_selftest.handle_selftest_preflight(self)))
+        elif p == "/selftest/receipt":
+            # 验收收据（零 token）：读 runs.db + 正文，回答“刚才那一跑成了没有”
+            self._send(*_dom(dom_selftest.handle_selftest_receipt(self)))
         elif p == "/judge/report":
             # 判定总账（0.7.17，零 token）：读最近一次回测记录，不重跑、不写盘
             self._send(*_dom(dom_judge.handle_judge_report(self)))
@@ -4166,6 +4188,9 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/judge/run":
                 # 全量回测（零 token）：只读 raw，跑完只写 records.json
                 self._send(*_dom(dom_judge.handle_judge_run(self, body)))
+            elif p == "/selftest/chapter":
+                # 试跑一章（**会消耗一次模型调用**，GUI-only）：唯一花钱的自检入口
+                self._send(*_dom(dom_selftest.handle_selftest_chapter(self, body)))
             elif p == "/judge/events":
                 # 作者勾“这章发生了几件事”（F03b 唯一硬门；GUI-only 由 agent_guard 拦）
                 self._send(*_dom(dom_judge.handle_judge_events_set(self, body)))

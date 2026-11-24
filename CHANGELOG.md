@@ -7,6 +7,49 @@ CHANGELOG”）。本文件从工程审查修复起正式启用。
 
 ---
 
+## [0.9.14] — 2026-11-24
+
+这一版只做一件事：**让“能不能跑”变成界面上的结论**，并把 DSH 收敛成唯一引擎。
+作者原话：“我不可能去看 data/state/progress.json 和 logs/runs.db 是否真出现
+chapter_log 行，也不会去看，那是你应该测的东西。”
+
+### 自检三件（新）
+
+- **“能不能跑？试一章就知道”**（流水线页顶卡）：五项体检 —— 许可 / 引擎 / DSH 可执行 /
+  书与素材 / 前置阶段（1-3）。全绿才放行试写。
+- **试写一章**：真跑一次 stage4，仅 GUI 可点，已登记 `MONEY_ENDPOINTS`
+  （外部 Agent 不能替你花额度）。跑之前设 `NF_SKIP_POST_STAGE=1` ——
+  否则 stage4 一完成就会连带跑 `review_after_stage4` 的审稿，自检从“1 次调用”
+  变成“1 + N 次”，与按钮上的承诺不符。
+- **验收收据**：零 token 读 `runs.db` 与正文，直接给结论
+  “跑通了：第 N 章 X 汉字 / 耗时 / DSH 调用次数”，不需要任何人翻文件。
+  路由：`GET /selftest/preflight` · `POST /selftest/chapter` · `GET /selftest/receipt`。
+
+### 修掉四个会让“跑不通”的真缺陷
+
+1. **`DshClient` 缺 `provider`** → 记账按 `unknown` 走，明明走订阅（不花钱）却记出金额。
+2. **stage4 容量闸门对 DSH 无意义**：DSH 没有 max_tokens 旋钮，`per_request_max_tokens`
+   一小就会在**没调用模型之前**判失败。判据改为客户端能力 `max_tokens_knob=False`。
+3. **`/state` 不透出 `stages[].error`** → 界面上的失败只剩一句 `exit=1`，说不出为什么。
+   现在透出（截断 800 字，不把 traceback 灌进 2.5 秒一次的轮询）。
+4. **stage5 改稿裁定合成完不推进阶段状态** → orchestrator 每轮都看到 `awaiting_review`
+   并 `return 3`，点多少次“运行”都到不了阶段 6。现在全部合成后自动置 done。
+
+### 审批门：确认即继续
+
+- 收件箱主按钮改为 **“确认放行并继续”**：确认后自动提交下一阶段，不用回流水线点第二次。
+- 保留 **“只确认”** 旁路（阶段行里的“确认”走这条）。
+- 设置 → 审批门新增 **“素材库自主”** 开关（原先只能手改 YAML）。
+- `exit=3` 说明分得更细：stage4 审稿门不再只说“等待审批”，而是指向“审稿”页或下一步。
+
+### 引擎收敛
+
+- 新建项目向导默认 `dsh`，删掉“第一次试跑建议 direct / self”这句与定案相反的话。
+- 设置页只剩 DSH 一张主卡，其余三项收进“回退通道”折叠区（代码保留，不作锁死）。
+- `AGENTS.md` / `config/system.yaml` 注释 / 内置手册统一为 `--profile desktop`。
+
+判据：`tests/unit/test_dsh_only_and_selftest.py`（29 条）· 全量 313/313 · e2e UX 356/356。
+
 ## [0.9.5] — 2026-11-17
 
 这一版把**读改链剩下的三处语义**补齐：模型先说自己要改什么、批注分清改没改完、

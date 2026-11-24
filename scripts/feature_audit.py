@@ -273,6 +273,18 @@ FEATURES = [
      "27 次调用记了 ¥0.13；那个文件已还原成 []，`nfctl check` 有常驻护栏 "
      "`headless_patch_guard` 盯着它。"),
 
+    ("X03", "自检三件：体检 / 试写一章 / 验收收据", "done",
+     ["file:scripts/nf_api_domains/selftest.py",
+      "route:GET /selftest/preflight",
+      "route:POST /selftest/chapter",
+      "route:GET /selftest/receipt",
+      "file:tests/unit/test_dsh_only_and_selftest.py"],
+     "2026-11-24 作者原话：“我不可能去看 data/state/progress.json 和 logs/runs.db "
+     "是否真出现 chapter_log 行，也不会去看，那是你应该测的东西。”"
+     "→ 把“能不能跑”做成界面上的结论：preflight（零 token，5 项体检）、"
+     "试写一章（唯一花钱入口，GUI-only + 已登记 MONEY_ENDPOINTS）、"
+     "receipt（零 token，读 runs.db 与正文，给“成了没有/多少字/耗时”）。"),
+
 ]
 
 

@@ -85,11 +85,47 @@ def handle_stage5_decide(h, body):
     return 200, {"ok": True, "message": msg, "chapter": _summary(meta) if meta else None}
 
 
+def _advance_if_finished():
+    """裁定全部合成后，把阶段 5 从 awaiting_review 推进成 done。
+
+    ⚠️ 不这么做就是一个死结（2026-11-24 查实）：`stage5_gate` 合成时**不碰
+    progress.json**，于是 orchestrator 每轮都看到 `stages[5].status ==
+    "awaiting_review"`，在 `orchestrator.py:498-503` 直接收尾 `return 3`——
+    用户在界面点多少次“运行”都原地打转，这本书永远到不了阶段 6。
+    判据只看"还有没有没定完/没合成的章"，全部 approved 才算完。
+    """
+    try:
+        meta = G.list_all(root=api.ROOT)
+    except Exception:                                        # noqa: BLE001
+        return False
+    if not meta:
+        return False
+    if any(str(r.get("status")) in ("pending", "ready", "decided") for r in meta):
+        return False
+    try:
+        from utils.progress_manager import ProgressManager
+        pg = ProgressManager(api.ROOT / "data" / "state" / "progress.json")
+        if pg.stage_status(5) != "done":
+            pg.set_stage(5, "done")
+            # stage5_check 写进去的待裁定清单要一起清掉，否则 /state 还会报
+            # “还有 N 章等你定”，与刚合成完的事实相反。
+            st5 = pg.data.get("stages", {}).get("5", {})
+            st5.pop("pending", None)
+            pg.save()
+        return True
+    except Exception:                                        # noqa: BLE001
+        return False
+
+
 def handle_stage5_apply(h, body):
     body = body or {}
     if body.get("all"):
         n, msgs = G.apply_all(root=api.ROOT)
-        return 200, {"ok": True, "applied": n, "messages": msgs}
+        done = _advance_if_finished()
+        return 200, {"ok": True, "applied": n, "messages": msgs,
+                     "stage5_done": done,
+                     "next": ("阶段 5 已全部合成，阶段 6 可以开跑（点顶栏“下一步”）"
+                              if done else "还有章没定完：定完并合成后，阶段 5 才算完成")}
     try:
         n = int(body.get("chapter"))
     except (TypeError, ValueError):
@@ -97,8 +133,12 @@ def handle_stage5_apply(h, body):
     ok, msg, path = G.apply_chapter(n, root=api.ROOT)
     if not ok:
         return 400, {"ok": False, "error": msg}
+    done = _advance_if_finished()
     return 200, {"ok": True, "message": msg,
-                 "path": str(path.relative_to(api.ROOT)) if path else None}
+                 "path": str(path.relative_to(api.ROOT)) if path else None,
+                 "stage5_done": done,
+                 "next": ("阶段 5 已全部合成，阶段 6 可以开跑（点顶栏“下一步”）"
+                          if done else "这一章已合成；还有章没定完")}
 
 
 ROUTES = [

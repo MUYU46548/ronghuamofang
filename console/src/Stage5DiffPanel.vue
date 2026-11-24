@@ -240,7 +240,9 @@ async function applyChapter() {
   err.value = "";
   try {
     const d = await post("/review/stage5/apply", { chapter: current.value.chapter });
-    say(d.message || "已合成");
+    // next 是后端给的“下一步该干嘛”（全部合成后阶段 5 才会被标完成）——
+    // 原来只说“已合成”，用户不知道还差什么、书为什么不动。
+    say(d.next || d.message || "已合成");
     await load();
   } catch (e) {
     err.value = String(e.message || e);
@@ -254,7 +256,7 @@ async function applyAll() {
   err.value = "";
   try {
     const d = await post("/review/stage5/apply", { all: true });
-    say(`已合成 ${d.applied} 章`);
+    say(d.next || (`已合成 ${d.applied} 章`));
     await load();
   } catch (e) {
     err.value = String(e.message || e);

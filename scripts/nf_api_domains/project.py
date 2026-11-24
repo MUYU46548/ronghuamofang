@@ -943,16 +943,25 @@ def handle_config_approval_gates_set(h, body):
         if n not in clean:
             clean.append(n)
     clean.sort()
+    # 素材库陪跑 / 自主（2026-11-24）：`gates.material_autonomy` 一直是"只能手改
+    # YAML"的键 —— 界面上读得到、改不了，于是阶段 1 会莫名其妙多停一次而用户
+    # 找不到开关。这里补写口：body 不传该键 = 不改它（老调用方与测试零影响）。
+    auto = body.get("material_autonomy", None)
+    if auto is not None and not isinstance(auto, bool):
+        return 400, {"ok": False, "error": "material_autonomy 必须是 true / false"}
     try:
         from utils.config_io import set_section_scalars
         sys_yaml = api.ROOT / "config" / "system.yaml"
         if not sys_yaml.exists():
             return 400, {"ok": False, "error": "config/system.yaml 不存在"}
-        ok, msg = set_section_scalars(("gates",), {"require_approval": clean},
-                                      path=sys_yaml)
+        vals = {"require_approval": clean}
+        if isinstance(auto, bool):
+            vals["material_autonomy"] = auto
+        ok, msg = set_section_scalars(("gates",), vals, path=sys_yaml)
         if not ok:
             return 400, {"ok": False, "error": "写入失败：" + msg}
         return 200, {"ok": True, "stages": clean,
+                     "material_autonomy": auto if isinstance(auto, bool) else None,
                      "message": "已更新审批门（" + msg + "）",
                      "note": ("关掉的阶段跑完会直接进下一阶段，没有确认点 —— "
                               "产物仍能在对应页签里看。对下一次运行生效。")}
