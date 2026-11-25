@@ -139,6 +139,13 @@ def main():
             check("摘录不是空壳（>= 200 字节）", ex_bytes >= 200, ex_bytes)
         print("  任务书正文 %d 字节（原设定集 %d 字节）" % (len(task.encode("utf-8")), raw_bytes))
 
+        # ---- 1b. 决策收件箱（P1-4）：任务书里给了路径，但**不要求**必有 ----
+        print("\n【1b】决策收件箱：任务书给路径，并写明“没有就不要建文件”")
+        check("任务书里有 data/canon/_inbox/01.md",
+              "data/canon/_inbox" in task.replace("\\\\", "/")
+              or "_inbox" in task, task[-400:])
+        check("写明了“没有就不要建这个文件”", "不要建这个文件" in task)
+
         # ---- 2a. 本章没点名角色，但设定集里有“未启用候选素材” ----
         print("\n【2a】本章没点名角色 → 仍带候选素材兜底（不退回整本）")
         task2 = build_task(tmp, 2)

@@ -1031,6 +1031,30 @@ def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, p
         "target_words": int(round(int(target[0]) * 1.08)),
         "path_output": Path(f"data/chapters/raw/{n:02d}.md").resolve(),
     })
+    # 决策文件（P1-4，2026-11-25）：让模型把本章“定了什么”交到旁边的小文件。
+    # 不写进正文 —— 正文会被导出、字数统计、判据全盘接受，协议块混进去只能再剥一遍，
+    # 多一道剥就多一处会剥错。放 prompts/ 里也不行（前缀缓存纪律），所以接在渲染之后。
+    try:
+        from utils import canon as _canon
+        # 已定的决策进任务书（P1-4）：替掉“每章重读 rolling 自己再推一遍语气”的老路。
+        # 只读，不改 rolling —— rolling 仍负责“发生了什么”，决策负责“定过什么”。
+        _dec_block = _canon.render_for_prompt(n)
+        if _dec_block:
+            body += "\n\n" + _dec_block
+        _inbox = _canon.inbox_path(n).resolve()
+        body += (
+            "\n\n---\n\n## 本章决策（可选，最多 5 条）\n"
+            "如果这一章定下了**后面不能改口**的事（人物说话方式 / 伏笔 / 禁用写法 / 设定），\n"
+            "另外写一个文件：`%s`，一行一条：\n"
+            "- [语气] 某某说话会怎样\n"
+            "- [伏笔] 什么东西还没交代 [未回收]\n"
+            "- [禁用] 哪种写法不要再出现\n"
+            "- [设定] 哪个事实从此固定\n"
+            "没有就**不要建这个文件**（不要写空文件，也不要写“无”）。\n" % _inbox
+        )
+    except Exception as e:                                  # noqa: BLE001
+        print(f"[stage4] ⚠ 决策收件箱路径拼装失败（本章不收集决策）: "
+              f"{type(e).__name__}: {e}")
     return body
 
 
@@ -1742,6 +1766,15 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         # （重调 LLM 重写整章才会，那条路已被“正文合格就不重写”堵死）。
         append_chapter_summary(rolling_path, n, summary, max_recent=max_recent)
         sync_appearances_after_chapter(text, n, total)
+        # 决策文件（P1-4，2026-11-25）：模型交在 data/canon/_inbox/NN.md 的条目
+        # 并进 data/canon/decisions.md。收件箱不存在 = 本章没交决策，不算失败。
+        try:
+            from utils import canon as _canon
+            _dn = _canon.harvest(n)
+            if _dn:
+                print("[stage4] 第%d章并入决策 %d 条 → %s" % (n, _dn, _canon.PATH))
+        except Exception as e:                              # noqa: BLE001
+            print(f"[stage4] ⚠ 决策并库失败（不影响本章成稿）: {type(e).__name__}: {e}")
 
         # 节级 + 分布型指标（R1/R2，2026-11-16）：**每章写完都量一次并落盘**。
         # 为什么放在这里：这是"写盘之后全部收尾"的唯一入口，主循环与崩溃恢复共用，
