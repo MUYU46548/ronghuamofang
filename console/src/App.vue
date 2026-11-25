@@ -6299,6 +6299,11 @@ onUnmounted(() => {
         <h3>一键工作流</h3>
         <span v-if="isRunning" class="pill st-running">运行中</span>
         <span class="spacer"></span>
+        <!-- 2026-11-25 作者标注：“没地方刷新状态，没有刷新入口。”
+             顶栏那个 ↻ 在窄窗/滚动到卡片时看不见 —— 本卡片自己带一个，
+             和顶栏同一个动作（只重读状态，不重跑任何阶段）。 -->
+        <button class="mini" @click="globalRefresh"
+                title="重新读一遍阶段状态 / 成本 / 徽标；不重跑任何阶段">↻ 刷新状态</button>
         <button class="mini" @click="paletteOpen = true" title="Ctrl+K 搜索所有操作">⌘K 命令面板</button>
         <button class="mini" @click="toggleInterveneHistory"
                 title="插话记录：什么时候登记过什么、哪一章用掉的（用完即删，只有这里查得到）">
@@ -6541,6 +6546,10 @@ onUnmounted(() => {
             <button class="mini primary" :disabled="isRunning || agentRunLocked" :title="agentRunLocked ? AGENT_LOCK_HINT : ''" @click="retryStage(s.stage)">重试</button>
             <button class="mini" :disabled="isRunning" @click="openSkipDlg(s.stage)">跳过此阶段</button>
             <button class="mini" :disabled="isRunning" @click="openReject(s.stage)">回退（清下游）</button>
+            <!-- 2026-11-25：失败行里也要有刷新 —— 作者在这一行找不到“再看一眼状态”的入口，
+                 只能去顶栏找。动作与顶栏 ↻ 完全相同。 -->
+            <button class="mini" @click="globalRefresh"
+                    title="重新读一遍阶段状态（不会重跑任何阶段）">↻ 刷新状态</button>
             <button class="mini" @click="openRunLog">查看日志</button>
             <button v-if="s.needs_rewrite && s.needs_rewrite.length" class="mini" @click="switchTab('review')">去批量精修</button>
           </div>
