@@ -251,16 +251,26 @@ const models = ref(null);
    旧行为是点下去才弹一句“用不了”，作者只会以为软件坏了。这里做成**常驻一条说明 +
    按钮直接禁用并给理由**，不让人反复试。
    注意：/stage/N/run 不在禁用范围 —— self 下它本该出任务书（那是它的正常工作）。 */
+/* 引擎自检（2026-11-25）：只读，零模型调用。配置写的什么 / 还在不在白名单 / DSH 找不找得到。 */
+const engineCheck = ref(null);
+const engineChecking = ref(false);
+async function loadEngineCheck() {
+  engineChecking.value = true;
+  try {
+    const r = await api("/engine/check");
+    engineCheck.value = (r.status === 200 && r.data) ? r.data : null;
+  } catch (e) {
+    engineCheck.value = null;
+  } finally {
+    engineChecking.value = false;
+  }
+}
+onMounted(() => { loadEngineCheck(); });
+
 const selfEngine = computed(() => !!models.value && models.value.engine === "self");
 const SELF_ENGINE_HINT = "当前引擎是“自任务”（engine: self，只出任务书、不调模型），"
   + "这个功能要调用模型。切引擎：设置 → 引擎与模型（direct 按量计费 / hermes 或 dsh 走订阅）；"
   + "不想切也行 —— 大纲精修与整章重写已经改成出任务书（写出草稿，你点采用才写回正式稿）。";
-const modelOptions = ref([]); // 动态从 /models/available 加载（**全量**，供搜索框计数）
-// 模型下拉**按角色所在的 provider 过滤**。此前只取 providers 里的“第一个”的
-// available_models，于是**新增一个供应商后，它的模型根本不进下拉** ——
-// 换模型时表现为“明明加了 provider 却选不到模型”（2026-10-01 修）。
-const modelsByProvider = ref({});   // {providerId: [模型名]}
-const manualModels = ref([]);       // 手动添加的模型（全局可见，任何 provider 的下拉都列出）
 const costs = ref([]);
 const costSummary = ref(null);
 const costView = ref("cost");   // "cost" | "usage" | "rates"
@@ -273,6 +283,7 @@ const importBusy = ref(false);
 const providers = ref(null);    // provider status (no keys exposed)
 const online = ref(false);
 const toast = ref("");
+const toastKind = ref("");
 const lastJob = ref(null);      // { state, result }
 const updateStatus = ref("等待检查");
 const updateReady = ref(false);
@@ -280,8 +291,6 @@ const updateProgress = ref(0);
 const checkingUpdate = ref(false);
 const updaterInitialized = ref(false);
 const updaterDev = ref(false);
-const modelSource = ref("config"); // "config" | "fetched"
-const fetchingModels = ref(false);
 const budgetPaused = ref(false);
 const circuitBreakerShow = ref(false);
 const settingEditOpen = ref(false);
@@ -291,10 +300,17 @@ let toastTimer = null;
 let updaterHandler = null;
 let updaterCleanup = null;
 
-function say(msg) {
+/* 提示条（2026-11-25，提示批）
+   · kind：'ok' / 'warn' / 'bad'，只决定左边那根 3px 色条；不传就是中性。
+     为什么不整条上色：整条染色会把“提示”做成“警报”，而大部分提示只是回执。
+   · 时长按字数走：原来固定 4500ms，一段带换行的长说明根本读不完就消失；
+     现在 3500 + 每字 15ms，上限 9000。短回执反而更快消失。 */
+function say(msg, kind) {
   toast.value = msg;
+  toastKind.value = kind || "";
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => (toast.value = ""), 4500);
+  const ms = Math.min(9000, 3500 + String(msg || "").length * 15);
+  toastTimer = setTimeout(() => { toast.value = ""; toastKind.value = ""; }, ms);
 }
 
 /* 执行方在做哪一步（2026-11-11，“过程可见”）。
@@ -386,17 +402,18 @@ async function runSelftestChapter() {
 
 async function refresh() {
   try {
-    const [s, m, j, act] = await Promise.all([
-      api("/state"), api("/models"),
+    const [s, j, act] = await Promise.all([
+      api("/state"),
       state.value && state.value.current_job ? api("/jobs/" + state.value.current_job) : Promise.resolve(null),
       api("/activity").catch(() => null),
     ]);
     if (s.status === 200) {
       state.value = s.data; online.value = true; budgetPaused.value = !!s.data?.budget?.paused;
       agentMode.value = !!s.data?.agent_mode;  // 同步 Agent 模式开关状态
+      // 2026-11-25：引擎状态改由 /state 提供（/models 端点随 F8 第二步下线）
+      models.value = { engine: s.data.engine || "" };
       noteJobTransition(s.data);
     }
-    if (m.status === 200) models.value = m.data;
     if (act && act.status === 200 && act.data) {
       activity.value = act.data;
       maybeNotifyStale(act.data);
@@ -420,7 +437,6 @@ async function globalRefresh() {
   await Promise.all([
     refresh(),
     refreshCosts(),
-    refreshModels(),
     refreshSandboxBadge(),
     refreshAppearances(),
     refreshAgentRuns(),
@@ -583,12 +599,9 @@ function switchTab(t) {
   if (t === "sandbox") {
     // 每次进来自查一次：产物可能在别处刚写完（徽标可能已过时）
     refreshSandboxBadge();
-  // 服务商预设（新增服务商时一键填表；只读端点，非 GUI 也能读）
-  loadProviderPresets();
     if (sandboxRef.value) sandboxRef.value.load(false);
   }
   if (t === "settings") {
-    if (!providers.value) refreshModels();
     if (!promptFiles.value.length) loadPromptList();
     if (!styleNotesLoaded.value) loadStyleNotes();
     loadForm();                // 文体：可能在别处改过（外部 Agent 也能写）
@@ -2390,152 +2403,17 @@ function fmtBytes(b) {
   return (b / 1024 / 1024).toFixed(2) + " MB";
 }
 
-/* ---------- 服务商增删改（2026-11-04，作者第 8 条）----------
-   原话：“只有这两坨小众预设吗…而且还他妈不能自定义，怎么反而还倒退了？”
-   后端三个端点：GET /providers（清单+预设+谁在用）、POST /providers/save、
-   POST /providers/remove（后两个 GUI-only：改的是计费通道与密钥来源）。 */
-const providerPresets = ref([]);
-const provForm = ref({ open: false, id: "", base_url: "", api_key_env: "", models: "" });
-const provBusy = ref(false);
-const provMsg = ref("");
-const provRemoveId = ref("");
+/* ---------- 服务商/角色模型（2026-11-25 移除，作者定案）----------
+   墨坊不再自带模型调用与 Key：模型、渠道、凭据全由 DSH profile 决定。
+   原来这里有“服务商增删改 + 每角色选模型 + 写 API Key”三组逻辑与界面，
+   已随 F8 第一步删除；后端 /providers/* 与 /models/* 端点同一批下线。 */
 
-async function loadProviderPresets() {
-  const r = await api("/providers");
-  if (r.status === 200 && r.data && r.data.ok) providerPresets.value = r.data.presets || [];
-}
-function pickPreset(pid) {
-  const p = providerPresets.value.find((x) => x.id === pid);
-  if (!p) return;
-  provForm.value = { ...provForm.value, id: p.id, base_url: p.base_url,
-                     api_key_env: p.api_key_env };
-}
-function openProviderForm(pid) {
-  const cur = pid && providers.value ? providers.value[pid] : null;
-  provForm.value = cur
-    ? { open: true, id: pid, base_url: cur.base_url || "",
-        api_key_env: cur.api_key_env || "",
-        models: (cur.available_models || []).join(", ") }
-    : { open: true, id: "", base_url: "", api_key_env: "", models: "" };
-  provMsg.value = "";
-}
-async function saveProvider() {
-  if (provBusy.value) return;
-  provBusy.value = true;
-  provMsg.value = "";
-  try {
-    // 必须走 postJSON（双因子）：这两个端点是 GUI-only，手拼 fetch 会静默 403
-    const d = await guiPostJSON("/providers/save", { ...provForm.value });
-    if (d && d.ok) {
-      say(d.message || "已保存服务商");
-      provForm.value.open = false;
-      await refreshModels();
-      await loadProviderPresets();
-    } else {
-      provMsg.value = (d && d.error) || "保存失败";
-    }
-  } catch (e) {
-    provMsg.value = "保存失败：" + ((e && e.message) || e);
-  } finally {
-    provBusy.value = false;
-  }
-}
-async function removeProvider(pid) {
-  provBusy.value = true;
-  try {
-    const d = await guiPostJSON("/providers/remove", { id: pid });
-    if (d && d.ok) {
-      say(d.message || "已删除服务商");
-      provRemoveId.value = "";
-      await refreshModels();
-      await loadProviderPresets();
-    } else {
-      say((d && d.error) || "删除失败");
-    }
-  } catch (e) {
-    say("删除失败：" + ((e && e.message) || e));
-  } finally {
-    provBusy.value = false;
-  }
-}
 
-async function refreshModels() {
-  const r = await api("/models/available");
-  if (r.status === 200) {
-    providers.value = r.data.providers;
-    // 逐 provider 收模型列表（不再“只取第一个 provider”—— 那是换供应商后
-    // 下拉里看不到新模型的根因）
-    const byProv = {};
-    for (const [pid, p] of Object.entries(r.data.providers || {})) {
-      byProv[pid] = Array.isArray(p.available_models) ? p.available_models.slice() : [];
-    }
-    modelsByProvider.value = byProv;
-    modelOptions.value = Object.values(byProv).flat();
-    // 构建服务商选项列表
-    providerOptions.value = Object.entries(r.data.providers).map(([pid, p]) => ({
-      id: pid,
-      // 只给“缺失”加后缀：✓ 满屏都是的时候，反而看不出哪家真有问题
-      // （新界面下方服务商卡片已经在显示密钥状态，这里只保留警示信息）
-      name: pid + (p.has_key ? "" : "（缺 Key）"),
-      has_key: p.has_key,
-    }));
-    say("已刷新");
-  } else {
-    say("刷新失败");
-  }
-}
 
-async function refreshFetchedModels() {
-  fetchingModels.value = true;
-  try {
-    const r = await api("/models/fetched");
-    if (r.status === 200 && r.data.providers) {
-      // 逐 provider 汇总。⚠️ 旧实现**硬编码 tokenhub**，并且顺手把 providerOptions
-      // 重置成“只剩 tokenhub 一项”—— 切到别的供应商后下拉里就再也选不回来了。
-      // 现在：谁成功就更新谁，**绝不重建 providerOptions**（那只该由 refreshModels 负责）。
-      const merged = { ...modelsByProvider.value };
-      const parts = [];
-      let okCount = 0;
-      for (const [pid, info] of Object.entries(r.data.providers)) {
-        if (info && Array.isArray(info.models) && info.models.length) {
-          merged[pid] = info.models.slice();
-          parts.push(`${pid} ${info.count ?? info.models.length} 个`);
-          okCount += 1;
-        } else if (info && info.error) {
-          parts.push(`${pid} ✗ ${String(info.error).slice(0, 48)}`);
-        }
-      }
-      if (okCount) {
-        modelsByProvider.value = merged;
-        modelOptions.value = Object.values(merged).flat();
-        modelSource.value = "fetched";
-        say(`同步完成：${parts.join(" / ")}`);
-      } else {
-        say(`同步失败：${parts.join(" / ") || "无可用供应商"}（检查 .env 中的 API Key）`);
-      }
-    } else if (r.status === 500) {
-      say(`同步失败: 服务端错误（${r.data?.error || "查看 nf_api 日志"}）`);
-    } else {
-      say(`同步失败 (HTTP ${r.status})`);
-    }
-  } catch (e) {
-    say(`同步失败: ${e.message}（检查 nf_api 是否在线）`);
-  } finally {
-    fetchingModels.value = false;
-  }
-}
 
-// 角色的用途说明（设置页“角色模型”表格用）。键必须与 config/system.yaml
-// 的 model.* 一致 —— 多出/缺少的角色在表格里会露出英文键名，那本身就是提示。
-const ROLE_USE = {
-  default: "默认（没单独指定角色时用它）",
-  architect: "设定 / 世界观",
-  outliner: "大纲",
-  writer: "正文写作",
-  checker: "逻辑检查",
-  reviewer: "审稿",
-  polisher: "润色",
-};
+
+
+
 
 // 切换执行引擎。2026-10-31 之前界面上只有一行只读文字，切引擎必须手改 YAML。
 const engBusy = ref(false);
@@ -2558,148 +2436,11 @@ async function switchEngine(eng) {
   }
 }
 
-async function switchProvider(role, newProvider) {
-  if (!newProvider) return;
-  // 更新 models 中该 role 的 provider
-  const cfg = models.value;
-  if (cfg?.model?.[role]) {
-    cfg.model[role].provider = newProvider;
-  }
-  // 调用后端 API
-  const r = await api("/config/provider", "POST", { role, provider: newProvider });
-  if (r.status === 200) {
-    // 换了供应商、模型名未必跟着换。若当前模型不在新供应商的清单里，
-    // 运行时会对该模型名直接 404 —— 而本项目对 400/404 是 **raise、不走 fallback**
-    // （见 llm_client._post_chat），等于整个角色哑火。所以这里必须提醒。
-    const curModel = cfg?.model?.[role]?.id || "";
-    const avail = modelsByProvider.value[newProvider] || [];
-    let msg = `已切换 ${role} → ${newProvider}`;
-    if (curModel && avail.length && !avail.includes(curModel)) {
-      msg += `，但模型“${curModel}”不在其清单内 —— 请同时把模型改为 ${avail.slice(0, 3).join(" / ")} 之一`;
-    }
-    if (r.data?.warning) msg += `；${r.data.warning}`;
-    say(msg);
-  } else {
-    say(`切换失败: ${r.data?.error || r.status}`);
-  }
-}
 
-const newModelName = ref("");
-const modelSearch = ref("");
-const providerOptions = ref([]);
 
-const filteredModelOptions = computed(() => {
-  const all = modelOptions.value || [];
-  const q = modelSearch.value.trim().toLowerCase();
-  if (!q) return all;
-  return all.filter((m) => m.toLowerCase().includes(q));
-});
-
-// 某角色所在供应商的模型清单（含手动添加项与当前值）。
-// 当前值必须始终在列表里：否则下拉会显示为空白，看起来像“模型配置丢了”。
-function providerModelOptions(pid, current) {
-  const base = (modelsByProvider.value[pid] || []).concat(manualModels.value);
-  const all = Array.from(new Set(base.filter(Boolean)));
-  if (current && !all.includes(current)) all.unshift(current);
-  const q = modelSearch.value.trim().toLowerCase();
-  return q ? all.filter((m) => m.toLowerCase().includes(q)) : all;
-}
-
-async function addManualModel() {
-  const name = newModelName.value.trim();
-  if (!name) return;
-  if (!modelOptions.value.includes(name)) {
-    modelOptions.value = [...modelOptions.value, name];
-  }
-  // 手动添加 = 用户显式准入（后端 /models/add 会写 fetched_models.json 的 _manual，
-  // 该模型随即通过白名单校验）。这里同步进 manualModels，让**每个**供应商的
-  // 下拉都能看到它。
-  if (!manualModels.value.includes(name)) {
-    manualModels.value = [...manualModels.value, name];
-  }
-  newModelName.value = "";
-  say(`已手动添加: ${name}`);
-  // 持久化到缓存
-  try {
-    await api("/models/add", "POST", { name });
-  } catch (e) {
-    console.warn("[App] 持久化手动模型失败:", e);
-  }
-}
-
-// ---------- API Key 写入（GUI 内置；不再借助外部编辑器）----------
-// 为什么不是“打开 .env”：主进程按 2026-09-19 审查 S7 把 .env 排除在外部打开
-// 白名单外（程序不该代为用外部编辑器打开明文密钥），但当时只砍了出口、没给入口 ——
-// 界面留着那个按钮，点下去必然“路径不在白名单”，用户卡在"怎么填 Key"。
-// 现在改由后端写盘（键名白名单 + 值校验 + 写前备份），前端只传键与值。
-const envEditing = ref("");   // 正在编辑哪个 provider 的 Key（空 = 都不在编辑）
-const envValue = ref("");     // 新 Key 明文（仅存在于内存，不回显已存值）
-const envConfirmOpen = ref(false); // “在文件夹中显示 .env”前的知情确认（明文密钥风险，2026-10-01）
-
-function startEnvEdit(pid) {
-  envEditing.value = pid;
-  envValue.value = "";
-}
-
-function cancelEnvEdit() {
-  envEditing.value = "";
-  envValue.value = "";
-}
-
-async function saveEnvKey(pid, clear = false) {
-  const p = (providers.value || {})[pid] || {};
-  const keyName = p.api_key_env || "";
-  if (!keyName) {
-    say(`服务商 ${pid} 未配置 api_key_env，无法写入`);
-    return;
-  }
-  if (!clear && !envValue.value.trim()) {
-    say("请先粘贴 API Key");
-    return;
-  }
-  const r = await api("/env/set", "POST", { key: keyName, value: clear ? "" : envValue.value.trim() });
-  if (r.status === 200) {
-    say(clear ? `已清空 ${keyName}` : `已写入 ${keyName}（${r.data.mask || "已设置"}），立即生效`);
-    cancelEnvEdit();
-    await refreshModels();
-  } else {
-    say("写入失败: " + (r.data?.error || r.status));
-  }
-}
-
-async function revealEnvInFolder() {
-  // 先确保 .env 存在（缺失时后端会按当前 providers 生成模板）
-  const r = await api("/env/open");
-  const envPath = (r.status === 200 && r.data && r.data.env_path) || "";
-  if (!window.mofangAPI || !window.mofangAPI.revealInFolder) {
-    say(envPath ? "当前为浏览器预览，无法定位；.env 实际位置：" + envPath
-                : "当前为浏览器预览，无法定位 .env");
-    return;
-  }
-  const res = await window.mofangAPI.revealInFolder(".env");
-  // 必须看返回值：此前不管成功与否都提示“已在文件夹中定位”——
-  // 定位失败被吞掉，用户只看到“点了没反应”，还以为是自己电脑的问题。
-  if (res && res.ok) {
-    say("已在文件夹中定位 .env");
-  } else {
-    say("定位失败：" + ((res && res.error) || "未知错误")
-        + (envPath ? "；.env 实际位置：" + envPath : ""));
-  }
-}
-
-async function switchModel(role, modelId) {
-  const r = await api("/models/switch", "POST", { role, model: modelId });
-  if (r.status === 200) {
-    say("已切换 " + role + " → " + modelId + "（下次运行生效）");
-  } else {
-    // 白名单拒绝时后端会带 suggestions；只显示 "切换失败" 会让人不知道下一步做什么。
-    const d = r.data || {};
-    const sug = Array.isArray(d.suggestions) && d.suggestions.length
-      ? "；相近候选：" + d.suggestions.join("、") : "";
-    say("切换失败: " + (d.error || r.status) + sug);
-  }
-  refresh();
-}
+// ---------- API Key 写入（2026-11-25 移除，作者定案）----------
+// 墨坊不再持有 Key：凭据在 DSH 的 profile / $DSH_HOME/.env 里。
+// 这里原来的“填入 Key / 在文件夹中显示 .env / /env/set”整段随 F8 第一步删除。
 
 /* ---------- 熔断恢复 ---------- */
 const restartFromStage = computed(() => {
@@ -5201,12 +4942,8 @@ const acSelfText = computed(() => {
   const cfg = c[m.cfgKey] || '（未取到 —— 按你自己的文档定位，不猜、不代写）';
   const snippet = m.yaml ? c.yamlSnippet : c.jsonSnippet;
   const indented = String(snippet || '').split('\n').map((l) => '   ' + l).join('\n');
-  // 技能源走主进程算好的真实路径（打包态 = 安装目录 payload，恒存在）；
-  // 旧版拿 project_dir 拼 —— 打包态工作区里没有 skills/，必然断路径（2026-10-07 修）。
-  const skill = c.skillPath
-    ? c.skillPath
-    : (root ? root + '/skills/worldbuilding/ronghuamofang/SKILL.md（源码版才有）'
-            : '（技能路径未取到，从绒花墨坊仓库 skills/ 目录取）');
+  // 2026-11-25 技能卡已删：自装指令不再有"安装技能卡"这一步（DSH 不读工作区 skills，
+  // 卡里又是旧 nf_* 工具名）。只保留 MCP 配置 + 自检。
   return [
     '你是 ' + m.name + '。请自行完成“绒花墨坊”的 MCP 接入 —— 由你现地操作，比外部盲写更可靠：',
     '',
@@ -5218,11 +4955,7 @@ const acSelfText = computed(() => {
     '   ⚠ 若你家配置格式与此不同，按你自己的文档改写，但 command 与 args 必须原样保留',
     '     （那是绒花墨坊的真实入口路径）。',
     '',
-    '2）安装操作技能卡（可选，SKILL.md 标准格式）：',
-    '   源文件：' + skill,
-    '   复制到你自己的技能目录，重启后确认能加载；找不到就跳过，不影响接入。',
-    '',
-    '3）自检：连接后列出工具，应看到 25 个 nf_* 白名单工具（如 nf_get_state / nf_run_stage）；',
+    '2）自检：连接后列出工具，应看到 25 个 nf_* 白名单工具（如 nf_get_state / nf_run_stage）；',
     '   再向用户汇报：配置写到哪了、怎么验证的。',
     '',
     '禁止项：审批/打回不经过 MCP（403 是设计）；不伪造来源头、不改 gates/提示词/模型；',
@@ -5411,8 +5144,12 @@ const editorN = ref(null);
    第二份真源：盘上已经回退成 v2，界面还在显示 v3，下一次保存再撞 409。 */
 const chapterEpoch = ref(0);
 /* 章节页签的两个视图：list（原有列表）/ desk（三栏审阅台）。
-   默认列表 —— 不给老用户换掉他熟悉的界面；想审阅时再切。 */
-const chapterView = ref("list");
+   2026-11-25 改：**默认 desk**。作者原话“这玩意现在像一个临时弹窗，不像改稿平台” ——
+   以前的默认路径是“列表 → 点一行 → 弹出一个抽屉”，正文被压在遮罩下面、宽度只有 720，
+   读一章像在看预览。三栏审阅台本来就是页面级形态（左章列表 / 中正文 / 右批注与设定），
+   才是“改稿平台”该有的样子。列表仍然保留（右上角切），选择会记住。 */
+const CHAPTER_VIEW_KEY = "mofang_chapter_view";
+const chapterView = ref(localStorage.getItem(CHAPTER_VIEW_KEY) || "desk");
 // 2026-11-08：从某一章直接进审阅台（此前只能从章节页右上角那个小按钮进，
 // 用户反馈“根本找不到”）。这里带上章号，打开后中栏就是这一章。
 const deskChapter = ref(1);
@@ -5424,6 +5161,7 @@ function openDesk(chapter) {
 }
 function toggleChapterView() {
   chapterView.value = chapterView.value === "desk" ? "list" : "desk";
+  localStorage.setItem(CHAPTER_VIEW_KEY, chapterView.value);
   // 进审阅台时确保章节列表已加载（否则左栏空着，用户以为坏了）
   if (chapterView.value === "desk" && !chaptersLoaded.value) loadChapters();
 }
@@ -6108,7 +5846,9 @@ onUnmounted(() => {
     <div class="brand">
       <!-- LOGO + 应用名 → 关于（版本/环境/数据位置/许可）；书名 → 项目页签 -->
       <button class="brand-btn" @click="openAbout" title="关于绒花墨坊：版本 / 运行环境 / 数据位置 / 开源许可">
-        <span class="brand-mark">绒</span>
+        <!-- LOGO 是一张图（style.css 里的 .brand-mark 背景），不是文字：
+             文字会被主题字色/字号连带改掉（2026-11-25 就变成过黑字）。 -->
+        <span class="brand-mark" aria-hidden="true"></span>
         <span class="brand-name">绒花墨坊</span>
       </button>
       <button class="brand-sub-btn" @click="gotoProjectTab"
@@ -7664,6 +7404,25 @@ onUnmounted(() => {
           <div class="set-pane" v-show="settingsTab === 'model'">
       <h4>引擎与模型</h4>
 
+      <!-- 引擎自检（2026-11-25）：引擎绑死 DSH 之后，最常见的失败是“DSH 没装 / 路径不对”，
+           而在界面上它们只表现为“点了没反应”。这一行把它变成可诊断的。 -->
+      <div class="eng-check" :class="{ bad: engineCheck && engineCheck.dsh_ok === false, warn: engineCheck && engineCheck.retired }">
+        <span class="eng-check-k">引擎</span>
+        <span class="eng-check-v">
+          <template v-if="!engineCheck">读取中…</template>
+          <template v-else>
+            <b>{{ engineCheck.resolved === "self" ? "只出任务书（self）" : "DSH" }}</b>
+            <template v-if="engineCheck.retired"> · <span class="eng-check-msg">配置写的是 {{ engineCheck.configured }}，已下线：{{ engineCheck.retired }}</span></template>
+            <template v-else-if="engineCheck.dsh_ok === true"> · <span class="ok">可用</span></template>
+            <template v-else-if="engineCheck.dsh_ok === false"> · <span class="eng-check-msg">{{ engineCheck.dsh_msg }}</span></template>
+            <template v-else> · <span class="eng-check-msg">{{ engineCheck.dsh_msg }}</span></template>
+          </template>
+        </span>
+        <button class="mini" :disabled="engineChecking" @click="loadEngineCheck">
+          {{ engineChecking ? "自检中…" : "重新自检" }}
+        </button>
+      </div>
+
       <!-- ① 运行引擎（2026-10-31 之前只有一行只读文字，用户只能手改 YAML） -->
       <div class="eng-block">
         <div class="eng-head">
@@ -7689,27 +7448,9 @@ onUnmounted(() => {
              收起来 —— 平铺四张会让它们看起来像“可选方案”，而实际不是。 -->
         <div class="eng-fallback">
           <button class="mini" @click="showFallbackEngines = !showFallbackEngines">
-            {{ showFallbackEngines ? "收起回退通道" : "回退通道（一般不用）：直连 / 外部助手 / 只出任务书" }}
+            {{ showFallbackEngines ? "收起回退通道" : "回退通道（一般不用）：只出任务书" }}
           </button>
           <div class="eng-cards" v-show="showFallbackEngines || models.engine !== 'dsh'">
-          <button class="eng-card" :class="{ on: models.engine === 'direct' }"
-                  :disabled="engBusy" @click="switchEngine('direct')">
-            <div class="eng-card-top">
-              <span class="eng-name">直连模型</span>
-              <span v-if="models.engine === 'direct'" class="eng-badge">使用中</span>
-            </div>
-            <div class="eng-desc">程序自己调 API 接口，按用量计费。需要先备好 API Key。</div>
-            <div class="eng-tags"><span>按 token 计费</span><span>上限有效</span></div>
-          </button>
-          <button class="eng-card" :class="{ on: models.engine === 'hermes' }"
-                  :disabled="engBusy" @click="switchEngine('hermes')">
-            <div class="eng-card-top">
-              <span class="eng-name">外部助手（走订阅）</span>
-              <span v-if="models.engine === 'hermes'" class="eng-badge">使用中</span>
-            </div>
-            <div class="eng-desc">由外部 Agent（编程工具里的助手）驱动，走你的订阅额度。</div>
-            <div class="eng-tags"><span>走订阅</span><span>右下的角色模型不参与</span></div>
-          </button>
           <button class="eng-card" :class="{ on: models.engine === 'self' }"
                   :disabled="engBusy" @click="switchEngine('self')">
             <div class="eng-card-top">
@@ -7741,133 +7482,20 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- ② 角色模型 -->
+      <!-- ②③ 角色模型 / 服务商与密钥（2026-11-25 移除，作者定案）
+           墨坊不再自带任何模型调用，也不持有 Key：
+             · 用哪个模型、走哪个渠道，全由 DSH 自己的 profile 决定；
+             · 所以这里没有“填 Key / 选供应商 / 按量计费”的入口了。
+           保留这句说明而不是整块删掉，是为了让找过来的人知道**去哪改**（DSH 的配置），
+           而不是以为功能丢了。 -->
       <div class="eng-block">
         <div class="eng-head">
-          <span class="eng-label">角色模型</span>
-          <span v-if="models.engine === 'hermes'" class="pill st-gate"
-                title="agent 模式下模型由外部 Agent 决定，这张表只在直连模式生效">agent 模式下不参与</span>
-          <span v-else-if="models.engine === 'dsh'" class="pill st-gate"
-                title="模型由 DSH 自己的 profile 决定；墨坊只发任务书，不传模型名。这张表只在直连模式生效">DSH 下由 DSH 决定</span>
-          <span class="meta">下拉只列该角色当前供应商的清单 · 来源：{{ modelSource === 'fetched' ? '服务商动态拉取' : 'config 手写列表' }}</span>
+          <span class="eng-label">模型与渠道</span>
         </div>
-        <div class="rm-toolbar">
-          <input v-model="modelSearch" class="rm-search" placeholder="按名字过滤（下面每个下拉同时生效）" />
-          <button class="mini" v-if="modelSearch" @click="modelSearch = ''">清空过滤</button>
-          <span class="spacer"></span>
-          <span class="meta">{{ modelOptions.length }} 个可选</span>
-          <button class="mini" @click="refreshModels" title="重新读取配置文件">刷新</button>
-          <button class="mini" @click="refreshFetchedModels" :disabled="fetchingModels">
-            {{ fetchingModels ? '同步中…' : '↻ 同步服务商模型' }}
-          </button>
-        </div>
-        <div class="rm-table" :class="{ 'rm-inactive': models.engine === 'hermes' || models.engine === 'dsh' }">
-          <div class="rm-head">
-            <span>角色</span><span>用途</span><span>供应商</span><span>模型</span>
-          </div>
-          <div v-for="(m, role) in models.model" :key="role" class="rm-row">
-            <span class="rm-role">{{ role }}</span>
-            <span class="rm-use">{{ ROLE_USE[role] || '' }}</span>
-            <select class="provider-select" v-model="m.provider" :disabled="models.engine === 'dsh'"
-                    @change="switchProvider(role, m.provider)">
-              <option v-for="p in providerOptions" :key="p.id" :value="p.id">{{ p.name }}</option>
-            </select>
-            <select class="model-select" :value="m.id" :disabled="models.engine === 'dsh'"
-                    @change="switchModel(role, $event.target.value)">
-              <option v-for="opt in providerModelOptions(m.provider, m.id)" :key="opt" :value="opt">{{ opt }}</option>
-            </select>
-          </div>
-          <div v-if="!models.model || !Object.keys(models.model).length" class="empty">
-            配置里还没有角色模型条目
-          </div>
-        </div>
-        <div class="rm-foot">
-          <span class="meta">清单里没有的模型可以先手动加：</span>
-          <input v-model="newModelName" placeholder="模型名，如 kimi-k2.5" class="rm-search" />
-          <button class="mini" @click="addManualModel">+ 添加</button>
-        </div>
-      </div>
-
-      <!-- ③ 服务商与密钥 -->
-      <div class="eng-block">
-        <div class="eng-head">
-          <span class="eng-label">服务商与 API Key</span>
-          <span class="meta">Key 写入项目 <code>.env</code>（不进 git、界面从不回显明文）</span>
-        </div>
-        <div class="prov-grid">
-          <div v-for="(p, pid) in providers" :key="pid" class="prov-card">
-            <div class="prov-top">
-              <b>{{ pid }}</b>
-              <span v-if="p.has_key" class="prov-key ok">已配置 {{ p.key_mask }}</span>
-              <span v-else class="prov-key bad">缺 Key</span>
-            </div>
-            <div class="prov-url">{{ p.base_url }}</div>
-            <div class="prov-env">密钥变量 <code>{{ p.api_key_env }}</code></div>
-            <div class="prov-actions">
-              <button v-if="!p.has_key" class="mini primary" @click="startEnvEdit(pid)">填入 Key</button>
-              <template v-else>
-                <button class="mini" @click="startEnvEdit(pid)">替换</button>
-                <button class="mini" @click="saveEnvKey(pid, true)" title="删除 .env 里这一行">清除</button>
-              </template>
-              <button class="mini" @click="openProviderForm(pid)" title="改地址 / 变量名 / 模型清单">编辑</button>
-              <button class="mini" :disabled="provBusy" @click="provRemoveId = pid"
-                      title="只删配置，不动任何书稿；正在被使用的服务商会被拒绝">删除</button>
-            </div>
-            <div v-if="provRemoveId === pid" class="art-row" style="margin-top:6px;">
-              <span class="meta" style="color: var(--bad)">确认删除服务商 {{ pid }}？</span>
-              <button class="mini" :disabled="provBusy" @click="removeProvider(pid)">确认删除</button>
-              <button class="mini" @click="provRemoveId = ''">取消</button>
-            </div>
-          </div>
-          <div v-if="!providers || !Object.keys(providers).length" class="empty">
-            配置里还没有服务商
-          </div>
-        </div>
-        <div v-if="envEditing" class="art-row" style="margin-top: 10px;">
-          <span class="pill st-done">写入 {{ (providers && providers[envEditing] && providers[envEditing].api_key_env) || '' }}</span>
-          <input type="password" v-model="envValue" placeholder="粘贴 API Key（不回显已存值）"
-                 class="model-input" style="max-width: 320px;"
-                 @keyup.enter="saveEnvKey(envEditing)" />
-          <button class="mini primary" @click="saveEnvKey(envEditing)">保存</button>
-          <button class="mini" @click="cancelEnvEdit">取消</button>
-        </div>
-        <div class="art-row" style="margin-top: 10px;">
-          <button class="mini primary" @click="openProviderForm('')">＋ 新增服务商</button>
-          <span class="meta">
-            任何 OpenAI 兼容端点都能加（预设一键填地址与变量名；Key 仍用上面的"填入 Key"）。
-          </span>
-        </div>
-        <div v-if="provForm.open" class="prov-form">
-          <div class="art-row">
-            <select class="model-select" @change="pickPreset($event.target.value)">
-              <option value="">从常见预设选…（{{ providerPresets.length }} 家）</option>
-              <option v-for="pr in providerPresets" :key="pr.id" :value="pr.id">
-                {{ pr.name }}（{{ pr.id }}）
-              </option>
-            </select>
-            <span class="meta">预设只填地址与变量名，<b>不填模型名</b>（模型会下线，写死了必 404）</span>
-          </div>
-          <div class="art-row">
-            <input v-model="provForm.id" class="model-input" placeholder="id（全小写，如 myvendor）" />
-            <input v-model="provForm.base_url" class="model-input"
-                   placeholder="base_url（到 /v1 为止，不要带 /chat/completions）" />
-            <input v-model="provForm.api_key_env" class="model-input"
-                   placeholder="密钥变量名，如 MYVENDOR_API_KEY" />
-          </div>
-          <div class="art-row">
-            <input v-model="provForm.models" class="model-input grow"
-                   placeholder="模型名（逗号分隔，可留空 —— 之后用上面的“同步服务商模型”拉）" />
-            <button class="mini primary" :disabled="provBusy" @click="saveProvider">保存</button>
-            <button class="mini" @click="provForm.open = false">取消</button>
-          </div>
-          <div v-if="provMsg" class="meta" style="color: var(--bad); margin-top: 6px;">{{ provMsg }}</div>
-        </div>
-        <div class="meta" style="margin-top: 8px;">
-          保存后<b>立即生效、无需重启</b>；已存值只显示前几位与后几位。
-          <b>配置 Key 只需点上面的“填入 Key”</b>，不必手动编辑文件。.env 含明文密钥，
-          故刻意不提供“用外部编辑器一键打开”（编辑器插件 / AI 工具可能读取）。
-          <button class="mini" style="margin-left: 8px;" @click="envConfirmOpen = true"
-                  title="在资源管理器中定位 .env（只定位，不代为打开；点击后需确认）">在文件夹中显示</button>
+        <div class="meta">
+          由 DSH 决定：模型、服务商、凭据都在 DSH 自己的 profile 里配
+          （headless 档）。墨坊只发任务书、只收结果，不填 Key、不计金额，
+          只记 token。
         </div>
       </div>
 
@@ -9393,25 +9021,7 @@ onUnmounted(() => {
     </div>
   </div>
 
-  <!-- .env 明文密钥知情确认：定位 .env 前强制过一道（2026-10-01 用户要求） -->
-  <div v-if="envConfirmOpen" class="drawer-mask" @click.self="envConfirmOpen = false">
-    <div class="dialog" style="width: min(520px, 92vw);">
-      <h3>即将在文件夹中显示 .env</h3>
-      <div class="meta">
-        <code>.env</code> 以<b>明文</b>保存各家 API Key。继续操作只会在资源管理器中定位该文件
-        （<b>不代为打开</b>），随后你自行打开时请注意：<br>
-        · 不要截图，也不要把内容粘贴到聊天、工单等第三方场景；<br>
-        · 编辑器插件 / AI 工具可能读取该文件，改完请尽快关闭；<br>
-        · 日常配置 Key 建议优先用上方“填入 Key”输入框（后端直写，不经外部编辑器）。
-      </div>
-      <div class="dialog-actions">
-        <button class="mini" @click="envConfirmOpen = false">取消</button>
-        <button class="mini danger" @click="envConfirmOpen = false; revealEnvInFolder()">我已了解风险，并愿意继续</button>
-      </div>
-    </div>
-  </div>
-
-  <div v-if="toast" class="toast">{{ toast }}</div>
+  <div v-if="toast" class="toast" :class="toastKind">{{ toast }}</div>
 
   <!-- ② 命令面板 -->
   <CommandPalette :open="paletteOpen" :commands="commands"

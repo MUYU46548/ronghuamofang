@@ -20,11 +20,12 @@
   --sp-6: 28px;
   --r-sm: 8px;
   --r-md: 10px;
-  --r-lg: 14px;
+  --r-lg: 12px;   /* 容器档；与 --r-sm 8px 一起构成两档（L1-c 卡片批） */
   --bg: #eef0f4;
   --ink: #3c4150;
   --muted: #6b7180;
   --accent: #9b8fc4;
+  --accent-strong: #776e97;
   --accent-soft: #c3bce0;
   --card: #ffffff;
   --border: #e4e2ee;
@@ -71,6 +72,7 @@
   --ink: #d8d9e8;
   --muted: #8a8fa8;
   --accent: #7c83d4;
+  --accent-strong: #696fb4;
   --accent-soft: #3d4278;
   --card: #232540;
   --border: #2e3258;
@@ -99,6 +101,7 @@
   --ink: #4a3540;
   --muted: #8c6b78;
   --accent: #d48ca0;
+  --accent-strong: #9b6675;
   --accent-soft: #f0c8d4;
   --card: #ffffff;
   --border: #f2dde3;
@@ -113,6 +116,7 @@
   --ink: #354052;
   --muted: #6b7a90;
   --accent: #7dadde;
+  --accent-strong: #567799;
   --accent-soft: #bed6f0;
   --card: #ffffff;
   --border: #dde6f2;
@@ -127,6 +131,7 @@
   --ink: #3a4840;
   --muted: #6e8075;
   --accent: #8ab89a;
+  --accent-strong: #5c7b67;
   --accent-soft: #c8e0d0;
   --card: #ffffff;
   --border: #dce8e0;
@@ -141,6 +146,7 @@
   --ink: #4a3f33;
   --muted: #8c7a67;
   --accent: #e09950;
+  --accent-strong: #9b6a37;
   --accent-soft: #f2cfa8;
   --card: #ffffff;
   --border: #f0e2d2;
@@ -155,6 +161,7 @@
   --ink: #3a3a40;
   --muted: #707078;
   --accent: #9a9aa4;
+  --accent-strong: #73737b;
   --accent-soft: #d4d4da;
   --card: #ffffff;
   --border: #e4e4ea;
@@ -171,6 +178,7 @@
   --ink: #d0d8e8;
   --muted: #7a8a9f;
   --accent: #5a8fd4;
+  --accent-strong: #4b77b0;
   --accent-soft: #1e3a5f;
   --card: #161d2e;
   --border: #1e2a3d;
@@ -198,6 +206,7 @@
   --ink: #d0e8d8;
   --muted: #7a9f8a;
   --accent: #5cb88a;
+  --accent-strong: #408161;
   --accent-soft: #1e3d2e;
   --card: #162019;
   --border: #1e2d22;
@@ -225,6 +234,7 @@
   --ink: #d8d4d0;
   --muted: #8f8a85;
   --accent: #b8a08a;
+  --accent-strong: #837262;
   --accent-soft: #3d3530;
   --card: #201f1e;
   --border: #2d2b2a;
@@ -248,6 +258,70 @@
   --bad: #d47c7c;
 }
 * { box-sizing: border-box; }
+
+/* ==== L1 令牌层（2026-11-25）====================================================
+   本节**只新增令牌，不改任何既有变量的值** —— 改值属于 L1-c，必须逐页出前后截图。
+
+   为什么需要这一节：现有 10 套主题各自只定义了“底色 / 字色 / 强调色”那一组，
+   缺三个角色：
+
+   1. `--on-accent`：压在强调块上那行字的颜色。缺它的后果是主按钮一律写死白字，
+      而现有 10 套强调色全是中低饱和（雾灰紫 / 樱粉 / 天蓝 / 翠绿 / 暖橙 / 灰白，
+      以及四套暗色），白字对比度只有 2.4–3.0:1，**能看见但看不清**，
+      浏览器也不会报任何错。按 WCAG 4.5:1 算下来，一律要用深字，所以下面十套全给深字。
+   2. `--surface`：卡片面的角色名。现在叫 `--card`，留着别名，新增组件用新名。
+   3. 阅读字号三件（`--fs-read` / `--lh-read` / `--read-measure`）：界面上要密、章节要松，
+      一套字号两头都用是错的。作者 2026-11-25 定：正文 17px / 行高 1.85 / 行宽 40 汉字。
+      ⚠️ 它与全局缩放 `--app-font-size`（用户在设置里调的那个）是两回事，会叠加。
+   ============================================================================ */
+:root {
+  --surface: var(--card);
+  --fs-read: 17px;
+  --lh-read: 1.85;
+  /* 42em = 40 个汉字（17px）+ 34px 内边距与边框。写 40em 会得到 38 字/行 ——
+     实测过一次才发现，别照“40 汉字”直接写成 40em。 */
+  --read-measure: 42em;
+  --read-gap: 1.1em;
+  --sp-7: 48px;
+  --sp-8: 64px;
+  --grid-cols: 12;
+  --gutter: 24px;
+  --page-pad: 24px;
+  --motion-fast: 120ms;
+  --motion-slow: 160ms;
+}
+:root,
+:root.theme-purple {
+  --on-accent: #2a2740;
+}
+:root.theme-pink {
+  --on-accent: #3a222b;
+}
+:root.theme-blue {
+  --on-accent: #12293d;
+}
+:root.theme-green {
+  --on-accent: #1b3226;
+}
+:root.theme-orange {
+  --on-accent: #3a2611;
+}
+:root.theme-gray {
+  --on-accent: #24242a;
+}
+:root.theme-dark {
+  --on-accent: #14161a;
+}
+:root.theme-night-blue {
+  --on-accent: #0f1520;
+}
+:root.theme-night-green {
+  --on-accent: #101a14;
+}
+:root.theme-night-warm {
+  --on-accent: #1a1512;
+}
+
 html, body, #app { height: 100%; }
 body {
   margin: 0;
@@ -288,11 +362,20 @@ body {
 .is-dark .tabs button:hover { background: rgba(124, 131, 212, 0.15); }
 .is-dark .runbar { background: rgba(124, 131, 212, 0.16); }
 .brand { display: flex; align-items: center; gap: 10px; }
+/* LOGO（2026-11-25 改）：原来是一个 <span>绒</span> 靠 CSS 画底色 + 字色。
+   两个后果：① 字色一旦跟着主题变量走就会变（当天就把它变成了黑字，作者判为 BUG）；
+   ② 换个字号档或字体回落，方块里的字就跟着漂。
+   现在改成**两张静态图**（`assets/logo-light.svg` / `logo-dark.svg`），
+   颜色烘在图里，不参与任何主题变量；只按亮/暗切换一张。
+   为什么两套而不是一套：亮色底上要"跳出来"（浅紫底白字），
+   暗色底上要"沉下去"（深紫底白字，白字对比度 5.5:1，比亮的 2.9 更清楚）。 */
 .brand-mark {
   width: 38px; height: 38px; border-radius: 10px;
-  background: var(--accent); color: #fff;   /* 与 --accent 统一（B4：不再写死品牌紫） */
-  display: grid; place-items: center; font-size: 22px; font-weight: 700;
-  font-family: "Noto Sans SC", "PingFang SC", "Microsoft YaHei", serif;
+  background: url("./assets/logo-light.svg") center / 100% 100% no-repeat;
+  flex: 0 0 auto;
+}
+.is-dark .brand-mark {
+  background-image: url("./assets/logo-dark.svg");
 }
 .brand-name { font-weight: 700; font-size: 18px; }
 .brand-sub { font-size: 13px; color: var(--muted); }
@@ -396,8 +479,9 @@ body {
   .topbar .global-refresh-btn { margin-left: 0; }
 }
 .badge {
-  background: var(--bad); color: #fff; border-radius: 9px;
-  font-size: 12px; padding: 1px 6px; margin-left: 5px;
+  background: color-mix(in srgb, var(--bad) 24%, transparent); color: var(--ink-bad);
+  border-radius: 7px; font-size: 12px; padding: 2px 7px; margin-left: 5px;
+  line-height: 1.5; font-weight: 600;
 }
 .conn { font-size: 13px; color: var(--muted); }
 .conn.on { color: var(--ok); }
@@ -492,6 +576,15 @@ body {
   margin: 0 0 var(--sp-3); font-size: var(--fs-h3); font-weight: 600;
   letter-spacing: 0.01em;
 }
+/* 卡片里再套卡片（2026-11-25 实测有 2 处，章节页）。
+   两层边框 + 两层阴影叠起来，就是“看着乱但说不出哪乱”的典型：
+   眼睛要先分辨哪个框是容器、哪个框是内容。规则改成——
+   容器只画一次框，内层退成底色分组，不再自带边框与阴影。 */
+.card .card {
+  border: 0; box-shadow: none;
+  background: var(--field-dim);
+  padding: var(--sp-3) var(--sp-4); margin-bottom: var(--sp-3);
+}
 .card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .card-head h3 { margin: 0; flex: 1; }
 
@@ -537,15 +630,29 @@ body {
   background: rgba(107, 113, 128, 0.1); color: var(--muted); white-space: nowrap;
   line-height: 1.5;
 }
-.st-pending { background: rgba(107, 113, 128, 0.12); color: var(--muted); }
-.st-running { background: rgba(155, 143, 196, 0.18); color: var(--ink-accent); }
-.st-done { background: rgba(127, 174, 143, 0.18); color: var(--ink-ok); }
-.st-failed { background: rgba(196, 127, 127, 0.2); color: var(--ink-bad); }
-.st-retrying { background: rgba(107, 113, 128, 0.16); color: var(--ink-mute); }
-.st-rejected { background: rgba(201, 162, 106, 0.2); color: var(--ink-warn); }
-.st-gate { background: rgba(201, 162, 106, 0.22); color: var(--ink-warn); font-weight: 600; }
-.st-rej { background: rgba(201, 162, 106, 0.16); color: var(--ink-warn); }
-.st-warn { background: rgba(201, 162, 106, 0.16); color: var(--ink-warn); }
+/* ==== 状态徽标（L1-c 徽标批，2026-11-25）========================================
+   原来这七条全是**硬编码 rgba**（rgba(201,162,106,.22) 这种），不跟主题走：
+   换主题时底色纹丝不动，对比度全靠运气。现在底色一律由主题色按比例调出来
+   （`color-mix(... , transparent)`），文字用配好的 `--ink-*` —— 亮暗两套都跟着走。
+
+   同时把同义项收拢（模板里 9 处在用 `st-rej`、4 处在用 `st-rejected`，
+   原本是两个几乎一样的色值，现在明确是同一条）：
+     st-pending / st-retrying  —— 灰
+     st-running                —— 强调色
+     st-done                   —— 绿
+     st-failed                 —— 红
+     st-gate / st-warn / st-rej / st-rejected —— 琥珀（门、提醒、打回）
+   门（st-gate）加粗，因为它表示“等你签字”，不是普通提示。 */
+.st-pending,
+.st-retrying { background: color-mix(in srgb, var(--muted) 14%, transparent); color: var(--muted); }
+.st-running { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--ink-accent); }
+.st-done { background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ink-ok); }
+.st-failed { background: color-mix(in srgb, var(--bad) 20%, transparent); color: var(--ink-bad); }
+.st-gate,
+.st-warn,
+.st-rej,
+.st-rejected { background: color-mix(in srgb, var(--warn) 18%, transparent); color: var(--ink-warn); }
+.st-gate { font-weight: 600; }
 
 /* 流水线状态卡片 */
 .pipeline-status { margin-bottom: 16px; }
@@ -656,9 +763,7 @@ body {
 .prov-block { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
 .prov-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
 .prov-input {
-  flex: 1; max-width: 320px; padding: 6px 9px; font-size: 13px;
-  border: 1px solid var(--border); border-radius: 8px;
-  background: var(--field); color: var(--ink);
+  flex: 1; max-width: 320px;
 }
 .prov-empty { padding: 6px 2px; }
 .prov-result {
@@ -736,17 +841,101 @@ body {
 .bn-line { display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap; }
 .bn-sub { margin-top: 4px; color: var(--muted); font-size: 12px; }
 
-/* 按钮 */
-.mini {
+/* 按钮
+   `.mini` 与 `.btn` 共用同一套几何（2026-11-25）：全仓 637 处 `.mini` 不可能一次改完，
+   但“同一行里三个按钮高度差 2px”这种不齐是**肉眼可见**的，所以几何先统一，
+   模板替换分页推进。不许再给 `.mini` 单独写 padding/height —— 要改就改下面这一组。 */
+/* ==== L1-c 输入控件层（2026-11-25）===============================================
+   现状：**没有全局基础样式**。每个面板各写一套 —— 实测 padding 有 3/4/5/6px 四种、
+   圆角 7/8 两种、字号 13/14 两种，同一屏里两个输入框高低差 4px，看着就是不齐。
+
+   用 `:where()` 包起来是关键：它的特异性是 **0**，所以面板自己的类（`.text-input`
+   之类）照旧能覆盖宽度等个别项，但**没写的地方就自动继承这一套**。
+   如果写成 `input { ... }` 普通选择器，会反过来压掉面板的定制，改一处炸三页。
+
+   高度与按钮一致（30px）：同一行里“输入框 + 按钮”不该一高一矮。 */
+:where(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+  height: 30px; padding: 0 10px; border-radius: var(--r-sm);
   border: 1px solid var(--border); background: var(--field); color: var(--ink);
-  border-radius: var(--r-sm); padding: 6px 13px; font-size: var(--fs-ui);
-  line-height: var(--lh-tight);
-  cursor: pointer; white-space: nowrap;
+  font-size: var(--fs-ui); font-family: inherit; color-scheme: light;
 }
+.is-dark :where(input:not([type="checkbox"]):not([type="radio"]), select, textarea) {
+  color-scheme: dark;
+}
+:where(textarea) {
+  height: auto; min-height: 72px; padding: 8px 10px; line-height: 1.6; resize: vertical;
+}
+:where(select) { padding-right: 26px; }
+:where(input, select, textarea):focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent);
+}
+:where(input, select, textarea):disabled {
+  opacity: 0.55; cursor: not-allowed;
+}
+
+.mini {
+  height: 30px; padding: 0 12px; border-radius: var(--r-sm);
+  font-size: var(--fs-ui); line-height: 1; white-space: nowrap; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  transition: border-color var(--motion-fast), background var(--motion-fast),
+              color var(--motion-fast);
+  border: 1px solid var(--border); background: var(--field); color: var(--ink);
+}
+/* 与 .mini 逐字一致（判据 test_ui_tokens【7】会比对两者的 height 与 padding，
+   差一点就红）。为什么不用组合选择器：test_ui_unified 的 B2 认“基础类各自一条规则”，
+   合并会让 .mini 在这个口径里消失。两边都要满足，所以值复制、由判据锁一致。 */
+.btn {
+  height: 30px; padding: 0 12px; border-radius: var(--r-sm);
+  font-size: var(--fs-ui); line-height: 1; white-space: nowrap; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  transition: border-color var(--motion-fast), background var(--motion-fast),
+              color var(--motion-fast);
+  border: 1px solid var(--border); background: var(--field); color: var(--ink);
+}
+.mini:disabled,
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.mini:hover:not(:disabled),
+.btn:hover:not(:disabled) { border-color: var(--accent); }
+.mini:focus-visible,
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ==== L1-c 按钮层（2026-11-25）=================================================
+   `.mini` 全仓 637 处，是“按钮”这件事现在的唯一实现；它的问题是**没有档位**：
+   primary / on / 普通 / ghost 全靠零散覆盖，尺寸靠每处 padding 微调
+   （实测同一行里三个按钮的 padding 能差 3px，肉眼看着就是“没对齐”）。
+
+   新层只做三件事：① 固定高度与内边距，一行里自动等高；② 四档语义；
+   ③ 焦点环（键盘走查时看得见自己在哪）。样式值刻意与 `.mini` 一致，
+   所以替换是**结构性**的，不制造视觉惊喜 —— 要改观感走 L1-c 后面几批。
+
+   字色与底色（2026-11-25 作者定案，两个都看过真机再定的）：
+   · 主按钮 = `--accent-strong` 底 + 白字。作者原话：“B 深字时，强调色黑字看起来
+     反而不如白字。建议 C 底压深保白字。” 十套主题各有一个深一档的值，
+     白字对比度 4.60–4.71（原来是 2.2–3.5）。
+   · 选中态 = 中性反色（`--ink` 底 + `--bg` 字），**单开一种颜色**。
+     作者原话：“选中改浅底描边看起来像是没选中，建议选中态单开一种颜色，或采用其他标识。”
+     为什么不干脆用强调色：那样又和主按钮长一样了，等于回到他最初抱怨的那个问题。
+   这两条一起看，界面上“实心”只有两种，且语义互不重叠：
+     强调色实心 = 现在该点的那个；中性实心 = 你现在在这一页。 */
+:root {
+  --btn-primary-ink: #ffffff;
+}
+.btn-primary {
+  background: var(--accent-strong); border-color: var(--accent-strong);
+  color: var(--btn-primary-ink);
+}
+.btn-primary:hover:not(:disabled) { filter: brightness(1.06); }
+.btn-on {
+  background: var(--ink); border-color: var(--ink);
+  color: var(--bg);
+}
+.btn-ghost { background: transparent; border-color: transparent; color: var(--muted); }
+.btn-ghost:hover:not(:disabled) { background: var(--field-dim); color: var(--ink); }
+
 .mini:disabled { opacity: 0.45; cursor: not-allowed; }
 .mini:disabled:hover { border-color: var(--border); color: var(--ink); }
 .mini:hover { border-color: var(--accent); color: var(--accent); }
-.mini.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.mini.primary { background: var(--accent-strong); border-color: var(--accent-strong); color: #fff; }
 
 /* 选中态（2026-11-08，0.9.1 验收第 14 条）。
    全仓有 20+ 个切换按钮写的是 class="mini" + :class="{ on: ... }"（编辑 / 阅读 / 段落批注、
@@ -755,12 +944,12 @@ body {
    作者原话：“点了编辑三四次，编辑按钮还在，没有任何提示，所以我到底有没有选中编辑？”
    判据只一条：选中 = 实心强调色 + 白字。放在 .mini.primary 之后，
    让后面更具体的（.qstage.on 等）继续按自己的样式走。 */
-.mini.on { background: var(--accent); border-color: var(--accent); color: #fff; }
-.mini.on:hover { color: #fff; border-color: var(--accent); filter: brightness(1.06); }
+.mini.on { background: var(--ink); border-color: var(--ink); color: var(--bg); }
+.mini.on:hover { color: var(--bg); border-color: var(--ink); filter: brightness(1.06); }
 .mini.on:disabled { opacity: 0.55; }
-.mini.on:disabled:hover { color: #fff; border-color: var(--accent); }
-.mini.primary:hover { background: color-mix(in srgb, var(--accent) 86%, #000); }
-.is-dark .mini.primary:hover { background: color-mix(in srgb, var(--accent) 78%, #000); }
+.mini.on:disabled:hover { color: var(--bg); border-color: var(--ink); }
+.mini.primary:hover { background: color-mix(in srgb, var(--accent-strong) 86%, #000); }
+.is-dark .mini.primary:hover { background: color-mix(in srgb, var(--accent-strong) 78%, #000); }
 .mini.danger { color: var(--ink-bad); }
 .mini.danger:hover { border-color: var(--bad); }
 
@@ -832,7 +1021,7 @@ body {
 /* 成本中心 */
 .view-toggle { display: flex; border: 1px solid var(--border); border-radius: 9px; overflow: hidden; }
 .view-toggle button { border: none; background: var(--field); color: var(--muted); padding: 4px 12px; font-size: 13px; cursor: pointer; }
-.view-toggle button.on { background: var(--accent); color: #fff; }
+.view-toggle button.on { background: var(--ink); color: var(--bg); }
 .cost-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 14px; }
 .cost-stat { background: rgba(155, 143, 196, 0.06); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; }
 .stat-label { font-size: 13px; color: var(--muted); }
@@ -858,7 +1047,7 @@ body {
 /* 展开后的原生下拉面板也要上色：不设的话暗色主题里展开是一整片白，与面板断层 */
 .model-select option, .provider-select option, .bp-select option,
 .style-rule-select option, .fr-select option, .bs-select option { background: var(--field); color: var(--ink); }
-.text-input { flex: 1; min-width: 120px; border: 1px solid var(--border); border-radius: 8px; padding: 5px 9px; font-size: 13px; color: var(--ink); background: var(--field); }
+.text-input { flex: 1; min-width: 120px; }
 .text-input:focus { outline: none; border-color: var(--accent); }
 
 /* 运行进度条 */
@@ -926,6 +1115,20 @@ body {
   background: rgba(60, 65, 80, 0.32);
   display: flex; justify-content: flex-end;
 }
+/* 2026-11-25（作者问“侧栏是不是挡住整个界面”时查出来的真问题）：
+   `--topbar-h: 103px` 是**横向顶栏**的高度。但宽屏（>=900px）下顶栏其实变成了
+   左侧 216px 的竖条，于是遮罩：
+     · 顶部留了 103px 的透明条 —— 那一行按钮（归档这本书 / 搬进书区…）在抽屉打开时仍然亮着、
+       仍然能点；
+     · 左边整条导航没有被盖住（它 z-index 5，遮罩在 .content 的层叠上下文里，压不过它），
+       抽屉开着还能换页 —— 换页会直接卸载抽屉，**绕过“未保存”确认**。
+   两处一起修：宽屏下遮罩从 216px 开始（不再留透明条），导航在抽屉打开时禁点。
+   窄屏（<900px）保持原样：那时顶栏就是 103px 高的横条，遮罩本来就该从它下面开始。 */
+@media (min-width: 900px) {
+  .drawer-mask { inset: 0 0 0 216px; }
+  body:has(.drawer-mask) .topbar { pointer-events: none; }
+  body:has(.drawer-mask) .topbar .tabs button { opacity: 0.45; }
+}
 .drawer-mask:has(.dialog) { justify-content: center; align-items: center; }
 .drawer {
   width: min(720px, 92vw); align-self: stretch;
@@ -966,6 +1169,9 @@ body {
 
 /* toast：右下角，别压住正文（原来底部居中，正好盖在卡片上）。
    pointer-events:none —— 它是通知，不该挡住下面的按钮。 */
+.toast.ok { border-left-color: var(--ok); }
+.toast.warn { border-left-color: var(--warn); }
+.toast.bad { border-left-color: var(--bad); }
 .toast {
   /* 2026-11-21（问题表 P2-4）：原来 bottom:26px，正好压在右下角的动作按钮上
      （执行下一步 / 成品 / 补救）。抬到按钮行上方；它 pointer-events:none，不挡点击，
@@ -976,6 +1182,11 @@ body {
   background: var(--ink); color: var(--bg); border-radius: 10px;
   padding: 9px 18px; font-size: 13px; z-index: 30; box-shadow: var(--shadow);
   max-width: 420px; pointer-events: none;
+  /* 2026-11-25（徽标/提示批）：say() 里有一堆带 \n 的提示（“接管改稿？\n\n· 会停…”），
+     默认 white-space 会把换行吞成空格，多行说明被压成一长条，读都读不通。
+     pre-line = 保留换行、仍允许自动折行。 */
+  white-space: pre-line; line-height: 1.55;
+  border-left: 3px solid transparent;
 }
 
 /* 实时流式输出面板 */
@@ -1771,12 +1982,12 @@ body {
 }
 /* 用主题变量而不是硬编码色值：暗夜紫下 --bad 会自动换成亮一档的红 */
 .stage-recovery .rec-msg { font-size: 13px; color: var(--bad); }
-.st-skip { background: rgba(107, 113, 128, 0.14); color: var(--muted); }
+.st-skip { background: color-mix(in srgb, var(--muted) 14%, transparent); color: var(--muted); }
 /* 无审批门的阶段（2026-11-05）：中性淡紫底 + 实线，和“待审批”的金色分开；
    纯灰虚线在白卡上对比太低，会被读成“禁用”（截图目检反馈）。 */
 .st-nogate {
-  background: rgba(155, 143, 196, 0.10); color: var(--ink);
-  border: 1px solid rgba(155, 143, 196, 0.35);
+  background: color-mix(in srgb, var(--accent) 10%, transparent); color: var(--ink);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
 }
 /* 素材批量条（2026-11-05）：粘在列表上方，选中才出现 */
 .mat-batch {
@@ -1820,7 +2031,7 @@ body {
   padding: 9px 16px; font-size: 13px; line-height: 1.5;
 }
 .cmd-item:hover { background: rgba(155, 143, 196, 0.1); }
-.cmd-item.on { background: var(--accent); color: #fff; }
+.cmd-item.on { background: var(--ink); color: var(--bg); }
 .cmd-item.on .cmd-desc { color: rgba(255, 255, 255, 0.85); }
 .cmd-item.on .cmd-key { border-color: rgba(255, 255, 255, 0.5); color: #fff; }
 .cmd-label { grid-column: 1; }
@@ -1891,15 +2102,7 @@ kbd {
 .about-links { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
 /* ---- 定价编辑器 ---- */
-.rate-input {
-  width: 100%;
-  padding: 4px 6px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--card);
-  color: var(--ink);
-  font-size: 13px;
-}
+.rate-input { width: 100%; }
 .rate-input:focus {
   outline: none;
   border-color: var(--accent);
@@ -1970,7 +2173,7 @@ kbd {
   font-size: 13px; color: var(--muted); border: 1px solid var(--border);
   border-radius: 999px; padding: 3px 10px;
 }
-.wiz-step.on { border-color: var(--accent); background: var(--accent); color: #fff; }
+.wiz-step.on { border-color: var(--ink); background: var(--ink); color: var(--bg); }
 .wiz-step.done { border-color: var(--ok); color: var(--ok); }
 .wiz-label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 5px; }
 .wiz-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 4px; }
@@ -2237,9 +2440,12 @@ kbd {
    全部走主题变量：暗夜紫下 --accent/--ink-accent 会自动换亮一档，
    硬编码色值在深色主题下会看不清（GUI 纪律第 3 条）。 */
 .qstage-group { display: inline-flex; flex-wrap: wrap; gap: 5px; }
+/* 选中语言统一（2026-11-25 作者定：chips 也并到中性）。
+   原来是 --accent-soft 底 + 强调色字，和旁边的紫色主按钮撞色。
+   现在与按钮同一套：中性反色 = 你选中的这一项；强调色只留给主操作。 */
 .qstage.on {
-  background: var(--accent-soft); border-color: var(--accent);
-  color: var(--ink-accent); font-weight: 600;
+  background: var(--ink); border-color: var(--ink);
+  color: var(--bg); font-weight: 600;
 }
 .qstage:not(.on):hover { background: var(--field-hover); }
 .combo-sel { max-width: 200px; }
@@ -2358,6 +2564,19 @@ kbd {
      ① 运行引擎（可点选的两张卡）② 角色模型（表格式）③ 服务商与密钥 ④ 合规提示
    所有颜色只取主题变量 —— 硬编码色值在暗色/粉色主题下会瞎眼（GUI 纪律③）。
    ========================================================================== */
+/* 引擎自检行（2026-11-25）：一行说清“用什么跑、能不能跑、钥匙在哪找”。
+   DSH 不可用时必须是**能读的红**，不是“点了没反应”。 */
+.eng-check {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 8px 12px; margin-bottom: 12px; border-radius: var(--r-sm);
+  border: 1px solid var(--border); background: var(--field-dim); font-size: 13px;
+}
+.eng-check-k { font-size: 12px; color: var(--muted); letter-spacing: 0.04em; }
+.eng-check-v { flex: 1; min-width: 200px; line-height: 1.6; }
+.eng-check .ok { color: var(--ink-ok); }
+.eng-check-msg { color: var(--ink-bad); }
+.eng-check.bad { border-color: var(--bad); background: color-mix(in srgb, var(--bad) 8%, transparent); }
+.eng-check.warn { border-color: var(--warn); background: color-mix(in srgb, var(--warn) 8%, transparent); }
 .eng-block {
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -2818,17 +3037,7 @@ kbd {
   gap: 8px;
   flex-wrap: wrap;
 }
-.vault-path-input {
-  flex: 1 1 320px;
-  min-width: 200px;
-  padding: 6px 10px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--card);
-  color: var(--ink);
-  font-size: 13px;
-  font-family: var(--mono);
-}
+.vault-path-input { flex: 1 1 320px; min-width: 200px; font-family: var(--mono); }
 .vault-path-input:focus { outline: 1px solid var(--accent); }
 
 /* ==========================================================================

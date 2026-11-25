@@ -47,7 +47,7 @@ const props = defineProps({
   // 之后 +1。没有它，本组件里的 `text` 就是第二份真源：盘上已回退，界面还显示旧稿。
   epoch: { type: Number, default: 0 },
 });
-const emit = defineEmits(["say", "close", "saved"]);
+const emit = defineEmits(["say", "close", "saved", "queue"]);
 
 const LAYER_LABEL = { raw: "原稿", checked: "检查稿", refined: "润色稿" };
 const LAYER_HINT = {
@@ -67,7 +67,11 @@ const target = ref([0, 0]);
 const mtime = ref(0);
 const mtimeText = ref("");
 
-const mode = ref("edit");            // edit | read | batch
+/* 默认模式（2026-11-25）：**内嵌进审阅台时默认“阅读”**，抽屉里仍默认“编辑”。
+   为什么：审阅台是改稿平台的主界面，打开一章第一件事是**读**（纲领第四节第 1 条
+   “打开就能读当前章”），行内批注标记也只在阅读态出现；想看字就点“编辑”。
+   抽屉是跨页快速改一眼的通道，那种场景下直接进编辑更省一步。 */
+const mode = ref(props.embedded ? "read" : "edit");   // edit | read | batch
 const text = ref("");
 const savedText = ref("");
 const dirty = computed(() => text.value !== savedText.value);
@@ -485,6 +489,164 @@ function pickPara(p) {
 /* 批注分组（2026-11-17，P1-9）：以前一条平铺，处理过的和没动的混在一起，
    “还剩几条没改”得自己数。现在未收口在前、已收口折叠在后。
    跳转用 current_index（正文改过后重定位到的段号），没有就退回原来的 para_index。 */
+/* ---- 阅读态的行内标记（2026-11-25，总账 F1/F2）----
+   数据用**已有的批注**，不新造一套：一条未收口的批注 = 那一段旁的一根竖条。
+   为什么不标“机器判据命中”：判据需要跑一次检查才有结果，而批注是作者自己攒的、
+   打开就在。等 L2 第二张面（改一句）时再把判据命中并进同一套标记。
+   `pureRead` 只控制标记的显隐，正文一个字都不动。 */
+const pureRead = ref(false);
+const queueOpen = ref(false);   // 待改清单细栏是否展开（内联形态）
+/* 展开清单要告诉审阅台一声：它会自动收起右侧依据栏（同一时刻只开一个侧栏）。
+   否则 1440 下 660 的中栏再减 288，正文只剩 372（≈22 汉字/行），读不下去。 */
+watch(queueOpen, (v) => emit("queue", v));
+
+/* 选区动作带（2026-11-25）：**选中文字才浮出**，不选中就不存在 —— 零常驻高度。
+   为什么不在阅读态常驻一个“写意见”框：读者多数时候只是读，常驻的输入框会把
+   “读”这件事变成“准备改”。选中了才问，是这一条的全部理由。 */
+const sel = ref(null);        // {para, top, left}
+const selNote = ref("");
+const selBusy = ref(false);
+function onReadMouseUp() {
+  const s = window.getSelection();
+  if (!s || s.isCollapsed) { sel.value = null; return; }
+  const anchor = s.anchorNode;
+  const el = anchor && (anchor.nodeType === 3 ? anchor.parentElement : anchor);
+  const p = el && el.closest && el.closest(".ce-read-p");
+  if (!p || !p.parentElement) { sel.value = null; return; }
+  const all = [...p.parentElement.querySelectorAll(".ce-read-p")];
+  const rect = s.getRangeAt(0).getBoundingClientRect();
+  sel.value = {
+    para: all.indexOf(p),
+    top: Math.min(rect.bottom + 8, window.innerHeight - 120),
+    left: Math.max(12, Math.min(rect.left, window.innerWidth - 380)),
+  };
+  selNote.value = "";
+}
+function clearSel() {
+  sel.value = null; selNote.value = "";
+  const s = window.getSelection();
+  if (s) s.removeAllRanges();
+}
+/* ---- 派单确认（2026-11-25）----
+   作者定：**一次调用改多段**（“否则成本会增加三五倍”）。
+   所以确认页要把“几段、多少字、占本章多少、估多少 token、什么风险”一次说清。 */
+const dispatch = ref(null);
+/* 派单候选（2026-11-25）：外部（CLI / DSH / 将来的后端）跑完一次多段改写后，
+   把结果写进 `data/state/dispatch/chNN.json`；这里读出来逐条采用。
+   采用 = 调 `/chapters/dispatch apply` → 走 save_paragraph_text（与手改同一路径）。 */
+const dsp = ref({ exists: false, items: [] });
+async function loadDispatch() {
+  try {
+    const r = await props.api("/chapters/dispatch?n=" + props.n);
+    dsp.value = (r.status === 200 && r.data && r.data.exists)
+      ? r.data : { exists: false, items: [] };
+  } catch (e) {
+    dsp.value = { exists: false, items: [] };
+  }
+}
+async function adoptCand(it) {
+  const r = await props.api("/chapters/dispatch", "POST",
+    { n: props.n, action: "apply", id: it.id });
+  if (r.status === 200 && r.data && r.data.ok) {
+    emit("say", r.data.message || "已采用");
+    await loadDispatch();
+    await loadContent();       // 正文按盘上回读
+    await loadAnnotations();
+  } else {
+    emit("say", "采用失败：" + ((r.data && r.data.error) || ("HTTP " + r.status)));
+  }
+}
+async function rejectCand(it) {
+  const r = await props.api("/chapters/dispatch", "POST",
+    { n: props.n, action: "reject", id: it.id });
+  if (r.status === 200 && r.data && r.data.ok) {
+    emit("say", r.data.message || "已驳回");
+    await loadDispatch();
+  } else {
+    emit("say", "驳回失败：" + ((r.data && r.data.error) || ("HTTP " + r.status)));
+  }
+}
+const layerLabel = computed(() => LAYER_LABEL[layer.value] || layer.value);
+const dispatchItems = computed(() => annOpen.value
+  .filter((a) => a.status !== "missing")
+  .map((a) => ({
+    id: a.id,
+    note: a.note,
+    para: (a.current_index !== undefined && a.current_index !== null)
+      ? a.current_index : a.para_index,
+    quoteChars: (a.quote || "").replace(/\s/g, "").length,
+  }))
+  .sort((x, y) => x.para - y.para));
+const dispatchChars = computed(() => dispatchItems.value.reduce((s2, it) => s2 + it.quoteChars, 0));
+const chapterChars = computed(() => (layers.value[layer.value] || {}).words || 0);
+const pct = computed(() => {
+  if (!chapterChars.value) return "—";
+  return Math.round((dispatchChars.value / chapterChars.value) * 100) + "%";
+});
+// 粗算口径（写进确认页，别让人以为这是精确值）：中文按 1 字≈1 token，
+// 加固定提示词约 1500 token；输出按原文 1.15 倍（整段重写通常略长）。
+const estIn = computed(() => dispatchChars.value +
+  dispatchItems.value.reduce((s2, it) => s2 + (it.note || "").length, 0) + 1500);
+const estOut = computed(() => Math.round(dispatchChars.value * 1.15));
+function openDispatch() {
+  if (!dispatchItems.value.length) { emit("say", "清单是空的，没有可派单的段落"); return; }
+  dispatch.value = true;
+}
+function buildTaskBook() {
+  const lines = [
+    "# 派单任务书 · 第 " + props.n + " 章（" + layerLabel.value + "）",
+    "",
+    "一次调用改以下 " + dispatchItems.value.length + " 段，其余段落一个字都不许动。",
+    "每段按整段重写处理；段数、顺序、章节标题保持不变。",
+    "",
+  ];
+  for (const it of dispatchItems.value) {
+    lines.push("## 第 " + (it.para + 1) + " 段（" + it.quoteChars + " 字）");
+    lines.push("意见：" + it.note);
+    lines.push("");
+  }
+  lines.push("产出：改后的完整段落文本，按上面的顺序，用“=== 第N段 ===”分隔。");
+  return lines.join("\n");
+}
+async function copyTaskBook() {
+  try {
+    await navigator.clipboard.writeText(buildTaskBook());
+    emit("say", "任务书已复制（" + dispatchItems.value.length + " 段，1 次调用）");
+  } catch (e) {
+    emit("say", "复制失败：" + (e.message || e));
+  }
+}
+
+async function addSelNote() {
+  const note = selNote.value.trim();
+  if (!note || !sel.value) { emit("say", "先写一句要改什么"); return; }
+  selBusy.value = true;
+  const r = await props.api("/chapters/annotations", "POST",
+    { n: props.n, action: "add", para_index: sel.value.para, note, layer: layer.value });
+  selBusy.value = false;
+  if (r.status === 200 && r.data && r.data.ok) {
+    emit("say", "已记进待改清单（第 " + (sel.value.para + 1) + " 段）");
+    clearSel();
+    await loadAnnotations();
+    queueOpen.value = true;   // 记完顺手把清单展开，让人看见它确实进去了
+  } else {
+    emit("say", "记失败：" + ((r.data && r.data.error) || ("HTTP " + r.status)));
+  }
+}
+const markOpen = ref(-1);
+const marks = computed(() => {
+  const out = {};
+  for (const a of annOpen.value) {
+    if (a.status === "missing") continue;          // 找不到原句的不往正文上贴
+    const i = (a.current_index !== undefined && a.current_index !== null)
+      ? a.current_index : a.para_index;
+    if (i === undefined || i === null || i < 0) continue;
+    (out[i] = out[i] || []).push(a);
+  }
+  return out;
+});
+watch([() => mode.value, () => props.n], () => { markOpen.value = -1; });
+
 const annOpen = computed(() => ann.value.items.filter((a) => a.status !== "resolved"));
 const annDone = computed(() => ann.value.items.filter((a) => a.status === "resolved"));
 const annDoneOpen = ref(false);
@@ -872,6 +1034,7 @@ onMounted(async () => {
   window.addEventListener("keydown", onKey);
   await loadLayers();
   await loadWriteLog();
+  await loadDispatch();
   nextTick(() => { if (areaRef.value) areaRef.value.focus(); });
 });
 onUnmounted(() => {
@@ -885,6 +1048,10 @@ onUnmounted(() => {
        @click.self="embedded ? null : tryClose()">
     <div :class="embedded ? 'ce ce-embedded' : 'drawer drawer-xwide ce'">
       <div class="drawer-head">
+        <!-- 两行是显式的（2026-11-25）：原来靠 flex-wrap 自动折，结果“编辑”被挤到第一行末尾、
+             “阅读 / 段落批注”掉到第二行开头 —— 同一组模式按钮被拆在两行，
+             看着像两组不同的东西。现在信息一行、动作一行，谁来都不换位。 -->
+        <div class="ce-head-info">
         <b>第 {{ n }} 章</b>
         <span class="ce-layer-pills">
           <button v-for="l in ['raw', 'checked', 'refined']" :key="l"
@@ -899,6 +1066,8 @@ onUnmounted(() => {
         </span>
         <span class="ce-wordbadge" :class="wordBadge.cls">{{ wordBadge.text }}</span>
         <span v-if="dirty" class="ce-dirty">未保存</span>
+        </div>
+        <div class="ce-head-acts">
         <!-- C3（2026-11-07）：跑完流水线/重写后，之前挂在这段上的批注会失效或漂移。
              以前这件事**只有点进“段落批注”才知道**，等于没告知；这里在标题行直接点名。 -->
         <button v-if="ann.missing" class="mini ce-ann-alert"
@@ -907,33 +1076,108 @@ onUnmounted(() => {
         <button v-else-if="ann.drifted" class="mini ce-ann-alert warn"
                 :title="ann.drifted + ' 条批注的位置变了（正文改过），点一下看是哪几条'"
                 @click="switchMode('batch')">{{ ann.drifted }} 条批注位置变了</button>
-        <span class="spacer"></span>
         <!-- 选中态要有两种证据（2026-11-08，0.9.1 验收第 14 条）：样式（.mini.on 实心强调色）
              + aria-pressed。此前只剩 :hover 的一点色差，作者点四次也不知道选没选中。 -->
-        <button class="mini" :disabled="refining" :class="{ on: mode === 'edit' }"
+        <button class="btn" :disabled="refining" :class="{ 'btn-on': mode === 'edit' }"
                 :aria-pressed="mode === 'edit'" @click="switchMode('edit')">编辑</button>
         <!-- 阅读模式（2026-11-05）：只读正文 + 设定名高亮，点名字看卡。
              单开一个模式而不是把 textarea 换成富文本：输入法/撤销不能牺牲。 -->
-        <button class="mini" :disabled="refining" :class="{ on: mode === 'read' }"
+        <button class="btn" :disabled="refining" :class="{ 'btn-on': mode === 'read' }"
                 :aria-pressed="mode === 'read'"
                 :title="'只读正文，设定名可点（' + (settingLoad.count || 0) + ' 张卡）'"
                 @click="switchMode('read')">阅读</button>
-        <button class="mini" :disabled="refining" :class="{ on: mode === 'batch' }"
+        <button class="btn" :disabled="refining" :class="{ 'btn-on': mode === 'batch' }"
                 :aria-pressed="mode === 'batch'"
                 :title="canBatch ? '按段落挑选并提意见，让模型只重写这一段' : '批注只在当前层开放'"
                 @click="switchMode('batch')">段落批注</button>
+        <span class="spacer"></span>
+        <!-- 纯净阅读（总账 F1）：一键关掉全部行内标记，正文与成稿完全一致。
+             只在阅读态出现 —— 编辑态的标记是“要改的东西”，不该被藏。 -->
+        <button v-if="mode === 'read'" class="btn" :class="{ 'btn-on': pureRead }"
+                :aria-pressed="pureRead"
+                :title="pureRead ? '现在没有任何标记（复制出去的也是干净正文）' : '关掉全部行内标记，只看正文'"
+                @click="pureRead = !pureRead">{{ pureRead ? "显示标记" : "纯净阅读" }}</button>
         <!-- 侧栏开关（B7）：内联时默认收起，正文优先；点名字看卡会自动展开它。
              批注态禁用 —— 批注框在侧栏里，收起它等于把唯一入口收没了。 -->
-        <button v-if="embedded && mode !== 'edit'" class="mini" :class="{ on: sideOpen }"
+        <button v-if="embedded && mode !== 'edit'" class="btn" :class="{ 'btn-on': sideOpen }"
                 :disabled="mode === 'batch'"
                 :title="mode === 'batch' ? '批注框在侧栏里，这一态不能收'
                        : (sideOpen ? '收起侧栏，正文更宽' : '展开侧栏（设定卡 / 这一层 / 段落批注框）')"
                 @click="toggleSide">{{ sideOpen ? "收起侧栏" : "侧栏" }}</button>
-        <button class="mini primary" :disabled="!dirty || busy" @click="save">
+        <button class="btn btn-primary" :disabled="!dirty || busy" @click="save">
           {{ busy ? "保存中…" : "保存" }}
         </button>
-        <button class="mini" :disabled="busy" @click="loadContent">重新加载</button>
-        <button v-if="!embedded" class="mini" @click="tryClose">关闭</button>
+        <button class="btn" :disabled="busy" @click="loadContent">重新加载</button>
+        <button v-if="!embedded" class="btn btn-ghost" @click="tryClose">关闭</button>
+        </div>
+      </div>
+
+      <!-- 派单确认（2026-11-25）：覆盖层，用完即走。
+           为什么要有这一步：一次调用改多段，改坏了是**整批**重来，
+           所以下单前必须看见“改哪些、影响多大、大约花多少”。 -->
+      <div v-if="dispatch" class="ce-dispatch-mask" @click.self="dispatch = null">
+        <div class="ce-dispatch">
+          <div class="ce-dispatch-head">
+            <b>派单确认 · 第 {{ n }} 章 {{ layerLabel }}</b>
+            <span class="spacer"></span>
+            <button class="btn btn-ghost" @click="dispatch = null">取消</button>
+          </div>
+          <div class="ce-dispatch-body">
+            <div class="ce-dispatch-sect">
+              <div class="ce-dispatch-k">要改 {{ dispatchItems.length }} 段</div>
+              <div v-for="it in dispatchItems" :key="it.id" class="ce-dispatch-row">
+                <span class="ce-dispatch-no">第 {{ it.para + 1 }} 段 · {{ it.quoteChars }} 字</span>
+                <span class="ce-dispatch-note">{{ it.note }}</span>
+              </div>
+            </div>
+
+            <div class="ce-dispatch-sect">
+              <div class="ce-dispatch-k">影响面</div>
+              <div class="ce-dispatch-line">
+                涉及原文字数 <b>{{ dispatchChars }}</b>，占本章 {{ chapterChars }} 字的
+                <b>{{ pct }}</b>；其余段落不动。
+              </div>
+              <div class="ce-dispatch-line">
+                每段按“整段重写”处理（不是逐句替换）——段内措辞可能整体变，
+                段数、顺序、章节标题不变。
+              </div>
+            </div>
+
+            <div class="ce-dispatch-sect">
+              <div class="ce-dispatch-k">成本与调用</div>
+              <div class="ce-dispatch-line">
+                模型调用 <b>1 次</b>（多段合并成一次）；
+                估算 token：输入 <b>{{ estIn }}</b> · 输出 <b>{{ estOut }}</b> 左右（±30%）。
+              </div>
+              <div class="ce-dispatch-line">
+                估算方式：中文按 1 字 ≈ 1 token 粗算，含固定提示词约 1500 token；
+                实际以模型返回的 usage 为准。
+              </div>
+            </div>
+
+            <div class="ce-dispatch-sect">
+              <div class="ce-dispatch-k">风险</div>
+              <div class="ce-dispatch-line">
+                · 一次改多段，某一段跑偏会让整批结果都要重看；<br />
+                · 改稿先落候选（沙盒），不直接覆盖正文 —— 你逐条采用才写回；<br />
+                · 动手前建议先存快照（有改动时顶部会提示）。
+              </div>
+            </div>
+          </div>
+          <div class="ce-dispatch-foot">
+            <span class="ce-dispatch-warn">执行接口还没接（总账 F7）。现在能先拿走任务书，用 CLI / DSH 跑同一份。</span>
+            <button class="btn" @click="copyTaskBook">复制任务书</button>
+            <button class="btn btn-primary" disabled title="这一步还没接上，见总账 F7">派单执行（未接）</button>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="sel" class="ce-selbar" :style="{ top: sel.top + 'px', left: sel.left + 'px' }">
+        <span class="ce-selbar-no">第 {{ sel.para + 1 }} 段</span>
+        <input v-model="selNote" class="ce-selbar-in" placeholder="这段要改什么？回车记下"
+               @keyup.enter="addSelNote" />
+        <button class="btn btn-primary" :disabled="selBusy" @click="addSelNote">记下</button>
+        <button class="btn btn-ghost" title="关掉" @click="clearSel">×</button>
       </div>
 
       <div v-if="loading" class="ce-empty">读取中…</div>
@@ -946,7 +1190,8 @@ onUnmounted(() => {
             <textarea ref="areaRef" v-model="text" class="ce-textarea" spellcheck="false"
                       placeholder="正文（Ctrl+S 保存）。缺“## 第N章”会自动补。"></textarea>
           </div>
-          <div v-else-if="mode === 'read'" class="ce-read">
+          <div v-else-if="mode === 'read'" class="ce-read" :class="{ 'ce-pure': pureRead }"
+               @mouseup="onReadMouseUp" @scroll="clearSel">
             <div v-if="settingLoad.loading" class="meta">读取设定集…</div>
             <div v-else-if="settingLoad.error" class="meta">{{ settingLoad.error }}</div>
             <div v-else-if="!settingLoad.count" class="meta">
@@ -955,12 +1200,31 @@ onUnmounted(() => {
             <div v-else class="meta ce-read-hint">
               点文中的名字看设定卡（共 {{ settingLoad.count }} 个可点名，含别名）。
             </div>
-            <p v-for="(p, i) in readParas" :key="i" class="ce-read-p" :class="{ 'ce-read-h': p.head }">
-              <template v-for="(sg, j) in segments(p.t)" :key="j">
-                <span v-if="sg.hit" class="ce-name" :title="'看设定卡：' + sg.t" @click="pickName(sg.t)">{{ sg.t }}</span>
-                <template v-else>{{ sg.t }}</template>
-              </template>
-            </p>
+            <!-- 行内标记（2026-11-25，总账 F1/F2）：
+                 段旁的竖条**绝对定位**，只占左边距，不参与行内排版 ——
+                 标记出现/消失时，行高与行宽一个像素都不变（F2 验收线）。
+                 点竖条才展开那条批注；关掉全部标记就是“纯净阅读”（F1）。 -->
+            <template v-for="(p, i) in readParas" :key="i">
+              <p class="ce-read-p"
+                 :class="{ 'ce-read-h': p.head, 'ce-has-mark': marks[i] && !p.head }">
+                <span v-if="marks[i] && !p.head" class="ce-mark-dot"
+                      :title="marks[i].length + ' 条批注，点开看'"
+                      @click="markOpen = markOpen === i ? -1 : i"></span>
+                <template v-for="(sg, j) in segments(p.t)" :key="j">
+                  <span v-if="sg.hit" class="ce-name" :title="'看设定卡：' + sg.t" @click="pickName(sg.t)">{{ sg.t }}</span>
+                  <template v-else>{{ sg.t }}</template>
+                </template>
+              </p>
+              <div v-if="marks[i] && markOpen === i" class="ce-mark-note">
+                <div v-for="a in marks[i]" :key="a.id" class="ce-mark-item">
+                  <span class="ce-mark-para">第 {{ i + 1 }} 段</span>
+                  <span class="ce-mark-text">{{ a.note }}</span>
+                  <button class="btn btn-ghost ce-mark-act"
+                          title="标为已处理（正文一个字不动）"
+                          @click="resolveAnnotation(a)">标为已处理</button>
+                </div>
+              </div>
+            </template>
           </div>
           <div v-else class="ce-paras">
             <div v-if="parasLoading" class="meta">读取段落…</div>
@@ -973,6 +1237,45 @@ onUnmounted(() => {
           </div>
         </div>
 
+          <!-- 待改清单（2026-11-25）：中栏右缘一条可收起的细栏。
+               为什么不做成第三栏：正文只有 660，再并一列就把字挤没了。
+               收起时只留 28px 竖排数字，点开滑出 260px；清单内容就是未收口的批注。 -->
+          <aside v-if="embedded && annOpen.length" class="ce-queue" :class="{ open: queueOpen }">
+            <button class="ce-queue-h" :title="queueOpen ? '收起待改清单' : '展开待改清单（' + annOpen.length + ' 条）'"
+                    @click="queueOpen = !queueOpen">
+              <span class="ce-queue-h-t">待改 {{ annOpen.length }}</span>
+            </button>
+            <div v-if="queueOpen" class="ce-queue-body">
+              <div class="ce-queue-title">待改清单 · 共 {{ annOpen.length }} 条</div>
+              <div v-for="a in annOpen" :key="a.id" class="ce-queue-item">
+                <b>第 {{ (a.current_index ?? a.para_index) + 1 }} 段</b>
+                <span>{{ a.note }}</span>
+                <button class="btn btn-ghost ce-queue-act" @click="jumpToAnnotation(a)">跳到这段</button>
+              </div>
+              <div v-if="dsp.exists && dsp.items.length" class="ce-queue-cands">
+                <div class="ce-queue-title">派单候选 · {{ dsp.items.length }} 段</div>
+                <div v-for="it in dsp.items" :key="it.id" class="ce-cand" :class="it.status">
+                  <b>第 {{ it.para + 1 }} 段</b>
+                  <span class="ce-cand-note">{{ it.note }}</span>
+                  <div class="ce-cand-after">{{ it.after }}</div>
+                  <div class="ce-cand-acts">
+                    <button class="btn btn-primary" :disabled="it.status !== 'open'"
+                            @click="adoptCand(it)">采用</button>
+                    <button class="btn" :disabled="it.status !== 'open'"
+                            @click="rejectCand(it)">驳回</button>
+                    <span v-if="it.status !== 'open'" class="ce-cand-st">
+                      {{ it.status === "adopted" ? "已采用" : "已驳回" }}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <div class="ce-queue-foot">
+                <button class="btn btn-primary ce-queue-send" :disabled="!annOpen.length"
+                        @click="openDispatch">派单改写（{{ annOpen.length }} 段）</button>
+                <span class="ce-queue-hint">一次调用改多段：分 3 次调用的钱，一次花完。</span>
+              </div>
+            </div>
+          </aside>
         <!-- 右：批注 / 设定卡 / 字数 / 版本信息
              ⚠️ 内联进审阅台时**编辑模式不出现侧栏**：审阅台本身已有右栏
              （本章出场 / 大纲 / 七维），再并一列卡会变成四列“一堆重叠的卡片”
@@ -1257,7 +1560,7 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.ce { width: min(1280px, 96vw); height: min(88vh, 900px); display: flex; flex-direction: column; }
+.ce { position: relative; width: min(1280px, 96vw); height: min(88vh, 900px); display: flex; flex-direction: column; }
 /* 内联形态（审阅台中栏）：尺寸由父容器决定，不设遮罩 */
 .ce-embed { flex: 1; min-width: 0; min-height: 0; display: flex; }
 .ce-embedded { width: 100%; height: 100%; min-height: 0; }
@@ -1272,8 +1575,113 @@ onUnmounted(() => {
 .ce-quick-btn { font-size: 12px; padding: 2px 6px; }
 .ce-quick-toggle { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; color: var(--muted); cursor: pointer; }
 .ce-layer-pills { display: inline-flex; gap: 6px; margin-left: 4px; flex-shrink: 0; }
+/* 派单确认覆盖层（2026-11-25）：盖住中栏，不盖整页 —— 它是“这一章的派单”，
+   不是全局操作；同时保留左右两栏可见，方便对照着看清单。 */
+.ce-dispatch-mask {
+  position: absolute; inset: 0; z-index: 45;
+  background: color-mix(in srgb, var(--ink) 24%, transparent);
+  display: flex; align-items: center; justify-content: center; padding: 16px;
+}
+.ce-dispatch {
+  width: min(560px, 100%); max-height: 100%; display: flex; flex-direction: column;
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--r-lg);
+  box-shadow: var(--shadow);
+}
+.ce-dispatch-head {
+  display: flex; align-items: center; gap: 8px; padding: 10px 14px;
+  border-bottom: 1px solid var(--border); font-size: 13px;
+}
+.ce-dispatch-body { overflow-y: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 14px; }
+.ce-dispatch-k { font-size: 12px; color: var(--muted); margin-bottom: 6px; letter-spacing: 0.04em; }
+.ce-dispatch-row {
+  display: flex; gap: 8px; align-items: baseline; padding: 6px 0;
+  border-bottom: 1px dashed var(--border); font-size: 13px;
+}
+.ce-dispatch-no { flex: none; font-size: 12px; color: var(--warn); white-space: nowrap; }
+.ce-dispatch-note { color: var(--ink); line-height: 1.55; }
+.ce-dispatch-line { font-size: 13px; line-height: 1.7; color: var(--ink); }
+.ce-dispatch-line b { font-variant-numeric: tabular-nums; }
+.ce-dispatch-foot {
+  display: flex; align-items: center; gap: 8px; padding: 10px 14px;
+  border-top: 1px solid var(--border); flex-wrap: wrap;
+}
+.ce-dispatch-warn { flex: 1; min-width: 180px; font-size: 12px; color: var(--warn); line-height: 1.5; }
+.ce-queue-send { width: 100%; }
+.ce-queue-hint { font-size: 12px; color: var(--muted); line-height: 1.5; }
+
+/* 选区动作带：贴着选区浮出，用完即走。 */
+.ce-selbar {
+  position: fixed; z-index: 40; display: flex; align-items: center; gap: 6px;
+  padding: 6px 8px; border-radius: 10px;
+  background: var(--card); border: 1px solid var(--border); box-shadow: var(--shadow);
+  max-width: 360px;
+}
+.ce-selbar-no { font-size: 12px; color: var(--warn); white-space: nowrap; }
+.ce-selbar-in {
+  width: 200px; height: 26px; border-radius: 6px;
+  border: 1px solid var(--border); background: var(--field); color: var(--ink);
+  font-size: 13px; padding: 0 8px;
+}
+.ce-selbar-in:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.ce-selbar .btn { height: 26px; padding: 0 9px; font-size: 12px; }
+
+/* 待改清单细栏（2026-11-25）：内联进审阅台时才出现。
+   收起 28px、展开 260px，是 `.ce-body` 的**真实列**（不是浮层）——
+   浮层会盖住正文，而这里正文字宽只有 660，盖一半等于不能用。 */
+.ce-queue {
+  flex: none; display: flex; align-items: stretch;
+  border-left: 1px solid var(--border); min-width: 0;
+}
+.ce-queue-h {
+  flex: none; width: 28px; border: 0; background: var(--field-dim); color: var(--muted);
+  cursor: pointer; padding: 0; display: flex; align-items: center; justify-content: center;
+  border-radius: 0 8px 8px 0;
+}
+.ce-queue-h:hover { color: var(--accent); }
+.ce-queue-h-t { writing-mode: vertical-rl; font-size: 12px; letter-spacing: 0.08em; }
+.ce-queue-body {
+  width: 260px; min-width: 0; overflow-y: auto; padding: 10px 12px;
+  background: var(--field-dim); display: flex; flex-direction: column; gap: 8px;
+  border-radius: 0 8px 8px 0;
+}
+.ce-queue-title { font-size: 12px; color: var(--muted); }
+.ce-queue-item {
+  display: flex; flex-direction: column; gap: 3px; padding: 8px 9px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--card);
+  font-size: 13px; line-height: 1.55;
+}
+.ce-queue-item b { font-size: 12px; color: var(--warn); font-weight: 600; }
+.ce-queue-act { align-self: flex-start; height: 24px; padding: 0 8px; font-size: 12px; }
+.ce-queue-cands { display: flex; flex-direction: column; gap: 8px; }
+.ce-cand {
+  display: flex; flex-direction: column; gap: 4px; padding: 8px 9px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--card);
+  font-size: 13px; line-height: 1.55;
+}
+.ce-cand b { font-size: 12px; color: var(--ink-accent); font-weight: 600; }
+.ce-cand-note { font-size: 12px; color: var(--muted); }
+.ce-cand-after {
+  color: var(--ink); max-height: 96px; overflow: auto;
+  padding: 6px 7px; border-radius: 6px;
+  background: color-mix(in srgb, var(--ok) 8%, transparent);
+}
+.ce-cand-acts { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.ce-cand-acts .btn { height: 24px; padding: 0 9px; font-size: 12px; }
+.ce-cand-st { font-size: 12px; color: var(--muted); }
+.ce-cand.adopted { opacity: 0.6; }
+.ce-queue-foot { margin-top: auto; font-size: 12px; color: var(--muted); line-height: 1.6; }
+
+.ce-head-info,
+.ce-head-acts {
+  display: flex; align-items: center; gap: 8px;
+  flex-wrap: wrap; width: 100%; min-width: 0;
+}
+.ce-head-acts { padding-top: 6px; border-top: 1px solid var(--border); }
+.ce-head-info { row-gap: 6px; }
 .ce-pill { padding: 2px 8px; }
-.ce-pill.on { background: var(--accent, #6b8afd); color: #fff; border-color: transparent; }
+/* 选中态与全局同一条语言（2026-11-25 作者定）：中性反色 = 你在这一层；
+   强调色填充只留给“现在就点这个”的主按钮，两者不再长得一样。 */
+.ce-pill.on { background: var(--ink); color: var(--bg); border-color: transparent; }
 .ce-pill-n { opacity: 0.75; margin-left: 4px; font-size: 12px; }
 .ce-wordbadge { margin-left: 10px; font-size: 13px; color: var(--muted, #888); white-space: nowrap; }
 .ce-wordbadge.low {
@@ -1290,26 +1698,55 @@ onUnmounted(() => {
 .ce-body { flex: 1; display: flex; min-height: 0; gap: 12px; padding: 10px 12px 12px; }
 .ce-main { flex: 1; min-width: 0; display: flex; }
 .ce-edit-wrap { flex: 1; display: flex; }
-/* 正文测量上限（B7，2026-11-06）：730px ≈ 46 个汉字/行（15px 字 + 32px 内边距 + 2px 边框）。
-   为什么要有上限：栏宽放开后（左/右栏可收起），1920 视口下正文能到 80+ 字/行 ——
-   那是另一头的不适（眼睛回扫距离过长）。上限 + 居中 = 宽度够读、又不拉成横幅。
-   数值不是拍脑袋：Task 判据是“≥45 汉字/行”，46 是“达标且稳定”的最小值。 */
+/* 正文测量上限（B7，2026-11-06；L1-a2，2026-11-25 改为令牌）
+   原来写死 730px / 15px，靠“730÷15≈46 汉字”这条注释维持口径 —— 一旦改字号，
+   注释就变成谎话（实测 15px 下是 46 汉字/行，不是注释以外任何人以为的数）。
+   现在：行宽 = `--read-measure`（40em，随字号走），字号 = `--fs-read`（17px）。
+   40em 在 17px 下 = 680px，正好 40 个汉字 —— 作者 2026-11-25 定的口径，
+   与他在 Word 里改稿时把字调大是同一件事（他说“实际改稿时文字差不多也这么大”）。 */
 .ce-textarea {
-  flex: 1; width: 100%; max-width: 730px; margin: 0 auto; resize: none; padding: 14px 16px;
+  flex: 1; width: 100%; max-width: var(--read-measure); margin: 0 auto; resize: none; padding: 14px 16px;
   font-family: "Source Han Serif SC", "Noto Serif SC", "Songti SC", serif;
-  font-size: 15px; line-height: 1.9;
+  font-size: var(--fs-read); line-height: var(--lh-read);
   border: 1px solid var(--border); border-radius: 8px;
   background: var(--field-inset, #fff); color: var(--ink);
 }
-/* 阅读模式（2026-11-05）：与编辑态同一套排版，正文可点名字 */
+/* 阅读模式（2026-11-05）：与编辑态同一套排版，正文可点名字。
+   L1-a2：字号/行高/行宽一律走令牌，读与写两态用同一档 —— 否则“读着舒服、
+   一进编辑就变小”这种落差，正是改稿时最烦的那种不一致。 */
 .ce-read {
   flex: 1; min-width: 0; overflow: auto; padding: 12px 16px;
-  max-width: 730px; margin: 0 auto;
+  max-width: var(--read-measure); margin: 0 auto;
   border: 1px solid var(--border); border-radius: 8px;
   background: var(--field-inset, #fff);
   font-family: "Source Han Serif SC", "Noto Serif SC", "Songti SC", serif;
-  font-size: 15px; line-height: 1.95; color: var(--ink);
+  font-size: var(--fs-read); line-height: var(--lh-read); color: var(--ink);
 }
+/* 行内标记（2026-11-25，总账 F1/F2）
+   竖条与批注块都**不参与行内排版**：竖条绝对定位在左边距里，
+   关掉标记（.ce-pure）时行高行宽与纯净正文逐像素一致 —— 这是 F2 的验收线。
+   颜色用 --warn：批注是“待办”，不是错误；用红色会把作者的笔记读成报错。 */
+.ce-has-mark { position: relative; }
+.ce-mark-dot {
+  position: absolute; left: -11px; top: 0.35em;
+  width: 3px; height: 1.15em; border-radius: 2px;
+  background: var(--warn); cursor: pointer;
+  transition: width var(--motion-fast);
+}
+.ce-mark-dot:hover { width: 5px; }
+.ce-pure .ce-mark-dot,
+.ce-pure .ce-mark-note { display: none; }
+.ce-mark-note {
+  margin: -0.4em 0 1em; padding: 8px 10px;
+  border-left: 2px solid var(--warn);
+  background: color-mix(in srgb, var(--warn) 8%, transparent);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  font-size: 13px; line-height: 1.6;
+}
+.ce-mark-item { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.ce-mark-para { font-size: 12px; color: var(--muted); }
+.ce-mark-text { flex: 1; min-width: 160px; color: var(--ink); }
+.ce-mark-act { height: 24px; padding: 0 8px; font-size: 12px; }
 .ce-read-hint { margin-bottom: 8px; }
 .ce-read-p { margin: 0 0 0.85em; text-indent: 2em; }
 /* 冲突块（Papilot ⑧）：用中性的警示色，不做成错误红 —— 这不是失败，是要你选 */
@@ -1324,7 +1761,7 @@ onUnmounted(() => {
 .ce-conflict-acts { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
 /* 按钮别被窄栏切掉字（目检 2026-11-15）：宁可换行，不要截断 */
 .ce-conflict-acts button { white-space: nowrap; max-width: 100%; }
-.ce-read-h { text-indent: 0; font-weight: 700; font-size: 18px; margin: 0 0 1em; letter-spacing: 0.02em; }
+.ce-read-h { text-indent: 0; font-weight: 700; font-size: 1.3em; margin: 0 0 1em; letter-spacing: 0.02em; }
 /* 设定名高亮（2026-11-08 改，0.9.1 验收第 15 条）。
    原来给每个名字都加“虚线下划线 + 淡紫底”—— 一页正文里几十条横线，
    读起来像校样符号，作者原话：“这种东西就不该在任何正经文本里出现，完全不符合书面用法”。

@@ -71,13 +71,22 @@ const rightOpen = ref(localStorage.getItem(RIGHT_KEY) !== "0");
 const rightTouched = ref(localStorage.getItem(RIGHT_KEY) != null);
 const deskEl = ref(null);
 const deskW = ref(0);
-const autoNarrow = computed(() => deskW.value > 0 && deskW.value < 1220);
+const autoNarrow = computed(() => deskW.value > 0 && deskW.value < 1100);
 // 用户手动动过 → 完全按他的选择；没动过 → 窄了就自动收右栏（宽度省下来给正文）。
 // ⚠️ 这里别写成 `|| rightTouched`：那等于“动过就永远显示”，点收起没反应（2026-11-06 实测抓到）。
 const rightShown = computed(() => (rightTouched.value ? rightOpen.value : !autoNarrow.value));
 function toggleLeft() {
   leftOpen.value = !leftOpen.value;
   localStorage.setItem(LEFT_KEY, leftOpen.value ? "1" : "0");
+}
+/* 待改清单展开 → 自动收起依据栏（2026-11-25）：中栏在 1440 下只有 660，
+   两个侧栏同时开的话正文只剩 372px。收起不回头自动展开，避免来回抖。 */
+function onQueueToggle(open) {
+  if (open && rightShown.value) {
+    rightTouched.value = true;
+    rightOpen.value = false;
+    localStorage.setItem(RIGHT_KEY, "0");
+  }
 }
 function toggleRight() {
   // 先按“当前显示状态”取反，再改 touched —— 反了的话状态已经被 touched 改写，
@@ -314,7 +323,9 @@ onMounted(() => {
           <button class="mini" :disabled="!canNext" @click="go(1)">下一章 →</button>
           <span class="spacer"></span>
           <span v-if="autoNarrow && !rightShown" class="meta">窗口较窄，依据栏已自动收起</span>
-          <span class="meta">改完记得保存（Ctrl+S）；不保存就切章会丢</span>
+          <!-- 这行提示原来常驻，把“依据栏”按钮挤到了第二行（2026-11-25 截图目检）。
+               它说的事已经有兜底：有未保存改动时，`.desk-unsaved` 会拦住切章并给三个出口；
+               编辑器头部也有“未保存”标记。常驻一句反而占掉一行高度，删掉。 -->
           <button class="mini desk-toggle" :title="rightShown ? '收起写作依据栏，正文更宽' : '展开写作依据栏（大纲 / 出场 / 七维）'"
                   @click="toggleRight">{{ rightShown ? "依据栏 ⇥" : "⇤ 依据栏" }}</button>
         </div>
@@ -328,7 +339,8 @@ onMounted(() => {
             <button class="mini danger" @click="discardThenSwitch">丢弃改动并切换</button>
             <button class="mini primary" @click="saveThenSwitch">保存并切换</button>
           </div>
-          <ChapterEditor ref="editorRef" :api="api" :n="n" :self-engine="selfEngine" :epoch="epoch" embedded @say="(m) => emit('say', m)" />
+          <ChapterEditor ref="editorRef" :api="api" :n="n" :self-engine="selfEngine" :epoch="epoch" embedded
+                         @say="(m) => emit('say', m)" @queue="onQueueToggle" />
         </div>
       </template>
       <!-- 没有章节时不渲染编辑器：否则它会对不存在的章反复报 404，
@@ -450,8 +462,13 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.desk { display: flex; gap: 10px; height: calc(100vh - 210px); min-height: 420px; font-size: 13px; }
-.desk-left { flex: none; width: 220px; display: flex; flex-direction: column; min-height: 0; }
+.desk { display: flex; gap: 12px; height: calc(100vh - 210px); min-height: 420px; font-size: 13px; }
+/* 三栏要能在 1440 宽（最常见的笔记本）同时站住 —— 2026-11-25 实测：
+   原来 左 220 / 右 280 + 阈值 1220，1440 下审阅台只有 1134，右栏被自动收起，
+   于是“改稿平台”看上去只剩两栏，正文两侧还是大片空白。
+   收窄两侧：左 200 / 右 250 / 栏距 12 → 正文拿到约 660px（≈39 汉字），
+   右栏（依据/七维）能在 1440 下常驻。 */
+.desk-left { flex: none; width: 200px; display: flex; flex-direction: column; min-height: 0; }
 .desk-left-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; }
 .desk-chap-list { flex: 1; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
 .desk-chap {
@@ -493,7 +510,7 @@ onMounted(() => {
   border: 1px dashed var(--border); border-radius: 10px;
 }
 
-.desk-right { flex: none; width: 280px; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
+.desk-right { flex: none; width: 250px; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
 .desk-block { padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; }
 .desk-block-title { font-weight: 600; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
 .desk-outline {
@@ -508,10 +525,13 @@ onMounted(() => {
 .desk-dims-note { margin-top: 8px; line-height: 1.6; }
 /* 上下文包（2026-11-05）：三个读数一行摆开，明细默认收起 —— 右栏本来就窄，
    一上来堆十几条召回会把它撑成第二页正文。 */
-.desk-ctx-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+/* 三读数在 250px 宽的右栏里放不下三个 —— 原来写死 repeat(3,1fr)，
+   每格只剩 ~70px，标签全被挤成三行（截图里就是那副样子）。
+   改成 auto-fit：宽了就三列，窄了自动两列。 */
+.desk-ctx-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; }
 .desk-ctx-item {
   min-width: 0; padding: 6px 8px; border-radius: 7px;
-  background: rgba(155, 143, 196, 0.08); border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--accent) 8%, transparent); border: 1px solid var(--border);
   display: flex; flex-direction: column; gap: 1px;
 }
 .desk-ctx-item b { font-size: 18px; line-height: 1.2; }

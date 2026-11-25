@@ -474,6 +474,116 @@ def handle_chapters_save(h, body):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+def handle_chapters_dispatch(h):
+    """`GET /chapters/dispatch?n=3` —— 派单候选（2026-11-25，总账 F7）。
+
+    派单是“一次调用改多段”（作者定）。产出不直接覆盖正文，先落成候选：
+    每段一条 `before/after`，作者逐条采用才写回。没有候选 → `exists:false`
+    （不是错误：这章还没派过单）。
+    """
+    from utils import dispatch as dsp
+    qs = h._query()
+    try:
+        n = int((qs.get("n") or ["0"])[0])
+    except (TypeError, ValueError):
+        return 400, {"ok": False, "error": "n 必填且为章节号"}
+    if n < 1:
+        return 400, {"ok": False, "error": "n 必填且为章节号"}
+    data = dsp.load(api.ROOT, n)
+    if not data:
+        return 200, {"ok": True, "exists": False, "n": n, "items": []}
+    out = {"ok": True, "exists": True, "n": n}
+    out.update(data)
+    return 200, out
+
+
+def handle_chapters_dispatch_set(h, body):
+    """`POST /chapters/dispatch {n, action, ...}` —— 写候选 / 采用 / 驳回。
+
+    action:
+      - `save`：{n, layer?, items:[{id?, para, note?, before?, after}]} —— 把一轮派单的
+        产出整份写进去（外部跑完模型后调用它，不经过本进程的模型调用）；
+      - `apply`：{n, id} —— 采用这一段：走 `refine_paragraph.save_paragraph_text`
+        （与手改/精修同一条回写路径，同样进历史版本）；
+      - `reject`：{n, id} —— 驳回，只标状态，正文不动。
+    """
+    from utils import dispatch as dsp
+    body = body or {}
+    try:
+        n = int(body.get("n"))
+    except (TypeError, ValueError):
+        return 400, {"ok": False, "error": "n 必填且为章节号"}
+    if n < 1:
+        return 400, {"ok": False, "error": "n 必填且为章节号"}
+    action = str(body.get("action") or "").strip()
+
+    # 采用会把候选零 token 直接写进正文 —— 与 /chapters/save、/chapters/candidates/apply
+    # 同档：谁能决定哪一版写进书里，是作者的事。Agent 可以写候选（save），
+    # 不能替作者拍板（apply）。
+    if action == "apply":
+        from nf_api_domains.project import _gui_only
+        guard = _gui_only(h, "采用派单候选")
+        if guard:
+            return guard
+
+    if action == "save":
+        raw = body.get("items") or []
+        if not isinstance(raw, list) or not raw:
+            return 400, {"ok": False, "error": "items 必填且非空"}
+        items = []
+        for i, it in enumerate(raw):
+            if not isinstance(it, dict):
+                return 400, {"ok": False, "error": "items[%d] 形状不对" % i}
+            after = str(it.get("after") or "").strip()
+            if not after:
+                return 400, {"ok": False, "error": "items[%d].after 不能为空" % i}
+            try:
+                para = int(it.get("para"))
+            except (TypeError, ValueError):
+                return 400, {"ok": False, "error": "items[%d].para 必须是段号" % i}
+            items.append({
+                "id": str(it.get("id") or ("d%d_%d" % (i + 1, n))),
+                "para": para,
+                "note": str(it.get("note") or ""),
+                "before": str(it.get("before") or ""),
+                "after": after,
+                "status": "open",
+            })
+        layer = str(body.get("layer") or "").strip() or (_current_layer(n) or "refined")
+        if layer not in LAYERS:
+            return 400, {"ok": False, "error": "layer 须为 raw / checked / refined"}
+        data = dsp.save(api.ROOT, n, items, layer=layer,
+                        source=str(body.get("source") or "dispatch"))
+        return 200, {"ok": True, "message": "已记下 %d 段候选" % len(items),
+                     "items": data["items"]}
+
+    if action in ("apply", "reject"):
+        aid = str(body.get("id") or "").strip()
+        if not aid:
+            return 400, {"ok": False, "error": "id 必填"}
+        it = dsp.find(api.ROOT, n, aid)
+        if not it:
+            return 404, {"ok": False, "error": "没有这条候选：%s" % aid}
+        if it.get("status") == "adopted":
+            return 200, {"ok": True, "message": "这条已经采用过了"}
+        if action == "reject":
+            dsp.set_status(api.ROOT, n, aid, "rejected")
+            return 200, {"ok": True, "message": "已驳回（正文没动）"}
+        try:
+            import refine_paragraph
+            ok, msg = refine_paragraph.save_paragraph_text(
+                n, int(it.get("para")), it.get("after"),
+                note="派单采用", root=api.ROOT)
+        except Exception as e:                                # noqa: BLE001
+            return 500, {"ok": False, "error": "写回失败：%s" % e}
+        if not ok:
+            return 400, {"ok": False, "error": msg}
+        dsp.set_status(api.ROOT, n, aid, "adopted")
+        return 200, {"ok": True, "message": "已采用第 %d 段的候选" % (int(it.get("para")) + 1)}
+
+    return 400, {"ok": False, "error": "action 须为 save / apply / reject"}
+
+
 def handle_chapters_rewrite(h, body):
     """`POST /chapters/rewrite {n}` —— 重写整章（走阶段 4，会花 token）。
 
@@ -774,6 +884,8 @@ ROUTES = (
     ("POST", "/chapters/annotations", handle_chapters_annotations_set),
     ("GET", "/chapters/rerun/plan", handle_chapters_rerun_plan),
     ("POST", "/chapters/save", handle_chapters_save),
+    ("GET", "/chapters/dispatch", handle_chapters_dispatch),
+    ("POST", "/chapters/dispatch", handle_chapters_dispatch_set),
     ("POST", "/chapters/rewrite", handle_chapters_rewrite),
     ("POST", "/chapters/rerun", handle_chapters_rerun),
 )
