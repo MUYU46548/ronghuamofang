@@ -732,6 +732,91 @@ def _style_blocks(proj):
 #: 放在 data/state/ 下 = 运行产物，不进 Git、不污染 data/setting/。
 CONTEXT_DIR = Path("data/state/context")
 
+# ---------------------------------------------------------------- 会话与接力（P1-3）
+#: 换会话的“水位”分母默认值（作者 2026-11-25 拍板 A：按上下文水位 60% 换）。
+#: 墨坊拿不到模型窗口大小，只能用一个自设上限 + 实测校准；
+#: 换会话时若累计 < 18 万判“换早了”、> 30 万判“换晚了”，按此调 `dsh.session_token_budget`。
+SESSION_BUDGET_DEFAULT = 250000
+
+#: 接力包落盘位置：`data/state/relay/chNN.md`（NN = 刚写完的那一章）。
+RELAY_DIR = Path("data/state/relay")
+
+
+def _session_state(progress):
+    """读阶段 4 的会话状态（跨 run 续接用）。缺字段一律回落安全值。"""
+    st = progress.data.setdefault("stages", {}).setdefault("4", {})
+    sess = st.get("session") or {}
+    return {
+        "id": sess.get("id") or None,
+        "last_chapter": int(sess.get("last_chapter") or 0),
+        "tokens_in": int(sess.get("tokens_in") or 0),
+        "rotations": int(sess.get("rotations") or 0),
+    }
+
+
+def _save_session(progress, session_id, chapter_no, tokens_in, rotations=0):
+    """把会话状态写进 progress.json —— P1-3 的全部意义就在这一行落盘：
+
+    没有它，进程一退（或换个会话接着写）就又是一张白纸，前 50 章白写。
+    """
+    st = progress.data.setdefault("stages", {}).setdefault("4", {})
+    st["session"] = {
+        "id": session_id or None,
+        "last_chapter": int(chapter_no or 0),
+        "tokens_in": int(tokens_in or 0),
+        "rotations": int(rotations or 0),
+        "at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+    progress.save()
+
+
+def _write_relay_package(n, total, raw_dir, tokens_in=0):
+    """换会话用的接力包（作者拍板 Q1=A：整卷一会话，按水位换）。
+
+    四件缺一不可（施工任务书 §4）：决策文件、最近 3 章、进度、未回收伏笔。
+    写给**下一章**用：`data/state/relay/chNN.md`（NN = 刚写完的章号）。
+    """
+    from utils import canon as _canon
+    lines = ["# 接力包：第 %d 章写完之后换会话" % int(n), ""]
+    lines += ["## 现在到哪",
+              "- 本书共 %d 章，已经写到第 %d 章（这一章已过校验、已落盘）。" % (int(total), int(n)),
+              "- 下一章是第 %d 章；**接着写，不要重写任何已完成章**。" % (int(n) + 1),
+              "- 换会话的原因：本会话累计输入约 %d token，到了水位线。" % int(tokens_in),
+              ""]
+    recent = []
+    for k in range(max(1, int(n) - 2), int(n) + 1):
+        p = Path(raw_dir) / ("%02d.md" % k)
+        if p.exists():
+            recent.append("- 第 %d 章：%s" % (k, p.resolve().as_posix()))
+    lines += ["## 最近三章原文（要读，用来接语气与线头）"] + (recent or ["- （没有可读的章节）"]) + [""]
+    opens = _canon.open_foreshadows()
+    lines += ["## 已定的决策",
+              "- 决策文件：%s（先读它，与它冲突的写法一律按它）" % _canon.PATH.as_posix(),
+              "- 未回收伏笔：%s" % ("、".join(opens) if opens else "（无）"),
+              ""]
+    lines += ["## 开工前必须先做这件事",
+              "先用一两句话复述：现在写到哪、谁在做什么、下一章要接什么。",
+              "**不复述就直接写正文 = 本次判失败。**",
+              ""]
+    text = "\n".join(lines)
+    out = RELAY_DIR / ("ch%02d.md" % int(n))
+    write_text(out, text)
+    return out
+
+
+def _relay_block(n, raw_dir=None):
+    """如果第 n-1 章留下了接力包，就把它接进这一章的任务书。
+
+    没有就返回空串 —— 正常换会话只在“上一章写完并换会话”之后发生一次。
+    """
+    p = RELAY_DIR / ("ch%02d.md" % (int(n) - 1))
+    if not p.exists():
+        return ""
+    try:
+        return "\n\n" + read_text(p).strip() + "\n"
+    except Exception:                                        # noqa: BLE001
+        return ""
+
 
 def _write_setting_excerpt(n, setting_path, character_cards, world_context):
     """把“本章真正用得上的设定条目”写成一个小文件，供任务书的 `{{path_setting}}` 指向。
@@ -1752,8 +1837,18 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
             return True
         return False
 
-    # B2：章间会话续接（默认关）—— 只有“引擎开了续接”且“上一章成功”时才传下去
-    chapter_session = None
+    # B2 / P1-3（2026-11-25）：章间会话续接，**跨 run 也续**。
+    # 会话 id 落在 progress 里：进程退了、换了会话、隔一天再跑，下一章还接得上 ——
+    # 否则“前 50 章写完、换个会话接着写”永远接不上（这才是作者那六条改造的落点）。
+    _sess = _session_state(progress)
+    chapter_session = _sess["id"]
+    _sess_tokens = _sess["tokens_in"]
+    _sess_rotations = _sess["rotations"]
+    _sess_budget = int(cfg.get("dsh", {}).get("session_token_budget",
+                                             SESSION_BUDGET_DEFAULT) or 0)
+    if chapter_session:
+        print("[stage4] 接上本卷会话 %s（已累计输入 %d token，上次写到第 %d 章）"
+              % (chapter_session, _sess_tokens, _sess["last_chapter"]))
     # ---- _finalize：写盘之后的全部收尾（摘要/出场/记账/标完成）----
     # 抽成一处：主循环成功路径与崩溃恢复路径共用，避免两份同步逻辑漂移。
     # 全程零 LLM 调用。result=None 表示“本轮没有新的 LLM 调用”（崩溃恢复重放），
@@ -1954,6 +2049,11 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                 progress.save()
             except Exception:                            # noqa: BLE001
                 pass
+        # P1-3：上一章如果换了会话，这一章的任务书要先带接力包（含“先复述再接”要求）
+        _relay = _relay_block(n, raw_dir)
+        if _relay:
+            _task_text += _relay
+            print("[stage4] 第%d章带接力包（上一章换会话，任务书里要求先复述再写）" % n)
         task = client.write_task(task_dir, f"stage4_ch{n:02d}.md", _task_text)
         # ---- 加强模式（第一波防御 · 任务三，2026-10-22）----
         # chapter.enhanced_mode=true 时本章改为“拆段落群 → 逐群生成 → 拼装”，
@@ -2239,6 +2339,25 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
         # 把它的上下文接给下一章只会把噪音带过去
         if result.get("session_id") and getattr(client, "session_continuation", False):
             chapter_session = result["session_id"]
+
+        # P1-3：会话落盘 + 水位换会话。落盘是“跨 run 接得上”的唯一保证；
+        # 水位到了就换 —— 换之前先写接力包（决策 + 最近三章 + 进度 + 未回收伏笔）。
+        try:
+            _sess_tokens += int(result.get("tokens") or 0)
+            _save_session(progress, chapter_session, n, _sess_tokens, _sess_rotations)
+            if (_sess_budget > 0 and chapter_session
+                    and _sess_tokens >= _sess_budget * 0.6):
+                _relay = _write_relay_package(n, total, raw_dir, _sess_tokens)
+                print("[stage4] 会话水位 %d / %d（%.0f%%）—— 换会话；接力包 %s"
+                      % (_sess_tokens, _sess_budget,
+                         100.0 * _sess_tokens / _sess_budget, _relay))
+                chapter_session = None
+                _sess_tokens = 0
+                _sess_rotations += 1
+                _save_session(progress, None, n, 0, _sess_rotations)
+        except Exception as e:                              # noqa: BLE001
+            print(f"[stage4] ⚠ 会话状态落盘失败（本章仍然算成功）: "
+                  f"{type(e).__name__}: {e}")
 
         # 收尾（摘要/出场/记账/标完成）统一走 _finalize —— 与崩溃恢复路径共用，
         # 避免两份同步逻辑漂移。

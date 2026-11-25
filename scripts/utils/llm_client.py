@@ -591,7 +591,10 @@ def make_client(cfg, model_key="default", verbose=True):
             profile=dcfg.get("profile") or DshClient.DEFAULT_PROFILE,
             permission_mode=dcfg.get("permission_mode") or None,
             approval_policy=dcfg.get("approval_policy", DshClient.DEFAULT_APPROVAL_POLICY),
-            session_continuation=bool(dcfg.get("session_continuation", False)),
+            # 2026-11-25 起默认 true（作者拍板 Q1=A：整卷一会话，按水位 60% 换）。
+            # 缺键的老工作区也按 true 走 —— 否则“升级了但会话还是没接上”，
+            # 而这正是作者要继续写长书的前提。要退回每章新会话就显式写 false。
+            session_continuation=bool(dcfg.get("session_continuation", True)),
             request_max_tokens=req_cap,
             add_dirs=dcfg.get("add_dirs") or None,
             # 传输断连自动重发（2026-11-24）：DSH 长任务会中途 TRANSPORT 断连，
