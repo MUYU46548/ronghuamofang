@@ -777,17 +777,21 @@ function migrateConfigKeys(ws) {
   }
 }
 
-// 目标字数与生成方式的**联动补键**（2026-10-26）。
+// 拆群开关的**回退迁移**（2026-10-26 补 true → 2026-11-25 改回 false）。
 //
-// 为什么必须单独一条：target_words 已经被上面那条迁移提到 [5000, 9000]，而
-// chapter.enhanced_mode 是**后加的键** —— 老工作区的 system.yaml 里根本没有它，
-// 于是实际行为是“5000 字标准 + 整章单发”。
-// 用户原话：“有些弱模型无论怎么骂就是写不长，像后台有个看不见的开关拧死了一样。
-// 所以才需要那个加强模式来强行拼凑。”
-// 那个"看不见的开关"就是这里：配置里没有这个键，代码默认 false。
+// 2026-10-26：target_words 抬到 5000 后，老工作区没有 chapter.enhanced_mode
+// 这个键，代码默认 false → “5000 字标准 + 整章单发”。当时那批弱模型写不长
+// （“像后台有个看不见的开关拧死了一样”），所以这里自动补了一条 true。
+// 2026-11-25（P0-1，证据 docs/盘点-跑书试跑-20261125.md）：engine: dsh 之后
+// 拆群成了纯放大 —— 第 1 章第 1 段群 15 分钟、输出 74,628 token、只产 1482 汉字
+// （50 token/字）；6 章 × 6 群 = 36 次冷启动 + 同一本书读 36 遍。dsh 的模型会
+// 思考、不缺篇幅，拆群对它只剩成本。
 //
-// 纪律：**用户显式设置过就不碰**（哪怕设成 false）。只在键完全缺失时补 true，
-// 并写清"可以在设置里关掉"。
+// 所以现在只做一件事：**把当年自动补进去的那条 true 改回 false**。
+// - 键缺失 → 不再补（代码默认就是 false = 整章单发）；
+// - 用户自己设的值 → 一个字不动（纪律同前：显式设置过就不碰）；
+// - 靠标记 `2026-10-26 自动补充` 认出“这是我们写的”，认不出就别动 ——
+//   宁可少改，也不替用户改他自己设的开关。
 function ensureEnhancedMode(ws) {
   const file = path.join(ws, SEED_CONFIG_DIR, "system.yaml");
   if (!fs.existsSync(file)) return;
@@ -795,23 +799,28 @@ function ensureEnhancedMode(ws) {
   try {
     text = fs.readFileSync(file, "utf8");
   } catch (e) {
-    console.log(`[console] seedWorkspace: 读 system.yaml 失败，跳过加强模式补键: ${e.message}`);
+    console.log(`[console] seedWorkspace: 读 system.yaml 失败，跳过加强模式迁移: ${e.message}`);
     return;
   }
-  if (/^[ \t]*enhanced_mode:/m.test(text)) return;      // 用户已显式设置 → 一个字不动
-  const m = /^chapter:[ \t]*\r?\n/m.exec(text);
-  if (!m) return;                                        // 没有 chapter 段 → 不猜结构
-  const pos = m.index + m[0].length;
-  const add = "  # 2026-10-26 自动补充：单章字数下限已提到 5000，整章单发对弱模型\n"
-    + "  # 常常只写两三千字就收尾；改为拆段落群逐群生成（可在“设置 → 加强模式”关掉）\n"
-    + "  enhanced_mode: true\n";
-  text = text.slice(0, pos) + add + text.slice(pos);
+  const lines = text.split("\n");
+  const hit = lines.findIndex(l => l.includes("2026-10-26 自动补充"));
+  if (hit < 0) return;                                  // 没有自动补过的痕迹 → 什么都不做
+  // 自动补的块 = 若干注释行 + `enhanced_mode: true`；只认这一种形态。
+  let j = hit;
+  while (j < lines.length && /^[ \t]*#/.test(lines[j])) j += 1;
+  if (!/^[ \t]*enhanced_mode:[ \t]*true[ \t]*\r?$/.test(lines[j] || "")) return;
+  const indent = (lines[j].match(/^[ \t]*/) || [""])[0];
+  const eol = lines[j].endsWith("\r") ? "\r" : "";      // CRLF 文件别改坏行尾
+  lines.splice(hit, j - hit + 1,
+    indent + "# 2026-11-25 改回整章单发：“会思考”的模型不缺篇幅，拆群只是把同一本书" + eol,
+    indent + "# 重发 N 遍（实测 50 token/字、每群 15 分钟）。字数不足时会自动转拆群。" + eol,
+    indent + "enhanced_mode: false" + eol);
   try {
-    fs.writeFileSync(file, text, "utf8");
-    console.log("[console] seedWorkspace: 配置补充 chapter.enhanced_mode=true"
-                + "（篇幅口径 5000+ 需要拆群生成；用户显式设过则不会走到这里）");
+    fs.writeFileSync(file, lines.join("\n"), "utf8");
+    console.log("[console] seedWorkspace: chapter.enhanced_mode 由自动补的 true 改回 false"
+                + "（dsh 下整章单发；用户自己设过的不动）");
   } catch (e) {
-    console.log(`[console] seedWorkspace: 写 system.yaml 失败，加强模式未补上: ${e.message}`);
+    console.log(`[console] seedWorkspace: 写 system.yaml 失败，加强模式未改回: ${e.message}`);
   }
 }
 
@@ -994,7 +1003,7 @@ function seedWorkspace() {
 
   // config 键级升级：只动“仍是旧出厂值”的键（用户改过的一律不碰）
   migrateConfigKeys(ws);
-  // 篇幅口径与生成方式的联动：目标字数已提到 5000 → 补上拆群开关（缺失才补）
+  // 拆群开关的回退迁移：把 2026-10-26 自动补的 true 改回 false（用户自己设过的不动）
   ensureEnhancedMode(ws);
 
   // 出厂清单：把本次真正落盘的文件记进 data/state/factory_manifest.json（合并写）

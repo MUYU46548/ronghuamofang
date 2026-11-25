@@ -155,14 +155,22 @@ def main():
         cj = probe / "cases.json"
         cj.write_text(json.dumps(cases, ensure_ascii=False), encoding="utf-8")
 
-        # ---- 加强模式补键（2026-10-26）----
+        # ---- 加强模式回退迁移（2026-11-25 P0-1：拆群不再是默认）----
+        _auto = ("  # 2026-10-26 自动补充：单章字数下限已提到 5000，整章单发对弱模型\n"
+                 "  # 常常只写两三千字就收尾；改为拆段落群逐群生成"
+                 "（可在「设置 → 加强模式」关掉）\n")
         enh_cases = [
-            {"name": "缺 enhanced_mode → 补 true（篇幅口径 5000 需要拆群）",
+            {"name": "缺 enhanced_mode → 不再补键（代码默认 false = 整章单发）",
              "src": "chapter:\n  target_words: [5000, 9000]\n  page_break: true\n"},
-            {"name": "用户显式写 false → 一个字不动",
-             "src": "chapter:\n  target_words: [5000, 9000]\n  enhanced_mode: false\n"},
-            {"name": "用户显式写 true → 不动（幂等）",
+            {"name": "当年自动补的 true → 改回 false",
+             "src": "chapter:\n" + _auto + "  enhanced_mode: true\n  page_break: true\n"},
+            {"name": "自动补块 CRLF → 改回 false 且行尾不变",
+             "src": ("chapter:\r\n  # 2026-10-26 自动补充：x\r\n"
+                     "  enhanced_mode: true\r\n  page_break: true\r\n")},
+            {"name": "用户显式 true（无自动补痕迹）→ 一个字不动",
              "src": "chapter:\n  target_words: [5000, 9000]\n  enhanced_mode: true\n"},
+            {"name": "用户显式 false → 一个字不动",
+             "src": "chapter:\n  target_words: [5000, 9000]\n  enhanced_mode: false\n"},
             {"name": "没有 chapter 段 → 不猜结构，不动",
              "src": "engine: direct\nbudget:\n  limit_yuan: 300\n"},
         ]
@@ -185,25 +193,39 @@ def main():
             if want.get("thenIdempotent"):
                 check(want["name"] + " → 幂等（再跑一次不再改）", got["idem"] is True, got["idem"])
 
-        print("\n【D】加强模式补键（弱模型写不长，得靠拆群凑）")
+        print("\n【D】加强模式回退迁移（2026-11-25 起：整章单发是主路径）")
         check("index.js 里有 ensureEnhancedMode", "__ENH_MISSING__" not in out,
               out[:120])
         check("seedWorkspace 调用了它",
               "ensureEnhancedMode(ws)" in src)
+        # 静态判据：不许再往配置里写 true（那正是 9 小时的根因）
+        check("不再自动补 enhanced_mode: true",
+              '"enhanced_mode: true"' not in src)
         if "__ENH__" in out:
             enh = json.loads(out.split("__ENH__", 1)[1].splitlines()[0])
-            got0 = enh[0]["got"]
-            check("缺 enhanced_mode → 补成 true",
-                  "enhanced_mode: true" in got0 and "target_words" in got0, got0[:200])
-            check("补的时候保留原有键（target_words / page_break 都在）",
-                  "target_words" in got0 and "page_break" in got0, got0[:200])
+            g_missing = enh[0]["got"]
+            check("缺键 → 不补（整章单发靠代码默认，不靠配置写死）",
+                  "enhanced_mode" not in g_missing, g_missing[:200])
+            g_auto = enh[1]["got"]
+            check("自动补过的 true → 改回 false（只改这一处）",
+                  "enhanced_mode: false" in g_auto
+                  and g_auto.count("enhanced_mode") == 1, g_auto[:300])
+            check("改回时删掉旧注释、保留相邻键",
+                  "2026-10-26 自动补充" not in g_auto
+                  and "page_break: true" in g_auto, g_auto[:300])
+            g_crlf = enh[2]["got"]
+            check("CRLF 文件：改回 false 且不写出裸 LF",
+                  "enhanced_mode: false\r\n" in g_crlf
+                  and "\n" not in g_crlf.replace("\r\n", ""), repr(g_crlf[:200]))
+            g_user_true = enh[3]["got"]
+            check("用户自己设的 true → 不动（哪怕它慢）",
+                  "enhanced_mode: true" in g_user_true
+                  and g_user_true.count("enhanced_mode") == 1, g_user_true[:200])
             check("用户显式 false → 不动",
-                  "enhanced_mode: false" in enh[1]["got"]
-                  and enh[1]["got"].count("enhanced_mode") == 1, enh[1]["got"])
-            check("用户显式 true → 不重复插入",
-                  enh[2]["got"].count("enhanced_mode") == 1, enh[2]["got"])
+                  "enhanced_mode: false" in enh[4]["got"]
+                  and enh[4]["got"].count("enhanced_mode") == 1, enh[4]["got"])
             check("没有 chapter 段 → 不凭空造结构",
-                  "enhanced_mode" not in enh[3]["got"], enh[3]["got"])
+                  "enhanced_mode" not in enh[5]["got"], enh[5]["got"])
     finally:
         shutil.rmtree(probe, ignore_errors=True)
 
