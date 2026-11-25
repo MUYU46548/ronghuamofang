@@ -368,11 +368,11 @@ stage4 也补了同一道校验（此前是唯一既不设上限、也不校验�
    接入步骤 / 三级验证 / 排错对照表 → `docs/mcp-connect.md`；
    一条命令自检 → `python scripts/nf_mcp_handshake_check.py`（自起 18765/18766，不碰你在用的端口）。
 
-**专属接线卡**：Hermes 技能库 `worldbuilding/ronghuamofang/`
-（实机路径 `%LOCALAPPDATA%\hermes\skills\worldbuilding\ronghuamofang\`）
-— `SKILL.md`（入口 / 自检 / 边界 / 处方 / 能力边界）、
-`references/api.md`（端点与请求体形状速查 —— 条目随端点增减，勿在此处写死数量）。
-与 `ai-novel-pipeline`、`novelforge-gui` 同分类同级；**技能库在 AppData、不进 Git，改动前先留副本**。
+**专属接线卡已删除（2026-11-25）**：`skills/` 目录（`nf-{memory,plan,project,revise,write}`
++ `worldbuilding/ronghuamofang`）是 Hermes 时代的产物。`engine: dsh` 后 **DSH 不读工作区
+`skills/`**（它只读 `~/.dsh/skills/` 与插件内置），且卡里写的是旧 `nf_*` 工具名，
+与 DSH 里的 `mofang_*` 对不上 —— 留着只会误导。删除已随 git 提交留痕；
+Hermes 侧 AppData 副本未动（那是另一套目录，不进 Git）。
 
 **Agent 模式守卫**：`gates.agent_mode = true` 时，非 GUI 来源（GUI 判据 = 双因子：来源头 **加**
 主进程签发 token，光带头子不算）调用 `/approve`、`/reject`、`/project/create|archive|restore|init`、

@@ -1021,75 +1021,9 @@ function seedWorkspace() {
     console.log(`[console] seedWorkspace: 代码已刷新到 ${packVersion}（${why}；用户 data/ 未受影响）`);
   }
 }
-// 技能随版本分发（2026-10-07，对齐方寸“升级后启动自动同步”）：
-// 随包 skills/worldbuilding → Hermes 技能库，内容不一致才覆盖（发布版赢），
-// 运行态技能永远等于当前安装版本，Agent 手改下次启动即被复位。
-// 只碰 worldbuilding/ 子树：技能库根目录还有别家的技能与清单文件，不越界。
-//
-// 0.6.7 扩展：除默认技能库外，同步 **%LOCALAPPDATA%\hermes\profiles\*\** 里的
-// 同名子树 —— 但**只有该 profile 已经装过这张卡**（skills/worldbuilding/ronghuamofang/
-// 目录存在）才同步进去。理由：绝不在没装过卡的 profile 里凭空创建目录
-// （那等于替用户给别的 profile 装了没要的东西）；已装过的才需要跟版本更新。
-// 默认根的同步行为与 0.6.6 完全一致；任何一步失败都不阻断启动。
-function syncSkills() {
-  if (!isPackaged) return;
-  try {
-    const src = path.join(process.resourcesPath, "payload", "skills", "worldbuilding");
-    const dstBase = process.env.LOCALAPPDATA;
-    if (!fs.existsSync(src) || !dstBase) return;
-    const hermesRoot = path.join(dstBase, "hermes");
-
-    // 把随包技能树同步进 dst；返回实际更新的文件数。
-    const syncInto = (dst) => {
-      let copied = 0;
-      const walk = (rel) => {
-        for (const ent of fs.readdirSync(path.join(src, rel), { withFileTypes: true })) {
-          const r = rel ? path.join(rel, ent.name) : ent.name;
-          if (ent.isDirectory()) { walk(r); continue; }
-          const s = path.join(src, r), t = path.join(dst, r);
-          let same = false;
-          try {
-            same = fs.existsSync(t) && fs.readFileSync(s).equals(fs.readFileSync(t));
-          } catch (e) { /* 读失败按内容不同处理 */ }
-          if (!same) {
-            fs.mkdirSync(path.dirname(t), { recursive: true });
-            fs.copyFileSync(s, t);
-            copied += 1;
-            console.log("[console] syncSkills: 更新 " + r);
-          }
-        }
-      };
-      walk("");
-      return copied;
-    };
-
-    // 默认技能库（0.6.6 起的原行为，保持不变）
-    let total = syncInto(path.join(hermesRoot, "skills", "worldbuilding"));
-
-    // 多 profile（0.6.7）：只更新**已装过这张卡**的 profile
-    try {
-      const profRoot = path.join(hermesRoot, "profiles");
-      if (fs.existsSync(profRoot)) {
-        for (const ent of fs.readdirSync(profRoot, { withFileTypes: true })) {
-          if (!ent.isDirectory()) continue;
-          const dst = path.join(profRoot, ent.name, "skills", "worldbuilding");
-          if (!fs.existsSync(path.join(dst, "ronghuamofang"))) {
-            continue;   // 该 profile 没装过卡 → 绝不创建目录，跳过
-          }
-          total += syncInto(dst);
-        }
-      }
-    } catch (e) {
-      // profiles 目录读不到 / 某个 profile 损坏：默认根已同步完，不连累启动
-      console.warn("[console] syncSkills: profile 遍历失败（不影响默认技能库）:",
-                   e && e.message);
-    }
-
-    if (total) console.log("[console] syncSkills: 技能随版本分发完成，更新 " + total + " 个文件");
-  } catch (e) {
-    console.error("[console] syncSkills 失败（不阻断启动）:", e && e.message);
-  }
-}
+// 2026-11-25：随包技能卡（payload/skills）与 syncSkills() 同步逻辑一并删除。
+// 删因：Hermes 时代遗留；DSH 不读工作区 skills，卡里又是旧 nf_* 工具名。
+// 若将来再接外部 agent，按各家自己的技能目录格式生成，不再随包分发。
 
 let BASE = "http://127.0.0.1:" + API_PORT;
 
@@ -1539,15 +1473,11 @@ function agentConnectPaths() {
   const bridgePath = isPackaged
     ? path.join(process.resourcesPath, "payload", "scripts", "nf_mcp_stdio_bridge.py")
     : path.join(ROOT, "scripts", "nf_mcp_stdio_bridge.py");
-  // 技能卡真源（自装指令用）：打包态指安装目录 payload（恒存在），
-  // 不再让渲染层拿 project_dir 拼 —— 打包态工作区里没有 skills/，必然断路径
-  // （2026-10-07 用户指出的发布态问题）。
-  const skillPath = isPackaged
-    ? path.join(process.resourcesPath, "payload", "skills",
-                "worldbuilding", "ronghuamofang", "SKILL.md")
-    : path.join(ROOT, "skills", "worldbuilding", "ronghuamofang", "SKILL.md");
+  // 2026-11-25 技能卡已删（Hermes 时代遗留；DSH 不读工作区 skills，
+  // 且卡里写的是旧 nf_* 工具名，与 DSH 的 mofang_* 对不上）。
+  // 自装指令只保留 MCP 配置，不再指向 SKILL.md。
   return {
-    pythonCmd, bridgePath, skillPath,
+    pythonCmd, bridgePath,
     hermesConfig: path.join(localAppData, "hermes", "config.yaml"),
     claudeConfig: path.join(os.homedir(), ".claude.json"),
     clineConfig: path.join(appData, "Code", "User", "globalStorage",
@@ -1586,7 +1516,6 @@ ipcMain.handle("agent-connect:info", async () => {
     version: app.getVersion(),
     pythonCmd: p.pythonCmd,
     bridgePath: p.bridgePath,
-    skillPath: p.skillPath,
     hermesConfig: p.hermesConfig,
     claudeConfig: p.claudeConfig,
     clineConfig: p.clineConfig,
@@ -1987,7 +1916,7 @@ app.whenReady().then(async () => {
   // （seedWorkspace 只补缺失文件），所以阶段 4 那道新门必须在这里单独迁一次 ——
   // 否则老用户永远看不到它，功能等于没做。放在 seedWorkspace 之后：首启时配置刚播下来。
   migrateGate4(path.join(getWorkspaceDir(), SEED_CONFIG_DIR));
-  syncSkills();   // 技能随版本分发（幂等：内容不同才写）
+  // 2026-11-25：syncSkills() 已删（随包技能卡不再分发）
   const ws = getWorkspaceDir();
   const seedMarker = path.join(ws, ".seeded");
   const configOk = fs.existsSync(path.join(ws, "config", "system.yaml"));

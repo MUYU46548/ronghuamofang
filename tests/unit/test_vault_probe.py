@@ -53,8 +53,8 @@ def main():
     check("S5 HTTP /config/vault_probe", '"/config/vault_probe"' in api)
     mcp = (ROOT / "scripts" / "nf_mcp.py").read_text(encoding="utf-8")
     check("S5 MCP nf_vault_probe", '"name": "nf_vault_probe"' in mcp)
-    sk = (ROOT / "skills" / "nf-plan" / "SKILL.md").read_text(encoding="utf-8")
-    check("S5 技能卡写明分工", "nf_vault_probe" in sk and "保存不是你能做的" in sk)
+    # 技能卡已于 2026-11-25 删除（Hermes 时代遗留；DSH 不读工作区 skills，
+    # 且卡里写的是旧 nf_* 工具名）。S5 只验 HTTP 与 MCP 两个真入口。
 
     print("-" * 66)
     print("通过 %d / 失败 %d" % (len(PASS), len(FAIL)))

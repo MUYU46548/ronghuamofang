@@ -123,7 +123,6 @@ window.mofangAPI = window.mofangAPI || {
     clineConfig: "C:\\\\fake\\\\cline_mcp_settings.json",
     yamlSnippet: "mcp_servers:\\n  novelforge:\\n    command: C:\\\\fake\\\\repo\\\\.venv\\\\Scripts\\\\python.exe\\n    args:\\n      - C:\\\\fake\\\\repo\\\\scripts\\\\nf_mcp_stdio_bridge.py\\n    enabled: true",
     jsonSnippet: "{\\n  \\"mcpServers\\": {\\n    \\"novelforge\\": {\\n      \\"command\\": \\"C:\\\\\\\\fake\\\\\\\\repo\\\\\\\\.venv\\\\\\\\Scripts\\\\\\\\python.exe\\",\\n      \\"args\\": [\\n        \\"C:\\\\\\\\fake\\\\\\\\repo\\\\\\\\scripts\\\\\\\\nf_mcp_stdio_bridge.py\\"\\n      ]\\n    }\\n  }\\n}",
-    skillPath: "C:/fake/repo/skills/worldbuilding/ronghuamofang/SKILL.md",
     mcpListening: false,
   }),
   agentOpenConfig: async () => ({ ok: true, path: "C:\\\\fake\\\\hermes\\\\config.yaml", existed: true }),
@@ -1207,8 +1206,8 @@ def test_about_project(browser, mock_proc=None):
               "config.yaml" in si_val and "mcp_servers" in si_val
               and "nf_mcp_stdio_bridge" in si_val,
               "len=%d" % len(si_val))
-        check("自装指令技能源是真实路径（skillPath，非空壳提示）",
-              "skills/worldbuilding/ronghuamofang/SKILL.md" in si_val)
+        check("自装指令不再指向已删除的技能卡（2026-11-25 删卡）",
+              "skills/worldbuilding/ronghuamofang/SKILL.md" not in si_val)
         check("自装指令带自检步骤与红线（25 个 nf_* / 禁手写产物）",
               "nf_get_state" in si_val and "冒充执行" in si_val,
               si_val[-160:].replace("\n", " | "))

@@ -117,8 +117,8 @@ GUI：`console/src/SettingStalePanel.vue`，挂在“设定”页签 `SettingClo
 - **`checked=false` = 没算过**：还没有基线（阶段 5 没跑过 / 基线坏了），
   与上面 `checked=false` 同一条红线。
 - 只算不跑：**不自动重检**，重不重检是作者的决定（同“不把 stale 写进导出拦截”）。
-- MCP：`nf_get_setting_impact`（只读），已进 `skills/nf-memory` 卡
-  （`test_phase_skills` 的 MCP→skill 判据会红，别漏）。
+- MCP：`nf_get_setting_impact`（只读）。原「已进 `skills/nf-memory` 卡」的判据随
+  技能卡一起于 2026-11-25 删除（DSH 不读工作区 skills，卡里工具名也已是旧名）。
 
 判据：`tests/unit/test_setting_impact.py`（12 组 24 条）。反证两次都改源码：
 不比较条目指纹 → I3/I5/I6/I10 红；取消长词优先 → 只提“沈砚”的第 1 章被误标。
