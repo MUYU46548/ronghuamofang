@@ -9,18 +9,18 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是基于AI�
 
 **执行引擎：固定 `dsh`（2026-11-20 作者定案“绒花墨坊绑死 DSH，以后都走 DSH”）**。出厂 `config/system.yaml` 与打包态工作区配置的 `engine` 都是 `dsh`，即墨坊自己跑流水线、由 DeepSeek Harness 执行层干活（`dsh --profile headless --json -`，见下方 profile 说明）。
 
-**`direct` / `hermes` 两条代码分支已于 2026-11-25 删除**（作者定案 F8：「后续绒花墨坊所有自带的模型调用都要移除，KEY 配置也移除」）。现状：
+**`direct` / `hermes` 两条代码分支已于 2026-11-25 删除**（作者定案 F8：“后续绒花墨坊所有自带的模型调用都要移除，KEY 配置也移除”）。现状：
 
 | 引擎 | 状态 | 说明 |
 |---|---|---|
 | `dsh` | **唯一执行层** | 模型调用全部交给 DSH；墨坊只发任务书、只收产物 |
 | `self` | 保留 | 只出任务书、不调模型（零 token，`data/state/tasks/self/stageN/`，见 `docs/agents/engine-self.md`） |
-| `direct` / `hermes` | **已删除** | `OpenAICompatClient` 与 `HermesClient` 两个类已摘除；`make_client` 遇到这两个值直接 `RuntimeError`「引擎不可用，请改回 dsh」 |
+| `direct` / `hermes` | **已删除** | `OpenAICompatClient` 与 `HermesClient` 两个类已摘除；`make_client` 遇到这两个值直接 `RuntimeError`“引擎不可用，请改回 dsh” |
 
 连带口径（与旧版手册相反的地方，**以本节为准**）：
 - **不存 Key**：`config/system.yaml` 的 `providers` 段与项目 `.env` 不再参与任何运行路径；凭据在 `~/.dsh/.env`。
 - **没有"回退通道"了**：DSH 起不来时**没有**可退回的直连引擎 —— 唯一可退的是 `engine: self`（零 token 出任务书，人工执行）。这是作者明确选择的"绑死"，不是遗漏。
-- **界面**：设置页「引擎与模型」只有 `dsh` / `self` 两张卡 + 一行「模型与渠道由 DSH 决定」。
+- **界面**：设置页“引擎与模型”只有 `dsh` / `self` 两张卡 + 一行“模型与渠道由 DSH 决定”。
 - `llm_client.py` 仍保留**协议工具**（`parse_ops` / `inline_inputs` / `strip_protocol_markers` / `extract_input_paths` / `SYSTEM_PROMPT`）—— `self` 任务书与 stage7 转换还在用，它们不是引擎的一部分。
 
 `engine: dsh` 的三个必须知道的口径（细节见下节与 `scripts/utils/dsh_client.py`）：
@@ -499,7 +499,7 @@ Hermes 侧 AppData 副本未动（那是另一套目录，不进 Git）。
   - `/project/init`
   - `/config/agent_mode`（Agent 不得自行切换模式）
   - `/config/token_limit`（止烧阈值 —— Agent 不得抬高自己的闸门）
-  - ~~`/providers/save`、`/providers/remove`~~ —— **2026-11-25 端点已删除**（F8：墨坊不再配置服务商与 Key）。POST 现在回 410「该能力已移除」，只在名单里留这条说明；`GET /providers` 也已下线。
+  - ~~`/providers/save`、`/providers/remove`~~ —— **2026-11-25 端点已删除**（F8：墨坊不再配置服务商与 Key）。POST 现在回 410“该能力已移除”，只在名单里留这条说明；`GET /providers` 也已下线。
   - `/factory/clean`（出厂样例清理 —— 移动用户素材文件；只读 `/factory/list` 不拦）
   - `/stage/skip`（跳过阶段会把状态标成 done+已审批+skipped —— 与审批同族，2026-10-16 补）
   - `/project/archive/delete`（删除归档 = 抹掉成书数据；端点另要求 `X-Mofang-Source: gui`）
