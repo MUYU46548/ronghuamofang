@@ -728,6 +728,53 @@ def _style_blocks(proj):
     return style, para, app
 
 
+#: 按需读（P0-2，2026-11-25）：每章设定摘录落盘位置。
+#: 放在 data/state/ 下 = 运行产物，不进 Git、不污染 data/setting/。
+CONTEXT_DIR = Path("data/state/context")
+
+
+def _write_setting_excerpt(n, setting_path, character_cards, world_context):
+    """把「本章真正用得上的设定条目」写成一个小文件，供任务书的 `{{path_setting}}` 指向。
+
+    ## 为什么（P0-2，2026-11-25）
+
+    任务书里早就把本章相关的角色卡 / 地点 / 势力 / 时间线 / 情节碎片都**内联**了
+    （见 `_extract_world_context` / `_extract_character_cards_for_chapter`），
+    但模板那一行仍然写着「设定集: <data/setting/setting.json>（仅参考涉及本章的…）」——
+    模型就照着一整本读。实测（`docs/盘点-跑书试跑-20261125.md`）：单章输入 10.5 万 token，
+    设定集 126 KB，而同一批条目在任务书正文里已经出现过一次。
+    **同一份料喂两遍，第二遍还是整本。**
+
+    所以这里落一个只含本章条目的摘录，路径照给 —— 提示词模板一个字都不用改
+    （`prompts/**` 不动，前缀缓存不受影响）。
+
+    ## 纪律
+
+    - 两块都空（本章没命中任何条目）→ 返回 `None`，**退回原设定集路径**。
+      宁可让它读整本，也不要给一个空文件：模型会以为自己读到了设定集。
+    - 写盘失败不阻断写作，同样退回原路径并打印原因。
+    """
+    src = Path(setting_path)
+    try:
+        raw_len = len(read_text(src)) if src.exists() else 0
+    except Exception:                                        # noqa: BLE001
+        raw_len = 0
+    if not (character_cards or world_context):
+        return None, raw_len, 0
+    body = ["# 本章设定摘录（第 %d 章）" % n, ""]
+    body.append("> 由阶段 4 按本章大纲从设定集筛出，**不是全本**。"
+                "需要更多条目：让它的名字出现在本章大纲里。\n")
+    if character_cards:
+        body.append(str(character_cards).strip())
+    if world_context:
+        body.append(str(world_context).strip())
+    text = "\n\n".join(body) + "\n"
+    out = CONTEXT_DIR / ("ch%02d_setting.md" % n)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    write_text(out, text)
+    return out.resolve(), raw_len, len(text)
+
+
 def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, prev_tail):
     target = cfg.get("chapter", {}).get("target_words", [4000, 7200])
     tail_section = "\n\n".join(prev_tail) if prev_tail else "（无上一章，本章为开篇）"
@@ -826,6 +873,21 @@ def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, p
     outline_text_for_ctx = _safe_read(outline_path, budget=8000)
     world_context = _extract_world_context(
         setting_path, outline_text_for_ctx, involved=_involved_names(outline_text_for_ctx))
+
+    # 按需读（P0-2，2026-11-25）：上面两块已经把本章相关条目内联了，模板却还让模型
+    # 去读整本 setting.json（实测 126 KB / 单章输入 10.5 万 token 的大头）。
+    # 这里落一份只有本章条目的摘录，路径照给 —— prompts/ 一个字不动。
+    setting_read_path = Path(setting_path).resolve()
+    try:
+        _excerpt, _raw_len, _ex_len = _write_setting_excerpt(
+            n, setting_path, character_cards, world_context)
+        if _excerpt is not None:
+            setting_read_path = _excerpt
+            print("[stage4] 第%d章按需读：设定摘录 %d 字（原设定集 %d 字）→ %s"
+                  % (n, _ex_len, _raw_len, _excerpt.name))
+    except Exception as e:                                   # noqa: BLE001
+        print(f"[stage4] ⚠ 设定摘录生成失败（本章退回整本设定集）: "
+              f"{type(e).__name__}: {e}")
 
     # 记忆策略（2026-10-20，台账三·上下文 memory policy）：
     # L1 固定层（大纲/角色卡/上一章尾/设定条目）由上面的块提供，**不裁**；
@@ -944,7 +1006,7 @@ def build_chapter_task(cfg, proj, n, outline_path, setting_path, rolling_path, p
         "para_rules": para_rules,
         "book_name": book.get("name", "未命名"),
         "path_outline": Path(outline_path).resolve(),
-        "path_setting": Path(setting_path).resolve(),
+        "path_setting": setting_read_path,
         "path_rolling": Path(rolling_path).resolve(),
         "path_project": Path("config/project.yaml").resolve(),
         "prev_tail": tail_section,
