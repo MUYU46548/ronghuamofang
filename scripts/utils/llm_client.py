@@ -1925,6 +1925,9 @@ def make_client(cfg, model_key="default", verbose=True):
             # 段群已落盘，重发同一份任务书 = 从断点继续。
             transport_retries=int(dcfg.get("transport_retry_max", 2)),
             transport_backoff_sec=float(dcfg.get("transport_retry_wait_sec", 5)),
+            # 命令形状（2026-11-25，方案 B）：只在配置里可改，界面不暴露。
+            # 不写就是默认 `--profile {profile} --json`，与旧行为逐字一致。
+            base_args=dcfg.get("args") or None,
         )
 
     if engine == "hermes" or provider_id == "hermes":

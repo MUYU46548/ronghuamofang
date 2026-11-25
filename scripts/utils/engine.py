@@ -28,11 +28,24 @@ Key 校验、单价、模型、预算口径全都对着**另一个引擎**说话
 """
 from __future__ import annotations
 
-DEFAULT_ENGINE = "direct"
+# 2026-11-25：缺键时的默认值从 direct 改成 dsh。direct 已下线，若还留它当默认，
+# 一个没写 engine 的配置会得到“看起来能跑、实际调不通”的状态。
+DEFAULT_ENGINE = "dsh"
 #: `self`（2026-11-04）：**不调用任何模型**，只产任务书交给外部执行。
 #: 它必须在这里算"已知引擎"，否则会被当成拼错的取值：打 WARN、再按 direct 执行
 #: —— 也就是"配了 self，实际偷偷按量计费跑模型"，正是本项目最忌讳的静默失真。
-VALID_ENGINES = ("direct", "hermes", "dsh", "self")
+# 2026-11-25 收窄：`direct` / `hermes` 退出白名单（作者定：后续所有自带模型调用与
+# KEY 配置都要移除，墨坊只通过 DSH 干活）。留着旧取值不是为了还能用，而是要在
+# 有人写了旧配置时**说清楚为什么不行**，而不是静默按 dsh 跑（静默退化正是
+# 2026-11-04 “切到 self 之后按钮全灰、一句提示都没有”的同一个病）。
+VALID_ENGINES = ("dsh", "self")
+
+#: 已下线的引擎 → 原因（写进报错与自检结果，别让人猜）
+RETIRED_ENGINES = {
+    "direct": "墨坊不再直接调模型（2026-11-25）：模型调用统一交给 DSH，"
+              "所以也没有 key / 服务商 / 按量计费这一层了",
+    "hermes": "已被 dsh 取代（hermes 有十几分钟卡死的历史），请改用 engine: dsh",
+}
 
 #: 走**订阅 / 无条件记账**的执行层：`hermes`（Hermes 子会话）与 `dsh`（DSH headless）。
 #: 两者都没有 max_tokens 旋钮、也没有按量单价可算 —— 金额口径恒 0、token 照记。
@@ -60,6 +73,11 @@ def resolve_engine(cfg):
         return DEFAULT_ENGINE
     if raw in VALID_ENGINES:
         return raw
+    if raw in RETIRED_ENGINES:
+        if raw not in _WARNED:
+            _WARNED.add(raw)
+            print("[engine] ERROR engine=%r 已下线：%s" % (raw, RETIRED_ENGINES[raw]))
+        return DEFAULT_ENGINE
     if raw not in _WARNED:
         _WARNED.add(raw)
         print("[engine] WARN 未知 engine=%r（支持：%s）→ 按 %s 执行"

@@ -241,11 +241,21 @@ class DshClient:
     TRANSPORT_HINTS = ("transport: connection error", "econnreset",
                        "socket hang up", "other side closed", "connection reset by peer")
 
+    #: 默认的命令形状。**换内核只改这一处默认值或配置里的 `dsh.args`**（2026-11-25，方案 B）。
+    #: 为什么要有这一层：作者定案“哪怕 DSH 官方不更新，也是把 DSH 搬过来当内核”，
+    #: 换内核是预期事件。写死 `--profile headless --json -` 会让每次换壳都得改代码。
+    #: 纪律：这一层**不在界面上露出**（只认 system.yaml 的 `dsh.args`），否则就退化成
+    #: “第二种配置方式”，等于把当初 hermes / self 那两个坑重新挖一遍。
+    DEFAULT_BASE_ARGS = ("--profile", "{profile}", "--json")
+
     def __init__(self, dsh_bin=None, timeout=1800, model=None, permission_mode=None,
                  approval_policy=None, session_continuation=False,
                  request_max_tokens=None, add_dirs=None, profile=None,
-                 transport_retries=2, transport_backoff_sec=5):
+                 transport_retries=2, transport_backoff_sec=5, base_args=None):
         self.dsh_bin = resolve_dsh_bin(dsh_bin)
+        # 允许配置覆盖：`{profile}` 会被替换成实际 profile 名。
+        args = [str(a) for a in (base_args or self.DEFAULT_BASE_ARGS)]
+        self.base_args = args if args else list(self.DEFAULT_BASE_ARGS)
         self.timeout = int(timeout or 1800)
         self.profile = str(profile or "").strip() or self.DEFAULT_PROFILE
         # 模型由 DSH 自己的 profile 决定：墨坊**只发任务书**，不传模型名
@@ -338,8 +348,15 @@ class DshClient:
     # ------------------------------------------------------------ 命令构造
 
     def _build_cmd(self, session_id=None):
-        """`dsh --profile <profile> --json [选项] -`（任务走 stdin）。"""
-        cmd = [self.dsh_bin, "--profile", self.profile, "--json"]
+        """`<dsh> <base_args> [选项] -`（任务走 stdin）。
+
+        `base_args` 默认就是 `--profile <profile> --json`，与旧行为逐字一致；
+        换内核时（DSH 停更 / 换别的 CLI）通过配置改它，调用方不动。
+        """
+        base = [a.replace("{profile}", self.profile) for a in self.base_args]
+        if base and base[-1] == "-":
+            base = base[:-1]        # 配置里自带的任务占位符，统一由函数末尾补，别重复
+        cmd = [self.dsh_bin] + base
         if self.approval_policy:
             cmd += ["--approval-policy", self.approval_policy]
         if self.permission_mode:
@@ -348,6 +365,7 @@ class DshClient:
             cmd += ["--add-dir", d]
         if session_id and self.session_continuation:
             cmd += ["--session-id", str(session_id)]
+        # 任务走 stdin，结尾必须有 "-"，且必须在所有选项之后
         cmd.append("-")
         return cmd
 
