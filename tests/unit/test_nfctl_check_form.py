@@ -99,8 +99,8 @@ def test_B_source_form():
         check("B1 form 标为 source", res.get("form") == "source", res.get("form"))
         check("B2 源码态缺 venv 仍是阻塞",
               "venv python" in _blocking(res), _blocking(res))
-        check("B3 direct 引擎空 Key 仍是阻塞",
-              "API Key 已配置" in _blocking(res), _blocking(res))
+        check("B3 direct 已下线 → Key 判据不再阻塞（2026-11-25 F8）",
+              "API Key 已配置" not in _blocking(res), _blocking(res))
         rendered = render_check(res)
         check("B4 渲染文案带\u300c源码态\u300d",
               "源码态" in rendered, rendered.splitlines()[0])
@@ -123,8 +123,8 @@ def test_C_engine_boundary():
     tmp = _mk_root(engine="direct", git=True, venv=True, key="")
     try:
         res = collect_check(tmp)
-        check("C3 同形态改 direct → Key 恢复阻塞",
-              "API Key 已配置" in _blocking(res), _blocking(res))
+        check("C3 同形态改 direct → Key 判据已随 direct 下线移除（循环论证消掉）",
+              "API Key 已配置" not in _blocking(res), _blocking(res))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

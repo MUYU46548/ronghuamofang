@@ -338,15 +338,18 @@ def case_kill_resume():
 
 
 def case_backoff_config_present():
-    print("\n【3】指数退避与重试上限可配（盘点确认，判据在 llm_client）")
-    src = (ROOT / "scripts" / "utils" / "llm_client.py").read_text(encoding="utf-8")
-    check("非流式请求有指数退避 sleep(2**attempt)", "time.sleep(2 ** attempt)" in src)
+    print("\n【3】重试与退避（2026-11-25 F8 后：由 DSH 侧承担）")
+    # llm_client 里 direct / hermes 的 HTTP 重试与指数退避已随两个引擎删除；
+    # 现在传输断连重发由 DshClient.transport_retries 承担（AGENTS 有口径）。
+    dsrc = (ROOT / "scripts" / "utils" / "dsh_client.py").read_text(encoding="utf-8")
+    check("DSH 传输断连重发可配（transport_retries）", "transport_retries" in dsrc)
+    check("DSH 重发带退避（transport_backoff_sec）", "transport_backoff_sec" in dsrc)
     cfg = (ROOT / "config" / "system.yaml").read_text(encoding="utf-8")
-    m = re.search(r"retries:\s*(\d+)", cfg)
-    check("providers.retries 已配（默认 5 次）", bool(m) and int(m.group(1)) == 5,
-          m.group(1) if m else "missing")
-    check("5xx/断连走重试、400/401/403/404 直接 raise（死模型不吃链）",
-          "if e.code in (400, 401, 403, 404):" in src)
+    check("dsh.transport_retry_max 已配",
+          bool(re.search(r"transport_retry_max:\s*\d+", cfg)))
+    lsrc = (ROOT / "scripts" / "utils" / "llm_client.py").read_text(encoding="utf-8")
+    check("llm_client 不再有直连重试分支（已摘除）",
+          "time.sleep(2 ** attempt)" not in lsrc)
 
 
 def main():

@@ -42,7 +42,7 @@ from utils.run_lock import RunLock, _pid_alive              # noqa: E402
 from utils.db import RunDB                                  # noqa: E402
 from utils.verify_chapter import check_chapter              # noqa: E402
 import stage4_writing as s4                                 # noqa: E402
-from utils.llm_client import HermesClient                   # noqa: E402
+# 2026-11-25（F8 第三步）：HermesClient 已删除，本文件不再需要它。
 
 PASS, FAIL = [], []
 
@@ -196,16 +196,8 @@ def run_stage4(tmp, client):
 
 
 # ---------------------------------------------------------------- 1. 任务路径绝对化
-def case_build_cmd_absolute():
-    print("\n【1】hermes 任务路径绝对化（cwd 不再是子会话的生死线）")
-    c = HermesClient()
-    cmd = c._build_cmd(Path("data") / "state" / "tasks" / "stage4_ch01.md")
-    q = cmd[3]
-    check("-q 提示含绝对路径", str(Path("data/state/tasks/stage4_ch01.md").resolve()) in q, q[:160])
-    check("-q 提示不含相对路径原形", "严格按 data\\state" not in q and "严格按 data/state" not in q, q[:160])
-    m_abs = re.search(r"严格按 (.+?) 中的指示", q)
-    check("解析出的路径是绝对路径（盘符/根开头）",
-          bool(m_abs) and os.path.isabs(m_abs.group(1)), m_abs.group(1) if m_abs else q[:120])
+# 2026-11-25（F8 第三步）：hermes 客户端的 _build_cmd 已随引擎删除，
+# 原来验“hermes 任务路径绝对化”的 case 一并移除（dsh 走 cwd + 任务书路径，见 dsh_client）。
 
 
 # ---------------------------------------------------------------- 2. rolling 骨架
@@ -440,7 +432,7 @@ def case_refine_noop_detection():
 
 def main():
     t0 = time.time()
-    for fn in (case_build_cmd_absolute, case_rolling_skeleton,
+    for fn in (case_rolling_skeleton,
                case_expand_success, case_expand_refused_when_too_short,
                case_expand_once_no_loop, case_run_lock, case_sweep_stale_running,
                case_app_vue_fixes, case_orchestrator_wiring,

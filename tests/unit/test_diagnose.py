@@ -55,7 +55,7 @@ def main():
         root = Path(tmp)
         (root / "config").mkdir(parents=True)
         (root / "config" / "system.yaml").write_text(
-            "engine: hermes\n", encoding="utf-8")
+            "engine: self\n", encoding="utf-8")
         (root / "config" / "project.yaml").write_text(
             "book:\n  name: \"诊断测试\"\n  chapters: 2\n", encoding="utf-8")
 
@@ -97,7 +97,8 @@ def main():
               r3["runner"].get("why"))
 
         print("\n[D4] 环境事实")
-        check("engine 读到 hermes", r3["facts"]["engine"] == "hermes", r3["facts"])
+        # 2026-11-25（F8）：direct / hermes 已下线，resolve_engine 只认 dsh / self。
+        check("engine 读到 self", r3["facts"]["engine"] == "self", r3["facts"])
         check("带解释器与数据根",
               bool(r3["facts"].get("python")) and r3["facts"].get("root") == str(root),
               r3["facts"])

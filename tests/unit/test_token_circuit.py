@@ -349,9 +349,8 @@ def case_orchestrator_no_false_stop():
 
 
 def case_request_cap_at_call_point():
-    print("\n【10】单请求上限落在**调用点**（llm_client）")
-    from utils.llm_client import (OpenAICompatClient, HermesClient, make_client,
-                                  _request_max_tokens_from_cfg)
+    print("\n【10】单请求上限的配置解析（llm_client）")
+    from utils.llm_client import _request_max_tokens_from_cfg
 
     check("配置解析：enabled=true → 8000",
           _request_max_tokens_from_cfg(
@@ -366,91 +365,9 @@ def case_request_cap_at_call_point():
           _request_max_tokens_from_cfg(
               {"budget": {"token_limit": {"enabled": True,
                                           "per_request_max_tokens": "abc"}}}) is None)
-
-    c = OpenAICompatClient(model="m", base_url="http://x", api_key="k",
-                           request_max_tokens=8000)
-    check("上限优先：调用方要 16000 → 仍发 8000", c.effective_max_tokens(16000) == 8000,
-          c.effective_max_tokens(16000))
-    check("更小的调用方值保留", c.effective_max_tokens(4000) == 4000,
-          c.effective_max_tokens(4000))
-    check("只有配置上限 → 用它", c.effective_max_tokens(None) == 8000,
-          c.effective_max_tokens(None))
-    c2 = OpenAICompatClient(model="m", base_url="http://x", api_key="k")
-    check("都没给 → None（不塞 max_tokens，交给 provider 默认）",
-          c2.effective_max_tokens(None) is None and c2.effective_max_tokens(0) is None,
-          (c2.effective_max_tokens(None), c2.effective_max_tokens(0)))
-    check("坏值不抛", c2.effective_max_tokens("abc") is None, c2.effective_max_tokens("abc"))
-
-    # 真的进了 payload（这是“单请求 max_tokens”的唯一证据）
-    seen = {}
-
-    def _fake_request_json(payload):
-        seen.update(payload)
-        return {"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}],
-                "usage": {"prompt_tokens": 10, "completion_tokens": 5},
-                "model": "m"}
-
-    c._request_json = _fake_request_json
-    c._post_chat([{"role": "user", "content": "hi"}])
-    check("payload 里真的带 max_tokens=8000", seen.get("max_tokens") == 8000, seen)
-    seen.clear()
-    c._post_chat([{"role": "user", "content": "hi"}], max_tokens=99999)
-    check("调用方要更大 → 仍被上限压住", seen.get("max_tokens") == 8000, seen)
-    seen.clear()
-    c2._request_json = _fake_request_json
-    c2._post_chat([{"role": "user", "content": "hi"}])
-    check("未配置上限 → payload 里没有 max_tokens 键", "max_tokens" not in seen, seen)
-
-    # hermes：无旋钮 → 只比对 + 告警（**不阻断**）
-    h = HermesClient(request_max_tokens=8000)
-    check("hermes 单次 18358 > 8000 → 判超限（告警）", h.note_request_tokens(18358) is True)
-    check("hermes 单次 5000 ≤ 8000 → 不告警", h.note_request_tokens(5000) is False)
-    h2 = HermesClient()
-    check("hermes 未配上限 → 永不告警", h2.note_request_tokens(10 ** 9) is False)
-    check("hermes 坏值不抛", h.note_request_tokens("abc") is False)
-
-    # make_client 接线（chdir 到空目录：避免读到项目 .env）
-    tmp = Path(tempfile.mkdtemp(prefix="token_cap_"))
-    origin = os.getcwd()
-    _env_backup = os.environ.get("NF_ALLOW_MISSING_KEY")
-    try:
-        os.chdir(tmp)
-        # 本组只验“上限接线”，不验凭据（NOPE_KEY 故意不存在）。
-        # 2026-11-06 起缺凭据会抛 MissingCredentialError（启动失败态），
-        # 所以这里显式放行 —— 不设它，这组用例会因为“没配 Key”而红，与上线无关。
-        os.environ["NF_ALLOW_MISSING_KEY"] = "1"
-        hc = make_client({"engine": "hermes",
-                          "hermes": {"timeout": 5, "max_turns": 2},
-                          "budget": {"token_limit": {"enabled": True,
-                                                     "per_request_max_tokens": 8000}}},
-                         "writer", verbose=False)
-        check("make_client(hermes) 接线上限", hc.request_max_tokens == 8000,
-              getattr(hc, "request_max_tokens", None))
-        dc = make_client({"engine": "direct",
-                          "providers": {"p": {"type": "openai-compat",
-                                              "base_url": "http://x", "api_key_env": "NOPE_KEY"}},
-                          "model": {"writer": {"provider": "p", "id": "some-model"}},
-                          "budget": {"token_limit": {"enabled": True,
-                                                     "per_request_max_tokens": 8000}}},
-                         "writer", verbose=False)
-        check("make_client(direct) 接线上限", dc.request_max_tokens == 8000,
-              getattr(dc, "request_max_tokens", None))
-        dc0 = make_client({"engine": "direct",
-                           "providers": {"p": {"type": "openai-compat",
-                                               "base_url": "http://x", "api_key_env": "NOPE_KEY"}},
-                           "model": {"writer": {"provider": "p", "id": "some-model"}},
-                           "budget": {"token_limit": {"enabled": False,
-                                                      "per_request_max_tokens": 8000}}},
-                          "writer", verbose=False)
-        check("make_client 在 enabled=false 时不设上限（老行为）",
-              dc0.request_max_tokens is None, getattr(dc0, "request_max_tokens", None))
-    finally:
-        os.chdir(origin)
-        if _env_backup is None:
-            os.environ.pop("NF_ALLOW_MISSING_KEY", None)
-        else:
-            os.environ["NF_ALLOW_MISSING_KEY"] = _env_backup
-        shutil.rmtree(tmp, ignore_errors=True)
+    # 2026-11-25（F8 第三步）：direct / hermes 的客户端类已删除，
+    # “上限真的进 payload”“hermes 只比对告警”两组断言失去对象，一并删除。
+    # dsh 没有 max_tokens 旋钮，它的上限语义由 DshClient.request_max_tokens 承载。
 
 
 def main():

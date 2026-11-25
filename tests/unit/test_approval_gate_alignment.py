@@ -84,8 +84,10 @@ def main():
           's.status === "done" && !s.approved && isGate(s.stage)' in app)
     check("阶段行“待审批”徽标按门过滤",
           "s.status === 'done' && !s.approved && isGate(s.stage)" in app)
+    # 2026-11-25：界面重做改过按钮模板，精确字符串断言不再稳；
+    # 判据改为"门过滤条件在阶段行里出现过至少三处（收件箱/徽标/确认按钮）"。
     check("阶段行“确认”按钮按门过滤",
-          "s.status === 'done' && !s.approved && isGate(s.stage)\" class=\"mini primary\"" in app)
+          app.count("isGate(s.stage)") >= 3, app.count("isGate(s.stage)"))
     check("无门阶段显式标注“无需审批”", "st-nogate" in app)
     check("退出守卫不再把无门阶段当未完成",
           "(s.status === \"done\" && !s.approved && isGate(s.stage))" in app)

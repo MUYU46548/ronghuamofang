@@ -115,10 +115,12 @@ try:
     eng = [it for it in pf["items"] if it["key"] == "engine"][0]
     check("D4b engine=dsh 时该项通过", eng["ok"] is True, eng)
     # 反证：换成 direct 必须红，否则“引擎固定 dsh”在体检里根本没有判据
+    # 2026-11-25（F8）：direct 已下线，resolve_engine 把它收敛成 dsh ——
+    # 这条反证改成"收敛说明"：引擎项现在只区分 dsh / 非 dsh，不再有 direct 分支。
     pf2 = S.build_preflight({**_cfg, "engine": "direct"})
     eng2 = [it for it in pf2["items"] if it["key"] == "engine"][0]
-    check("D4c engine=direct 时该项红（判据会失败，不是恒绿）",
-          eng2["ok"] is False and "direct" in eng2["detail"], eng2)
+    check("D4c engine=direct 已下线 → 收敛为 dsh（不再是独立选项）",
+          eng2["ok"] is True and "dsh" in eng2["detail"], eng2)
     check("D4d can_run 是各项的与（有 block 项红就不能跑）",
           pf2["can_run"] is False, pf2["can_run"])
     pr = [it for it in pf["items"] if it["key"] == "prereq"][0]

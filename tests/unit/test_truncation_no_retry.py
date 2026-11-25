@@ -125,10 +125,13 @@ def case_wiring():
           "不自动重试：%s" % "%s" in orch or "不自动重试：" in orch)
     check("旧的 `while auto_retry and retry_count < max_retry` 已不存在（判据不再两处）",
           "while auto_retry and retry_count < max_retry" not in orch)
-    check("llm_client 的截断隔离走 truncation.mark（写标记的唯一入口）",
-          "truncation.mark(" in llm and "from utils import truncation" in llm)
-    check("llm_client 仍打印隔离路径（人要看得到残缺稿在哪）",
-          "已隔离存放" in llm)
+    # 2026-11-25（F8 第三步）：direct 引擎的“截断残稿隔离”随 OpenAICompatClient 删除；
+    # dsh 侧把 max-tokens 映射成 finish_reason=length + exit_code=2，stage 层直接判失败。
+    # 截断判据本身没丢：orchestrator 仍读 truncation 标记。
+    check("orchestrator 仍读 truncation 标记（截断判据还在）",
+          "from utils import truncation" in orch)
+    check("llm_client 不再写截断标记（直连引擎已删除）",
+          "truncation.mark(" not in llm)
 
 
 def main():

@@ -134,7 +134,7 @@ def main():
 
     print("\n【U4】角色模型表格（2026-11-25 移除）")
     # F8：墨坊不再配置模型与 Key，角色模型表整块下线（换成一行“由 DSH 决定”）。
-    # 原来验「表格承载 / ROLE_USE 中文说明 / agent 模式标注」的三条断言一并删除，
+    # 原来验“表格承载 / ROLE_USE 中文说明 / agent 模式标注”的三条断言一并删除，
     # 改为反向判据：这些结构不许再长回来。
     check("角色模型表已移除（不许长回来）",
           'class="rm-table"' not in app and "ROLE_USE" not in app)

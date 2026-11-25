@@ -52,7 +52,8 @@ check("看门狗判据支持 acked（框在场不超时）", "s.acked" in qg)
 check("确认框文案分忙闲两态（不再误导）", "quitDlg.busy" in appvue)
 
 print("=== 3. 技能分发 / 自装 / 版本 ===")
-check("extraResources 带 payload/skills", '"to": "payload/skills"' in pkg)
+check("extraResources 不再带 payload/skills（2026-11-25 删技能卡）",
+      '"to": "payload/skills"' not in pkg)
 check("extraResources 带 payload/examples（样例随包，出厂内容检测的比对真源）",
       '"to": "payload/examples"' in pkg)
 # 版本防回退（下界判断，与下面 SEED_VERSION 的 >= 口径一致）：
@@ -73,10 +74,10 @@ if seed_lines:
     except ValueError:
         seed_ok = False
 check("SEED_VERSION >= 21（payload 脚本有实质变更）", seed_ok, seed_lines[:1])
-check("syncSkills 随版本分发（函数 + 启动调用）",
-      "function syncSkills(" in main and "syncSkills();" in main)
-check("agent-connect 返回 skillPath", "skillPath: p.skillPath" in main)
-check("自装指令用主进程 skillPath", "c.skillPath" in appvue)
+check("syncSkills 已删除（2026-11-25，随包技能卡不再分发）",
+      "function syncSkills(" not in main and "syncSkills();" not in main)
+check("agent-connect 不再返回 skillPath", "skillPath: p.skillPath" not in main)
+check("自装指令不再用 skillPath", "c.skillPath" not in appvue)
 guide = read("console/src/OnboardingGuide.vue")
 check("引导保留 Agent 接入入口（新卡底部，不随旧卡消失）",
       "接入外部 Agent（可选）" in guide and "openAgentConnect" in appvue)

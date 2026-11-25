@@ -360,17 +360,22 @@ def s4_group():
     finally:
         os.chdir(cwd)
 
-    check("S5 引擎判定认得 self（不再打成未知值后回落 direct）",
+    # 2026-11-25（F8 第三步）：direct / hermes 已下线，判据只留 self 与 dsh。
+    check("S5 引擎判定认得 self 与 dsh（唯一来源）",
           resolve_engine({"engine": "self"}) == "self"
-          and resolve_engine({}) == "direct"
-          and resolve_engine({"engine": "hermes"}) == "hermes")
+          and resolve_engine({"engine": "dsh"}) == "dsh")
     from utils.llm_client import make_client
+    # 许可闸在引擎判定之前（2026-11-18 的次序：先答"人没同意"，再答"接线错"），
+    # 所以先过闸，才能验到 self 那一条。
+    os.environ["NF_LICENSE_ACK"] = "1"
     try:
         make_client({"engine": "self"}, "default", verbose=False)
         check("S5 engine=self 下 make_client 必须炸（不许偷偷调模型）", False)
     except RuntimeError as e:
         check("S5 engine=self 下 make_client 必须炸（不许偷偷调模型）",
               "self" in str(e), str(e)[:120])
+    finally:
+        os.environ.pop("NF_LICENSE_ACK", None)
 
 
 def main():
