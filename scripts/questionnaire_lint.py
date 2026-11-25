@@ -136,6 +136,22 @@ class Checker:
 
     # ------------------------------------------------------------ 单点检查
 
+    def _known_deleted(self, path: str) -> bool:
+        """历史引用白名单：文件已随重构删除，问卷保留原引用作为历史事实。
+
+        2026-11-25：删 `skills/` 技能卡后，2026-11-04 的问卷仍引用它 ——
+        改写裁决记录去迁就文件消失才是更糟的事，所以在清单里登记"这是历史引用"。
+        清单：`docs/questionnaires/DELETED-REFS.txt`（一行一个仓库相对路径）。
+        """
+        f = self.root / "docs" / "questionnaires" / "DELETED-REFS.txt"
+        if not f.exists():
+            return False
+        try:
+            rows = [ln.strip() for ln in f.read_text(encoding="utf-8").splitlines()]
+        except OSError:
+            return False
+        return path.strip() in {r for r in rows if r and not r.startswith("#")}
+
     def check_file_ref(self, qid: str, ref: str, label: str) -> None:
         ref = str(ref).strip()
         # 前缀 "!" = 断言"这东西**不存在**"（用于"回测没跑过 / 样本为空"这类现状）
@@ -152,6 +168,8 @@ class Checker:
             self.err(qid, f"{label} 断言不存在，但实际在：{ref}")
             return
         if not p.exists():
+            if self._known_deleted(ref.split(":")[0]):
+                return
             self.err(qid, f"{label} 指向不存在的文件：{ref}")
             return
         if line is not None:
@@ -179,6 +197,8 @@ class Checker:
         path = str(c["path"])
         p = (self.root / path) if not Path(path).is_absolute() else Path(path)
         if not p.exists():
+            if self._known_deleted(path):
+                return
             self.err(qid, f"出处指向不存在的文件：{path}")
             return
         quote = (c.get("quote") or "").strip()
