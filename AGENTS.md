@@ -7,7 +7,21 @@
 NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是基于AI的长篇小说创作工具：机器包办苦力（素材归并→大纲→写作→检查→润色→Word），用户保留审批权和最终精修权。
 用户只做两件事：**放置素材** + **说"运行 NovelForge 项目"**。其余由系统自动执行，关键节点设审批门暂停等待人工确认。
 
-**执行引擎：固定 `dsh`（2026-11-20 作者定案“绒花墨坊绑死 DSH，以后都走 DSH”）**。出厂 `config/system.yaml` 与打包态工作区配置的 `engine` 都是 `dsh`，即墨坊自己跑流水线、由 DeepSeek Harness 执行层干活（`dsh --profile headless --json -`，见下方 profile 说明）。**以后不要再在 `direct` / `hermes` / `self` 上做新投入** —— 它们只剩"回退通道"这一个身份：`direct`=OpenAI 兼容直连（当前接 TokenHub），`hermes`=Hermes 子会话，`self`=只出任务书、不调模型（`data/state/tasks/self/stageN/`，细节见 `docs/agents/engine-self.md`）。代码分叉**保留不删**：DSH 起不来时这是一条能立刻退回去的路，删了就把"绑死"变成"锁死"。**界面上也收敛**（2026-11-24）：设置页只有 DSH 一张主卡，其余三项收进"回退通道"折叠区；新建项目向导默认 dsh。
+**执行引擎：固定 `dsh`（2026-11-20 作者定案“绒花墨坊绑死 DSH，以后都走 DSH”）**。出厂 `config/system.yaml` 与打包态工作区配置的 `engine` 都是 `dsh`，即墨坊自己跑流水线、由 DeepSeek Harness 执行层干活（`dsh --profile headless --json -`，见下方 profile 说明）。
+
+**`direct` / `hermes` 两条代码分支已于 2026-11-25 删除**（作者定案 F8：「后续绒花墨坊所有自带的模型调用都要移除，KEY 配置也移除」）。现状：
+
+| 引擎 | 状态 | 说明 |
+|---|---|---|
+| `dsh` | **唯一执行层** | 模型调用全部交给 DSH；墨坊只发任务书、只收产物 |
+| `self` | 保留 | 只出任务书、不调模型（零 token，`data/state/tasks/self/stageN/`，见 `docs/agents/engine-self.md`） |
+| `direct` / `hermes` | **已删除** | `OpenAICompatClient` 与 `HermesClient` 两个类已摘除；`make_client` 遇到这两个值直接 `RuntimeError`「引擎不可用，请改回 dsh」 |
+
+连带口径（与旧版手册相反的地方，**以本节为准**）：
+- **不存 Key**：`config/system.yaml` 的 `providers` 段与项目 `.env` 不再参与任何运行路径；凭据在 `~/.dsh/.env`。
+- **没有"回退通道"了**：DSH 起不来时**没有**可退回的直连引擎 —— 唯一可退的是 `engine: self`（零 token 出任务书，人工执行）。这是作者明确选择的"绑死"，不是遗漏。
+- **界面**：设置页「引擎与模型」只有 `dsh` / `self` 两张卡 + 一行「模型与渠道由 DSH 决定」。
+- `llm_client.py` 仍保留**协议工具**（`parse_ops` / `inline_inputs` / `strip_protocol_markers` / `extract_input_paths` / `SYSTEM_PROMPT`）—— `self` 任务书与 stage7 转换还在用，它们不是引擎的一部分。
 
 `engine: dsh` 的三个必须知道的口径（细节见下节与 `scripts/utils/dsh_client.py`）：
 - 模型由 DSH profile 决定，`model.*` 不参与运行（dsh 没有 `--model` 旋钮），结果里记 `dsh-default`；
@@ -27,20 +41,17 @@ NovelForge（对外品牌名：**绒花墨坊** / `ronghuamofang`）是基于AI�
 
 所有调用点经 `make_client(cfg, role)` 取客户端，零调用点硬编码引擎；`engine: self` 下 `make_client` **直接抛错** —— 防"配了 self、后台却偷偷按量跑模型"这类静默失真。
 
-**思考模式兼容（2026-09-14 起）**：glm-5.x / kimi 等模型默认进 thinking 模式时，正文会全进 `reasoning_content`、`content` 为空（且思考 token 吃掉 `max_tokens` 预算）→ 流水线产出空白。
-防线有三：① `providers.<id>.disable_thinking_models` 名单内模型自动注入“关闭思考”片段（候选顺序见 `disable_thinking_payloads`，TokenHub 实测首选 `thinking: {type: disabled}`；`reasoning_effort: none` 会被该平台拒收）；② 未列名单的思考模型由客户端自动探测并注入后重试；③ 兜底**只取协议块**（`===FILE:` / `===APPEND:` / `===DELETE:`）：reasoning_content 里找不到
-协议块就**直接丢弃**、返回空让上层判失败 —— **绝不把思考当正文写进产物**
-（2026-09-23 修：原实现无标记时返回整段思考，写作阶段实测把思考残片写进了小说正文）。
+**思考模式兼容（2026-09-14 立，2026-11-25 随 direct 引擎删除）**：当年那三道防线（`disable_thinking_models` 名单注入 / 自动探测重试 / 只取协议块兜底）全部长在 `OpenAICompatClient` 上，该类已随 F8 删除。
 
-**产出契约（2026-09-23 定）**：`_post_chat` / `_post_chat_stream` 返回 **4 元组**
-`(text, usage, model, finish_reason)`。`finish_reason == "length"` 表示**输出被 max_tokens 截断、
-正文不完整** —— 此时**不落盘**、返回 `exit_code: 2`、残缺文本隔离存 `data/state/truncated/`。
-调用方无需改动（本项目统一以 `exit_code != 0` 判失败）。
-**为什么必须这样**：思考模型会把输出预算耗在 reasoning 上（实测 `max_tokens=4000` 时
-思考 10521 字、正文仅 466 字即被截断），旧代码不读 `finish_reason` → **半截章节会被静默当成品**。
-注意 `completion_tokens_details.reasoning_tokens` **不可靠**（同样场景分别报 64 与 0），
-思考成本只能从 `completion_tokens` 总额侧面反映。
-**换供应商只改 `config/system.yaml` 的这两个键，不要改代码、不要在 `llm_client.py` 里硬编码模型名。**
+历史事故（留作背景，别再重复发明）：glm-5.x / kimi 等模型默认进 thinking 时正文全写进 `reasoning_content`、`content` 为空，思考 token 还吃掉 `max_tokens` 预算 → 产出空白。
+
+现在的边界：**思考模式由 DSH profile 的 `agent-default-model` 决定，墨坊不参与**。`config/system.yaml` 里 `providers.<id>.disable_thinking_*` 这些键**已无代码消费**（保留是为避免破坏性改动，不代表还能生效）。
+
+**产出契约（2026-09-23 定，2026-11-25 收敛到 dsh）**：`finish_reason == "length"` 表示**输出被截断、正文不完整** —— 一律**不落盘**、`exit_code: 2`。`dsh` 侧由 `max-tokens` 事件映射成 `finish_reason="length"` + `exit_code=2`（判据在 `dsh_client.py`），调用方仍只以 `exit_code != 0` 判失败，这一点没变。
+
+历史上这条是为了治"思考模型把预算耗在 reasoning 上、半截章节被静默当成品"（实测 `max_tokens=4000` 时思考 10521 字、正文仅 466 字）。现在预算与截断行为由 DSH 侧决定，墨坊只负责"截断就是失败"。
+
+**已经没有"换供应商"这件事了**：模型名与渠道由 DSH profile 决定，`config/system.yaml` 的 `model.*` / `providers` 不参与运行。不要在墨坊代码里硬编码模型名 —— 那是 DSH 的配置。
 
 ## 细节文档（docs/agents/）—— 按需读取，别当不存在
 
@@ -123,9 +134,7 @@ localStorage，后端 / MCP / CLI **一处都不读** —— 任何本机进程�
 | 签字 | `POST /license/ack`（`nf_api_domains/license_gate.py`） | `agent_guard.is_trusted_gui` 双因子 → **外部 Agent 不能代签**（先判来源再判 `agree`） |
 | 前端 | `console/src/App.vue` 的 `ensureLicense()` | 启动问服务端；`403 license_required` 时把强制弹窗拉回来 |
 
-- **授权之后仍不能“开钱闸”**：`/config/engine`、`/config/provider`、`/env/set` 已在
-  `FORBIDDEN_IN_AGENT_MODE` 里。许可闸管的是“能不能开始花钱”，这三条管的是“钱从哪个池走、
-  用谁的钥匙”——签过字也不代表外部 Agent 可以替用户换计费通道；GUI（主进程 token）不受影响。
+- **授权之后仍不能“开钱闸”**：`/config/engine` 已在 `FORBIDDEN_IN_AGENT_MODE` 里（`/config/provider`、`/env/set` 已随 F8 删除）。许可闸管的是“能不能开始花钱”，这条管的是“钱从哪个池走”——签过字也不代表外部 Agent 可以替用户换执行通道；GUI（主进程 token）不受影响。
 - **条款改版 = 自动作废**：服务端常量 `LICENSE_VERSION` / `LICENSE_CONTENT_SHA` 是
   `console/src/disclaimer.js` 的镜像，`tests/unit/test_license_gate.py`【L5】逐项比对。
   改文案只改 `disclaimer.js`，然后同步这两个常量并重算指纹（旧用例也会拦）。
@@ -137,17 +146,16 @@ localStorage，后端 / MCP / CLI **一处都不读** —— 任何本机进程�
 
 ## 止烧与安全闸门（2026-10-03 定，跑长任务前先看这一节）
 
-**token 级熔断**：`config/system.yaml` 的 `budget.token_limit`（**engine: hermes 下唯一有效的止烧闸门**）。
-- 为什么不是金额：hermes 走订阅流量，`estimate_cost_yuan` 对 `provider="hermes"` **恒返 0**
-  → `budget.limit_yuan` 永不命中（虚设）。切回 `engine: direct` 时金额阈值自动恢复有效。
+**token 级熔断**：`config/system.yaml` 的 `budget.token_limit`（**dsh 下唯一有效的止烧闸门**）。
+- 为什么不是金额：dsh 走订阅、`estimate_cost_yuan` 对订阅引擎**恒返 0** → `budget.limit_yuan` 永不命中（虚设）。**2026-11-25 后已经没有按量计费的引擎**，金额阈值彻底失效，只剩 token 闸门。
 - 判据只有一份：`CostTracker.status_detail()`（金额 / token 累计 / token 单次），
   `status()` 只是它的二元组包装；触发后走**现有** budget/pause（`progress.budget.paused` + 退出码 2），
   没有新状态机。阶段内（stage4 逐章 / stage5 分批 / stage6 分卷）也查。
-- 键义：`per_request_max_tokens`（direct 引擎真设进 `payload.max_tokens`；
-  hermes **没有这个旋钮** → 只比对+告警，要按次熔断就开 `per_request_pause_hermes`）、
-  `max_total_tokens`（本 run 累计输入+输出；**一轮 = 一次 orchestrator.run()**，`--from N` 重跑会新开 run_id → 计数归零）。
+- 键义：`max_total_tokens`（本 run 累计输入+输出；**一轮 = 一次 orchestrator.run()**，`--from N` 重跑会新开 run_id → 计数归零）。
+  `per_request_max_tokens` 仍会写进配置与 UI，但 **dsh 没有 max_tokens 旋钮**（`max_tokens_knob=False`），
+  所以它不再能"真设进 payload"——按次熔断的语义只剩观测，判据在 `dsh_client` 的 usage 回读。
 - 熔断后处置：调大对应键 → 清 `data/state/progress.json` 的 `budget.paused` → `orchestrator.py --from N` 续跑（已完成阶段不重跑）。
-- 阈值参考量级：hermes 一次 stage1 子会话 ≈ 11.6 万 token（输入 9.8 万 + 输出 1.8 万）；40 章 stage4 合计通常 200~400 万。
+- 阈值参考量级：dsh 一次 stage1 子会话 ≈ 11.6 万 token（历史实测；输入 9.8 万 + 输出 1.8 万）；40 章 stage4 合计通常 200~400 万。
 - **阈值可配 + 出厂预设 + 边界校验**（2026-10-03）：默认 **1000 万/轮 + 单请求 50000**
   （用户口径：单章 5000~15000 字、常态 ~8000）。桌面端“**设置 → 预算与止烧**”可改，
   “恢复默认预设”取 `cost_tracker.TOKEN_LIMIT_PRESET`（**预设与出厂配置由用例断言逐项一致**）。
@@ -159,7 +167,7 @@ localStorage，后端 / MCP / CLI **一处都不读** —— 任何本机进程�
   `GET /state` 的 `budget` 带 `tokens_used / token_limit / token_pct`；`estimate_tokens.py`
   给出“跑完预计 token / 是否撞闸门”；GUI 流水线条有同一项。
   ⚠️ 口径是**最近一次 run**（一轮 = 一次 `orchestrator.run()`；`--from N` 重跑 = 新 run，计数归零）。
-- **未启用时会明说**“未启用（hermes 下金额阈值无效 → 本轮没有止烧闸门）”——
+- **未启用时会明说**“未启用（订阅引擎下金额阈值无效 → 本轮没有止烧闸门）”——
   静默不显示等于让用户以为有闸门。
 
 **单章字数区间（`chapter.target_words`，2026-10-18；口径改于 2026-11-05）**：出厂默认 **[4000, 7200]**
@@ -254,7 +262,7 @@ GUI：章节页签“成书提炼”折叠块（预演 → 后台跑 → 合并�
 `run X` → `status X` → `merge X --yes`。产物在 `data/book_extract/X/`（摘要/角色/设定/时间线/
 伏笔/冲突/病灶/报告/成本）；**断点续跑**（摘要落盘即算完成，失败章重跑只补它）、
 **并库只增不改**（同名角色一个字都不动，写前备份 `data/setting/history/`）、
-**零 token 可预演**。需要 `engine: direct`（走 `client._post_chat`），Hermes 子会话下只能预演。
+**零 token 可预演**。真跑走 `make_client`（dsh 下由 DSH 执行，**本机不存 Key**）。
 病灶词扫描另有零 token 出口：`python scripts/nfctl.py cliche [--chapter N]`
 （`quality_checklist` 末尾也只报告、不阻断验收）。细节 → `docs/agents/book-extract.md`。
 
@@ -295,18 +303,18 @@ stage4 也补了同一道校验（此前是唯一既不设上限、也不校验�
 **一句话**：`engine: dsh` 时，每次模型调用改成跑一次
 `dsh --profile headless --json -`（任务从 stdin 进，stdout 是 NDJSON 事件流，退出码是权威判据）。
 **只认 `headless`**（2026-11-24 实测：`desktop` 被 DSH 拒绝命令行调用）。
-客户端在 `scripts/utils/dsh_client.py`（与 `HermesClient` 同契约：`run_task` / `run_task_stream` /
-`_post_chat` / `_post_chat_stream` / `write_task` / `writes_files=True`）。
+客户端在 `scripts/utils/dsh_client.py`（契约沿用已删除的 `HermesClient`：`run_task` / `run_task_stream` /
+`_post_chat` / `_post_chat_stream` / `write_task` / `writes_files=True` —— 所以 31 个调用点零改动）。
 
 - **白名单/模型**：dsh **没有** `--model` 旋钮（desktop / headless 都没有），模型由 profile 决定，
   `model.*` 不参与；结果里 `model` 记 `dsh-default`（不冒充具体模型名）。
 - **没有 max_tokens 旋钮**：所以 stage4 的"目标字数装不下输出上限"容量闸门在 dsh 下**跳过**
   （判据是客户端属性 `max_tokens_knob=False`，不写死引擎名）—— 否则 `budget.per_request_max_tokens`
   一旦小于目标字数，就会在**没调用模型之前**判失败，是一条纯虚构的失败（2026-11-24 修）。
-- **记账口径**：与 hermes 同一份判据（`utils/engine.SUBSCRIPTION_ENGINES`）——金额恒 0、token 照记
+- **记账口径**：订阅引擎统一判据（`utils/engine.SUBSCRIPTION_ENGINES`）——金额恒 0、token 照记
   （usage 取 `step_end` 事件的 `inputTokens/outputTokens/cacheReadTokens`），止烧只有 token 闸门有效。
 - **成功判据**：进程退出 0 **且** `final.reason.kind == "completed"`。`max-tokens` 映射成
-  `finish_reason="length"` + `exit_code=2`（截断当失败，与直连引擎同码）；退出 0 但没有 `final`
+  `finish_reason="length"` + `exit_code=2`（截断一律当失败）；退出 0 但没有 `final`
   也是失败（fail-closed，不许假成功）。
 - **失败可见**：`dsh` 找不到 → `exit_code=127` + 可行动报错（装 DSH / 在 `config/system.yaml`
   的 `dsh.bin` 写路径 / 环境变量 `NF_DSH_BIN`）；超时 → `124` 结构化；停止 → 杀整棵进程树
@@ -339,7 +347,7 @@ stage4 也补了同一道校验（此前是唯一既不设上限、也不校验�
 - 判据：`tests/unit/test_engine_self.py`（`nfctl test` 会跑）。
 细节 → `docs/agents/engine-self.md`。
 
-## 外部 Agent 接入（Hermes skill + nfctl）
+## 外部 Agent 接入（nfctl / HTTP / MCP）
 
 外部 Agent（Hermes / WorkBuddy）接本项目走**三条通道**：
 
@@ -401,8 +409,7 @@ Hermes 侧 AppData 副本未动（那是另一套目录，不进 Git）。
 ⚠️ **不许把 `--sync` 挂进自动流程**（打包脚本顺手跑一次，就会把用户改坏的样子固化成保底）。
 `nfctl release-check` 会查：缺副本 = FAIL（真的没得还原），内容不一致 = 只报告。
 
-**② 三个配置写入口必须保注释。** `/config/engine`、`/config/provider`、`/models/switch`
-一律走 `utils.config_io.set_section_scalars`（定向改写 + 备份 + 回读校验）。
+**② 配置写入口必须保注释。** 现在只剩 `/config/engine`（`/config/provider` 与 `/models/switch` 已随 F8 删除），一律走 `utils.config_io.set_section_scalars`（定向改写 + 备份 + 回读校验）。
 历史上后两个用 `yaml.dump(整份 cfg)` 覆盖写 —— **system.yaml 的 172 行注释随之消失**
 （止烧口径、白名单理由、provider 注意事项都在注释里），用户点一次下拉就没了，且无提示。
 `config_io` 支持空 `section_path` 写**顶层键**（`engine` 就是顶层），缩进按 0 算 ——
@@ -461,7 +468,7 @@ Hermes 侧 AppData 副本未动（那是另一套目录，不进 Git）。
 |------|------|--------|
 | `project.py` | 健康/状态/项目列表/配置读取/Agent 模式 | 8 |
 | `runtime.py` | 后台任务/审查/校对/模板/预估/节奏（只读） | 7 |
-| `models.py` | 模型列表/切换/添加/白名单校验 | 6 |
+| ~~`models.py`~~ | **2026-11-25 已删除**（F8：模型/服务商端点下线，实现无处安放） | 0 |
 | `outline.py` | 大纲结构/历史/差分/drafts/趋势/建议/沙盒队列 | 10 |
 | `materials.py` | 素材/碎片读写 | 5 |
 | `misc.py` | 章节质量/验证/日志/关于/成本/批量进度 | 6 |
@@ -492,8 +499,7 @@ Hermes 侧 AppData 副本未动（那是另一套目录，不进 Git）。
   - `/project/init`
   - `/config/agent_mode`（Agent 不得自行切换模式）
   - `/config/token_limit`（止烧阈值 —— Agent 不得抬高自己的闸门）
-  - `/providers/save`、`/providers/remove`（服务商增删改 = 改**计费通道与密钥来源**；
-    静默把 base_url 指向别处，作者付的钱去哪都不知道。只读 `GET /providers` 不拦）
+  - ~~`/providers/save`、`/providers/remove`~~ —— **2026-11-25 端点已删除**（F8：墨坊不再配置服务商与 Key）。POST 现在回 410「该能力已移除」，只在名单里留这条说明；`GET /providers` 也已下线。
   - `/factory/clean`（出厂样例清理 —— 移动用户素材文件；只读 `/factory/list` 不拦）
   - `/stage/skip`（跳过阶段会把状态标成 done+已审批+skipped —— 与审批同族，2026-10-16 补）
   - `/project/archive/delete`（删除归档 = 抹掉成书数据；端点另要求 `X-Mofang-Source: gui`）
@@ -511,8 +517,7 @@ Hermes 侧 AppData 副本未动（那是另一套目录，不进 Git）。
 
 **✅ 可调用**（查询类）：
 - `GET /state`、`/health`、`/about`
-- `GET /models`、`/models/available`、`/models/cache`、`/models/fetched`
-- `GET /providers`（服务商清单 + 内置预设 + 谁在用；**不吐明文 Key**，只给变量名与掩码）
+- ~~`GET /models`、`/models/available`、`/models/cache`、`/models/fetched`、`GET /providers`~~ —— **2026-11-25 全部下线**（F8）。引擎名改读 `GET /state` 的 `engine` 字段；模型名与渠道由 DSH profile 决定，墨坊不再提供查询面。
 - `GET /whoami`（服务端认为“你是谁”：可信 GUI / 三种拒因 + 来源声明 + 有无令牌 + 引擎 + agent_mode；**不含令牌值**。作者点按钮失败时靠它分清“我没权限”还是“功能坏了”）
 - `GET /config/project`、`/config/style_notes`、`/config/agent_mode`、`/config/target_words`
   （单章字数区间：当前值 + 出厂预设 + 合法区间）
@@ -613,9 +618,7 @@ if __name__ == "__main__":
 
 ## 能力边界（2026-09-21 实证，勿重复夸大）
 
-**本系统是“确定性流水线 + 单轮 LLM 调用”，没有 agent 层。** `engine: direct` 是
-OpenAI 兼容直连，模型**无工具调用、无自主多轮循环、无记忆**。“多轮迭代”全部靠
-外层（用户或外部 agent）驱动。以下是逐项实证的能力边界：
+**本系统是“确定性流水线 + 单轮 LLM 调用”，没有 agent 层。** 执行层是 `dsh`（DeepSeek Harness），模型**无工具调用、无自主多轮循环、无记忆**（DSH 自身有工具，但墨坊给它的任务书是单轮的）。“多轮迭代”全部靠外层（用户或外部 agent）驱动。以下是逐项实证的能力边界：
 
 | 能力 | 现状 | 缺口 |
 |---|---|---|
@@ -649,10 +652,8 @@ OpenAI 兼容直连，模型**无工具调用、无自主多轮循环、无记�
 - `data/`、`history/` 不进 Git（由 history/ 快照承担版本职责）；`prompts/`、`config/`、`scripts/` 进 Git
 - **用户私人数据不进 Git**：`materials/original_scraps/`（及 `_backup/`）永不随源码仓库走，后续由独立的
   导入/导出功能承担迁移；碎片→卡片落盘一律由 Python 执行（模型写入白名单只有 `data/**`），且覆盖前先备份
-- **模型凭据**：默认引擎是 `dsh`（DeepSeek Harness `headless` 档，provider 从桌面端搬过来，key 在 `~/.dsh/.env`，**本项目不存 Key**）。`engine: direct` 时才用项目 `.env`（不入 git）里的 `TOKENHUB_API_KEY`；engine=hermes 时凭据由 Hermes 统一管理。**2026-11-20 作者定案：TOKENHUB_API_KEY 以后永久不用，`providers.tokenhub` 保留仅为 direct 回退通道**（不要因为“用不上了”就删 providers / RATES，直连与测试都靠它们）。切换引擎/模型/服务商只改 `config/system.yaml`（`engine` / `model.*` / `providers`），新 provider 计价须先补 `scripts/utils/cost_tracker.py` 的 `RATES`（可用 `scripts/price_wizard.py` 交互式更新）。**模型白名单纪律：用户免费体验包按模型领取，未经用户确认不得指定/更换付费模型**
-- **直连引擎（engine: direct）语义**：无子会话工具循环——任务文件的输入文件段由 `llm_client.inline_inputs` 全文内联进单请求；多文件输出任务自动按目标文件拆分请求；模型产物经 `===FILE/APPEND/DELETE===` 协议落盘（白名单：`data/**` 与 `logs/runs.db`），期望外路径直接拒绝
-- **子会话（engine: hermes）**：任务文件（data/state/tasks/）必须自包含全部上下文
-- **DSH（engine: dsh，默认）**：任务文件同样必须自包含（`dsh --profile headless` 无 `--model`，模型由 profile 决定）；进程 cwd = workspace 就是 sandbox 写范围，`_infer_workdir` 从任务书路径反推项目根，**不要给它传相对路径任务书**；没有实时审批通道（`approval_policy: never`），任务书里不要要求“等人确认”的动作，一律会被拒
+- **模型凭据**：只有 `dsh` 一条路（DeepSeek Harness `headless` 档）。provider 从桌面端搬过来，key 在 `~/.dsh/.env`，**本项目不存 Key、不读项目 `.env`**。`config/system.yaml` 里的 `providers` / `model` / `RATES` 是**历史配置**，已无运行路径消费（保留是为了不破坏既有工作区；不要因为“看着没用”就删，但也不要以为改它能影响运行）。**模型与渠道由 DSH profile 决定** —— 要换模型去改 `$DSH_HOME/profiles/headless/cordis.patch.yml` 的 `agent-default-model`，不是改墨坊的配置。
+- **DSH（engine: dsh，唯一执行层）**：任务文件必须自包含（`dsh --profile headless` 无 `--model`，模型由 profile 决定）；进程 cwd = workspace 就是 sandbox 写范围，`_infer_workdir` 从任务书路径反推项目根，**不要给它传相对路径任务书**；没有实时审批通道（`approval_policy: never`），任务书里不要要求“等人确认”的动作，一律会被拒
 - **本地 API（nf_api.py）**：函数级复用 orchestrator/approve/reject/refine，不经过 Hermes 子进程；客户端注入走 `_client_for_env`（默认 make_client 真引擎，`NF_API_ALLOW_FAKE=1`/`--allow-fake` 时注入 FakeClient——**仅限测试**，自测脚本运行会清空 data/ 运行产物）；服务默认只绑 127.0.0.1
 - **GUI 交互纪律**：① 运行入口唯一（流水线页签顶部的“一键工作流”条，旧的 `.run-all-bar` 已删——
   新增运行按钮一律并入该条，不让两套入口并存）；② 破坏性操作走应用内确认框 + 勾选护栏，不用
