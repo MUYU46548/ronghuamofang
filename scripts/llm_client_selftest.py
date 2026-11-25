@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
-"""llm_client 解析链 mock 集成测试（T1-T8）。运行：runpy，cwd=项目根。"""
+"""llm_client 解析链 mock 集成测试（T1-T7）。运行：runpy，cwd=项目根。
+
+2026-11-25（F8 第三步）：T4（expected_outputs）与 T8（MockLC 端到端落盘）
+随直连引擎 OpenAICompatClient 一起删除 —— dsh 由 DSH 自己落盘，不走 ===FILE=== 协议。
+T1/T2/T3/T5/T6/T7 验的是**协议工具**（parse_ops / segment_requests / 白名单 / 贴齐），
+这些仍被 self_tasks 与 stage7 使用，保留。
+"""
 import os
 import sys
 from pathlib import Path
@@ -92,10 +98,9 @@ ops3 = lc.parse_ops(model_out3)
 check("T3c 双反斜杠归一", ops3 and ops3[0][1] == ("E:" + BS + "NF" + BS + "data" + BS + "a.md"), str(ops3))
 check("T3c APPEND解析", len(ops3) == 2 and ops3[1][0] == "APPEND", str(ops3))
 
-# ---- T4 expected_outputs 排除输入段 ----
-writes, appends = lc.OpenAICompatClient._expected_outputs(None, nb)
-check("T4 只剩输出路径", writes == [str(tmp / "out.md")], str(writes))
-check("T4 appends空", appends == [], str(appends))
+# ---- T4 expected_outputs（2026-11-25 移除）----
+# 它原是 OpenAICompatClient 的方法，直连引擎已随 F8 删除；
+# dsh 由 DSH 自己落盘，不再走 ===FILE=== 协议，所以这条失去对象。
 
 # ---- T5 segment_requests ----
 b5 = "## 输出" + NEWLINE + "写入: A.md" + NEWLINE + "写入: B.md" + NEWLINE + "写入: C.md" + NEWLINE
@@ -149,28 +154,9 @@ fake_responses = iter([
 ])
 
 
-class MockLC(lc.OpenAICompatClient):
-    def _post_chat(self, messages, temperature=None, max_tokens=None):
-        # 返回 4 元组（2026-09-23 起第 4 位是 finish_reason）
-        return (next(fake_responses), {"prompt_tokens": 100, "completion_tokens": 50},
-                "mock-model", "stop")
-
-
-task = Path("data/test_llm_t8/mock_task.md")
-write_text(task, "## 输出" + NEWLINE +
-           "写入: " + str(tmp / "f1.md") + NEWLINE +
-           "写入: " + str(tmp / "f2.md") + NEWLINE +
-           "追加到: " + str(tmp / "rep.md") + NEWLINE)
-os.environ["NOVELFORGE_DEBUG"] = ""
-c = MockLC(model="mock-model", base_url="http://localhost:1", api_key="x")
-res = c.run_task(task)
-check("T8 返回结构", res["exit_code"] == 0 and res["tokens"] == 200 and
-      res["tokens_out"] == 100 and res["model"] == "mock-model" and
-      res["requests"] == 2, str(res))
-check("T8 f1落盘", (tmp / "f1.md").exists() and "F1内容" in read_text(tmp / "f1.md"))
-check("T8 f2落盘", (tmp / "f2.md").exists() and "F2内容" in read_text(tmp / "f2.md"))
-check("T8 append落盘", "追加行" in read_text(tmp / "rep.md"))
-check("T8 真实usage标记", res["estimated"] is False)
+# ---- T8 直连引擎端到端落盘（2026-11-25 移除）----
+# 原来用 MockLC(OpenAICompatClient) 跑 run_task 验“多文件拆分 + 落盘 + usage”。
+# 直连引擎已随 F8 删除，dsh 的落盘由 DSH 进程自己完成（不进墨坊的协议解析层）。
 
 print("====", ok_count, "PASS,", len(fails), "FAIL", fails)
 sys.exit(1 if fails else 0)
