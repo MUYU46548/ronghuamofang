@@ -1928,19 +1928,24 @@ body {
 .flow-step.done .fs-no { background: rgba(127, 174, 143, 0.22); color: var(--ok); }
 /* 当前步骤：这是“下一步该跑哪一阶段”的唯一视觉锚点，**必须看得清**。
    2026-11-25 作者标注：“看不清文字。”根因有两个：
-   ① 主题色 --accent 是粉紫（浅色主题 #9b8fc4），配白字只有 2.9:1，13px 粗体也糊；
-   ② 「当前」+「失败」同时成立时，后面的 .bad 把 color 覆盖成 --bad（浅红），
+   ① 当前步骤用的是 --accent 实心 + 白字，而浅色主题的 --accent 是粉紫，
+      白字对比只有 2.9:1，13px 粗体也糊；
+   ② “当前”+“失败”同时成立时，后面的 .bad 把 color 覆盖成 --bad（浅红），
       于是浅红字压在浅紫底上，几乎等于隐形 —— 越是出错的阶段越读不出来。
-   改法：字色改成深墨（对 12 套主题都是浅色粉彩，深字对比都够），
-   并给 .cur.bad 一条更高优先级的组合态。 */
+   改法：底色改用 --accent-strong（护栏已验过：配白字 10 套主题都 ≥4.5:1），
+   并给 .cur.bad 一条更高优先级的组合态（压暗的 --bad 实心 + 白字）。 */
 .flow-step.cur {
-  border-color: var(--accent); background: var(--accent); color: #17181f; font-weight: 600;
+  border-color: var(--accent-strong); background: var(--accent-strong);
+  color: #fff; font-weight: 600;
 }
-.flow-step.cur .fs-no { background: rgba(255, 255, 255, 0.55); color: #17181f; }
-.flow-step.bad, .flow-step.cur.bad { border-color: var(--bad); }
-.flow-step.bad { color: var(--bad); }
-.flow-step.cur.bad { background: var(--bad); color: #17181f; }
-.flow-step.cur.bad .fs-no { background: rgba(255, 255, 255, 0.55); color: #17181f; }
+.flow-step.cur .fs-no { background: rgba(255, 255, 255, 0.28); color: #fff; }
+.flow-step.cur.bad {
+  border-color: var(--bad);
+  background: color-mix(in srgb, var(--bad) 78%, #000);
+  color: #fff;
+}
+.flow-step.cur.bad .fs-no { background: rgba(255, 255, 255, 0.28); color: #fff; }
+.flow-step.bad { border-color: var(--bad); color: var(--bad); }
 .flow-step.bad .fs-no { background: rgba(196, 127, 127, 0.22); color: var(--bad); }
 .flow-step.skip .fs-name { text-decoration: line-through; opacity: 0.7; }
 .fs-arrow { color: var(--muted); opacity: 0.6; padding: 0 2px; }
@@ -1993,7 +1998,7 @@ body {
   background: rgba(196, 127, 127, 0.09); border: 1px solid var(--bad);
 }
 /* 用主题变量而不是硬编码色值：暗夜紫下 --bad 会自动换成亮一档的红。
-   2026-11-25：原样是 --bad 直接当字色（浅色主题 #c47f7f 压在 9% 同色底上，
+   2026-11-25：原样是 --bad 直接当字色（浅色主题下它本身就是浅红，压在 9% 同色底上，
    对比只有 2.9:1）—— 失败原因本来就该一眼读到，压暗 30% 后 ≈4.9:1。 */
 .stage-recovery .rec-msg { font-size: 13px; color: color-mix(in srgb, var(--bad) 70%, #000); }
 .st-skip { background: color-mix(in srgb, var(--muted) 14%, transparent); color: var(--muted); }

@@ -734,13 +734,13 @@ CONTEXT_DIR = Path("data/state/context")
 
 
 def _write_setting_excerpt(n, setting_path, character_cards, world_context):
-    """把「本章真正用得上的设定条目」写成一个小文件，供任务书的 `{{path_setting}}` 指向。
+    """把“本章真正用得上的设定条目”写成一个小文件，供任务书的 `{{path_setting}}` 指向。
 
     ## 为什么（P0-2，2026-11-25）
 
     任务书里早就把本章相关的角色卡 / 地点 / 势力 / 时间线 / 情节碎片都**内联**了
     （见 `_extract_world_context` / `_extract_character_cards_for_chapter`），
-    但模板那一行仍然写着「设定集: <data/setting/setting.json>（仅参考涉及本章的…）」——
+    但模板那一行仍然写着“设定集: <data/setting/setting.json>（仅参考涉及本章的…）”——
     模型就照着一整本读。实测（`docs/盘点-跑书试跑-20261125.md`）：单章输入 10.5 万 token，
     设定集 126 KB，而同一批条目在任务书正文里已经出现过一次。
     **同一份料喂两遍，第二遍还是整本。**
