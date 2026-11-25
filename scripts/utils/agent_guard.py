@@ -107,8 +107,9 @@ FORBIDDEN_IN_AGENT_MODE = frozenset({
     # 外部 Agent 静默把 base_url 指向别处，作者付的钱去哪都不知道 —— 与
     # /config/token_limit 同族（都是\"别让 Agent 动自己的花销\"）。
     # 只读的 GET /providers 不在此列（Agent 可以盘点有哪些服务商）。
-    "/providers/save",
-    "/providers/remove",
+    # 2026-11-25 移除（作者定案 F8）：墨坊不再配置模型 / 服务商 / Key，
+    # 模型与渠道全由 DSH profile 决定。原来这里的两条（/providers/save、/providers/remove）
+    # 已随端点一起下线（POST 现在回 410 "该能力已移除"）。
     # 出厂测试项目一键还原（0.6.22）：清书状态 + 重铺素材 + 写回配置。
     # 与铺设端点完全同族（铺/还原是一对）。端点自身还要求 is_trusted_gui
     # （双因子）—— 只读的 GET /factory/project 不在此列（Agent 可盘点）。

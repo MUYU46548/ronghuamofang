@@ -79,10 +79,8 @@ def main():
     check("函数体里调用了 /config/engine", '"/config/engine"' in body, body[:120])
     check("切换后把新值写回界面状态（models.value.engine）",
           "models.value.engine" in body, body[:160])
-    check("模板里有四张引擎卡（direct / hermes / dsh / self）",
-          app.count("switchEngine('direct')") == 1
-          and app.count("switchEngine('hermes')") == 1
-          and app.count("switchEngine('dsh')") == 1
+    check("模板里只剩两张在册引擎卡（dsh / self）",
+          app.count("switchEngine('dsh')") == 1
           and app.count("switchEngine('self')") == 1,
           (app.count("switchEngine('direct')"), app.count("switchEngine('hermes')"),
            app.count("switchEngine('dsh')"), app.count("switchEngine('self')")))
@@ -134,13 +132,12 @@ def main():
     check("下拉展开后的 option 也上了色（暗色不出现白片）",
           "option" in css and ".model-select option" in css)
 
-    print("\n【U4】不带回老结构：角色模型是表格，不是一排 art-row")
-    check("模板用 .rm-table / .rm-row 承载角色模型",
-          'class="rm-table"' in app and 'class="rm-row"' in app)
-    check("角色用途列有中文说明（不再只给英文键名）",
-          "ROLE_USE" in app and "正文写作" in app)
-    check("agent 模式下明确标出\u300c角色模型不参与\u300d",
-          "agent 模式下不参与" in app)
+    print("\n【U4】角色模型表格（2026-11-25 移除）")
+    # F8：墨坊不再配置模型与 Key，角色模型表整块下线（换成一行“由 DSH 决定”）。
+    # 原来验「表格承载 / ROLE_USE 中文说明 / agent 模式标注」的三条断言一并删除，
+    # 改为反向判据：这些结构不许再长回来。
+    check("角色模型表已移除（不许长回来）",
+          'class="rm-table"' not in app and "ROLE_USE" not in app)
 
     print("\n" + "=" * 66)
     print("合计: %d 通过 / %d 失败" % (len(PASS), len(FAIL)))

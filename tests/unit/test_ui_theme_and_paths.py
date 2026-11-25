@@ -205,8 +205,8 @@ def test_E_path_resolution_and_ipc():
           "currentVersion:" in MAIN and "version: info.version" in MAIN)
 
     print("\n[F] 前端必须检查 IPC/reveal 的返回值（不再假成功）")
-    check("F1 revealEnvInFolder 检查返回结果",
-          bool(re.search(r"revealEnvInFolder[\s\S]{0,700}?res\??\.\s*ok", APP)))
+    check("F1 revealEnvInFolder 已随 Key 配置移除（2026-11-25 F8）",
+          "revealEnvInFolder" not in APP)
     check("F2 checkForUpdates 有 try/finally（按钮不会被卡死）",
           bool(re.search(r"async function checkForUpdates[\s\S]{0,1200}?finally", APP)))
     check("F3 设置页保留了\u300c检查更新\u300d按钮", "checkForUpdates" in APP)

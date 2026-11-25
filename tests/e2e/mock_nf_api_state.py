@@ -655,10 +655,6 @@ class Handler(BaseHTTPRequestHandler):
                                     "source_claim": "", "token_present": False,
                                     "agent_mode": False, "engine": "direct",
                                     "project_root": "<mock>", "note": "mock"})
-        if p == "/providers":
-            # 只读端点：e2e 只验页面能渲染，不验真实配置。
-            return self._send(200, {"ok": True, "items": [], "presets": [],
-                                    "active": {}})
         if p == "/state":
             if COLD:
                 st = json.loads(json.dumps(STATE))
@@ -668,8 +664,9 @@ class Handler(BaseHTTPRequestHandler):
                 for s in st["stages"]:
                     s.clear()
                 st["stages"] = [{"stage": n, "status": "pending", "approved": None} for n in range(1, 8)]
-                return self._send(200, st)
-            return self._send(200, STATE)
+                return self._send(200, dict(st, engine=ENGINE))
+            # 2026-11-25：engine 由 /state 提供（/models 已下线）
+            return self._send(200, dict(STATE, engine=ENGINE))
         if p == "/review/three_state":
             # 三份稿对照（2026-11-14）：字段与真 handler 的返回同形。
             # 缺这条时审稿页那块点开只剩“读不到对照”，面板等于没被验收过。
@@ -808,13 +805,8 @@ class Handler(BaseHTTPRequestHandler):
                      ]},
                 ],
             })
-        if p == "/models":
-            return self._send(200, {"engine": ENGINE, "model": {"default": "glm-5.3"},
-                                    "providers": ["tokenhub"], "gates": {}})
-        if p == "/models/available":
-            return self._send(200, {"engine": ENGINE,
-                                    "available_models": ["glm-5.3", "mock-model-b"],
-                                    "providers": ["tokenhub"], "has_key": True})
+        # /models 与 /models/available 已于 2026-11-25 F8 下线（前端改读 /state.engine），
+        # mock 不再提供这两个分支。
         if p == "/costs":
             return self._send(200, {"entries": []})
         if p == "/costs/summary":

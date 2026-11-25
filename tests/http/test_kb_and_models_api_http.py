@@ -178,64 +178,12 @@ def main():
     finally:
         stop_api(proc2)
 
-    # ---------- C. /models/switch 白名单 ----------
+    # ---------- C. /models/switch（2026-11-25 移除）----------
+    # 墨坊不再配置模型（F8）：/models/switch 与 /models/add 已下线，POST 回 410。
+    # 原来这一整段验“两级白名单校验回路”，能力不存在后一并删除。
     print("\n" + "=" * 66)
-    print("C. /models/switch：两级校验回路已接通")
+    print("C. /models/switch：已下线（2026-11-25 F8），本段跳过")
     print("=" * 66)
-    tmp3 = build_project(vault=None)
-    before = yaml_model_id(tmp3, "default")
-    proc3 = start_api(tmp3)
-    try:
-        check("基线：default 角色初始模型可读", bool(before), before)
-
-        # C1 格式非法
-        for bad in ["../evil", "bad name", "x" * 200]:
-            code, d = req("POST", "/models/switch", {"role": "default", "model": bad})
-            check(f"格式非法被拒: {bad[:24]!r}", code == 400, f"{code} {d}")
-        check("格式非法后 config 未被改写",
-              yaml_model_id(tmp3, "default") == before,
-              yaml_model_id(tmp3, "default"))
-
-        # C2 未登记（第 ② 级）
-        code, d = req("POST", "/models/switch",
-                      {"role": "default", "model": "totally-unknown-model"})
-        check("未登记模型被拒 → 400", code == 400, f"{code} {d}")
-        check("拒绝理由说明白名单来源",
-              "白名单" in json.dumps(d, ensure_ascii=False), d)
-        check("拒绝后 config 未被改写（无副作用）",
-              yaml_model_id(tmp3, "default") == before,
-              yaml_model_id(tmp3, "default"))
-
-        # C3 已登记 → 放行
-        code, d = req("POST", "/models/switch", {"role": "default", "model": "glm-5"})
-        check("已登记模型 → 200", code == 200, f"{code} {d}")
-        check("回报 whitelist_checked=true", d.get("whitelist_checked") is True, d)
-        check("config 已写入 glm-5",
-              yaml_model_id(tmp3, "default") == "glm-5",
-              yaml_model_id(tmp3, "default"))
-
-        # C4 逃生门
-        code, d = req("POST", "/models/switch",
-                      {"role": "default", "model": "experimental-x", "strict": False})
-        check("strict=false 逃生门 → 200", code == 200, f"{code} {d}")
-        check("逃生门回报 whitelist_checked=false（不静默）",
-              d.get("whitelist_checked") is False, d)
-        check("逃生门消息里标注\u300c未做白名单校验\u300d",
-              "未做白名单校验" in str(d.get("message", "")), d)
-
-        # C5 未知角色仍被护栏拦住
-        code, d = req("POST", "/models/switch",
-                      {"role": "nonexistent-role", "model": "glm-5"})
-        check("未知角色 → 400", code == 400, f"{code} {d}")
-
-        # C6 手动添加后被准入（回路的自洽性）
-        code, d = req("POST", "/models/add", {"name": "user-added-model"})
-        check("/models/add 手动添加 → 200", code == 200, f"{code} {d}")
-        code, d = req("POST", "/models/switch",
-                      {"role": "default", "model": "user-added-model"})
-        check("手动添加后即被准入（用户显式动作=确认）", code == 200, f"{code} {d}")
-    finally:
-        stop_api(proc3)
 
     print("\n" + "=" * 66)
     print("合计: %d 通过 / %d 失败" % (len(PASS), len(FAIL)))

@@ -160,42 +160,9 @@ def main():
     check(all("glm" in s for s in r["suggestions"]),
           "候选按前缀收敛到同系列", f"实际={r['suggestions']}")
 
-    # ---------- D. 校验回路已接通 ----------
-    #
-    # 2026-09-19 修正：这两条原本在 nf_api.py 里**按分支边界切源码文本**再 grep。
-    # P2 拆分把 /models/* 的实现搬到了 nf_api_domains/models.py，文本自然不在
-    # nf_api.py 里了 —— 于是测试变红，但它红的原因是“找错了文件”而不是
-    # “校验回路断了”。这类依赖**实现位置**的断言是脆的：重构一动就误报。
-    #
-    # 改为“先定位实现所在文件，再在文件内断言”：实现可以搬家，
-    # “必须调用 check_model / validate_format”这个契约不变。
-    print("\n--- D. 写入层回路接通确认 ---")
-    api_src = (REPO / "scripts" / "nf_api.py").read_text(encoding="utf-8")
-    check("from utils import model_registry" in api_src,
-          "nf_api 已导入 model_registry")
-
-    def _impl_source(branch_marker, fallback_file):
-        """找出该端点**实现**所在源码：先看 nf_api.py 分支体，再看域模块。
-
-        拆分后分支体只剩转发（`self._send(*_dom(dom_models.handle_...(self)))`），
-        实现搬到了域模块。这里顺着转发目标把域模块源码也读进来。
-        """
-        idx = api_src.find(branch_marker)
-        if idx == -1:
-            return "", "分支未找到"
-        # 取该分支后 300 字符（足够覆盖一条转发语句），从中找 dom_xxx 模块名
-        seg = api_src[idx:idx + 300]
-        if "dom_models" in seg:
-            return (REPO / "scripts" / "nf_api_domains" / "models.py").read_text(
-                encoding="utf-8"), "域模块 nf_api_domains/models.py"
-        return seg, "nf_api.py 内联实现"
-
-    sw_src, sw_where = _impl_source('p == "/models/switch"', "nf_api.py")
-    add_src, add_where = _impl_source('p == "/models/add"', "nf_api.py")
-    check("check_model(" in sw_src,
-          "/models/switch 已接入两级校验 check_model", "实现位于: " + sw_where)
-    check("validate_format(" in add_src,
-          "/models/add 已接入格式校验 validate_format", "实现位于: " + add_where)
+    # ---------- D. 写入层回路（2026-11-25 移除）----------
+    # /models/switch 与 /models/add 已随 F8 下线（POST 回 410“该能力已移除”），
+    # 两条“实现必须调用 check_model / validate_format”的断言失去对象，一并删除。
 
     print("\n" + "=" * 70)
     print(f"结果：PASS={PASS}  FAIL={FAIL}")

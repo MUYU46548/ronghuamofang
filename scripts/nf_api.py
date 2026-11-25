@@ -179,7 +179,6 @@ try:
     from nf_api_domains import ask as dom_ask              # noqa: E402 (Agent 提问通道)
     from nf_api_domains import materials as dom_materials  # noqa: E402
     from nf_api_domains import misc as dom_misc            # noqa: E402
-    from nf_api_domains import models as dom_models        # noqa: E402
     from nf_api_domains import outline as dom_outline      # noqa: E402
     from nf_api_domains import post_misc as dom_post_misc  # noqa: E402
     from nf_api_domains import project as dom_project      # noqa: E402
@@ -218,7 +217,6 @@ except Exception as _dom_err:                            # noqa: BLE001
     dom_metrics = None
     dom_materials = None
     dom_misc = None
-    dom_models = None
     dom_outline = None
     dom_post_misc = None
     dom_project = None
@@ -1204,6 +1202,7 @@ def build_state():
     # 裸目录（--root 指向还没有 config/ 的目录）时 load_all() 返回 (None, None)：
     # 上面每处都写了 `(_cfg or {})`，唯独这里漏了兜底 → 签完字 GET /state 抛
     # AttributeError 500。2026-11-19 用打包 runtime 实测到的（总账 #14）。
+    from utils.engine import resolve_engine as _resolve_engine
     budget = (_cfg or {}).get("budget", {})
     # token 上限与预警线（判据在 cost_tracker：预设/归一/边界只有一份）
     from utils.cost_tracker import normalize_token_limit
@@ -1257,6 +1256,9 @@ def build_state():
         # `gates` 里 → `!!undefined` 恒 false → 开关永远显示“已关闭”，
         # 哪怕 system.yaml 里明明是 true（用户完全看不出真实权限状态）。
         "agent_mode": bool((gates or {}).get("agent_mode", False)),
+        # 引擎（2026-11-25）：/models 下线后，前端与 HTTP 契约都从这里读引擎名。
+        # 判据仍是 utils.engine.resolve_engine（唯一来源），不在这里复述规则。
+        "engine": _resolve_engine(_cfg),
     }
 
 
@@ -2906,6 +2908,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/state":
             # 实现已迁至 nf_api_domains.project（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_project.handle_state(self)))
+        elif p == "/engine/check":
+            # 引擎自检（2026-11-25）：配置写的什么 / 还在不在支持范围 / DSH 找不找得到
+            self._send(*_dom(dom_project.handle_engine_check(self)))
         elif p == "/onboarding/status":
             # 新手序列引导（I-1）：下一步该点哪里 + 每步判据（零 token）
             self._send(*_dom(dom_onboarding.handle_onboarding_status(self)))
@@ -2926,24 +2931,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/costs/summary":
             # 实现已迁至 nf_api_domains.misc（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_misc.handle_costs_summary(self)))
-        elif p == "/models":
-            # 实现已迁至 nf_api_domains.models（P2 拆分）；此处只做转发。
-            self._send(*_dom(dom_models.handle_models(self)))
-        elif p == "/models/available":
-            # 实现已迁至 nf_api_domains.models（P2 拆分）；此处只做转发。
-            self._send(*_dom(dom_models.handle_models_available(self)))
-        elif p == "/models/fetched":
-            # 实现已迁至 nf_api_domains.models（P2 拆分）；此处只做转发。
-            self._send(*_dom(dom_models.handle_models_fetched(self)))
-        elif p == "/models/cache":
-            # 实现已迁至 nf_api_domains.models（P2 拆分）；此处只做转发。
-            self._send(*_dom(dom_models.handle_models_cache(self)))
         elif p == "/whoami":
             # 服务端认为“你是谁”（三种拒因 + 来源声明 + 引擎）；不含令牌值。
             self._send(*_dom(dom_project.handle_whoami(self)))
-        elif p == "/providers":
-            # 服务商清单 + 内置预设 + 谁在用（只读，不吐明文 Key）。
-            self._send(*_dom(dom_models.handle_providers(self)))
         elif p == "/env/open":
             # 实现已迁至 nf_api_domains.misc（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_misc.handle_env_open(self)))
@@ -3397,6 +3387,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/chapters/annotations":
             # 段落批注 + 漂移判定（B5）：每次读都按当前正文重定位 —— 只读批注文件
             self._send(*_dom(dom_chapters.handle_chapters_annotations(self)))
+        elif p == "/chapters/dispatch":
+            # 派单候选（2026-11-25，总账 F7）：一次调用改多段的产出，逐条采用才写回
+            self._send(*_dom(dom_chapters.handle_chapters_dispatch(self)))
         elif p == "/chapters/rerun/plan":
             # 单章重跑影响面预览（2026-11-04）：只读、零 token —— nf_api_domains.chapters
             self._send(*_dom(dom_chapters.handle_chapters_rerun_plan(self)))
@@ -4145,6 +4138,9 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/chapters/annotations":
                 # 段落批注（B5）：挂注 / 标已处理 / 删除 —— 笔记类，不动正文
                 self._send(*_dom(dom_chapters.handle_chapters_annotations_set(self, body)))
+            elif p == "/chapters/dispatch":
+                # 派单候选：save 写候选（不动正文）/ apply 采用（GUI-only，零 token 覆盖正文）
+                self._send(*_dom(dom_chapters.handle_chapters_dispatch_set(self, body)))
             elif p == "/chapters/rerun":
                 # 单章纵向重跑（4→5→6，花 token）：只作废/重算这一章，
                 # 其他章三层稿与进度一律不动（2026-11-04，task-20261104-002）
@@ -4341,13 +4337,16 @@ class Handler(BaseHTTPRequestHandler):
                 # Word 成品模板选择/恢复默认（件五 GUI 入口，定向改写 project.yaml）。
                 self._send(*_dom(dom_project.handle_config_word_template_set(self, body)))
             elif p == "/env/set":
-                # 把 API Key 写进 .env（GUI 内置入口，替代“用外部编辑器打开 .env”）。
-                # 键名白名单/值校验/备份都在域模块里（判据只有一份）。
-                self._send(*_dom(dom_misc.handle_env_set(self, body)))
+                # 2026-11-25 移除：墨坊不再持有任何 API Key。凭据归 DSH 的 profile。
+                self._send(410, {"ok": False,
+                                 "error": "该能力已移除：墨坊不再写入 API Key；"
+                                          "凭据请在 DSH 的 headless profile 里配置"})
             elif p == "/config/engine":
                 self._send(*_dom(dom_config_write.handle_config_engine(self, body)))
             elif p == "/config/provider":
-                self._send(*_dom(dom_config_write.handle_config_provider(self, body)))
+                # 2026-11-25 移除：角色绑哪个 provider 由 DSH 决定，墨坊不再管这件事。
+                self._send(410, {"ok": False,
+                                 "error": "该能力已移除：服务商由 DSH 决定，墨坊不再分配"})
             elif p == "/project/archive":
                 name = str(body.get("name") or "").strip()
                 force = bool(body.get("force"))
@@ -4617,18 +4616,15 @@ class Handler(BaseHTTPRequestHandler):
                 except Exception as e:      # noqa: BLE001
                     self._send(500, {"ok": False,
                                      "error": type(e).__name__ + ": " + str(e)[:200]})
-            elif p == "/models/add":
-                # 实现已迁至 nf_api_domains.models（P2 拆分）；此处只做转发。
-                self._send(*_dom(dom_models.handle_models_add(self, body)))
-            elif p == "/models/switch":
-                # 实现已迁至 nf_api_domains.models（P2 拆分）；此处只做转发。
-                self._send(*_dom(dom_models.handle_models_switch(self, body)))
-            elif p == "/providers/save":
-                # 新增/更新服务商（GUI-only：改的是计费通道与密钥来源）
-                self._send(*_dom(dom_models.handle_providers_save(self, body)))
-            elif p == "/providers/remove":
-                # 删除服务商（GUI-only；在用的会被 provider_store 拒掉）
-                self._send(*_dom(dom_models.handle_providers_remove(self, body)))
+            elif p in ("/models/add", "/models/switch",
+                       "/providers/save", "/providers/remove", "/env/set"):
+                # 2026-11-25 移除（作者定案）：墨坊不再自带模型调用，也不持有 Key。
+                # 模型 / 服务商 / 凭据统一由 DSH 自己的 profile 决定，这里没有可写的东西。
+                # 不静默改成 200（那会让调用方以为写成功了），也不 404（那是"路径写错"的意思）：
+                # 410 = 这个能力已经不存在，并说清去哪改。
+                self._send(410, {"ok": False,
+                                 "error": "该能力已移除：墨坊不再配置模型 / 服务商 / API Key，"
+                                          "请改 DSH 的 profile（headless 档）"})
             elif p == "/export/markdown":
                 # 实现已迁至 nf_api_domains.post_misc（P2 拆分）；此处只做转发。
                 self._send(*_dom(dom_post_misc.handle_export_markdown(self, body)))

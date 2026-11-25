@@ -298,8 +298,8 @@ def main():
     check("无\u300c路径存在但 HTTP 方法不对\u300d的端点", not wrong_method, wrong_method)
 
     print("\n=== 2. 历史断点回归项 ===")
-    for method, ep in (("POST", "/models/switch"), ("POST", "/export/markdown"),
-                       ("POST", "/models/add"), ("GET", "/config/project"),
+    for method, ep in (("POST", "/export/markdown"),
+                       ("GET", "/config/project"),
                        ("POST", "/outline/chapters/save")):
         ok = ep in routes[method][0]
         check("%s %s 已注册" % (method, ep), ok,

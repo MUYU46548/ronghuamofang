@@ -32,6 +32,43 @@ def handle_health(h):
                  "allow_fake": api.ALLOW_FAKE}
 
 
+def handle_engine_check(h):
+    """`GET /engine/check` —— 引擎自检（2026-11-25）。
+
+    为什么单独一个端点：引擎绑死 DSH 之后，最常见的失败是“DSH 没装 / 路径不对 /
+    版本太老”，而今这些情况在界面上表现为“点了没反应”。这一步把三件事一次说清：
+    配置里写的是哪个引擎、它是否还在支持范围、DSH 能不能找到。
+
+    只读、零模型调用：`dsh_available` 只做路径探测，不起进程。
+    """
+    from utils import engine as eng
+    cfg, _ = api.load_all()
+    raw = str(((cfg or {}).get("engine") or "")).strip().lower()
+    resolved = eng.resolve_engine(cfg)
+    retired = eng.RETIRED_ENGINES.get(raw)
+    out = {
+        "ok": True,
+        "configured": raw or "(未写)",
+        "resolved": resolved,
+        "retired": retired or "",
+        "valid": list(eng.VALID_ENGINES),
+        "dsh_ok": None,
+        "dsh_msg": "",
+    }
+    if resolved == "dsh":
+        try:
+            from utils import dsh_client
+            ok, msg = dsh_client.dsh_available()
+            out["dsh_ok"] = bool(ok)
+            out["dsh_msg"] = msg
+        except Exception as e:                                # noqa: BLE001
+            out["dsh_ok"] = False
+            out["dsh_msg"] = "探测失败：%s" % e
+    else:
+        out["dsh_msg"] = "当前是 self（只出任务书，不调模型），不需要 DSH"
+    return 200, out
+
+
 def handle_state(h):
     """全站状态快照（阶段进度 / 审批位 / 预算 / 质量门），GUI 主轮询入口。"""
     try:
@@ -2525,6 +2562,7 @@ def handle_skills_delete(h, body):
 # 本模块负责的端点（供自检与文档）
 ROUTES = (
     ("GET", "/health", handle_health),
+    ("GET", "/engine/check", handle_engine_check),
     ("GET", "/state", handle_state),
     ("GET", "/whoami", handle_whoami),
     ("GET", "/project/list", handle_project_list),

@@ -389,21 +389,7 @@ def main():
         code, d = req("POST", "/book/split", {})
         check("缺 path → 400", code == 400, (code, str(d)[:160]))
 
-        print("\n=== 5. 模型切换 / 导出（此前缺失或写在 do_GET）===")
-        cfg_file = tmp / "config" / "system.yaml"
-        before = cfg_file.read_text(encoding="utf-8")
-        code, d = req("POST", "/models/switch", {"role": "writer", "model": "glm-5.3"})
-        check("POST /models/switch → 200（此前 404）", code == 200 and d.get("ok"),
-              (code, str(d)[:180]))
-        after = cfg_file.read_text(encoding="utf-8")
-        check("config/system.yaml 里 writer 已被改写",
-              "id: glm-5.3" in after and before != after,
-              [l for l in after.splitlines() if "glm-5.3" in l][:2])
-        code, d = req("POST", "/models/switch", {"role": "不存在的角色", "model": "x"})
-        check("未知角色 → 400 + 列出可用角色",
-              code == 400 and "可用" in str(d.get("error")), (code, str(d)[:180]))
-        code, d = req("POST", "/models/switch", {"role": "writer"})
-        check("缺 model → 400", code == 400, (code, str(d)[:160]))
+        print("\n=== 5. 导出（模型切换已于 2026-11-25 F8 下线）===")
         code, d = req("POST", "/export/markdown", {"per_vol": 2})
         check("POST /export/markdown 不再 404/500（此前只在 do_GET 里且会 500）",
               code in (200, 400) and "ok" in d, (code, str(d)[:180]))
@@ -449,21 +435,8 @@ def main():
         code, d = req("POST", "/outline/chapters/save", {"n": 0, "content": GOOD_CH})
         check("非法章号 → 400", code == 400, (code, str(d)[:160]))
 
-        code, d = req("POST", "/models/add", {"name": "my-custom-model"})
-        check("POST /models/add → 200（此前错写在 do_GET：GET 500 / POST 404）",
-              code == 200 and d.get("ok"), (code, str(d)[:180]))
-        cache = tmp / "data" / "state" / "fetched_models.json"
-        saved = json.loads(cache.read_text(encoding="utf-8")) if cache.exists() else {}
-        check("手动模型写进缓存 _manual", "my-custom-model" in (saved.get("_manual") or []),
-              saved.get("_manual"))
-        code, d = req("POST", "/models/add", {})
-        check("缺 name → 400", code == 400, (code, str(d)[:160]))
-        code, d = req("POST", "/models/add", {"name": "../evil"})
-        check("含路径分隔符的模型名被拒", code == 400, (code, str(d)[:160]))
-        code, d = req("GET", "/models/cache")
-        check("GET /models/cache 仍可用（读缓存，含手动项）",
-              code == 200 and "my-custom-model" in json.dumps(d, ensure_ascii=False),
-              (code, str(d)[:160]))
+        # /models/add 与 /models/cache 已于 2026-11-25 F8 下线（POST 回 410），
+        # 原来“手动添加模型 / 读缓存”的三条断言一并删除。
 
         print("\n=== 5.5 GET /outline/trend（迭代收敛视图）===")
         code, d = req("GET", "/outline/trend")

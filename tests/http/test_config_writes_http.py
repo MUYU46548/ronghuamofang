@@ -128,8 +128,9 @@ def main():
             return 1
 
         print("\n【C1】切引擎：值落地 + 注释一行不少")
-        cur_engine = req("GET", "/models")[1].get("engine")
-        target = "direct" if cur_engine != "direct" else "hermes"
+        cur_engine = req("GET", "/state")[1].get("engine")
+        # 2026-11-25：direct / hermes 已下线（F8），只验 dsh 与 self 两个在册引擎的写盘
+        target = "self" if cur_engine != "self" else "dsh"
         code, d = req("POST", "/config/engine", {"engine": target})
         check("200 且 ok=true", code == 200 and d.get("ok") is True, d)
         txt = cfg.read_text(encoding="utf-8")
@@ -137,8 +138,8 @@ def main():
               txt.splitlines()[0].strip() == "engine: " + target, txt.splitlines()[:2])
         check("注释行数没变（%d → %d）" % (base_comments, comments(txt)),
               comments(txt) == base_comments, comments(txt))
-        check("GET /models 回报的 engine 跟着变",
-              req("GET", "/models")[1].get("engine") == target)
+        check("GET /state 回报的 engine 跟着变",
+              req("GET", "/state")[1].get("engine") == target)
 
         print("\n【C5】顶层键不得带前导空格（写坏 YAML 的那次事故）")
         first = txt.splitlines()[0]
@@ -183,36 +184,10 @@ def main():
             check("拒绝 %r" % (bad,), code == 400, (code, d.get("error")))
         check("被拒绝的请求没有改动文件", cfg.read_bytes() == before)
 
-        print("\n【C3】切 provider：注释一行不少")
-        # 必须拿**真实存在的** provider 名：用错名字会走 400 分支，那条路径根本不写文件
-        # —— 断言照样绿，但什么都没验到（本仓叫它“假绿”）。
-        provs = list((req("GET", "/models/available")[1].get("providers") or {}).keys())
-        check("夹具自证：拿到了至少一个 provider（否则 C3 是空转）", bool(provs), provs)
-        if provs:
-            code, d = req("POST", "/config/provider",
-                          {"role": "writer", "provider": provs[0]})
-            check("200 且写入了真实 provider", code == 200 and d.get("ok") is True,
-                  (code, d))
-            txt = cfg.read_text(encoding="utf-8")
-            check("provider 路径也没吃掉注释", comments(txt) == base_comments,
-                  "%d → %d" % (base_comments, comments(txt)))
-            check("provider 真的落到 writer 名下",
-                  "provider: " + provs[0] in txt, provs[0])
-        else:
-            print("  [SKIP] 没有可用 provider，跳过 provider 写入")
-
-        print("\n【C4】切模型：注释一行不少")
-        models = req("GET", "/models")[1].get("model") or {}
-        mid = ((models.get("writer") or {}).get("id") or "").strip()
-        if mid:
-            code, d = req("POST", "/models/switch", {"role": "writer", "model": mid})
-            check("切到当前同名模型也返回 200", code == 200, (code, d))
-            txt = cfg.read_text(encoding="utf-8")
-            check("模型路径同样保住注释", comments(txt) == base_comments,
-                  "%d → %d" % (base_comments, comments(txt)))
-            check("文件仍可解析（回读 engine 不报错）", req("GET", "/models")[0] == 200)
-        else:
-            print("  [SKIP] config 里没有 writer 模型名，跳过模型写入")
+        print("\n【C3/C4】切 provider / 切模型（2026-11-25 移除）")
+        # 墨坊不再配置模型与服务商（F8）：/providers/*、/models/* 已下线，POST 回 410。
+        # 原来这两段验“写 provider / 切模型时注释不丢”，能力不存在后一并删除；
+        # “写配置不清注释”这条契约仍由 C1（切引擎）覆盖。
 
         print("\n【C6】墨坊不向 DSH 传模型名：这条路由不应存在")
         # 2026-11-20 作者定案：模型是 DSH 的事，墨坊只发任务书。

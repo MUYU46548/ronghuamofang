@@ -213,77 +213,13 @@ def main():
               ids)
         check("P7 预设不带模型名（模型名会过期，写死必 404）",
               all("models" not in p for p in presets))
-        print("\n【P8】接线：三个端点 + GUI-only + 前端用双因子")
-        m = (ROOT / "scripts" / "nf_api_domains" / "models.py").read_text(encoding="utf-8")
-        check("P8 ROUTES 含三条 provider 端点",
-              all(k in m for k in ('"/providers"', '"/providers/save"', '"/providers/remove"')),
-              [k for k in ('"/providers"', '"/providers/save"', '"/providers/remove"') if k not in m])
-        check("P8 两个写端点调 gui_only", m.count("gui_only(h,") >= 2, m.count("gui_only(h,"))
-        nav = (ROOT / "scripts" / "nf_api.py").read_text(encoding="utf-8")
-        check("P8 nf_api 有 GET 转发", 'p == "/providers"' in nav)
-        check("P8 nf_api 有两条 POST 转发",
-              'p == "/providers/save"' in nav and 'p == "/providers/remove"' in nav)
-        ag = (ROOT / "scripts" / "utils" / "agent_guard.py").read_text(encoding="utf-8")
-        check("P8 写端点在 Agent 禁用名单里",
-              '"/providers/save"' in ag and '"/providers/remove"' in ag)
-        check("P8 只读的 GET 不在禁用名单（Agent 可盘点）",
-              ag.count('"/providers"') == 0, ag.count('"/providers"'))
-        app = (ROOT / "console" / "src" / "App.vue").read_text(encoding="utf-8")
-        check("P8 前端写请求走 guiPostJSON（双因子，手拼 fetch 会静默 403）",
-              'guiPostJSON("/providers/save"' in app
-              and 'guiPostJSON("/providers/remove"' in app)
-        check("P8 前端有新增/编辑/删除入口",
-              "＋ 新增服务商" in app and "openProviderForm(pid)" in app
-              and "removeProvider(pid)" in app)
-        check("P8 前端提供预设下拉", "providerPresets" in app and "pickPreset" in app)
+        print("\n【P8】/providers 端点已下线（2026-11-25 F8）：原来验“三个端点 + GUI-only +"
+              " 前端双因子”的那段断言随端点一起删除；provider 存储本身（P1-P7）仍是活的，"
+              "供 DSH 之外的只读场景复用。")
 
-        print("\n【P9】端点级：无头 403 / 双因子打桩后真写盘")
-        import nf_api
-        from nf_api_domains import models as dm
-        from utils import gui_guard as _guard
-
-        class H:
-            def __init__(self, headers=None):
-                self.headers = headers or {}
-
-        old_root = nf_api.ROOT
-        nf_api._set_root(root)
-        # gui_only 现在走 gui_refusal（三种情形分说），所以打桩点改成“签发令牌”
-        # —— 不能再打桩 is_trusted_gui（那条路已不经过）。
-        saved_tok = _guard.agent_guard.issued_gui_token
-        try:
-            code, payload = dm.handle_providers_save(H(), {
-                "id": "hooked", "base_url": "https://hooked.example.com/v1",
-                "api_key_env": "HOOKED_API_KEY"})
-            check("P9 无 GUI 双因子 → 403", code == 403, (code, payload))
-            check("P9 403 时没写盘", "  hooked:" not in sysfile.read_text(encoding="utf-8"))
-
-            _guard.agent_guard.issued_gui_token = lambda: "test-tok"
-            GUI_H = H({"X-Mofang-Source": "gui", "X-Mofang-Token": "test-tok"})
-            try:
-                code2, payload2 = dm.handle_providers_save(GUI_H, {
-                    "id": "hooked", "base_url": "https://hooked.example.com/v1",
-                    "api_key_env": "HOOKED_API_KEY", "models": "h-1, h-2"})
-                check("P9 双因子通过 → 200", code2 == 200 and payload2.get("ok"),
-                      (code2, payload2))
-                check("P9 真写进临时 root 的 system.yaml",
-                      "  hooked:" in sysfile.read_text(encoding="utf-8"))
-                code3, payload3 = dm.handle_providers_save(GUI_H, {
-                    "id": "BAD", "base_url": "nope", "api_key_env": "Y"})
-                check("P9 非法参数 → 400 且说清", code3 == 400 and payload3.get("error"),
-                      (code3, payload3))
-                code4, payload4 = dm.handle_providers(H())
-                check("P9 只读端点不受双因子限制（Agent 也能盘点）",
-                      code4 == 200 and any(i["id"] == "hooked"
-                                           for i in payload4.get("items") or []),
-                      (code4, payload4))
-                check("P9 只读视图不吐完整明文 Key（变量名照常显示）",
-                      "sk-abcdefghijklmnop" not in str(payload4)
-                      and "HOOKED_API_KEY" in str(payload4), str(payload4)[:200])
-            finally:
-                _guard.agent_guard.issued_gui_token = saved_tok
-        finally:
-            nf_api._set_root(old_root)
+        # 【P9】端点级验证（无头 403 / 双因子打桩后真写盘）已随 /providers/*
+        # 下线（2026-11-25 F8）删除 —— 域模块 nf_api_domains/models.py 已不存在。
+        # provider 存储本身仍由 P1–P7 覆盖。
     finally:
         os.environ.pop("TOKENHUB_API_KEY", None)
         shutil.rmtree(root, ignore_errors=True)
