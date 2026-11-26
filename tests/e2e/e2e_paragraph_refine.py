@@ -188,8 +188,14 @@ def main():
         if hist:
             check("P3 历史里是旧的那一版", before in hist[0].read_text(encoding="utf-8"))
         code_p, dp = req("/chapters/paragraph/pending?chapter=%d&index=%d" % (CH, idx))
-        items = (dp.get("items") if isinstance(dp, dict) else dp) or []
+        # 2026-11-26：原来只读 dp["items"]，而接口返回的是 candidates —— 断言恒空，
+        # 端点的 int(parse_qs list) 恒 400 就这样漏了过去。先钉“端点可读”，再钉清空。
+        check("P4 候选端点可读（不是 400）",
+              code_p == 200 and isinstance(dp, dict) and dp.get("ok") is True, (code_p, dp))
+        items = (dp.get("candidates") if isinstance(dp, dict) else None) or []
         check("P4 采用后候选被清空", not items, items)
+        check("P4 采用后 pending 明说不存在",
+              isinstance(dp, dict) and dp.get("exists") is False, dp)
 
         # ---- P5：冲突不覆盖 ----
         changed = "她把杯子放下，杯底磕在木桌上，响了一声，茶水晃了一圈，又晃回来。"

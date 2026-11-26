@@ -699,8 +699,11 @@ def handle_paragraph_pending(h):
     try:
         q = h._query()
         try:
-            ch = int(q.get("chapter") or 0)
-            pi = int(q.get("index"))
+            # ⚠ parse_qs 返回的是 list：`int(q.get("chapter"))` 会 TypeError，
+            #   于是这个端点曾**恒 400**（2026-11-26 真机抓到）。取 [0] 再转；
+            #   缺参用 0 / -1，落到下面的范围校验。
+            ch = int((q.get("chapter") or ["0"])[0])
+            pi = int((q.get("index") or ["-1"])[0])
         except (TypeError, ValueError):
             return 400, {"ok": False, "error": "chapter 与 index 必填"}
         import refine_paragraph as rp
