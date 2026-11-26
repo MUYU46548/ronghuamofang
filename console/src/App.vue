@@ -11,6 +11,7 @@ import SandboxQueue from "./SandboxQueue.vue";
 import DiscussionQueue from "./DiscussionQueue.vue";
 import ParagraphRefinePanel from "./ParagraphRefinePanel.vue";
 import ChapterEditor from "./ChapterEditor.vue";
+import DshDiagPanel from "./DshDiagPanel.vue";
 import ChapterDesk from "./ChapterDesk.vue";
 import FieldRefinePanel from "./FieldRefinePanel.vue";
 import OutlineView from "./OutlineView.vue";
@@ -269,7 +270,7 @@ onMounted(() => { loadEngineCheck(); });
 
 const selfEngine = computed(() => !!models.value && models.value.engine === "self");
 const SELF_ENGINE_HINT = "当前引擎是“自任务”（engine: self，只出任务书、不调模型），"
-  + "这个功能要调用模型。切引擎：设置 → 引擎与模型（direct 按量计费 / hermes 或 dsh 走订阅）；"
+  + "这个功能要调用模型。切引擎：设置 → 引擎与模型（切回 dsh，由 DSH 调模型）；"
   + "不想切也行 —— 大纲精修与整章重写已经改成出任务书（写出草稿，你点采用才写回正式稿）。";
 const costs = ref([]);
 const costSummary = ref(null);
@@ -1332,18 +1333,41 @@ function openOutlineTab() {
   if (outlineRef.value) outlineRef.value.load(false);
 }
 
-async function openMultiDraftDlg() {
-  const count = parseInt(window.prompt("生成几份方案？（2-5，推荐 3）", "3"), 10);
-  if (isNaN(count) || count < 2 || count > 5) return say("取消");
-  if (!window.confirm(`确定生成 ${count} 份大纲方案？\n\n生成后可在收件箱对比合并。`)) return;
-  const r = await api("/stage/2/run-multi", "POST", { count });
-  if (r.status === 202) {
-    say(`已提交多方案生成（${count} 份，任务号 ${r.data.job_id}）`);
-    setTimeout(() => openDraftsDlg(count), 100);
-  } else {
-    say("提交失败: " + (r.data.error || r.status));
+/* 多方案生成（2026-11-26 重写）。
+   原实现用 `window.prompt` 问“生成几份”—— Electron **禁用** window.prompt
+   （prompt() 直接抛 "is and will not be supported"），异常到不了界面，
+   表现就是“死按钮”，作者 2026-11-25 的原话是“生成3版大概率也是死按钮”。
+   改成组件内对话框：份数可选、失败原因留在弹窗里。 */
+const multiDraft = ref({ open: false, count: 3, busy: false, error: "" });
+
+function openMultiDraftDlg() {
+  multiDraft.value = { open: true, count: 3, busy: false, error: "" };
+}
+
+async function submitMultiDraft() {
+  const n = Number(multiDraft.value.count) || 0;
+  if (n < 2 || n > 5) {
+    multiDraft.value.error = "份数须为 2-5（后端同样只收这四档）";
+    return;
   }
-  refresh();
+  if (multiDraft.value.busy) return;
+  multiDraft.value.busy = true;
+  multiDraft.value.error = "";
+  try {
+    const r = await api("/stage/2/run-multi", "POST", { count: n });
+    if (r.status === 202 && r.data && r.data.job_id) {
+      multiDraft.value.open = false;
+      say(`已提交多方案生成（${n} 份，任务 ${r.data.job_id}）—— 顶部状态条显示逐版进度`, "ok");
+      watchJob(r.data.job_id, "多方案生成");
+      refresh();
+    } else {
+      multiDraft.value.error = "提交失败：" + (((r.data && r.data.error) || ("HTTP " + r.status)));
+    }
+  } catch (e) {
+    multiDraft.value.error = "提交请求没发出去：" + (e && e.message ? e.message : e);
+  } finally {
+    multiDraft.value.busy = false;
+  }
 }
 
 const drafts = ref([]);
@@ -1923,20 +1947,72 @@ async function submitReject() {
 
 const refineOpen = ref(false);
 const refineFeedback = ref("");
-async function submitRefine() {
-  const r = await api("/refine/outline", "POST", { feedback: refineFeedback.value });
-  refineOpen.value = false;
-  // 自任务模式（engine: self）不调模型，改出任务书 —— 必须把**文件路径**报出来，
-  // 否则作者只会看到一句“已提交”，却不知道东西在哪、下一步该干什么（2026-11-08）。
-  if (r.status === 202 && r.data && r.data.mode === "self") {
-    say("已出大纲精修任务书（不调用模型）：" + (r.data.task || "")
-        + "。交给外部执行方改完大纲全文，再回来点“运行”（阶段 2）复核。");
+const refineBusy = ref(false);
+
+/* 盯一个 job 到结束，把结果说给用户（2026-11-26）。
+   为什么需要：精修 / 多方案这些 job **不走阶段状态机**，界面没有地方自然回传
+   “成了还是败了”；旧代码“提交完就完事”，失败也只剩一条会消失的 toast。
+   作者 2026-11-25 点完精修看到的是“卡在正在启动…”，而真正的错误没人报。 */
+function watchJob(jid, label) {
+  if (!jid) return;
+  let polls = 0;
+  const timer = setInterval(async () => {
+    polls += 1;
+    if (polls > 900) {                 // 30 分钟兜底：job 丢了也绝不无限转圈
+      clearInterval(timer);
+      say(label + " 等待超时（30 分钟）—— 请查看“📋 日志”", "warn");
+      return;
+    }
+    let r;
+    try { r = await apiOnce("/jobs/" + jid); } catch (e) { return; }  // 单次抖动不终止
+    if (!r) return;
+    if (r.status === 404) {
+      clearInterval(timer);
+      say(label + " 的任务记录已丢失（后端可能重启过）—— 请刷新状态确认", "warn");
+      return;
+    }
+    if (r.status !== 200) return;
+    const st = r.data && r.data.state;
+    if (st === "running") return;
+    clearInterval(timer);
+    if (st === "ok") say(label + " 已完成", "ok");
+    else say(label + " 失败：" + ((r.data && r.data.result) || "未知错误（看“📋 日志”）"), "bad");
     refresh();
-    return;
+  }, 3000);
+}
+
+async function submitRefine() {
+  const fb = String(refineFeedback.value || "").trim();
+  if (!fb) { say("请先写精修意见（例如：第3章侧重主角，合的收太快，加一场过渡）", "warn"); return; }
+  if (refineBusy.value) return;
+  refineBusy.value = true;
+  try {
+    const r = await api("/refine/outline", "POST", { feedback: fb });
+    // 自任务模式（engine: self）不调模型，改出任务书 —— 必须把**文件路径**报出来，
+    // 否则作者只会看到一句“已提交”，却不知道东西在哪、下一步该干什么（2026-11-08）。
+    if (r.status === 202 && r.data && r.data.mode === "self") {
+      refineOpen.value = false;
+      refineFeedback.value = "";
+      say("已出大纲精修任务书（不调用模型）：" + (r.data.task || "")
+          + "。交给外部执行方改完大纲全文，再回来点“运行”（阶段 2）复核。");
+      refresh();
+      return;
+    }
+    if (r.status === 202 && r.data && r.data.job_id) {
+      refineOpen.value = false;
+      refineFeedback.value = "";
+      say("精修已提交（任务 " + r.data.job_id + "）—— 顶部状态条会显示进度，完成后再报一次", "ok");
+      watchJob(r.data.job_id, "大纲精修");
+    } else {
+      // 失败时**不关弹窗**：原因留在原地给人看（toast 会消失，弹窗不会）。
+      say("提交失败: " + (((r.data && r.data.error) || ("HTTP " + r.status))), "bad");
+    }
+    refresh();
+  } catch (e) {
+    say("提交请求没发出去：" + (e && e.message ? e.message : e), "bad");
+  } finally {
+    refineBusy.value = false;
   }
-  if (r.status === 202) say("精修任务已提交，跑完可在流水线页签看到状态");
-  else say("提交失败: " + ((r.data && r.data.error) || ""));
-  refresh();
 }
 
 /* ---------- 实时流式输出 ---------- */
@@ -2452,15 +2528,44 @@ const restartFromStage = computed(() => {
   return 1;
 });
 
+const restartBusy = ref(false);
+const restartError = ref("");
+
+function openRestartDlg() {
+  restartError.value = "";
+  circuitBreakerShow.value = true;
+}
+
+/* 恢复运行（2026-11-26 重写）。
+   原实现有两个静默洞，作者 2026-11-25 实测“点了两次界面上没有任何变化和提示”：
+   ① 先关弹窗再 `window.confirm` —— Electron 下原生对话框可能拿不到焦点，返回 false
+      时函数直接 return，界面既没关成功也没提示；
+   ② `r.status !== 202` 之外没有任何 catch，fetch 抛错 = 未捕获的 rejection，静默。
+   现在：确认动作就是这个按钮本身（弹窗已经说清后果），三态全部落到界面上 ——
+   启动成功报任务号，失败把 HTTP 状态和原文留在弹窗里（toast 会消失，弹窗不会）。 */
 async function confirmRestart() {
-  circuitBreakerShow.value = false;
+  if (restartBusy.value) return;
   const stage = restartFromStage.value;
-  if (!window.confirm(`确认从阶段 ${stage} 重新运行？\n\n已完成的章节不会重写。`)) return;
-  const r = await api(`/stage/${stage}/run`, "POST", { from_stage: stage });
-  if (r.status === 202) {
-    say(`已从阶段 ${stage} 重新开始`);
-  } else {
-    say(`启动失败: ${r.data?.error || r.status}`);
+  restartBusy.value = true;
+  restartError.value = "";
+  try {
+    const r = await api(`/stage/${stage}/run`, "POST", { from_stage: stage });
+    if (r.status === 202) {
+      circuitBreakerShow.value = false;
+      say(`已从阶段 ${stage} 启动（任务 ${r.data?.job_id || "?"}）`
+          + (r.data?.cleared_pause ? "，暂停标记已清除" : "")
+          + " —— 进度看顶部状态条", "ok");
+      refresh();
+    } else {
+      restartError.value = `启动失败（HTTP ${r.status}）：`
+        + (r.data?.error || "后端没给原因，请查看“📋 日志”");
+      say(restartError.value, "bad");
+    }
+  } catch (e) {
+    restartError.value = "启动请求没发出去：" + (e && e.message ? e.message : e);
+    say(restartError.value, "bad");
+  } finally {
+    restartBusy.value = false;
   }
 }
 
@@ -2798,9 +2903,39 @@ function stageDetail(s) {
   if (idle >= 45) bits.push(Math.floor(idle) + " 秒无活动");
   return bits.join(" · ");
 }
+/* job 种类 → 人话（2026-11-26）。
+   为什么需要：不是所有 job 都是“阶段”。精修/多方案/节点修订这些 job 没有
+   对应的 stage 状态，旧代码落到兜底文案“正在启动…”并且**永远不换**——
+   作者看到的就是“卡在正在启动”，而他真正需要知道的是“哪个任务在跑、跑到第几步”。 */
+function jobKindLabel(kind) {
+  const k = String(kind || "");
+  if (!k) return "";
+  if (/^stage[1-8]$/.test(k)) return "阶段 " + k.slice(5);
+  if (k === "stages") return "多道工序";
+  if (k === "stage2_multi") return "多方案生成";
+  if (k === "refine_outline") return "大纲精修";
+  if (k.startsWith("refine_node_")) return "节点修订";
+  if (k.startsWith("refine_ch")) return "章节精修";
+  return k;
+}
+
 const runningStageLabel = computed(() => {
   const s = runningStage.value;
-  if (!s) return state.value?.current_job ? "正在启动…" : "";
+  if (!s) {
+    if (!state.value?.current_job) return "";
+    // 非阶段 job：说清“是什么任务 + 走到第几步”，绝不再用“正在启动…”这种
+    // 不含信息的兜底（它对用户唯一的作用是让人以为卡住了）。
+    const j = lastJob.value || {};
+    const kind = jobKindLabel(j.kind);
+    const p = j.progress;
+    if (p && (p.index || p.count)) {
+      const head = kind || "任务";
+      const step = `第 ${p.index || "?"} / ${p.count || "?"} 步`;
+      return head + " · " + step + (p.message ? " · " + p.message : "");
+    }
+    const id = state.value.current_job;
+    return (kind || "任务") + " 运行中（" + id + "）";
+  }
   const name = "阶段 " + s.stage + " " + (STAGE_NAMES[s.stage] || "");
   const detail = stageDetail(s);
   if (detail) return name + " · " + detail;
@@ -4548,7 +4683,7 @@ function toggleEnhancedMode() {
 const tokenLimit = ref({
   loading: true, busy: false, ok: true, msg: "",
   bounds: {}, preset: {},
-  form: { enabled: true, per_request_max_tokens: 50000, per_request_pause_hermes: false,
+  form: { enabled: true, per_request_max_tokens: 200000, per_request_pause_hermes: false,
           max_total_tokens: 10000000, warn_ratio: 0.7 },
 });
 async function loadTokenLimit() {
@@ -5950,7 +6085,7 @@ onUnmounted(() => {
       提精修 / 段落重写 / 运行审查 / 自动重写 / 语义审稿 这些要用模型的功能用不了；
       大纲精修与整章重写改成了“出任务书 → 写草稿 → 你采用才落盘”。
       任务书在 data/state/tasks/self/，交给外部执行方写、写完重跑即可。</span>
-    <button class="mini" @click="switchTab('settings')" title="设置 → 引擎与模型：direct（按量计费）/ hermes、dsh（走订阅）">去切引擎</button>
+    <button class="mini" @click="switchTab('settings')" title="设置 → 引擎与模型：切回 dsh（由 DSH 调模型）">去切引擎</button>
   </div>
 
   <!-- 诊断（C 组“运行侧三态 → 诊断”的独立入口）：运行态 + 体检明细 + 补救建议 -->
@@ -6163,7 +6298,7 @@ onUnmounted(() => {
     <!-- 预算暂停横幅 -->
     <div v-if="state?.budget?.paused" class="budget-banner">
       <span>⚠️ 预算已超限（已用 {{ fmtYuan(state.cost.spent_yuan) }} / 限额 {{ fmtYuan(state.cost.limit_yuan) }}）</span>
-      <button class="mini primary" @click="circuitBreakerShow = true">恢复运行</button>
+      <button class="mini primary" @click="openRestartDlg">恢复运行</button>
       <button class="mini" @click="switchTab('cost')">查看详情</button>
     </div>
 
@@ -6518,7 +6653,7 @@ onUnmounted(() => {
           <div v-if="isStageOpen(s)" class="stage-actions">
             <button class="mini" :disabled="isRunning || agentRunLocked" :title="agentRunLocked ? AGENT_LOCK_HINT : (s.stage === 4 && chapterScopeDraft ? '只写 ' + chapterScopeDraft : '')" @click="runStage(s.stage, chapterScopeDraft)">运行</button>
             <button class="mini" :disabled="isRunning" @click="runStageStream(s.stage)" title="实时流式输出，可随时中断">流式运行</button>
-            <button v-if="agentMode && STAGE_TASK_INFO[s.stage]" class="mini" @click="copyStagePrompt(s.stage)" title="复制“执行本阶段”的任务简报给外部 Agent（项目根 + 命令 + 要生成的文件 + 退出码）。复制是只读操作，运行中也可用。阶段 7/8 是确定性步骤、无提示词模板，但同样可以复制任务。">复制任务</button>
+            <button v-if="agentMode && STAGE_TASK_INFO[s.stage] && models.engine !== 'dsh'" class="mini" @click="copyStagePrompt(s.stage)" title="复制“执行本阶段”的任务简报给外部 Agent（项目根 + 命令 + 要生成的文件 + 退出码）。复制是只读操作，运行中也可用。阶段 7/8 是确定性步骤、无提示词模板，但同样可以复制任务。">复制任务</button>
             <button v-if="s.status === 'done' && !s.approved && isGate(s.stage)" class="mini" @click="approve(s.stage, false, false)" title="只确认这一阶段，不自动往下跑（主流程在“审批收件箱”里：确认放行并继续）">确认</button>
             <button v-else-if="s.approved && isGate(s.stage)" class="mini" @click="approve(s.stage, true)">撤销</button>
             <!-- 2026-10-11 #9 收口：stage1 陪跑闸是合法审批点，后端 /reject 本就收 1-7，
@@ -7208,7 +7343,7 @@ onUnmounted(() => {
           </div>
           <div v-if="streamingCost.context.note" class="meta">{{ streamingCost.context.note }}</div>
         </div>
-        <div v-if="streamingCost.engine === 'hermes' || streamingCost.engine === 'dsh'" class="meta">
+        <div v-if="streamingCost.engine === 'dsh'" class="meta">
           订阅制：本次没有按量计费金额，只有 token 计数（来自那次调用回传的用量）。
         </div>
       </div>
@@ -7432,6 +7567,8 @@ onUnmounted(() => {
         </button>
       </div>
 
+      <DshDiagPanel />
+
       <!-- ① 运行引擎（2026-10-31 之前只有一行只读文字，用户只能手改 YAML） -->
       <div class="eng-block">
         <div class="eng-head">
@@ -7471,10 +7608,7 @@ onUnmounted(() => {
           </button>
           </div>
         </div>
-        <div class="meta eng-note" v-if="models.engine === 'hermes'">
-          agent 模式下 model.* 不参与运行 —— 模型由外部 Agent 决定；花超自动停要看“预算与止烧”里的 token 上限。
-        </div>
-        <div class="meta eng-note" v-else-if="models.engine === 'dsh'">
+        <div class="meta eng-note" v-if="models.engine === 'dsh'">
           DSH 模式下<b>用哪个模型由 DSH 自己决定</b>（它自己那套配置），墨坊只发任务书，
           不向 DSH 传模型名 —— 所以右下角这张表在本模式下不参与，也不给你填。
           金额上限不生效，花超自动停看“预算与止烧”里的 token 上限。
@@ -7547,10 +7681,10 @@ onUnmounted(() => {
           </div><!-- /set-pane notify -->
           <div class="set-pane" v-show="settingsTab === 'budget'">
 
-      <!-- 止烧阈值（token 级熔断）：hermes 下金额阈值无效，止烧全靠这几个值 -->
+      <!-- 止烧阈值（token 级熔断）：dsh 走订阅，金额阈值无效，止烧全靠这几个值 -->
       <h4 style="margin-top: 16px;">预算与止烧（花超了自动停）</h4>
       <div class="meta" style="line-height: 1.8; margin-bottom: 8px;">
-        外部助手（hermes）走订阅流量，<b>金额上限在这条通道上不生效</b>（记账一直是 0）——
+        DSH 走订阅流量，<b>金额上限在这条通道上不生效</b>（记账一直是 0）——
         花超了要靠这里填的 token 上限来停。
         越界值会被拒绝；想关掉限制就取消上面的勾选，别填 0 或负数（那等于把这条线取消）。
         改动对<b>下一次运行</b>生效。
@@ -7564,12 +7698,21 @@ onUnmounted(() => {
           </label>
           <label class="tl-field">
             <span class="label">单请求输出上限（token）</span>
-            <input type="number" v-model="tokenLimit.form.per_request_max_tokens" />
+            <!-- step 按量级给（2026-11-26）：这一项的单位是万/十万，步长 1 要点一万次。
+                 上下箭头一下 = 1000；下限/上限取后端 bounds，不在这里另写一份。 -->
+            <input type="number" step="1000"
+                   :min="tokenLimit.bounds.per_request_max_tokens?.[0]"
+                   :max="tokenLimit.bounds.per_request_max_tokens?.[1]"
+                   v-model.number="tokenLimit.form.per_request_max_tokens" />
             <span class="meta">区间 {{ tokenLimit.bounds.per_request_max_tokens?.join(' ~ ') }}</span>
           </label>
           <label class="tl-field">
             <span class="label">单轮累计上限（token）</span>
-            <input type="number" v-model="tokenLimit.form.max_total_tokens" />
+            <!-- 同上：这一项量级是千万，步长 1 毫无意义。 -->
+            <input type="number" step="100000"
+                   :min="tokenLimit.bounds.max_total_tokens?.[0]"
+                   :max="tokenLimit.bounds.max_total_tokens?.[1]"
+                   v-model.number="tokenLimit.form.max_total_tokens" />
             <span class="meta">区间 {{ tokenLimit.bounds.max_total_tokens?.join(' ~ ') }}</span>
           </label>
           <label class="tl-field">
@@ -9024,13 +9167,42 @@ onUnmounted(() => {
       <div class="meta">不重跑阶段 2；旧版会自动留底（可找回）。</div>
       <textarea v-model="refineFeedback" rows="4" placeholder="例如：第3章侧重主角；合的部分收太快，加一场过渡"></textarea>
       <div class="dialog-actions">
-        <button class="mini" @click="refineOpen = false">取消</button>
-        <button class="mini primary" @click="submitRefine">提交精修</button>
+        <button class="mini" :disabled="refineBusy" @click="refineOpen = false">取消</button>
+        <button class="mini primary" :disabled="refineBusy" @click="submitRefine">
+          {{ refineBusy ? "提交中…" : "提交精修" }}
+        </button>
       </div>
     </div>
   </div>
 
   <div v-if="toast" class="toast" :class="toastKind">{{ toast }}</div>
+
+  <!-- 多方案生成（2026-11-26：替换 window.prompt —— Electron 禁用原生 prompt） -->
+  <div v-if="multiDraft.open" class="drawer-mask" @click.self="multiDraft.open = false">
+    <div class="dialog" style="width: min(460px, 92vw);">
+      <h3>生成多份大纲方案</h3>
+      <div class="meta" style="margin-bottom: 12px; line-height: 1.7;">
+        串行生成 N 份完整大纲，完成后可逐条勾选、拼成最终版。约需数分钟。
+      </div>
+      <label class="tl-field">
+        <span class="label">份数（2-5，推荐 3）</span>
+        <select v-model.number="multiDraft.count" class="model-select">
+          <option v-for="n in [2, 3, 4, 5]" :key="n" :value="n">{{ n }} 份</option>
+        </select>
+      </label>
+      <div v-if="multiDraft.error" class="meta"
+           style="margin-top: 10px; color: var(--bad); line-height: 1.6;">
+        ⚠ {{ multiDraft.error }}
+      </div>
+      <div class="dialog-actions">
+        <span class="spacer"></span>
+        <button class="mini" :disabled="multiDraft.busy" @click="multiDraft.open = false">取消</button>
+        <button class="mini primary" :disabled="multiDraft.busy" @click="submitMultiDraft">
+          {{ multiDraft.busy ? "提交中…" : "开始生成" }}
+        </button>
+      </div>
+    </div>
+  </div>
 
   <!-- ② 命令面板 -->
   <CommandPalette :open="paletteOpen" :commands="commands"
@@ -9246,10 +9418,15 @@ onUnmounted(() => {
         将从阶段 {{ restartFromStage }} 继续运行（该阶段之后的内容尚未生成）。<br>
         <strong>已完成的章节不会被重写</strong>，已完成阶段保持现状。
       </div>
+      <div v-if="restartError" class="meta" style="margin-bottom: 12px; color: var(--bad, #b3261e); line-height: 1.6;">
+        ⚠ {{ restartError }}
+      </div>
       <div class="dialog-actions">
         <span class="spacer"></span>
-        <button class="mini" @click="circuitBreakerShow = false">取消</button>
-        <button class="mini primary" @click="confirmRestart">确认从阶段 {{ restartFromStage }} 重跑</button>
+        <button class="mini" :disabled="restartBusy" @click="circuitBreakerShow = false">取消</button>
+        <button class="mini primary" :disabled="restartBusy" @click="confirmRestart">
+          {{ restartBusy ? "正在启动…" : ("确认从阶段 " + restartFromStage + " 重跑") }}
+        </button>
       </div>
     </div>
   </div>
@@ -9372,15 +9549,14 @@ onUnmounted(() => {
       <div class="art-row" style="margin: 8px 0; align-items: flex-start;">
         <span class="art-label">运行引擎</span>
         <div style="flex: 1;">
+          <!-- 2026-11-26：direct / hermes 两项已随 F8 删除后仍留在这里 ——
+               选了会写出一个“下次启动必报 ERROR”的 engine 值。现在只留生效的两项。 -->
           <select v-model="initEngine" class="model-select">
             <option value="dsh">DSH 后台执行（推荐，走订阅）—— 由你的 DeepSeek Harness 在后台跑，模型与凭据都用桌面端那套</option>
-            <option value="direct">直连（回退通道）—— 自己填 API Key，按 token 计费</option>
-            <option value="hermes">外部助手（回退通道）—— 走订阅，但每次调用很慢</option>
-            <option value="self">只出任务书（回退通道）—— 零 token，不调模型，任务书交外部执行</option>
+            <option value="self">只出任务书 —— 零 token，不调模型，任务书交外部执行</option>
           </select>
           <div class="meta" style="margin-top: 4px;">
-            默认就是 <b>DSH</b>，不用改。下面三项是 DSH 起不来时的回退通道 —— 平时不用选。
-            随时可在“设置 → 引擎与模型”里切换。
+            默认就是 <b>DSH</b>，不用改。随时可在“设置 → 引擎与模型”里切换。
           </div>
         </div>
       </div>

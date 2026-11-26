@@ -773,6 +773,14 @@ function _stopAiTimer() {
    —— 它不是 Hermes 任务，是项目自身的 LLM 调用（job 跑在 nf_api 进程内）。 */
 async function submitAi() {
   if (!sel.value || aiLoading.value) return;
+  // ⚠️ 先取值再清空（2026-11-26 修）：原顺序是“关弹窗 → 清 aiFeedback → 用 aiFeedback
+  // 发请求”，于是 feedback 必然是空串 → 后端 400“feedback 必填”→ 弹窗关了、只闪一条
+  // toast。作者看到的就是“点了提交没反应”（卡“AI 修订此节点无反应”的直接成因之一）。
+  const feedback = String(aiFeedback.value || "").trim();
+  if (!feedback) {
+    say("请先写修订意见（比如：侧重主角、结尾留悬念）");
+    return;
+  }
   aiOpen.value = false;
   aiFeedback.value = "";
   aiLoading.value = true;
@@ -781,7 +789,7 @@ async function submitAi() {
   aiTimer = setInterval(() => { aiElapsed.value += 1; }, 1000);
   try {
     const r = await props.api("/refine/outline/node", "POST",
-                              { node_id: sel.value.id, feedback: aiFeedback.value });
+                              { node_id: sel.value.id, feedback });
     if (r.status !== 202) {
       say("提交失败: " + ((r.data && r.data.error) || r.status));
       return;

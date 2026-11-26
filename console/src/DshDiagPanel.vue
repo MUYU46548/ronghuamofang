@@ -7,7 +7,7 @@
       </button>
     </div>
     <div class="meta dsh-lead">
-      三端：墨坊本体 ↔ DSH 基座 ↔ dsh-novelforge 插件。只读 app.asar 与 profile，不改任何配置。
+      三端：墨坊本体 ↔ DSH 基座 ↔ dsh-novelforge 插件。只读安装包与 DSH 的配置档，不改任何配置。
     </div>
 
     <div v-if="error" class="dsh-error">{{ error }}</div>
@@ -113,10 +113,10 @@ onMounted(load);
   font-size: 12px;
   opacity: 0.72;
 }
-.st-ok .dsh-badge { color: #2e7d32; }
-.st-unknown .dsh-badge { color: #888; }
-.st-warn .dsh-badge { color: #b26a00; }
-.st-bad .dsh-badge { color: #c62828; }
-.dsh-error { color: #c62828; font-size: 12px; white-space: pre-wrap; }
+.st-ok .dsh-badge { color: var(--ok); }
+.st-unknown .dsh-badge { color: var(--muted); }
+.st-warn .dsh-badge { color: var(--warn); }
+.st-bad .dsh-badge { color: var(--bad); }
+.dsh-error { color: var(--bad); font-size: 12px; white-space: pre-wrap; }
 .dsh-time { margin-top: 6px; }
 </style>
