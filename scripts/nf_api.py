@@ -182,6 +182,7 @@ try:
     from nf_api_domains import outline as dom_outline      # noqa: E402
     from nf_api_domains import post_misc as dom_post_misc  # noqa: E402
     from nf_api_domains import project as dom_project      # noqa: E402
+    from nf_api_domains import dsh_diag as dom_dsh_diag   # noqa: E402 (DSH 三端诊断 2026-11-26)
     from nf_api_domains import refine as dom_refine        # noqa: E402
     from nf_api_domains import runtime as dom_runtime      # noqa: E402
     from nf_api_domains import run_control as dom_run_control  # noqa: E402 (运行控制：叫停/接管/插话)
@@ -1496,6 +1497,28 @@ def _rc_to_result(rc):
                           "（engine=self，重跑零 token）" % (_k, _n))
         return True, "exit=3（等待审批，属正常门暂停）"
     return (rc == 0), "exit=" + str(rc)
+
+
+def clear_budget_pause():
+    """清 progress.json 的 budget.paused 旗标。返回 True = 这次真的清掉了。
+
+    为什么要清（2026-11-26，卡“恢复运行点了两次没反应”）：paused 是**展示旗标**
+    （界面横幅 + “为什么停了”），真正的闸门是 CostTracker.status() —— 它按**当前**
+    阈值重算。用户点“恢复运行”＝他已经调过阈值或决定继续；不清旗标，横幅会一直挂着，
+    界面上就看不出“恢复成功”，用户只能靠外部查盘才敢确认。
+    """
+    try:
+        prog = ProgressManager(ROOT / "data" / "state" / "progress.json")
+        b = prog.data.get("budget") or {}
+        if not b.get("paused"):
+            return False
+        b["paused"] = False
+        prog.data["budget"] = b
+        prog.save()
+        return True
+    except Exception as e:                                    # noqa: BLE001
+        print("[nf_api] ⚠ 清 budget.paused 失败（不影响启动）: %s" % e)
+        return False
 
 
 def act_run_stage(cfg, only_stage, from_stage, chapters=None):
@@ -2911,6 +2934,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/engine/check":
             # 引擎自检（2026-11-25）：配置写的什么 / 还在不在支持范围 / DSH 找不找得到
             self._send(*_dom(dom_project.handle_engine_check(self)))
+        elif p == "/dsh/diagnose":
+            # DSH 三端诊断（2026-11-26）：只读 app.asar / profile / 插件版本与 compat 表
+            self._send(*_dom(dom_dsh_diag.handle_dsh_diagnose(self)))
         elif p == "/onboarding/status":
             # 新手序列引导（I-1）：下一步该点哪里 + 每步判据（零 token）
             self._send(*_dom(dom_onboarding.handle_onboarding_status(self)))
@@ -3667,17 +3693,22 @@ class Handler(BaseHTTPRequestHandler):
                     with STREAMERS_LOCK:
                         if jid not in STREAMERS and job_id_preview in STREAMERS:
                             STREAMERS[jid] = STREAMERS.pop(job_id_preview)
+                    # job 真起来了才清暂停旗标：409 冲突时什么都没恢复，旗标不能动。
+                    _cleared = clear_budget_pause()
                     self._send(202, {"job_id": jid, "stage": only,
-                                     "from_stage": from_stage, "stream": True})
+                                     "from_stage": from_stage, "stream": True,
+                                     "cleared_pause": _cleared})
                 else:
                     jid, err = start_job("stage" + rest,
                                          act_run_stage(cfg, only, from_stage, chapters=_scope))
                     if err:
                         self._send(409, {"error": err})
                     else:
+                        _cleared = clear_budget_pause()
                         self._send(202, {"job_id": jid, "stage": only,
                                          "from_stage": from_stage,
-                                         "chapters": sorted(_scope) if _scope else None})
+                                         "chapters": sorted(_scope) if _scope else None,
+                                         "cleared_pause": _cleared})
             elif p == "/stages/run":
                 # 自由模式（活一）：勾选多道工序一次跑。解析/互斥/报缺与 CLI
                 # **同一份判据**（utils.stage_select），GUI 与命令行不会各判各的。

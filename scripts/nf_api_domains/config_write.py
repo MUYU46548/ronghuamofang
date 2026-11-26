@@ -23,11 +23,12 @@ def handle_config_engine(h, body):
     而界面上那行字还写着“引擎与模型”，看起来能点。
     """
     eng = str(body.get("engine") or "").strip().lower()
-    if eng not in ("direct", "hermes", "dsh", "self"):
+    # 2026-11-26：白名单收窄到在册的两个。direct / hermes 的代码分支已随 F8 删除，
+    # 还受理它们 = 让用户把配置写成一个“下次启动必抛 RuntimeError”的值。
+    if eng not in ("dsh", "self"):
         return 400, {"ok": False, "error":
-                     "engine 只能是 direct（直连模型，按量计费）、hermes"
-                     "（Agent 子会话，走订阅）、dsh（DeepSeek Harness，"
-                     "走你桌面端那套配置）或 self（只出任务书，不调模型）"
+                     "engine 只能是 dsh（默认执行层，由 DSH 调模型）"
+                     "或 self（只出任务书，不调模型）"
                      "——收到 %r" % (body.get("engine"),)}
     try:
         from utils.config_io import set_section_scalar
