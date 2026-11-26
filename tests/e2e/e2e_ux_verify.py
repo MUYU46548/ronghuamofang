@@ -165,6 +165,42 @@ def new_page(browser, api_base, tag):
     return ctx, page, errs, bad
 
 
+def goto_chapter_list(page):
+    """点“章节”页签，并确保落在**列表视图**（2026-11-26）。
+
+    章节页默认进“审阅台”（App.vue 的 chapterView 默认 desk），而候选面板 /
+    本章体检 / 成书提炼 / 讨论箱都挂在列表视图的 v-else 分支里。不切回来，
+    这些选择器恒为 0 个 → 后续 click 等满 30 秒超时，看着像按钮坏了。
+    """
+    page.locator("nav.tabs button", has_text="章节").first.click()
+    page.wait_for_timeout(900)
+    back = page.locator("button:has-text('回到列表')")
+    if back.count():
+        back.first.click()
+        page.wait_for_timeout(700)
+
+
+def _ensure_desk_edit(page):
+    """审阅台默认是**阅读**模式，编辑器 `.ce-textarea` 只在“编辑”下渲染（2026-11-26）。
+
+    不切过去，旧用例的 `wait_for_selector(".ce-textarea")` 会等满超时 ——
+    看着像审阅台坏了，其实只是模式不对。
+    """
+    if page.locator(".ce-textarea").count():
+        return
+    # 按钮名要精确等于“编辑”：窄窗口下还有“编辑本章大纲”之类含同样两字的按钮，
+    # 子串匹配会点错一个，编辑器永远不出现（2026-11-26 在 980 宽复现）。
+    for nm in ("编辑", "编辑正文"):
+        btn = page.get_by_role("button", name=nm, exact=True)
+        if btn.count():
+            try:
+                btn.first.click()
+                page.wait_for_timeout(500)
+            except Exception:                                   # noqa: BLE001
+                pass
+            return
+
+
 # 截图自检台账：每条 = {name, ok, notes}。e2e 结束时统一打印，
 # 有问题**不阻断**（截图是辅助证据），但必须出声 —— 带偏差的截图比没有更糟。
 SHOT_CHECKS = []
@@ -1169,7 +1205,9 @@ def test_about_project(browser, mock_proc=None):
         shot(page, "D11_theme_rows")
 
         print("  --- 接入其他 Agent（配置段生成 + kickoff 一键复制）---")
-        page.locator(".set-nav-btn", has_text="Agent 接入").click()
+        # 2026-11-26：设置页导航项名字已从“Agent 接入”改为“外部协作”
+        # （SETTINGS_TABS 里 id=agent）。旧选择器等不到元素 → 30 秒超时假红。
+        page.locator(".set-nav-btn", has_text="外部协作").click()
         page.wait_for_timeout(250)
         check("\u300c接入其他 Agent\u300d配置块渲染", page.locator(".ac-block").count() == 1,
               page.locator(".ac-block").count())
@@ -1563,11 +1601,17 @@ _DESK_HEAD_OVERFLOW_JS = r"""
 
 
 def test_desk_width(browser):
-    """B7（2026-11-06）：审阅台正文必须 ≥45 汉字/行。
+    """B7（2026-11-06）：审阅台正文列宽 ≥ 作者定的口径（当前 40 汉字/行）。
 
     用户原话“正文不是主视觉”。此前 e2e 进不去审阅台（mock 不返章节正文），
     所以这条缺陷在自动化里**结构上不可见** —— 补完 mock 的 /chapters/layers|content
     与章节文件假桥之后，这里把它钉成判据：三档视口 × 编辑/阅读两态。
+
+    ⚠️ 阈值是 40，不是最早的 45（2026-11-26 对齐 L1-a2）：
+    `ChapterEditor.vue` 的 `--read-measure: 40em` × `--fs-read: 17px` = 680px，
+    作者 2026-11-25 亲自把字号调大、行宽定成“40 个汉字”（他说“实际改稿时
+    文字差不多也这么大”）。45 是旧口径（15px × 730px ≈ 46 字）的遗留阈值，
+    继续拿它当判据只会对着一个已经被推翻的设计报红。
     """
     print("\n=== F. 审阅台正文列宽（B7）===")
     ctx, page, errs, bad = new_page(browser, MOCK_API, "desk")
@@ -1580,9 +1624,12 @@ def test_desk_width(browser):
                 page.locator("nav.tabs button", has_text="章节").first.click()
                 page.wait_for_timeout(700)
                 first = False
+            # 2026-11-26：章节页默认就在审阅台（chapterView 默认 desk）→ 这时按钮文案是
+            # “回到列表”，没有“审阅台”可点。旧代码硬点必等满 30 秒。
             if page.locator("button:has-text('审阅台')").count():
                 page.locator("button:has-text('审阅台')").first.click()
             try:
+                _ensure_desk_edit(page)
                 page.wait_for_selector(".ce-textarea", timeout=6000)
             except Exception:                                 # noqa: BLE001
                 check("审阅台在 %d 宽下可进入（中栏编辑器渲染）" % w, False,
@@ -1591,7 +1638,7 @@ def test_desk_width(browser):
             page.wait_for_timeout(500)
             e = page.evaluate(_DESK_MEASURE_JS)
             page.screenshot(path=str(OUT / ("desk_width_%d_edit.png" % w)))
-            check("%d 宽 · 编辑态正文 ≥45 汉字/行" % w, (e.get("edit") or 0) >= 45,
+            check("%d 宽 · 编辑态正文 ≥40 汉字/行" % w, (e.get("edit") or 0) >= 40,
                   "实测 %s 字/行" % e.get("edit"))
             hh = page.evaluate(_DESK_HEAD_OVERFLOW_JS)
             _bad = hh.get("bad") or []
@@ -1608,8 +1655,8 @@ def test_desk_width(browser):
             page.wait_for_timeout(800)
             r = page.evaluate(_DESK_MEASURE_JS)
             page.screenshot(path=str(OUT / ("desk_width_%d_read.png" % w)))
-            check("%d 宽 · 阅读态正文 ≥45 汉字/行" % w,
-                  bool(r.get("readParas")) and (r.get("read") or 0) >= 45,
+            check("%d 宽 · 阅读态正文 ≥40 汉字/行" % w,
+                  bool(r.get("readParas")) and (r.get("read") or 0) >= 40,
                   "实测 %s 字/行（正文段 %s 个）" % (r.get("read"), r.get("readParas")))
             page.locator("button:has-text('编辑')").first.click()
             page.wait_for_timeout(300)
@@ -1637,8 +1684,7 @@ def test_candidates(browser):
     print("\n=== G. 候选稿对比（B2）===")
     ctx, page, errs, bad = new_page(browser, MOCK_API, "cand")
     try:
-        page.locator("nav.tabs button", has_text="章节").first.click()
-        page.wait_for_timeout(900)
+        goto_chapter_list(page)
         panel = page.locator(".cand-panel")
         check("章节页有候选面板（多写几版再挑）", panel.count() == 1, panel.count())
         check("面板里能直接开关“重写时多写 N 版”（用户不必改配置文件）",
@@ -1771,8 +1817,7 @@ def test_merge_conflicts(browser):
     print("\n=== L. 并库前冲突清单（勾了才覆盖）===")
     ctx, page, errs, bad = new_page(browser, MOCK_API, "merge")
     try:
-        page.locator("nav.tabs button", has_text="章节").first.click()
-        page.wait_for_timeout(900)
+        goto_chapter_list(page)
         box = page.locator("details.import-box", has_text="成书提炼").first
         box.locator("summary").click()
         page.wait_for_timeout(300)
@@ -1948,8 +1993,7 @@ def test_drafts(browser):
     ctx, page, errs, bad = new_page(browser, MOCK_API, "drafts")
     try:
         # ---------- 1. 章节讨论 ----------
-        page.locator("nav.tabs button", has_text="章节").first.click()
-        page.wait_for_timeout(1500)
+        goto_chapter_list(page)
         box = page.locator("details.discuss-box").first
         box.scroll_into_view_if_needed()
         page.wait_for_timeout(300)
@@ -1984,8 +2028,7 @@ def test_drafts(browser):
         page.wait_for_timeout(2200)
         # 注意：刷新后不再调 settle_disclaimer —— 它自己带“首启必弹”的断言，
         # 而这里 ack 已在 localStorage 里，弹窗**不该**再出现（调用即假红）。
-        page.locator("nav.tabs button", has_text="章节").first.click()
-        page.wait_for_timeout(1500)
+        goto_chapter_list(page)
         box = page.locator("details.discuss-box").first
         box.scroll_into_view_if_needed()
         lis = box.locator(".discuss-list li")
@@ -2160,7 +2203,11 @@ def test_annotation_to_rewrite(browser):
     try:
         page.locator("nav.tabs button", has_text="章节").first.click()
         page.wait_for_timeout(1500)
-        page.locator("button:has-text('审阅台')").first.click()
+        # 2026-11-26：章节页默认就在审阅台（chapterView 默认 desk）→ 这时按钮文案是
+        # “回到列表”，没有“审阅台”可点。旧代码硬点必等满 30 秒。
+        if page.locator("button:has-text('审阅台')").count():
+            page.locator("button:has-text('审阅台')").first.click()
+        _ensure_desk_edit(page)
         page.wait_for_selector(".ce-textarea", timeout=8000)
         page.wait_for_timeout(500)
         page.locator("button:has-text('段落批注')").first.click()
@@ -2270,7 +2317,11 @@ def test_conflict_no_overwrite(browser):
     try:
         page.locator("nav.tabs button", has_text="章节").first.click()
         page.wait_for_timeout(1500)
-        page.locator("button:has-text('审阅台')").first.click()
+        # 2026-11-26：章节页默认就在审阅台（chapterView 默认 desk）→ 这时按钮文案是
+        # “回到列表”，没有“审阅台”可点。旧代码硬点必等满 30 秒。
+        if page.locator("button:has-text('审阅台')").count():
+            page.locator("button:has-text('审阅台')").first.click()
+        _ensure_desk_edit(page)
         page.wait_for_selector(".ce-textarea", timeout=8000)
         page.wait_for_timeout(500)
         page.locator("button:has-text('段落批注')").first.click()
@@ -2342,7 +2393,11 @@ def test_write_log(browser):
     try:
         page.locator("nav.tabs button", has_text="章节").first.click()
         page.wait_for_timeout(1500)
-        page.locator("button:has-text('审阅台')").first.click()
+        # 2026-11-26：章节页默认就在审阅台（chapterView 默认 desk）→ 这时按钮文案是
+        # “回到列表”，没有“审阅台”可点。旧代码硬点必等满 30 秒。
+        if page.locator("button:has-text('审阅台')").count():
+            page.locator("button:has-text('审阅台')").first.click()
+        _ensure_desk_edit(page)
         page.wait_for_selector(".ce-textarea", timeout=8000)
         page.wait_for_timeout(700)
         # 侧栏（含“这一章的改动”）在审阅台里默认收起 —— 先切到“段落批注”，
@@ -2399,7 +2454,11 @@ def test_multi_candidate_switch(browser):
     try:
         page.locator("nav.tabs button", has_text="章节").first.click()
         page.wait_for_timeout(1500)
-        page.locator("button:has-text('审阅台')").first.click()
+        # 2026-11-26：章节页默认就在审阅台（chapterView 默认 desk）→ 这时按钮文案是
+        # “回到列表”，没有“审阅台”可点。旧代码硬点必等满 30 秒。
+        if page.locator("button:has-text('审阅台')").count():
+            page.locator("button:has-text('审阅台')").first.click()
+        _ensure_desk_edit(page)
         page.wait_for_selector(".ce-textarea", timeout=8000)
         page.wait_for_timeout(500)
         page.locator("button:has-text('段落批注')").first.click()
@@ -2471,6 +2530,7 @@ def test_narrow_window(browser):
         if page.locator("button:has-text('审阅台')").count():
             page.locator("button:has-text('审阅台')").first.click()
         try:
+            _ensure_desk_edit(page)
             page.wait_for_selector(".ce-textarea", timeout=6000)
         except Exception:                                   # noqa: BLE001
             check("980 宽下审阅台能进（中栏编辑器渲染）", False, "中栏没渲染")

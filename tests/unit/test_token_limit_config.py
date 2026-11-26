@@ -47,9 +47,9 @@ def case_preset_matches_shipped():
           shipped == TOKEN_LIMIT_PRESET, "shipped=%s preset=%s" % (shipped, TOKEN_LIMIT_PRESET))
     check("累计上限 = 1000 万/轮（用户 2026-10-03 定调）",
           shipped.get("max_total_tokens") == 10000000, shipped.get("max_total_tokens"))
-    check("单请求上限 = 50000（按单章 5000~15000 字留足余量）",
-          shipped.get("per_request_max_tokens") == 50000, shipped.get("per_request_max_tokens"))
-    check("预设按次熔断 hermes（用户 2026-10-06 要求；实测一次子会话 1.8 万 < 50000 不误停）",
+    check("单请求上限 = 200000（2026-11-26 按 44 篇素材大归并实测输出 10.5 万重定标）",
+          shipped.get("per_request_max_tokens") == 200000, shipped.get("per_request_max_tokens"))
+    check("预设按次熔断（用户 2026-10-06 要求；正常任务远低于 200000，不误停）",
           shipped.get("per_request_pause_hermes") is True)
     check("预设是\u300c开\u300d的（止烧默认生效）", shipped.get("enabled") is True)
     check("DEFAULT_TOKEN_LIMIT（缺键兜底）仍是关闭态：不改变未配置时的老行为",

@@ -90,13 +90,18 @@ def prepare_root():
         if src.exists():
             text = src.read_text(encoding="utf-8")
             if name == "system.yaml":
-                text = re.sub(r"(?m)^engine:\s*\S+", "engine: direct", text)
+                # 2026-11-26：engine: direct 已下线（写它等于让 make_client 抛错）。
+                text = re.sub(r"(?m)^engine:\s*\S+", "engine: dsh", text)
             (WORK / "config" / name).write_text(text, encoding="utf-8")
         else:
             (WORK / "config" / name).write_text("book:\n  name: 测试书\n  chapters: 10\n",
                                                 encoding="utf-8")
-    (WORK / "data" / "chapters" / "raw" / "03.md").write_text(BODY, encoding="utf-8")
-    (WORK / "data" / "outline" / "chapters" / "03.md").write_text(OUTLINE, encoding="utf-8")
+    # 页面默认停在第 1 章，所以 1/2 章也要有正文与章纲 —— 否则一进页面就刷
+    # /chapters/content?n=1 的 404，把“体检面板有没有坏”的判据淹掉（2026-11-26）。
+    for n in (1, 2, 3):
+        (WORK / "data" / "chapters" / "raw" / ("%02d.md" % n)).write_text(BODY, encoding="utf-8")
+        (WORK / "data" / "outline" / "chapters" / ("%02d.md" % n)).write_text(OUTLINE,
+                                                                             encoding="utf-8")
     # 轮次表：用出厂四轮里的"骨架"（chapter_min 3000）。第 3 章只有几百字 → 必"还差"，
     # 这样"达标/还差"的判定在界面上是能被看见的，而不是恒绿。
     (WORK / "data" / "state").mkdir(parents=True, exist_ok=True)
@@ -201,6 +206,13 @@ def main():
             print("\n【1】进章节页签，展开体检面板")
             page.get_by_role("button", name="章节", exact=True).click()
             page.wait_for_timeout(1200)
+            # 2026-11-26：章节页默认进“审阅台”（chapterView 默认 desk），本章体检面板
+            # 挂在**列表视图**里。不切回列表，.qm-box 恒为 0 —— 看着像面板没了，
+            # 其实是视图不对（同一原因让 ux 的候选面板也超时）。
+            _back = page.locator("button:has-text('回到列表')")
+            if _back.count():
+                _back.first.click()
+                page.wait_for_timeout(800)
             box = page.locator(".qm-box")
             check("U1 体检面板在章节页签里", box.count() >= 1, box.count())
             if not box.count():
@@ -254,9 +266,21 @@ def main():
                 check("U5 批注数量 > 0", len(items) > 0, len(items))
 
             page.screenshot(path=str(OUT / "metrics_panel.png"), full_page=True)
-            check("U7 全程无 console error", not errors, errors[:3])
+            # “这章还没产物”的 404 是**正常初态**，不是体检面板的缺陷
+            # （2026-11-26）：夹具里只有第 3 章的正文与章纲，页面默认停在别的章，
+            # 于是 /review/ledger、/outline/chapters/get、/setting/current 都会 404 ——
+            # 真实的半成品工作区同样如此。只把它们从“意外”里摘出来，其余一条不漏。
+            benign_404 = ("/review/ledger", "/outline/chapters/get", "/setting/current")
+            explained = [b for b in bad if b.startswith("404") and any(k in b for k in benign_404)]
+            # console 里的 404 文案不带 URL，只能按“已解释的条数”抵扣 —— 多出来的照样算意外。
+            err_404 = [e for e in errors if "status of 404" in str(e)]
+            other_errs = [e for e in errors if "status of 404" not in str(e)]
+            unexpected_errs = other_errs + err_404[len(explained):]
+            check("U7 全程无 console error（缺产物的 404 除外）", not unexpected_errs,
+                  unexpected_errs[:3])
             bad = [b for b in bad if "/metrics" not in b and "/sections" not in b]
-            check("U7 没有意外的 4xx/5xx", not bad, bad[:3])
+            bad = [b for b in bad if b not in explained]
+            check("U7 没有意外的 4xx/5xx（缺产物的 404 除外）", not bad, bad[:3])
             browser.close()
     finally:
         for p in (api, static):

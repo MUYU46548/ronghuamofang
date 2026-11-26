@@ -69,9 +69,13 @@ def prepare_root():
         if src.exists():
             text = src.read_text(encoding="utf-8")
             if name == "system.yaml":
-                text = re.sub(r"(?m)^engine:\s*\S+", "engine: direct", text)
+                # 2026-11-26：engine: direct 已下线（写它等于让 make_client 抛错）。
+                text = re.sub(r"(?m)^engine:\s*\S+", "engine: dsh", text)
             (WORK / "config" / name).write_text(text, encoding="utf-8")
-    (WORK / "data" / "chapters" / "raw" / "03.md").write_text(BODY, encoding="utf-8")
+    # 页面默认停在第 1 章：1/2 章也写一份，免得一进页面就刷 /chapters/content 的 404
+    # （2026-11-26，与 metrics 用例同一条夹具纪律）。
+    for n in (1, 2, 3):
+        (WORK / "data" / "chapters" / "raw" / ("%02d.md" % n)).write_text(BODY, encoding="utf-8")
     return WORK
 
 
@@ -186,6 +190,11 @@ def main():
             print("\n【1】进入章节页签，展开讨论")
             page.get_by_role("button", name="章节", exact=True).click()
             page.wait_for_timeout(800)
+            # 2026-11-26：章节页默认进“审阅台”，讨论面板挂在**列表视图**里。
+            _back = page.locator("button:has-text('回到列表')")
+            if _back.count():
+                _back.first.click()
+                page.wait_for_timeout(700)
             box = page.locator("details.discuss-box")
             check("U1 讨论面板渲染出来了", box.count() == 1, box.count())
             if box.count() != 1:
@@ -302,9 +311,19 @@ def main():
                   page.get_by_role("button", name="保存讨论设置").count() >= 1)
             page.screenshot(path=str(OUT / "settings_discuss.png"), full_page=True)
 
-            check("U7 全程无 console error", not errors, errors[:3])
+            # “这章还没产物”的 404 是正常初态（2026-11-26）：夹具里没有设定集、
+            # 没有评审账本、也没有第 1 章的章纲，页面默认停在第 1 章 → 这三条必 404。
+            # 真实的半成品工作区同样如此，不该算成讨论面板的缺陷。
+            benign_404 = ("/review/ledger", "/outline/chapters/get", "/setting/current")
+            explained = [b for b in bad if b.startswith("404") and any(k in b for k in benign_404)]
+            err_404 = [e for e in errors if "status of 404" in str(e)]
+            other_errs = [e for e in errors if "status of 404" not in str(e)]
+            unexpected_errs = other_errs + err_404[len(explained):]
+            check("U7 全程无 console error（缺产物的 404 除外）", not unexpected_errs,
+                  unexpected_errs[:3])
             bad = [b for b in bad if "/discuss/" not in b]     # 404 那类负向用例不算
-            check("U7 没有意外的 4xx/5xx", not bad, bad[:3])
+            bad = [b for b in bad if b not in explained]
+            check("U7 没有意外的 4xx/5xx（缺产物的 404 除外）", not bad, bad[:3])
             browser.close()
     finally:
         for p in (api, static):

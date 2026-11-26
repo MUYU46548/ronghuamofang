@@ -176,7 +176,7 @@ def main():
         vals = token_values(tmp)
         check("目标值落盘", vals.get("max_total_tokens") == 2000000, vals)
         check("未提交的项按预设补齐（不是 0）",
-              vals.get("per_request_max_tokens") == 50000
+              vals.get("per_request_max_tokens") == 200000
               and vals.get("per_request_pause_hermes") is True, vals)
         comments_after = [ln for ln in after.splitlines() if ln.strip().startswith("#")]
         check("**注释与说明段落逐行保留**（定向改写而非 dump）",

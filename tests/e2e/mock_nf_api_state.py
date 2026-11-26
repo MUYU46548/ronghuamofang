@@ -873,6 +873,15 @@ class Handler(BaseHTTPRequestHandler):
                     {"dim": "character", "chapter": 1, "text": "第1章：岑砚夜里在渡口接到第三只沉木箱", "why": "命中：岑砚"},
                 ],
             })
+        if p == "/chapters/dispatch":
+            # 派单候选（2026-11-25，总账 F7）：这章还没派过单就是 exists:false ——
+            # **不是错误**。e2e 有“章节链路无 4xx”的断言，缺这一条会被算成接口坏了
+            # （真后端 nf_api_domains/chapters.py 的 handle_chapters_dispatch 同形）。
+            try:
+                n = int((self._query().get("n") or ["1"])[0])
+            except (TypeError, ValueError):
+                return self._send(400, {"ok": False, "error": "n 必填且为章节号"})
+            return self._send(200, {"ok": True, "exists": False, "n": n, "items": []})
         if p in ("/chapters/layers", "/chapters/content", "/chapters/paragraphs"):
             # 三层正文 / 单层全文 / 段落列表（B7，2026-11-06）：缺这三条时审阅台中栏
             # 恒停在“读取中”或直接报错，**列宽与行宽在 e2e 里根本量不到**。
