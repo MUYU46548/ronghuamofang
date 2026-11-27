@@ -481,6 +481,11 @@ def test_mock(browser):
               page.locator(".stage-recovery button:has-text('查看日志')").count() >= 1)
         check("跳过徽标渲染", page.locator(".pill.st-skip").count() >= 1)
         check("待重写章节徽标渲染", page.locator(".pill:has-text('待重写')").count() >= 1)
+        ws = page.locator(".ps-eta", has_text="本卷会话")
+        ws_text = ws.inner_text() if ws.count() else ""
+        check("会话账本显示本卷会话 / 水位 / 上次写到第几章",
+              ws.count() == 1 and "122,000" in ws_text and "48.8%" in ws_text
+              and "第 3 章" in ws_text and "接力包 1 份" in ws_text, ws_text)
         shot(page, "A1_pipeline_recovery")
 
         print("  --- 跳过确认框（勾选护栏，不用 window.confirm）---")

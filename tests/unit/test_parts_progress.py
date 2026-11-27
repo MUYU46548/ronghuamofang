@@ -18,7 +18,7 @@
 - K4 一群都没有 → 不留空条目（不许制造"0/5 群"的噪声）
 - K5 total 传 0 时也照记（至少 done/words 是真的）
 - K6 接线：stage4 在群开始 / 文件进度 / 章结束 三处都记账；/state 把它交给界面；
-      界面上有一条"未拼装 N 章"的提示
+      界面上有一条“分段已写、尚未拼成整章”的提示（原“未拼装”已改人话）
 
 用法：python tests/unit/test_parts_progress.py
 """
@@ -104,7 +104,8 @@ def main():
     api = (ROOT / "scripts" / "nf_api.py").read_text(encoding="utf-8")
     check("K6 /state 把 parts 交给界面", 'out["parts"] = st["parts"]' in api)
     app = (ROOT / "console" / "src" / "App.vue").read_text(encoding="utf-8")
-    check("K6 界面上有【未拼装 N 章】提示", "未拼装" in app)
+    check("K6 界面上有“分段已写、尚未拼成整章”提示",
+          "分段已写、尚未拼成整章" in app)
 
     print("-" * 66)
     print("通过 %d / 失败 %d" % (len(PASS), len(FAIL)))

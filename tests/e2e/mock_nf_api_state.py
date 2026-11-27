@@ -185,6 +185,11 @@ STATE = {
                                "per_request_pause_hermes": False,
                                "max_total_tokens": 10000000, "warn_ratio": 0.7},
                "token_pct": 1.17},
+    # 会话账本（P2，2026-11-27）：只读展示 stage4 的会话水位与接力点。
+    "writing_session": {"id": "sess-mock-0001", "last_chapter": 3,
+                        "tokens_in": 122000, "rotations": 1,
+                        "at": "2026-01-01T00:00:00", "budget": 250000,
+                        "pct": 48.8, "relay_count": 1, "relay_latest": "ch03.md"},
 }
 
 ESTIMATE = {

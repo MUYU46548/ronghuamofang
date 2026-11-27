@@ -2890,6 +2890,11 @@ const runEtaText = computed(() => {
   if (!isFinite(remainSec) || remainSec < 30) return "";
   return "已跑 " + _elapsedText(raw) + "，按当前速度约还要 " + _durationText(remainSec);
 });
+/* 会话账本（P2，2026-11-27）：短 id 只给一眼能认的标识；完整 id 放 title。 */
+const writingSessionShortId = computed(() => {
+  const s = state.value && state.value.writing_session;
+  return s && s.id ? String(s.id).slice(0, 8) : "";
+});
 /* 进行中阶段的**具体事实**：第几章 / 第几群 / 本群多少字 / 多久没新字。
    比一个百分比更能回答“它是在推进还是卡住”（用户 2026-10-26/27 反复提的点）。 */
 /* 失败原因短句（2026-11-24）：/state 现在会带回 stages[].error（后端已透出）。
@@ -6456,6 +6461,15 @@ onUnmounted(() => {
       </div>
       <div v-if="isRunning && runEtaText" class="ps-eta" title="按整轮已耗时间与当前进度线性推算，仅供参考；模型速度波动会让它偏大或偏小">
         {{ runEtaText }}（估算，仅供参考）
+      </div>
+      <div v-if="state.writing_session && state.writing_session.id" class="ps-eta"
+           :title="'会话 id：' + state.writing_session.id + (state.writing_session.at ? '（最近更新 ' + fmtTime(state.writing_session.at) + '）' : '')">
+        本卷会话 <b>{{ writingSessionShortId }}</b>
+        · 已累计输入 {{ fmtTok(state.writing_session.tokens_in) }} / {{ fmtTok(state.writing_session.budget) }} token<span v-if="state.writing_session.pct != null">（{{ state.writing_session.pct }}%）</span>
+        · 上次写到第 {{ state.writing_session.last_chapter }} 章
+        · 换会话 {{ state.writing_session.rotations }} 次
+        <span v-if="state.writing_session.relay_count"> · 接力包 {{ state.writing_session.relay_count }} 份</span>
+        <span v-if="state.writing_session.pct != null && state.writing_session.pct >= 60" class="bad-val"> · 到 60% 自动换</span>
       </div>
     </section>
 

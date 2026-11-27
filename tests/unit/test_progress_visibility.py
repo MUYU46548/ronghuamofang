@@ -120,6 +120,31 @@ def main():
     finally:
         nf_api._set_root(ROOT)
 
+    print("\n【B3】会话账本（/state.writing_session，2026-11-27）")
+    tmp_ws = tempfile.mkdtemp(prefix="nf_wsess_")
+    try:
+        _seed_workspace(tmp_ws)
+        (Path(tmp_ws) / "config" / "system.yaml").write_text(
+            "chapter:\n  target_words: [5000, 9000]\n"
+            "dsh:\n  session_token_budget: 250000\n", encoding="utf-8")
+        _write_progress(tmp_ws, {"4": {"status": "running", "session": {
+            "id": "sess-test-1", "last_chapter": 3, "tokens_in": 122000,
+            "rotations": 1, "at": "2026-01-01T00:00:00"}}})
+        nf_api._set_root(Path(tmp_ws))
+        ws = (nf_api.build_state() or {}).get("writing_session") or {}
+        check("会话账本：id 透出", ws.get("id") == "sess-test-1", ws)
+        check("会话账本：上次写到第 3 章", ws.get("last_chapter") == 3, ws)
+        check("会话账本：水位百分比（122000 / 250000）",
+              abs(float(ws.get("pct") or 0) - 48.8) < 0.05, ws)
+        check("会话账本：预算取自 dsh.session_token_budget",
+              ws.get("budget") == 250000, ws)
+        _write_progress(tmp_ws, {"4": {"status": "done"}})
+        ws2 = (nf_api.build_state() or {}).get("writing_session") or {}
+        check("没有会话时 id=None、pct=None（不假报一个空会话）",
+              ws2.get("id") is None and ws2.get("pct") is None, ws2)
+    finally:
+        nf_api._set_root(ROOT)
+
     print("\n【B2】前端阶段表 / 复制任务 / 成品入口（防回潮）")
     app_vue = (ROOT / "console" / "src" / "App.vue").read_text(encoding="utf-8")
     check("前端 STAGE_NAMES 收录阶段 8（Markdown 导出）",

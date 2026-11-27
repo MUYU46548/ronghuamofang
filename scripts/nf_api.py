@@ -1151,6 +1151,33 @@ def _artifact_paths(book_name=""):
     return out
 
 
+def _writing_session_block(progress, cfg):
+    """会话账本（P2，2026-11-27）：只读展示 stage4 的会话水位与接力点。
+
+    数据真源是 `progress.stages.4.session`（stage4 `_save_session` 写的），
+    这里不复制换会话规则，也不在这里改会话。界面只需要回答三件事：
+    这卷用的哪个会话、累计输入到水位的百分之几、上次写到第几章。
+    """
+    sess = (((progress.data.get("stages") or {}).get("4") or {}).get("session") or {})
+    budget = int((cfg or {}).get("dsh", {}).get("session_token_budget") or 0)
+    tokens = int(sess.get("tokens_in") or 0)
+    relay_dir = ROOT / "data" / "state" / "relay"
+    relays = sorted(relay_dir.glob("ch*.md")) if relay_dir.exists() else []
+    return {
+        "id": sess.get("id") or None,
+        "last_chapter": int(sess.get("last_chapter") or 0),
+        "tokens_in": tokens,
+        "rotations": int(sess.get("rotations") or 0),
+        "at": str(sess.get("at") or ""),
+        "budget": budget,
+        # 没有会话时不要报 0.0% —— 那会让人以为“已经开了一个 0 水位的会话”。
+        "pct": (round(tokens / budget * 100, 1)
+                if (sess.get("id") and budget > 0) else None),
+        "relay_count": len(relays),
+        "relay_latest": relays[-1].name if relays else "",
+    }
+
+
 def build_state():
     # 2026-09-29：这里原写死相对路径 "data/state/progress.json" —— 依赖进程 CWD。    # `--root` 场景（自动化验收 / 多书隔离）下 CWD 仍是发起进程的目录，
     # 于是 /state 会**静默读到另一个项目的 progress.json**：返回 200、内容却是别人的，
@@ -1260,6 +1287,8 @@ def build_state():
         # 引擎（2026-11-25）：/models 下线后，前端与 HTTP 契约都从这里读引擎名。
         # 判据仍是 utils.engine.resolve_engine（唯一来源），不在这里复述规则。
         "engine": _resolve_engine(_cfg),
+        # 会话账本（P2，2026-11-27）：只读；换会话仍由 stage4 的水位逻辑负责。
+        "writing_session": _writing_session_block(progress, _cfg),
     }
 
 
