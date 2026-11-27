@@ -70,12 +70,13 @@ import json
 import os
 import shutil
 import subprocess
+import tempfile
 import threading
 import time
 from pathlib import Path
 
 from utils.console import ensure_utf8_stdout
-from utils.file_io import write_text
+from utils.file_io import read_text, write_text
 
 ensure_utf8_stdout()
 
@@ -93,6 +94,36 @@ DSH_SCOPE_RULE = (
     + "· 不该翻的：DeepSeek Harness 自己的安装目录与配置目录（%LOCALAPPDATA%/Programs/"
     "DeepSeek Harness、~/.dsh 下的会话与插件）—— 那不是你的资料。" + chr(10)
     + "· 不要安装依赖、不要联网、不要改 .git。"
+)
+
+#: 阶段 1–4 的生成任务（P0-B，2026-11-27）。任务书正文直接内联进 stdin，
+#: 并加写作边界 —— 这些任务只需要“读列出的输入 → 一次写出产物”，
+#: 不该像代码助手那样逛仓库、读 prompts/scripts、用 shell 数字数自检。
+#: 只按任务文件名认：GUI 精修 / 校对 / 审查的任务名前缀不同，行为不变。
+WRITING_TASK_PREFIXES = ("stage1_setting", "stage2_global_outline",
+                         "stage3_batch", "stage4_ch")
+
+#: 写作调用禁掉的 DSH 工具插件（保留 tool-fs 的 read/write）。
+#: 2026-11-27 实测：一次段群 68 步 / 7.4 万输出 token，正文只占 15%，
+#: 其余花在逛目录、读 prompts/scripts、用 pwsh 数字数、反复 edit 过检。
+#: shell / 搜索 / 子代理 / 联网在写作任务里没有正当用途。
+WRITING_DISABLED_TOOLS = ("tool-pwsh", "tool-bash", "tool-fs-search",
+                          "tool-jobs", "tool-skill", "tool-agent-team",
+                          "tool-web")
+
+#: 写作调用前置边界（P0-B）。校验归墨坊（确定性、零 token），
+#: 模型不需要在写完之后自己再数一遍字数、改一遍标点。
+WRITING_BOUNDARY = (
+    chr(10) + "【写作任务边界 · 必须遵守】" + chr(10)
+    + "这是一次写作生成，不是改代码，也不是仓库维护。" + chr(10)
+    + "1. 任务书正文就在下面，不要再读任务文件本身。" + chr(10)
+    + "2. 只读任务书“输入文件”里明确列出的路径；不要浏览目录，"
+      "不要读 prompts/、scripts/、tests/、docs/，不要读别的章节。" + chr(10)
+    + "3. 不要运行命令统计字数、检查标点或自检 —— 墨坊会用确定性校验复核，"
+      "你自检的那一遍是重复劳动。" + chr(10)
+    + "4. 一次 write 直接写出产物；不要 edit 已写好的文件，"
+      "不要写临时文件、草稿或备忘录。" + chr(10)
+    + "5. 产物写完后立即结束，用一两句话说明写到哪个文件即可。" + chr(10)
 )
 
 #: 单轮直答前置说明（与 hermes 的 ONE_SHOT_PREFIX 同语义：答案必须在回复里）
@@ -251,13 +282,18 @@ class DshClient:
     def __init__(self, dsh_bin=None, timeout=1800, model=None, permission_mode=None,
                  approval_policy=None, session_continuation=False,
                  request_max_tokens=None, add_dirs=None, profile=None,
-                 transport_retries=2, transport_backoff_sec=5, base_args=None):
+                 transport_retries=2, transport_backoff_sec=5, base_args=None,
+                 writing_boundary=True):
         self.dsh_bin = resolve_dsh_bin(dsh_bin)
         # 允许配置覆盖：`{profile}` 会被替换成实际 profile 名。
         args = [str(a) for a in (base_args or self.DEFAULT_BASE_ARGS)]
         self.base_args = args if args else list(self.DEFAULT_BASE_ARGS)
         self.timeout = int(timeout or 1800)
         self.profile = str(profile or "").strip() or self.DEFAULT_PROFILE
+        # 写作任务边界（P0-B，2026-11-27）：阶段 1–4 的生成任务书正文直接内联，
+        # 并禁用 shell / 搜索 / 子代理工具（保留文件读写）。关掉即回到旧行为。
+        self.writing_boundary = bool(writing_boundary)
+        self._writing_patch_path = None
         # 模型由 DSH 自己的 profile 决定：墨坊**只发任务书**，不传模型名
         # （2026-11-20 作者定案：连名字都不该传。--model 在 headless 下本就不存在，
         #  也刻意不用 --patch 去覆盖 agent-default-model —— 那是 DSH 的配置主权）。
@@ -347,16 +383,21 @@ class DshClient:
 
     # ------------------------------------------------------------ 命令构造
 
-    def _build_cmd(self, session_id=None):
+    def _build_cmd(self, session_id=None, patch=None):
         """`<dsh> <base_args> [选项] -`（任务走 stdin）。
 
         `base_args` 默认就是 `--profile <profile> --json`，与旧行为逐字一致；
         换内核时（DSH 停更 / 换别的 CLI）通过配置改它，调用方不动。
+        `patch` 只在写作边界调用里传（禁 shell/搜索等工具），默认 None = 不拼。
         """
         base = [a.replace("{profile}", self.profile) for a in self.base_args]
         if base and base[-1] == "-":
             base = base[:-1]        # 配置里自带的任务占位符，统一由函数末尾补，别重复
-        cmd = [self.dsh_bin] + base
+        cmd = [self.dsh_bin]
+        if patch:
+            # launcher 级选项必须排在 app 参数之前（2026-11-27 实测可组合）。
+            cmd += ["--patch", str(patch)]
+        cmd += base
         if self.approval_policy:
             cmd += ["--approval-policy", self.approval_policy]
         if self.permission_mode:
@@ -370,16 +411,62 @@ class DshClient:
         return cmd
 
     @staticmethod
-    def _task_prompt(task_path):
-        """任务书的 stdin 提示：绝对路径 + 执行边界。
+    def _task_prompt(task_path, inline=False):
+        """任务书的 stdin 提示：默认给绝对路径 + 执行边界；写作任务把正文内联。
 
         路径必须绝对化（同 hermes 的 2026-10-17 根因）：子进程 cwd 由调用方决定，
         相对路径任务书在“从别的目录拉起”时会找不到，什么都没写却 exit 0。
+
+        `inline=True`（P0-B，2026-11-27）：阶段 1–4 的生成任务不再让模型先花一步
+        去读任务文件，直接把正文放进提示词；读不到文件时退回旧行为（不吞错）。
         """
         p = Path(task_path).resolve()
+        if inline:
+            try:
+                body = read_text(p)
+            except Exception:                       # noqa: BLE001
+                body = ""
+            if body.strip():
+                return (WRITING_BOUNDARY
+                        + chr(10) + "===== 任务书正文开始 =====" + chr(10)
+                        + body.strip() + chr(10)
+                        + "===== 任务书正文结束 =====" + chr(10))
         return ("阅读并严格按 " + str(p) + " 中的指示执行全部步骤。"
                 "完成后简要汇报：产物路径、校验结果、遇到的问题。"
                 + DSH_SCOPE_RULE)
+
+    @staticmethod
+    def _is_writing_task(task_path):
+        """阶段 1–4 的生成任务（按任务文件名认，不按调用方角色认）。
+
+        为什么按文件名：同一个 `make_client(cfg, "outliner")` 既跑阶段 2/3 的生成，
+        也跑 GUI 的大纲精修；按角色一刀切会把精修也锁进写作边界。任务文件名是
+        调用点已经给准的事实（`stage4_chNN_gN.md` 等），不需要新增参数。
+        """
+        try:
+            stem = Path(task_path).stem.lower()
+        except Exception:                           # noqa: BLE001
+            return False
+        return any(stem.startswith(p) for p in WRITING_TASK_PREFIXES)
+
+    def _writing_patch(self):
+        """生成/复用写作调用的 DSH 覆盖层（禁工具）。失败只告警，不阻断写作。"""
+        if self._writing_patch_path and Path(self._writing_patch_path).exists():
+            return self._writing_patch_path
+        p = Path(tempfile.gettempdir()) / "nf_dsh_writing_patch.yml"
+        lines = ["# 绒花墨坊写作调用边界（自动生成，勿手改）",
+                 "# 只保留文件读写；shell / 搜索 / 子代理 / 联网在写作里没有用处。"]
+        for pid in WRITING_DISABLED_TOOLS:
+            lines.append("- id: " + pid)
+            lines.append("  disabled: true")
+        try:
+            write_text(p, chr(10).join(lines) + chr(10))
+        except OSError as e:
+            print("[dsh_client] WARN 写作边界补丁写不出来（本次不禁工具）："
+                  + type(e).__name__ + ": " + str(e))
+            return None
+        self._writing_patch_path = str(p)
+        return self._writing_patch_path
 
     @staticmethod
     def _infer_workdir(task_path):
@@ -644,8 +731,12 @@ class DshClient:
     def _run_once(self, task_file, workdir=None, model=None, session_id=None,
                   prompt=None):
         task_path = Path(task_file)
-        cmd = self._build_cmd(session_id)
-        text = prompt if prompt is not None else self._task_prompt(task_path)
+        # 写作边界只作用于“真的走任务书”的调用：_post_chat 传 prompt=，不算。
+        writing = (prompt is None and self.writing_boundary
+                   and self._is_writing_task(task_path))
+        cmd = self._build_cmd(session_id,
+                              patch=self._writing_patch() if writing else None)
+        text = prompt if prompt is not None else self._task_prompt(task_path, inline=writing)
         wd = workdir or self._infer_workdir(task_path)
         try:
             proc = self._spawn(cmd, wd)
@@ -771,11 +862,11 @@ class DshClient:
     # ------------------------------------------------------------ 流式执行
 
     def _stream_once(self, task_path, task_text, on_piece, stop_flag, workdir=None,
-                     session_id=None, prompt=None):
+                     session_id=None, prompt=None, patch=None):
         """流式跑一次（run_task_stream 与 _post_chat_stream 共用）。"""
         import queue as _queue
 
-        cmd = self._build_cmd(session_id)
+        cmd = self._build_cmd(session_id, patch=patch)
         text = prompt if prompt is not None else task_text
         wd = workdir or self._infer_workdir(task_path)
         try:
@@ -887,12 +978,15 @@ class DshClient:
                         session_id=None):
         """真流式：逐 text 事件回放；stop_flag 置位即杀整棵进程树。"""
         task_path = Path(task_file)
-        prompt = self._task_prompt(task_path)
+        writing = self.writing_boundary and self._is_writing_task(task_path)
+        prompt = self._task_prompt(task_path, inline=writing)
+        patch = self._writing_patch() if writing else None
 
         def _attempt(i, session):
             if i == 0:
                 return self._stream_once(task_path, prompt, on_piece, stop_flag,
-                                         workdir=workdir, session_id=session)
+                                         workdir=workdir, session_id=session,
+                                         patch=patch)
             # 重发不再回放片段：同一章会在界面上叠两遍，字数进度也会虚高。
             # 流里只留一句“中断重发”，正文以 final / 落盘文件为准。
             try:
@@ -901,7 +995,8 @@ class DshClient:
             except Exception:                           # noqa: BLE001
                 pass
             return self._stream_once(task_path, prompt, lambda p: None, stop_flag,
-                                     workdir=workdir, session_id=session)
+                                     workdir=workdir, session_id=session,
+                                     patch=patch)
 
         res = self._retry_transport(lambda i: _attempt(i, session_id))
         # 续接失败自动降级一次（与 run_task 同处置）

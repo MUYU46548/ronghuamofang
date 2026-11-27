@@ -297,7 +297,8 @@ stage4 也补了同一道校验（此前是唯一既不设上限、也不校验�
 ## DSH 执行层（`engine: dsh`，2026-11-17 接入；**冻结资产**）
 
 > **冻结**：这一层只保留“引擎替换”这半边，不再扩。读改链走墨坊界面（章节编辑器的候选/采用），
-> 需要 DSH 会话里读改时由 `dsh-novelforge` 插件转调 —— 不在墨坊仓里再加 DSH 专属逻辑。
+> 需要 DSH 会话里读改时由 `dsh-ronghuamofang` 插件转调（旧名 `dsh-novelforge` 仍认）——
+> 不在墨坊仓里再加 DSH 专属逻辑。
 > 依据与“不做清单”：`docs/开发路线-读改接进DSH-20261117.md`。
 
 **一句话**：`engine: dsh` 时，每次模型调用改成跑一次
@@ -324,7 +325,15 @@ stage4 也补了同一道校验（此前是唯一既不设上限、也不校验�
   找 provider key；要用桌面端登录态需在 `$DSH_HOME/profiles/headless/cordis.patch.yml`
   把 credentials / authorization / deepseek-account 三行打开。**本项目不替用户改那个文件**。
 - **自检**：`nfctl check` 有“DSH 可用”一项（`engine: dsh` 时不可用是阻塞项）。
-- 判据：`tests/unit/test_dsh_client.py`（61 条，全离线 .bat 桩）、
+- **写作任务边界（2026-11-27，P0-B）**：阶段 1–4 的生成任务（任务名前缀
+  `stage1_setting` / `stage2_global_outline` / `stage3_batch` / `stage4_ch`）由 `DshClient`：
+  ① 把任务书正文直接放进 stdin（不再让模型先读任务文件）；② 每次调用带 `--patch`，
+  禁 `tool-pwsh` / `tool-bash` / `tool-fs-search` / `tool-jobs` / `tool-skill` /
+  `tool-agent-team` / `tool-web`，保留 `tool-fs`（正文要落盘）。开关 `dsh.writing_boundary`
+  （默认 true）。为什么：实测一个段群 68 步 / 7.4 万输出 token，正文只占 15%，其余花在
+  逛目录、读 `prompts/` 与 `scripts/`、用 pwsh 数字数、反复 edit 过检 —— 这些校验墨坊
+  自己会做（确定性、零 token）。判据：`tests/unit/test_dsh_client.py` 的 `test_writing_boundary`。
+- 判据：`tests/unit/test_dsh_client.py`（107 条，全离线 .bat 桩）、
   `tests/http/test_config_writes_http.py` 的 C1c（切到 dsh 真写盘 + 注释不丢）。
 
 ## 自任务引擎（`engine: self`，2026-11-04 落地）
@@ -527,6 +536,8 @@ Hermes 侧 AppData 副本未动（那是另一套目录，不进 Git）。
 - `GET /outline/segments`（丙4 分段审阅：分段清单 + 每段正文 + 放行判据回显；**读侧不设闸**）
 - `GET /materials/reconcile`（索引与实物对账：登记表声称的篇数/日期 vs 盘上实物；
   `verdict` ∈ consistent | mismatch | no_meta，零 token 只读）
+- `GET /materials/scan`（阶段 1 读入预览：会读 N 篇 / 跳过 M 篇 + 逐个文件名与原因；
+  判据与 stage1 同一份 `utils.meta_detect`，零 token 只读）
 - `GET /sandbox/queue`、`/sandbox/file`
 - `GET /review/report`、`/review/decisions`
 - `GET /chapters/quality`、`/chapters/history`

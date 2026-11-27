@@ -604,6 +604,9 @@ def make_client(cfg, model_key="default", verbose=True):
             # 命令形状（2026-11-25，方案 B）：只在配置里可改，界面不暴露。
             # 不写就是默认 `--profile {profile} --json`，与旧行为逐字一致。
             base_args=dcfg.get("args") or None,
+            # 写作任务边界（2026-11-27）：阶段 1–4 的生成任务书正文内联 +
+            # 禁 shell/搜索/子代理工具（保留文件读写）。默认开；关掉回旧行为。
+            writing_boundary=bool(dcfg.get("writing_boundary", True)),
         )
 
     # 2026-11-25（F8 第三步）：direct / hermes 两条分支已摘除。

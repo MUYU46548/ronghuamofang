@@ -2015,6 +2015,18 @@ body {
   border: 1px solid rgba(155, 143, 196, 0.45);
   background: rgba(155, 143, 196, 0.10);
 }
+/* 阶段 1 会读哪些（2026-11-27）：不用“卡片/碎片”考用户，直接给清单 */
+.material-scan {
+  margin: 0 0 12px; padding: 10px 12px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--card);
+}
+.material-scan-head {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+.material-scan-body {
+  margin-top: 8px; font-size: 13px; line-height: 1.7;
+  color: var(--muted-foreground);
+}
 .mat-row { cursor: pointer; }
 .mat-row:hover { background: rgba(155, 143, 196, 0.06); }
 .mat-row.is-sel { background: rgba(155, 143, 196, 0.16); }

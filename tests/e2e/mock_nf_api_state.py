@@ -1050,6 +1050,19 @@ class Handler(BaseHTTPRequestHandler):
                                     "artifacts": table[stage]})
         if p == "/materials/list":
             return self._send(200, {"count": 3, "items": [], "dir": "materials/raw"})
+        if p == "/materials/scan":
+            # 阶段 1 读入预览（2026-11-27）：界面不该让用户猜“我这篇算不算卡片”。
+            return self._send(200, {
+                "ok": True, "dir": "materials/raw",
+                "read_count": 2,
+                "read": ["角色卡_阿岚.md", "场景_渡口.md"],
+                "skip_count": 1,
+                "skipped": [{"name": "README.md",
+                             "reason": "元文件（登记 / 说明 / 索引类，不参与归并）"}],
+                "warnings": [],
+                "hint": ("阶段 1 只读这里列出的 .md / .txt / .markdown / .docx，"
+                         "不要求模板格式；原始碎片不会直接进归并。"),
+            })
         if p == "/materials/reconcile":
             # 素材页顶部横幅的数据源（零 token 对账）。mock 环境没有登记表 →
             # no_meta，前端按设计不显示横幅。缺它会让每次切素材页都留一条 404。

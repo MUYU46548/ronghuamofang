@@ -63,8 +63,11 @@ function setGateNotify(on) {
 
 import { API } from "./apiBase.js";
 
-// 素材页签内的子视图：结构化卡片（materials/raw） / 原始碎片（materials/original_scraps）
+// 素材页签内的子视图：素材（materials/raw） / 碎片（materials/original_scraps）
 const materialSub = ref("cards");
+// 阶段 1 会读哪些 / 跳过哪些（GET /materials/scan，零 token）。不让用户猜“算不算卡片”。
+const materialScan = ref(null);
+const materialScanOpen = ref(false);
 
 // GUI 来源 token（2026-10-06 红队修复）：受保护写入端点要**双因子**（来源头 + 主进程
 // 签发的 token）。只认来源头的话，任何本机进程加一个 `X-Mofang-Source: gui` 就能
@@ -2240,6 +2243,9 @@ async function loadMaterials() {
   // 对账失败不影响素材列表（它是提示，不是依赖）。
   const rc = await api("/materials/reconcile");
   materialReconcile.value = rc.status === 200 ? rc.data : null;
+  // 阶段 1 会读哪些 / 跳过哪些（零 token，只读）；失败同样不影响列表。
+  const sc = await api("/materials/scan");
+  materialScan.value = sc.status === 200 ? sc.data : null;
   loadMatUndo();       // 可撤回操作清单（失败不影响列表）
 }
 
@@ -2294,7 +2300,7 @@ async function matMove(to) {
     if (r.status === 200 && r.data.ok) {
       const n = (r.data.moved || []).length;
       const skip = (r.data.skipped || []).length;
-      say("已移动 " + n + " 个到" + (to === "cards" ? "结构化卡片" : "原始碎片")
+      say("已移动 " + n + " 个到" + (to === "cards" ? "素材" : "碎片")
           + (skip ? "（" + skip + " 个跳过：" + r.data.skipped[0].reason + "）" : ""));
       matClearSel();
       await loadMaterials();
@@ -6424,7 +6430,7 @@ onUnmounted(() => {
       </div>
       <div v-if="isRunning" class="ps-progress">
         <div class="ps-progress-bar" :style="{ width: progressPercent + '%' }"></div>
-        <span class="ps-progress-text">{{ progressPercent }}% 完成（{{ doneStages }}/{{ totalStages }} 阶段）</span>
+        <span class="ps-progress-text" title="百分比 = 已完成阶段 + 正在写的那一章按段/字数折算；括号里是已完成的整阶段数">整本进度 {{ progressPercent }}%（已完成 {{ doneStages }}/{{ totalStages }} 个阶段；进行中的章节也计入）</span>
       </div>
     </section>
 
@@ -6624,7 +6630,7 @@ onUnmounted(() => {
             <!-- 段群进度进账（2026-11-03）：加强模式逐群落盘，拼装前这些字在盘上、
                  却不在任何界面里 —— 用户以为"这章没写"。 -->
             <span v-if="countKeys(s.parts)" class="pill st-gate" :title="partsTitle(s.parts)">
-              未拼装 {{ countKeys(s.parts) }} 章（段落群已写入）
+              {{ countKeys(s.parts) }} 章分段已写、尚未拼成整章
             </span>
             <span v-if="countKeys(s.partial)" class="pill st-gate"
                   :title="whyTitle(s.partial, 'partial')">
@@ -8764,10 +8770,44 @@ onUnmounted(() => {
       </div>
 
       <div class="tabs-sub">
-        <button :class="{ on: materialSub === 'cards' }" @click="materialSub = 'cards'">结构化卡片</button>
+        <button :class="{ on: materialSub === 'cards' }" @click="materialSub = 'cards'">素材（阶段 1 会读）</button>
         <button :class="{ on: materialSub === 'scraps' }" @click="materialSub = 'scraps'">
-          原始碎片
+          碎片（只存档）
         </button>
+      </div>
+
+      <!-- 说人话（2026-11-25 作者：“用户根本不知道自己的东西是不是结构化卡片”）：
+           这里不用“卡片 / 碎片”考用户，直接说清哪个阶段会读、能放什么格式。 -->
+      <div class="meta" style="margin: 0 0 10px; line-height: 1.7;">
+        素材：任何 .md / .txt / .markdown / .docx 文档，不要求模板格式；阶段 1 只读“素材”。<br />
+        碎片：还没整理的随手记录，只存档，不直接进阶段 1。
+      </div>
+      <div v-if="materialSub === 'cards' && materialScan && materialScan.ok" class="material-scan">
+        <div class="material-scan-head">
+          <span>阶段 1 会读 <b>{{ materialScan.read_count }}</b> 篇，跳过 <b>{{ materialScan.skip_count }}</b> 篇。</span>
+          <button class="mini" @click="materialScanOpen = !materialScanOpen">
+            {{ materialScanOpen ? '收起清单' : '看清单' }}
+          </button>
+        </div>
+        <div v-if="materialScanOpen" class="material-scan-body">
+          <div v-if="materialScan.read.length">
+            <b>会读</b>：{{ materialScan.read.slice(0, 20).join('、') }}<span v-if="materialScan.read.length > 20"> …等 {{ materialScan.read.length }} 篇</span>
+          </div>
+          <div v-else class="meta">
+            这个目录里没有可读的素材（只支持 .md / .txt / .markdown / .docx）。
+          </div>
+          <div v-if="materialScan.skipped.length" style="margin-top: 6px;">
+            <b>跳过</b>：
+            <span v-for="(s, i) in materialScan.skipped.slice(0, 20)" :key="s.name">
+              {{ s.name }}<span class="meta">（{{ s.reason }}）</span>{{ i < Math.min(materialScan.skipped.length, 20) - 1 ? '、' : '' }}
+            </span>
+            <span v-if="materialScan.skipped.length > 20"> …等 {{ materialScan.skipped.length }} 篇</span>
+          </div>
+          <div v-if="materialScan.warnings && materialScan.warnings.length" class="meta" style="margin-top: 6px;">
+            {{ materialScan.warnings.join('；') }}
+          </div>
+          <div class="meta" style="margin-top: 6px;">{{ materialScan.hint }}</div>
+        </div>
       </div>
 
       <div v-if="materialSub === 'cards'">
@@ -8823,12 +8863,12 @@ onUnmounted(() => {
         <span class="meta">点选 / Ctrl 加选 / Shift 连选</span>
         <span class="spacer"></span>
         <button class="mini" :disabled="matBusy" @click="matMove('scraps')"
-                title="搬到 materials/original_scraps/（原始碎片：自由命名、私人数据）">
-          → 移到原始碎片（只留档）
+                title="搬到 materials/original_scraps/（碎片：自由命名、私人数据）">
+          → 移到碎片（只存档）
         </button>
         <button class="mini" :disabled="matBusy" @click="matMove('cards')"
-                title="搬到 materials/raw/（结构化卡片：阶段 1 整理素材时会被读）">
-          → 移到结构化卡片（阶段 1 会读）
+                title="搬到 materials/raw/（素材：阶段 1 整理素材时会被读）">
+          → 移到素材（阶段 1 会读）
         </button>
         <button class="mini danger" :disabled="matBusy" @click="matDeleteBatch"
                 :title="matConfirmDelete ? '再点一次确认删除（进回收站，可撤回）' : '第一次点是选中确认，再点一次才真删'">

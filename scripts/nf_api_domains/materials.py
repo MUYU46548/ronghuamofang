@@ -68,6 +68,25 @@ def handle_materials_reconcile(h):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+def handle_materials_scan(h):
+    """GET /materials/scan → 阶段 1 会读哪几篇、跳过哪几篇（零 token，只读）。
+
+    2026-11-25 作者原话：“用户根本不知道自己的东西是不是结构化卡片。”
+    这里不再让界面用“卡片 / 碎片”这种内部词去考用户，而是直接回答两件事：
+    阶段 1 读不读、为什么跳过。判据单一事实源 = `utils.meta_detect`。
+    """
+    try:
+        from utils.meta_detect import scan_summary
+        out = scan_summary(api.ROOT / "materials" / "raw")
+        out["dir"] = "materials/raw"       # 与 /materials/list 同口径：只回相对路径
+        out["ok"] = True
+        out["hint"] = ("阶段 1 只读这里列出的 .md / .txt / .markdown / .docx，"
+                       "不要求模板格式；原始碎片不会直接进归并。")
+        return 200, out
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 def handle_scraps_list(h):
     """原始碎片列表：按簇分组 + 时间轴 + 前瞻备忘（确定性，零 LLM）。
 
@@ -326,6 +345,7 @@ ROUTES = (
     ("GET", "/materials/undo", handle_materials_undo_get),
     ("POST", "/materials/undo", handle_materials_undo),
     ("GET", "/materials/reconcile", handle_materials_reconcile),
+    ("GET", "/materials/scan", handle_materials_scan),
     ("GET", "/materials/read/{name}", handle_materials_read),
     ("GET", "/scraps/list", handle_scraps_list),
     ("GET", "/scraps/read", handle_scraps_read),

@@ -274,6 +274,115 @@ def test_build_cmd():
     check("任务提示带执行边界（该读的照读，不该翻的别翻）",
           "【执行边界】" in prompt and "设定库" in prompt and "工作区之外" in prompt)
 
+    cmd_patch = c._build_cmd(patch="Q:/fixture/nf_write_patch.yml")
+    check("显式传 patch 时拼上 --patch（写作边界用，不改模型）",
+          "--patch" in cmd_patch
+          and cmd_patch[cmd_patch.index("--patch") + 1] == "Q:/fixture/nf_write_patch.yml")
+    check("拼了 --patch 后 stdin 标记仍在最后", cmd_patch[-1] == "-")
+
+
+def test_writing_boundary():
+    print("· 写作边界：任务书内联 / 禁工具补丁 / 非写作任务不变")
+    tmp = Path(tempfile.mkdtemp(prefix="nf_dsh_w_"))
+    try:
+        tasks = tmp / "data" / "state" / "tasks"
+        tasks.mkdir(parents=True)
+        body = ("# 任务书\n\nUNIQUE_TASK_BODY_MARKER_42\n\n"
+                "## 输入文件（用 read_file 读取）\n- " + str(tmp / "in.md") + "\n")
+        t_stage4 = tasks / "stage4_ch01_g1.md"
+        t_stage4.write_text(body, encoding="utf-8")
+        t_stage2 = tasks / "stage2_global_outline.md"
+        t_stage2.write_text(body, encoding="utf-8")
+        t_refine = tasks / "stage4_refine_ch01.md"
+        t_refine.write_text(body, encoding="utf-8")
+        t_stage5 = tasks / "stage5_check_batch1.md"
+        t_stage5.write_text(body, encoding="utf-8")
+
+        c = DshClient(dsh_bin="dsh")
+        check("stage4 章任务认成写作任务", c._is_writing_task(t_stage4) is True)
+        check("stage2 大纲任务认成写作任务", c._is_writing_task(t_stage2) is True)
+        check("stage4 精修不算写作任务（不动 GUI 精修）",
+              c._is_writing_task(t_refine) is False)
+        check("stage5 检查不算写作任务（不动审查/校对）",
+              c._is_writing_task(t_stage5) is False)
+
+        inline = DshClient._task_prompt(t_stage4, inline=True)
+        check("写作提示内联任务书正文（不再让模型读任务文件）",
+              "UNIQUE_TASK_BODY_MARKER_42" in inline)
+        check("写作提示带硬边界（不逛目录 / 不跑命令自检 / 一次 write）",
+              "【写作任务边界" in inline and "不要运行命令" in inline
+              and "一次 write" in inline)
+        old = DshClient._task_prompt(t_stage5)
+        check("非写作任务维持旧行为（只给路径，不内联正文）",
+              "UNIQUE_TASK_BODY_MARKER_42" not in old
+              and str(t_stage5.resolve()) in old)
+
+        p = c._writing_patch()
+        check("写作补丁文件已生成", bool(p) and Path(p).exists(), str(p))
+        txt = Path(p).read_text(encoding="utf-8")
+        check("补丁禁掉 shell / 搜索 / 子代理 / 联网",
+              all(("- id: " + x) in txt for x in
+                  ("tool-pwsh", "tool-bash", "tool-fs-search",
+                   "tool-jobs", "tool-skill", "tool-agent-team", "tool-web"))
+              and "disabled: true" in txt)
+        check("补丁保留 tool-fs（正文要落盘）", "- id: tool-fs\n" not in txt)
+        check("补丁不碰模型配置（不许出现 agent-default-model / provider）",
+              "agent-default-model" not in txt and "provider:" not in txt)
+
+        # 端到端：桩记录 argv 与 stdin —— 判“物理上真的禁了工具、真的内联了”
+        cap = _bat(tmp, "dsh_capture.bat", [
+            "@echo off",
+            'echo %* > "%~dp0argv.txt"',
+            '"' + sys.executable + '" "%~dp0cap.py" >nul',
+            'echo {"type":"session","sessionId":"s"}',
+            'echo {"type":"final","sessionId":"s","reason":{"kind":"completed"},'
+            '"text":"OK"}',
+        ])
+        (tmp / "cap.py").write_text(
+            "import pathlib, sys\n"
+            "p = pathlib.Path(sys.argv[0]).resolve().with_name('stdin.txt')\n"
+            "p.write_text(sys.stdin.read(), encoding='utf-8')\n",
+            encoding="utf-8")
+
+        res = DshClient(dsh_bin=str(cap)).run_task(t_stage4, workdir=tmp)
+        args = (tmp / "argv.txt").read_text(encoding="utf-8", errors="replace")
+        stdin = (tmp / "stdin.txt").read_text(encoding="utf-8", errors="replace")
+        check("写作调用真的带上 --patch（物理禁工具，不只靠提示词）",
+              "--patch" in args and "nf_dsh_writing_patch" in args, args)
+        check("写作调用 stdin 是内联后的任务书（含边界与正文）",
+              "【写作任务边界" in stdin and "UNIQUE_TASK_BODY_MARKER_42" in stdin)
+        check("写作调用成功收尾", res["exit_code"] == 0, str(res))
+
+        for f in ("argv.txt", "stdin.txt"):
+            (tmp / f).unlink(missing_ok=True)
+        res2 = DshClient(dsh_bin=str(cap)).run_task(t_stage5, workdir=tmp)
+        args2 = (tmp / "argv.txt").read_text(encoding="utf-8", errors="replace")
+        stdin2 = (tmp / "stdin.txt").read_text(encoding="utf-8", errors="replace")
+        check("非写作调用不带 --patch", "--patch" not in args2, args2)
+        check("非写作调用维持旧提示（只给任务文件路径）",
+              "【写作任务边界" not in stdin2
+              and str(t_stage5.resolve()) in stdin2)
+        check("非写作调用成功收尾", res2["exit_code"] == 0, str(res2))
+
+        for f in ("argv.txt", "stdin.txt"):
+            (tmp / f).unlink(missing_ok=True)
+        res3 = DshClient(dsh_bin=str(cap)).run_task_stream(
+            t_stage4, lambda piece: None, None, workdir=tmp)
+        args3 = (tmp / "argv.txt").read_text(encoding="utf-8", errors="replace")
+        stdin3 = (tmp / "stdin.txt").read_text(encoding="utf-8", errors="replace")
+        check("流式写作调用也带 --patch", "--patch" in args3, args3)
+        check("流式写作调用也内联任务书正文",
+              "UNIQUE_TASK_BODY_MARKER_42" in stdin3)
+        check("流式写作调用成功收尾", res3["exit_code"] == 0, str(res3))
+
+        c_off = DshClient(dsh_bin="dsh", writing_boundary=False)
+        off_prompt = c_off._task_prompt(t_stage4, inline=c_off.writing_boundary)
+        check("writing_boundary=False 回到旧行为（不内联）",
+              "UNIQUE_TASK_BODY_MARKER_42" not in off_prompt
+              and str(t_stage4.resolve()) in off_prompt)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
 
 # ---------------------------------------------------------------- 事件解析
 
@@ -563,10 +672,16 @@ def test_never_passes_model():
     print("· 墨坊不向 DSH 传模型名（2026-11-20 作者定案）")
     c = DshClient(dsh_bin="dsh")
     cmd = c._build_cmd()
-    check("命令里没有 --patch（不拿 patch 去改 DSH 的模型配置）", "--patch" not in cmd)
+    check("默认命令里没有 --patch（不拿 patch 去改 DSH 的模型配置）",
+          "--patch" not in cmd)
     check("命令里没有 --model（headless 本就没这旋钮，也不许自己拼）",
           not any(str(a).startswith("--model") for a in cmd))
     check("任务永远最后一个参数（stdin 标记 '-' 收尾）", cmd[-1] == "-")
+
+    # 写作边界用的是同一个 --patch 旋钮，但只覆盖工具插件（见 test_writing_boundary）。
+    # 这里锁的是“默认调用”不带它 —— 精修/审查/单轮直答都不受影响。
+    check("写作边界的 --patch 只走显式参数，默认调用不受影响",
+          "--patch" not in DshClient(dsh_bin="dsh")._build_cmd())
 
 
 def test_headless_patch_guard():
@@ -622,6 +737,7 @@ def main():
     print("DshClient 自检（headless / 失败可见 / 超时 / 流式停止）")
     print("=" * 66)
     test_build_cmd()
+    test_writing_boundary()
     test_parse_events()
     test_finish_mapping()
     test_run_task_with_stubs()

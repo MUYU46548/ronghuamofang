@@ -133,7 +133,7 @@ cd ..
 请以最新代码结构为准，本小节仅供参考。
 
 ```
-NovelForge/
+ronghuamofang/
 ├── console/          # Electron 桌面控制台（main / preload / src + Vite 构建产物）
 ├── scripts/          # orchestrator.py 主调度 + stage1-7 + nf_api.py + utils/
 ├── prompts/          # 八阶段提示词模板（可热改）+ reference/ 实战咒语

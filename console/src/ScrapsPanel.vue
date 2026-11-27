@@ -206,7 +206,7 @@ onMounted(() => { loadLS(); load(); });
 <template>
   <div>
     <div class="card-head" style="margin-bottom: 10px;">
-      <h4 style="margin: 0;">原始碎片（自由命名 · 私人数据 · 不进 Git）</h4>
+      <h4 style="margin: 0;">碎片（随手记 · 私人数据 · 不进 Git）</h4>
       <span class="meta">{{ list?.dir || "materials/original_scraps" }}</span>
       <span class="spacer"></span>
       <button class="mini" :disabled="loading" @click="load">{{ loading ? "读取中…" : "刷新" }}</button>

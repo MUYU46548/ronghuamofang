@@ -2564,6 +2564,33 @@ def test_narrow_window(browser):
         ctx.close()
 
 
+def test_materials_tab(browser):
+    """素材页（2026-11-27）：不再用“卡片/碎片”考用户，直接给阶段 1 读入清单。"""
+    print("\n=== G. 素材页：说人话 + 阶段 1 读入预览 ===")
+    ctx, page, errs, bad = new_page(browser, MOCK_API, "materials")
+    try:
+        page.locator("nav.tabs button", has_text="素材").first.click()
+        page.wait_for_timeout(1000)
+        check("素材页出现“阶段 1 会读/跳过”摘要",
+              page.locator(".material-scan").count() >= 1)
+        page.locator("button:has-text('看清单')").first.click()
+        page.wait_for_timeout(300)
+        body = page.locator(".material-scan").inner_text()
+        check("说明写成“不要求模板格式”", "不要求模板格式" in body, body[:240])
+        check("计数与清单一致（会读 2 / 跳过 1）",
+              "会读 2 篇" in body and "跳过 1 篇" in body, body[:240])
+        check("清单列出文件名与跳过原因",
+              "角色卡_阿岚.md" in body and "README.md" in body
+              and "元文件" in body, body[:300])
+        check("素材页没有把“结构化卡片”这种内部词摆在按钮上",
+              page.locator("nav.tabs button", has_text="结构化卡片").count() == 0)
+        shot(page, "materials_scan")
+        mine = [x for x in bad if "/materials/scan" in x]
+        check("素材页 /materials/scan 没有 4xx/5xx", not mine, mine[:3])
+    finally:
+        ctx.close()
+
+
 def _alive(url, timeout=2.0):
     try:
         with urllib.request.urlopen(url, timeout=timeout) as r:
@@ -2620,6 +2647,7 @@ def main():
             test_conflict_no_overwrite(browser)
             test_write_log(browser)
             test_multi_candidate_switch(browser)
+            test_materials_tab(browser)
         finally:
             browser.close()
 

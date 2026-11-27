@@ -115,3 +115,31 @@ def iter_material_files(directory):
             continue
         files.append(path)
     return files, warnings, skipped_meta
+
+
+def scan_summary(directory):
+    """把 `iter_material_files` 的结果整理成给界面看的清单（零 token，只读）。
+
+    2026-11-25 作者原话：“用户根本不知道自己的东西是不是结构化卡片。”
+    界面不该让用户猜“我这篇算不算卡片”，而应直接回答“阶段 1 会读哪几篇、
+    跳过哪几篇、为什么”。判据仍然只有 `iter_material_files` 一份。
+    """
+    directory = Path(directory)
+    files, warnings, skipped = iter_material_files(directory)
+
+    def rel(p):
+        try:
+            return str(Path(p).relative_to(directory)).replace("\\", "/")
+        except ValueError:
+            return str(p)
+
+    return {
+        "dir": str(directory),
+        "read_count": len(files),
+        "read": [rel(p) for p in files],
+        "skip_count": len(skipped),
+        "skipped": [{"name": rel(p),
+                     "reason": "元文件（登记 / 说明 / 索引类，不参与归并）"}
+                    for p in skipped],
+        "warnings": list(warnings),
+    }
