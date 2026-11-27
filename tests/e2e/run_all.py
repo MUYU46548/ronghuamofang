@@ -56,6 +56,14 @@ SUITES = {
                 "NF_E2E_COLD": "http://127.0.0.1:{cold}",
                 "NF_E2E_REAL": "http://127.0.0.1:{real}"},
     },
+    "writing-rules": {
+        "script": "e2e_writing_rules.py",
+        "desc": "作品写作约束面板（迁移后：真规则/字数/保存请求/无 console 报错）",
+        "stack": True,
+        "browser": True,
+        "env": {"NF_E2E_SITE": "http://127.0.0.1:{site}",
+                "NF_E2E_MOCK": "http://127.0.0.1:{mock}"},
+    },
     "metrics": {
         "script": "e2e_chapter_metrics_ui.py",
         "desc": "这一章体检面板（节级字数表 / 文风数 / 命中项变批注）",

@@ -80,8 +80,8 @@ def main():
     for f in SRC.glob("*.vue"):
         if re.search(r"<style[^>]*scoped", f.read_text(encoding="utf-8", errors="ignore")):
             scoped += 1
-    check("根组件里 <style scoped> 数不超过迁移前实测基线 39（只许降）",
-          scoped <= 39, scoped)
+    check("根组件里 <style scoped> 数不超过迁移前实测基线 38（只许降）",
+          scoped <= 38, scoped)
 
     print("-" * 66)
     print("PASS %d / FAIL %d" % (len(PASS), len(FAIL)))

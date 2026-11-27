@@ -14,6 +14,7 @@
  *   3. 超上限**拒收**并说明，不静默截断（截断会把一条规矩砍成半句）。
  */
 import { ref, computed, onMounted } from "vue";
+import UiButton from "./components/ui/UiButton.vue";
 
 const props = defineProps({ api: { type: Function, required: true } });
 const emit = defineEmits(["say"]);
@@ -84,8 +85,10 @@ defineExpose({ load });
       <span class="meta">每本书一份 · 跟着这本书走 · 不调模型</span>
       <span class="spacer"></span>
       <span class="meta" v-if="dirty">未保存</span>
-      <button class="mini" :disabled="busy" @click="load">{{ busy ? "读取中…" : "刷新" }}</button>
-      <button class="mini" :disabled="busy || !dirty" @click="save">保存</button>
+      <UiButton size="sm" variant="default" :disabled="busy" @click="load">
+        {{ busy ? "读取中…" : "刷新" }}
+      </UiButton>
+      <UiButton size="sm" variant="primary" :disabled="busy || !dirty" @click="save">保存</UiButton>
     </div>
     <div class="meta">
       这本书的硬规矩：术语、禁忌、称呼、视角、每章必须出现的东西。有内容时会写进
@@ -95,60 +98,26 @@ defineExpose({ load });
 
     <div v-if="err" class="empty" style="padding:12px 0;">{{ err }}</div>
 
-    <div v-else class="wr-body">
-      <div v-if="meta && !meta.exists && !text.trim()" class="wr-empty">
+    <div v-else class="mt-2.5">
+      <div v-if="meta && !meta.exists && !text.trim()"
+           class="mb-2 mt-2 rounded-[var(--r-sm)] border-l-[3px] border-[var(--warn)] bg-[var(--field-dim)] px-3 py-2.5 text-[length:var(--fs-ui)] leading-[1.7]">
         还没写这本书的写作约束。写几条硬规矩（比如“不许出现现代科技名词”“每章至少一次视角切换”），
         写作时会按它来。
       </div>
-      <textarea v-model="text" class="wr-input" spellcheck="false"
+      <textarea v-model="text" spellcheck="false"
+                class="min-h-[220px] w-full box-border resize-y rounded-[var(--r-sm)] border border-[var(--border)] bg-[var(--field)] px-3 py-2.5 text-[length:var(--fs-ui)] leading-[1.75] text-[color:var(--ink)] focus:border-[var(--accent)] focus:outline-none"
                 placeholder="一条一行，写“必须”和“禁止”，不要写“尽量”：&#10;&#10;必须：全篇用第三人称限知，跟随主视角&#10;必须：每章至少出现一次具体物件（触感/声音）&#10;禁止：解释人物心理（“她感到……”），用动作与对白代替&#10;禁止：现代科技名词"></textarea>
-      <div class="wr-foot">
-        <span :class="{ 'wr-over': over }">{{ chars }} / {{ maxChars }} 字</span>
+      <div class="mt-2 flex items-baseline gap-3 text-[length:var(--fs-ui)] text-[color:var(--muted)]">
+        <span :class="{ 'text-[color:var(--bad)]': over }">{{ chars }} / {{ maxChars }} 字</span>
         <span class="meta" v-if="meta && meta.exists && meta.mtime">
           盘上版本：{{ new Date(meta.mtime * 1000).toLocaleString() }}</span>
         <span class="spacer"></span>
-        <button class="mini" :disabled="busy || !text.trim()" @click="clearAll">清空输入</button>
+        <UiButton size="sm" variant="ghost" :disabled="busy || !text.trim()" @click="clearAll">清空输入</UiButton>
       </div>
-      <div v-if="over" class="meta wr-over">
+      <div v-if="over" class="meta text-[color:var(--bad)]">
         超过上限 {{ maxChars }} 字：保存会被拒收（这段每章都要发一遍，请压缩）。
       </div>
     </div>
   </div>
 </template>
 
-<style scoped>
-.wr-body { margin-top: 10px; }
-.wr-empty {
-  margin: 8px 0;
-  padding: 10px 12px;
-  border-left: 3px solid var(--warn);
-  border-radius: 8px;
-  background: var(--field-dim);
-  font-size: 13px;
-  line-height: 1.7;
-}
-.wr-input {
-  width: 100%;
-  min-height: 220px;
-  box-sizing: border-box;
-  padding: 10px 12px;
-  font-size: 13px;
-  line-height: 1.75;
-  font-family: inherit;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--field);
-  color: var(--ink);
-  resize: vertical;
-}
-.wr-input:focus { outline: none; border-color: var(--accent); }
-.wr-foot {
-  display: flex;
-  gap: 12px;
-  align-items: baseline;
-  margin-top: 8px;
-  font-size: 13px;
-  color: var(--muted);
-}
-.wr-over { color: var(--bad); }
-</style>
