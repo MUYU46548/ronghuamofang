@@ -14,7 +14,8 @@ package.json、插件的 package.json —— 不起进程、不调模型、不�
    Electron 版本（2026-11-21 方寸侧踩过，拿它比兼容表只会得出假结论）。
 2. **profile**：`~/.dsh/profiles/<name>/package.json` 的
    `dsh.profile.bundles` 与 `dependencies`。
-3. **插件**：`dsh-novelforge` 的安装版本 / 是否进 bundles / `dsh.compatibility` 表。
+3. **插件**：`dsh-ronghuamofang`（2026-11-27 起；旧名 `dsh-novelforge` 仍认）的安装版本 /
+   是否进 bundles / `dsh.compatibility` 表。
 
 判据沿用方寸的三态：ok / unknown / warn / bad。**只报告，不改配置。**
 """
@@ -26,7 +27,10 @@ import struct
 from datetime import datetime, timezone
 from pathlib import Path
 
-PLUGIN_NAME = "dsh-novelforge"
+#: 插件包名。2026-11-27 起是 dsh-ronghuamofang（原名 dsh-novelforge 被 npm 以
+#: “与 dsh-novel-forge 太像”拒绝）；旧安装可能还带着旧名，两个都认，优先新名。
+PLUGIN_NAMES = ("dsh-ronghuamofang", "dsh-novelforge")
+PLUGIN_NAME = PLUGIN_NAMES[0]       # 兼容旧的引用：诊断文案里的默认名
 
 #: 本机 DSH 的常见安装形态（桌面版 NSIS 默认路径）
 DSH_ASAR_REL = Path("Programs") / "DeepSeek Harness" / "resources" / "app.asar"
@@ -163,19 +167,22 @@ def _plugin_info(profile_dir):
     pkg = _read_json(profile_dir / "package.json") or {}
     deps = pkg.get("dependencies") or {}
     bundles = (((pkg.get("dsh") or {}).get("profile") or {}).get("bundles") or [])
-    spec = str(deps.get(PLUGIN_NAME) or "")
-    installed = _read_json(profile_dir / "node_modules" / PLUGIN_NAME / "package.json") or {}
+    bundle_names = [str(x) for x in bundles]
+    # 两个名字都认：装了哪个就报哪个（改名前后的安装都能被正确认出来）
+    name = next((n for n in PLUGIN_NAMES if n in deps or n in bundle_names), PLUGIN_NAME)
+    spec = str(deps.get(name) or "")
+    installed = _read_json(profile_dir / "node_modules" / name / "package.json") or {}
     compat = ((installed.get("dsh") or {}).get("compatibility") or {})
     releases = compat.get("dshReleases") if isinstance(compat.get("dshReleases"), dict) else {}
     return {
-        "name": PLUGIN_NAME,
-        "in_deps": PLUGIN_NAME in deps,
-        "in_bundles": PLUGIN_NAME in [str(x) for x in bundles],
+        "name": name,
+        "in_deps": name in deps,
+        "in_bundles": name in bundle_names,
         "spec": spec,
         "version": str(installed.get("version") or ""),
         "compat_dsh": str(compat.get("dsh") or ""),
         "compat_releases": releases,
-        "bundles": [str(x) for x in bundles],
+        "bundles": bundle_names,
         "deps": {str(k): str(v) for k, v in deps.items()},
     }
 
@@ -215,16 +222,16 @@ def diagnose(home=None, app_version=None, dsh_version=None):
     plugin_installed = plugin["version"] or plugin["in_deps"]
     if not plugin_installed:
         plugin_status = "bad"
-        plugin_detail = "没装 " + PLUGIN_NAME + "（profile 的 dependencies 里没有）"
-        plugin_action = "在 DSH 里装 dsh-novelforge（npm 包 / GitHub Release 的 tgz 都行）"
+        plugin_detail = "没装 " + plugin["name"] + "（profile 的 dependencies 里没有）"
+        plugin_action = "在 DSH 里装 dsh-ronghuamofang（npm 包 / GitHub Release 的 tgz 都行）"
     elif not plugin["version"]:
         plugin_status = "bad"
         plugin_detail = "装了，但读不到 package.json（link: 可能断了）"
-        plugin_action = "重装 dsh-novelforge，或检查 link 目标目录还在不在"
+        plugin_action = "重装 " + plugin["name"] + "，或检查 link 目标目录还在不在"
     elif not plugin["in_bundles"]:
         plugin_status = "bad"
         plugin_detail = "已装 v" + plugin["version"] + "，但**没进 bundles**：装了也不会加载"
-        plugin_action = "把 dsh-novelforge 加进 profile 的 dsh.profile.bundles"
+        plugin_action = "把 " + plugin["name"] + " 加进 profile 的 dsh.profile.bundles"
     else:
         plugin_status = "ok"
         plugin_detail = "v" + plugin["version"] + "（已进 bundles"
@@ -250,7 +257,7 @@ def diagnose(home=None, app_version=None, dsh_version=None):
             checks.append(_check("compat", "插件 ↔ DSH 兼容", "unknown",
                                  "插件没登记 DSH " + dsh_ver + "（不一定是坏，但没验过；插件声明范围 "
                                  + (floor or "未写") + "）",
-                                 "升级 dsh-novelforge 到覆盖当前 DSH 的版本，或以实际使用为准"))
+                                 "升级 " + plugin["name"] + " 到覆盖当前 DSH 的版本，或以实际使用为准"))
 
     return {
         "ok": True,

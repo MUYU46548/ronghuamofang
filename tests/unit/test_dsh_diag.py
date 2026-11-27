@@ -36,20 +36,21 @@ def check(name, cond, detail=""):
                            ("  → " + str(detail)[:200]) if detail else ""))
 
 
-def make_home(bundled=True, plugin=True, version="0.3.0", releases=None):
+def make_home(bundled=True, plugin=True, version="0.3.0", releases=None,
+              name="dsh-ronghuamofang"):
     tmp = Path(tempfile.mkdtemp(prefix="dsh_diag_"))
     prof = tmp / "profiles" / "desktop"
     (prof).mkdir(parents=True, exist_ok=True)
-    deps = {"dsh-novelforge": "link:E:/CODE/CangKu/dsh-novelforge"} if plugin else {}
+    deps = {name: "link:E:/CODE/CangKu/dsh-novelforge"} if plugin else {}
     (prof / "package.json").write_text(json.dumps({
         "dependencies": deps,
-        "dsh": {"profile": {"bundles": (["dsh-novelforge"] if bundled else []) + ["dsh-fangcun"]}},
+        "dsh": {"profile": {"bundles": ([name] if bundled else []) + ["dsh-fangcun"]}},
     }, ensure_ascii=False), encoding="utf-8")
     if plugin:
-        pdir = prof / "node_modules" / "dsh-novelforge"
+        pdir = prof / "node_modules" / name
         pdir.mkdir(parents=True, exist_ok=True)
         (pdir / "package.json").write_text(json.dumps({
-            "name": "dsh-novelforge",
+            "name": name,
             "version": version,
             "dsh": {"compatibility": {
                 "dsh": ">=0.2.1-rc.2",
@@ -101,7 +102,15 @@ def main():
     check("T5 无 DSH → compat unknown", by_key(out5, "compat")["status"] == "unknown",
           by_key(out5, "compat"))
 
-    for p in (tmp, tmp2, tmp3, tmp4, tmp5):
+    # 旧名安装（改名前）仍要认出来，不能报“没装”
+    tmp6 = make_home(name="dsh-novelforge")
+    out6 = dsh_diag.diagnose(home=tmp6, app_version="0.9.15", dsh_version="0.2.2-rc.5")
+    p6 = by_key(out6, "plugin")
+    check("T6 旧名 dsh-novelforge 仍认：ok", p6["status"] == "ok", p6)
+    check("T6 报的是实际装的那个名字", out6["plugin"]["name"] == "dsh-novelforge",
+          out6["plugin"]["name"])
+
+    for p in (tmp, tmp2, tmp3, tmp4, tmp5, tmp6):
         shutil.rmtree(p, ignore_errors=True)
 
     print("-" * 60)
