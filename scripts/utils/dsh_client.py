@@ -427,6 +427,24 @@ class DshClient:
             except Exception:                       # noqa: BLE001
                 body = ""
             if body.strip():
+                # P0-B 第二步（2026-11-27）：任务书列出的输入文件也内联。
+                # 旧路径是“给路径 → 模型一页页 read”，一次段群光 read 就占几十步；
+                # 内联后模型手上有全文，提示词明确“不要再读”，只留一次 write。
+                if "## 内联输入" not in body:
+                    try:
+                        from utils import llm_client as _lc
+                        body, missing = _lc.inline_inputs(
+                            body, task_path=str(p),
+                            note=("（这些文件的内容已经内联在下方；**不要再读取它们**，"
+                                  "直接写产物）"))
+                        if missing:
+                            print("[dsh_client] WARN 输入文件缺失 %d 个（任务书仍带原路径）：%s"
+                                  % (len(missing),
+                                     "、".join(str(x) for x in missing[:3])))
+                    except Exception as e:          # noqa: BLE001
+                        # 内联失败不阻断：任务书里还有原路径，模型仍能按边界去读。
+                        print("[dsh_client] WARN 输入内联失败（保留任务书原样）："
+                              + type(e).__name__ + ": " + str(e)[:160])
                 return (WRITING_BOUNDARY
                         + chr(10) + "===== 任务书正文开始 =====" + chr(10)
                         + body.strip() + chr(10)

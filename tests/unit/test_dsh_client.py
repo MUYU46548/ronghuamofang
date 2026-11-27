@@ -287,6 +287,7 @@ def test_writing_boundary():
     try:
         tasks = tmp / "data" / "state" / "tasks"
         tasks.mkdir(parents=True)
+        (tmp / "in.md").write_text("INLINE_INPUT_MARKER_7", encoding="utf-8")
         body = ("# 任务书\n\nUNIQUE_TASK_BODY_MARKER_42\n\n"
                 "## 输入文件（用 read_file 读取）\n- " + str(tmp / "in.md") + "\n")
         t_stage4 = tasks / "stage4_ch01_g1.md"
@@ -309,6 +310,9 @@ def test_writing_boundary():
         inline = DshClient._task_prompt(t_stage4, inline=True)
         check("写作提示内联任务书正文（不再让模型读任务文件）",
               "UNIQUE_TASK_BODY_MARKER_42" in inline)
+        check("写作提示把输入文件也内联了（模型不用再一页页读）",
+              "INLINE_INPUT_MARKER_7" in inline and "## 内联输入" in inline)
+        check("内联后明确“不要再读取它们”", "不要再读取它们" in inline)
         check("写作提示带硬边界（不逛目录 / 不跑命令自检 / 一次 write）",
               "【写作任务边界" in inline and "不要运行命令" in inline
               and "一次 write" in inline)
@@ -351,6 +355,7 @@ def test_writing_boundary():
               "--patch" in args and "nf_dsh_writing_patch" in args, args)
         check("写作调用 stdin 是内联后的任务书（含边界与正文）",
               "【写作任务边界" in stdin and "UNIQUE_TASK_BODY_MARKER_42" in stdin)
+        check("写作调用 stdin 也含内联输入文件", "INLINE_INPUT_MARKER_7" in stdin)
         check("写作调用成功收尾", res["exit_code"] == 0, str(res))
 
         for f in ("argv.txt", "stdin.txt"):
