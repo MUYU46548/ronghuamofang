@@ -76,12 +76,62 @@ def main():
     ov = (SRC / "OutlineView.vue").read_text(encoding="utf-8")
     check("OutlineView.vue 真的引用了 UiEmptyState", "<UiEmptyState" in ov)
 
+    # scoped 计数只认**真正的样式块**：正则必须落在 `</template>` 之后。
+    # 老写法 `re.search(r"<style[^>]*scoped", 全文)` 会把**注释里提到这个标签**的文件也算进去 ——
+    # 2026-11-27 实测：三个组件已把样式块整个摘掉，只因为注释写了“样式从 `<style scoped>` 迁到”
+    # 就继续被计为 38，看上去一个组件都没迁成。判据统计的必须是样式块，不是这个字符串。
+    SCOPED_RE = re.compile(r"</template>[\s\S]*?<style[^>]*\bscoped\b")
     scoped = 0
     for f in SRC.glob("*.vue"):
-        if re.search(r"<style[^>]*scoped", f.read_text(encoding="utf-8", errors="ignore")):
+        if SCOPED_RE.search(f.read_text(encoding="utf-8", errors="ignore")):
             scoped += 1
-    check("根组件里 <style scoped> 数不超过迁移前实测基线 38（只许降）",
-          scoped <= 38, scoped)
+    check("根组件里 <style scoped> 数不超过迁移前实测基线 35（只许降）",
+          scoped <= 35, scoped)
+
+    # ---- UiButton 的四档必须与 style.css 的 `.btn-*` 层同源 ----
+    # 为什么单独钉：试点组件第一版把 primary 写成 `bg-[var(--accent)] text-white`，
+    # 而作者 2026-11-25 定案是 `--accent-strong` 底 —— 十套主题实测 accent 配白字
+    # 只有 2.23–3.47:1（能看见但看不清），strong 才够 4.60–4.71:1。
+    # 退化的表现不是报错，是“主按钮看着像个灰按钮”，只有真读起来才觉得累。
+    btn = (SRC / "components" / "ui" / "UiButton.vue").read_text(encoding="utf-8")
+    check("U1 UiButton primary 用 --accent-strong（不是 --accent）",
+          "bg-[var(--accent-strong)]" in btn and "bg-[var(--accent)] " not in btn)
+    check("U1b UiButton primary 的字色走 --btn-primary-ink",
+          "var(--btn-primary-ink)" in btn)
+    check("U2 UiButton ghost 字色用 --muted（与 .btn-ghost 同源）",
+          "text-[color:var(--muted)]" in btn)
+
+    # md 高度必须等于 .mini / .btn 的 30px：同一行里输入框(30px)与按钮一高一矮，
+    # 是第一眼就能看出来的“不齐”，但几何自检抓不到（它只看有没有出屏）。
+    geo = {}
+    for m in re.finditer(r"(?m)^\.(mini|btn)\s*\{([^}]*)\}", style):
+        h = re.search(r"height:\s*([^;]+);", m.group(2))
+        geo[m.group(1)] = h.group(1).strip() if h else None
+    md = re.search(r'md:\s*"([^"]+)"', btn)
+    md_cls = md.group(1) if md else ""
+    check("U3 UiButton md 高度 = .mini 的 height（%s）" % geo.get("mini"),
+          geo.get("mini") and ("h-[30px]" in md_cls or
+                               ("h-%d" % (int(geo["mini"].replace("px", "")) // 4)) in md_cls),
+          md_cls)
+
+    # U4：替换 `.mini` 时必须用 md 档，不许用 sm。
+    # 为什么：`.mini` 是 30px，而 sm 档是 28px —— 换完之后同一行里按钮比输入框矮 2px。
+    # 2026-11-27 实测踩过：写作约束 / 指南针 / 交接稿 / 质量趋势 四个面板全中，
+    # e2e 当时"全绿"，因为没人量过高度。
+    # 例外只有“纯按钮行”（对话框 footer 那种，不与输入控件同行）：列在白名单里并写明原因，
+    # 新增例外要在这里补一行 —— 白名单是给“确实不需要 30px”的场合用的，不是给自己开绿灯。
+    ALLOW_SM = {
+        "App.vue": "UiDialog footer（取消 / 恢复并继续）—— 纯按钮行，不与输入控件同行",
+    }
+    sm_use = []
+    for f in SRC.glob("*.vue"):
+        if f.name in ALLOW_SM:
+            continue
+        text = f.read_text(encoding="utf-8", errors="ignore")
+        for _m in re.finditer(r'<UiButton[^>]*\bsize="sm"[^>]*>', text):
+            sm_use.append(f.name)
+    check("U4 除对话框 footer 外没有组件用 size=\"sm\"（会矮 2px）",
+          not sm_use, sorted(set(sm_use)))
 
     print("-" * 66)
     print("PASS %d / FAIL %d" % (len(PASS), len(FAIL)))

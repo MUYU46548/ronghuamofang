@@ -8,9 +8,16 @@
  *
  * 关键取舍：**缺料明说，不编造**。下一章大纲没生成、滚动摘要为空，稿里写明
  * “尚未生成 + 怎么补”而不是拿空段糊过去 —— 接手方必须知道哪里是空的。
+ *
+ * 2026-11-27：样式迁到 Tailwind + 主题变量（写作约束之后第二个整组件）。
+ * 外壳那三条声明与全局工具类 `.sep-dashed` 逐字相同 → 直接复用，不另起类名。
+ * 三颗按钮换 `UiButton`：导出是这一块唯一要点的动作 → primary；复制 = default；打开文件 = ghost
+ * （原来用 `.mini.ghost`，字色 opacity 0.35 看着像禁用；ghost 档用 --muted 字色，弱但不瞎）。
+ * 有意的一处像素变化：预览块圆角 6px → var(--r-sm)=8px（6px 不在两档圆角尺度里）。
  */
-import { ref, computed, onMounted } from "vue";
+import { ref, computed } from "vue";
 
+import UiButton from "./components/ui/UiButton.vue";
 import { API } from "./apiBase.js";
 import { copyToClipboard } from "./clipboard.js";
 
@@ -66,59 +73,39 @@ async function openFile() {
   }
 }
 
-onMounted(() => {});
 </script>
 
 <template>
-  <div class="hnp">
-    <div class="hnp-head">
-      <b>交接稿</b>
+  <div class="sep-dashed">
+    <div class="row-baseline mb-2">
+      <b class="text-[color:var(--ink)]">交接稿</b>
       <span class="meta">换模型 / 换会话前导出一份，新会话只靠它就能接写下一章（零 token）</span>
       <span class="spacer"></span>
-      <button class="mini" :disabled="busy" @click="exportNow">
+      <UiButton variant="primary" :disabled="busy" @click="exportNow">
         {{ busy ? "拼装中…" : result ? "重新导出" : "导出交接稿" }}
-      </button>
-      <button class="mini" :disabled="!result" @click="copyAll">复制全文</button>
-      <button class="mini ghost" :disabled="!result" @click="openFile">打开文件</button>
+      </UiButton>
+      <UiButton :disabled="!result" @click="copyAll">复制全文</UiButton>
+      <UiButton variant="ghost" :disabled="!result" @click="openFile">打开文件</UiButton>
     </div>
 
-    <div v-if="err" class="meta err-line">{{ err }}</div>
+    <div v-if="err" class="meta text-[color:var(--bad)]">{{ err }}</div>
 
     <template v-if="result">
-      <div class="meta hnp-meta">
+      <div class="meta mb-1.5">
         已写到第 {{ result.chapter }} 章 · 交接给<b>第 {{ result.next_chapter }} 章</b>
         · {{ result.path }}
       </div>
-      <div v-if="problems.length" class="hnp-problems">
+      <div v-if="problems.length"
+           class="mb-2 border-l-2 border-[var(--warn)] bg-[var(--field-inset)] px-2 py-1.5">
         <div class="meta"><b>缺资料</b>（稿里已明说哪里是空的，接手方不会拿到编造的内容）：</div>
         <div v-for="(p, i) in problems" :key="i" class="meta">· {{ p }}</div>
       </div>
-      <pre class="hnp-preview">{{ result.text }}</pre>
+      <pre class="m-0 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-[var(--r-sm)] border border-[var(--border)] bg-[var(--field-inset)] px-3 py-2.5 font-[family-name:var(--mono)] text-[length:var(--fs-ui)] leading-[1.6] text-[color:var(--ink)]">{{ result.text }}</pre>
     </template>
 
-    <div v-else-if="!busy" class="meta hnp-empty">
+    <div v-else-if="!busy" class="meta pb-0.5 pt-1">
       还没导出过。点“导出交接稿”拼装当前状态 —— 设定摘要、未回收伏笔、最近章节、
       下一章大纲都会内联进一份 markdown。
     </div>
   </div>
 </template>
-
-<style scoped>
-.hnp { margin-top: 14px; padding-top: 10px; border-top: 1px dashed var(--border); }
-.hnp-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; }
-.hnp-head .mini { margin-left: 4px; }
-.err-line { color: var(--bad); }
-.hnp-meta { margin-bottom: 6px; }
-.hnp-problems {
-  margin-bottom: 8px; padding: 6px 8px;
-  border-left: 2px solid var(--warn, #b8860b);
-  background: var(--field-inset, transparent);
-}
-.hnp-empty { padding: 4px 0 2px; }
-.hnp-preview {
-  max-height: 320px; overflow: auto; padding: 10px 12px;
-  font-size: 13px; line-height: 1.6; white-space: pre-wrap; word-break: break-word;
-  border: 1px solid var(--border); border-radius: 6px;
-  background: var(--field-inset, transparent); color: var(--ink);
-}
-</style>

@@ -85,10 +85,10 @@ defineExpose({ load });
       <span class="meta">每本书一份 · 跟着这本书走 · 不调模型</span>
       <span class="spacer"></span>
       <span class="meta" v-if="dirty">未保存</span>
-      <UiButton size="sm" variant="default" :disabled="busy" @click="load">
+      <UiButton variant="default" :disabled="busy" @click="load">
         {{ busy ? "读取中…" : "刷新" }}
       </UiButton>
-      <UiButton size="sm" variant="primary" :disabled="busy || !dirty" @click="save">保存</UiButton>
+      <UiButton variant="primary" :disabled="busy || !dirty" @click="save">保存</UiButton>
     </div>
     <div class="meta">
       这本书的硬规矩：术语、禁忌、称呼、视角、每章必须出现的东西。有内容时会写进
@@ -112,7 +112,7 @@ defineExpose({ load });
         <span class="meta" v-if="meta && meta.exists && meta.mtime">
           盘上版本：{{ new Date(meta.mtime * 1000).toLocaleString() }}</span>
         <span class="spacer"></span>
-        <UiButton size="sm" variant="ghost" :disabled="busy || !text.trim()" @click="clearAll">清空输入</UiButton>
+        <UiButton variant="ghost" :disabled="busy || !text.trim()" @click="clearAll">清空输入</UiButton>
       </div>
       <div v-if="over" class="meta text-[color:var(--bad)]">
         超过上限 {{ maxChars }} 字：保存会被拒收（这段每章都要发一遍，请压缩）。

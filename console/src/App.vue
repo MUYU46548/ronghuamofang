@@ -6920,9 +6920,9 @@ onUnmounted(() => {
       <ConsistencyPanel />
       <!-- 七维评审账本（2026-10-20）：七维分数 + 原文举证；未举证的维度不计分 -->
       <ReviewLedgerPanel />
-      <!-- P2: 质量趋势图 -->
+      <!-- P2: 质量趋势图（外边距由组件自己的 mb-3.5 给，不再用 .qt-wrap 包一层） -->
       <QualityTrend :chapters="Object.keys(chapterQuality).map(n => ({n: +n, quality: chapterQuality[n]}))"
-                    :threshold="chapterThreshold" class="qt-wrap"
+                    :threshold="chapterThreshold"
                     @gotoReview="switchTab('review')" @gotoRefine="switchTab('review')" />
       <div v-if="!chaptersLoaded" class="empty">点击“重新探测”加载章节文件</div>
       <div v-for="c in chapters" :key="c.n" class="chap-row">

@@ -2251,10 +2251,6 @@ kbd {
   background: var(--accent-soft);
   color: var(--muted);
 }
-.qt-wrap {
-  margin-bottom: 14px;
-}
-
 /* ---- 审批门通知开关（设置页） ---- */
 .gate-notify-row {
   display: flex;

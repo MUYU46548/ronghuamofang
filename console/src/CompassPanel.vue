@@ -7,9 +7,15 @@
  *
  * 关键取舍：长线 >5 条拒绝写入（长线太多等于没有主线）；终局方向变更自动留
  * history（compass_v*.json，切回有据）。
+ *
+ * 2026-11-27：样式迁到 Tailwind + 主题变量（scoped 样式块已摘除）。
+ * 输入框不再自写 padding/边框/圆角（那是“每个面板一套”的老毛病，六个面板因此差 4px），
+ * 交给 style.css 的 `:where(input,textarea)` 基础层；这里只留 `bg-[var(--field-inset)]`
+ * 与 `w-[90px]` 这类布局项。保存按钮 = 这块唯一要点的动作 → primary 档。
  */
 import { ref, computed, onMounted } from "vue";
 
+import UiButton from "./components/ui/UiButton.vue";
 import { API } from "./apiBase.js";
 
 const emit = defineEmits(["say"]);
@@ -99,62 +105,48 @@ defineExpose({ load });
 </script>
 
 <template>
-  <div class="cnp">
-    <div class="cnp-head">
-      <b>指南针</b>
+  <div class="sep-dashed">
+    <div class="row-baseline mb-2">
+      <b class="text-[color:var(--ink)]">指南针</b>
       <span class="meta">全书往哪去：终局方向 + 活跃长线（最多 5 条）。写偏了就照它校准</span>
       <span class="spacer"></span>
-      <button class="mini" :disabled="busy" @click="save">保存</button>
+      <UiButton variant="primary" :disabled="busy" @click="save">保存</UiButton>
     </div>
 
-    <div v-if="err" class="meta err-line">{{ err }}</div>
+    <div v-if="err" class="meta text-[color:var(--bad)]">{{ err }}</div>
 
-    <div class="cnp-form">
+    <div class="flex flex-col gap-1.5">
       <label class="meta">终局方向（一句话：这本书最终要落在哪）</label>
-      <textarea v-model="direction" rows="2" placeholder="例：主角放弃封印，让核心的力量流散到世间各处去"></textarea>
+      <textarea v-model="direction" rows="2" class="resize-y bg-[var(--field-inset)]"
+                placeholder="例：主角放弃封印，让核心的力量流散到世间各处去"></textarea>
 
       <label class="meta">活跃长线（每行一条；可写“线索（埋于第N章）”）</label>
-      <textarea v-model="threadsText" rows="4" placeholder="例：&#10;沈砚与程砧的信任裂痕（埋于第2章）&#10;暗卫的真实目的"></textarea>
+      <textarea v-model="threadsText" rows="4" class="resize-y bg-[var(--field-inset)]"
+                placeholder="例：&#10;沈砚与程砧的信任裂痕（埋于第2章）&#10;暗卫的真实目的"></textarea>
 
-      <div class="cnp-row row">
+      <div class="row">
         <label class="meta">预计总章数</label>
-        <input v-model="scale" type="number" min="1" placeholder="可留空" class="cnp-num" />
+        <input v-model="scale" type="number" min="1" placeholder="可留空"
+               class="w-[90px] bg-[var(--field-inset)]" />
         <label class="meta">更新时在第几卷</label>
-        <input v-model="volumeAtUpdate" type="number" min="1" placeholder="可留空" class="cnp-num" />
+        <input v-model="volumeAtUpdate" type="number" min="1" placeholder="可留空"
+               class="w-[90px] bg-[var(--field-inset)]" />
       </div>
     </div>
 
-    <div v-if="exists && data.warnings && data.warnings.length" class="cnp-warn">
+    <div v-if="exists && data.warnings && data.warnings.length"
+         class="mt-2 border-l-2 border-[var(--warn)] bg-[var(--field-inset)] px-2 py-1.5">
       <div v-for="(w, i) in data.warnings" :key="i" class="meta">· {{ w }}</div>
     </div>
-    <div v-if="exists && data.problems && data.problems.length" class="cnp-warn">
+    <div v-if="exists && data.problems && data.problems.length"
+         class="mt-2 border-l-2 border-[var(--warn)] bg-[var(--field-inset)] px-2 py-1.5">
       <div class="meta"><b>当前保存的指南针有异常</b>（保存新版本可修复）：</div>
       <div v-for="(p, i) in data.problems" :key="i" class="meta">· {{ p }}</div>
     </div>
-    <div v-if="historyNote" class="meta cnp-hist">{{ historyNote }}</div>
-    <div v-if="!exists && !busy" class="meta cnp-empty">
+    <div v-if="historyNote" class="meta mt-1.5 opacity-80">{{ historyNote }}</div>
+    <div v-if="!exists && !busy" class="meta pb-0.5 pt-1">
       还没设过指南针。长篇建议在开写前先定一次 —— global.md 是第 1 天定的，
       写到第 100 章时它是唯一还能对得上的参照。
     </div>
   </div>
 </template>
-
-<style scoped>
-.cnp { margin-top: 14px; padding-top: 10px; border-top: 1px dashed var(--border); }
-.cnp-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; }
-.err-line { color: var(--bad); }
-.cnp-form { display: flex; flex-direction: column; gap: 6px; }
-.cnp-form textarea, .cnp-form input {
-  font-size: 13px; line-height: 1.6; padding: 6px 8px; resize: vertical;
-  border: 1px solid var(--border); border-radius: 6px;
-  background: var(--field-inset, transparent); color: var(--ink);
-}
-.cnp-num { width: 90px; }
-.cnp-warn {
-  margin-top: 8px; padding: 6px 8px;
-  border-left: 2px solid var(--warn, #b8860b);
-  background: var(--field-inset, transparent);
-}
-.cnp-hist { margin-top: 6px; opacity: .8; }
-.cnp-empty { padding: 4px 0 2px; }
-</style>
