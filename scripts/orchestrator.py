@@ -309,10 +309,9 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
               "写到**候选区**（data/_pending/stageN/）→ 作者批准后程序合成到正式路径"
               "→ 再跑一次续跑（零 token）")
     if _tl.get("enabled"):
-        print(f"[orchestrator] token 级熔断：单请求输出上限="
-              f"{_tl.get('per_request_max_tokens') or '不限'}"
-              f"（hermes 无该旋钮 → 仅告警" +
-              ("并熔断" if _tl.get("per_request_pause_hermes") else "") + "）"
+        print(f"[orchestrator] token 级熔断：单章预算="
+              f"{_tl.get('chapter_max_tokens') or '不限'}"
+              f"｜单请求输出={_tl.get('per_request_max_tokens') or '不限'}（只观测）"
               f"｜本 run 累计上限={_tl.get('max_total_tokens') or '不限'} token")
     else:
         # ⚠️ 本行**不要**出现 U+00A5 的 ¥ / emoji：它们不在 GBK 里，而这一行在
@@ -628,11 +627,18 @@ def run(from_stage=1, only_stage=None, client=None, verbose=False, dry_run=False
                 return None
             print(f"[orchestrator] 熔断暂停[{detail['reason']}]{where}：{detail['message']}"
                   f"（累计 token={detail['tokens']}，已用 {detail['spent_yuan']:.2f} 元）")
-            print("[orchestrator]   处理：调大 config/system.yaml 的 "
-                  "budget.token_limit.max_total_tokens（金额口径则调 budget.limit_yuan）"
-                  " → 清 data/state/progress.json 的 budget.paused"
+            _tip = {
+                "tokens_total": "调大 budget.token_limit.max_total_tokens",
+                "tokens_chapter": "调大 budget.token_limit.chapter_max_tokens",
+                "yuan": "调大 budget.limit_yuan",
+            }.get(detail["reason"], "调大对应的 budget.token_limit 阈值")
+            print("[orchestrator]   处理：" + _tip
+                  + " → 界面点“恢复并继续”（或清 data/state/progress.json 的 budget.paused）"
                   " → python scripts/orchestrator.py --from N 续跑（已完成阶段不重跑）")
-            progress.data["budget"]["paused"] = True
+            _b = progress.data.setdefault("budget", {})
+            _b["paused"] = True
+            _b["paused_reason"] = detail["reason"]
+            _b["paused_message"] = detail["message"]
             progress.save()
             return 2
 

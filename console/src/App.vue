@@ -2555,11 +2555,20 @@ async function confirmRestart() {
   restartBusy.value = true;
   restartError.value = "";
   try {
+    // P0-5：先清暂停标记，再启动。两步都成功才算“恢复并继续”；
+    // 端点失败就把原因留在弹窗里（用户不再需要靠查盘判断）。
+    const rr = await api("/budget/resume", "POST", {});
+    if (rr.status !== 200) {
+      restartError.value = `恢复失败（HTTP ${rr.status}）：`
+        + (rr.data?.error || "后端没给原因，请查看“📋 日志”");
+      say(restartError.value, "bad");
+      return;
+    }
     const r = await api(`/stage/${stage}/run`, "POST", { from_stage: stage });
     if (r.status === 202) {
       circuitBreakerShow.value = false;
       say(`已从阶段 ${stage} 启动（任务 ${r.data?.job_id || "?"}）`
-          + (r.data?.cleared_pause ? "，暂停标记已清除" : "")
+          + (rr.data?.cleared ? "，暂停标记已清除" : "")
           + " —— 进度看顶部状态条", "ok");
       refresh();
     } else {
@@ -4716,7 +4725,8 @@ function toggleEnhancedMode() {
 const tokenLimit = ref({
   loading: true, busy: false, ok: true, msg: "",
   bounds: {}, preset: {},
-  form: { enabled: true, per_request_max_tokens: 200000, per_request_pause_hermes: false,
+  form: { enabled: true, per_request_max_tokens: 200000, chapter_max_tokens: 200000,
+          per_request_pause_hermes: false,
           max_total_tokens: 10000000, warn_ratio: 0.7 },
 });
 async function loadTokenLimit() {
@@ -4762,7 +4772,7 @@ async function resetTokenLimit() {
     const r = await api('/config/token_limit', 'POST', tokenLimit.value.preset);
     tokenLimit.value.ok = !!(r.status === 200 && r.data.ok);
     tokenLimit.value.msg = tokenLimit.value.ok
-      ? ('已恢复默认预设（单请求 ' + tokenLimit.value.preset.per_request_max_tokens
+      ? ('已恢复默认预设（单章 ' + tokenLimit.value.preset.chapter_max_tokens
          + ' / 累计 ' + tokenLimit.value.preset.max_total_tokens + '）')
       : ('恢复失败: ' + (r.data.error || r.status));
     if (tokenLimit.value.ok && r.data.current) tokenLimit.value.form = Object.assign({}, r.data.current);
@@ -6330,8 +6340,9 @@ onUnmounted(() => {
   <main class="content">
     <!-- 预算暂停横幅 -->
     <div v-if="state?.budget?.paused" class="budget-banner">
-      <span>⚠️ 预算已超限（已用 {{ fmtYuan(state.cost.spent_yuan) }} / 限额 {{ fmtYuan(state.cost.limit_yuan) }}）</span>
-      <button class="mini primary" @click="openRestartDlg">恢复运行</button>
+      <span>⚠️ 已暂停：{{ state.budget.paused_message || "预算 / 单章 token 超限" }}</span>
+      <span class="meta">本轮累计 {{ fmtTok(state.budget.tokens_used) }} token</span>
+      <button class="mini primary" @click="openRestartDlg">恢复并继续</button>
       <button class="mini" @click="switchTab('cost')">查看详情</button>
     </div>
 
@@ -7742,14 +7753,24 @@ onUnmounted(() => {
             <input type="checkbox" v-model="tokenLimit.form.enabled" />
           </label>
           <label class="tl-field">
-            <span class="label">单请求输出上限（token）</span>
+            <span class="label">单请求输出上限（token，只观测）</span>
             <!-- step 按量级给（2026-11-26）：这一项的单位是万/十万，步长 1 要点一万次。
-                 上下箭头一下 = 1000；下限/上限取后端 bounds，不在这里另写一份。 -->
+                 上下箭头一下 = 1000；下限/上限取后端 bounds，不在这里另写一份。
+                 P0-5 起这一项不再触发熔断，只用于成本报告/估算。 -->
             <input type="number" step="1000"
                    :min="tokenLimit.bounds.per_request_max_tokens?.[0]"
                    :max="tokenLimit.bounds.per_request_max_tokens?.[1]"
                    v-model.number="tokenLimit.form.per_request_max_tokens" />
             <span class="meta">区间 {{ tokenLimit.bounds.per_request_max_tokens?.join(' ~ ') }}</span>
+          </label>
+          <label class="tl-field">
+            <span class="label">单章预算（token，含段群/重试）</span>
+            <!-- P0-5 的主力判据：一章累计超过它就停；正常一章 4~7 万，留到 20 万。 -->
+            <input type="number" step="1000"
+                   :min="tokenLimit.bounds.chapter_max_tokens?.[0]"
+                   :max="tokenLimit.bounds.chapter_max_tokens?.[1]"
+                   v-model.number="tokenLimit.form.chapter_max_tokens" />
+            <span class="meta">区间 {{ tokenLimit.bounds.chapter_max_tokens?.join(' ~ ') }}</span>
           </label>
           <label class="tl-field">
             <span class="label">单轮累计上限（token）</span>
@@ -7766,12 +7787,9 @@ onUnmounted(() => {
             <span class="meta">区间 {{ tokenLimit.bounds.warn_ratio?.join(' ~ ') }}</span>
           </label>
           <label class="tl-field" style="grid-column: 1 / -1;">
-            <span class="label">外部助手单次调用超限也停</span>
-            <span style="display: flex; gap: 8px; align-items: center;">
-              <input type="checkbox" v-model="tokenLimit.form.per_request_pause_hermes" />
-              <span class="meta">默认关：实测一次素材归并（阶段 1）输出就有 1.8 万 token，
-                按单次调用判断更容易误停（误停比不停更贵）。</span>
-            </span>
+            <span class="label">单次调用（只观测）</span>
+            <span class="meta">P0-5 起只用于观测/成本报告，不再按“单次输出”自动停；
+              真正会停的是上面的“单章预算”和“单轮累计上限”。</span>
           </label>
         </div>
         <div style="display: flex; gap: 8px; align-items: center; margin-top: 10px;">
@@ -9489,9 +9507,17 @@ onUnmounted(() => {
   <!-- 熔断恢复对话框 -->
   <div v-if="circuitBreakerShow" class="drawer-mask">
     <div class="dialog" style="width: min(520px, 92vw);">
-      <h3>⚠️ 预算超限，流水线已暂停</h3>
+      <h3>⚠️ 预算 / 单章上限已到，流水线已暂停</h3>
       <div class="meta" style="margin-bottom: 10px;">
         已用 {{ fmtYuan(state.cost.spent_yuan) }} / 限额 {{ fmtYuan(state.cost.limit_yuan) }}
+        · 本轮累计 {{ fmtTok(state.budget.tokens_used) }} token
+      </div>
+      <div v-if="state.budget.paused_message" class="meta" style="margin-bottom: 10px; line-height: 1.6;">
+        {{ state.budget.paused_message }}
+      </div>
+      <div class="meta" style="margin-bottom: 10px; line-height: 1.6;">
+        建议：到“设置 → 预算与止烧”把对应的上限调大（单章超了就调“单章预算”，
+        整轮超了就调“单轮累计上限”），再点下面的按钮。
       </div>
       <div class="meta" style="margin-bottom: 16px; line-height: 1.6;">
         将从阶段 {{ restartFromStage }} 继续运行（该阶段之后的内容尚未生成）。<br>
@@ -9504,7 +9530,7 @@ onUnmounted(() => {
         <span class="spacer"></span>
         <button class="mini" :disabled="restartBusy" @click="circuitBreakerShow = false">取消</button>
         <button class="mini primary" :disabled="restartBusy" @click="confirmRestart">
-          {{ restartBusy ? "正在启动…" : ("确认从阶段 " + restartFromStage + " 重跑") }}
+          {{ restartBusy ? "正在启动…" : ("恢复并继续（从阶段 " + restartFromStage + "）") }}
         </button>
       </div>
     </div>

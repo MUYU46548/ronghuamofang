@@ -758,6 +758,24 @@ def handle_config_wordlists_set(h, body):
         return 500, {"ok": False, "error": "写盘失败：" + str(e)[:200]}
 
 
+def handle_budget_resume(h):
+    """清除预算/熔断暂停标记（P0-5，GUI-only）。
+
+    它只清展示旗标，不启动运行 —— 启动由 `/stage/{n}/run` 负责。
+    为什么要单独一个端点：用户点“恢复并继续”时，界面必须先拿到一个明确的
+    “已恢复/没有暂停标记”的事实，再用同一个按钮启动；否则又是“点了没反应”。
+    """
+    guard = _gui_only(h, "预算熔断恢复")
+    if guard:
+        return guard
+    try:
+        cleared = api.clear_budget_pause()
+        return 200, {"ok": True, "cleared": bool(cleared),
+                     "message": ("已清除暂停标记" if cleared else "当前没有暂停标记")}
+    except Exception as e:                                  # noqa: BLE001
+        return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
+
+
 def handle_config_target_words(h):
     """读单章字数区间（chapter.target_words）+ 出厂预设 + 合法区间。
 
@@ -2581,6 +2599,7 @@ ROUTES = (
     ("GET", "/agent/permissions", handle_agent_permissions),
     ("GET", "/config/token_limit", handle_config_token_limit),
     ("POST", "/config/token_limit", handle_config_token_limit_set),
+    ("POST", "/budget/resume", handle_budget_resume),
     ("GET", "/config/target_words", handle_config_target_words),
     ("POST", "/config/target_words", handle_config_target_words_set),
     ("GET", "/config/discuss", handle_config_discuss),

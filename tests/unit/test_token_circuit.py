@@ -125,7 +125,7 @@ def case_token_pause():
 
 
 def case_no_false_stop_on_hermes_single_call():
-    print("\n【4】反证：hermes 单次子会话输出大 ≠ 熔断（默认不误停）")
+    print("\n【4】单请求输出大 ≠ 熔断（P0-5 起只观测；主力判据是单章）")
     db, tmp = fresh_db("single")
     try:
         rid = db.start_run("t")
@@ -137,16 +137,49 @@ def case_no_false_stop_on_hermes_single_call():
         cost.charge_cost(rid, 1, 0, {"tokens": 98241, "tokens_out": 18358,
                                      "provider": "hermes", "model": "hermes-x"})
         d = cost.status_detail(rid)
-        check("单次输出 18358 > 8000 但**不熔断**（默认只告警）",
+        check("单次输出 18358 > 8000 但**不熔断**",
               d["state"] != "pause", d)
-        # 显式开启后才熔断
+        # P0-5：即使老开关显式打开，单请求口径也不再熔断（只观测）
         cost2 = CostTracker(db, limit_yuan=300, warn_ratio=0.7,
                             token_limit={"enabled": True, "max_total_tokens": 3000000,
                                          "per_request_max_tokens": 8000,
                                          "per_request_pause_hermes": True})
         d2 = cost2.status_detail(rid)
-        check("显式开启 per_request_pause_hermes 后 → pause",
-              d2["state"] == "pause" and d2["reason"] == "tokens_request", d2)
+        check("老开关 per_request_pause_hermes=true 也不再熔断（P0-5）",
+              d2["state"] != "pause", d2)
+    finally:
+        db.close()
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def case_chapter_budget():
+    print("\n【4b】单章预算：一章累计超限才停，不连坐下一章")
+    db, tmp = fresh_db("chapter")
+    try:
+        rid = db.start_run("t")
+        cost = CostTracker(db, limit_yuan=300, warn_ratio=0.7,
+                           token_limit={"enabled": True, "max_total_tokens": 10000000,
+                                        "chapter_max_tokens": 100000})
+        state1 = cost.charge_cost(rid, 4, 1, {"tokens": 60000, "tokens_out": 10000,
+                                              "provider": "dsh", "model": "dsh-default"})
+        check("第 1 章第一次 70000 < 100000 → ok", state1 == "ok", state1)
+        state2 = cost.charge_cost(rid, 4, 1, {"tokens": 40000, "tokens_out": 5000,
+                                              "provider": "dsh", "model": "dsh-default"})
+        check("第 1 章累计 115000 ≥ 100000 → pause", state2 == "pause", state2)
+        d = cost.status_detail(rid, stage=4, chapter=1)
+        check("原因点明单章（不是累计）", d["reason"] == "tokens_chapter", d)
+        check("消息带章号与实际值", "第 1 章" in d["message"]
+              and "115000" in d["message"], d["message"])
+        check("chapter_tokens 可观测", d["chapter_tokens"] == 115000, d)
+        d2 = cost.status_detail(rid, stage=4, chapter=2)
+        check("第 2 章不被第 1 章连坐（单章按章隔离）",
+              d2["state"] == "ok" and d2["chapter_tokens"] == 0, d2)
+        d3 = pause_detail(cost, rid, stage=4, chapter=1)
+        check("stage4 用的 pause_detail 也带章号原因",
+              d3["reason"] == "tokens_chapter", d3)
+        state3 = cost.charge_cost(rid, 4, 2, {"tokens": 10000, "tokens_out": 1000,
+                                              "provider": "dsh", "model": "dsh-default"})
+        check("第 2 章开始记账 → ok", state3 == "ok", state3)
     finally:
         db.close()
         shutil.rmtree(tmp, ignore_errors=True)
@@ -378,6 +411,7 @@ def main():
     case_db_accounting()
     case_token_pause()
     case_no_false_stop_on_hermes_single_call()
+    case_chapter_budget()
     case_warn_ratio()
     case_legacy_behavior_unchanged()
     case_pause_detail_survives_stub_cost()

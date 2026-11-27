@@ -1088,14 +1088,14 @@ def test_about_project(browser, mock_proc=None):
         page.wait_for_timeout(250)
         # 讨论设置也复用 tl-grid 排版（带 `discuss` 类）：这里只认预算那一块，
         # 否则同一个类会匹配到两处（2026-11-16 实测 strict 报错）。
-        check("止烧面板渲染（网格 + 四个字段）",
+        check("止烧面板渲染（网格 + 五个字段）",
               page.locator(".tl-grid:not(.discuss)").count() == 1
-              and page.locator(".tl-field").count() >= 4,
+              and page.locator(".tl-field").count() >= 5,
               page.locator(".tl-field").count())
         # 值来自后端（mock 回的就是出厂预设）
         vals = [page.locator(".tl-field input[type=number]").nth(i).input_value()
                 for i in range(page.locator(".tl-field input[type=number]").count())]
-        check("单请求上限显示 50000（与出厂预设一致）", "50000" in vals, vals)
+        check("单请求上限显示 200000（与出厂预设一致）", "200000" in vals, vals)
         check("累计上限显示 10000000（1000 万/轮）", "10000000" in vals, vals)
         _grid = page.locator(".tl-grid:not(.discuss)")
         check("区间提示可见（不是空标签）",

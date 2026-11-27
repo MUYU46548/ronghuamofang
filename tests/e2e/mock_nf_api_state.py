@@ -181,8 +181,9 @@ STATE = {
                # token 闸门观测面（2026-10-03）：真后端 /state 也带这几个字段，
                # mock 不补的话流水线条上的“token 闸门”一行在视觉验收里恒不渲染。
                "tokens_used": 116599, "tokens_run_id": 7,
-               "token_limit": {"enabled": True, "per_request_max_tokens": 50000,
+               "token_limit": {"enabled": True, "per_request_max_tokens": 200000,
                                "per_request_pause_hermes": False,
+                               "chapter_max_tokens": 200000,
                                "max_total_tokens": 10000000, "warn_ratio": 0.7},
                "token_pct": 1.17},
     # 会话账本（P2，2026-11-27）：只读展示 stage4 的会话水位与接力点。
@@ -842,7 +843,8 @@ class Handler(BaseHTTPRequestHandler):
                 "tokens_in": 412345, "tokens_out": 98765, "cache_read": 301122,
                 "tokens_total": 511110, "max_call_tokens_in": 48211,
                 "token_limit": {"enabled": True, "max_total_tokens": 10000000,
-                                "per_request_max_tokens": 50000},
+                                "per_request_max_tokens": 200000,
+                                "chapter_max_tokens": 200000},
                 "token_pct": 5.11, "engine": "hermes",
                 "context": {
                     "sources": [
@@ -1012,12 +1014,14 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/config/token_limit":
             # 止烧阈值面板（设置页）：回一份**与出厂预设一致**的数据，
             # 让视觉验收能真读到值，而不是只看到"读取失败"。
-            preset = {"enabled": True, "per_request_max_tokens": 50000,
-                      "per_request_pause_hermes": False, "max_total_tokens": 10000000,
+            preset = {"enabled": True, "per_request_max_tokens": 200000,
+                      "per_request_pause_hermes": False,
+                      "chapter_max_tokens": 200000, "max_total_tokens": 10000000,
                       "warn_ratio": 0.7}
             return self._send(200, {
                 "ok": True, "current": preset, "preset": preset,
                 "bounds": {"per_request_max_tokens": [1000, 500000],
+                           "chapter_max_tokens": [1000, 1000000],
                            "max_total_tokens": [100000, 200000000],
                            "warn_ratio": [0.1, 1.0]},
                 "path": "config/system.yaml", "field": "budget.token_limit",

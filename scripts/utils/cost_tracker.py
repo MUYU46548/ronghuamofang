@@ -477,8 +477,9 @@ DEFAULT_ROLE = "default"
 # 不新增状态机、不新增暂停语义。
 DEFAULT_TOKEN_LIMIT = {
     "enabled": False,                 # 缺省关：不改变未配置时的既有行为
-    "per_request_max_tokens": 0,      # 0 = 不限制（direct 引擎即不设 payload.max_tokens）
-    "per_request_pause_hermes": False,  # hermes 单次超限是否熔断（默认只 WARN）
+    "per_request_max_tokens": 0,      # 0 = 不限制（观测/估算用；P0-5 起不再用它熔断）
+    "per_request_pause_hermes": False,  # 历史开关：P0-5 起不参与熔断（保留键兼容）
+    "chapter_max_tokens": 0,          # 0 = 不限制单章（P0-5 的主力判据）
     "max_total_tokens": 0,            # 0 = 不限制累计
     "warn_ratio": 0.7,
 }
@@ -499,8 +500,12 @@ TOKEN_LIMIT_PRESET = {
     # （任务内几十轮模型调用 + 工具循环），拿它当"单次请求输出"本就偏大。
     # 20 万 ≈ 15 万汉字，仍能拦住"复读/跑飞"，但不再误伤一次正常的大归并。
     "per_request_max_tokens": 200000,
-    # 2026-10-06 用户要求改为 true：单次任务输出 > per_request_max_tokens 时熔断暂停。
-    "per_request_pause_hermes": True,
+    # 历史开关：P0-5 起单请求口径只观测，不再用来熔断；保留键不破坏老配置。
+    "per_request_pause_hermes": False,
+    # 单章预算（P0-5，2026-11-27）：一章（含段群/重试）输入+输出累计上限。
+    # 200,000 的取值与"一次大归并"同量级：正常写一章 4~7 万 token，
+    # 段群/重试加起来通常 <15 万；超过 20 万说明本章在跑飞，停。
+    "chapter_max_tokens": 200000,
     "max_total_tokens": 10000000,
     "warn_ratio": 0.7,
 }
@@ -511,6 +516,7 @@ TOKEN_LIMIT_PRESET = {
 # 区间取得很宽（只拦明显错误，不替用户做取舍）。
 TOKEN_LIMIT_BOUNDS = {
     "per_request_max_tokens": (1000, 500000),
+    "chapter_max_tokens": (1000, 1000000),     # 单章 1000 ~ 100 万
     "max_total_tokens": (100000, 200000000),   # 10 万 ~ 2 亿
     "warn_ratio": (0.1, 1.0),
 }
@@ -536,7 +542,7 @@ def validate_token_limit(raw):
                 v = v.strip().lower() in ("1", "true", "yes", "on")
             out[k] = bool(v)
 
-    for k in ("per_request_max_tokens", "max_total_tokens"):
+    for k in ("per_request_max_tokens", "chapter_max_tokens", "max_total_tokens"):
         if k not in raw:
             continue
         try:
@@ -590,7 +596,12 @@ def normalize_token_limit(raw):
         out["warn_ratio"] = TOKEN_LIMIT_PRESET["warn_ratio"]
 
     if out["enabled"]:
-        for k in ("per_request_max_tokens", "max_total_tokens"):
+        # P0-5：老工作区的 token_limit 没有 chapter_max_tokens 这一项。
+        # 缺键 = 按新出厂预设补 20 万；显式写 0 才是“关掉单章预算”。
+        if isinstance(raw, dict) and "chapter_max_tokens" not in raw \
+                and not out.get("chapter_max_tokens"):
+            out["chapter_max_tokens"] = TOKEN_LIMIT_PRESET["chapter_max_tokens"]
+        for k in ("per_request_max_tokens", "chapter_max_tokens", "max_total_tokens"):
             v = int(out.get(k) or 0)
             lo, hi = TOKEN_LIMIT_BOUNDS[k]
             if v == 0:
@@ -600,8 +611,9 @@ def normalize_token_limit(raw):
                       " → 回落到预设值 %d（改坏配置不该让止烧闸门消失）"
                       % (k, v, lo, hi, TOKEN_LIMIT_PRESET[k]))
                 out[k] = TOKEN_LIMIT_PRESET[k]
-        if not out.get("max_total_tokens") and not out.get("per_request_max_tokens"):
-            print("[cost_tracker] WARN budget.token_limit 已启用但两项上限都是 0 "
+        if (not out.get("max_total_tokens") and not out.get("per_request_max_tokens")
+                and not out.get("chapter_max_tokens")):
+            print("[cost_tracker] WARN budget.token_limit 已启用但三项上限都是 0 "
                   "→ 相当于没有闸门；累计上限回落到预设值 %d"
                   % TOKEN_LIMIT_PRESET["max_total_tokens"])
             out["max_total_tokens"] = TOKEN_LIMIT_PRESET["max_total_tokens"]
@@ -686,18 +698,28 @@ class CostTracker:
             return 0
         return int(self.db.sum_tokens(run_id) or 0)
 
-    def status_detail(self, run_id=None):
-        """返回熔断诊断 dict：{state, spent_yuan, tokens, reason, message}。
+    def status_detail(self, run_id=None, stage=None, chapter=None):
+        """返回熔断诊断 dict：{state, spent_yuan, tokens, chapter_tokens, reason, message}。
 
         state: 'ok' | 'warn' | 'pause'；reason 指出**是哪条判据命中**（金额/token 累计/
-        token 单次）—— 熔断日志必须能回答“为什么停”，否则用户只能瞎猜该调哪个键。
+        token 单章）—— 熔断日志必须能回答“为什么停”，否则用户只能瞎猜该调哪个键。
+
+        2026-11-27（P0-5）：主力判据从“单请求输出”改为“单章累计”。
+        `chapter` 有值（且 >0）时按 `stage + chapter` 汇总本 run 的 token；
+        单请求口径保留为观测值，不再熔断 —— dsh 下 cost_log 一行本就是一次
+        任务的累计，拿它当“单次请求”会误伤正常的大归并。
         """
         spent = float(self.db.sum_cost(run_id) or 0.0)
         tl = self.token_limit
         tokens = self.tokens_used(run_id)
+        chapter_tokens = 0
+        if chapter:
+            chapter_tokens = int(self.db.sum_tokens(run_id, stage=stage,
+                                                    chapter=chapter) or 0)
 
         def _out(state, reason, message):
             return {"state": state, "spent_yuan": spent, "tokens": tokens,
+                    "chapter_tokens": chapter_tokens,
                     "reason": reason, "message": message}
 
         # 1) 金额（direct 引擎按量计费时才可能命中；hermes 恒 0，天然不触发）
@@ -711,15 +733,16 @@ class CostTracker:
         if tl.get("enabled") and cap_total and tokens >= cap_total:
             return _out("pause", "tokens_total",
                         "本 run 累计 %d token ≥ 上限 %d（输入+输出）" % (tokens, cap_total))
-        # 3) token 单次输出（默认只对 direct 有意义；订阅引擎 hermes/dsh 需显式开启 ——
-        #    键名 per_request_pause_hermes 是历史名称，语义已覆盖两者）
-        cap_one = int(tl.get("per_request_max_tokens") or 0)
-        if tl.get("enabled") and cap_one and tl.get("per_request_pause_hermes"):
-            biggest = int(self.db.max_call_tokens_out(run_id) or 0)
-            if biggest > cap_one:
-                return _out("pause", "tokens_request",
-                            "单次调用输出 %d token > 单请求上限 %d" % (biggest, cap_one))
+        # 2.5) 单章累计（P0-5）：只对有章号的调用生效；一章含段群/重试的累计。
+        cap_chapter = int(tl.get("chapter_max_tokens") or 0)
+        if tl.get("enabled") and cap_chapter and chapter and chapter_tokens >= cap_chapter:
+            return _out("pause", "tokens_chapter",
+                        "第 %s 章累计 %d token ≥ 单章上限 %d（含段群/重试）"
+                        % (chapter, chapter_tokens, cap_chapter))
+        # 3) 单请求输出：**只观测不熔断**（P0-5）。保留 max_call_tokens_out()
+        #    给成本报告/估算看；真正停不停由上面的单章/累计判据决定。
         # 4) 警告区（不熔断，只提示）
+
         if spent >= self.limit * self.warn_ratio:
             return _out("warn", "yuan",
                         "已用 %.2f 元（预警线 %.2f 元）"
@@ -745,7 +768,8 @@ class CostTracker:
                          result.get("tokens_out", 0), cost,
                          estimated=1 if result.get("estimated") else 0,
                          cache_read=result.get("cache_read", 0))
-        return self.status(run_id)[0]
+        # P0-5：单章预算要在**本章记账后**立刻判定（段群/重试都算同一章）。
+        return self.status_detail(run_id, stage=stage, chapter=chapter)["state"]
 
     def record(self, run_id, stage, chapter, tokens_in, tokens_out, model=None,
                estimated=False, provider=None, role=None, cache_read=0):
@@ -755,7 +779,7 @@ class CostTracker:
         self.db.log_cost(run_id, stage, chapter, model or DEFAULT_MODEL, tokens_in,
                          tokens_out, cost, estimated=1 if estimated else 0,
                          cache_read=cache_read)
-        return self.status(run_id)[0]
+        return self.status_detail(run_id, stage=stage, chapter=chapter)["state"]
 
     def spent(self, run_id=None, stage=None):
         return self.db.sum_cost(run_id, stage)
@@ -770,15 +794,21 @@ class CostTracker:
         return detail["state"], detail["spent_yuan"]
 
 
-def pause_detail(cost, run_id=None):
+def pause_detail(cost, run_id=None, stage=None, chapter=None):
     """取熔断诊断（stage 内部停机文案用）。**任何情况下都不抛异常、不打断生产线**。
 
     为什么要这层包装：各 stage 的 cost 参数是可注入的（测试常塞只有
     `charge_cost`/`spent` 的替身）。诊断信息只用于**打印**，让它因为
     “替身没有 status_detail”而把 stage 搞崩，是本末倒置。
+    P0-5：传 stage/chapter 才能取到“单章超限”的原因（不传时只看累计）。
     """
     try:
-        return cost.status_detail(run_id)
+        _kw = {}
+        if stage is not None:
+            _kw["stage"] = stage
+        if chapter is not None:
+            _kw["chapter"] = chapter
+        return cost.status_detail(run_id, **_kw)
     except AttributeError:
         pass
     except Exception:                                       # noqa: BLE001

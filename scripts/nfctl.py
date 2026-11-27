@@ -376,14 +376,15 @@ def render_status(s: dict) -> str:
                          % _eng)
         else:
             cap = cost.get("token_cap") or 0
-            lines.append("token 闸门: 已用 %s / %s%s（本 run #%s）· 单请求上限 %s%s" % (
-                cost.get("tokens_used", 0),
-                cap or "不限",
-                ("（%.1f%%）" % cost["token_pct"]) if cost.get("token_pct") is not None else "",
-                cost.get("tokens_run_id") or "-",
-                tl.get("per_request_max_tokens") or "不限",
-                "· %s 按次熔断已开" % _eng if tl.get("per_request_pause_hermes") else "",
-            ))
+            lines.append(
+                "token 闸门: 已用 %s / %s%s（本 run #%s）· 单章预算 %s · 单请求 %s（只观测）" % (
+                    cost.get("tokens_used", 0),
+                    cap or "不限",
+                    ("（%.1f%%）" % cost["token_pct"]) if cost.get("token_pct") is not None else "",
+                    cost.get("tokens_run_id") or "-",
+                    tl.get("chapter_max_tokens") or "不限",
+                    tl.get("per_request_max_tokens") or "不限",
+                ))
     if s.get("pending_approval"):
         lines.append("待人工确认的审批门: 阶段 %s" % ", ".join(str(x) for x in s["pending_approval"]))
     else:

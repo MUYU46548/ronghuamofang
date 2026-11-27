@@ -1944,10 +1944,13 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
             # 加强模式例外：段群调用已逐群 charge 过（_group_run），这里再 charge
             # 会把一章记两遍账 —— 熔断检查也已在群间做过。
             if cost.charge_cost(run_id, 4, n, result) == "pause":
-                _detail = _pause_detail(cost, run_id)
+                _detail = _pause_detail(cost, run_id, stage=4, chapter=n)
                 print(f"[stage4] 熔断停止[{_detail['reason']}]：{_detail['message']}"
                       "—— 停止本阶段")
-                progress.data.setdefault("budget", {})["paused"] = True
+                _b = progress.data.setdefault("budget", {})
+                _b["paused"] = True
+                _b["paused_reason"] = _detail["reason"]
+                _b["paused_message"] = _detail["message"]
                 progress.save()
                 return "budget"
         print(f"[stage4] 第{n}章完成 {check.summary()}"
@@ -2100,10 +2103,13 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
             result["already_charged"] = True
             _note_parts(n)          # 拼装完 → 清掉"未拼装"条目；未拼装则记下真实群数
             if _bstate["paused"]:
-                _detail = _pause_detail(cost, run_id)
+                _detail = _pause_detail(cost, run_id, stage=4, chapter=n)
                 print(f"[stage4] 熔断停止[{_detail['reason']}]：{_detail['message']}"
                       "—— 停止本阶段（加强模式段群调用后）")
-                progress.data.setdefault("budget", {})["paused"] = True
+                _b = progress.data.setdefault("budget", {})
+                _b["paused"] = True
+                _b["paused_reason"] = _detail["reason"]
+                _b["paused_message"] = _detail["message"]
                 progress.save()
                 aborted = "budget"
                 break
@@ -2297,10 +2303,13 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                 _fp_stop.set()
             if cost:
                 if cost.charge_cost(run_id, 4, n, gres) == "pause":
-                    _detail = _pause_detail(cost, run_id)
+                    _detail = _pause_detail(cost, run_id, stage=4, chapter=n)
                     print(f"[stage4] 熔断停止[{_detail['reason']}]：{_detail['message']}"
                           "—— 停止本阶段（打回重生成调用后）")
-                    progress.data.setdefault("budget", {})["paused"] = True
+                    _b = progress.data.setdefault("budget", {})
+                    _b["paused"] = True
+                    _b["paused_reason"] = _detail["reason"]
+                    _b["paused_message"] = _detail["message"]
                     progress.save()
                     aborted = "budget"
                     break

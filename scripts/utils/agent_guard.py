@@ -82,6 +82,9 @@ FORBIDDEN_IN_AGENT_MODE = frozenset({
     # Agent 不得抬高自己的闸门（2026-10-03）：止烧阈值 = 成本与安全设置。
     # 不拦的话，外部 Agent 只要 POST 一次把上限调到天上，"止烧"就是摆设。
     "/config/token_limit",
+    # 熔断恢复（P0-5，2026-11-27）：清 paused 只是个展示旗标，但下一步就是续跑；
+    # 与 token_limit 同族 —— 外部 Agent 不得替用户清掉“停”的事实。
+    "/budget/resume",
     # 开钱闸的三个旋钮（2026-11-18 审计 §4.3）：许可协议只决定“能不能开始花钱”，
     # 不决定“钱从哪个池走”。用户签过之后，外部 Agent 仍可一条 POST 把引擎从 self
     # 切到 direct、把某个 role 换到别的 provider、或改写 .env 里的 key —— 这三件

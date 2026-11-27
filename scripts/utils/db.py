@@ -157,12 +157,14 @@ class RunDB:
             args.append(stage)
         return self.conn.execute(sql, args).fetchone()[0]
 
-    def sum_tokens(self, run_id=None, stage=None):
+    def sum_tokens(self, run_id=None, stage=None, chapter=None):
         """累计 token（输入 + 输出）。token 级熔断的**唯一记账来源**。
 
         2026-10-03：engine: hermes 下 `cost_yuan` 恒 0（订阅流量）→ 金额熔断是虚设，
         唯一的止烧口径就是这里。round 语义：按 run_id 归集 = “一轮”
         （每次 orchestrator.run() 新建 run_id，--from N 重跑即新的一轮）。
+        2026-11-27（P0-5）：加 `chapter`，供“单章预算”按章归集；
+        `chapter=None` 时与旧行为逐字一致。
         """
         sql = ("SELECT COALESCE(SUM(COALESCE(tokens_in,0) + COALESCE(tokens_out,0)),0)"
                " FROM cost_log WHERE 1=1")
@@ -173,6 +175,9 @@ class RunDB:
         if stage is not None:
             sql += " AND stage=?"
             args.append(stage)
+        if chapter is not None:
+            sql += " AND chapter=?"
+            args.append(chapter)
         return int(self.conn.execute(sql, args).fetchone()[0] or 0)
 
     def max_call_tokens_out(self, run_id=None):

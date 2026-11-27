@@ -397,8 +397,8 @@ class DshClient:
             return False
         print("[dsh_client] WARN 单次子会话输出 %d token > 单请求上限 %d"
               "（config/system.yaml 的 budget.token_limit.per_request_max_tokens）。"
-              "DSH 无 max_tokens 旋钮 → 本次**不阻断**；"
-              "要按次熔断请把 budget.token_limit.per_request_pause_hermes 设为 true"
+              "DSH 无 max_tokens 旋钮 → 本次**只记录不阻断**；"
+              "止烧看 budget.token_limit.chapter_max_tokens（单章）/ max_total_tokens（累计）"
               % (n, self.request_max_tokens))
         return True
 

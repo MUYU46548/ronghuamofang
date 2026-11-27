@@ -49,8 +49,10 @@ def case_preset_matches_shipped():
           shipped.get("max_total_tokens") == 10000000, shipped.get("max_total_tokens"))
     check("单请求上限 = 200000（2026-11-26 按 44 篇素材大归并实测输出 10.5 万重定标）",
           shipped.get("per_request_max_tokens") == 200000, shipped.get("per_request_max_tokens"))
-    check("预设按次熔断（用户 2026-10-06 要求；正常任务远低于 200000，不误停）",
-          shipped.get("per_request_pause_hermes") is True)
+    check("单章预算 = 200000（P0-5：一章含段群/重试的累计）",
+          shipped.get("chapter_max_tokens") == 200000, shipped.get("chapter_max_tokens"))
+    check("单请求口径只观测、不再熔断（P0-5）",
+          shipped.get("per_request_pause_hermes") is False)
     check("预设是\u300c开\u300d的（止烧默认生效）", shipped.get("enabled") is True)
     check("DEFAULT_TOKEN_LIMIT（缺键兜底）仍是关闭态：不改变未配置时的老行为",
           DEFAULT_TOKEN_LIMIT["enabled"] is False
@@ -88,7 +90,7 @@ def case_validate():
     ok, msg, norm = validate_token_limit({"warn_ratio": "0.8"})
     check("warn_ratio 字符串可解析", ok and norm["warn_ratio"] == 0.8, norm)
     ok, msg, norm = validate_token_limit({"per_request_pause_hermes": "true"})
-    check("按次熔断可开启（用户想开就开）",
+    check("历史键 per_request_pause_hermes 仍可解析（但不参与熔断）",
           ok and norm["per_request_pause_hermes"] is True, norm)
     ok, msg, norm = validate_token_limit("not a dict")
     check("非对象 → 拒绝", (not ok) and "对象" in msg, msg)
@@ -108,8 +110,9 @@ def case_normalize_never_loses_brake():
     buf = io.StringIO()
     with redirect_stdout(buf):
         out2 = normalize_token_limit({"enabled": True, "max_total_tokens": 0,
-                                      "per_request_max_tokens": 0})
-    check("两项都 0（= 没有闸门）→ 累计上限回落预设 + 告警",
+                                      "per_request_max_tokens": 0,
+                                      "chapter_max_tokens": 0})
+    check("三项都 0（= 没有闸门）→ 累计上限回落预设 + 告警",
           out2["max_total_tokens"] == TOKEN_LIMIT_PRESET["max_total_tokens"]
           and "WARN" in buf.getvalue(), out2)
 

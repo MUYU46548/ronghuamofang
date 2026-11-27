@@ -1272,6 +1272,9 @@ def build_state():
         "current_job": CURRENT["id"],
         "budget": {
           "paused": progress.data.get("budget", {}).get("paused", False),
+          # 熔断原因/建议（P0-5）：横幅和恢复对话框要能说清“为什么停、该调哪个键”。
+          "paused_reason": progress.data.get("budget", {}).get("paused_reason", ""),
+          "paused_message": progress.data.get("budget", {}).get("paused_message", ""),
           # token 级熔断的观测面（hermes 下金额恒 0，看不到 token 就只能靠猜）
           "tokens_used": int(tokens_used),
           "tokens_run_id": tokens_run,
@@ -1542,6 +1545,8 @@ def clear_budget_pause():
         if not b.get("paused"):
             return False
         b["paused"] = False
+        b["paused_reason"] = ""
+        b["paused_message"] = ""
         prog.data["budget"] = b
         prog.save()
         return True
@@ -4309,6 +4314,9 @@ class Handler(BaseHTTPRequestHandler):
             elif p == "/config/token_limit":
                 # 止烧阈值设置（仅 GUI：外部 Agent 不得抬高自己的闸门）。
                 self._send(*_dom(dom_project.handle_config_token_limit_set(self, body)))
+            elif p == "/budget/resume":
+                # 预算熔断恢复（P0-5，仅 GUI）：只清暂停标记，不启动运行。
+                self._send(*_dom(dom_project.handle_budget_resume(self)))
             elif p == "/config/agent_spend":
                 # 外部 Agent 花销授权（C5，仅 GUI）：授权/撤销。Agent 不得给自己签。
                 self._send(*_dom(dom_project.handle_config_agent_spend_set(self, body)))

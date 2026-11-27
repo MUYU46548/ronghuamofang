@@ -177,7 +177,7 @@ def main():
         check("目标值落盘", vals.get("max_total_tokens") == 2000000, vals)
         check("未提交的项按预设补齐（不是 0）",
               vals.get("per_request_max_tokens") == 200000
-              and vals.get("per_request_pause_hermes") is True, vals)
+              and vals.get("chapter_max_tokens") == 200000, vals)
         comments_after = [ln for ln in after.splitlines() if ln.strip().startswith("#")]
         check("**注释与说明段落逐行保留**（定向改写而非 dump）",
               comments_before == comments_after,
@@ -232,6 +232,30 @@ def main():
         check("budget.token_pct 存在（有上限时不是 None）",
               b.get("token_pct") is not None, b)
         check("空账本 → tokens_used = 0（不谎报）", b.get("tokens_used") == 0, b)
+
+        print("\n【8】/budget/resume：GUI 清暂停标记 + 外部 Agent 403")
+        from utils import agent_guard
+        prog_path = tmp / "data" / "state" / "progress.json"
+        prog = json.loads(prog_path.read_text(encoding="utf-8")) if prog_path.exists() else {}
+        prog.setdefault("budget", {})["paused"] = True
+        prog["budget"]["paused_reason"] = "tokens_chapter"
+        prog["budget"]["paused_message"] = "第 1 章累计 115000 token ≥ 单章上限 100000"
+        prog_path.write_text(json.dumps(prog, ensure_ascii=False, indent=2),
+                             encoding="utf-8")
+        code, d = req("POST", "/budget/resume", {}, gui=True)
+        check("GUI 调 /budget/resume 200", code == 200 and d.get("ok"), (code, d))
+        check("确实清掉了（cleared=true）", d.get("cleared") is True, d)
+        after_prog = json.loads(prog_path.read_text(encoding="utf-8"))
+        check("盘上 paused=false（不是只改内存）",
+              after_prog.get("budget", {}).get("paused") is False, after_prog.get("budget"))
+        check("原因/消息一并清空",
+              after_prog.get("budget", {}).get("paused_reason") == ""
+              and after_prog.get("budget", {}).get("paused_message") == "",
+              after_prog.get("budget"))
+        code, d = req("POST", "/budget/resume", {})
+        check("外部 Agent（无 GUI 双因子）403", code == 403, (code, d))
+        check("/budget/resume 在 agent_guard 禁止清单里",
+              agent_guard.is_forbidden_in_agent_mode("/budget/resume"))
     finally:
         proc.terminate()
         try:
