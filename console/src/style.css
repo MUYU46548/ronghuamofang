@@ -2027,6 +2027,10 @@ body {
   margin-top: 8px; font-size: 13px; line-height: 1.7;
   color: var(--muted-foreground);
 }
+.ps-eta {
+  padding: 0 0 8px; font-size: 12px; line-height: 1.6;
+  color: var(--muted-foreground);
+}
 .mat-row { cursor: pointer; }
 .mat-row:hover { background: rgba(155, 143, 196, 0.06); }
 .mat-row.is-sel { background: rgba(155, 143, 196, 0.16); }

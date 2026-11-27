@@ -2868,6 +2868,28 @@ function _idleSeconds(iso) {
   if (!isFinite(t)) return 0;
   return Math.max(0, Math.floor((Date.now() - t) / 1000));
 }
+function _durationText(sec) {
+  const m = Math.round(Math.max(0, Number(sec) || 0) / 60);
+  if (m < 1) return "不到 1 分钟";
+  if (m < 60) return m + " 分钟";
+  return Math.floor(m / 60) + " 小时 " + (m % 60) + " 分钟";
+}
+/* “按当前速度还差多久”：用户 2026-11-25 原话“三套进度各答各的，无法判断还要多久”。
+   有 run_started_at 才估（整轮的真实起点）；没有就不假装。百分比是阶段权重，
+   不是时间权重，所以文案必须写“估算，仅供参考”。 */
+const runEtaText = computed(() => {
+  const raw = state.value && state.value.run_started_at;
+  if (!raw) return "";
+  const t0 = new Date(String(raw).replace(" ", "T")).getTime();
+  if (!isFinite(t0)) return "";
+  const pct = Number(progressPercent.value) / 100;
+  if (pct <= 0.02 || pct >= 0.99) return "";
+  const elapsedSec = Math.max(0, (Date.now() - t0) / 1000);
+  if (elapsedSec < 120) return "";
+  const remainSec = elapsedSec * (1 - pct) / pct;
+  if (!isFinite(remainSec) || remainSec < 30) return "";
+  return "已跑 " + _elapsedText(raw) + "，按当前速度约还要 " + _durationText(remainSec);
+});
 /* 进行中阶段的**具体事实**：第几章 / 第几群 / 本群多少字 / 多久没新字。
    比一个百分比更能回答“它是在推进还是卡住”（用户 2026-10-26/27 反复提的点）。 */
 /* 失败原因短句（2026-11-24）：/state 现在会带回 stages[].error（后端已透出）。
@@ -6431,6 +6453,9 @@ onUnmounted(() => {
       <div v-if="isRunning" class="ps-progress">
         <div class="ps-progress-bar" :style="{ width: progressPercent + '%' }"></div>
         <span class="ps-progress-text" title="百分比 = 已完成阶段 + 正在写的那一章按段/字数折算；括号里是已完成的整阶段数">整本进度 {{ progressPercent }}%（已完成 {{ doneStages }}/{{ totalStages }} 个阶段；进行中的章节也计入）</span>
+      </div>
+      <div v-if="isRunning && runEtaText" class="ps-eta" title="按整轮已耗时间与当前进度线性推算，仅供参考；模型速度波动会让它偏大或偏小">
+        {{ runEtaText }}（估算，仅供参考）
       </div>
     </section>
 
