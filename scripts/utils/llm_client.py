@@ -93,6 +93,11 @@ EXT_MJ = "[.](?:md|json)"
 PATH_RE = re.compile("(?:[A-Za-z]:" + SEP + ")?[^：（(，,、:" + NEWLINE + "]*?" + EXT)
 PATH_RE_MJ = re.compile("(?:[A-Za-z]:" + SEP + ")?[^：（(，,、:" + NEWLINE + "]*?" + EXT_MJ)
 
+# 输入段专用（2026-11-27）：文件名允许带括号（如“浊河灯录（世界书）.md”）。
+# 旧 PATH_RE 把 `（`/`(` 当“说明开头”截断，真实素材库里这类文件名会被判缺失。
+# 终点由扩展名锚定，所以路径后面的“（仅参考）”不会吃进来。
+PATH_RE_INPUT = re.compile(
+    "(?:[A-Za-z]:" + SEP + ")?[^：:" + chr(34) + "，,、" + NEWLINE + "]*?" + EXT)
 INPUT_SECTION_RE = re.compile("^[#]{1,3}[^" + NEWLINE + "]*输入文件", re.M)
 HEADING_RE = re.compile("^[#]{1,3}[ ]", re.M)
 OP_RE = re.compile("^[^\r" + NEWLINE + "]*?=== *(FILE|APPEND|DELETE) *: *(.+?) *===*[ ]*$",
@@ -159,7 +164,7 @@ def extract_input_paths(body, diag=None):
             continue
         if not line.startswith("- "):
             # 非列表行：只有**含路径**才算格式错误；纯说明行（无路径）是正常的
-            pm = PATH_RE.search(line)
+            pm = PATH_RE_INPUT.search(line)
             if pm:
                 skipped.append({"line": lineno, "text": line, "path": pm.group(0).strip(),
                                 "reason": "非列表行（缺 `- ` 前缀）"})
@@ -182,7 +187,7 @@ def extract_input_paths(body, diag=None):
                 seen.add(p)
                 out.append((p, True))
             continue
-        pm = PATH_RE.search(content)
+        pm = PATH_RE_INPUT.search(content)
         if pm:
             p = pm.group(0).strip()
             if p not in seen:

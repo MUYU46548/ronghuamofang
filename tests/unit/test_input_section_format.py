@@ -20,6 +20,7 @@
 """
 import io
 import sys
+import tempfile
 from pathlib import Path
 
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
@@ -173,6 +174,24 @@ def case_error_message_shape():
           "第 1 行" in format_input_section_error(diag), format_input_section_error(diag))
 
 
+# ============================================================ 3b. 文件名带括号
+def case_parentheses_in_filenames():
+    print("\n【3b】文件名带括号：不许被当说明截断（真实素材库形态）")
+    with tempfile.TemporaryDirectory(prefix="nf_paren_") as tmp:
+        p = Path(tmp) / "浊河灯录（世界书）.md"
+        p.write_text("PAREN_MARKER_9", encoding="utf-8")
+        body = ("## 输入文件（用 read_file 读取）\n"
+                "- 世界书: " + str(p) + "\n"
+                "- 设定集: data/setting/setting.json（仅参考本章条目）\n")
+        refs = extract_input_paths(body)
+        check("带中文括号的文件名解析成完整路径",
+              refs and refs[0][0] == str(p), refs)
+        new, missing = inline_inputs(body)
+        check("带括号的文件被真实内联", "PAREN_MARKER_9" in new and not missing, missing)
+        check("路径后的说明不被吃进路径",
+              len(refs) > 1 and refs[1][0].endswith("setting.json"), refs)
+
+
 def main():
     print("=" * 62)
     print("  \u300c输入文件\u300d段格式校验自检（P1）")
@@ -180,6 +199,7 @@ def main():
     case_bad_format_now_raises()
     case_missing_dir_now_raises()
     case_good_formats_untouched()
+    case_parentheses_in_filenames()
     case_real_template_shapes()
     case_error_message_shape()
     print("\n" + "=" * 62)
