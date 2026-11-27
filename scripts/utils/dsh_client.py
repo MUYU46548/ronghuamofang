@@ -68,6 +68,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -103,13 +104,28 @@ DSH_SCOPE_RULE = (
 WRITING_TASK_PREFIXES = ("stage1_setting", "stage2_global_outline",
                          "stage3_batch", "stage4_ch")
 
-#: 写作调用禁掉的 DSH 工具插件（保留 tool-fs 的 read/write）。
-#: 2026-11-27 实测：一次段群 68 步 / 7.4 万输出 token，正文只占 15%，
-#: 其余花在逛目录、读 prompts/scripts、用 pwsh 数字数、反复 edit 过检。
-#: shell / 搜索 / 子代理 / 联网在写作任务里没有正当用途。
+#: 写作调用禁用清单（保留 tool-fs 读写；agent 路径用）
 WRITING_DISABLED_TOOLS = ("tool-pwsh", "tool-bash", "tool-fs-search",
                           "tool-jobs", "tool-skill", "tool-agent-team",
                           "tool-web")
+
+#: 纯文本写作模式（2026-11-27，对齐 ainovel-cli 的 `draft_chapter` / Sudowrite Draft）：
+#: 正文由**一次 completion** 产出，墨坊 Python 落盘。这条路一个工具都不给，
+#: 连 tool-fs 也禁 —— 模型只剩“回复正文”这一条路，不可能逛目录/改文件/自检。
+TEXT_DISABLED_TOOLS = WRITING_DISABLED_TOOLS + ("tool-fs",)
+
+#: 纯文本写作的任务边界（与 WRITING_BOUNDARY 二选一）。
+TEXT_WRITING_BOUNDARY = (
+    chr(10) + "【纯文本写作任务 · 必须遵守】" + chr(10)
+    + "这是写作生成，不是改代码。任务书正文和输入文件都在下面。" + chr(10)
+    + "1. 不要调用任何工具，不要写文件，不要运行命令。" + chr(10)
+    + "2. 不要把正文写成 ===FILE: ...=== 协议块；直接输出正文。" + chr(10)
+    + "3. 任务书里“写入文件”的那一步由墨坊代做；你只负责正文。" + chr(10)
+    + "4. 不要输出“已写入 / 完成”之类的汇报；只输出正文。" + chr(10)
+)
+#: 追加在纯文本任务末尾的一句；和 ONE_SHOT_PREFIX 一起，明确“正文在回复里”。
+TEXT_WRITING_NOTE = (chr(10) + chr(10)
+                     + "【本次是纯文本模式】把完整正文直接放在回复里；墨坊会落盘。")
 
 #: 写作调用前置边界（P0-B）。校验归墨坊（确定性、零 token），
 #: 模型不需要在写完之后自己再数一遍字数、改一遍标点。
@@ -283,7 +299,7 @@ class DshClient:
                  approval_policy=None, session_continuation=False,
                  request_max_tokens=None, add_dirs=None, profile=None,
                  transport_retries=2, transport_backoff_sec=5, base_args=None,
-                 writing_boundary=True):
+                 writing_boundary=True, text_writing=False):
         self.dsh_bin = resolve_dsh_bin(dsh_bin)
         # 允许配置覆盖：`{profile}` 会被替换成实际 profile 名。
         args = [str(a) for a in (base_args or self.DEFAULT_BASE_ARGS)]
@@ -294,6 +310,11 @@ class DshClient:
         # 并禁用 shell / 搜索 / 子代理工具（保留文件读写）。关掉即回到旧行为。
         self.writing_boundary = bool(writing_boundary)
         self._writing_patch_path = None
+        # 纯文本写作（2026-11-27）：stage4 正文走一次 completion，Python 落盘；
+        # 这是对齐 ainovel-cli / Sudowrite 的结构。默认 False = 旧 agent 路径，
+        # make_client 按 config 的 dsh.text_writing 显式打开。
+        self.text_writing = bool(text_writing)
+        self._text_patch_path = None
         # 模型由 DSH 自己的 profile 决定：墨坊**只发任务书**，不传模型名
         # （2026-11-20 作者定案：连名字都不该传。--model 在 headless 下本就不存在，
         #  也刻意不用 --patch 去覆盖 agent-default-model —— 那是 DSH 的配置主权）。
@@ -411,7 +432,7 @@ class DshClient:
         return cmd
 
     @staticmethod
-    def _task_prompt(task_path, inline=False):
+    def _task_prompt(task_path, inline=False, text_mode=False):
         """任务书的 stdin 提示：默认给绝对路径 + 执行边界；写作任务把正文内联。
 
         路径必须绝对化（同 hermes 的 2026-10-17 根因）：子进程 cwd 由调用方决定，
@@ -419,6 +440,7 @@ class DshClient:
 
         `inline=True`（P0-B，2026-11-27）：阶段 1–4 的生成任务不再让模型先花一步
         去读任务文件，直接把正文放进提示词；读不到文件时退回旧行为（不吞错）。
+        `text_mode=True`：纯文本写作，用“不许用工具、正文放回复里”的边界。
         """
         p = Path(task_path).resolve()
         if inline:
@@ -445,7 +467,16 @@ class DshClient:
                         # 内联失败不阻断：任务书里还有原路径，模型仍能按边界去读。
                         print("[dsh_client] WARN 输入内联失败（保留任务书原样）："
                               + type(e).__name__ + ": " + str(e)[:160])
-                return (WRITING_BOUNDARY
+                boundary = TEXT_WRITING_BOUNDARY if text_mode else WRITING_BOUNDARY
+                if text_mode:
+                    # 任务书里的“将正文写入文件: <path>”在纯文本模式下由墨坊代做；
+                    # 留着会让模型在回复里写“已写入…”或试图改文件。路径已经由
+                    # _task_output_path 提前取走，这里只留一句代做说明。
+                    body = re.sub(
+                        r"(?m)^将[^\n]*(?:写入|写回)文件[：:][^\n]*\.md[^\n]*$",
+                        "（正文由墨坊落盘；你只输出正文，不要写文件。）",
+                        body)
+                return (boundary
                         + chr(10) + "===== 任务书正文开始 =====" + chr(10)
                         + body.strip() + chr(10)
                         + "===== 任务书正文结束 =====" + chr(10))
@@ -485,6 +516,98 @@ class DshClient:
             return None
         self._writing_patch_path = str(p)
         return self._writing_patch_path
+
+    def _text_patch(self):
+        """纯文本写作的覆盖层：**连 tool-fs 也禁**，模型只能回复正文。"""
+        if self._text_patch_path and Path(self._text_patch_path).exists():
+            return self._text_patch_path
+        p = Path(tempfile.gettempdir()) / "nf_dsh_text_patch.yml"
+        lines = ["# 绒花墨坊纯文本写作（自动生成，勿手改）",
+                 "# 一个工具都不给：正文走回复，由墨坊 Python 落盘。"]
+        for pid in TEXT_DISABLED_TOOLS:
+            lines.append("- id: " + pid)
+            lines.append("  disabled: true")
+        try:
+            write_text(p, chr(10).join(lines) + chr(10))
+        except OSError as e:
+            print("[dsh_client] WARN 纯文本补丁写不出来（本次不禁工具）："
+                  + type(e).__name__ + ": " + str(e))
+            return None
+        self._text_patch_path = str(p)
+        return self._text_patch_path
+
+    @staticmethod
+    def _task_output_path(task_path):
+        """从任务书里取“写入文件: <path>.md”的输出路径（纯文本模式用）。
+
+        段群任务写“将本群正文写入文件: …”，整章任务写“将正文写入文件: …”；
+        两处都是“写入文件 + 路径”的同一形态。取不到就抛错 —— 纯文本模式没有
+        输出路径就没有意义，不能猜一个目录写下去。
+        """
+        p = Path(task_path).resolve()
+        body = read_text(p)
+        for line in body.splitlines():
+            if ("写入" not in line and "写回" not in line) or ".md" not in line:
+                continue
+            cand = re.split(r"[:：]\s+", line, maxsplit=1)[-1].strip()
+            m = re.search(r"(.+?\.md)", cand)
+            if not m:
+                continue
+            out = m.group(1).strip().strip("`\"'")
+            q = Path(out)
+            if not q.is_absolute():
+                root = DshClient._infer_workdir(p)
+                if not root:
+                    raise ValueError("纯文本写作模式的输出路径是相对的，"
+                                     "且无法从任务书反推项目根：" + out)
+                q = Path(root) / q
+            return q
+        raise ValueError("纯文本写作模式找不到输出路径"
+                         "（任务书里没有“...写入文件: <path>.md”或“...写回文件: <path>.md”）")
+
+    @staticmethod
+    def _clean_product_text(text):
+        """把模型回复清成可落盘的正文：剥协议块、代码围栏、首尾空白。"""
+        from utils.llm_client import strip_protocol_markers
+        t = strip_protocol_markers(text or "")
+        t = t.strip()
+        if t.startswith("```"):
+            lines = t.splitlines()
+            lines = lines[1:]
+            if lines and lines[-1].strip() == "```":
+                lines = lines[:-1]
+            t = chr(10).join(lines).strip()
+        return (t + chr(10)) if t else ""
+
+    def _text_prompt(self, task_path):
+        """纯文本写作的完整提示：单轮直答前缀 + 纯文本边界 + 内联任务书。"""
+        return (ONE_SHOT_PREFIX + chr(10) + chr(10)
+                + self._task_prompt(task_path, inline=True, text_mode=True)
+                + TEXT_WRITING_NOTE)
+
+    def _finish_text(self, res, output_path):
+        """把纯文本结果收敛成 run_task 同构 dict，并把正文写到 output_path。"""
+        if res.get("stopped") or res.get("exit_code"):
+            return res
+        text = self._clean_product_text(res.get("stdout_tail") or "")
+        if not text.strip():
+            out = dict(res)
+            out["exit_code"] = 1
+            out["error"] = ("纯文本写作返回为空（模型可能把正文写进了文件而不是回复；"
+                            "检查 DSH profile 的工具配置）")
+            return out
+        try:
+            write_text(output_path, text)
+        except Exception as e:                            # noqa: BLE001
+            out = dict(res)
+            out["exit_code"] = 1
+            out["error"] = ("纯文本写作落盘失败：" + type(e).__name__ + ": "
+                            + str(e)[:200])
+            return out
+        out = dict(res)
+        out["output_path"] = str(output_path)
+        out["stdout_tail"] = text
+        return out
 
     @staticmethod
     def _infer_workdir(task_path):
@@ -746,14 +869,72 @@ class DshClient:
             res["resumed_fallback"] = True
         return res
 
+    # ------------------------------------------------------------ 纯文本写作
+
+    def _text_context(self, task_file):
+        """准备纯文本写作的 (output_path, prompt, patch)；失败时抛错。"""
+        task_path = Path(task_file)
+        output = self._task_output_path(task_path)
+        prompt = self._text_prompt(task_path)
+        return task_path, output, prompt, self._text_patch()
+
+    def run_text_task(self, task_file, workdir=None, session_id=None):
+        """一次 completion 写完整章/段群，Python 落盘（对齐 draft_chapter）。
+
+        与 `run_task` 返回同构 dict；区别是**模型不碰文件系统**：所有工具都禁，
+        正文在回复里，`_finish_text` 负责剥协议块并写 output_path。失败可见：
+        截断（finish_reason=length）不落盘，空回复不落盘。
+        """
+        try:
+            task_path, output, prompt, patch = self._text_context(task_file)
+        except Exception as e:                            # noqa: BLE001
+            return self._text_prepare_error(e)
+        res = self._retry_transport(
+            lambda _i: self._run_once(task_path, workdir, session_id=session_id,
+                                      prompt=prompt, patch=patch))
+        return self._finish_text(res, output)
+
+    def run_text_task_stream(self, task_file, on_piece, stop_flag, workdir=None,
+                             session_id=None):
+        """纯文本写作的流式版：逐 text 事件回放；停止/超时按 `_stream_once` 语义。"""
+        if on_piece is None:
+            on_piece = lambda p: None          # noqa: E731
+        try:
+            task_path, output, prompt, patch = self._text_context(task_file)
+        except Exception as e:                            # noqa: BLE001
+            return self._text_prepare_error(e)
+
+        def _attempt(i):
+            if i == 0:
+                return self._stream_once(task_path, prompt, on_piece, stop_flag,
+                                         workdir=workdir, session_id=session_id,
+                                         prompt=prompt, patch=patch)
+            # 重发不回放片段：同一章会在界面上叠两遍。
+            return self._stream_once(task_path, prompt, lambda p: None, stop_flag,
+                                     workdir=workdir, session_id=session_id,
+                                     prompt=prompt, patch=patch)
+
+        res = self._retry_transport(_attempt)
+        return self._finish_text(res, output)
+
+    @staticmethod
+    def _text_prepare_error(exc):
+        return {"exit_code": 1, "stdout_tail": "", "tokens": 0, "tokens_out": 0,
+                "cache_read": 0, "cost_yuan": 0.0, "estimated": False,
+                "provider": "dsh", "model": "dsh-default", "requests": 1,
+                "stopped": False, "session_id": None, "finish_reason": "",
+                "error": ("纯文本写作准备失败：" + type(exc).__name__ + ": "
+                          + str(exc)[:200])}
+
     def _run_once(self, task_file, workdir=None, model=None, session_id=None,
-                  prompt=None):
+                  prompt=None, patch=None):
         task_path = Path(task_file)
         # 写作边界只作用于“真的走任务书”的调用：_post_chat 传 prompt=，不算。
         writing = (prompt is None and self.writing_boundary
                    and self._is_writing_task(task_path))
-        cmd = self._build_cmd(session_id,
-                              patch=self._writing_patch() if writing else None)
+        use_patch = patch if patch is not None else (
+            self._writing_patch() if writing else None)
+        cmd = self._build_cmd(session_id, patch=use_patch)
         text = prompt if prompt is not None else self._task_prompt(task_path, inline=writing)
         wd = workdir or self._infer_workdir(task_path)
         try:

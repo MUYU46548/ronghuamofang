@@ -286,7 +286,14 @@ def _run_task_safe(client, task, on_piece=None, **kw):
                   f"{type(e).__name__}: {e}")
             _wg_before = None
     try:
-        if stream_ok:
+        text_ok = (getattr(client, "text_writing", False)
+                   and hasattr(client, "run_text_task_stream")
+                   and not kw.get("dry_run"))
+        if text_ok:
+            # 纯文本写作（2026-11-27）：一次 completion + 墨坊落盘。
+            # 这是 stage4 的主路径，对齐 ainovel-cli 的 draft_chapter。
+            res = client.run_text_task_stream(task, on_piece, _stop_requested, **kw)
+        elif stream_ok:
             res = client.run_task_stream(task, on_piece, _stop_requested, **kw)
         else:
             res = client.run_task(task, **kw)

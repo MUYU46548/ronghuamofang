@@ -612,6 +612,10 @@ def make_client(cfg, model_key="default", verbose=True):
             # 写作任务边界（2026-11-27）：阶段 1–4 的生成任务书正文内联 +
             # 禁 shell/搜索/子代理工具（保留文件读写）。默认开；关掉回旧行为。
             writing_boundary=bool(dcfg.get("writing_boundary", True)),
+            # 纯文本写作（2026-11-27）：stage4 正文一次 completion + Python 落盘，
+            # 对齐 ainovel-cli 的 draft_chapter / Sudowrite Draft。默认开；
+            # 关掉回到“agent 循环 + 工具写盘”（慢，但可作回退）。
+            text_writing=bool(dcfg.get("text_writing", True)),
         )
 
     # 2026-11-25（F8 第三步）：direct / hermes 两条分支已摘除。

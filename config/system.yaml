@@ -56,6 +56,12 @@ dsh:
   # 其余全花在逛目录、读 prompts/scripts、用 pwsh 数字数、反复 edit 过检；
   # 这些校验墨坊自己会做（确定性、零 token）。关掉它回到旧行为（能跑，但慢）。
   writing_boundary: true
+  # 纯文本写作（2026-11-27）：阶段 4 的正文改由**一次 completion** 产出，
+  # 墨坊 Python 落盘；模型不再拿任何工具（连文件工具都禁）。
+  # 依据：ainovel-cli 的 draft_chapter、Sudowrite 的 Draft、Novelcrafter 的 scene beat
+  # 都是“上下文确定性组装 → 正文一次生成”，不是给通用 agent 逛仓库。
+  # 关掉它 = 回到旧的 agent 循环 + 工具写盘（保留作回退；速度差一个数量级）。
+  text_writing: true
   # 传输断连重发（2026-11-24）：DSH 长任务会中途报
   # `dsh: TRANSPORT: Connection error.` 然后退出非零，此时段群已落盘 ——
   # 重发同一份任务书等于从断点继续。0 = 关掉（一次失败就交上去）。

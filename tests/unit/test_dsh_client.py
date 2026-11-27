@@ -112,6 +112,17 @@ def _stub_empty_answer(tmp):
     ])
 
 
+def _stub_text_ok(tmp):
+    """纯文本写作：一个 text 事件 + final 正文。"""
+    return _bat(tmp, "dsh_text_ok.bat", [
+        "@echo off",
+        'echo {"type":"session","sessionId":"sess-text-1"}',
+        'echo {"type":"text","text":"TEXT_PIECE"}',
+        'echo {"type":"final","sessionId":"sess-text-1",'
+        '"reason":{"kind":"completed"},"text":"TEXT_PRODUCT_OK"}',
+    ])
+
+
 def _stub_slow(tmp):
     """先吐一个 text，再起一个带唯一标记的 20 秒子进程（孤儿探测）。"""
     marker = "dshslow_" + Path(tmp).name
@@ -385,6 +396,58 @@ def test_writing_boundary():
         check("writing_boundary=False 回到旧行为（不内联）",
               "UNIQUE_TASK_BODY_MARKER_42" not in off_prompt
               and str(t_stage4.resolve()) in off_prompt)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_text_writing():
+    print("· 纯文本写作：一次 completion + Python 落盘（对齐 draft_chapter）")
+    tmp = Path(tempfile.mkdtemp(prefix="nf_dsh_text_"))
+    try:
+        tasks = tmp / "data" / "state" / "tasks"
+        tasks.mkdir(parents=True)
+        out = tmp / "out.md"
+        task = tasks / "stage4_ch01.md"
+        task.write_text("# 任务\n\n## 输出\n将正文写入文件: " + str(out) + "\n",
+                        encoding="utf-8")
+        c = DshClient(dsh_bin=str(_stub_text_ok(tmp)), text_writing=True)
+        pieces = []
+        res = c.run_text_task_stream(task, lambda p: pieces.append(p), None, workdir=tmp)
+        check("纯文本写作 exit 0", res["exit_code"] == 0, str(res))
+        check("正文由 Python 落到 output_path",
+              out.exists() and out.read_text(encoding="utf-8") == "TEXT_PRODUCT_OK\n",
+              out.read_text(encoding="utf-8") if out.exists() else "不存在")
+        check("流式 text 事件回放", "TEXT_PIECE" in "".join(pieces), pieces)
+        check("session_id 带出（阶段 4 续接要用）",
+              res.get("session_id") == "sess-text-1", res)
+        patch = Path(c._text_patch()).read_text(encoding="utf-8")
+        check("纯文本补丁连 tool-fs 也禁", "- id: tool-fs\n" in patch
+              and "disabled: true" in patch)
+        check("纯文本补丁不碰模型配置",
+              "agent-default-model" not in patch and "provider:" not in patch)
+        prompt = c._text_prompt(task)
+        check("纯文本任务书不再要求模型写文件",
+              "将正文写入文件:" not in prompt and "正文由墨坊落盘" in prompt)
+        task2 = tasks / "stage4_ch01_expand.md"
+        task2.write_text("## 输出\n将扩写后的完整稿件（含原注释行）写回文件: "
+                         + str(out) + "\n", encoding="utf-8")
+        check("扩写任务的“写回文件”也能取到路径",
+              DshClient._task_output_path(task2) == out)
+        prompt2 = c._text_prompt(task2)
+        check("扩写任务同样改成墨坊落盘",
+              "写回文件:" not in prompt2 and "正文由墨坊落盘" in prompt2)
+
+        out.unlink(missing_ok=True)
+        trunc = DshClient(dsh_bin=str(_stub_max_tokens(tmp)),
+                          text_writing=True).run_text_task_stream(
+            task, lambda p: None, None, workdir=tmp)
+        check("截断（max-tokens）不落盘",
+              trunc["exit_code"] == 2 and not out.exists(), str(trunc))
+        empty = DshClient(dsh_bin=str(_stub_empty_answer(tmp)),
+                          text_writing=True).run_text_task_stream(
+            task, lambda p: None, None, workdir=tmp)
+        check("空回复判失败且不落盘",
+              empty["exit_code"] == 1 and not out.exists(), str(empty))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -743,6 +806,7 @@ def main():
     print("=" * 66)
     test_build_cmd()
     test_writing_boundary()
+    test_text_writing()
     test_parse_events()
     test_finish_mapping()
     test_run_task_with_stubs()
