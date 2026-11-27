@@ -266,7 +266,7 @@
           <button class="mini danger" :disabled="!drafts.length" @click="discardDrafts">放弃并清理</button>
           <button class="mini" @click="closeMulti">关闭</button>
         </div>
-        <div v-if="!drafts.length" class="empty">尚无方案 —— 点击“生成 3 版”串行生成（约需数分钟）</div>
+        <UiEmptyState v-if="!drafts.length">尚无方案 —— 点击“生成 3 版”串行生成（约需数分钟）</UiEmptyState>
         <div v-else class="ov-multi">
           <div v-if="recommendedId" class="ov-multi-hint meta">
             推荐“{{ recLabel }}”：{{ recReasons }}。只是排序建议，最终由你定。
@@ -465,6 +465,7 @@
 import { ref, computed, onMounted } from "vue";
 import OutlineTree from "./OutlineTree.vue";
 import { charDiff } from "./diff.js";
+import UiEmptyState from "./components/ui/UiEmptyState.vue";
 
 const props = defineProps({
   api: { type: Function, required: true },      // (path, method, body) => {status, data}

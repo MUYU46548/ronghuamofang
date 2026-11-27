@@ -20,16 +20,19 @@
     "release:dry": "node scripts/make-release.js --dry-run"
   },
   "dependencies": {
+    "clsx": "^2.1.1",
     "d3-drag": "^3.0.0",
     "d3-force": "^3.0.0",
     "d3-scale": "^4.0.2",
     "d3-selection": "^3.0.0",
     "d3-zoom": "^3.0.0",
     "electron-updater": "^6.8.9",
+    "tailwind-merge": "^2.6.0",
     "vue": "3.5.40"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "5.2.1",
+    "autoprefixer": "^10.4.20",
     "concurrently": "^10.0.5",
     "cross-env": "^10.1.0",
     "electron": "28.3.3",
@@ -37,6 +40,8 @@
     "ico": "^0.3.3",
     "jimp": "^1.6.1",
     "png-to-ico": "^3.0.2",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17",
     "vite": "5.4.21",
     "wait-on": "^9.1.0"
   },

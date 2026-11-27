@@ -69,3 +69,16 @@ e2e 里“阅读态正文 ≥45 汉字/行”三条红了很久，一直记成�
 同族的坑：`querySelector` 只取第一个匹配 —— 只要页面里“标题也用正文的类”，
 量宽度/字号/行高的判据就会静默取到标题。凡是“取第一个来量”的判据，
 先确认这一类里没有异形元素（标题/脚注/空段）。
+
+## UI 基座：shadcn-vue 迁移（2026-11-27 起）
+
+- 接线在 `console/tailwind.config.js` + `console/postcss.config.js`；
+  **preflight 关掉**，现有 `style.css` 照旧生效（迁移期不许视觉漂）。
+- 新组件只放 `console/src/components/ui/`：`UiButton` / `UiDialog` / `UiEmptyState`。
+  它们**不写 `<style scoped>`**，样式走 Tailwind 工具类 + `var(--…)` 主题变量。
+- 已试点：顶栏四按钮、熔断恢复对话框、大纲多方案空态。
+- 新页签先用这三个；缺什么就补同类组件，**不许再复制一套 `.mini/.dialog/.empty`**。
+- 判据：`tests/unit/test_ui_base.py`（接线/主题桥/试点引用/scoped 不增）、
+  `test_ui_unified.py`、`test_ui_tokens.py`、`test_ui_theme_and_paths.py`；
+  UI 改动仍必须跑 `nfctl e2e --only ux`。
+

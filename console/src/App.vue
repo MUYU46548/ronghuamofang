@@ -14,6 +14,8 @@ import ChapterEditor from "./ChapterEditor.vue";
 import DshDiagPanel from "./DshDiagPanel.vue";
 import ChapterDesk from "./ChapterDesk.vue";
 import FieldRefinePanel from "./FieldRefinePanel.vue";
+import UiButton from "./components/ui/UiButton.vue";
+import UiDialog from "./components/ui/UiDialog.vue";
 import OutlineView from "./OutlineView.vue";
 import ScrapsPanel from "./ScrapsPanel.vue";
 import RoleGraph from "./RoleGraph.vue";
@@ -9504,37 +9506,33 @@ onUnmounted(() => {
     </div>
   </div>
 
-  <!-- 熔断恢复对话框 -->
-  <div v-if="circuitBreakerShow" class="drawer-mask">
-    <div class="dialog" style="width: min(520px, 92vw);">
-      <h3>⚠️ 预算 / 单章上限已到，流水线已暂停</h3>
-      <div class="meta" style="margin-bottom: 10px;">
-        已用 {{ fmtYuan(state.cost.spent_yuan) }} / 限额 {{ fmtYuan(state.cost.limit_yuan) }}
-        · 本轮累计 {{ fmtTok(state.budget.tokens_used) }} token
-      </div>
-      <div v-if="state.budget.paused_message" class="meta" style="margin-bottom: 10px; line-height: 1.6;">
-        {{ state.budget.paused_message }}
-      </div>
-      <div class="meta" style="margin-bottom: 10px; line-height: 1.6;">
-        建议：到“设置 → 预算与止烧”把对应的上限调大（单章超了就调“单章预算”，
-        整轮超了就调“单轮累计上限”），再点下面的按钮。
-      </div>
-      <div class="meta" style="margin-bottom: 16px; line-height: 1.6;">
-        将从阶段 {{ restartFromStage }} 继续运行（该阶段之后的内容尚未生成）。<br>
-        <strong>已完成的章节不会被重写</strong>，已完成阶段保持现状。
-      </div>
-      <div v-if="restartError" class="meta" style="margin-bottom: 12px; color: var(--bad, #b3261e); line-height: 1.6;">
-        ⚠ {{ restartError }}
-      </div>
-      <div class="dialog-actions">
-        <span class="spacer"></span>
-        <button class="mini" :disabled="restartBusy" @click="circuitBreakerShow = false">取消</button>
-        <button class="mini primary" :disabled="restartBusy" @click="confirmRestart">
-          {{ restartBusy ? "正在启动…" : ("恢复并继续（从阶段 " + restartFromStage + "）") }}
-        </button>
-      </div>
+  <!-- 熔断恢复对话框（shadcn-vue 试点：UiDialog + UiButton） -->
+  <UiDialog v-model="circuitBreakerShow" title="⚠️ 预算 / 单章上限已到，流水线已暂停" width="520px">
+    <div class="meta" style="margin-bottom: 10px;">
+      已用 {{ fmtYuan(state.cost.spent_yuan) }} / 限额 {{ fmtYuan(state.cost.limit_yuan) }}
+      · 本轮累计 {{ fmtTok(state.budget.tokens_used) }} token
     </div>
-  </div>
+    <div v-if="state.budget.paused_message" class="meta" style="margin-bottom: 10px; line-height: 1.6;">
+      {{ state.budget.paused_message }}
+    </div>
+    <div class="meta" style="margin-bottom: 10px; line-height: 1.6;">
+      建议：到“设置 → 预算与止烧”把对应的上限调大（单章超了就调“单章预算”，
+      整轮超了就调“单轮累计上限”），再点下面的按钮。
+    </div>
+    <div class="meta" style="margin-bottom: 4px; line-height: 1.6;">
+      将从阶段 {{ restartFromStage }} 继续运行（该阶段之后的内容尚未生成）。<br>
+      <strong>已完成的章节不会被重写</strong>，已完成阶段保持现状。
+    </div>
+    <div v-if="restartError" class="meta" style="margin-top: 10px; color: var(--bad, #b3261e); line-height: 1.6;">
+      ⚠ {{ restartError }}
+    </div>
+    <template #footer>
+      <UiButton variant="ghost" size="sm" :disabled="restartBusy" @click="circuitBreakerShow = false">取消</UiButton>
+      <UiButton variant="primary" size="sm" :disabled="restartBusy" @click="confirmRestart">
+        {{ restartBusy ? "正在启动…" : ("恢复并继续（从阶段 " + restartFromStage + "）") }}
+      </UiButton>
+    </template>
+  </UiDialog>
 
   <!-- 中途修改设定免责声明 -->
   <div v-if="settingEditDisclaimer" class="drawer-mask">

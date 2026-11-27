@@ -1,3 +1,6 @@
+@tailwind base;
+@tailwind components;
+
 /* 绒花墨坊控制台 — 雾灰紫主题（浅色，硬规矩：仅浅色模式） */
 :root,
 :root.theme-purple {
@@ -428,7 +431,7 @@ body {
   .topbar .brand { flex-direction: column; align-items: flex-start; gap: 6px; }
   .topbar .tabs {
     flex: 1; flex-direction: column; align-items: stretch; gap: 2px;
-    max-height: none; overflow: visible; margin: 10px 0 0;
+    max-height: none; overflow-y: auto; min-height: 0; margin: 10px 0 0;
   }
   .topbar .tab-group {
     flex-direction: column; align-items: stretch; gap: 2px;
@@ -3333,3 +3336,7 @@ kbd {
 .eng-fallback { margin-top: 8px; }
 .eng-fallback > .mini { font-size: 12px; }
 .eng-fallback .eng-cards { margin-top: 8px; }
+
+/* Tailwind utilities 放最后：shadcn-vue 试点组件的类要能覆盖旧全局样式。
+   preflight 已在 tailwind.config.js 关掉，现有 3k 行样式不受影响。 */
+@tailwind utilities;
