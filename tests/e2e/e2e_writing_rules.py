@@ -47,7 +47,7 @@ def main():
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.goto(SITE, wait_until="domcontentloaded")
         page.wait_for_timeout(2500)
-        settle_disclaimer(page)
+        settle_disclaimer(page, require_first_run=False)
 
         page.get_by_role("button", name="文风").first.click()
         page.wait_for_timeout(1500)
@@ -64,6 +64,17 @@ def main():
         check("字数计数可见", "6000" in panel.inner_text(), panel.inner_text()[:200])
         save_btn = panel.get_by_role("button", name="保存").first
         check("未修改时保存按钮禁用", save_btn.is_disabled() is True)
+
+        # 按钮高度必须与 .mini 的 30px 同档。2026-11-27 实测：迁移时误用了 UiButton 的
+        # size="sm"（28px），与同行输入框差 2px —— “看着就是没对齐”，但当时没有任何断言管它。
+        h_save = save_btn.bounding_box()["height"]
+        h_ref = panel.get_by_role("button", name="刷新").first.bounding_box()["height"]
+        check("刷新/保存两颗按钮都是 30px（不是 sm 的 28px）",
+              abs(h_save - 30) <= 0.5 and abs(h_ref - 30) <= 0.5,
+              "保存=%s 刷新=%s" % (h_save, h_ref))
+        ta_box = ta.bounding_box()
+        check("textarea 宽度占满卡片（未因迁移缩窄）",
+              ta_box["width"] > 500, ta_box["width"])
 
         ta.fill(val + "\n必须：每章至少一次具体声音")
         page.wait_for_timeout(300)

@@ -64,6 +64,14 @@ SUITES = {
         "env": {"NF_E2E_SITE": "http://127.0.0.1:{site}",
                 "NF_E2E_MOCK": "http://127.0.0.1:{mock}"},
     },
+    "panels": {
+        "script": "e2e_panels_migrated.py",
+        "desc": "三块小面板迁 Tailwind（交接稿/质量趋势/指南针：色令牌/等高/SVG fill/交互）",
+        "stack": True,
+        "browser": True,
+        "env": {"NF_E2E_SITE": "http://127.0.0.1:{site}",
+                "NF_E2E_MOCK": "http://127.0.0.1:{mock}"},
+    },
     "metrics": {
         "script": "e2e_chapter_metrics_ui.py",
         "desc": "这一章体检面板（节级字数表 / 文风数 / 命中项变批注）",

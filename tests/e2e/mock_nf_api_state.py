@@ -927,6 +927,24 @@ class Handler(BaseHTTPRequestHandler):
             })
         if p == "/config/project":
             return self._send(200, {"ok": True, "config": {"book": {"name": "验收用书", "chapters": 12}}})
+        if p == "/outline/compass":
+            # 指南针（roadmap 7.3）：形状与 nf_api_domains/outline.handle_compass_get 一致。
+            # 有内容（不是 exists:false），否则面板只显示空态，看不出表单/提示条的渲染。
+            return self._send(200, {
+                "ok": True, "exists": True,
+                "compass": {
+                    "ending_direction": "主角放弃封印，让核心的力量流散到世间各处去",
+                    "active_threads": [
+                        {"text": "沈砚与程砧的信任裂痕", "planted": 2},
+                        {"text": "暗卫的真实目的"},
+                    ],
+                    "scale_estimate": 120, "volume_at_update": 3,
+                    "updated_at": "2026-11-20 10:12",
+                },
+                "valid": True, "problems": [],
+                "warnings": ["指南针未更新（已过 2 卷）：写到新一卷时建议回头校准一次"],
+                "history_note": "终局方向变更自动存 data/outline/history/compass_v*.json",
+            })
         if p == "/setting/stale":
             # 设定引用过期（M10）：两条待核 + 一条新引用（形状与真后端一致）
             return self._send(200, stale_payload())
@@ -1643,6 +1661,19 @@ class Handler(BaseHTTPRequestHandler):
             ANN_FLOW["conflict_next"] = True
             return self._send(200, {"ok": True})
 
+        if p == "/handoff/export":
+            # 交接稿导出（v0.10）：形状与 runtime.handle_handoff_export 一致。
+            # 故意带一条 problems —— 缺料那条提示条只有非空时才渲染，喂空的等于没验。
+            n = int(body.get("chapter") or 7)
+            txt = ("# 交接稿：第 %d 章后" % n + NL + NL +
+                   "## 作品身份" + NL + "验收用书 / 悬疑" + NL + NL +
+                   "## 下一章大纲" + NL + "第 %d 章 归还" % (n + 1) + NL)
+            return self._send(200, {
+                "ok": True, "chapter": n, "next_chapter": n + 1,
+                "path": "data/handoff/第%d章后.md" % n,
+                "problems": ["下一章的滚动摘要尚未生成（补写摘要后可重导）"],
+                "text": txt,
+            })
         if p == "/review/comment":
             body = body or {}
             txt = str(body.get("comment") or "").strip()

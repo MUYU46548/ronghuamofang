@@ -400,7 +400,7 @@ def shot(page, name, full=False, keep_scroll=False):
 _DISCLAIMER_VERIFIED = [False]
 
 
-def settle_disclaimer(page):
+def settle_disclaimer(page, require_first_run=True):
     """首启免责声明强制弹窗（2026-10-05 · DisclaimerDialog A/B 双版）的处理。
 
     全新浏览器 profile 没有 `mofang_disclaimer_ack_v*` → App.vue onMounted 弹出
@@ -412,13 +412,20 @@ def settle_disclaimer(page):
 
     2026-11-18：弹不弹由**服务端** `GET /license` 说了算（之前只看 localStorage）。
     因此同一后端进程里签过一次之后，后续上下文不再弹 —— 见下方 absence 分支。
+
+    require_first_run（2026-11-27）：**同一轮 run_all 里跑多个套件时必须传 False**。
+    签字是服务端进程内状态，前一个套件签过之后，后一个套件的第一个上下文也不会弹 ——
+    那不是“首启门失效”，是同一份 mock 进程的既定语义。踩过的表现：先跑 panels 再跑
+    writing-rules，后者日志里冒出一条 [FAIL] 首启强制免责声明弹出，而它记进的是
+    e2e_ux_verify 自己的 PASS/FAIL 列表（本套件仍显示 10/0 全绿），极易被误读成产品回归。
+    只验一次首启门的套件（如 ux）保持默认 True。
     """
     if page.locator(".disclaimer-mask.forced").count() == 0:
         # 2026-11-18：判据已搬到服务端（`GET /license`）。同一后端进程内签过一次之后，
         # 后续浏览器上下文**哪怕 localStorage 全空**也不再弹 —— 这不是“首启门失效”，
         # 恰恰是新语义：签字是服务端的事，不跟着浏览器 profile 走。
         # 所以只有**第一个**上下文必须弹；之后不弹才算对。
-        if _DISCLAIMER_VERIFIED[0]:
+        if _DISCLAIMER_VERIFIED[0] or not require_first_run:
             return True
         check("首启强制免责声明弹出（服务端未签时必弹）",
               False, "首个上下文也没弹（首启门失效，或服务端已残留 ack）")
