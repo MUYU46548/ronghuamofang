@@ -752,6 +752,7 @@ def handle_truncated_clear(h, body):
 def _foreshadow_mod():
     from utils import foreshadow as fs
     fs.OUTLINE_DIR = Path(api.ROOT) / "data" / "outline" / "chapters"
+    fs.GLOBAL_OUTLINE = Path(api.ROOT) / "data" / "outline" / "global.md"
     fs.STATUS_PATH = Path(api.ROOT) / "data" / "state" / "foreshadow_status.json"
     return fs
 
