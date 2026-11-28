@@ -19,15 +19,30 @@ RECENT_HEADER = "## 近期章节"
 CHAPTER_PAT = re.compile(r"^###\s*第\s*(\d+)\s*章\s*$", re.MULTILINE)
 
 
+#: `write_rolling` 在没有全书摘要时写进文件的**占位文本**。
+#: 它是给人看的（打开文件就知道"这里还没生成"），**不是数据** ——
+#: `load_rolling` 必须把它当空值返回，否则它会被当上下文注入提示词。
+#: 真机后果（2026-11-28）：工作区 rolling.md 只有 34 字节、全是占位文本，
+#: 而 `_render_rolling` 用 `if g:` 判空 → 真值 → 每章提示词里都多一行
+#: 「【全书】（待首次压缩生成）」。模型不会因此写错，但那是纯噪声 + 误导。
+GLOBAL_PLACEHOLDER = "（待首次压缩生成）"
+
+
 def load_rolling(path):
-    """解析 rolling.md 为 {global_summary: str, chapters: {no: str}}。"""
+    """解析 rolling.md 为 {global_summary: str, chapters: {no: str}}。
+
+    `global_summary` 读到占位文本时返回空串 —— 占位文本是给人的，不是给模型的。
+    """
     data = {"global_summary": "", "chapters": {}}
     if not Path(path).exists():
         return data
     text = read_text(path)
     m = re.search(GLOBAL_HEADER + r"\s*(.*?)(?=" + RECENT_HEADER + r"|\Z)", text, re.S)
     if m:
-        data["global_summary"] = m.group(1).strip()
+        got = m.group(1).strip()
+        # 占位文本不是摘要（见 GLOBAL_PLACEHOLDER 的注释）
+        if got and got != GLOBAL_PLACEHOLDER:
+            data["global_summary"] = got
     sec = re.search(RECENT_HEADER + r"\s*(.*?)\Z", text, re.S)
     if sec:
         blocks = re.split(r"(?=^###\s*第)", sec.group(1), flags=re.M)
@@ -41,7 +56,9 @@ def load_rolling(path):
 
 
 def write_rolling(path, data):
-    parts = ["# 滚动摘要", GLOBAL_HEADER, data.get("global_summary", "") or "（待首次压缩生成）", "", RECENT_HEADER]
+    parts = ["# 滚动摘要", GLOBAL_HEADER,
+             data.get("global_summary", "") or GLOBAL_PLACEHOLDER,
+             "", RECENT_HEADER]
     for no in sorted(data.get("chapters", {})):
         parts.append(f"### 第{no}章")
         parts.append(data["chapters"][no])
