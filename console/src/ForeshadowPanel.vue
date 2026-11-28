@@ -9,9 +9,18 @@
  * 关键取舍：**回收不自动判定**。文本相似不等于"解决了"，自动判会让台账变成谎话。
  * 所以“已回收 / 已放弃”只能人点，而且**必须写理由** —— 这是唯一能防止台账被
  * 随手清空的东西。人工标记压过机器判定（与素材裁决同口径）。
+ *
+ * 2026-11-28：样式迁到 Tailwind + 主题变量（scoped 样式块已摘除），
+ * 表格 / 徽标 / 按钮换上新基座；状态四档由 `UiBadge` 的 variant 表达，
+ * 不再靠 `.fsp-open/.fsp-closed` 这种一档一个类名（那正是漂移的源头）。
+ * 有意保留：超期行整行淡琥珀底（`color-mix` 8%，与旧值同源）、
+ * `fsp-ops` 列 nowrap（三颗按钮换行会撑高行高）。
  */
 import { ref, computed, onMounted } from "vue";
 
+import UiBadge from "./components/ui/UiBadge.vue";
+import UiButton from "./components/ui/UiButton.vue";
+import UiTable from "./components/ui/UiTable.vue";
 import { API } from "./apiBase.js";
 
 const emit = defineEmits(["say"]);
@@ -23,6 +32,32 @@ const err = ref("");
 const items = computed(() => (data.value && data.value.items) || []);
 const summary = computed(() => (data.value && data.value.summary) || {});
 const notes = computed(() => (data.value && data.value.notes) || []);
+
+const COLUMNS = [
+  { key: "text", label: "线索" },
+  { key: "planted", label: "埋设", cls: "whitespace-nowrap w-[88px]" },
+  { key: "status", label: "状态", cls: "w-[92px]" },
+  { key: "idle", label: "闲置", cls: "whitespace-nowrap w-[72px]" },
+  { key: "ops", label: "操作", cls: "whitespace-nowrap" },
+];
+
+// 状态 → 徽标语义（四档）。open/advanced 用中性，回收/放弃给出可读的视觉差。
+const BADGE = {
+  open: { variant: "neutral", text: "未推进" },
+  advanced: { variant: "accent", text: "已推进" },
+  closed: { variant: "ok", text: "已回收" },
+  abandoned: { variant: "neutral", text: "已放弃", struck: true },
+};
+
+function badgeOf(s) {
+  return BADGE[s] || { variant: "neutral", text: s };
+}
+
+// 超期行整行淡琥珀底：颜色由主题色按 8% 调出（与旧 `tr.stale td` 同源），
+// 判定条件留在组件里，UiTable 只负责把它加上某个 <tr>。
+function rowCls(row) {
+  return row.stale ? "bg-[color-mix(in_srgb,var(--warn)_8%,transparent)]" : "";
+}
 
 async function load() {
   busy.value = true;
@@ -82,98 +117,65 @@ async function mark(it, status) {
   }
 }
 
-function statusLabel(s) {
-  return { open: "未推进", advanced: "已推进", closed: "已回收", abandoned: "已放弃" }[s] || s;
-}
-
 onMounted(load);
 defineExpose({ load });
 </script>
 
 <template>
-  <div class="fsp">
-    <div class="fsp-head">
-      <b>伏笔清单</b>
+  <div class="sep-dashed">
+    <div class="row-baseline mb-2">
+      <b class="text-[color:var(--ink)]">伏笔清单</b>
       <span class="meta" v-if="data">
         共 {{ summary.total || 0 }} 条 · 未推进 {{ summary.open || 0 }}
         · 已推进 {{ summary.advanced || 0 }} · 已回收 {{ summary.closed || 0 }}
-        · 超期 <span :class="{ 'warn-text': (summary.stale || 0) > 0 }">{{ summary.stale || 0 }}</span>
+        · 超期 <span :class="{ 'text-[color:var(--warn)]': (summary.stale || 0) > 0 }">{{ summary.stale || 0 }}</span>
       </span>
       <span class="spacer"></span>
-      <button class="mini" :disabled="busy" @click="load">刷新</button>
+      <UiButton :disabled="busy" @click="load">刷新</UiButton>
     </div>
 
-    <div v-if="err" class="meta err-line">{{ err }}</div>
+    <div v-if="err" class="meta text-[color:var(--bad)]">{{ err }}</div>
 
-    <div v-else-if="data && !items.length" class="meta fsp-empty">
-      还没有可抽取的伏笔。清单来自**章大纲的“悬念钩子”**（阶段 3 每章一条），
+    <div v-else-if="data && !items.length" class="meta pb-0.5 pt-1">
+      还没有可抽取的伏笔。清单来自章大纲的“悬念钩子”（阶段 3 每章一条），
       跑过阶段 3 之后这里会列出每章埋下的线。
     </div>
 
-    <table v-else-if="items.length" class="fsp-table">
-      <thead>
-        <tr>
-          <th>线索</th>
-          <th>埋设</th>
-          <th>状态</th>
-          <th>闲置</th>
-          <th>操作</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="it in items" :key="it.id" :class="{ stale: it.stale }">
-          <td>
-            <div class="fsp-text">{{ it.text }}</div>
-            <div class="meta fsp-id">
-              {{ it.id }}
-              <span v-if="it.advanced && it.advanced.length">· 推进于第 {{ it.advanced.join('、') }} 章</span>
-              <span v-else>· 埋下后一直没再提</span>
-              <span v-if="it.source === 'human'"> · 人工：{{ it.reason }}</span>
-            </div>
-          </td>
-          <td>第 {{ it.planted }} 章</td>
-          <td>
-            <span class="pill" :class="'fsp-' + it.status">{{ statusLabel(it.status) }}</span>
-          </td>
-          <td :class="{ 'warn-text': it.stale }">{{ it.idle }} 章</td>
-          <td class="fsp-ops">
-            <button class="mini" :disabled="busy || it.status === 'closed'"
-                    @click="mark(it, 'closed')">已回收</button>
-            <button class="mini" :disabled="busy || it.status === 'abandoned'"
-                    @click="mark(it, 'abandoned')">已放弃</button>
-            <button class="mini" :disabled="busy || (it.status !== 'closed' && it.status !== 'abandoned')"
-                    @click="mark(it, 'open')">重开</button>
-          </td>
-        </tr>
-      </tbody>
-    </table>
+    <UiTable v-else-if="items.length" :columns="COLUMNS" :rows="items" row-key="id"
+             :row-class="rowCls">
+      <template #cell-text="{ row }">
+        <div class="leading-[1.5]">{{ row.text }}</div>
+        <div class="meta mt-0.5">
+          {{ row.id }}
+          <span v-if="row.advanced && row.advanced.length">· 推进于第 {{ row.advanced.join('、') }} 章</span>
+          <span v-else>· 埋下后一直没再提</span>
+          <span v-if="row.source === 'human'"> · 人工：{{ row.reason }}</span>
+        </div>
+      </template>
+      <template #cell-planted="{ row }">第 {{ row.planted }} 章</template>
+      <template #cell-status="{ row }">
+        <UiBadge :variant="badgeOf(row.status).variant" :struck="!!badgeOf(row.status).struck">
+          {{ badgeOf(row.status).text }}
+        </UiBadge>
+      </template>
+      <template #cell-idle="{ row }">
+        <span :class="{ 'text-[color:var(--warn)]': row.stale }">{{ row.idle }} 章</span>
+      </template>
+      <template #cell-ops="{ row }">
+        <div class="flex items-center gap-1 whitespace-nowrap">
+          <UiButton :disabled="busy || row.status === 'closed'"
+                    @click="mark(row, 'closed')">已回收</UiButton>
+          <UiButton :disabled="busy || row.status === 'abandoned'"
+                    @click="mark(row, 'abandoned')">已放弃</UiButton>
+          <UiButton :disabled="busy || (row.status !== 'closed' && row.status !== 'abandoned')"
+                    @click="mark(row, 'open')">重开</UiButton>
+        </div>
+      </template>
+    </UiTable>
 
-    <div v-for="(n, i) in notes" :key="i" class="meta fsp-note">{{ n }}</div>
+    <div v-for="(n, i) in notes" :key="i"
+         class="meta mt-1.5 border-l-2 border-[var(--warn)] bg-[var(--field-inset)] px-2 py-1.5">
+      {{ n }}
+    </div>
   </div>
 </template>
-
-<style scoped>
-.fsp { margin-top: 14px; padding-top: 10px; border-top: 1px dashed var(--border); }
-.fsp-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; }
-.fsp-empty { padding: 4px 0 2px; }
-.err-line { color: var(--bad); }
-.fsp-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.fsp-table th, .fsp-table td {
-  text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--border); vertical-align: top;
-}
-.fsp-table th { font-weight: 600; opacity: .75; }
-.fsp-table tr.stale td { background: color-mix(in srgb, var(--warn, #b8860b) 8%, transparent); }
-.fsp-text { line-height: 1.5; }
-.fsp-id { margin-top: 2px; }
-.fsp-ops { white-space: nowrap; }
-.fsp-ops .mini { margin-right: 4px; }
-.fsp-note {
-  margin-top: 6px; padding: 6px 8px; border-left: 2px solid var(--warn, #b8860b);
-  background: var(--field-inset, transparent);
-}
-.warn-text { color: var(--warn, #b8860b); }
-.fsp-open { opacity: .8; }
-.fsp-advanced { opacity: .95; }
-.fsp-closed { opacity: .6; }
-.fsp-abandoned { opacity: .45; text-decoration: line-through; }
-</style>

@@ -202,6 +202,11 @@ def main():
 
         browser.close()
 
+    # 2026-11-28：这条是 flaky 的已知出口，**看到单次 FAIL 不要先去改产品**。
+    # 实测：run_all 里与 panels-a 连跑时偶发一条 `Failed to fetch`（同轮其余 27 条全绿），
+    # 单跑 `--only panels` 与再连跑一次都复现不出来。成因是 run_all 每个套件各自起停
+    # 静态站+mock，切换瞬间有请求落在已关闭的端口上；不是产品逻辑错，也不是本套件写错。
+    # 处置口径（与 visual-evidence 卡一致）：偶发一次 → 记录为 flaky；持续复现才修。
     check("无 console 报错（页面级异常）", not errors, errors[:3])
     print("\n截图目录：Temp/gui_verify/ux/panels_*.png")
     print("%d 通过 / %d 失败" % (len(PASS), len(FAIL)))

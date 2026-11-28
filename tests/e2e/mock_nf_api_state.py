@@ -961,6 +961,84 @@ class Handler(BaseHTTPRequestHandler):
                                     "mtime": 1793766000.0,
                                     "path": "data/writing_rules.md",
                                     "note": "作品级写作约束（mock）"})
+        if p == "/truncated":
+            # 残稿清单（2026-11-28）：形状与 truncated_store.list_items() 逐字段一致。
+            # 三份刻意覆盖三个分支：可采纳（字数过线）/ 太短（不给采纳按钮）/
+            # 已采纳（状态列变成“第 N 章 · 残稿”+ 已补齐）。
+            # 少了后两条，面板的禁用与“已补齐”分支永远走不到，等于没验收。
+            return self._send(200, {
+                "ok": True, "count": 3,
+                "min_chars": 300,
+                "dir": "data/state/truncated",
+                "adopted": {"1": {"from": "ch05_停在_20261120_101010.txt",
+                                  "at": "2026-11-21 09:00"}},
+                "items": [
+                    {"name": "ch07_停在_20261127_141414.txt", "chars": 2841,
+                     "at": "2026-11-27 14:14", "chapter_hint": "7",
+                     "preview": "雨在子时停了。他把最后一盏灯捻小，听见院墙外面有人敲门，"
+                                "三下，停一停，又三下——跟灵堂里报时辰的板子一个节奏。",
+                     "adoptable": True, "adopted_as": None},
+                    {"name": "ch05_停在_20261120_101010.txt", "chars": 3120,
+                     "at": "2026-11-20 10:10", "chapter_hint": "5",
+                     "preview": "他在档案室坐到天亮，把那本册子翻到背面，看见一行不是他写的字。",
+                     "adoptable": True, "adopted_as": 5},
+                    {"name": "ch09_停在_20261126_090909.txt", "chars": 78,
+                     "at": "2026-11-26 09:09", "chapter_hint": "9",
+                     "preview": "风从门缝灌进来，他还没",
+                     "adoptable": False, "adopted_as": None},
+                ],
+            })
+        if p == "/foreshadow":
+            # 伏笔台账（2026-11-28）：四档状态各一条 + 一条超期。
+            # 为什么不给空清单：面板的 statusLabel / stale 底色 / 三条操作按钮的禁用态
+            # 全靠数据驱动，空 items 时以上分支一个都走不到。
+            return self._send(200, {
+                "ok": True,
+                "summary": {"total": 4, "open": 1, "advanced": 1,
+                            "closed": 1, "abandoned": 1, "stale": 1},
+                "stale_after": 8, "latest_chapter": 12,
+                "notes": ["有 1 条线索超过 8 章没推进 —— 要么回收，要么明确标“已放弃”，悬着最伤人"],
+                "items": [
+                    {"id": "ch02-1", "text": "沈砚与程砧之间的信任裂痕",
+                     "planted": 2, "advanced": [], "last": 2, "status": "open",
+                     "source": "auto", "stale": True, "idle": 10},
+                    {"id": "ch04-1", "text": "暗卫的真实目的",
+                     "planted": 4, "advanced": [7, 9], "last": 9, "status": "advanced",
+                     "source": "auto", "stale": False, "idle": 3},
+                    {"id": "ch05-1", "text": "那本册子背面的一行字",
+                     "planted": 5, "advanced": [6], "last": 6, "status": "closed",
+                     "source": "human", "reason": "第 12 章当着程砧的面念出来了",
+                     "at": "2026-11-22 10:00", "stale": False, "idle": 6},
+                    {"id": "ch08-1", "text": "西市那位不肯露脸的铜匠",
+                     "planted": 8, "advanced": [], "last": 8, "status": "abandoned",
+                     "source": "human", "reason": "这一段连同整条支线砍掉，铜匠不再出现",
+                     "at": "2026-11-24 16:20", "stale": False, "idle": 4},
+                ],
+            })
+        if p == "/config/writing_presets":
+            # 写作预设（2026-11-28）：两套好预设 + 一套解析失败的 + 当前生效值 + 两条历史。
+            # current 必须有值 —— 面板顶部那排 chip 只在非空时渲染；
+            # presets 里留一条 error —— table 里那个 err-line 分支否则永远走不到。
+            return self._send(200, {
+                "ok": True,
+                "keys": ["style", "style_notes", "target_words", "form", "language", "genre"],
+                "current": {"style": "冷峻克制，多短句", "target_words": [4000, 7200],
+                            "form": "narrative", "language": "zh"},
+                "presets": [
+                    {"id": "noir", "keys": ["style", "style_notes", "target_words"],
+                     "form": "narrative", "mtime": "2026-11-20 11:02"},
+                    {"id": "shuxin", "keys": ["style", "form", "language"],
+                     "form": "epistolary", "mtime": "2026-11-23 09:41"},
+                    {"id": "broken", "keys": [], "form": "",
+                     "error": "preset 文件解析失败：Expecting value: line 1 column 1"},
+                ],
+                "history": [
+                    {"at": "2026-11-23T09:41:00", "preset": "shuxin",
+                     "prev": {"style": "冷峻克制，多短句"}},
+                    {"at": "2026-11-20T11:02:00", "preset": "noir", "prev": {}},
+                ],
+                "note": "只收写作要求；书名/章数/作者是作品身份，不进预设",
+            })
         if p == "/onboarding/status":
             # 新手序列引导（I-1）：真后端按盘上事实算，mock 按固定剧本喂同一形状。
             # 关键：COLD 下必须只有 project 是 current（序列严格），

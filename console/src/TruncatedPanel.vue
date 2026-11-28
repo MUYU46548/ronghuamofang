@@ -12,9 +12,21 @@
  *  1. **采纳 != 完成**：采纳后仍标“残稿”，按钮变成“已补齐”，系统不会当它完成。
  *  2. **不自动采纳**：截断点之后的情节可能整段缺失，必须人看一眼。
  *  3. 太短的残稿不给采纳按钮，并说明原因（多半刚开始就断了，重写更省）。
+ *
+ * 2026-11-28：样式迁到 Tailwind + 主题变量（scoped 样式块已摘除），
+ * 表格 / 徽标 / 按钮 / 输入框换上新基座（UiTable / UiBadge / UiButton / UiInput）。
+ * 三处有意保留的像素值：
+ *  - 章号输入框 `w-[62px]`：表格一格内要塞下三位数，再宽就把“采纳”挤下去；
+ *  - 预览列 `max-w-[420px]` + 单行省略：不截时一行正文会把操作列挤出视口；
+ *  - 徽标用 `variant="warn" strong`：等价于旧 `.pill.st-gate`（琥珀 + 加粗，
+ *    表示“等你处理”而不是普通提示）。
  */
 import { ref, onMounted } from "vue";
 
+import UiBadge from "./components/ui/UiBadge.vue";
+import UiButton from "./components/ui/UiButton.vue";
+import UiInput from "./components/ui/UiInput.vue";
+import UiTable from "./components/ui/UiTable.vue";
 import { API } from "./apiBase.js";
 
 const emit = defineEmits(["say"]);
@@ -25,6 +37,15 @@ const err = ref("");
 const loaded = ref(false);
 const chapterOf = ref({});
 const minChars = ref(300);
+
+// 列定义走基座：五个列头与旧的 tsp-table 一一对应，几何由 UiTable 唯一决定。
+const COLUMNS = [
+  { key: "at", label: "时间", cls: "whitespace-nowrap text-[color:var(--muted)]" },
+  { key: "chars", label: "字数", cls: "w-[70px]" },
+  { key: "preview", label: "开头", cls: "max-w-[420px]" },
+  { key: "adopt", label: "采纳为第", cls: "w-[130px]" },
+  { key: "status", label: "状态" },
+];
 
 async function load() {
   busy.value = true;
@@ -109,75 +130,45 @@ defineExpose({ load });
 </script>
 
 <template>
-  <div class="tsp">
-    <div class="tsp-head">
-      <b>残稿（写到一半被截断的正文）</b>
+  <div class="sep-dashed">
+    <div class="row-baseline mb-2">
+      <b class="text-[color:var(--ink)]">残稿（写到一半被截断的正文）</b>
       <span class="meta" v-if="loaded">共 {{ items.length }} 份</span>
       <span class="spacer"></span>
-      <button class="mini" :disabled="busy" @click="load">刷新</button>
+      <UiButton :disabled="busy" @click="load">刷新</UiButton>
     </div>
-    <div v-if="err" class="meta err-line">{{ err }}</div>
-    <div v-else-if="loaded && !items.length" class="meta tsp-empty">
+
+    <div v-if="err" class="meta text-[color:var(--bad)]">{{ err }}</div>
+    <div v-else-if="loaded && !items.length" class="meta pb-0.5 pt-1">
       没有残稿。被截断的输出会隔离存放，以后可以在这里看见并采纳为草稿。
     </div>
-    <table v-else-if="items.length" class="tsp-table">
-      <thead>
-        <tr>
-          <th>时间</th>
-          <th>字数</th>
-          <th>开头</th>
-          <th>采纳为第</th>
-          <th>状态</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr v-for="it in items" :key="it.name">
-          <td class="meta">{{ it.at }}</td>
-          <td :class="it.adoptable ? '' : 'warn-text'">{{ it.chars }}</td>
-          <td class="tsp-preview">{{ it.preview }}</td>
-          <td>
-            <div class="tsp-adopt row-tight" v-if="!it.adopted_as">
-              <input v-model.number="chapterOf[it.name]" type="number" min="1" max="999"
-                     class="tsp-ch" placeholder="章号" />
-              <button class="mini" :disabled="busy || !it.adoptable" @click="adopt(it)"
-                      :title="it.adoptable ? '把这份残稿写成该章草稿' : ('太短（少于 ' + minChars + ' 字），建议直接重写')">
-                采纳
-              </button>
-            </div>
-            <span v-else class="meta">—</span>
-          </td>
-          <td>
-            <template v-if="it.adopted_as">
-              <span class="pill st-gate">第 {{ it.adopted_as }} 章 · 残稿</span>
-              <button class="mini" :disabled="busy" @click="clearMark(it.adopted_as)">已补齐</button>
-            </template>
-            <span v-else-if="!it.adoptable" class="meta">太短，不建议采纳</span>
-            <span v-else class="meta">未采纳</span>
-          </td>
-        </tr>
-      </tbody>
-    </table>
+
+    <UiTable v-else-if="items.length" :columns="COLUMNS" :rows="items" row-key="name">
+      <template #cell-chars="{ row }">
+        <span :class="row.adoptable ? '' : 'text-[color:var(--warn)]'">{{ row.chars }}</span>
+      </template>
+      <template #cell-preview="{ row }">
+        <span class="block overflow-hidden text-ellipsis whitespace-nowrap text-[color:var(--muted)]">{{ row.preview }}</span>
+      </template>
+      <template #cell-adopt="{ row }">
+        <div v-if="!row.adopted_as" class="row-tight">
+          <UiInput v-model.number="chapterOf[row.name]" type="number" min="1" max="999"
+                   class="w-[62px]" placeholder="章号" />
+          <UiButton :disabled="busy || !row.adoptable" @click="adopt(row)"
+                    :title="row.adoptable ? '把这份残稿写成该章草稿' : ('太短（少于 ' + minChars + ' 字），建议直接重写')">
+            采纳
+          </UiButton>
+        </div>
+        <span v-else class="meta">—</span>
+      </template>
+      <template #cell-status="{ row }">
+        <span v-if="row.adopted_as" class="row-tight">
+          <UiBadge variant="warn" strong>第 {{ row.adopted_as }} 章 · 残稿</UiBadge>
+          <UiButton :disabled="busy" @click="clearMark(row.adopted_as)">已补齐</UiButton>
+        </span>
+        <span v-else-if="!row.adoptable" class="meta">太短，不建议采纳</span>
+        <span v-else class="meta">未采纳</span>
+      </template>
+    </UiTable>
   </div>
 </template>
-
-<style scoped>
-.tsp { margin-top: 14px; padding-top: 10px; border-top: 1px dashed var(--border); }
-.tsp-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; }
-.tsp-empty { padding: 4px 0 2px; }
-.err-line { color: var(--bad); }
-.tsp-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.tsp-table th, .tsp-table td {
-  text-align: left; padding: 5px 6px; border-bottom: 1px solid var(--border); vertical-align: top;
-}
-.tsp-table th { font-weight: 600; opacity: .75; }
-.tsp-preview {
-  max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  color: var(--muted, #777);
-}
-.tsp-ch {
-  width: 62px; padding: 3px 6px; font-size: 13px;
-  background: var(--field); color: var(--ink);
-  border: 1px solid var(--border); border-radius: 4px;
-}
-.warn-text { color: var(--warn, #b8860b); }
-</style>
