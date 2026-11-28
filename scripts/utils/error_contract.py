@@ -131,6 +131,17 @@ def describe(result: dict, limit: int = MAX_REASON) -> str:
 
     报文里有 `message` 字段时**只取那个值**：真正的原因在那儿，整行会把
     `{'code': 'UPSTREAM_ERROR', ` 这类前缀挤到前面，把原因截掉一半。
+
+    ## 2026-11-28：模型的话不能冒充失败原因
+    真机实测（《测试用书-1125》段群 2）失败文案是
+    `子会话失败：我会先阅读任务文件，以了解全部要求。` —— 那是**模型的开场白**，
+    不是任何错误报文。它被挑出来当原因，后果是：界面与 progress.error 都在说
+    "模型说要先读任务文件"，真正的问题（子会话中途断掉、没留下 stderr）一个字没有，
+    排障只能靠猜。
+
+    判据：挑出来的那句话**不像错误报文**（没有 HTTP 码 / 错误关键词 / message 字段，
+    且像正常的叙述句）时，不把它伪装成原因，改为如实说明"只拿到模型的半句话"。
+    模型的原话仍然附上（带引号），因为它是"断在哪一步"的唯一线索。
     """
     result = result or {}
     if result.get("transport_error"):
@@ -145,6 +156,13 @@ def describe(result: dict, limit: int = MAX_REASON) -> str:
         code = status_code(line) or status_code(raw)
         tag = f"（HTTP {code}）" if code else ""
         why = upstream_message(raw) or line
+        # 只有 stderr/error 或带错误码时，才算"真的错误报文"；
+        # stdout_tail 里挑出来的东西要先验明正身。
+        if key == "stdout_tail" and not code and not _looks_like_error(raw):
+            out = (f"子会话退出码 {result.get('exit_code')}：上游没留下错误报文，"
+                   f"只拿到模型的半句话“{_clean(why)[:80]}”——"
+                   "多半是会话中途断开/被结束，不是模型在报错")
+            return out[:limit]
         out = f"{base or '子会话失败'}{tag}：{why}"
         return out[:limit]
     if base:
@@ -152,6 +170,18 @@ def describe(result: dict, limit: int = MAX_REASON) -> str:
     rc = result.get("exit_code")
     return f"子会话退出码非零（exit={rc}），但上游没有留下任何报文" if rc \
         else "子会话失败（未取到原因）"
+
+
+def _looks_like_error(text: str) -> bool:
+    """这段文字像不像一条**错误报文**（而不是模型在正常说话）。
+
+    判据刻意宽松（宁可判成"像错误"）：只有确认"完全不像"才改写文案，
+    免得好端端的上游报文被我们判成模型发言、反而把真原因藏起来。
+    """
+    low = (text or "").lower()
+    if status_code(text) or upstream_message(text):
+        return True
+    return any(h in low for h in _HINTS)
 
 
 def stage_error_text(progress, stage: int) -> str:

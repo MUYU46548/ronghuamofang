@@ -332,8 +332,45 @@ def write_chapter_groups(cfg, proj, n, client, task_dir,
                 # 就断在这一层，排障只能猜。
                 from utils import error_contract
                 _why_part = error_contract.describe(result)
-                agg["error"] = ("段群 %d 生成失败：%s（已落盘的群保留，"
-                                "重启后从断点续跑）" % (group["idx"], _why_part))
+                # 已落盘的群不能就这么丢（2026-11-28 真机）：实测第 1 章 g1/g2 各约
+                # 2000 字已合格落盘，第 3 群失败 → 整章直接 return，raw/ 里一个字没有，
+                # 作者看到"这章没写"，而 3900 字明明在盘上。拼成"部分章"并写明缺哪几群，
+                # 比丢掉强：断点续跑下一轮只补缺的那群，已写的不会被重花 token 重写。
+                _done_idx = []
+                for _g in groups:
+                    if part_ok(part_path(n, _g["idx"]), _g["quota"]):
+                        _done_idx.append(_g["idx"])
+                _part_path = None
+                if _done_idx:
+                    # ⚠️ 绝不写进 data/chapters/raw/：那里是"这一章已成稿"的位置，
+                    # 任何判"完成"的地方（is_chapter_complete / 断点续跑筛选 / 界面）
+                    # 都会读它。部分章写进去 = 让系统以为这章写完了 —— 比丢掉更糟。
+                    # 所以落在 _partial/，语义单一：缺群的半成品，只有人主动去看。
+                    _part_out = (Path("data/chapters/_partial")
+                                 / ("%02d.md" % n))
+                    try:
+                        _part_out.parent.mkdir(parents=True, exist_ok=True)
+                        _title, _complete = assemble(n, _part_out)
+                        _part_path = str(_part_out)
+                        print("[enhanced] 第%d章 已拼出**部分章**（%d/%d 群就位，缺 %s）"
+                              "→ %s；下一轮只补缺的群"
+                              % (n, len(_done_idx), len(groups),
+                                 [g["idx"] for g in groups
+                                  if g["idx"] not in _done_idx] or "无",
+                                 _part_out))
+                    except Exception as _e:                # noqa: BLE001
+                        print("[enhanced] 部分章拼装失败（%s: %s）—— 段群文件仍在 %s"
+                              % (type(_e).__name__, str(_e)[:120], parts_dir(n)))
+                agg["error"] = ("段群 %d 生成失败：%s"
+                                "（已落盘 %d/%d 群%s，重启后从断点续跑）"
+                                % (group["idx"], _why_part, len(_done_idx),
+                                   len(groups),
+                                   "，半成品见 " + _part_path if _part_path else ""))
+                agg["partial"] = {"done": _done_idx,
+                                  "missing": [g["idx"] for g in groups
+                                              if g["idx"] not in _done_idx],
+                                  "failed_call": group["idx"],
+                                  "path": _part_path}
                 print("[enhanced] 第%d章 群%d 失败原因：%s"
                       % (n, group["idx"], _why_part))
                 return agg

@@ -295,6 +295,22 @@ def is_chapter_complete(path, target_min=4000, target_max=7200, para_structure=T
             return False
     except Exception:                                        # noqa: BLE001
         pass                                                 # 标记读不到不影响原判据
+    # ⚠️ 半成品（缺段群的章）一律判未完成（2026-11-28）：
+    # 加强模式下某群失败时，已落盘的群会被拼成 `data/chapters/_partial/NN.md`。
+    # 它的字数**可能刚好落在区间内**（实测 2569 字，[2000,3000] 判"完成"），
+    # 因为缺的是后半章 —— 前半章写够了。所以不能靠字数判，必须有显式标记。
+    # 这里的判据是"存在同号半成品文件"：半成品在，说明这一章还没写全。
+    try:
+        import re as _re
+        _m = _re.search(r"(\d+)", p.stem)
+        if _m:
+            _no = int(_m.group(1))
+            _cand = [p.parent.parent / "_partial" / ("%02d.md" % _no),
+                     p.parent.parent / "_partial" / p.name]
+            if any(c.exists() for c in _cand):
+                return False
+    except Exception:                                        # noqa: BLE001
+        pass                                                 # 判据坏了不影响原行为
     try:
         text = read_text(path).strip()
     except Exception:

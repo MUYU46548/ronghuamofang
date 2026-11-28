@@ -314,6 +314,77 @@ def case_group_checkpoint():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def case_partial_on_failure():
+    print("\n【4b】某群失败 → 已落盘的群拼成半成品（不写 raw/，不给“已完成”假象）")
+    # 2026-11-28 真机：第 1 章 g1/g2 各约 2000 字已合格落盘，第 3 群失败 →
+    # 整章直接 return，raw/ 一个字没有（3900 字白写）。但**也不能**把部分章
+    # 写进 raw/：那里任何判"完成"的地方都会读，等于让系统以为这章写完了。
+    tmp = build_workspace(total=1, enhanced=True)
+    origin = os.getcwd()
+    try:
+        c = _Base()
+        os.chdir(tmp)
+        import yaml
+        cfg = yaml.safe_load((tmp / "config" / "system.yaml").read_text(encoding="utf-8"))
+        proj = yaml.safe_load((tmp / "config" / "project.yaml").read_text(encoding="utf-8"))
+        from utils.enhanced_chapter import write_chapter_groups
+
+        calls = {"n": 0}
+
+        def fail_second(tp):
+            calls["n"] += 1
+            r = c.run_task(tp)
+            if calls["n"] >= 2:                     # 第 2 群失败（本工作区共 2 群）
+                return {"exit_code": 1, "stderr_tail": "",
+                        "stdout_tail": "我会先阅读任务文件，以了解全部要求。",
+                        "error": "", "tokens": 0, "tokens_out": 0, "requests": 1}
+            return r
+
+        agg = write_chapter_groups(cfg, proj, 1, c, str(tmp / "data/state/tasks"),
+                                   "data/outline/chapters/01.md", [],
+                                   run_hook=fail_second)
+        check("失败被如实上报（exit_code 非 0）", agg.get("exit_code") != 0, agg.get("exit_code"))
+
+        partial = tmp / "data/chapters/_partial/01.md"
+        check("已落盘的群拼成半成品（不是白丢）", partial.exists(),
+              "半成品未生成")
+        if partial.exists():
+            from utils.word_count import count_cn_words
+            got = count_cn_words(partial.read_text(encoding="utf-8"))
+            check("半成品里有正文（%d 字）" % got, got > 1000, got)
+
+        raw = tmp / "data/chapters/raw/01.md"
+        check("**绝不写进 raw/**（否则会被判“这章写完了”）", not raw.exists(),
+              "raw 里出现了文件 —— 部分章会被当成成稿")
+
+        # 判据：半成品存在时，**同号的成稿也不许判完成** —— 缺的群意味着这章没写全，
+        # 而字数可能刚好落在区间内（实测 2569 字，[2000,3000] 会判"完成"）。
+        # 这里造的"伪成稿"字数是够的，全靠 _partial 的存在把它拦下来。
+        from utils.verify_chapter import is_chapter_complete
+        fake_done = tmp / "data" / "chapters" / "raw" / "01.md"
+        fake_done.parent.mkdir(parents=True, exist_ok=True)
+        fake_done.write_text(partial.read_text(encoding="utf-8"), encoding="utf-8")
+        check("**半成品存在时，同号成稿被判未完成**",
+              not is_chapter_complete(str(fake_done), 1000, 3000),
+              "半成品在场却判成了完成 —— 断点续跑会跳过这一章")
+        # 清掉半成品 → 同一份内容应当判完成（证明拦截来自 _partial，不是别的原因）
+        partial.unlink()
+        check("半成品清掉后同一份内容判完成（证明拦截来源正确）",
+              is_chapter_complete(str(fake_done), 1000, 3000),
+              "清掉半成品后仍判未完成 → 拦截不是来自 _partial")
+
+        check("agg.partial 说清失败在哪一群（missing 可能是空的：产物已落盘）",
+              isinstance(agg.get("partial"), dict)
+              and (agg["partial"].get("failed_call") or agg["partial"].get("missing")),
+              agg.get("partial"))
+        err = str(agg.get("error") or "")
+        check("失败原因不再只说“已落盘的群保留”",
+              "已落盘" in err and ("半成品" in err or "部分" in err), err)
+    finally:
+        os.chdir(origin)
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def case_plan_groups():
     print("\n【5】plan_groups：配额之和 == 章节目标字数（施工单原话）")
     for low, high in ((2000, 3000), (5000, 9000), (8000, 8000)):
@@ -395,7 +466,8 @@ def case_file_progress_and_stop():
 def main():
     t0 = time.time()
     for fn in (case_plan_groups, case_off_zero_impact, case_on_assembly,
-               case_pass_rate_comparison, case_group_checkpoint, case_api_endpoint,
+               case_pass_rate_comparison, case_group_checkpoint,
+               case_partial_on_failure, case_api_endpoint,
                case_file_progress_and_stop):
         fn()
     print("\n==== 结果: PASS %d / FAIL %d （%.1fs）===="

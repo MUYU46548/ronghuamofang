@@ -145,6 +145,45 @@ def main():
     check("E8d orchestrator 把失败原因喂给重试判据",
           "error_contract.stage_error_text(progress, n)" in orch)
 
+    # ---------------------------------------------------------------- 9
+    print("\n【9】模型的话不能冒充失败原因（2026-11-28 真机）")
+    # 真机那次：段群 2 失败，progress.error 存的是
+    # "子会话失败：我会先阅读任务文件，以了解全部要求。" —— 那是模型开场白，
+    # 不是错误报文。界面照此显示，等于把真原因（会话中途断了）换成了一句废话。
+    real_half = {"exit_code": 1, "stderr_tail": "",
+                 "stdout_tail": "我会先阅读任务文件，以了解全部要求。", "error": ""}
+    txt = ec.describe(real_half)
+    check("E9 模型半句话不再被当作失败原因",
+          "没留下错误报文" in txt, txt)
+    check("E9b 仍把模型原话附上（断在哪一步的唯一线索）",
+          "我会先阅读任务文件" in txt, txt)
+    check("E9c 说清这不是模型在报错", "不是模型在报错" in txt, txt)
+
+    # 反向：真的上游报文 / 截断，绝不能因为上面那条被改写
+    real_upstream = {"exit_code": 1,
+                     "stderr_tail": '{"code":"UPSTREAM_ERROR",'
+                                    '"message":"model_not_available: x"}',
+                     "stdout_tail": "", "error": ""}
+    u = ec.describe(real_upstream)
+    check("E9d 真上游报文原样保留（不被误判成模型发言）",
+          "model_not_available" in u and "半句话" not in u, u)
+    real_trunc = {"exit_code": 2, "stderr_tail": "finish_reason=length 输出被截断",
+                  "stdout_tail": "", "error": ""}
+    t2 = ec.describe(real_trunc)
+    check("E9e 截断原样保留", "截断" in t2 and "半句话" not in t2, t2)
+    # 保守方向：模型的话里含错误词 → 仍旧当错误看（宁可误判成错误，不藏真原因）
+    with_word = {"exit_code": 1, "stderr_tail": "",
+                 "stdout_tail": "抱歉，连接失败了，我要重试。", "error": ""}
+    w = ec.describe(with_word)
+    check("E9f 含错误词的模型发言仍按错误处理（保守）",
+          "半句话" not in w, w)
+    # stderr 里有东西时，优先级不变（stderr 永远先于 stdout）
+    both = {"exit_code": 1, "stderr_tail": "HTTP 500 服务端错误",
+            "stdout_tail": "我会先阅读任务文件。", "error": ""}
+    b = ec.describe(both)
+    check("E9g stderr 仍优先于 stdout（判据没被这次改动打乱）",
+          "500" in b or "服务端" in b, b)
+
     print("-" * 66)
     print("通过 %d / 失败 %d" % (len(PASS), len(FAIL)))
     if FAIL:

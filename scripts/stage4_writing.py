@@ -1543,7 +1543,22 @@ def run_stage(cfg, proj, progress, db, cost, client=None, task_dir=None, run_id=
                 if _d.is_dir() and _d.name.isdigit():
                     # 这里必须用**模块级** note_parts：内层的 _note_parts 还没定义
                     # （它在下面才 def），提前调用会 NameError（被 quality_gate 抓住）。
-                    note_parts(_pdir, raw_dir, progress, int(_d.name), total_groups=0)
+                    #
+                    # ⚠️ 2026-11-28 真机修正：原来这里硬编码 `total_groups=0`，
+                    # 于是"上一轮跑过、这轮续跑"时 total 恒为 0 —— progress 里存成
+                    # `{"done": 2, "total": 0, "words": 3125}`，界面显示"已落盘 2/0 群"。
+                    # 真实总群数上一轮算过（存在 stages.4.total_groups），能读就用它；
+                    # 读不到才退回 0（那时确实无从得知，界面按"未知"显示）。
+                    _known_total = 0
+                    try:
+                        _known_total = int(
+                            (progress.data.get("stages", {})
+                             .get("4", {})
+                             .get("total_groups")) or 0)
+                    except (TypeError, ValueError, AttributeError):
+                        _known_total = 0
+                    note_parts(_pdir, raw_dir, progress, int(_d.name),
+                               total_groups=_known_total)
     except Exception:                                        # noqa: BLE001
         pass
 
