@@ -53,16 +53,29 @@ SETTLERS = {
 
 # 出厂口径（v1）。kind 只有五种：阈值 / 类型 / 计数 / 结构 / 不可自动判定。
 #
+#: 判定引擎的出厂口径表。
+#:
+#: ⚠️ **J01/J02 与 `config/system.yaml` 的 `chapter.target_words` 必须同源**
+#: （2026-11-28 修）。历史事故：2026-11-05 把字数口径从"含标点"改成"只计汉字"，
+#: 出厂区间按同等篇幅折算成 [4000, 7200]（`migrate_word_caliber.py` 写的），
+#: 但**这张表的 J01/J02 停在折算前的 5000/9000**。后果是同一章按 config 算合格
+#: （4000 汉字）、按判定引擎算"字数不足"（<5000）—— 两个数字都在界面上显示，
+#: 作者不知道该信哪个。`docs/agents/judge-engine.md` 第 12 行记过这个症状
+#: （"口径 10-26 才提到 [5000,9000]，存量不重判"），当时只记了症状没修。
+#: 判据：`tests/unit/test_caliber_word_sync.py` —— 直接从 config 读 target_words
+#: 与这里的两条比对，不一致就红。
+#:
 # `producer` / `settled_by` 是**登记字段**（不是阈值）：改它算改口径描述，
 # 但不参与 `fingerprint`（指纹口径仍是 id+value）。见 needs_upgrade / upgrade。
 FACTORY = [
-    {"id": "J01", "name": "每章最少字数", "kind": "阈值", "value": 5000,
+    {"id": "J01", "name": "每章最少字数", "kind": "阈值", "value": 4000,
      "consumer": "rules.body_metrics", "producer": "rules",
      "settled_by": "verdict.decide",
-     "note": "低于即记一条章级依据（不是合格门的唯一依据）"},
-    {"id": "J02", "name": "每章最多字数", "kind": "阈值", "value": 9000,
+     "note": "只计汉字（与 chapter.target_words 下限同源）；低于即记一条章级依据"},
+    {"id": "J02", "name": "每章最多字数", "kind": "阈值", "value": 7200,
      "consumer": "rules.body_metrics", "producer": "rules",
-     "settled_by": "verdict.decide", "note": "高于只提示，不据此拒收"},
+     "settled_by": "verdict.decide",
+     "note": "只计汉字（与 chapter.target_words 上限同源）；高于只提示，不据此拒收"},
     {"id": "J03", "name": "长句上限（字符）", "kind": "阈值", "value": 60,
      "consumer": "rules.body_metrics", "producer": "rules",
      "settled_by": "verdict.decide", "note": "超过记一条句级缺陷"},
@@ -397,14 +410,44 @@ def needs_upgrade(doc):
     老工作区的 `caliber.json` 是 v1 的 14 条，没有 `producer` / `settled_by`；
     判定照跑（`values()` 只读 id→value），但界面上的“是谁产的”那一列会是空的。
     补登记走 `upgrade()`（产新版本、旧版进 history），不在这里偷偷写盘。
+
+    ## 2026-11-28 增：数值漂移也要报
+    原来这里只比"缺了哪些 id"，**不比数值**。真机工作区的 J01/J02 停在
+    5000/9000（字数口径早已改成只计汉字、出厂是 4000/7200），而 needs_upgrade
+    只报了"缺 J16~J22" —— 数值过期这件事一点提示都没有。
+    现在多报一条 `value_drift`：{id, current, factory}。**仍然只报告不改**
+    （改口径是作者的创作决策，机器不替他拍板）。
     """
     crit = (doc or {}).get("criteria") or []
     by_id = {c.get("id"): c for c in crit}
     missing_meta = [c.get("id") for c in crit
                     if not c.get("producer") or c.get("producer") not in PRODUCERS]
     missing_ids = [c["id"] for c in FACTORY if c["id"] not in by_id]
+    # 数值漂移：口径表里有这条、但值跟出厂不一样 → 报告（不自动改）
+    # ⚠️ 只比**数值型**判据：J06/J15 的值是字符串（"unit_or_pure_action" 这类
+    # 策略名），`float()` 会失败 —— 早先的错误写法把 float 失败当成"漂移"，
+    # 于是字符串型判据永远被误报成过期。字符串型只做原值比较。
+    drift = []
+    for f in FACTORY:
+        c = by_id.get(f["id"])
+        if not c:
+            continue
+        cur, fac = c.get("value"), f.get("value")
+        try:
+            differs = float(cur) != float(fac)
+        except (TypeError, ValueError):
+            differs = str(cur) != str(fac)          # 非数值型：原值比较
+        if differs:
+            drift.append({"id": f["id"], "name": f.get("name"),
+                          "current": cur, "factory": fac})
     return {"criteria_without_producer": missing_meta,
             "missing_factory_ids": missing_ids,
+            # 数值漂移**不并进 needed**：`upgrade()` 的职责是补登记（id/元数据），
+            # 它**刻意不覆盖作者改过的阈值**（见 upgrade 的 docstring 与用例
+            # "upgrade 不覆盖作者改过的阈值"）。把漂移算进 needed 会让
+            # "upgrade 后不再需要补登记" 永远为假 —— 因为 upgrade 从不改数值。
+            # 漂移是**另一件事**：它只该被报告给作者看，由作者决定要不要对齐。
+            "value_drift": drift,
             "needed": bool(missing_meta or missing_ids)}
 
 

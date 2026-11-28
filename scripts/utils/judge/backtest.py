@@ -335,7 +335,8 @@ def run(root=".", book_name="", by="作者"):
         "undecided": sum(1 for c in chapters if c["verdict"] is None),
         "defects": total_defects,
     }
-    words_min = int((cal_values or {}).get("J01", 5000))
+    # 兜底值与 caliber.FACTORY 的 J01 一致（2026-11-28 同步：只计汉字 4000）
+    words_min = int((cal_values or {}).get("J01", 4000))
     alerts = _detector_alerts((prev_run or {}).get("chapters"), chapters, words_min)
     # 基准集（2026-11-04）：判据是"清单里有没有条目"，不是"目录在不在"——
     # 空目录曾让 verified 误报为 true。条目由作者从界面导入（utils/benchmark.py）。

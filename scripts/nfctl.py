@@ -655,6 +655,33 @@ def collect_check(root: Path) -> dict:
         add("关键配置键齐全", False, "自检失败：%s: %s" % (type(e).__name__, str(e)[:120]),
             warning=True)
 
+    # 判定引擎口径表是否与出厂同源（2026-11-28，真机发现 J01/J02 停在旧值）
+    # 为什么必须在体检里：J01/J02 是“每章字数”的两把尺，config 说 4000 达标、
+    # 判定引擎说 5000 才达标 —— 两个数字都在界面上显示，作者不知道该信哪个。
+    try:
+        from utils.judge import caliber as _cal
+        _cp = root / "data" / "judge" / "caliber.json"
+        if _cp.exists():
+            import json as _json
+            _doc = _json.loads(_cp.read_text(encoding="utf-8"))
+            _need = _cal.needs_upgrade(_doc)
+            _drift = _need.get("value_drift") or []
+            if _drift:
+                _names = "、".join("%s %s→%s" % (d["id"], d["current"], d["factory"])
+                                  for d in _drift[:3])
+                add("判定口径与出厂同源", False,
+                    "口径表有 %d 条与出厂不一致（%s）—— 改口径是创作决策，"
+                    "在界面“判定 → 改标准”里确认，或用 POST /judge/caliber/upgrade"
+                    % (len(_drift), _names),
+                    blocking=False, warning=True)
+            else:
+                add("判定口径与出厂同源", True, "J 系列判据与出厂一致")
+        else:
+            add("判定口径与出厂同源", True, "口径表还没生成（首次判定时按出厂建）")
+    except Exception as e:                                  # noqa: BLE001
+        add("判定口径与出厂同源", False,
+            "自检失败：%s: %s" % (type(e).__name__, str(e)[:120]), warning=True)
+
     # GUI 文案标点（2026-11-02）：直角引号“”‘’在 console/src 一律不许出现
     # （作者第 5 条：中文引号是“”‘’）。放进 check 是为了**几秒内抓到** ——
     # 全量测试要 5 分钟，而我连续四次把它写进 Vue 文件、每次都要等全量才发现。

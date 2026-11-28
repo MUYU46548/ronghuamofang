@@ -74,10 +74,14 @@ def _entry(rule_id, name, chapter, pi, sent, count, why, fix, status=None):
 
 # --------------------------------------------------------------------- F01
 def body_metrics(body, chapter=0, cal=None):
-    """F01 确定性正文体检：字数/段/句/句长/复读/对话标签 + 可定位缺陷。"""
+    """F01 确定性正文体检：字数/段/句/句长/复读/对话标签 + 可定位缺陷。
+
+    默认值只作"口径表缺该键"时的兜底 —— 它们必须与 `caliber.FACTORY` 一致
+    （J01=4000 / J02=7200，只计汉字；2026-11-28 同步，见 caliber.py 的注释）。
+    """
     cal = cal or {}
-    min_words = int(cal.get("J01", 5000))
-    max_words = int(cal.get("J02", 9000))
+    min_words = int(cal.get("J01", 4000))
+    max_words = int(cal.get("J02", 7200))
     long_chars = int(cal.get("J03", 60))
     repeat_min = int(cal.get("J04", 3))
     tag_min = int(cal.get("J05", 10))
