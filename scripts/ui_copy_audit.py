@@ -86,7 +86,11 @@ NECESSARY = [
 # —— 素材放置：作者要往里放文件，而界面没有“打开文件夹”入口（全仓 shell.openPath 0 处）
     ('AboutDialog.vue', '设定卡进 materials/raw/；随手写的碎片进 materials/original_scraps/'),
     ('App.vue', '素材管理（materials/raw/）'),
-    ('App.vue', '快速体验：复制 examples/sample-book/materials/raw/* 到 materials/raw/'),
+    # 2026-11-28：上一版是“快速体验：复制 examples/sample-book/materials/raw/* 到
+    # materials/raw/”，隔壁 1241c11 把它换成了下面这句（素材空态示例收进折叠）。
+    # 新文案仍然点出 materials/raw/ 这个放置坐标，而界面依旧没有“打开文件夹”入口，
+    # 所以豁免理由不变，只是文案要跟着改 —— 这正是白名单“文案一改就不再豁免”的设计意图。
+    ('App.vue', '只要放进 materials/raw/ 的是 .md / .txt / .markdown / .docx，阶段 1 就会读；格式随意，上面只是示例。'),
     ('App.vue', '导入酒馆（SillyTavern）角色卡 .png/.json 或世界书 .json，落成 materials/raw 的素材卡；同名不覆盖'),
     ('App.vue', '搬到 materials/original_scraps/（碎片：自由命名、私人数据）'),
     ('App.vue', '搬到 materials/raw/（素材：阶段 1 整理素材时会被读）'),
