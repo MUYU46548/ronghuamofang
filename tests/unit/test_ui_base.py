@@ -133,6 +133,90 @@ def main():
     check("U4 除对话框 footer 外没有组件用 size=\"sm\"（会矮 2px）",
           not sm_use, sorted(set(sm_use)))
 
+    # ---- 第二批基座（2026-11-28）：UiInput / UiTable / UiField / UiBadge ----
+    # 为什么必须先把这四个补上再迁 B/C 档：现状是“每个面板各写一套输入框 / 表格 / 标签”，
+    # 值已经分成 padding 5px 与 6px、圆角 7px 与 8px 两档。不先给基座，迁一个面板就
+    # 自创一套，等于把刚清理掉的问题重新种回去。
+    for name in ("UiInput.vue", "UiTable.vue", "UiField.vue", "UiBadge.vue"):
+        p = SRC / "components" / "ui" / name
+        check("基座 " + name + " 存在", p.exists())
+        if not p.exists():
+            continue
+        t = p.read_text(encoding="utf-8")
+        # 只认真正的样式块：以**最后一个** `</template>` 为界，之后不许出现 <style。
+        # 不能用第一个 —— 文件头的用法示例注释里就写着 `<template #cell-x>`，
+        # 正则从那之后一直扫到注释里的 `<style scoped>` 就误判（本轮实测踩过）。
+        check("基座 " + name + " 无 <style scoped>",
+              "<style" not in t.rsplit("</template>", 1)[-1])
+        check("基座 " + name + " 用主题变量（不是裸色值）", "var(--" in t)
+
+    # U5：UiBadge 的几何必须与 .pill / .badge 一致。
+    # 三个名字（.pill / .badge / UiBadge）是同一件东西 —— 12px 字号、同档圆角。
+    # test_ui_tokens【10】已钉住前两者，这里把第三个也钉上，避免新徽标自成一套。
+    badge = (SRC / "components" / "ui" / "UiBadge.vue").read_text(encoding="utf-8")
+    pill_geo = {}
+    for m in re.finditer(r"(?m)^\.(pill|badge|st-\w+)\s*\{([^}]*)\}", style):
+        sel, body = m.group(1), m.group(2)
+        r = re.search(r"border-radius:[ ]*([^;]+);", body)
+        f = re.search(r"font-size:[ ]*([^;]+);", body)
+        if r and sel in ("pill", "badge"):
+            pill_geo[sel] = (r.group(1).strip(), f.group(1).strip() if f else None)
+    check("U5a UiBadge 圆角 7px = .pill/.badge 的实测值",
+          "rounded-[7px]" in badge and pill_geo.get("pill", ("",))[0] == "7px",
+          pill_geo)
+    check("U5b UiBadge 字号 12px = .pill/.badge 的实测值",
+          "text-[12px]" in badge and pill_geo.get("badge", ("", ""))[1] == "12px",
+          pill_geo)
+    # 底色必须由主题色调出来，不许写死 rgba —— 换主题时底色要跟着走
+    check("U5c UiBadge 底色走 color-mix(主题色, transparent)",
+          "color-mix(in_srgb,var(--" in badge and not re.search(r"rgba?\(\s*\d", badge))
+
+    # U6：UiTable 的单元格几何只有一处真源，且不许在组件里另写 padding 档。
+    table = (SRC / "components" / "ui" / "UiTable.vue").read_text(encoding="utf-8")
+    check("U6a UiTable 的单元格 padding 由 cellPad 单点决定",
+          table.count("py-[5px]") == 1 and "cellPad" in table)
+    check("U6b UiTable 不写 height/行高魔法数（对齐基础层）",
+          not re.search(r"\bh-\[\d+px\]", table))
+
+    # U7：UiInput 不许重新定义几何 —— 那会让 style.css 的基础层失效，
+    # 同一屏里出现两档输入框高度（正是 test_ui_tokens【8】在治的病）。
+    ui_input = (SRC / "components" / "ui" / "UiInput.vue").read_text(encoding="utf-8")
+    for prop in ("padding", "border-radius", "height"):
+        check("U7 UiInput 不重定义 " + prop + "（留给 :where() 基础层）",
+              (" " + prop + ":") not in ui_input and (prop + "-") not in ui_input)
+
+    # U8：输入类封装必须自己实现 v-model（2026-11-28 首版踩过，静默的）。
+    # 首版把希望寄托在 `v-bind="attrs"` 上，结果是属性名变成 modelvalue=""，
+    # 输入的值永远不回传 —— 界面不报错、保存时拿到空串，只有真点一遍才发现。
+    # 判据两条：声明了 modelValue、且真的 emit 了 update:modelValue。
+    check("U8a UiInput 声明 modelValue prop", "modelValue:" in ui_input)
+    check("U8b UiInput emit update:modelValue",
+          'emit("update:modelValue"' in ui_input)
+    # U8c：textarea 里不许放子节点 —— Vue 编译器会把 slot 内容当**纯文本**渲染，
+    # 界面上会直接出现字面的 <slot />（同一轮截图目检抓到）。
+    # 只查 <template> 段：文件头注释里的反例（`<textarea><slot /></textarea>`）不算。
+    tpl_part = ui_input.rsplit("</script>", 1)[-1]
+    tm = re.search(r"<textarea[^>]*?(/>|>(.*?)</textarea>)", tpl_part, re.S)
+    check("U8c UiInput 的 textarea 无子节点（放 slot 会变成字面文本）",
+          tm is not None and (tm.group(1) == "/>" or not (tm.group(2) or "").strip()),
+          tm.group(0)[:80] if tm else "没找到 textarea")
+
+    # U9：基座组件必须真的有调用点 —— 建完就放着等于白建，而且下一次有人会再造一个。
+    # 这条也会逼着“先补基座”这个决定落地：补了就得用，用了才算补对了。
+    importers = {}
+    for comp in ("UiInput", "UiTable", "UiField", "UiBadge"):
+        hits = []
+        for f in SRC.glob("*.vue"):
+            if f.name.startswith("Ui"):
+                continue
+            txt = f.read_text(encoding="utf-8", errors="ignore")
+            if ("<%s" % comp) in txt:
+                hits.append(f.name)
+        importers[comp] = sorted(hits)
+    unused = [k for k, v in importers.items() if not v]
+    check("U9 四个新基座都有真实调用点（不是建完就放着）", not unused,
+          {k: (v or "未被引用") for k, v in importers.items()})
+
     print("-" * 66)
     print("PASS %d / FAIL %d" % (len(PASS), len(FAIL)))
     return 0 if not FAIL else 1
