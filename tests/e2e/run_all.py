@@ -88,6 +88,14 @@ SUITES = {
         "env": {"NF_E2E_SITE": "http://127.0.0.1:{site}",
                 "NF_E2E_MOCK": "http://127.0.0.1:{mock}"},
     },
+    "settings-a": {
+        "script": "e2e_settings_a_migrated.py",
+        "desc": "A 档第二批四面板（设定目录/词表/引用核对/素材裁决：v-model回读/几何/徽标/暗色）",
+        "stack": True,
+        "browser": True,
+        "env": {"NF_E2E_SITE": "http://127.0.0.1:{site}",
+                "NF_E2E_MOCK": "http://127.0.0.1:{mock}"},
+    },
     "metrics": {
         "script": "e2e_chapter_metrics_ui.py",
         "desc": "这一章体检面板（节级字数表 / 文风数 / 命中项变批注）",

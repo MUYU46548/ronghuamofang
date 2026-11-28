@@ -1,3 +1,100 @@
+<template>
+  <div data-panel="setting-stale" class="card">
+    <div class="card-head">
+      <h3>设定引用核对</h3>
+      <span class="spacer"></span>
+      <span class="meta mr-2" v-if="data && data.setting_mtime">
+        设定集改于 {{ shortTime(data.setting_mtime) }}</span>
+      <UiButton :disabled="busy" @click="load">{{ busy ? "读取中…" : "刷新" }}</UiButton>
+      <UiButton :disabled="!!acting" @click="runLinkPreview">
+        {{ acting === "link" ? "扫描中…" : "扫描章节并记来源" }}</UiButton>
+    </div>
+    <div class="meta">
+      每条设定会记下“依据哪一章、那一章当时是什么版本”。你改完正文，引用它的条目会自己
+      出现在待核清单里 —— <b>点“已核对”只代表你看过、还成立</b>；不成立就去改设定本身。
+      零 token，不调模型。
+    </div>
+
+    <div v-if="err" class="empty py-3.5">{{ err }}</div>
+    <div v-else-if="!data" class="meta py-2.5">读取中…</div>
+
+    <!-- checked=false 必须显式说出来：空清单 != 没有待核 -->
+    <div v-else-if="!data.checked"
+         class="my-2.5 rounded-[var(--r-sm)] border-l-[3px] border-[var(--warn)] bg-[var(--field-dim)] px-3 py-2.5">
+      没查成：{{ data.reason || "原因未知" }}
+    </div>
+
+    <template v-else>
+      <!-- 汇总：数字 + 颜色。0 条待核时不该显示红色（否则每天都是"一片红"）。 -->
+      <div class="my-2.5 flex flex-wrap items-baseline gap-3">
+        <span class="meta"><b class="text-[18px] text-[color:var(--ink)]">{{ counts.entries ?? 0 }}</b> 条设定</span>
+        <span class="meta"><b class="text-[18px] text-[color:var(--ink)]">{{ counts.quoted ?? 0 }}</b> 条登记过来源</span>
+        <span class="meta"><b class="text-[18px]" :class="counts.stale ? 'text-[color:var(--bad)]' : 'text-[color:var(--ink)]'">{{ counts.stale ?? 0 }}</b> 条待核</span>
+        <span class="meta"><b class="text-[18px]" :class="counts.new ? 'text-[color:var(--warn)]' : 'text-[color:var(--ink)]'">{{ counts.new ?? 0 }}</b> 条新引用</span>
+        <span class="meta"><b class="text-[18px] text-[color:var(--ink)]">{{ data.chapters ?? 0 }}</b> 章已扫</span>
+        <span class="meta" v-if="counts.absent"><b class="text-[18px] text-[color:var(--ink)]">{{ counts.absent }}</b> 条未进正文</span>
+        <span class="meta" v-if="counts.unlocatable"><b class="text-[18px] text-[color:var(--ink)]">{{ counts.unlocatable }}</b> 条名字太短无法定位</span>
+      </div>
+
+      <div v-if="data.hint" class="meta mb-2">{{ data.hint }}</div>
+
+      <!-- 预演：先说清会写什么，再让作者点确认 -->
+      <div v-if="preview"
+           class="my-2 rounded-[var(--r-sm)] border border-l-[3px] border-[var(--border)] border-l-[var(--accent)] bg-[var(--field-dim)] px-3 py-2.5">
+        <div class="meta">
+          预演：会新增 <b>{{ preview.added_pairs }}</b> 条引用登记（涉及
+          {{ preview.added.length }} 个条目），写入前会自动备份设定集。
+        </div>
+        <div class="mt-2 flex justify-end gap-2">
+          <UiButton @click="preview = null">取消</UiButton>
+          <UiButton variant="primary" :disabled="!!acting" @click="runLinkCommit">确认写入</UiButton>
+        </div>
+      </div>
+
+      <div v-if="!staleItems.length && !newItems.length" class="meta text-[color:var(--ok)]">
+        没有待核，也没有未登记的新引用。
+      </div>
+
+      <div v-for="item in staleItems" :key="'s-' + item.kind + '-' + item.name"
+           class="my-2 rounded-[var(--r-sm)] border border-[var(--border)] bg-[var(--field-inset)] px-3 py-2.5">
+        <div class="flex flex-wrap items-baseline gap-2.5">
+          <UiBadge variant="bad">待核</UiBadge>
+          <b class="text-[color:var(--ink)]">{{ item.name }}</b>
+          <UiBadge variant="neutral">{{ item.label }}</UiBadge>
+          <span v-if="item.excerpt"
+                class="max-w-[360px] truncate text-[length:var(--fs-ui)] text-[color:var(--muted)]"
+                :title="item.excerpt">{{ item.excerpt }}</span>
+          <span class="spacer"></span>
+          <UiButton variant="primary" :disabled="!!acting"
+                    title="把这条条目的全部来源都标成已核对"
+                    @click="review(item, null, 'confirm', 'c-all-' + item.name)">已核对</UiButton>
+        </div>
+        <div v-for="s in item.sources" :key="'s-' + item.name + '-' + s.chapter"
+             class="mt-1.5 flex min-w-0 flex-wrap items-center gap-2.5 text-[length:var(--fs-ui)]">
+          <span class="break-words" :class="s.state === 'ok' ? 'text-[color:var(--muted)]' : 'text-[color:var(--ink)]'">{{ sourceText(s) }}</span>
+          <span v-if="s.mtime" class="text-[12px] text-[color:var(--muted)]">{{ shortTime(s.mtime) }}</span>
+          <span class="spacer"></span>
+          <template v-if="s.state !== 'ok'">
+            <UiButton v-if="s.state === 'changed'" :disabled="!!acting"
+                      @click="review(item, [s.chapter], 'confirm', 'c-' + item.name + '-' + s.chapter)">
+              这一章也核对</UiButton>
+            <UiButton variant="danger" :disabled="!!acting"
+                      :title="s.state === 'missing' ? '这一章已经不存在，去掉这条来源' : '这个引用是误匹配，去掉它'"
+                      @click="review(item, [s.chapter], 'drop', 'd-' + item.name + '-' + s.chapter)">
+              移除来源</UiButton>
+          </template>
+        </div>
+      </div>
+
+      <!-- 四种引用状态在图例里说清，别让作者从颜色猜 -->
+      <div class="meta mt-2 opacity-80">
+        来源状态：<b>未改</b>（灰字）· <b>这一章改过</b>（可“这一章也核对”）·
+        <b>这一章没了</b> 或 <b>误匹配</b>（可“移除来源”）
+      </div>
+    </template>
+  </div>
+</template>
+
 <script setup>
 /**
  * 设定引用核对（M10，2026-11-04）—— 改完章之后，哪些设定条目该复查。
@@ -15,6 +112,9 @@
  *   3. 核对是作者的判断：面板只提供“我看过了，还成立”，不自动确认。
  */
 import { ref, computed, onMounted } from "vue";
+
+import UiBadge from "./components/ui/UiBadge.vue";
+import UiButton from "./components/ui/UiButton.vue";
 
 const props = defineProps({ api: { type: Function, required: true } });
 const emit = defineEmits(["say"]);
@@ -128,232 +228,3 @@ async function review(item, chapters, action, key) {
 onMounted(load);
 defineExpose({ load });
 </script>
-
-<template>
-  <div class="card">
-    <div class="card-head">
-      <h3>设定引用核对</h3>
-      <span class="spacer"></span>
-      <span class="meta ss-mtime" v-if="data && data.setting_mtime">
-        设定集改于 {{ shortTime(data.setting_mtime) }}</span>
-      <button class="mini" :disabled="busy" @click="load">{{ busy ? "读取中…" : "刷新" }}</button>
-      <button class="mini" :disabled="!!acting" @click="runLinkPreview">
-        {{ acting === "link" ? "扫描中…" : "扫描章节并记来源" }}</button>
-    </div>
-    <div class="meta">
-      每条设定会记下“依据哪一章、那一章当时是什么版本”。你改完正文，引用它的条目会自己
-      出现在待核清单里 —— <b>点“已核对”只代表你看过、还成立</b>；不成立就去改设定本身。
-      零 token，不调模型。
-    </div>
-
-    <div v-if="err" class="empty" style="padding:14px 0;">{{ err }}</div>
-    <div v-else-if="!data" class="meta" style="padding:10px 0;">读取中…</div>
-
-    <!-- checked=false 必须显式说出来：空清单 != 没有待核 -->
-    <div v-else-if="!data.checked" class="ss-unchecked">
-      没查成：{{ data.reason || "原因未知" }}
-    </div>
-
-    <template v-else>
-      <div class="ss-summary">
-        <span class="ss-stat"><b>{{ counts.entries ?? 0 }}</b> 条设定</span>
-        <span class="ss-stat"><b>{{ counts.quoted ?? 0 }}</b> 条登记过来源</span>
-        <span class="ss-stat" :class="{ 'ss-bad': counts.stale }">
-          <b>{{ counts.stale ?? 0 }}</b> 条待核</span>
-        <span class="ss-stat" :class="{ 'ss-warn': counts.new }">
-          <b>{{ counts.new ?? 0 }}</b> 条新引用</span>
-        <span class="ss-stat"><b>{{ data.chapters ?? 0 }}</b> 章已扫</span>
-        <span class="ss-stat" v-if="counts.absent"><b>{{ counts.absent }}</b> 条未进正文</span>
-        <span class="ss-stat" v-if="counts.unlocatable"><b>{{ counts.unlocatable }}</b> 条名字太短无法定位</span>
-      </div>
-
-      <div v-if="data.hint" class="meta ss-hint">{{ data.hint }}</div>
-
-      <!-- 预演：先说清会写什么，再让作者点确认 -->
-      <div v-if="preview" class="ss-preview">
-        <div class="meta">
-          预演：会新增 <b>{{ preview.added_pairs }}</b> 条引用登记（涉及
-          {{ preview.added.length }} 个条目），写入前会自动备份设定集。
-        </div>
-        <div class="ss-preview-actions">
-          <button class="mini" @click="preview = null">取消</button>
-          <button class="mini primary" :disabled="!!acting" @click="runLinkCommit">确认写入</button>
-        </div>
-      </div>
-
-      <div v-if="!staleItems.length && !newItems.length" class="meta ss-ok">
-        没有待核，也没有未登记的新引用。
-      </div>
-
-      <div v-for="item in staleItems" :key="'s-' + item.kind + '-' + item.name" class="ss-item">
-        <div class="ss-head">
-          <span class="ss-tag bad">待核</span>
-          <b>{{ item.name }}</b>
-          <span class="ss-kind">{{ item.label }}</span>
-          <span class="ss-excerpt" v-if="item.excerpt">{{ item.excerpt }}</span>
-          <span class="spacer"></span>
-          <button class="mini primary" :disabled="!!acting"
-                  :title="'把这条条目的全部来源都标成已核对'"
-                  @click="review(item, null, 'confirm', 'c-all-' + item.name)">
-            已核对</button>
-        </div>
-        <div v-for="s in item.sources" :key="'s-' + item.name + '-' + s.chapter" class="ss-src">
-          <span class="ss-ch" :class="{ muted: s.state === 'ok' }">{{ sourceText(s) }}</span>
-          <span class="ss-time" v-if="s.mtime">{{ shortTime(s.mtime) }}</span>
-          <span class="spacer"></span>
-          <template v-if="s.state !== 'ok'">
-            <button class="mini" :disabled="!!acting"
-                    v-if="s.state === 'changed'"
-                    @click="review(item, [s.chapter], 'confirm', 'c-' + item.name + '-' + s.chapter)">
-              这一章也核对</button>
-            <button class="mini danger" :disabled="!!acting"
-                    :title="s.state === 'missing' ? '这一章已经不存在，去掉这条来源' : '这个引用是误匹配，去掉它'"
-                    @click="review(item, [s.chapter], 'drop', 'd-' + item.name + '-' + s.chapter)">
-              移除来源</button>
-          </template>
-        </div>
-      </div>
-
-      <div v-for="item in newItems" :key="'n-' + item.kind + '-' + item.name" class="ss-item ss-new">
-        <div class="ss-head">
-          <span class="ss-tag warn">新引用</span>
-          <b>{{ item.name }}</b>
-          <span class="ss-kind">{{ item.label }}</span>
-          <span class="ss-excerpt" v-if="item.excerpt">{{ item.excerpt }}</span>
-        </div>
-        <div class="ss-src">
-          <span class="ss-ch">第 {{ item.new_chapters.join("、") }} 章里有引用，尚未登记来源</span>
-        </div>
-      </div>
-
-      <!-- 反方向：上面管“章改了 → 哪条设定待核”，这里管“设定改了 → 哪章要重看” -->
-      <div class="ss-impact">
-        <div class="ss-impact-head">
-          <b>设定改过之后，哪几章要重看</b>
-          <span class="ss-kind" v-if="impact && impact.checked">
-            已检查 {{ impact.chapters }} 章
-            <template v-if="impact.baseline_at"> · 基线 {{ impact.baseline_at.replace("T", " ") }}</template>
-          </span>
-        </div>
-        <div v-if="!impact" class="meta">读取中…</div>
-        <div v-else-if="impact.checked === false" class="meta">
-          {{ impact.reason || "还没有基线，算不出来。" }}
-          <br />它表示<b>没算过</b>，不是“都对得上”。
-        </div>
-        <div v-else-if="!impact.stale.length" class="meta ss-ok">
-          设定没改过（或者改过之后已经重检）：这 {{ impact.chapters }} 章都对得上。
-        </div>
-        <div v-else>
-          <div v-for="x in impact.stale" :key="'imp-' + x.chapter" class="ss-src">
-            <span class="ss-tag bad">待复检</span>
-            <b>第 {{ x.chapter }} 章</b>
-            <span class="ss-ch">{{ x.reasons.join("；") }}</span>
-          </div>
-          <div class="meta">
-            在这一章上重跑阶段 5 就会重记基线；面板不替你触发花钱的动作。
-          </div>
-        </div>
-        <div v-if="impact && impact.missing && impact.missing.length" class="meta">
-          另有第 {{ impact.missing.join("、") }} 章在基线里但盘上已没有检查稿（不算待复检）。
-        </div>
-      </div>
-    </template>
-  </div>
-</template>
-
-<style scoped>
-.ss-summary {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-  align-items: baseline;
-  margin: 10px 0 6px;
-}
-.ss-stat + .ss-stat::before {
-  content: "·";
-  margin-right: 10px;
-  color: var(--muted);
-}
-.ss-stat b { font-size: 18px; }
-.ss-mtime { margin-right: 8px; }
-.ss-bad { color: var(--bad); }
-.ss-warn { color: var(--warn); }
-.ss-ok { color: var(--ok); }
-.ss-hint { margin-bottom: 8px; }
-.ss-unchecked {
-  margin: 10px 0;
-  padding: 10px 12px;
-  border-radius: 8px;
-  border-left: 3px solid var(--warn);
-  background: var(--field-dim);
-}
-.ss-impact {
-  margin-top: 14px;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--field-dim);
-}
-.ss-impact-head {
-  display: flex;
-  gap: 10px;
-  align-items: baseline;
-  flex-wrap: wrap;
-  margin-bottom: 6px;
-}
-.ss-preview {
-  margin: 8px 0 10px;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--accent);
-  border-radius: 8px;
-  background: var(--field-dim);
-}
-.ss-preview-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
-.ss-item {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 10px 12px;
-  margin: 8px 0;
-  background: var(--field-inset);
-}
-.ss-item.ss-new { border-left: 3px solid var(--warn); }
-.ss-tag {
-  font-size: 12px;
-  padding: 1px 6px;
-  border-radius: 4px;
-  border: 1px solid var(--border);
-  background: var(--field);
-  flex: none;
-}
-.ss-tag.bad { color: var(--bad); border-color: var(--bad); }
-.ss-tag.warn { color: var(--warn); border-color: var(--warn); }
-.ss-kind {
-  font-size: 12px;
-  padding: 1px 7px;
-  border-radius: 4px;
-  border: 1px solid var(--border);
-  background: var(--field);
-  color: var(--muted);
-}
-.ss-excerpt {
-  font-size: 13px;
-  color: var(--muted);
-  max-width: 360px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.ss-src {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  flex-wrap: wrap;
-  margin-top: 6px;
-  font-size: 13px;
-  min-width: 0;
-}
-.ss-ch { word-break: break-word; }
-.ss-ch.muted { color: var(--muted); }
-.ss-time { color: var(--muted); font-size: 12px; }
-</style>

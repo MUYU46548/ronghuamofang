@@ -1,3 +1,126 @@
+<template>
+  <div data-panel="setting-closure" class="card">
+    <div class="card-head">
+      <h3>素材裁决（把设定库这摊收干净）</h3>
+      <span class="spacer"></span>
+      <span class="meta mr-2" v-if="data && data.audited_at">
+        审计于 {{ String(data.audited_at).replace("T", " ") }}</span>
+      <UiButton :disabled="busy" @click="load">{{ busy ? "读取中…" : "重新审计" }}</UiButton>
+    </div>
+    <div class="meta">
+      机器裁不了的字段分歧（同名卡在不同素材里说法不一）。拍板会写进设定集和否决记录：
+      <b>否决按名字生效</b>（下次归并不会再把它带回来）。
+    </div>
+
+    <div v-if="err" class="empty py-3.5">{{ err }}</div>
+    <div v-else-if="!data" class="meta py-2.5">读取中…</div>
+
+    <!-- checked=false 必须显式说出来：空清单 != 没有冲突 -->
+    <div v-else-if="!data.checked"
+         class="my-2.5 rounded-[var(--r-sm)] border-l-[3px] border-[var(--warn)] bg-[var(--field-dim)] px-3 py-2.5">
+      没查成：{{ data.reason || "原因未知" }}
+    </div>
+
+    <template v-else>
+      <div class="my-2.5 flex flex-wrap items-baseline gap-4">
+        <span class="meta"><b class="text-[18px] text-[color:var(--ink)]">{{ data.card_count ?? 0 }}</b> 张素材卡</span>
+        <span class="meta"><b class="text-[18px]" :class="conflicts.length ? 'text-[color:var(--bad)]' : 'text-[color:var(--ink)]'">{{ conflicts.length }}</b> 处待裁决</span>
+        <span class="meta"><b class="text-[18px] text-[color:var(--ink)]">{{ counts.adopted ?? 0 }}</b> 已采纳</span>
+        <span class="meta"><b class="text-[18px] text-[color:var(--ink)]">{{ tombstones.length }}</b> 条否决记录</span>
+      </div>
+
+      <!-- 0 张素材卡：这是“没扫到”，不是“没矛盾”——用警告色，别用绿。 -->
+      <div v-if="!groups.length && !data.card_count"
+           class="meta text-[color:var(--warn)] leading-[1.7]">
+        没有待裁决分歧 —— 但这不等于素材之间没矛盾：这次一份素材卡都没认出来。
+        {{ data.hint }}
+      </div>
+      <div v-else-if="!groups.length && !manual.length" class="meta text-[color:var(--ok)]">没有待裁决分歧。</div>
+
+      <div v-for="g in groups" :key="g.name + g.field" class="my-2 rounded-[var(--r-sm)] border border-[var(--border)] bg-[var(--field-inset)] px-3 py-2.5">
+        <div class="row-wrap">
+          <b class="text-[color:var(--ink)]">{{ g.name }}</b>
+          <UiBadge variant="neutral">{{ g.field }}</UiBadge>
+          <span class="spacer"></span>
+          <UiButton :disabled="!!acting" @click="act(g.name, 'adopt')">采纳当前</UiButton>
+          <UiButton :disabled="!!acting" @click="act(g.name, 'uncertain')">先挂着</UiButton>
+          <UiButton variant="danger" :disabled="!!acting" @click="startReject(g.name)">否决该条目</UiButton>
+        </div>
+        <div v-for="(c, i) in g.rows" :key="i" class="mt-1.5">
+          <div v-for="(v, j) in c.values" :key="j"
+               class="text-[length:var(--fs-ui)] leading-[1.7] text-[color:var(--ink)]">· {{ valueLine(v) }}</div>
+        </div>
+      </div>
+
+      <!-- 人工整理的分歧（2026-11-14）：素材是自由文本时，自动检测认不出卡格式，
+           只能先由人/Agent 把分歧摆齐，这里逐条选一版。裁决写进 decision_ledger.json。 -->
+      <div v-if="manual.length" class="mt-4 border-t border-[var(--border)] pt-3">
+        <h4 class="m-0 mb-1.5 text-[length:var(--fs-body)] font-semibold text-[color:var(--ink)]">
+          要你选一版的分歧
+          <span class="meta">（{{ manualPending }} 条待裁 / 共 {{ manual.length }} 条）</span>
+        </h4>
+        <div class="meta">
+          这些是从你的设定稿、名词表、角色名册里读出来的：同一件事有两种说法。
+          每条选一版，或者保持设定集现状。<b>裁决只记账，不会自动改设定集</b>——改不改是下一步。
+        </div>
+        <div v-for="m in manual" :key="m.id" class="my-2 rounded-[var(--r-sm)] border border-[var(--border)] bg-[var(--field-inset)] px-3 py-2.5">
+          <div class="row-wrap">
+            <b class="text-[color:var(--ink)]">{{ m.name }}</b>
+            <UiBadge variant="neutral">{{ m.field }}</UiBadge>
+            <span class="text-[length:var(--fs-ui)] text-[color:var(--muted)]">#{{ m.id }}</span>
+            <span v-if="m.current" class="meta ml-2">设定集现在：{{ m.current }}</span>
+          </div>
+          <div v-if="m.question" class="my-1.5 text-[length:var(--fs-ui)] leading-[1.7] text-[color:var(--ink)]">{{ m.question }}</div>
+          <div v-for="(v, i) in m.values" :key="i"
+               class="flex flex-wrap items-baseline gap-2.5 py-0.5">
+            <span class="text-[length:var(--fs-ui)] text-[color:var(--ink)]">{{ v.value }}</span>
+            <span v-if="v.file" class="meta flex-1">{{ v.file }}</span>
+            <UiButton :disabled="!!resolving" @click="startResolve(m, v.value)">选这版</UiButton>
+          </div>
+          <div v-if="m.suggestion" class="meta my-1.5">整理者的建议：{{ m.suggestion }}（可以推翻）</div>
+          <div v-if="m.decided"
+               class="mt-1.5 rounded-[var(--r-sm)] border-l-[3px] border-[var(--ok)] bg-[var(--field-dim)] px-2.5 py-1.5 text-[length:var(--fs-ui)] leading-[1.7] text-[color:var(--ink)]">
+            已裁决：<b>{{ chosenLabel(m.decided.chosen) }}</b>（{{ m.decided.at }}）—— {{ m.decided.reason }}
+          </div>
+          <div v-else class="mt-1.5 flex gap-2">
+            <UiButton :disabled="!!resolving" @click="startResolve(m, '__keep__')">保持现状</UiButton>
+            <UiButton variant="danger" :disabled="!!resolving" @click="startResolve(m, '__reject__')">这些说法都不采用</UiButton>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="resolving" class="my-2.5 rounded-[var(--r-sm)] border border-[var(--border)] bg-[var(--field-dim)] px-3 py-2.5">
+        <div class="meta">
+          裁决“{{ resolving.id }} → {{ chosenLabel(resolving.chosen) }}”——为什么选它：
+        </div>
+        <UiInput v-model="resolving.reason" class="mt-2"
+                 placeholder="例：4-4 稿给了改姓的制度理由（无姓者不能立契），另两稿只写“姓氏待定”" />
+        <div class="mt-2 flex justify-end gap-2">
+          <UiButton @click="resolving = null">取消</UiButton>
+          <UiButton variant="primary" :disabled="!resolving.reason.trim() || resolvingBusy"
+                    @click="confirmResolve">{{ resolvingBusy ? "记录中…" : "确认裁决" }}</UiButton>
+        </div>
+      </div>
+
+      <div v-if="rejecting" class="my-2.5 rounded-[var(--r-sm)] border border-[var(--border)] bg-[var(--field-dim)] px-3 py-2.5">
+        <div class="meta">否决“{{ rejecting.name }}”——原因会写进墓碑，以后自己能看懂：</div>
+        <UiInput v-model="rejecting.reason" class="mt-2"
+                 placeholder="例：与第 3 章定稿的设定冲突，取‘档案室整理员’那一版" />
+        <div class="mt-2 flex justify-end gap-2">
+          <UiButton @click="rejecting = null">取消</UiButton>
+          <UiButton variant="danger" :disabled="!rejecting.reason.trim()" @click="confirmReject">确认否决</UiButton>
+        </div>
+      </div>
+
+      <details v-if="tombstones.length" class="mt-3">
+        <summary class="cursor-pointer text-[length:var(--fs-ui)] text-[color:var(--muted)]">
+          已否决名单（{{ tombstones.length }}）</summary>
+        <div class="meta">{{ tombstones.join("、") }}</div>
+      </details>
+    </template>
+  </div>
+</template>
+
 <script setup>
 /**
  * 设定库闭环 · 素材裁决面板（2026-10-20，台账三·“设定库闭环”）。
@@ -18,6 +141,10 @@
  * 给个按钮自动选等于把设定权交给规则。
  */
 import { ref, computed, onMounted } from "vue";
+
+import UiBadge from "./components/ui/UiBadge.vue";
+import UiButton from "./components/ui/UiButton.vue";
+import UiInput from "./components/ui/UiInput.vue";
 
 import { API } from "./apiBase.js";
 // 裁决是 GUI-only 端点（作者签字），必须走双因子；自己拼 fetch 会 403。
@@ -141,171 +268,3 @@ function valueLine(v) {
 onMounted(load);
 defineExpose({ load });
 </script>
-
-<template>
-  <div class="card">
-    <div class="card-head">
-      <h3>素材裁决（把设定库这摊收干净）</h3>
-      <span class="spacer"></span>
-      <span class="meta" v-if="data && data.audited_at">审计于 {{ String(data.audited_at).replace("T", " ") }}</span>
-      <button class="mini" :disabled="busy" @click="load">{{ busy ? "读取中…" : "重新审计" }}</button>
-    </div>
-    <div class="meta">
-      机器裁不了的字段分歧（同名卡在不同素材里说法不一）。拍板会写进设定集和否决记录：
-      <b>否决按名字生效</b>（下次归并不会再把它带回来）。
-    </div>
-
-    <div v-if="err" class="empty" style="padding:14px 0;">{{ err }}</div>
-    <div v-else-if="!data" class="meta" style="padding:10px 0;">读取中…</div>
-
-    <!-- checked=false 必须显式说出来：空清单 != 没有冲突 -->
-    <div v-else-if="!data.checked" class="sc-unchecked">
-      没查成：{{ data.reason || "原因未知" }}
-    </div>
-
-    <template v-else>
-      <div class="sc-summary">
-        <span class="sc-stat"><b>{{ data.card_count ?? 0 }}</b> 张素材卡</span>
-        <span class="sc-stat" :class="{ 'sc-bad': conflicts.length }">
-          <b>{{ conflicts.length }}</b> 处待裁决</span>
-        <span class="sc-stat"><b>{{ counts.adopted ?? 0 }}</b> 已采纳</span>
-        <span class="sc-stat"><b>{{ tombstones.length }}</b> 条否决记录</span>
-      </div>
-
-      <div v-if="!groups.length && !data.card_count" class="meta sc-warn">
-        没有待裁决分歧 —— 但这不等于素材之间没矛盾：这次一份素材卡都没认出来。
-        {{ data.hint }}
-      </div>
-      <div v-else-if="!groups.length && !manual.length" class="meta sc-ok">没有待裁决分歧。</div>
-
-      <div v-for="g in groups" :key="g.name + g.field" class="sc-item">
-        <div class="sc-head row-wrap">
-          <b>{{ g.name }}</b>
-          <span class="sc-field">{{ g.field }}</span>
-          <span class="spacer"></span>
-          <button class="mini" :disabled="!!acting" @click="act(g.name, 'adopt')">采纳当前</button>
-          <button class="mini" :disabled="!!acting" @click="act(g.name, 'uncertain')">先挂着</button>
-          <button class="mini danger" :disabled="!!acting" @click="startReject(g.name)">否决该条目</button>
-        </div>
-        <div v-for="(c, i) in g.rows" :key="i" class="sc-vals">
-          <div v-for="(v, j) in c.values" :key="j" class="sc-val">· {{ valueLine(v) }}</div>
-        </div>
-      </div>
-
-      <!-- 人工整理的分歧（2026-11-14）：素材是自由文本时，自动检测认不出卡格式，
-           只能先由人/Agent 把分歧摆齐，这里逐条选一版。裁决写进 decision_ledger.json。 -->
-      <div v-if="manual.length" class="sc-manual">
-        <h4>
-          要你选一版的分歧
-          <span class="meta">（{{ manualPending }} 条待裁 / 共 {{ manual.length }} 条）</span>
-        </h4>
-        <div class="meta">
-          这些是从你的设定稿、名词表、角色名册里读出来的：同一件事有两种说法。
-          每条选一版，或者保持设定集现状。<b>裁决只记账，不会自动改设定集</b>——改不改是下一步。
-        </div>
-        <div v-for="m in manual" :key="m.id" class="sc-item">
-          <div class="sc-head row-wrap">
-            <b>{{ m.name }}</b>
-            <span class="sc-field">{{ m.field }}</span>
-            <span class="sc-id">#{{ m.id }}</span>
-            <span v-if="m.current" class="meta sc-current">设定集现在：{{ m.current }}</span>
-          </div>
-          <div v-if="m.question" class="sc-q">{{ m.question }}</div>
-          <div v-for="(v, i) in m.values" :key="i" class="sc-val sc-val-pick">
-            <span class="sc-val-text">{{ v.value }}</span>
-            <span v-if="v.file" class="meta">{{ v.file }}</span>
-            <button class="mini" :disabled="!!resolving" @click="startResolve(m, v.value)">选这版</button>
-          </div>
-          <div v-if="m.suggestion" class="meta sc-suggest">整理者的建议：{{ m.suggestion }}（可以推翻）</div>
-          <div v-if="m.decided" class="sc-decided">
-            已裁决：<b>{{ chosenLabel(m.decided.chosen) }}</b>（{{ m.decided.at }}）—— {{ m.decided.reason }}
-          </div>
-          <div v-else class="sc-actions">
-            <button class="mini" :disabled="!!resolving" @click="startResolve(m, '__keep__')">保持现状</button>
-            <button class="mini danger" :disabled="!!resolving" @click="startResolve(m, '__reject__')">这些说法都不采用</button>
-          </div>
-        </div>
-      </div>
-
-      <div v-if="resolving" class="sc-reject">
-        <div class="meta">
-          裁决“{{ resolving.id }} → {{ chosenLabel(resolving.chosen) }}”——为什么选它：
-        </div>
-        <input v-model="resolving.reason" class="sc-input"
-               placeholder="例：4-4 稿给了改姓的制度理由（无姓者不能立契），另两稿只写“姓氏待定”" />
-        <div class="sc-reject-actions">
-          <button class="mini" @click="resolving = null">取消</button>
-          <button class="mini primary" :disabled="!resolving.reason.trim() || resolvingBusy"
-                  @click="confirmResolve">{{ resolvingBusy ? "记录中…" : "确认裁决" }}</button>
-        </div>
-      </div>
-
-      <div v-if="rejecting" class="sc-reject">
-        <div class="meta">否决“{{ rejecting.name }}”——原因会写进墓碑，以后自己能看懂：</div>
-        <input v-model="rejecting.reason" class="sc-input"
-               placeholder="例：与第 3 章定稿的设定冲突，取‘档案室整理员’那一版" />
-        <div class="sc-reject-actions">
-          <button class="mini" @click="rejecting = null">取消</button>
-          <button class="mini danger" :disabled="!rejecting.reason.trim()" @click="confirmReject">确认否决</button>
-        </div>
-      </div>
-
-      <details v-if="tombstones.length" class="sc-tombs">
-        <summary>已否决名单（{{ tombstones.length }}）</summary>
-        <div class="meta">{{ tombstones.join("、") }}</div>
-      </details>
-    </template>
-  </div>
-</template>
-
-<style scoped>
-.sc-summary { display: flex; gap: 18px; flex-wrap: wrap; align-items: baseline; margin: 10px 0 6px; }
-.sc-stat b { font-size: 18px; }
-.sc-bad { color: var(--bad); }
-.sc-ok { color: var(--ok); }
-/* 0 张素材卡：这是“没扫到”，不是“没矛盾”——用警告色，别用绿。 */
-.sc-warn { color: var(--warn, #b8860b); line-height: 1.7; }
-
-/* 人工整理的分歧（2026-11-14）：两方并排，各给一个“选这版”，裁决后可回看理由。 */
-.sc-manual { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 12px; }
-.sc-manual h4 { margin: 0 0 6px; font-size: 14px; }
-.sc-id { font-size: 13px; color: var(--muted); }
-.sc-current { margin-left: 8px; }
-.sc-q { margin: 4px 0 6px; font-size: 13px; line-height: 1.7; }
-.sc-val-pick { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
-.sc-val-text { font-size: 13px; }
-.sc-val-pick .meta { flex: 1; }
-.sc-suggest { margin: 6px 0; }
-.sc-actions { display: flex; gap: 8px; margin-top: 6px; }
-.sc-decided {
-  margin-top: 6px; padding: 6px 10px; border-radius: 6px; font-size: 13px; line-height: 1.7;
-  border-left: 3px solid var(--ok); background: var(--field-dim); color: var(--ink);
-}
-.sc-unchecked {
-  margin: 10px 0; padding: 10px 12px; border-radius: 8px;
-  border-left: 3px solid var(--warn); background: var(--field-dim);
-}
-.sc-item {
-  border: 1px solid var(--border); border-radius: 8px;
-  padding: 10px 12px; margin: 8px 0; background: var(--field-inset);
-}
-.sc-field {
-  font-size: 12px; padding: 1px 7px; border-radius: 4px;
-  border: 1px solid var(--border); background: var(--field); color: var(--muted);
-}
-.sc-vals { margin-top: 6px; font-size: 13px; line-height: 1.75; opacity: 0.85; }
-.sc-val { word-break: break-word; }
-.sc-reject {
-  margin-top: 10px; padding: 10px 12px; border-radius: 8px;
-  border: 1px solid var(--border); background: var(--field-dim);
-}
-.sc-input {
-  width: 100%; margin-top: 6px; padding: 8px 10px; font-size: 13px;
-  border: 1px solid var(--border); border-radius: 8px;
-  background: var(--field); color: var(--ink); font-family: inherit;
-}
-.sc-input:focus { outline: none; border-color: var(--accent); }
-.sc-reject-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
-.sc-tombs { margin-top: 12px; }
-.sc-tombs summary { cursor: pointer; font-size: 13px; color: var(--muted); }
-</style>

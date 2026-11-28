@@ -1,58 +1,58 @@
 <template>
-  <div class="vd-panel">
-    <div class="vd-head row-wrap">
-      <strong>设定目录（你的库，你来指）</strong>
-      <button class="mini" @click="load" :disabled="busy">刷新目录</button>
-      <button class="mini primary" @click="save" :disabled="busy || !dirty">保存</button>
-      <span class="muted" v-if="msg">{{ msg }}</span>
+  <div data-panel="vault-dirs" class="mb-2.5 mt-2.5 rounded-[var(--r-sm)] border border-[var(--border)] px-3 py-2.5">
+    <div class="row-wrap mb-2">
+      <strong class="text-[color:var(--ink)]">设定目录（你的库，你来指）</strong>
+      <UiButton :disabled="busy" @click="load">刷新目录</UiButton>
+      <UiButton variant="primary" :disabled="busy || !dirty" @click="save">保存</UiButton>
+      <span class="meta" v-if="msg">{{ msg }}</span>
     </div>
-    <p class="muted">{{ note }}</p>
+    <p class="meta">{{ note }}</p>
 
-    <div class="vd-grid">
-      <label v-for="k in keys" :key="k" class="vd-row">
-        <span class="vd-k">{{ labels[k] }}</span>
-        <select v-model="picked[k]">
+    <div class="mt-2 grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(240px,1fr))]">
+      <div v-for="k in keys" :key="k" class="flex items-center gap-2 min-w-0">
+        <span class="w-[3.5em] flex-none text-[length:var(--fs-ui)] text-[color:var(--muted)]">{{ labels[k] }}</span>
+        <select v-model="picked[k]" class="min-w-0 flex-1">
           <option value="">（这一类不读）</option>
           <option v-for="c in candidates" :key="c.path || '__root'" :value="c.path">
             {{ c.path || "（库根）" }}{{ c.md ? " · " + c.md + " 篇" : "" }}
           </option>
         </select>
-      </label>
+      </div>
     </div>
     <!-- 其他库的目录（2026-11-08，0.9.1 验收第 2 条）：
          多库时“角色/地点/势力/概念/年表”五类目录**按库各一套**。
          别的库结构跟当前库不一样时，这里能分别指；没配的库要点名说清楚，
          否则它只是静默扫空，作者会以为多库坏了。 -->
-    <div v-if="vaults.length" class="vd-others">
-      <div class="vd-sub">其他库的目录（每个库各存一套）</div>
-      <p class="muted">
+    <div v-if="vaults.length" class="mt-3 border-t border-dashed border-[var(--border)] pt-2.5">
+      <div class="mb-1 text-[length:var(--fs-ui)] font-semibold text-[color:var(--ink)]">其他库的目录（每个库各存一套）</div>
+      <p class="meta">
         这些库的结构可能跟当前库不一样，所以目录要分别指。只写<b>库内相对目录</b>
         （例：设定/人物），不能填绝对路径。留空 = 这一类不从那个库读。
       </p>
-      <div v-for="v in vaults" :key="v.path" class="vd-vault">
-        <div class="vd-vault-head row-wrap">
-          <b>{{ v.name }}</b>
-          <span class="muted vd-path">{{ v.path }}</span>
+      <div v-for="v in vaults" :key="v.path"
+           class="my-2 rounded-[var(--r-sm)] border border-[var(--border)] px-2.5 py-2">
+        <div class="row-wrap">
+          <b class="text-[color:var(--ink)]">{{ v.name }}</b>
+          <span class="meta max-w-[42em] truncate" :title="v.path">{{ v.path }}</span>
           <!-- 三种来源要说清楚（2026-11-08）：自己配过 / 沿用当前库 / 完全没配。
                只说“没配”会让人以为乙库也被忽略了 —— 沿用时它其实读得到，只是按当前库的目录找。 -->
-          <span v-if="v.dirs_source === 'inherited'" class="vd-badge info"
-                title="这个库自己没配目录，暂时按当前库那套目录去找。结构一样就直接用；不一样就在这里改，保存后它就是自己一套。">
-            沿用当前库的目录</span>
-          <span v-else-if="!v.dirs_configured" class="vd-badge">这个库没配目录（扫不到条目）</span>
-          <button class="mini vd-save" :disabled="v.busy" @click="saveVault(v)">保存这个库的目录</button>
-          <span class="muted" v-if="v.msg">{{ v.msg }}</span>
+          <UiBadge v-if="v.dirs_source === 'inherited'" variant="neutral"
+                   title="这个库自己没配目录，暂时按当前库那套目录去找。结构一样就直接用；不一样就在这里改，保存后它就是自己一套。">
+            沿用当前库的目录</UiBadge>
+          <UiBadge v-else-if="!v.dirs_configured" variant="warn">这个库没配目录（扫不到条目）</UiBadge>
+          <UiButton class="ml-auto" :disabled="v.busy" @click="saveVault(v)">保存这个库的目录</UiButton>
+          <span class="meta" v-if="v.msg">{{ v.msg }}</span>
         </div>
-        <div class="vd-grid">
-          <label v-for="k in keys" :key="v.path + k" class="vd-row">
-            <span class="vd-k">{{ labels[k] }}</span>
-            <input v-model="v.dirs[k]" :placeholder="'例：' + samples[k]" />
-          </label>
+        <div class="mt-2 grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(240px,1fr))]">
+          <UiField v-for="k in keys" :key="v.path + k" :label="labels[k]" inline>
+            <UiInput v-model="v.dirs[k]" :placeholder="'例：' + samples[k]" />
+          </UiField>
         </div>
-        <p v-if="!v.enabled" class="muted">这个库现在是“未启用”（不参与扫描）—— 配了目录也不会读。</p>
+        <p v-if="!v.enabled" class="meta">这个库现在是“未启用”（不参与扫描）—— 配了目录也不会读。</p>
       </div>
     </div>
 
-    <p class="muted vd-hint">
+    <p class="meta mt-2">
       每一行 = 设定集里的一类条目，右边选它在你的库（Obsidian 等 markdown 库）里
       <b>对应哪个目录</b>；选“这一类不读”= 这类条目不从库里读，只用素材卡里的内容。
       留空的那几类不会报错，也不会凭空补字。
@@ -62,6 +62,11 @@
 
 <script setup>
 import { computed, onMounted, ref } from "vue";
+
+import UiBadge from "./components/ui/UiBadge.vue";
+import UiButton from "./components/ui/UiButton.vue";
+import UiField from "./components/ui/UiField.vue";
+import UiInput from "./components/ui/UiInput.vue";
 
 const props = defineProps({ api: { type: Function, required: true } });
 const keys = ["characters", "locations", "factions", "concepts", "timeline"];
@@ -159,24 +164,3 @@ async function save() {
 onMounted(() => { load(); loadVaults(); });
 </script>
 
-<style scoped>
-.vd-panel { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin: 10px 0; }
-.vd-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 8px; margin-top: 8px; }
-.vd-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.vd-k { width: 3.5em; font-size: 13px; color: var(--muted); flex: none; }
-.vd-row select { flex: 1; min-width: 0; }
-.muted { color: var(--muted); font-size: 13px; }
-/* 其他库：一库一块，目录用输入框（每个库结构不同，没有统一的候选清单可下拉） */
-.vd-others { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--border); }
-.vd-sub { font-size: 13px; font-weight: 600; margin-bottom: 4px; }
-.vd-vault { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; margin: 8px 0; }
-.vd-path { max-width: 42em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.vd-badge {
-  font-size: 12px; padding: 1px 8px; border-radius: 9px;
-  border: 1px solid var(--warn); color: var(--warn);
-}
-.vd-badge.info { border-color: var(--border); color: var(--muted); }
-.vd-save { margin-left: auto; }
-.vd-row input { flex: 1; min-width: 0; padding: 4px 8px; border: 1px solid var(--border);
-  border-radius: 6px; background: var(--field); color: var(--ink); font-size: 13px; }
-</style>
