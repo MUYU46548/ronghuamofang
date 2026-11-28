@@ -105,7 +105,13 @@ def main():
                             # 会话 token：模拟 Electron 主进程 spawn 时的 env 注入。
                             # 没有它 → nf_api 不认任何 GUI 来源（fail-closed），
                             # 下面【3】的“合法写入”会全挂，所以必须给。
-                            env=dict(os.environ, NF_GUI_TOKEN=TEST_TOKEN))
+                            # NF_LICENSE_ACK=1：临时工作区没有许可确认记录，不给这个
+                            # 旁路的话**所有请求都 403 license_required**，本用例会
+                            # 显示成“阈值全坏”的假红（2026-11-28 实测：12 条 FAIL
+                            # 全是许可闸，与阈值无关）。与 nfctl test 对子进程注入的
+                            # 是同一个变量（stderr 会打 WARN），不是新开的后门。
+                            env=dict(os.environ, NF_GUI_TOKEN=TEST_TOKEN,
+                                     NF_LICENSE_ACK="1"))
     try:
         ready = False
         for _ in range(60):
@@ -175,9 +181,13 @@ def main():
         after = cfg_text(tmp)
         vals = token_values(tmp)
         check("目标值落盘", vals.get("max_total_tokens") == 2000000, vals)
+        # 未提交的项按 TOKEN_LIMIT_PRESET 补齐 —— 这里不写死数字，
+        # 直接与预设比（阈值会随作者口径调整，写死就每次都要改测试）。
         check("未提交的项按预设补齐（不是 0）",
-              vals.get("per_request_max_tokens") == 200000
-              and vals.get("chapter_max_tokens") == 200000, vals)
+              vals.get("per_request_max_tokens")
+              == cost_tracker.TOKEN_LIMIT_PRESET["per_request_max_tokens"]
+              and vals.get("chapter_max_tokens")
+              == cost_tracker.TOKEN_LIMIT_PRESET["chapter_max_tokens"], vals)
         comments_after = [ln for ln in after.splitlines() if ln.strip().startswith("#")]
         check("**注释与说明段落逐行保留**（定向改写而非 dump）",
               comments_before == comments_after,
@@ -226,9 +236,11 @@ def main():
         check("/state 200", code == 200, code)
         check("budget.tokens_used 存在（数字，不是 None）",
               isinstance(b.get("tokens_used"), int), b)
+        # 同上：与当前配置的预设比，不写死数字。
         check("budget.token_limit 回显当前阈值",
-              (b.get("token_limit") or {}).get("max_total_tokens") == 3000000
-              or (b.get("token_limit") or {}).get("max_total_tokens") == 10000000, b.get("token_limit"))
+              (b.get("token_limit") or {}).get("max_total_tokens")
+              == cost_tracker.TOKEN_LIMIT_PRESET["max_total_tokens"],
+              b.get("token_limit"))
         check("budget.token_pct 存在（有上限时不是 None）",
               b.get("token_pct") is not None, b)
         check("空账本 → tokens_used = 0（不谎报）", b.get("tokens_used") == 0, b)

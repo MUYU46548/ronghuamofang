@@ -183,8 +183,8 @@ STATE = {
                "tokens_used": 116599, "tokens_run_id": 7,
                "token_limit": {"enabled": True, "per_request_max_tokens": 200000,
                                "per_request_pause_hermes": False,
-                               "chapter_max_tokens": 200000,
-                               "max_total_tokens": 10000000, "warn_ratio": 0.7},
+                               "chapter_max_tokens": 3000000,
+                               "max_total_tokens": 500000000, "warn_ratio": 0.7},
                "token_pct": 1.17},
     # 会话账本（P2，2026-11-27）：只读展示 stage4 的会话水位与接力点。
     "writing_session": {"id": "sess-mock-0001", "last_chapter": 3,
@@ -842,9 +842,9 @@ class Handler(BaseHTTPRequestHandler):
                 "pct": 24.7, "warn_ratio": 0.7,
                 "tokens_in": 412345, "tokens_out": 98765, "cache_read": 301122,
                 "tokens_total": 511110, "max_call_tokens_in": 48211,
-                "token_limit": {"enabled": True, "max_total_tokens": 10000000,
+                "token_limit": {"enabled": True, "max_total_tokens": 500000000,
                                 "per_request_max_tokens": 200000,
-                                "chapter_max_tokens": 200000},
+                                "chapter_max_tokens": 3000000},
                 "token_pct": 5.11, "engine": "hermes",
                 "context": {
                     "sources": [
@@ -991,8 +991,8 @@ class Handler(BaseHTTPRequestHandler):
                     "days": 21, "start": "2026-11-06", "end": "2026-11-26",
                     "tokens_total": _total, "calls": sum(d["calls"] for d in _days),
                     "active_days": _active,
-                    "token_limit": 10000000,
-                    "used_pct": round(_total / 10000000 * 100, 2),
+                    "token_limit": 500000000,
+                    "used_pct": round(_total / 500000000 * 100, 2),
                     "money_metered": False,
                     "note": "滚动窗口（最近 21 天），不是自然月 —— 账期由 DSH 订阅侧管，"
                             "墨坊只记实际发生的用量。",
@@ -1161,13 +1161,13 @@ class Handler(BaseHTTPRequestHandler):
             # 让视觉验收能真读到值，而不是只看到"读取失败"。
             preset = {"enabled": True, "per_request_max_tokens": 200000,
                       "per_request_pause_hermes": False,
-                      "chapter_max_tokens": 200000, "max_total_tokens": 10000000,
+                      "chapter_max_tokens": 3000000, "max_total_tokens": 500000000,
                       "warn_ratio": 0.7}
             return self._send(200, {
                 "ok": True, "current": preset, "preset": preset,
                 "bounds": {"per_request_max_tokens": [1000, 500000],
-                           "chapter_max_tokens": [1000, 1000000],
-                           "max_total_tokens": [100000, 200000000],
+                           "chapter_max_tokens": [1000, 10000000],
+                           "max_total_tokens": [100000, 1000000000],
                            "warn_ratio": [0.1, 1.0]},
                 "path": "config/system.yaml", "field": "budget.token_limit",
                 "note": "mock：engine: hermes 下金额阈值无效；止烧靠 token 上限。",
@@ -1203,7 +1203,17 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"ok": True, "stage": int(stage),
                                     "artifacts": table[stage]})
         if p == "/materials/list":
-            return self._send(200, {"count": 3, "items": [], "dir": "materials/raw"})
+            # 2026-11-28：清单与 /materials/scan 必须说同一件事 —— 原来这里 items 为空、
+            # scan 却说“会读 2 篇”，截图一放出来就是“0 个素材 / 会读 2 篇”自相矛盾
+            # （作者刚为“界面必改”驳回，别让验收证据本身先打架）。
+            return self._send(200, {"count": 3, "dir": "materials/raw", "items": [
+                {"name": "角色卡_阿岚.md", "size": 2048, "modified": "2026-01-01 00:00:00",
+                 "kind": "text", "ext": ".md"},
+                {"name": "场景_渡口.md", "size": 1024, "modified": "2026-01-01 00:00:00",
+                 "kind": "text", "ext": ".md"},
+                {"name": "README.md", "size": 256, "modified": "2026-01-01 00:00:00",
+                 "kind": "text", "ext": ".md"},
+            ]})
         if p == "/materials/scan":
             # 阶段 1 读入预览（2026-11-27）：界面不该让用户猜“我这篇算不算卡片”。
             return self._send(200, {

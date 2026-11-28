@@ -1059,6 +1059,18 @@ def test_about_project(browser, mock_proc=None):
         page.wait_for_timeout(200)
 
         print("  --- 流水线条上的 token 闸门（hermes 下唯一有效的止烧观测面）---")
+        # 2026-11-28：别把出厂上限写死在断言里 —— 默认从 1000 万改成 5 亿后，
+        # 这两条红在断言上、不红在功能上（作者刚为“界面必改”驳回，别制造假红）。
+        # 从 /state 取真值再比对；拿不到就退回 0（下面的断言会当场说清）。
+        try:
+            with urllib.request.urlopen(MOCK_API + "/state", timeout=5) as _r:
+                _st = json.loads(_r.read().decode("utf-8"))
+            _tl = ((_st.get("budget") or {}).get("token_limit") or {})
+            _used = int(((_st.get("budget") or {}).get("tokens_used")) or 0)
+        except Exception:                                   # noqa: BLE001
+            _tl, _used = {}, 0
+        max_total = int(_tl.get("max_total_tokens") or 0)
+        per_req = int(_tl.get("per_request_max_tokens") or 0)
         page.locator(".tabs button:has-text('流水线')").click()
         page.wait_for_timeout(700)
         strip = page.locator(".ps-item").all_inner_texts()
@@ -1067,7 +1079,8 @@ def test_about_project(browser, mock_proc=None):
               any(("token 用量上限" in t) or ("token 闸门" in t) for t in strip),
               joined[:160])
         check("显示 token 已用 / 上限（数字真的来自 /state）",
-              "116,599" in joined and "10,000,000" in joined, joined[:200])
+              ("{:,}".format(_used) in joined) and ("{:,}".format(max_total) in joined),
+              joined[:200])
         shot(page, "D8_token_gate_strip")
 
         print("  --- 止烧阈值面板（设置页：读值 → 恢复默认预设 → 明确反馈）---")
@@ -1102,8 +1115,8 @@ def test_about_project(browser, mock_proc=None):
         # 值来自后端（mock 回的就是出厂预设）
         vals = [page.locator(".tl-field input[type=number]").nth(i).input_value()
                 for i in range(page.locator(".tl-field input[type=number]").count())]
-        check("单请求上限显示 200000（与出厂预设一致）", "200000" in vals, vals)
-        check("累计上限显示 10000000（1000 万/轮）", "10000000" in vals, vals)
+        check("单请求上限显示 %d（与 /state 出厂预设一致）" % per_req, str(per_req) in vals, vals)
+        check("累计上限显示 %d（与 /state 出厂预设一致）" % max_total, str(max_total) in vals, vals)
         _grid = page.locator(".tl-grid:not(.discuss)")
         check("区间提示可见（不是空标签）",
               "1000" in _grid.inner_text() and "100000" in _grid.inner_text(),

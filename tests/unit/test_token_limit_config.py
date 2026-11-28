@@ -45,12 +45,12 @@ def case_preset_matches_shipped():
     shipped = ((cfg.get("budget") or {}).get("token_limit")) or {}
     check("system.yaml 的 token_limit 与 TOKEN_LIMIT_PRESET 逐项一致",
           shipped == TOKEN_LIMIT_PRESET, "shipped=%s preset=%s" % (shipped, TOKEN_LIMIT_PRESET))
-    check("累计上限 = 1000 万/轮（用户 2026-10-03 定调）",
-          shipped.get("max_total_tokens") == 10000000, shipped.get("max_total_tokens"))
+    check("累计上限 = 5 亿/轮（2026-11-28 作者定调，原 1000 万）",
+          shipped.get("max_total_tokens") == 500000000, shipped.get("max_total_tokens"))
     check("单请求上限 = 200000（2026-11-26 按 44 篇素材大归并实测输出 10.5 万重定标）",
           shipped.get("per_request_max_tokens") == 200000, shipped.get("per_request_max_tokens"))
-    check("单章预算 = 200000（P0-5：一章含段群/重试的累计）",
-          shipped.get("chapter_max_tokens") == 200000, shipped.get("chapter_max_tokens"))
+    check("单章预算 = 300 万（2026-11-28 作者定调，原 20 万）",
+          shipped.get("chapter_max_tokens") == 3000000, shipped.get("chapter_max_tokens"))
     check("单请求口径只观测、不再熔断（P0-5）",
           shipped.get("per_request_pause_hermes") is False)
     check("预设是\u300c开\u300d的（止烧默认生效）", shipped.get("enabled") is True)
@@ -178,14 +178,14 @@ def case_estimate_shows_gate():
                       use_history=False)
     tk = res.get("token_limit") or {}
     check("结果带 token_limit 块", bool(tk), tk)
-    check("上限与配置一致", tk.get("max_total_tokens") == 10000000, tk)
+    check("上限与配置一致", tk.get("max_total_tokens") == 500000000, tk)
     check("给出\u300c预计跑完\u300d的累计与该轮占比",
           isinstance(tk.get("projected_tokens"), int) and tk.get("projected_pct") is not None, tk)
     check("预计值 = 已用 + 本轮估算",
           tk.get("projected_tokens") == tk.get("used_tokens", 0) + tk.get("estimated_tokens", 0), tk)
     text = et.format_text(res)
     check("文本模式也打印 token 闸门行（不能只有 JSON 有）", "token 闸门" in text, text[-200:])
-    check("文本里带上限数字", "10000000" in text, text[-200:])
+    check("文本里带上限数字", "500000000" in text, text[-200:])
 
     # 反证：把上限压到**校验下限 100000**（validate_token_limit 的最小值，
     # normalize 会把低于下限的配置回落预设——不能设得更小），并把本轮估算放大到必超下限。
