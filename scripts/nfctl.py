@@ -635,6 +635,26 @@ def collect_check(root: Path) -> dict:
     scraps = _count_files(root / "materials" / "original_scraps")
     add("素材非空", cards + scraps > 0, "materials/raw %s 张 · original_scraps %s 条" % (cards, scraps), warning=True)
 
+    # 关键配置键有没有缺（2026-11-28，作者问卷 C2=B：缺失不再静默兼容）
+    # 为什么这条必须在体检里：真机对账发现老工作区缺 46 个出厂键，缺的那些里
+    # `dsh.text_writing` / `gates.segment_approval` 都是“功能做了但用不上”——
+    # 代码读不到就回落到默认值，全程没有任何提示。作者只能靠"感觉不对劲"发现。
+    try:
+        from utils import config_keys as _ck
+        _miss = _ck.critical_missing(root)
+        if _miss:
+            _names = "、".join(m["key"].split(".")[-1] for m in _miss[:4])
+            add("关键配置键齐全", False,
+                "缺 %d 个关键键（%s%s）—— 缺失会让对应功能静默不生效。"
+                "跑 `python scripts/migrate_config_keys.py --yes` 补齐"
+                % (len(_miss), _names, " 等" if len(_miss) > 4 else ""),
+                blocking=False, warning=True)
+        else:
+            add("关键配置键齐全", True, "止烧/分段审批/纯文本写作等关键键都在")
+    except Exception as e:                                  # noqa: BLE001
+        add("关键配置键齐全", False, "自检失败：%s: %s" % (type(e).__name__, str(e)[:120]),
+            warning=True)
+
     # GUI 文案标点（2026-11-02）：直角引号“”‘’在 console/src 一律不许出现
     # （作者第 5 条：中文引号是“”‘’）。放进 check 是为了**几秒内抓到** ——
     # 全量测试要 5 分钟，而我连续四次把它写进 Vue 文件、每次都要等全量才发现。
