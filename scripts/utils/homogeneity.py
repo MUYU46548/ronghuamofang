@@ -351,6 +351,26 @@ def load_character_names(setting_path):
     return names
 
 
+def _project_root_of(chapter_path):
+    """从章节文件反推项目根（含 `data/` 的那一层）。
+
+    ⚠️ 2026-11-28 真机修：原来写死 `p.resolve().parents[2]`，那是按
+    `data/chapters/raw/01.md` 数的层数。但章节也可能是
+    `data/chapters/<其它子目录>/01.md`，于是 parents[2] 落到 `data/` 本身 ——
+    报告被写进 `data/data/state/homogeneity/`，而读取侧 `reports_dir()` 读的是
+    `data/state/homogeneity/`，**永远读不到**。真机现场就是这么留下的：
+    `workspace/data/data/state/homogeneity/01..N.json`（10 月 24 日那批）。
+
+    判据改成"往上找第一个叫 data 的目录，取它的父级"——不管中间隔几层都对。
+    找不到 data 目录时退回 parents[2]（保持旧行为，不做无根据的猜测）。
+    """
+    p = Path(chapter_path).resolve()
+    for parent in p.parents:
+        if parent.name == "data":
+            return parent.parent
+    return p.parents[2] if len(p.parents) > 2 else p.parent
+
+
 def write_chapter_report(chapter_path, chapter_no=None, setting_path=None,
                          out_dir=None):
     """写 data/state/homogeneity/<章节名>.json，并返回结果 dict。
@@ -361,7 +381,7 @@ def write_chapter_report(chapter_path, chapter_no=None, setting_path=None,
     text = p.read_text(encoding="utf-8", errors="replace")
     res = analyze(text, load_character_names(setting_path), chapter_no)
     if out_dir is None:
-        out_dir = p.resolve().parents[2] / "data" / "state" / "homogeneity"
+        out_dir = _project_root_of(p) / "data" / "state" / "homogeneity"
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     (out / (p.stem + ".json")).write_text(

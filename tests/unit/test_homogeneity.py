@@ -211,6 +211,27 @@ def main():
             k in j.read_text(encoding="utf-8") for k in ("metrics", "findings", "chars")))
         check("返回结构与落盘一致", res["chars"] > 600, res["chars"])
         check("summary 一行可用", "字" in H.summarize(res), H.summarize(res))
+
+        # ---- 2026-11-28：**不传 out_dir** 时的默认落点必须与读侧一致 ----
+        # 真机现场：报告被写进 workspace/data/data/state/homogeneity/（多套一层 data），
+        # 而 GUI/CLI 读的是 data/state/homogeneity/ —— 永远读不到。
+        # 根因是 `p.resolve().parents[2]` 按写死的层数推根，章节路径一变就错。
+        # ⚠️ 上一版这条测试全部显式传 out_dir，所以永远测不到默认路径 —— 这就是它长期没被发现的原因。
+        deep = tmp / "data" / "chapters" / "raw" / "01.md"
+        deep.parent.mkdir(parents=True, exist_ok=True)
+        deep.write_text(normal, encoding="utf-8")
+        H.write_chapter_report(deep, 1, None)          # 刻意不传 out_dir
+        expect = tmp / "data" / "state" / "homogeneity" / "01.json"
+        check("默认落点 = 项目根/data/state/homogeneity（不多套一层 data）",
+              expect.exists(), "实际未落在 " + str(expect))
+        check("**不写进 data/data/state**（真机那个 bug 的形状）",
+              not (tmp / "data" / "data" / "state" / "homogeneity").exists(),
+              "出现了 data/data/state —— 层数推算又错了")
+        # 读侧与写侧必须同源：读目录里能看到刚写的那份
+        check("读侧 reports_dir 能找到写入的报告",
+              any(p.name == "01.json" for p in H.reports_dir(tmp).glob("*.json"))
+              or H.reports_dir(tmp) == expect.parent,
+              H.reports_dir(tmp))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
