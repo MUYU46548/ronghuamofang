@@ -503,6 +503,8 @@ def handle_chapters_dispatch_set(h, body):
     action:
       - `save`：{n, layer?, items:[{id?, para, note?, before?, after}]} —— 把一轮派单的
         产出整份写进去（外部跑完模型后调用它，不经过本进程的模型调用）；
+      - `run`：{n, indexes:[段号], notes?:{段号:意见}, layer?, dry_run?} —— **本进程
+        跑那次模型调用**，一次调用改多段（2026-11-28）。产出同样落成候选，不碰正文；
       - `apply`：{n, id} —— 采用这一段：走 `refine_paragraph.save_paragraph_text`
         （与手改/精修同一条回写路径，同样进历史版本）；
       - `reject`：{n, id} —— 驳回，只标状态，正文不动。
@@ -557,6 +559,41 @@ def handle_chapters_dispatch_set(h, body):
         return 200, {"ok": True, "message": "已记下 %d 段候选" % len(items),
                      "items": data["items"]}
 
+    if action == "run":
+        # 一次调用改多段（2026-11-28）：这条路会花 token，但一次调用覆盖 N 段。
+        # 与 save 的区别：save 是**外部**已跑完模型、把产出送进来；run 是**本进程**
+        # 自己跑那次调用。作者定过"分次调用会让成本增加三五倍"，所以默认批量。
+        raw_idx = body.get("indexes") or body.get("paras") or body.get("paragraph_indexes")
+        if not isinstance(raw_idx, list) or not raw_idx:
+            return 400, {"ok": False, "error": "indexes 必填且非同空数组（要改哪几段）"}
+        try:
+            idxs = [int(x) for x in raw_idx]
+        except (TypeError, ValueError):
+            return 400, {"ok": False, "error": "indexes 里的值必须都是段号（整数）"}
+        notes = body.get("notes") or {}
+        if notes and not isinstance(notes, dict):
+            return 400, {"ok": False, "error": "notes 须为 {段号: 修改意见}"}
+        layer = str(body.get("layer") or "").strip() or (_current_layer(n) or "refined")
+        if layer not in LAYERS:
+            return 400, {"ok": False, "error": "layer 须为 raw / checked / refined"}
+        dry = bool(body.get("dry_run"))
+
+        from utils import dispatch_run as dspr
+        try:
+            cfg, proj = api.load_all()
+            client = None if dry else api._client_for_env(cfg, "polisher")
+            res = dspr.run_batch(cfg, proj, n, idxs, notes=notes, client=client,
+                                 root=api.ROOT, layer=layer, dry_run=dry)
+        except Exception as e:                                # noqa: BLE001
+            return 500, {"ok": False, "error": "%s: %s" % (type(e).__name__, str(e)[:200])}
+        if not res.get("ok"):
+            return 400, {"ok": False, "error": res.get("message") or "派单失败",
+                         "missing": res.get("missing"), "extra": res.get("extra")}
+        return 200, {"ok": True, "message": res.get("message"),
+                     "items": res.get("items"), "missing": res.get("missing"),
+                     "extra": res.get("extra"),
+                     "tokens_out": res.get("tokens_out")}
+
     if action in ("apply", "reject"):
         aid = str(body.get("id") or "").strip()
         if not aid:
@@ -581,7 +618,7 @@ def handle_chapters_dispatch_set(h, body):
         dsp.set_status(api.ROOT, n, aid, "adopted")
         return 200, {"ok": True, "message": "已采用第 %d 段的候选" % (int(it.get("para")) + 1)}
 
-    return 400, {"ok": False, "error": "action 须为 save / apply / reject"}
+    return 400, {"ok": False, "error": "action 须为 save / run / apply / reject"}
 
 
 def handle_chapters_rewrite(h, body):

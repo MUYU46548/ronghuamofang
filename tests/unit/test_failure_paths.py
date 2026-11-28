@@ -536,8 +536,14 @@ def case_f6():
           f"实际={proc.returncode}")
     check("BLOCK（未定义名）: 0" in out, "F6 报告\u300c未定义名: 0\u300d",
           out[-300:])
-    # 反向验证：把缺陷塞进一个真文件，门禁必须变红
-    probe = REPO / "scripts" / "_gate_probe.py"
+    # 反向验证：把缺陷塞进一个真文件，门禁必须变红。
+    # ⚠️ 2026-11-28：探针**必须写在自己的临时目录里**，不能写进真仓库的 scripts/。
+    # 原来它写 `REPO/scripts/_gate_probe.py` 再 unlink —— 串行跑没事，全量并行后
+    # 与 `test_outline_branches_api_http`（它 `copytree(REPO/scripts)`）撞车：
+    # 对方复制到这个文件的瞬间它被删掉 → `shutil.Error: No such file`。
+    # 门禁判据本身是"pyflakes 能检出未定义名"，与探针在哪个目录无关。
+    probe_dir = Path(tempfile.mkdtemp(prefix="nf_gate_probe_"))
+    probe = probe_dir / "_gate_probe.py"
     try:
         probe.write_text("# -*- coding: utf-8 -*-\n"
                          "def f():\n    return undefined_symbol_xyz\n",
@@ -550,6 +556,7 @@ def case_f6():
               f"实际输出={proc2.stdout!r}")
     finally:
         probe.unlink(missing_ok=True)
+        shutil.rmtree(probe_dir, ignore_errors=True)
 
 
 # ====================================================================== F7

@@ -307,6 +307,8 @@ MONEY_ENDPOINTS = frozenset({
     "/chapters/rerun",              # 重跑某几章
     "/chapters/rewrite",            # 整章重写
     "/chapters/paragraph/preview",  # 段落级候选（模型出稿）
+    "/chapters/dispatch",           # 派单：action=run 一次调用改多段（2026-11-28）；
+                                    # save/apply/reject 零 token，按最贵的那条算
     "/refine/chapter",              # 整章精修
     "/refine/paragraph",            # 段落定点重写
     "/refine/outline",              # 大纲精修（self 下有任务书分支，但 direct/dsh 下真调模型）

@@ -96,6 +96,7 @@
 | **续跑产物有效性判据自检** | `python tests/unit/test_resume_output_judgement.py`（13 断言：空壳必须判不可用、正常产物不误杀、阈值边界；并断言 **stage5/6 的调用点真的用了 `is_usable_output`**，防退回裸 `exists()` —— "修好了又漂回去"光测函数测不到） |
 | **第二轮审查修复回归** | `python tests/unit/test_audit_fixes_20261001.py`（22 断言：**缓存 token 不得双重计价**（数值断言，旧口径 1.18 → 新 0.28）· **行尾“……”不得当截断**（否则章节反复重写烧钱）· `merge_book` 逐章取优不丢章 · `progress.json` 顶层非对象不崩 · 结构性源码断言：reject 清理范围 / `build_state.agent_mode` / MCP 阶段上限 7 / orchestrator `_post_stage` 调用点 / 前端 `only_stage:false`） |
 | **段落级精修轴** | `python tests/unit/test_paragraph_refine.py`（零 LLM：char_diff/summarize_diff/风格特征/split_paragraphs/历史/回退，24 断言） |
+| **派单：一次调用改多段**（F7） | `POST /chapters/dispatch {n, action:"run", indexes:[段号], notes?:{段号:意见}}` —— 本进程跑那一次模型调用，产出落**候选**不碰正文；`action:"save"` 收外部跑完的产出、`apply` 逐条采用（走 `save_paragraph_text`，与手改同路径）、`reject` 驳回。`dry_run:true` 只出任务书。判据 `python tests/unit/test_dispatch_run.py`（31 条：段号变形/越界丢弃/截断整批作废/失败不碰正文/上限/越界先拒） |
 | **正文退化检测自检** | `python tests/unit/test_verify_degenerate.py`（审计行动项 10：6 种退化形态（复读填充/思考残片/元话语拒答/无段落换行/标点灌水/模板骨架）各**判据隔离**样本 + 真实章节零误报 + 阈值边界 + `is_chapter_complete` 集成 + **7 条反向验证**（删判据→必须变绿），59 断言） |
 | 审稿闭环端点 HTTP 自检 | `python tests/http/test_review_api_http.py`（临时项目根起 nf_api：报告缺失 → 400 可行动提示、审查 job、决策保存与回读、批量精修真读到决策、键值格式兼容、交互式被拒，25 断言） |
 | stage4 出场同步自检 | `python tests/unit/test_stage4_appearances.py`（临时工作目录跑 fake stage4：appearances.json 自动生成、幂等不翻倍、异常注入不阻断，22 断言） |
