@@ -48,6 +48,7 @@ import ForeshadowPanel from "./ForeshadowPanel.vue";
 import HandoffPanel from "./HandoffPanel.vue";
 import CompassPanel from "./CompassPanel.vue";
 import WritingPresetsPanel from "./WritingPresetsPanel.vue";
+import CostOverview from "./CostOverview.vue";
 import WritingRulesPanel from "./WritingRulesPanel.vue";
 import SkillsPanel from "./SkillsPanel.vue";
 import WordlistsPanel from "./WordlistsPanel.vue";
@@ -279,6 +280,7 @@ const SELF_ENGINE_HINT = "当前引擎是“自任务”（engine: self，只出
   + "不想切也行 —— 大纲精修与整章重写已经改成出任务书（写出草稿，你点采用才写回正式稿）。";
 const costs = ref([]);
 const costSummary = ref(null);
+const costOverview = ref(null);   // 按日用量 + 本期进度 + 预测（GET /costs/overview）
 const costView = ref("cost");   // "cost" | "usage" | "rates"
 const rates = ref({});           // 定价表（合并视图）
 const newRateName = ref("");     // 新增模型名称输入
@@ -451,12 +453,15 @@ async function globalRefresh() {
 }
 
 async function refreshCosts() {
-  const [list, summary] = await Promise.all([
+  const [list, summary, overview] = await Promise.all([
     api("/costs"),
     api("/costs/summary"),
+    api("/costs/overview"),
   ]);
   if (list.status === 200) costs.value = list.data.entries || [];
   if (summary.status === 200) costSummary.value = summary.data;
+  // 总览失败不该连累明细表（它是可选的展示层，不是数据真源）。
+  if (overview.status === 200) costOverview.value = overview.data;
 }
 
 const agentRuns = ref([]);
@@ -7406,6 +7411,11 @@ onUnmounted(() => {
         </div>
       </div>
 
+      <!-- 用量总览（2026-11-28）：按日折线 + 本期进度 + 预测 + 按模型占比。
+           放在“当前运行”之下、旧的四张数字卡之上 —— 作者进成本页先要看的是
+           "照这个速度还够不够烧"，而不是四个横截面数字。 -->
+      <CostOverview :data="costOverview" />
+
       <div v-if="costSummary" class="cost-cards">
         <div class="cost-stat">
           <div class="stat-label">
@@ -9527,8 +9537,8 @@ onUnmounted(() => {
       ⚠ {{ restartError }}
     </div>
     <template #footer>
-      <UiButton variant="ghost" size="sm" :disabled="restartBusy" @click="circuitBreakerShow = false">取消</UiButton>
-      <UiButton variant="primary" size="sm" :disabled="restartBusy" @click="confirmRestart">
+      <UiButton variant="ghost" :disabled="restartBusy" @click="circuitBreakerShow = false">取消</UiButton>
+      <UiButton variant="primary" :disabled="restartBusy" @click="confirmRestart">
         {{ restartBusy ? "正在启动…" : ("恢复并继续（从阶段 " + restartFromStage + "）") }}
       </UiButton>
     </template>

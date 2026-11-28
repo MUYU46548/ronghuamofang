@@ -858,6 +858,11 @@ class Handler(BaseHTTPRequestHandler):
                     "note": "上面这些是文件里原有的字数（不是一次请求实际送进模型的量）。",
                 },
                 "calls": 12, "estimated_calls": 0,
+                # budget_left 必须给：真后端用 `budget_left = limit_yuan - spent_yuan`
+                # 算出来（nf_api.build_streaming_cost）。mock 少了它，界面上
+                # “预算剩余”显示 ¥0.00 而“本次花费”显示 ¥12.35 —— 看图像 bug，
+                # 实则是夹具缺字段。验收要能反映真后端的行为，就得照真后端的算术补。
+                "budget_left": round(50.0 - 12.3456, 6),
             })
         if p == "/chapters/context":
             # 上下文包（2026-11-05）：审阅台右栏的读数（形状与 /chapters/context 一致）
@@ -961,6 +966,50 @@ class Handler(BaseHTTPRequestHandler):
                                     "mtime": 1793766000.0,
                                     "path": "data/writing_rules.md",
                                     "note": "作品级写作约束（mock）"})
+        if p == "/costs/overview":
+            # 用量总览（2026-11-28）：形状与 nf_api_domains.misc.handle_costs_overview
+            # 逐字段一致。刻意喂两件事：① 21 天连续数据（含一天为零，验补零不跳空）；
+            # ② 5.4% 的极低占用 + 3 个活跃日 —— 预测分支必须走 status="ok"
+            # （样本 <2 天时走 insufficient，那个分支由 COLD 之外的独立夹具覆盖）。
+            _days = []
+            _base = 90000
+            for _i in range(21):
+                _t = 0 if _i == 9 else _base + (_i % 5) * 18000   # 第 10 天为零
+                _days.append({
+                    "date": "2026-11-%02d" % (6 + _i),
+                    "tokens_in": int(_t * 0.82), "tokens_out": int(_t * 0.18),
+                    "cache_read": int(_t * 0.5), "cost_yuan": 0.0,
+                    "calls": 0 if _t == 0 else 3, "tokens_total": _t,
+                })
+            _active = sum(1 for d in _days if d["tokens_total"] > 0)
+            _total = sum(d["tokens_total"] for d in _days)
+            _rate = _total // max(1, _active)
+            return self._send(200, {
+                "ok": True,
+                "daily": _days,
+                "period": {
+                    "days": 21, "start": "2026-11-06", "end": "2026-11-26",
+                    "tokens_total": _total, "calls": sum(d["calls"] for d in _days),
+                    "active_days": _active,
+                    "token_limit": 10000000,
+                    "used_pct": round(_total / 10000000 * 100, 2),
+                    "money_metered": False,
+                    "note": "滚动窗口（最近 21 天），不是自然月 —— 账期由 DSH 订阅侧管，"
+                            "墨坊只记实际发生的用量。",
+                },
+                "forecast": {
+                    "window_days": 21, "rate_per_active_day": _rate,
+                    "active_days": _active, "status": "ok",
+                    "projected_tokens": _rate * 21,
+                    "hits_limit_on": "2027-02-14",
+                    "note": "按本期的日均速度线性外推（有数据的日子取平均，不是日历天数）。",
+                },
+                "by_model": [
+                    {"model": "DeepSeek V4.1 Flash", "tokens": int(_total * 0.72), "calls": 41},
+                    {"model": "kimi-k2.6", "tokens": int(_total * 0.21), "calls": 12},
+                    {"model": "LongCat-2.0", "tokens": int(_total * 0.07), "calls": 4},
+                ],
+            })
         if p == "/truncated":
             # 残稿清单（2026-11-28）：形状与 truncated_store.list_items() 逐字段一致。
             # 三份刻意覆盖三个分支：可采纳（字数过线）/ 太短（不给采纳按钮）/

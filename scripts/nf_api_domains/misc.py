@@ -699,8 +699,150 @@ def handle_context_book(h):
         return 500, {"ok": False, "error": type(e).__name__ + ": " + str(e)[:200]}
 
 
+def handle_costs_overview(h):
+    """用量总览（2026-11-28）：按日聚合 + 本期进度 + 预测。`GET /costs/overview`
+
+    为什么要有它：`/costs/summary` 只给“按阶段 / 按模型 / 总计”三个横截面，
+    回答不了作者真正在问的两个问题：
+      1. “照这个速度，这一轮/这本书还够不够烧？”→ 需要**时间轴**与**预测**
+      2. “离闸门还有多远、哪天会撞上？”→ 需要**本期已用 / 上限 / 预计撞线日期**
+
+    ## 口径（三个数各自的意思，别混）
+
+    - `daily[]`：按 `called_at` 的**本地日期**切桶，每天一行。零 token 的日期也补 0，
+      否则折线会在空白处“跳过去”，看着像那天没跑过 —— 其实是没数据点。
+    - `period`：**本期**。墨坊没有账单月的概念（订阅在 DSH 那边），所以这里用
+      “最近 30 天滚动窗口”当期的口径，并**明写**它是滚动窗口而不是自然月 ——
+      不写清就会有人以为是“本月 1 号到月底”。
+    - `forecast`：用本期的日均速度外推到 `window_days` 后的合计。
+      **只做算术外推，不是预测模型**：样本不足（<2 天有数据）时返回 `insufficient`，
+      不编一个数出来。
+
+    金额一律走 cost_tracker 的口径：订阅引擎下恒 0 —— 所以主指标给 token，
+    `money_metered=false` 时前端只说 token，不摆“¥0.00”误导。
+    """
+    import nf_api as api
+    from datetime import datetime, timedelta
+
+    window_days = 30
+    try:
+        window_days = int((h._query().get("days") or [30])[0])
+    except (TypeError, ValueError, AttributeError):
+        window_days = 30
+    window_days = max(7, min(365, window_days))
+
+    db_path = api.ROOT / "logs" / "runs.db"
+    if not db_path.exists():
+        return 200, {"ok": True, "daily": [], "period": {}, "forecast": {},
+                     "note": "还没有记账（logs/runs.db 不存在）—— 跑过任一阶段之后这里才有数据。"}
+    db = api.RunDB(db_path)
+    try:
+        rows = db.conn.execute(
+            "SELECT called_at, tokens_in, tokens_out, cache_read, cost_yuan, model"
+            "  FROM cost_log ORDER BY called_at").fetchall()
+    finally:
+        db.close()
+
+    # ---- 按本地日期切桶 ----
+    per_day = {}
+    by_model = {}
+    for called_at, t_in, t_out, cache, yuan, model in rows:
+        day = str(called_at or "")[:10]          # called_at 是 YYYY-MM-DDTHH:MM:SS
+        if len(day) != 10:
+            continue
+        d = per_day.setdefault(day, {"date": day, "tokens_in": 0, "tokens_out": 0,
+                                     "cache_read": 0, "cost_yuan": 0.0, "calls": 0})
+        d["tokens_in"] += int(t_in or 0)
+        d["tokens_out"] += int(t_out or 0)
+        d["cache_read"] += int(cache or 0)
+        d["cost_yuan"] = round(d["cost_yuan"] + float(yuan or 0), 6)
+        d["calls"] += 1
+        m = by_model.setdefault(model or "?", {"model": model or "?", "tokens": 0, "calls": 0})
+        m["tokens"] += int(t_in or 0) + int(t_out or 0)
+        m["calls"] += 1
+
+    if not per_day:
+        return 200, {"ok": True, "daily": [], "period": {}, "forecast": {},
+                     "note": "cost_log 里还没有带日期的记账。"}
+
+    # ---- 补零：从最早到最近，逐日一行（缺的补 0，不跳过）----
+    first = datetime.strptime(min(per_day), "%Y-%m-%d")
+    last = datetime.strptime(max(per_day), "%Y-%m-%d")
+    daily = []
+    cur = first
+    while cur <= last:
+        key = cur.strftime("%Y-%m-%d")
+        daily.append(per_day.get(key, {
+            "date": key, "tokens_in": 0, "tokens_out": 0,
+            "cache_read": 0, "cost_yuan": 0.0, "calls": 0}))
+        cur += timedelta(days=1)
+    for d in daily:
+        d["tokens_total"] = d["tokens_in"] + d["tokens_out"]
+
+    # ---- 本期（滚动窗口）----
+    today = last                       # 用最后一个有数据的日子当“今天”，
+                                       # 不用系统时钟 —— 否则暂停几周后整段都会掉出窗口
+    win_start = today - timedelta(days=window_days - 1)
+    win = [d for d in daily if datetime.strptime(d["date"], "%Y-%m-%d") >= win_start]
+    period_tokens = sum(d["tokens_total"] for d in win)
+    period_calls = sum(d["calls"] for d in win)
+    active_days = sum(1 for d in win if d["tokens_total"] > 0)
+
+    # ---- 闸门：本期用到哪、离上限还有多远 ----
+    cfg, _proj = api.load_all()
+    from utils.cost_tracker import normalize_token_limit
+    tl = normalize_token_limit((cfg or {}).get("budget", {}).get("token_limit"))
+    limit = int(tl.get("max_total_tokens") or 0)
+    used_pct = round(period_tokens / limit * 100, 2) if limit else None
+
+    # ---- 预测：只做日均外推，样本不够就说不够 ----
+    rate = (period_tokens / max(active_days, 1)) if active_days else 0
+    forecast = {"window_days": window_days, "rate_per_active_day": int(rate),
+                "active_days": active_days}
+    if active_days >= 2:
+        forecast.update({
+            "status": "ok",
+            "projected_tokens": int(rate * window_days),
+            "hits_limit_on": (
+                (today + timedelta(days=int((limit - period_tokens) / rate))
+                 ).strftime("%Y-%m-%d")
+                if limit and rate and period_tokens < limit else None),
+            "note": "按本期的日均速度线性外推（有数据的日子取平均，不是日历天数）。",
+        })
+    else:
+        forecast.update({
+            "status": "insufficient",
+            "projected_tokens": None, "hits_limit_on": None,
+            "note": "有数据的日子不足 2 天，不外推 —— 编一个数出来只会误导。",
+        })
+
+    from utils.engine import resolve_engine
+    try:
+        engine = resolve_engine(cfg or {})
+    except Exception:                                     # noqa: BLE001
+        engine = "unknown"
+
+    return 200, {
+        "ok": True,
+        "daily": daily,
+        "period": {
+            "days": window_days, "start": win_start.strftime("%Y-%m-%d"),
+            "end": today.strftime("%Y-%m-%d"),
+            "tokens_total": period_tokens, "calls": period_calls,
+            "active_days": active_days,
+            "token_limit": limit or None, "used_pct": used_pct,
+            "money_metered": engine not in ("hermes", "dsh"),
+            "note": ("滚动窗口（最近 %d 天），不是自然月 —— 账期由 DSH 订阅侧管，"
+                     "墨坊只记实际发生的用量。" % window_days),
+        },
+        "forecast": forecast,
+        "by_model": sorted(by_model.values(), key=lambda x: -x["tokens"]),
+    }
+
+
 ROUTES = (
     ("GET", "/costs/summary", handle_costs_summary),
+    ("GET", "/costs/overview", handle_costs_overview),
     ("GET", "/context/book", handle_context_book),
     ("POST", "/agent/cancel", handle_agent_cancel),
     ("GET", "/chapters/context", handle_chapters_context),

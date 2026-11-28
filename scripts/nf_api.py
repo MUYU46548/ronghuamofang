@@ -2991,6 +2991,9 @@ class Handler(BaseHTTPRequestHandler):
         elif p == "/costs/summary":
             # 实现已迁至 nf_api_domains.misc（P2 拆分）；此处只做转发。
             self._send(*_dom(dom_misc.handle_costs_summary(self)))
+        elif p == "/costs/overview":
+            # 用量总览（2026-11-28）：按日聚合 + 本期进度 + 预测。
+            self._send(*_dom(dom_misc.handle_costs_overview(self)))
         elif p == "/whoami":
             # 服务端认为“你是谁”（三种拒因 + 来源声明 + 引擎）；不含令牌值。
             self._send(*_dom(dom_project.handle_whoami(self)))
