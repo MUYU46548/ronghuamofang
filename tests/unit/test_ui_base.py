@@ -114,23 +114,20 @@ def main():
                                ("h-%d" % (int(geo["mini"].replace("px", "")) // 4)) in md_cls),
           md_cls)
 
-    # U4：替换 `.mini` 时必须用 md 档，不许用 sm。
+    # U4：替换 `.mini` 时必须用 md 档，也不许用 sm —— **全仓零例外**。
     # 为什么：`.mini` 是 30px，而 sm 档是 28px —— 换完之后同一行里按钮比输入框矮 2px。
     # 2026-11-27 实测踩过：写作约束 / 指南针 / 交接稿 / 质量趋势 四个面板全中，
     # e2e 当时"全绿"，因为没人量过高度。
-    # 例外只有“纯按钮行”（对话框 footer 那种，不与输入控件同行）：列在白名单里并写明原因，
-    # 新增例外要在这里补一行 —— 白名单是给“确实不需要 30px”的场合用的，不是给自己开绿灯。
-    ALLOW_SM = {
-        "App.vue": "UiDialog footer（取消 / 恢复并继续）—— 纯按钮行，不与输入控件同行",
-    }
+    # 2026-11-28 作者拍板：**统一到 30px**，删掉对话框 footer 的白名单。
+    # 理由（写在这里免得以后有人再开）：全仓 600+ 处 .mini 长期与新组件并存，
+    # "只允许一个高度"是最省心的规矩；28 vs 30 的差别肉眼分辨不出来，
+    # 少一档尺寸 = 少一条要记住的规矩。
     sm_use = []
     for f in SRC.glob("*.vue"):
-        if f.name in ALLOW_SM:
-            continue
         text = f.read_text(encoding="utf-8", errors="ignore")
         for _m in re.finditer(r'<UiButton[^>]*\bsize="sm"[^>]*>', text):
             sm_use.append(f.name)
-    check("U4 除对话框 footer 外没有组件用 size=\"sm\"（会矮 2px）",
+    check("U4 全仓没有组件用 size=\"sm\"（唯一高度 30px，无例外）",
           not sm_use, sorted(set(sm_use)))
 
     # ---- 第二批基座（2026-11-28）：UiInput / UiTable / UiField / UiBadge ----
