@@ -118,6 +118,41 @@ class WeakModelClient(FakeClient):
         return super().run_task(task_file, workdir=workdir, model=model)
 
 
+class GroupFailClient(FakeClient):
+    """段群任务**一律失败**（模拟真机"模型只回一句开场白就断"）。
+
+    专门用来验"段群失败必须让阶段判失败"这条判据。回复内容照抄真机那次：
+    "我会先阅读任务文件，以了解全部要求。" —— 那是模型的话，不是错误报文。
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.group_calls = 0
+
+    def _fail(self):
+        return {"exit_code": 1, "stderr_tail": "",
+                "stdout_tail": "我会先阅读任务文件，以了解全部要求。",
+                "error": "", "tokens": 0, "tokens_out": 0,
+                "cache_read": 0, "cost_yuan": 0.0, "estimated": False,
+                "provider": "fake", "model": "fake", "requests": 1}
+
+    def run_task_stream(self, task_file, on_piece, stop_flag, workdir=None,
+                        model=None, session_id=None):
+        name = Path(task_file).name
+        if _MAIN_RE.match(name):
+            return super().run_task_stream(task_file, on_piece, stop_flag,
+                                           workdir=workdir, model=model)
+        self.group_calls += 1
+        return self._fail()
+
+    def run_task(self, task_file, workdir=None, model=None, session_id=None):
+        name = Path(task_file).name
+        if _MAIN_RE.match(name):
+            return super().run_task(task_file, workdir=workdir, model=model)
+        self.group_calls += 1
+        return self._fail()
+
+
 def build_workspace(total=1, enhanced=False, target=(5000, 9000), tag="enh"):
     tmp = Path(tempfile.mkdtemp(prefix="stage4_enh_%s_" % tag))
     shutil.copytree(ROOT / "prompts", tmp / "prompts",
@@ -207,6 +242,35 @@ def main():
         check("自动兜底只做一次（auto_enhanced 标记）", "auto_enhanced" in src)
         check("兜底走的是 write_chapter_groups（不是再整章重生成）",
               "_wcg(cfg, proj, n, client, task_dir" in src)
+
+        print("\n【D】段群失败 → 阶段不许标 done，失败原因必须留痕")
+        # 2026-11-28：这组判据**不证明"修了什么"**，它锁定的是已被真机验证过一次的
+        # 现有行为 —— 我在排查真机 stage4 标 done 的问题时，先误判成"段群失败被吞"，
+        # 加了重复检查；随后反向验证（去掉那段检查仍全绿）证明**原有分支已经拦住**：
+        # write_chapter_groups 返回 exit_code=1 后，主循环第 2176 行的通用
+        # `if result["exit_code"] != 0` 会走 _fail，阶段随即标 failed。
+        # 真机那次为什么最终标了 done，另有原因（failed_chapters 在下一轮被
+        # _drop_failed 清掉之类），尚未定位 —— 不编结论。
+        # 这组判据的价值：把"段群失败必须判失败"这条事实钉住，将来谁改坏了立刻红。
+        tmp3 = build_workspace(total=1, enhanced=True, target=(5000, 9000), tag="d")
+        os.chdir(tmp3)
+        c3 = GroupFailClient()
+        ok3, msg3, progress3 = run_once(tmp3, c3)
+        check("阶段判失败（不许 done）", ok3 is False, "ok=%s msg=%s" % (ok3, str(msg3)[:100]))
+        st4 = (progress3.data.get("stages") or {}).get("4") or {}
+        check("**阶段状态不是 done**", st4.get("status") != "done",
+              "status=%s" % st4.get("status"))
+        failed = st4.get("failed_chapters") or []
+        check("failed_chapters 当场就记下了（不是下一轮才补）", len(failed) >= 1,
+              failed)
+        if failed:
+            why = str(failed[0].get("error") or "")
+            check("失败原因带段群信息（不是空字符串）",
+                  "段群" in why, why[:160])
+        check("阶段 5 不会被误启动（stage4 已失败）",
+              ((progress3.data.get("stages") or {}).get("5") or {}).get("status")
+              in (None, "pending"), (progress3.data.get("stages") or {}).get("5"))
+
     finally:
         os.chdir(origin)
         for d in list(Path(tempfile.gettempdir()).glob("stage4_enh_*")):
