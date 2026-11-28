@@ -1178,10 +1178,16 @@ def test_about_project(browser, mock_proc=None):
         print("  --- 词表面板（B1：保存 → 生效档位真的变）---")
         page.locator(".set-nav-btn", has_text="风格与提示词").click()
         page.wait_for_timeout(450)
-        wlp = page.locator(".wl-panel")
+        # 2026-11-28：这块面板本轮迁到 Tailwind + 基座，类名全变了：
+        #   .wl-panel      → [data-panel="wordlists"]
+        #   textarea.wl-text → textarea（UiInput variant=code 渲染出来的仍是 textarea）
+        #   .pill.st-gate  → UiBadge（文字仍是"未保存"，按文字找更稳）
+        # 断言强度不变，只是选择器跟着结构走 —— 不改判据就等于没验。
+        wlp = page.locator("[data-panel='wordlists']")
+        wl_areas = wlp.locator("textarea")
         check("词表面板渲染（病灶 / 合规两块输入框 + 说明）",
-              wlp.count() == 1 and wlp.locator("textarea.wl-text").count() == 2,
-              (wlp.count(), wlp.locator("textarea.wl-text").count()))
+              wlp.count() == 1 and wl_areas.count() == 2,
+              (wlp.count(), wl_areas.count()))
         check("初始档位 = 内置 20 条（未配置自定义表时明说）",
               "内置 20 条" in wlp.inner_text(), wlp.inner_text()[:120].replace("\n", " | "))
         # 2026-11-08：先显式重读一次并等它落地，再输入。
@@ -1189,10 +1195,10 @@ def test_about_project(browser, mock_proc=None):
         # “未保存”徽标一闪即消（本轮 e2e 就是在这里假红，单独跑同样步骤却正常）。
         wlp.locator("button:has-text('重新读取')").click()
         page.wait_for_timeout(700)
-        wlp.locator("textarea.wl-text").nth(0).fill("微微一笑\n眸光\n眼里闪过一丝\n")
+        wl_areas.nth(0).fill("微微一笑\n眸光\n眼里闪过一丝\n")
         page.wait_for_timeout(300)
-        check("改动后出现\u300c未保存\u300d提示（不保存就不生效，得先看见）",
-              wlp.locator(".pill.st-gate").count() >= 1)
+        check("改动后出现“未保存”提示（不保存就不生效，得先看见）",
+              wlp.locator("span", has_text="未保存").count() >= 1)
         save_btn = wlp.locator("button:has-text('保存')")
         check("有改动时“保存”可点（没有改动才该禁用）", save_btn.count() == 1 and not save_btn.is_disabled())
         if save_btn.is_disabled():
@@ -1200,7 +1206,7 @@ def test_about_project(browser, mock_proc=None):
         save_btn.click()
         page.wait_for_timeout(800)
         wl_txt = wlp.inner_text()
-        check("保存后档位变成\u300c界面词表\u300d（写→读是真链路，不是静态面板）",
+        check("保存后档位变成“界面词表”（写→读是真链路，不是静态面板）",
               "界面词表" in wl_txt, wl_txt[:180].replace("\n", " | "))
         check("保存后回显生效 3 条", "实际生效 3 条" in wl_txt,
               wl_txt[:220].replace("\n", " | "))

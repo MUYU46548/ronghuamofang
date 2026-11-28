@@ -402,7 +402,17 @@ function getWorkspaceSource() {
 //     现给测试子进程本轮专用 TMPDIR/TEMP/TMP，跑完整棵删除（69 个文件一行未改）；
 //     ② `nfctl test --pattern` 不再崩 —— render_test_results 假定 errors 元素都是 dict，
 //     窄跑路径会塞字符串，实测 AttributeError 让"只跑某个用例"完全不可用。
-const SEED_VERSION = 99;   // 0.9.14 追补: dsh 执行档 desktop→headless（payload 的 config/scripts 都变了）
+const SEED_VERSION = 100;  // 0.9.15 收尾（2026-11-28）：payload 实质变更，必须刷新已装工作区 ——
+                           //   · scripts/utils/outline_panel.py：AI 节点精修加了并发安全
+                           //     （写盘前比内容 + 先校验内存再落盘），旧的会静默抹掉外部改动；
+                           //   · scripts/utils/ai_voice.py：新增篇章层密度判据（冒号/数字）；
+                           //   · scripts/utils/cost_tracker.py：单章 300 万 / 单轮累计 5 亿；
+                           //   · scripts/nf_api_domains/misc.py：新增 GET /costs/overview；
+                           //   · scripts/human_edit_rate.py：新增（人工改动率）；
+                           //   · prompts/stage4_writing.md：新增"篇章习惯"四条；
+                           //   · config/system.yaml：token_limit 两档放宽。
+                           // 顺序纪律：**先 bump 再 electron-builder** —— SEED_VERSION 编进
+                           // app.asar，payload 是 dist 时现拷的；反了用户永远不刷新。
                            // 0.9.10 交付底子 ——
                             //   · payload scripts：obsidian.unskip_dirs（默认排除项可显式放开；
                             //     get_skip_dirs = 默认 − unskip ∪ 追加 ∪ 沙盒；沙盒恒排除、
