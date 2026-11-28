@@ -666,21 +666,28 @@ body {
 .ps-item { display: flex; flex-direction: column; gap: 4px; }
 .ps-label { font-size: 12px; color: var(--muted); }
 .ps-value { font-size: 13px; font-weight: 600; }
+/* 整本进度（2026-11-28 重做）：原来的做法是“文字压在进度条上 + mix-blend-mode”，
+   47% 时左半截字落在紫色条上、右半截落在浅灰上，两截颜色不一样，读起来像被裁掉。
+   现在条只当**上面一条细轨**，文字单独一行放下面 —— 一套口径、一行说清。 */
 .ps-progress {
-  margin-top: 12px; position: relative; height: 22px;
-  background: rgba(107, 113, 128, 0.08); border-radius: 7px; overflow: hidden;
+  margin-top: 12px; position: relative; height: auto;
+  background: transparent; border-radius: 0; overflow: visible; padding-top: 10px;
+}
+.ps-progress::before {
+  content: ""; position: absolute; left: 0; right: 0; top: 0; height: 8px;
+  background: rgba(107, 113, 128, 0.12); border-radius: 999px;
 }
 .ps-progress-bar {
-  position: absolute; left: 0; top: 0; bottom: 0;
-  background: var(--accent); border-radius: 7px;
+  position: absolute; left: 0; top: 0; height: 8px;
+  background: var(--accent); border-radius: 999px;
   transition: width 0.4s ease;
 }
 .ps-progress-text {
-  position: relative; z-index: 1; display: grid; place-items: center;
-  font-size: 12px; font-weight: 600; color: var(--ink); height: 100%;
-  mix-blend-mode: multiply;
+  position: relative; z-index: 1; display: block; text-align: left;
+  font-size: 12px; font-weight: 600; color: var(--ink); height: auto;
+  line-height: 1.5; mix-blend-mode: normal;
 }
-.is-dark .ps-progress-text { color: #fff; mix-blend-mode: screen; }
+.is-dark .ps-progress-text { color: var(--ink); mix-blend-mode: normal; }
 
 /* 新手序列引导（I-1）：就绪/警告条 + 步骤序列 + “带我去”高亮脉冲 */
 .ob-card {

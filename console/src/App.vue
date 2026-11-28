@@ -2940,13 +2940,14 @@ function stageDetail(s) {
       if (fileBytes > 0) g += " / " + fileBytes + " 字节";
     } else {
       const quota = Number(s.current_group_quota) || 0;
-      if (quota > 0) g += " · 文本流 " + textChars + "/" + quota + " 字";
+      // “文本流”是引擎侧说法，作者看不懂；直接说“已写 N/M 字”。
+      if (quota > 0) g += " · 已写 " + textChars + "/" + quota + " 字";
     }
     bits.push(g);
   } else if (isFile) {
     bits.push("正文约 " + fileWords + " 字" + (fileBytes ? " / " + fileBytes + " 字节" : ""));
   } else if (textChars > 0) {
-    bits.push("文本流 " + textChars + " 字");
+    bits.push("已写 " + textChars + " 字");
   }
   const idle = _idleSeconds(s.current_chars_at);
   if (idle >= 45) bits.push(Math.floor(idle) + " 秒无活动");
@@ -8904,9 +8905,12 @@ onUnmounted(() => {
       <!-- 素材列表 -->
       <div v-if="!materials.length" class="empty">
         <div style="margin-bottom: 12px;">暂无素材 —— 点击"添加素材"从其他地方复制文件到 raw/，或"新建素材"直接创建。</div>
-        <div style="background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 12px;">
-          <div style="font-weight: 600; margin-bottom: 8px;">示例素材卡格式</div>
-          <pre style="margin: 0; font-size: 13px; line-height: 1.6; color: var(--muted-foreground); overflow-x: auto;"># 角色：角色名
+        <!-- 2026-11-28：这段模板原来是空态里最大的东西，等于在说“你得按这个格式写”——
+             与上面那句“不要求模板格式”直接打架（作者原话：用户根本不知道自己的东西算不算卡片）。
+             现在收进折叠，标题先讲清“可不照抄”。 -->
+        <details style="background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 12px;">
+          <summary style="cursor: pointer; font-weight: 600;">可选：看一份示例（不按这个格式写也行）</summary>
+          <pre style="margin: 8px 0 0; font-size: 13px; line-height: 1.6; color: var(--muted-foreground); overflow-x: auto;"># 角色：角色名
 
 > 来源：你的设定库路径
 
@@ -8923,8 +8927,8 @@ onUnmounted(() => {
 ## 人际关系
 
 - 角色A：关系说明</pre>
-        </div>
-        <div class="meta">快速体验：复制 examples/sample-book/materials/raw/* 到 materials/raw/</div>
+        </details>
+        <div class="meta">只要放进 materials/raw/ 的是 .md / .txt / .markdown / .docx，阶段 1 就会读；格式随意，上面只是示例。</div>
       </div>
       <!-- 批量操作条（2026-11-05）：选中才有，写明“会搬去哪”，不再拖完才知道扔错 -->
       <div v-if="matSel.length" class="mat-batch">
