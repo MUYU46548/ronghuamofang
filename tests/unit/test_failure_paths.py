@@ -598,13 +598,31 @@ def case_f7():
     for hname in ("function listFilesUnder(", "function copyMissingOnly(",
                   "function sha256OfFile(", "function countCodeDrift(",
                   "function recordFactoryManifest(", "function migrateConfigKeys(",
-                  "function ensureEnhancedMode("):
+                  "function ensureEnhancedMode(",
+                  # 2026-11-28：顶层提示词的升级判据要拿"上一版官方原文"当参照，
+                  # 参照必须在 force 刷新之前抓（见该函数头注释）。
+                  "function snapshotFactoryShas("):
         hs = src.find(hname)
         he = src.find("\n}", hs)
         check(hs > 0 and he > hs, "F7 能抽取 seedWorkspace 的辅助函数 " + hname,
               "未找到 " + hname)
         if hs > 0 and he > hs:
             helper_src.append(src[hs:he + 2])
+
+    # 漏登记检测（2026-11-28 加）：seedWorkspace 里调用的每个**同文件顶层函数**
+    # 都必须在上面那份名单里，否则探针跑起来就是 ReferenceError，
+    # 表现成"F7 node 探测产出结果"失败 —— 报错指向探针，不指向真正的原因。
+    # 本次就是这么红的：新加 snapshotFactoryShas 没登记。
+    defined = set(re.findall(r"(?m)^function (\w+)\(", src))
+    listed = {h[len("function "):-1] for h in (
+        "function listFilesUnder(", "function copyMissingOnly(",
+        "function sha256OfFile(", "function countCodeDrift(",
+        "function recordFactoryManifest(", "function migrateConfigKeys(",
+        "function ensureEnhancedMode(", "function snapshotFactoryShas(")}
+    called = set(re.findall(r"(?m)(?<![\w.])([a-z]\w*)\(", fn_body))
+    missing = sorted((called & defined) - listed)
+    check("F7 seedWorkspace 调用的同文件函数都已登记到抽取名单",
+          not missing, "漏登记：" + ", ".join(missing) if missing else "")
     # 配置键级升级（2026-10-26）依赖同文件的常量表 —— 只抽函数不抽常量，
     # 探针里会 ReferenceError: SEED_CONFIG_MIGRATIONS is not defined。
     mig = re.search(r"const SEED_CONFIG_MIGRATIONS = \[.*?\n\];", src, re.S)
@@ -696,6 +714,14 @@ def case_f7():
             # 依赖的常量；漏抽 → 探针 ReferenceError → __RESULT__ 不出现（假红）。
             + re.search(r"const SEED_FORCE_REFRESH_FILES = \[[^\]]*\];",
                         src).group(0) + "\n"
+            # 2026-11-28：主进程用模块常量的方式引入提示词升级判据
+            # （`const promptRefreshMod = require("./promptRefresh");`），
+            # 函数体被抽出来后没有那行 require → ReferenceError。
+            # 这里**真的去 load 那个模块**（而不是在探针里另写一份以假乱真的判据）：
+            # 探针验的必须是产品里跑的那份逻辑，否则用例绿了也不代表功能对。
+            + "const promptRefreshMod = require(%s);\n"
+              % json.dumps(str(REPO / "console" / "main" / "promptRefresh.js")
+                           .replace("\\", "/"))
             + helper_body
             + fn_body + "\n"
             "seedWorkspace();\n"

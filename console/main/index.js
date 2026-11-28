@@ -13,6 +13,8 @@ const { decidePortTakeover, takeoverDetail, shouldKeepWaiting,
         decideStartupPort, isOursProcess } = require("./portTakeover");
 // 审批门一次性迁移（2026-11-24）：纯函数模块，node 可直测
 const { migrateRequireApproval } = require("./gateMigrate");
+// 提示词升级判据（2026-11-28）：纯函数，node 可直测。见 main/promptRefresh.js 头注释。
+const promptRefreshMod = require("./promptRefresh");
 // 项目根显式解析（2026-10-04 Step 4c 根修）：纯函数模块，node 可直测
 const { configFileFor, resolveProjectRoot, persistRoot } = require("./project-root");
 
@@ -566,11 +568,15 @@ function listFilesUnder(base, dir, out) {
 // 升级时对“用户可能改过”的目录做**保守更新**：
 //   · 目标文件不存在            → 复制（新版新增的模板要给到）
 //   · 存在，且 sha 与出厂清单一致 → 用户没动过 → 用新版覆盖（官方更新照发）
-//   · 存在，且 sha 与清单不符     → 用户改过 → 一个字不动
-// 判据就是 `data/state/factory_manifest.json`（播种时逐文件记的 sha256）。
-// 没有清单记录（老工作区）→ 按"用户改过"处理，宁可少更新也不吞别人的改动。
+//   · 存在，且 sha 与出厂副本一致 → 盘上就是上一版官方原文 → 也用新版覆盖
+//   · 存在，且两路都不符         → 用户改过 → 一个字不动
 // topLevel=true 表示 srcDir 是 payload 下那一层（只有那一层的 factory/ 需要刷新）。
-function copyMissingOnly(base, srcDir, dstDir, out, topLevel, prevFiles, stats) {
+//
+// ⚠️ `factoryShas` 必须是**本次播种开始之前**抓的快照（见 snapshotFactoryShas）。
+// 为什么：factory/ 子目录在上面那个分支里被 force 刷成了新版，如果这里再去读它，
+// 读到的就是新版 —— “上一版官方原文”这个参照当场就没了，顶层提示词又会全被判成
+// 用户改过（2026-11-28 现场实测：先刷 factory 再比，5 份全部误判 user-edited）。
+function copyMissingOnly(base, srcDir, dstDir, out, topLevel, prevFiles, stats, factoryShas) {
   let ents = [];
   try {
     ents = fs.readdirSync(srcDir, { withFileTypes: true });
@@ -629,19 +635,64 @@ function copyMissingOnly(base, srcDir, dstDir, out, topLevel, prevFiles, stats) 
     const recorded = prevFiles && prevFiles[rel];
     let cur = null;
     try { cur = sha256OfFile(d); } catch (e) { cur = null; }
-    if (recorded && cur && recorded === cur) {
-      // 播种时记的 sha 与当前一致 → 用户没动过 → 跟随新版
+    // 判据抽到 main/promptRefresh.js（纯函数，node 可直测 —— 判据必须能跑）。
+    // 三路见该文件头：清单 sha / **出厂副本 sha** / 其余判为用户改过。
+    //
+    // 为什么补第二路（2026-11-28）：`factory_manifest.json` 只记 `prompts/factory/*`，
+    // **顶层 `prompts/*.md` 一条都没记**（factory/ 走 force 刷新分支，不进 seededRels）
+    // → recorded 恒 undefined → 所有顶层提示词全被判成"用户改过"、永远不更新。
+    // 实测：0.9.15 工作区里 stage4_expand / stage4_group / stage4_refine / stage6_polish
+    // 四份停在 11-24 旧版，且能在 git 历史里逐字节匹配到旧提交 —— 不是用户改的。
+    let facSha = null;
+    if (promptRefreshMod && promptRefreshMod.isUserEditablePrompt(rel)) {
+      const key = rel.slice("prompts/".length);
+      if (factoryShas && Object.prototype.hasOwnProperty.call(factoryShas, key)) {
+        facSha = factoryShas[key];              // 播种前快照：上一版官方原文
+      }
+    }
+    const verdict = promptRefreshMod
+      ? promptRefreshMod.decideRefresh({ rel, curSha: cur, recordedSha: recorded, factorySha: facSha })
+      : { follow: Boolean(recorded && cur && recorded === cur), reason: "fallback" };
+    if (verdict.follow) {
       fs.copyFileSync(s, d);
       out.push(path.relative(base, d));
       stats.updated += 1;
     } else {
       stats.kept += 1;
+      if (verdict.reason === "user-edited") stats.userKept = (stats.userKept || 0) + 1;
     }
   }
 }
 
 function sha256OfFile(p) {
   return require("crypto").createHash("sha256").update(fs.readFileSync(p)).digest("hex");
+}
+
+// 播种**开始之前**抓一份出厂副本的 sha 快照：{ "stage4_writing.md": "<sha>" }。
+//
+// 为什么必须在播种前抓（2026-11-28 实测的坑）：`prompts/factory/` 在播种过程中会被
+// force 刷成**新版**（SEED_FORCE_REFRESH_SUBDIRS）。顶层提示词的升级判据要拿
+// “上一版官方原文”当参照 —— 一旦 factory/ 先被刷新，那个参照就消失了，
+// 所有顶层提示词又会全被判成“用户改过”（实测 5 份全误判），
+// 于是“升级不覆盖工作区提示词”这个 bug 换个形式复活。
+//
+// 读不到就返回空表：宁可这一轮不刷（保守），也不能拿新内容冒充旧原文。
+function snapshotFactoryShas(ws) {
+  const out = {};
+  const dir = path.join(ws, "prompts", "factory");
+  let ents = [];
+  try {
+    ents = fs.readdirSync(dir, { withFileTypes: true });
+  } catch (e) {
+    return out;                                  // 没有 factory/（首装/老工作区）→ 空表
+  }
+  for (const ent of ents) {
+    if (!ent.isFile() || !ent.name.endsWith(".md")) continue;
+    try {
+      out[ent.name] = sha256OfFile(path.join(dir, ent.name));
+    } catch (e) { /* 单个文件读不到只少一条参照，不影响其它文件 */ }
+  }
+  return out;
 }
 
 // payload 与工作区**逐文件按内容**比对（只用于代码目录）。
@@ -919,6 +970,10 @@ function seedWorkspace() {
   // 本次**实际复制**的文件（相对路径）→ 收尾统一写进出厂清单
   const seededRels = [];
 
+  // 出厂副本的**播种前**快照（2026-11-28）：顶层提示词的升级判据要拿它当
+  // “上一版官方原文”的参照。必须在任何 force 刷新之前抓 —— 见 snapshotFactoryShas。
+  const factoryShas = snapshotFactoryShas(ws);
+
   for (const d of SEED_CODE_DIRS) {
     const src = path.join(payloadRoot, d);
     const dst = path.join(ws, d);
@@ -941,7 +996,7 @@ function seedWorkspace() {
                      + "本次按“用户改过”保守处理:", e && e.message);
       }
       const stats = { added: 0, updated: 0, kept: 0 };
-      copyMissingOnly(ws, src, dst, seededRels, true, prevFiles, stats);
+      copyMissingOnly(ws, src, dst, seededRels, true, prevFiles, stats, factoryShas);
       console.log(`[console] seedWorkspace: ${d} 保守更新 —— 新增 ${stats.added} · `
                   + `随版本更新 ${stats.updated}（你没改过）· 保留 ${stats.kept}（你改过）`);
     } else {

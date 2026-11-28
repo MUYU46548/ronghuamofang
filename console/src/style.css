@@ -401,7 +401,7 @@ body {
 .tabs button.tab-drawer {
   border: 1px dashed var(--border); color: var(--ink);
 }
-.tabs button.tab-drawer::after { content: "▾"; font-size: 9px; margin-left: 4px; opacity: .65; }
+.tabs button.tab-drawer::after { content: "▾"; font-size: 11px; margin-left: 4px; opacity: .65; }
 /* 页签分组（2026-11-04 用户拍板 A）：边框挂在组上，换行时跟着组走；
    不用独立分隔线 —— 那条线换行时会被甩到行尾，看着像“组结束”而不是“组开始”。 */
 .tab-group {
@@ -430,11 +430,44 @@ body {
   }
   .topbar .brand { flex-direction: column; align-items: flex-start; gap: 6px; }
   .topbar .tabs {
+    /* flex-wrap: nowrap 不可省（2026-11-28 修“侧栏挤成两列”）：
+       基础规则 `.tabs { flex-wrap: wrap }` 是给横排用的。这里改成 column 后，
+       wrap 的含义变成“纵向放不下就往右边再开一列” —— 窗口一矮（笔记本 768 高、
+       或缩放 125%），13 个页签立刻折成两三列，挤成一团（作者截图即此形态）。
+       标准做法（VS Code / Slack 侧栏）是**单列 + 滚动**，不是折列。 */
     flex: 1; flex-direction: column; align-items: stretch; gap: 2px;
-    max-height: none; overflow-y: auto; min-height: 0; margin: 10px 0 0;
+    flex-wrap: nowrap;
+    max-height: none; overflow-y: auto; overflow-x: hidden;
+    min-height: 0; margin: 10px 0 0;
+    /* 再往下滚时要能看出“还有东西”：实测 768 高时 713px 内容只露 478px（藏 235px），
+       更糟的是「系统」整组会被滚出可视区，用户以为导航就这些。
+       2026-11-28 实测三条坑：
+         ① 只写 `scrollbar-width: thin` → gutter 有了（10px），滑块看不见；
+         ② 再写 `::-webkit-scrollbar` → **完全不生效**（Chromium 已知行为：设了标准属性
+            之后 webkit 伪元素被忽略。实测 gutter 一直是 10 而不是设的 8 就是证据）；
+         ③ 只靠原生滚动条 → **不可依赖**：headless Chromium 从不绘制 overlay 滚动条，
+            而且每个平台的原生样式不一样（截图里一根都看不到）。
+       所以真正的提示用**底部渐隐**（VS Code / Slack 侧栏的标准做法）：
+         · scrollbar-color 留着（真机上顺带有一条细滚动条，不影响什么）
+         · mask-image 让最后可见的那一项淡出 = "下面还有" —— 这条在任何渲染器里都画得出来。 */
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--muted) 58%, transparent) transparent;
+    scrollbar-gutter: stable;
+    mask-image: linear-gradient(to bottom, #000 calc(100% - 18px), transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 18px), transparent 100%);
+  }
+  /* 内容不足一屏时不该有渐隐（否则底部空白处像"被切掉了"）。
+     用 :has 判断不了滚动量，所以按视口高度兜底：矮屏才需要提示。 */
+  @media (min-width: 900px) and (min-height: 820px) {
+    .topbar .tabs {
+      mask-image: none;
+      -webkit-mask-image: none;
+    }
   }
   .topbar .tab-group {
+    /* 同理：组内也必须单列，否则一个组自己就能折成两列。 */
     flex-direction: column; align-items: stretch; gap: 2px;
+    flex-wrap: nowrap; flex: 0 0 auto;
     padding: 0; border-radius: 0;
   }
   .topbar .tab-group + .tab-group {
@@ -451,7 +484,7 @@ body {
   }
   .topbar .tabs button {
     text-align: left; padding: 8px 10px 8px 12px; border-radius: 8px;
-    font-size: 13.5px; width: 100%;
+    font-size: var(--fs-ui); width: 100%;
   }
   /* 书名是“当前项目”，不是页签：小一号、灰色、无按钮底色。 */
   .topbar .brand-sub-btn {
@@ -601,7 +634,9 @@ body {
 .stage-info { display: flex; align-items: center; gap: 10px; min-width: 0; flex-wrap: wrap; }
 .stage-no {
   width: 26px; height: 26px; border-radius: 8px; flex: none;
-  background: var(--accent-soft); color: #fff; font-weight: 700;
+  /* 2026-11-28（F5）：浅底 --accent-soft 配 #fff = 亮色主题下白字近乎看不见
+     （对比度 1.x:1，不报错、截图也不明显）。浅底配同族深字。 */
+  background: var(--accent-soft); color: var(--accent); font-weight: 700;
   display: grid; place-items: center; font-size: 13px;
 }
 .stage-name { font-weight: 600; }
@@ -698,7 +733,12 @@ body {
 .ob-head { display: flex; align-items: flex-start; gap: 10px; flex-wrap: wrap; }
 .ob-badge {
   font-size: 12px; padding: 2px 8px; border-radius: 999px; flex: none;
-  background: var(--accent); color: #fff; font-weight: 700; margin-top: 2px;
+  /* 2026-11-28（F5 强调色判据）：原来是 --accent 实心 + 白字 —— 与主按钮、当前页、
+     进度条全同色，一屏四五个紫块 = 强调消失（规划文档第二节原话）。
+     改成与同屏 .ob-count 同一族：--accent-soft 底 + --accent 字。
+     这两个变量在 10 套主题里都有定义（--ink-accent 只有 5 套有，不能用）。 */
+  background: var(--accent-soft);
+  color: var(--accent); font-weight: 700; margin-top: 2px;
 }
 .ob-next { flex: 1; min-width: 200px; }
 .ob-next-title { font-size: 13px; }
@@ -729,7 +769,9 @@ body {
 .ob-cur-tag {
   margin-left: 8px; font-size: 12px; font-weight: 800; letter-spacing: .05em;
   padding: 2px 8px; border-radius: 999px; vertical-align: 1px;
-  background: var(--accent); color: #fff;
+  /* 2026-11-28（F5）：同上，徽标不抢强调色实心；"该你了"用浅底 + 强调色字。 */
+  background: var(--accent-soft);
+  color: var(--accent);
   box-shadow: 0 1px 3px rgba(0, 0, 0, .18);
 }
 .ob-step-ev { font-size: 12px; color: var(--muted); margin-top: 1px; }
@@ -1484,7 +1526,8 @@ body {
 }
 .ov-opt-tag {
   flex: none; font-size: 12px; padding: 1px 6px; border-radius: 5px;
-  background: var(--accent-soft); color: #fff;
+  /* 2026-11-28（F5）：同 .stage-no —— 浅底不能配白字。 */
+  background: var(--accent-soft); color: var(--accent);
 }
 .ov-opt-tag.plan { background: var(--ok); }
 .ov-opt-target { flex: 1; min-width: 90px; word-break: break-word; }
@@ -1969,7 +2012,7 @@ body {
    两个名字只差“流式”，靠名字分不出来，靠一行灰字一眼能分。 */
 .flow-auto { display: flex; flex-direction: column; align-items: center; gap: 2px; }
 .flow-auto-hint { font-size: 12px; color: var(--muted); line-height: 1.15; white-space: nowrap; }
-.flow-next b { font-size: 13.5px; }
+.flow-next b { font-size: var(--fs-ui); }
 .flow-est {
   font-size: 13px; color: var(--muted);
   background: rgba(155, 143, 196, 0.08); border-radius: 8px; padding: 5px 10px;
@@ -2629,7 +2672,7 @@ kbd {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   margin-bottom: 10px;
 }
-.eng-label { font-weight: 600; font-size: 13.5px; color: var(--ink); }
+.eng-label { font-weight: 600; font-size: var(--fs-ui); color: var(--ink); }
 .eng-note { margin-top: 10px; line-height: 1.7; }
 
 /* ① 引擎卡片 */
@@ -2657,7 +2700,7 @@ kbd {
 }
 .eng-card:disabled { opacity: .6; cursor: progress; }
 .eng-card-top { display: flex; align-items: center; gap: 8px; }
-.eng-name { font-weight: 600; font-size: 13.5px; }
+.eng-name { font-weight: 600; font-size: var(--fs-ui); }
 .eng-badge {
   margin-left: auto;
   font-size: 12px; font-weight: 600;
@@ -2992,14 +3035,14 @@ kbd {
   min-height: 320px;
 }
 /* 正文排版：行宽限制在 ~76 字符，长文才读得下去 */
-.help-article { line-height: 1.85; color: var(--ink); font-size: 13.5px; }
+.help-article { line-height: 1.85; color: var(--ink); font-size: var(--fs-ui); }
 /* 2026-11-16：中栏已由 .help-wrap 的 grid 轨收宽（760px，与方寸/司天一致），
    这里不再重复限宽 —— 两处各写一份会在窄屏互相打架。 */
 .help-article h2 {
-  font-size: 19px; margin: 18px 0 10px; padding-bottom: 6px;
+  font-size: var(--fs-h2); margin: 18px 0 10px; padding-bottom: 6px;
   border-bottom: 1px solid var(--border); color: var(--ink);
 }
-.help-article h3 { font-size: 15.5px; margin: 20px 0 8px; color: var(--ink); }
+.help-article h3 { font-size: var(--fs-h3); margin: 20px 0 8px; color: var(--ink); }
 .help-article h4 { font-size: 14px; margin: 16px 0 6px; color: var(--ink); }
 .help-article p { margin: 9px 0; }
 .help-article ul, .help-article ol { margin: 8px 0; padding-left: 22px; }
@@ -3231,7 +3274,7 @@ kbd {
   border-bottom: 1px solid var(--border);
   margin-bottom: 8px;
 }
-.ask-head b { font-size: 13.5px; color: var(--ink); }
+.ask-head b { font-size: var(--fs-ui); color: var(--ink); }
 .ask-item {
   padding: 9px 0;
   border-bottom: 1px dashed var(--border);

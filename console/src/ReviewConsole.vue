@@ -1084,14 +1084,20 @@ onMounted(() => { loadProducts(); });
   height: 28px;
   border-radius: 8px;
   background: var(--accent-soft);
-  color: #fff;
+  /* 2026-11-28（F5）：原来底色是 --accent-soft、字色却是 #fff —— 浅底白字，
+     亮色主题下几乎看不见（对比度 1.x:1）。浅底就要配同族深字。 */
+  color: var(--accent);
   display: grid;
   place-items: center;
   font-weight: 700;
   font-size: 13px;
 }
 .stage-no.lit {
-  background: var(--accent);
+  /* 有问题的章：实心强调色太重（它只是状态指示，不是点它就能干活的按钮）。
+     用浅底 + 强调色描边，既"亮起来"又不抢主按钮。 */
+  background: var(--accent-soft);
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
 }
 .chapter-title {
   font-weight: 500;

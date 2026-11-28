@@ -5,10 +5,29 @@
 随直连引擎 OpenAICompatClient 一起删除 —— dsh 由 DSH 自己落盘，不走 ===FILE=== 协议。
 T1/T2/T3/T5/T6/T7 验的是**协议工具**（parse_ops / segment_requests / 白名单 / 贴齐），
 这些仍被 self_tasks 与 stage7 使用，保留。
+
+2026-11-28：加 `--help` / `--list`。原来脚本不认任何参数，`--help` 会**直接跑全套**
+并在 `history/` 建 + 删一次快照（0.9.15 真机实测 — 探活的人只想看用法，结果动了工作区）。
 """
 import os
 import sys
 from pathlib import Path
+
+_ARGS = list(sys.argv[1:])
+if any(a in ("-h", "--help") for a in _ARGS):
+    print(__doc__.strip())
+    print("\n用法：python scripts/llm_client_selftest.py [--list]")
+    print("  --list   只列用例名，不执行")
+    sys.exit(0)
+if "--list" in _ARGS:
+    for _n in ("T1 extract_input_paths", "T2 inline_inputs", "T3 parse_ops",
+               "T5 segment_requests", "T6 allowed_paths", "T7 snap_to_expected"):
+        print(_n)
+    sys.exit(0)
+_UNKNOWN = [a for a in _ARGS if a.startswith("-")]
+if _UNKNOWN:
+    print("未知参数：%s（用 --help 看用法）" % " ".join(_UNKNOWN), file=sys.stderr)
+    sys.exit(2)
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))

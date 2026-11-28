@@ -34,7 +34,7 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from nfctl import collect_check, render_check  # noqa: E402
+from nfctl import collect_check, render_check, run_tests, render_test_results  # noqa: E402
 
 PASS, FAIL = [], []
 
@@ -129,10 +129,94 @@ def test_C_engine_boundary():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_D_installed_no_source():
+    """[D] 安装态缺 console/src 与 tests/：不得假红、不得假绿、不得把"没跑"当"通过"（2026-11-28）。
+
+    0.9.15 安装态实测三条：
+      ① `check` 报"直角引号：6 个文件"（全在 config/ 注释与 history 备份里，
+         用户根本看不到）—— 假红；
+      ② `check` 报"白名单过期 26 条"，同因扫描根 `console/src` 不存在 →
+         0 条文案 → NECESSARY 全判过期；同时"界面文案无黑话"变成假绿；
+      ③ `nfctl test` 报 0/0 并退 0 —— "一个用例都没跑"被读成"全绿"。
+    """
+    print("\n[D] 安装态无源码/无测试：三条假红假绿必须消失")
+    tmp = _mk_root(engine="dsh", git=False, venv=False, key="")
+    try:
+        # 造一个"像安装态"的 config：带直角引号的注释（用户看不到的那种）
+        (tmp / "config" / "system.yaml").write_text(
+            "engine: dsh\n"
+            "# 注释里用了\u300c直角引号\u300d—— 这是开发注释，用户永远看不到\n"
+            "providers:\n"
+            "  tokenhub:\n"
+            "    api_key_env: TOKENHUB_API_KEY\n", encoding="utf-8")
+        res = collect_check(tmp)
+        detail = {it["name"]: it["detail"] for it in res["items"]}
+        check("D1 无 git 索引时直角引号不阻塞（安装态无源码）",
+              "直角引号" not in _blocking(res), _blocking(res))
+        check("D2 直角引号 detail 说清是“不适用”而不是“零命中”",
+              "不适用" in detail.get("直角引号", ""), detail.get("直角引号"))
+        check("D3 无 console/src 时界面对内部路径不阻塞",
+              "界面文案里的内部路径" not in _blocking(res), _blocking(res))
+        check("D4 无 console/src 时“无黑话”不许报 0 条命中（假绿）",
+              "不适用" in detail.get("界面文案无黑话", ""), detail.get("界面文案无黑话"))
+
+        # nfctl test：无 tests/ 必须 not_run，且不是“通过”
+        from nfctl import run_tests
+        t = run_tests(tmp)
+        check("D5 无 tests/ 时 run_tests 报 not_run（不再是 total=0 就绿）",
+              t.get("not_run") is True, t)
+        check("D6 not_run 时 total/passed/failed 都是 0 且带说明",
+              t["total"] == 0 and t["passed"] == 0 and t["failed"] == 0
+              and any("未执行" in e for e in t["errors"]), t.get("errors"))
+        check("D7 not_run 的渲染明说“未执行”",
+              "未执行" in render_test_results(t), render_test_results(t).splitlines()[:3])
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def test_E_source_still_strict():
+    """[E] 反证：源码态（有 git 索引）这三条仍必须严格 —— 别把真红也一起放掉。"""
+    print("\n[E] 反证：源码态这三条仍然严")
+    tmp = _mk_root(engine="dsh", git=False, venv=False, key="")
+    try:
+        (tmp / "note.md").write_text("# 文档\n这条写了\u300c直角引号\u300d\n", encoding="utf-8")
+        # 造一个可用的 git 索引（init + add，不提交也行，ls-files 认暂存区）
+        import subprocess
+        try:
+            subprocess.run(["git", "init", "-q"], cwd=str(tmp), capture_output=True, timeout=20)
+            subprocess.run(["git", "add", "-A"], cwd=str(tmp), capture_output=True, timeout=20)
+            git_ok = True
+        except Exception:                                    # noqa: BLE001
+            git_ok = False
+        if not git_ok:
+            check("E0 git 不可用 → 本组跳过", True, "跳过")
+            return
+        res = collect_check(tmp)
+        check("E1 源码态有 git 索引时直角引号仍阻塞",
+              "直角引号" in _blocking(res), _blocking(res))
+        check("E2 且 detail 点名了违规文件",
+              any("note.md" in it["detail"] for it in res["items"]
+                  if it["name"] == "直角引号"),
+              [it["detail"] for it in res["items"] if it["name"] == "直角引号"])
+
+        t = run_tests(tmp)
+        check("E3 有 tests/ 但匹配不到时也是 not_run（--pattern 打错不许绿）",
+              t.get("not_run") is True, t)
+        (tmp / "tests" / "unit").mkdir(parents=True, exist_ok=True)
+        (tmp / "tests" / "unit" / "test_a.py").write_text(
+            "import sys\nprint('PASS a')\nsys.exit(0)\n", encoding="utf-8")
+        t2 = run_tests(tmp)
+        check("E4 有真用例时 not_run 消失", not t2.get("not_run"), t2)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def main():
     test_A_installed_form()
     test_B_source_form()
     test_C_engine_boundary()
+    test_D_installed_no_source()
+    test_E_source_still_strict()
     print("\n总计: %d  通过: %d  失败: %d" % (len(PASS) + len(FAIL), len(PASS), len(FAIL)))
     if FAIL:
         print("失败项: %s" % "；".join(FAIL))

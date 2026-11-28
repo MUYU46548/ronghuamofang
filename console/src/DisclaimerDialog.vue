@@ -202,7 +202,7 @@ function fmtTime(iso) {
   border-radius: 10px;
   background: var(--field-inset, rgba(127, 127, 127, 0.06));
 }
-.disclaimer-body h4 { margin: 12px 0 4px; font-size: 13.5px; }
+.disclaimer-body h4 { margin: 12px 0 4px; font-size: var(--fs-ui); }
 .disclaimer-body h4:first-child { margin-top: 4px; }
 .disclaimer-body p { margin: 0 0 6px; font-size: 13px; line-height: 1.75; }
 .disclaimer-ack {

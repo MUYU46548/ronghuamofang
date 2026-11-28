@@ -34,7 +34,7 @@
       </div>
       <span class="spacer"></span>
       <button v-if="data.next" class="mini primary" :disabled="busy" @click="go(data.next)">
-        带我去 →
+        打开这一步
       </button>
       <button class="mini" @click="open = !open">{{ open ? "收起步骤" : "全部步骤" }}</button>
       <button class="mini" title="关闭引导（随时可点“重看引导”再打开）" @click="$emit('dismiss')">✕</button>
@@ -51,14 +51,14 @@
         <div class="ob-step-main">
           <div class="ob-step-title">
             {{ s.title }}
-            <span v-if="s.state === 'current'" class="ob-cur-tag">该你了</span>
+            <span v-if="s.state === 'current'" class="ob-cur-tag">现在做这一步</span>
           </div>
           <div class="ob-step-ev">{{ s.evidence }}</div>
           <div v-if="s.state === 'current' && s.how" class="ob-step-how">点这里：{{ s.how }}</div>
         </div>
-        <button v-if="s.state === 'current'" class="mini primary" @click="go(s)">带我去</button>
+        <button v-if="s.state === 'current'" class="mini primary" @click="go(s)">开始这一步</button>
         <button v-else-if="s.state === 'todo' && s.action && s.action.kind === 'tab'"
-                class="mini ob-jump" :title="'跳到 ' + s.title" @click="go(s)">去看</button>
+                class="mini ob-jump" :title="'跳到 ' + s.title" @click="go(s)">打开</button>
       </li>
     </ol>
 

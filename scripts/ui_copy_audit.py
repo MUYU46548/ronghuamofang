@@ -54,6 +54,15 @@ BANNED = [
     ("开发黑话", r"落盘|写盘|兜底|静默|口径|台账|子会话|墓碑|正典|管线|拼合|施工权"),
     ("开发黑话（第二批）", r"垫片|代拉|逃生门|单一事实源|红线|水章"),
     ("开发黑话（第三批）", r"阈值|链路|产物|审计|正例|缺料|锚定|存盘|轻链路|闸门|熔断|判据"),
+    # ---- 2026-11-28 补（F6）：作者原话"一堆不说人话，像哪个小孩随便填的文案"。
+    # 这三类的共同点：**不告诉用户点了会发生什么**，只表达情绪或方向感。
+    # 口径：按钮写"点了会发生什么"（保存 / 打开 / 开始这一步），
+    #       状态标签写事（现在做这一步），不写"该你了 / 带我去 / 去看 / 搞定"。
+    ("撒娇式按钮文案", r"带我去|该你了|搞定啦?|来吧[！!]"),
+    # “去看”要拦的是**按钮上单独一个“去看”**（作者点名的那类："去看"什么都没说，
+    # 点了不知道去哪）。句子里的"不用你去看任何文件 / 或去看日志"是正常中文，不能误伤。
+    # 判据形态：整条文案就是"去看"（可带省略号/箭头），或它后面直接跟箭头。
+    ("含糊的方向词", r"^\s*去看\s*(?:…|\.\.\.|→|->)?\s*$|^\s*去看\s*(?:…|\.\.\.)?\s*(?:→|->)"),
     # ---- 2026-11-20 补：英文标识。此前整份名单只有中文词，于是界面上印着
     # `electron-updater` / `engine=direct` / `sandbox_review.py` / `平台 win32`
     # 的时候，检查仍然报“0 命中”—— 检查全绿不等于界面干净。
@@ -180,12 +189,40 @@ def visible_strings(text: str):
                 yield lineno(base + m.start(2)), "脚本提示", " ".join(s.split())
 
 
-def collect():
+def collect(src: Path = None):
+    src = src or SRC
     rows = []
-    for f in sorted(SRC.glob("*.vue")):
+    for f in sorted(src.glob("*.vue")):
         for ln, kind, s in visible_strings(f.read_text(encoding="utf-8")):
             rows.append((f.name, ln, kind, s))
     return rows
+
+
+def src_dir_for(root: Path = None) -> Path:
+    """从项目根取界面源码目录（`--root` 感知，AGENTS.md“路径 IO 必须经 ROOT”）。
+
+    原来这里是模块级常量 `SRC = ROOT/"console"/"src"`，`ROOT` 又是**本文件所在仓**的
+    位置 —— 于是 `nfctl check --root <别的项目>` 永远扫本仓的界面，被判的项目一个
+    字都没扫到。生产（Electron）恰好两者相等才一直没暴露。
+    """
+    if root is None:
+        return SRC
+    return Path(root) / "console" / "src"
+
+
+def source_available(root: Path = None) -> bool:
+    """界面源码在不在。
+
+    安装态工作区里只有打包后的 `console/renderer/dist`，**没有** `console/src`
+    —— 于是 `collect()` 返回 0 条，两件事同时被读错（2026-11-28 安装态实测）：
+
+    1. `NECESSARY` 26 条全部判成“过期”（`stale = [t for t in NECESSARY if t not in used]`
+       在 used 恒空时必然全红）→ 每次 check 带一条假红；
+    2. “界面文案无黑话”报“扫描 0 条，命中 0 条”= 假绿（`docs/未完成总账.md` C10 记过）。
+
+    `nfctl check` 用这个函数把两件事都说成“本项不适用”，而不是拿空集凑结论。
+    """
+    return src_dir_for(root).is_dir()
 
 
 def write_md(rows, out: Path = OUT) -> None:
@@ -213,15 +250,16 @@ def write_md(rows, out: Path = OUT) -> None:
     print("已写入 %s（%d 条，%d 个文件）" % (out, len(rows), len(by_file)))
 
 
-def scan():
+def scan(root: Path = None):
     """跑一遍名单，返回 (rows, hits, allowed, debt, necessary, stale)。
 
     2026-11-20 抽出来给 `nfctl check` 用：工具能红但没人跑，等于没有回归保护
     （实测 `--check` 一直是绿的，而界面上印着 electron-updater / engine=direct）。
     2026-11-21 加 necessary / stale：`NECESSARY` 是登记在案的必要坐标，
     `stale` 是“文案已改、白名单没删”的过期条目（算红，防白名单变橡皮章）。
+    2026-11-28 加 root：`nfctl check --root X` 必须扫 X 的界面（原来恒扫本仓）。
     """
-    rows = collect()
+    rows = collect(src_dir_for(root))
     hits, allowed, debt, necessary = [], 0, [], 0
     used = set()
     for fn, ln, kind, s in rows:

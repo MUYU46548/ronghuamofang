@@ -534,7 +534,7 @@ pre { white-space: pre-wrap; margin: 4px 0; font-family: inherit; }
 /* 正文用衬线（与阅读态同一套），缩进两字 —— 看上去是“稿子”，不是 diff */
 .s5p {
   font-family: "Source Han Serif SC", "Noto Serif SC", "Songti SC", serif;
-  font-size: 14.5px; line-height: 1.9; text-indent: 2em;
+  font-size: var(--fs-body); line-height: 1.9; text-indent: 2em;
   margin: 0 0 0.6em; padding: 2px 4px; border-radius: 4px;
 }
 .s5p.chg {

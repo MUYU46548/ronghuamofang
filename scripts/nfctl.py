@@ -642,8 +642,17 @@ def collect_check(root: Path) -> dict:
     try:
         _BAD = "\u300c\u300d\u300e\u300f"
         # 全仓扫（2026-11-02 作者口径：直角引号不该出现在任何地方）。
-        # 有 git 就用索引（快且准，跳过 node_modules/dist）；安装态退回按目录扫。
+        # **只扫 git 索引**（--cached --others --exclude-standard）：它天然跳过
+        # config/history、data/、node_modules/dist，扫的正是"我写进源码的字"。
+        #
+        # 2026-11-28 修假红（安装态实测 6 个文件报红，全在 config/ 的 YAML 注释与
+        # config/history 备份里）：原来这里有一条"安装态退回按目录扫"的兜底，
+        # 会把用户工作区的 config/**（含历史备份）当源码扫 —— 那些字用户**根本看不到**
+        # （GUI 读的是 PyYAML 解析后的字段值，不是注释原文），于是安装版每次 check 都带
+        # 一条阻塞红，而它指向的东西改不改都不影响任何人。兜底已删：
+        # 安装态没有源码可扫，这条就该报"不适用"，不该拿用户数据凑数。
         _cand = []
+        _scan_note = ""
         try:
             import subprocess as _sp
             # 必须带 -o --exclude-standard：只扫已跟踪文件的话，**新写的文件是盲区**
@@ -655,14 +664,12 @@ def collect_check(root: Path) -> dict:
             if _out.returncode == 0:
                 _cand = [root / x for x in
                          _out.stdout.decode("utf-8", "replace").split("\0") if x]
-        except Exception:                                # noqa: BLE001
-            _cand = []
-        if not _cand:
-            for _d in ("scripts", "console", "docs", "prompts", "tests", "skills", "config"):
-                for _p in (root / _d).rglob("*"):
-                    if {"node_modules", "dist", "__pycache__"} & set(_p.parts):
-                        continue
-                    _cand.append(_p)
+            else:
+                _scan_note = "git 索引读取失败（%s），本项不适用" % _out.returncode
+        except Exception as _e:                                # noqa: BLE001
+            _scan_note = "无 git 索引（安装态无源码），本项不适用：%s" % type(_e).__name__
+        if not _cand and not _scan_note:
+            _scan_note = "git 索引为空，本项不适用"
         for _p in _cand:
             if not _p.is_file() or _p.suffix.lower() in (
                     ".png", ".jpg", ".ico", ".docx", ".dotx", ".pdf", ".lock"):
@@ -676,10 +683,10 @@ def collect_check(root: Path) -> dict:
                     _bad_punct.append(str(_p.relative_to(root)))
                 except ValueError:
                     _bad_punct.append(_p.name)
-    except Exception:                                    # noqa: BLE001
-        pass
+    except Exception as _e:                              # noqa: BLE001
+        _scan_note = "扫描异常（%s），本项不适用：%s" % (type(_e).__name__, str(_e)[:80])
     add("直角引号", not _bad_punct,
-        "全仓零命中" if not _bad_punct else
+        (_scan_note or "全仓零命中") if not _bad_punct else
         "%d 个文件里有直角引号（应改中文双引号）：%s"
         % (len(_bad_punct), "、".join(_bad_punct[:5])), blocking=True)
 
@@ -687,22 +694,32 @@ def collect_check(root: Path) -> dict:
     # 于是界面上印着 electron-updater / engine=direct / sandbox_review.py 的时候，
     # 它照样报“0 命中”，作者看到的“全绿”是假的。接进体检才算有回归保护。
     # 黑话命中 = 阻塞；内部路径 = 提醒（数量每次都报，不许静默消失）。
+    #
+    # 2026-11-28 修假红+假绿（安装态实测）：安装态工作区没有 console/src，
+    # 扫描恒 0 条 → ①“无黑话”假绿；②NECESSARY 26 条全判过期假红。
+    # 源码不在就把两项都报成“不适用”，绝不拿空集下结论。
     try:
         import ui_copy_audit as _uca
-        _rows, _hits, _allowed, _debt, _nec, _stale = _uca.scan()
-        _ex = "、".join("%s:%d [%s]" % (h[0], h[1], h[2]) for h in _hits[:3])
-        add("界面文案无黑话", not _hits,
-            "扫描 %d 条可见文案，命中 0 条" % len(_rows) if not _hits
-            else "命中 %d 条：%s%s" % (len(_hits), _ex,
-                                       "…" if len(_hits) > 3 else ""),
-            blocking=True)
-        add("界面文案里的内部路径", not (_debt or _stale),
-            ("债务 0 条；另有必要坐标 %d 处已登记（理由见 ui_copy_audit.NECESSARY）" % _nec)
-            if not (_debt or _stale) else
-            ("债务 %d 条（不阻塞）；必要坐标 %d 处%s"
-             % (len(_debt), _nec,
-                "；白名单过期 %d 条（文案改过没删条目，要清）" % len(_stale) if _stale else "")),
-            warning=True)
+        if not _uca.source_available(root):
+            add("界面文案无黑话", True,
+                "本项不适用：安装态没有 console/src（界面是打包好的 dist）", warning=True)
+            add("界面文案里的内部路径", True,
+                "本项不适用：安装态没有 console/src", warning=True)
+        else:
+            _rows, _hits, _allowed, _debt, _nec, _stale = _uca.scan(root)
+            _ex = "、".join("%s:%d [%s]" % (h[0], h[1], h[2]) for h in _hits[:3])
+            add("界面文案无黑话", not _hits,
+                "扫描 %d 条可见文案，命中 0 条" % len(_rows) if not _hits
+                else "命中 %d 条：%s%s" % (len(_hits), _ex,
+                                           "…" if len(_hits) > 3 else ""),
+                blocking=True)
+            add("界面文案里的内部路径", not (_debt or _stale),
+                ("债务 0 条；另有必要坐标 %d 处已登记（理由见 ui_copy_audit.NECESSARY）" % _nec)
+                if not (_debt or _stale) else
+                ("债务 %d 条（不阻塞）；必要坐标 %d 处%s"
+                 % (len(_debt), _nec,
+                    "；白名单过期 %d 条（文案改过没删条目，要清）" % len(_stale) if _stale else "")),
+                warning=True)
     except Exception as _e:                             # noqa: BLE001
         add("界面文案无黑话", False,
             "自检失败：%s: %s" % (type(_e).__name__, str(_e)[:120]), warning=True)
@@ -1208,12 +1225,17 @@ def run_tests(root: Path, pattern: str = "test_*.py", verbose: bool = False) -> 
 
     tests_dir = root / "tests"
     if not tests_dir.is_dir():
-        return {"total": 0, "passed": 0, "failed": 0, "errors": ["tests/ 目录不存在"]}
+        # 2026-11-28：安装态（工作区）里 tests/ 不随包分发。原来这里返回
+        # total=0/failed=0，`nfctl test` 于是退 0 —— **"一个用例都没跑"被报成"全部通过"**，
+        # 安装包验收看到的就是这个绿。改成 not_run 标记，渲染层与退出码都按"未执行"处理。
+        return {"total": 0, "passed": 0, "failed": 0, "not_run": True,
+                "errors": ["tests/ 目录不存在（安装态不随包分发）—— 本项未执行，不代表通过"]}
 
     # 收集所有 test_*.py 文件（排除 e2e/ —— 那些需要 Playwright + 特殊环境）
     test_files = sorted(tests_dir.glob(f"unit/{pattern}")) + sorted(tests_dir.glob(f"http/{pattern}"))
     if not test_files:
-        return {"total": 0, "passed": 0, "failed": 0, "errors": ["未找到测试文件"]}
+        return {"total": 0, "passed": 0, "failed": 0, "not_run": True,
+                "errors": ["未找到匹配的测试文件（%s）—— 本项未执行，不代表通过" % pattern]}
 
     python_exe = root / ".venv" / "Scripts" / "python.exe"
     if not python_exe.exists():
@@ -1327,6 +1349,8 @@ def run_tests(root: Path, pattern: str = "test_*.py", verbose: bool = False) -> 
 
 def render_test_results(d: dict) -> str:
     lines = ["统一测试运行器", ""]
+    if d.get("not_run"):
+        lines.append("  未执行（不是一个用例都没失败，是根本没跑）")
     lines.append("  总计: %d  通过: %d  失败: %d" % (d["total"], d["passed"], d["failed"]))
     if d["errors"]:
         lines.append("")
@@ -1542,8 +1566,13 @@ def release_check(root: Path, skip_e2e: bool = False) -> dict:
     t = run_tests(root)
     steps.append({
         "name": "全量测试（tests/unit + tests/http）",
-        "status": "PASS" if (t["total"] and t["failed"] == 0) else "FAIL",
-        "tail": "总计 %d · 通过 %d · 失败 %d" % (t["total"], t["passed"], t["failed"]),
+        # 2026-11-28：not_run（安装态无 tests/）必须记 SKIP，不能记 PASS ——
+        # `t["total"]` 为 0 时旧判据已经会 FAIL，但"未执行"与"跑了且挂了"
+        # 是两件事，报成 FAIL 会让人去查不存在的失败用例。
+        "status": "SKIP" if t.get("not_run") else
+                  ("PASS" if (t["total"] and t["failed"] == 0) else "FAIL"),
+        "tail": ("未执行：tests/ 不在本工作区（安装态不随包分发）" if t.get("not_run")
+                 else "总计 %d · 通过 %d · 失败 %d" % (t["total"], t["passed"], t["failed"])),
     })
 
     steps.append(_run_step("MCP 真机握手（官方 SDK → 垫片 → 8766 → 8765）",
@@ -2046,6 +2075,11 @@ def main(argv=None):
     if args.cmd == "test":
         data = run_tests(root, pattern=args.pattern, verbose=args.verbose)
         print(json.dumps(data, ensure_ascii=False, indent=2) if as_json else render_test_results(data))
+        # 2026-11-28：not_run（安装态无 tests/、--pattern 匹配不到）**不算通过**。
+        # 原来 total=0/failed=0 就退 0 —— "一个用例都没跑"被机器读成"全绿"，
+        # 安装包验收因此可以毫无测试地宣称通过。
+        if data.get("not_run"):
+            return 2
         return 0 if data["failed"] == 0 else 1
 
     if args.cmd == "model-check":
