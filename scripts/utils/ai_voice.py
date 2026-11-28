@@ -58,6 +58,73 @@ APHORISM = re.compile(r"(人生|命运|生活|成长|勇气|孤独|时间|意义
 SENT_SPLIT = re.compile(r"[。！？!?…]+")
 MAX_APHORISM_LEN = 24
 
+# —— 篇章层：密度型指标（2026-11-28，用作者真实改稿实测校准）——
+#
+# 为什么单独一组、且**不进 suspect 判定线**：
+# 这两条不是"某句话像 AI"，而是"整篇的说话习惯"。
+# 用作者的真实改稿样本（视频月报 v1→v2，正文 1164→954 汉字）实测：
+#
+#   冒号（每千字）  AI 稿 9.5  →  作者稿 0.0   （全删）
+#   阿拉伯数字      AI 稿 41 处 →  作者稿 11 处 （删 73%）
+#
+# 冒号是"先抛结论再解释 / 列举 / 引出下文"的标点，密度高说明通篇在
+# "解释自己刚说的话"——这是口头汇报腔，不是叙述。作者一个都不留。
+# 数字密度高则是"用数据撑场面"：提交次数、代码行数这类对读者无意义的量化。
+#
+# 阈值取"作者稿的两倍"作为警告线。
+# 实测基准（作者真实改稿，正文口径）：
+#   冒号   AI 稿 11 个 / 1164 字 = 9.5 个每千字 → 作者稿 0 个 / 954 字 = 0.0
+#   数字   AI 稿 41 处（每 300 字 10.6）        → 作者稿 11 处（每 300 字 3.5）
+# 所以线定在冒号 4.0/千字、数字每 300 字 22 处 —— 都远低于 AI 稿、高于作者稿，
+# 命中说明"比作者正常水平还密一倍以上"。
+#
+# ⚠️ 只算正文：附录 / 表格里的冒号是格式需要（表格表头、定义列举），
+# 混进来会把"结构规范"误报成"汇报腔"。调用方应传正文（不含附件）。
+DENSITY_MIN_CHARS = 300
+DENSITY_LIMITS = {
+    "colon_per_kchar": 4.0,      # 每千汉字冒号数（AI 9.5 / 作者 0.0）
+    # 数字：AI 10.6 / 作者 3.5。线定 7.0 —— 比作者高一倍、比 AI 稿低，
+    # 才抓得到东西。原来定 22 是"只抓极端"，实测 AI 稿都够不到，等于虚设。
+    "digits_per_300": 7.0,
+}
+
+
+def scan_density(text: str) -> dict:
+    """篇章层密度指标：冒号密度、数字密度。返回证据，不下结论。
+
+    输入应是**正文**（不含附录 / 表格 / 出处）。附录里的冒号是格式需要。
+    """
+    han = re.sub(r"[^\u4e00-\u9fff]", "", text or "")
+    n = len(han)
+    if n < DENSITY_MIN_CHARS:
+        return {"applicable": False, "chars": n,
+                "note": "样本不足 %d 汉字，密度类指标不可靠，不判" % DENSITY_MIN_CHARS}
+    colons = (text or "").count("：")
+    digits = len(re.findall(r"\d[\d,]*", text or ""))
+    per_k = colons / n * 1000
+    digits_norm = digits / n * DENSITY_MIN_CHARS
+    out = {
+        "applicable": True, "chars": n,
+        "colons": colons, "colon_per_kchar": round(per_k, 2),
+        "digits": digits, "digits_per_300": round(digits_norm, 1),
+        "flags": [],
+    }
+    if per_k > DENSITY_LIMITS["colon_per_kchar"]:
+        out["flags"].append({
+            "code": "high_colon",
+            "label": "冒号密度偏高",
+            "detail": "每千字 %.1f 个冒号（作者实测正文为 0）。"
+                      "冒号多说明通篇在“先抛结论再解释”，是汇报腔不是叙述" % per_k,
+        })
+    if digits_norm > DENSITY_LIMITS["digits_per_300"]:
+        out["flags"].append({
+            "code": "high_digits",
+            "label": "数字密度偏高",
+            "detail": "%d 处阿拉伯数字（每 300 字 %.1f 处，作者实测 3.5）"
+                      "。提交数 / 代码行数这类数字对读者通常没有意义" % (digits, digits_norm),
+        })
+    return out
+
 # —— 句法层：读不通的句子（2026-11-14，用作者给的三条真例子校准）——
 #
 # 与腔调层的五类**分开算**：腔调是“像 AI 写的”，读不通是“一句也没读懂”。
@@ -148,15 +215,22 @@ def scan_text(text):
                      "hint": "每段都收在一个道理上；让画面自己停住，不必总结"})
     kinds = len([h for h in hits if h["count"]])
     unreadable = scan_unreadable(text)
+    # 篇章层密度（2026-11-28）：与上面五类**分开报**，不进 suspect 判定线。
+    # 原因：那是"整篇的说话习惯"，不是"某句话像 AI"，混进同一个数字会让人
+    # 不知道该改文风还是改句子（与 unreadable 分开算同一条纪律）。
+    density = scan_density(text)
     return {
         "ok": True,
-        "chars": len(text),
+        # chars 只数汉字 —— 与 density / human_edit_rate 同一口径。
+        # 原来用 len(text)（含标点空白），同一份稿子两个工具会报出不同字数。
+        "chars": len(re.sub(r"[^\u4e00-\u9fff]", "", text or "")),
         "hits": [dict(h, count=min(h["count"], THRESHOLDS["max_hits_per_feature"]))
                  for h in hits],
         "feature_count": kinds,
         "suspect": kinds >= THRESHOLDS["suspect_feature_count"],
         "unreadable": unreadable,
         "unreadable_count": len(unreadable),
+        "density": density,
         "verdict": ("疑似 AI 腔：命中 %d 类特征（这是证据，不是结论）" % kinds
                     if kinds >= THRESHOLDS["suspect_feature_count"]
                     else "未达到“疑似”线（命中 %d 类）" % kinds),
