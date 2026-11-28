@@ -440,7 +440,7 @@ body {
     max-height: none; overflow-y: auto; overflow-x: hidden;
     min-height: 0; margin: 10px 0 0;
     /* 再往下滚时要能看出“还有东西”：实测 768 高时 713px 内容只露 478px（藏 235px），
-       更糟的是「系统」整组会被滚出可视区，用户以为导航就这些。
+       更糟的是“系统”整组会被滚出可视区，用户以为导航就这些。
        2026-11-28 实测三条坑：
          ① 只写 `scrollbar-width: thin` → gutter 有了（10px），滑块看不见；
          ② 再写 `::-webkit-scrollbar` → **完全不生效**（Chromium 已知行为：设了标准属性

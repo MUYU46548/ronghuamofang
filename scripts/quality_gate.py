@@ -111,6 +111,48 @@ def changed_py_files():
     return files
 
 
+def punct_offenders(targets):
+    """在给定文件里找字面直角引号（U+300C~U+300F）。
+
+    为什么放进这道门禁（2026-11-28，我自己一轮里犯了两次）：
+    直角引号是项目硬纪律（作者第 5 条：中文引号是“”‘’），判据在
+    `tests/unit/test_punct_hygiene.py` H1 与 `nfctl check` 里**都有** ——
+    但两者都要等：前者要跑 5 分钟全量，后者要人记得敲。
+    而"提交前门禁"这一栏排第一位的是 `quality_gate.py`，它当时只查 Python
+    语法与未定义名，**根本不管字符集**。于是流程上给人一个错觉：
+    "门禁跑过了" = "能提交了"。这两次都是这样漏到全量才红的。
+
+    它比 pyflakes 便宜得多（纯字符扫描），放在最前面挡住最省事。
+    """
+    BAD = "\u300c\u300d\u300e\u300f"
+    skip_ext = {".png", ".jpg", ".jpeg", ".ico", ".gif", ".woff", ".woff2",
+                ".ttf", ".docx", ".dotx", ".pdf", ".lock", ".zip",
+                ".exe", ".dll", ".asar"}
+    hits = []
+    for target in targets:
+        base = Path(target)
+        files = []
+        if base.is_file():
+            files = [base]
+        elif base.is_dir():
+            files = [p for p in base.rglob("*")
+                     if p.is_file()
+                     and "__pycache__" not in p.parts
+                     and "node_modules" not in p.parts
+                     and "dist" not in p.parts]
+        for p in files:
+            if p.suffix.lower() in skip_ext:
+                continue
+            try:
+                text = p.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, OSError):
+                continue
+            if any(c in text for c in BAD):
+                n = sum(1 for c in text if c in BAD)
+                hits.append("%s（%d 处）" % (p, n))
+    return hits
+
+
 def main():
     ap = argparse.ArgumentParser(description="NovelForge 本地质量门禁（pyflakes）")
     ap.add_argument("--changed", action="store_true", help="仅检查 git 变更中的 .py")
@@ -132,6 +174,18 @@ def main():
         targets = ["scripts/"]
 
     print(f"[gate] 检查目标: {', '.join(targets)}")
+
+    # 直角引号先查（2026-11-28）：纯字符扫描，比 pyflakes 还便宜，
+    # 而且它是**硬纪律**（作者第 5 条）。放在最前面，是因为它两次都漏到
+    # 5 分钟全量才被发现 —— 那时早已经提交完了。
+    punct = punct_offenders(targets)
+    if punct:
+        print(f"\n[gate] BLOCK（字面直角引号）: {len(punct)} 个文件")
+        for ln in punct[:20]:
+            print("  ❌ " + ln)
+        print("[gate] 失败：直角引号要改成中文双引号 “ ”（项目硬纪律）。")
+        return 1
+
     syn = syntax_errors(targets)
     if syn:
         print(f"\n[gate] BLOCK（**语法错**，文件连 import 都跑不起来）: {len(syn)}")
