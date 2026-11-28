@@ -1214,12 +1214,94 @@ NO_EXITCODE_TESTS = {"test_thinking_compat.py"}
 # 默认会发起真实 LLM 调用的测试：统一强制 --offline，防测试运行器烧 token。
 FORCE_OFFLINE_TESTS = {"test_thinking_compat.py"}
 
+# 用例里写死的端口（做并行分组用）。**宽度是判据**：只认 `PORT =` 会漏掉
+# `PORT_SELF` / `PORT_FAKE` / `API_PORT` / `MCP_PORT` —— 实测
+# test_outline_branches_api_http.py 用 `PORT_SELF=8941`，漏了它就会与另一个
+# 占 8941 的用例并发双绑。判据锁在 tests/unit/test_runner_parallel.py。
+_PORT_RE = re.compile(r"(?:^|[^A-Za-z0-9_])(?P<name>[A-Za-z_]*port[A-Za-z_]*)\s*=\s*(\d{4,5})"
+                      r"|127\.0\.0\.1:(\d{4,5})", re.IGNORECASE)
+# 59999 = 用例刻意选的"必然无人监听"端口，不算占用
+_IGNORED_PORTS = {"59999"}
 
-def run_tests(root: Path, pattern: str = "test_*.py", verbose: bool = False) -> dict:
+
+def ports_used_by(path: Path) -> set:
+    """用例源码里出现的固定端口（字符串形式，便于分组与报错）。"""
+    try:
+        txt = path.read_text(encoding="utf-8", errors="ignore")
+    except Exception:                                    # noqa: BLE001
+        return set()
+    got = set()
+    for m in _PORT_RE.finditer(txt):
+        num = m.group(2) or m.group(3)
+        if num and num not in _IGNORED_PORTS:
+            got.add(num)
+    return got
+
+
+def group_tests_by_port(test_files) -> list:
+    """把用例分组成“组内必须串行、组间可以并发”的批次。
+
+    规则（每一条都有实测代价，见 run_tests 的 docstring）：
+    1. 无端口的用例各自一组（否则并行度退化）；
+    2. **端口有交集就同组**（不是"签名相同"才算）——`{8941}` 与 `{8941,8942}`
+       签名不同却抢同一端口，按签名分组会让它们并发双绑；
+    3. 用并查集取端口连通分量。
+
+    返回 list[list[Path]]，顺序稳定（便于结果与串行一致）。
+    """
+    key_of = {}
+    for tf in test_files:
+        ps = ports_used_by(tf)
+        key_of[tf] = tuple(sorted(ps)) if ps else ("__solo__", tf.name)
+
+    parent = {k: k for k in set(key_of.values())}
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    owner = {}
+    for k in parent:
+        if k[0] == "__solo__":
+            continue
+        for p in k:
+            owner.setdefault(p, []).append(k)
+    for _p, keys in owner.items():
+        for other in keys[1:]:
+            ra, rb = find(keys[0]), find(other)
+            if ra != rb:
+                parent[rb] = ra
+
+    buckets = {}
+    order = []
+    for tf in test_files:
+        root = find(key_of[tf])
+        if root not in buckets:
+            buckets[root] = []
+            order.append(root)
+        buckets[root].append(tf)
+    return [buckets[r] for r in order]
+
+
+def run_tests(root: Path, pattern: str = "test_*.py", verbose: bool = False,
+              jobs: int = 0) -> dict:
     """统一测试运行器：发现并运行 tests/ 下所有自定义测试脚本。
 
     本项目测试是自定义运行器（main() + PASS/FAIL 计数），不是 pytest。
     返回 {"total": N, "passed": N, "failed": N, "errors": [...]}。
+
+    ## 并行（2026-11-28，实测 5.1x）
+    全量串行实测 399 秒，其中 322 次解释器启动只占 26 秒（6.5%）—— 时间是
+    均匀摊在用例里的**真活**，靠"少跑"省不掉。但本机 20 核，用例本身互不相干，
+    可以真并发。实测（34 个起服务的用例，串行 79.9 秒 → 并行 15.7 秒）。
+    ⚠️ **不能无脑并发**：用例里写死了固定端口（8917–8963 共 38 处），
+    同端口的两个文件并发会**双绑/健康检查打到别人的实例** → 假红。
+    实测无脑 12 线程把 test_factory_api_http / test_prompt_factory_http /
+    test_review_structure_api_http 三个打红（它们共用 8947/8941）。
+    所以按**端口连通分量**分组（见 group_tests_by_port）：同组内串行、组间并发。
+    端口从源码扫，扫不出来的一律各自成组（保守：宁可慢，不许假红）。
     """
     import subprocess
 
@@ -1285,9 +1367,13 @@ def run_tests(root: Path, pattern: str = "test_*.py", verbose: bool = False) -> 
     child_env["TEMP"] = str(_session_tmp)
     child_env["TMP"] = str(_session_tmp)
 
-    for tf in test_files:
+    # ---- 端口分组（并行的前提；实现唯一一份在 group_tests_by_port）----
+    # groups 是 list[list[Path]]：每个内层列表内部必须串行，列表之间可以并发。
+    groups = group_tests_by_port(test_files)
+
+    def _run_one(tf: Path) -> dict:
+        """跑一个用例，返回结果分片（线程内安全：只读 child_env，不碰 results）。"""
         rel = tf.relative_to(root)
-        results["total"] += 1
         cmd = [str(python_exe), str(tf)]
         if tf.name in FORCE_OFFLINE_TESTS:
             cmd.append("--offline")            # 强制离线：绝不真实调 LLM
@@ -1312,29 +1398,61 @@ def run_tests(root: Path, pattern: str = "test_*.py", verbose: bool = False) -> 
                                 and l.split("失败项: ", 1)[1].strip()]
                 passed = not fail_markers
             if passed:
-                results["passed"] += 1
+                frag = {"ok": 1, "fail": 0, "errors": []}
                 if verbose:
-                    results["details"].append({"file": str(rel), "status": "PASS", "output": out[-500:]})
-            else:
-                results["failed"] += 1
-                # 提取 FAIL 行
-                fail_lines = [l for l in out.splitlines() if "FAIL" in l or "ERROR" in l]
-                results["errors"].append({
-                    "file": str(rel),
-                    "exit_code": proc.returncode,
-                    "failures": fail_lines[:10],
-                    # 没有 FAIL 行 = 多半是**崩溃**（异常在第一个断言之前）。
-                    # 此前只存 failures，于是 CI 上只剩一个文件名，谁也不知道为什么红
-                    # （2026-11-16 实测：本地 286/286，CI 上两个文件"失败"且零线索）。
-                    "stdout_tail": out[-1600:],
-                    "stderr": proc.stderr[-600:] if proc.stderr else "",
-                })
+                    frag["detail"] = {"file": str(rel), "status": "PASS",
+                                      "output": out[-500:]}
+                return frag
+            # 提取 FAIL 行
+            fail_lines = [l for l in out.splitlines() if "FAIL" in l or "ERROR" in l]
+            return {"ok": 0, "fail": 1, "errors": [{
+                "file": str(rel),
+                "exit_code": proc.returncode,
+                "failures": fail_lines[:10],
+                # 没有 FAIL 行 = 多半是**崩溃**（异常在第一个断言之前）。
+                # 此前只存 failures，于是 CI 上只剩一个文件名，谁也不知道为什么红
+                # （2026-11-16 实测：本地 286/286，CI 上两个文件"失败"且零线索）。
+                "stdout_tail": out[-1600:],
+                "stderr": proc.stderr[-600:] if proc.stderr else "",
+            }]}
         except subprocess.TimeoutExpired:
-            results["failed"] += 1
-            results["errors"].append({"file": str(rel), "error": "超时（120s）"})
-        except Exception as e:
-            results["failed"] += 1
-            results["errors"].append({"file": str(rel), "error": str(e)})
+            return {"ok": 0, "fail": 1,
+                    "errors": [{"file": str(rel), "error": "超时（1200s）"}]}
+        except Exception as e:                            # noqa: BLE001
+            return {"ok": 0, "fail": 1,
+                    "errors": [{"file": str(rel), "error": str(e)}]}
+
+    def _run_group(files) -> list:
+        return [_run_one(tf) for tf in files]
+
+    # jobs：0 = 自动（CPU 数，上限 12 —— 再多只是抢 IO，实测 12 与 8 同档）
+    if jobs <= 0:
+        jobs = min(12, (os.cpu_count() or 4))
+    jobs = max(1, min(jobs, len(groups)))
+
+    # 组间并发、组内串行。--jobs 1 时退回完全串行（等价旧行为，用于排查）。
+    if jobs == 1 or len(groups) == 1:
+        frags = []
+        for batch in groups:
+            frags.extend(_run_group(batch))
+    else:
+        from concurrent.futures import ThreadPoolExecutor
+        frags = []
+        with ThreadPoolExecutor(max_workers=jobs) as ex:
+            # map 保序：结果与串行顺序一致，失败清单读起来更稳
+            for chunk in ex.map(_run_group, groups):
+                frags.extend(chunk)
+
+    # 汇总（唯一写 results 的地方，不在线程里）
+    for frag in frags:
+        results["total"] += 1
+        results["passed"] += frag["ok"]
+        results["failed"] += frag["fail"]
+        results["errors"].extend(frag["errors"])
+        if frag.get("detail"):
+            results["details"].append(frag["detail"])
+    results["parallel_jobs"] = jobs
+    results["port_groups"] = sum(1 for batch in groups if len(batch) > 1)
 
     # 收摊：删掉本轮所有临时根（连同子进程在里面建的一切）。
     # 删不掉不算失败（文件可能被还没退干净的句柄占着）—— 但要把数量打出来，
@@ -1352,6 +1470,9 @@ def render_test_results(d: dict) -> str:
     if d.get("not_run"):
         lines.append("  未执行（不是一个用例都没失败，是根本没跑）")
     lines.append("  总计: %d  通过: %d  失败: %d" % (d["total"], d["passed"], d["failed"]))
+    if d.get("parallel_jobs"):
+        lines.append("  并行度: %d 个 worker（同端口的用例自动串行，共 %d 个端口组）"
+                     % (d["parallel_jobs"], d.get("port_groups", 0)))
     if d["errors"]:
         lines.append("")
         lines.append("失败详情:")
@@ -1862,6 +1983,8 @@ def main(argv=None):
     p_test = sub.add_parser("test", parents=[common], help="统一测试运行器（跑 tests/ 下所有自定义测试）")
     p_test.add_argument("--pattern", default="test_*.py", help="测试文件匹配模式（默认 test_*.py）")
     p_test.add_argument("--verbose", action="store_true", help="显示每个测试的详细输出")
+    p_test.add_argument("--jobs", type=int, default=0,
+                        help="并行度（0=自动取 CPU 数，上限 12；1=完全串行，排查用）")
     p_api = sub.add_parser("api", parents=[common], help="只读转发 GET 到 nf_api")
     p_api.add_argument("path", help="如 /state、/health、/outline/trend、/costs/summary")
     p_api.add_argument("--port", type=int, default=API_PORT)
@@ -2073,7 +2196,8 @@ def main(argv=None):
         return 0 if data["verdict"] != "mismatch" else 1
 
     if args.cmd == "test":
-        data = run_tests(root, pattern=args.pattern, verbose=args.verbose)
+        data = run_tests(root, pattern=args.pattern, verbose=args.verbose,
+                         jobs=getattr(args, "jobs", 0))
         print(json.dumps(data, ensure_ascii=False, indent=2) if as_json else render_test_results(data))
         # 2026-11-28：not_run（安装态无 tests/、--pattern 匹配不到）**不算通过**。
         # 原来 total=0/failed=0 就退 0 —— "一个用例都没跑"被机器读成"全绿"，
