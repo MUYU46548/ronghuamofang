@@ -320,13 +320,43 @@ def apply_node_refine(cfg, proj, entry_id, feedback, client=None, dry_run=False)
     if new_full is None:
         return False, "回写失败：未能定位条目 " + str(entry_id)
 
+    # 3a) 写盘前校验：盘上大纲必须还是我们读进来的那一份（2026-11-28 修）。
+    # 为什么：步骤 2 调模型可能几十秒到几分钟，这期间**外部 Agent（DSH 聊天框）
+    # 或另一个窗口**完全可能改了 global.md。原来的写法拿"开始时那份旧全文"整份回写，
+    # 于是那些改动被静默抹掉 —— 而且备份是调模型**之前**做的，对方的改动不在 history，
+    # 找都找不回来，任务照样报"成功"。这是纯丢失，不是"炸"。
+    # 判据用内容比而不是 mtime：mtime 精度/时区/时钟偏差都可能误判，
+    # 内容不同才真的会丢东西。
+    try:
+        disk_now = read_text(gp)
+    except OSError as e:
+        return False, "写盘前读取失败（大纲未改动，备份 v%d）：%s" % (version, e)
+    if disk_now != text:
+        return False, (
+            "盘上大纲在本次精修期间被改过（外部 Agent / 另一个窗口 / CLI）——"
+            "本次**一个字都没写**，两边改动都没丢。备份 v%d 保留在 %s。"
+            "请刷新页面看清当前内容后重新发起修订。" % (version, backup))
+
+    # 3b) 先校验**内存里的结果**，再落盘（2026-11-28 修）。
+    # 原实现是"写盘 → 重读活文件校验"：写盘到重读之间若被别人改过，
+    # 校验的是别人的版本，自己的结果是否合格根本没验到；而失败回滚又会
+    # 把别人的改动一起抹掉。改成先在内存里判，不合格就一个字节都不写。
+    ok, errors = s2.check_global_outline_text(new_full)
+    if not ok:
+        return False, ("修订结果未通过结构校验，**大纲未改动**（备份 v%d）："
+                       % version + "; ".join(errors))
+
     write_text(gp, new_full)
 
-    # 4) 结构校验，失败回滚
-    ok, errors = s2.check_global_outline(GLOBAL)
-    if not ok:
-        shutil.copy2(backup, gp)                 # 回滚
-        return False, "修订后大纲校验失败，已回滚： " + "; ".join(errors)
+    # 3c) 落盘后确认：如果内容又不是我们要写的那份，说明有人在极窄的窗口里
+    # 插进来改过（或 write 被替换）。明确报出来，不要当成功。
+    try:
+        if read_text(gp) != new_full:
+            return False, ("大纲已写入，但落盘后内容与预期不一致 —— "
+                           "很可能被外部改动覆盖。请在界面刷新确认；"
+                           "备份 v%d 在 %s" % (version, backup))
+    except OSError:
+        pass
 
     # 5) 重新评分 + diff
     new_struct = osr.parse_global(new_full)
@@ -367,7 +397,14 @@ def _make_default_client(cfg):
 
 
 def undo_last_refine():
-    """撤销：把 history 中最新版本恢复到 global.md（保留当前版为更新版本）。"""
+    """撤销：把 history 中最新版本恢复到 global.md（保留当前版为更新版本）。
+
+    2026-11-28 补一条要说清的话：撤销恢复的是**备份那一刻**的全文。
+    如果备份之后、撤销之前有别的东西（外部 Agent / DSH 聊天框 / 另一个窗口）
+    也改过 global.md，**那些改动会跟着一起被撤回** —— 因为它们不在备份里。
+    所以返回值里带上 `overwritten_chars`：当前盘上与备份的差异规模，
+    让界面能明说"这次撤销会连带抹掉多少字"，而不是让人点完才发现。
+    """
     import refine_outline as ro
     hist = Path(HISTORY_DIR)
     if not hist.is_dir():
@@ -381,12 +418,30 @@ def undo_last_refine():
     last_v, last_p = versions[-1]
 
     gp = Path(GLOBAL)
+    # 先量一下"当前盘上与要恢复的备份差多少"，撤销后这个数就没了
+    changed_chars = None
+    try:
+        cur = read_text(gp) if gp.exists() else ""
+        tgt = read_text(last_p)
+        if cur != tgt:
+            # 粗量：算增删的大致字符数，够用来提示"会动多少"，不追求精确 diff
+            import difflib
+            sm = difflib.SequenceMatcher(None, cur, tgt, autojunk=False)
+            changed_chars = 0
+            for tag, i1, i2, j1, j2 in sm.get_opcodes():
+                if tag != "equal":
+                    changed_chars += max(i2 - i1, j2 - j1)
+    except OSError:
+        pass
+
     # 先把“当前版”另存为新版本，撤销后仍可再前进
     new_v = ro.next_version(HISTORY_DIR)
     if gp.exists():
         shutil.copy2(gp, hist / ("global_v%d.md" % new_v))
     shutil.copy2(last_p, gp)
-    return True, {"restored_from": "global_v%d.md" % last_v, "saved_current_as": new_v}
+    return True, {"restored_from": "global_v%d.md" % last_v,
+                  "saved_current_as": new_v,
+                  "overwritten_chars": changed_chars}
 
 
 # ---------------------------------------------------------------- 版本 diff（任务4）

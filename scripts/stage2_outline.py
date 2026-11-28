@@ -25,7 +25,17 @@ THIN_TOLERANCE = 1
 
 def check_global_outline(path):
     """校验 global.md：起承转合四节 + 关键节点 + 预计章节数。返回 (ok, errors)。"""
-    text = read_text(path)
+    return check_global_outline_text(read_text(path))
+
+
+def check_global_outline_text(text):
+    """同上，但直接吃**内存里的文本**（2026-11-28）。
+
+    为什么单独拆出来：AI 节点精修要"先校验内存里的结果、再落盘"。
+    原来只有 `check_global_outline(path)` —— 那逼着调用方先写盘、再重读校验，
+    而写盘到重读之间，**外部 Agent（DSH 聊天框）可能已经改了这个文件**，
+    于是校验的是别人刚写的版本，自己的结果是否合格根本没验到。
+    """
     errors = []
     for sec in REQUIRED_SECTIONS:
         if not re.search(rf"^##\s*{sec}", text, re.M):
