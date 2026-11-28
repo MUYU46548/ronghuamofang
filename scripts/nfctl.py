@@ -1826,6 +1826,8 @@ def main(argv=None):
     p_cl.add_argument("--file", default=None, help="扫指定正文文件（相对项目根或绝对路径）")
     p_cl.add_argument("--wordlist", default=None,
                       help="自定义词表（一行一词，# 注释，regex: 前缀支持正则）")
+    sub.add_parser("editrate", parents=[common],
+                   help="人工改动率：AI 交稿后人改了多少（零 token 只读 history）")
     p_serve = sub.add_parser("serve", parents=[common], help="启动本地调试看板（零依赖）")
     p_serve.add_argument("--port", type=int, default=8766, help="端口（默认 8766）")
     p_test = sub.add_parser("test", parents=[common], help="统一测试运行器（跑 tests/ 下所有自定义测试）")
@@ -1996,6 +1998,17 @@ def main(argv=None):
                               wordlist=args.wordlist)
         print(json.dumps(data, ensure_ascii=False, indent=2) if as_json
               else render_cliche(data))
+        return 0
+
+    if args.cmd == "editrate":
+        # 人工改动率（2026-11-28）：零 token，只读 data/chapters/history。
+        # 口径的唯一实现在 scripts/human_edit_rate.py，这里只做转发。
+        # 注意用本函数里的局部 `root`（不是全局 ROOT —— nfctl 没有那个名字）。
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import human_edit_rate as _her
+        rep = _her.collect(root)
+        print(json.dumps(rep, ensure_ascii=False, indent=2) if as_json
+              else _her.render_text(rep))
         return 0
 
     if args.cmd == "handoff":
