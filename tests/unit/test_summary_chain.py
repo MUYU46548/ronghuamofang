@@ -10,7 +10,7 @@
     ## 近期章节
 
 而 `_render_rolling` 用的是 `if g:` 判空 —— 占位文本是真值 → **每章提示词里都会
-多注入一行「【全书】（待首次压缩生成）」**。模型不会因此写错，但那是纯噪声，
+多注入一行“【全书】（待首次压缩生成）”**。模型不会因此写错，但那是纯噪声，
 还会让模型以为"全书摘要已经有了，只是内容是这句话"。
 
 判据只有一条核心：**占位文本读出来必须是空值**，而写文件时仍然写出可读的占位
@@ -122,13 +122,13 @@ def main():
             r_empty = mp._render_rolling({"global_summary": "", "chapters": {}},
                                          2, budget)
             txt_placeholder = r_empty[0] if isinstance(r_empty, tuple) else r_empty
-            check("空摘要渲染结果里没有「全书」行",
+            check("空摘要渲染结果里没有“全书”行",
                   "【全书】" not in txt_placeholder, repr(txt_placeholder[:120]))
             # 对照：有摘要时必须渲染出来（防止把函数改成永远返回空）
             r_real = mp._render_rolling(
                 {"global_summary": "第1章: 登船", "chapters": {1: "风雨"}}, 2, budget)
             txt_real = r_real[0] if isinstance(r_real, tuple) else r_real
-            check("有摘要时照常渲染「全书」行（判据没把功能改死）",
+            check("有摘要时照常渲染“全书”行（判据没把功能改死）",
                   "【全书】" in txt_real, repr(txt_real[:120]))
             check("近期章节照常渲染", "【第1章】" in txt_real, repr(txt_real[:160]))
         except Exception as e:                                # noqa: BLE001
